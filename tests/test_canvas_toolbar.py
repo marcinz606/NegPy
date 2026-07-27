@@ -18,6 +18,7 @@ def _make_toolbar() -> ActionToolbar:
     controller.session.state.hq_preview = False
     controller.session.state.compare_mode = False
     controller.session.state.flat_peek = False
+    controller.session.state.zones_overlay = False
     controller.session.state.selected_file_idx = 0
     controller.session.state.undo_index = 0
     controller.session.state.max_history_index = 0

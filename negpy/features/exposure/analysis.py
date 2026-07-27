@@ -1,8 +1,9 @@
-"""Analysis-panel histogram/zone math. Pure NumPy, no Qt."""
+"""Analysis-panel histogram/zone math. Pure NumPy/OpenCV, no Qt."""
 
 from functools import lru_cache
-from typing import Any, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
+import cv2
 import numpy as np
 
 from negpy.kernel.image.logic import get_luminance, working_oetf_encode
@@ -83,6 +84,48 @@ def zone_warnings(occ: np.ndarray) -> Tuple[bool, bool]:
     shadow = float(occ[2] + occ[3]) < ZONE_EMPTY and float(occ[0] + occ[1]) > ZONE_LOADED
     highlight = float(occ[7] + occ[8]) < ZONE_EMPTY and float(occ[9]) > ZONE_LOADED
     return shadow, highlight
+
+
+ZONE_GRID_CELLS = 24  # cells along the frame's long edge
+
+
+def zone_grid(rgb: Any, cells: int = ZONE_GRID_CELLS) -> Optional[np.ndarray]:
+    """Integer Adams zone (0..10) per cell of a fixed grid over a display-encoded H×W×3
+    frame; None if the frame isn't one. Cells are square-ish whatever the aspect, and the
+    area-average over a cell is what damps grain — no extra smoothing needed.
+
+    The frame is sRGB- rather than Adobe-RGB-encoded on the soft-proof/splash path; the
+    ruler hinge differs by ~0.04 zone there, under the rounding step, so we don't branch.
+    """
+    rgb = np.asarray(rgb)
+    if rgb.ndim != 3 or rgb.shape[-1] < 3 or min(rgb.shape[:2]) < 2:
+        return None
+    h, w = rgb.shape[:2]
+    # Slice first: INTER_AREA straight off a full-res HQ buffer costs ~50 ms.
+    step = max(1, min(h, w) // (4 * cells))
+    small = np.ascontiguousarray(rgb[::step, ::step, :3], dtype=np.float32)
+    scale = cells / max(small.shape[:2])
+    sh, sw = small.shape[:2]
+    small = cv2.resize(small, (max(1, round(sw * scale)), max(1, round(sh * scale))), interpolation=cv2.INTER_AREA)
+    z = np.nan_to_num(zone_of_encoded(get_luminance(small)))
+    return np.rint(z).astype(np.int32)
+
+
+def zone_region_labels(zones: np.ndarray) -> List[Tuple[int, int, int]]:
+    """One label anchor per contiguous same-zone region: [(col, row, zone)].
+
+    Anchors are snapped to a cell the region actually owns, so a concave region's numeral
+    can't land outside it (its centroid can).
+    """
+    out: List[Tuple[int, int, int]] = []
+    for zone in np.unique(zones):
+        count, comp, _, centroids = cv2.connectedComponentsWithStats((zones == zone).astype(np.uint8), connectivity=4)
+        for i in range(1, count):  # 0 is the background (everything not this zone)
+            ys, xs = np.nonzero(comp == i)
+            cx, cy = centroids[i]
+            j = int(np.argmin((xs - cx) ** 2 + (ys - cy) ** 2))
+            out.append((int(xs[j]), int(ys[j]), int(zone)))
+    return out
 
 
 def density_histogram(normalized_log: np.ndarray, roi: Optional[Tuple[int, int, int, int]] = None) -> np.ndarray:

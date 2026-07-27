@@ -99,6 +99,9 @@ class AppState:
     # session-only diagnostic — never persisted.
     dust_overlay_mode: str = "off"
 
+    # Adams-zone box overlay on the canvas; display-only, session-only — never persisted.
+    zones_overlay: bool = False
+
     # Reverse scroll-wheel zoom direction on the image viewer (scroll up = zoom out).
     invert_zoom_scroll: bool = False
 

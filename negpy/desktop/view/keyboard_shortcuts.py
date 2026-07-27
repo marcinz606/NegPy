@@ -93,6 +93,7 @@ class ShortcutManager:
             "local_draw": lambda: _toggle_tool_button(self.window, "tone", controls.local_sidebar.draw_btn),
             "analysis_draw": lambda: _toggle_tool_button(self.window, "setup", controls.process_sidebar.analysis_region_btn),
             "toggle_flat_peek": controller.toggle_flat_peek,
+            "toggle_zones": controller.toggle_zones_overlay,
             "cancel_tool": lambda: _context_cancel(controller, self.window),
             "toggle_left_panel": self.window.toggle_session_dock,
             "toggle_right_panel": self.window.toggle_controls_dock,

@@ -179,6 +179,7 @@ class AppController(QObject):
     rotation_guide_requested = pyqtSignal()
     crop_guide_changed = pyqtSignal()
     dust_overlay_changed = pyqtSignal()
+    zones_overlay_changed = pyqtSignal(bool)
     asset_discovery_requested = pyqtSignal(AssetDiscoveryTask)
     stitch_requested = pyqtSignal(object)
     thumbnail_requested = pyqtSignal(list)
@@ -1156,6 +1157,12 @@ class AppController(QObject):
         cur = self.state.dust_overlay_mode if self.state.dust_overlay_mode in seq else "off"
         self.state.dust_overlay_mode = seq[(seq.index(cur) + 1) % len(seq)]
         self.dust_overlay_changed.emit()
+
+    def toggle_zones_overlay(self, force: Optional[bool] = None) -> None:
+        """Adams-zone box overlay. Repaint only — the boxes are carved from the frame
+        the canvas already holds, so no re-render is needed."""
+        self.state.zones_overlay = (not self.state.zones_overlay) if force is None else bool(force)
+        self.zones_overlay_changed.emit(self.state.zones_overlay)
 
     def handle_crop_rect_changed(self, nx1: float, ny1: float, nx2: float, ny2: float, persist: bool) -> None:
         """Live-updates (persist=False) or commits (persist=True) the manual crop rect

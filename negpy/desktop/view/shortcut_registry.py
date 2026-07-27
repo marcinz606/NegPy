@@ -41,6 +41,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "local_draw": ShortcutEntry("Shift+B", "Toggle dodge & burn mask draw", "Tools"),
     "analysis_draw": ShortcutEntry("Shift+R", "Toggle analysis region draw", "Tools"),
     "toggle_flat_peek": ShortcutEntry("|", "Peek flat scan (digital intermediate)", "Tools"),
+    "toggle_zones": ShortcutEntry("Shift+Z", "Adams zone overlay", "Tools"),
     "cancel_tool": ShortcutEntry("Esc", "Cancel active tool (first press clears in-progress points)", "Tools"),
     "cyan_dec": ShortcutEntry("", "Cyan down", "Exposure"),
     "cyan_inc": ShortcutEntry("", "Cyan up", "Exposure"),

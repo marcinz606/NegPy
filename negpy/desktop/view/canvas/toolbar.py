@@ -148,11 +148,19 @@ class ActionToolbar(QWidget):
         self.btn_compare.setIcon(qta.icon("fa5s.adjust", color=icon_color))
         self.btn_compare.setToolTip(tooltip_with_shortcut("Before / After — show the auto baseline", "toggle_compare"))
 
+        # Overflow-only (kept as a state holder so the checked-state mirror still works).
         self.btn_flat_peek = QToolButton()
         self.btn_flat_peek.setCheckable(True)
         self.btn_flat_peek.setIcon(qta.icon("fa5s.eye", color=icon_color))
         self.btn_flat_peek.setToolTip(
             tooltip_with_shortcut("Peek flat scan — temporarily show the flat master (does not change your edit)", "toggle_flat_peek")
+        )
+
+        self.btn_zones = QToolButton()
+        self.btn_zones.setCheckable(True)
+        self.btn_zones.setIcon(qta.icon("mdi.grid", color=icon_color))
+        self.btn_zones.setToolTip(
+            tooltip_with_shortcut("Zone overlay — label each region of the print with its Adams zone", "toggle_zones")
         )
 
         # GPU availability drives the overflow toggle built below (btn moved off the row).
@@ -220,6 +228,11 @@ class ActionToolbar(QWidget):
         self._ov_flat_peek_action.setCheckable(True)
         self._ov_flat_peek_action.setToolTip(
             tooltip_with_shortcut("Peek flat scan — temporarily show the flat master (does not change your edit)", "toggle_flat_peek")
+        )
+        self._ov_zones_action = overflow_menu.addAction(qta.icon("mdi.grid", color=icon_color), "Zone Overlay")
+        self._ov_zones_action.setCheckable(True)
+        self._ov_zones_action.setToolTip(
+            tooltip_with_shortcut("Zone overlay — label each region of the print with its Adams zone", "toggle_zones")
         )
         self._ov_undo_action = overflow_menu.addAction(qta.icon("mdi.undo", color=icon_color), "Undo")
         self._ov_undo_action.setToolTip(tooltip_with_shortcut("Undo", "undo"))
@@ -313,7 +326,7 @@ class ActionToolbar(QWidget):
             self.btn_redo,
             self.btn_hq,
             self.btn_compare,
-            self.btn_flat_peek,
+            self.btn_zones,
             self.btn_overflow,
         ]
         for btn in standard_buttons:
@@ -335,7 +348,7 @@ class ActionToolbar(QWidget):
         for btn in (self.btn_zoom_fit, self.btn_zoom_original):
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        # Single-row layout: toggle_left · prev · next · sep1 · zoom_label · hq · sep2 · rot_l · rot_r · flip_h · flip_v · sep3 · undo · redo · compare · flat_peek · overflow · toggle_right
+        # Single-row layout: toggle_left · prev · next · sep1 · zoom_label · hq · sep2 · rot_l · rot_r · flip_h · flip_v · sep3 · undo · redo · compare · zones · overflow · toggle_right
         row_layout.addWidget(self.btn_toggle_left)
         row_layout.addWidget(self.btn_prev)
         row_layout.addWidget(self.btn_next)
@@ -356,18 +369,18 @@ class ActionToolbar(QWidget):
         row_layout.addWidget(self.btn_undo)
         row_layout.addWidget(self.btn_redo)
         row_layout.addWidget(self.btn_compare)
-        row_layout.addWidget(self.btn_flat_peek)
+        row_layout.addWidget(self.btn_zones)
         row_layout.addWidget(self.btn_overflow)
         row_layout.addWidget(self.btn_toggle_right)
 
         # Overflow groups for responsive resize (first listed = first collapsed).
-        self._ov_compare_peek: list = [self.btn_compare, self.btn_flat_peek]
+        self._ov_view_toggles: list = [self.btn_compare, self.btn_zones]
         self._ov_undo_redo: list = [self._sep3, self.btn_undo, self.btn_redo]
         self._ov_zoom_extra: list = [self.btn_zoom_fit, self.btn_zoom_original]
         self._ov_hq_group: list = [self.btn_hq, self._sep2]
         self._ov_flip_rotate: list = [self.btn_rot_l, self.btn_rot_r, self.btn_flip_h, self.btn_flip_v, self._sep3]
         self._collapse_groups: list = [
-            self._ov_compare_peek,
+            self._ov_view_toggles,
             self._ov_undo_redo,
             self._ov_zoom_extra,
             self._ov_hq_group,
@@ -377,6 +390,12 @@ class ActionToolbar(QWidget):
         v_layout.addLayout(row_layout)
         # Size the pill to its controls; don't stretch it across the canvas.
         main_layout.addWidget(container, 0, Qt.AlignmentFlag.AlignCenter)
+
+    def _on_zones_changed(self, active: bool) -> None:
+        for widget in (self.btn_zones, self._ov_zones_action):
+            widget.blockSignals(True)
+            widget.setChecked(active)
+            widget.blockSignals(False)
 
     def _on_flat_peek_changed(self, active: bool) -> None:
         self.btn_flat_peek.blockSignals(True)
@@ -407,6 +426,9 @@ class ActionToolbar(QWidget):
         self.controller.compare_changed.connect(self._ov_compare_action.setChecked)
         self.btn_flat_peek.toggled.connect(lambda checked: self.controller.toggle_flat_peek(force=checked))
         self.controller.flat_peek_changed.connect(self._on_flat_peek_changed)
+        self.btn_zones.toggled.connect(lambda checked: self.controller.toggle_zones_overlay(force=checked))
+        self._ov_zones_action.triggered.connect(lambda checked: self.controller.toggle_zones_overlay(force=checked))
+        self.controller.zones_overlay_changed.connect(self._on_zones_changed)
         self._ov_gpu_action.toggled.connect(self._on_gpu_toggled)
         self.controller.zoom_changed.connect(self._on_zoom_changed)
 
@@ -581,6 +603,7 @@ class ActionToolbar(QWidget):
         self._ov_compare_action.setChecked(state.compare_mode)
         self.btn_flat_peek.setChecked(state.flat_peek)
         self._ov_flat_peek_action.setChecked(state.flat_peek)
+        self._on_zones_changed(state.zones_overlay)
 
         geo = state.config.geometry
         self.btn_flip_h.setChecked(geo.flip_horizontal)

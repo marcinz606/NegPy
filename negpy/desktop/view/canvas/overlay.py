@@ -13,6 +13,8 @@ from negpy.desktop.converters import ImageConverter
 from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.canvas.crop_guides import CropGuide, guide_shapes
 from negpy.desktop.view.styles.theme import THEME
+from negpy.features.exposure.analysis import zone_grid, zone_region_labels
+from negpy.features.exposure.densitometer import zone_roman
 from negpy.features.geometry.logic import rotation_drag_angle, smooth_polyline, straighten_delta_degrees, translate_manual_crop_rect
 from negpy.features.local.logic import _rasterise_mask
 from negpy.features.retouch.models import HEAL_SIZE_REF
@@ -35,6 +37,10 @@ _MASK_RASTER_MAX = 384  # px cap for feathered overlay rasters
 _DUST_MARK_LUMA = QColor(57, 255, 20)  # neon green — auto-luma detection
 _DUST_MARK_IR = QColor(255, 0, 255)  # neon magenta — IR detection
 _IR_CORRECTED_ALPHA = 55  # dim magenta wash over IR-division-corrected regions
+
+_ZONE_LINE_ALPHA = 90
+_ZONE_LABEL_MIN_PX = 16.0  # below this cell size the numerals collide into noise
+_ZONE_CLIP_COLOR = QColor(220, 80, 80)  # paper black / paper white, same red the zone strip warns with
 
 
 def grid_interior_fractions(divisions: int) -> List[float]:
@@ -150,6 +156,13 @@ class CanvasOverlay(QWidget):
         # Same, for the auto-corrected-region magenta wash (ir_corrected_mask +
         # inpainted hair masks), keyed per mask object identity.
         self._wash_cache: Dict[int, Tuple[tuple, QImage]] = {}
+
+        # Zone overlay: the frame it reads, plus the per-cell zone grid and one label
+        # anchor per merged region. No id()-keyed cache — update_buffer invalidates
+        # unconditionally, so it can't go stale.
+        self._zone_source: Optional[np.ndarray] = None
+        self._zone_cells: Optional[np.ndarray] = None
+        self._zone_labels: List[Tuple[int, int, int]] = []
 
         # Working screen points while a selected-mask vertex is dragged/added.
         self._local_edit_verts: Optional[List[QPointF]] = None
@@ -306,6 +319,8 @@ class CanvasOverlay(QWidget):
         monitor_icc_bytes: Optional[bytes] = None,
     ) -> None:
         self._content_rect = content_rect
+        self._zone_source = buffer if isinstance(buffer, np.ndarray) else None
+        self._zone_cells = None  # rebuilt lazily on the next zones paint
         if buffer is not None:
             self._qimage = ImageConverter.to_qimage(buffer, color_space, monitor_icc_bytes)
             self._current_size = (self._qimage.width(), self._qimage.height())
@@ -464,6 +479,10 @@ class CanvasOverlay(QWidget):
         if self.state.dust_overlay_mode != "off":
             self._draw_dust_overlay(painter)
 
+        # Crop/analysis modes show the uncropped frame, so the boxes wouldn't line up.
+        if self.state.zones_overlay and not self.state.flat_peek and self._tool_mode not in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW):
+            self._draw_zone_grid(painter)
+
         if self._rotation_grid_visible:
             self._draw_rotation_grid(painter, visible_rect)
 
@@ -617,6 +636,67 @@ class CanvasOverlay(QWidget):
         painter.drawRoundedRect(badge, 4, 4)
         painter.setPen(QColor(THEME.accent_primary))
         painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, label)
+
+    def _draw_zone_grid(self, painter: QPainter) -> None:
+        """Adams-zone map over the image content: a fixed grid whose internal edges are
+        drawn only where the zone changes, so neighbouring cells of the same zone merge
+        into one region carrying a single numeral. Paper black (0) and paper white (X)
+        are flagged red.
+
+        ponytail: the grid is image-space, built once per render, so it scales with zoom
+        instead of reflowing under the cursor while panning; zoom deep enough and you're
+        inside one cell. Rebuild from the visible sub-rect if that ever matters."""
+        if self._zone_cells is None:
+            src = self._zone_source
+            if src is None:
+                return
+            if self._content_rect is not None:
+                ox, oy, cw, ch = self._content_rect
+                src = src[oy : oy + ch, ox : ox + cw]
+            self._zone_cells = zone_grid(src)
+            if self._zone_cells is None:
+                return
+            self._zone_labels = zone_region_labels(self._zone_cells)
+
+        zones = self._zone_cells
+        rows, cols = zones.shape
+        rect = self._content_view_rect()
+        cw = rect.width() / cols
+        ch = rect.height() / rows
+
+        pen = QPen(QColor(255, 255, 255, _ZONE_LINE_ALPHA), 2.0)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(rect)
+        for r in range(rows):
+            y0, y1 = rect.y() + r * ch, rect.y() + (r + 1) * ch
+            for c in range(1, cols):
+                if zones[r, c] != zones[r, c - 1]:
+                    x = rect.x() + c * cw
+                    painter.drawLine(QPointF(x, y0), QPointF(x, y1))
+        for r in range(1, rows):
+            y = rect.y() + r * ch
+            for c in range(cols):
+                if zones[r, c] != zones[r - 1, c]:
+                    x0 = rect.x() + c * cw
+                    painter.drawLine(QPointF(x0, y), QPointF(x0 + cw, y))
+
+        if min(cw, ch) < _ZONE_LABEL_MIN_PX:
+            return
+        widget_rect = QRectF(self.rect())
+        label_white = QColor(255, 255, 255, 230)
+        shadow = QColor(0, 0, 0, 160)
+        for col, row, zone in self._zone_labels:
+            cell = QRectF(rect.x() + col * cw, rect.y() + row * ch, cw, ch)
+            if not widget_rect.intersects(cell):
+                continue
+            label = zone_roman(float(zone))
+            # Drop shadow first — white numerals vanish against a blown highlight.
+            painter.setPen(shadow)
+            painter.drawText(cell.translated(1.0, 1.0), Qt.AlignmentFlag.AlignCenter, label)
+            painter.setPen(_ZONE_CLIP_COLOR if zone in (0, 10) else label_white)
+            painter.drawText(cell, Qt.AlignmentFlag.AlignCenter, label)
 
     def _draw_placed_heals(self, painter: QPainter) -> None:
         """Thin outlines of committed heals (strokes + legacy spots) while a retouch tool is active."""

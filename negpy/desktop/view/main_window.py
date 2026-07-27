@@ -404,6 +404,7 @@ class MainWindow(QMainWindow):
         self.controller.rotation_guide_requested.connect(self.canvas.overlay.show_rotation_grid)
         self.controller.crop_guide_changed.connect(self.canvas.overlay.update)
         self.controller.dust_overlay_changed.connect(self.canvas.overlay.update)
+        self.controller.zones_overlay_changed.connect(lambda _on: self.canvas.overlay.update())
 
         self.controller.status_message_requested.connect(self.canvas.hud.showMessage)
         self.controller.status_progress_requested.connect(self.canvas.hud.set_progress)
