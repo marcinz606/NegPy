@@ -1,5 +1,16 @@
 # Change Log
 
+## 0.44.0
+
+- New: **Zone system overlay** — toggle Adams zones over the preview from the toolbar or Shift+Z; cells merge into regions with one Roman numeral each, paper black and white flagged red, and the ruler is shared with the sidebar zone strip and spot densitometer so the three never disagree. Peek Flat Scan moves to the overflow menu.
+- New: **Filed carrier gains Flare and Corners** — light bounced off the filed bevel glows on the rebate and stains a new margin of unexposed paper (coloured on colour film, neutral in B&W), the aperture rounds off like a real file cuts it, and edge roughness picks up a 2-D field so the edge reads as torn metal rather than a wobbly line.
+- New: **Clear cached thumbnails** — Manage Database… now reports the thumbnail cache's size and clears it on demand, regenerating for the loaded files afterwards; Reset Everything stays database-only.
+- Change: **DNG dropped as an export format** — saved settings pointing at it now export 16-bit TIFF. DNG still works as an input format and as scanner output.
+- Change: **Dye Mute defaults to 0.25** — less chroma damping on the default look.
+- Fix: **Chroma denoise no longer blooms colour across edges** — taps are now weighted by chroma similarity as well as distance, so a saturated object stops depositing colour outside its own edge; flat areas still smooth fully. The slider is renamed Chroma Denoise, since it only touches a*/b*.
+- Fix: **Glow and halation use the working space's luma weights** — both masks read Rec.709 weights against a scene-linear Adobe RGB buffer, on CPU and GPU alike. @thetalkingdrum
+- Fix: **Pasted settings re-meter the frame** — pasting Analysis Buffer, Mode, Range, Colour, Crosstalk, Sensor Calibration or the crop rows changed the stored value without changing the render until a crop or slider nudge forced re-analysis; applies to paste, apply-to-selection, apply-to-roll and preset apply.
+
 ## 0.43.1
 
 - Fix: **Slider edits always reach the database** — a drag landing on the value another image last committed no longer skips saving; most visible on Crosstalk Separation, where the edit would revert on the next visit to the frame. @seanharding
