@@ -12,12 +12,14 @@ from typing import Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
-from negpy.infrastructure.capture.base import CaptureSettings
+from negpy.infrastructure.capture.base import Camera, CaptureSettings
+from negpy.infrastructure.capture import fuji_ble
 from negpy.infrastructure.capture.gphoto import (
     CameraCapabilities,
     CameraClaimedError,
     CameraUnavailable,
     GphotoCamera,
+    GphotoError,
     LiveViewUnsupported,
     list_cameras,
 )
@@ -100,6 +102,10 @@ class CaptureWorker(QObject):
     calibration_exposure = pyqtSignal(str)  # "over"/"under" — target unreachable, run aborted, no preset
     poll_status = pyqtSignal(dict)  # {usb_ok, usb_model, light_ok, light_detail}
     light_temp_polled = pyqtSignal(object)  # Scanlight LED temperature °C, or None (light-only, safe mid-scan)
+    #: A Fujifilm BLE pair attempt finished: (ok, operator-facing message, pairing dict — empty on failure).
+    fuji_pairing_finished = pyqtSignal(bool, str, dict)
+    #: Advertising Fujifilm bodies seen by a detect_fuji scan (list of advertisement dicts).
+    fuji_detected = pyqtSignal(list)
 
     def __init__(self) -> None:
         super().__init__()
@@ -108,9 +114,18 @@ class CaptureWorker(QObject):
         self._cancel = threading.Event()
         # One libgphoto2 session serves live view, settings and stills alike — the body
         # allows a single PTP claim, and GphotoCamera serialises the three internally.
-        # Held open across frames; closed on error and at shutdown.
-        self._camera: Optional[GphotoCamera] = None
+        # Held open across frames; closed on error and at shutdown. For the fuji_ble
+        # backend this holds a fuji_ble camera instead (trigger over BLE, no PTP session).
+        self._camera: Optional[Camera] = None
         self._model = ""
+        # Which shutter path is armed. "usb" = libgphoto2 tethered capture; "fuji_ble" =
+        # fire over Bluetooth and pick the RAW out of the camera's WiFi drop folder. Set by
+        # the sidebar via set_camera_backend; the gphoto-only features (live view, settings,
+        # calibration) gate themselves off in the fuji_ble mode.
+        self._backend = "usb"
+        # Opaque fuji_ble config (pairing fields + drop_folder), owned by the adapter — the
+        # worker never interprets it, just stores and hands it back to fuji_ble.make_camera.
+        self._fuji_cfg: dict = {}
         # True after an open failed because another program holds the USB claim; drives the
         # "in use by another app" camera status. Cleared by the next open attempt that does
         # not hit the claim (success, or a different failure).
@@ -124,11 +139,30 @@ class CaptureWorker(QObject):
 
     # ----- camera session (one per body, held open) -----
 
-    def _acquire_camera(self) -> GphotoCamera:
-        """Return the held session, opening it on first use. Every open attempt re-decides
-        the "claimed by another app" verdict — while we hold a session the poll must never
-        probe (a probe IS a claim, and would steal the body mid-live-view), so open attempts
-        are the verdict's only eyes."""
+    def _acquire_camera(self) -> Camera:
+        """Return the held session for the armed backend, opening it on first use."""
+        if self._backend == "fuji_ble":
+            return self._acquire_fuji()
+        return self._acquire_gphoto()
+
+    def _acquire_fuji(self) -> Camera:
+        """The Bluetooth trigger session. No PTP claim, no preview, no remote settings —
+        the body is fired over BLE and the RAW arrives via its WiFi drop folder. Built
+        entirely through the fuji_ble adapter; no device type is constructed here."""
+        if not (self._fuji_cfg.get("address") and self._fuji_cfg.get("flavor")):
+            raise GphotoError("Bluetooth trigger isn't paired — pair the camera in the CAMERA panel first")
+        if self._camera is None:
+            self._camera = fuji_ble.make_camera(self._fuji_cfg, cancel=self._cancel)
+        self._model = self._fuji_cfg.get("name") or "Fujifilm (Bluetooth)"
+        # This remote protocol carries only the shutter, so gate the live-view/stepper UI off.
+        self._caps = CameraCapabilities(driver_model="fuji-ble", preview=False, config=False)
+        return self._camera
+
+    def _acquire_gphoto(self) -> Camera:
+        """Return the held gphoto2 session, opening it on first use. Every open attempt
+        re-decides the "claimed by another app" verdict — while we hold a session the poll
+        must never probe (a probe IS a claim, and would steal the body mid-live-view), so
+        open attempts are the verdict's only eyes."""
         if self._camera is None:
             # The callback runs on the camera's own preview thread; the signal hop is what
             # moves the report onto the Qt side.
@@ -170,6 +204,60 @@ class CaptureWorker(QObject):
             except Exception:
                 logger.exception("error closing camera session")
             self._camera = None
+
+    @pyqtSlot(str, dict)
+    def set_camera_backend(self, backend: str, fuji_cfg: dict) -> None:
+        """Arm the shutter path. ``backend`` is "usb" (gphoto2) or "fuji_ble"; ``fuji_cfg``
+        carries the stored pairing (address/name/flavor/token/serial) plus ``drop_folder``
+        and is ignored for usb. Pushed by the sidebar whenever those settings change."""
+        self._backend = backend
+        self._fuji_cfg = fuji_cfg  # opaque to the worker; handed back to fuji_ble.make_camera
+        # Drop any held session so the next acquire rebuilds for the new backend.
+        self._close_camera()
+        self._model = ""
+        self._caps = None
+        self._claimed_elsewhere = False
+        self._identify_attempted = False
+
+    @pyqtSlot(float)
+    def detect_fuji(self, timeout: float) -> None:
+        """Scan for advertising Fujifilm bodies and report them (off the UI thread).
+
+        Emits ``fuji_detected`` with a list of advertisement dicts. A bonded body keeps
+        advertising, so this sees a camera the operator already paired elsewhere — the
+        sidebar can then offer to link it instead of showing a blank "not paired".
+        """
+
+        def _run() -> None:
+            try:
+                found = fuji_ble.discover(timeout=timeout)
+                logger.info("fuji detect: found %s", [d.get("name") or d.get("address") for d in found])
+                self.fuji_detected.emit(found)
+            except Exception as exc:  # noqa: BLE001 — exceptions cannot cross a Qt slot
+                logger.debug("fuji detect failed: %s", exc)
+                self.fuji_detected.emit([])
+
+        threading.Thread(target=_run, name="fuji-detect", daemon=True).start()
+
+    @pyqtSlot(float)
+    def pair_fuji(self, timeout: float) -> None:
+        """Discover + pair a Fujifilm body and report the result (off the UI thread).
+
+        Emits ``fuji_pairing_finished(ok, message, pairing_dict)``. The body rotates its BLE
+        address and its pairing/"Searching" window is brief, so each candidate is tried in
+        turn until one bonds. State is not applied here — the sidebar persists the pairing
+        and arms the backend via ``set_camera_backend`` on success (single writer).
+        """
+
+        def _run() -> None:
+            try:
+                ok, message, pairing_dict = fuji_ble.pair(timeout=timeout)
+                self.fuji_pairing_finished.emit(ok, message, pairing_dict)
+            except Exception as exc:  # noqa: BLE001 — exceptions cannot cross a Qt slot
+                logger.exception("fuji pairing failed")
+                self.fuji_pairing_finished.emit(False, str(exc), {})
+
+        threading.Thread(target=_run, name="fuji-pair", daemon=True).start()
 
     # ----- light -----
 
@@ -343,6 +431,13 @@ class CaptureWorker(QObject):
             "camera_preview": True,
             "camera_config": True,
         }
+        if self._backend == "fuji_ble":
+            # No gphoto2 bus to enumerate — presence is "a pairing is stored"; the body is
+            # reached over BLE only at fire time. Light is polled exactly as in the usb path.
+            self._poll_fuji(status)
+            self._poll_light(status, port)
+            self.poll_status.emit(status)
+            return
         try:
             # Always ask the bus, never our own handle: unplugging the camera leaves the
             # handle behind, and it would keep reporting "connected" forever. Enumerating
@@ -394,18 +489,35 @@ class CaptureWorker(QObject):
             status["usb_model"] = str(e)
         except Exception:
             logger.exception("camera poll failed")
+        self._poll_light(status, port)
+        self.poll_status.emit(status)
+
+    def _poll_fuji(self, status: dict) -> None:
+        """Presence for the Bluetooth trigger: a stored pairing is the green dot. There is no
+        bus enumeration (the body is reached over BLE only at fire time) and no preview/config."""
+        paired = bool(self._fuji_cfg.get("address") and self._fuji_cfg.get("flavor"))
+        status["usb_ok"] = paired
+        status["usb_model"] = (self._fuji_cfg.get("name") or "Fujifilm (Bluetooth)") if paired else "Bluetooth: not paired"
+        status["camera_preview"] = False
+        status["camera_config"] = False
+
+    def _poll_light(self, status: dict, port: str) -> None:
         try:
             fw, hw = self._ensure_light(port).get_fw_version()
             status["light_ok"], status["light_detail"] = True, f"{describe_hardware(hw)} (fw{fw})"
             status["light_has_white"] = has_white_channel(hw)
         except Exception:
             pass
-        self.poll_status.emit(status)
 
     # ----- live view -----
 
     @pyqtSlot(LiveViewRequest)
     def start_live_view(self, req: LiveViewRequest) -> None:
+        if self._backend == "fuji_ble":
+            # The Bluetooth remote carries only the shutter — no preview stream. Reported on
+            # the unsupported signal so the scan window opens without a stream instead of erroring.
+            self.live_view_unsupported.emit("Live view isn't available over Bluetooth — focus manually, then scan.")
+            return
         try:
             camera = self._acquire_camera()
             camera.start()  # a no-op when the preview thread is already up
@@ -422,7 +534,7 @@ class CaptureWorker(QObject):
     @pyqtSlot()
     def stop_live_view(self) -> None:
         """Stop the preview thread but keep the session — a scan still needs it."""
-        if self._camera is not None:
+        if self._camera is not None and self._backend == "usb":
             try:
                 self._camera.stop()
             except Exception:
@@ -447,7 +559,7 @@ class CaptureWorker(QObject):
     def set_focus_magnifier(self, on: bool) -> None:
         """Toggle the camera's hardware focus magnifier."""
         try:
-            if self._holds_camera():
+            if self._holds_camera() and self._backend == "usb":
                 self._camera.set_focus_magnifier(on)
         except Exception as exc:  # noqa: BLE001 — exceptions cannot cross a Qt slot
             self._camera_control_failed("set_focus_magnifier", exc)
@@ -456,7 +568,7 @@ class CaptureWorker(QObject):
     def set_focus_magnifier_pos(self, x: int, y: int) -> None:
         """Aim the magnifier at (x, y) on the 640x480 preview grid."""
         try:
-            if self._holds_camera():
+            if self._holds_camera() and self._backend == "usb":
                 self._camera.set_focus_magnifier_at(x, y)
         except Exception as exc:  # noqa: BLE001 — exceptions cannot cross a Qt slot
             self._camera_control_failed("set_focus_magnifier_pos", exc)
@@ -465,7 +577,7 @@ class CaptureWorker(QObject):
     def set_camera_setting(self, which: str, raw: int) -> None:
         """Change a live camera setting (iso/shutter/wb/aperture); `raw` is a choice index."""
         try:
-            if self._holds_camera():
+            if self._holds_camera() and self._backend == "usb":
                 cam = self._camera
                 {
                     "iso": cam.set_iso,

@@ -48,6 +48,12 @@ class Camera(Protocol):
 
     def capture(self, out_path: str, shutter: Optional[str] = None, iso: Optional[str] = None, aperture: Optional[str] = None) -> str: ...
 
+    def is_open(self) -> bool:
+        """Whether the session is up. The worker treats this like the gphoto claim — every
+        backend (gphoto2 USB, Bluetooth trigger) reports it, so the worker never calls a
+        backend-specific method to ask."""
+        ...
+
     def close(self) -> None: ...
 
 

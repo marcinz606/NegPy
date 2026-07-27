@@ -128,6 +128,50 @@ film-dye crosstalk, which the density-domain **Crosstalk** matrix handles (see
 
 ---
 
+## Fujifilm Bluetooth trigger
+
+Fujifilm bodies (the GFX 100 II in particular) do not behave over a gphoto2 tether: they
+stick in a tethered-capture state and refuse to reconnect. For these, the **Trigger**
+selector in the CAMERA panel offers a second route — **Fujifilm Bluetooth** — that splits
+the two jobs a tether normally does in one:
+
+- the **shutter fires over Bluetooth LE** (the body's own remote-control protocol, ported
+  from the [furble](https://github.com/gkoh/furble) firmware), and
+- the **RAW arrives over WiFi** — the camera's "PC Auto Save" pushes each shot to a folder
+  on the Mac, which NegPy watches and picks up after each trigger.
+
+No gphoto2 session is opened at all, so there is no tethered state to get stuck in.
+
+### Setup
+
+```bash
+pip install bleak            # the optional Bluetooth dependency
+```
+
+1. In the CAMERA panel set **Trigger → Fujifilm Bluetooth**.
+2. On the camera: **Connection Setting → Bluetooth/Smartphone Connection → On**, then enter
+   **Pairing** so it shows "Searching". Make sure the Fujifilm phone app is not connected.
+3. Press **Pair…**. macOS prompts for Bluetooth permission once — grant it. NegPy discovers
+   the body, bonds with it and remembers it (the pairing is stored with the other capture
+   settings).
+4. Set the camera's WiFi **PC Auto Save** to push to a folder, and point **Drop** at that
+   folder.
+5. Set ISO / shutter / aperture **on the body** (the Bluetooth remote carries only the
+   shutter), pick a preset for the RGB levels, and scan.
+
+### Limitations of the Bluetooth route
+
+- **No live view and no calibration** — the remote carries only the shutter, so there is no
+  preview stream to aim at. Frame and focus on the body (or the Fujifilm app), then scan.
+  The scan window opens without a preview and the Scan button still works.
+- **Exposure is manual.** A preset's baked ISO/shutter/aperture is not pushed over Bluetooth;
+  set it on the body once. The preset still supplies the per-channel RGB *levels*, which is
+  what the narrowband merge needs.
+- **Files come over WiFi**, so each RAW takes a moment to land in the drop folder; the
+  capture waits for it (up to a minute) before moving on.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |

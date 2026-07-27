@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from negpy.desktop.workers.capture_worker import CalibrationRequest, CaptureRequest, CaptureWorker
+from negpy.desktop.workers.capture_worker import CalibrationRequest, CaptureRequest, CaptureWorker, LiveViewRequest
 from negpy.services.capture.calibration import Roi
 
 
@@ -381,3 +381,89 @@ def test_successful_open_clears_the_claimed_state(monkeypatch):
     worker._camera = OpensFine()
     worker._acquire_camera()
     assert worker._claimed_elsewhere is False
+
+
+# ---- Fujifilm BLE backend ---------------------------------------------------
+
+_FUJI_CFG = {
+    "address": "AA-BB",
+    "name": "GFX100II",
+    "flavor": "secure",
+    "serial": "0102030405",
+    "drop_folder": "",
+}
+
+
+class FakeFujiCamera:
+    """Stands in for FujiBleCamera (no bleak): records the trigger + fakes a RAW."""
+
+    def __init__(self, pairing=None, drop_folder="") -> None:
+        self.pairing = pairing
+        self.drop_folder = drop_folder
+        self.closed = False
+        self._open = False
+
+    def is_open(self) -> bool:
+        return self._open
+
+    def capture(self, out_path: str, shutter=None, iso=None, aperture=None) -> str:
+        self._open = True
+        path = os.path.splitext(out_path)[0] + ".RAF"
+        with open(path, "wb") as raw:
+            raw.truncate(8 * 1024 * 1024)
+        return path
+
+    def close(self) -> None:
+        self.closed = True
+        self._open = False
+
+
+def test_set_camera_backend_stores_the_pairing():
+    worker = CaptureWorker()
+    worker.set_camera_backend("fuji_ble", _FUJI_CFG)
+    assert worker._backend == "fuji_ble"
+    assert worker._fuji_cfg.get("serial") == "0102030405"
+    # An unpaired config carries no address/flavor.
+    worker.set_camera_backend("fuji_ble", {"drop_folder": ""})
+    assert not worker._fuji_cfg.get("address")
+
+
+def test_fuji_backend_single_capture(tmp_path, monkeypatch):
+    import negpy.desktop.workers.capture_worker as cw
+
+    monkeypatch.setattr(cw.fuji_ble, "make_camera", lambda cfg, cancel=None: FakeFujiCamera(cfg, cfg.get("drop_folder", "")))
+    worker = CaptureWorker()
+    worker.set_camera_backend("fuji_ble", {**_FUJI_CFG, "drop_folder": str(tmp_path)})
+    finished = []
+    worker.finished.connect(finished.append)
+
+    worker.run_capture(CaptureRequest(roll_name="Roll01", frame_number=1, output_folder=str(tmp_path), levels=(255, 0, 0), rgb_mode=False))
+
+    assert finished and finished[0][0].endswith(".RAF")
+
+
+def test_fuji_backend_live_view_is_unsupported():
+    worker = CaptureWorker()
+    worker.set_camera_backend("fuji_ble", _FUJI_CFG)
+    messages = []
+    worker.live_view_unsupported.connect(messages.append)
+
+    worker.start_live_view(LiveViewRequest())
+
+    assert messages and "Bluetooth" in messages[0]
+
+
+def test_fuji_backend_poll_reports_pairing_as_presence():
+    worker = CaptureWorker()
+    worker.set_camera_backend("fuji_ble", _FUJI_CFG)
+    statuses = []
+    worker.poll_status.connect(statuses.append)
+
+    worker.poll_connection("")  # no Scanlight — the light poll fails silently
+
+    assert statuses
+    status = statuses[-1]
+    assert status["usb_ok"] is True
+    assert status["usb_model"] == "GFX100II"
+    assert status["camera_preview"] is False
+    assert status["camera_config"] is False
