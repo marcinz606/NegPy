@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 import qtawesome as qta
-from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QLineF, QPointF, QRectF, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QCursor, QImage, QKeySequence, QMouseEvent, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QShortcut
 from PyQt6.QtWidgets import QWidget
 
@@ -38,7 +38,8 @@ _DUST_MARK_LUMA = QColor(57, 255, 20)  # neon green — auto-luma detection
 _DUST_MARK_IR = QColor(255, 0, 255)  # neon magenta — IR detection
 _IR_CORRECTED_ALPHA = 55  # dim magenta wash over IR-division-corrected regions
 
-_ZONE_LINE_ALPHA = 90
+_ZONE_LINE_ALPHA = 150
+_ZONE_LINE_SHADOW_ALPHA = 110  # dark underlay so the white edges hold over blown highlights
 _ZONE_LABEL_MIN_PX = 16.0  # below this cell size the numerals collide into noise
 _ZONE_CLIP_COLOR = QColor(220, 80, 80)  # paper black / paper white, same red the zone strip warns with
 
@@ -664,23 +665,30 @@ class CanvasOverlay(QWidget):
         cw = rect.width() / cols
         ch = rect.height() / rows
 
-        pen = QPen(QColor(255, 255, 255, _ZONE_LINE_ALPHA), 2.0)
-        pen.setCosmetic(True)
-        painter.setPen(pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRect(rect)
+        edges: List[QLineF] = []
         for r in range(rows):
             y0, y1 = rect.y() + r * ch, rect.y() + (r + 1) * ch
             for c in range(1, cols):
                 if zones[r, c] != zones[r, c - 1]:
                     x = rect.x() + c * cw
-                    painter.drawLine(QPointF(x, y0), QPointF(x, y1))
+                    edges.append(QLineF(QPointF(x, y0), QPointF(x, y1)))
         for r in range(1, rows):
             y = rect.y() + r * ch
             for c in range(cols):
                 if zones[r, c] != zones[r - 1, c]:
                     x0 = rect.x() + c * cw
-                    painter.drawLine(QPointF(x0, y), QPointF(x0 + cw, y))
+                    edges.append(QLineF(QPointF(x0, y), QPointF(x0 + cw, y)))
+
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for color, width in (
+            (QColor(0, 0, 0, _ZONE_LINE_SHADOW_ALPHA), 3.5),
+            (QColor(255, 255, 255, _ZONE_LINE_ALPHA), 1.5),
+        ):
+            pen = QPen(color, width)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            painter.drawRect(rect)
+            painter.drawLines(edges)
 
         if min(cw, ch) < _ZONE_LABEL_MIN_PX:
             return
@@ -690,6 +698,10 @@ class CanvasOverlay(QWidget):
         painter.save()
         font = painter.font()
         font.setBold(True)
+        if font.pointSizeF() > 0:  # px-sized fonts (stylesheet) report -1 here
+            font.setPointSizeF(font.pointSizeF() * 1.25)
+        else:
+            font.setPixelSize(round(font.pixelSize() * 1.25))
         painter.setFont(font)
         for col, row, zone in self._zone_labels:
             cell = QRectF(rect.x() + col * cw, rect.y() + row * ch, cw, ch)
