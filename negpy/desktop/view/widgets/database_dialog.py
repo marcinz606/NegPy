@@ -42,15 +42,17 @@ def _human_bytes(n: int) -> str:
 class DatabaseDialog(QDialog):
     """View what the app has stored in SQLite and clear it.
 
-    Two clear actions: 'Clear Saved Edits' drops per-image looks/history/marks so a
-    reloaded image starts from defaults; 'Reset Everything' wipes both databases
-    (also presets, rig profiles, preferences). Both confirm first; the counts and
-    sizes refresh in place after a clear.
+    Three clear actions: 'Clear Saved Edits' drops per-image looks/history/marks so a
+    reloaded image starts from defaults; 'Clear Thumbnails' empties the on-disk
+    thumbnail cache; 'Reset Everything' wipes both databases (also presets, rig
+    profiles, preferences) but leaves thumbnails alone. All confirm first; the counts
+    and sizes refresh in place after a clear.
     """
 
-    def __init__(self, repo, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, repo, controller, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.repo = repo
+        self.controller = controller
         self.setWindowTitle("Manage Database")
         self.setMinimumWidth(420)
         self.setStyleSheet(f"QDialog {{ background: {THEME.bg_dark}; }}")
@@ -75,9 +77,9 @@ class DatabaseDialog(QDialog):
         root.addWidget(self._size_label)
 
         note = QLabel(
-            "Clearing only affects this app's database. Source files are never touched. "
-            "If you export .negpy sidecars, those still exist next to your images and can "
-            "restore an edit when that image is reloaded."
+            "Clearing only affects this app's database and its thumbnail cache. Source files are "
+            "never touched. If you export .negpy sidecars, those still exist next to your images "
+            "and can restore an edit when that image is reloaded."
         )
         note.setWordWrap(True)
         note.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_xs}px;")
@@ -94,6 +96,10 @@ class DatabaseDialog(QDialog):
         self.clear_edits_btn.setToolTip("Drop saved per-image edits, undo history and keep/reject marks. Keeps presets and rig profiles.")
         self.clear_edits_btn.clicked.connect(self._on_clear_edits)
 
+        self.clear_thumbs_btn = QPushButton("Clear Thumbnails")
+        self.clear_thumbs_btn.setToolTip("Delete the cached file-grid thumbnails. They are regenerated as images are loaded.")
+        self.clear_thumbs_btn.clicked.connect(self._on_clear_thumbnails)
+
         self.reset_all_btn = QPushButton("Reset Everything")
         self.reset_all_btn.setToolTip(
             "Wipe the entire database: edits, history, marks, rig profiles, export presets and all app preferences."
@@ -109,6 +115,7 @@ class DatabaseDialog(QDialog):
         close_btn.clicked.connect(self.accept)
 
         row.addWidget(self.clear_edits_btn)
+        row.addWidget(self.clear_thumbs_btn)
         row.addWidget(self.reset_all_btn)
         row.addStretch(1)
         row.addWidget(close_btn)
@@ -144,9 +151,12 @@ class DatabaseDialog(QDialog):
             for key, label in _TOOLING_ROWS:
                 self._stat_row(r, key, label)
                 r += 1
+            self._add_separator(r)
+            self._stat_row(r + 1, "thumbnails", "Cached thumbnails")
         self._refresh()
 
     def _refresh(self) -> None:
+        thumb_count, thumb_bytes = self.controller.asset_store.thumbnail_stats()
         try:
             stats = self.repo.database_stats()
         except Exception:
@@ -154,10 +164,11 @@ class DatabaseDialog(QDialog):
                 lbl.setText("—")
             self._size_label.setText("Could not read the database.")
             return
+        stats["thumbnails"] = thumb_count
         for key, lbl in self._value_labels.items():
             lbl.setText(f"{stats.get(key, 0):,}")
-        total = stats.get("edits_db_bytes", 0) + stats.get("settings_db_bytes", 0)
-        self._size_label.setText(f"On disk: {_human_bytes(total)}")
+        db_bytes = stats.get("edits_db_bytes", 0) + stats.get("settings_db_bytes", 0)
+        self._size_label.setText(f"On disk: {_human_bytes(db_bytes)} databases + {_human_bytes(thumb_bytes)} thumbnails")
         self._update_enabled(stats)
 
     def _update_enabled(self, stats: dict) -> None:
@@ -165,13 +176,14 @@ class DatabaseDialog(QDialog):
         total = edits + sum(stats.get(k, 0) for k in ("normalization_rolls", "flatfield_profiles", "export_presets", "app_preferences"))
         self.clear_edits_btn.setEnabled(edits > 0)
         self.reset_all_btn.setEnabled(total > 0)
+        self.clear_thumbs_btn.setEnabled(stats.get("thumbnails", 0) > 0)
 
-    def _confirm(self, title: str, text: str, ok_label: str) -> bool:
+    def _confirm(self, title: str, text: str, ok_label: str, informative: str = "This cannot be undone.") -> bool:
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Warning)
         box.setWindowTitle(title)
         box.setText(text)
-        box.setInformativeText("This cannot be undone.")
+        box.setInformativeText(informative)
         ok = box.addButton(ok_label, QMessageBox.ButtonRole.DestructiveRole)
         box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
         box.setDefaultButton(box.buttons()[-1])  # default to Cancel
@@ -190,6 +202,20 @@ class DatabaseDialog(QDialog):
             self.repo.clear_saved_edits()
         except Exception as exc:
             QMessageBox.critical(self, "Clear failed", f"Could not clear the database:\n{exc}")
+        self._refresh()
+
+    def _on_clear_thumbnails(self) -> None:
+        if not self._confirm(
+            "Clear Thumbnails",
+            "Delete every cached thumbnail?\n\nThumbnails for the images currently loaded are rebuilt straight away.",
+            "Clear Thumbnails",
+            "A large library takes a while to regenerate.",
+        ):
+            return
+        try:
+            self.controller.clear_thumbnail_cache()
+        except Exception as exc:
+            QMessageBox.critical(self, "Clear failed", f"Could not clear the thumbnail cache:\n{exc}")
         self._refresh()
 
     def _on_reset_all(self) -> None:

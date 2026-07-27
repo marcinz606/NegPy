@@ -567,7 +567,7 @@ class ActionToolbar(QWidget):
     def _show_database_dialog(self) -> None:
         from negpy.desktop.view.widgets.database_dialog import DatabaseDialog
 
-        DatabaseDialog(self.session.repo, self.window()).exec()
+        DatabaseDialog(self.session.repo, self.controller, self.window()).exec()
 
     def _update_ui_state(self) -> None:
         state = self.session.state

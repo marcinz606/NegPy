@@ -1810,3 +1810,67 @@ class TestCompareFlatPeekInteraction(unittest.TestCase):
             self.controller.rerender_active_view()
         _, kwargs = rr.call_args
         self.assertIsNone(kwargs.get("config_override"))
+
+
+class TestClearThumbnailCache(unittest.TestCase):
+    """'Clear Thumbnails' has to drop the disk cache and the in-memory icons, then refill."""
+
+    def setUp(self):
+        self.mock_session_manager = MagicMock(spec=DesktopSessionManager)
+        self.mock_session_manager.state = AppState()
+        self.mock_session_manager.repo = MagicMock()
+        self.mock_session_manager.asset_model = MagicMock()
+
+        with (
+            patch("negpy.desktop.controller.RenderWorker") as mock_rw_class,
+            patch("negpy.desktop.controller.PreviewManager") as mock_pm_class,
+        ):
+            mock_rw_class.return_value = MagicMock()
+            mock_pm_class.return_value = MagicMock(spec=PreviewManager)
+            self.controller = AppController(self.mock_session_manager)
+        self.controller.asset_store = MagicMock()
+
+    def tearDown(self):
+        import gc
+
+        for thread in [
+            self.controller.render_thread,
+            self.controller.export_thread,
+            self.controller.thumb_thread,
+            self.controller.norm_thread,
+            self.controller.discovery_thread,
+            self.controller.preview_load_thread,
+            self.controller.scan_thread,
+        ]:
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                thread.wait()
+        del self.controller
+        gc.collect()
+
+    def test_clear_wipes_disk_and_memory(self):
+        state = self.mock_session_manager.state
+        state.thumbnails["a"] = object()
+        state.rendered_thumbnails.add("a")
+        self.controller.generate_missing_thumbnails = MagicMock()
+
+        self.controller.clear_thumbnail_cache()
+
+        self.controller.asset_store.clear_thumbnails.assert_called_once_with()
+        self.assertEqual(state.thumbnails, {})
+        self.assertEqual(state.rendered_thumbnails, set())
+        self.mock_session_manager.asset_model.refresh.assert_called_once_with()
+        self.controller.generate_missing_thumbnails.assert_called_once_with()
+
+    def test_regeneration_runs_against_an_emptied_cache(self):
+        # generate_missing_thumbnails only enqueues names absent from state.thumbnails,
+        # so clearing has to happen first or nothing comes back.
+        state = self.mock_session_manager.state
+        state.uploaded_files = [{"name": "a", "path": "/a.dng", "hash": "h1"}]
+        state.thumbnails["a"] = object()
+        seen = []
+        self.controller.generate_missing_thumbnails = MagicMock(side_effect=lambda: seen.append(dict(state.thumbnails)))
+
+        self.controller.clear_thumbnail_cache()
+
+        self.assertEqual(seen, [{}])

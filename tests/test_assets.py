@@ -45,5 +45,39 @@ class TestThumbnailCacheSize(unittest.TestCase):
         self.assertIsNone(self.store.get_thumbnail("h_absent"))
 
 
+class TestThumbnailCacheClearing(unittest.TestCase):
+    """The Manage Database dialog reports and empties the thumbnail cache."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.store = LocalAssetStore(self._tmp.name, os.path.join(self._tmp.name, "icc"))
+        self.store.initialize()
+
+    def _save(self, file_hash):
+        ts = APP_CONFIG.thumbnail_size
+        self.store.save_thumbnail(file_hash, Image.new("RGB", (ts, ts), (10, 20, 30)))
+
+    def test_stats_report_count_and_bytes(self):
+        self._save("h1")
+        self._save("h2")
+        count, size = self.store.thumbnail_stats()
+        self.assertEqual(count, 2)
+        on_disk = sum(os.path.getsize(os.path.join(self.store.thumb_dir, f)) for f in os.listdir(self.store.thumb_dir))
+        self.assertEqual(size, on_disk)
+
+    def test_stats_are_zero_without_a_cache_dir(self):
+        os.rmdir(self.store.thumb_dir)
+        self.assertEqual(self.store.thumbnail_stats(), (0, 0))
+
+    def test_clear_empties_the_cache_and_leaves_it_usable(self):
+        self._save("h1")
+        self.store.clear_thumbnails()
+        self.assertEqual(self.store.thumbnail_stats(), (0, 0))
+        self.assertIsNone(self.store.get_thumbnail("h1"))
+        self._save("h2")
+        self.assertIsNotNone(self.store.get_thumbnail("h2"))
+
+
 if __name__ == "__main__":
     unittest.main()

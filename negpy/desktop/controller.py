@@ -558,6 +558,15 @@ class AppController(QObject):
             self.set_status("GENERATING THUMBNAILS...")
             self.thumbnail_requested.emit(missing)
 
+    def clear_thumbnail_cache(self) -> None:
+        """Drops cached thumbnails on disk and in memory, then regenerates loaded ones."""
+        self.asset_store.clear_thumbnails()
+        # Must precede generate_missing_thumbnails: it only enqueues names absent here.
+        self.state.thumbnails.clear()
+        self.state.rendered_thumbnails.clear()
+        self.session.asset_model.refresh()
+        self.generate_missing_thumbnails()
+
     def _on_thumbnail_progress(self, current: int, total: int, name: str) -> None:
         self.set_status(f"THUMBNAIL {current}/{total}: {name}")
         self.status_progress_requested.emit(current, total)

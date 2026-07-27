@@ -108,6 +108,23 @@ class LocalAssetStore(IAssetStore):
         if os.path.exists(session_dir):
             shutil.rmtree(session_dir)
 
+    def thumbnail_stats(self) -> Tuple[int, int]:
+        """(count, total bytes) of cached thumbnails."""
+        try:
+            entries = [e for e in os.scandir(self.thumb_dir) if e.is_file()]
+        except OSError:
+            return 0, 0
+        return len(entries), sum(e.stat().st_size for e in entries)
+
+    def clear_thumbnails(self) -> None:
+        """Drops every cached thumbnail; the dir stays usable."""
+        try:
+            shutil.rmtree(self.thumb_dir, ignore_errors=True)
+            os.makedirs(self.thumb_dir, exist_ok=True)
+            logger.info("Thumbnail cache cleared.")
+        except Exception as e:
+            logger.error(f"Failed to clear thumbnails: {e}")
+
     def clear_all(self) -> None:
         """Nukes the cache."""
         try:
