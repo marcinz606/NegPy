@@ -399,7 +399,6 @@ class MainWindow(QMainWindow):
         self.controller.session.settings_synced.connect(lambda msg: self.canvas.hud.showMessage(msg, timeout=2500))
         self.controller.tool_sync_requested.connect(self._sync_tool_buttons)
         self.controller.config_updated.connect(self.canvas.overlay.update)
-        self.controller.compare_changed.connect(lambda _on: self.canvas.overlay.update())
         self.controller.analysis_buffer_preview_requested.connect(self.canvas.overlay.show_analysis_buffer)
         self.controller.rotation_guide_requested.connect(self.canvas.overlay.show_rotation_grid)
         self.controller.crop_guide_changed.connect(self.canvas.overlay.update)

@@ -467,7 +467,9 @@ class CanvasOverlay(QWidget):
         if self._rotation_grid_visible:
             self._draw_rotation_grid(painter, visible_rect)
 
-        if getattr(self.state, "compare_mode", False):
+        # Keyed off the painted frame, not state.compare_mode: the toggle flips before
+        # its render lands, so the flag would badge the *edit* as BEFORE on slow renders.
+        if self.state.last_metrics.get("compare", False):
             self._draw_compare_badge(painter, visible_rect)
 
     def _draw_grid(self, painter: QPainter, rect: QRectF, divisions: int, alpha: int) -> None:

@@ -935,6 +935,7 @@ class AppController(QObject):
                 self.state.last_metrics["base_positive"] = memo["base_positive"]
                 self.state.last_metrics["content_rect"] = memo.get("content_rect")
                 self.state.last_metrics["splash"] = False
+                self.state.last_metrics["compare"] = False
             self.image_updated.emit()
 
         self.state.preview_raw = None
@@ -1008,6 +1009,7 @@ class AppController(QObject):
         with self.state.metrics_lock:
             self.state.last_metrics["base_positive"] = raw
             self.state.last_metrics["splash"] = True
+            self.state.last_metrics["compare"] = False
         self.image_updated.emit()
 
     def _on_preview_load_failed(self, file_path: str, message: str) -> None:
@@ -2428,6 +2430,7 @@ class AppController(QObject):
             crop_preview_full=crop_preview_full,
             ephemeral=ephemeral,
             memo_key=memo_key,
+            compare=self.state.compare_mode,
         )
 
         if self._is_rendering:
