@@ -231,9 +231,17 @@ def apply_saturation(img: ImageBuffer, saturation: float) -> ImageBuffer:
     return ensure_image(np.clip(res_rgb, 0.0, 1.0))
 
 
+# Chroma-similarity sigma for the denoise range term, in CIELAB a*/b* units. Taps
+# further than this in chroma are rejected, so a saturated object cannot bleed colour
+# past its own edge. Mirrored as a WGSL literal in lab.wgsl.
+CHROMA_DENOISE_SIGMA_R = 15.0
+
+
 def apply_chroma_denoise(img: ImageBuffer, radius: float, scale_factor: float = 1.0) -> ImageBuffer:
     """
-    Smooths A and B channels in LAB space to reduce color noise.
+    Edge-aware smoothing of A and B in LAB space to reduce color noise. Weighting taps
+    by chroma similarity as well as distance stops the isotropic blur this replaced from
+    blooming a saturated object's colour into its surroundings.
     """
     if radius <= 0:
         return img
@@ -241,14 +249,13 @@ def apply_chroma_denoise(img: ImageBuffer, radius: float, scale_factor: float = 
     lab = rgb_to_lab_working(img.astype(np.float32))
     l_chan, a, b = cv2.split(lab)
 
-    k_radius = radius * scale_factor
-    k_size = max(3, int(k_radius * 2 + 1) | 1)
-    sigma = k_radius
+    sigma = radius * scale_factor
+    # bilateralFilter takes 1 or 3 channels; the zero plane adds nothing to the L1
+    # range distance. d<=0 lets OpenCV derive the window from sigmaSpace.
+    ab = cv2.merge([a, b, np.zeros_like(a)])
+    smoothed = cv2.bilateralFilter(ab, 0, CHROMA_DENOISE_SIGMA_R, sigma)
 
-    a_blur = cv2.GaussianBlur(a, (k_size, k_size), sigma)
-    b_blur = cv2.GaussianBlur(b, (k_size, k_size), sigma)
-
-    res_lab = cv2.merge([l_chan, a_blur, b_blur])
+    res_lab = cv2.merge([l_chan, smoothed[:, :, 0], smoothed[:, :, 1]])
     res_rgb = lab_to_rgb_working(res_lab)
 
     return ensure_image(np.clip(res_rgb, 0.0, 1.0))

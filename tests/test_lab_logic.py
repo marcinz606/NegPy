@@ -277,6 +277,24 @@ class TestLabLogic(unittest.TestCase):
         np.testing.assert_array_almost_equal(lab[:, :, 0], res_lab[:, :, 0], decimal=0)
         self.assertLess(float(np.var(res_lab[:, :, 1])), float(np.var(lab[:, :, 1])))
 
+    def test_chroma_denoise_does_not_bleed_across_edge(self) -> None:
+        """A saturated region must not tint its neighbours — an isotropic blur haloed."""
+        rng = np.random.default_rng(0)
+        img = np.full((120, 120, 3), 0.5, dtype=np.float32)
+        lab = rgb_to_lab_working(img)
+        lab[:, :, 1] += rng.normal(0, 5, (120, 120)).astype(np.float32)
+        lab[:, 60:, 1] += 40.0  # saturated block on the right half
+        noisy = lab_to_rgb_working(lab)
+
+        res_lab = rgb_to_lab_working(apply_chroma_denoise(noisy, radius=5.0))
+
+        # Clean side, right up against the edge: must stay near its own a*, not pick up
+        # the block's +40. The old GaussianBlur contaminated this band by ~18 units.
+        halo = float(np.abs(res_lab[:, 48:60, 1].mean(axis=0) - lab[:, 48:60, 1].mean(axis=0)).max())
+        self.assertLess(halo, 3.0)
+        # Still denoises well away from the edge.
+        self.assertLess(float(np.var(res_lab[:, :40, 1])), float(np.var(lab[:, :40, 1])))
+
 
 class TestGlowAndHalation(unittest.TestCase):
     def _highlight_image(self) -> np.ndarray:

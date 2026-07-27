@@ -113,6 +113,10 @@ const FIBONACCI_64 = array<vec2<f32>, 64>(
 // accumulator the same way a Gaussian convolution kernel is normalized (sum=1).
 const BLOOM_GAUSS_SUM = 27.668145;
 
+// Chroma-similarity sigma for the denoise range term (CIELAB a*/b* units).
+// Mirrors CHROMA_DENOISE_SIGMA_R in lab/logic.py.
+const CHROMA_DENOISE_SIGMA_R = 15.0;
+
 // Working-space TRC (Adobe RGB: pure 563/256 gamma). Lab is the encoded->linear
 // transition: input samples are decoded; the highlight/sharpen perceptual domain uses the same TRC.
 fn oetf_encode(c: vec3<f32>) -> vec3<f32> {
@@ -218,26 +222,32 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     var color = load_lin(coords);
 
     // 1. Chroma Denoise
-    // Variable-radius blur of the CIELAB a*/b* channels. The Fibonacci-disk taps
-    // (weighted exp(-r^2 * 2), normalised by BLOOM_GAUSS_SUM) approximate a Gaussian
-    // of sigma = radius / 2, so radius = 2 * chroma_denoise * scale_factor matches the
-    // CPU path's GaussianBlur sigma of (chroma_denoise * scale_factor). This previously
-    // used a fixed 5x5 kernel that ignored the slider, so the strength never changed on
-    // GPU — inadequate for the heavy chroma noise of inverted C41 negatives.
+    // Variable-radius bilateral filter on the CIELAB a*/b* channels. The Fibonacci-disk
+    // taps (weighted exp(-r^2 * 2)) approximate a Gaussian of sigma = radius / 2, so
+    // radius = 2 * chroma_denoise * scale_factor matches the CPU path's sigmaSpace of
+    // (chroma_denoise * scale_factor). The range term rejects taps whose chroma differs
+    // from the centre — without it an isotropic blur bleeds a saturated object's colour
+    // outward as a halo. L1 chroma distance mirrors OpenCV's bilateralFilter so the two
+    // paths stay in parity. Weights are normalised by their own sum (not BLOOM_GAUSS_SUM,
+    // which still serves the fixed-weight glow/halation taps below).
     if (params.chroma_denoise > 0.0) {
         let radius = 2.0 * params.chroma_denoise * params.scale_factor;
         if (radius >= 0.5) {
             let current_lab = rgb_to_lab(color);
-            var blur_ab = vec2<f32>(0.0);
+            var blur_ab = current_lab.yz;
+            var wsum = 1.0;
             for (var tap = 0; tap < 64; tap++) {
                 let offset = FIBONACCI_64[tap];
                 let s_coord = clamp(coords + vec2<i32>(offset * radius), vec2<i32>(0), vec2<i32>(dims) - 1);
                 let s_lab = rgb_to_lab(load_lin(s_coord));
                 let r = length(offset);
-                let w = exp(-r * r * 2.0);
+                let d = s_lab.yz - current_lab.yz;
+                let dc = abs(d.x) + abs(d.y);
+                let w = exp(-r * r * 2.0) * exp(-dc * dc / (2.0 * CHROMA_DENOISE_SIGMA_R * CHROMA_DENOISE_SIGMA_R));
                 blur_ab += s_lab.yz * w;
+                wsum += w;
             }
-            blur_ab = blur_ab / BLOOM_GAUSS_SUM;
+            blur_ab = blur_ab / wsum;
             color = lab_to_rgb(vec3<f32>(current_lab.x, blur_ab.x, blur_ab.y));
         }
     }
