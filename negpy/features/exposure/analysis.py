@@ -133,8 +133,8 @@ def zone_region_labels(zones: np.ndarray) -> List[Tuple[int, int, int]]:
 # darken left to right, rows soften top to bottom — the two diagonals then read as
 # the darkroom's light/dark and soft/hard axes. Named strip_* rather than
 # test_strip_*: pytest collects any test_-prefixed callable a test module imports.
-STRIP_DENSITIES = (0.6, 0.9, 1.2, 1.5)
-STRIP_GRADES = (90.0, 105.0, 120.0, 135.0)
+STRIP_DENSITIES = (0.4, 0.7, 1.0, 1.3, 1.6, 1.9)
+STRIP_GRADES = (55.0, 80.0, 105.0, 130.0, 155.0, 180.0)
 
 
 def strip_cells() -> List[Tuple[int, int, float, float]]:

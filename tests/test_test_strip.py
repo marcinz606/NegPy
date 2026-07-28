@@ -10,7 +10,7 @@ from negpy.features.exposure.analysis import (
     strip_nearest_cell,
     strip_patch_rect,
 )
-from negpy.features.exposure.models import ExposureConfig
+from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 
 
 def _tiles(h: int = 40, w: int = 60) -> list[np.ndarray]:
@@ -75,6 +75,25 @@ def test_click_on_the_far_edge_stays_in_the_grid():
 
 def test_current_settings_highlight_the_nearest_patch():
     assert strip_nearest_cell(STRIP_DENSITIES[2], STRIP_GRADES[1]) == (1, 2)
-    # Defaults (1.0, 115.0) sit between rungs — the closest one wins (R120, D0.9).
-    assert strip_nearest_cell(1.0, 115.0) == (2, 1)
+    # The default density is a rung of its own; the default grade sits between two and the
+    # nearest wins. Either way the highlight lands where the sliders sit.
+    assert ExposureConfig().density in STRIP_DENSITIES
+    assert strip_nearest_cell(1.0, 115.0) == (2, STRIP_DENSITIES.index(1.0))
     assert strip_nearest_cell(-5.0, 999.0) == (len(STRIP_GRADES) - 1, 0)
+
+
+def test_both_ladders_straddle_the_defaults_in_even_steps():
+    defaults = ExposureConfig()
+    for ladder, current in ((STRIP_DENSITIES, defaults.density), (STRIP_GRADES, defaults.grade)):
+        assert len(ladder) == 6
+        steps = {round(b - a, 6) for a, b in zip(ladder, ladder[1:])}
+        assert len(steps) == 1 and steps.pop() > 0  # evenly spaced, ascending
+        assert ladder[0] < current < ladder[-1]
+
+
+def test_ladders_stay_inside_the_ranges_their_controls_accept():
+    """Outside these, values clamp — two rungs would render identically and the strip
+    would show duplicate patches instead of a ladder."""
+    assert STRIP_DENSITIES[0] >= 0.0 and STRIP_DENSITIES[-1] <= 2.0  # Print Density slider
+    assert STRIP_GRADES[0] >= float(EXPOSURE_CONSTANTS["iso_r_min"])
+    assert STRIP_GRADES[-1] <= float(EXPOSURE_CONSTANTS["iso_r_max"])

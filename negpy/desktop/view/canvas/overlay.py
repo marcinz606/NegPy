@@ -54,6 +54,18 @@ _STRIP_LABEL_MIN_PX = 34.0  # below this patch size the two axis labels overlap
 _STRIP_LABEL_INSET_PX = 6.0
 
 
+def _overlay_label_font(painter: QPainter):
+    """Bold, a quarter larger than the widget font — the size the zone numerals and the
+    test-strip axis labels both read at over a photograph."""
+    font = painter.font()
+    font.setBold(True)
+    if font.pointSizeF() > 0:  # px-sized fonts (stylesheet) report -1 here
+        font.setPointSizeF(font.pointSizeF() * 1.25)
+    else:
+        font.setPixelSize(round(font.pixelSize() * 1.25))
+    return font
+
+
 def grid_interior_fractions(divisions: int) -> List[float]:
     """Interior division fractions, e.g. 3 -> [1/3, 2/3], 10 -> [.1 .. .9]."""
     return [i / divisions for i in range(1, divisions)]
@@ -723,13 +735,7 @@ class CanvasOverlay(QWidget):
         label_white = QColor(255, 255, 255, 230)
         shadow = QColor(0, 0, 0, 160)
         painter.save()
-        font = painter.font()
-        font.setBold(True)
-        if font.pointSizeF() > 0:  # px-sized fonts (stylesheet) report -1 here
-            font.setPointSizeF(font.pointSizeF() * 1.25)
-        else:
-            font.setPixelSize(round(font.pixelSize() * 1.25))
-        painter.setFont(font)
+        painter.setFont(_overlay_label_font(painter))
         for col, row, zone in self._zone_labels:
             cell = QRectF(rect.x() + col * cw, rect.y() + row * ch, cw, ch)
             if not widget_rect.intersects(cell):
@@ -789,44 +795,47 @@ class CanvasOverlay(QWidget):
         patches = self._strip_patch_rects(rect)
         current = strip_nearest_cell(self.state.config.exposure.density, self.state.config.exposure.grade)
 
+        # No grid: the patches are meant to be read as one print, the way a real test
+        # strip is. Only the patch under the cursor gets an outline, so it's obvious what
+        # a click would take. The current settings are marked on their labels instead.
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        for color, width in ((QColor(0, 0, 0, _ZONE_LINE_SHADOW_ALPHA), 3.5), (QColor(255, 255, 255, _ZONE_LINE_ALPHA), 1.5)):
-            pen = QPen(color, width)
-            pen.setCosmetic(True)
-            painter.setPen(pen)
-            for _, _, cell in patches:
-                painter.drawRect(cell)
-
         for row, col, cell in patches:
-            if (row, col) == self._strip_hover:
-                pen = QPen(QColor(255, 255, 255, 235), 2.5)
-            elif (row, col) == current:
-                pen = QPen(QColor(THEME.accent_primary), 2.0)
-            else:
+            if (row, col) != self._strip_hover:
                 continue
-            pen.setCosmetic(True)
-            painter.setPen(pen)
-            painter.drawRect(cell)
+            for color, width in ((QColor(0, 0, 0, _ZONE_LINE_SHADOW_ALPHA), 3.5), (QColor(255, 255, 255, 235), 1.5)):
+                pen = QPen(color, width)
+                pen.setCosmetic(True)
+                painter.setPen(pen)
+                painter.drawRect(cell)
 
         if min(rect.width() / len(STRIP_DENSITIES), rect.height() / len(STRIP_GRADES)) < _STRIP_LABEL_MIN_PX:
             return
         painter.save()
-        font = painter.font()
-        font.setBold(True)
-        painter.setFont(font)
+        painter.setFont(_overlay_label_font(painter))
         inset = _STRIP_LABEL_INSET_PX
+        accent = QColor(THEME.accent_primary)
         for row, col, cell in patches:
             # Density along the top edge, grade down the left — each axis labelled once.
-            for text, flags in (
-                (f"D {STRIP_DENSITIES[col]:.1f}" if row == 0 else "", Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter),
-                (f"R {STRIP_GRADES[row]:.0f}" if col == 0 else "", Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            # The rung matching the current settings is accented, standing in for the
+            # box this used to draw around that patch.
+            for text, flags, on_axis in (
+                (
+                    f"D {STRIP_DENSITIES[col]:.1f}" if row == 0 else "",
+                    Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter,
+                    col == current[1],
+                ),
+                (
+                    f"R {STRIP_GRADES[row]:.0f}" if col == 0 else "",
+                    Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                    row == current[0],
+                ),
             ):
                 if not text:
                     continue
                 box = cell.adjusted(inset, inset, -inset, -inset)
                 painter.setPen(QColor(0, 0, 0, 190))
                 painter.drawText(box.translated(1.0, 1.0), flags, text)
-                painter.setPen(QColor(255, 255, 255, 235))
+                painter.setPen(accent if on_axis else QColor(255, 255, 255, 235))
                 painter.drawText(box, flags, text)
         painter.restore()
 

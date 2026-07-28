@@ -98,7 +98,7 @@ class ToneSidebar(BaseSidebar):
             "mdi.view-grid-outline",
             "Test Strip",
             False,
-            "Test Strip: print the frame as a 4×4 grid — Print Density increasing left to right, "
+            "Test Strip: print the frame as a 6×6 grid — Print Density increasing left to right, "
             "ISO-R Grade softening top to bottom. Click the patch you like to keep its settings.",
         )
         self.test_strip_btn.clicked.connect(lambda checked: self.controller.toggle_test_strip(force=checked))

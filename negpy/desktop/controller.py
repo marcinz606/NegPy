@@ -1204,7 +1204,10 @@ class AppController(QObject):
                 buffer=self.state.preview_raw,
                 config=self.state.config,
                 source_hash=self.state.current_file_hash or "preview",
-                preview_size=float(max(self.state.preview_raw.shape[:2]) if self.state.hq_preview else APP_CONFIG.preview_render_size),
+                # Always preview res, never HQ: 36 full-res renders would take minutes,
+                # and the patches are shown at a sixth of the frame's width anyway. The
+                # mosaic scales to the content rect, so a smaller one costs nothing here.
+                preview_size=float(APP_CONFIG.preview_render_size),
                 icc_input_path=icc_input,
                 icc_output_path=self.effective_output_icc() if proofing else None,
                 color_space=self.state.workspace_color_space,

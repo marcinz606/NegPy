@@ -2,7 +2,7 @@
 
 ## 0.45.0
 
-- New: **Test strip** — the Tone panel prints the frame as a 4×4 grid, Print Density increasing left to right and ISO-R Grade softening top to bottom, so the diagonals read light-to-dark and soft-to-hard like a split-filter test strip. Each patch is a real render at its own settings; click one to keep it. Escape or a second press clears it, and any edit drops it.
+- New: **Test strip** — the Tone panel prints the frame as a 6×6 grid, Print Density increasing left to right and ISO-R Grade softening top to bottom, so the diagonals read light-to-dark and soft-to-hard like a split-filter test strip. Each patch is a real render at its own settings; click one to keep it. Escape or a second press clears it, and any edit drops it.
 
 ## 0.44.0
 
