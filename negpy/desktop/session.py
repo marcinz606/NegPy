@@ -582,6 +582,7 @@ class DesktopSessionManager(QObject):
         sticky_ratio = self.repo.get_global_setting("last_aspect_ratio")
         sticky_autocrop_mode = self.repo.get_global_setting("last_autocrop_mode")
         sticky_offset = self.repo.get_global_setting("last_autocrop_offset")
+        sticky_rebate_trim = self.repo.get_global_setting("last_autocrop_rebate_trim")
         sticky_flip_h = self.repo.get_global_setting("last_flip_horizontal")
         sticky_flip_v = self.repo.get_global_setting("last_flip_vertical")
         new_geo = config.geometry
@@ -591,6 +592,8 @@ class DesktopSessionManager(QObject):
             new_geo = replace(new_geo, autocrop_mode=str(sticky_autocrop_mode))
         if sticky_offset is not None:
             new_geo = replace(new_geo, autocrop_offset=int(sticky_offset))
+        if sticky_rebate_trim is not None:
+            new_geo = replace(new_geo, autocrop_rebate_trim=float(sticky_rebate_trim))
         if sticky_flip_h is not None:
             new_geo = replace(new_geo, flip_horizontal=bool(sticky_flip_h))
         if sticky_flip_v is not None:
@@ -686,6 +689,7 @@ class DesktopSessionManager(QObject):
                 "last_aspect_ratio": config.geometry.autocrop_ratio,
                 "last_autocrop_mode": config.geometry.autocrop_mode,
                 "last_autocrop_offset": config.geometry.autocrop_offset,
+                "last_autocrop_rebate_trim": config.geometry.autocrop_rebate_trim,
                 "last_flip_horizontal": config.geometry.flip_horizontal,
                 "last_flip_vertical": config.geometry.flip_vertical,
                 "last_export_config": asdict(config.export),

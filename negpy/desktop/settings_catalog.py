@@ -85,6 +85,7 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
     ("Crop", (
         _row("Auto Crop", "geometry", "auto_crop_enabled"),
         _row("Crop Offset", "geometry", "autocrop_offset"),
+        _row("Rebate Trim", "geometry", "autocrop_rebate_trim"),
         _row("Crop Ratio", "geometry", "autocrop_ratio"),
         _row("Crop Mode", "geometry", "autocrop_mode"),
         _row("Manual Crop", "geometry", "manual_crop_rect"),
@@ -235,6 +236,7 @@ _BOUNDS_INPUT_FIELDS = frozenset(
         "sensor_matrix",
         "auto_crop_enabled",
         "autocrop_offset",
+        "autocrop_rebate_trim",
         "autocrop_mode",
         "manual_crop_rect",
     }

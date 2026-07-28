@@ -46,6 +46,7 @@ class CropEvidence:
     correction_angle: float
     confidence: float
     target_ratio: str = "3:2"
+    rebate_trim: float = 1.0
     supported_sides: frozenset[str] = frozenset()
     supported_corners: frozenset[str] = frozenset()
     evidence_sources: tuple[str, ...] = ()
@@ -129,6 +130,7 @@ def detect_crop_candidate(
     image: ImageBuffer,
     *,
     target_ratio: str = "3:2",
+    rebate_trim: float = 1.0,
 ) -> CropEvidence:
     """Collect crop, deskew, and edge evidence for one transformed preview.
 
@@ -146,6 +148,7 @@ def detect_crop_candidate(
             0.0,
             0.0,
             target_ratio=target_ratio,
+            rebate_trim=rebate_trim,
             vertical_edge_contrast=profile_contrast,
             vertical_edge_profile=profile,
             reason="unsupported_orientation",
@@ -160,6 +163,7 @@ def detect_crop_candidate(
             0.0,
             0.0,
             target_ratio=target_ratio,
+            rebate_trim=rebate_trim,
             vertical_edge_contrast=initial.vertical_edge_contrast,
             vertical_edge_profile=np.asarray(initial.vertical_edge_profile, dtype=np.float32),
             reason="no_consensus",
@@ -179,6 +183,7 @@ def detect_crop_candidate(
             correction,
             0.0,
             target_ratio=target_ratio,
+            rebate_trim=rebate_trim,
             vertical_edge_contrast=final.vertical_edge_contrast,
             vertical_edge_profile=np.asarray(final.vertical_edge_profile, dtype=np.float32),
             reason="deskew_no_consensus",
@@ -200,6 +205,7 @@ def detect_crop_candidate(
             correction,
             0.0,
             target_ratio=target_ratio,
+            rebate_trim=rebate_trim,
             vertical_edge_contrast=final.vertical_edge_contrast,
             vertical_edge_profile=np.asarray(final.vertical_edge_profile, dtype=np.float32),
             reason="invalid_geometry",
@@ -213,6 +219,7 @@ def detect_crop_candidate(
         correction_angle=correction,
         confidence=confidence,
         target_ratio=target_ratio,
+        rebate_trim=rebate_trim,
         supported_sides=final.supported_sides,
         supported_corners=final.supported_corners,
         evidence_sources=final.evidence_sources,
@@ -568,7 +575,10 @@ def resolve_roll_crops(
             calibrated = True
         angle = float(np.clip(angle, -FINE_ROTATION_LIMIT, FINE_ROTATION_LIMIT))
 
-        inset = _inset_rect_by_border(rect, _resolve_border(item.border, template.border))
+        border = _resolve_border(item.border, template.border)
+        if item.rebate_trim != 1.0:
+            border = tuple(value * item.rebate_trim for value in border)
+        inset = _inset_rect_by_border(rect, border)
         trimmed = inset != rect
         roi = _pixel_roi(inset, item.canvas_shape)
         if trimmed:

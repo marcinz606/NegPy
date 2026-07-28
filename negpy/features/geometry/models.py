@@ -25,6 +25,10 @@ class GeometryConfig:
     autocrop_offset: int = 0
     autocrop_ratio: str = "3:2"
     autocrop_mode: str = AutocropMode.IMAGE
+    # Fraction of the detected rebate to cut: 0.0 stops at the film edge, 1.0 lands on
+    # the detected image edge, above 1.0 bites into the picture to guarantee no white
+    # band after inversion. Image mode only — Film mode keeps the rebate by definition.
+    autocrop_rebate_trim: float = 1.0
     manual_crop_rect: Optional[Tuple[float, float, float, float]] = None
 
     def __post_init__(self) -> None:

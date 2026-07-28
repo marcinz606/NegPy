@@ -178,6 +178,18 @@ class TestConfigDeserialization(unittest.TestCase):
         self.assertFalse(back2.flatfield.apply)
         self.assertTrue(back2.rgbscan.enabled)
 
+    def test_autocrop_rebate_trim_round_trips_without_clobbering_a_neighbour(self):
+        cfg = WorkspaceConfig(geometry=replace(WorkspaceConfig().geometry, autocrop_rebate_trim=1.35, autocrop_offset=4))
+        flat = cfg.to_dict()
+        self.assertEqual(flat["autocrop_rebate_trim"], 1.35)
+        back = WorkspaceConfig.from_flat_dict(flat)
+        self.assertEqual(back.geometry.autocrop_rebate_trim, 1.35)
+        self.assertEqual(back.geometry.autocrop_offset, 4)
+
+    def test_config_without_rebate_trim_defaults_to_a_full_cut(self):
+        back = WorkspaceConfig.from_flat_dict({"autocrop_offset": 2})
+        self.assertEqual(back.geometry.autocrop_rebate_trim, 1.0)
+
     def test_legacy_use_original_res_does_not_warn(self):
         data = {"use_original_res": False}
         with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):

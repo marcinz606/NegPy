@@ -715,6 +715,7 @@ class BatchAutoCropWorker(QObject):
                         key,
                         transformed,
                         target_ratio=config.geometry.autocrop_ratio,
+                        rebate_trim=config.geometry.autocrop_rebate_trim,
                     )
                     if self._emit_cancelled_if_requested(generation):
                         return

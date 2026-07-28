@@ -84,7 +84,7 @@ def _stub_detection(monkeypatch) -> None:
     monkeypatch.setattr(
         render_workers,
         "detect_crop_candidate",
-        lambda key, _image, *, target_ratio: SimpleNamespace(key=key, target_ratio=target_ratio),
+        lambda key, _image, *, target_ratio, rebate_trim=1.0: SimpleNamespace(key=key, target_ratio=target_ratio),
     )
     monkeypatch.setattr(render_workers, "resolve_roll_crops", lambda _evidence: [])
 
@@ -146,6 +146,7 @@ def test_batch_autocrop_applies_flatfield_and_crop_free_geometry(
         auto_crop_enabled=True,
         autocrop_offset=17,
         autocrop_ratio="4:3",
+        autocrop_rebate_trim=1.25,
     )
     flatfield = replace(
         base.flatfield,
@@ -172,10 +173,11 @@ def test_batch_autocrop_applies_flatfield_and_crop_free_geometry(
             captured["context"] = context
             return image + 2.0
 
-    def _detect(key, transformed, *, target_ratio):
+    def _detect(key, transformed, *, target_ratio, rebate_trim=1.0):
         captured["detected_key"] = key
         captured["detected_image"] = transformed.copy()
         captured["target_ratio"] = target_ratio
+        captured["rebate_trim"] = rebate_trim
         return SimpleNamespace(key=key)
 
     monkeypatch.setattr(render_workers, "apply_flatfield", _apply_flatfield)
@@ -196,6 +198,7 @@ def test_batch_autocrop_applies_flatfield_and_crop_free_geometry(
     assert np.allclose(captured["geometry_input"], 1.5)
     assert np.allclose(captured["detected_image"], 3.5)
     assert captured["target_ratio"] == "4:3"
+    assert captured["rebate_trim"] == 1.25
     assert captured["context"].original_size == (12, 8)
     assert captured["context"].scale_factor == 1.0
 
@@ -213,7 +216,7 @@ def test_batch_autocrop_per_file_failure_does_not_abort_roll(qapp, monkeypatch) 
     worker = BatchAutoCropWorker(preview)
     detected: list[str] = []
 
-    def _detect(key, _transformed, *, target_ratio):
+    def _detect(key, _transformed, *, target_ratio, rebate_trim=1.0):
         detected.append(key)
         return SimpleNamespace(key=key)
 
@@ -291,7 +294,7 @@ def test_batch_autocrop_honors_cancel_during_final_resolution(qapp, monkeypatch)
     monkeypatch.setattr(
         render_workers,
         "detect_crop_candidate",
-        lambda key, _image, *, target_ratio: SimpleNamespace(key=key),
+        lambda key, _image, *, target_ratio, rebate_trim=1.0: SimpleNamespace(key=key),
     )
 
     def _resolve(evidence):
@@ -319,7 +322,7 @@ def test_batch_autocrop_propagates_resolved_payload_to_source_frames(qapp, monke
     monkeypatch.setattr(
         render_workers,
         "detect_crop_candidate",
-        lambda key, _image, *, target_ratio: SimpleNamespace(key=key),
+        lambda key, _image, *, target_ratio, rebate_trim=1.0: SimpleNamespace(key=key),
     )
 
     def _resolve(evidence):

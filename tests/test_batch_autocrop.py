@@ -35,6 +35,7 @@ def _evidence(
     supported_corners: frozenset[str] = frozenset(),
     geometry_score: float = 0.8,
     border: tuple[float, ...] = (),
+    rebate_trim: float = 1.0,
     vertical_edge_profile: np.ndarray | None = None,
     vertical_edge_contrast: float | None = None,
     reason: str = "",
@@ -52,6 +53,7 @@ def _evidence(
         supported_corners=supported_corners,
         geometry_score=geometry_score,
         border=border,
+        rebate_trim=rebate_trim,
         vertical_edge_contrast=profile_contrast,
         vertical_edge_profile=profile,
         reason=reason,
@@ -364,3 +366,19 @@ def test_resolved_crop_passes_through_untouched_without_a_roll_border() -> None:
     resolved = _resolved_by_key(_trusted_roll())["trusted-0"]
 
     assert resolved.manual_crop_rect == pytest.approx((0.1, 0.1, 0.9, 0.9))
+
+
+def _trimmed_roll(rebate_trim: float) -> tuple[float, float, float, float]:
+    evidence = [_evidence(f"f{index}", border=(0.02, 0.02, 0.02, 0.02), rebate_trim=rebate_trim) for index in range(6)]
+    return _resolved_by_key(evidence)["f0"].manual_crop_rect
+
+
+def test_rebate_trim_zero_keeps_the_whole_film_box() -> None:
+    assert _trimmed_roll(0.0) == pytest.approx((0.1, 0.1, 0.9, 0.9))
+
+
+def test_rebate_trim_cuts_further_the_higher_it_goes() -> None:
+    full, over = _trimmed_roll(1.0), _trimmed_roll(1.5)
+
+    assert over[0] > full[0] > 0.1
+    assert over[2] < full[2] < 0.9

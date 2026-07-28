@@ -117,6 +117,22 @@ class GeometrySidebar(BaseSidebar):
         )
         self.layout.addWidget(self.offset_slider)
 
+        self.rebate_trim_slider = CompactSlider(
+            "Rebate Trim",
+            0.0,
+            150.0,
+            conf.autocrop_rebate_trim * 100.0,
+            step=5.0,
+            precision=0,
+            unit=" %",
+        )
+        self.rebate_trim_slider.setToolTip(
+            "How far into the detected rebate auto crop cuts: 0% stops at the film edge, "
+            "100% lands on the image edge, above 100% bites in to clear a white border"
+        )
+        self.rebate_trim_slider.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
+        self.layout.addWidget(self.rebate_trim_slider)
+
         # Auto crop actions: apply to this frame, or to the whole roll.
         auto_row = QHBoxLayout()
         self.reset_crop_btn = CropToolButton(" Auto")
@@ -175,6 +191,13 @@ class GeometrySidebar(BaseSidebar):
         )
         self.offset_slider.valueCommitted.connect(self._on_offset_committed)
 
+        self.rebate_trim_slider.valueChanged.connect(
+            lambda v: self.update_config_section(
+                "geometry", render=True, persist=False, readback_metrics=False, autocrop_rebate_trim=v / 100.0
+            )
+        )
+        self.rebate_trim_slider.valueCommitted.connect(self._on_rebate_trim_committed)
+
         self.straighten_btn.toggled.connect(self._on_straighten_toggled)
 
         # Display convention is CW-positive; negate crossing into the stored convention.
@@ -191,6 +214,7 @@ class GeometrySidebar(BaseSidebar):
 
     def _on_mode_changed(self, idx: int) -> None:
         self.auto_crop_all_btn.setEnabled(self.mode_combo.itemData(idx) == AutocropMode.IMAGE)
+        self.rebate_trim_slider.setEnabled(self.mode_combo.itemData(idx) == AutocropMode.IMAGE)
         new_config = replace(
             self.state.config,
             geometry=replace(self.state.config.geometry, autocrop_mode=self.mode_combo.itemData(idx)),
@@ -203,6 +227,15 @@ class GeometrySidebar(BaseSidebar):
         new_config = replace(
             self.state.config,
             geometry=replace(self.state.config.geometry, autocrop_offset=int(v)),
+            process=replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process)),
+        )
+        self.controller.session.update_config(new_config, persist=True)
+        self.controller.request_render()
+
+    def _on_rebate_trim_committed(self, v: float) -> None:
+        new_config = replace(
+            self.state.config,
+            geometry=replace(self.state.config.geometry, autocrop_rebate_trim=v / 100.0),
             process=replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process)),
         )
         self.controller.session.update_config(new_config, persist=True)
@@ -231,6 +264,7 @@ class GeometrySidebar(BaseSidebar):
             self.mode_combo.setCurrentIndex(self.mode_combo.findData(conf.autocrop_mode))
 
             self.offset_slider.setValue(float(conf.autocrop_offset))
+            self.rebate_trim_slider.setValue(conf.autocrop_rebate_trim * 100.0)
             self.fine_rot_slider.setValue(-conf.fine_rotation)
 
             self.manual_crop_btn.setChecked(self.state.active_tool == ToolMode.CROP_MANUAL)
@@ -239,6 +273,7 @@ class GeometrySidebar(BaseSidebar):
             self.manual_crop_btn.set_crop_active(conf.manual_crop_rect is not None)
             self.reset_crop_btn.set_crop_active(conf.auto_crop_enabled)
             self.auto_crop_all_btn.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
+            self.rebate_trim_slider.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
         finally:
             self.block_signals(False)
 
@@ -249,6 +284,7 @@ class GeometrySidebar(BaseSidebar):
         self.mode_combo.blockSignals(blocked)
         self.detect_ratio_btn.blockSignals(blocked)
         self.offset_slider.blockSignals(blocked)
+        self.rebate_trim_slider.blockSignals(blocked)
         self.fine_rot_slider.blockSignals(blocked)
         self.manual_crop_btn.blockSignals(blocked)
         self.straighten_btn.blockSignals(blocked)

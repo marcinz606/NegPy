@@ -109,6 +109,7 @@ def _autocrop_fingerprint(config: WorkspaceConfig, workspace_color_space: str) -
         str(geometry.autocrop_mode),
         str(geometry.autocrop_ratio),
         int(geometry.autocrop_offset),
+        round(float(geometry.autocrop_rebate_trim), 4),
         bool(flatfield.apply),
         str(flatfield.reference_path),
         round(float(flatfield.k1), 9),

@@ -147,6 +147,7 @@ Meter the whole roll once and share the baseline, so frames from the same film m
 
 *   **Mode**: *Image only* (exposed area) or *Film edge* (full film incl. rebate/sprockets).
 *   **Crop Offset** (-5–100 px): inset the detected edge inward. Positive trims more; negative bleeds slightly outside (when detection clips too tightly).
+*   **Rebate Trim** (0–150%): how far into the detected rebate to cut. 0% stops at the film edge, 100% lands on the detected image edge, above 100% bites into the picture to clear a stubborn white border. *Image only* mode; applies to both **Auto** and **Batch Autocrop**.
 *   **Auto**: detect and crop this frame. Best on clean rebate.
 *   **Batch Autocrop**: analyze all visible landscape frames as a roll, using confident detections to calibrate weaker ones. Runs in the background with progress and cancellation. Manual, Film-edge, portrait, and ambiguous frames are left alone. Only available in *Image only* mode.
 

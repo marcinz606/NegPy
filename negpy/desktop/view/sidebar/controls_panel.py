@@ -751,6 +751,7 @@ class ControlsPanel(QWidget):
                 geo.autocrop_ratio != _geo.autocrop_ratio,
                 geo.autocrop_mode != _geo.autocrop_mode,
                 geo.autocrop_offset != _geo.autocrop_offset,
+                geo.autocrop_rebate_trim != _geo.autocrop_rebate_trim,
             ]
         )
 

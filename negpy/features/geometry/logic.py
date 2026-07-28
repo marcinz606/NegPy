@@ -982,6 +982,55 @@ def measure_film_border(lum: np.ndarray, film_roi: ROI) -> dict[str, float]:
     return result
 
 
+_OPPOSITE_SIDE = {"top": "bottom", "bottom": "top", "left": "right", "right": "left"}
+
+
+def _roi_from_measured_border(lum: np.ndarray, film_roi: ROI) -> ROI | None:
+    """
+    Inset a film box by its own measured border, for frames the tier path cannot read.
+
+    The tier path needs a uniform plateau across a strip 4% of the box; a real rebate is
+    0.5-2.5%, so on a tightly framed scan that strip is mostly picture and refinement
+    concludes full-bleed. The per-side measurement copes, but a lone bright side is
+    almost always a uniform scene region rather than film base, so an opposite pair must
+    agree before anything is trimmed — the same rule _find_rebate_level applies, and the
+    only cross-check available without a roll to pool over.
+    """
+    measured = measure_film_border(lum, film_roi)
+    y1, y2, x1, x2 = film_roi
+    height, width = y2 - y1, x2 - x1
+
+    # A side that abstained inherits its opposite; an axis where neither side read a
+    # border contributes nothing. The cap keeps one over-long walk (a bright region that
+    # happened to terminate just under the walk cap) from cutting deep into the picture
+    # on the strength of its opposite's much smaller reading.
+    insets: dict[str, float] = {}
+    for name in BORDER_SIDES:
+        own, opposite = measured[name], measured[_OPPOSITE_SIDE[name]]
+        if not np.isfinite(own):
+            own = opposite
+        if not np.isfinite(own):
+            insets[name] = 0.0
+            continue
+        if own > 0.0 and np.isfinite(opposite) and opposite > 0.0:
+            own = min(own, 2.0 * opposite)
+        insets[name] = float(own)
+
+    paired = any(insets[first] > 0.0 and insets[second] > 0.0 for first, second in (("top", "bottom"), ("left", "right")))
+    if not paired:
+        return None
+
+    roi = (
+        y1 + round(insets["top"] * height),
+        y2 - round(insets["bottom"] * height),
+        x1 + round(insets["left"] * width),
+        x2 - round(insets["right"] * width),
+    )
+    if roi[1] <= roi[0] or roi[3] <= roi[2]:
+        return None
+    return roi
+
+
 def _find_rebate_level(lum: np.ndarray, film_roi: ROI) -> Optional[Tuple[float, float]]:
     """
     Searches the four border strips inside the film box for a rebate plateau:
@@ -1181,13 +1230,17 @@ def _refine_film_roi_by_tiers(lum: np.ndarray, film_roi: ROI) -> Optional[Tuple[
 def _refine_roi_to_image(img: ImageBuffer, film_roi: ROI) -> Tuple[ROI, Optional[np.ndarray], Optional[np.ndarray]]:
     """
     Refines a film-extent ROI inward to the exposed image area (rebate excluded).
-    Tier-based refinement first; Sobel gradient refinement as fallback.
+    Tier-based refinement first, then the per-side border measurement, then Sobel.
     Returns (roi, row_occupancy | None, col_occupancy | None).
     """
     lum = _detection_luma(img)
     refined = _refine_film_roi_by_tiers(lum, film_roi)
     if refined is not None:
         return refined
+
+    measured = _roi_from_measured_border(lum, film_roi)
+    if measured is not None:
+        return measured, None, None
 
     if _find_rebate_level(lum, film_roi) is None:
         # No uniform rebate plateau on any side = image content runs to the film
@@ -1420,6 +1473,29 @@ def apply_margin_to_roi(
     return int(max(0, ny1)), int(min(h, ny2)), int(max(0, nx1)), int(min(w, nx2))
 
 
+def scale_roi_inset(film_roi: ROI, roi: ROI, factor: float) -> ROI:
+    """
+    Scales how far a refined ROI sits inside its film box; 1.0 leaves it untouched.
+
+    One rule for every refinement route (tier, measured border, Sobel), so the Rebate
+    Trim control means the same thing whichever one produced the ROI. Inert when the two
+    boxes are equal, which covers Film mode and detections that were never refined.
+    """
+    if factor == 1.0:
+        return roi
+    fy1, fy2, fx1, fx2 = film_roi
+    y1, y2, x1, x2 = roi
+    scaled = (
+        fy1 + round((y1 - fy1) * factor),
+        fy2 - round((fy2 - y2) * factor),
+        fx1 + round((x1 - fx1) * factor),
+        fx2 - round((fx2 - x2) * factor),
+    )
+    if scaled[1] <= scaled[0] or scaled[3] <= scaled[2]:
+        return roi
+    return scaled
+
+
 def _resolve_ratio_dims(cw: int, ch: int, target_ratio_str: str) -> Tuple[float, float]:
     """
     Returns (target_w, target_h) <= (cw, ch) for the orientation-corrected ratio.
@@ -1590,12 +1666,14 @@ def get_autocrop_coords(
     assist_point: Optional[Tuple[float, float]] = None,
     assist_luma: Optional[float] = None,
     mode: str = AutocropMode.IMAGE,
+    rebate_trim: float = 1.0,
 ) -> ROI:
     """
     Detects film border via density thresholding.
 
     mode="film" crops to the film extent (rebate/sprockets kept);
-    mode="image" refines inward to the exposed image area.
+    mode="image" refines inward to the exposed image area, by rebate_trim of the way
+    (1.0 = the detected image edge).
     """
     h, w = img.shape[:2]
     det, det_scale = _normalize_detection_input(img, detect_res)
@@ -1614,6 +1692,7 @@ def get_autocrop_coords(
     else:
         roi, row_occ, col_occ = _refine_roi_to_image(det, film_roi)
 
+    roi = scale_roi_inset(film_roi, roi, rebate_trim)
     roi = _scale_roi(roi, det_scale, h, w)
 
     ratio_str = target_ratio_str

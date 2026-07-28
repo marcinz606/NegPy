@@ -101,6 +101,7 @@ def _detect_autocrop_roi(img: np.ndarray, settings: WorkspaceConfig, h_rot: int,
         scale_factor=max(tmp.shape[:2]) / APP_CONFIG.preview_render_size,
         target_ratio_str=settings.geometry.autocrop_ratio,
         mode=settings.geometry.autocrop_mode,
+        rebate_trim=settings.geometry.autocrop_rebate_trim,
     )
     rh, rw = tmp.shape[:2]
     sy, sx = h_rot / rh, w_rot / rw
