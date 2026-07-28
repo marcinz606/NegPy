@@ -168,7 +168,8 @@ def test_apply_dialog_check_all_and_none(qapp):
     assert not any(box.isChecked() for box in dlg._all_boxes())
     assert not dlg.apply_btn.isEnabled()
     dlg._set_all_checked(True)
-    assert all(box.isChecked() for box in dlg._all_boxes())
+    # unchanged rows stay hidden and unchecked until "Show unchanged settings"
+    assert {r.label for r in dlg.selected()} == {"Print Density", "Manual Crop"}
     assert dlg.apply_btn.isEnabled()
 
 
@@ -182,10 +183,11 @@ def test_apply_dialog_apply_collects_checked_rows_and_scope(qapp):
     assert dlg.scope() == "roll"
 
 
-def test_apply_dialog_only_lists_edited_settings(qapp):
+def test_apply_dialog_only_preselects_edited_settings(qapp):
     dlg = GranularSettingsDialog(None, _edited_cfg(), "IMG_0001.cr2", show_scope=True, sel_count=1, roll_count=3)
-    labels = {r.label for _box, r in dlg._checks}
-    assert labels == {"Print Density", "Manual Crop"}  # nothing else was non-default
+    assert {r.label for r in dlg.selected()} == {"Print Density", "Manual Crop"}  # nothing else was non-default
+    # the rest are still built, just hidden, so they can be applied on demand (#656)
+    assert "Crop Offset" in {row.label for _box, row, _edited, _line in dlg._checks}
 
 
 def test_open_apply_dialog_routes_rows_bounds_scope_to_session(browser, session):

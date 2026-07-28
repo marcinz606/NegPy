@@ -3,7 +3,6 @@ from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QDialog,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -14,15 +13,17 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from negpy.desktop.settings_catalog import SettingRow, edited_sections
+from negpy.desktop.settings_catalog import SettingRow, catalog_sections
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 
 
 class GranularSettingsDialog(QDialog):
     """Per-setting picker for paste / apply-to-many. Lists one collapsible section
-    per edit area, showing only the settings that differ from default, each with a
-    checkbox and its value. Reuses the shortcut-editor's CollapsibleSection look."""
+    per edit area, each setting with a checkbox and its value. Settings still at
+    their default are built but hidden until "Show unchanged settings" — they must
+    stay pickable so a roll can be reset back to a default value (#656). Reuses the
+    shortcut-editor's CollapsibleSection look."""
 
     def __init__(
         self,
@@ -40,7 +41,8 @@ class GranularSettingsDialog(QDialog):
         show_apply_mode: bool = False,
     ):
         super().__init__(parent)
-        self._checks: list[tuple[QCheckBox, SettingRow]] = []
+        self._checks: list[tuple[QCheckBox, SettingRow, bool, QWidget]] = []
+        self._sections: list[tuple[QWidget, int]] = []
         self._bounds_luma: QCheckBox | None = None
         self._bounds_colour: QCheckBox | None = None
         self._name_edit: QLineEdit | None = None
@@ -77,6 +79,7 @@ class GranularSettingsDialog(QDialog):
         root.addWidget(self._build_sections(source_cfg, show_bounds, exclude_sections), 1)
         root.addLayout(self._build_footer(ask_name))
 
+        self._apply_visibility()
         self._update_apply_enabled()
 
     def _build_scope_row(self, sel_count: int, roll_count: int, show_current: bool = False) -> QHBoxLayout:
@@ -122,9 +125,13 @@ class GranularSettingsDialog(QDialog):
         check_all.clicked.connect(lambda: self._set_all_checked(True))
         check_none = QPushButton("Check None")
         check_none.clicked.connect(lambda: self._set_all_checked(False))
+        self._show_unchanged = QCheckBox("Show unchanged settings")
+        self._show_unchanged.setToolTip("List settings still at their default, so they can be applied too")
+        self._show_unchanged.toggled.connect(self._apply_visibility)
         row.addWidget(check_all)
         row.addWidget(check_none)
         row.addStretch()
+        row.addWidget(self._show_unchanged)
         return row
 
     def _build_sections(self, source_cfg, show_bounds: bool, exclude_sections: frozenset[str] = frozenset()) -> QScrollArea:
@@ -136,13 +143,15 @@ class GranularSettingsDialog(QDialog):
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(THEME.space_sm)
 
-        for title, rows in edited_sections(source_cfg):
+        for title, rows in catalog_sections(source_cfg):
             if title in exclude_sections:
                 continue
+            edited_count = sum(1 for _r, _v, edited in rows if edited)
             section = CollapsibleSection(title, expanded=True)
-            section.set_modified(len(rows))
+            section.set_modified(edited_count)
             section.set_content(self._build_rows(rows))
             col.addWidget(section)
+            self._sections.append((section, edited_count))
 
         if show_bounds:
             section = CollapsibleSection("Roll baseline", expanded=True)
@@ -153,21 +162,27 @@ class GranularSettingsDialog(QDialog):
         scroll.setWidget(container)
         return scroll
 
-    def _build_rows(self, rows: list[tuple[SettingRow, str]]) -> QWidget:
+    def _build_rows(self, rows: list[tuple[SettingRow, str, bool]]) -> QWidget:
         body = QWidget()
-        grid = QGridLayout(body)
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setColumnStretch(0, 1)
-        for r, (row, value) in enumerate(rows):
+        col = QVBoxLayout(body)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(0)
+        for row, value, edited in rows:
+            # One widget per row (not a grid) so an unchanged row hides as a unit.
+            line = QWidget()
+            line_layout = QHBoxLayout(line)
+            line_layout.setContentsMargins(0, 0, 0, 0)
             box = QCheckBox(row.label)
-            box.setChecked(True)
+            box.setChecked(edited)
             box.stateChanged.connect(self._update_apply_enabled)
-            self._checks.append((box, row))
+            self._checks.append((box, row, edited, line))
             val = QLabel(value)
             val.setStyleSheet(f"color: {THEME.text_muted};")
             val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            grid.addWidget(box, r, 0)
-            grid.addWidget(val, r, 1)
+            line_layout.addWidget(box)
+            line_layout.addStretch()
+            line_layout.addWidget(val)
+            col.addWidget(line)
         return body
 
     def _build_bounds_rows(self) -> QWidget:
@@ -193,13 +208,30 @@ class GranularSettingsDialog(QDialog):
         return row
 
     def _all_boxes(self) -> list[QCheckBox]:
-        boxes = [box for box, _ in self._checks]
+        boxes = [box for box, _row, _edited, _line in self._checks]
         boxes += [b for b in (self._bounds_luma, self._bounds_colour) if b is not None]
         return boxes
 
+    def _apply_visibility(self) -> None:
+        show_all = self._show_unchanged.isChecked()
+        for box, _row, edited, line in self._checks:
+            if edited:
+                continue
+            line.setVisible(show_all)
+            # A hidden-but-ticked row would keep Apply enabled with nothing on screen.
+            if not show_all:
+                box.setChecked(False)
+        for section, edited_count in self._sections:
+            section.setVisible(show_all or edited_count > 0)
+
     def _set_all_checked(self, checked: bool) -> None:
-        for box in self._all_boxes():
-            box.setChecked(checked)
+        show_all = self._show_unchanged.isChecked()
+        for box, _row, edited, _line in self._checks:
+            if edited or show_all:
+                box.setChecked(checked)
+        for box in (self._bounds_luma, self._bounds_colour):
+            if box is not None:
+                box.setChecked(checked)
 
     def _update_apply_enabled(self) -> None:
         enabled = any(box.isChecked() for box in self._all_boxes())
@@ -216,7 +248,7 @@ class GranularSettingsDialog(QDialog):
         self.accept()
 
     def selected(self) -> list[SettingRow]:
-        return [row for box, row in self._checks if box.isChecked()]
+        return [row for box, row, _edited, _line in self._checks if box.isChecked()]
 
     def name(self) -> str:
         return self._name_edit.text().strip() if self._name_edit is not None else ""

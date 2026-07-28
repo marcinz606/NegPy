@@ -9,7 +9,7 @@ from negpy.desktop.settings_catalog import (
     CATALOG,
     all_rows,
     apply_selected_fields,
-    edited_sections,
+    catalog_sections,
 )
 from negpy.domain.models import WorkspaceConfig
 
@@ -32,29 +32,35 @@ def test_every_catalog_field_exists_on_its_section():
                 assert f in fields, f"{row.label}: {row.section}.{f} is not a real field"
 
 
-# ── edited_sections ──────────────────────────────────────────────────────────
+# ── catalog_sections ─────────────────────────────────────────────────────────
 
 
-def test_edited_sections_empty_for_default_config():
-    assert edited_sections(WorkspaceConfig()) == []
+def test_catalog_sections_lists_every_row_even_for_a_default_config():
+    sections = catalog_sections(WorkspaceConfig())
+    assert [t for t, _rows in sections] == [t for t, _rows in CATALOG]
+    assert sum(len(rows) for _t, rows in sections) == len(all_rows())
+    assert not any(edited for _t, rows in sections for _r, _v, edited in rows)
 
 
-def test_edited_sections_lists_only_changed_rows_and_drops_empty_sections():
+def test_catalog_sections_flags_only_the_changed_row_as_edited():
     c = WorkspaceConfig()
     cfg = replace(c, exposure=replace(c.exposure, density=1.4))
-    sections = edited_sections(cfg)
-    assert len(sections) == 1
-    title, rows = sections[0]
-    assert title == "Tone"
-    assert [r.label for r, _val in rows] == ["Print Density"]
-    assert rows[0][1] == "1.4"  # formatted value
+    edited = [(t, r.label, val) for t, rows in catalog_sections(cfg) for r, val, is_edited in rows if is_edited]
+    assert edited == [("Tone", "Print Density", "1.4")]
 
 
-def test_edited_sections_groups_trim_channels_into_one_row():
+def test_catalog_sections_offers_a_default_valued_row():  # #656: needed to reset a roll back to 0
+    c = WorkspaceConfig()
+    cfg = replace(c, geometry=replace(c.geometry, autocrop_offset=0))
+    crop = dict((r.label, (val, edited)) for t, rows in catalog_sections(cfg) for r, val, edited in rows if t == "Crop")
+    assert crop["Crop Offset"] == ("0", False)
+
+
+def test_catalog_sections_groups_trim_channels_into_one_row():
     c = WorkspaceConfig()
     exp = replace(c.exposure, grade_trim_red=1.0, grade_trim_blue=-2.0)
-    _title, rows = edited_sections(replace(c, exposure=exp))[0]
-    by_label = {r.label: v for r, v in rows}
+    rows = next(rows for title, rows in catalog_sections(replace(c, exposure=exp)) if title == "Tone")
+    by_label = {r.label: v for r, v, _edited in rows}
     # one grouped "Grade Trim" row, value shows all three channels
     assert by_label["Grade Trim"] == "R1 G0 B-2"
 

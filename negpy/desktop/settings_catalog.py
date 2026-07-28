@@ -2,16 +2,15 @@
 
 Each SettingRow maps a human label to one or more fields of a WorkspaceConfig
 sub-config. A row is "edited" when any of its fields differs from the default
-config. Grouped rows (per-channel trims, linked metadata) copy their fields as a
+config; the picker offers unedited rows too, so a roll can be reset back to a
+default value. Grouped rows (per-channel trims, linked metadata) copy their fields as a
 unit so linked values can't drift apart. Excluded fields (per-frame bounds/dust/
 heal/masks, machine paths, derived caches) are simply not listed here.
 """
 
 from __future__ import annotations
 
-import json
 from dataclasses import replace
-from functools import lru_cache
 from typing import Any, Callable, Iterable, Mapping, Optional
 
 from negpy.domain.models import WorkspaceConfig
@@ -253,18 +252,18 @@ def _row_edited(row: SettingRow, cfg: WorkspaceConfig) -> bool:
     return any(getattr(src, f) != getattr(dfl, f) for f in row.fields)
 
 
-def edited_sections(cfg: WorkspaceConfig) -> list[tuple[str, list[tuple[SettingRow, str]]]]:
-    """Per display section, the edited rows (differ from default) paired with a
-    formatted value string. Sections with no edited rows are dropped."""
-    out: list[tuple[str, list[tuple[SettingRow, str]]]] = []
+def catalog_sections(cfg: WorkspaceConfig) -> list[tuple[str, list[tuple[SettingRow, str, bool]]]]:
+    """Every display section with all its rows, each paired with a formatted value
+    and whether it differs from default. Rows at their default are included so they
+    can still be applied (resetting a roll back to a default value) — the picker
+    hides them behind a toggle."""
+    out: list[tuple[str, list[tuple[SettingRow, str, bool]]]] = []
     for title, rows in CATALOG:
-        edited = []
+        entries = []
         for r in rows:
-            if _row_edited(r, cfg):
-                values = tuple(getattr(getattr(cfg, r.section), f) for f in r.fields)
-                edited.append((r, _format(r, values)))
-        if edited:
-            out.append((title, edited))
+            values = tuple(getattr(getattr(cfg, r.section), f) for f in r.fields)
+            entries.append((r, _format(r, values), _row_edited(r, cfg)))
+        out.append((title, entries))
     return out
 
 
@@ -293,19 +292,13 @@ def selected_flat_dict(cfg: WorkspaceConfig, rows: Iterable[SettingRow]) -> dict
     return {f: getattr(getattr(cfg, r.section), f) for r in rows for f in r.fields}
 
 
-# json round-trip so tuple-typed defaults compare equal to json-loaded preset values.
-@lru_cache(maxsize=1)
-def _default_flat_json() -> dict[str, Any]:
-    return json.loads(json.dumps(WorkspaceConfig().to_dict()))
-
-
 def preset_summary(data: Mapping[str, Any]) -> str:
-    """One line per display section listing the non-default settings a preset
-    stores, e.g. "Tone: Print Density, Snap". Unknown keys are skipped."""
-    dfl = _default_flat_json()
+    """One line per display section listing the settings a preset stores, e.g.
+    "Tone: Print Density, Snap". Presence, not non-defaultness: a preset may
+    deliberately store a default value. Unknown keys are skipped."""
     lines = []
     for title, rows in CATALOG:
-        labels = [r.label for r in rows if any(f in data and data[f] != dfl.get(f) for f in r.fields)]
+        labels = [r.label for r in rows if any(f in data for f in r.fields)]
         if labels:
             lines.append(f"{title}: {', '.join(labels)}")
     return "\n".join(lines)

@@ -37,7 +37,8 @@ def test_exclude_sections_hides_geometry_rows(qapp):
         ask_name=True,
         exclude_sections=frozenset({"Crop", "Rotation"}),
     )
-    assert {row.label for _box, row in dlg._checks} == {"Print Density"}
+    assert "Manual Crop" not in {row.label for _box, row, _edited, _line in dlg._checks}
+    assert {row.label for row in dlg.selected()} == {"Print Density"}
 
 
 def test_set_name_prefills_and_enables(qapp):
@@ -61,6 +62,39 @@ def test_scope_current_and_apply_mode(qapp):
     dlg._on_apply()
     assert dlg.scope() == "selection"
     assert dlg.apply_mode() == "replace"
+
+
+def _crop_offset_box(dlg):
+    return next(box for box, row, _edited, _line in dlg._checks if row.label == "Crop Offset")
+
+
+def test_default_valued_row_is_built_hidden_and_unselected(qapp):
+    # #656: source frame back at the default offset must still be applicable.
+    dlg = GranularSettingsDialog(None, _edited_cfg(), "IMG.cr2")
+    box = _crop_offset_box(dlg)
+    assert not box.isChecked()
+    assert "Crop Offset" not in {row.label for row in dlg.selected()}
+
+    dlg._show_unchanged.setChecked(True)
+    box.setChecked(True)
+    assert "Crop Offset" in {row.label for row in dlg.selected()}
+
+
+def test_hiding_unchanged_rows_unchecks_them(qapp):
+    dlg = GranularSettingsDialog(None, _edited_cfg(), "IMG.cr2")
+    dlg._show_unchanged.setChecked(True)
+    dlg._set_all_checked(True)
+    assert "Crop Offset" in {row.label for row in dlg.selected()}
+
+    dlg._show_unchanged.setChecked(False)
+    assert not _crop_offset_box(dlg).isChecked()
+    assert {row.label for row in dlg.selected()} == {"Print Density", "Manual Crop"}
+
+
+def test_check_all_skips_hidden_unchanged_rows(qapp):
+    dlg = GranularSettingsDialog(None, _edited_cfg(), "IMG.cr2")
+    dlg._set_all_checked(True)
+    assert {row.label for row in dlg.selected()} == {"Print Density", "Manual Crop"}
 
 
 def test_default_mode_unchanged(qapp):

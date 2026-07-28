@@ -51,11 +51,15 @@ def test_full_snapshot_preset_applies():
     assert merged == WorkspaceConfig()
 
 
-def test_preset_summary_lists_non_default_settings():
+def test_preset_summary_lists_stored_settings():
     s = preset_summary({"density": 1.5, "wb_cyan": 0.2, "bogus": 1})
     assert s == "Tone: Print Density\nColour: Cyan"
 
 
-def test_preset_summary_skips_defaults_and_empty():
-    assert preset_summary({"density": WorkspaceConfig().exposure.density}) == ""
+def test_preset_summary_lists_a_deliberately_default_value():
+    # A preset may store a default on purpose (#656), so presence decides, not value.
+    assert preset_summary({"density": WorkspaceConfig().exposure.density}) == "Tone: Print Density"
+
+
+def test_preset_summary_empty_for_no_data():
     assert preset_summary({}) == ""

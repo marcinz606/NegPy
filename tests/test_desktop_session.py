@@ -471,6 +471,19 @@ class TestDesktopSessionSync(unittest.TestCase):
         # Other config preserved from target
         self.assertEqual(saved_config.exposure.density, 0.7)
 
+    def test_sync_selected_settings_resets_crop_offset_to_default(self):
+        # #656: pushing the source's default value (offset 0) must clear the target's.
+        self.session.state.selected_file_idx = 0
+        self.session.state.current_file_hash = "hash1"
+        self.session.state.config = WorkspaceConfig(geometry=GeometryConfig(autocrop_offset=0))
+        self.mock_repo.load_file_settings.return_value = WorkspaceConfig(geometry=GeometryConfig(autocrop_offset=3))
+
+        self.session.update_selection([0, 1])
+        self.session.sync_selected_settings([_row("Crop Offset")])
+
+        args, _ = self.mock_repo.save_file_settings.call_args
+        self.assertEqual(args[1].geometry.autocrop_offset, 0)
+
     def test_sync_selected_settings_empty_is_noop(self):
         self.session.state.selected_file_idx = 0
         self.session.state.current_file_hash = "hash1"
