@@ -31,8 +31,8 @@ _TRUSTED_CONFIDENCE = 0.58
 _MAX_AUTOMATIC_DESKEW = 8.0
 _DEFAULT_SAFETY_BORDER = 0.01
 _MIN_PROFILE_CONTRAST = 0.06
-# A roll shares one film gate, so the rebate width is a roll property. Require enough
-# agreeing frames that a few uniformly bright frame edges cannot move the median.
+# The rebate width is a roll property, so require enough agreeing frames that a few
+# bright frame edges cannot move the median.
 _MIN_BORDER_SAMPLES = 5
 # A fit disagreeing with the consensus by more than this is reading something other than
 # the film edge, so it is dropped.
@@ -64,10 +64,8 @@ class CropEvidence:
         compare=False,
         repr=False,
     )
-    # Per-side border thickness in BORDER_SIDES order, as a fraction of the film box
-    # side. NaN marks a side with no clean transition; () marks a frame that was never
-    # measured. Only resolve_roll_crops acts on it, so an abstaining side can fall back
-    # to the roll rather than to a guess made from this frame alone.
+    # Per-side thickness in BORDER_SIDES order, as a fraction of the film box side. NaN
+    # marks a side with no clean transition, () a frame that was never measured.
     border: tuple[float, ...] = ()
     reason: str = ""
 
@@ -88,8 +86,7 @@ class RollCropTemplate:
     angle_mad: float
     confidence: float
     sample_count: int
-    # Roll-median border thickness per side (BORDER_SIDES order); () when too few
-    # frames measured one, in which case no rebate is trimmed.
+    # Roll median per side (BORDER_SIDES order); () when too few frames measured one.
     border: tuple[float, ...] = ()
     border_sample_count: int = 0
 
@@ -250,10 +247,8 @@ def detect_crop_candidate(
             reason="deskew_no_consensus",
         )
 
-    # The film box, not the exposed image area. Trimming the rebate needs a rebate/
-    # image decision that a single frame cannot make reliably — a uniformly bright sky
-    # touching the frame edge reads exactly like film base. Only the measurement is
-    # taken here; resolve_roll_crops decides using the whole roll.
+    # The film box, not the exposed image area: only the measurement is taken here, and
+    # resolve_roll_crops decides using the whole roll.
     lum = _detection_luma(corrected)
     roi = _trim_opaque_border(lum, final.roi)
     border = tuple(measure_film_border(lum, roi)[name] for name in BORDER_SIDES)
@@ -320,9 +315,8 @@ def _mad(values: np.ndarray, center: float | None = None) -> float:
 def _roll_border(evidence: Sequence[CropEvidence]) -> tuple[tuple[float, ...], int]:
     """Median border thickness per side across every frame that measured one.
 
-    Pooled over all detections rather than the trusted subset: border thickness is a
-    property of the film gate, so more samples beat stricter samples, and the median
-    is what makes a lone frame with a bright edge harmless.
+    Pooled over all detections, not the trusted subset: thickness is a property of the
+    film gate, so more samples beat stricter ones.
     """
     measured = [item.border for item in evidence if len(item.border) == len(BORDER_SIDES)]
     if not measured:
@@ -544,11 +538,9 @@ def _rect_from_edge_profile(item: CropEvidence, template: RollCropTemplate) -> t
 def _resolve_border(frame: tuple[float, ...], roll: tuple[float, ...]) -> tuple[float, ...]:
     """Prefer the frame's own border, falling back to the roll median per side.
 
-    How much bed the detector leaves inside the film box varies frame to frame, so a
-    border measured against that edge is only meaningful for the frame it came from —
-    pooling it across the roll trims the wrong amount. The roll median is the safety
-    net for sides that abstained (NaN), which is exactly the case a single frame
-    cannot resolve on its own.
+    How much bed the detector leaves inside the film box varies frame to frame, so
+    pooling that measurement across the roll trims the wrong amount. The median is only
+    the safety net for sides that abstained (NaN).
     """
     if len(roll) != len(BORDER_SIDES):
         return ()
@@ -652,14 +644,11 @@ def resolve_roll_crops(
         trimmed = inset != rect
         roi = _pixel_roi(inset, item.canvas_shape)
         if trimmed:
-            # Only the inset breaks the target ratio, so only the inset re-imposes it.
-            # Without a roll border there is nothing to trim and the rect is passed
-            # through exactly, preserving half-open pixel bounds.
+            # Only the inset breaks the ratio, so only the inset re-imposes it. An
+            # untrimmed rect passes through exactly, keeping half-open pixel bounds.
             roi = _apply_target_ratio(roi, item.canvas_shape, item.target_ratio)
-        # The safety border cushions a crop that may sit slightly inside the picture.
-        # A measured roll inset already lands on the rebate edge, and the film box it
-        # came from touched the canvas edge (so the pad clamped to 0 anyway) — re-expanding
-        # by an unrelated fixed fraction would only put the rebate back.
+        # A measured inset already lands on the rebate edge, so padding it back out by an
+        # unrelated fraction would only restore the rebate.
         pad_ratio = 0.0 if trimmed else safety_border
         y1, y2, x1, x2 = add_uniform_safety_border(roi, item.canvas_shape, pad_ratio)
         h, w = item.canvas_shape
