@@ -25,6 +25,7 @@ dependencies = [
     "qtawesome==1.4.2",
     "wgpu==0.31.1",
     "pyserial>=3.5",
+    "pieusb",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -103,3 +104,6 @@ exclude = [
 
 [tool.coverage.run]
 source = ["negpy"]
+
+[tool.uv.sources]
+pieusb = { path = "../sw/pieusb", editable = true }
