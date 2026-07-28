@@ -7,8 +7,12 @@ import tifffile
 
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.retouch.logic import (
+    _IR_CAP_MIN_SUPPORT,
+    _IR_CAP_WIN,
+    _IR_GAIN_IDENTITY,
     _IR_GAMMA_FALLBACK,
     _IR_GAMMA_HI,
+    _IR_PIVOT_LO,
     _IR_SCORE_FLOOR,
     _IR_WRITE_HI,
     _IR_WRITE_LO,
@@ -293,6 +297,10 @@ def test_ir_dead_margins_do_not_mask_the_frame():
     # :19, not :20 — the erode legitimately bleeds the in-frame gate transition 1 px in.
     assert float(score[:, :19].min()) > _IR_WRITE_HI, "the margin is never rebuilt"
     assert float(score[speck].min()) < _IR_WRITE_LO, "the real speck still is"
+    # σ 0.025 makes this a #647 frame too: 86% of it sat in the write band, unnoticed
+    # because the asserts above only sample the margin and the speck. The rescale also
+    # lifts the forced-clean margin past 1.0, which the ratio bound above allows.
+    assert float((score < _IR_WRITE_HI).mean()) < 0.02, "the noise floor is not a defect"
 
 
 def test_ir_noisy_clean_film_is_not_degenerate():
@@ -304,6 +312,135 @@ def test_ir_noisy_clean_film_is_not_degenerate():
 
     _, _, degenerate, _ = ir_ratio_and_gain(ir, img)
     assert not degenerate
+
+
+def _noisy_ir(sigma: float, h: int = 400, w: int = 300, seed: int = 0) -> np.ndarray:
+    """Clean film on a scanner whose IR plane carries `sigma` of noise."""
+    return np.clip(0.85 + np.random.default_rng(seed).normal(0, sigma, (h, w)), 0.0, 1.0).astype(np.float32)
+
+
+def _flat_visible(h: int = 400, w: int = 300, seed: int = 1) -> np.ndarray:
+    return np.clip(0.5 + np.random.default_rng(seed).normal(0, 0.01, (h, w, 3)), 1e-3, 1.0).astype(np.float32)
+
+
+def _cap_fallback_fraction(ratio: np.ndarray) -> float:
+    """Fraction of the frame where _ir_clean_base has too few clean pixels and drops to
+    its blur(dilate) local-max estimate — i.e. where the cap stops capping."""
+    win = (_IR_CAP_WIN, _IR_CAP_WIN)
+    return float((cv2.blur((ratio >= _IR_GAIN_IDENTITY).astype(np.float32), win) <= _IR_CAP_MIN_SUPPORT).mean())
+
+
+def test_ir_pivot_is_a_no_op_on_a_quiet_scanner():
+    """A noiseless plane measures its clean floor above _IR_GAIN_IDENTITY, clips to it and
+    divides by exactly 1.0 — bit-identical, not merely close. Deliberately noiseless: at
+    σ 0.004 the pivot lands at 0.9695 (factor 1.0005), which is not array_equal."""
+    ir = np.full((200, 200), 0.9, dtype=np.float32)
+    ir[98:102, 98:102] = 0.1
+    img = np.full((200, 200, 3), 0.5, dtype=np.float32)
+    img[98:102, 98:102] = 0.05
+
+    ratio, _, _, _ = ir_ratio_and_gain(ir.copy(), img)
+    assert np.array_equal(ratio, normalize_ir(ir))
+
+
+def test_ir_pivot_tracks_the_scan_noise():
+    """The pivot is measured, not assumed: the clean-film level it normalizes away grows
+    with the scanner's IR noise, and the noise floor stays out of the write band at every
+    level. Pins the mechanism — an absolute pivot cannot satisfy all three σ at once."""
+    medians = []
+    for sigma in (0.004, 0.020, 0.040):
+        ratio, gain, degenerate, _ = ir_ratio_and_gain(_noisy_ir(sigma), _flat_visible())
+        assert not degenerate, f"clean C41 at σ {sigma} must not read as silver"
+        assert float((gain > 1.05).mean()) < 0.01, f"σ {sigma}: the bake lifted the noise floor"
+        medians.append(float(np.median(ratio)))
+    assert medians[0] < medians[1] < medians[2], medians
+
+
+def test_ir_noise_floor_neither_writes_nor_gains():
+    """Issue #647. At the Coolscan 5000's MAD-σ 0.027 the whole frame sat under the absolute
+    pivot: the division tier lifted 32% of it >5% (slider-blind, hence the inert-feeling
+    threshold) and the fill wrote to 99.6%. Clean film must come out untouched."""
+    ratio, gain, _, _ = ir_ratio_and_gain(_noisy_ir(0.027), _flat_visible())
+    score = ir_defect_score(ratio, ir_detect_cutoff(0.66, True))
+    assert float((score < _IR_WRITE_HI).mean()) < 0.01
+    assert float((gain > 1.05).mean()) < 0.01
+
+
+def test_ir_cap_support_survives_a_noisy_plane():
+    """The root cause, asserted directly. _ir_clean_base weights by (ratio >= identity), so
+    once noise pushes the clean fraction under _IR_CAP_MIN_SUPPORT the window falls back to
+    blur(dilate), a local max that licenses the lift it exists to cap. 99.9% here, before."""
+    ratio, _, _, _ = ir_ratio_and_gain(_noisy_ir(0.027), _flat_visible())
+    assert _cap_fallback_fraction(ratio) < 0.01
+
+
+def test_ir_speck_survives_a_noisy_plane():
+    """The other side of #647: suppressing the noise floor must not suppress signal. Guards
+    against 'fixing' the mottle by quietly turning detection off."""
+    ir, img = _noisy_ir(0.027), _flat_visible()
+    speck = (slice(200, 208), slice(150, 158))
+    ir[speck] *= 0.35
+    img[speck] *= 0.55
+
+    ratio, gain, _, _ = ir_ratio_and_gain(ir, img)
+    score = ir_defect_score(ratio, ir_detect_cutoff(0.66, True))
+    assert abs(float(score[speck].min()) - _IR_SCORE_FLOOR) < 1e-6, "the speck must still take the full fill"
+    assert float(gain[speck].max()) > 1.05, "...and the division tier must still recover it"
+    assert float((score < _IR_WRITE_HI).mean()) < 0.02, "while the surrounding noise stays clean"
+
+
+def test_ir_pivot_is_robust_to_dusty_frames():
+    """MAD, not σ: the clean-film level must be read off the film, not shifted by the dust.
+    ~5% coverage may not move it, and every speck must still heal. Fails if the estimator
+    is ever swapped for a mean/std pair."""
+    clean, img = _noisy_ir(0.027, seed=3), _flat_visible(seed=4)
+    dusty = clean.copy()
+    centers = [(y, x) for y in range(10, 390, 18) for x in range(10, 290, 18)]
+    for y, x in centers:
+        dusty[y : y + 4, x : x + 4] *= 0.25
+
+    ratio_clean, _, _, _ = ir_ratio_and_gain(clean, img)
+    ratio_dusty, _, _, _ = ir_ratio_and_gain(dusty, img)
+    assert abs(float(np.median(ratio_dusty)) - float(np.median(ratio_clean))) < 0.01
+
+    score = ir_defect_score(ratio_dusty, ir_detect_cutoff(0.66, True))
+    cores = score[[y + 1 for y, _ in centers], [x + 1 for _, x in centers]]
+    assert float((cores <= _IR_SCORE_FLOOR + 1e-6).mean()) == 1.0, "every speck still reaches the floor"
+
+
+def test_ir_pivot_ignores_dead_margins():
+    """The holder margin is forced to ratio 1.0, and that cluster sits ~2.7σ off the film
+    median — left in the sample it drags the median up and inflates σ, so the measurement
+    must run on live pixels only. Cropping the margins away may not change the result."""
+    rng = np.random.default_rng(3)
+    ir = np.clip(0.85 + rng.normal(0, 0.025, (400, 300)), 0.0, 1.0).astype(np.float32)
+    img = np.full((400, 300, 3), 0.5, dtype=np.float32)
+    ir[:, :20] = ir[:, -20:] = 0.004
+    img[:, :20] = img[:, -20:] = 0.002
+    speck = (slice(200, 208), slice(150, 158))
+    ir[speck] *= 0.35
+    img[speck] *= 0.55
+
+    full, _, _, _ = ir_ratio_and_gain(ir, img)
+    cropped, _, _, _ = ir_ratio_and_gain(ir[:, 20:-20].copy(), img[:, 20:-20].copy())
+    assert abs(float(np.median(full)) - float(np.median(cropped))) < 0.02
+
+    cut = ir_detect_cutoff(0.66, True)
+    assert (
+        abs(float((ir_defect_score(full, cut) < _IR_WRITE_HI).mean()) - float((ir_defect_score(cropped, cut) < _IR_WRITE_HI).mean())) < 0.01
+    )
+
+
+def test_ir_pivot_floor_bounds_the_rescale():
+    """_IR_PIVOT_LO is what stops an adaptive pivot from rescaling a garbage plane clean and
+    silently rendering IR removal inert — the one failure mode the measurement introduces.
+    At σ 0.15 the pivot floors, and an opaque core must still reach the score floor."""
+    ir = _noisy_ir(0.15, seed=5)
+    ir[200:212, 150:162] = 0.10  # over _IR_DEAD_FLOOR: a defect, not an empty gate
+    ratio, _, _, _ = ir_ratio_and_gain(ir, _flat_visible(seed=6))
+    assert float(np.median(ratio)) <= _IR_GAIN_IDENTITY / _IR_PIVOT_LO + 1e-6
+    score = ir_defect_score(ratio, ir_detect_cutoff(0.66, True))
+    assert abs(float(score[202:210, 152:160].min()) - _IR_SCORE_FLOOR) < 1e-6
 
 
 def _ghosted_frame(ghost: float, size: int = 240):

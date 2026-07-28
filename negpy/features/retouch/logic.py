@@ -53,6 +53,15 @@ _IR_GAMMA_FALLBACK = 1.5
 # Below this the beam is blocked outright — holder, not film. Coolscan rolls: margin 98% under
 # it, in-frame dust bottoms at 0.17. ponytail: absolute; a low-IR-gain scanner would want a percentile.
 _IR_DEAD_FLOOR = 0.05
+# Clean-film pivot: normalize_ir's base is a local max, so clean film sits ~k·σ_IR under 1,
+# where depending on the scanner. Left absolute, a Coolscan 5000 (ratio median 0.945) put
+# 84% of the frame below _IR_GAIN_IDENTITY, starving _ir_clean_base into its local-max
+# fallback — no cap, mottled film at every slider position (#647). Measured at detection
+# scale, on the same ratio it corrects; not on the full-res plane.
+_IR_NOISE_SIGMA = 3.0
+# Bounds the rescale so >50% coverage (median inside the dust) can't scale the ratio clean
+# and silently disable IR removal. ponytail: absolute; the knob if a scanner needs more.
+_IR_PIVOT_LO = 0.60
 # Crosstalk unmixing: dye/silver absorbs some IR, so the IR plane carries a ghost of
 # the image that normalize_ir's spatial high-pass can't see (a sharp edge survives it).
 _IR_XTALK_MAX = 0.8  # per-channel exponent cap; ≥0 only — density can only block IR
@@ -951,6 +960,22 @@ def _ir_clean_base(img_det: np.ndarray, ratio: np.ndarray) -> np.ndarray:
     return np.where(den > _IR_CAP_MIN_SUPPORT, base, dil)
 
 
+def _ir_pivot_rescale(ratio: np.ndarray, live: np.ndarray) -> np.ndarray:
+    """Rescale so the measured clean-film floor lands on ``_IR_GAIN_IDENTITY`` (see the
+    constants block). ``live`` only: the dead-margin 1.0s inflate σ ~20% on a strip scan.
+    MAD, not std, so a dusty minority can't move the floor."""
+    sample = ratio[live]
+    if sample.size < 500:  # nothing measurable: leave the landmarks alone
+        return ratio
+    med = float(np.median(sample))
+    sigma = 1.4826 * float(np.median(np.abs(sample - med)))
+    pivot = float(np.clip(med - _IR_NOISE_SIGMA * sigma, _IR_PIVOT_LO, _IR_GAIN_IDENTITY))
+    if pivot <= _IR_PIVOT_LO:
+        logger.warning("IR dust: clean-film pivot floored at %.2f (IR σ %.3f) — very noisy IR plane", _IR_PIVOT_LO, sigma)
+    # A clipped pivot is an exact no-op: x/x is 1.0 in IEEE, float32 × 1.0 exact.
+    return (ratio * (_IR_GAIN_IDENTITY / pivot)).astype(np.float32)
+
+
 def ir_ratio_and_gain(ir_det: np.ndarray, img_det: np.ndarray) -> Tuple[np.ndarray, np.ndarray, bool, Tuple[float, ...]]:
     """Detection-scale ``(ratio, gain HxWx3, degenerate, gammas)`` for IR-division
     attenuation: semi-transparent dust recovered by ``RGB / ratio^γ``, γ per channel from
@@ -960,7 +985,8 @@ def ir_ratio_and_gain(ir_det: np.ndarray, img_det: np.ndarray) -> Tuple[np.ndarr
     ratio = normalize_ir(plane)
     # No film under the head is not a defect; left as a dip the holder margin would score
     # as one giant routed component and swamp the routing budget.
-    ratio[plane < _IR_DEAD_FLOOR] = 1.0
+    live = plane >= _IR_DEAD_FLOOR
+    ratio[~live] = 1.0
     img_det = np.ascontiguousarray(img_det, dtype=np.float32)
     if img_det.shape[:2] != ratio.shape[:2]:
         img_det = cv2.resize(img_det, (ratio.shape[1], ratio.shape[0]), interpolation=cv2.INTER_AREA)
@@ -970,6 +996,9 @@ def ir_ratio_and_gain(ir_det: np.ndarray, img_det: np.ndarray) -> Tuple[np.ndarr
     # On the fitted exponent, not on how far the ratio dips: a few percent of IR noise
     # (deepened by the min-preserving downsample) read as silver on clean C41 rolls.
     degenerate = ghost > _IR_DEGENERATE_GHOST
+    # After the unmixing, never before: it clips log(ratio) at 1.0, and a rescaled clean
+    # population piles into that clip and flattens the fitted exponent.
+    ratio = _ir_pivot_rescale(ratio, live)
 
     gammas = _fit_refraction_gammas(ratio, vis_log, img_det)
     base = np.clip(ratio / _IR_GAIN_IDENTITY, 1e-4, 1.0)
