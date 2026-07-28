@@ -8,6 +8,7 @@ from negpy.infrastructure.scanners.params import ScanParams, ScanMode
 from negpy.infrastructure.scanners.result import ScanResult
 
 from pieusb.types import DeviceInfo
+from pieusb.scanner import Scanner
 
 from collections.abc import Callable
 
@@ -17,8 +18,8 @@ import threading
 class PieusbSession:
     device_id: str
 
-    def __init__(self) -> None:
-        pass
+    def __init__(self, info: DeviceInfo) -> None:
+        self.dev = Scanner(info)
     
     def scan(
         self,
@@ -29,11 +30,11 @@ class PieusbSession:
     def eject(self) -> bool:
         return False
     def close(self) -> None:
-        pass
+        self.dev.dev.close()
     def __enter__(self) -> "ScannerSession":
         return self
     def __exit__(self, *exc: object) -> None:
-        pass
+        self.close()
 
 class PieusbBackend:
     def __init__(self) -> None:
@@ -92,7 +93,9 @@ class PieusbBackend:
             dpi=0,
             device_model='Unknown'
         )
+
     def open_session(self, device_id: str) -> ScannerSession:
-        return PieusbSession()
+        return PieusbSession(self._devices_map[device_id])
+
     def eject(self, device_id: str) -> bool:
         return False
