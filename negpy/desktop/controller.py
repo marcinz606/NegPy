@@ -53,7 +53,7 @@ from negpy.domain.models import (
 )
 from negpy.services.assets.half_frame import base_hash, slice_half
 from negpy.services.assets.sidecar import load_or_promote, write_sidecar
-from negpy.features.exposure.analysis import STRIP_DENSITIES, STRIP_GRADES
+from negpy.features.exposure.analysis import STRIP_DENSITIES, STRIP_GRADES, strip_cells
 from negpy.features.exposure.logic import (
     calculate_wb_shifts,
     calculate_wb_shifts_from_log,
@@ -455,6 +455,7 @@ class AppController(QObject):
         self.strip_requested.connect(self.render_worker.build_strip)
         self._render_cleanup_requested.connect(self.render_worker.cleanup)
         self.render_worker.strip_finished.connect(self.on_strip_finished)
+        self.render_worker.strip_progress.connect(self.on_strip_progress)
         self.render_worker.finished.connect(self._on_render_finished)
         self.render_worker.metrics_updated.connect(self._on_metrics_updated)
         self.render_worker.error.connect(self._on_render_error)
@@ -1199,6 +1200,10 @@ class AppController(QObject):
         icc_input = self.effective_input_icc() if (proofing or self.state.config.process.narrowband_scan) else None
         self.state.test_strip_pending = True
         self.test_strip_changed.emit(False)
+        # 36 renders take a few seconds; say so up front and tick the HUD progress bar
+        # per patch so it's clear the app is working rather than wedged.
+        self.status_message_requested.emit("Printing test strip…", 2500)
+        self.status_progress_requested.emit(0, len(strip_cells()))
         self.strip_requested.emit(
             TestStripTask(
                 buffer=self.state.preview_raw,
@@ -1217,10 +1222,16 @@ class AppController(QObject):
             )
         )
 
+    def on_strip_progress(self, done: int, total: int) -> None:
+        if self.state.test_strip_pending:
+            self.status_progress_requested.emit(done, total)
+
     def _clear_test_strip(self) -> None:
         """Drop the strip and its mosaic; silent when there was nothing up."""
         if not (self.state.test_strip or self.state.test_strip_pending):
             return
+        if self.state.test_strip_pending:
+            self.status_progress_requested.emit(0, 0)  # total <= 0 hides the bar
         self.state.test_strip = False
         self.state.test_strip_pending = False
         self.state.test_strip_mosaic = None
@@ -1236,6 +1247,7 @@ class AppController(QObject):
         self.state.test_strip_mosaic = mosaic
         self.state.test_strip_content_rect = content_rect
         self.test_strip_changed.emit(True)
+        self.status_message_requested.emit("Test strip ready — click a patch to keep it", 4000)
 
     def apply_test_strip_pick(self, row: int, col: int) -> None:
         """Commit the clicked patch's density/grade, then drop the strip."""

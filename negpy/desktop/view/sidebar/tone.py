@@ -1,8 +1,9 @@
 import qtawesome as qta
 from PyQt6.QtWidgets import QButtonGroup, QComboBox, QDialog, QHBoxLayout
 
+from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import section_subheader
+from negpy.desktop.view.styles.templates import section_subheader, wrap_tooltip
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, TUNABLE_TARGETS, apply_targets
 
@@ -88,21 +89,16 @@ class ToneSidebar(BaseSidebar):
             "Applies to every frame and is remembered between sessions.",
         )
         self.targets_btn.clicked.connect(self._open_targets_dialog)
+        self.test_strip_btn = self._tool_toggle("mdi.view-grid-outline", "", self._test_strip_tooltip())
+        self.test_strip_btn.setFixedWidth(36)  # match targets_btn, so the row doesn't stair-step
+        self.test_strip_btn.clicked.connect(lambda checked: self.controller.toggle_test_strip(force=checked))
+
         auto_row = QHBoxLayout()
         auto_row.addWidget(self.auto_density_btn, 1)
         auto_row.addWidget(self.auto_grade_btn, 1)
         auto_row.addWidget(self.targets_btn)
+        auto_row.addWidget(self.test_strip_btn)
         self.layout.addLayout(auto_row)
-
-        self.test_strip_btn = self._small_toggle(
-            "mdi.view-grid-outline",
-            "Test Strip",
-            False,
-            "Test Strip: print the frame as a 6×6 grid — Print Density increasing left to right, "
-            "ISO-R Grade softening top to bottom. Click the patch you like to keep its settings.",
-        )
-        self.test_strip_btn.clicked.connect(lambda checked: self.controller.toggle_test_strip(force=checked))
-        self.layout.addWidget(self.test_strip_btn)
         self.layout.addWidget(self.density_slider)
 
         self.paper_black_btn = self._small_toggle(
@@ -262,13 +258,24 @@ class ToneSidebar(BaseSidebar):
             return
         self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, paper_profile=key)
 
+    @staticmethod
+    def _test_strip_tooltip(printing: bool = False) -> str:
+        if printing:
+            return "Printing the test strip…"
+        return tooltip_with_shortcut(
+            "Test Strip: print the frame as a 6×6 grid — Print Density increasing left to right, "
+            "ISO-R Grade softening top to bottom. Click the patch you like to keep its settings.",
+            "toggle_test_strip",
+        )
+
     def _sync_test_strip_btn(self, _up: bool) -> None:
-        """ponytail: the whole strip is one job with no progress reporting — the button
-        just says it's working. Per-patch progress if 16 renders ever feels long."""
+        """ponytail: the whole strip is one job with no progress reporting — the button is
+        icon-only, so it goes dead with a 'printing' tooltip rather than changing its
+        label. Per-patch progress if 36 renders ever feels long."""
         pending = self.state.test_strip_pending
         self.test_strip_btn.setChecked(self.state.test_strip or pending)
         self.test_strip_btn.setEnabled(not pending)
-        self.test_strip_btn.setText(" Printing…" if pending else " Test Strip")
+        self.test_strip_btn.setToolTip(wrap_tooltip(self._test_strip_tooltip(printing=pending)))
 
     def _connect_signals(self) -> None:
         self.paper_combo.currentIndexChanged.connect(self._on_paper_changed)

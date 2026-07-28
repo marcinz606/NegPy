@@ -29,7 +29,9 @@ class TestStripWorker(unittest.TestCase):
             MockIP.return_value.run_pipeline.side_effect = fake_pipeline
             worker = RenderWorker()
             done: list = []
+            ticks: list = []
             worker.strip_finished.connect(lambda m, r: done.append((m, r)))
+            worker.strip_progress.connect(lambda n, t: ticks.append((n, t)))
 
             worker.build_strip(
                 TestStripTask(
@@ -41,6 +43,8 @@ class TestStripWorker(unittest.TestCase):
             )
 
         self.assertEqual(seen, [(d, g) for _, _, d, g in strip_cells()])
+        # One progress tick per patch, counting up to the total.
+        self.assertEqual(ticks, [(i + 1, len(seen)) for i in range(len(seen))])
         mosaic, content_rect = done[0]
         self.assertEqual(content_rect, (0, 0, 8, 8))
         # Top-left patch came from the first render, bottom-right from the last.
@@ -94,9 +98,13 @@ class TestStripLifecycle(unittest.TestCase):
         self.strip_tasks: list = []
         self.render_tasks: list = []
         self.announced: list = []
+        self.toasts: list = []
+        self.progress: list = []
         self.controller.strip_requested.connect(self.strip_tasks.append)
         self.controller.render_requested.connect(self.render_tasks.append)
         self.controller.test_strip_changed.connect(self.announced.append)
+        self.controller.status_message_requested.connect(lambda msg, _ms: self.toasts.append(msg))
+        self.controller.status_progress_requested.connect(lambda done, total: self.progress.append((done, total)))
 
     def tearDown(self):
         import gc
@@ -197,6 +205,30 @@ class TestStripLifecycle(unittest.TestCase):
         self.controller.request_render(readback_metrics=False, config_override=WorkspaceConfig())
 
         self.assertTrue(self.controller.state.test_strip)
+
+    def test_printing_says_so_and_ticks_the_progress_bar(self):
+        """36 renders take a few seconds — the HUD has to show it is working."""
+        total = len(strip_cells())
+        self.controller.toggle_test_strip()
+        self.assertIn("Printing test strip…", self.toasts)
+        self.assertEqual(self.progress, [(0, total)])
+
+        self.controller.on_strip_progress(12, total)
+        self.controller.on_strip_progress(total, total)
+        self.assertEqual(self.progress[-2:], [(12, total), (total, total)])
+
+        self.controller.on_strip_finished(self._mosaic(), None)
+        self.assertTrue(any("ready" in msg for msg in self.toasts))
+
+    def test_cancelling_mid_print_hides_the_progress_bar(self):
+        self.controller.toggle_test_strip()
+        self.controller.toggle_test_strip()
+        self.assertEqual(self.progress[-1], (0, 0))  # total <= 0 hides it
+
+        # Late progress from the cancelled job must not resurrect the bar.
+        self.progress.clear()
+        self.controller.on_strip_progress(30, len(strip_cells()))
+        self.assertEqual(self.progress, [])
 
     def test_loading_another_frame_drops_the_strip(self):
         """load_file's navigate-back memo path repaints without request_render, so a strip

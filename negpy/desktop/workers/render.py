@@ -173,6 +173,7 @@ class RenderWorker(QObject):
     finished = pyqtSignal(object, dict)  # (ndarray|GPUTexture, metrics)
     metrics_updated = pyqtSignal(dict)  # Late-arriving metrics (histogram, etc.)
     strip_finished = pyqtSignal(object, object)  # (mosaic ndarray, content_rect|None)
+    strip_progress = pyqtSignal(int, int)  # (patches printed, total)
     error = pyqtSignal(str)
 
     def __init__(self) -> None:
@@ -274,7 +275,8 @@ class RenderWorker(QObject):
         try:
             tiles = []
             content_rect = None
-            for _, _, density, grade in strip_cells():
+            cells = strip_cells()
+            for _, _, density, grade in cells:
                 config = replace(task.config, exposure=replace(task.config.exposure, density=density, grade=grade))
                 result, metrics = self._processor.run_pipeline(
                     task.buffer,
@@ -291,6 +293,7 @@ class RenderWorker(QObject):
                 tiles.append(result)
                 if content_rect is None:
                     content_rect = metrics.get("content_rect")
+                self.strip_progress.emit(len(tiles), len(cells))
 
             mosaic = strip_mosaic(tiles)
             # Proof the assembled mosaic, not each tile: the transform is per-pixel, so

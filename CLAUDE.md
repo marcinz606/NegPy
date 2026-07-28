@@ -57,6 +57,8 @@ Every feature lives in `negpy/features/<name>/`:
 - `AppController` (`negpy/desktop/controller.py`) — single controller; all UI interactions call it; emits `config_updated` / `image_updated`
 - Workers (`negpy/desktop/workers/`) — heavy work in QThread-backed objects, Qt-signal communication
 - Sidebars (`negpy/desktop/view/sidebar/<name>.py`) — one per feature, registered in `ControlsPanel`, synced on `config_updated`
+- **Shortcuts** (`negpy/desktop/view/shortcut_registry.py`) — `REGISTRY` is the single source of truth for every binding: one `ShortcutEntry(default_key, description, category)` per action id. Dispatch is the matching entry in the action map in `keyboard_shortcuts.py`. The registry also feeds the shortcut editor, the `?` overlay and `tooltip_with_shortcut()`, so a binding added here shows up in all three for free.
+  **Any new user-facing toggle, tool or action gets a registry entry** — leave `default_key` empty rather than inventing a conflicting one if no obvious key is free. Check for collisions before picking: the same key on two actions makes Qt fire `activatedAmbiguously` and both go dead.
 
 ## Adding a new feature
 
@@ -65,7 +67,8 @@ Every feature lives in `negpy/features/<name>/`:
 3. Insert a `_run_stage(...)` call in `DarkroomEngine.process()`
 4. For GPU: add a WGSL shader, wire it into `GPUEngine` (shader path + stage index + change detection), and add the feature's `shaders/` dir to `build.py` (`--add-data`)
 5. Add a sidebar and register it in `ControlsPanel`
-6. Add unit tests; if the feature has both CPU and GPU paths, add a parity test (pattern: `test_gpu_curve_parity.py`)
+6. If it adds a toggle/tool/action, add a `REGISTRY` entry in `shortcut_registry.py` plus its action-map entry in `keyboard_shortcuts.py`
+7. Add unit tests; if the feature has both CPU and GPU paths, add a parity test (pattern: `test_gpu_curve_parity.py`)
 
 ## Style
 
