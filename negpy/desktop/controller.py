@@ -344,6 +344,8 @@ class AppController(QObject):
         # Last displayed render per frame — navigate-back paints it instantly
         # while the authoritative render refreshes underneath.
         self._render_memo = RenderMemo()
+        # Test strips, keyed density/grade-blind (see _strip_memo_key).
+        self._strip_memo = RenderMemo()
 
         self._render_debounce = QTimer()
         self._render_debounce.setSingleShot(True)
@@ -553,6 +555,7 @@ class AppController(QObject):
 
         self.session.active_file_changing.connect(lambda: self._update_thumbnail_from_state(force_readback=True))
         self.session.session_emptied.connect(self._render_memo.clear)
+        self.session.session_emptied.connect(self._strip_memo.clear)
         self.session.file_selected.connect(self.load_file)
         self.session.state_changed.connect(self.config_updated.emit)
         self.session.state_changed.connect(self._render_debounce.start)
@@ -899,7 +902,7 @@ class AppController(QObject):
                 return (half, float(f.get("split_x") or 0.5)) if half else None
         return None
 
-    def _render_memo_key(self) -> str:
+    def _render_memo_key(self, config: Optional[WorkspaceConfig] = None) -> str:
         """Identity of everything that shapes the displayed render of the current
         config: the edit itself plus every display-path input. Any mismatch is a
         memo miss, so navigate-back only skips straight to pixels that would be
@@ -907,10 +910,11 @@ class AppController(QObject):
         import hashlib
         import json
 
+        config = self.state.config if config is None else config
         proofing = self.state.soft_proof_enabled
         narrowband = self.state.config.process.narrowband_scan
         parts = (
-            json.dumps(self.state.config.to_dict(), sort_keys=True, default=str),
+            json.dumps(config.to_dict(), sort_keys=True, default=str),
             self.state.hq_preview,
             self.state.workspace_color_space,
             self.state.gpu_enabled,
@@ -920,6 +924,17 @@ class AppController(QObject):
             hashlib.md5(self.state.monitor_icc_bytes).hexdigest() if self.state.monitor_icc_bytes else "",
         )
         return hashlib.md5(repr(parts).encode()).hexdigest()
+
+    def _strip_memo_key(self) -> str:
+        """The render key with density and grade pinned to fixed values.
+
+        The strip supplies those two itself, one per patch, so the mosaic is invariant
+        to whatever they currently are — which makes the print/pick/print-again loop a
+        cache hit, since picking a patch changes nothing else. Any other edit (crop,
+        filtration, paper, toning...) lands on a different key and re-prints.
+        """
+        pinned = replace(self.state.config.exposure, density=1.0, grade=115.0)
+        return self._render_memo_key(replace(self.state.config, exposure=pinned))
 
     def load_file(self, file_path: str, preserve_zoom: bool = False, force_detect: bool = False) -> None:
         """
@@ -1196,6 +1211,12 @@ class AppController(QObject):
         if self.state.preview_raw is None:
             return
 
+        # Reprinting an unchanged strip is 36 renders for pixels we already have.
+        cached = self._strip_memo.get(self.state.current_file_hash or "", self._strip_memo_key())
+        if cached is not None:
+            self.on_strip_finished(cached["mosaic"], cached["content_rect"], from_cache=True)
+            return
+
         proofing = self.state.soft_proof_enabled
         icc_input = self.effective_input_icc() if (proofing or self.state.config.process.narrowband_scan) else None
         self.state.test_strip_pending = True
@@ -1238,10 +1259,22 @@ class AppController(QObject):
         self.state.test_strip_content_rect = None
         self.test_strip_changed.emit(False)
 
-    def on_strip_finished(self, mosaic: Any, content_rect: Any) -> None:
+    def on_strip_finished(self, mosaic: Any, content_rect: Any, from_cache: bool = False) -> None:
         # A render that landed while the strip was building already cancelled it.
-        if not self.state.test_strip_pending:
+        if not (self.state.test_strip_pending or from_cache):
             return
+        if not from_cache:
+            # Keyed on the config as it stands now, not as it was at dispatch: measured
+            # bounds are persisted after a render with render=False, so the config drifts
+            # mid-print without invalidating anything (the same drift RenderMemo.rekey
+            # exists for). Keying at dispatch made every reprint a miss. Safe because a
+            # change that *did* matter would have gone through request_render, which
+            # cancels the strip outright.
+            self._strip_memo.store(
+                self.state.current_file_hash or "",
+                self._strip_memo_key(),
+                {"mosaic": mosaic, "content_rect": content_rect},
+            )
         self.state.test_strip_pending = False
         self.state.test_strip = True
         self.state.test_strip_mosaic = mosaic

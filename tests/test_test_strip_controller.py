@@ -6,6 +6,7 @@ render has to drop it, including one that lands while the strip is still printin
 """
 
 import unittest
+from dataclasses import replace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -95,6 +96,8 @@ class TestStripLifecycle(unittest.TestCase):
             mock_pm_class.return_value.load_linear_preview.return_value = (None, (0, 0), {})
             self.controller = AppController(self.mock_session_manager)
         self.controller.state.preview_raw = np.empty((8, 8, 3), dtype=np.float32)
+        # RenderMemo is keyed by file hash and no-ops without one, as the app always has.
+        self.controller.state.current_file_hash = "f1"
         self.strip_tasks: list = []
         self.render_tasks: list = []
         self.announced: list = []
@@ -229,6 +232,51 @@ class TestStripLifecycle(unittest.TestCase):
         self.progress.clear()
         self.controller.on_strip_progress(30, len(strip_cells()))
         self.assertEqual(self.progress, [])
+
+    def test_reprinting_an_unchanged_strip_is_a_cache_hit(self):
+        self._print_strip()
+        self.controller.toggle_test_strip()  # off
+        self.controller.toggle_test_strip()  # on again
+
+        self.assertEqual(len(self.strip_tasks), 1, "no second render job")
+        self.assertTrue(self.controller.state.test_strip)
+        self.assertIsNotNone(self.controller.state.test_strip_mosaic)
+        self.assertEqual(self.controller.state.test_strip_content_rect, (0, 0, 8, 8))
+
+    def test_picking_a_patch_leaves_the_cache_valid(self):
+        """The reason this cache is worth having: the mosaic varies density and grade
+        itself, so it is invariant to them — and a pick changes nothing else."""
+        self._print_strip()
+        self.controller.apply_test_strip_pick(0, 3)
+        self.controller.state.config = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertNotEqual(self.controller.state.config.exposure.density, 1.0)
+
+        self.controller._is_rendering = False
+        self.controller.toggle_test_strip()
+
+        self.assertEqual(len(self.strip_tasks), 1, "refining after a pick must not re-render")
+        self.assertTrue(self.controller.state.test_strip)
+
+    def test_any_other_edit_invalidates_the_cache(self):
+        from negpy.features.geometry.models import GeometryConfig
+
+        self._print_strip()
+        self.controller.toggle_test_strip()  # off
+        # A crop changes the pixels under every patch, so the strip must be re-printed.
+        self.controller.state.config = replace(self.controller.state.config, geometry=replace(GeometryConfig(), fine_rotation=3.0))
+        self.controller.toggle_test_strip()
+
+        self.assertEqual(len(self.strip_tasks), 2)
+        self.assertTrue(self.controller.state.test_strip_pending)
+
+    def test_a_cache_hit_shows_the_strip_without_a_progress_bar(self):
+        self._print_strip()
+        self.controller.toggle_test_strip()
+        self.progress.clear()
+        self.controller.toggle_test_strip()
+
+        self.assertEqual(self.progress, [], "nothing to report progress on")
+        self.assertFalse(self.controller.state.test_strip_pending)
 
     def test_loading_another_frame_drops_the_strip(self):
         """load_file's navigate-back memo path repaints without request_render, so a strip
