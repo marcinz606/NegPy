@@ -404,6 +404,8 @@ class MainWindow(QMainWindow):
         self.controller.crop_guide_changed.connect(self.canvas.overlay.update)
         self.controller.dust_overlay_changed.connect(self.canvas.overlay.update)
         self.controller.zones_overlay_changed.connect(lambda _on: self.canvas.overlay.update())
+        self.controller.test_strip_changed.connect(lambda _up: self.canvas.overlay.on_test_strip_changed())
+        self.canvas.test_strip_picked.connect(self.controller.apply_test_strip_pick)
 
         self.controller.status_message_requested.connect(self.canvas.hud.showMessage)
         self.controller.status_progress_requested.connect(self.canvas.hud.set_progress)

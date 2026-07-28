@@ -26,8 +26,11 @@ def _context_undo(controller) -> None:
 
 
 def _context_cancel(controller, window) -> None:
-    """Esc ladder: the first press clears in-progress tool geometry (polyline
-    points, straighten line), the second puts the tool down."""
+    """Esc ladder: a test strip is dismissed first (it owns the canvas while up), then
+    in-progress tool geometry (polyline points, straighten line), then the tool itself."""
+    if controller.state.test_strip or controller.state.test_strip_pending:
+        controller.toggle_test_strip(force=False)
+        return
     if not window.canvas.overlay.cancel_in_progress():
         controller.cancel_active_tool()
 

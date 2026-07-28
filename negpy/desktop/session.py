@@ -102,6 +102,13 @@ class AppState:
     # Adams-zone box overlay on the canvas; display-only, session-only — never persisted.
     zones_overlay: bool = False
 
+    # Density x grade test strip: session-only proof, dropped by any real render. The
+    # mosaic is the assembled patches at preview resolution, content_rect its picture area.
+    test_strip: bool = False
+    test_strip_pending: bool = False
+    test_strip_mosaic: Optional[Any] = None
+    test_strip_content_rect: Optional[tuple] = None
+
     # Reverse scroll-wheel zoom direction on the image viewer (scroll up = zoom out).
     invert_zoom_scroll: bool = False
 

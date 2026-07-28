@@ -93,6 +93,16 @@ class ToneSidebar(BaseSidebar):
         auto_row.addWidget(self.auto_grade_btn, 1)
         auto_row.addWidget(self.targets_btn)
         self.layout.addLayout(auto_row)
+
+        self.test_strip_btn = self._small_toggle(
+            "mdi.view-grid-outline",
+            "Test Strip",
+            False,
+            "Test Strip: print the frame as a 4×4 grid — Print Density increasing left to right, "
+            "ISO-R Grade softening top to bottom. Click the patch you like to keep its settings.",
+        )
+        self.test_strip_btn.clicked.connect(lambda checked: self.controller.toggle_test_strip(force=checked))
+        self.layout.addWidget(self.test_strip_btn)
         self.layout.addWidget(self.density_slider)
 
         self.paper_black_btn = self._small_toggle(
@@ -192,6 +202,7 @@ class ToneSidebar(BaseSidebar):
         # Global-only controls, greyed while a channel page is active.
         self._global_only = (
             self.density_slider,
+            self.test_strip_btn,
             self.auto_density_btn,
             self.auto_grade_btn,
             self.targets_btn,
@@ -251,8 +262,19 @@ class ToneSidebar(BaseSidebar):
             return
         self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, paper_profile=key)
 
+    def _sync_test_strip_btn(self, _up: bool) -> None:
+        """ponytail: the whole strip is one job with no progress reporting — the button
+        just says it's working. Per-patch progress if 16 renders ever feels long."""
+        pending = self.state.test_strip_pending
+        self.test_strip_btn.setChecked(self.state.test_strip or pending)
+        self.test_strip_btn.setEnabled(not pending)
+        self.test_strip_btn.setText(" Printing…" if pending else " Test Strip")
+
     def _connect_signals(self) -> None:
         self.paper_combo.currentIndexChanged.connect(self._on_paper_changed)
+        # The strip is session state, not config, and any render drops it — so the button
+        # has to follow the controller rather than sync_ui.
+        self.controller.test_strip_changed.connect(self._sync_test_strip_btn)
         self.ch_btn_group.idToggled.connect(lambda _id, checked: self.sync_ui() if checked else None)
 
         for slider, field in (

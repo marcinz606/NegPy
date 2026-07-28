@@ -13,7 +13,14 @@ from negpy.desktop.converters import ImageConverter
 from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.canvas.crop_guides import CropGuide, guide_shapes
 from negpy.desktop.view.styles.theme import THEME
-from negpy.features.exposure.analysis import zone_grid, zone_region_labels
+from negpy.features.exposure.analysis import (
+    STRIP_DENSITIES,
+    STRIP_GRADES,
+    strip_cell_at,
+    strip_nearest_cell,
+    zone_grid,
+    zone_region_labels,
+)
 from negpy.features.exposure.densitometer import zone_roman
 from negpy.features.geometry.logic import rotation_drag_angle, smooth_polyline, straighten_delta_degrees, translate_manual_crop_rect
 from negpy.features.local.logic import _rasterise_mask
@@ -42,6 +49,9 @@ _ZONE_LINE_ALPHA = 150
 _ZONE_LINE_SHADOW_ALPHA = 110  # dark underlay so the white edges hold over blown highlights
 _ZONE_LABEL_MIN_PX = 16.0  # below this cell size the numerals collide into noise
 _ZONE_CLIP_COLOR = QColor(220, 80, 80)  # paper black / paper white, same red the zone strip warns with
+
+_STRIP_LABEL_MIN_PX = 34.0  # below this patch size the two axis labels overlap
+_STRIP_LABEL_INSET_PX = 6.0
 
 
 def grid_interior_fractions(divisions: int) -> List[float]:
@@ -102,6 +112,7 @@ class CanvasOverlay(QWidget):
     local_mask_edited = pyqtSignal(int, list)  # (mask index, viewport-normalized vertices)
     local_vertex_deleted = pyqtSignal(int, int)  # (mask index, vertex index)
     straighten_completed = pyqtSignal(float)  # fine-rotation delta, stored convention (CCW+)
+    test_strip_picked = pyqtSignal(int, int)  # (row, col) of the clicked patch
 
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
@@ -165,6 +176,10 @@ class CanvasOverlay(QWidget):
         self._zone_cells: Optional[np.ndarray] = None
         self._zone_labels: List[Tuple[int, int, int]] = []
 
+        # Test strip mosaic, converted once and keyed by the buffer it came from.
+        self._strip_cache: Optional[Tuple[tuple, QImage]] = None
+        self._strip_hover: Optional[Tuple[int, int]] = None
+
         # Working screen points while a selected-mask vertex is dragged/added.
         self._local_edit_verts: Optional[List[QPointF]] = None
         self._local_drag_vertex: Optional[int] = None
@@ -178,6 +193,9 @@ class CanvasOverlay(QWidget):
         self.pan_y: float = 0.0
 
         self._view_rect: QRectF = QRectF()
+
+        self._display_cs: str = ""
+        self._monitor_icc_bytes: Optional[bytes] = None
 
         self._buffer_overlay_ratio: float = 0.0
         self._buffer_overlay_visible: bool = False
@@ -322,6 +340,9 @@ class CanvasOverlay(QWidget):
         self._content_rect = content_rect
         self._zone_source = buffer if isinstance(buffer, np.ndarray) else None
         self._zone_cells = None  # rebuilt lazily on the next zones paint
+        # Kept so a strip mosaic gets the same display transform as this buffer did.
+        self._display_cs = color_space
+        self._monitor_icc_bytes = monitor_icc_bytes
         if buffer is not None:
             self._qimage = ImageConverter.to_qimage(buffer, color_space, monitor_icc_bytes)
             self._current_size = (self._qimage.width(), self._qimage.height())
@@ -481,7 +502,11 @@ class CanvasOverlay(QWidget):
             self._draw_dust_overlay(painter)
 
         # Crop/analysis modes show the uncropped frame, so the boxes wouldn't line up.
-        if self.state.zones_overlay and not self.state.flat_peek and self._tool_mode not in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW):
+        content_aligned = not self.state.flat_peek and self._tool_mode not in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
+        if self.state.test_strip and content_aligned:
+            # Takes the content rect over from the zone grid: both would claim it.
+            self._draw_test_strip(painter)
+        elif self.state.zones_overlay and content_aligned:
             self._draw_zone_grid(painter)
 
         if self._rotation_grid_visible:
@@ -715,6 +740,94 @@ class CanvasOverlay(QWidget):
             painter.drawText(cell.translated(1.0, 1.0), Qt.AlignmentFlag.AlignCenter, label)
             painter.setPen(_ZONE_CLIP_COLOR if zone in (0, 10) else label_white)
             painter.drawText(cell, Qt.AlignmentFlag.AlignCenter, label)
+        painter.restore()
+
+    def on_test_strip_changed(self) -> None:
+        """Strip came up or went away — drop the hover highlight and the picker cursor."""
+        self._strip_hover = None
+        if not self.state.test_strip:
+            self._strip_cache = None
+            self.unsetCursor()
+        self.update()
+
+    def _strip_qimage(self) -> Optional[QImage]:
+        """The mosaic under the canvas's own display transform, cached by buffer identity."""
+        mosaic = self.state.test_strip_mosaic
+        if mosaic is None:
+            return None
+        key = (id(mosaic), self._display_cs)
+        if self._strip_cache is not None and self._strip_cache[0] == key:
+            return self._strip_cache[1]
+        img = ImageConverter.to_qimage(mosaic, self._display_cs, self._monitor_icc_bytes)
+        self._strip_cache = (key, img)
+        return img
+
+    def _strip_patch_rects(self, rect: QRectF) -> List[Tuple[int, int, QRectF]]:
+        """(row, col, screen rect) per patch. Edges are computed from the same fractions
+        the mosaic was sliced on, so the drawn separators sit on the real seams."""
+        rows, cols = len(STRIP_GRADES), len(STRIP_DENSITIES)
+        xs = [rect.x() + rect.width() * c / cols for c in range(cols + 1)]
+        ys = [rect.y() + rect.height() * r / rows for r in range(rows + 1)]
+        return [(r, c, QRectF(xs[c], ys[r], xs[c + 1] - xs[c], ys[r + 1] - ys[r])) for r in range(rows) for c in range(cols)]
+
+    def _draw_test_strip(self, painter: QPainter) -> None:
+        """Darkroom test strip: the frame sliced into a density × grade grid, each patch
+        printed at its own settings. Columns darken left to right, rows soften top to
+        bottom, so the diagonals read light/dark and hard/soft. Click a patch to keep it.
+
+        The mosaic replaces the canvas frame over the content rect rather than tinting it —
+        these are real renders, and a wash over them would misreport the tone being judged.
+        """
+        img = self._strip_qimage()
+        if img is None:
+            return
+        rect = self._content_view_rect()
+        if rect.isEmpty():
+            return
+        painter.drawImage(rect, img)
+
+        patches = self._strip_patch_rects(rect)
+        current = strip_nearest_cell(self.state.config.exposure.density, self.state.config.exposure.grade)
+
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for color, width in ((QColor(0, 0, 0, _ZONE_LINE_SHADOW_ALPHA), 3.5), (QColor(255, 255, 255, _ZONE_LINE_ALPHA), 1.5)):
+            pen = QPen(color, width)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            for _, _, cell in patches:
+                painter.drawRect(cell)
+
+        for row, col, cell in patches:
+            if (row, col) == self._strip_hover:
+                pen = QPen(QColor(255, 255, 255, 235), 2.5)
+            elif (row, col) == current:
+                pen = QPen(QColor(THEME.accent_primary), 2.0)
+            else:
+                continue
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            painter.drawRect(cell)
+
+        if min(rect.width() / len(STRIP_DENSITIES), rect.height() / len(STRIP_GRADES)) < _STRIP_LABEL_MIN_PX:
+            return
+        painter.save()
+        font = painter.font()
+        font.setBold(True)
+        painter.setFont(font)
+        inset = _STRIP_LABEL_INSET_PX
+        for row, col, cell in patches:
+            # Density along the top edge, grade down the left — each axis labelled once.
+            for text, flags in (
+                (f"D {STRIP_DENSITIES[col]:.1f}" if row == 0 else "", Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter),
+                (f"R {STRIP_GRADES[row]:.0f}" if col == 0 else "", Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            ):
+                if not text:
+                    continue
+                box = cell.adjusted(inset, inset, -inset, -inset)
+                painter.setPen(QColor(0, 0, 0, 190))
+                painter.drawText(box.translated(1.0, 1.0), flags, text)
+                painter.setPen(QColor(255, 255, 255, 235))
+                painter.drawText(box, flags, text)
         painter.restore()
 
     def _draw_placed_heals(self, painter: QPainter) -> None:
@@ -1333,6 +1446,15 @@ class CanvasOverlay(QWidget):
         return float(np.clip(nb_x, 0, 1)), float(np.clip(nb_y, 0, 1))
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        # While the strip is up the canvas is a picker: a click keeps a patch, and no
+        # tool (or pan) gets the event.
+        if event.button() == Qt.MouseButton.LeftButton and self.state.test_strip:
+            coords = self._map_to_image_coords(event.position())
+            if coords is not None:
+                self.test_strip_picked.emit(*strip_cell_at(*coords))
+                event.accept()
+                return
+
         # A selected mask is editable even without the Draw Mask tool (grab a handle).
         if (
             event.button() == Qt.MouseButton.LeftButton
@@ -1467,6 +1589,13 @@ class CanvasOverlay(QWidget):
             self.cursor_moved.emit(*coords)
         else:
             self.cursor_left.emit()
+
+        if self.state.test_strip:
+            hover = strip_cell_at(*coords) if coords is not None else None
+            if hover != self._strip_hover:
+                self._strip_hover = hover
+                self.update()
+            self.setCursor(Qt.CursorShape.PointingHandCursor if hover is not None else Qt.CursorShape.ArrowCursor)
 
         # Placement tools carry special cursors (blank brush, pen nib, WB picker) that
         # read as broken over the empty canvas around the image — fall back to the

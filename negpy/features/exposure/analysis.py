@@ -128,6 +128,65 @@ def zone_region_labels(zones: np.ndarray) -> List[Tuple[int, int, int]]:
     return out
 
 
+# Test strip ladder: a fixed absolute grid, not an offset around the current
+# settings, so a strip printed off one frame is comparable to the next. Columns
+# darken left to right, rows soften top to bottom — the two diagonals then read as
+# the darkroom's light/dark and soft/hard axes. Named strip_* rather than
+# test_strip_*: pytest collects any test_-prefixed callable a test module imports.
+STRIP_DENSITIES = (0.6, 0.9, 1.2, 1.5)
+STRIP_GRADES = (90.0, 105.0, 120.0, 135.0)
+
+
+def strip_cells() -> List[Tuple[int, int, float, float]]:
+    """(row, col, density, grade) for every patch, row-major."""
+    return [(r, c, d, g) for r, g in enumerate(STRIP_GRADES) for c, d in enumerate(STRIP_DENSITIES)]
+
+
+def _strip_bounds(extent: int, divisions: int, index: int) -> Tuple[int, int]:
+    return round(extent * index / divisions), round(extent * (index + 1) / divisions)
+
+
+def strip_mosaic(tiles: List[np.ndarray]) -> np.ndarray:
+    """One frame assembled from `strip_cells()`-ordered renders, each contributing only
+    its own patch. Bounds are rounded from the same fractions on both sides of a seam,
+    so patches tile exactly — no gap, no overlap."""
+    cells = strip_cells()
+    if len(tiles) != len(cells):
+        raise ValueError(f"expected {len(cells)} tiles, got {len(tiles)}")
+    out = np.empty_like(tiles[0])
+    h, w = out.shape[:2]
+    for (row, col, _, _), tile in zip(cells, tiles):
+        if tile.shape != out.shape:
+            raise ValueError(f"tile shape {tile.shape} != {out.shape}")
+        y0, y1 = _strip_bounds(h, len(STRIP_GRADES), row)
+        x0, x1 = _strip_bounds(w, len(STRIP_DENSITIES), col)
+        out[y0:y1, x0:x1] = tile[y0:y1, x0:x1]
+    return out
+
+
+def strip_patch_rect(h: int, w: int, row: int, col: int) -> Tuple[int, int, int, int]:
+    """(x0, y0, x1, y1) of one patch inside an h×w frame — the bounds `strip_mosaic` filled."""
+    y0, y1 = _strip_bounds(h, len(STRIP_GRADES), row)
+    x0, x1 = _strip_bounds(w, len(STRIP_DENSITIES), col)
+    return x0, y0, x1, y1
+
+
+def strip_cell_at(nx: float, ny: float) -> Tuple[int, int]:
+    """Content-normalized position (0..1) -> (row, col)."""
+    rows, cols = len(STRIP_GRADES), len(STRIP_DENSITIES)
+    return (
+        int(np.clip(int(ny * rows), 0, rows - 1)),
+        int(np.clip(int(nx * cols), 0, cols - 1)),
+    )
+
+
+def strip_nearest_cell(density: float, grade: float) -> Tuple[int, int]:
+    """(row, col) of the patch closest to the settings currently in force."""
+    col = int(np.argmin([abs(d - density) for d in STRIP_DENSITIES]))
+    row = int(np.argmin([abs(g - grade) for g in STRIP_GRADES]))
+    return row, col
+
+
 def density_histogram(normalized_log: np.ndarray, roi: Optional[Tuple[int, int, int, int]] = None) -> np.ndarray:
     """Luma occupancy of the val domain; out-of-range mass lands in the edge bins.
     `roi` is the crop rect (y1, y2, x1, x2) in the same frame as `normalized_log`."""

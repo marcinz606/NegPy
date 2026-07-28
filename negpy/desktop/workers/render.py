@@ -8,7 +8,7 @@ from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.exposure.analysis import output_histogram
+from negpy.features.exposure.analysis import output_histogram, strip_cells, strip_mosaic
 from negpy.features.flatfield.logic import apply_flatfield
 from negpy.features.geometry.batch_autocrop import detect_crop_candidate, resolve_roll_crops
 from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix
@@ -51,6 +51,22 @@ class RenderTask:
     # These pixels are the before/after baseline, not the edit. Echoed in metrics so
     # the BEFORE badge tracks what is painted, not the pending toggle.
     compare: bool = False
+
+
+@dataclass(frozen=True)
+class TestStripTask:
+    """Request to print a density × grade test strip off one frame."""
+
+    buffer: np.ndarray
+    config: WorkspaceConfig
+    source_hash: str
+    preview_size: float
+    icc_input_path: Optional[str] = None
+    icc_output_path: Optional[str] = None
+    color_space: str = "Adobe RGB"
+    gpu_enabled: bool = True
+    ir_buffer: Optional[np.ndarray] = None
+    monitor_icc_bytes: Optional[bytes] = None
 
 
 @dataclass(frozen=True)
@@ -156,6 +172,7 @@ class RenderWorker(QObject):
 
     finished = pyqtSignal(object, dict)  # (ndarray|GPUTexture, metrics)
     metrics_updated = pyqtSignal(dict)  # Late-arriving metrics (histogram, etc.)
+    strip_finished = pyqtSignal(object, object)  # (mosaic ndarray, content_rect|None)
     error = pyqtSignal(str)
 
     def __init__(self) -> None:
@@ -204,16 +221,9 @@ class RenderWorker(QObject):
                 result = result.readback()
 
             if soft_proof and isinstance(result, np.ndarray):
-                pil_img = self._processor.buffer_to_pil(result, task.config)
-                pil_proof = self._processor.soft_proof_preview(
-                    pil_img,
-                    task.color_space,
-                    task.icc_input_path,
-                    task.icc_output_path,
-                    task.monitor_icc_bytes,
+                result = self._soft_proof(
+                    result, task.config, task.color_space, task.icc_input_path, task.icc_output_path, task.monitor_icc_bytes
                 )
-                arr = np.array(pil_proof)
-                result = arr.astype(np.float32) / (65535.0 if arr.dtype == np.uint16 else 255.0)
 
             # Ensure ground truth is stored in metrics for view consumption
             metrics["base_positive"] = result
@@ -228,6 +238,71 @@ class RenderWorker(QObject):
 
         except Exception as e:
             logger.exception("Render pipeline failed")
+            self.error.emit(str(e))
+
+    def _soft_proof(
+        self,
+        result: np.ndarray,
+        config: WorkspaceConfig,
+        color_space: str,
+        icc_input_path: Optional[str],
+        icc_output_path: Optional[str],
+        monitor_icc_bytes: Optional[bytes],
+    ) -> np.ndarray:
+        """Bake source→output→monitor into the buffer; the display transform is then a
+        no-op (see AppController.display_transform_params)."""
+        pil_proof = self._processor.soft_proof_preview(
+            self._processor.buffer_to_pil(result, config),
+            color_space,
+            icc_input_path,
+            icc_output_path,
+            monitor_icc_bytes,
+        )
+        arr = np.array(pil_proof)
+        return arr.astype(np.float32) / (65535.0 if arr.dtype == np.uint16 else 255.0)
+
+    @pyqtSlot(TestStripTask)
+    def build_strip(self, task: TestStripTask) -> None:
+        """Render the frame once per ladder rung and keep only each rung's patch.
+
+        Runs on the render thread with the canvas's own ImageProcessor, so the patches are
+        the same pixels the canvas would show — density/grade are absent from the analysis
+        cache key, so the per-frame metering is reused and only the exposure stage onward
+        re-dispatches. Metrics are dropped on the floor: a proof must not disturb the
+        histogram/bounds writeback the real render owns.
+        """
+        try:
+            tiles = []
+            content_rect = None
+            for _, _, density, grade in strip_cells():
+                config = replace(task.config, exposure=replace(task.config.exposure, density=density, grade=grade))
+                result, metrics = self._processor.run_pipeline(
+                    task.buffer,
+                    config,
+                    task.source_hash,
+                    render_size_ref=task.preview_size,
+                    prefer_gpu=task.gpu_enabled,
+                    readback_metrics=False,
+                    ir_buffer=task.ir_buffer,
+                    wants_uv_grid=False,
+                )
+                if isinstance(result, GPUTexture):
+                    result = result.readback()
+                tiles.append(result)
+                if content_rect is None:
+                    content_rect = metrics.get("content_rect")
+
+            mosaic = strip_mosaic(tiles)
+            # Proof the assembled mosaic, not each tile: the transform is per-pixel, so
+            # one pass over the finished frame is identical and 16x cheaper.
+            if task.icc_input_path or task.icc_output_path:
+                mosaic = self._soft_proof(
+                    mosaic, task.config, task.color_space, task.icc_input_path, task.icc_output_path, task.monitor_icc_bytes
+                )
+            self.strip_finished.emit(mosaic, content_rect)
+
+        except Exception as e:
+            logger.exception("Test strip render failed")
             self.error.emit(str(e))
 
 

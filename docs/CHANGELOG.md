@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.45.0
+
+- New: **Test strip** — the Tone panel prints the frame as a 4×4 grid, Print Density increasing left to right and ISO-R Grade softening top to bottom, so the diagonals read light-to-dark and soft-to-hard like a split-filter test strip. Each patch is a real render at its own settings; click one to keep it. Escape or a second press clears it, and any edit drops it.
+
 ## 0.44.0
 
 - New: **Zone system overlay** — toggle Adams zones over the preview from the toolbar or Shift+Z; cells merge into regions with one Roman numeral each, paper black and white flagged red, and the ruler is shared with the sidebar zone strip and spot densitometer so the three never disagree. Peek Flat Scan moves to the overflow menu.

@@ -186,6 +186,8 @@ def test_context_cancel_two_stage() -> None:
     from negpy.desktop.view.keyboard_shortcuts import _context_cancel
 
     controller, window = MagicMock(), MagicMock()
+    controller.state.test_strip = False
+    controller.state.test_strip_pending = False
     window.canvas.overlay.cancel_in_progress.return_value = True
     _context_cancel(controller, window)
     controller.cancel_active_tool.assert_not_called()
@@ -193,6 +195,30 @@ def test_context_cancel_two_stage() -> None:
     window.canvas.overlay.cancel_in_progress.return_value = False
     _context_cancel(controller, window)
     controller.cancel_active_tool.assert_called_once()
+
+
+def test_context_cancel_dismisses_a_test_strip_before_any_tool() -> None:
+    from unittest.mock import MagicMock
+
+    from negpy.desktop.view.keyboard_shortcuts import _context_cancel
+
+    controller, window = MagicMock(), MagicMock()
+    controller.state.test_strip_pending = False
+    window.canvas.overlay.cancel_in_progress.return_value = True
+
+    controller.state.test_strip = True
+    _context_cancel(controller, window)
+    controller.toggle_test_strip.assert_called_once_with(force=False)
+    # The strip owns the canvas while up, so nothing below it sees the key.
+    window.canvas.overlay.cancel_in_progress.assert_not_called()
+    controller.cancel_active_tool.assert_not_called()
+
+    # A strip still printing is dismissable too.
+    controller.reset_mock()
+    controller.state.test_strip = False
+    controller.state.test_strip_pending = True
+    _context_cancel(controller, window)
+    controller.toggle_test_strip.assert_called_once_with(force=False)
 
 
 def _crop_overlay(rect=(0.2, 0.2, 0.8, 0.8)) -> CanvasOverlay:
