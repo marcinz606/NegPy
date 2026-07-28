@@ -13,6 +13,7 @@ from negpy.features.geometry.batch_autocrop import (
     _pixel_roi,
     _resolve_border,
     _roll_border,
+    _top_edge_slope,
     add_uniform_safety_border,
     build_roll_template,
     detect_crop_candidate,
@@ -36,6 +37,7 @@ def _evidence(
     geometry_score: float = 0.8,
     border: tuple[float, ...] = (),
     rebate_trim: float = 1.0,
+    angle_confident: bool = False,
     vertical_edge_profile: np.ndarray | None = None,
     vertical_edge_contrast: float | None = None,
     reason: str = "",
@@ -54,6 +56,7 @@ def _evidence(
         geometry_score=geometry_score,
         border=border,
         rebate_trim=rebate_trim,
+        angle_confident=angle_confident,
         vertical_edge_contrast=profile_contrast,
         vertical_edge_profile=profile,
         reason=reason,
@@ -382,3 +385,105 @@ def test_rebate_trim_cuts_further_the_higher_it_goes() -> None:
 
     assert over[0] > full[0] > 0.1
     assert over[2] < full[2] < 0.9
+
+
+def _tilted_film_box(angle: float) -> np.ndarray:
+    from negpy.features.geometry.logic import apply_fine_rotation
+
+    box = np.full((400, 600), 0.2, dtype=np.float32)
+    box[100:300, 50:550] = 0.9
+    return apply_fine_rotation(box, angle) if angle else box
+
+
+@pytest.mark.parametrize("tilt", [-0.7, -0.3, 0.0, 0.4, 1.0])
+def test_top_edge_slope_returns_the_correction_that_levels_the_edge(tilt: float) -> None:
+    # detect_crop_candidate adds this to the consensus angle and rotates by the sum, so
+    # a frame tilted by `tilt` must measure -tilt. Both signs pinned: a flipped
+    # convention doubles the error instead of cancelling it.
+    assert _top_edge_slope(_tilted_film_box(tilt), (100, 300, 50, 550)) == pytest.approx(-tilt, abs=0.05)
+
+
+def test_top_edge_slope_abstains_when_no_edge_reads_straight() -> None:
+    noise = np.asarray(np.random.default_rng(7).random((400, 600)), dtype=np.float32)
+
+    assert _top_edge_slope(noise, (100, 300, 50, 550)) is None
+
+
+def test_top_edge_slope_abstains_on_a_flat_band_rather_than_reporting_zero() -> None:
+    assert _top_edge_slope(np.ones((400, 600), dtype=np.float32), (100, 300, 50, 550)) is None
+
+
+def test_detect_candidate_folds_the_edge_fit_into_the_consensus_angle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    profile = np.zeros(600, dtype=np.float32)
+    detection = SimpleNamespace(
+        roi=(100, 300, 50, 550),
+        correction_angle=0.2,
+        confidence=0.9,
+        supported_sides=frozenset({"top", "right", "bottom", "left"}),
+        supported_corners=frozenset({"top_left"}),
+        evidence_sources=("adaptive-dark",),
+        geometry_score=0.9,
+        vertical_edge_contrast=0.8,
+        vertical_edge_profile=profile,
+    )
+    monkeypatch.setattr(batch_autocrop, "detect_film_bounds_with_confidence", lambda _image: detection)
+    monkeypatch.setattr(batch_autocrop, "apply_fine_rotation", lambda image, _angle: image)
+    monkeypatch.setattr(batch_autocrop, "_trim_opaque_border", lambda _lum, roi: roi)
+    monkeypatch.setattr(batch_autocrop, "measure_film_border", lambda *_a, **_k: dict.fromkeys(batch_autocrop.BORDER_SIDES, 0.0))
+
+    evidence = detect_crop_candidate("fitted", np.repeat(_tilted_film_box(-0.3)[:, :, None], 3, axis=2))
+
+    assert evidence.angle_confident is True
+    assert evidence.correction_angle == pytest.approx(0.5, abs=0.05)  # 0.2 consensus + 0.3 measured
+
+
+def test_fitted_angle_survives_a_mediocre_box_score() -> None:
+    # Box confidence and edge tilt measure different things: a weak box whose edge fit
+    # succeeded keeps its own angle instead of being pulled onto the roll median.
+    weak = _evidence("weak", correction_angle=1.4, confidence=0.4, angle_confident=True)
+
+    assert _resolved_by_key([*_trusted_roll(), weak])["weak"].correction_angle == pytest.approx(1.4)
+
+
+def test_unfitted_weak_frame_still_takes_the_roll_angle() -> None:
+    weak = _evidence("weak", correction_angle=1.4, confidence=0.4, angle_confident=False)
+
+    assert _resolved_by_key([*_trusted_roll(), weak])["weak"].correction_angle == pytest.approx(1.0)
+
+
+def test_fitted_angle_still_yields_when_it_diverges_beyond_tolerance() -> None:
+    divergent = _evidence("divergent", correction_angle=5.0, confidence=0.4, angle_confident=True)
+
+    assert _resolved_by_key([*_trusted_roll(), divergent])["divergent"].correction_angle == pytest.approx(1.0)
+
+
+def test_roll_angle_comes_from_the_fitted_frames_once_enough_carry_one() -> None:
+    evidence = [
+        _evidence("fit-a", correction_angle=2.0, angle_confident=True),
+        _evidence("fit-b", correction_angle=2.1, angle_confident=True),
+        _evidence("fit-c", correction_angle=1.9, angle_confident=True),
+        _evidence("blob-a", correction_angle=1.0),
+        _evidence("blob-b", correction_angle=1.0),
+    ]
+
+    template = build_roll_template(evidence)
+
+    assert template is not None
+    assert template.correction_angle == pytest.approx(2.0)
+
+
+def test_roll_angle_keeps_every_frame_below_the_fitted_minimum() -> None:
+    evidence = [
+        _evidence("fit-a", correction_angle=2.0, angle_confident=True),
+        _evidence("fit-b", correction_angle=2.0, angle_confident=True),
+        _evidence("blob-a", correction_angle=1.0),
+        _evidence("blob-b", correction_angle=1.0),
+        _evidence("blob-c", correction_angle=1.0),
+    ]
+
+    template = build_roll_template(evidence)
+
+    assert template is not None
+    assert template.correction_angle == pytest.approx(1.0)
