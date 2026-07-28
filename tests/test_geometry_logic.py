@@ -1204,9 +1204,24 @@ def test_measure_film_border_reports_zero_for_a_full_bleed_edge():
     assert measured["right"] == 0.0
 
 
+def test_measure_film_border_survives_a_bed_sliver_at_the_box_edge():
+    # Real film boxes rarely start exactly on the rebate: a few px of darker bed ramp up
+    # into it first. Walking from index 0 crosses the threshold immediately and calls a
+    # bordered side full-bleed, so the walk has to start at the brightest sample.
+    box = _film_box(top=20, bottom=20, left=20, right=20)
+    ramp = np.linspace(0.2, 0.95, 6, dtype=np.float32)
+    box[:6, :] = ramp[:, None]
+    box[:, :6] = np.minimum(box[:, :6], ramp[None, :])
+
+    measured = measure_film_border(box, (0, 400, 0, 600))
+
+    assert measured["top"] == pytest.approx(20 / 400)
+    assert measured["left"] == pytest.approx(20 / 600)
+
+
 def test_measured_border_route_insets_a_box_the_tier_path_cannot_read():
-    # A 4% strip of this box is 16px, so the tier path's uniformity probe straddles the
-    # 8px rebate and the picture and abstains -- the case that left the rebate on.
+    # A 4% strip of this box is 16px, so the tier path's probe straddles the 8px rebate
+    # and the picture, and abstains. That is the case that left the rebate on.
     roi, row_occ, col_occ = _refine_roi_to_image(_film_box(), (0, 400, 0, 600))
 
     assert roi == (8, 392, 12, 588)
@@ -1214,8 +1229,7 @@ def test_measured_border_route_insets_a_box_the_tier_path_cannot_read():
 
 
 def test_measured_border_needs_an_opposite_pair():
-    # One bright side alone is far more often a sunlit wall than film base, so trusting
-    # it would carve the picture down to a dark subject.
+    # One bright side alone is usually a sunlit wall, not film base.
     lone = _film_box(top=8, bottom=0, left=0, right=0)
 
     assert _roi_from_measured_border(lone, (0, 400, 0, 600)) is None
@@ -1231,8 +1245,7 @@ def test_measured_border_abstaining_side_inherits_its_opposite():
 
 
 def test_measured_border_caps_a_side_against_its_opposite():
-    # A walk that ran long on one side cannot cut deeper than twice what the opposite
-    # side -- the same film gate -- actually measured.
+    # A long walk on one side cannot cut deeper than twice its opposite, same film gate.
     box = _film_box(top=20, bottom=4, left=12, right=12)
 
     roi = _roi_from_measured_border(box, (0, 400, 0, 600))
@@ -1250,8 +1263,7 @@ def test_rebate_trim_scales_the_inset_between_film_edge_and_image_edge():
 
 
 def test_rebate_trim_is_inert_when_nothing_was_refined_away():
-    # Film mode and unrefined detections hand back the film box itself, so every inset
-    # is zero and the control cannot move the crop.
+    # Film mode and unrefined detections hand back the film box, so every inset is zero.
     film_roi = (0, 400, 0, 600)
 
     assert scale_roi_inset(film_roi, film_roi, 0.0) == film_roi

@@ -115,15 +115,13 @@ class GeometrySidebar(BaseSidebar):
             precision=1,
             unit=" px",
         )
-        self.layout.addWidget(self.offset_slider)
-
         self.rebate_trim_slider = CompactSlider(
             "Rebate Trim",
             0.0,
             150.0,
             conf.autocrop_rebate_trim * 100.0,
             step=5.0,
-            precision=0,
+            precision=1,
             unit=" %",
         )
         self.rebate_trim_slider.setToolTip(
@@ -131,7 +129,11 @@ class GeometrySidebar(BaseSidebar):
             "100% lands on the image edge, above 100% bites in to clear a white border"
         )
         self.rebate_trim_slider.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
-        self.layout.addWidget(self.rebate_trim_slider)
+
+        trim_row = QHBoxLayout()
+        trim_row.addWidget(self.offset_slider, 1)
+        trim_row.addWidget(self.rebate_trim_slider, 1)
+        self.layout.addLayout(trim_row)
 
         # Auto crop actions: apply to this frame, or to the whole roll.
         auto_row = QHBoxLayout()

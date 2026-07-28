@@ -397,9 +397,8 @@ def _tilted_film_box(angle: float) -> np.ndarray:
 
 @pytest.mark.parametrize("tilt", [-0.7, -0.3, 0.0, 0.4, 1.0])
 def test_top_edge_slope_returns_the_correction_that_levels_the_edge(tilt: float) -> None:
-    # detect_crop_candidate adds this to the consensus angle and rotates by the sum, so
-    # a frame tilted by `tilt` must measure -tilt. Both signs pinned: a flipped
-    # convention doubles the error instead of cancelling it.
+    # The fit is added to the consensus angle, so a frame tilted by `tilt` must measure
+    # -tilt. Both signs pinned: a flipped convention doubles the error.
     assert _top_edge_slope(_tilted_film_box(tilt), (100, 300, 50, 550)) == pytest.approx(-tilt, abs=0.05)
 
 
@@ -440,8 +439,7 @@ def test_detect_candidate_folds_the_edge_fit_into_the_consensus_angle(
 
 
 def test_fitted_angle_survives_a_mediocre_box_score() -> None:
-    # Box confidence and edge tilt measure different things: a weak box whose edge fit
-    # succeeded keeps its own angle instead of being pulled onto the roll median.
+    # Box confidence and edge tilt measure different things.
     weak = _evidence("weak", correction_angle=1.4, confidence=0.4, angle_confident=True)
 
     assert _resolved_by_key([*_trusted_roll(), weak])["weak"].correction_angle == pytest.approx(1.4)

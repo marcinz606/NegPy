@@ -977,8 +977,16 @@ def measure_film_border(lum: np.ndarray, film_roi: ROI) -> dict[str, float]:
             continue
         threshold = 0.5 * (base + image_level)
         cap = max(3, int(_BORDER_WALK_CAP * length))
-        index = int(np.argmax(walk[:cap] <= threshold)) if np.any(walk[:cap] <= threshold) else cap
-        result[name] = float("nan") if index >= cap else index / length
+        head = walk[:cap]
+        # From the brightest sample, not index 0: the box edge usually carries a sliver
+        # of bed that ramps up into the rebate, and a walk starting there is already
+        # under the threshold and reports zero on a side that has a border.
+        peak = int(np.argmax(head))
+        if head[peak] <= threshold:
+            result[name] = 0.0  # no bright border on this side (full-bleed edge)
+            continue
+        below = np.flatnonzero(head[peak:] <= threshold)
+        result[name] = float("nan") if below.size == 0 else float(peak + int(below[0])) / length
     return result
 
 
@@ -989,21 +997,16 @@ def _roi_from_measured_border(lum: np.ndarray, film_roi: ROI) -> ROI | None:
     """
     Inset a film box by its own measured border, for frames the tier path cannot read.
 
-    The tier path needs a uniform plateau across a strip 4% of the box; a real rebate is
-    0.5-2.5%, so on a tightly framed scan that strip is mostly picture and refinement
-    concludes full-bleed. The per-side measurement copes, but a lone bright side is
-    almost always a uniform scene region rather than film base, so an opposite pair must
-    agree before anything is trimmed — the same rule _find_rebate_level applies, and the
-    only cross-check available without a roll to pool over.
+    Requires an opposite pair to agree before trimming, like _find_rebate_level: a lone
+    bright side is usually a uniform scene region, and trusting it carves the picture
+    down to a dark subject.
     """
     measured = measure_film_border(lum, film_roi)
     y1, y2, x1, x2 = film_roi
     height, width = y2 - y1, x2 - x1
 
-    # A side that abstained inherits its opposite; an axis where neither side read a
-    # border contributes nothing. The cap keeps one over-long walk (a bright region that
-    # happened to terminate just under the walk cap) from cutting deep into the picture
-    # on the strength of its opposite's much smaller reading.
+    # Cap against the opposite side: one over-long walk must not cut deep on the strength
+    # of a much smaller reading across the same gate.
     insets: dict[str, float] = {}
     for name in BORDER_SIDES:
         own, opposite = measured[name], measured[_OPPOSITE_SIDE[name]]
@@ -1477,9 +1480,8 @@ def scale_roi_inset(film_roi: ROI, roi: ROI, factor: float) -> ROI:
     """
     Scales how far a refined ROI sits inside its film box; 1.0 leaves it untouched.
 
-    One rule for every refinement route (tier, measured border, Sobel), so the Rebate
-    Trim control means the same thing whichever one produced the ROI. Inert when the two
-    boxes are equal, which covers Film mode and detections that were never refined.
+    Applied to the result of every refinement route so Rebate Trim means one thing.
+    Inert when the two boxes are equal (Film mode, and detections never refined).
     """
     if factor == 1.0:
         return roi

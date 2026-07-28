@@ -34,8 +34,8 @@ _MIN_PROFILE_CONTRAST = 0.06
 # A roll shares one film gate, so the rebate width is a roll property. Require enough
 # agreeing frames that a few uniformly bright frame edges cannot move the median.
 _MIN_BORDER_SAMPLES = 5
-# A line fit disagreeing with the consensus angle by more than this is reading something
-# other than the film edge, so the fit is dropped rather than trusted over the blob.
+# A fit disagreeing with the consensus by more than this is reading something other than
+# the film edge, so it is dropped.
 _MAX_EDGE_FIT_DELTA = 0.5
 _MIN_FITTED_ANGLES = 3
 
@@ -51,8 +51,8 @@ class CropEvidence:
     confidence: float
     target_ratio: str = "3:2"
     rebate_trim: float = 1.0
-    # True when a line fit to the top film edge confirmed correction_angle. Independent
-    # of `confidence`, which scores the box rather than its tilt.
+    # Set when a line fit confirmed correction_angle. Independent of `confidence`, which
+    # scores the box rather than its tilt.
     angle_confident: bool = False
     supported_sides: frozenset[str] = frozenset()
     supported_corners: frozenset[str] = frozenset()
@@ -135,11 +135,8 @@ def _vertical_edge_profile(img: ImageBuffer) -> tuple[np.ndarray, float]:
 def _top_edge_slope(lum: np.ndarray, roi: ROI) -> float | None:
     """Residual tilt of the film box's top edge, in degrees, or None when unreadable.
 
-    The consensus angle comes from the long side of a minAreaRect fitted to a
-    thresholded blob, which quantizes badly and gives up entirely on near-square boxes.
-    Fitting a line to the edge itself measures the same tilt over a baseline as wide as
-    the frame. Sign matches _correction_angle_from_quad: the measured image-coordinate
-    residual is already the additive fix.
+    Sign matches _correction_angle_from_quad: the measured image-coordinate residual is
+    already the additive fix.
     """
     y1, _, x1, x2 = roi
     height = lum.shape[0]
@@ -158,8 +155,8 @@ def _top_edge_slope(lum: np.ndarray, roi: ROI) -> float | None:
     band = gradient[low:high, columns]
     rows = low + np.argmax(band, axis=0)
     strength = band.max(axis=0)
-    # Without an edge under the band every column peaks on noise and the fit still comes
-    # back clean — a straight line through nothing, reported as a confident zero.
+    # With no edge under the band every column peaks on noise and the fit still comes
+    # back clean: a straight line through nothing, reported as a confident zero.
     if float(np.median(strength)) < max(1e-6, 3.0 * float(np.median(band))):
         return None
     points = np.column_stack([columns, rows])[strength >= np.quantile(strength, 0.60)]
@@ -229,8 +226,8 @@ def detect_crop_candidate(
     if not np.isfinite(correction) or abs(correction) > _MAX_AUTOMATIC_DESKEW:
         correction = 0.0
 
-    # Refine before rotating, not after: the re-detection below then measures the ROI at
-    # the final angle, so no rect has to be remapped and no third detection pass runs.
+    # Before rotating, not after: the re-detection below then measures the ROI at the
+    # final angle, so no rect has to be remapped.
     delta = _top_edge_slope(_detection_luma(image), initial.roi)
     angle_confident = delta is not None and abs(delta) <= _MAX_EDGE_FIT_DELTA
     if angle_confident:
@@ -380,8 +377,6 @@ def build_roll_template(evidence: Sequence[CropEvidence]) -> RollCropTemplate | 
     angles = angles[keep]
     kept_items = [item for item, accepted in zip(trusted, keep, strict=True) if accepted]
 
-    # A measured edge beats a blob orientation, so once enough frames carry one the roll
-    # angle is theirs alone. Below that the subset is too small to out-median the rest.
     fitted = np.asarray([item.correction_angle for item in kept_items if item.angle_confident], dtype=np.float64)
     if fitted.size >= _MIN_FITTED_ANGLES:
         angles = fitted
@@ -640,9 +635,8 @@ def resolve_roll_crops(
 
         angle = item.correction_angle
         angle_tol = max(0.55, 4.0 * template.angle_mad)
-        # A fitted angle stands on its own even when the box scored poorly — the two
-        # measure different things. It still yields to the roll when it diverges beyond
-        # tolerance, where a mis-detection is likelier than a genuinely odd frame.
+        # A fitted angle stands on its own even when the box scored poorly, but still
+        # yields to the roll beyond angle_tol, where a mis-detection is likelier.
         angle_trusted = item.angle_confident or item.confidence >= _TRUSTED_CONFIDENCE
         if item.roi is None or not angle_trusted or abs(angle - template.correction_angle) > angle_tol:
             target_angle = template.correction_angle
