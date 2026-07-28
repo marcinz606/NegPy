@@ -1,6 +1,13 @@
-from negpy.infrastructure.scanners.base import ScannerDevice, ScannerSession, ScannerUnavailable
-from negpy.infrastructure.scanners.params import ScanParams
+from negpy.infrastructure.scanners.base import (
+    ScannerDevice,
+    ScannerSession,
+    ScannerUnavailable,
+    ScannerCapabilities
+)
+from negpy.infrastructure.scanners.params import ScanParams, ScanMode
 from negpy.infrastructure.scanners.result import ScanResult
+
+from pieusb.types import DeviceInfo
 
 from collections.abc import Callable
 
@@ -36,12 +43,41 @@ class PieusbBackend:
             raise ScannerUnavailable('Could not import module pieusb')
         self._pieusb = pieusb
         self._devices_cache: list[ScannerDevice] | None = None
+        self._devices_map: dict[str, DeviceInfo] = {}
 
     def list_devices(self) -> list[ScannerDevice]:
-        return []
+        if self._devices_cache is not None:
+            return self._devices_cache
+
+        return self.refresh_devices()
     
     def refresh_devices(self) -> list[ScannerDevice]:
-        return []
+        self._devices_cache = []
+        self._devices_map = {}
+        devices = self._pieusb.get_devices()
+        for dev in devices:
+            native_res = dev.inquiry.max_resolution_x
+            max_w = dev.inquiry.max_scan_w / native_res * 25.4
+            max_h = dev.inquiry.max_scan_h / native_res * 25.4
+            caps = ScannerCapabilities(
+                ir_channel=self._pieusb.types.Filter.INFRARED in dev.inquiry.filters,
+                supported_dpi=(300, 500, 1000, 2500, 5000, 10000),
+                supported_depths=(8, 16),
+                sources=(ScanMode.POSITIVE),
+                max_area_mm=(max_w, max_h),
+                auto_exposure=True
+            )
+            device_str = f'pieusb:{dev.dev.bus}:{dev.dev.address}'
+            self._devices_map[device_str] = dev.dev
+            self._devices_cache.append(ScannerDevice(
+                id='something',
+                vendor=dev.inquiry.vendor,
+                model=dev.inquiry.model_str,
+                capabilities=caps
+            ))
+
+        return self._devices_cache
+
 
     def scan(
         self,

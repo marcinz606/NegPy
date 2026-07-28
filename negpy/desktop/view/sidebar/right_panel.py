@@ -101,10 +101,10 @@ class RightPanel(QWidget):
 
         from negpy.desktop.view.sidebar.scan import ScanSidebar, _ScanUnsupportedPlaceholder
 
-        if sys.platform == "win32":
-            self.scan_sidebar = _ScanUnsupportedPlaceholder()
-        else:
-            self.scan_sidebar = ScanSidebar(self.controller)
+        # if sys.platform == "win32":
+        #     self.scan_sidebar = _ScanUnsupportedPlaceholder()
+        # else:
+        self.scan_sidebar = ScanSidebar(self.controller)
 
         from negpy.desktop.view.sidebar.scanlight import ScanlightSidebar
 
