@@ -7,6 +7,7 @@ from negpy.features.geometry.logic import (
     get_autocrop_coords,
     get_manual_crop_coords,
     get_manual_rect_coords,
+    measure_film_border,
 )
 from negpy.features.geometry.processor import CropProcessor, GeometryProcessor
 from negpy.features.geometry.models import GeometryConfig
@@ -1155,3 +1156,46 @@ def test_canonical_crop_ratio_maps_portrait_forms_to_the_picker_entry():
 def test_canonical_crop_ratio_passes_through_unrecognized_values():
     assert canonical_crop_ratio("Free") == "Free"
     assert canonical_crop_ratio("3:2") == "3:2"
+
+
+def _film_box(top=8, bottom=8, left=12, right=12, shape=(400, 600), border=0.95, image=0.35):
+    box = np.full(shape, image, dtype=np.float32)
+    box[:top, :] = border
+    box[shape[0] - bottom :, :] = border
+    box[:, :left] = border
+    box[:, shape[1] - right :] = border
+    return box
+
+
+def test_measure_film_border_recovers_known_per_side_widths():
+    box = _film_box(top=8, bottom=20, left=12, right=30)
+
+    measured = measure_film_border(box, (0, 400, 0, 600))
+
+    assert measured["top"] == pytest.approx(8 / 400)
+    assert measured["bottom"] == pytest.approx(20 / 400)
+    assert measured["left"] == pytest.approx(12 / 600)
+    assert measured["right"] == pytest.approx(30 / 600)
+
+
+def test_measure_film_border_reports_nan_when_bright_content_reaches_the_edge():
+    # The rebate is real on top but the lower third is a uniform bright sky running to
+    # the frame edge -- indistinguishable from film base within one frame, so the side
+    # must abstain rather than report a plausible-looking number.
+    box = _film_box(top=8, bottom=0, left=0, right=0)
+    box[260:, :] = 0.70
+
+    measured = measure_film_border(box, (0, 400, 0, 600))
+
+    assert measured["top"] == pytest.approx(8 / 400)
+    assert np.isnan(measured["bottom"])
+
+
+def test_measure_film_border_reports_zero_for_a_full_bleed_edge():
+    box = _film_box(top=8, bottom=0, left=0, right=0)
+
+    measured = measure_film_border(box, (0, 400, 0, 600))
+
+    assert measured["bottom"] == 0.0
+    assert measured["left"] == 0.0
+    assert measured["right"] == 0.0

@@ -368,8 +368,12 @@ def _odd_kernel_size(value: float, lower: int, upper: int) -> int:
 
 
 def _outer_ring_values(lum: np.ndarray) -> np.ndarray:
+    # 2% not 5%: a tightly framed camera scan leaves only 1-3% of bed around the film,
+    # so a 5% ring is mostly film content and its median lands on the image rather than
+    # the surround. Every side then fails the ring_delta gate in
+    # _oriented_boundary_evidence and detection abstains on an otherwise perfect box.
     h, w = lum.shape[:2]
-    ring_width = max(2, round(0.05 * min(h, w)))
+    ring_width = max(2, round(0.02 * min(h, w)))
     ring_width = min(ring_width, max(1, min(h, w) // 2))
     parts = [lum[:ring_width, :].reshape(-1), lum[-ring_width:, :].reshape(-1)]
     if h > 2 * ring_width:
@@ -928,6 +932,54 @@ def _detection_luma(img: np.ndarray) -> np.ndarray:
     lum = get_luminance(ensure_image(_ensure_color(img)))
     anchor = float(np.percentile(lum, 99.5))
     return np.clip(lum / max(anchor, 1e-6), 0.0, 2.0)
+
+
+BORDER_SIDES: Tuple[str, ...] = ("top", "bottom", "left", "right")
+
+# Walk cap for a single border side, as a fraction of that side. Real rebate+bed slop
+# runs under ~3% of the frame; a walk that reaches the cap means the profile never
+# came back down, i.e. bright uniform picture content touches that edge. Such a side
+# reports NaN rather than a number, so roll pooling ignores it instead of averaging it.
+_BORDER_WALK_CAP = 0.06
+_BORDER_MIN_SEPARATION = 0.15
+
+
+def measure_film_border(lum: np.ndarray, film_roi: ROI) -> dict[str, float]:
+    """
+    Per-side thickness of the bright border (rebate + bed slop) just inside a film box,
+    as a fraction of that side's length.
+
+    Measurement only — it makes no keep/cut decision, because a single frame cannot
+    tell a rebate from a uniformly bright sky that reaches the frame edge. Callers are
+    expected to pool these across a roll (all frames share one film gate) and use the
+    median. A side with no clean border->image transition reports NaN.
+    """
+    y1, y2, x1, x2 = film_roi
+    box = lum[y1:y2, x1:x2]
+    bh, bw = box.shape[:2]
+    if bh < 16 or bw < 16:
+        return {name: float("nan") for name in BORDER_SIDES}
+
+    image_level = float(np.percentile(box, 40))
+    row_profile = box.mean(axis=1)
+    col_profile = box.mean(axis=0)
+
+    result: dict[str, float] = {}
+    for name in BORDER_SIDES:
+        profile, length = (row_profile, bh) if name in ("top", "bottom") else (col_profile, bw)
+        walk = profile[::-1] if name in ("bottom", "right") else profile
+        # A 1-2 px border leaves too few samples for a median, so take the border level
+        # from a high percentile of the outer sliver instead.
+        outer = walk[: max(2, round(0.03 * length))]
+        base = float(np.percentile(outer, 90))
+        if base - image_level < _BORDER_MIN_SEPARATION:
+            result[name] = 0.0  # no bright border on this side (full-bleed edge)
+            continue
+        threshold = 0.5 * (base + image_level)
+        cap = max(3, int(_BORDER_WALK_CAP * length))
+        index = int(np.argmax(walk[:cap] <= threshold)) if np.any(walk[:cap] <= threshold) else cap
+        result[name] = float("nan") if index >= cap else index / length
+    return result
 
 
 def _find_rebate_level(lum: np.ndarray, film_roi: ROI) -> Optional[Tuple[float, float]]:

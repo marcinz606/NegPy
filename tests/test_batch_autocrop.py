@@ -8,8 +8,11 @@ import pytest
 import negpy.features.geometry.batch_autocrop as batch_autocrop
 from negpy.features.geometry.batch_autocrop import (
     CropEvidence,
+    _inset_rect_by_border,
     _map_rect_between_rotations,
     _pixel_roi,
+    _resolve_border,
+    _roll_border,
     add_uniform_safety_border,
     build_roll_template,
     detect_crop_candidate,
@@ -31,6 +34,7 @@ def _evidence(
     supported_sides: frozenset[str] = frozenset({"left", "right"}),
     supported_corners: frozenset[str] = frozenset(),
     geometry_score: float = 0.8,
+    border: tuple[float, ...] = (),
     vertical_edge_profile: np.ndarray | None = None,
     vertical_edge_contrast: float | None = None,
     reason: str = "",
@@ -47,6 +51,7 @@ def _evidence(
         supported_sides=supported_sides,
         supported_corners=supported_corners,
         geometry_score=geometry_score,
+        border=border,
         vertical_edge_contrast=profile_contrast,
         vertical_edge_profile=profile,
         reason=reason,
@@ -179,7 +184,7 @@ def test_post_deskew_abstention_does_not_inherit_initial_confidence(
     monkeypatch.setattr(batch_autocrop, "detect_film_bounds_with_confidence", lambda _image: next(detections))
     monkeypatch.setattr(
         batch_autocrop,
-        "get_autocrop_coords",
+        "measure_film_border",
         lambda *_args, **_kwargs: pytest.fail("fallback geometry must not be assigned trusted confidence"),
     )
 
@@ -284,3 +289,78 @@ def test_resolved_rect_preserves_half_open_coordinates_when_normalized() -> None
     assert resolved.manual_crop_rect == pytest.approx((11 / 203, 7 / 101, 199 / 203, 97 / 101))
     assert (resolved.manual_crop_rect[2] - resolved.manual_crop_rect[0]) * 203 == pytest.approx(188)
     assert (resolved.manual_crop_rect[3] - resolved.manual_crop_rect[1]) * 101 == pytest.approx(90)
+
+
+_NAN = float("nan")
+
+
+def test_roll_border_medians_each_side_and_outvotes_a_wild_frame() -> None:
+    evidence = [_evidence(f"f{index}", border=(0.01, 0.02, 0.015, 0.012)) for index in range(5)]
+    evidence.append(_evidence("wild", border=(0.30, 0.30, 0.30, 0.30)))
+
+    border, samples = _roll_border(evidence)
+
+    assert samples == 6
+    assert border == pytest.approx((0.01, 0.02, 0.015, 0.012))
+
+
+def test_roll_border_excludes_abstaining_sides_rather_than_counting_them_as_zero() -> None:
+    evidence = [_evidence(f"f{index}", border=(0.01, 0.02, 0.015, 0.012)) for index in range(5)]
+    evidence.append(_evidence("partial", border=(_NAN, 0.9, 0.015, 0.012)))
+
+    border, samples = _roll_border(evidence)
+
+    assert border[0] == pytest.approx(0.01)
+    assert samples == 5  # limited by the side that abstained
+
+
+def test_roll_border_requires_a_minimum_sample_count() -> None:
+    evidence = [_evidence(f"f{index}", border=(0.01, 0.02, 0.015, 0.012)) for index in range(4)]
+
+    assert _roll_border(evidence) == ((), 4)
+
+
+def test_frame_border_wins_over_the_roll_median() -> None:
+    # How much bed the detector leaves inside the film box varies per frame, so a
+    # frame that measured its own border must not be overridden by the roll.
+    own = (0.05, 0.02, 0.015, 0.012)
+
+    assert _resolve_border(own, (0.01, 0.02, 0.015, 0.012)) == pytest.approx(own)
+
+
+def test_abstaining_side_falls_back_to_the_roll_median() -> None:
+    resolved = _resolve_border((_NAN, 0.02, 0.015, 0.012), (0.01, 0.09, 0.09, 0.09))
+
+    assert resolved[0] == pytest.approx(0.01)
+    assert resolved[1] == pytest.approx(0.02)
+
+
+def test_no_roll_border_means_no_trim() -> None:
+    assert _resolve_border((0.05, 0.02, 0.015, 0.012), ()) == ()
+
+
+def test_border_inset_trims_each_side_as_a_fraction_of_the_film_box() -> None:
+    inset = _inset_rect_by_border((0.1, 0.1, 0.9, 0.9), (0.25, 0.125, 0.5, 0.25))
+
+    assert inset == pytest.approx((0.5, 0.3, 0.7, 0.8))
+
+
+def test_border_inset_keeps_the_rect_when_it_would_collapse() -> None:
+    rect = (0.1, 0.1, 0.9, 0.9)
+
+    assert _inset_rect_by_border(rect, (0.6, 0.6, 0.1, 0.1)) == rect
+
+
+def test_resolved_crop_trims_the_rebate_when_the_roll_measured_one() -> None:
+    evidence = [_evidence(f"f{index}", border=(0.02, 0.02, 0.02, 0.02)) for index in range(6)]
+
+    x1, y1, x2, y2 = _resolved_by_key(evidence)["f0"].manual_crop_rect
+
+    assert x1 > 0.1 and y1 > 0.1
+    assert x2 < 0.9 and y2 < 0.9
+
+
+def test_resolved_crop_passes_through_untouched_without_a_roll_border() -> None:
+    resolved = _resolved_by_key(_trusted_roll())["trusted-0"]
+
+    assert resolved.manual_crop_rect == pytest.approx((0.1, 0.1, 0.9, 0.9))
