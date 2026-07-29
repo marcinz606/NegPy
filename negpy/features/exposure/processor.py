@@ -13,6 +13,7 @@ from negpy.features.exposure.logic import (
     filtration_offsets,
     flat_curve_params,
     grade_coupled_shape,
+    grade_saturation_damping,
     split_grade_deltas,
     local_ev_scale,
     per_channel_curve_params,
@@ -232,6 +233,8 @@ class PhotometricProcessor:
         )
         context.metrics["print_slopes"] = slopes
 
+        damp = grade_saturation_damping(slopes[1], self.config.density_saturation_damping)
+
         cmy_max = EXPOSURE_CONSTANTS["cmy_max_density"]
         cmy_offsets = filtration_offsets(
             (self.config.wb_cyan, self.config.wb_magenta, self.config.wb_yellow),
@@ -317,7 +320,7 @@ class PhotometricProcessor:
             # B&W collapses to luminance before this call (all channels equal),
             # so the matrix is already a mathematical no-op there; skip it
             # explicitly anyway to avoid the wasted per-pixel 3x3 multiply.
-            density_saturation=1.0 if context.process_mode == ProcessMode.BW else self.config.density_saturation,
+            density_saturation=1.0 if context.process_mode == ProcessMode.BW else self.config.density_saturation * damp,
             density_saturation_trims=(0.0, 0.0, 0.0)
             if context.process_mode == ProcessMode.BW
             else (

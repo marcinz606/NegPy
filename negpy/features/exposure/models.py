@@ -98,6 +98,7 @@ class ExposureConfig:
     density_saturation_trim_red: float = 0.0
     density_saturation_trim_green: float = 0.0
     density_saturation_trim_blue: float = 0.0
+    density_saturation_damping: float = 0.0
 
     def __post_init__(self) -> None:
         """

@@ -19,7 +19,6 @@ class LabConfig:
 
     saturation: float = 1.0
     vibrance: float = 1.0
-    chroma_damping: float = 0.25
     clahe_strength: float = 0.0
     sharpen: float = 0.25
     sharpen_method: SharpenMethod = SharpenMethod.USM

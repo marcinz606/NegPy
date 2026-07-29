@@ -150,9 +150,48 @@ class TestGpuCurveParity(unittest.TestCase):
         self.assertLess(mad, 0.01, f"mean abs diff {mad:.4f}")
         self.assertLess(mx, 0.04, f"max abs diff {mx:.4f}")
 
+    def test_cpu_gpu_match_dye_mute(self):
+        """Dye Mute folds grade_saturation_damping into the global k on both paths
+        (exposure/processor.py and gpu_engine.py compute it separately, so they can
+        drift). Auto Grade off pins the slope the damping keys off."""
+        from negpy.services.rendering.image_processor import ImageProcessor
+
+        processor = ImageProcessor()
+        if processor.engine_gpu is None:
+            self.skipTest("GPU engine not initialised")
+
+        rng = np.random.default_rng(2)
+        h, w = 64, 64
+        grad = np.linspace(0.05, 0.9, w, dtype=np.float32)
+        img = np.repeat(grad[None, :], h, axis=0)
+        img = np.stack([img, img * 0.95, img * 0.9], axis=-1)
+        img = np.ascontiguousarray(img + rng.uniform(0, 0.01, img.shape).astype(np.float32))
+
+        s = WorkspaceConfig()
+        settings = replace(
+            s,
+            exposure=replace(
+                s.exposure,
+                paper_profile="kodak_endura",
+                auto_normalize_contrast=False,
+                grade=60.0,
+                density_saturation=1.4,
+                density_saturation_damping=0.8,
+                density_saturation_trim_green=0.2,
+            ),
+        )
+        cpu = self._render(processor, settings, img, prefer_gpu=False)
+        gpu = self._render(processor, settings, img, prefer_gpu=True)
+
+        self.assertEqual(cpu.shape, gpu.shape)
+        mad = float(np.mean(np.abs(cpu - gpu)))
+        mx = float(np.max(np.abs(cpu - gpu)))
+        self.assertLess(mad, 0.01, f"mean abs diff {mad:.4f}")
+        self.assertLess(mx, 0.04, f"max abs diff {mx:.4f}")
+
     def test_cpu_gpu_match_trims_no_dye_mute(self):
-        """Dye Mute (LabConfig.chroma_damping) scales chroma toward neutral, which
-        masks CPU/GPU chroma disagreements. With it off, the Cast Removal neutral-axis
+        """Dye Mute scales chroma toward neutral, which masks CPU/GPU chroma
+        disagreements. With it off (its default), the Cast Removal neutral-axis
         must be measured against the same (pre-trim) bounds on both paths — otherwise
         the WP/BP trims shift the CPU's cast strength and the paths drift (~0.057)."""
         from negpy.services.rendering.image_processor import ImageProcessor
@@ -169,7 +208,7 @@ class TestGpuCurveParity(unittest.TestCase):
         img = np.ascontiguousarray(img + rng.uniform(0, 0.01, img.shape).astype(np.float32))
 
         settings = _extreme_trims_settings()
-        settings = replace(settings, lab=replace(settings.lab, chroma_damping=0.0))
+        self.assertEqual(settings.exposure.density_saturation_damping, 0.0)
         cpu = self._render(processor, settings, img, prefer_gpu=False)
         gpu = self._render(processor, settings, img, prefer_gpu=True)
 

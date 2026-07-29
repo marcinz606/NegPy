@@ -125,7 +125,7 @@ def test_apply_metering_row_clears_local_bounds(label):
     assert out.process.local_ceils == (0.0, 0.0, 0.0)
 
 
-@pytest.mark.parametrize("label", ["White Point", "Black Trim", "Crop Ratio", "Rotation", "Saturation"])
+@pytest.mark.parametrize("label", ["White Point", "Black Trim", "Crop Ratio", "Rotation", "Chroma", "Dye Mute"])
 def test_apply_non_metering_row_keeps_local_bounds(label):
     tgt = _metered_target()
     out = apply_selected_fields(WorkspaceConfig(), tgt, [_row(label)])

@@ -1132,7 +1132,7 @@ class GPUEngine:
             _reference_linear_value,
             cast_solve_inputs,
             filtration_offsets,
-            grade_chroma_damping,
+            grade_saturation_damping,
             per_channel_density_saturation,
             per_channel_toe_shoulder,
             grade_coupled_shape,
@@ -1228,7 +1228,7 @@ class GPUEngine:
             sat = None
         else:
             sat_k3 = per_channel_density_saturation(
-                exp.density_saturation,
+                exp.density_saturation * grade_saturation_damping(slopes[1], exp.density_saturation_damping),
                 (exp.density_saturation_trim_red, exp.density_saturation_trim_green, exp.density_saturation_trim_blue),
             )
             sat = resolve_saturation_matrix(sat_k3)
@@ -1342,7 +1342,7 @@ class GPUEngine:
                 "ffffffffff",
                 float(lab.sharpen),
                 float(lab.chroma_denoise),
-                float(lab.saturation) * grade_chroma_damping(slopes[1], lab.chroma_damping),
+                float(lab.saturation),
                 float(lab.vibrance),
                 float(lab.glow_amount),
                 float(lab.halation_strength),

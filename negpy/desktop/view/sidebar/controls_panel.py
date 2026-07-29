@@ -524,19 +524,32 @@ class ControlsPanel(QWidget):
         )
         lab.saturation_slider.setToolTip(
             tooltip_with_shortcut(
-                "Linear saturation. 1.0 = unchanged, 0 = greyscale, 2.0 = double saturation",
+                "Linear chroma scale (CIELAB a*/b*) after the print is decoded — a retouching move, "
+                "applied evenly to every tone. Print Saturation in Tone is the darkroom equivalent: it "
+                "works on the print's dye densities, so it stays in step with the paper and the curve. "
+                "1.0 = unchanged, 0 = greyscale, 2.0 = double",
                 ["saturation_inc", "saturation_dec"],
             )
         )
-        lab.chroma_damping_slider.setToolTip(
+        exp.chroma_damping_slider.setToolTip(
             tooltip_with_shortcut(
-                "Dye Mute — counters the extra saturation harder grades create, like real paper dyes' unwanted absorptions. 0 = off",
+                "Dye Mute — pulls Print Saturation back as the grade hardens, countering the density "
+                "separation a steeper curve opens between the dye layers. Tracks Grade automatically. 0 = off",
                 ["chroma_damping_inc", "chroma_damping_dec"],
+            )
+        )
+        exp.density_sat_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Pushes the print's dye densities apart before decode, in the same matrix slot as the "
+                "paper's own dye crosstalk — so it responds to the paper profile and eases off where the "
+                "curve is already compressed at toe and shoulder. Chroma in Colour is the flat version: "
+                "an even a*/b* scale after decode. Takes per-layer R/G/B trims. 1.0 = off/identity",
+                ["density_saturation_inc", "density_saturation_dec"],
             )
         )
         lab.vibrance_slider.setToolTip(
             tooltip_with_shortcut(
-                "Smart saturation that boosts muted colours more than already-saturated ones — gentler on skin tones than raw Saturation",
+                "Smart saturation that boosts muted colours more than already-saturated ones — gentler on skin tones than raw Chroma",
                 ["vibrance_inc", "vibrance_dec"],
             )
         )

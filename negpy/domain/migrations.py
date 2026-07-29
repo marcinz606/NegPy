@@ -40,6 +40,7 @@ DROPPED_KEYS: frozenset[str] = frozenset(
         # density_saturation itself.
         "density_chroma_damping",
         "density_divergence_damping",
+        "chroma_damping",  # Dye Mute, replaced by exposure.density_saturation_damping
     }
 )
 

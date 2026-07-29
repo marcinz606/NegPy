@@ -549,12 +549,13 @@ def per_channel_density_saturation(
     )
 
 
-def grade_chroma_damping(slope_g: float, strength: float) -> float:
+def grade_saturation_damping(slope_g: float, strength: float) -> float:
     """
-    Chroma scale countering per-channel print-curve chroma inflation in the
-    wide working gamut: damp = (slope_min / slope)^strength. 1.0 at strength 0
-    or the softest slope; monotonically decreasing in slope and strength. Uses
-    the green (reference) slope so it stays a single global scalar.
+    Grade-tracking scale on density_saturation, countering the density
+    separation a harder grade opens up between the three layers:
+    damp = (slope_min / slope)^strength. Exactly 1.0 at strength 0 or the
+    softest slope; monotonically decreasing in slope and strength. Uses the
+    green (reference) slope so it stays a single global scalar.
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
