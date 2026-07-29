@@ -183,7 +183,7 @@ def resolve_saturation_matrix(k_rgb: Tuple[float, float, float]) -> Optional[np.
     if k_rgb == (1.0, 1.0, 1.0):
         return None
     k = np.array(k_rgb, dtype=np.float64)
-    return np.diag(k) + np.outer(1.0 - k, np.full(3, 1.0 / 3.0, dtype=np.float64))
+    return np.diag(k) + (1.0 - k)[:, np.newaxis] * _ACHROMATIC_J
 
 
 def compose_density_matrices(dye: Optional[np.ndarray], sat: Optional[np.ndarray]) -> Optional[np.ndarray]:
