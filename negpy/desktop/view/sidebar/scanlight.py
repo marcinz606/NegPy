@@ -994,6 +994,13 @@ class ScanlightSidebar(QWidget):
         self._lv_timer.stop()
         self._lv_target.set_loading(False)  # nothing is buffering; the spinner would lie
         self.lv_window.set_preview_available(False, reason)
+        if self._calibrating_preset:
+            # The stream died mid-run (a Fujifilm giving up its preview, issue #658). The ROI is
+            # already placed and metering only needs stills, so let the run finish rather than
+            # cancelling work that is about to succeed; the window reports why the image froze.
+            self.calib_window.set_status(f"⚠ {reason} The calibration continues without the preview.")
+            self._apply_gating()
+            return
         if self.calib_window.isVisible():
             self.calib_window.close()  # calibration cannot aim at the base without a stream
         # The refusal published the settings JSON on its way out — normally the preview loop's

@@ -132,7 +132,12 @@ class CaptureWorker(QObject):
         if self._camera is None:
             # The callback runs on the camera's own preview thread; the signal hop is what
             # moves the report onto the Qt side.
-            self._camera = GphotoCamera(on_preview_died=self.live_view_failed.emit)
+            self._camera = GphotoCamera(
+                on_preview_died=self.live_view_failed.emit,
+                # A stream that fails on a body that still answers is the "no preview" state,
+                # not a dead camera — same UI as a body that never advertised one.
+                on_preview_unusable=self.live_view_unsupported.emit,
+            )
         if not self._camera.is_open():
             try:
                 self._camera.open()

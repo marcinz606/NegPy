@@ -253,6 +253,7 @@ class GphotoCamera:
         settings_path: Optional[str] = None,
         gp_module: Optional[Any] = None,
         on_preview_died: Optional[Callable[[str], None]] = None,
+        on_preview_unusable: Optional[Callable[[str], None]] = None,
     ) -> None:
         self._gp = gp_module or _gp()
         self._jpeg_path = jpeg_path or default_jpeg_path()
@@ -261,6 +262,9 @@ class GphotoCamera:
         # normal stop(). Without it a body that stops answering (issue #617: GFX50S II
         # times out with [-110]) leaves the UI spinning on "loading live view" forever.
         self._on_preview_died = on_preview_died
+        # Called instead of the above when the stream fails but the body still answers: the
+        # session stays open and scanning continues, only the preview is given up on.
+        self._on_preview_unusable = on_preview_unusable
         self._camera: Any = None
         self._model = ""
         # Cleared when the body stops answering — unplugging it leaves the handle behind,
@@ -279,6 +283,9 @@ class GphotoCamera:
     def _reset_body_state(self) -> None:
         """Forget controls whose names and semantics belong to one camera body."""
         self._capabilities = CameraCapabilities(driver_model="")
+        # Set once a stream has failed on a body that is otherwise fine, so nothing restarts
+        # it: retrying is what walks a Fujifilm off the USB bus entirely (issue #658).
+        self._preview_broken = False
         self._magnifier: Optional[_Magnifier] = None
         self._magnifier_ratios: Optional[tuple[str, str]] = None
         self._magnifier_off = ""
@@ -726,6 +733,11 @@ class GphotoCamera:
         if self.is_running():
             return
         self.open()
+        if self._preview_broken:
+            # A stream already failed on this body while it kept answering. Restarting it is
+            # what turns one bad preview into a reconnect loop, so refuse until the session is
+            # closed (a reconnect or power cycle clears the flag via _reset_body_state).
+            raise LiveViewUnsupported(self._live_view_refusal())
         if not self._capabilities.preview:
             # Refuse rather than let _preview_loop find out: the body rejects capture_preview
             # at the device level, and that refusal wedges the PTP session until the camera is
@@ -748,6 +760,13 @@ class GphotoCamera:
         not a limit of the camera. Only a body that lacks it in its tethering mode (the a6000)
         genuinely cannot preview — and it still scans.
         """
+        if self._preview_broken:
+            # Advertised the capability, then failed to deliver it — the Fujifilm case. Say so
+            # plainly rather than blaming the connection, and make clear scanning is unaffected.
+            return (
+                f"{self._model or 'this camera'} accepted the connection but its live view does not work "
+                "(a known gap in libgphoto2's Fujifilm support). Scanning still works, just without a preview."
+            )
         if self._capabilities.mtp_mode:
             return (
                 f"{self._model or 'this camera'} is connected in MTP mode, which has no live view. "
@@ -786,20 +805,55 @@ class GphotoCamera:
                 failures += 1
                 logger.warning("gphoto2 live view (%d/%d): %s", failures, _MAX_PREVIEW_FAILURES, exc)
                 if failures >= _MAX_PREVIEW_FAILURES:
-                    # The body stopped answering — unplugged, powered off, or claimed by
-                    # another app. Mark the handle dead so nothing reuses it; don't call
-                    # close() from here, it would join this very thread.
+                    # Repeated failures used to mean one thing — the body is gone — and the whole
+                    # session was dropped. On Fujifilm bodies that verdict is wrong: capture_preview
+                    # returns [-1] forever while the camera happily keeps shooting 85 MB frames
+                    # (issue #658). Tearing the session down there kills a working scan, and the
+                    # reopen-and-retry cycle that follows walks the body off the USB bus entirely.
+                    # So ask the camera before deciding.
+                    if self._camera_answers():
+                        logger.warning("gphoto2: live view failed but the camera still answers — continuing without a preview")
+                        self._preview_broken = True
+                        self._report_preview_stopped(self._on_preview_unusable, self._live_view_refusal())
+                        return
                     logger.warning("gphoto2: camera stopped answering, dropping the session")
-                    self._alive = False
-                    if self._on_preview_died is not None:
-                        try:
-                            self._on_preview_died(str(exc))
-                        except Exception:  # noqa: BLE001 — the report must not break teardown
-                            logger.exception("preview-died callback failed")
+                    self._alive = False  # nothing may reuse the handle; close() would join this thread
+                    self._report_preview_stopped(self._on_preview_died, str(exc))
                     return
                 self._stop.wait(0.5)
                 continue
             self._stop.wait(_PREVIEW_INTERVAL_S)
+
+    def _camera_answers(self) -> bool:
+        """Does the body still respond to a plain property read?
+
+        The one question that separates "this camera is gone" from "only its preview is
+        broken". A config read is the cheapest vendor-neutral liveness check there is, and it
+        touches nothing the preview owns. A body that advertises no CONFIG cannot be asked
+        this way, so it keeps the old verdict — rare, and erring toward the safer teardown.
+        """
+        if not self._capabilities.config:
+            return False
+        try:
+            with self._lock:
+                camera = self._camera
+                if camera is None or not self._alive:
+                    return False
+                name = self._property("iso")
+                if name is None:
+                    return False
+                camera.get_single_config(name)
+            return True
+        except Exception:  # noqa: BLE001 — any failure here means "cannot confirm it is alive"
+            return False
+
+    def _report_preview_stopped(self, callback: Optional[Callable[[str], None]], reason: str) -> None:
+        if callback is None:
+            return
+        try:
+            callback(reason)
+        except Exception:  # noqa: BLE001 — the report must not break teardown
+            logger.exception("preview-stopped callback failed")
 
     def _publish_frame(self, data: bytes) -> None:
         tmp = f"{self._jpeg_path}.part"

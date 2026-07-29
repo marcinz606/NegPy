@@ -116,6 +116,8 @@ class _Camera:
 
     def capture_preview(self):
         self._check()
+        if self._fake.preview_error:  # only the preview is broken; the body still answers
+            raise _Err(self._fake.preview_error)
         self._fake.previews += 1
         return _File(b"\xff\xd8JPEG")
 
@@ -168,6 +170,7 @@ class FakeGP:
         self.driver_model = driver_model
         self.operations = operations
         self.abilities_error = False
+        self.preview_error = None  # set to a message so capture_preview fails but config reads do not
         self.opened = False
         self.undrained = False
         self.gone = False  # set by unplug(): the body stops answering, as on a pulled cable
@@ -622,6 +625,55 @@ def test_live_view_is_refused_on_a_body_without_the_preview_ability(tmp_path):
     assert fake.previews == 0  # the wedge is avoided, not merely reported
     assert not camera.is_running()
     assert camera.is_open()  # the session itself stays usable — this body still scans
+    camera.close()
+
+
+def test_a_broken_preview_keeps_the_session_alive_when_the_camera_still_answers(fake, tmp_path):
+    """Issue #658: a Fujifilm returns [-1] from capture_preview forever while it keeps shooting.
+    Dropping the session there kills a working scan, and the reopen loop that follows walks the
+    body off the USB bus."""
+    import time
+
+    unusable: list[str] = []
+    died: list[str] = []
+    camera = GphotoCamera(
+        gp_module=fake,
+        jpeg_path=str(tmp_path / "lv.jpg"),
+        settings_path=str(tmp_path / "lv.json"),
+        on_preview_died=died.append,
+        on_preview_unusable=unusable.append,
+    )
+    camera.start()
+    fake.preview_error = "[-1] Unspecified error"  # only the preview breaks; config reads still work
+
+    for _ in range(300):
+        if not camera.is_running():
+            break
+        time.sleep(0.01)
+    else:
+        raise AssertionError("the preview thread never gave up")
+
+    assert unusable and not died  # reported as "no preview", not as a dead camera
+    assert camera.is_open()  # the session a scan needs is untouched
+    camera.close()
+
+
+def test_a_body_with_a_broken_preview_is_not_restarted(fake, tmp_path):
+    """Restarting is what turns one failed preview into a reconnect loop."""
+    import time
+
+    camera = GphotoCamera(gp_module=fake, jpeg_path=str(tmp_path / "lv.jpg"), settings_path=str(tmp_path / "lv.json"))
+    camera.start()
+    fake.preview_error = "[-1] Unspecified error"
+    for _ in range(300):
+        if not camera.is_running():
+            break
+        time.sleep(0.01)
+
+    previews = fake.previews
+    with pytest.raises(LiveViewUnsupported, match="live view does not work"):
+        camera.start()
+    assert fake.previews == previews  # refused without touching the body again
     camera.close()
 
 
