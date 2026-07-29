@@ -174,10 +174,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (params.dye_separation != 0.0) {
         let ve = dens - d_min_rgb;
         let spread = max(max(ve.x, ve.y), ve.z) - min(min(ve.x, ve.y), ve.z);
-        // 0.4 mirrors dye_separation_spread_scale in models.py -- change both.
+        // 0.12 mirrors dye_separation_spread_scale in models.py -- change both.
         // spread >= 0 always, so a plain sigmoid never reaches its 0 end
         // (sigmoid(0) = 0.5) -- rescale so s is exactly 0 at spread=0.
-        let s = 2.0 * fast_sigmoid(spread / 0.4) - 1.0;
+        let s = 2.0 * fast_sigmoid(spread / 0.12) - 1.0;
         let mask = select(s, 1.0 - s, params.dye_separation >= 0.0);
         let k = 1.0 + params.dye_separation * mask;
         let ve_mean = (ve.x + ve.y + ve.z) / 3.0;

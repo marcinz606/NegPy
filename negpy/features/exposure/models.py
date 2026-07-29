@@ -297,8 +297,10 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "paper_gamma_width": 0.6,
     # Sigmoid half-point of the Dye Separation mask, in density units of
     # e0/e1/e2 spread. Inlined as a WGSL literal in exposure.wgsl — change both.
-    # ↑ counts more pixels as muted; ↓ narrower muted band.
-    "dye_separation_spread_scale": 0.4,
+    # ↑ counts more pixels as muted; ↓ narrower muted band. Set so the half-point
+    # (scale·ln3) lands near a typical frame's median spread — widen it much and the
+    # mask goes flat across the whole frame and the control collapses into Print Saturation.
+    "dye_separation_spread_scale": 0.12,
 }
 
 # Auto Density / Auto Grade targets the user can retune (Set Targets dialog).
