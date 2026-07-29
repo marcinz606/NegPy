@@ -6,6 +6,7 @@ from typing import Any, ContextManager, Optional, Tuple
 from negpy.domain.interfaces import IImageLoader
 from negpy.domain.models import ColorSpace
 from negpy.kernel.image.logic import srgb_to_linear, uint8_to_float32, uint16_to_float32
+from negpy.infrastructure.loaders.constants import IR_SIDECAR_SUFFIXES, SUPPORTED_TIFF_EXTENSIONS
 from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, identify_color_space_from_icc, read_orientation
 from negpy.kernel.system.logging import get_logger
 
@@ -21,6 +22,13 @@ def _normalize_ir_to_float32(ir: np.ndarray) -> np.ndarray:
     if ir.dtype == np.uint16:
         return ir.astype(np.float32) * (1.0 / 65535.0)
     return np.clip(ir.astype(np.float32), 0.0, 1.0)
+
+
+def _ir_suffixes(token: str) -> tuple[str, ...]:
+    """`_ir` → (`_ir.tif`, `_ir.tiff`). Keeps the read side tied to the token set that
+    `is_ir_sidecar_path` hides from asset discovery."""
+    assert token in IR_SIDECAR_SUFFIXES
+    return tuple(token + e for e in sorted(SUPPORTED_TIFF_EXTENSIONS))
 
 
 def _find_sidecar(dirname: str, entries: list[str], stem_lower: str, suffixes: tuple[str, ...]) -> Optional[str]:
@@ -42,7 +50,7 @@ def _read_sidecar_ir(file_path: str) -> Tuple[Optional[np.ndarray], Optional[np.
     except OSError:
         return None, None
 
-    candidate = _find_sidecar(dirname, entries, stem_lower, ("_ir.tif", "_ir.tiff"))
+    candidate = _find_sidecar(dirname, entries, stem_lower, _ir_suffixes("_ir"))
     if candidate is None:
         return None, None
     try:
@@ -52,7 +60,7 @@ def _read_sidecar_ir(file_path: str) -> Tuple[Optional[np.ndarray], Optional[np.
         logger.warning(f"Failed to read IR sidecar {candidate}: {e}")
         return None, None
 
-    mask_candidate = _find_sidecar(dirname, entries, stem_lower, ("_ir_valid.tif", "_ir_valid.tiff"))
+    mask_candidate = _find_sidecar(dirname, entries, stem_lower, _ir_suffixes("_ir_valid"))
     if mask_candidate is None:
         return ir, None
     try:

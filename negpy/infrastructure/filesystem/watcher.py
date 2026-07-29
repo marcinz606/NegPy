@@ -1,6 +1,6 @@
 import os
 from typing import List, Set
-from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
+from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS, is_ir_sidecar_path
 
 
 class FolderWatchService:
@@ -24,7 +24,7 @@ class FolderWatchService:
                 for entry in it:
                     if entry.is_file():
                         ext = os.path.splitext(entry.name)[1].lower()
-                        if ext in cls.SUPPORTED_EXTS:
+                        if ext in cls.SUPPORTED_EXTS and not is_ir_sidecar_path(entry.path):
                             full_path = os.path.abspath(entry.path)
                             if full_path not in existing_paths:
                                 new_files.append(full_path)

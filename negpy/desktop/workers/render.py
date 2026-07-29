@@ -391,6 +391,7 @@ class AssetDiscoveryWorker(QObject):
         """
         import os
 
+        from negpy.infrastructure.loaders.constants import is_ir_sidecar_path
         from negpy.kernel.image.logic import calculate_file_hash
 
         discovered_paths = []
@@ -407,6 +408,8 @@ class AssetDiscoveryWorker(QObject):
                 logger.error(f"Discovery error for {path}: {e}")
         # Half-frame re-discovery passes both halves' (identical) paths — hash once.
         discovered_paths = list(dict.fromkeys(discovered_paths))
+        # IR companions ride along with their main TIFF; they are never assets of their own.
+        discovered_paths = [p for p in discovered_paths if not is_ir_sidecar_path(p)]
 
         total = len(discovered_paths)
         valid_assets = []
