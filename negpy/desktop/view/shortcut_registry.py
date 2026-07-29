@@ -151,6 +151,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "undo": ShortcutEntry("Ctrl+Z", "Undo", "Actions"),
     "redo": ShortcutEntry("Ctrl+Y", "Redo", "Actions"),
     "show_shortcuts": ShortcutEntry("?", "Show shortcuts", "Help"),
+    "show_analysis_help": ShortcutEntry("", "Analysis panel guide", "Help"),
 }
 
 _CURRENT_BINDINGS: dict[str, str] = {}

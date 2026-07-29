@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import QGridLayout, QLabel, QWidget
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.exposure.stats import StatRow
 
-_TOOLTIPS = {
+STAT_TOOLTIPS = {
     "Negative": (
         "The negative itself: relative density range (luminance) and its development character vs a "
         "nominal frame — flat (≈N−1), normal, contrasty (≈N+1). Relative scale, comparable across a "
@@ -27,16 +27,16 @@ _TOOLTIPS = {
 
 _PROBE_EMPTY = "—"
 
+PROBE_TOOLTIP = (
+    "Spot densitometer — hover the image to read the pixel: per-channel density above film base "
+    "(ΔD, relative to this scan's normalization, not absolute), the displayed tone's reflection "
+    "print density, and its print zone (0 = paper black, V = 18% mid-gray, X = paper white). "
+    "In B&W mode the ΔD channels read the pre-conversion colour record."
+)
+
 
 class DensitometerRow(QWidget):
     """Hover spot-densitometer read-out shown between the H&D curve and the stats."""
-
-    _TOOLTIP = (
-        "Spot densitometer — hover the image to read the pixel: per-channel density above film base "
-        "(ΔD, relative to this scan's normalization, not absolute), the displayed tone's reflection "
-        "print density, and its print zone (0 = paper black, V = 18% mid-gray, X = paper white). "
-        "In B&W mode the ΔD channels read the pre-conversion colour record."
-    )
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -51,8 +51,8 @@ class DensitometerRow(QWidget):
         self._value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         grid.addWidget(name, 0, 0)
         grid.addWidget(self._value, 0, 1)
-        name.setToolTip(self._TOOLTIP)
-        self._value.setToolTip(self._TOOLTIP)
+        name.setToolTip(PROBE_TOOLTIP)
+        self._value.setToolTip(PROBE_TOOLTIP)
 
     def set_reading(self, reading) -> None:
         from negpy.features.exposure.densitometer import format_reading
@@ -94,7 +94,7 @@ class NegativeStatsWidget(QWidget):
         for i in range(self._ROWS):
             if i < len(rows):
                 row = rows[i]
-                tip = _TOOLTIPS.get(row.name, "")
+                tip = STAT_TOOLTIPS.get(row.name, "")
                 self._names[i].setText(row.name)
                 self._values[i].setText(row.value)
                 self._values[i].setStyleSheet(self._warn_css if row.warn else self._value_css)

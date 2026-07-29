@@ -76,7 +76,9 @@ class RightPanel(QWidget):
             "Analysis",
             expanded=analysis_expanded,
             icon=qta.icon("fa5s.chart-bar", color="#aaa"),
+            info=True,
         )
+        self.analysis_section.info_requested.connect(self.show_analysis_help)
         self.analysis_section.set_content(analysis_content)
         self.analysis_section.expanded_changed.connect(lambda checked: repo.save_global_setting("section_expanded_analysis", checked))
 
@@ -199,6 +201,11 @@ class RightPanel(QWidget):
 
         # Default tab (Setup)
         self._switch_tab(0)
+
+    def show_analysis_help(self) -> None:
+        from negpy.desktop.view.widgets.analysis_help_dialog import AnalysisHelpDialog
+
+        AnalysisHelpDialog(self).exec()
 
     def _resize_splitter_for_analysis(self, expanded: bool) -> None:
         """Pin the collapsed Analysis header at the top: shrink pane 0 to the header and

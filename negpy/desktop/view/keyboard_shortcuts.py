@@ -127,6 +127,7 @@ class ShortcutManager:
             "undo": lambda: _context_undo(controller),
             "redo": controller.session.redo,
             "show_shortcuts": lambda: _show_shortcuts(self.window),
+            "show_analysis_help": self.window.right_panel.show_analysis_help,
         }
 
         slider_targets: dict[str, Callable[[], object]] = {

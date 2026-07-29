@@ -70,7 +70,7 @@ The right-click menu also offers **Copy/Paste Settings** (with or without normal
 
 ## 3. Analysis readout (always visible)
 
-Pinned above the tabs, this is your feedback while editing. Drag the divider to resize it, or collapse it entirely.
+Pinned above the tabs, this is your feedback while editing. Drag the divider to resize it, or collapse it entirely. The **ⓘ** in the section header opens a full guide to every chart and read-out below.
 
 *   **Photometric curve**: the paper characteristic (H&D) curve NegPy is currently applying, drawn over two histograms — the output tones and the negative density. Grab the toggle to switch the density axis between linear and log. Hover the canvas and the curve marks where that pixel lands.
 *   **Zone strip**: how your tones are distributed across print zones (shadow → highlight), with warnings when zones are clipping.

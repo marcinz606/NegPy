@@ -21,6 +21,7 @@ class CollapsibleSection(QWidget):
 
     reset_requested = pyqtSignal()
     expanded_changed = pyqtSignal(bool)
+    info_requested = pyqtSignal()
 
     def __init__(
         self,
@@ -28,6 +29,7 @@ class CollapsibleSection(QWidget):
         expanded: bool = True,
         icon: Optional[QIcon] = None,
         background_widget: Optional[QWidget] = None,
+        info: bool = False,
         parent=None,
     ):
         super().__init__(parent)
@@ -64,6 +66,20 @@ class CollapsibleSection(QWidget):
         btn_layout.addWidget(self.title_label)
 
         btn_layout.addStretch()
+
+        self.info_btn: Optional[QPushButton] = None
+        if info:
+            # Nested in the header button, like reset_btn: it eats its own clicks, so
+            # opening the help doesn't also collapse the section.
+            self.info_btn = QPushButton()
+            self.info_btn.setIcon(qta.icon("fa5s.info-circle", color=THEME.text_muted))
+            self.info_btn.setFixedSize(20, 20)
+            self.info_btn.setIconSize(QSize(11, 11))
+            self.info_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.info_btn.setToolTip(f"What am I looking at? — {title} guide")
+            self.info_btn.setObjectName("collapsible_reset_btn")
+            self.info_btn.clicked.connect(self.info_requested)
+            btn_layout.addWidget(self.info_btn)
 
         self.reset_btn = QPushButton()
         self.reset_btn.setIcon(qta.icon("fa5s.undo", color=THEME.text_muted))
