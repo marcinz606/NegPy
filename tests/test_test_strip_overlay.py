@@ -133,9 +133,9 @@ def _ring_overlay() -> CanvasOverlay:
     return overlay
 
 
-def test_the_ring_picks_across_its_own_three_by_three_grid() -> None:
-    """The overlay reads the grid off the proof kind, so a click on the ring must map to 3x3
-    rather than the tone strip's 6x6."""
+def test_the_ring_picks_across_its_own_grid() -> None:
+    """The overlay reads the grid off the proof kind, so a click on the ring must map to the
+    ring's geometry rather than the tone strip's."""
     overlay = _ring_overlay()
     picked: list = []
     overlay.test_strip_picked.connect(lambda r, c: picked.append((r, c)))
@@ -144,14 +144,15 @@ def test_the_ring_picks_across_its_own_three_by_three_grid() -> None:
     overlay.mousePressEvent(_press(QPointF(45, 45)))
     overlay.mousePressEvent(_press(QPointF(85, 85)))
 
-    assert picked == [(0, 0), (1, 1), (RING_GRID[0] - 1, RING_GRID[1] - 1)]
+    mid = (RING_GRID[0] // 2, RING_GRID[1] // 2)
+    assert picked == [(0, 0), mid, (RING_GRID[0] - 1, RING_GRID[1] - 1)]
 
 
-def test_the_ring_lays_out_nine_patches() -> None:
+def test_each_proof_kind_lays_out_its_own_grid() -> None:
     overlay = _ring_overlay()
-    rects = overlay._strip_patch_rects(QRectF(0, 0, 90, 90))
-    assert len(rects) == 9
     assert overlay._strip_grid() == RING_GRID
+    assert len(overlay._strip_patch_rects(QRectF(0, 0, 90, 90))) == RING_GRID[0] * RING_GRID[1]
     # And the tone strip still gets its own grid off the same helper.
     overlay.state.test_strip_kind = "tone"
     assert overlay._strip_grid() == (len(STRIP_GRADES), len(STRIP_DENSITIES))
+    assert len(overlay._strip_patch_rects(QRectF(0, 0, 90, 90))) == len(STRIP_GRADES) * len(STRIP_DENSITIES)

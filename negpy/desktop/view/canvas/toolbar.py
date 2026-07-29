@@ -238,8 +238,8 @@ class ActionToolbar(QWidget):
         self._ov_ring_action.setCheckable(True)
         self._ov_ring_action.setToolTip(
             tooltip_with_shortcut(
-                "Colour ring-around — print the frame as a 3x3 mosaic, the centre at the current "
-                "filtration and the ring 5cc either way on magenta and yellow",
+                "Colour ring-around — print the frame as a 5x5 mosaic, the centre at the current "
+                "filtration and the ring stepping 1cc at a time out to 2cc on magenta and yellow",
                 "toggle_ring_around",
             )
         )
@@ -407,7 +407,7 @@ class ActionToolbar(QWidget):
             widget.blockSignals(False)
 
     def _sync_ring_action(self) -> None:
-        # Both proofs share one slot, so the kind gates this or the tone strip checks it too.
+        # One shared slot, so the kind gates this or the tone strip checks it too.
         state = self.controller.state
         active = (state.test_strip or state.test_strip_pending) and state.test_strip_kind == "colour"
         self._ov_ring_action.setChecked(active)

@@ -85,20 +85,21 @@ def test_click_on_the_far_edge_stays_in_the_grid():
 
 def test_current_settings_highlight_the_nearest_patch():
     assert strip_nearest_cell(STRIP_DENSITIES[2], STRIP_GRADES[1]) == (1, 2)
-    # The default density is a rung of its own; the default grade sits between two and the
-    # nearest wins. Either way the highlight lands where the sliders sit.
-    assert ExposureConfig().density in STRIP_DENSITIES
-    assert strip_nearest_cell(1.0, 115.0) == (2, STRIP_DENSITIES.index(1.0))
+    # Both defaults are rungs of their own, so the default frame highlights the dead centre.
+    assert strip_nearest_cell(1.0, 115.0) == (2, 2)
     assert strip_nearest_cell(-5.0, 999.0) == (len(STRIP_GRADES) - 1, 0)
 
 
-def test_both_ladders_straddle_the_defaults_in_even_steps():
+def test_both_ladders_are_centred_on_their_default_in_even_steps():
+    """Centred, not merely straddling: the middle patch is the settings already in force, so
+    the strip reads as a comparison against the print you have rather than against nothing."""
     defaults = ExposureConfig()
     for ladder, current in ((STRIP_DENSITIES, defaults.density), (STRIP_GRADES, defaults.grade)):
-        assert len(ladder) == 6
+        assert len(ladder) == 5
         steps = {round(b - a, 6) for a, b in zip(ladder, ladder[1:])}
         assert len(steps) == 1 and steps.pop() > 0  # evenly spaced, ascending
         assert ladder[0] < current < ladder[-1]
+        assert ladder[len(ladder) // 2] == current
 
 
 def test_ladders_stay_inside_the_ranges_their_controls_accept():

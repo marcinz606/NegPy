@@ -2,8 +2,8 @@
 
 ## 0.45.0
 
-- New: **Colour ring-around** — the Filtration panel (or Shift+F) prints the frame as a 3×3 mosaic: the centre patch at the current filtration, the ring 5cc either way on the magenta and yellow axes, so the direction of a colour cast is visible instead of guessed. Each patch is a real render; click one to keep its filtration. Unlike the test strip the ladder is relative, so the centre is always the print you are judging and each round starts from wherever you left off. The two proofs share the canvas — asking for one while the other is up swaps it.
-- New: **Test strip** — the Tone panel prints the frame as a 6×6 grid, Print Density increasing left to right and ISO-R Grade softening top to bottom, so the diagonals read light-to-dark and soft-to-hard like a split-filter test strip. Each patch is a real render at its own settings; click one to keep it. Escape or a second press clears it, and any edit drops it.
+- New: **Colour ring-around** — the Filtration panel (or Shift+F) prints the frame as a 5×5 mosaic stepping 1cc at a time out to ±2cc on the magenta and yellow axes, so the direction of a colour cast is visible instead of guessed. Each patch is a real render; click one to keep its filtration. Like the test strip the ladder is absolute and centred on neutral, so a ring printed off one frame compares to the next and picking a patch doesn't force a reprint. The two proofs share the canvas — asking for one while the other is up swaps it.
+- New: **Test strip** — the Tone panel prints the frame as a 5×5 grid, Print Density increasing left to right and ISO-R Grade softening top to bottom, each ladder centred on its default so the settings you already have are one of the patches, so the diagonals read light-to-dark and soft-to-hard like a split-filter test strip. Each patch is a real render at its own settings; click one to keep it. Escape or a second press clears it, and any edit drops it.
 
 ## 0.44.0
 

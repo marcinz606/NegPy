@@ -133,8 +133,7 @@ class ColourSidebar(BaseSidebar):
 
         self.pick_wb_btn.toggled.connect(self._on_pick_wb_toggled)
         self.ring_btn.clicked.connect(lambda checked: self.controller.toggle_ring_around(force=checked))
-        # The ring is session state, not config, and any render drops it — so the button has
-        # to follow the controller rather than sync_ui.
+        # Session state, not config, so the button follows the controller rather than sync_ui.
         self.controller.test_strip_changed.connect(self._sync_ring_btn)
         self.cast_removal_slider.valueChanged.connect(
             lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, cast_removal_strength=v)
@@ -148,16 +147,15 @@ class ColourSidebar(BaseSidebar):
         if printing:
             return "Printing the colour ring-around…"
         return tooltip_with_shortcut(
-            "Colour Ring-Around: print the frame as a 3×3 mosaic — the centre patch at the current "
-            "filtration, the ring ±5cc on the magenta and yellow axes. Click the patch that looks "
-            "neutral to keep its filtration. With Cast Removal on the patches separate less, since "
-            "it corrects toward neutral underneath.",
+            "Colour Ring-Around: print the frame as a 5×5 mosaic — the centre patch at the current "
+            "filtration, the ring stepping 1cc at a time out to ±2cc on the magenta and yellow axes. "
+            "Click the patch that looks neutral to keep its filtration. With Cast Removal on the "
+            "patches separate less, since it corrects toward neutral underneath.",
             "toggle_ring_around",
         )
 
     def _sync_ring_btn(self, _up: bool) -> None:
-        # Both proofs share one slot, so the kind has to gate this or the tone strip lights
-        # this button too.
+        # One shared slot, so the kind gates this or the tone strip lights this button too.
         mine = self.state.test_strip_kind == "colour"
         pending = self.state.test_strip_pending and mine
         self.ring_btn.setChecked((self.state.test_strip or self.state.test_strip_pending) and mine)

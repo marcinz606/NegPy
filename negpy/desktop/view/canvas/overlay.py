@@ -18,7 +18,8 @@ from negpy.features.exposure.analysis import (
     STRIP_DENSITIES,
     STRIP_GRADES,
     STRIP_GRID,
-    ring_cc_offset,
+    ring_cc,
+    ring_nearest_cell,
     strip_cell_at,
     strip_nearest_cell,
     zone_grid,
@@ -791,9 +792,8 @@ class CanvasOverlay(QWidget):
         left_texts: List[str],
         current: Tuple[int, int],
     ) -> None:
-        """One label per axis: `top_texts` along the top edge, `left_texts` down the left. The
-        rung matching the settings in force is accented, standing in for the box this used to
-        draw around that patch."""
+        """`top_texts` along the top edge, `left_texts` down the left, each axis labelled once.
+        The rung matching the settings in force is accented."""
         painter.save()
         painter.setFont(_overlay_label_font(painter))
         inset = _STRIP_LABEL_INSET_PX
@@ -826,8 +826,8 @@ class CanvasOverlay(QWidget):
 
         Tone strip — columns darken left to right, rows soften top to bottom, so the diagonals
         read light/dark and hard/soft. Colour ring-around — the centre patch is the filtration
-        in force and the ring steps ±5cc on the magenta and yellow axes, so the direction of a
-        cast is visible instead of guessed.
+        in force and the ring steps out to ±5cc on the magenta and yellow axes, so the
+        direction of a cast is visible instead of guessed.
 
         The mosaic replaces the canvas frame over the content rect rather than tinting it —
         these are real renders, and a wash over them would misreport the tone being judged.
@@ -859,14 +859,14 @@ class CanvasOverlay(QWidget):
         if min(rect.width() / cols, rect.height() / rows) < _STRIP_LABEL_MIN_PX:
             return
         if self.state.test_strip_kind == "colour":
-            # The centre patch is the filtration in force by construction, so the accent needs
-            # no search for the nearest rung.
+            exposure = self.state.config.exposure
             self._draw_strip_labels(
                 painter,
                 patches,
-                [f"Y {ring_cc_offset(c):+.0f}" for c in range(cols)],
-                [f"M {ring_cc_offset(r):+.0f}" for r in range(rows)],
-                (1, 1),
+                # :+g so a fractional step prints as one rather than rounding away.
+                [f"Y {ring_cc(c):+g}" for c in range(cols)],
+                [f"M {ring_cc(r):+g}" for r in range(rows)],
+                ring_nearest_cell(exposure.wb_magenta, exposure.wb_yellow),
             )
         else:
             exposure = self.state.config.exposure

@@ -1,8 +1,8 @@
 """Ring-around lifecycle: print → pick → commit, sharing one proof slot with the test strip.
 
-The interesting differences from the strip are deliberate: the ring's ladder is relative, so
-its memo must NOT be pinned on filtration (picking has to invalidate), and asking for the
-other kind while a proof is up swaps rather than dismisses.
+Its ladder is absolute, so the mosaic is invariant to the filtration in force and the memo
+pins M/Y: picking a patch leaves the cache valid. Asking for the other kind swaps the proof
+rather than dismissing it.
 """
 
 import unittest
@@ -25,7 +25,7 @@ class RingAroundWorker(unittest.TestCase):
             def fake_pipeline(_buf, config, *a, **k):
                 e = config.exposure
                 seen.append((e.wb_magenta, e.wb_yellow, e.wb_cyan, e.density, e.grade))
-                return np.full((9, 9, 3), float(len(seen) - 1), np.float32), {"content_rect": (0, 0, 9, 9)}
+                return np.full((10, 10, 3), float(len(seen) - 1), np.float32), {"content_rect": (0, 0, 10, 10)}
 
             MockIP.return_value.run_pipeline.side_effect = fake_pipeline
             worker = RenderWorker()
@@ -36,16 +36,16 @@ class RingAroundWorker(unittest.TestCase):
             base = replace(base, exposure=replace(base.exposure, wb_magenta=0.2, wb_yellow=-0.1))
             worker.build_strip(
                 TestStripTask(
-                    buffer=np.zeros((9, 9, 3), np.float32),
+                    buffer=np.zeros((10, 10, 3), np.float32),
                     config=base,
                     source_hash="f1",
                     preview_size=512.0,
-                    overrides=tuple(ring_overrides(0.2, -0.1)),
+                    overrides=tuple(ring_overrides()),
                     grid=RING_GRID,
                 )
             )
 
-        expected = [(m, y) for _, _, m, y in ring_cells(0.2, -0.1)]
+        expected = [(m, y) for _, _, m, y in ring_cells()]
         self.assertEqual([(m, y) for m, y, _, _, _ in seen], expected)
         # Nothing else moved: cyan, density and grade are the base config's on every patch.
         for _m, _y, cyan, density, grade in seen:
@@ -54,9 +54,9 @@ class RingAroundWorker(unittest.TestCase):
             self.assertEqual(grade, base.exposure.grade)
 
         mosaic, _rect = done[0]
-        # Top-left patch from render 0, bottom-right from render 8 — the 3x3 slicing is right.
+        # Top-left patch from the first render, bottom-right from the last — slicing is right.
         self.assertEqual(mosaic[0, 0, 0], 0.0)
-        self.assertEqual(mosaic[-1, -1, 0], 8.0)
+        self.assertEqual(mosaic[-1, -1, 0], float(RING_GRID[0] * RING_GRID[1] - 1))
 
 
 class RingAroundLifecycle(unittest.TestCase):
@@ -106,26 +106,27 @@ class RingAroundLifecycle(unittest.TestCase):
         gc.collect()
 
     def _mosaic(self) -> np.ndarray:
-        return np.zeros((9, 9, 3), dtype=np.float32)
+        return np.zeros((10, 10, 3), dtype=np.float32)
 
     def _print_ring(self) -> None:
         self.controller.toggle_ring_around()
-        self.controller.on_strip_finished(self._mosaic(), (0, 0, 9, 9))
+        self.controller.on_strip_finished(self._mosaic(), (0, 0, 10, 10))
 
     def _set_filtration(self, magenta: float, yellow: float) -> None:
         cfg = self.controller.state.config
         self.controller.state.config = replace(cfg, exposure=replace(cfg.exposure, wb_magenta=magenta, wb_yellow=yellow))
 
-    def test_toggling_on_dispatches_a_nine_patch_job_around_the_current_filtration(self):
+    def test_toggling_on_dispatches_a_full_grid_job(self):
         self._set_filtration(0.2, -0.1)
         self.controller.toggle_ring_around()
 
         self.assertEqual(len(self.strip_tasks), 1)
         task = self.strip_tasks[0]
         self.assertEqual(task.grid, RING_GRID)
-        self.assertEqual(len(task.overrides), 9)
+        self.assertEqual(len(task.overrides), RING_GRID[0] * RING_GRID[1])
         self.assertEqual(self.controller.state.test_strip_kind, "colour")
-        self.assertEqual(self.controller.state.test_strip_origin, (0.2, -0.1))
+        # Absolute ladder: the rungs don't depend on what is currently dialled in.
+        self.assertEqual(tuple(task.overrides), tuple(ring_overrides()))
 
     def test_picking_a_patch_commits_only_its_filtration(self):
         self._set_filtration(0.2, -0.1)
@@ -135,7 +136,7 @@ class RingAroundLifecycle(unittest.TestCase):
         self.controller.apply_test_strip_pick(0, 0)
 
         after = self.controller.state.config.exposure
-        _, _, m, y = ring_cells(0.2, -0.1)[0]
+        _, _, m, y = ring_cells()[0]
         self.assertAlmostEqual(after.wb_magenta, m)
         self.assertAlmostEqual(after.wb_yellow, y)
         # Everything the patches were rendered under is left exactly as it was.
@@ -147,23 +148,43 @@ class RingAroundLifecycle(unittest.TestCase):
         self.assertEqual(after.auto_normalize_contrast, before.auto_normalize_contrast)
         self.assertFalse(self.controller.state.test_strip)
 
-    def test_picking_the_centre_keeps_the_filtration_and_still_clears(self):
+    def test_picking_the_centre_commits_neutral_filtration(self):
         self._set_filtration(0.2, -0.1)
         self._print_ring()
-        self.controller.apply_test_strip_pick(1, 1)
+        mid = RING_GRID[0] // 2
+        self.controller.apply_test_strip_pick(mid, mid)
 
         after = self.controller.state.config.exposure
-        self.assertEqual((after.wb_magenta, after.wb_yellow), (0.2, -0.1))
+        self.assertEqual((after.wb_magenta, after.wb_yellow), (0.0, 0.0))
         self.assertFalse(self.controller.state.test_strip)
 
-    def test_picking_a_patch_invalidates_the_ring_cache(self):
-        """The inverse of the tone strip's cache-hit test, and deliberately so: the ring's
-        ladder is relative to the filtration in force, so once that moves the old mosaic is
-        no longer a proof of anything. A ring-around is meant to be iterated."""
+    def test_reprinting_an_unchanged_ring_is_a_cache_hit(self):
+        """Same deal as the tone strip: 25 renders for pixels already in hand is worth
+        avoiding, so toggling the ring off and back on with no edit between must not reprint."""
+        self._print_ring()
+        self.controller._clear_test_strip()
+        self.controller.toggle_ring_around()
+
+        self.assertEqual(len(self.strip_tasks), 1)
+        self.assertTrue(self.controller.state.test_strip)
+        self.assertIsNotNone(self.controller.state.test_strip_mosaic)
+
+    def test_any_other_edit_invalidates_the_ring_cache(self):
+        self._print_ring()
+        self.controller._clear_test_strip()
+        cfg = self.controller.state.config
+        self.controller.state.config = replace(cfg, exposure=replace(cfg.exposure, density=1.4))
+        self.controller.toggle_ring_around()
+        self.assertEqual(len(self.strip_tasks), 2)
+
+    def test_picking_a_patch_leaves_the_ring_cache_valid(self):
+        """What the absolute ladder buys: the mosaic varies M/Y itself, so it is invariant to
+        them and picking a patch changes nothing the patches depended on."""
         self._print_ring()
         self.controller.apply_test_strip_pick(0, 0)
         self.controller.toggle_ring_around()
-        self.assertEqual(len(self.strip_tasks), 2)  # a second real job, not a cache hit
+        self.assertEqual(len(self.strip_tasks), 1)  # cache hit, no reprint
+        self.assertTrue(self.controller.state.test_strip)
 
     def test_the_two_proof_kinds_never_share_a_cache_entry(self):
         """RenderMemo holds one entry per file hash, so the kind is folded into the key —
@@ -182,7 +203,7 @@ class RingAroundLifecycle(unittest.TestCase):
         self.assertEqual(self.controller.state.test_strip_kind, "tone")
         self.assertEqual(len(self.strip_tasks), 2)
 
-        self.controller.on_strip_finished(self._mosaic(), (0, 0, 9, 9))
+        self.controller.on_strip_finished(self._mosaic(), (0, 0, 10, 10))
         self.controller.toggle_ring_around()
         self.assertEqual(self.controller.state.test_strip_kind, "colour")
         self.assertEqual(len(self.strip_tasks), 3)

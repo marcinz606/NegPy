@@ -55,9 +55,9 @@ class RenderTask:
 
 @dataclass(frozen=True)
 class TestStripTask:
-    """Request to print a proof mosaic off one frame — the density × grade test strip, or the
-    colour ring-around. `overrides` carries one ExposureConfig field-override dict per patch,
-    row-major over `grid`."""
+    """Request to print a proof mosaic off one frame: the density × grade strip or the colour
+    ring-around. `overrides` is one ExposureConfig field-override dict per patch, row-major
+    over `grid`."""
 
     buffer: np.ndarray
     config: WorkspaceConfig
@@ -270,12 +270,11 @@ class RenderWorker(QObject):
     def build_strip(self, task: TestStripTask) -> None:
         """Render the frame once per patch and keep only that patch.
 
-        Runs on the render thread with the canvas's own ImageProcessor, so the patches are
-        the same pixels the canvas would show. The fields any proof overrides — density and
-        grade for the tone strip, the colour head's magenta/yellow for the ring-around — are
-        all absent from the analysis cache key, so the per-frame metering is reused and only
-        the exposure stage onward re-dispatches. Metrics are dropped on the floor: a proof
-        must not disturb the histogram/bounds writeback the real render owns.
+        Runs on the render thread with the canvas's own ImageProcessor, so the patches are the
+        pixels the canvas would show. Every field a proof overrides (density/grade, or the
+        colour head's magenta/yellow) is absent from the analysis cache key, so the per-frame
+        metering is reused and only the exposure stage onward re-dispatches. Metrics are
+        dropped: a proof must not disturb the writeback the real render owns.
         """
         try:
             tiles = []

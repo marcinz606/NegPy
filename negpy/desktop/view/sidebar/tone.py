@@ -286,7 +286,7 @@ class ToneSidebar(BaseSidebar):
         if printing:
             return "Printing the test strip…"
         return tooltip_with_shortcut(
-            "Test Strip: print the frame as a 6×6 grid — Print Density increasing left to right, "
+            "Test Strip: print the frame as a 5×5 grid — Print Density increasing left to right, "
             "ISO-R Grade softening top to bottom. Click the patch you like to keep its settings.",
             "toggle_test_strip",
         )
@@ -295,8 +295,7 @@ class ToneSidebar(BaseSidebar):
         """ponytail: the whole strip is one job with no progress reporting — the button is
         icon-only, so it goes dead with a 'printing' tooltip rather than changing its
         label. Per-patch progress if 36 renders ever feels long."""
-        # Both proofs share one slot, so the kind has to gate this or the ring lights this
-        # button too.
+        # One shared slot, so the kind gates this or the ring lights this button too.
         mine = self.state.test_strip_kind == "tone"
         pending = self.state.test_strip_pending and mine
         self.test_strip_btn.setChecked((self.state.test_strip or self.state.test_strip_pending) and mine)

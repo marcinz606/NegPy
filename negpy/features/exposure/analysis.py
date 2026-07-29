@@ -128,26 +128,22 @@ def zone_region_labels(zones: np.ndarray) -> List[Tuple[int, int, int]]:
     return out
 
 
-# Test strip ladder: a fixed absolute grid, not an offset around the current
-# settings, so a strip printed off one frame is comparable to the next. Columns
-# darken left to right, rows soften top to bottom — the two diagonals then read as
-# the darkroom's light/dark and soft/hard axes. Named strip_* rather than
-# test_strip_*: pytest collects any test_-prefixed callable a test module imports.
-STRIP_DENSITIES = (0.4, 0.7, 1.0, 1.3, 1.6, 1.9)
-STRIP_GRADES = (55.0, 80.0, 105.0, 130.0, 155.0, 180.0)
+# Absolute ladders, centred on the defaults and inside the sliders' travel (density 0-2,
+# grade R50-R180). Named strip_* not test_strip_*: pytest collects any test_-prefixed
+# callable a test module imports.
+STRIP_DENSITIES = (0.4, 0.7, 1.0, 1.3, 1.6)
+STRIP_GRADES = (75.0, 95.0, 115.0, 135.0, 155.0)
 
 
 STRIP_GRID = (len(STRIP_GRADES), len(STRIP_DENSITIES))  # (rows, cols)
 
-# Colour ring-around: ±1 CC step on the magenta and yellow axes around the filtration in
-# force, so the centre patch is the print being judged. Relative rather than absolute like
-# the strip's ladders — the question is which way the cast lies *from here*, which an
-# absolute grid can't ask once a correction is already dialled in. 1.0 slider = 20cc
-# (see filtration_offsets), so 0.25 is the classic RA4 5cc increment; it also keeps the
-# centre unclamped anywhere in [-0.75, +0.75]. Calibration knob: retune by eye.
-RING_CC_STEP = 0.25
+# Ring-around rungs: absolute filtration centred on neutral, like the strip's ladders, so a
+# ring printed off one frame is comparable to the next and the mosaic is invariant to the
+# filtration in force. 1.0 slider = 20cc (see filtration_offsets), so the step is 1cc and the
+# outer rung 2cc. Calibration knobs.
+RING_CC_STEP = 0.05
 RING_CC_PER_UNIT = 20.0
-RING_GRID = (3, 3)
+RING_GRID = (5, 5)
 
 
 def strip_cells() -> List[Tuple[int, int, float, float]]:
@@ -160,33 +156,38 @@ def strip_overrides() -> List[dict]:
     return [{"density": d, "grade": g} for _, _, d, g in strip_cells()]
 
 
-def ring_cells(magenta: float, yellow: float) -> List[Tuple[int, int, float, float]]:
-    """(row, col, wb_magenta, wb_yellow) row-major; cell (1, 1) is exactly the filtration
-    passed in. Rows step magenta, columns step yellow — cyan stays 0, as in a real
-    subtractive head.
+def ring_rungs() -> Tuple[float, ...]:
+    """The absolute wb values one axis steps through, centred on neutral."""
+    mid = RING_GRID[0] // 2
+    return tuple(round((i - mid) * RING_CC_STEP, 6) for i in range(RING_GRID[0]))
 
-    Values are clipped to the slider domain, so at a rail two rows print the same patch.
-    That is the head running out of travel, not a bug.
-    """
+
+def ring_cells() -> List[Tuple[int, int, float, float]]:
+    """(row, col, wb_magenta, wb_yellow) row-major. Rows step magenta, columns yellow, cyan
+    stays 0. Absolute, so the centre patch is neutral rather than whatever is dialled in."""
+    rungs = ring_rungs()
     rows, cols = RING_GRID
-    out: List[Tuple[int, int, float, float]] = []
-    for r in range(rows):
-        m = float(np.clip(magenta + (r - 1) * RING_CC_STEP, -1.0, 1.0)) if r != 1 else magenta
-        for c in range(cols):
-            y = float(np.clip(yellow + (c - 1) * RING_CC_STEP, -1.0, 1.0)) if c != 1 else yellow
-            out.append((r, c, m, y))
-    return out
+    return [(r, c, rungs[r], rungs[c]) for r in range(rows) for c in range(cols)]
 
 
-def ring_overrides(magenta: float, yellow: float) -> List[dict]:
-    """ExposureConfig field overrides per patch — only the two colour-head fields, so a
-    replace() built from these can't disturb density, grade or cyan."""
-    return [{"wb_magenta": m, "wb_yellow": y} for _, _, m, y in ring_cells(magenta, yellow)]
+def ring_overrides() -> List[dict]:
+    """Per-patch ExposureConfig overrides. Only the two colour-head fields, so a replace()
+    built from these cannot disturb density, grade or cyan."""
+    return [{"wb_magenta": m, "wb_yellow": y} for _, _, m, y in ring_cells()]
 
 
-def ring_cc_offset(index: int) -> float:
-    """Signed CC offset of grid index 0/1/2 — the number the ring's axis labels show."""
-    return (index - 1) * RING_CC_STEP * RING_CC_PER_UNIT
+def ring_cc(index: int) -> float:
+    """A rung's filtration in cc, as the axis labels show it."""
+    return ring_rungs()[index] * RING_CC_PER_UNIT
+
+
+def ring_nearest_cell(magenta: float, yellow: float) -> Tuple[int, int]:
+    """(row, col) of the patch closest to the filtration in force."""
+    rungs = ring_rungs()
+    return (
+        int(np.argmin([abs(m - magenta) for m in rungs])),
+        int(np.argmin([abs(y - yellow) for y in rungs])),
+    )
 
 
 def _strip_bounds(extent: int, divisions: int, index: int) -> Tuple[int, int]:
@@ -195,8 +196,7 @@ def _strip_bounds(extent: int, divisions: int, index: int) -> Tuple[int, int]:
 
 def strip_mosaic(tiles: List[np.ndarray], grid: Tuple[int, int]) -> np.ndarray:
     """One frame assembled from row-major renders over `grid`, each contributing only its own
-    patch. Bounds are rounded from the same fractions on both sides of a seam, so patches
-    tile exactly — no gap, no overlap."""
+    patch. Both sides of a seam round the same fraction, so patches tile exactly."""
     rows, cols = grid
     if len(tiles) != rows * cols:
         raise ValueError(f"expected {rows * cols} tiles, got {len(tiles)}")

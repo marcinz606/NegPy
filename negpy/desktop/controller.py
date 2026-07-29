@@ -934,21 +934,18 @@ class AppController(QObject):
         return hashlib.md5(repr(parts).encode()).hexdigest()
 
     def _strip_memo_key(self, kind: str = "tone") -> str:
-        """The render key for a proof mosaic, prefixed by kind so the two can never collide.
+        """The render key for a proof mosaic, prefixed by kind so the two can't collide.
 
-        The tone strip pins density and grade to fixed values: it supplies those two itself,
-        one per patch, so its mosaic is invariant to whatever they currently are — which makes
-        the print/pick/print-again loop a cache hit. Any other edit (crop, filtration, paper,
-        toning...) lands on a different key and re-prints.
-
-        The ring pins nothing. Its ladder is relative to the filtration in force, so the mosaic
-        is *not* invariant to it — picking a patch has to invalidate, and should: a ring-around
-        is meant to be iterated toward neutral, and each round is genuinely new pixels.
+        Both ladders are absolute, so each proof supplies the fields it varies and its mosaic
+        is invariant to whatever those currently are. Pinning them makes print/pick/print again
+        a cache hit. Any other edit (crop, paper, toning...) lands on a different key.
         """
-        config = self.state.config
-        if kind == "tone":
-            config = replace(config, exposure=replace(config.exposure, density=1.0, grade=115.0))
-        return f"{kind}:{self._render_memo_key(config)}"
+        exposure = self.state.config.exposure
+        if kind == "colour":
+            exposure = replace(exposure, wb_magenta=0.0, wb_yellow=0.0)
+        else:
+            exposure = replace(exposure, density=1.0, grade=115.0)
+        return f"{kind}:{self._render_memo_key(replace(self.state.config, exposure=exposure))}"
 
     def load_file(self, file_path: str, preserve_zoom: bool = False, force_detect: bool = False) -> None:
         """
@@ -1220,12 +1217,10 @@ class AppController(QObject):
         self.toggle_test_strip(force, kind="colour")
 
     def toggle_test_strip(self, force: Optional[bool] = None, kind: str = "tone") -> None:
-        """Print (or clear) a proof mosaic: the density × grade test strip, or the colour
-        ring-around. Unlike the zone overlay these need pixels the canvas doesn't have, so
-        entering dispatches one job.
+        """Print (or clear) a proof mosaic: the density × grade strip, or the colour ring-around.
+        Entering dispatches one job, since these need pixels the canvas doesn't have.
 
-        Both share the one proof slot, so asking for the other kind while a proof is up swaps
-        it rather than dismissing it.
+        Both share the one proof slot, so asking for the other kind swaps it.
         """
         showing = (self.state.test_strip or self.state.test_strip_pending) and self.state.test_strip_kind == kind
         target = (not showing) if force is None else bool(force)
@@ -1235,14 +1230,11 @@ class AppController(QObject):
         if self.state.preview_raw is None:
             return
 
-        exposure = self.state.config.exposure
         if kind == "colour":
-            origin = (exposure.wb_magenta, exposure.wb_yellow)
-            overrides = ring_overrides(*origin)
+            overrides = ring_overrides()
             grid = RING_GRID
             toast = "Printing the colour ring-around…"
         else:
-            origin = (0.0, 0.0)
             overrides = strip_overrides()
             grid = STRIP_GRID
             toast = "Printing test strip…"
@@ -1251,18 +1243,15 @@ class AppController(QObject):
         cached = self._strip_memo.get(self.state.current_file_hash or "", self._strip_memo_key(kind))
         if cached is not None:
             self.state.test_strip_kind = kind
-            self.state.test_strip_origin = origin
             self.on_strip_finished(cached["mosaic"], cached["content_rect"], from_cache=True)
             return
 
         proofing = self.state.soft_proof_enabled
         icc_input = self.effective_input_icc() if (proofing or self.state.config.process.narrowband_scan) else None
         self.state.test_strip_kind = kind
-        self.state.test_strip_origin = origin
         self.state.test_strip_pending = True
         self.test_strip_changed.emit(False)
-        # These renders take a few seconds; say so up front and tick the HUD progress bar
-        # per patch so it's clear the app is working rather than wedged.
+        # A few seconds of renders: tick the HUD so it doesn't read as wedged.
         self.status_message_requested.emit(toast, 2500)
         self.status_progress_requested.emit(0, len(overrides))
         self.strip_requested.emit(
@@ -1271,8 +1260,7 @@ class AppController(QObject):
                 config=self.state.config,
                 source_hash=self.state.current_file_hash or "preview",
                 # Always preview res, never HQ: full-res renders per patch would take minutes,
-                # and each patch is shown at a fraction of the frame's width anyway. The
-                # mosaic scales to the content rect, so a smaller one costs nothing here.
+                # and each patch is shown at a fraction of the frame's width anyway.
                 preview_size=float(APP_CONFIG.preview_render_size),
                 overrides=tuple(overrides),
                 grid=grid,
@@ -1328,17 +1316,14 @@ class AppController(QObject):
     def apply_test_strip_pick(self, row: int, col: int) -> None:
         """Commit the clicked patch's settings, then drop the proof.
 
-        Cast Removal and the Auto toggles are left exactly as they were: the patches were
-        rendered under them, so changing them would render something other than the patch
-        that was clicked. The ring reads its ladder from the origin it was printed around,
-        not from the live config — which this is about to change.
+        Cast Removal and the Auto toggles are left alone: the patches were rendered under
+        them, so flipping one would render something other than the patch that was clicked.
         """
         if not self.state.test_strip:
             return
         exposure = self.state.config.exposure
         if self.state.test_strip_kind == "colour":
-            cells = ring_cells(*self.state.test_strip_origin)
-            _, _, magenta, yellow = cells[row * RING_GRID[1] + col]
+            _, _, magenta, yellow = ring_cells()[row * RING_GRID[1] + col]
             new_exposure = replace(exposure, wb_magenta=magenta, wb_yellow=yellow)
         else:
             new_exposure = replace(exposure, density=STRIP_DENSITIES[col], grade=STRIP_GRADES[row])
