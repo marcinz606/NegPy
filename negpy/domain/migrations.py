@@ -23,8 +23,12 @@ KEY_RENAMES: Dict[str, str] = {
     # D-Range Clip split into independent luma + colour range clips; the old single
     # slider maps to the luma axis (colour defaults to its aggressive baseline).
     "drange_clip": "luma_range_clip",
-    # Dye Separation shipped under a working name first; the maths is the same.
-    "density_vibrance": "dye_separation",
+    # The frame-wide density-domain control (ex "Print Saturation") absorbed the
+    # per-pixel one beside it and took over its name (see the pop in migrate_flat_config).
+    "density_saturation": "dye_separation",
+    "density_saturation_trim_red": "dye_separation_trim_red",
+    "density_saturation_trim_green": "dye_separation_trim_green",
+    "density_saturation_trim_blue": "dye_separation_trim_blue",
 }
 
 # Fields removed from the config over time. Every edit saved before the removal
@@ -42,7 +46,7 @@ DROPPED_KEYS: frozenset[str] = frozenset(
         "chroma_damping",  # Dye Mute, first form
         "density_saturation_damping",
         "density_damping_spatial",
-        "vibrance",  # Lab Vibrance, retired in favour of exposure.dye_separation
+        "vibrance",  # Lab Vibrance, retired in favour of the per-pixel Dye Separation
     }
 )
 
@@ -62,6 +66,17 @@ def migrate_flat_config(data: Dict[str, Any]) -> Dict[str, Any]:
     Value rewrites run before DROPPED_KEYS is popped — several of them read a key
     on their way to deleting it.
     """
+    # The per-pixel Dye Separation was consolidated into the frame-wide density-domain
+    # control (ex "Print Saturation"), which took over its name — so the same key means
+    # different things either side of the merge, and the old ±0.5 value would read as a
+    # heavy desaturation. A dict still carrying density_saturation predates the merge,
+    # and anything under the new slider floor (0.25 at merge time) can only be the old
+    # signed-around-zero control; drop those before the rename lands the new value on
+    # that key. Not DROPPED_KEYS: those pops run last and would take it back out.
+    if "density_saturation" in data or float(data.get("dye_separation", 1.0)) < 0.25:
+        data.pop("dye_separation", None)
+    data.pop("density_vibrance", None)
+
     for old_key, new_key in KEY_RENAMES.items():
         if old_key in data:
             data[new_key] = data.pop(old_key)

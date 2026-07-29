@@ -88,10 +88,6 @@ def _apply_print_curve_kernel(
     ev_map: np.ndarray,
     ev_scale: np.ndarray,
     use_ev: bool,
-    dye_separation: float = 0.0,
-    dye_separation_scale: float = 0.4,
-    dye_separation_gain: float = 3.0,
-    use_dye_separation: bool = False,
     bpc: bool = False,
 ) -> np.ndarray:
     """
@@ -214,47 +210,6 @@ def _apply_print_curve_kernel(
                 dens[0] = d_min_rgb[0] + dye_mix[0, 0] * e0 + dye_mix[0, 1] * e1 + dye_mix[0, 2] * e2
                 dens[1] = d_min_rgb[1] + dye_mix[1, 0] * e0 + dye_mix[1, 1] * e1 + dye_mix[1, 2] * e2
                 dens[2] = d_min_rgb[2] + dye_mix[2, 0] * e0 + dye_mix[2, 1] * e1 + dye_mix[2, 2] * e2
-
-            if use_dye_separation:
-                # The sign flips which pixels the mask selects, not just the
-                # formula: positive targets low spread, negative targets high
-                # spread. Flipping only the formula would push and pull the same
-                # (muted) population and never reach the separated pixels.
-                ve0 = dens[0] - d_min_rgb[0]
-                ve1 = dens[1] - d_min_rgb[1]
-                ve2 = dens[2] - d_min_rgb[2]
-                ve_max = ve0
-                if ve1 > ve_max:
-                    ve_max = ve1
-                if ve2 > ve_max:
-                    ve_max = ve2
-                ve_min = ve0
-                if ve1 < ve_min:
-                    ve_min = ve1
-                if ve2 < ve_min:
-                    ve_min = ve2
-                spread = ve_max - ve_min
-                # spread >= 0 always, so a plain sigmoid never reaches its 0 end
-                # (sigmoid(0) = 0.5, not 0) -- rescale so s is exactly 0 at
-                # spread=0 and approaches 1 as spread grows, so the mask reaches
-                # its true target-population strength at the boundary instead of
-                # topping out at half-strength there.
-                s = 2.0 * _fast_sigmoid(spread / dye_separation_scale) - 1.0
-                # Gain applies to the vibrance side only: a relative gain of 1 leaves
-                # the muted pixels it targets visually unchanged (their deviation from
-                # the mean is near zero). Muting needs no gain -- slider -1 is already
-                # a full collapse to neutral.
-                if dye_separation >= 0.0:
-                    mask = 1.0 - s
-                    gain = dye_separation_gain
-                else:
-                    mask = s
-                    gain = 1.0
-                k = 1.0 + dye_separation * gain * mask
-                ve_mean = (ve0 + ve1 + ve2) / 3.0
-                dens[0] = d_min_rgb[0] + ve_mean + k * (ve0 - ve_mean)
-                dens[1] = d_min_rgb[1] + ve_mean + k * (ve1 - ve_mean)
-                dens[2] = d_min_rgb[2] + ve_mean + k * (ve2 - ve_mean)
 
             for ch in range(3):
                 transmittance = 10.0 ** (-dens[ch])
@@ -546,20 +501,16 @@ def apply_characteristic_curve(
     highlight_density: float = 0.0,
     shadow_grade_deltas: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     highlight_grade_deltas: Tuple[float, float, float] = (0.0, 0.0, 0.0),
-    density_saturation: float = 1.0,
-    density_saturation_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
-    dye_separation: float = 0.0,
+    dye_separation: float = 1.0,
+    dye_separation_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
 ) -> ImageBuffer:
     """Applies the asymmetric H&D print curve per channel in log-density space.
 
     ev_map (H×W, EV stops; positive = dodge) with ev_scale (see local_ev_scale)
     applies per-pixel dodge/burn as print-exposure offsets ahead of the curve.
 
-    density_saturation(_trims): density-domain saturation, composed into the
-    dye_mix slot (see resolve_saturation_matrix/compose_density_matrices).
-
-    dye_separation: signed per-pixel spread rescale applied in the kernel after
-    dye_mix (see _apply_print_curve_kernel)."""
+    dye_separation(_trims): density-domain saturation, composed into the
+    dye_mix slot (see resolve_saturation_matrix/compose_density_matrices)."""
     c = effective_constants(paper)
     ts = c["toe_shoulder_strength"]
     if midtone_gamma is None:
@@ -572,7 +523,7 @@ def apply_characteristic_curve(
     s_cmy = np.ascontiguousarray(np.array(shadow_cmy, dtype=np.float32))
     h_cmy = np.ascontiguousarray(np.array(highlight_cmy, dtype=np.float32))
     dye = resolve_dye_matrix(paper)
-    sat_k3 = per_channel_density_saturation(density_saturation, density_saturation_trims)
+    sat_k3 = per_channel_dye_separation(dye_separation, dye_separation_trims)
     sat = resolve_saturation_matrix(sat_k3)
     composed = compose_density_matrices(dye, sat)
     dye_mix = np.ascontiguousarray(np.eye(3) if composed is None else composed)
@@ -616,10 +567,6 @@ def apply_characteristic_curve(
         ev_map=ev_arr,
         ev_scale=np.ascontiguousarray(np.array(ev_scale, dtype=np.float32)),
         use_ev=use_ev,
-        dye_separation=float(dye_separation),
-        dye_separation_scale=float(c["dye_separation_spread_scale"]),
-        dye_separation_gain=float(c["dye_separation_gain"]),
-        use_dye_separation=dye_separation != 0.0,
         bpc=bool(bpc),
     )
     return ensure_image(res)
@@ -679,12 +626,12 @@ def grade_to_slope(grade: float, density_range: Optional[float]) -> float:
     return float(min(max(k, c["slope_min"]), c["slope_max"]))
 
 
-def per_channel_density_saturation(
-    density_saturation: float,
+def per_channel_dye_separation(
+    dye_separation: float,
     trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
 ) -> Tuple[float, float, float]:
     """
-    Per-layer effective density-saturation k: global value + per-layer trim,
+    Per-layer effective dye-separation k: global value + per-layer trim,
     clamped to a sane matrix-coefficient range. Mirrors
     per_channel_toe_shoulder's global+trim convention.
     """
@@ -693,9 +640,9 @@ def per_channel_density_saturation(
         return min(max(v, 0.0), 3.0)
 
     return (
-        _clamp(density_saturation + trims[0]),
-        _clamp(density_saturation + trims[1]),
-        _clamp(density_saturation + trims[2]),
+        _clamp(dye_separation + trims[0]),
+        _clamp(dye_separation + trims[1]),
+        _clamp(dye_separation + trims[2]),
     )
 
 

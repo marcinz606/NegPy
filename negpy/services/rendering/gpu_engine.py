@@ -1132,7 +1132,7 @@ class GPUEngine:
             _reference_linear_value,
             cast_solve_inputs,
             filtration_offsets,
-            per_channel_density_saturation,
+            per_channel_dye_separation,
             per_channel_toe_shoulder,
             grade_coupled_shape,
             local_ev_scale,
@@ -1220,15 +1220,15 @@ class GPUEngine:
         )
         dmin_rgb = paper_dmin_rgb(d_min, paper)
         dye = resolve_dye_matrix(paper)
-        # Density-space Print Saturation, composed into the same dye_mix slot
+        # Density-space Dye Separation, composed into the same dye_mix slot
         # as the paper's real crosstalk. Mirrors the CPU path
         # (apply_characteristic_curve) exactly — see negpy/features/exposure/logic.py.
         if settings.process.process_mode == ProcessMode.BW:
             sat = None
         else:
-            sat_k3 = per_channel_density_saturation(
-                exp.density_saturation,
-                (exp.density_saturation_trim_red, exp.density_saturation_trim_green, exp.density_saturation_trim_blue),
+            sat_k3 = per_channel_dye_separation(
+                exp.dye_separation,
+                (exp.dye_separation_trim_red, exp.dye_separation_trim_green, exp.dye_separation_trim_blue),
             )
             sat = resolve_saturation_matrix(sat_k3)
         composed = compose_density_matrices(dye, sat)
@@ -1271,11 +1271,9 @@ class GPUEngine:
                 pc["d_max"],
                 pc["toe_sharpness_base"],
                 pc["shoulder_sharpness_base"],
-                # Dye Separation strength (was "Free slot ex-width_ref";
-                # toeshoulder_width_ref is a WGSL literal). B&W zeroes here as
-                # well as in the shader's post-curve re-collapse, so both paths
-                # rely on the same guard PhotometricProcessor uses.
-                0.0 if settings.process.process_mode == ProcessMode.BW else float(exp.dye_separation),
+                # Free slot (ex per-pixel Dye Separation, ex-width_ref;
+                # toeshoulder_width_ref is a WGSL literal).
+                0.0,
                 pc["toe_height"],
                 pc["shoulder_height"],
                 pc["anchor_target_density"],

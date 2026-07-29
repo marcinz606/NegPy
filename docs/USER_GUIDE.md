@@ -257,8 +257,7 @@ The paper's response. A **Global / R / G / B** selector at the top scopes most c
 *   **ISO-R Grade** (50–180): contrast, as a paper ISO-R value. R110 ≈ classic grade 2; **lower R = harder** (more contrast), higher = softer. In R/G/B mode a **Grade** trim rotates one layer's slope about the midtone.
 *   **Shadows Density** (±0.9 ΔD) / **Highlights Density** (±0.5 ΔD): brighten or darken just the shadow or highlight zone, without reshaping the curve. Bounded by paper black/white so a burn can't exceed the print's limits. The ranges differ because density is logarithmic — the same ΔD reads far smaller near paper black than near paper white.
 *   **Shadows Grade** / **Highlights Grade** (split grade, ±50 ISO-R): rotate contrast locally in the deep shadows or highlights — the digital equivalent of split-grade printing.
-*   **Print Saturation** (0.5–1.5, hidden in B&W): saturation as a darkroom operation — it pushes the print's three dye densities apart *before* the positive is decoded, in the same matrix the paper's own dye crosstalk uses. So it responds to the paper profile you picked, and it eases off automatically where the curve is already compressed at toe and shoulder, instead of forcing colour into tones that have none left to give. 1.0 = off. Travel is concentrated near 1.0 for finer control there. (Contrast **Chroma** in the Colour tab, which scales colour evenly after decode.)
-*   **Dye Separation** (-0.5–0.5, hidden in B&W): the same density-domain push, but decided per pixel rather than for the whole frame. Each pixel is judged on how far apart its own three dye densities already sit. **Positive is a vibrance**: it works hard on the pixels whose dyes sit close together — muted greens, hazy distance, washed skies — and tapers off to nothing on colours that are already strongly separated, so the reds and yellows that would be first to clip under Print Saturation are left alone. **Negative** does the reverse, muting only the most separated pixels. Because neither direction touches the other's pixels, it behaves like a selective tool rather than a saturation slider. The two sides are not mirror images and don't cancel each other. 0 = off.
+*   **Dye Separation** (0.25–1.75, hidden in B&W): saturation in density space — it pushes the print's three dye densities apart *before* the positive is decoded, in the same matrix the paper's own dye crosstalk uses. So it responds to the paper profile you picked, and it eases off automatically where the curve is already compressed at toe and shoulder, instead of forcing colour into tones that have none left to give. Below 1.0 pulls the dyes together instead, toward neutral. 1.0 = off. (Contrast **Chroma** in the Colour tab, which scales colour evenly after decode.)
 
 **Paper Response** — the characteristic-curve shape:
 
@@ -269,7 +268,7 @@ The paper's response. A **Global / R / G / B** selector at the top scopes most c
 *   **Toe** (-1–1) + **Toe Width** (0.1–5): the shadow roll-off into paper black. Positive toe lifts shadows for a gentle film toe; negative deepens (and, with Paper Black off, makes exact black reachable). Width sets how far the knee reaches into the midtones.
 *   **Shoulder** (-1–1) + **Shoulder Width** (0.1–5): the highlight roll-off into paper white. Positive compresses highlights (film-like); negative extends them and risks clipping.
 
-In R/G/B mode the sliders become per-layer trims on top of the global value, for that dye emulsion: **Grade** (±30 ISO-R), **Toe** / **Shoulder** (±1), **Toe Width** / **Shoulder Width** (±2), **Snap** (±0.5) and **Print Saturation** (±0.4). Dye Separation stays global.
+In R/G/B mode the sliders become per-layer trims on top of the global value, for that dye emulsion: **Grade** (±30 ISO-R), **Toe** / **Shoulder** (±1), **Toe Width** / **Shoulder Width** (±2), **Snap** (±0.5) and **Dye Separation** (±0.4).
 
 <!-- panel:local -->
 ### 6.3 Dodge & Burn — local exposure
@@ -292,7 +291,7 @@ Mimics what a lab scanner (Frontier/Noritsu) does automatically. Colour controls
 
 **Colour** (hidden in B&W):
 
-*   **Chroma** (0.0–2.0): a flat colour scale applied after the print is decoded, even across every tone — a retouching move rather than a darkroom one. 1.0 = unchanged, 0 = greyscale, 2.0 = double. For saturation that behaves like a print instead, reach for **Print Saturation** in the Exposure tab.
+*   **Chroma** (0.0–2.0): a flat colour scale applied after the print is decoded, even across every tone — a retouching move rather than a density-space one. 1.0 = unchanged, 0 = greyscale, 2.0 = double. For saturation that behaves like a print instead, reach for **Dye Separation** in the Exposure tab.
 *   **Chroma Denoise** (0.0–5.0): smooths colour noise, especially in shadows, while leaving luminance grain intact.
 
 **Sharpen:**

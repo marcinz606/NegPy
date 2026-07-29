@@ -16,7 +16,7 @@ _POINTS = [(0, 0), (8, 8), (20, 30), (32, 32), (50, 50), (60, 10)]
 
 # Golden pixel values (Adobe-RGB-TRC-encoded engine output, scene-linear pipeline,
 # default config — paper_dmin off, paper_black off, cast_removal_strength 0.5, sharpen 0.25,
-# dye_separation 0.0).
+# dye_separation 1.0).
 _GOLDEN = {
     "default": [
         (0.084367, 0.956394, 0.937821),

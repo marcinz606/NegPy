@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import QButtonGroup, QComboBox, QDialog, QHBoxLayout
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader, wrap_tooltip
-from negpy.desktop.view.widgets.sliders import CompactSlider, PowerWarpSlider
+from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, TUNABLE_TARGETS, apply_targets
 
 _CH_SUFFIX = ("red", "green", "blue")
@@ -13,9 +13,9 @@ _CH_COLORS = ("#ff5a5a", "#5adc78", "#5f96ff")
 
 
 class ToneSidebar(BaseSidebar):
-    """Print/zone density, Grade, Print Saturation, paper white, and a labeled
+    """Print/zone density, Grade, Dye Separation, paper white, and a labeled
     Paper Response group (paper profile + Snap/Toe/Shoulder) — with a
-    [Global/R/G/B] channel selector scoping Grade/Toe/Shoulder/Print Saturation
+    [Global/R/G/B] channel selector scoping Grade/Toe/Shoulder/Dye Separation
     to per-layer trims (crossover correction)."""
 
     def _init_ui(self) -> None:
@@ -61,7 +61,7 @@ class ToneSidebar(BaseSidebar):
                     f"midtone_gamma_trim_{ch}",
                     f"toe_width_trim_{ch}",
                     f"shoulder_width_trim_{ch}",
-                    f"density_saturation_trim_{ch}",
+                    f"dye_separation_trim_{ch}",
                 ),
             )
             for btn, ch in zip((self.ch_r_btn, self.ch_g_btn, self.ch_b_btn), _CH_SUFFIX)
@@ -143,26 +143,17 @@ class ToneSidebar(BaseSidebar):
         # the general print parameters (Density/Grade) above Paper Response,
         # not inside it: it isn't a paper-character control like Snap/Toe/
         # Shoulder, it's a creative print decision like Density/Grade are.
-        self.density_sat_slider = PowerWarpSlider("Print Saturation", 0.5, 1.5, conf.density_saturation, center=1.0, has_neutral=True)
-        self.density_sat_trim_slider = PowerWarpSlider("Print Saturation", -0.4, 0.4, 0.0, center=0.0, has_neutral=True)
-        self.density_sat_trim_slider.setToolTip(
-            "This layer's Print Saturation trim on top of the global value — pushes/pulls this "
+        self.dye_separation_slider = CompactSlider("Dye Separation", 0.25, 1.75, conf.dye_separation, has_neutral=True)
+        self.dye_separation_trim_slider = CompactSlider("Dye Separation", -0.4, 0.4, 0.0, has_neutral=True)
+        self.dye_separation_trim_slider.setToolTip(
+            "This layer's Dye Separation trim on top of the global value — pushes/pulls this "
             "channel's density separation independently. Neutrals stay flat at any trim value."
         )
-        self.density_sat_trim_slider.setVisible(False)
-        self.dye_separation_slider = PowerWarpSlider("Dye Separation", -0.5, 0.5, conf.dye_separation, center=0.0, has_neutral=True)
-        self.dye_separation_slider.setToolTip(
-            "Per-pixel counterpart to Print Saturation, judged on how far apart each pixel's own "
-            "three dye densities already sit. Positive is a vibrance: it lifts the muted pixels "
-            "hard and leaves already-separated ones alone. Negative mutes only the most separated "
-            "pixels. Neither direction touches the other's, so it stays selective where Print "
-            "Saturation is frame-wide."
-        )
-        density_sat_row = QHBoxLayout()
-        density_sat_row.addWidget(self.density_sat_slider)
-        density_sat_row.addWidget(self.density_sat_trim_slider)
-        density_sat_row.addWidget(self.dye_separation_slider)
-        self.layout.addLayout(density_sat_row)
+        self.dye_separation_trim_slider.setVisible(False)
+        dye_sep_row = QHBoxLayout()
+        dye_sep_row.addWidget(self.dye_separation_slider)
+        dye_sep_row.addWidget(self.dye_separation_trim_slider)
+        self.layout.addLayout(dye_sep_row)
 
         paper_header = section_subheader("PAPER RESPONSE")
         paper_header.setToolTip(
@@ -236,7 +227,6 @@ class ToneSidebar(BaseSidebar):
             self.paper_combo,
             self.shadow_density_slider,
             self.highlight_density_slider,
-            self.dye_separation_slider,
         )
 
     def _open_targets_dialog(self) -> None:
@@ -323,7 +313,6 @@ class ToneSidebar(BaseSidebar):
             (self.sh_w_slider, "shoulder_width"),
             (self.shadow_density_slider, "shadow_density"),
             (self.highlight_density_slider, "highlight_density"),
-            (self.density_sat_slider, "density_saturation"),
             (self.dye_separation_slider, "dye_separation"),
         ):
             slider.valueChanged.connect(
@@ -364,11 +353,11 @@ class ToneSidebar(BaseSidebar):
             lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, **{grade_trim_field(): v})
         )
 
-        # Width/density-sat trims live on separate sliders (differing trim vs global domain).
+        # Width/dye-separation trims live on separate sliders (differing trim vs global domain).
         for slider, base in (
             (self.toe_w_trim_slider, "toe_width"),
             (self.sh_w_trim_slider, "shoulder_width"),
-            (self.density_sat_trim_slider, "density_saturation"),
+            (self.dye_separation_trim_slider, "dye_separation"),
         ):
             slider.valueChanged.connect(
                 lambda v, b=base: self.update_config_section(
@@ -421,9 +410,8 @@ class ToneSidebar(BaseSidebar):
             self.toe_w_trim_slider.setVisible(not global_mode)
             self.sh_w_slider.setVisible(global_mode)
             self.sh_w_trim_slider.setVisible(not global_mode)
-            self.density_sat_slider.setVisible(global_mode and not is_bw)
-            self.density_sat_trim_slider.setVisible(not global_mode and not is_bw)
-            self.dye_separation_slider.setVisible(not is_bw)
+            self.dye_separation_slider.setVisible(global_mode and not is_bw)
+            self.dye_separation_trim_slider.setVisible(not global_mode and not is_bw)
             self.toe_slider.label.setText("Toe" + suffix)
             self.sh_slider.label.setText("Shoulder" + suffix)
             self.midtone_gamma_slider.label.setText("Snap" + suffix)
@@ -448,8 +436,8 @@ class ToneSidebar(BaseSidebar):
                 self.toe_w_trim_slider.setValue(getattr(conf, f"toe_width_trim_{ch}"))
                 self.sh_w_trim_slider.label.setText("Shoulder Width" + suffix)
                 self.sh_w_trim_slider.setValue(getattr(conf, f"shoulder_width_trim_{ch}"))
-                self.density_sat_trim_slider.label.setText("Print Saturation" + suffix)
-                self.density_sat_trim_slider.setValue(getattr(conf, f"density_saturation_trim_{ch}"))
+                self.dye_separation_trim_slider.label.setText("Dye Separation" + suffix)
+                self.dye_separation_trim_slider.setValue(getattr(conf, f"dye_separation_trim_{ch}"))
             for w in self._global_only:
                 w.setEnabled(global_mode)
 
@@ -462,7 +450,6 @@ class ToneSidebar(BaseSidebar):
             self.sh_w_slider.setValue(conf.shoulder_width)
             self.shadow_density_slider.setValue(conf.shadow_density)
             self.highlight_density_slider.setValue(conf.highlight_density)
-            self.density_sat_slider.setValue(conf.density_saturation)
             self.dye_separation_slider.setValue(conf.dye_separation)
 
             self.paper_dmin_btn.setChecked(conf.paper_dmin)
@@ -491,9 +478,8 @@ class ToneSidebar(BaseSidebar):
             self.midtone_gamma_slider,
             self.shadow_density_slider,
             self.highlight_density_slider,
-            self.density_sat_slider,
-            self.density_sat_trim_slider,
             self.dye_separation_slider,
+            self.dye_separation_trim_slider,
             self.shadow_grade_slider,
             self.highlight_grade_slider,
             self.paper_dmin_btn,

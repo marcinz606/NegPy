@@ -183,8 +183,6 @@ class ShortcutManager:
             "saturation_dec": lambda: controls.lab_sidebar.saturation_slider,
             "dye_separation_inc": lambda: controls.tone_sidebar.dye_separation_slider,
             "dye_separation_dec": lambda: controls.tone_sidebar.dye_separation_slider,
-            "density_saturation_inc": lambda: controls.tone_sidebar.density_sat_slider,
-            "density_saturation_dec": lambda: controls.tone_sidebar.density_sat_slider,
             "clahe_inc": lambda: controls.lab_sidebar.clahe_slider,
             "clahe_dec": lambda: controls.lab_sidebar.clahe_slider,
             "sharpen_inc": lambda: controls.lab_sidebar.sharpen_slider,

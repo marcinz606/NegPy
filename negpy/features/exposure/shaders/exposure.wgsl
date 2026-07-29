@@ -17,9 +17,9 @@ struct ExposureUniforms {
     d_max: f32,
     a_toe_base: f32,
     a_sh_base: f32,
-    // Dye Separation strength, signed (was "Free slot (ex-width_ref)";
+    // Free slot (ex per-pixel Dye Separation, ex-width_ref;
     // toeshoulder_width_ref is the 2.5 literal below).
-    dye_separation: f32,
+    pad0: f32,
     toe_height: f32,
     sh_height: f32,
     zone_center: f32,
@@ -167,22 +167,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             dot(params.dye_g.xyz, e),
             dot(params.dye_b.xyz, e),
         );
-    }
-
-    // Mirrors _apply_print_curve_kernel; the sign selects which pixels the mask
-    // hits, see that function.
-    if (params.dye_separation != 0.0) {
-        let ve = dens - d_min_rgb;
-        let spread = max(max(ve.x, ve.y), ve.z) - min(min(ve.x, ve.y), ve.z);
-        // 0.12/3.0 mirror dye_separation_spread_scale/_gain in models.py -- change both.
-        // spread >= 0 always, so a plain sigmoid never reaches its 0 end
-        // (sigmoid(0) = 0.5) -- rescale so s is exactly 0 at spread=0.
-        let s = 2.0 * fast_sigmoid(spread / 0.12) - 1.0;
-        let mask = select(s, 1.0 - s, params.dye_separation >= 0.0);
-        let gain = select(1.0, 3.0, params.dye_separation >= 0.0);
-        let k = 1.0 + params.dye_separation * gain * mask;
-        let ve_mean = (ve.x + ve.y + ve.z) / 3.0;
-        dens = d_min_rgb + vec3<f32>(ve_mean) + k * (ve - vec3<f32>(ve_mean));
     }
 
     var transmittance = pow(vec3<f32>(10.0), -dens);

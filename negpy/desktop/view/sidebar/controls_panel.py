@@ -88,6 +88,10 @@ _TONE_FIELDS = (
     "shoulder_width_trim_red",
     "shoulder_width_trim_green",
     "shoulder_width_trim_blue",
+    "dye_separation",
+    "dye_separation_trim_red",
+    "dye_separation_trim_green",
+    "dye_separation_trim_blue",
 )
 
 # Constant frozen-dataclass defaults — build once, not per resync.
@@ -528,27 +532,19 @@ class ControlsPanel(QWidget):
         lab.saturation_slider.setToolTip(
             tooltip_with_shortcut(
                 "Linear chroma scale (CIELAB a*/b*) after the print is decoded — a retouching move, "
-                "applied evenly to every tone. Print Saturation in Tone is the darkroom equivalent: it "
-                "works on the print's dye densities, so it stays in step with the paper and the curve. "
+                "applied evenly to every tone. Dye Separation in Tone is the density-space equivalent: "
+                "it works on the print's dye densities, so it stays in step with the paper and the curve. "
                 "1.0 = unchanged, 0 = greyscale, 2.0 = double",
                 ["saturation_inc", "saturation_dec"],
             )
         )
         exp.dye_separation_slider.setToolTip(
             tooltip_with_shortcut(
-                "Dye Separation — spread between the three dye densities, judged per pixel. Positive "
-                "works on the pixels whose dyes sit close together, negative on the ones already "
-                "far apart. 0 = off",
-                ["dye_separation_inc", "dye_separation_dec"],
-            )
-        )
-        exp.density_sat_slider.setToolTip(
-            tooltip_with_shortcut(
                 "Pushes the print's dye densities apart before decode, in the same matrix slot as the "
                 "paper's own dye crosstalk — so it responds to the paper profile and eases off where the "
                 "curve is already compressed at toe and shoulder. Chroma in Colour is the flat version: "
                 "an even a*/b* scale after decode. Takes per-layer R/G/B trims. 1.0 = off/identity",
-                ["density_saturation_inc", "density_saturation_dec"],
+                ["dye_separation_inc", "dye_separation_dec"],
             )
         )
         lab.clahe_slider.setToolTip(

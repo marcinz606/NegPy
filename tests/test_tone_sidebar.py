@@ -9,6 +9,16 @@ def _combo_items(combo):
     return [(combo.itemText(i), combo.itemData(i)) for i in range(combo.count())]
 
 
+def test_tone_reset_covers_dye_separation():
+    """The section header's reset button resets the fields listed in _TONE_FIELDS, so
+    every control the panel shows has to be in it — a renamed field that falls out of
+    the list leaves a visible slider its own reset can't clear."""
+    from negpy.desktop.view.sidebar.controls_panel import _TONE_FIELDS
+
+    for field in ("dye_separation", "dye_separation_trim_red", "dye_separation_trim_green", "dye_separation_trim_blue"):
+        assert field in _TONE_FIELDS
+
+
 def test_paper_combo_rebuilt_only_when_entries_change(qapp):
     controller = MagicMock()
     controller.state = AppState()
@@ -51,6 +61,8 @@ def test_channel_selector_retargets_and_syncs(qapp):
             highlight_grade=8.0,
             shadow_grade_trim_red=5.0,
             highlight_grade_trim_red=-3.0,
+            dye_separation=1.3,
+            dye_separation_trim_red=0.25,
         ),
     )
     sidebar.sync_ui()
@@ -61,6 +73,9 @@ def test_channel_selector_retargets_and_syncs(qapp):
     assert sidebar.grade_trim_slider.isHidden()
     assert not sidebar.toe_w_slider.isHidden()
     assert sidebar.toe_w_trim_slider.isHidden()
+    assert not sidebar.dye_separation_slider.isHidden()
+    assert sidebar.dye_separation_trim_slider.isHidden()
+    assert abs(sidebar.dye_separation_slider.value() - 1.3) < 1e-9
     assert sidebar.paper_black_btn.isChecked()
     assert abs(sidebar.midtone_gamma_slider.value() - 0.25) < 1e-9
     assert abs(sidebar.shadow_density_slider.value() - (-0.45)) < 1e-9
@@ -90,11 +105,16 @@ def test_channel_selector_retargets_and_syncs(qapp):
     assert sidebar._curve_field("highlight_grade") == "highlight_grade_trim_red"
     assert sidebar._curve_field("toe_width") == "toe_width_trim_red"
     assert sidebar._curve_field("shoulder_width") == "shoulder_width_trim_red"
+    assert sidebar._curve_field("dye_separation") == "dye_separation_trim_red"
     assert sidebar.grade_slider.isHidden()
     assert not sidebar.grade_trim_slider.isHidden()
     assert sidebar.grade_trim_slider.value() == 15.0
     assert sidebar.toe_w_slider.isHidden()
     assert not sidebar.toe_w_trim_slider.isHidden()
+    assert sidebar.dye_separation_slider.isHidden()
+    assert not sidebar.dye_separation_trim_slider.isHidden()
+    assert abs(sidebar.dye_separation_trim_slider.value() - 0.25) < 1e-9
+    assert sidebar.dye_separation_trim_slider.label.text() == "Dye Separation R"
     assert abs(sidebar.toe_slider.value() - 0.4) < 1e-9
     assert abs(sidebar.sh_slider.value() - (-0.2)) < 1e-9
     assert abs(sidebar.midtone_gamma_slider.value() - 0.15) < 1e-9
@@ -138,3 +158,6 @@ def test_channel_selector_hidden_in_bw(qapp):
     # Forced back to the Global page.
     assert sidebar._channel_index() == 0
     assert not sidebar.grade_slider.isHidden()
+    # Dye Separation is a colour control: gone on a single-emulsion B&W paper.
+    assert sidebar.dye_separation_slider.isHidden()
+    assert sidebar.dye_separation_trim_slider.isHidden()

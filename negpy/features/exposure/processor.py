@@ -317,15 +317,14 @@ class PhotometricProcessor:
             # B&W collapses to luminance before this call (all channels equal),
             # so the matrix is already a mathematical no-op there; skip it
             # explicitly anyway to avoid the wasted per-pixel 3x3 multiply.
-            density_saturation=1.0 if context.process_mode == ProcessMode.BW else self.config.density_saturation,
-            density_saturation_trims=(0.0, 0.0, 0.0)
+            dye_separation=1.0 if context.process_mode == ProcessMode.BW else self.config.dye_separation,
+            dye_separation_trims=(0.0, 0.0, 0.0)
             if context.process_mode == ProcessMode.BW
             else (
-                self.config.density_saturation_trim_red,
-                self.config.density_saturation_trim_green,
-                self.config.density_saturation_trim_blue,
+                self.config.dye_separation_trim_red,
+                self.config.dye_separation_trim_green,
+                self.config.dye_separation_trim_blue,
             ),
-            dye_separation=0.0 if context.process_mode == ProcessMode.BW else self.config.dye_separation,
         )
 
         if context.process_mode == ProcessMode.BW:
