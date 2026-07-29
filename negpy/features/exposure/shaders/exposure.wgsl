@@ -17,14 +17,18 @@ struct ExposureUniforms {
     d_max: f32,
     a_toe_base: f32,
     a_sh_base: f32,
-    // Free slot (ex-width_ref; toeshoulder_width_ref is the 2.5 literal below).
-    pad0: f32,
+    // PROTOTYPE: density-domain Vibrance/anti-vibrance strength, signed (was
+    // "Free slot (ex-width_ref)"; toeshoulder_width_ref is the 2.5 literal below).
+    vibrance_strength: f32,
     toe_height: f32,
     sh_height: f32,
     zone_center: f32,
     shoulder_width_g: f32,
-    // Free slot (ex-surround_gamma).
-    pad1: f32,
+    // PROTOTYPE: per-pixel-modulated Dye Mute scalar (was "Free slot
+    // ex-surround_gamma") -- 1.0 (identity) unless density_damping_spatial is
+    // on, in which case this is the flat damp scalar that would otherwise
+    // have been folded into dye_r/dye_g/dye_b above.
+    damp_global: f32,
     mode: u32,
     v_star: f32,
     shoulder_width_b: f32,
@@ -166,6 +170,37 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             dot(params.dye_g.xyz, e),
             dot(params.dye_b.xyz, e),
         );
+    }
+
+    // PROTOTYPE: per-pixel-modulated Dye Mute -- damp_global is the same flat
+    // scalar the uniform version folds into dye_r/dye_g/dye_b, applied here in
+    // proportion to how separated this pixel already is. Runs where the flat
+    // version conceptually did (right after the dye mix, before Vibrance).
+    // Mirrors the CPU kernel's use_spatial_damp block exactly.
+    if (params.damp_global != 1.0) {
+        let de = dens - d_min_rgb;
+        let d_spread = max(max(de.x, de.y), de.z) - min(min(de.x, de.y), de.z);
+        let d_mask = 2.0 * fast_sigmoid(d_spread / 0.4) - 1.0;
+        let d_k = 1.0 + (params.damp_global - 1.0) * d_mask;
+        let de_mean = (de.x + de.y + de.z) / 3.0;
+        dens = d_min_rgb + vec3<f32>(de_mean) + d_k * (de - vec3<f32>(de_mean));
+    }
+
+    // PROTOTYPE: per-pixel density-domain Vibrance/anti-vibrance, on top of
+    // whatever the dye mix above already did. Mirrors the CPU kernel exactly
+    // (_apply_print_curve_kernel) -- see that function's comment for why the
+    // mask target flips with sign instead of just the formula's sign.
+    if (params.vibrance_strength != 0.0) {
+        let ve = dens - d_min_rgb;
+        let spread = max(max(ve.x, ve.y), ve.z) - min(min(ve.x, ve.y), ve.z);
+        // 0.4 mirrors vibrance_spread_scale in models.py -- change together.
+        // spread >= 0 always, so a plain sigmoid never reaches its 0 end
+        // (sigmoid(0) = 0.5) -- rescale so s is exactly 0 at spread=0.
+        let s = 2.0 * fast_sigmoid(spread / 0.4) - 1.0;
+        let mask = select(s, 1.0 - s, params.vibrance_strength >= 0.0);
+        let k = 1.0 + params.vibrance_strength * mask;
+        let ve_mean = (ve.x + ve.y + ve.z) / 3.0;
+        dens = d_min_rgb + vec3<f32>(ve_mean) + k * (ve - vec3<f32>(ve_mean));
     }
 
     var transmittance = pow(vec3<f32>(10.0), -dens);

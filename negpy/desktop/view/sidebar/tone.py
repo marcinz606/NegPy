@@ -11,6 +11,20 @@ _CH_SUFFIX = ("red", "green", "blue")
 _CH_LABEL = ("", " R", " G", " B")
 _CH_COLORS = ("#ff5a5a", "#5adc78", "#5f96ff")
 
+# PROTOTYPE A/B strengths for Density Vibrance vs Lab Vibrance, matched by
+# overall mean-chroma effect on a real test frame (07.raw, neutral paper) —
+# see the density-saturation investigation memory for the render scan.
+# Boost direction (+0.5 density / 1.50 Lab) is a fair comparison: both target
+# the same population (muted pixels). Compress direction (-0.5 density /
+# 0.33 Lab) is magnitude-matched only -- Lab's sub-1.0 desaturates MUTED
+# pixels further, Density's negative compresses VIVID pixels; they'll look
+# different even at "equal" overall chroma change, not just differently
+# strong. Not a bug, worth seeing directly in the A/B.
+_VIBRANCE_AB_DENSITY_BOOST = 0.5
+_VIBRANCE_AB_LAB_BOOST = 1.50
+_VIBRANCE_AB_DENSITY_COMPRESS = -0.5
+_VIBRANCE_AB_LAB_COMPRESS = 0.33
+
 
 class ToneSidebar(BaseSidebar):
     """Print/zone density, Grade, Print Saturation, paper white, and a labeled
@@ -157,6 +171,77 @@ class ToneSidebar(BaseSidebar):
         density_sat_row.addWidget(self.dye_mute_slider)
         self.layout.addLayout(density_sat_row)
 
+        self.density_damping_spatial_btn = self._labeled_toggle(
+            "fa5s.bullseye",
+            "Spatial Damping (proto)",
+            conf.density_damping_spatial,
+            "PROTOTYPE: applies Dye Mute's strength above per-pixel (via the same spread-based mask "
+            "Vibrance uses), replacing rather than layering on top of the uniform grade-coupled "
+            "damping -- near-neutral pixels get little or none of it, already-separated pixels get "
+            "up to the full strength. Off (default) = today's flat/uniform damping, unchanged.",
+        )
+        self.layout.addWidget(self.density_damping_spatial_btn)
+
+        self.density_vibrance_slider = PowerWarpSlider("Density Vibrance (proto)", -1.0, 1.0, 0.0, center=0.0, has_neutral=True)
+        self.density_vibrance_slider.setToolTip(
+            "PROTOTYPE: per-pixel density-domain Vibrance/anti-vibrance. Positive boosts muted "
+            "pixels (leaves already-vivid ones alone, classic Vibrance); negative compresses vivid "
+            "pixels (leaves muted ones alone, anti-vibrance) — one signed control, the target "
+            "flips with sign. Runs after Print Saturation/Dye Mute, on the same composed density."
+        )
+        self.layout.addWidget(self.density_vibrance_slider)
+
+        # PROTOTYPE: fixed-strength A/B/baseline quick-switch — Density Vibrance
+        # vs Lab Vibrance at matched overall-chroma strengths (see the constants
+        # above), so the two can be compared precisely instead of eyeballed.
+        self.vibrance_off_btn = self._labeled_toggle("fa5s.ban", "Off", True, "Baseline: both Vibrance tools off/identity.")
+        self.vibrance_density_boost_btn = self._labeled_toggle(
+            "fa5s.circle",
+            f"Density +{_VIBRANCE_AB_DENSITY_BOOST}",
+            False,
+            "Density Vibrance boost, matched by overall chroma effect to the Lab Vibrance boost button.",
+        )
+        self.vibrance_lab_boost_btn = self._labeled_toggle(
+            "fa5s.circle",
+            f"Lab {_VIBRANCE_AB_LAB_BOOST}",
+            False,
+            "Lab Vibrance boost, matched by overall chroma effect to the Density Vibrance boost button — "
+            "a fair comparison, both target the same (muted) pixels.",
+        )
+        self.vibrance_density_compress_btn = self._labeled_toggle(
+            "fa5s.circle",
+            f"Density {_VIBRANCE_AB_DENSITY_COMPRESS}",
+            False,
+            "Density anti-vibrance: compresses already-vivid pixels, leaves muted ones alone.",
+        )
+        self.vibrance_lab_compress_btn = self._labeled_toggle(
+            "fa5s.circle",
+            f"Lab {_VIBRANCE_AB_LAB_COMPRESS}",
+            False,
+            "Lab Vibrance below 1.0: desaturates already-MUTED pixels further, leaves vivid ones alone. "
+            "Matched to the Density compress button by overall chroma effect only — NOT the same "
+            "population of pixels, will look different even at equal average strength.",
+        )
+        self.vibrance_ab_group = QButtonGroup(self)
+        self.vibrance_ab_group.setExclusive(True)
+        for btn in (
+            self.vibrance_off_btn,
+            self.vibrance_density_boost_btn,
+            self.vibrance_lab_boost_btn,
+            self.vibrance_density_compress_btn,
+            self.vibrance_lab_compress_btn,
+        ):
+            self.vibrance_ab_group.addButton(btn)
+        vibrance_ab_row1 = QHBoxLayout()
+        vibrance_ab_row1.addWidget(self.vibrance_off_btn)
+        vibrance_ab_row1.addWidget(self.vibrance_density_boost_btn)
+        vibrance_ab_row1.addWidget(self.vibrance_lab_boost_btn)
+        self.layout.addLayout(vibrance_ab_row1)
+        vibrance_ab_row2 = QHBoxLayout()
+        vibrance_ab_row2.addWidget(self.vibrance_density_compress_btn)
+        vibrance_ab_row2.addWidget(self.vibrance_lab_compress_btn)
+        self.layout.addLayout(vibrance_ab_row2)
+
         paper_header = section_subheader("PAPER RESPONSE")
         paper_header.setToolTip(
             "The paper's characteristic (Hurter–Driffield) curve: how print density responds to "
@@ -230,6 +315,8 @@ class ToneSidebar(BaseSidebar):
             self.shadow_density_slider,
             self.highlight_density_slider,
             self.dye_mute_slider,
+            self.density_vibrance_slider,
+            self.density_damping_spatial_btn,
         )
 
     def _open_targets_dialog(self) -> None:
@@ -302,12 +389,28 @@ class ToneSidebar(BaseSidebar):
         self.test_strip_btn.setEnabled(not pending)
         self.test_strip_btn.setToolTip(wrap_tooltip(self._test_strip_tooltip(printing=pending)))
 
+    def _on_vibrance_ab(self, density_vibrance: float, lab_vibrance: float) -> None:
+        """Sets Density Vibrance and Lab Vibrance together (different config
+        sections), pinning both tools' Saturation to identity so the A/B
+        isolates Vibrance alone regardless of what those sliders were left at."""
+        from dataclasses import replace as dc_replace
+
+        new_exposure = dc_replace(self.state.config.exposure, density_vibrance=density_vibrance, density_saturation=1.0)
+        new_lab = dc_replace(self.state.config.lab, vibrance=lab_vibrance, saturation=1.0)
+        self.update_config_root(render=True, persist=True, readback_metrics=True, exposure=new_exposure, lab=new_lab)
+
     def _connect_signals(self) -> None:
         self.paper_combo.currentIndexChanged.connect(self._on_paper_changed)
         # The strip is session state, not config, and any render drops it — so the button
         # has to follow the controller rather than sync_ui.
         self.controller.test_strip_changed.connect(self._sync_test_strip_btn)
         self.ch_btn_group.idToggled.connect(lambda _id, checked: self.sync_ui() if checked else None)
+
+        self.vibrance_off_btn.clicked.connect(lambda: self._on_vibrance_ab(0.0, 1.0))
+        self.vibrance_density_boost_btn.clicked.connect(lambda: self._on_vibrance_ab(_VIBRANCE_AB_DENSITY_BOOST, 1.0))
+        self.vibrance_lab_boost_btn.clicked.connect(lambda: self._on_vibrance_ab(0.0, _VIBRANCE_AB_LAB_BOOST))
+        self.vibrance_density_compress_btn.clicked.connect(lambda: self._on_vibrance_ab(_VIBRANCE_AB_DENSITY_COMPRESS, 1.0))
+        self.vibrance_lab_compress_btn.clicked.connect(lambda: self._on_vibrance_ab(0.0, _VIBRANCE_AB_LAB_COMPRESS))
 
         for slider, field in (
             (self.density_slider, "density"),
@@ -318,6 +421,7 @@ class ToneSidebar(BaseSidebar):
             (self.highlight_density_slider, "highlight_density"),
             (self.density_sat_slider, "density_saturation"),
             (self.dye_mute_slider, "density_saturation_damping"),
+            (self.density_vibrance_slider, "density_vibrance"),
         ):
             slider.valueChanged.connect(
                 lambda v, f=field: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, **{f: v})
@@ -379,6 +483,7 @@ class ToneSidebar(BaseSidebar):
             (self.paper_black_btn, "paper_black"),
             (self.auto_density_btn, "auto_exposure"),
             (self.auto_grade_btn, "auto_normalize_contrast"),
+            (self.density_damping_spatial_btn, "density_damping_spatial"),
         ):
             btn.toggled.connect(
                 lambda checked, f=field: self.update_config_section(
@@ -457,17 +562,44 @@ class ToneSidebar(BaseSidebar):
             self.highlight_density_slider.setValue(conf.highlight_density)
             self.density_sat_slider.setValue(conf.density_saturation)
             self.dye_mute_slider.setValue(conf.density_saturation_damping)
+            self.density_vibrance_slider.setValue(conf.density_vibrance)
+            lab_vibrance = self.state.config.lab.vibrance
+            if conf.density_vibrance == 0.0 and lab_vibrance == 1.0:
+                self.vibrance_off_btn.setChecked(True)
+            elif conf.density_vibrance == _VIBRANCE_AB_DENSITY_BOOST and lab_vibrance == 1.0:
+                self.vibrance_density_boost_btn.setChecked(True)
+            elif lab_vibrance == _VIBRANCE_AB_LAB_BOOST and conf.density_vibrance == 0.0:
+                self.vibrance_lab_boost_btn.setChecked(True)
+            elif conf.density_vibrance == _VIBRANCE_AB_DENSITY_COMPRESS and lab_vibrance == 1.0:
+                self.vibrance_density_compress_btn.setChecked(True)
+            elif lab_vibrance == _VIBRANCE_AB_LAB_COMPRESS and conf.density_vibrance == 0.0:
+                self.vibrance_lab_compress_btn.setChecked(True)
+            else:
+                for b in (
+                    self.vibrance_off_btn,
+                    self.vibrance_density_boost_btn,
+                    self.vibrance_lab_boost_btn,
+                    self.vibrance_density_compress_btn,
+                    self.vibrance_lab_compress_btn,
+                ):
+                    b.setChecked(False)
 
             self.paper_dmin_btn.setChecked(conf.paper_dmin)
             self.paper_black_btn.setChecked(conf.paper_black)
             self.auto_density_btn.setChecked(conf.auto_exposure)
             self.auto_grade_btn.setChecked(conf.auto_normalize_contrast)
+            self.density_damping_spatial_btn.setChecked(conf.density_damping_spatial)
         finally:
             self.block_signals(False)
 
     def block_signals(self, blocked: bool) -> None:
         for w in (
             self.paper_combo,
+            self.vibrance_off_btn,
+            self.vibrance_density_boost_btn,
+            self.vibrance_lab_boost_btn,
+            self.vibrance_density_compress_btn,
+            self.vibrance_lab_compress_btn,
             self.ch_global_btn,
             self.ch_r_btn,
             self.ch_g_btn,
@@ -487,11 +619,13 @@ class ToneSidebar(BaseSidebar):
             self.density_sat_slider,
             self.density_sat_trim_slider,
             self.dye_mute_slider,
+            self.density_vibrance_slider,
             self.shadow_grade_slider,
             self.highlight_grade_slider,
             self.paper_dmin_btn,
             self.paper_black_btn,
             self.auto_density_btn,
             self.auto_grade_btn,
+            self.density_damping_spatial_btn,
         ):
             w.blockSignals(blocked)

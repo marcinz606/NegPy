@@ -1224,13 +1224,22 @@ class GPUEngine:
         # Density-space Print Saturation, composed into the same dye_mix slot
         # as the paper's real crosstalk. Mirrors the CPU path
         # (apply_characteristic_curve) exactly — see negpy/features/exposure/logic.py.
+        damp_global = 1.0  # packed into the uniform block below regardless of mode
         if settings.process.process_mode == ProcessMode.BW:
             sat = None
         else:
+            # PROTOTYPE: density_damping_spatial replaces (not layers with) #667's
+            # uniform grade_saturation_damping pre-multiply -- Option A, see
+            # apply_characteristic_curve's docstring for the full rationale and
+            # the damp_global = 1 - strength mapping this mirrors.
+            spatial = exp.density_damping_spatial
+            damp = 1.0 if spatial else grade_saturation_damping(slopes[1], exp.density_saturation_damping)
             sat_k3 = per_channel_density_saturation(
-                exp.density_saturation * grade_saturation_damping(slopes[1], exp.density_saturation_damping),
+                exp.density_saturation * damp,
                 (exp.density_saturation_trim_red, exp.density_saturation_trim_green, exp.density_saturation_trim_blue),
             )
+            if spatial and exp.density_saturation_damping != 0.0:
+                damp_global = max(0.0, 1.0 - exp.density_saturation_damping)
             sat = resolve_saturation_matrix(sat_k3)
         composed = compose_density_matrices(dye, sat)
         dye = composed  # use_dye_mix (below) and dye_rows both key off this
@@ -1272,14 +1281,22 @@ class GPUEngine:
                 pc["d_max"],
                 pc["toe_sharpness_base"],
                 pc["shoulder_sharpness_base"],
-                # Free slot (ex-width_ref; toeshoulder_width_ref is a WGSL literal).
-                0.0,
+                # PROTOTYPE: density-domain Vibrance/anti-vibrance strength (was
+                # "Free slot ex-width_ref"; toeshoulder_width_ref is a WGSL literal).
+                # Explicit B&W guard mirrors the CPU path (PhotometricProcessor) --
+                # the shader's own post-curve B&W re-collapse would erase any
+                # resulting chroma anyway, but zero it here too rather than lean
+                # on a different safety net than CPU uses.
+                0.0 if settings.process.process_mode == ProcessMode.BW else float(exp.density_vibrance),
                 pc["toe_height"],
                 pc["shoulder_height"],
                 pc["anchor_target_density"],
                 _sw3[1],
-                # Free slot (ex-surround_gamma).
-                0.0,
+                # PROTOTYPE: per-pixel-modulated Dye Mute scalar (was "Free slot
+                # ex-surround_gamma") -- 1.0 (identity) unless density_damping_spatial
+                # is on, in which case this is the flat damp_total that would
+                # otherwise have been folded into dye_rows above.
+                float(damp_global),
                 mode_val,
                 _reference_linear_value(d_min, paper),
                 _sw3[2],

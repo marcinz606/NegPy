@@ -233,7 +233,11 @@ class PhotometricProcessor:
         )
         context.metrics["print_slopes"] = slopes
 
-        damp = grade_saturation_damping(slopes[1], self.config.density_saturation_damping)
+        # PROTOTYPE: when density_damping_spatial is on, the per-pixel spread signal
+        # replaces this uniform grade-coupled damp entirely (Option A) -- the kernel
+        # applies density_saturation_damping itself, so no pre-multiply here.
+        spatial_damp = self.config.density_damping_spatial and context.process_mode != ProcessMode.BW
+        damp = 1.0 if spatial_damp else grade_saturation_damping(slopes[1], self.config.density_saturation_damping)
 
         cmy_max = EXPOSURE_CONSTANTS["cmy_max_density"]
         cmy_offsets = filtration_offsets(
@@ -328,6 +332,9 @@ class PhotometricProcessor:
                 self.config.density_saturation_trim_green,
                 self.config.density_saturation_trim_blue,
             ),
+            density_saturation_damping=0.0 if context.process_mode == ProcessMode.BW else self.config.density_saturation_damping,
+            density_vibrance=0.0 if context.process_mode == ProcessMode.BW else self.config.density_vibrance,
+            density_damping_spatial=False if context.process_mode == ProcessMode.BW else self.config.density_damping_spatial,
         )
 
         if context.process_mode == ProcessMode.BW:

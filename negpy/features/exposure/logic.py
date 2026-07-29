@@ -88,6 +88,12 @@ def _apply_print_curve_kernel(
     ev_map: np.ndarray,
     ev_scale: np.ndarray,
     use_ev: bool,
+    vibrance_strength: float = 0.0,
+    vibrance_scale: float = 0.4,
+    use_vibrance: bool = False,
+    damp_global: float = 1.0,
+    damp_scale: float = 0.4,
+    use_spatial_damp: bool = False,
     bpc: bool = False,
 ) -> np.ndarray:
     """
@@ -210,6 +216,78 @@ def _apply_print_curve_kernel(
                 dens[0] = d_min_rgb[0] + dye_mix[0, 0] * e0 + dye_mix[0, 1] * e1 + dye_mix[0, 2] * e2
                 dens[1] = d_min_rgb[1] + dye_mix[1, 0] * e0 + dye_mix[1, 1] * e1 + dye_mix[1, 2] * e2
                 dens[2] = d_min_rgb[2] + dye_mix[2, 0] * e0 + dye_mix[2, 1] * e1 + dye_mix[2, 2] * e2
+
+            if use_spatial_damp:
+                # PROTOTYPE: per-pixel-modulated Dye Mute -- damp_global is the same
+                # frame-wide scalar the flat version folds into dye_mix
+                # (grade_chroma_damping), but here it's only applied in
+                # proportion to how separated THIS pixel already is: near-neutral
+                # pixels get none of it, already-separated pixels get up to the full
+                # damp_global strength. Runs where the flat version conceptually did
+                # (right after dye_mix, before Vibrance), so ordering relative to
+                # Vibrance matches the flat version's ordering relative to it today.
+                de0 = dens[0] - d_min_rgb[0]
+                de1 = dens[1] - d_min_rgb[1]
+                de2 = dens[2] - d_min_rgb[2]
+                de_max = de0
+                if de1 > de_max:
+                    de_max = de1
+                if de2 > de_max:
+                    de_max = de2
+                de_min = de0
+                if de1 < de_min:
+                    de_min = de1
+                if de2 < de_min:
+                    de_min = de2
+                d_spread = de_max - de_min
+                # Same 0-at-spread=0 rescale as Vibrance's mask (see below) -- a plain
+                # sigmoid never reaches 0 since sigmoid(0)=0.5.
+                d_mask = 2.0 * _fast_sigmoid(d_spread / damp_scale) - 1.0
+                d_k = 1.0 + (damp_global - 1.0) * d_mask
+                de_mean = (de0 + de1 + de2) / 3.0
+                dens[0] = d_min_rgb[0] + de_mean + d_k * (de0 - de_mean)
+                dens[1] = d_min_rgb[1] + de_mean + d_k * (de1 - de_mean)
+                dens[2] = d_min_rgb[2] + de_mean + d_k * (de2 - de_mean)
+
+            if use_vibrance:
+                # PROTOTYPE: per-pixel density-domain Vibrance/anti-vibrance, on top
+                # of whatever dye_mix (paper crosstalk + Density Sat/Dye Mute) already
+                # did. spread tracks how separated THIS pixel's channels already are;
+                # the sigmoid mask targets low-spread (muted) pixels for a positive
+                # strength (classic Vibrance: boost muted, leave vivid alone) or
+                # high-spread (vivid) pixels for a negative strength (anti-vibrance:
+                # leave muted alone, compress vivid) -- a sign flip on the mask
+                # target, not just on the formula (a plain sign flip on one mask
+                # gives "boost/cut the muted colors", never touches vivid ones).
+                ve0 = dens[0] - d_min_rgb[0]
+                ve1 = dens[1] - d_min_rgb[1]
+                ve2 = dens[2] - d_min_rgb[2]
+                ve_max = ve0
+                if ve1 > ve_max:
+                    ve_max = ve1
+                if ve2 > ve_max:
+                    ve_max = ve2
+                ve_min = ve0
+                if ve1 < ve_min:
+                    ve_min = ve1
+                if ve2 < ve_min:
+                    ve_min = ve2
+                spread = ve_max - ve_min
+                # spread >= 0 always, so a plain sigmoid never reaches its 0 end
+                # (sigmoid(0) = 0.5, not 0) -- rescale so s is exactly 0 at
+                # spread=0 and approaches 1 as spread grows, so the mask reaches
+                # its true target-population strength at the boundary instead of
+                # topping out at half-strength there.
+                s = 2.0 * _fast_sigmoid(spread / vibrance_scale) - 1.0
+                if vibrance_strength >= 0.0:
+                    mask = 1.0 - s
+                else:
+                    mask = s
+                k = 1.0 + vibrance_strength * mask
+                ve_mean = (ve0 + ve1 + ve2) / 3.0
+                dens[0] = d_min_rgb[0] + ve_mean + k * (ve0 - ve_mean)
+                dens[1] = d_min_rgb[1] + ve_mean + k * (ve1 - ve_mean)
+                dens[2] = d_min_rgb[2] + ve_mean + k * (ve2 - ve_mean)
 
             for ch in range(3):
                 transmittance = 10.0 ** (-dens[ch])
@@ -503,6 +581,9 @@ def apply_characteristic_curve(
     highlight_grade_deltas: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     density_saturation: float = 1.0,
     density_saturation_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    density_saturation_damping: float = 0.0,
+    density_vibrance: float = 0.0,
+    density_damping_spatial: bool = False,
 ) -> ImageBuffer:
     """Applies the asymmetric H&D print curve per channel in log-density space.
 
@@ -510,7 +591,28 @@ def apply_characteristic_curve(
     applies per-pixel dodge/burn as print-exposure offsets ahead of the curve.
 
     density_saturation(_trims): density-domain saturation, composed into the
-    dye_mix slot (see resolve_saturation_matrix/compose_density_matrices)."""
+    dye_mix slot (see resolve_saturation_matrix/compose_density_matrices).
+    #667's frame-uniform grade-coupled damping (grade_saturation_damping) is
+    applied by the caller before this value arrives here, not in this function.
+
+    density_saturation_damping/density_damping_spatial: PROTOTYPE -- when
+    density_damping_spatial is True, this strength drives a *per-pixel*
+    damping (via the same spread-based mask density_vibrance uses, see
+    _apply_print_curve_kernel) applied inside the kernel, replacing rather
+    than layering on top of the caller's uniform grade_saturation_damping
+    pre-multiply -- no slope_g/grade coupling at all in this path, spread
+    is the only signal. Mapped linearly (damp_global = 1 - strength, same
+    direct convention as vibrance_strength) rather than through
+    grade_saturation_damping's exponential shape, since there's no slope
+    input left to exponentiate. False (default) leaves this value unused --
+    the caller has already folded #667's uniform damping into
+    density_saturation itself.
+
+    density_vibrance: PROTOTYPE per-pixel density-domain Vibrance/anti-vibrance
+    (see _apply_print_curve_kernel), signed: >0 boosts muted pixels toward
+    more separation (leaves already-vivid pixels alone), <0 compresses vivid
+    pixels (leaves muted pixels alone). Runs inside the kernel, after
+    dye_mix, on top of whatever Density Sat/Dye Mute already composed in."""
     c = effective_constants(paper)
     ts = c["toe_shoulder_strength"]
     if midtone_gamma is None:
@@ -567,6 +669,12 @@ def apply_characteristic_curve(
         ev_map=ev_arr,
         ev_scale=np.ascontiguousarray(np.array(ev_scale, dtype=np.float32)),
         use_ev=use_ev,
+        vibrance_strength=float(density_vibrance),
+        vibrance_scale=float(c["vibrance_spread_scale"]),
+        use_vibrance=density_vibrance != 0.0,
+        damp_global=max(0.0, 1.0 - float(density_saturation_damping)) if density_damping_spatial else 1.0,
+        damp_scale=float(c["vibrance_spread_scale"]),
+        use_spatial_damp=density_damping_spatial and density_saturation_damping != 0.0,
         bpc=bool(bpc),
     )
     return ensure_image(res)
