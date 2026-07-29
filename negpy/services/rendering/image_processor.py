@@ -15,6 +15,7 @@ from negpy.domain.models import (
     WorkspaceConfig,
     ExportConfig,
     ExportFormat,
+    ExportResolutionMode,
     ColorSpace,
 )
 from negpy.features.process.models import ProcessMode
@@ -792,16 +793,43 @@ class ImageProcessor:
         Mirrors the export render path but at small resolution and in display space,
         so a contact-sheet tile matches the on-canvas look. Returns None on failure.
 
-        The result is downsampled to target_long_px: the caller holds every tile in
-        memory at once, so returning full-res here made peak cost scale with
-        frames x full resolution (a 24MP roll cost ~72MB per tile instead of ~3MB)
-        until allocations failed and tiles were silently dropped.
+        The source is shrunk to target_long_px *before* the pipeline runs, and the
+        paper layout is bounded to the same size. Rendering the full-res source and
+        discarding all but a tile cost ~3.5GB peak RSS (CPU) / ~8GB commit (GPU) per
+        24MP frame, so a large roll exhausted memory and tiles were silently dropped.
         """
         try:
             from negpy.infrastructure.display.color_mgmt import apply_display_transform
 
             f32_buffer, ir_full, _ = self._load_source_f32(file_path, params, fast_decode=fast_decode)
             f32_buffer, ir_full = self._slice_half_source(f32_buffer, ir_full, half, split_x)
+
+            # Proof scale: everything downstream only needs target_long_px. The
+            # cached source buffer is shared, so resize (never mutate) it.
+            f32_buffer = _downsample_to_long_edge(f32_buffer, target_long_px)
+            if ir_full is not None and ir_full.shape[:2] != f32_buffer.shape[:2]:
+                th, tw = f32_buffer.shape[:2]
+                ir_full = cv2.resize(ir_full, (tw, th), interpolation=cv2.INTER_AREA)
+            # Each frame of a contact sheet is decoded once, so the full-res source
+            # cache only pins ~300MB (24MP) across the next frame's decode.
+            self._source_cache_key = None
+            self._source_cache_value = None
+
+            # A Print/Target-px export setting sizes the paper from print_size x DPI,
+            # which would re-inflate the tile to full print resolution right after the
+            # downsample. Bound it with the virtual-DPI trick the UI print preview uses
+            # (PrintService.preview_paper_layout) so borders stay proportional.
+            if params.export.export_resolution_mode != ExportResolutionMode.ORIGINAL.value:
+                virtual_dpi = max(1, int((target_long_px * 2.54) / max(0.1, params.export.export_print_size)))
+                params = dc_replace(
+                    params,
+                    export=dc_replace(
+                        params.export,
+                        export_resolution_mode=ExportResolutionMode.PRINT.value,
+                        export_dpi=virtual_dpi,
+                    ),
+                )
+
             h_raw, w_raw = f32_buffer.shape[:2]
             scale_factor = max(1.0, max(h_raw, w_raw) / float(target_long_px))
 

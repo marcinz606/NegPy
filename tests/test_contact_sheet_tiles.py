@@ -10,12 +10,13 @@ single image while the progress dialog still counted every file.
 import os
 import tempfile
 import unittest
-from unittest.mock import MagicMock
+from dataclasses import replace
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import tifffile
 
-from negpy.domain.models import WorkspaceConfig
+from negpy.domain.models import ExportResolutionMode, WorkspaceConfig
 from negpy.desktop.workers.export import ExportTask, ExportWorker
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.services.rendering.image_processor import ImageProcessor, _downsample_to_long_edge
@@ -82,6 +83,58 @@ class TestRenderDisplayArraySize(unittest.TestCase):
         tile = self._render(600, prefer_gpu=False)
         source_px = 1600 * 2400
         self.assertLess(tile.shape[0] * tile.shape[1] * 8, source_px)
+
+    def test_pipeline_runs_at_proof_scale_not_full_res(self):
+        """The expensive half: rendering the full-res source and keeping only a tile
+        cost ~3.5GB peak RSS per 24MP frame. The engine must receive a buffer already
+        shrunk to target_long_px."""
+        seen: list = []
+        real = self.proc.run_pipeline
+
+        def spy(img, *a, **kw):
+            seen.append(img.shape[:2])
+            return real(img, *a, **kw)
+
+        with patch.object(self.proc, "run_pipeline", side_effect=spy):
+            self._render(600, prefer_gpu=False)
+
+        self.assertTrue(seen, "run_pipeline was never called")
+        self.assertLessEqual(max(seen[0]), 600, f"pipeline got a {seen[0]} buffer for a 600px tile")
+
+    def test_print_export_mode_does_not_inflate_the_tile(self):
+        """A Print/Target-px export setting sizes the paper from print_size x DPI;
+        without bounding it the proof render is blown back up to print resolution."""
+        params = replace(
+            WorkspaceConfig(),
+            export=replace(
+                WorkspaceConfig().export,
+                export_resolution_mode=ExportResolutionMode.PRINT.value,
+                export_print_size=60.0,
+                export_dpi=600,  # ~14000px paper if unbounded
+            ),
+        )
+        seen: list = []
+        real = self.proc.run_pipeline
+
+        def spy(img, *a, **kw):
+            seen.append(img.shape[:2])
+            return real(img, *a, **kw)
+
+        with patch.object(self.proc, "run_pipeline", side_effect=spy):
+            tile = self.proc.render_display_array(
+                self.path,
+                params,
+                "hash-print",
+                target_long_px=600,
+                prefer_gpu=False,
+                working_color_space=WORKING_COLOR_SPACE,
+                fast_decode=True,
+            )
+
+        self.assertIsNotNone(tile)
+        self.assertLessEqual(max(seen[0]), 600)
+        # Bounded end to end: the laid-out result never exceeds the tile size either.
+        self.assertLessEqual(max(tile.shape[:2]), 600)
 
 
 class TestContactSheetReportsDroppedTiles(unittest.TestCase):
