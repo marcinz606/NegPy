@@ -523,6 +523,16 @@ class ToneSidebar(BaseSidebar):
             self.density_sat_slider.setVisible(global_mode and not is_bw)
             self.density_sat_trim_slider.setVisible(not global_mode and not is_bw)
             self.dye_mute_slider.setVisible(not is_bw)
+            self.density_vibrance_slider.setVisible(not is_bw)
+            self.density_damping_spatial_btn.setVisible(not is_bw)
+            for w in (
+                self.vibrance_off_btn,
+                self.vibrance_density_boost_btn,
+                self.vibrance_lab_boost_btn,
+                self.vibrance_density_compress_btn,
+                self.vibrance_lab_compress_btn,
+            ):
+                w.setVisible(not is_bw)
             self.toe_slider.label.setText("Toe" + suffix)
             self.sh_slider.label.setText("Shoulder" + suffix)
             self.midtone_gamma_slider.label.setText("Snap" + suffix)
