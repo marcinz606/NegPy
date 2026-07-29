@@ -188,6 +188,7 @@ def test_context_cancel_two_stage() -> None:
     controller, window = MagicMock(), MagicMock()
     controller.state.test_strip = False
     controller.state.test_strip_pending = False
+    controller.state.grain_focuser = False
     window.canvas.overlay.cancel_in_progress.return_value = True
     _context_cancel(controller, window)
     controller.cancel_active_tool.assert_not_called()
@@ -204,6 +205,7 @@ def test_context_cancel_dismisses_a_test_strip_before_any_tool() -> None:
 
     controller, window = MagicMock(), MagicMock()
     controller.state.test_strip_pending = False
+    controller.state.grain_focuser = False
     window.canvas.overlay.cancel_in_progress.return_value = True
 
     controller.state.test_strip = True
@@ -219,6 +221,23 @@ def test_context_cancel_dismisses_a_test_strip_before_any_tool() -> None:
     controller.state.test_strip_pending = True
     _context_cancel(controller, window)
     controller.toggle_test_strip.assert_called_once_with(force=False)
+
+
+def test_context_cancel_closes_the_grain_focuser_before_any_tool() -> None:
+    from unittest.mock import MagicMock
+
+    from negpy.desktop.view.keyboard_shortcuts import _context_cancel
+
+    controller, window = MagicMock(), MagicMock()
+    controller.state.test_strip = False
+    controller.state.test_strip_pending = False
+    controller.state.grain_focuser = True
+    window.canvas.overlay.cancel_in_progress.return_value = True
+
+    _context_cancel(controller, window)
+    controller.toggle_grain_focuser.assert_called_once_with(force=False)
+    window.canvas.overlay.cancel_in_progress.assert_not_called()
+    controller.cancel_active_tool.assert_not_called()
 
 
 def _crop_overlay(rect=(0.2, 0.2, 0.8, 0.8)) -> CanvasOverlay:

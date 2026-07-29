@@ -163,6 +163,17 @@ class ActionToolbar(QWidget):
             tooltip_with_shortcut("Zone overlay — label each region of the print with its Adams zone", "toggle_zones")
         )
 
+        self.btn_loupe = QToolButton()
+        self.btn_loupe.setCheckable(True)
+        self.btn_loupe.setIcon(qta.icon("fa5s.search-plus", color=icon_color))
+        self.btn_loupe.setToolTip(
+            tooltip_with_shortcut(
+                "Grain focuser — a loupe at the cursor showing the frame's own pixels, with an "
+                "acutance figure for comparing sharpness across the frame (reads true on HQ)",
+                "toggle_grain_focuser",
+            )
+        )
+
         # GPU availability drives the overflow toggle built below (btn moved off the row).
         self._gpu_available = GPUDevice.get().is_available
 
@@ -233,15 +244,6 @@ class ActionToolbar(QWidget):
         self._ov_zones_action.setCheckable(True)
         self._ov_zones_action.setToolTip(
             tooltip_with_shortcut("Zone overlay — label each region of the print with its Adams zone", "toggle_zones")
-        )
-        self._ov_ring_action = overflow_menu.addAction(qta.icon("mdi.target", color=icon_color), "Colour Ring-Around")
-        self._ov_ring_action.setCheckable(True)
-        self._ov_ring_action.setToolTip(
-            tooltip_with_shortcut(
-                "Colour ring-around — print the frame as a 5x5 mosaic, the centre at the current "
-                "filtration and the ring stepping 1cc at a time out to 2cc on magenta and yellow",
-                "toggle_ring_around",
-            )
         )
         self._ov_loupe_action = overflow_menu.addAction(qta.icon("fa5s.search-plus", color=icon_color), "Grain Focuser")
         self._ov_loupe_action.setCheckable(True)
@@ -345,6 +347,7 @@ class ActionToolbar(QWidget):
             self.btn_hq,
             self.btn_compare,
             self.btn_zones,
+            self.btn_loupe,
             self.btn_overflow,
         ]
         for btn in standard_buttons:
@@ -366,7 +369,7 @@ class ActionToolbar(QWidget):
         for btn in (self.btn_zoom_fit, self.btn_zoom_original):
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        # Single-row layout: toggle_left · prev · next · sep1 · zoom_label · hq · sep2 · rot_l · rot_r · flip_h · flip_v · sep3 · undo · redo · compare · zones · overflow · toggle_right
+        # Single-row layout: toggle_left · prev · next · sep1 · zoom_label · hq · sep2 · rot_l · rot_r · flip_h · flip_v · sep3 · undo · redo · compare · zones · loupe · overflow · toggle_right
         row_layout.addWidget(self.btn_toggle_left)
         row_layout.addWidget(self.btn_prev)
         row_layout.addWidget(self.btn_next)
@@ -388,11 +391,12 @@ class ActionToolbar(QWidget):
         row_layout.addWidget(self.btn_redo)
         row_layout.addWidget(self.btn_compare)
         row_layout.addWidget(self.btn_zones)
+        row_layout.addWidget(self.btn_loupe)
         row_layout.addWidget(self.btn_overflow)
         row_layout.addWidget(self.btn_toggle_right)
 
         # Overflow groups for responsive resize (first listed = first collapsed).
-        self._ov_view_toggles: list = [self.btn_compare, self.btn_zones]
+        self._ov_view_toggles: list = [self.btn_compare, self.btn_zones, self.btn_loupe]
         self._ov_undo_redo: list = [self._sep3, self.btn_undo, self.btn_redo]
         self._ov_zoom_extra: list = [self.btn_zoom_fit, self.btn_zoom_original]
         self._ov_hq_group: list = [self.btn_hq, self._sep2]
@@ -415,11 +419,11 @@ class ActionToolbar(QWidget):
             widget.setChecked(active)
             widget.blockSignals(False)
 
-    def _sync_ring_action(self) -> None:
-        # One shared slot, so the kind gates this or the tone strip checks it too.
-        state = self.controller.state
-        active = (state.test_strip or state.test_strip_pending) and state.test_strip_kind == "colour"
-        self._ov_ring_action.setChecked(active)
+    def _on_grain_focuser_changed(self, active: bool) -> None:
+        for widget in (self.btn_loupe, self._ov_loupe_action):
+            widget.blockSignals(True)
+            widget.setChecked(active)
+            widget.blockSignals(False)
 
     def _on_flat_peek_changed(self, active: bool) -> None:
         self.btn_flat_peek.blockSignals(True)
@@ -453,11 +457,9 @@ class ActionToolbar(QWidget):
         self.btn_zones.toggled.connect(lambda checked: self.controller.toggle_zones_overlay(force=checked))
         self._ov_zones_action.triggered.connect(lambda checked: self.controller.toggle_zones_overlay(force=checked))
         self.controller.zones_overlay_changed.connect(self._on_zones_changed)
-        self._ov_ring_action.triggered.connect(lambda checked: self.controller.toggle_ring_around(force=checked))
-        self.controller.test_strip_changed.connect(lambda _up: self._sync_ring_action())
-        # Overflow-only, so `triggered` can't re-fire on the programmatic setChecked below.
+        self.btn_loupe.toggled.connect(lambda checked: self.controller.toggle_grain_focuser(force=checked))
         self._ov_loupe_action.triggered.connect(lambda checked: self.controller.toggle_grain_focuser(force=checked))
-        self.controller.grain_focuser_changed.connect(self._ov_loupe_action.setChecked)
+        self.controller.grain_focuser_changed.connect(self._on_grain_focuser_changed)
         self._ov_gpu_action.toggled.connect(self._on_gpu_toggled)
         self.controller.zoom_changed.connect(self._on_zoom_changed)
 
@@ -633,6 +635,7 @@ class ActionToolbar(QWidget):
         self.btn_flat_peek.setChecked(state.flat_peek)
         self._ov_flat_peek_action.setChecked(state.flat_peek)
         self._on_zones_changed(state.zones_overlay)
+        self._on_grain_focuser_changed(state.grain_focuser)
 
         geo = state.config.geometry
         self.btn_flip_h.setChecked(geo.flip_horizontal)

@@ -58,7 +58,7 @@ _ZONE_CLIP_COLOR = QColor(220, 80, 80)  # paper black / paper white, same red th
 _STRIP_LABEL_MIN_PX = 34.0  # below this patch size the two axis labels overlap
 _STRIP_LABEL_INSET_PX = 6.0
 
-_LOUPE_RADIUS_PX = 96.0
+_LOUPE_RADIUS_PX = 128.0
 # Device px per buffer px inside the glass. At fit-zoom on a 1600 px buffer the canvas
 # already shows ~0.75 device px per buffer px, so a literal 1:1 loupe would magnify ~1.3x —
 # visually pointless. 2x always out-magnifies the canvas below 200% zoom.

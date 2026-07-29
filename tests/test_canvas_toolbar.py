@@ -19,6 +19,7 @@ def _make_toolbar() -> ActionToolbar:
     controller.session.state.compare_mode = False
     controller.session.state.flat_peek = False
     controller.session.state.zones_overlay = False
+    controller.session.state.grain_focuser = False
     controller.session.state.selected_file_idx = 0
     controller.session.state.undo_index = 0
     controller.session.state.max_history_index = 0
@@ -102,7 +103,6 @@ class TestCanvasToolbarResponsive(unittest.TestCase):
             tb._ov_compare_action,
             tb._ov_flat_peek_action,
             tb._ov_zones_action,
-            tb._ov_ring_action,
             tb._ov_loupe_action,
             tb._ov_undo_action,
             tb._ov_redo_action,
@@ -111,6 +111,22 @@ class TestCanvasToolbarResponsive(unittest.TestCase):
             tb._ov_flip_h_action,
             tb._ov_flip_v_action,
         ]
+
+    def test_grain_focuser_button_drives_the_controller(self):
+        tb = _make_toolbar()
+        tb.btn_loupe.click()
+        tb.controller.toggle_grain_focuser.assert_called_once_with(force=True)
+
+        # A programmatic state sync must not echo back as another toggle.
+        tb._on_grain_focuser_changed(False)
+        self.assertFalse(tb.btn_loupe.isChecked())
+        tb.controller.toggle_grain_focuser.assert_called_once_with(force=True)
+
+    def test_ring_around_is_not_in_the_toolbar(self):
+        tb = _make_toolbar()
+        labels = [a.text() for a in tb.btn_overflow.menu().actions()]
+        self.assertNotIn("Colour Ring-Around", labels)
+        self.assertFalse(hasattr(tb, "_ov_ring_action"))
 
     def test_overflow_menu_always_shows_full_action_set(self):
         """Regression: the overflow menu previously mirrored only whatever the row's
