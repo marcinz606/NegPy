@@ -150,7 +150,7 @@ class ToneSidebar(BaseSidebar):
             "channel's density separation independently. Neutrals stay flat at any trim value."
         )
         self.density_sat_trim_slider.setVisible(False)
-        self.dye_separation_slider = PowerWarpSlider("Dye Separation", -0.5, 0.5, conf.dye_separation, center=0.0, has_neutral=True)
+        self.dye_separation_slider = PowerWarpSlider("Dye Separation", -1.0, 1.0, conf.dye_separation, center=0.0, has_neutral=True)
         density_sat_row = QHBoxLayout()
         density_sat_row.addWidget(self.density_sat_slider)
         density_sat_row.addWidget(self.density_sat_trim_slider)
