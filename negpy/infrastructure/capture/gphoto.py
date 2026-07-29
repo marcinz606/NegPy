@@ -100,6 +100,13 @@ _GRID_MARGIN = 8
 _WRITE_SETTLE_S = 3.0
 #: The magnifier itself takes ~1-2 s to engage — the same wait covers it.
 _EVENT_DRAIN_S = 1.0
+#: The quiet window that ends an event drain. Fujifilm bodies deliver post-shot events with
+#: pauses well past 50 ms, and events left unread block their next operation camera-side —
+#: cutting the drain at the first quiet 50 ms is how the X-T5's live view died after every
+#: still (issue #658). So the window is per-body: patient on Fujifilm, snappy elsewhere.
+_DRAIN_SILENCE_MS = 50
+_FUJI_DRAIN_SILENCE_MS = 300
+_FUJI_DRAIN_BUDGET_S = 2.0
 
 _PREVIEW_INTERVAL_S = 0.05  # the body tops out near 24 fps; this leaves headroom
 _SETTINGS_INTERVAL_S = 2.0
@@ -286,6 +293,8 @@ class GphotoCamera:
         # Set once a stream has failed on a body that is otherwise fine, so nothing restarts
         # it: retrying is what walks a Fujifilm off the USB bus entirely (issue #658).
         self._preview_broken = False
+        self._drain_silence_ms = _DRAIN_SILENCE_MS
+        self._drain_budget_s = _EVENT_DRAIN_S
         self._magnifier: Optional[_Magnifier] = None
         self._magnifier_ratios: Optional[tuple[str, str]] = None
         self._magnifier_off = ""
@@ -329,6 +338,9 @@ class GphotoCamera:
         self._model = _model_name(camera)
         self._alive = True
         self._capabilities = self._read_capabilities(camera)
+        if "fuji" in self._capabilities.driver_model.lower():
+            self._drain_silence_ms = _FUJI_DRAIN_SILENCE_MS
+            self._drain_budget_s = _FUJI_DRAIN_BUDGET_S
         logger.info(
             "gphoto2 session open: %s (driver %r, live view %s, settings %s)",
             self._model,
@@ -438,6 +450,9 @@ class GphotoCamera:
             try:
                 widget = camera.get_single_config(_CAPTURE_TARGET)
             except self._gp.GPhoto2Error:
+                # Absence is normal (the X-T5 has no capture-target setting at all), but say
+                # so — the silent skip cost a diagnosis round in issue #658.
+                logger.info("gphoto2: this body has no capture-target setting; leaving it alone")
                 return
             for choice in _choices(self._gp, widget):
                 if re.search(r"\bram\b|sdram", choice, re.IGNORECASE):
@@ -615,15 +630,17 @@ class GphotoCamera:
 
     # ----- capture ---------------------------------------------------------------
 
-    def _drain_events(self, budget_s: float = _EVENT_DRAIN_S) -> None:
+    def _drain_events(self, budget_s: Optional[float] = None) -> None:
         """Consume the events a still leaves behind.
 
-        Skipping this makes the *next* `capture()` fail with a bare `[-1]`.
+        Skipping this makes the *next* `capture()` fail with a bare `[-1]`. The quiet window
+        that ends the drain is per-body (see `_FUJI_DRAIN_SILENCE_MS`): on Fujifilm, events
+        left unread past the first pause are what killed live view after every still.
         """
         camera = self._require()
-        deadline = time.monotonic() + budget_s
+        deadline = time.monotonic() + (self._drain_budget_s if budget_s is None else budget_s)
         while time.monotonic() < deadline:
-            kind, _data = camera.wait_for_event(50)
+            kind, _data = camera.wait_for_event(self._drain_silence_ms)
             if kind == self._gp.GP_EVENT_TIMEOUT:
                 return
 
@@ -786,14 +803,23 @@ class GphotoCamera:
     def _preview_loop(self) -> None:
         next_settings = 0.0
         failures = 0
+        # Drain before the first frame, after every still, and before every retry: Fujifilm
+        # queues post-shot events past the overlapped drain's quiet window, and events left
+        # unread block capture_preview until the camera is power-cycled (issue #658). Costs
+        # one empty wait_for_event on bodies with a clean queue.
+        drain_first = True
         while not self._stop.is_set():
             if self._busy.is_set():  # stand aside for a capture rather than race it for the lock
+                drain_first = True
                 self._stop.wait(0.02)
                 continue
             try:
                 with self._lock:
                     if self._camera is None:
                         return
+                    if drain_first:
+                        self._drain_events()
+                        drain_first = False
                     frame = self._camera.capture_preview()
                     data = bytes(memoryview(frame.get_data_and_size()))
                 self._publish_frame(data)
@@ -803,6 +829,7 @@ class GphotoCamera:
                     next_settings = time.monotonic() + _SETTINGS_INTERVAL_S
             except Exception as exc:  # noqa: BLE001 — a dropped frame must not kill the thread
                 failures += 1
+                drain_first = True  # a failed frame may be blocked by unread events — clear them before retrying
                 logger.warning("gphoto2 live view (%d/%d): %s", failures, _MAX_PREVIEW_FAILURES, exc)
                 if failures >= _MAX_PREVIEW_FAILURES:
                     # Repeated failures used to mean one thing — the body is gone — and the whole
