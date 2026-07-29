@@ -60,6 +60,44 @@ def test_chart_uses_grade_coupled_knees(qapp):
     assert np.max(np.abs(plotted - _expected(config.toe, config.shoulder))) > 1e-3
 
 
+def test_chart_honours_the_papers_own_dmax(qapp):
+    """The render builds its constants from effective_constants(paper), so a paper that
+    raises d_max above the 2.3 default must move the plotted curve too. The chart used to
+    omit the profile and drew the default-paper curve for every paper."""
+    from negpy.desktop.view.widgets.charts import PhotometricCurveWidget
+    from negpy.features.exposure.logic import print_curve, print_curve_output
+    from negpy.features.exposure.papers import effective_paper_profile
+
+    config = ExposureConfig(paper_profile="kodak_endura")
+    paper = effective_paper_profile(config.paper_profile, "C41")
+    assert paper.d_max > EXPOSURE_CONSTANTS["d_max"]  # else this test proves nothing
+
+    w = PhotometricCurveWidget()
+    w.update_curve(config, process_mode="C41")
+    plt_x = np.array([p[0] for p in w._curve_pts], dtype=np.float64)
+    plotted = np.array([p[1] for p in w._curve_pts], dtype=np.float64)
+
+    slope = grade_to_slope(config.grade, None)
+    d_min = paper.d_min if config.paper_dmin else 0.0
+    pivot = compute_pivot(slope, config.density, d_min=d_min, paper=paper)
+    curve = print_curve(config, slope, pivot, "C41")
+    np.testing.assert_allclose(plotted, print_curve_output(curve, 1.0 - plt_x), atol=1e-9)
+
+    # Anti-vacuity: the old paper-blind curve must differ.
+    toe_eff, shoulder_eff = grade_coupled_shape(slope, config.toe, config.shoulder)
+    blind = CharacteristicCurve(
+        contrast=slope,
+        pivot=pivot,
+        d_min=d_min,
+        toe=toe_eff,
+        toe_width=config.toe_width,
+        shoulder=shoulder_eff,
+        shoulder_width=config.shoulder_width,
+        bpc=not config.paper_black,
+    )
+    assert np.max(np.abs(plotted - print_curve_output(blind, 1.0 - plt_x))) > 1e-3
+
+
 def test_chart_plots_cast_curvature(qapp):
     from negpy.desktop.view.widgets.charts import PhotometricCurveWidget
 

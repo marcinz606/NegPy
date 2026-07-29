@@ -324,7 +324,6 @@ def print_curve(
     pivot: float,
     process_mode: Optional[str] = None,
     *,
-    paper: Optional[PaperProfile] = None,
     toe: Optional[float] = None,
     shoulder: Optional[float] = None,
     toe_width: Optional[float] = None,
@@ -336,7 +335,11 @@ def print_curve(
 ) -> CharacteristicCurve:
     """The achromatic print curve for `exposure` at `slope`/`pivot`. Each None argument takes
     the grade-coupled, trim-free value; a per-layer trace passes its own. Single source of
-    truth for the chart and the step wedge."""
+    truth for the chart and the step wedge.
+
+    The paper profile is passed through to the curve, matching the render (which builds its
+    constants from `effective_constants(paper)`): the RA4 papers raise d_max above the 2.3
+    default, so omitting it drew a curve the print didn't have."""
     from negpy.features.exposure.papers import effective_paper_profile
 
     profile = effective_paper_profile(exposure.paper_profile, process_mode)
@@ -351,7 +354,7 @@ def print_curve(
         toe_width=exposure.toe_width if toe_width is None else toe_width,
         shoulder=shoulder_eff if shoulder is None else shoulder,
         shoulder_width=exposure.shoulder_width if shoulder_width is None else shoulder_width,
-        paper=paper,
+        paper=profile,
         midtone_gamma=effective_midtone_gamma(None, exposure.midtone_gamma) if midtone_gamma is None else midtone_gamma,
         bpc=not exposure.paper_black,
         shadow_density=exposure.shadow_density,
