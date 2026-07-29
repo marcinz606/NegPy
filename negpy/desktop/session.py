@@ -102,6 +102,9 @@ class AppState:
     # Adams-zone box overlay on the canvas; display-only, session-only — never persisted.
     zones_overlay: bool = False
 
+    # Grain focuser: 1:1-ish loupe following the cursor; display-only, session-only.
+    grain_focuser: bool = False
+
     # Density x grade test strip: session-only proof, dropped by any real render. The
     # mosaic is the assembled patches at preview resolution, content_rect its picture area.
     test_strip: bool = False

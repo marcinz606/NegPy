@@ -18,6 +18,7 @@ from negpy.features.exposure.analysis import (
     STRIP_DENSITIES,
     STRIP_GRADES,
     STRIP_GRID,
+    loupe_acutance,
     ring_cc,
     ring_nearest_cell,
     strip_cell_at,
@@ -56,6 +57,23 @@ _ZONE_CLIP_COLOR = QColor(220, 80, 80)  # paper black / paper white, same red th
 
 _STRIP_LABEL_MIN_PX = 34.0  # below this patch size the two axis labels overlap
 _STRIP_LABEL_INSET_PX = 6.0
+
+_LOUPE_RADIUS_PX = 96.0
+# Device px per buffer px inside the glass. At fit-zoom on a 1600 px buffer the canvas
+# already shows ~0.75 device px per buffer px, so a literal 1:1 loupe would magnify ~1.3x —
+# visually pointless. 2x always out-magnifies the canvas below 200% zoom.
+_LOUPE_MAG = 2.0
+_LOUPE_BADGE_H = 22.0
+
+
+def loupe_src_rect(buf_w: int, buf_h: int, cx: float, cy: float, side: float) -> QRectF:
+    """A `side`-square sample window on the buffer, centred on (cx, cy) and **shifted** to stay
+    inside it — a partly out-of-bounds source rect blits garbage. Clamped to the buffer when
+    `side` exceeds it."""
+    side = max(1.0, min(side, float(buf_w), float(buf_h)))
+    x = min(max(cx - side / 2.0, 0.0), max(buf_w - side, 0.0))
+    y = min(max(cy - side / 2.0, 0.0), max(buf_h - side, 0.0))
+    return QRectF(x, y, side, side)
 
 
 def _overlay_label_font(painter: QPainter):
@@ -185,10 +203,11 @@ class CanvasOverlay(QWidget):
         # inpainted hair masks), keyed per mask object identity.
         self._wash_cache: Dict[int, Tuple[tuple, QImage]] = {}
 
-        # Zone overlay: the frame it reads, plus the per-cell zone grid and one label
-        # anchor per merged region. No id()-keyed cache — update_buffer invalidates
+        # The rendered frame as NumPy, for the instruments that measure pixels (zone grid,
+        # grain loupe). main_window reads a GPU texture back before the canvas sees it, so
+        # this is populated on both engines. No id()-keyed cache — update_buffer invalidates
         # unconditionally, so it can't go stale.
-        self._zone_source: Optional[np.ndarray] = None
+        self._display_buffer: Optional[np.ndarray] = None
         self._zone_cells: Optional[np.ndarray] = None
         self._zone_labels: List[Tuple[int, int, int]] = []
 
@@ -354,7 +373,7 @@ class CanvasOverlay(QWidget):
         monitor_icc_bytes: Optional[bytes] = None,
     ) -> None:
         self._content_rect = content_rect
-        self._zone_source = buffer if isinstance(buffer, np.ndarray) else None
+        self._display_buffer = buffer if isinstance(buffer, np.ndarray) else None
         self._zone_cells = None  # rebuilt lazily on the next zones paint
         # Kept so a strip mosaic gets the same display transform as this buffer did.
         self._display_cs = color_space
@@ -533,6 +552,14 @@ class CanvasOverlay(QWidget):
         if self.state.last_metrics.get("compare", False):
             self._draw_compare_badge(painter, visible_rect)
 
+        # Last: the glass sits over everything else, and claims no content rect, so it stays out
+        # of the exclusion ladder above. It is suppressed wherever something else has replaced
+        # the frame with a *different* QImage than the one `_qimage` holds — the test strip's
+        # mosaic and the raw IR layer — because magnifying `_qimage` there would show pixels
+        # that are not on screen.
+        if self.state.grain_focuser and not self.state.test_strip and self.state.dust_overlay_mode != "ir":
+            self._draw_grain_loupe(painter)
+
     def _draw_grid(self, painter: QPainter, rect: QRectF, divisions: int, alpha: int) -> None:
         """Even N×N reference grid (interior lines only) across `rect`, screen-aligned."""
         pen = QPen(QColor(255, 255, 255, alpha), 1, Qt.PenStyle.SolidLine)
@@ -691,7 +718,7 @@ class CanvasOverlay(QWidget):
         instead of reflowing under the cursor while panning; zoom deep enough and you're
         inside one cell. Rebuild from the visible sub-rect if that ever matters."""
         if self._zone_cells is None:
-            src = self._zone_source
+            src = self._display_buffer
             if src is None:
                 return
             if self._content_rect is not None:
@@ -751,6 +778,71 @@ class CanvasOverlay(QWidget):
             painter.setPen(_ZONE_CLIP_COLOR if zone in (0, 10) else label_white)
             painter.drawText(cell, Qt.AlignmentFlag.AlignCenter, label)
         painter.restore()
+
+    def _draw_grain_loupe(self, painter: QPainter) -> None:
+        """The darkroom grain magnifier: a circular window at the cursor showing the frame's own
+        pixels at `_LOUPE_MAG`, with an acutance figure so sharpness is a number.
+
+        Samples `_qimage` — the image the canvas already blitted, so it is display-transformed
+        exactly once. Re-running ImageConverter here would double-proof it: under a soft proof
+        the worker has already baked the transform and `_display_cs` is sRGB.
+
+        ponytail: magnifies whatever the canvas holds — a 1600 px frame off a half-size demosaic
+        unless HQ preview is on — so the acutance figure is comparative below HQ, not absolute,
+        and the badge says which. A true 1:1-of-scan loupe needs a full-res ROI render path;
+        RenderTask renders whole frames only.
+        """
+        img = self._qimage
+        if img is None:
+            return
+        rect = self._content_view_rect()
+        if rect.isEmpty() or not self._view_rect.contains(self._mouse_pos):
+            return
+
+        # Buffer px per screen px: the loupe works in buffer space, not content space.
+        scale = img.width() / self._view_rect.width()
+        cx = (self._mouse_pos.x() - self._view_rect.x()) * scale
+        cy = (self._mouse_pos.y() - self._view_rect.y()) * scale
+        side = 2.0 * _LOUPE_RADIUS_PX / _LOUPE_MAG
+        src = loupe_src_rect(img.width(), img.height(), cx, cy, side)
+        dest = QRectF(
+            self._mouse_pos.x() - _LOUPE_RADIUS_PX,
+            self._mouse_pos.y() - _LOUPE_RADIUS_PX,
+            2.0 * _LOUPE_RADIUS_PX,
+            2.0 * _LOUPE_RADIUS_PX,
+        )
+
+        painter.save()
+        clip = QPainterPath()
+        clip.addEllipse(dest)
+        painter.setClipPath(clip)
+        # Nearest neighbour on purpose: running out of data must look like running out of
+        # data. Smoothing would invent grain that isn't in the scan.
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
+        painter.drawImage(dest, img, src)
+        painter.restore()
+
+        pen = QPen(QColor(255, 255, 255, 200), 1.5)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(dest)
+
+        acutance = 0.0
+        if self._display_buffer is not None:
+            x0, y0 = int(src.x()), int(src.y())
+            x1, y1 = int(src.right()), int(src.bottom())
+            acutance = loupe_acutance(self._display_buffer[y0:y1, x0:x1])
+        label = f"acutance {acutance:.1f} · {'full res' if self.state.hq_preview else 'preview res'}"
+
+        badge = QRectF(dest.center().x() - 96.0, dest.bottom() + 6.0, 192.0, _LOUPE_BADGE_H)
+        painter.setBrush(QColor(0, 0, 0, 170))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(badge, 4, 4)
+        # White, not the accent: the accent is a dark maroon and the plate is only 170-alpha,
+        # so an accented readout is barely legible over a light frame.
+        painter.setPen(QColor(255, 255, 255, 245))
+        painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, label)
 
     def on_test_strip_changed(self) -> None:
         """Strip came up or went away — drop the hover highlight and the picker cursor."""
@@ -2114,6 +2206,12 @@ class CanvasOverlay(QWidget):
 
     def leaveEvent(self, event) -> None:
         self.cursor_left.emit()
+        # Park the cursor outside the view. Every cursor-following overlay (crosshair, brush
+        # ring, loupe) reads _mouse_pos in paint, so leaving it stale left them drawn at the
+        # last position — visible whenever the cursor exits over the floating toolbar, which
+        # sits inside the image rect.
+        self._mouse_pos = QPointF(-1.0, -1.0)
+        self.update()
         super().leaveEvent(event)
 
     def update_overlay(self, filename: str, res: str, colorspace: str, extra: str, edits: int = 0) -> None:

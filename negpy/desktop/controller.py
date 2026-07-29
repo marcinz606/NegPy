@@ -191,6 +191,7 @@ class AppController(QObject):
     crop_guide_changed = pyqtSignal()
     dust_overlay_changed = pyqtSignal()
     zones_overlay_changed = pyqtSignal(bool)
+    grain_focuser_changed = pyqtSignal(bool)
     strip_requested = pyqtSignal(TestStripTask)
     test_strip_changed = pyqtSignal(bool)  # True = mosaic is up, False = cleared or building
     asset_discovery_requested = pyqtSignal(AssetDiscoveryTask)
@@ -1211,6 +1212,12 @@ class AppController(QObject):
         the canvas already holds, so no re-render is needed."""
         self.state.zones_overlay = (not self.state.zones_overlay) if force is None else bool(force)
         self.zones_overlay_changed.emit(self.state.zones_overlay)
+
+    def toggle_grain_focuser(self, force: Optional[bool] = None) -> None:
+        """Grain focuser loupe. Repaint only — it magnifies the frame the canvas already
+        holds, so no re-render is needed."""
+        self.state.grain_focuser = (not self.state.grain_focuser) if force is None else bool(force)
+        self.grain_focuser_changed.emit(self.state.grain_focuser)
 
     def toggle_ring_around(self, force: Optional[bool] = None) -> None:
         """Print (or clear) the colour ring-around — the M/Y filtration proof."""

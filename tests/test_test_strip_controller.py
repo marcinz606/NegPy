@@ -309,6 +309,26 @@ class TestStripLifecycle(unittest.TestCase):
             self.assertFalse(self.controller.state.test_strip)
             self.assertIsNone(self.controller.state.test_strip_mosaic)
 
+    def test_the_grain_focuser_toggles_without_rendering_anything(self):
+        # It magnifies the frame the canvas already holds, so unlike the strip it must never
+        # dispatch a job, and a render must not clear it.
+        announced: list = []
+        self.controller.grain_focuser_changed.connect(announced.append)
+
+        self.controller.toggle_grain_focuser()
+        self.assertTrue(self.controller.state.grain_focuser)
+        self.controller.toggle_grain_focuser()
+        self.assertFalse(self.controller.state.grain_focuser)
+
+        self.controller.toggle_grain_focuser(force=True)
+        self.controller.toggle_grain_focuser(force=True)  # idempotent
+        self.assertTrue(self.controller.state.grain_focuser)
+        self.assertEqual(announced, [True, False, True, True])
+        self.assertEqual(self.strip_tasks, [])
+
+        self.controller.request_render()
+        self.assertTrue(self.controller.state.grain_focuser)
+
 
 if __name__ == "__main__":
     unittest.main()

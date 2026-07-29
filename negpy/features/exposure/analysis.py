@@ -271,6 +271,20 @@ def wedge_usable_span(enc: Any) -> Optional[Tuple[int, int]]:
     return (int(idx[0]), int(idx[-1] + 1)) if idx.size else None
 
 
+def loupe_acutance(patch: Any) -> float:
+    """Edge energy of a display-encoded H×W×3 patch: RMS Laplacian of its luma, ×100.
+
+    A Laplacian rather than a plain standard deviation — σ reads *high* on a smooth gradient,
+    which is the opposite of sharp, so a σ-based figure calls a soft ramp crisp. Resolution
+    dependent by nature: compare regions of one frame, not one frame against another.
+    """
+    patch = np.asarray(patch)
+    if patch.ndim != 3 or patch.shape[-1] < 3 or min(patch.shape[:2]) < 3:
+        return 0.0
+    lum = get_luminance(np.ascontiguousarray(patch[..., :3], dtype=np.float32))
+    return float(np.sqrt(np.mean(cv2.Laplacian(lum, cv2.CV_32F) ** 2)) * 100.0)
+
+
 def density_histogram(normalized_log: np.ndarray, roi: Optional[Tuple[int, int, int, int]] = None) -> np.ndarray:
     """Luma occupancy of the val domain; out-of-range mass lands in the edge bins.
     `roi` is the crop rect (y1, y2, x1, x2) in the same frame as `normalized_log`."""

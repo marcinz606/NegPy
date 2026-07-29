@@ -243,6 +243,15 @@ class ActionToolbar(QWidget):
                 "toggle_ring_around",
             )
         )
+        self._ov_loupe_action = overflow_menu.addAction(qta.icon("fa5s.search-plus", color=icon_color), "Grain Focuser")
+        self._ov_loupe_action.setCheckable(True)
+        self._ov_loupe_action.setToolTip(
+            tooltip_with_shortcut(
+                "Grain focuser — a loupe at the cursor showing the frame's own pixels, with an "
+                "acutance figure for comparing sharpness across the frame (reads true on HQ)",
+                "toggle_grain_focuser",
+            )
+        )
         self._ov_undo_action = overflow_menu.addAction(qta.icon("mdi.undo", color=icon_color), "Undo")
         self._ov_undo_action.setToolTip(tooltip_with_shortcut("Undo", "undo"))
         self._ov_redo_action = overflow_menu.addAction(qta.icon("mdi.redo", color=icon_color), "Redo")
@@ -446,6 +455,9 @@ class ActionToolbar(QWidget):
         self.controller.zones_overlay_changed.connect(self._on_zones_changed)
         self._ov_ring_action.triggered.connect(lambda checked: self.controller.toggle_ring_around(force=checked))
         self.controller.test_strip_changed.connect(lambda _up: self._sync_ring_action())
+        # Overflow-only, so `triggered` can't re-fire on the programmatic setChecked below.
+        self._ov_loupe_action.triggered.connect(lambda checked: self.controller.toggle_grain_focuser(force=checked))
+        self.controller.grain_focuser_changed.connect(self._ov_loupe_action.setChecked)
         self._ov_gpu_action.toggled.connect(self._on_gpu_toggled)
         self.controller.zoom_changed.connect(self._on_zoom_changed)
 

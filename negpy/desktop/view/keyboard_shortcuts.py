@@ -99,6 +99,7 @@ class ShortcutManager:
             "toggle_zones": controller.toggle_zones_overlay,
             "toggle_test_strip": controller.toggle_test_strip,
             "toggle_ring_around": controller.toggle_ring_around,
+            "toggle_grain_focuser": controller.toggle_grain_focuser,
             "cancel_tool": lambda: _context_cancel(controller, self.window),
             "toggle_left_panel": self.window.toggle_session_dock,
             "toggle_right_panel": self.window.toggle_controls_dock,
