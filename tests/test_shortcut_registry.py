@@ -138,6 +138,12 @@ def test_category_editor_rows_merge_slider_pairs():
     assert "Magenta ↑/↓" in labels
 
 
+def test_no_two_actions_claim_the_same_default_key():
+    # Two actions on one key makes Qt fire activatedAmbiguously and both go dead.
+    keys = [key for key in default_bindings().values() if key]
+    assert len(keys) == len(set(keys))
+
+
 def test_every_slider_action_has_a_group():
     slider_actions = {group.inc_action for group in SLIDER_GROUPS} | {group.dec_action for group in SLIDER_GROUPS}
     for action_id in slider_actions:

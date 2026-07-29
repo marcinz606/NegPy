@@ -14,6 +14,7 @@ from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.logic import (
     cast_solve_inputs,
+    curve_params_from_metrics,
     normalized_shadow_refs,
     per_channel_curve_params,
 )
@@ -44,32 +45,10 @@ def _metrics_and_config():
     return ctx.metrics, exposure
 
 
-def _chart_wiring_params(metrics, config):
-    """Exactly the right-panel wiring: shared cast_solve_inputs + curve params."""
-    bounds = metrics.get("final_bounds") or metrics.get("log_bounds")
-    strength, shadow_refs_norm, neutral_axis_norm = cast_solve_inputs(
-        bounds,
-        metrics.get("shadow_log_refs"),
-        metrics.get("neutral_axis_refs"),
-        config.cast_removal_strength,
-    )
-    return per_channel_curve_params(
-        config.grade,
-        config.density,
-        config.auto_normalize_contrast,
-        strength,
-        metrics.get("norm_density_range"),
-        shadow_refs_norm,
-        metrics.get("textural_range"),
-        anchor=metrics.get("metered_anchor") if config.auto_exposure else None,
-        neutral_axis_norm=neutral_axis_norm,
-        grade_trims=(config.grade_trim_red, config.grade_trim_green, config.grade_trim_blue),
-    )
-
-
 def test_chart_wiring_matches_render():
     metrics, config = _metrics_and_config()
-    slopes, pivots, curvs = _chart_wiring_params(metrics, config)
+    # The shared resolver the chart and the step wedge both call — so this pins all of them.
+    slopes, pivots, curvs = curve_params_from_metrics(config, "C41", metrics)
 
     np.testing.assert_allclose(slopes, metrics["print_slopes"], atol=1e-12)
     assert max(abs(c) for c in curvs) > 1e-6  # curved fixture engages the quadratic

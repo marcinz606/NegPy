@@ -318,6 +318,100 @@ class CharacteristicCurve:
         return ensure_image(res)
 
 
+def print_curve(
+    exposure: Any,
+    slope: float,
+    pivot: float,
+    process_mode: Optional[str] = None,
+    *,
+    paper: Optional[PaperProfile] = None,
+    toe: Optional[float] = None,
+    shoulder: Optional[float] = None,
+    toe_width: Optional[float] = None,
+    shoulder_width: Optional[float] = None,
+    midtone_gamma: Optional[float] = None,
+    shadow_grade_delta: Optional[float] = None,
+    highlight_grade_delta: Optional[float] = None,
+    curvature: float = 0.0,
+) -> CharacteristicCurve:
+    """The achromatic print curve for `exposure` at `slope`/`pivot`. Each None argument takes
+    the grade-coupled, trim-free value; a per-layer trace passes its own. Single source of
+    truth for the chart and the step wedge."""
+    from negpy.features.exposure.papers import effective_paper_profile
+
+    profile = effective_paper_profile(exposure.paper_profile, process_mode)
+    d_min = profile.d_min if exposure.paper_dmin else 0.0
+    toe_eff, shoulder_eff = grade_coupled_shape(slope, exposure.toe, exposure.shoulder)
+    sg, hg = split_grade_deltas(exposure.grade, exposure.shadow_grade, exposure.highlight_grade)
+    return CharacteristicCurve(
+        contrast=slope,
+        pivot=pivot,
+        d_min=d_min,
+        toe=toe_eff if toe is None else toe,
+        toe_width=exposure.toe_width if toe_width is None else toe_width,
+        shoulder=shoulder_eff if shoulder is None else shoulder,
+        shoulder_width=exposure.shoulder_width if shoulder_width is None else shoulder_width,
+        paper=paper,
+        midtone_gamma=effective_midtone_gamma(None, exposure.midtone_gamma) if midtone_gamma is None else midtone_gamma,
+        bpc=not exposure.paper_black,
+        shadow_density=exposure.shadow_density,
+        highlight_density=exposure.highlight_density,
+        shadow_grade_delta=sg[0] if shadow_grade_delta is None else shadow_grade_delta,
+        highlight_grade_delta=hg[0] if highlight_grade_delta is None else highlight_grade_delta,
+        curvature=curvature,
+    )
+
+
+def print_curve_output(curve: CharacteristicCurve, x_log_exp: Any) -> np.ndarray:
+    """Curve density -> display-encoded output: the engine's 10**-D plus the working OETF.
+    The chart's y axis and the step wedge's patch values both come from here, so they cannot
+    drift apart."""
+    from negpy.kernel.image.logic import working_oetf_encode
+
+    d = np.asarray(curve(ensure_image(np.asarray(x_log_exp, dtype=np.float32))))
+    return np.asarray(working_oetf_encode(np.power(10.0, -d).astype(np.float32))).reshape(-1)
+
+
+def curve_params_from_metrics(
+    exposure: Any,
+    process_mode: Optional[str],
+    metrics: Any,
+) -> Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float]]:
+    """(slopes, pivots, curvatures) the render solved for, re-derived from the metrics it
+    published — the engines keep only the raw cast refs on purpose. Green is the base curve.
+
+    Every lookup is a .get(), so an empty metrics dict degrades to grade/density alone (the
+    pre-first-render case). Bounds live under a different key per engine: CPU writes
+    "final_bounds", GPU writes "log_bounds".
+    """
+    from negpy.features.exposure.papers import effective_paper_profile
+
+    profile = effective_paper_profile(exposure.paper_profile, process_mode)
+    d_min = profile.d_min if exposure.paper_dmin else 0.0
+    anchor = metrics.get("metered_anchor") if exposure.auto_exposure else None
+    bounds = metrics.get("final_bounds") or metrics.get("log_bounds")
+    strength, shadow_refs_norm, neutral_axis_norm = cast_solve_inputs(
+        bounds,
+        metrics.get("shadow_log_refs"),
+        metrics.get("neutral_axis_refs"),
+        exposure.cast_removal_strength,
+    )
+    return per_channel_curve_params(
+        exposure.grade,
+        exposure.density,
+        exposure.auto_normalize_contrast,
+        strength,
+        metrics.get("norm_density_range"),
+        shadow_refs_norm,
+        metrics.get("textural_range"),
+        d_min=d_min,
+        anchor=anchor,
+        paper=profile,
+        neutral_axis_norm=neutral_axis_norm,
+        grade_trims=(exposure.grade_trim_red, exposure.grade_trim_green, exposure.grade_trim_blue),
+    )
+
+
 def per_channel_toe_shoulder(
     toe_eff: float,
     shoulder_eff: float,

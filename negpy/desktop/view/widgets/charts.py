@@ -14,7 +14,6 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import QSizePolicy, QWidget
 
 from negpy.desktop.view.styles.theme import THEME
-from negpy.kernel.image.logic import working_oetf_encode
 
 _CLIP_THRESH = 0.005  # fraction of pixels considered "clipping"
 
@@ -168,19 +167,18 @@ class PhotometricCurveWidget(QWidget):
         flat: bool = False,
     ) -> None:
         from negpy.features.exposure.logic import (
-            CharacteristicCurve,
             _expit,
             compute_pivot,
-            effective_midtone_gamma,
             grade_coupled_shape,
             grade_to_slope,
             per_channel_midtone_gamma,
             per_channel_toe_shoulder,
             per_channel_widths,
+            print_curve,
+            print_curve_output,
             split_grade_deltas,
         )
         from negpy.features.exposure.papers import effective_paper_profile
-        from negpy.kernel.image.validation import ensure_image
 
         # process_mode None (e.g. flat-master peek) collapses to the neutral default.
         paper = effective_paper_profile(params.paper_profile, process_mode)
@@ -199,8 +197,6 @@ class PhotometricCurveWidget(QWidget):
         split_sh_trims = (params.shadow_grade_trim_red, params.shadow_grade_trim_green, params.shadow_grade_trim_blue)
         split_hi_trims = (params.highlight_grade_trim_red, params.highlight_grade_trim_green, params.highlight_grade_trim_blue)
         sg3, hg3 = split_grade_deltas(params.grade, params.shadow_grade, params.highlight_grade, split_sh_trims, split_hi_trims)
-        # Base (achromatic) trace uses the trim-free global deltas.
-        sg_base, hg_base = split_grade_deltas(params.grade, params.shadow_grade, params.highlight_grade)
 
         n = 300
         plt_x = np.linspace(self._X_MIN, self._X_MAX, n)
@@ -223,28 +219,21 @@ class PhotometricCurveWidget(QWidget):
                 # emitted directly with no 10^-D/sRGB. s=gain, p=lift.
                 yv = np.clip(p + s * (1.0 - x_log_exp), 0.0, 1.0)
                 return list(zip(plt_x.tolist(), yv.tolist()))
-            # d_max/d_min from constants so the chart matches the render exactly.
-            curve = CharacteristicCurve(
-                contrast=s,
-                pivot=p,
-                d_min=d_min,
-                toe=toe_eff if toe_ch is None else toe_ch,
-                toe_width=params.toe_width if tw_ch is None else tw_ch,
-                shoulder=shoulder_eff if sh_ch is None else sh_ch,
-                shoulder_width=params.shoulder_width if sw_ch is None else sw_ch,
-                midtone_gamma=effective_midtone_gamma(None, params.midtone_gamma) if mg_ch is None else mg_ch,
-                bpc=not params.paper_black,
-                shadow_density=params.shadow_density,
-                highlight_density=params.highlight_density,
-                shadow_grade_delta=sg_base[0] if sg_ch is None else sg_ch,
-                highlight_grade_delta=hg_base[0] if hg_ch is None else hg_ch,
+            curve = print_curve(
+                params,
+                s,
+                p,
+                process_mode,
+                toe=toe_ch,
+                shoulder=sh_ch,
+                toe_width=tw_ch,
+                shoulder_width=sw_ch,
+                midtone_gamma=mg_ch,
+                shadow_grade_delta=sg_ch,
+                highlight_grade_delta=hg_ch,
                 curvature=curv_ch,
             )
-            d = curve(ensure_image(x_log_exp))
-            t = np.power(10.0, -d)
-            # Working-space OETF — match the engine output encode.
-            yv = np.asarray(working_oetf_encode(t.astype(np.float32))).reshape(-1)
-            return list(zip(plt_x.tolist(), yv.tolist()))
+            return list(zip(plt_x.tolist(), print_curve_output(curve, x_log_exp).tolist()))
 
         # Base (white) reference curve — also the fill/pivot/zone geometry.
         self._curve_pts = _curve_points(slope, pivot)
