@@ -519,7 +519,9 @@ class ControlsPanel(QWidget):
 
         proc.crosstalk_strength_slider.setToolTip(
             tooltip_with_shortcut(
-                "Spectral-crosstalk unmix on the raw negative densities. Higher = richer colour separation; 0 = off",
+                "Spectral-crosstalk unmix on the raw negative densities — how much of the film's matrix to "
+                "apply. 1.0 = each layer's leak fully subtracted from the others; 0 = scanned densities "
+                "untouched. Re-run Batch Analysis after changing it",
                 ["separation_inc", "separation_dec"],
             )
         )

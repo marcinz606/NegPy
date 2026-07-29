@@ -300,7 +300,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "are linear in negative dye density (Beer–Lambert), so NegPy unmixes them "
                 "with a per-stock matrix in log-density space, <b>before any analysis</b>.<br><br>"
                 "Pick a profile matching your film stock and blend it in with the "
-                "<b>Separation</b> strength.<br><br>"
+                "<b>Strength</b> slider.<br><br>"
                 "Changed the matrix or strength? <b>Re-run Batch Analysis</b> — bounds "
                 "measured under a different matrix are invalid."
             ),

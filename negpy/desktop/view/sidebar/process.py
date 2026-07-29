@@ -200,7 +200,7 @@ class ProcessSidebar(BaseSidebar):
         matrix_row.addWidget(self.manage_crosstalk_btn)
         self.layout.addLayout(matrix_row)
 
-        self.crosstalk_strength_slider = CompactSlider("Separation", 0.0, 1.0, conf.crosstalk_strength, has_neutral=True)
+        self.crosstalk_strength_slider = CompactSlider("Strength", 0.0, 1.0, conf.crosstalk_strength, has_neutral=True)
         self.layout.addWidget(self.crosstalk_strength_slider)
 
         self.normalize_e6_btn = QPushButton(" Normalize")

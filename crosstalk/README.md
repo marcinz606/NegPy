@@ -1,9 +1,10 @@
 # Crosstalk matrix gallery
 
-Community-contributed spectral-crosstalk matrices for NegPy's **Separation** control.
+Community-contributed spectral-crosstalk matrices for NegPy's **Crosstalk** controls
+(Process panel: *Matrix* + *Strength*).
 
 Every `.toml` here is bundled with the app and copied into a user's
-`<Documents>/NegPy/crosstalk/` folder on first run, so they show up in the Lab
+`<Documents>/NegPy/crosstalk/` folder on first run, so they show up in the Process
 sidebar dropdown out of the box.
 
 ## Contributing

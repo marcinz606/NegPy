@@ -165,7 +165,7 @@ The foundation of every edit: film type, how the scan is decoded, and how the ne
 **Crosstalk** (hidden in B&W) — spectral dye unmixing applied to the raw negative before inversion:
 
 *   **Matrix**: the crosstalk profile for your film/scanner. *Default* is built-in; drop custom `.toml` matrices in `<Documents>/NegPy/crosstalk/` (see [CROSSTALK.md](CROSSTALK.md)). The slider button opens a matrix editor.
-*   **Separation** (0.0–1.0): strength of the unmix — richer, cleaner colour separation. Because it changes what the analysis reads, **re-run Batch Analysis** after changing it.
+*   **Strength** (0.0–1.0): how much of the unmix to apply — richer, cleaner colour separation. Because it changes what the analysis reads, **re-run Batch Analysis** after changing it.
 
 **Normalize** (E-6 only): auto-stretches a slide's histogram to fill the dynamic range. Useful for faded/expired slides.
 

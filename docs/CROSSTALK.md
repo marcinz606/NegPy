@@ -103,7 +103,7 @@ have to hand-edit TOML:
   live. The diagonal is fixed — the matrix is row-normalized on apply, which makes the
   diagonal redundant, so only the six mixing terms are editable. The **Preview strength**
   slider only controls how strongly the matrix previews here — it's view-only; use the
-  sidebar **Separation** slider to actually apply it.
+  sidebar **Strength** slider to actually apply it.
 - **Make Editable Copy** clones the selected (locked) matrix into an editable profile.
 - **Save** writes the profile as a `.toml` into `<Documents>/NegPy/crosstalk/` — the same
   folder profiles are read from — so it shows up in the dropdown.

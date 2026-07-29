@@ -168,7 +168,7 @@ class CrosstalkEditorDialog(QDialog):
             "• Each off-diagonal slider subtracts one channel's leak from another — e.g. column "
             "green, row red removes green's contamination from red.<br>"
             "• The diagonal is fixed (rows are re-normalized).<br>"
-            "• Raise <b>Separation</b> in the sidebar to dial the effect in."
+            "• Raise <b>Strength</b> in the sidebar to dial the effect in."
         )
         info.setWordWrap(True)
         info.setStyleSheet(
@@ -184,7 +184,7 @@ class CrosstalkEditorDialog(QDialog):
 
         self.preview_strength_slider = CompactSlider("Preview strength", 0.0, 1.0, 1.0, has_neutral=False)
         self.preview_strength_slider.setToolTip(
-            "How strongly the matrix previews here (view-only — set Separation in the sidebar to apply)"
+            "How strongly the matrix previews here (view-only — set Crosstalk Strength in the sidebar to apply)"
         )
         self.preview_strength_slider.valueChanged.connect(lambda _v: self._emit_preview())
         rl.addWidget(self.preview_strength_slider)
