@@ -309,25 +309,34 @@ class TestStripLifecycle(unittest.TestCase):
             self.assertFalse(self.controller.state.test_strip)
             self.assertIsNone(self.controller.state.test_strip_mosaic)
 
-    def test_the_grain_focuser_toggles_without_rendering_anything(self):
-        # It magnifies the frame the canvas already holds, so unlike the strip it must never
-        # dispatch a job, and a render must not clear it.
+    def _assert_repaint_only_toggle(self, name: str, signal) -> None:
+        """A repaint-only instrument: unlike the strip it must never dispatch a job, and a
+        render must not clear it."""
         announced: list = []
-        self.controller.grain_focuser_changed.connect(announced.append)
+        signal.connect(announced.append)
+        toggle = getattr(self.controller, f"toggle_{name}")
 
-        self.controller.toggle_grain_focuser()
-        self.assertTrue(self.controller.state.grain_focuser)
-        self.controller.toggle_grain_focuser()
-        self.assertFalse(self.controller.state.grain_focuser)
+        toggle()
+        self.assertTrue(getattr(self.controller.state, name))
+        toggle()
+        self.assertFalse(getattr(self.controller.state, name))
 
-        self.controller.toggle_grain_focuser(force=True)
-        self.controller.toggle_grain_focuser(force=True)  # idempotent
-        self.assertTrue(self.controller.state.grain_focuser)
+        toggle(force=True)
+        toggle(force=True)  # idempotent
+        self.assertTrue(getattr(self.controller.state, name))
         self.assertEqual(announced, [True, False, True, True])
         self.assertEqual(self.strip_tasks, [])
 
         self.controller.request_render()
-        self.assertTrue(self.controller.state.grain_focuser)
+        self.assertTrue(getattr(self.controller.state, name))
+
+    def test_the_grain_focuser_toggles_without_rendering_anything(self):
+        # It magnifies the frame the canvas already holds.
+        self._assert_repaint_only_toggle("grain_focuser", self.controller.grain_focuser_changed)
+
+    def test_the_burn_map_toggles_without_rendering_anything(self):
+        # The notation is drawn from the config.
+        self._assert_repaint_only_toggle("burn_map", self.controller.burn_map_changed)
 
 
 if __name__ == "__main__":

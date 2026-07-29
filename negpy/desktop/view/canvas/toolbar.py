@@ -252,6 +252,14 @@ class ActionToolbar(QWidget):
                 "toggle_grain_focuser",
             )
         )
+        self._ov_burn_map_action = overflow_menu.addAction(qta.icon("mdi.note-text-outline", color=icon_color), "Burn Map")
+        self._ov_burn_map_action.setCheckable(True)
+        self._ov_burn_map_action.setToolTip(
+            tooltip_with_shortcut(
+                "Printer's burn map — label each dodge and burn with its strength in stops, and show the frame's printing instructions",
+                "toggle_burn_map",
+            )
+        )
         self._ov_undo_action = overflow_menu.addAction(qta.icon("mdi.undo", color=icon_color), "Undo")
         self._ov_undo_action.setToolTip(tooltip_with_shortcut("Undo", "undo"))
         self._ov_redo_action = overflow_menu.addAction(qta.icon("mdi.redo", color=icon_color), "Redo")
@@ -458,6 +466,8 @@ class ActionToolbar(QWidget):
         # Overflow-only, so `triggered` can't re-fire on the programmatic setChecked below.
         self._ov_loupe_action.triggered.connect(lambda checked: self.controller.toggle_grain_focuser(force=checked))
         self.controller.grain_focuser_changed.connect(self._ov_loupe_action.setChecked)
+        self._ov_burn_map_action.triggered.connect(lambda checked: self.controller.toggle_burn_map(force=checked))
+        self.controller.burn_map_changed.connect(self._ov_burn_map_action.setChecked)
         self._ov_gpu_action.toggled.connect(self._on_gpu_toggled)
         self.controller.zoom_changed.connect(self._on_zoom_changed)
 

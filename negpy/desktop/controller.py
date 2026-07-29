@@ -192,6 +192,7 @@ class AppController(QObject):
     dust_overlay_changed = pyqtSignal()
     zones_overlay_changed = pyqtSignal(bool)
     grain_focuser_changed = pyqtSignal(bool)
+    burn_map_changed = pyqtSignal(bool)
     strip_requested = pyqtSignal(TestStripTask)
     test_strip_changed = pyqtSignal(bool)  # True = mosaic is up, False = cleared or building
     asset_discovery_requested = pyqtSignal(AssetDiscoveryTask)
@@ -1218,6 +1219,12 @@ class AppController(QObject):
         holds, so no re-render is needed."""
         self.state.grain_focuser = (not self.state.grain_focuser) if force is None else bool(force)
         self.grain_focuser_changed.emit(self.state.grain_focuser)
+
+    def toggle_burn_map(self, force: Optional[bool] = None) -> None:
+        """Printer's burn map over the dodge/burn masks. Repaint only — the notation is drawn
+        from the config, so no re-render is needed."""
+        self.state.burn_map = (not self.state.burn_map) if force is None else bool(force)
+        self.burn_map_changed.emit(self.state.burn_map)
 
     def toggle_ring_around(self, force: Optional[bool] = None) -> None:
         """Print (or clear) the colour ring-around — the M/Y filtration proof."""

@@ -26,9 +26,9 @@ from negpy.features.exposure.analysis import (
     zone_grid,
     zone_region_labels,
 )
-from negpy.features.exposure.densitometer import zone_roman
+from negpy.features.exposure.densitometer import print_instructions, stops_label, zone_roman
 from negpy.features.geometry.logic import rotation_drag_angle, smooth_polyline, straighten_delta_degrees, translate_manual_crop_rect
-from negpy.features.local.logic import _rasterise_mask
+from negpy.features.local.logic import _rasterise_mask, polygon_label_anchor
 from negpy.features.retouch.models import HEAL_SIZE_REF
 
 _LASSO_SNAP_PX = 12.0
@@ -74,6 +74,17 @@ def loupe_src_rect(buf_w: int, buf_h: int, cx: float, cy: float, side: float) ->
     x = min(max(cx - side / 2.0, 0.0), max(buf_w - side, 0.0))
     y = min(max(cy - side / 2.0, 0.0), max(buf_h - side, 0.0))
     return QRectF(x, y, side, side)
+
+
+# Dodge/burn tints, shared by the mask outlines and the burn map's labels so the two can't
+# drift apart. Mirrored as hexes in sidebar/local.py's mask list.
+_DODGE_TINT = QColor(232, 200, 74)
+_BURN_TINT = QColor(74, 143, 232)
+
+_BURN_CARD_INSET_PX = 12.0
+# Clears the HUD's top-left pill and the BEFORE badge, both of which sit at y+12..+34.
+_BURN_CARD_TOP_PX = 44.0
+_BURN_CARD_PAD_PX = 8.0
 
 
 def _overlay_label_font(painter: QPainter):
@@ -543,6 +554,12 @@ class CanvasOverlay(QWidget):
             self._draw_test_strip(painter)
         elif self.state.zones_overlay and content_aligned:
             self._draw_zone_grid(painter)
+
+        # Notation over the masks drawn above. Hidden under the strip (which owns the content
+        # rect) and, via content_aligned, under a flat peek — the flat intent bypasses the
+        # local stage entirely, so the notation would describe work that isn't in those pixels.
+        if self.state.burn_map and content_aligned and not self.state.test_strip:
+            self._draw_burn_map(painter)
 
         if self._rotation_grid_visible:
             self._draw_rotation_grid(painter, visible_rect)
@@ -1487,7 +1504,7 @@ class CanvasOverlay(QWidget):
             drag_this = working is not None
             draw_ctrl = working if working is not None else ctrl
             curve = smooth_polyline([(p.x(), p.y()) for p in draw_ctrl], closed=True)
-            outline = QColor(232, 200, 74) if mask.strength >= 0 else QColor(74, 143, 232)
+            outline = _DODGE_TINT if mask.strength >= 0 else _BURN_TINT
             max_alpha = 70 if is_selected else 32
 
             # Skip the feathered fill mid-drag; it re-rasters every frame.
@@ -1524,6 +1541,58 @@ class CanvasOverlay(QWidget):
             if is_selected and self._tool_mode in (ToolMode.NONE, ToolMode.LOCAL_DRAW) and not self._lasso_drawing:
                 self._draw_local_handles(painter, draw_ctrl, outline)
         self._mask_img_cache = fresh_cache
+
+    def _draw_burn_map(self, painter: QPainter) -> None:
+        """Darkroom notation over the dodge/burn masks: each one's strength in stops on the
+        mask itself, plus the frame's printing instructions on a card.
+
+        Reads the screen polygons `_draw_local_masks` already cached this paint, so the
+        notation can never label a mask the canvas drew somewhere else.
+        """
+        masks = self.state.config.local.masks
+        hidden = set(getattr(self.state, "local_hidden_masks", ()))
+        rect = self._content_view_rect()
+
+        painter.save()
+        painter.setFont(_overlay_label_font(painter))
+        for i, (mask, pts) in enumerate(zip(masks, self._local_mask_screen_polys)):
+            if i in hidden or len(pts) < 3:
+                continue
+            anchor = polygon_label_anchor([(p.x(), p.y()) for p in pts])
+            box = QRectF(anchor[0] - 40.0, anchor[1] - 12.0, 80.0, 24.0)
+            text = stops_label(mask.strength)
+            painter.setPen(QColor(0, 0, 0, 190))
+            painter.drawText(box.translated(1.0, 1.0), Qt.AlignmentFlag.AlignCenter, text)
+            painter.setPen(_DODGE_TINT if mask.strength >= 0 else _BURN_TINT)
+            painter.drawText(box, Qt.AlignmentFlag.AlignCenter, text)
+
+        lines = print_instructions(self.state.config.exposure, masks, hidden)
+        metrics = painter.fontMetrics()
+        line_h = metrics.height()
+        width = max(metrics.horizontalAdvance(line) for line in lines) + 2 * _BURN_CARD_PAD_PX
+        card = QRectF(
+            rect.x() + _BURN_CARD_INSET_PX,
+            rect.y() + _BURN_CARD_TOP_PX,
+            width,
+            len(lines) * line_h + 2 * _BURN_CARD_PAD_PX,
+        )
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(0, 0, 0, 170))
+        painter.drawRoundedRect(card, 4, 4)
+
+        y = card.y() + _BURN_CARD_PAD_PX
+        for n, line in enumerate(lines):
+            row = QRectF(card.x() + _BURN_CARD_PAD_PX, y, width - 2 * _BURN_CARD_PAD_PX, line_h)
+            if n == 0 or line.startswith("split"):
+                # The exposure lines stay white: the accent red is a dark maroon and the plate
+                # is only 170-alpha, so an accented heading was the least readable line on the
+                # card — and it carries the density and grade.
+                painter.setPen(QColor(255, 255, 255, 245))
+            else:
+                painter.setPen(_DODGE_TINT if " dodge " in line else _BURN_TINT)
+            painter.drawText(row, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, line)
+            y += line_h
+        painter.restore()
 
     def _draw_local_handles(self, painter: QPainter, ctrl_pts: List[QPointF], color: QColor) -> None:
         """Draggable vertices + '+' discs on edge midpoints for the selected mask."""

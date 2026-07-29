@@ -3,7 +3,7 @@ Densities are relative to this scan's normalization, not absolute."""
 
 import math
 from dataclasses import dataclass
-from typing import Any, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import numpy as np
 
@@ -87,6 +87,42 @@ def zone_roman(zone: float) -> str:
     if base >= 10:
         return _ROMAN[10]
     return _ROMAN[base] + _THIRDS[frac]
+
+
+def stops_label(ev: float) -> str:
+    """Dodge/burn strength in ⅓ notation with the printer's sign: + holds light back
+    (dodge), - adds it (burn). 1.33 -> '+1⅓', -2.0 -> '-2', 0.05 -> '0'."""
+    thirds = int(round(float(ev) * 3.0))
+    if thirds == 0:
+        return "0"
+    whole, frac = divmod(abs(thirds), 3)
+    return f"{'+' if thirds > 0 else '-'}{whole or ''}{_THIRDS[frac]}"
+
+
+def print_instructions(exposure: Any, masks: Any = (), hidden: Any = ()) -> List[str]:
+    """The note a printer writes on the back of a print: base exposure, grade, the split
+    grade if there is one, then each local dodge or burn in stops.
+
+    Skips the masks the canvas skips — fewer than three vertices, or hidden from the
+    sidebar — so the card and the outlines can never list different work.
+    """
+    lines = [f"D {exposure.density:.2f}   R {exposure.grade:.0f}"]
+
+    split = []
+    if exposure.shadow_grade:
+        split.append(f"shadows {exposure.shadow_grade:+.0f}")
+    if exposure.highlight_grade:
+        split.append(f"highlights {exposure.highlight_grade:+.0f}")
+    if split:
+        lines.append("split  " + "  ".join(split))
+
+    hidden_set = set(hidden)
+    for i, mask in enumerate(masks):
+        if i in hidden_set or len(mask.vertices) < 3:
+            continue
+        kind = "dodge" if mask.strength >= 0 else "burn"
+        lines.append(f"{i + 1}  {kind}  {stops_label(mask.strength)}")
+    return lines
 
 
 def format_reading(reading: DensitometerReading) -> str:

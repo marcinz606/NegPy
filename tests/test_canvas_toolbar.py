@@ -104,6 +104,7 @@ class TestCanvasToolbarResponsive(unittest.TestCase):
             tb._ov_zones_action,
             tb._ov_ring_action,
             tb._ov_loupe_action,
+            tb._ov_burn_map_action,
             tb._ov_undo_action,
             tb._ov_redo_action,
             tb._ov_rot_l_action,
