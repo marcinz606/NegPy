@@ -15,14 +15,15 @@ _CH_COLORS = ("#ff5a5a", "#5adc78", "#5f96ff")
 # overall mean-chroma effect on a real test frame (07.raw, neutral paper) —
 # see the density-saturation investigation memory for the render scan.
 # Boost direction (+0.5 density / 1.50 Lab) is a fair comparison: both target
-# the same population (muted pixels). Compress direction (-0.5 density /
-# 0.33 Lab) is magnitude-matched only -- Lab's sub-1.0 desaturates MUTED
-# pixels further, Density's negative compresses VIVID pixels; they'll look
-# different even at "equal" overall chroma change, not just differently
-# strong. Not a bug, worth seeing directly in the A/B.
+# the same population (muted pixels). Compress direction has no real Lab
+# equivalent to match against -- Lab's sub-1.0 desaturates MUTED pixels
+# further, Density's negative compresses VIVID pixels, a different
+# population entirely -- so 0.33 is just a fixed reference point on the Lab
+# slider, not a matched value. -0.3 density keeps the demo moderate rather
+# than maximally aggressive.
 _VIBRANCE_AB_DENSITY_BOOST = 0.5
 _VIBRANCE_AB_LAB_BOOST = 1.50
-_VIBRANCE_AB_DENSITY_COMPRESS = -0.5
+_VIBRANCE_AB_DENSITY_COMPRESS = -0.3
 _VIBRANCE_AB_LAB_COMPRESS = 0.33
 
 
