@@ -82,6 +82,8 @@ params = [
     "--add-data=crosstalk:crosstalk",
     "--add-data=gear:gear",
     "--add-data=VERSION:.",
+    # The panel guides (section_help_dialog.py) render slices of it at runtime.
+    "--add-data=docs/USER_GUIDE.md:docs",
 ]
 
 

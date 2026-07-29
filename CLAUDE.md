@@ -4,6 +4,8 @@ Guidance for Claude Code in this repository.
 
 > **Keep this file current.** When a change alters something documented here — stage order, the feature pattern, commands — update it in the same change.
 
+> **Keep the user docs current, in the same change.** `docs/USER_GUIDE.md` covers every panel and control; it is also **rendered in-app** — each panel's ⓘ opens the section marked `<!-- panel:<key> -->` — so a stale doc is a stale in-app guide. Any control added, renamed, retired or given a new range/default belongs there. `docs/PIPELINE.md` covers what each stage does to the pixels: update it when stage order, the math, a mirrored constant or a default changes. Retiring a control means deleting its prose, not leaving it to rot.
+
 ## Commands
 
 ```bash
@@ -66,9 +68,10 @@ Every feature lives in `negpy/features/<name>/`:
 2. Add a field to `WorkspaceConfig`; update `to_dict`/`from_flat_dict` (watch flat-namespace collisions)
 3. Insert a `_run_stage(...)` call in `DarkroomEngine.process()`
 4. For GPU: add a WGSL shader, wire it into `GPUEngine` (shader path + stage index + change detection), and add the feature's `shaders/` dir to `build.py` (`--add-data`)
-5. Add a sidebar and register it in `ControlsPanel`
+5. Add a sidebar and register it in `ControlsPanel`; mark its `docs/USER_GUIDE.md` section with `<!-- panel:<key> -->` above the heading (`<key>` = the `_make_section` key) — that marker is what puts the ⓘ guide on the header
 6. If it adds a toggle/tool/action, add a `REGISTRY` entry in `shortcut_registry.py` plus its action-map entry in `keyboard_shortcuts.py`
 7. Add unit tests; if the feature has both CPU and GPU paths, add a parity test (pattern: `test_gpu_curve_parity.py`)
+8. Document it: the panel and its controls in `docs/USER_GUIDE.md`, the stage's behaviour and math in `docs/PIPELINE.md`
 
 ## Style
 

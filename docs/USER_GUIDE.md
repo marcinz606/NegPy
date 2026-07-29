@@ -32,7 +32,7 @@ The right-hand tabs are arranged in the order you actually work, which mirrors t
 
 You don't have to touch every panel. NegPy's defaults are tuned to produce a good print straight away — most frames need only a crop, maybe a white-balance nudge, and export.
 
-A small **dot** on a panel header (and on a tab icon) means you've changed something from its default. Every panel header has a **reset** action to return that panel to defaults.
+A small **dot** on a panel header (and on a tab icon) means you've changed something from its default. Every panel header has a **reset** action to return that panel to defaults, and an **ⓘ** that opens this guide at that panel's section.
 
 ---
 
@@ -68,19 +68,61 @@ The right-click menu also offers **Copy/Paste Settings** (with or without normal
 
 ---
 
+<!-- panel:analysis -->
 ## 3. Analysis readout (always visible)
 
-Pinned above the tabs, this is your feedback while editing. Drag the divider to resize it, or collapse it entirely. The **ⓘ** in the section header opens a full guide to every chart and read-out below.
+Pinned above the tabs, this is your feedback while printing. Drag the divider to resize it, or collapse it entirely. Everything in it describes the frame you're on and updates as you edit; nothing in it is a control. Top to bottom:
 
-*   **Photometric curve**: the paper characteristic (H&D) curve NegPy is currently applying, drawn over two histograms — the output tones and the negative density. Grab the toggle to switch the density axis between linear and log. Hover the canvas and the curve marks where that pixel lands.
-*   **Zone strip**: how your tones are distributed across print zones (shadow → highlight), with warnings when zones are clipping.
-*   **Densitometer**: click-hold on the canvas to probe a pixel's values.
-*   **Negative stats**: density range, metered exposure, and a **scan-clip warning** if the scanner clipped highlights or the film base (which permanently loses information — a capture problem NegPy can't undo).
+#### Photometric curve
+
+The chart is the paper characteristic (H&D) curve NegPy is printing through right now — not a curves editor, a model of how a sheet of photographic paper responds. Left to right is **negative density**, the exposure the paper receives: dense parts of the negative (the scene's highlights) sit to the right. Bottom to top is the **print tone** that comes out. A steeper curve means more contrast — that is what Grade moves. The flattening at each end is the toe (shadows) and shoulder (highlights), where the paper runs out of range.
+
+The crosshair marks the **pivot**: the density the curve rotates around when you change contrast, so the midtone stays put. While you drag a slider a faint **ghost** of the previous curve stays behind for comparison. If cast removal pulls the channels apart you get three separate R/G/B traces instead of one grey curve — that spread *is* the colour correction.
+
+#### The two histograms
+
+Two different histograms share the chart. Behind the curve, rising from the bottom, is the **output histogram** — the tones of the print you're looking at, in R, G, B and luminance. Along the bottom axis is the **negative density histogram** — what the scan actually contains, before the curve.
+
+Read them against each other: the density histogram tells you which part of the horizontal axis your negative occupies, and the curve tells you what happens to it. If the negative's data sits entirely on the flat toe, no amount of contrast will pull those shadows apart — move the exposure so the data lands on the steep middle instead.
+
+#### LIN / LOG toggle
+
+Bottom-right of the chart. It switches the histogram's *height* axis (how many pixels), not the tone axis. **LIN** is literal — a big flat sky dwarfs everything else. **LOG** compresses the tall peaks so the thin tails become visible, which is where the few hundred pixels of deep shadow or specular highlight live. Use LOG when hunting for clipping, LIN when judging where the bulk of the frame sits. The choice is remembered between sessions.
+
+#### Clipping triangles
+
+Small R, G and B triangles in the top corners of the chart: **top-left** = shadows crushed to pure black, **top-right** = highlights blown to pure white. They only appear once a channel passes 0.5% of the frame. A little is normal — a real print has a black. Watch for a single channel clipping alone, which is a colour cast pushing one dye off the end rather than an exposure problem.
+
+#### Zone shading and zone ticks
+
+The amber wash on the left and the blue wash on the right mark the curve's toe and shoulder — the compressed ends where tonal separation is being lost. The ticks along the bottom are Adams zones I–IX, so you can read straight off the axis which zone a given negative density prints as.
+
+#### Step wedge
+
+A 21-step Stouffer-style grey wedge printed through your current curve, in even density increments labelled in the scan's own density units. It's a ruler for the curve: where neighbouring patches are clearly different, you have tonal separation; where they merge into one flat black or white block, those tones are gone. The brackets mark the usable span. It hides while peeking the flat scan, since there's no print curve to wedge.
+
+#### Zone strip
+
+Ten cells on the Adams scale — **0 is paper black, V is 18% mid-grey**, and the last cell (IX) also absorbs paper white. The brightness of each cell is the zone's tone; how solid it looks is how much of the frame lands there. This is the fastest read of whether a frame is low-key, high-key or sitting sensibly in the middle. The end cells tint **red** when shadows are blocked up or highlights are blown. Hover a cell for its exact percentage.
+
+#### Probe
+
+Spot densitometer — hover the image to read the pixel: per-channel density above film base (ΔD, relative to this scan's normalization, not absolute), the displayed tone's reflection print density, and its print zone (0 = paper black, V = 18% mid-grey, X = paper white). In B&W mode the ΔD channels read the pre-conversion colour record.
+
+#### Negative stats
+
+The four numeric rows at the bottom. Each one has the same explanation on hover, and each is a measurement of the negative rather than of your edit:
+
+*   **Negative**: the negative itself — relative density range (luminance) and its development character vs a nominal frame: flat (≈N−1), normal, contrasty (≈N+1). Relative scale, comparable across a roll; a heuristic from this scan's normalized bounds, not a calibrated densitometer reading.
+*   **Exposure**: where the frame's midtone sits, in stops from neutral — positive = brighter (high-key), negative = darker (low-key). Approximate; read off the metered midtone, not a precise meter.
+*   **Clipping**: share of pixels crushed to black (shadows) or blown to white (highlights), worst channel. Turns red above 1%.
+*   **Scan clip**: share of source-scan pixels at/above sensor white, per channel. In a negative scan the film base and scene shadows sit near sensor white — clipping there destroys base/shadow separation, and no edit can undo it. Fix at capture: expose the scan lower. Turns red above 1%.
 
 ---
 
 ## 4. Setup tab
 
+<!-- panel:presets -->
 ### 4.1 Presets
 
 Save and recall a complete edit (the full workspace) by name.
@@ -89,6 +131,7 @@ Save and recall a complete edit (the full workspace) by name.
 *   **Name field** + **Save**: store the current settings as a new preset.
 *   **Trash**: delete the selected preset.
 
+<!-- panel:sensor -->
 ### 4.2 Sensor Calibration — un-mix your camera's channels
 
 Only relevant for **single-shot narrowband** (RGB-LED trichrome) camera scans. The camera's colour filters overlap the light source's bands, so a pure red exposure leaks a little into green and blue. That leak is a fixed property of your sensor and light together — it has nothing to do with the film — so it is corrected on the linear capture before inversion.
@@ -98,6 +141,7 @@ Only relevant for **single-shot narrowband** (RGB-LED trichrome) camera scans. T
 
 The panel greys out unless **Linear RAW** is on, since profiles are calibrated against neutral white balance and the as-shot gains would misapply the matrix. Your selection is remembered either way. It is also skipped for RGB-triplet assets, which never had the leak. Because it changes what the analysis reads, **re-run Batch Analysis** after changing it.
 
+<!-- panel:process -->
 ### 4.3 Process — negative → positive
 
 The foundation of every edit: film type, how the scan is decoded, and how the negative is normalized into a positive.
@@ -125,6 +169,7 @@ The foundation of every edit: film type, how the scan is decoded, and how the ne
 
 **Normalize** (E-6 only): auto-stretches a slide's histogram to fill the dynamic range. Useful for faded/expired slides.
 
+<!-- panel:roll -->
 ### 4.4 Roll Analysis — a consistent look across the roll
 
 Meter the whole roll once and share the baseline, so frames from the same film match.
@@ -143,14 +188,17 @@ Meter the whole roll once and share the baseline, so frames from the same film m
 
 ## 5. Geometry tab
 
+<!-- panel:geometry -->
 ### 5.1 Geometry — crop & straighten
+
+Where the frame gets its final shape: what's inside the print, and whether it sits level. Most scans need a pass here even when nothing else is touched.
 
 **Crop:**
 
-*   **Ratio**: target aspect ratio (`Free`, `3:2`, `4:3`, `5:4`, `1:1`, `6:7`, `65:24`, …). The crop tool auto-orients to portrait or landscape as you drag.
+*   **Ratio**: target aspect ratio — `Free`, `1:1`, `3:2`, `4:3`, `5:4`, `6:7`, `7:5`, `65:24`, `16:9`, `16:10`, `11:8.5`. One entry per shape: the crop tool auto-orients to portrait or landscape as you drag, so there's no separate portrait entry.
 *   **Detect** (crosshairs): snap the ratio to the closest standard.
 *   **Crop** tool: draw a crop rectangle on the canvas. **Reset** clears it and turns auto-crop off.
-*   **Guide**: overlay a composition guide (thirds, golden spiral, …) while cropping; the redo button rotates guides that have orientations.
+*   **Guide**: overlay a composition guide while cropping — *Thirds*, *Phi Grid*, *Diagonals*, *Golden Triangles*, *Golden Spiral*, *Armature*, *Diagonal Method*, *Grid* or *Off*. The redo button rotates guides that have orientations (the spiral has 8, the triangles 2).
 
 **Auto Crop** — detect the frame edge automatically:
 
@@ -165,6 +213,7 @@ Meter the whole roll once and share the baseline, so frames from the same film m
 *   **Fine Rotation** (±45°): free rotation for tilted scans, in sub-degree steps (positive = clockwise). Applied after auto-crop so the frame stays axis-aligned.
 *   **Straighten** tool (ruler): draw a line along a horizon or vertical edge and NegPy rotates to make it level or plumb.
 
+<!-- panel:flatfield -->
 ### 5.2 Flat Field — even out the light
 
 Corrects uneven illumination (vignetting/falloff) from your copy-stand or scanner light, using a reference shot of the bare light source.
@@ -179,6 +228,7 @@ Corrects uneven illumination (vignetting/falloff) from your copy-stand or scanne
 
 This is the heart of the print. Three panels shape light, colour, and contrast — everything here happens in the "print" stage of the pipeline.
 
+<!-- panel:colour -->
 ### 6.1 Filtration — white balance
 
 Colour timing, like the dichroic filters on an enlarger head. A **Global / Shadows / Highlights** selector scopes the controls to the whole image or biases them toward low- or high-density tones.
@@ -190,6 +240,7 @@ Colour timing, like the dichroic filters on an enlarger head. A **Global / Shado
 *   **Cyan / Magenta / Yellow** (-1–1): the three filtration axes — Cyan↔Red, Magenta↔Green, Yellow↔Blue.
 *   **Cast Removal** (0.0–1.0): neutralizes the residual colour cast a negative leaves in the print, balancing each layer so greys stay neutral from deep shadows through highlights (C-41). Applied strength scales with how many clean near-neutrals the frame has. Default ~0.5; 0 turns it off.
 
+<!-- panel:tone -->
 ### 6.2 Tone — density, contrast, and the print curve
 
 The paper's response. A **Global / R / G / B** selector at the top scopes most controls to the shared curve (Global) or to per-dye-layer trims for **crossover correction** (fixing casts that differ between shadows and highlights — something filtration alone can't do).
@@ -204,7 +255,7 @@ The paper's response. A **Global / R / G / B** selector at the top scopes most c
 
 *   **Print Density** (0.0–2.0): overall brightness — simulates enlarger exposure time. Lower = brighter, higher = denser.
 *   **ISO-R Grade** (50–180): contrast, as a paper ISO-R value. R110 ≈ classic grade 2; **lower R = harder** (more contrast), higher = softer. In R/G/B mode a **Grade** trim rotates one layer's slope about the midtone.
-*   **Shadows Density** / **Highlights Density** (zone density): brighten or darken just the shadow or highlight zone, without reshaping the curve. Bounded by paper black/white so a burn can't exceed the print's limits.
+*   **Shadows Density** (±0.9 ΔD) / **Highlights Density** (±0.5 ΔD): brighten or darken just the shadow or highlight zone, without reshaping the curve. Bounded by paper black/white so a burn can't exceed the print's limits. The ranges differ because density is logarithmic — the same ΔD reads far smaller near paper black than near paper white.
 *   **Shadows Grade** / **Highlights Grade** (split grade, ±50 ISO-R): rotate contrast locally in the deep shadows or highlights — the digital equivalent of split-grade printing.
 *   **Print Saturation** (0.5–1.5, hidden in B&W): saturation as a darkroom operation — it pushes the print's three dye densities apart *before* the positive is decoded, in the same matrix the paper's own dye crosstalk uses. So it responds to the paper profile you picked, and it eases off automatically where the curve is already compressed at toe and shoulder, instead of forcing colour into tones that have none left to give. 1.0 = off. Travel is concentrated near 1.0 for finer control there. (Contrast **Chroma** in the Colour tab, which scales colour evenly after decode.)
 *   **Dye Separation** (-0.5–0.5, hidden in B&W): the same density-domain push, but decided per pixel rather than for the whole frame. Each pixel is judged on how far apart its own three dye densities already sit. Positive works on the pixels whose dyes sit close together and leaves the already-separated ones alone; negative does the reverse. Because neither direction touches the other's pixels, it behaves like a selective tool rather than a saturation slider. 0 = off.
@@ -218,8 +269,9 @@ The paper's response. A **Global / R / G / B** selector at the top scopes most c
 *   **Toe** (-1–1) + **Toe Width** (0.1–5): the shadow roll-off into paper black. Positive toe lifts shadows for a gentle film toe; negative deepens (and, with Paper Black off, makes exact black reachable). Width sets how far the knee reaches into the midtones.
 *   **Shoulder** (-1–1) + **Shoulder Width** (0.1–5): the highlight roll-off into paper white. Positive compresses highlights (film-like); negative extends them and risks clipping.
 
-In R/G/B mode, Toe/Shoulder/Snap and their Widths — and Print Saturation — become per-layer trims for that dye emulsion. Dye Separation stays global.
+In R/G/B mode the sliders become per-layer trims on top of the global value, for that dye emulsion: **Grade** (±30 ISO-R), **Toe** / **Shoulder** (±1), **Toe Width** / **Shoulder Width** (±2), **Snap** (±0.5) and **Print Saturation** (±0.4). Dye Separation stays global.
 
+<!-- panel:local -->
 ### 6.3 Dodge & Burn — local exposure
 
 Paint polygon masks and lighten or darken just those areas.
@@ -227,12 +279,13 @@ Paint polygon masks and lighten or darken just those areas.
 *   **Draw Mask**: click to place vertices; double-click / Enter / a click near the start closes the mask; Esc cancels. To edit an existing mask, select it in the list — drag a vertex, click an edge "+" to add a point, right-click a vertex to delete.
 *   **Mask list**: each mask shows Dodge (lighten) or Burn (darken) and its strength. The eye toggles its outline; the trash deletes it.
 *   **Strength** (-1–1 EV): dodge (+) or burn (−) for the selected mask.
-*   **Feather**: edge softness for the selected mask.
+*   **Feather** (0.0–0.15): edge softness for the selected mask, as a fraction of the frame's short side.
 
 ---
 
 ## 7. Colour tab
 
+<!-- panel:lab -->
 ### 7.1 Lab — polish and detail
 
 Mimics what a lab scanner (Frontier/Noritsu) does automatically. Colour controls hide in B&W mode.
@@ -258,7 +311,10 @@ Mimics what a lab scanner (Frontier/Noritsu) does automatically. Colour controls
 *   **Glow** (0.0–1.0): lens bloom — bright highlights scatter across all channels for a dreamy softness.
 *   **Halation** (0.0–1.0): the red glow of light scattering back through the film base. Highlights only, strongly red-dominant.
 
+<!-- panel:toning -->
 ### 7.2 Toning
+
+Colour the print itself rather than the scene: chemical toners that convert the silver (B&W only), and a split tint that works in any mode.
 
 **Chemical Toning** (B&W only) — simulated as sequential toner baths, in the order shown; each strength 0.0–2.0:
 
@@ -271,14 +327,17 @@ Mimics what a lab scanner (Frontier/Noritsu) does automatically. Colour controls
 
 **Split Toning** (all modes) — additive tint in Lab space, so grain and detail are preserved:
 
-*   **Shadow Hue** + **Shadow Strength** (0.0–1.0).
-*   **Highlight Hue** + **Highlight Strength** (0.0–1.0).
+*   **Shadow Hue** (0–360°) + **Shadow Strength** (0.0–1.0).
+*   **Highlight Hue** (0–360°) + **Highlight Strength** (0.0–1.0).
 
 ---
 
 ## 8. Finish tab
 
+<!-- panel:retouch -->
 ### 8.1 Retouch — dust, hairs, scratches
+
+Spotting, the way it was done with a brush on the finished print. Three ways to find the marks — by local contrast, by the scanner's IR channel, or by hand — and they stack.
 
 An **Overlay** button cycles the detection overlay (Off → Marked → IR) so you can see what's being caught.
 
@@ -297,9 +356,10 @@ An **Overlay** button cycles the detection overlay (Off → Marked → IR) so yo
 *   **Brush Size** (2–16 px): radius of the manual brush (shown while a manual tool is active).
 *   **Undo Last** / **Clear All**: remove the most recent or all manual heals (auto-detected dust is unaffected).
 
+<!-- panel:finish -->
 ### 8.2 Finishing — vignette, carrier, border
 
-Applied at the very end of the pipeline.
+How the print is presented: edge burn, a filed-out carrier's black rebate, and the paper margin around it. Applied at the very end of the pipeline, after everything else is settled.
 
 **Vignette** (printer's edge burn, in stops):
 

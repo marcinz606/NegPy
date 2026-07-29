@@ -9,6 +9,7 @@ from negpy.desktop.controller import AppController
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.charts import MiniHistogramWidget, MiniRGBHistogramWidget
+from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog, has_guide
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.exposure.models import ExposureConfig
 from negpy.features.lab.models import LabConfig
@@ -296,10 +297,12 @@ class ControlsPanel(QWidget):
             if key in ["process", "colour", "tone", "geometry", "lab", "retouch", "export", "analysis", "toning"]:
                 is_expanded = THEME.sidebar_expanded_defaults.get(key, True)
 
-        section = CollapsibleSection(title, expanded=is_expanded, icon=icon, background_widget=background_widget)
+        section = CollapsibleSection(title, expanded=is_expanded, icon=icon, background_widget=background_widget, info=has_guide(key))
         section.set_content(widget)
 
         section.expanded_changed.connect(lambda checked, k=key: repo.save_global_setting(f"section_expanded_{k}", checked))
+        if section.info_btn:
+            section.info_requested.connect(lambda k=key, t=title: SectionHelpDialog(k, t, self).exec())
         return section
 
     def _connect_signals(self) -> None:
