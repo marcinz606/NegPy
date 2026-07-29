@@ -1,4 +1,4 @@
-"""Colour ring-around ladder: absolute filtration, 1cc steps out to ±2cc either way of
+"""Colour ring-around ladder: absolute filtration, 2cc steps out to ±4cc either way of
 neutral on the magenta and yellow axes.
 
 Absolute like the strip's ladders, which is what makes the mosaic invariant to the filtration
@@ -60,11 +60,11 @@ def test_rows_step_magenta_and_columns_step_yellow():
         assert [_cell(cells, r, col)[2] for r in range(_ROWS)] == pytest.approx(rungs)
 
 
-def test_the_rungs_run_one_cc_at_a_time_out_to_two():
+def test_the_rungs_run_two_cc_at_a_time_out_to_four():
     # filtration_offsets documents 1.0 slider = 20cc, which sets the cc scale.
-    assert RING_CC_STEP * RING_CC_PER_UNIT == 1.0
-    assert [ring_cc(i) for i in range(_COLS)] == [-2.0, -1.0, 0.0, 1.0, 2.0]
-    assert [f"{ring_cc(i):+g}" for i in range(_COLS)] == ["-2", "-1", "+0", "+1", "+2"]
+    assert RING_CC_STEP * RING_CC_PER_UNIT == 2.0
+    assert [ring_cc(i) for i in range(_COLS)] == [-4.0, -2.0, 0.0, 2.0, 4.0]
+    assert [f"{ring_cc(i):+g}" for i in range(_COLS)] == ["-4", "-2", "+0", "+2", "+4"]
 
 
 def test_every_rung_is_inside_the_sliders_travel():

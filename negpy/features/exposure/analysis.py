@@ -139,9 +139,9 @@ STRIP_GRID = (len(STRIP_GRADES), len(STRIP_DENSITIES))  # (rows, cols)
 
 # Ring-around rungs: absolute filtration centred on neutral, like the strip's ladders, so a
 # ring printed off one frame is comparable to the next and the mosaic is invariant to the
-# filtration in force. 1.0 slider = 20cc (see filtration_offsets), so the step is 1cc and the
-# outer rung 2cc. Calibration knobs.
-RING_CC_STEP = 0.05
+# filtration in force. 1.0 slider = 20cc (see filtration_offsets), so the step is 2cc and the
+# outer rung 4cc. Calibration knobs.
+RING_CC_STEP = 0.1
 RING_CC_PER_UNIT = 20.0
 RING_GRID = (5, 5)
 
