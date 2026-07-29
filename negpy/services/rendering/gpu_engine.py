@@ -1133,6 +1133,7 @@ class GPUEngine:
             cast_solve_inputs,
             filtration_offsets,
             grade_chroma_damping,
+            per_channel_density_saturation,
             per_channel_toe_shoulder,
             grade_coupled_shape,
             local_ev_scale,
@@ -1144,7 +1145,13 @@ class GPUEngine:
         )
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
         from negpy.features.exposure.normalization import LogNegativeBounds, luminance_density_range
-        from negpy.features.exposure.papers import effective_constants, effective_paper_profile, resolve_dye_matrix
+        from negpy.features.exposure.papers import (
+            compose_density_matrices,
+            effective_constants,
+            effective_paper_profile,
+            resolve_dye_matrix,
+            resolve_saturation_matrix,
+        )
 
         exp = settings.exposure
         paper = effective_paper_profile(exp.paper_profile, settings.process.process_mode)
@@ -1214,6 +1221,19 @@ class GPUEngine:
         )
         dmin_rgb = paper_dmin_rgb(d_min, paper)
         dye = resolve_dye_matrix(paper)
+        # Density-space Print Saturation, composed into the same dye_mix slot
+        # as the paper's real crosstalk. Mirrors the CPU path
+        # (apply_characteristic_curve) exactly — see negpy/features/exposure/logic.py.
+        if settings.process.process_mode == ProcessMode.BW:
+            sat = None
+        else:
+            sat_k3 = per_channel_density_saturation(
+                exp.density_saturation,
+                (exp.density_saturation_trim_red, exp.density_saturation_trim_green, exp.density_saturation_trim_blue),
+            )
+            sat = resolve_saturation_matrix(sat_k3)
+        composed = compose_density_matrices(dye, sat)
+        dye = composed  # use_dye_mix (below) and dye_rows both key off this
         dye_rows = np.eye(3) if dye is None else dye
 
         # The w-lanes carry per-channel toe (first three vec4s) and shoulder

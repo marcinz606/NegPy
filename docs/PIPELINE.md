@@ -104,6 +104,11 @@ A **paper profile** (`paper_profile`, default *Neutral*) overrides the print *ch
 
 Profiles are **mode-aware**: C-41 exposes the RA4 colour papers, B&W exposes the tonal-only B&W papers (paper tone is a Toning job, so B&W profiles carry no colour terms), and E-6 gets only *Neutral*. An incompatible stored value collapses to *Neutral* so it can never leak into a render. Bundled papers: **Neutral**; *B&W* — Ilford Multigrade RC, Ilford Multigrade FB Classic, Foma Fomatone, Foma Fomabrom; *RA4* — Kodak Endura Premier, Fujicolor Crystal Archive. Values are loosely mapped from datasheets (mainly $D_{max}$ is grounded; the knee/midtone tweaks are light character touches).
 
+### Print Saturation
+**Code**: `negpy.features.exposure.papers.resolve_saturation_matrix` / `compose_density_matrices`
+
+Saturation applied in the same density domain and the same matrix slot as a paper's `dye_matrix`, rather than as a post-decode CIELAB $a^{\ast}/b^{\ast}$ scale (contrast with §6's Global Saturation). For density above paper base $e = D - D_{min}$, the saturation matrix is $M(k) = k \cdot I + (1-k) \cdot J$ ($J$ = all-rows-$\tfrac{1}{3}$, the achromatic projection): $k=1$ identity, $k=0$ collapses that channel's row to the achromatic mean, $k>1$ boosts density separation. Composed as $M_{total} = M(k) \cdot M_{dye}$ — saturation outermost, the paper's own dye coupling innermost, so `dye_matrix` keeps acting on the print curve's real density unchanged and saturation layers on top as a final step rather than being partly reabsorbed by the paper's crosstalk. $k$ takes independent per-channel trims (`density_saturation_trim_red/green/blue`) the same way Grade/Toe/Shoulder do; each row still sums to 1 regardless of its own $k$, so neutrals stay flat at any per-channel divergence.
+
 ### Flat (log) master — "for editing elsewhere"
 **Code**: `negpy.features.exposure.processor.PhotometricProcessor._process_flat` → `apply_flat_curve`
 

@@ -4,7 +4,13 @@ import numpy as np
 from numba import njit, prange  # type: ignore
 
 from negpy.domain.types import ImageBuffer
-from negpy.features.exposure.papers import PaperProfile, effective_constants, resolve_dye_matrix
+from negpy.features.exposure.papers import (
+    PaperProfile,
+    compose_density_matrices,
+    effective_constants,
+    resolve_dye_matrix,
+    resolve_saturation_matrix,
+)
 from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.system.parallel import parallel_njit
 
@@ -398,11 +404,16 @@ def apply_characteristic_curve(
     highlight_density: float = 0.0,
     shadow_grade_deltas: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     highlight_grade_deltas: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    density_saturation: float = 1.0,
+    density_saturation_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
 ) -> ImageBuffer:
     """Applies the asymmetric H&D print curve per channel in log-density space.
 
     ev_map (H×W, EV stops; positive = dodge) with ev_scale (see local_ev_scale)
-    applies per-pixel dodge/burn as print-exposure offsets ahead of the curve."""
+    applies per-pixel dodge/burn as print-exposure offsets ahead of the curve.
+
+    density_saturation(_trims): density-domain saturation, composed into the
+    dye_mix slot (see resolve_saturation_matrix/compose_density_matrices)."""
     c = effective_constants(paper)
     ts = c["toe_shoulder_strength"]
     if midtone_gamma is None:
@@ -415,7 +426,10 @@ def apply_characteristic_curve(
     s_cmy = np.ascontiguousarray(np.array(shadow_cmy, dtype=np.float32))
     h_cmy = np.ascontiguousarray(np.array(highlight_cmy, dtype=np.float32))
     dye = resolve_dye_matrix(paper)
-    dye_mix = np.ascontiguousarray(np.eye(3) if dye is None else dye)
+    sat_k3 = per_channel_density_saturation(density_saturation, density_saturation_trims)
+    sat = resolve_saturation_matrix(sat_k3)
+    composed = compose_density_matrices(dye, sat)
+    dye_mix = np.ascontiguousarray(np.eye(3) if composed is None else composed)
     use_ev = ev_map is not None
     ev_arr = np.ascontiguousarray(ev_map.astype(np.float32)) if ev_map is not None else np.zeros((1, 1), dtype=np.float32)
 
@@ -452,7 +466,7 @@ def apply_characteristic_curve(
         midtone_gamma=np.array([float(midtone_gamma) + snap_trims[ch] for ch in range(3)], dtype=np.float64),
         gamma_width=float(c["paper_gamma_width"]),
         dye_mix=dye_mix,
-        use_dye_mix=dye is not None,
+        use_dye_mix=composed is not None,
         ev_map=ev_arr,
         ev_scale=np.ascontiguousarray(np.array(ev_scale, dtype=np.float32)),
         use_ev=use_ev,
@@ -513,6 +527,26 @@ def grade_to_slope(grade: float, density_range: Optional[float]) -> float:
     rng = min(max(abs(float(rng_in)), 0.3), 3.5)
     k = float(c["grade_contrast_scale"]) * rng / er
     return float(min(max(k, c["slope_min"]), c["slope_max"]))
+
+
+def per_channel_density_saturation(
+    density_saturation: float,
+    trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> Tuple[float, float, float]:
+    """
+    Per-layer effective density-saturation k: global value + per-layer trim,
+    clamped to a sane matrix-coefficient range. Mirrors
+    per_channel_toe_shoulder's global+trim convention.
+    """
+
+    def _clamp(v: float) -> float:
+        return min(max(v, 0.0), 3.0)
+
+    return (
+        _clamp(density_saturation + trims[0]),
+        _clamp(density_saturation + trims[1]),
+        _clamp(density_saturation + trims[2]),
+    )
 
 
 def grade_chroma_damping(slope_g: float, strength: float) -> float:

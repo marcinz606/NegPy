@@ -165,6 +165,48 @@ def resolve_dye_matrix(paper: PaperProfile | None) -> Optional[np.ndarray]:
     return m / np.maximum(m.sum(axis=1, keepdims=True), 1e-6)
 
 
+# Achromatic projection in density space (all rows 1/3) -- see resolve_saturation_matrix.
+_ACHROMATIC_J = np.full((3, 3), 1.0 / 3.0, dtype=np.float64)
+
+
+def resolve_saturation_matrix(k_rgb: Tuple[float, float, float]) -> Optional[np.ndarray]:
+    """
+    Density-domain saturation matrix, applied to density above paper base
+    (same coordinate as dye_matrix). Row ch is k_rgb[ch]*I[ch] + (1-k_rgb[ch])*J[ch]
+    — each row still sums to 1 regardless of its own k, so per-channel k's
+    diverge (R/G/B pushed independently) without breaking neutral preservation;
+    no per-row normalization needed. k=1 on every channel is identity (returns
+    None so the default path stays byte-exact); k=0 full desaturation (collapse
+    to the achromatic mean) for that channel's row; k>1 boosts density
+    separation.
+    """
+    if k_rgb == (1.0, 1.0, 1.0):
+        return None
+    k = np.array(k_rgb, dtype=np.float64)
+    return np.diag(k) + np.outer(1.0 - k, np.full(3, 1.0 / 3.0, dtype=np.float64))
+
+
+def compose_density_matrices(dye: Optional[np.ndarray], sat: Optional[np.ndarray]) -> Optional[np.ndarray]:
+    """
+    Composite density-domain matrix for the dye_mix kernel slot, or None if
+    both factors are identity (mirrors resolve_dye_matrix's allocation-free
+    common case).
+
+    sat is applied outermost, dye innermost (sat @ dye): dye_matrix keeps
+    acting on the print curve's real density exactly as it always has, and
+    saturation is layered on top as a final creative step rather than being
+    fed back through the paper's physical crosstalk (that would make the
+    slider's effective strength paper-dependent, since some of the push
+    would get reabsorbed by the crosstalk before it reaches display). Do not
+    flip this order.
+    """
+    if dye is None and sat is None:
+        return None
+    d = np.eye(3, dtype=np.float64) if dye is None else dye
+    s = np.eye(3, dtype=np.float64) if sat is None else sat
+    return s @ d
+
+
 # Which paper kind each process mode exposes. E-6 (slide) has no entry — it gets
 # only the neutral default. Keyed by ProcessMode (a StrEnum), so plain-string
 # process_mode values look up fine.

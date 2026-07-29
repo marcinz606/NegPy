@@ -422,6 +422,41 @@ class CompactSlider(BaseSlider):
         return super().eventFilter(obj, event)
 
 
+class PowerWarpSlider(CompactSlider):
+    """
+    CompactSlider variant with travel concentrated around `center` via a
+    power-law warp: physical drag near center moves the value slowly (fine
+    control), drag near the min/max extremes moves it quickly (coarse). Value
+    and slider-int conversion stay exact inverses of each other so committed
+    values still round-trip precisely; only the *spacing* is nonlinear.
+    """
+
+    def __init__(self, label: str, min_val: float, max_val: float, default_val: float, center: float, gamma: float = 2.2, **kwargs):
+        self._warp_center = center
+        self._warp_gamma = gamma
+        self._warp_half_lo = center - min_val
+        self._warp_half_hi = max_val - center
+        super().__init__(label, min_val, max_val, default_val, **kwargs)
+
+    def _to_int(self, value: float) -> int:
+        if value >= self._warp_center:
+            half = self._warp_half_hi
+            frac = 0.0 if half <= 0 else (value - self._warp_center) / half
+            sign = 1.0
+        else:
+            half = self._warp_half_lo
+            frac = 0.0 if half <= 0 else (self._warp_center - value) / half
+            sign = -1.0
+        s = sign * max(0.0, frac) ** (1.0 / self._warp_gamma)
+        return round(s * self._precision)
+
+    def _from_int(self, i: int) -> float:
+        s = i / self._precision
+        frac = abs(s) ** self._warp_gamma
+        half = self._warp_half_hi if s >= 0 else self._warp_half_lo
+        return self._warp_center + math.copysign(frac * half, s)
+
+
 class HueSlider(CompactSlider):
     """
     CompactSlider variant for 0–360° hue selection.

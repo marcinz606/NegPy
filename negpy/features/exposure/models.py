@@ -90,6 +90,14 @@ class ExposureConfig:
     auto_normalize_contrast: bool = True
     render_intent: str = RenderIntent.PRINT
     paper_profile: str = "neutral"
+    # Density-domain saturation, composed into the dye_mix kernel slot (see
+    # papers.py: resolve_saturation_matrix/compose_density_matrices). 1.0 =
+    # identity. Per-layer trims on top of the global value (crossover
+    # correction), same pattern as grade_trim_red etc.
+    density_saturation: float = 1.0
+    density_saturation_trim_red: float = 0.0
+    density_saturation_trim_green: float = 0.0
+    density_saturation_trim_blue: float = 0.0
 
     def __post_init__(self) -> None:
         """

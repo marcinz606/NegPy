@@ -35,6 +35,11 @@ DROPPED_KEYS: frozenset[str] = frozenset(
         "auto_cast_removal",  # cast removal became always-on
         "DEFAULT_MATRIX",  # serialized crosstalk default, never a real field
         "surround",  # dim-surround print gamma, removed in #432 (replaced by Snap)
+        # density_chroma_damping / density_divergence_damping: abandoned Dye Mute
+        # reference-signal prototypes, dropped as mathematically redundant with
+        # density_saturation itself.
+        "density_chroma_damping",
+        "density_divergence_damping",
     }
 )
 

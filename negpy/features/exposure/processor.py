@@ -314,6 +314,17 @@ class PhotometricProcessor:
             highlight_density=self.config.highlight_density,
             shadow_grade_deltas=sg_deltas,
             highlight_grade_deltas=hg_deltas,
+            # B&W collapses to luminance before this call (all channels equal),
+            # so the matrix is already a mathematical no-op there; skip it
+            # explicitly anyway to avoid the wasted per-pixel 3x3 multiply.
+            density_saturation=1.0 if context.process_mode == ProcessMode.BW else self.config.density_saturation,
+            density_saturation_trims=(0.0, 0.0, 0.0)
+            if context.process_mode == ProcessMode.BW
+            else (
+                self.config.density_saturation_trim_red,
+                self.config.density_saturation_trim_green,
+                self.config.density_saturation_trim_blue,
+            ),
         )
 
         if context.process_mode == ProcessMode.BW:
