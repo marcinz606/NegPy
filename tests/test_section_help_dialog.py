@@ -1,8 +1,12 @@
 """The ⓘ in a section header and the guide it renders out of docs/USER_GUIDE.md."""
 
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
 import pytest
 from PyQt6.QtCore import QPoint, Qt
 from PyQt6.QtTest import QTest
+from PyQt6.QtWidgets import QWidget
 
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog, _guides, guide_markdown, has_guide
@@ -72,6 +76,21 @@ def test_the_info_button_is_opt_in() -> None:
     """CollapsibleSection also backs the Export, Metadata and Scan sections, which have no guide."""
     assert CollapsibleSection("Plain").info_btn is None
     assert CollapsibleSection("Analysis", info=True).info_btn is not None
+
+
+def test_the_guide_is_parented_to_the_section_not_the_panel() -> None:
+    """Qt centres a dialog on parent.window(). ControlsPanel is never added to a layout —
+    only its pages are — so as the parent it centres the guide on a phantom window at 0,0
+    and the guide opens in the screen corner. The section is in the tree."""
+    from negpy.desktop.view.sidebar import controls_panel as cp
+
+    panel = SimpleNamespace(controller=SimpleNamespace(session=SimpleNamespace(repo=SimpleNamespace(get_global_setting=lambda _k: None))))
+    parents: list[object] = []
+    with patch.object(cp, "SectionHelpDialog", lambda k, t, parent: parents.append(parent) or MagicMock()):
+        section = cp.ControlsPanel._make_section(panel, "Analysis", "analysis", QWidget())
+        section.info_requested.emit()
+
+    assert parents == [section]
 
 
 def test_clicking_info_asks_for_help_without_collapsing_the_section() -> None:

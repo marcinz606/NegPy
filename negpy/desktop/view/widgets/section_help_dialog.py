@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QTextBrowser, QVBoxLayout
+from PyQt6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QTextBrowser, QVBoxLayout, QWidget
 
 from negpy.desktop.view.styles.theme import THEME
 from negpy.kernel.system.paths import get_resource_path
@@ -64,7 +64,7 @@ def guide_markdown(key: str) -> str:
 class SectionHelpDialog(QDialog):
     """Modal reference for one panel, rendered from the user guide."""
 
-    def __init__(self, key: str, title: str, parent: Optional[QDialog] = None):
+    def __init__(self, key: str, title: str, parent: Optional[QWidget] = None):
         super().__init__(parent)
         heading = f"Reading the {title} panel"
         self.setWindowTitle(heading)

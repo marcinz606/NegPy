@@ -306,7 +306,10 @@ class ControlsPanel(QWidget):
 
         section.expanded_changed.connect(lambda checked, k=key: repo.save_global_setting(f"section_expanded_{k}", checked))
         if section.info_btn:
-            section.info_requested.connect(lambda k=key, t=title: SectionHelpDialog(k, t, self).exec())
+            # Parent the dialog to the section, not to self: ControlsPanel is never added to a
+            # layout (only its pages are), so as a dialog parent it centres the guide on a
+            # phantom 0,0 window instead of the main window.
+            section.info_requested.connect(lambda k=key, t=title, s=section: SectionHelpDialog(k, t, s).exec())
         return section
 
     def _connect_signals(self) -> None:
