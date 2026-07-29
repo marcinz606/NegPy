@@ -119,7 +119,7 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("Shoulder Width Trim", "exposure", "shoulder_width_trim_red", "shoulder_width_trim_green", "shoulder_width_trim_blue", channels="RGB"),
         _row("Print Saturation", "exposure", "density_saturation"),
         _row("Print Saturation Trim", "exposure", "density_saturation_trim_red", "density_saturation_trim_green", "density_saturation_trim_blue", channels="RGB"),
-        _row("Dye Mute", "exposure", "density_saturation_damping"),
+        _row("Dye Separation", "exposure", "dye_separation"),
         _row("Auto Exposure", "exposure", "auto_exposure"),
         _row("Auto Contrast", "exposure", "auto_normalize_contrast"),
         _row("Paper Profile", "exposure", "paper_profile"),
@@ -134,7 +134,6 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
     )),
     ("Lab", (
         _row("Chroma", "lab", "saturation"),
-        _row("Vibrance", "lab", "vibrance"),
         _row("CLAHE", "lab", "clahe_strength"),
         _row("Sharpening", "lab", "sharpen"),
         _row("Sharpen Method", "lab", "sharpen_method"),

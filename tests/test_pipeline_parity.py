@@ -298,19 +298,15 @@ class TestLabParity:
         )
         self._run_and_compare(s)
 
-    def test_high_vibrance(self):
-        s = replace(_make_base_settings(), lab=LabConfig(vibrance=2.0))
-        self._run_and_compare(s)
-
     def test_desaturation(self):
-        # Heavy desaturation (sat=0.2, vibrance=0.2) shrinks chroma in CIELAB.
+        # Heavy desaturation (sat=0.2) shrinks chroma in CIELAB.
         # CPU (OpenCV) and GPU (WGSL) LAB stacks diverge slightly on very pale,
         # high-L* pixels — small upstream differences in the LAB roundtrip get
         # amplified once chroma is small, producing larger absolute RGB diffs
         # than the default LAB parity tolerance allows. Use a slightly looser
         # tolerance here; tighten alongside the broader CPU/GPU LAB convergence
         # TODO at the top of this class.
-        s = replace(_make_base_settings(), lab=LabConfig(saturation=0.2, vibrance=0.2))
+        s = replace(_make_base_settings(), lab=LabConfig(saturation=0.2))
         h, w = self.img.shape[:2]
         scale = max(h, w) / 1024.0
 

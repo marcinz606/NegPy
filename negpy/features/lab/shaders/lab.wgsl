@@ -4,7 +4,6 @@ struct LabUniforms {
     sharpen: f32,
     chroma_denoise: f32,
     saturation: f32,
-    vibrance: f32,
     glow_amount: f32,
     halation_strength: f32,
     scale_factor: f32,
@@ -13,6 +12,7 @@ struct LabUniforms {
     sharpen_method: f32,
     _pad1: f32,
     _pad2: f32,
+    _pad3: f32,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -252,18 +252,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
     }
 
-    // 3. Vibrance
-    if (params.vibrance != 1.0) {
-        var lab = rgb_to_lab(color);
-        let chroma = length(lab.yz);
-        let muted_mask = clamp(1.0 - (chroma / 60.0), 0.0, 1.0);
-        let boost = (params.vibrance - 1.0) * muted_mask;
-        lab.y = lab.y * (1.0 + boost);
-        lab.z = lab.z * (1.0 + boost);
-        color = lab_to_rgb(lab);
-    }
-
-    // 4. Global Saturation (CIELAB chroma scaling — preserves L*)
+    // 2. Global Saturation (CIELAB chroma scaling — preserves L*)
     if (params.saturation != 1.0) {
         var lab = rgb_to_lab(color);
         lab.y = lab.y * params.saturation;
@@ -271,9 +260,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         color = lab_to_rgb(lab);
     }
 
-    // 5. Sharpening — sharpen_tex holds precomputed state from the h/v (USM) or
+    // 3. Sharpening — sharpen_tex holds precomputed state from the h/v (USM) or
     // rl_*.wgsl (deconvolution) passes over input_tex, which the earlier
-    // chroma/vibrance/saturation stages never touch in L*/Y (they only rewrite
+    // chroma/saturation stages never touch in L*/Y (they only rewrite
     // a*/b*), so the state matches what `color` would produce.
     if (params.sharpen > 0.0 && params.sharpen_method < 0.5) {
         // Unsharp mask — mirrors apply_output_sharpening in logic.py.
@@ -346,7 +335,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         color = color * max(1.0 + (ratio - 1.0) * gain, 0.0);
     }
 
-    // 6. Glow and Halation
+    // 4. Glow and Halation
     // Radii match the CPU defaults (base_r at scale_factor=1): glow=15px, halation=25px.
     // Accumulate highlight-weighted Gaussian samples then divide by the fixed kernel
     // weight sum (BLOOM_GAUSS_SUM) — mirrors how a normalised Gaussian convolution

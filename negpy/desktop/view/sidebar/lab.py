@@ -20,9 +20,9 @@ class LabSidebar(BaseSidebar):
 
         row1 = QHBoxLayout()
         self.saturation_slider = CompactSlider("Chroma", 0.0, 2.0, conf.saturation, has_neutral=True)
-        self.vibrance_slider = CompactSlider("Vibrance", 0.0, 2.0, conf.vibrance, has_neutral=True)
+        self.chroma_denoise_slider = CompactSlider("Chroma Denoise", 0.0, 5.0, conf.chroma_denoise)
         row1.addWidget(self.saturation_slider)
-        row1.addWidget(self.vibrance_slider)
+        row1.addWidget(self.chroma_denoise_slider)
         self.layout.addLayout(row1)
 
         self.layout.addWidget(section_subheader("SHARPEN"))
@@ -48,12 +48,8 @@ class LabSidebar(BaseSidebar):
 
         self.layout.addWidget(section_subheader("DETAIL"))
 
-        row2 = QHBoxLayout()
         self.clahe_slider = CompactSlider("CLAHE", 0.0, 1.0, conf.clahe_strength)
-        self.chroma_denoise_slider = CompactSlider("Chroma Denoise", 0.0, 5.0, conf.chroma_denoise)
-        row2.addWidget(self.clahe_slider)
-        row2.addWidget(self.chroma_denoise_slider)
-        self.layout.addLayout(row2)
+        self.layout.addWidget(self.clahe_slider)
 
         self.layout.addWidget(section_subheader("EFFECTS"))
 
@@ -106,13 +102,6 @@ class LabSidebar(BaseSidebar):
             lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, saturation=v)
         )
 
-        self.vibrance_slider.valueChanged.connect(
-            lambda v: self.update_config_section("lab", persist=False, readback_metrics=False, vibrance=v)
-        )
-        self.vibrance_slider.valueCommitted.connect(
-            lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, vibrance=v)
-        )
-
         self.chroma_denoise_slider.valueChanged.connect(
             lambda v: self.update_config_section("lab", persist=False, readback_metrics=False, chroma_denoise=v)
         )
@@ -146,7 +135,6 @@ class LabSidebar(BaseSidebar):
             self.sharpen_radius_slider.setValue(conf.sharpen_radius)
             self.sharpen_masking_slider.setValue(conf.sharpen_masking)
             self.saturation_slider.setValue(conf.saturation)
-            self.vibrance_slider.setValue(conf.vibrance)
             self.chroma_denoise_slider.setValue(conf.chroma_denoise)
             self.glow_slider.setValue(conf.glow_amount)
             self.halation_slider.setValue(conf.halation_strength)
@@ -154,7 +142,6 @@ class LabSidebar(BaseSidebar):
             # COLOR is entirely colour controls — hide the header with them in B&W.
             self.color_header.setVisible(not is_bw)
             self.saturation_slider.setVisible(not is_bw)
-            self.vibrance_slider.setVisible(not is_bw)
             self.chroma_denoise_slider.setVisible(not is_bw)
         finally:
             self.block_signals(False)
@@ -167,7 +154,6 @@ class LabSidebar(BaseSidebar):
             self.sharpen_radius_slider,
             self.sharpen_masking_slider,
             self.saturation_slider,
-            self.vibrance_slider,
             self.chroma_denoise_slider,
             self.glow_slider,
             self.halation_slider,

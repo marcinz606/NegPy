@@ -13,7 +13,6 @@ from negpy.features.exposure.logic import (
     filtration_offsets,
     flat_curve_params,
     grade_coupled_shape,
-    grade_saturation_damping,
     split_grade_deltas,
     local_ev_scale,
     per_channel_curve_params,
@@ -233,12 +232,6 @@ class PhotometricProcessor:
         )
         context.metrics["print_slopes"] = slopes
 
-        # PROTOTYPE: when density_damping_spatial is on, the per-pixel spread signal
-        # replaces this uniform grade-coupled damp entirely (Option A) -- the kernel
-        # applies density_saturation_damping itself, so no pre-multiply here.
-        spatial_damp = self.config.density_damping_spatial and context.process_mode != ProcessMode.BW
-        damp = 1.0 if spatial_damp else grade_saturation_damping(slopes[1], self.config.density_saturation_damping)
-
         cmy_max = EXPOSURE_CONSTANTS["cmy_max_density"]
         cmy_offsets = filtration_offsets(
             (self.config.wb_cyan, self.config.wb_magenta, self.config.wb_yellow),
@@ -324,7 +317,7 @@ class PhotometricProcessor:
             # B&W collapses to luminance before this call (all channels equal),
             # so the matrix is already a mathematical no-op there; skip it
             # explicitly anyway to avoid the wasted per-pixel 3x3 multiply.
-            density_saturation=1.0 if context.process_mode == ProcessMode.BW else self.config.density_saturation * damp,
+            density_saturation=1.0 if context.process_mode == ProcessMode.BW else self.config.density_saturation,
             density_saturation_trims=(0.0, 0.0, 0.0)
             if context.process_mode == ProcessMode.BW
             else (
@@ -332,9 +325,7 @@ class PhotometricProcessor:
                 self.config.density_saturation_trim_green,
                 self.config.density_saturation_trim_blue,
             ),
-            density_saturation_damping=0.0 if context.process_mode == ProcessMode.BW else self.config.density_saturation_damping,
-            density_vibrance=0.0 if context.process_mode == ProcessMode.BW else self.config.density_vibrance,
-            density_damping_spatial=False if context.process_mode == ProcessMode.BW else self.config.density_damping_spatial,
+            dye_separation=0.0 if context.process_mode == ProcessMode.BW else self.config.dye_separation,
         )
 
         if context.process_mode == ProcessMode.BW:

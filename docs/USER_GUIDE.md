@@ -20,7 +20,7 @@ The right-hand tabs are arranged in the order you actually work, which mirrors t
 
 | Tab | Icon | Panels | What it's for |
 |-----|------|--------|---------------|
-| **Setup** | cogs | Presets · Process · Roll Analysis | Film type, negative→positive normalization, roll-wide baselines |
+| **Setup** | cogs | Presets · Sensor Calibration · Process · Roll Analysis | Film type, negative→positive normalization, roll-wide baselines |
 | **Geometry** | crop | Geometry · Flat Field | Crop, straighten, lens/falloff correction |
 | **Exposure** | sun | Filtration · Tone · Dodge & Burn | White balance, print density/contrast/curve/saturation, local burns |
 | **Colour** | palette | Lab · Toning | Chroma, sharpening, effects, split/chemical toning |
@@ -89,7 +89,16 @@ Save and recall a complete edit (the full workspace) by name.
 *   **Name field** + **Save**: store the current settings as a new preset.
 *   **Trash**: delete the selected preset.
 
-### 4.2 Process — negative → positive
+### 4.2 Sensor Calibration — un-mix your camera's channels
+
+Only relevant for **single-shot narrowband** (RGB-LED trichrome) camera scans. The camera's colour filters overlap the light source's bands, so a pure red exposure leaks a little into green and blue. That leak is a fixed property of your sensor and light together — it has nothing to do with the film — so it is corrected on the linear capture before inversion.
+
+*   **Profile**: the sensor matrix to apply. Custom `.toml` matrices live in `<Documents>/NegPy/sensor/`.
+*   **Calibrate** (vials icon): build a profile from three bare-light R/G/B exposures.
+
+The panel greys out unless **Linear RAW** is on, since profiles are calibrated against neutral white balance and the as-shot gains would misapply the matrix. Your selection is remembered either way. It is also skipped for RGB-triplet assets, which never had the leak. Because it changes what the analysis reads, **re-run Batch Analysis** after changing it.
+
+### 4.3 Process — negative → positive
 
 The foundation of every edit: film type, how the scan is decoded, and how the negative is normalized into a positive.
 
@@ -116,7 +125,7 @@ The foundation of every edit: film type, how the scan is decoded, and how the ne
 
 **Normalize** (E-6 only): auto-stretches a slide's histogram to fill the dynamic range. Useful for faded/expired slides.
 
-### 4.3 Roll Analysis — a consistent look across the roll
+### 4.4 Roll Analysis — a consistent look across the roll
 
 Meter the whole roll once and share the baseline, so frames from the same film match.
 
@@ -153,7 +162,7 @@ Meter the whole roll once and share the baseline, so frames from the same film m
 
 **Alignment:**
 
-*   **Fine Rotation** (±5°): sub-degree levelling for tilted scans (positive = clockwise). Applied after auto-crop so the frame stays axis-aligned.
+*   **Fine Rotation** (±45°): free rotation for tilted scans, in sub-degree steps (positive = clockwise). Applied after auto-crop so the frame stays axis-aligned.
 *   **Straighten** tool (ruler): draw a line along a horizon or vertical edge and NegPy rotates to make it level or plumb.
 
 ### 5.2 Flat Field — even out the light
@@ -197,8 +206,8 @@ The paper's response. A **Global / R / G / B** selector at the top scopes most c
 *   **ISO-R Grade** (50–180): contrast, as a paper ISO-R value. R110 ≈ classic grade 2; **lower R = harder** (more contrast), higher = softer. In R/G/B mode a **Grade** trim rotates one layer's slope about the midtone.
 *   **Shadows Density** / **Highlights Density** (zone density): brighten or darken just the shadow or highlight zone, without reshaping the curve. Bounded by paper black/white so a burn can't exceed the print's limits.
 *   **Shadows Grade** / **Highlights Grade** (split grade, ±50 ISO-R): rotate contrast locally in the deep shadows or highlights — the digital equivalent of split-grade printing.
-*   **Print Saturation** (0.3–1.6, hidden in B&W): saturation as a darkroom operation — it pushes the print's three dye densities apart *before* the positive is decoded, in the same matrix the paper's own dye crosstalk uses. So it responds to the paper profile you picked, and it eases off automatically where the curve is already compressed at toe and shoulder, instead of forcing colour into tones that have none left to give. 1.0 = off. Travel is concentrated near 1.0 for finer control there. (Contrast **Chroma** in the Colour tab, which scales colour evenly after decode.)
-*   **Dye Mute** (0.0–0.5, hidden in B&W): pulls Print Saturation back as the grade hardens, countering the extra density separation a steeper curve opens up between the dye layers — like real paper dyes' unwanted absorptions. It tracks the Grade automatically, so one setting holds across frames of differing contrast. 0 = off.
+*   **Print Saturation** (0.5–1.5, hidden in B&W): saturation as a darkroom operation — it pushes the print's three dye densities apart *before* the positive is decoded, in the same matrix the paper's own dye crosstalk uses. So it responds to the paper profile you picked, and it eases off automatically where the curve is already compressed at toe and shoulder, instead of forcing colour into tones that have none left to give. 1.0 = off. Travel is concentrated near 1.0 for finer control there. (Contrast **Chroma** in the Colour tab, which scales colour evenly after decode.)
+*   **Dye Separation** (-0.5–0.5, hidden in B&W): the same density-domain push, but decided per pixel rather than for the whole frame. Each pixel is judged on how far apart its own three dye densities already sit. Positive works on the pixels whose dyes sit close together and leaves the already-separated ones alone; negative does the reverse. Because neither direction touches the other's pixels, it behaves like a selective tool rather than a saturation slider. 0 = off.
 
 **Paper Response** — the characteristic-curve shape:
 
@@ -209,7 +218,7 @@ The paper's response. A **Global / R / G / B** selector at the top scopes most c
 *   **Toe** (-1–1) + **Toe Width** (0.1–5): the shadow roll-off into paper black. Positive toe lifts shadows for a gentle film toe; negative deepens (and, with Paper Black off, makes exact black reachable). Width sets how far the knee reaches into the midtones.
 *   **Shoulder** (-1–1) + **Shoulder Width** (0.1–5): the highlight roll-off into paper white. Positive compresses highlights (film-like); negative extends them and risks clipping.
 
-In R/G/B mode, Toe/Shoulder/Snap and their Widths — and Print Saturation — become per-layer trims for that dye emulsion. Dye Mute stays global.
+In R/G/B mode, Toe/Shoulder/Snap and their Widths — and Print Saturation — become per-layer trims for that dye emulsion. Dye Separation stays global.
 
 ### 6.3 Dodge & Burn — local exposure
 
@@ -231,7 +240,7 @@ Mimics what a lab scanner (Frontier/Noritsu) does automatically. Colour controls
 **Colour** (hidden in B&W):
 
 *   **Chroma** (0.0–2.0): a flat colour scale applied after the print is decoded, even across every tone — a retouching move rather than a darkroom one. 1.0 = unchanged, 0 = greyscale, 2.0 = double. For saturation that behaves like a print instead, reach for **Print Saturation** in the Exposure tab.
-*   **Vibrance** (0.0–2.0): smart saturation that boosts muted colours more than already-saturated ones — gentler on skin tones.
+*   **Chroma Denoise** (0.0–5.0): smooths colour noise, especially in shadows, while leaving luminance grain intact.
 
 **Sharpen:**
 
@@ -243,7 +252,6 @@ Mimics what a lab scanner (Frontier/Noritsu) does automatically. Colour controls
 **Detail:**
 
 *   **CLAHE** (0.0–1.0): local contrast without blowing global highlights or crushing shadows. Use sparingly — near 1.0 can look cartoonish. (Runs before dust removal so healing operates on the final rendition.)
-*   **Denoise** (0.0–5.0, hidden in B&W): chroma denoise — smooths colour noise, especially in shadows, while leaving luminance grain intact.
 
 **Effects:**
 
@@ -342,7 +350,7 @@ The primary **Export** action; its chevron menu picks the scope — current fram
 ### Format / Size / Colour / Destination
 
 *   **Format**: `JPEG`, `TIFF`, `PNG`, `JPEG XL`, or `WebP` (with quality/effort options per format).
-*   **Colour Space**: `Same as Source`, `sRGB`, `Adobe RGB`, `ProPhoto RGB`, `ACES`, `P3 D65`, `Rec 2020`, `XYZ`, or `Greyscale` (true B&W output).
+*   **Colour Space**: `Same as Source`, `sRGB`, `Adobe RGB`, `ProPhoto RGB`, `P3 D65`, `Rec 2020`, or `Greyscale` (true B&W output).
 *   **Input / Output ICC**: soft-proof against, and optionally embed, an ICC profile. Output is the destination profile (default); Input treats the profile as the source (when a scan's profile is known but untagged).
 *   **Paper Aspect Ratio**: final print ratio, or *Original* (no resize).
 *   **Resolution**: *Original* (full RAW resolution), *Print* (long-edge **Size** in cm + **DPI**), or *Pixels* (long-edge **px**; short side follows the paper ratio).
@@ -414,6 +422,8 @@ If NegPy crashes on launch or has rendering glitches, you can force backend sett
 | `performance.force_hq_preview` | `true` / `false` (or absent) | Overrides the saved HQ preview toggle. |
 | `performance.preview_cache_max_bytes` | a number, e.g. `1200000000` | Preview cache memory budget (default ~1.2 GB). |
 | `performance.preview_cache_max_entries` | a number, e.g. `8` | Max recently-viewed photos kept in memory. |
+| `performance.preview_cache_max_full_res_entries` | a number, e.g. `2` | Full-resolution HQ preview buffers kept in memory (a 60 MP scan is ~700 MB each). |
+| `performance.cpu_parallel` | `true` / `false` (or absent) | Multi-core CPU rendering kernels. Defaults on, except macOS. |
 | `logging.level` | `"debug"`, `"info"`, `"warning"`, `"error"` | Log verbosity. Use `"debug"` when reporting issues. |
 
 **Common fixes:**

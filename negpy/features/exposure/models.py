@@ -98,16 +98,9 @@ class ExposureConfig:
     density_saturation_trim_red: float = 0.0
     density_saturation_trim_green: float = 0.0
     density_saturation_trim_blue: float = 0.0
-    density_saturation_damping: float = 0.0
-    # PROTOTYPE: per-pixel density-domain Vibrance/anti-vibrance, signed:
-    # >0 boosts muted pixels (classic Vibrance), <0 compresses vivid pixels
-    # (anti-vibrance) — one control, mask target flips with sign. 0.0 = off.
-    density_vibrance: float = 0.0
-    # PROTOTYPE: applies density_saturation_damping's strength per-pixel (via
-    # the same spread-based mask Vibrance uses) instead of #667's uniform
-    # (slope_min/slope_g)^strength formula. False (default) = #667's shipped
-    # behaviour, unchanged.
-    density_damping_spatial: bool = False
+    # Signed, per pixel: >0 spreads the three dye densities on muted pixels, <0
+    # pulls them together on already-separated ones. 0.0 = off.
+    dye_separation: float = 0.0
 
     def __post_init__(self) -> None:
         """
@@ -302,12 +295,10 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # Density half-width over which the midtone gamma boost eases to the tails.
     # ↑ wider, more gradual S; ↓ tighter, more localized midtone boost.
     "paper_gamma_width": 0.6,
-    # PROTOTYPE: density-domain Vibrance/anti-vibrance per-pixel mask scale
-    # (density units of e0/e1/e2 spread). Sigmoid half-point separating
-    # "muted" from "vivid" pixels — not yet empirically validated by eye,
-    # a starting guess only. ↑ classifies more pixels as muted (mask reaches
-    # further into higher-spread territory); ↓ narrower muted band.
-    "vibrance_spread_scale": 0.4,
+    # Sigmoid half-point of the Dye Separation mask, in density units of
+    # e0/e1/e2 spread. Inlined as a WGSL literal in exposure.wgsl — change both.
+    # ↑ counts more pixels as muted; ↓ narrower muted band.
+    "dye_separation_spread_scale": 0.4,
 }
 
 # Auto Density / Auto Grade targets the user can retune (Set Targets dialog).

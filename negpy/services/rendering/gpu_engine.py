@@ -1132,7 +1132,6 @@ class GPUEngine:
             _reference_linear_value,
             cast_solve_inputs,
             filtration_offsets,
-            grade_saturation_damping,
             per_channel_density_saturation,
             per_channel_toe_shoulder,
             grade_coupled_shape,
@@ -1224,22 +1223,13 @@ class GPUEngine:
         # Density-space Print Saturation, composed into the same dye_mix slot
         # as the paper's real crosstalk. Mirrors the CPU path
         # (apply_characteristic_curve) exactly — see negpy/features/exposure/logic.py.
-        damp_global = 1.0  # packed into the uniform block below regardless of mode
         if settings.process.process_mode == ProcessMode.BW:
             sat = None
         else:
-            # PROTOTYPE: density_damping_spatial replaces (not layers with) #667's
-            # uniform grade_saturation_damping pre-multiply -- Option A, see
-            # apply_characteristic_curve's docstring for the full rationale and
-            # the damp_global = 1 - strength mapping this mirrors.
-            spatial = exp.density_damping_spatial
-            damp = 1.0 if spatial else grade_saturation_damping(slopes[1], exp.density_saturation_damping)
             sat_k3 = per_channel_density_saturation(
-                exp.density_saturation * damp,
+                exp.density_saturation,
                 (exp.density_saturation_trim_red, exp.density_saturation_trim_green, exp.density_saturation_trim_blue),
             )
-            if spatial and exp.density_saturation_damping != 0.0:
-                damp_global = max(0.0, 1.0 - exp.density_saturation_damping)
             sat = resolve_saturation_matrix(sat_k3)
         composed = compose_density_matrices(dye, sat)
         dye = composed  # use_dye_mix (below) and dye_rows both key off this
@@ -1281,22 +1271,16 @@ class GPUEngine:
                 pc["d_max"],
                 pc["toe_sharpness_base"],
                 pc["shoulder_sharpness_base"],
-                # PROTOTYPE: density-domain Vibrance/anti-vibrance strength (was
-                # "Free slot ex-width_ref"; toeshoulder_width_ref is a WGSL literal).
-                # Explicit B&W guard mirrors the CPU path (PhotometricProcessor) --
-                # the shader's own post-curve B&W re-collapse would erase any
-                # resulting chroma anyway, but zero it here too rather than lean
-                # on a different safety net than CPU uses.
-                0.0 if settings.process.process_mode == ProcessMode.BW else float(exp.density_vibrance),
+                # Dye Separation strength (was "Free slot ex-width_ref";
+                # toeshoulder_width_ref is a WGSL literal). B&W zeroes here as
+                # well as in the shader's post-curve re-collapse, so both paths
+                # rely on the same guard PhotometricProcessor uses.
+                0.0 if settings.process.process_mode == ProcessMode.BW else float(exp.dye_separation),
                 pc["toe_height"],
                 pc["shoulder_height"],
                 pc["anchor_target_density"],
                 _sw3[1],
-                # PROTOTYPE: per-pixel-modulated Dye Mute scalar (was "Free slot
-                # ex-surround_gamma") -- 1.0 (identity) unless density_damping_spatial
-                # is on, in which case this is the flat damp_total that would
-                # otherwise have been folded into dye_rows above.
-                float(damp_global),
+                0.0,  # free slot (ex-surround_gamma)
                 mode_val,
                 _reference_linear_value(d_min, paper),
                 _sw3[2],
@@ -1356,11 +1340,10 @@ class GPUEngine:
                 self._sharpen_kernel_key = kernel_key
         l_data = (
             struct.pack(
-                "ffffffffff",
+                "fffffffff",
                 float(lab.sharpen),
                 float(lab.chroma_denoise),
                 float(lab.saturation),
-                float(lab.vibrance),
                 float(lab.glow_amount),
                 float(lab.halation_strength),
                 # Chroma-denoise scales its blur radius by the preview downsample ratio,
@@ -1370,7 +1353,7 @@ class GPUEngine:
                 float(lab.sharpen_masking),
                 1.0 if lab.sharpen_method == SharpenMethod.RL else 0.0,
             )
-            + b"\x00" * 8
+            + b"\x00" * 12
         )
 
         is_bw = 1 if settings.process.process_mode == ProcessMode.BW else 0

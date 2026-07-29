@@ -23,6 +23,8 @@ KEY_RENAMES: Dict[str, str] = {
     # D-Range Clip split into independent luma + colour range clips; the old single
     # slider maps to the luma axis (colour defaults to its aggressive baseline).
     "drange_clip": "luma_range_clip",
+    # Dye Separation shipped under a working name first; the maths is the same.
+    "density_vibrance": "dye_separation",
 }
 
 # Fields removed from the config over time. Every edit saved before the removal
@@ -35,12 +37,12 @@ DROPPED_KEYS: frozenset[str] = frozenset(
         "auto_cast_removal",  # cast removal became always-on
         "DEFAULT_MATRIX",  # serialized crosstalk default, never a real field
         "surround",  # dim-surround print gamma, removed in #432 (replaced by Snap)
-        # density_chroma_damping / density_divergence_damping: abandoned Dye Mute
-        # reference-signal prototypes, dropped as mathematically redundant with
-        # density_saturation itself.
         "density_chroma_damping",
         "density_divergence_damping",
-        "chroma_damping",  # Dye Mute, replaced by exposure.density_saturation_damping
+        "chroma_damping",  # Dye Mute, first form
+        "density_saturation_damping",
+        "density_damping_spatial",
+        "vibrance",  # Lab Vibrance, retired in favour of exposure.dye_separation
     }
 )
 

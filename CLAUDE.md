@@ -77,4 +77,4 @@ Every feature lives in `negpy/features/<name>/`:
 ## Invariants & gotchas
 
 - **CPU/GPU parity**: any change to a stage's math must land in both `logic.py` and its `.wgsl` shader. Constants mirrored as WGSL literals (histogram bins, zone density, metrics offsets) have parity tests — keep them in sync.
-- **Working-space OETF + luminance row are inlined** in `lab_sharpen_h.wgsl` and `rl_init.wgsl` (Adobe RGB 1998 gamma 563/256, D65 Y row) — a TRC or primaries change must update them, not just `kernel/image/logic.py`. `LabUniforms` is declared in 7 lab shaders (lab, lab_sharpen_h/v, rl_init/blur_h/div_v/mult_v) — any field change touches all.
+- **Working-space OETF + luminance row are inlined** in `lab_sharpen_h.wgsl` and `rl_init.wgsl` (Adobe RGB 1998 gamma 563/256, D65 Y row) — a TRC or primaries change must update them, not just `kernel/image/logic.py`. `LabUniforms` is declared in 6 lab shaders (lab, lab_sharpen_h/v, rl_blur_h, rl_div_v, rl_mult_v) — any field change touches all six plus the `struct.pack` in `gpu_engine.py`, and the trailing `_pad*` floats keep the block at 48 bytes. `rl_init.wgsl` binds no uniform at all (the auto layout prunes it).

@@ -15,7 +15,7 @@ from negpy.infrastructure.gpu.device import GPUDevice
 
 def _extreme_trims_settings() -> WorkspaceConfig:
     """Hard per-channel grade + WP/BP trims + Paper Black. Exercises the crossover
-    trims, the print-curve uniforms, and — with Dye Mute off — the C-41 Cast
+    trims, the print-curve uniforms, and — with Dye Separation off — the C-41 Cast
     Removal neutral-axis, all of which must track between the CPU and WGSL paths."""
     s = WorkspaceConfig()
     return replace(
@@ -150,50 +150,12 @@ class TestGpuCurveParity(unittest.TestCase):
         self.assertLess(mad, 0.01, f"mean abs diff {mad:.4f}")
         self.assertLess(mx, 0.04, f"max abs diff {mx:.4f}")
 
-    def test_cpu_gpu_match_dye_mute(self):
-        """Dye Mute folds grade_saturation_damping into the global k on both paths
-        (exposure/processor.py and gpu_engine.py compute it separately, so they can
-        drift). Auto Grade off pins the slope the damping keys off."""
-        from negpy.services.rendering.image_processor import ImageProcessor
-
-        processor = ImageProcessor()
-        if processor.engine_gpu is None:
-            self.skipTest("GPU engine not initialised")
-
-        rng = np.random.default_rng(2)
-        h, w = 64, 64
-        grad = np.linspace(0.05, 0.9, w, dtype=np.float32)
-        img = np.repeat(grad[None, :], h, axis=0)
-        img = np.stack([img, img * 0.95, img * 0.9], axis=-1)
-        img = np.ascontiguousarray(img + rng.uniform(0, 0.01, img.shape).astype(np.float32))
-
-        s = WorkspaceConfig()
-        settings = replace(
-            s,
-            exposure=replace(
-                s.exposure,
-                paper_profile="kodak_endura",
-                auto_normalize_contrast=False,
-                grade=60.0,
-                density_saturation=1.4,
-                density_saturation_damping=0.8,
-                density_saturation_trim_green=0.2,
-            ),
-        )
-        cpu = self._render(processor, settings, img, prefer_gpu=False)
-        gpu = self._render(processor, settings, img, prefer_gpu=True)
-
-        self.assertEqual(cpu.shape, gpu.shape)
-        mad = float(np.mean(np.abs(cpu - gpu)))
-        mx = float(np.max(np.abs(cpu - gpu)))
-        self.assertLess(mad, 0.01, f"mean abs diff {mad:.4f}")
-        self.assertLess(mx, 0.04, f"max abs diff {mx:.4f}")
-
-    def test_cpu_gpu_match_trims_no_dye_mute(self):
-        """Dye Mute scales chroma toward neutral, which masks CPU/GPU chroma
-        disagreements. With it off (its default), the Cast Removal neutral-axis
-        must be measured against the same (pre-trim) bounds on both paths — otherwise
-        the WP/BP trims shift the CPU's cast strength and the paths drift (~0.057)."""
+    def test_cpu_gpu_match_trims_no_dye_separation(self):
+        """A negative Dye Separation scales chroma toward neutral, which masks
+        CPU/GPU chroma disagreements. With it off (its default), the Cast Removal
+        neutral-axis must be measured against the same (pre-trim) bounds on both
+        paths — otherwise the WP/BP trims shift the CPU's cast strength and the
+        paths drift (~0.057)."""
         from negpy.services.rendering.image_processor import ImageProcessor
 
         processor = ImageProcessor()
@@ -208,7 +170,7 @@ class TestGpuCurveParity(unittest.TestCase):
         img = np.ascontiguousarray(img + rng.uniform(0, 0.01, img.shape).astype(np.float32))
 
         settings = _extreme_trims_settings()
-        self.assertEqual(settings.exposure.density_saturation_damping, 0.0)
+        self.assertEqual(settings.exposure.dye_separation, 0.0)
         cpu = self._render(processor, settings, img, prefer_gpu=False)
         gpu = self._render(processor, settings, img, prefer_gpu=True)
 
@@ -218,10 +180,9 @@ class TestGpuCurveParity(unittest.TestCase):
         self.assertLess(mad, 0.01, f"mean abs diff {mad:.4f}")
         self.assertLess(mx, 0.04, f"max abs diff {mx:.4f}")
 
-    def test_cpu_gpu_match_density_vibrance(self):
-        """PROTOTYPE: per-pixel density-domain Vibrance/anti-vibrance, both
-        directions -- the sigmoid-masked per-pixel blend runs in the CPU kernel
-        and the WGSL shader independently, so they can drift."""
+    def test_cpu_gpu_match_dye_separation(self):
+        """Both signs. The sigmoid-masked per-pixel blend is written twice, in
+        the CPU kernel and in WGSL, so the two can drift."""
         from negpy.services.rendering.image_processor import ImageProcessor
 
         processor = ImageProcessor()
@@ -236,53 +197,16 @@ class TestGpuCurveParity(unittest.TestCase):
         img = np.ascontiguousarray(img + rng.uniform(0, 0.01, img.shape).astype(np.float32))
 
         s = WorkspaceConfig()
-        for vibrance in (0.5, -0.3):
-            settings = replace(s, exposure=replace(s.exposure, paper_profile="kodak_endura", density_vibrance=vibrance))
+        for sep in (0.5, -0.3):
+            settings = replace(s, exposure=replace(s.exposure, paper_profile="kodak_endura", dye_separation=sep))
             cpu = self._render(processor, settings, img, prefer_gpu=False)
             gpu = self._render(processor, settings, img, prefer_gpu=True)
 
             self.assertEqual(cpu.shape, gpu.shape)
             mad = float(np.mean(np.abs(cpu - gpu)))
             mx = float(np.max(np.abs(cpu - gpu)))
-            self.assertLess(mad, 0.01, f"vibrance={vibrance}: mean abs diff {mad:.4f}")
-            self.assertLess(mx, 0.04, f"vibrance={vibrance}: max abs diff {mx:.4f}")
-
-    def test_cpu_gpu_match_spatial_damping(self):
-        """PROTOTYPE: density_damping_spatial=True replaces (not layers with)
-        #667's uniform grade_saturation_damping -- the per-pixel spread-masked
-        damp_global blend runs in the CPU kernel and the WGSL shader
-        independently, so they can drift."""
-        from negpy.services.rendering.image_processor import ImageProcessor
-
-        processor = ImageProcessor()
-        if processor.engine_gpu is None:
-            self.skipTest("GPU engine not initialised")
-
-        rng = np.random.default_rng(4)
-        h, w = 64, 64
-        grad = np.linspace(0.05, 0.9, w, dtype=np.float32)
-        img = np.repeat(grad[None, :], h, axis=0)
-        img = np.stack([img, img * 0.95, img * 0.9], axis=-1)
-        img = np.ascontiguousarray(img + rng.uniform(0, 0.01, img.shape).astype(np.float32))
-
-        s = WorkspaceConfig()
-        settings = replace(
-            s,
-            exposure=replace(
-                s.exposure,
-                paper_profile="kodak_endura",
-                density_saturation_damping=0.4,
-                density_damping_spatial=True,
-            ),
-        )
-        cpu = self._render(processor, settings, img, prefer_gpu=False)
-        gpu = self._render(processor, settings, img, prefer_gpu=True)
-
-        self.assertEqual(cpu.shape, gpu.shape)
-        mad = float(np.mean(np.abs(cpu - gpu)))
-        mx = float(np.max(np.abs(cpu - gpu)))
-        self.assertLess(mad, 0.01, f"mean abs diff {mad:.4f}")
-        self.assertLess(mx, 0.04, f"max abs diff {mx:.4f}")
+            self.assertLess(mad, 0.01, f"dye_separation={sep}: mean abs diff {mad:.4f}")
+            self.assertLess(mx, 0.04, f"dye_separation={sep}: max abs diff {mx:.4f}")
 
     def test_cpu_gpu_match_clahe(self):
         """CLAHE at full strength (issue #524 regression). 128x128 keeps each

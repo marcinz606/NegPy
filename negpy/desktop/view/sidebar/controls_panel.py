@@ -249,7 +249,7 @@ class ControlsPanel(QWidget):
                 [self.colour_section, self.tone_section, self.local_section],
                 ["colour_section", "tone_section", "local_section"],
             ),
-            ("color", "fa5s.palette", "Colour — Lab, Toning", [self.lab_section, self.toning_section], ["lab_section", "toning_section"]),
+            ("color", "fa5s.flask", "Lab & Toning", [self.lab_section, self.toning_section], ["lab_section", "toning_section"]),
             (
                 "finish",
                 "fa5s.brush",
@@ -531,11 +531,12 @@ class ControlsPanel(QWidget):
                 ["saturation_inc", "saturation_dec"],
             )
         )
-        exp.dye_mute_slider.setToolTip(
+        exp.dye_separation_slider.setToolTip(
             tooltip_with_shortcut(
-                "Dye Mute — pulls Print Saturation back as the grade hardens, countering the density "
-                "separation a steeper curve opens between the dye layers. Tracks Grade automatically. 0 = off",
-                ["density_saturation_damping_inc", "density_saturation_damping_dec"],
+                "Dye Separation — spread between the three dye densities, judged per pixel. Positive "
+                "works on the pixels whose dyes sit close together, negative on the ones already "
+                "far apart. 0 = off",
+                ["dye_separation_inc", "dye_separation_dec"],
             )
         )
         exp.density_sat_slider.setToolTip(
@@ -545,12 +546,6 @@ class ControlsPanel(QWidget):
                 "curve is already compressed at toe and shoulder. Chroma in Colour is the flat version: "
                 "an even a*/b* scale after decode. Takes per-layer R/G/B trims. 1.0 = off/identity",
                 ["density_saturation_inc", "density_saturation_dec"],
-            )
-        )
-        lab.vibrance_slider.setToolTip(
-            tooltip_with_shortcut(
-                "Smart saturation that boosts muted colours more than already-saturated ones — gentler on skin tones than raw Chroma",
-                ["vibrance_inc", "vibrance_dec"],
             )
         )
         lab.clahe_slider.setToolTip(
@@ -728,7 +723,6 @@ class ControlsPanel(QWidget):
         lab_count = sum(
             [
                 lab.saturation != _lab.saturation,
-                lab.vibrance != _lab.vibrance,
                 lab.clahe_strength != _lab.clahe_strength,
                 lab.sharpen != _lab.sharpen,
                 lab.chroma_denoise != _lab.chroma_denoise,

@@ -113,3 +113,32 @@ class TestDensitySaturationRender:
         bw_off = self._render({"process_mode": "B&W", "density_saturation": 1.0})
         bw_on = self._render({"process_mode": "B&W", "density_saturation": 1.8})
         np.testing.assert_allclose(bw_off, bw_on, atol=1e-6)
+
+
+class TestLabSaturationIsGradeIndependent:
+    """The Lab stage must render identically whatever slope the print curve
+    ran at. Saturation damping lives in density space, not here."""
+
+    def _run(self, img, slopes):
+        from negpy.domain.interfaces import PipelineContext
+        from negpy.features.lab.models import LabConfig
+        from negpy.features.lab.processor import PhotoLabProcessor
+
+        ctx = PipelineContext(scale_factor=1.0, original_size=img.shape[:2])
+        if slopes is not None:
+            ctx.metrics["print_slopes"] = slopes
+        return PhotoLabProcessor(LabConfig(sharpen=0.0, saturation=1.4)).process(img, ctx)
+
+    def _color_image(self):
+        rng = np.random.default_rng(42)
+        return rng.uniform(0.05, 0.9, (16, 16, 3)).astype(np.float32)
+
+    def test_slope_does_not_change_lab_saturation(self):
+        img = self._color_image()
+        soft = self._run(img, (2.0, 2.0, 2.0))
+        hard = self._run(img, (8.0, 8.0, 8.0))
+        np.testing.assert_array_equal(soft, hard)
+
+    def test_missing_slopes_matches_present_slopes(self):
+        img = self._color_image()
+        np.testing.assert_array_equal(self._run(img, None), self._run(img, (8.0, 8.0, 8.0)))

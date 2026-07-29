@@ -109,7 +109,7 @@ Profiles are **mode-aware**: C-41 exposes the RA4 colour papers, B&W exposes the
 
 Saturation applied in the same density domain and the same matrix slot as a paper's `dye_matrix`, rather than as a post-decode CIELAB $a^{\ast}/b^{\ast}$ scale (contrast with §6's Global Saturation). For density above paper base $e = D - D_{min}$, the saturation matrix is $M(k) = k \cdot I + (1-k) \cdot J$ ($J$ = all-rows-$\tfrac{1}{3}$, the achromatic projection): $k=1$ identity, $k=0$ collapses that channel's row to the achromatic mean, $k>1$ boosts density separation. Composed as $M_{total} = M(k) \cdot M_{dye}$ — saturation outermost, the paper's own dye coupling innermost, so `dye_matrix` keeps acting on the print curve's real density unchanged and saturation layers on top as a final step rather than being partly reabsorbed by the paper's crosstalk. $k$ takes independent per-channel trims (`density_saturation_trim_red/green/blue`) the same way Grade/Toe/Shoulder do; each row still sums to 1 regardless of its own $k$, so neutrals stay flat at any per-channel divergence.
 
-**Dye Mute** (`grade_saturation_damping`, `density_saturation_damping`, default 0) scales the *global* $k$ by $(k_{min}/k_g)^{strength}$, where $k_g$ is the green print-curve slope and $k_{min}$ the softest printable slope — so it tracks Grade automatically, pulling saturation back as a steeper curve opens up more density separation between the layers. Per-channel trims sit outside the damping: a crossover correction is a measured fix for one paper's diverging dye layers and must not shrink when the grade hardens. Exactly $1.0$ at strength 0 for every slope, so the default leaves $M(k)$ at identity and the `dye_mix` fast path allocation-free.
+**Dye Separation** (`dye_separation`, default 0, range $\pm 0.5$) is the same $k \cdot I + (1-k) \cdot J$ rescale applied per pixel after `dye_mix`, rather than composed into it (`_apply_print_curve_kernel`). Each pixel's own spread $s = \max(e) - \min(e)$ drives a sigmoid mask $m = 2\,\sigma(s/0.4) - 1$, rescaled so $m = 0$ exactly at $s = 0$ (a plain sigmoid bottoms out at $\tfrac{1}{2}$), and $k = 1 + strength \cdot mask$. The sign picks which pixels the mask selects, not just the direction: $strength > 0$ uses $1 - m$ and acts on low-spread pixels, $strength < 0$ uses $m$ and acts on high-spread ones. Flipping only the formula's sign would push and pull the same muted population and never reach the separated pixels. Strength 0 skips the block. The $0.4$ is `dye_separation_spread_scale`, inlined as a WGSL literal in `exposure.wgsl`; change both.
 
 ### Flat (log) master — "for editing elsewhere"
 **Code**: `negpy.features.exposure.processor.PhotometricProcessor._process_flat` → `apply_flat_curve`
@@ -189,10 +189,8 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
 
 1.  **Chroma Denoise**: Applies a Gaussian filter to the A and B channels in LAB space. This reduces color noise and digital "chroma speckle" while leaving the L-channel (and its film grain) completely untouched.
 
-
-2.  **Vibrance**: Selectively boosts the saturation of muted colors via a chroma mask in LAB space. The mask is strongest at zero chroma and fades to zero for already vibrant colors, preventing over-saturation of sensitive areas like skin tones.
-3.  **Global Saturation**: A linear chroma scale ($a^{\ast}/b^{\ast}$) in CIELAB — lightness-preserving, unlike HSV S-scaling which darkens already-saturated colours when S clips. Grade-independent: the grade-coupled damping that used to multiply into this factor is now Dye Mute, applied to §3's Print Saturation in density space.
-4.  **Sharpening**: A **Method** selector picks Unsharp Mask or Deconvolution; both share the Amount/Radius/Masking controls and the same $\text{radius} \cdot \text{scale factor}$ Gaussian taps from `gaussian_kernel_1d` (uploaded to the `sharpen_k` storage buffer, convolved identically on CPU `cv2.sepFilter2D` and the separable WGSL passes), so CPU and GPU match bit-for-bit.
+2.  **Global Saturation**: A linear chroma scale ($a^{\ast}/b^{\ast}$) in CIELAB — lightness-preserving, unlike HSV S-scaling which darkens already-saturated colours when S clips. Flat and post-decode, and independent of the print curve: colour that should respond to the paper is §3's job (Print Saturation, Dye Separation).
+3.  **Sharpening**: A **Method** selector picks Unsharp Mask or Deconvolution; both share the Amount/Radius/Masking controls and the same $\text{radius} \cdot \text{scale factor}$ Gaussian taps from `gaussian_kernel_1d` (uploaded to the `sharpen_k` storage buffer, convolved identically on CPU `cv2.sepFilter2D` and the separable WGSL passes), so CPU and GPU match bit-for-bit.
 
     **Unsharp Mask** — on the Lightness channel ($L$) in LAB space, with halo suppression (`lab_sharpen_h/v.wgsl`):
 
@@ -211,7 +209,7 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
 
     $$\mathrm{RGB}_{out} = \mathrm{clamp}\left(\mathrm{RGB} \cdot \max\left(1 + \left(\frac{\hat{o}_N}{\max(o,\epsilon)} - 1\right) \cdot \mathrm{amount} \cdot m,\ 0\right),\ 0,\ 1\right)$$
 
-5.  **Glow**: Simulates lens bloom (a print-side effect) by blurring highlights and adding them back in linear light.
+4.  **Glow**: Simulates lens bloom (a print-side effect) by blurring highlights and adding them back in linear light.
 
     $$I_{out} = I + B_{glow} \cdot s_{glow}$$
     $$B_{glow} = \text{GaussianBlur}(I \cdot m_{hl})$$
@@ -219,7 +217,7 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
     *   $m_{hl}$: **Display-domain** highlight mask (lens bloom follows perceived print brightness), quadratically ramped from code value 0.5 to 1.0.
     *   Applied equally to all three channels; the sum is clamped at the stage output.
 
-6.  **Halation**: Simulates the red scatter caused by light reflecting back through the film base at capture. Uses a larger-radius Gaussian than Glow and a strongly red-biased highlight source. Because scattered light is *added exposure*, the composite is additive in linear light (not a screen blend), and the mask thresholds **linear reflectance** ($t = 0.65$) so the halation footprint is fixed by scene exposure instead of moving with Grade/Density.
+5.  **Halation**: Simulates the red scatter caused by light reflecting back through the film base at capture. Uses a larger-radius Gaussian than Glow and a strongly red-biased highlight source. Because scattered light is *added exposure*, the composite is additive in linear light (not a screen blend), and the mask thresholds **linear reflectance** ($t = 0.65$) so the halation footprint is fixed by scene exposure instead of moving with Grade/Density.
 
     $$I_{out} = I + B_{hal} \cdot s_{hal}$$
     $$B_{hal} = \text{GaussianBlur}(I_R \cdot m_{lin} \cdot C_{hal})$$

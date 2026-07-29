@@ -7,7 +7,6 @@ struct LabUniforms {
     sharpen: f32,
     chroma_denoise: f32,
     saturation: f32,
-    vibrance: f32,
     glow_amount: f32,
     halation_strength: f32,
     scale_factor: f32,
@@ -16,6 +15,7 @@ struct LabUniforms {
     sharpen_method: f32,
     _pad1: f32,
     _pad2: f32,
+    _pad3: f32,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;

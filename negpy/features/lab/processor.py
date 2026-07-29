@@ -8,7 +8,6 @@ from negpy.features.lab.logic import (
     apply_output_sharpening,
     apply_rl_sharpening,
     apply_saturation,
-    apply_vibrance,
 )
 from negpy.features.lab.models import LabConfig, SharpenMethod
 
@@ -25,9 +24,6 @@ class PhotoLabProcessor:
 
         if self.config.chroma_denoise > 0:
             img = apply_chroma_denoise(img, self.config.chroma_denoise, context.scale_factor)
-
-        if self.config.vibrance != 1.0:
-            img = apply_vibrance(img, self.config.vibrance)
 
         if self.config.saturation != 1.0:
             img = apply_saturation(img, self.config.saturation)

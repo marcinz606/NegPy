@@ -72,10 +72,10 @@ def _preset_cfg(density: float) -> WorkspaceConfig:
 def test_apply_preset_fields_current_scope(qapp):
     mgr = _session()
     base = WorkspaceConfig()
-    mgr.state.config = replace(base, lab=replace(base.lab, vibrance=1.2))
+    mgr.state.config = replace(base, lab=replace(base.lab, saturation=1.2))
     assert mgr.apply_preset_fields(_preset_cfg(1.5), [_density_row()], "current") == 1
     assert mgr.state.config.exposure.density == 1.5
-    assert mgr.state.config.lab.vibrance == 1.2
+    assert mgr.state.config.lab.saturation == 1.2
     saved_hashes = [c.args[0] for c in mgr.repo.save_file_settings.call_args_list]
     assert saved_hashes == ["h0"]
 

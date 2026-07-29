@@ -313,26 +313,3 @@ def apply_glow_and_halation(
         result = result + hal_blur * halation_strength
 
     return ensure_image(np.clip(result, 0.0, 1.0))
-
-
-def apply_vibrance(img: ImageBuffer, strength: float) -> ImageBuffer:
-    """
-    Selectively boosts saturation of muted colors in LAB space.
-    """
-    if strength == 1.0:
-        return img
-
-    lab = rgb_to_lab_working(img.astype(np.float32))
-    l_chan, a, b = cv2.split(lab)
-
-    chroma = np.sqrt(a**2 + b**2)
-    muted_mask = np.clip(1.0 - (chroma / 60.0), 0.0, 1.0)
-
-    boost = (strength - 1.0) * muted_mask
-    a_new = a * (1.0 + boost)
-    b_new = b * (1.0 + boost)
-
-    res_lab = cv2.merge([l_chan, a_new, b_new])
-    res_rgb = lab_to_rgb_working(res_lab)
-
-    return ensure_image(np.clip(res_rgb, 0.0, 1.0))
