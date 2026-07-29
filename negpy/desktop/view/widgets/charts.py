@@ -687,6 +687,118 @@ class ZoneStripWidget(QWidget):
         painter.drawRect(rect)
 
 
+class StepWedgeWidget(QWidget):
+    """
+    Stouffer T2115-style 21-step transmission wedge printed through the frame's current
+    print settings: the same curve the chart above plots, shown as tones instead of a line.
+    Steps run paper black (left) to paper white (right), matching the chart's x axis. The
+    usable span is bracketed where neighbouring steps still separate, and labels are wedge
+    density in this scan's own D units.
+    """
+
+    # Label every tenth step, so a sidebar-width strip still gets an axis: at ~300 px the
+    # 21 patches are ~14 px each, far too narrow to label individually.
+    _LABEL_EVERY = 10
+    _LABEL_MIN_PX = 34.0  # width per label below which they collide
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(26)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setMouseTracking(True)
+        self._enc: np.ndarray | None = None
+        self._step_d: float = 0.0
+        self._colors: list = []
+
+    def update_data(self, enc: Any, step_density: float, color_space: str, monitor_icc_bytes: Any = None) -> None:
+        """`enc` is the 21 display-encoded patch values. The patches go through the same
+        display transform the canvas used, so wedge and frame can't disagree; under a proof
+        `color_space` is already sRGB and the transform a no-op, because the render worker
+        baked the proof into the buffer and proofing it twice blows the saturation out.
+        """
+        from negpy.desktop.converters import ImageConverter
+
+        self._enc = None if enc is None else np.asarray(enc, dtype=np.float32)
+        self._step_d = step_density
+        if self._enc is None:
+            self._colors = []
+        else:
+            buf = np.repeat(np.clip(self._enc, 0.0, 1.0).reshape(1, -1, 1), 3, axis=2)
+            img = ImageConverter.to_qimage(buf, color_space, monitor_icc_bytes)
+            self._colors = [img.pixelColor(i, 0) for i in range(img.width())]
+        self.update()
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._enc is not None and self.width() > 0:
+            n = len(self._enc)
+            step = int(min(max(event.position().x() / self.width() * n, 0), n - 1))
+            self.setToolTip(f"Step {step} — density {step * self._step_d:.2f}")
+        super().mouseMoveEvent(event)
+
+    def _patch_bounds(self) -> list:
+        """(x0, x1) per patch. Integer-aligned: fractional edges leave antialiased hairlines
+        between adjacent fills, which read as extra steps."""
+        n = len(self._enc) if self._enc is not None else 0
+        xs = [round(self.width() * i / n) for i in range(n + 1)]
+        return [(xs[i], xs[i + 1]) for i in range(n)]
+
+    def paintEvent(self, event) -> None:
+        from negpy.features.exposure.analysis import wedge_usable_span
+
+        painter = QPainter(self)
+        rect = self.rect().adjusted(0, 0, -1, -1)
+        painter.fillRect(rect, QColor("#050505"))
+        if self._enc is None or self.width() < len(self._enc):
+            painter.setPen(QPen(QColor("#262626"), 1))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(rect)
+            return
+
+        h = self.height()
+        bounds = self._patch_bounds()
+        for (x0, x1), color in zip(bounds, self._colors):
+            painter.fillRect(x0, 0, x1 - x0, h, color)
+
+        span = wedge_usable_span(self._enc)
+        if span is not None:
+            pen = QPen(QColor(THEME.accent_primary), 2)
+            painter.setPen(pen)
+            for edge in span:
+                x = (bounds[edge][0] + bounds[edge][1]) // 2
+                painter.drawLine(x, 0, x, h)
+
+        labelled = range(0, len(self._enc), self._LABEL_EVERY)
+        if self.width() / len(labelled) >= self._LABEL_MIN_PX:
+            font = QFont()
+            font.setPixelSize(8)
+            painter.setFont(font)
+            last = labelled[-1]
+            for i in labelled:
+                text = f"{i * self._step_d:.2f}"
+                x0, x1 = bounds[i]
+                # A label is wider than its own patch and drawText clips to the rect it is
+                # given, so widen the box past the patch (labels sit 5 apart and can't
+                # collide). The two end labels align to the strip edge the way an axis does —
+                # sliding their box inward instead would centre them over the wrong step.
+                box = QRect(x0 - (x1 - x0), 0, 3 * (x1 - x0), h)
+                flags = Qt.AlignmentFlag.AlignVCenter
+                if i == 0:
+                    box.setLeft(2)
+                    flags |= Qt.AlignmentFlag.AlignLeft
+                elif i == last:
+                    box.setRight(self.width() - 3)
+                    flags |= Qt.AlignmentFlag.AlignRight
+                else:
+                    flags |= Qt.AlignmentFlag.AlignHCenter
+                # Flip against the patch: a light label vanishes on paper white, a dark one on black.
+                painter.setPen(QColor(0, 0, 0, 220) if float(self._enc[i]) > 0.5 else QColor(255, 255, 255, 235))
+                painter.drawText(box, flags, text)
+
+        painter.setPen(QPen(QColor("#262626"), 1))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(rect)
+
+
 class MiniHistogramWidget(QWidget):
     """
     20px-tall luminance strip shown behind the Exposure section header.

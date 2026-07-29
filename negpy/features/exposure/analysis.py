@@ -236,6 +236,41 @@ def strip_nearest_cell(density: float, grade: float) -> Tuple[int, int]:
     return row, col
 
 
+# Stouffer T2115: 21 steps 0.15 D apart — 20 intervals, 3.00 D total, which is exactly the
+# val domain's [0,1] on a scan whose density range is 3.0. Geometry is absolute like the test
+# strip's ladders, so two frames' wedges compare; the physical truth rides in the labels,
+# which report this scan's own density per step.
+WEDGE_STEPS = 21
+WEDGE_STEP_DENSITY = 0.15
+WEDGE_SEPARATION = 0.004  # encoded delta below which neighbouring patches read as one tone
+
+
+def wedge_vals() -> np.ndarray:
+    """The 21 steps as val-domain log exposures: clear step (prints paper black) first,
+    densest step (prints paper white) last — the Analysis chart's x-axis direction."""
+    return np.linspace(1.0, 0.0, WEDGE_STEPS)
+
+
+def wedge_step_density(norm_density_range: Optional[float]) -> float:
+    """Density per step on this scan: its range spread over the 20 intervals. Falls back to
+    the nominal T2115 increment when the range hasn't been measured yet."""
+    if not norm_density_range:
+        return WEDGE_STEP_DENSITY
+    return abs(float(norm_density_range)) / (WEDGE_STEPS - 1)
+
+
+def wedge_usable_span(enc: Any) -> Optional[Tuple[int, int]]:
+    """(first, last) step still separating from its neighbour — the paper's usable scale.
+    None when the whole wedge reads as one tone.
+
+    Read off the patches themselves rather than from d_max_eff, so toe and shoulder lift,
+    black-point compensation, the paper profile and split grade are all accounted for
+    without a second model to keep in sync.
+    """
+    idx = np.flatnonzero(np.abs(np.diff(np.asarray(enc, dtype=float))) > WEDGE_SEPARATION)
+    return (int(idx[0]), int(idx[-1] + 1)) if idx.size else None
+
+
 def density_histogram(normalized_log: np.ndarray, roi: Optional[Tuple[int, int, int, int]] = None) -> np.ndarray:
     """Luma occupancy of the val domain; out-of-range mass lands in the edge bins.
     `roi` is the crop rect (y1, y2, x1, x2) in the same frame as `normalized_log`."""
