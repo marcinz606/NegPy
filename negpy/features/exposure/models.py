@@ -301,6 +301,12 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # (scale·ln3) lands near a typical frame's median spread — widen it much and the
     # mask goes flat across the whole frame and the control collapses into Print Saturation.
     "dye_separation_spread_scale": 0.12,
+    # Positive-side (vibrance) gain: k = 1 + slider·gain·mask. Gain 1 is invisible —
+    # a muted pixel's 0.1 density spread only reaches 0.2 at full slider. Inlined as a
+    # WGSL literal in exposure.wgsl — change both. Hard ceiling 5.0: above it
+    # spread·(1 + gain·mask) stops being monotone and two pixels swap which one reads
+    # as more saturated. The negative (mute) side stays at gain 1 — slider -1 = flat.
+    "dye_separation_gain": 3.0,
 }
 
 # Auto Density / Auto Grade targets the user can retune (Set Targets dialog).

@@ -5,6 +5,7 @@ import logging
 import numpy as np
 
 from negpy.domain.models import WorkspaceConfig
+from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.services.rendering.engine import DarkroomEngine
 
 
@@ -38,6 +39,22 @@ class TestDyeSeparationRender:
         separated = _render({"dye_separation": 0.4})
         clumped = _render({"dye_separation": -0.4})
         assert not np.array_equal(separated, clumped)
+
+    def test_positive_gain_is_a_vibrance_curve(self):
+        """Guards the two constants against each other, on the kernel's own formula:
+        muted pixels must take the larger relative gain, saturated ones must stay
+        protected, and the result must stay monotone in spread or two pixels swap
+        which one reads as more saturated."""
+        scale = EXPOSURE_CONSTANTS["dye_separation_spread_scale"]
+        gain = EXPOSURE_CONSTANTS["dye_separation_gain"]
+        spread = np.linspace(1e-4, 4.0, 20000)
+        s = 2.0 / (1.0 + np.exp(-spread / scale)) - 1.0
+        k = 1.0 + gain * (1.0 - s)
+
+        assert k[0] > 3.0  # a fully muted pixel gets the full gain
+        assert np.interp(0.05, spread, k) > np.interp(0.5, spread, k)
+        assert np.interp(0.5, spread, k) < 1.15  # saturated pixels stay protected
+        assert np.all(np.diff(spread * k) > 0)
 
     def test_bw_mode_is_inert(self):
         bw_off = _render({"process_mode": "B&W", "dye_separation": 0.0})

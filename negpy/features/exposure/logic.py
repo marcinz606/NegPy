@@ -90,6 +90,7 @@ def _apply_print_curve_kernel(
     use_ev: bool,
     dye_separation: float = 0.0,
     dye_separation_scale: float = 0.4,
+    dye_separation_gain: float = 3.0,
     use_dye_separation: bool = False,
     bpc: bool = False,
 ) -> np.ndarray:
@@ -239,11 +240,17 @@ def _apply_print_curve_kernel(
                 # its true target-population strength at the boundary instead of
                 # topping out at half-strength there.
                 s = 2.0 * _fast_sigmoid(spread / dye_separation_scale) - 1.0
+                # Gain applies to the vibrance side only: a relative gain of 1 leaves
+                # the muted pixels it targets visually unchanged (their deviation from
+                # the mean is near zero). Muting needs no gain -- slider -1 is already
+                # a full collapse to neutral.
                 if dye_separation >= 0.0:
                     mask = 1.0 - s
+                    gain = dye_separation_gain
                 else:
                     mask = s
-                k = 1.0 + dye_separation * mask
+                    gain = 1.0
+                k = 1.0 + dye_separation * gain * mask
                 ve_mean = (ve0 + ve1 + ve2) / 3.0
                 dens[0] = d_min_rgb[0] + ve_mean + k * (ve0 - ve_mean)
                 dens[1] = d_min_rgb[1] + ve_mean + k * (ve1 - ve_mean)
@@ -611,6 +618,7 @@ def apply_characteristic_curve(
         use_ev=use_ev,
         dye_separation=float(dye_separation),
         dye_separation_scale=float(c["dye_separation_spread_scale"]),
+        dye_separation_gain=float(c["dye_separation_gain"]),
         use_dye_separation=dye_separation != 0.0,
         bpc=bool(bpc),
     )
