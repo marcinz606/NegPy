@@ -1,0 +1,214 @@
+"""Ring-around lifecycle: print → pick → commit, sharing one proof slot with the test strip.
+
+The interesting differences from the strip are deliberate: the ring's ladder is relative, so
+its memo must NOT be pinned on filtration (picking has to invalidate), and asking for the
+other kind while a proof is up swaps rather than dismisses.
+"""
+
+import unittest
+from dataclasses import replace
+from unittest.mock import MagicMock, patch
+
+import numpy as np
+
+from negpy.domain.models import WorkspaceConfig
+from negpy.features.exposure.analysis import RING_GRID, STRIP_GRID, ring_cells, ring_overrides
+
+
+class RingAroundWorker(unittest.TestCase):
+    def test_every_patch_is_rendered_at_its_own_filtration(self):
+        with patch("negpy.desktop.workers.render.ImageProcessor") as MockIP:
+            from negpy.desktop.workers.render import RenderWorker, TestStripTask
+
+            seen: list = []
+
+            def fake_pipeline(_buf, config, *a, **k):
+                e = config.exposure
+                seen.append((e.wb_magenta, e.wb_yellow, e.wb_cyan, e.density, e.grade))
+                return np.full((9, 9, 3), float(len(seen) - 1), np.float32), {"content_rect": (0, 0, 9, 9)}
+
+            MockIP.return_value.run_pipeline.side_effect = fake_pipeline
+            worker = RenderWorker()
+            done: list = []
+            worker.strip_finished.connect(lambda m, r: done.append((m, r)))
+
+            base = WorkspaceConfig()
+            base = replace(base, exposure=replace(base.exposure, wb_magenta=0.2, wb_yellow=-0.1))
+            worker.build_strip(
+                TestStripTask(
+                    buffer=np.zeros((9, 9, 3), np.float32),
+                    config=base,
+                    source_hash="f1",
+                    preview_size=512.0,
+                    overrides=tuple(ring_overrides(0.2, -0.1)),
+                    grid=RING_GRID,
+                )
+            )
+
+        expected = [(m, y) for _, _, m, y in ring_cells(0.2, -0.1)]
+        self.assertEqual([(m, y) for m, y, _, _, _ in seen], expected)
+        # Nothing else moved: cyan, density and grade are the base config's on every patch.
+        for _m, _y, cyan, density, grade in seen:
+            self.assertEqual(cyan, base.exposure.wb_cyan)
+            self.assertEqual(density, base.exposure.density)
+            self.assertEqual(grade, base.exposure.grade)
+
+        mosaic, _rect = done[0]
+        # Top-left patch from render 0, bottom-right from render 8 — the 3x3 slicing is right.
+        self.assertEqual(mosaic[0, 0, 0], 0.0)
+        self.assertEqual(mosaic[-1, -1, 0], 8.0)
+
+
+class RingAroundLifecycle(unittest.TestCase):
+    def setUp(self):
+        from negpy.desktop.controller import AppController
+        from negpy.desktop.session import AppState, DesktopSessionManager
+        from negpy.services.rendering.preview_manager import PreviewManager
+
+        self.mock_session_manager = MagicMock(spec=DesktopSessionManager)
+        self.mock_session_manager.state = AppState()
+        self.mock_session_manager.repo = MagicMock()
+        with (
+            patch("negpy.desktop.controller.RenderWorker") as mock_rw_class,
+            patch("negpy.desktop.controller.PreviewManager") as mock_pm_class,
+        ):
+            mock_rw_class.return_value = MagicMock()
+            mock_pm_class.return_value = MagicMock(spec=PreviewManager)
+            mock_pm_class.return_value.load_linear_preview.return_value = (None, (0, 0), {})
+            self.controller = AppController(self.mock_session_manager)
+        self.controller.state.preview_raw = np.empty((8, 8, 3), dtype=np.float32)
+        self.controller.state.current_file_hash = "f1"
+        self.strip_tasks: list = []
+        self.controller.strip_requested.connect(self.strip_tasks.append)
+        # update_config on a MagicMock session doesn't write through; mirror it so the
+        # controller sees the committed config the real session would have stored.
+        self.mock_session_manager.update_config.side_effect = self._commit
+
+    def _commit(self, config, persist=False, **kwargs):
+        self.controller.state.config = config
+
+    def tearDown(self):
+        import gc
+
+        for thread in [
+            self.controller.render_thread,
+            self.controller.export_thread,
+            self.controller.thumb_thread,
+            self.controller.norm_thread,
+            self.controller.discovery_thread,
+            self.controller.preview_load_thread,
+            self.controller.scan_thread,
+        ]:
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                thread.wait()
+        del self.controller
+        gc.collect()
+
+    def _mosaic(self) -> np.ndarray:
+        return np.zeros((9, 9, 3), dtype=np.float32)
+
+    def _print_ring(self) -> None:
+        self.controller.toggle_ring_around()
+        self.controller.on_strip_finished(self._mosaic(), (0, 0, 9, 9))
+
+    def _set_filtration(self, magenta: float, yellow: float) -> None:
+        cfg = self.controller.state.config
+        self.controller.state.config = replace(cfg, exposure=replace(cfg.exposure, wb_magenta=magenta, wb_yellow=yellow))
+
+    def test_toggling_on_dispatches_a_nine_patch_job_around_the_current_filtration(self):
+        self._set_filtration(0.2, -0.1)
+        self.controller.toggle_ring_around()
+
+        self.assertEqual(len(self.strip_tasks), 1)
+        task = self.strip_tasks[0]
+        self.assertEqual(task.grid, RING_GRID)
+        self.assertEqual(len(task.overrides), 9)
+        self.assertEqual(self.controller.state.test_strip_kind, "colour")
+        self.assertEqual(self.controller.state.test_strip_origin, (0.2, -0.1))
+
+    def test_picking_a_patch_commits_only_its_filtration(self):
+        self._set_filtration(0.2, -0.1)
+        self._print_ring()
+        before = self.controller.state.config.exposure
+
+        self.controller.apply_test_strip_pick(0, 0)
+
+        after = self.controller.state.config.exposure
+        _, _, m, y = ring_cells(0.2, -0.1)[0]
+        self.assertAlmostEqual(after.wb_magenta, m)
+        self.assertAlmostEqual(after.wb_yellow, y)
+        # Everything the patches were rendered under is left exactly as it was.
+        self.assertEqual(after.wb_cyan, before.wb_cyan)
+        self.assertEqual(after.density, before.density)
+        self.assertEqual(after.grade, before.grade)
+        self.assertEqual(after.cast_removal_strength, before.cast_removal_strength)
+        self.assertEqual(after.auto_exposure, before.auto_exposure)
+        self.assertEqual(after.auto_normalize_contrast, before.auto_normalize_contrast)
+        self.assertFalse(self.controller.state.test_strip)
+
+    def test_picking_the_centre_keeps_the_filtration_and_still_clears(self):
+        self._set_filtration(0.2, -0.1)
+        self._print_ring()
+        self.controller.apply_test_strip_pick(1, 1)
+
+        after = self.controller.state.config.exposure
+        self.assertEqual((after.wb_magenta, after.wb_yellow), (0.2, -0.1))
+        self.assertFalse(self.controller.state.test_strip)
+
+    def test_picking_a_patch_invalidates_the_ring_cache(self):
+        """The inverse of the tone strip's cache-hit test, and deliberately so: the ring's
+        ladder is relative to the filtration in force, so once that moves the old mosaic is
+        no longer a proof of anything. A ring-around is meant to be iterated."""
+        self._print_ring()
+        self.controller.apply_test_strip_pick(0, 0)
+        self.controller.toggle_ring_around()
+        self.assertEqual(len(self.strip_tasks), 2)  # a second real job, not a cache hit
+
+    def test_the_two_proof_kinds_never_share_a_cache_entry(self):
+        """RenderMemo holds one entry per file hash, so the kind is folded into the key —
+        otherwise printing the ring then the strip would paint the ring's mosaic."""
+        self._print_ring()
+        self.controller._clear_test_strip()
+        self.controller.toggle_test_strip()
+        self.assertEqual(len(self.strip_tasks), 2)
+        self.assertEqual(self.strip_tasks[1].grid, STRIP_GRID)
+
+    def test_asking_for_the_other_kind_swaps_the_proof(self):
+        self._print_ring()
+        self.assertEqual(self.controller.state.test_strip_kind, "colour")
+
+        self.controller.toggle_test_strip()
+        self.assertEqual(self.controller.state.test_strip_kind, "tone")
+        self.assertEqual(len(self.strip_tasks), 2)
+
+        self.controller.on_strip_finished(self._mosaic(), (0, 0, 9, 9))
+        self.controller.toggle_ring_around()
+        self.assertEqual(self.controller.state.test_strip_kind, "colour")
+        self.assertEqual(len(self.strip_tasks), 3)
+
+    def test_toggling_the_same_kind_again_dismisses_it(self):
+        self._print_ring()
+        self.controller.toggle_ring_around()
+        self.assertFalse(self.controller.state.test_strip)
+
+    def test_a_render_drops_the_ring(self):
+        self._print_ring()
+        self.controller.request_render()
+        self.assertFalse(self.controller.state.test_strip)
+        self.assertIsNone(self.controller.state.test_strip_mosaic)
+
+    def test_compare_and_flat_peek_take_the_canvas_from_the_ring(self):
+        for enter_mode in (self.controller.toggle_compare, lambda: self.controller.toggle_flat_peek(force=True)):
+            self.controller.state.compare_mode = False
+            self.controller.state.flat_peek = False
+            self.controller._is_rendering = False
+            self._print_ring()
+
+            enter_mode()
+            self.assertFalse(self.controller.state.test_strip)
+            self.assertIsNone(self.controller.state.test_strip_mosaic)
+
+
+if __name__ == "__main__":
+    unittest.main()

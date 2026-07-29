@@ -295,8 +295,11 @@ class ToneSidebar(BaseSidebar):
         """ponytail: the whole strip is one job with no progress reporting — the button is
         icon-only, so it goes dead with a 'printing' tooltip rather than changing its
         label. Per-patch progress if 36 renders ever feels long."""
-        pending = self.state.test_strip_pending
-        self.test_strip_btn.setChecked(self.state.test_strip or pending)
+        # Both proofs share one slot, so the kind has to gate this or the ring lights this
+        # button too.
+        mine = self.state.test_strip_kind == "tone"
+        pending = self.state.test_strip_pending and mine
+        self.test_strip_btn.setChecked((self.state.test_strip or self.state.test_strip_pending) and mine)
         self.test_strip_btn.setEnabled(not pending)
         self.test_strip_btn.setToolTip(wrap_tooltip(self._test_strip_tooltip(printing=pending)))
 

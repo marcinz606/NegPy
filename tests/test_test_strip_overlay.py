@@ -9,7 +9,7 @@ from PyQt6.QtGui import QMouseEvent, QPainter, QPixmap
 
 from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.canvas.overlay import CanvasOverlay
-from negpy.features.exposure.analysis import STRIP_DENSITIES, STRIP_GRADES
+from negpy.features.exposure.analysis import RING_GRID, STRIP_DENSITIES, STRIP_GRADES
 
 
 def _press(pos: QPointF) -> QMouseEvent:
@@ -120,3 +120,38 @@ def test_clearing_the_strip_drops_the_hover_and_the_picker_cursor() -> None:
 
     assert overlay._strip_hover is None
     assert overlay._strip_cache is None
+
+
+def _ring_overlay() -> CanvasOverlay:
+    state = AppState()
+    state.test_strip = True
+    state.test_strip_kind = "colour"
+    state.test_strip_mosaic = np.zeros((90, 90, 3), dtype=np.float32)
+    overlay = CanvasOverlay(state)
+    overlay._view_rect = QRectF(0, 0, 90, 90)
+    overlay._current_size = (90, 90)
+    return overlay
+
+
+def test_the_ring_picks_across_its_own_three_by_three_grid() -> None:
+    """The overlay reads the grid off the proof kind, so a click on the ring must map to 3x3
+    rather than the tone strip's 6x6."""
+    overlay = _ring_overlay()
+    picked: list = []
+    overlay.test_strip_picked.connect(lambda r, c: picked.append((r, c)))
+
+    overlay.mousePressEvent(_press(QPointF(5, 5)))
+    overlay.mousePressEvent(_press(QPointF(45, 45)))
+    overlay.mousePressEvent(_press(QPointF(85, 85)))
+
+    assert picked == [(0, 0), (1, 1), (RING_GRID[0] - 1, RING_GRID[1] - 1)]
+
+
+def test_the_ring_lays_out_nine_patches() -> None:
+    overlay = _ring_overlay()
+    rects = overlay._strip_patch_rects(QRectF(0, 0, 90, 90))
+    assert len(rects) == 9
+    assert overlay._strip_grid() == RING_GRID
+    # And the tone strip still gets its own grid off the same helper.
+    overlay.state.test_strip_kind = "tone"
+    assert overlay._strip_grid() == (len(STRIP_GRADES), len(STRIP_DENSITIES))

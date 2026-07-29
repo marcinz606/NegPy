@@ -108,6 +108,12 @@ class AppState:
     test_strip_pending: bool = False
     test_strip_mosaic: Optional[Any] = None
     test_strip_content_rect: Optional[tuple] = None
+    # Which proof owns the canvas: "tone" (density × grade) or "colour" (M/Y ring-around).
+    # One slot rather than two, so every path that drops a proof drops both kinds.
+    test_strip_kind: str = "tone"
+    # (wb_magenta, wb_yellow) the ring was printed around — the pick reads its ladder from
+    # this, not from the live config, which the pick itself is about to change.
+    test_strip_origin: tuple = (0.0, 0.0)
 
     # Reverse scroll-wheel zoom direction on the image viewer (scroll up = zoom out).
     invert_zoom_scroll: bool = False

@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import QButtonGroup, QHBoxLayout, QPushButton
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
+from negpy.desktop.view.styles.templates import wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider, KelvinSlider
 from negpy.features.exposure.logic import kelvin_to_wb, wb_to_kelvin
@@ -60,10 +61,14 @@ class ColourSidebar(BaseSidebar):
         self.region_reset_btn = QPushButton(" Reset")
         self.region_reset_btn.setIcon(qta.icon("fa5s.undo", color=THEME.text_primary, color_disabled=THEME.text_muted))
         self.region_reset_btn.setToolTip("Reset the selected region's white balance — Temperature and Cyan/Magenta/Yellow back to neutral")
+        self.ring_btn = self._tool_toggle("mdi.target", "", self._ring_tooltip())
+        self.ring_btn.setFixedWidth(36)
+
         tools_row = QHBoxLayout()
         tools_row.addWidget(self.pick_wb_btn, 1)
         tools_row.addWidget(self.temp_lock_btn, 1)
         tools_row.addWidget(self.region_reset_btn, 1)
+        tools_row.addWidget(self.ring_btn)
         self.layout.addLayout(tools_row)
 
         # Temperature lever over the selected region's M/Y pair (real darkroom: cyan stays 0).
@@ -127,12 +132,37 @@ class ColourSidebar(BaseSidebar):
         self.yellow_slider.valueCommitted.connect(lambda v: self._on_yellow_changed(v, persist=True))
 
         self.pick_wb_btn.toggled.connect(self._on_pick_wb_toggled)
+        self.ring_btn.clicked.connect(lambda checked: self.controller.toggle_ring_around(force=checked))
+        # The ring is session state, not config, and any render drops it — so the button has
+        # to follow the controller rather than sync_ui.
+        self.controller.test_strip_changed.connect(self._sync_ring_btn)
         self.cast_removal_slider.valueChanged.connect(
             lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, cast_removal_strength=v)
         )
         self.cast_removal_slider.valueCommitted.connect(
             lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, cast_removal_strength=v)
         )
+
+    @staticmethod
+    def _ring_tooltip(printing: bool = False) -> str:
+        if printing:
+            return "Printing the colour ring-around…"
+        return tooltip_with_shortcut(
+            "Colour Ring-Around: print the frame as a 3×3 mosaic — the centre patch at the current "
+            "filtration, the ring ±5cc on the magenta and yellow axes. Click the patch that looks "
+            "neutral to keep its filtration. With Cast Removal on the patches separate less, since "
+            "it corrects toward neutral underneath.",
+            "toggle_ring_around",
+        )
+
+    def _sync_ring_btn(self, _up: bool) -> None:
+        # Both proofs share one slot, so the kind has to gate this or the tone strip lights
+        # this button too.
+        mine = self.state.test_strip_kind == "colour"
+        pending = self.state.test_strip_pending and mine
+        self.ring_btn.setChecked((self.state.test_strip or self.state.test_strip_pending) and mine)
+        self.ring_btn.setEnabled(not pending)
+        self.ring_btn.setToolTip(wrap_tooltip(self._ring_tooltip(printing=pending)))
 
     def _on_temp_drag_started(self) -> None:
         # Anchor (M, Y) for the whole drag: re-projecting an already-clipped
@@ -207,6 +237,7 @@ class ColourSidebar(BaseSidebar):
             self.magenta_slider,
             self.yellow_slider,
             self.pick_wb_btn,
+            self.ring_btn,
             self.cast_removal_slider,
         ):
             w.blockSignals(blocked)

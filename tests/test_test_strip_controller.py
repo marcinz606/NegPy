@@ -12,7 +12,13 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.exposure.analysis import STRIP_DENSITIES, STRIP_GRADES, strip_cells
+from negpy.features.exposure.analysis import (
+    STRIP_DENSITIES,
+    STRIP_GRADES,
+    STRIP_GRID,
+    strip_cells,
+    strip_overrides,
+)
 
 
 class TestStripWorker(unittest.TestCase):
@@ -40,6 +46,8 @@ class TestStripWorker(unittest.TestCase):
                     config=WorkspaceConfig(),
                     source_hash="f1",
                     preview_size=512.0,
+                    overrides=tuple(strip_overrides()),
+                    grid=STRIP_GRID,
                 )
             )
 
@@ -69,6 +77,8 @@ class TestStripWorker(unittest.TestCase):
                     config=WorkspaceConfig(),
                     source_hash="f1",
                     preview_size=512.0,
+                    overrides=tuple(strip_overrides()),
+                    grid=STRIP_GRID,
                 )
             )
             # readback_metrics must be off for every variant.

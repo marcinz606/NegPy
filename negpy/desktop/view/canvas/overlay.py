@@ -14,8 +14,11 @@ from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.canvas.crop_guides import CropGuide, guide_shapes
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.exposure.analysis import (
+    RING_GRID,
     STRIP_DENSITIES,
     STRIP_GRADES,
+    STRIP_GRID,
+    ring_cc_offset,
     strip_cell_at,
     strip_nearest_cell,
     zone_grid,
@@ -768,18 +771,63 @@ class CanvasOverlay(QWidget):
         self._strip_cache = (key, img)
         return img
 
+    def _strip_grid(self) -> Tuple[int, int]:
+        """(rows, cols) of the proof currently on the canvas."""
+        return RING_GRID if self.state.test_strip_kind == "colour" else STRIP_GRID
+
     def _strip_patch_rects(self, rect: QRectF) -> List[Tuple[int, int, QRectF]]:
         """(row, col, screen rect) per patch. Edges are computed from the same fractions
         the mosaic was sliced on, so the drawn separators sit on the real seams."""
-        rows, cols = len(STRIP_GRADES), len(STRIP_DENSITIES)
+        rows, cols = self._strip_grid()
         xs = [rect.x() + rect.width() * c / cols for c in range(cols + 1)]
         ys = [rect.y() + rect.height() * r / rows for r in range(rows + 1)]
         return [(r, c, QRectF(xs[c], ys[r], xs[c + 1] - xs[c], ys[r + 1] - ys[r])) for r in range(rows) for c in range(cols)]
 
+    def _draw_strip_labels(
+        self,
+        painter: QPainter,
+        patches: List[Tuple[int, int, QRectF]],
+        top_texts: List[str],
+        left_texts: List[str],
+        current: Tuple[int, int],
+    ) -> None:
+        """One label per axis: `top_texts` along the top edge, `left_texts` down the left. The
+        rung matching the settings in force is accented, standing in for the box this used to
+        draw around that patch."""
+        painter.save()
+        painter.setFont(_overlay_label_font(painter))
+        inset = _STRIP_LABEL_INSET_PX
+        accent = QColor(THEME.accent_primary)
+        for row, col, cell in patches:
+            for text, flags, on_axis in (
+                (
+                    top_texts[col] if row == 0 else "",
+                    Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter,
+                    col == current[1],
+                ),
+                (
+                    left_texts[row] if col == 0 else "",
+                    Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                    row == current[0],
+                ),
+            ):
+                if not text:
+                    continue
+                box = cell.adjusted(inset, inset, -inset, -inset)
+                painter.setPen(QColor(0, 0, 0, 190))
+                painter.drawText(box.translated(1.0, 1.0), flags, text)
+                painter.setPen(accent if on_axis else QColor(255, 255, 255, 235))
+                painter.drawText(box, flags, text)
+        painter.restore()
+
     def _draw_test_strip(self, painter: QPainter) -> None:
-        """Darkroom test strip: the frame sliced into a density × grade grid, each patch
-        printed at its own settings. Columns darken left to right, rows soften top to
-        bottom, so the diagonals read light/dark and hard/soft. Click a patch to keep it.
+        """A darkroom proof mosaic: the frame sliced into a grid, each patch printed at its own
+        settings. Click a patch to keep it.
+
+        Tone strip — columns darken left to right, rows soften top to bottom, so the diagonals
+        read light/dark and hard/soft. Colour ring-around — the centre patch is the filtration
+        in force and the ring steps ±5cc on the magenta and yellow axes, so the direction of a
+        cast is visible instead of guessed.
 
         The mosaic replaces the canvas frame over the content rect rather than tinting it —
         these are real renders, and a wash over them would misreport the tone being judged.
@@ -793,7 +841,7 @@ class CanvasOverlay(QWidget):
         painter.drawImage(rect, img)
 
         patches = self._strip_patch_rects(rect)
-        current = strip_nearest_cell(self.state.config.exposure.density, self.state.config.exposure.grade)
+        rows, cols = self._strip_grid()
 
         # No grid: the patches are meant to be read as one print, the way a real test
         # strip is. Only the patch under the cursor gets an outline, so it's obvious what
@@ -808,36 +856,27 @@ class CanvasOverlay(QWidget):
                 painter.setPen(pen)
                 painter.drawRect(cell)
 
-        if min(rect.width() / len(STRIP_DENSITIES), rect.height() / len(STRIP_GRADES)) < _STRIP_LABEL_MIN_PX:
+        if min(rect.width() / cols, rect.height() / rows) < _STRIP_LABEL_MIN_PX:
             return
-        painter.save()
-        painter.setFont(_overlay_label_font(painter))
-        inset = _STRIP_LABEL_INSET_PX
-        accent = QColor(THEME.accent_primary)
-        for row, col, cell in patches:
-            # Density along the top edge, grade down the left — each axis labelled once.
-            # The rung matching the current settings is accented, standing in for the
-            # box this used to draw around that patch.
-            for text, flags, on_axis in (
-                (
-                    f"D {STRIP_DENSITIES[col]:.1f}" if row == 0 else "",
-                    Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter,
-                    col == current[1],
-                ),
-                (
-                    f"R {STRIP_GRADES[row]:.0f}" if col == 0 else "",
-                    Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-                    row == current[0],
-                ),
-            ):
-                if not text:
-                    continue
-                box = cell.adjusted(inset, inset, -inset, -inset)
-                painter.setPen(QColor(0, 0, 0, 190))
-                painter.drawText(box.translated(1.0, 1.0), flags, text)
-                painter.setPen(accent if on_axis else QColor(255, 255, 255, 235))
-                painter.drawText(box, flags, text)
-        painter.restore()
+        if self.state.test_strip_kind == "colour":
+            # The centre patch is the filtration in force by construction, so the accent needs
+            # no search for the nearest rung.
+            self._draw_strip_labels(
+                painter,
+                patches,
+                [f"Y {ring_cc_offset(c):+.0f}" for c in range(cols)],
+                [f"M {ring_cc_offset(r):+.0f}" for r in range(rows)],
+                (1, 1),
+            )
+        else:
+            exposure = self.state.config.exposure
+            self._draw_strip_labels(
+                painter,
+                patches,
+                [f"D {d:.1f}" for d in STRIP_DENSITIES],
+                [f"R {g:.0f}" for g in STRIP_GRADES],
+                strip_nearest_cell(exposure.density, exposure.grade),
+            )
 
     def _draw_placed_heals(self, painter: QPainter) -> None:
         """Thin outlines of committed heals (strokes + legacy spots) while a retouch tool is active."""
@@ -1460,7 +1499,7 @@ class CanvasOverlay(QWidget):
         if event.button() == Qt.MouseButton.LeftButton and self.state.test_strip:
             coords = self._map_to_image_coords(event.position())
             if coords is not None:
-                self.test_strip_picked.emit(*strip_cell_at(*coords))
+                self.test_strip_picked.emit(*strip_cell_at(*coords, self._strip_grid()))
                 event.accept()
                 return
 
@@ -1600,7 +1639,7 @@ class CanvasOverlay(QWidget):
             self.cursor_left.emit()
 
         if self.state.test_strip:
-            hover = strip_cell_at(*coords) if coords is not None else None
+            hover = strip_cell_at(*coords, self._strip_grid()) if coords is not None else None
             if hover != self._strip_hover:
                 self._strip_hover = hover
                 self.update()

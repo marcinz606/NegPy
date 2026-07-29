@@ -8,7 +8,7 @@ from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.exposure.analysis import output_histogram, strip_cells, strip_mosaic
+from negpy.features.exposure.analysis import output_histogram, strip_mosaic
 from negpy.features.flatfield.logic import apply_flatfield
 from negpy.features.geometry.batch_autocrop import detect_crop_candidate, resolve_roll_crops
 from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix
@@ -55,12 +55,16 @@ class RenderTask:
 
 @dataclass(frozen=True)
 class TestStripTask:
-    """Request to print a density × grade test strip off one frame."""
+    """Request to print a proof mosaic off one frame — the density × grade test strip, or the
+    colour ring-around. `overrides` carries one ExposureConfig field-override dict per patch,
+    row-major over `grid`."""
 
     buffer: np.ndarray
     config: WorkspaceConfig
     source_hash: str
     preview_size: float
+    overrides: tuple
+    grid: tuple
     icc_input_path: Optional[str] = None
     icc_output_path: Optional[str] = None
     color_space: str = "Adobe RGB"
@@ -264,20 +268,20 @@ class RenderWorker(QObject):
 
     @pyqtSlot(TestStripTask)
     def build_strip(self, task: TestStripTask) -> None:
-        """Render the frame once per ladder rung and keep only each rung's patch.
+        """Render the frame once per patch and keep only that patch.
 
         Runs on the render thread with the canvas's own ImageProcessor, so the patches are
-        the same pixels the canvas would show — density/grade are absent from the analysis
-        cache key, so the per-frame metering is reused and only the exposure stage onward
-        re-dispatches. Metrics are dropped on the floor: a proof must not disturb the
-        histogram/bounds writeback the real render owns.
+        the same pixels the canvas would show. The fields any proof overrides — density and
+        grade for the tone strip, the colour head's magenta/yellow for the ring-around — are
+        all absent from the analysis cache key, so the per-frame metering is reused and only
+        the exposure stage onward re-dispatches. Metrics are dropped on the floor: a proof
+        must not disturb the histogram/bounds writeback the real render owns.
         """
         try:
             tiles = []
             content_rect = None
-            cells = strip_cells()
-            for _, _, density, grade in cells:
-                config = replace(task.config, exposure=replace(task.config.exposure, density=density, grade=grade))
+            for override in task.overrides:
+                config = replace(task.config, exposure=replace(task.config.exposure, **override))
                 result, metrics = self._processor.run_pipeline(
                     task.buffer,
                     config,
@@ -293,9 +297,9 @@ class RenderWorker(QObject):
                 tiles.append(result)
                 if content_rect is None:
                     content_rect = metrics.get("content_rect")
-                self.strip_progress.emit(len(tiles), len(cells))
+                self.strip_progress.emit(len(tiles), len(task.overrides))
 
-            mosaic = strip_mosaic(tiles)
+            mosaic = strip_mosaic(tiles, task.grid)
             # Proof the assembled mosaic, not each tile: the transform is per-pixel, so
             # one pass over the finished frame is identical and 16x cheaper.
             if task.icc_input_path or task.icc_output_path:

@@ -234,6 +234,15 @@ class ActionToolbar(QWidget):
         self._ov_zones_action.setToolTip(
             tooltip_with_shortcut("Zone overlay — label each region of the print with its Adams zone", "toggle_zones")
         )
+        self._ov_ring_action = overflow_menu.addAction(qta.icon("mdi.target", color=icon_color), "Colour Ring-Around")
+        self._ov_ring_action.setCheckable(True)
+        self._ov_ring_action.setToolTip(
+            tooltip_with_shortcut(
+                "Colour ring-around — print the frame as a 3x3 mosaic, the centre at the current "
+                "filtration and the ring 5cc either way on magenta and yellow",
+                "toggle_ring_around",
+            )
+        )
         self._ov_undo_action = overflow_menu.addAction(qta.icon("mdi.undo", color=icon_color), "Undo")
         self._ov_undo_action.setToolTip(tooltip_with_shortcut("Undo", "undo"))
         self._ov_redo_action = overflow_menu.addAction(qta.icon("mdi.redo", color=icon_color), "Redo")
@@ -397,6 +406,12 @@ class ActionToolbar(QWidget):
             widget.setChecked(active)
             widget.blockSignals(False)
 
+    def _sync_ring_action(self) -> None:
+        # Both proofs share one slot, so the kind gates this or the tone strip checks it too.
+        state = self.controller.state
+        active = (state.test_strip or state.test_strip_pending) and state.test_strip_kind == "colour"
+        self._ov_ring_action.setChecked(active)
+
     def _on_flat_peek_changed(self, active: bool) -> None:
         self.btn_flat_peek.blockSignals(True)
         self.btn_flat_peek.setChecked(active)
@@ -429,6 +444,8 @@ class ActionToolbar(QWidget):
         self.btn_zones.toggled.connect(lambda checked: self.controller.toggle_zones_overlay(force=checked))
         self._ov_zones_action.triggered.connect(lambda checked: self.controller.toggle_zones_overlay(force=checked))
         self.controller.zones_overlay_changed.connect(self._on_zones_changed)
+        self._ov_ring_action.triggered.connect(lambda checked: self.controller.toggle_ring_around(force=checked))
+        self.controller.test_strip_changed.connect(lambda _up: self._sync_ring_action())
         self._ov_gpu_action.toggled.connect(self._on_gpu_toggled)
         self.controller.zoom_changed.connect(self._on_zoom_changed)
 
