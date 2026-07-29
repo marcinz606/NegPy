@@ -22,8 +22,8 @@ The right-hand tabs are arranged in the order you actually work, which mirrors t
 |-----|------|--------|---------------|
 | **Setup** | cogs | Presets · Process · Roll Analysis | Film type, negative→positive normalization, roll-wide baselines |
 | **Geometry** | crop | Geometry · Flat Field | Crop, straighten, lens/falloff correction |
-| **Exposure** | sun | Filtration · Tone · Dodge & Burn | White balance, print density/contrast/curve, local burns |
-| **Colour** | palette | Lab · Toning | Saturation, sharpening, effects, split/chemical toning |
+| **Exposure** | sun | Filtration · Tone · Dodge & Burn | White balance, print density/contrast/curve/saturation, local burns |
+| **Colour** | palette | Lab · Toning | Chroma, sharpening, effects, split/chemical toning |
 | **Finish** | brush | Retouch · Finishing | Dust removal, vignette, border, carrier |
 | **History** | clock | Edit history | Step back through every change |
 | **Export** | file | Export settings | Format, size, colour, batch output |
@@ -197,6 +197,8 @@ The paper's response. A **Global / R / G / B** selector at the top scopes most c
 *   **ISO-R Grade** (50–180): contrast, as a paper ISO-R value. R110 ≈ classic grade 2; **lower R = harder** (more contrast), higher = softer. In R/G/B mode a **Grade** trim rotates one layer's slope about the midtone.
 *   **Shadows Density** / **Highlights Density** (zone density): brighten or darken just the shadow or highlight zone, without reshaping the curve. Bounded by paper black/white so a burn can't exceed the print's limits.
 *   **Shadows Grade** / **Highlights Grade** (split grade, ±50 ISO-R): rotate contrast locally in the deep shadows or highlights — the digital equivalent of split-grade printing.
+*   **Print Saturation** (0.3–1.6, hidden in B&W): saturation as a darkroom operation — it pushes the print's three dye densities apart *before* the positive is decoded, in the same matrix the paper's own dye crosstalk uses. So it responds to the paper profile you picked, and it eases off automatically where the curve is already compressed at toe and shoulder, instead of forcing colour into tones that have none left to give. 1.0 = off. Travel is concentrated near 1.0 for finer control there. (Contrast **Chroma** in the Colour tab, which scales colour evenly after decode.)
+*   **Dye Mute** (0.0–0.5, hidden in B&W): pulls Print Saturation back as the grade hardens, countering the extra density separation a steeper curve opens up between the dye layers — like real paper dyes' unwanted absorptions. It tracks the Grade automatically, so one setting holds across frames of differing contrast. 0 = off.
 
 **Paper Response** — the characteristic-curve shape:
 
@@ -207,7 +209,7 @@ The paper's response. A **Global / R / G / B** selector at the top scopes most c
 *   **Toe** (-1–1) + **Toe Width** (0.1–5): the shadow roll-off into paper black. Positive toe lifts shadows for a gentle film toe; negative deepens (and, with Paper Black off, makes exact black reachable). Width sets how far the knee reaches into the midtones.
 *   **Shoulder** (-1–1) + **Shoulder Width** (0.1–5): the highlight roll-off into paper white. Positive compresses highlights (film-like); negative extends them and risks clipping.
 
-In R/G/B mode, Toe/Shoulder/Snap and their Widths become per-layer trims for that dye emulsion.
+In R/G/B mode, Toe/Shoulder/Snap and their Widths — and Print Saturation — become per-layer trims for that dye emulsion. Dye Mute stays global.
 
 ### 6.3 Dodge & Burn — local exposure
 
@@ -228,8 +230,7 @@ Mimics what a lab scanner (Frontier/Noritsu) does automatically. Colour controls
 
 **Colour** (hidden in B&W):
 
-*   **Saturation** (0.0–2.0): linear saturation. 1.0 = unchanged, 0 = greyscale, 2.0 = double.
-*   **Dye Mute** (0.0–1.0): counters the extra saturation that harder grades create, mimicking real paper dyes' unwanted absorptions. 0 disables.
+*   **Chroma** (0.0–2.0): a flat colour scale applied after the print is decoded, even across every tone — a retouching move rather than a darkroom one. 1.0 = unchanged, 0 = greyscale, 2.0 = double. For saturation that behaves like a print instead, reach for **Print Saturation** in the Exposure tab.
 *   **Vibrance** (0.0–2.0): smart saturation that boosts muted colours more than already-saturated ones — gentler on skin tones.
 
 **Sharpen:**

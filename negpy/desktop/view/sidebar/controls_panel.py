@@ -531,11 +531,11 @@ class ControlsPanel(QWidget):
                 ["saturation_inc", "saturation_dec"],
             )
         )
-        exp.chroma_damping_slider.setToolTip(
+        exp.dye_mute_slider.setToolTip(
             tooltip_with_shortcut(
                 "Dye Mute — pulls Print Saturation back as the grade hardens, countering the density "
                 "separation a steeper curve opens between the dye layers. Tracks Grade automatically. 0 = off",
-                ["chroma_damping_inc", "chroma_damping_dec"],
+                ["density_saturation_damping_inc", "density_saturation_damping_dec"],
             )
         )
         exp.density_sat_slider.setToolTip(
