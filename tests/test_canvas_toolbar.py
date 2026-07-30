@@ -93,6 +93,38 @@ class TestCanvasToolbarResponsive(unittest.TestCase):
         self.assertTrue(tb.btn_undo.isVisible())
         self.assertTrue(tb.btn_zoom_fit.isVisible())
 
+    def test_every_visible_control_shares_one_row_height(self):
+        """btn_zoom_fit/btn_zoom_original once skipped the standard sizing loop and fell
+        back to style defaults (29px and 25px against everyone else's 32), leaving their
+        hover rectangles visibly short of their neighbours'."""
+        tb = _make_toolbar()
+        tb.set_available_width(1600)
+        tb.show()
+        QApplication.processEvents()
+
+        row = [
+            tb.btn_toggle_left,
+            tb.btn_prev,
+            tb.btn_next,
+            tb.zoom_label,
+            tb.btn_zoom_fit,
+            tb.btn_zoom_original,
+            tb.btn_hq,
+            tb.btn_rot_l,
+            tb.btn_rot_r,
+            tb.btn_flip_h,
+            tb.btn_flip_v,
+            tb.btn_undo,
+            tb.btn_redo,
+            tb.btn_compare,
+            tb.btn_zones,
+            tb.btn_loupe,
+            tb.btn_overflow,
+            tb.btn_toggle_right,
+        ]
+        edges = {(w.geometry().y(), w.geometry().bottom()) for w in row if w.isVisible()}
+        self.assertEqual(len(edges), 1, f"toolbar controls disagree on top/bottom edges: {sorted(edges)}")
+
     def _all_overflow_actions(self, tb: ActionToolbar) -> list:
         return [
             tb._ov_hq_action,
