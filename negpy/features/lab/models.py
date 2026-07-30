@@ -18,6 +18,11 @@ class LabConfig:
     """
 
     saturation: float = 1.0
+    # PROTOTYPE: A/B comparison toggle against the pre-gamut-aware naive flat
+    # scale + hard clamp -- True (default) is the shipped gamut-aware behavior.
+    # Not meant to ship; here so the same saturation value can be compared
+    # against the old behavior directly instead of by re-deriving it by hand.
+    saturation_gamut_aware: bool = True
     clahe_strength: float = 0.0
     sharpen: float = 0.25
     sharpen_method: SharpenMethod = SharpenMethod.USM

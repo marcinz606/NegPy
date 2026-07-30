@@ -10,7 +10,9 @@ struct LabUniforms {
     sharpen_radius_px: f32,
     sharpen_masking: f32,
     sharpen_method: f32,
-    _pad1: f32,
+    // PROTOTYPE: A/B toggle against the pre-gamut-aware naive flat scale + hard
+    // clamp -- not meant to ship, see LabConfig.saturation_gamut_aware.
+    saturation_gamut_aware: f32,
     _pad2: f32,
     _pad3: f32,
 };
@@ -307,7 +309,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // above 1.0, see gamut_aware_chroma_eff)
     if (params.saturation != 1.0) {
         var lab = rgb_to_lab(color);
-        let eff = gamut_aware_chroma_eff(lab, params.saturation);
+        // PROTOTYPE: A/B toggle against the naive flat scale this replaced --
+        // not meant to ship, see LabConfig.saturation_gamut_aware.
+        let eff = select(params.saturation, gamut_aware_chroma_eff(lab, params.saturation), params.saturation_gamut_aware != 0.0);
         lab.y = lab.y * eff;
         lab.z = lab.z * eff;
         color = lab_to_rgb(lab);

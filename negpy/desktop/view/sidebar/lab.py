@@ -25,6 +25,19 @@ class LabSidebar(BaseSidebar):
         row1.addWidget(self.chroma_denoise_slider)
         self.layout.addLayout(row1)
 
+        # PROTOTYPE: A/B toggle against the naive flat scale + hard clamp this
+        # replaced -- not meant to ship, lets the same Chroma value be compared
+        # directly against the old behavior instead of re-derived by hand.
+        self.saturation_gamut_aware_btn = self._small_toggle(
+            "fa5s.expand-arrows-alt",
+            "Gamut-Aware Chroma (proto)",
+            conf.saturation_gamut_aware,
+            "PROTOTYPE A/B: on (default) is the new gamut-aware soft knee. Off is the old naive "
+            "flat a*/b* scale + hard per-channel clamp it replaced -- same Chroma value either way, "
+            "toggle to compare directly.",
+        )
+        self.layout.addWidget(self.saturation_gamut_aware_btn)
+
         self.layout.addWidget(section_subheader("SHARPEN"))
 
         method_row = QHBoxLayout()
@@ -102,6 +115,10 @@ class LabSidebar(BaseSidebar):
             lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, saturation=v)
         )
 
+        self.saturation_gamut_aware_btn.clicked.connect(
+            lambda checked: self.update_config_section("lab", persist=True, readback_metrics=True, saturation_gamut_aware=checked)
+        )
+
         self.chroma_denoise_slider.valueChanged.connect(
             lambda v: self.update_config_section("lab", persist=False, readback_metrics=False, chroma_denoise=v)
         )
@@ -135,6 +152,7 @@ class LabSidebar(BaseSidebar):
             self.sharpen_radius_slider.setValue(conf.sharpen_radius)
             self.sharpen_masking_slider.setValue(conf.sharpen_masking)
             self.saturation_slider.setValue(conf.saturation)
+            self.saturation_gamut_aware_btn.setChecked(conf.saturation_gamut_aware)
             self.chroma_denoise_slider.setValue(conf.chroma_denoise)
             self.glow_slider.setValue(conf.glow_amount)
             self.halation_slider.setValue(conf.halation_strength)
@@ -142,6 +160,7 @@ class LabSidebar(BaseSidebar):
             # COLOR is entirely colour controls — hide the header with them in B&W.
             self.color_header.setVisible(not is_bw)
             self.saturation_slider.setVisible(not is_bw)
+            self.saturation_gamut_aware_btn.setVisible(not is_bw)
             self.chroma_denoise_slider.setVisible(not is_bw)
         finally:
             self.block_signals(False)
@@ -154,6 +173,7 @@ class LabSidebar(BaseSidebar):
             self.sharpen_radius_slider,
             self.sharpen_masking_slider,
             self.saturation_slider,
+            self.saturation_gamut_aware_btn,
             self.chroma_denoise_slider,
             self.glow_slider,
             self.halation_slider,

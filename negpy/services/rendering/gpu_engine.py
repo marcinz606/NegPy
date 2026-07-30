@@ -1358,7 +1358,10 @@ class GPUEngine:
                 float(lab.sharpen_masking),
                 1.0 if lab.sharpen_method == SharpenMethod.RL else 0.0,
             )
-            + b"\x00" * 12
+            # PROTOTYPE: saturation_gamut_aware A/B toggle rides the _pad1 slot --
+            # not meant to ship, see LabConfig.saturation_gamut_aware.
+            + struct.pack("f", 1.0 if lab.saturation_gamut_aware else 0.0)
+            + b"\x00" * 8
         )
 
         is_bw = 1 if settings.process.process_mode == ProcessMode.BW else 0
