@@ -497,7 +497,6 @@ wheels = [
 
 [[package]]
 name = "pieusb"
-version = "0.1.0"
 source = { editable = "../sw/pieusb" }
 dependencies = [
     { name = "libusb-package" },

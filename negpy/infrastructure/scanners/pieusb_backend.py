@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from negpy.infrastructure.scanners.base import (
     ScannerDevice,
     ScannerSession,
@@ -7,13 +11,19 @@ from negpy.infrastructure.scanners.base import (
 from negpy.infrastructure.scanners.params import ScanParams, ScanMode
 from negpy.infrastructure.scanners.result import ScanResult
 
-from pieusb.types import DeviceInfo
-from pieusb.scanner import Scanner
+if TYPE_CHECKING:
+    from pieusb.types import DeviceInfo
+    from pieusb.scanner import Scanner
 
 from collections.abc import Callable
 
-import numpy
 import threading
+
+def _require_pieusb() -> None:
+    try:
+        import pieusb
+    except ImportError:
+        raise ScannerUnavailable('pieusb not importable.') from None
 
 class PieusbSession:
     device_id: str
@@ -30,7 +40,7 @@ class PieusbSession:
     def eject(self) -> bool:
         return False
     def close(self) -> None:
-        self.dev.dev.close()
+        self.dev.close()
     def __enter__(self) -> "ScannerSession":
         return self
     def __exit__(self, *exc: object) -> None:
@@ -38,11 +48,8 @@ class PieusbSession:
 
 class PieusbBackend:
     def __init__(self) -> None:
-        try:
-            import pieusb
-        except ImportError:
-            raise ScannerUnavailable('Could not import module pieusb')
-        self._pieusb = pieusb
+        _require_pieusb()
+
         self._devices_cache: list[ScannerDevice] | None = None
         self._devices_map: dict[str, DeviceInfo] = {}
 
@@ -53,32 +60,36 @@ class PieusbBackend:
         return self.refresh_devices()
     
     def refresh_devices(self) -> list[ScannerDevice]:
+        from pieusb import get_devices
+        from pieusb.types import Filter
+
         self._devices_cache = []
         self._devices_map = {}
-        devices = self._pieusb.get_devices()
+        devices = get_devices()
         for dev in devices:
             native_res = dev.inquiry.max_resolution_x
             max_w = dev.inquiry.max_scan_w / native_res * 25.4
             max_h = dev.inquiry.max_scan_h / native_res * 25.4
+            supported_dpi = tuple([int(native_res / d) for d in [1, 2, 4, 5, 8, 10, 20]])
+            supported_depths = tuple([d for d in [8, 16] if d in dev.inquiry.color_depths])
             caps = ScannerCapabilities(
-                ir_channel=self._pieusb.types.Filter.INFRARED in dev.inquiry.filters,
-                supported_dpi=(300, 500, 1000, 2500, 5000, 10000),
-                supported_depths=(8, 16),
-                sources=(ScanMode.POSITIVE),
+                ir_channel=Filter.INFRARED in dev.inquiry.filters,
+                supported_dpi=supported_dpi,
+                supported_depths=supported_depths,
+                sources=(ScanMode.POSITIVE,),
                 max_area_mm=(max_w, max_h),
                 auto_exposure=True
             )
             device_str = f'pieusb:{dev.dev.bus}:{dev.dev.address}'
-            self._devices_map[device_str] = dev.dev
+            self._devices_map[device_str] = dev
             self._devices_cache.append(ScannerDevice(
-                id='something',
+                id=device_str,
                 vendor=dev.inquiry.vendor,
                 model=dev.inquiry.model_str,
                 capabilities=caps
             ))
 
         return self._devices_cache
-
 
     def scan(
         self,
@@ -87,15 +98,66 @@ class PieusbBackend:
         progress: Callable[[float], None],
         cancel: threading.Event,
     ) -> ScanResult:
-        return ScanResult(
-            rgb=numpy.array([]),
-            ir=numpy.array([]),
-            dpi=0,
-            device_model='Unknown'
-        )
+        from pieusb.scanner import Scanner
+
+        if cancel.is_set():
+            raise Exception('Scan was cancelled')
+
+        dev = self._devices_map[device_id]
+
+        with Scanner(dev) as s:
+
+            if params.capture_ir:
+                s.mode = 'rgbi'
+            else:
+                s.mode = 'rgb'
+
+            s.color_depth = params.depth
+            s.resolution = params.dpi
+            s.auto_exp = params.auto_exposure
+
+            if params.window is not None:
+                tl_x, tl_y, br_x, br_y = params.window
+                tl_x *= dev.inquiry.max_scan_w
+                br_x *= dev.inquiry.max_scan_w
+                tl_y *= dev.inquiry.max_scan_h
+                br_y *= dev.inquiry.max_scan_h
+                s.tl_x = int(tl_x)
+                s.tl_y = int(tl_y)
+                s.br_x = int(br_x)
+                s.br_y = int(br_y)
+
+            result = None
+
+            def on_update(update):
+                scanned, total = update.scanned_lines, update.total_lines
+                if scanned is not None and total:
+                    progress(scanned / total)
+
+            def on_complete(scan_result):
+                nonlocal result
+                result = ScanResult(
+                    rgb=scan_result.rgb,
+                    ir=scan_result.ir,
+                    dpi=params.dpi,
+                    device_model=dev.inquiry.model_str
+                )
+
+            s.scan(on_update, on_complete)
+
+            while not s.wait(0.2):
+                if cancel.is_set():
+                    s.cancel()
+                    raise Exception('Scan was cancelled')
+
+            if result is None:
+                raise Exception('Error while assembling the scan result')
+
+            return result
+
 
     def open_session(self, device_id: str) -> ScannerSession:
-        return PieusbSession(self._devices_map[device_id])
+        raise NotImplementedError('open_session not yet implemented in PieusbBackend')
 
     def eject(self, device_id: str) -> bool:
         return False
