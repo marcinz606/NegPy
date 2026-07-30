@@ -183,6 +183,8 @@ class ShortcutManager:
             "saturation_dec": lambda: controls.lab_sidebar.saturation_slider,
             "dye_separation_inc": lambda: controls.tone_sidebar.dye_separation_slider,
             "dye_separation_dec": lambda: controls.tone_sidebar.dye_separation_slider,
+            "separation_damping_inc": lambda: controls.tone_sidebar.separation_damping_slider,
+            "separation_damping_dec": lambda: controls.tone_sidebar.separation_damping_slider,
             "clahe_inc": lambda: controls.lab_sidebar.clahe_slider,
             "clahe_dec": lambda: controls.lab_sidebar.clahe_slider,
             "sharpen_inc": lambda: controls.lab_sidebar.sharpen_slider,

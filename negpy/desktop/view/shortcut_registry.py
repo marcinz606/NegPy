@@ -78,6 +78,8 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "highlight_grade_inc": ShortcutEntry("", "Highlights grade up", "Exposure"),
     "dye_separation_dec": ShortcutEntry("", "Dye Separation down", "Exposure"),
     "dye_separation_inc": ShortcutEntry("", "Dye Separation up", "Exposure"),
+    "separation_damping_dec": ShortcutEntry("", "Separation Damping down", "Exposure"),
+    "separation_damping_inc": ShortcutEntry("", "Separation Damping up", "Exposure"),
     "lock_bounds_toggle": ShortcutEntry("Alt+Q", "Toggle bounds lock", "Process"),
     "analysis_buffer_dec": ShortcutEntry("Alt+Shift+B", "Analysis buffer down", "Process"),
     "analysis_buffer_inc": ShortcutEntry("Alt+B", "Analysis buffer up", "Process"),

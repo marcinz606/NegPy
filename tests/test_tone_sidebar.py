@@ -15,8 +15,30 @@ def test_tone_reset_covers_dye_separation():
     the list leaves a visible slider its own reset can't clear."""
     from negpy.desktop.view.sidebar.controls_panel import _TONE_FIELDS
 
-    for field in ("dye_separation", "dye_separation_trim_red", "dye_separation_trim_green", "dye_separation_trim_blue"):
+    for field in (
+        "dye_separation",
+        "dye_separation_trim_red",
+        "dye_separation_trim_green",
+        "dye_separation_trim_blue",
+        "separation_damping",
+    ):
         assert field in _TONE_FIELDS
+
+
+def test_separation_damping_locked_without_a_separation_push(qapp):
+    """It redistributes Dye Separation's push and has no effect of its own, so at
+    separation 1.0 it renders nothing — a live slider there reads as broken."""
+    controller = MagicMock()
+    controller.state = AppState()
+    sidebar = ToneSidebar(controller)
+
+    sidebar.sync_ui()
+    assert not sidebar.separation_damping_slider.isEnabled()
+
+    conf = controller.state.config
+    controller.state.config = replace(conf, exposure=replace(conf.exposure, dye_separation=1.3))
+    sidebar.sync_ui()
+    assert sidebar.separation_damping_slider.isEnabled()
 
 
 def test_paper_combo_rebuilt_only_when_entries_change(qapp):

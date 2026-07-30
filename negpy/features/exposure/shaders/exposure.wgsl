@@ -17,15 +17,15 @@ struct ExposureUniforms {
     d_max: f32,
     a_toe_base: f32,
     a_sh_base: f32,
-    // Free slot (ex per-pixel Dye Separation, ex-width_ref;
-    // toeshoulder_width_ref is the 2.5 literal below).
-    pad0: f32,
+    // Separation Damping (0 = off; toeshoulder_width_ref is the 2.5 literal below).
+    sep_damping: f32,
     toe_height: f32,
     sh_height: f32,
     zone_center: f32,
     shoulder_width_g: f32,
-    // Free slot (ex-surround_gamma).
-    pad1: f32,
+    // Separation Damping's per-layer k, red (green/blue ride split_sh.w/split_hi.w);
+    // was the ex-surround_gamma pad.
+    sep_k_r: f32,
     mode: u32,
     v_star: f32,
     shoulder_width_b: f32,
@@ -43,7 +43,8 @@ struct ExposureUniforms {
     // Dodge/burn: xyz = per-channel normalized-space size of one EV stop
     // (local_ev_scale), w = enable flag (0 -> ev_tex is a dummy, skip it).
     ev_scale: vec4<f32>,
-    // Split Grade per-channel zone contrast gains (split_grade_deltas), w free.
+    // Split Grade per-channel zone contrast gains (split_grade_deltas); the two
+    // w-lanes carry Separation Damping's green/blue k (red rides sep_k_r).
     // These rows push the block past 256B: exposure spans two UBO slots.
     split_sh: vec4<f32>,
     split_hi: vec4<f32>,
@@ -67,6 +68,17 @@ fn fast_sigmoid(x: f32) -> f32 {
 // Numerically stable softplus: log(1 + exp(x)). Antiderivative of the sigmoid.
 fn softplus(x: f32) -> f32 {
     return max(x, 0.0) + log(1.0 + exp(-abs(x)));
+}
+
+// One pixel's effective dye-separation k; mirrors separation_damping_gain in
+// exposure/logic.py. 0.35 mirrors separation_damping_ref_spread in models.py --
+// change both.
+fn separation_damping_gain(k: f32, damping: f32, chroma: f32) -> f32 {
+    if (k <= 0.0) {
+        return 0.0;
+    }
+    let h = (0.35 - chroma) / (0.35 + chroma);
+    return min(pow(k, (1.0 - damping) + damping * h), 3.0);
 }
 
 // Working-space OETF (Adobe RGB: pure 563/256 gamma); feeds the encoded
@@ -167,6 +179,22 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             dot(params.dye_g.xyz, e),
             dot(params.dye_b.xyz, e),
         );
+    }
+
+    // Separation Damping: chroma-selective dye separation, in place of the
+    // frame-wide saturation matrix. Mirrors _apply_print_curve_kernel.
+    if (params.sep_damping > 0.0) {
+        let s = dens - d_min_rgb;
+        let s_mean = (s.x + s.y + s.z) / 3.0;
+        let d = vec3<f32>(s.x - s.y, s.y - s.z, s.x - s.z);
+        let chroma = sqrt(dot(d, d) / 3.0);
+        let k3 = vec3<f32>(params.sep_k_r, params.split_sh.w, params.split_hi.w);
+        let kf = vec3<f32>(
+            separation_damping_gain(k3.x, params.sep_damping, chroma),
+            separation_damping_gain(k3.y, params.sep_damping, chroma),
+            separation_damping_gain(k3.z, params.sep_damping, chroma),
+        );
+        dens = d_min_rgb + vec3<f32>(s_mean) + kf * (s - vec3<f32>(s_mean));
     }
 
     var transmittance = pow(vec3<f32>(10.0), -dens);

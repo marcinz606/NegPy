@@ -1224,13 +1224,18 @@ class GPUEngine:
         # as the paper's real crosstalk. Mirrors the CPU path
         # (apply_characteristic_curve) exactly — see negpy/features/exposure/logic.py.
         if settings.process.process_mode == ProcessMode.BW:
+            sat_k3 = (1.0, 1.0, 1.0)
+            sep_damping = 0.0
             sat = None
         else:
             sat_k3 = per_channel_dye_separation(
                 exp.dye_separation,
                 (exp.dye_separation_trim_red, exp.dye_separation_trim_green, exp.dye_separation_trim_blue),
             )
-            sat = resolve_saturation_matrix(sat_k3)
+            # Separation Damping makes k per-pixel, so it leaves the matrix slot
+            # to the paper's coupling and runs in the shader instead.
+            sep_damping = float(exp.separation_damping) if sat_k3 != (1.0, 1.0, 1.0) else 0.0
+            sat = None if sep_damping > 0.0 else resolve_saturation_matrix(sat_k3)
         composed = compose_density_matrices(dye, sat)
         dye = composed  # use_dye_mix (below) and dye_rows both key off this
         dye_rows = np.eye(3) if dye is None else dye
@@ -1271,14 +1276,15 @@ class GPUEngine:
                 pc["d_max"],
                 pc["toe_sharpness_base"],
                 pc["shoulder_sharpness_base"],
-                # Free slot (ex per-pixel Dye Separation, ex-width_ref;
-                # toeshoulder_width_ref is a WGSL literal).
-                0.0,
+                # Separation Damping (toeshoulder_width_ref is a WGSL literal).
+                sep_damping,
                 pc["toe_height"],
                 pc["shoulder_height"],
                 pc["anchor_target_density"],
                 _sw3[1],
-                0.0,  # free slot (ex-surround_gamma)
+                # Separation Damping's per-layer k, red (ex-surround_gamma slot);
+                # green/blue ride the split_sh/split_hi w-lanes.
+                sat_k3[0],
                 mode_val,
                 _reference_linear_value(d_min, paper),
                 _sw3[2],
@@ -1297,9 +1303,10 @@ class GPUEngine:
             + struct.pack("ffff", dye_rows[2, 0], dye_rows[2, 1], dye_rows[2, 2], _mg3[2])
             # Dodge/burn EV-stop size per channel (local_ev_scale); w = enable flag.
             + struct.pack("ffff", *local_ev_scale(LogNegativeBounds(adj_floors, adj_ceils)), 1.0 if settings.local.masks else 0.0)
-            # Split Grade per-channel zone contrast gains (split_grade_deltas).
-            + struct.pack("ffff", _sg3[0], _sg3[1], _sg3[2], 0.0)
-            + struct.pack("ffff", _hg3[0], _hg3[1], _hg3[2], 0.0)
+            # Split Grade per-channel zone contrast gains (split_grade_deltas);
+            # the w-lanes carry Separation Damping's green/blue k.
+            + struct.pack("ffff", _sg3[0], _sg3[1], _sg3[2], sat_k3[1])
+            + struct.pack("ffff", _hg3[0], _hg3[1], _hg3[2], sat_k3[2])
         )
 
         cls = float(settings.lab.clahe_strength)

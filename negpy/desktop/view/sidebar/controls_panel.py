@@ -92,6 +92,7 @@ _TONE_FIELDS = (
     "dye_separation_trim_red",
     "dye_separation_trim_green",
     "dye_separation_trim_blue",
+    "separation_damping",
 )
 
 # Constant frozen-dataclass defaults — build once, not per resync.
@@ -550,6 +551,15 @@ class ControlsPanel(QWidget):
                 "curve is already compressed at toe and shoulder. Chroma in Colour is the flat version: "
                 "an even a*/b* scale after decode. Takes per-layer R/G/B trims. 1.0 = off/identity",
                 ["dye_separation_inc", "dye_separation_dec"],
+            )
+        )
+        exp.separation_damping_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Decides where Dye Separation's push lands instead of adding one of its own — at 0 every "
+                "colour gets the same push, at 1 muted colour takes it all while colour that is already "
+                "saturated gets the opposite, the way a film's coupler supply runs out where it has "
+                "already done its work. Dead at Dye Separation 1.0. 0 = flat",
+                ["separation_damping_inc", "separation_damping_dec"],
             )
         )
         lab.clahe_slider.setToolTip(

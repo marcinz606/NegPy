@@ -325,6 +325,7 @@ class PhotometricProcessor:
                 self.config.dye_separation_trim_green,
                 self.config.dye_separation_trim_blue,
             ),
+            separation_damping=0.0 if context.process_mode == ProcessMode.BW else self.config.separation_damping,
         )
 
         if context.process_mode == ProcessMode.BW:

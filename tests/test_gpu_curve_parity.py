@@ -150,6 +150,60 @@ class TestGpuCurveParity(unittest.TestCase):
         self.assertLess(mad, 0.01, f"mean abs diff {mad:.4f}")
         self.assertLess(mx, 0.04, f"max abs diff {mx:.4f}")
 
+    def test_cpu_gpu_match_separation_damping(self):
+        """Separation Damping's per-pixel k is written twice -- the CPU kernel and
+        WGSL -- so the two can drift, and it moves the sat matrix out of the
+        dye_mix slot on both paths. Both directions: above 1.0 the damping lifts
+        muted colour and pulls vivid colour down, below 1.0 the reverse."""
+        from negpy.services.rendering.image_processor import ImageProcessor
+
+        processor = ImageProcessor()
+        if processor.engine_gpu is None:
+            self.skipTest("GPU engine not initialised")
+
+        rng = np.random.default_rng(3)
+        h, w = 64, 64
+        # The shared fixture is near-neutral (channels x1.0/0.95/0.9), so the
+        # damping barely engages on it and parity would pass vacuously. Sweep
+        # chroma down the frame instead: neutral at the top, strongly coloured at
+        # the bottom, which is the axis this operator keys off.
+        grad = np.linspace(0.05, 0.9, w, dtype=np.float32)
+        luma = np.repeat(grad[None, :], h, axis=0)
+        chroma = np.linspace(0.0, 1.0, h, dtype=np.float32)[:, None]
+        img = np.stack([luma, luma * (1.0 - 0.55 * chroma), luma * (1.0 - 0.75 * chroma)], axis=-1)
+        img = np.ascontiguousarray(img + rng.uniform(0, 0.01, img.shape).astype(np.float32))
+
+        s = WorkspaceConfig()
+        for sep, trim_r in ((1.5, 0.3), (0.6, -0.2)):
+            with self.subTest(dye_separation=sep):
+                settings = replace(
+                    s,
+                    exposure=replace(
+                        s.exposure,
+                        paper_profile="kodak_endura",
+                        dye_separation=sep,
+                        dye_separation_trim_red=trim_r,
+                        separation_damping=1.0,
+                    ),
+                )
+                cpu = self._render(processor, settings, img, prefer_gpu=False)
+                gpu = self._render(processor, settings, img, prefer_gpu=True)
+
+                self.assertEqual(cpu.shape, gpu.shape)
+                mad = float(np.mean(np.abs(cpu - gpu)))
+                mx = float(np.max(np.abs(cpu - gpu)))
+                self.assertLess(mad, 0.01, f"mean abs diff {mad:.4f}")
+                self.assertLess(mx, 0.04, f"max abs diff {mx:.4f}")
+
+                # Guard the parity assertions above against passing vacuously:
+                # both engines agreeing to do nothing is not parity.
+                flat = replace(settings, exposure=replace(settings.exposure, separation_damping=0.0))
+                for label, gpu_path in (("cpu", False), ("gpu", True)):
+                    engaged = float(
+                        np.mean(np.abs(self._render(processor, flat, img, prefer_gpu=gpu_path) - (cpu if label == "cpu" else gpu)))
+                    )
+                    self.assertGreater(engaged, 0.002, f"{label} damping barely engaged ({engaged:.5f})")
+
     def test_cpu_gpu_match_trims_no_dye_separation(self):
         """Dye Separation below 1.0 scales chroma toward neutral, which masks
         CPU/GPU chroma disagreements. With it at identity (its default), the Cast

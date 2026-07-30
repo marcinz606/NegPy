@@ -98,6 +98,10 @@ class ExposureConfig:
     dye_separation_trim_red: float = 0.0
     dye_separation_trim_green: float = 0.0
     dye_separation_trim_blue: float = 0.0
+    # Tapers dye_separation by each pixel's own chroma (see
+    # logic.separation_damping_gain). Inert at dye_separation 1.0 — it
+    # redistributes that slider's push, it has no effect of its own.
+    separation_damping: float = 0.0
 
     def __post_init__(self) -> None:
         """
@@ -292,6 +296,16 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # Density half-width over which the midtone gamma boost eases to the tails.
     # ↑ wider, more gradual S; ↓ tighter, more localized midtone boost.
     "paper_gamma_width": 0.6,
+    # ── Separation Damping ───────────────────────────────────────────────────
+    # Chroma (RMS dye-density spread above paper base) that Separation Damping
+    # leaves untouched: below it a pixel takes the full Dye Separation push,
+    # above it the inverse. Measured on a real Ektar frame, print-density chroma
+    # runs p50 0.08 / p90 0.61, so this lands near p88 — the muted majority keeps
+    # nearly the whole push and the top eighth is pulled back. Both ends are
+    # failure modes: too high and every pixel takes the same push (the
+    # frame-wide matrix again), too low and the crossing leaves the picture, so
+    # the control only ever mutes. Inlined as a WGSL literal — change both.
+    "separation_damping_ref_spread": 0.35,
 }
 
 # Auto Density / Auto Grade targets the user can retune (Set Targets dialog).

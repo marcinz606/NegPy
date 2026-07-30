@@ -146,9 +146,13 @@ class ToneSidebar(BaseSidebar):
             "channel's density separation independently. Neutrals stay flat at any trim value."
         )
         self.dye_separation_trim_slider.setVisible(False)
+        # Redistributes the slider above by each pixel's own chroma; inert at 1.0
+        # separation, so it is disabled there rather than reading as broken.
+        self.separation_damping_slider = CompactSlider("Separation Damping", 0.0, 1.0, conf.separation_damping)
         dye_sep_row = QHBoxLayout()
         dye_sep_row.addWidget(self.dye_separation_slider)
         dye_sep_row.addWidget(self.dye_separation_trim_slider)
+        dye_sep_row.addWidget(self.separation_damping_slider)
         self.layout.addLayout(dye_sep_row)
 
         paper_header = section_subheader("PAPER RESPONSE")
@@ -311,6 +315,7 @@ class ToneSidebar(BaseSidebar):
             (self.shadow_density_slider, "shadow_density"),
             (self.highlight_density_slider, "highlight_density"),
             (self.dye_separation_slider, "dye_separation"),
+            (self.separation_damping_slider, "separation_damping"),
         ):
             slider.valueChanged.connect(
                 lambda v, f=field: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, **{f: v})
@@ -409,6 +414,7 @@ class ToneSidebar(BaseSidebar):
             self.sh_w_trim_slider.setVisible(not global_mode)
             self.dye_separation_slider.setVisible(global_mode and not is_bw)
             self.dye_separation_trim_slider.setVisible(not global_mode and not is_bw)
+            self.separation_damping_slider.setVisible(global_mode and not is_bw)
             self.toe_slider.label.setText("Toe" + suffix)
             self.sh_slider.label.setText("Shoulder" + suffix)
             self.midtone_gamma_slider.label.setText("Snap" + suffix)
@@ -448,6 +454,11 @@ class ToneSidebar(BaseSidebar):
             self.shadow_density_slider.setValue(conf.shadow_density)
             self.highlight_density_slider.setValue(conf.highlight_density)
             self.dye_separation_slider.setValue(conf.dye_separation)
+            self.separation_damping_slider.setValue(conf.separation_damping)
+            # It redistributes Dye Separation's push and does nothing on its own,
+            # so at 1.0 separation it is dead — say so instead of letting it be
+            # dragged for no result.
+            self.separation_damping_slider.setEnabled(conf.dye_separation != 1.0)
 
             self.paper_dmin_btn.setChecked(conf.paper_dmin)
             self.paper_black_btn.setChecked(conf.paper_black)
@@ -477,6 +488,7 @@ class ToneSidebar(BaseSidebar):
             self.highlight_density_slider,
             self.dye_separation_slider,
             self.dye_separation_trim_slider,
+            self.separation_damping_slider,
             self.shadow_grade_slider,
             self.highlight_grade_slider,
             self.paper_dmin_btn,

@@ -85,6 +85,7 @@ SLIDER_GROUPS: tuple[SliderShortcutGroup, ...] = (
     _g("shadow_grade", "Shadows grade ↑/↓", "shadow_grade_inc", "shadow_grade_dec", 1.0, "Exposure", step_decimals=0),
     _g("highlight_grade", "Highlights grade ↑/↓", "highlight_grade_inc", "highlight_grade_dec", 1.0, "Exposure", step_decimals=0),
     _g("dye_separation", "Dye Separation ↑/↓", "dye_separation_inc", "dye_separation_dec", 0.01, "Exposure"),
+    _g("separation_damping", "Separation Damping ↑/↓", "separation_damping_inc", "separation_damping_dec", 0.01, "Exposure"),
     _g("offset", "Crop offset ↑/↓", "offset_inc", "offset_dec", 1.0, "Geometry", step_decimals=0, step_suffix=" px"),
     _g("fine_rot", "Fine rotation ↑/↓", "fine_rot_inc", "fine_rot_dec", 0.01, "Geometry", step_suffix="°"),
     _g("analysis_buffer", "Analysis buffer ↑/↓", "analysis_buffer_inc", "analysis_buffer_dec", 0.01, "Process"),

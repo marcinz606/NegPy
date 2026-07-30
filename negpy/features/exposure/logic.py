@@ -52,6 +52,28 @@ def _inv_softplus_np(y: Any) -> Any:
     return np.where(y > 20.0, y, np.log(np.expm1(np.maximum(y, 1e-12))))
 
 
+@njit(inline="always")
+def separation_damping_gain(k: float, damping: float, chroma: float, ref_spread: float) -> float:
+    """
+    One pixel's effective dye-separation k: the frame-wide k tapered by the
+    pixel's own chroma. h = (ref - c)/(ref + c) runs from 1 at grey to -1 at
+    extreme separation, so at damping 1 muted colour takes the full k, the
+    reference spread is left at exactly 1.0 and vivid colour gets 1/k — the
+    sign of the change differs between the two populations, which is what a
+    frame-wide matrix cannot do. Monotone in chroma for k < e**2; the clamp
+    bounds the k -> 0 corner (weakly monotone, so no rank swap).
+
+    Single source for the CPU kernel and the tests; exposure.wgsl mirrors it.
+    """
+    if k <= 0.0:
+        return 0.0
+    h = (ref_spread - chroma) / (ref_spread + chroma)
+    kf = k ** ((1.0 - damping) + damping * h)
+    if kf > 3.0:
+        return 3.0
+    return float(kf)
+
+
 @parallel_njit(cache=True, fastmath=True)
 def _apply_print_curve_kernel(
     img: np.ndarray,
@@ -85,6 +107,10 @@ def _apply_print_curve_kernel(
     gamma_width: float,
     dye_mix: np.ndarray,
     use_dye_mix: bool,
+    sep_k3: np.ndarray,
+    sep_damping: float,
+    sep_ref: float,
+    use_sep_damping: bool,
     ev_map: np.ndarray,
     ev_scale: np.ndarray,
     use_ev: bool,
@@ -210,6 +236,20 @@ def _apply_print_curve_kernel(
                 dens[0] = d_min_rgb[0] + dye_mix[0, 0] * e0 + dye_mix[0, 1] * e1 + dye_mix[0, 2] * e2
                 dens[1] = d_min_rgb[1] + dye_mix[1, 0] * e0 + dye_mix[1, 1] * e1 + dye_mix[1, 2] * e2
                 dens[2] = d_min_rgb[2] + dye_mix[2, 0] * e0 + dye_mix[2, 1] * e1 + dye_mix[2, 2] * e2
+
+            if use_sep_damping:
+                # Chroma-selective dye separation, in place of the frame-wide
+                # saturation matrix (which then carries the paper's coupling
+                # only, preserving compose_density_matrices' separation-outermost
+                # order). Chroma mirrors _rms_chroma in normalization.py.
+                s0 = dens[0] - d_min_rgb[0]
+                s1 = dens[1] - d_min_rgb[1]
+                s2 = dens[2] - d_min_rgb[2]
+                s_mean = (s0 + s1 + s2) / 3.0
+                chroma = np.sqrt(((s0 - s1) ** 2 + (s1 - s2) ** 2 + (s0 - s2) ** 2) / 3.0)
+                dens[0] = d_min_rgb[0] + s_mean + separation_damping_gain(sep_k3[0], sep_damping, chroma, sep_ref) * (s0 - s_mean)
+                dens[1] = d_min_rgb[1] + s_mean + separation_damping_gain(sep_k3[1], sep_damping, chroma, sep_ref) * (s1 - s_mean)
+                dens[2] = d_min_rgb[2] + s_mean + separation_damping_gain(sep_k3[2], sep_damping, chroma, sep_ref) * (s2 - s_mean)
 
             for ch in range(3):
                 transmittance = 10.0 ** (-dens[ch])
@@ -503,6 +543,7 @@ def apply_characteristic_curve(
     highlight_grade_deltas: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     dye_separation: float = 1.0,
     dye_separation_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    separation_damping: float = 0.0,
 ) -> ImageBuffer:
     """Applies the asymmetric H&D print curve per channel in log-density space.
 
@@ -510,7 +551,11 @@ def apply_characteristic_curve(
     applies per-pixel dodge/burn as print-exposure offsets ahead of the curve.
 
     dye_separation(_trims): density-domain saturation, composed into the
-    dye_mix slot (see resolve_saturation_matrix/compose_density_matrices)."""
+    dye_mix slot (see resolve_saturation_matrix/compose_density_matrices).
+
+    separation_damping: tapers that separation by each pixel's own chroma
+    (see separation_damping_gain), which makes k per-pixel — so it leaves the
+    dye_mix slot to the paper's coupling and runs in the kernel instead."""
     c = effective_constants(paper)
     ts = c["toe_shoulder_strength"]
     if midtone_gamma is None:
@@ -524,7 +569,8 @@ def apply_characteristic_curve(
     h_cmy = np.ascontiguousarray(np.array(highlight_cmy, dtype=np.float32))
     dye = resolve_dye_matrix(paper)
     sat_k3 = per_channel_dye_separation(dye_separation, dye_separation_trims)
-    sat = resolve_saturation_matrix(sat_k3)
+    use_sep_damping = separation_damping > 0.0 and sat_k3 != (1.0, 1.0, 1.0)
+    sat = None if use_sep_damping else resolve_saturation_matrix(sat_k3)
     composed = compose_density_matrices(dye, sat)
     dye_mix = np.ascontiguousarray(np.eye(3) if composed is None else composed)
     use_ev = ev_map is not None
@@ -564,6 +610,10 @@ def apply_characteristic_curve(
         gamma_width=float(c["paper_gamma_width"]),
         dye_mix=dye_mix,
         use_dye_mix=composed is not None,
+        sep_k3=np.array(sat_k3, dtype=np.float64),
+        sep_damping=float(separation_damping),
+        sep_ref=float(c["separation_damping_ref_spread"]),
+        use_sep_damping=use_sep_damping,
         ev_map=ev_arr,
         ev_scale=np.ascontiguousarray(np.array(ev_scale, dtype=np.float32)),
         use_ev=use_ev,
