@@ -210,15 +210,35 @@ fn in_gamut_lab(lab: vec3<f32>) -> bool {
 // the overshooting channel(s) changes the R:G:B ratio even though the a*/b*
 // scale itself preserves hue exactly). Mirrors gamut_aware_chroma_scale in
 // kernel/image/logic.py -- 10 bisection iterations, same as the CPU path.
+// PROTOTYPE skin-tone hue protection -- mirrors _skin_protection_weight in
+// kernel/image/logic.py exactly, same constants.
+const SKIN_HUE_CENTER_DEG = 52.0;
+const SKIN_HUE_WIDTH_DEG = 25.0;
+const SKIN_PROTECTION_STRENGTH = 0.5;
+
+fn skin_protection_weight(a: f32, b: f32) -> f32 {
+    let chroma = length(vec2<f32>(a, b));
+    if (chroma < 2.0) { return 0.0; }
+    let hue_deg = degrees(atan2(b, a));
+    var dist = hue_deg - SKIN_HUE_CENTER_DEG;
+    dist = dist - 360.0 * round(dist / 360.0);
+    let x = dist / SKIN_HUE_WIDTH_DEG;
+    return exp(-0.5 * x * x);
+}
+
 fn gamut_aware_chroma_eff(lab: vec3<f32>, saturation: f32) -> f32 {
+    // Skin protection is boost-only -- desaturation never overshoots the gamut
+    // and shouldn't stop short of what was asked for unrelated hue reasons.
     if (saturation <= 1.0) { return saturation; }
+    let w = skin_protection_weight(lab.y, lab.z);
+    let local_sat = saturation - SKIN_PROTECTION_STRENGTH * w * (saturation - 1.0);
     // Full push already lands in gamut -- use it directly. Without this, bisecting
-    // only within [1, saturation] always converges lo toward saturation itself (an
+    // only within [1, local_sat] always converges lo toward local_sat itself (an
     // artifact of that being the search's own upper bound, not a real constraint),
     // and the knee below then throttles pixels that were never going to clip.
-    if (in_gamut_lab(vec3<f32>(lab.x, lab.y * saturation, lab.z * saturation))) { return saturation; }
+    if (in_gamut_lab(vec3<f32>(lab.x, lab.y * local_sat, lab.z * local_sat))) { return local_sat; }
     var lo = 1.0;
-    var hi = saturation;
+    var hi = local_sat;
     let still_ok = in_gamut_lab(lab);
     for (var i = 0; i < 10; i++) {
         let mid = (lo + hi) / 2.0;
@@ -230,7 +250,7 @@ fn gamut_aware_chroma_eff(lab: vec3<f32>, saturation: f32) -> f32 {
     }
     let s_max = max(lo, 1.0 + 1e-4);
     let knee = s_max - 1.0;
-    return 1.0 + knee * (1.0 - exp(-(saturation - 1.0) / knee));
+    return 1.0 + knee * (1.0 - exp(-(local_sat - 1.0) / knee));
 }
 
 fn rgb_to_hsv(c: vec3<f32>) -> vec3<f32> {
