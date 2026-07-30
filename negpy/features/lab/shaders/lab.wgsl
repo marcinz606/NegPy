@@ -180,6 +180,57 @@ fn lab_to_rgb(lab: vec3<f32>) -> vec3<f32> {
     return max(vec3<f32>(r, g, b), vec3<f32>(0.0));
 }
 
+// Whether (L,a,b) decodes to linear working RGB within [0,1] on all channels
+// -- unclamped, unlike lab_to_rgb (which clamps negatives internally and would
+// hide a would-be-negative channel from this check). Mirrors _in_gamut_lab in
+// kernel/image/logic.py exactly; same matrices as lab_to_rgb above.
+fn in_gamut_lab(lab: vec3<f32>) -> bool {
+    var y = (lab.x + 16.0) / 116.0;
+    var x = lab.y / 500.0 + y;
+    var z = y - lab.z / 200.0;
+    if (pow(x, 3.0) > 0.008856) { x = pow(x, 3.0); } else { x = (x - 16.0 / 116.0) / 7.787; }
+    if (pow(y, 3.0) > 0.008856) { y = pow(y, 3.0); } else { y = (y - 16.0 / 116.0) / 7.787; }
+    if (pow(z, 3.0) > 0.008856) { z = pow(z, 3.0); } else { z = (z - 16.0 / 116.0) / 7.787; }
+    x = x * 0.95047;
+    y = y * 1.00000;
+    z = z * 1.08883;
+    let r = x * 2.0413690 + y * -0.5649464 + z * -0.3446944;
+    let g = x * -0.9692660 + y * 1.8760108 + z * 0.0415560;
+    let b = x * 0.0134474 + y * -0.1183897 + z * 1.0154096;
+    let tol = 1e-4;
+    return r >= -tol && r <= 1.0 + tol && g >= -tol && g <= 1.0 + tol && b >= -tol && b <= 1.0 + tol;
+}
+
+// Gamut-aware chroma scale for saturation > 1.0: pixels comfortably inside the
+// display gamut get the full flat scale; pixels whose full-strength push would
+// clip get a smooth softplus-style knee toward their own in-gamut headroom
+// instead of an abrupt per-channel RGB clamp, which shifts hue (clamping only
+// the overshooting channel(s) changes the R:G:B ratio even though the a*/b*
+// scale itself preserves hue exactly). Mirrors gamut_aware_chroma_scale in
+// kernel/image/logic.py -- 10 bisection iterations, same as the CPU path.
+fn gamut_aware_chroma_eff(lab: vec3<f32>, saturation: f32) -> f32 {
+    if (saturation <= 1.0) { return saturation; }
+    // Full push already lands in gamut -- use it directly. Without this, bisecting
+    // only within [1, saturation] always converges lo toward saturation itself (an
+    // artifact of that being the search's own upper bound, not a real constraint),
+    // and the knee below then throttles pixels that were never going to clip.
+    if (in_gamut_lab(vec3<f32>(lab.x, lab.y * saturation, lab.z * saturation))) { return saturation; }
+    var lo = 1.0;
+    var hi = saturation;
+    let still_ok = in_gamut_lab(lab);
+    for (var i = 0; i < 10; i++) {
+        let mid = (lo + hi) / 2.0;
+        if (still_ok && in_gamut_lab(vec3<f32>(lab.x, lab.y * mid, lab.z * mid))) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    let s_max = max(lo, 1.0 + 1e-4);
+    let knee = s_max - 1.0;
+    return 1.0 + knee * (1.0 - exp(-(saturation - 1.0) / knee));
+}
+
 fn rgb_to_hsv(c: vec3<f32>) -> vec3<f32> {
     let v = max(c.r, max(c.g, c.b));
     let m = min(c.r, min(c.g, c.b));
@@ -252,11 +303,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
     }
 
-    // 2. Global Saturation (CIELAB chroma scaling — preserves L*)
+    // 2. Global Saturation (CIELAB chroma scaling — preserves L*; gamut-aware
+    // above 1.0, see gamut_aware_chroma_eff)
     if (params.saturation != 1.0) {
         var lab = rgb_to_lab(color);
-        lab.y = lab.y * params.saturation;
-        lab.z = lab.z * params.saturation;
+        let eff = gamut_aware_chroma_eff(lab, params.saturation);
+        lab.y = lab.y * eff;
+        lab.z = lab.z * eff;
         color = lab_to_rgb(lab);
     }
 

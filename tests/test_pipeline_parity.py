@@ -298,6 +298,36 @@ class TestLabParity:
         )
         self._run_and_compare(s)
 
+    def test_saturation_gamut_aware_knee_tight_parity(self):
+        """Dedicated, tight-tolerance regression guard for gamut_aware_chroma_scale
+        (kernel/image/logic.py) specifically -- a real bug here (the CPU/GPU gamut
+        check using the wrong RGB<->XYZ matrix direction) previously produced a
+        CPU/GPU max diff of ~0.06 on deeply saturated content, invisible to this
+        class's own much looser default tolerance (atol/rtol=1.5e-1). Uses a
+        strongly colour-biased synthetic frame (unlike _make_synthetic_image's
+        gentler gradient) specifically to drive real pixels into the gamut-aware
+        knee, not just the byte-exact identity/no-knee fast path."""
+        rng = np.random.default_rng(5)
+        h, w = 64, 64
+        grad = np.linspace(0.05, 0.9, w, dtype=np.float32)
+        img = np.repeat(grad[None, :], h, axis=0)
+        img = np.stack([img, img * 0.3, img * 1.4], axis=-1)
+        img = np.ascontiguousarray(np.clip(img + rng.uniform(0, 0.02, img.shape).astype(np.float32), 0, 1))
+
+        s = replace(_make_base_settings(), lab=LabConfig(saturation=1.8, sharpen=0.0))
+        scale = max(h, w) / 1024.0
+
+        cpu_result = self.cpu.process(img, s, "parity_test_gamut_knee")
+        gpu_tex, _ = self.gpu.process_to_texture(img, s, scale_factor=scale, apply_layout=False, readback_metrics=False)
+        gpu_result = self.gpu._readback_downsampled(gpu_tex)
+
+        cpu_arr = np.asarray(cpu_result)[..., :3].astype(np.float64)
+        gpu_arr = np.asarray(gpu_result)[..., :3].astype(np.float64)
+        mad = float(np.mean(np.abs(cpu_arr - gpu_arr)))
+        mx = float(np.max(np.abs(cpu_arr - gpu_arr)))
+        assert mad < 0.01, f"mean abs diff {mad:.4f}"
+        assert mx < 0.04, f"max abs diff {mx:.4f}"
+
     def test_desaturation(self):
         # Heavy desaturation (sat=0.2) shrinks chroma in CIELAB.
         # CPU (OpenCV) and GPU (WGSL) LAB stacks diverge slightly on very pale,

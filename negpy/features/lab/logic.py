@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 
 from negpy.domain.types import ImageBuffer
-from negpy.kernel.image.logic import lab_to_rgb_working, rgb_to_lab_working, working_oetf_encode
+from negpy.kernel.image.logic import gamut_aware_chroma_scale, lab_to_rgb_working, rgb_to_lab_working, working_oetf_encode
 from negpy.kernel.image.validation import ensure_image
 
 
@@ -218,15 +218,19 @@ def apply_saturation(img: ImageBuffer, saturation: float) -> ImageBuffer:
     Adjusts saturation by scaling chroma (a*, b*) in CIELAB.
     Preserves perceived lightness, unlike HSV S-scaling which darkens
     already-saturated colors when S clips to 1.0.
+
+    Gamut-aware above 1.0 (see gamut_aware_chroma_scale): a flat a*/b* scale
+    preserves hue mathematically, but pixels that overshoot the display gamut
+    get hard-clamped per channel afterward, which shifts the *actual* hue
+    since clamping only the overshooting channel(s) changes the R:G:B ratio.
+    A soft per-pixel knee toward each pixel's real in-gamut headroom avoids
+    that instead of clamping after the fact.
     """
     if saturation == 1.0:
         return img
 
     lab = rgb_to_lab_working(img.astype(np.float32))
-    l_chan, a, b = cv2.split(lab)
-    a_new = a * saturation
-    b_new = b * saturation
-    res_lab = cv2.merge([l_chan, a_new, b_new])
+    res_lab = gamut_aware_chroma_scale(lab, saturation)
     res_rgb = lab_to_rgb_working(res_lab)
     return ensure_image(np.clip(res_rgb, 0.0, 1.0))
 
