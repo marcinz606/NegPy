@@ -107,12 +107,23 @@ class _Camera:
     def capture(self, _kind):
         if self._fake.undrained:
             raise _Err("[-1] unspecified error")
+        if self._fake.object_capacity is not None and self._fake.stored_objects >= self._fake.object_capacity:
+            # Fujifilm behaviour (issue #658): the tether buffer holds every un-deleted shot
+            # and the body refuses the next trigger outright once it is full.
+            raise _Err("[-1] unspecified error")
         self._fake.undrained = True
         self._fake.captures += 1
+        self._fake.stored_objects += 1
         return _Path(self._fake.raw_name)
 
     def file_get(self, _folder, _name, _kind):
         return _File(b"RAWDATA" * 3)
+
+    def file_delete(self, _folder, _name):
+        if self._fake.reject_deletes:
+            raise _Err("[-2] bad parameters")
+        self._fake.deletes += 1
+        self._fake.stored_objects = max(0, self._fake.stored_objects - 1)
 
     def capture_preview(self):
         self._check()
@@ -186,6 +197,10 @@ class FakeGP:
         self.late_events = 0  # post-shot events the body only hands over after a pause (Fujifilm, #658)
         self.event_gap = False
         self.event_waits: list[int] = []  # the quiet-window ms passed to each wait_for_event
+        self.stored_objects = 0  # tethered shots the body still holds (deletes drain this)
+        self.object_capacity = None  # int → refuse captures when full, as the X-T5 does (#658)
+        self.deletes = 0
+        self.reject_deletes = False  # a body whose RAM target refuses the delete
         self.opened = False
         self.undrained = False
         self.gone = False  # set by unplug(): the body stops answering, as on a pulled cable
@@ -303,6 +318,30 @@ def test_three_captures_in_a_row_succeed(cam, tmp_path):
     # Without the drain the second capture raises "[-1] unspecified error".
     for channel in "RGB":
         cam.capture(str(tmp_path / f"f_{channel}.ARW"))
+
+
+def test_capture_deletes_the_downloaded_shot_off_the_camera(cam, fake, tmp_path):
+    cam.capture(str(tmp_path / "f.ARW"))
+    assert fake.deletes == 1 and fake.stored_objects == 0
+
+
+def test_captures_outlast_a_fuji_style_tether_buffer(fake, tmp_path):
+    """Issue #658: the X-T5 keeps every un-deleted tethered shot and refuses the 13th capture
+    once ~1 GB is held (both reporter sessions died at exactly shot #13). With the delete
+    after every download the buffer never fills, so a roll scans through."""
+    fake.object_capacity = 2
+    camera = GphotoCamera(gp_module=fake)
+    camera.open()
+    for i in range(6):
+        camera.capture(str(tmp_path / f"f{i}.ARW"))
+    assert fake.captures == 6  # far past the capacity a delete-less client wedges at
+    camera.close()
+
+
+def test_a_refused_delete_does_not_fail_the_capture(cam, fake, tmp_path):
+    fake.reject_deletes = True  # e.g. a self-recycling RAM target that has nothing to delete
+    out = cam.capture(str(tmp_path / "f.ARW"))
+    assert out.endswith(".ARW")  # the image is already downloaded; the delete is best-effort
 
 
 def test_capture_sets_the_shutter_first(cam, fake, tmp_path):

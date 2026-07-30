@@ -5,7 +5,7 @@ source: libgphoto2 keeps a single PTP session per body, so previews, property wr
 stills all ride the same handle behind one lock. It writes the preview JPEG and a
 settings JSON to the same paths the previous helper used, so the UI polls them unchanged.
 
-Four behaviours of the library shape this module; each is guarded below:
+Five behaviours of the library shape this module; each is guarded below:
 
 * Reading a value off a choice widget that has **no** choices dereferences a NULL and
   kills the process with SIGSEGV — no `except` can catch it. See `_safe_value`.
@@ -16,6 +16,9 @@ Four behaviours of the library shape this module; each is guarded below:
   small worker so the wait overlaps the next channel's LED settle (`_finish_shot_async`).
 * Choice strings are run through gettext, so on a German desktop `focusmode` reads
   'Manuell'. The message locale is pinned before the library loads. See `_pin_locale`.
+* A downloaded shot must also be *deleted* off the body. Bodies without a capture-target
+  setting (Fujifilm) keep every tethered object and refuse further captures once their
+  buffer fills — the X-T5 dies at exactly shot #13, ~1 GB. See the delete in `capture`.
 
 Vendors name the same control differently and expose different subsets of it, so every
 property is looked up rather than assumed — see `_PROPERTIES` and `_MAGNIFIERS`. Only Sony
@@ -684,6 +687,15 @@ class GphotoCamera:
                     camera_file = camera.file_get(path.folder, path.name, self._gp.GP_FILE_TYPE_NORMAL)
                     data = bytes(memoryview(camera_file.get_data_and_size()))
                     t_download = time.perf_counter()
+                    try:
+                        # Delete the downloaded shot from the body. On a self-recycling RAM
+                        # target (Sony sdram) this is redundant at worst, but a body without
+                        # a capture target keeps every tethered object: the X-T5 holds ~1 GB,
+                        # then refuses capture #13 outright with a bare [-1] (issue #658 —
+                        # both reporter sessions died at exactly the 13th shot).
+                        camera.file_delete(path.folder, path.name)
+                    except self._gp.GPhoto2Error as exc:
+                        logger.debug("gphoto2: could not delete %s off the camera: %s", path.name, exc)
                 except BaseException:
                     # A failed shot drains inline, still under the lock: the error must leave a
                     # clean queue behind before the preview or a retry can touch the session.
