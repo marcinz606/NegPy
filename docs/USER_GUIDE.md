@@ -298,7 +298,6 @@ Mimics what a lab scanner (Frontier/Noritsu) does automatically. Colour controls
 **Colour** (hidden in B&W):
 
 *   **Chroma** (0.0 to 2.0): a colour scale applied after the print is decoded, even across every tone, so it is a retouching move rather than a density-space one. 1.0 = unchanged, 0 = greyscale, 2.0 = double. For saturation that behaves like a print instead, reach for **Dye Separation** in the Exposure tab. Below 1.0 is a flat scale; above 1.0, pixels that would clip the display gamut get a soft per-pixel knee toward their own in-gamut headroom instead of a hard per-channel clamp, since clamping only the overshooting channel(s) shifts the hue the flat scale itself preserves. A boost-only skin-tone protection band pulls the push back toward identity for warm, moderate-chroma hues (portrait skin) so faces don't drift as fast as saturated backgrounds.
-    *   *Gamut-Aware Chroma (proto)*, next to it: a temporary A/B toggle for review, comparing the above against the old flat scale + hard clamp on the same Chroma value. Will be removed (or promoted to a permanent option) once reviewed — not meant to stay as a shipping control.
 *   **Chroma Denoise** (0.0 to 5.0): smooths colour noise, especially in shadows, while leaving luminance grain intact.
 
 **Sharpen:**

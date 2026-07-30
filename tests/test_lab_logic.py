@@ -336,7 +336,7 @@ class TestLabLogic(unittest.TestCase):
         np.testing.assert_allclose(gamut_aware, naive, atol=1e-5)
 
     def test_skin_protection_dampens_boost_near_skin_hue(self) -> None:
-        """PROTOTYPE: a mild boost on a hue close to the measured skin-tone
+        """A mild boost on a hue close to the measured skin-tone
         band (~52deg) should land short of the full requested push, purely
         from hue -- both colors here are mild enough (chroma ~5) to stay
         nowhere near the gamut edge, isolating skin protection from
@@ -354,7 +354,7 @@ class TestLabLogic(unittest.TestCase):
         self.assertGreater(eff, 1.0)
 
     def test_skin_protection_negligible_far_from_skin_hue(self) -> None:
-        """PROTOTYPE: the same mild boost on a hue far from the skin band
+        """The same mild boost on a hue far from the skin band
         (blue, ~291deg) should land at essentially the exact requested value
         -- confirms protection is actually hue-gated, not a blanket damping."""
         img = np.full((4, 4, 3), 0.5, dtype=np.float32)
@@ -369,7 +369,7 @@ class TestLabLogic(unittest.TestCase):
         self.assertAlmostEqual(eff, 1.3, delta=1e-3)
 
     def test_skin_protection_boost_only(self) -> None:
-        """PROTOTYPE: desaturating a skin-hued color must be a plain flat
+        """Desaturating a skin-hued color must be a plain flat
         scale, unaffected by skin protection -- asking for less saturation
         should mean exactly that, including all the way to zero, not stop
         short for hue reasons. Regression for the specific case where

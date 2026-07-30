@@ -10,9 +10,7 @@ struct LabUniforms {
     sharpen_radius_px: f32,
     sharpen_masking: f32,
     sharpen_method: f32,
-    // PROTOTYPE: A/B toggle against the pre-gamut-aware naive flat scale + hard
-    // clamp -- not meant to ship, see LabConfig.saturation_gamut_aware.
-    saturation_gamut_aware: f32,
+    _pad1: f32,
     _pad2: f32,
     _pad3: f32,
 };
@@ -210,7 +208,7 @@ fn in_gamut_lab(lab: vec3<f32>) -> bool {
 // the overshooting channel(s) changes the R:G:B ratio even though the a*/b*
 // scale itself preserves hue exactly). Mirrors gamut_aware_chroma_scale in
 // kernel/image/logic.py -- 10 bisection iterations, same as the CPU path.
-// PROTOTYPE skin-tone hue protection -- mirrors _skin_protection_weight in
+// Skin-tone hue protection -- mirrors _skin_protection_weight in
 // kernel/image/logic.py exactly, same constants.
 const SKIN_HUE_CENTER_DEG = 52.0;
 const SKIN_HUE_WIDTH_DEG = 25.0;
@@ -329,9 +327,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // above 1.0, see gamut_aware_chroma_eff)
     if (params.saturation != 1.0) {
         var lab = rgb_to_lab(color);
-        // PROTOTYPE: A/B toggle against the naive flat scale this replaced --
-        // not meant to ship, see LabConfig.saturation_gamut_aware.
-        let eff = select(params.saturation, gamut_aware_chroma_eff(lab, params.saturation), params.saturation_gamut_aware != 0.0);
+        let eff = gamut_aware_chroma_eff(lab, params.saturation);
         lab.y = lab.y * eff;
         lab.z = lab.z * eff;
         color = lab_to_rgb(lab);

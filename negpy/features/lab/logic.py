@@ -213,7 +213,7 @@ def apply_rl_sharpening(
     return ensure_image(np.clip(out, 0.0, 1.0))
 
 
-def apply_saturation(img: ImageBuffer, saturation: float, gamut_aware: bool = True) -> ImageBuffer:
+def apply_saturation(img: ImageBuffer, saturation: float) -> ImageBuffer:
     """
     Adjusts saturation by scaling chroma (a*, b*) in CIELAB.
     Preserves perceived lightness, unlike HSV S-scaling which darkens
@@ -225,21 +225,12 @@ def apply_saturation(img: ImageBuffer, saturation: float, gamut_aware: bool = Tr
     since clamping only the overshooting channel(s) changes the R:G:B ratio.
     A soft per-pixel knee toward each pixel's real in-gamut headroom avoids
     that instead of clamping after the fact.
-
-    gamut_aware=False: PROTOTYPE A/B path, the old naive flat scale + hard
-    clamp this replaced -- kept only so the same saturation value can be
-    compared directly against the new behavior, not meant to ship.
     """
     if saturation == 1.0:
         return img
 
     lab = rgb_to_lab_working(img.astype(np.float32))
-    if gamut_aware:
-        res_lab = gamut_aware_chroma_scale(lab, saturation)
-    else:
-        res_lab = lab.copy()
-        res_lab[..., 1] *= saturation
-        res_lab[..., 2] *= saturation
+    res_lab = gamut_aware_chroma_scale(lab, saturation)
     res_rgb = lab_to_rgb_working(res_lab)
     return ensure_image(np.clip(res_rgb, 0.0, 1.0))
 

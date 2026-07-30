@@ -26,7 +26,7 @@ class PhotoLabProcessor:
             img = apply_chroma_denoise(img, self.config.chroma_denoise, context.scale_factor)
 
         if self.config.saturation != 1.0:
-            img = apply_saturation(img, self.config.saturation, gamut_aware=self.config.saturation_gamut_aware)
+            img = apply_saturation(img, self.config.saturation)
 
         if self.config.sharpen > 0:
             sharpen = apply_rl_sharpening if self.config.sharpen_method == SharpenMethod.RL else apply_output_sharpening

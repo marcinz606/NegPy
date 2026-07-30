@@ -251,13 +251,14 @@ def _in_gamut_lab(l_val: float, a: float, b: float, m: np.ndarray, white: np.nda
     return r >= -tol and r <= one + tol and g >= -tol and g <= one + tol and bl >= -tol and bl <= one + tol
 
 
-# PROTOTYPE skin-tone hue protection for gamut_aware_chroma_scale. Grounded in
-# a real sample (a rendered portrait frame, moderate-lightness/moderate-chroma
+# Skin-tone hue protection for gamut_aware_chroma_scale. Grounded in a real
+# sample (a rendered portrait frame, moderate-lightness/moderate-chroma
 # warm-hue pixels): hue angle atan2(b,a) median ~52deg, p10-p90 ~41-73deg.
 # Gaussian-weighted around the center; strength scales how much any push
 # (boost or cut) is pulled back toward identity in that band. Not exposed as
-# a control yet -- a flat, always-on improvement to the existing tool, not a
-# new one; tune/remove once it's been checked against more real frames.
+# a control -- a flat, always-on improvement to the existing tool, not a new
+# one. Constants are from a single frame's rough hue mask, not a validated
+# skin detector; revisit if checked against more real frames shows drift.
 _SKIN_HUE_CENTER_DEG = np.float32(52.0)
 _SKIN_HUE_WIDTH_DEG = np.float32(25.0)
 _SKIN_PROTECTION_STRENGTH = np.float32(0.5)
@@ -300,8 +301,8 @@ def _gamut_aware_chroma_scale_kernel(
     changes the R:G:B ratio the eye actually sees. This sidesteps that by
     never overshooting in the first place.
 
-    PROTOTYPE: above 1.0, also pulls the *local* target back toward identity
-    in the skin-tone hue band before doing any of the above -- see
+    Above 1.0, also pulls the *local* target back toward identity in the
+    skin-tone hue band before doing any of the above -- see
     _skin_protection_weight. The gamut-aware knee then runs on this
     already-softened local target, not the raw requested saturation.
     Boost-only: desaturation (saturation <= 1.0) is a plain flat scale,
