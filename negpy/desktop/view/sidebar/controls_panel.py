@@ -557,8 +557,8 @@ class ControlsPanel(QWidget):
             tooltip_with_shortcut(
                 "Decides where Dye Separation's push lands instead of adding one of its own — at 0 every "
                 "colour gets the same push, at 1 muted colour takes it all while colour that is already "
-                "saturated gets the opposite, the way a film's coupler supply runs out where it has "
-                "already done its work. Dead at Dye Separation 1.0. 0 = flat",
+                "saturated gets the opposite, so a hard push adds colour where there was none instead of "
+                "flattening the strongest colours. Dead at Dye Separation 1.0. 0 = flat",
                 ["separation_damping_inc", "separation_damping_dec"],
             )
         )
