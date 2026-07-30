@@ -553,6 +553,11 @@ class ActionToolbar(QWidget):
 
         from negpy.features.geometry.logic import rotate_normalized_rect
 
+        # A proof on the canvas takes the rotation instead of the image. Must precede the
+        # handedness fix below, which is geometry-only.
+        if self.controller.rotate_test_strip(direction):
+            return
+
         config = self.session.state.config
         geo = config.geometry
         # The button's labelled direction is the visual rotation the user sees (the

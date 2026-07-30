@@ -6,6 +6,9 @@ from negpy.features.exposure.analysis import (
     STRIP_DENSITIES,
     STRIP_GRADES,
     STRIP_GRID,
+    proof_grid,
+    rotate_grid,
+    rotated_cell,
     strip_cell_at,
     strip_cells,
     strip_mosaic,
@@ -108,3 +111,50 @@ def test_ladders_stay_inside_the_ranges_their_controls_accept():
     assert STRIP_DENSITIES[0] >= 0.0 and STRIP_DENSITIES[-1] <= 2.0  # Print Density slider
     assert STRIP_GRADES[0] >= float(EXPOSURE_CONSTANTS["iso_r_min"])
     assert STRIP_GRADES[-1] <= float(EXPOSURE_CONSTANTS["iso_r_max"])
+
+
+@pytest.mark.parametrize("grid", [STRIP_GRID, RING_GRID, (2, 3)])
+@pytest.mark.parametrize("rotation", range(4))
+def test_rotation_only_ever_re_places_the_patches(grid, rotation):
+    items = list(range(grid[0] * grid[1]))
+    placed = rotate_grid(items, grid, rotation)
+    assert sorted(placed) == items  # a bijection: no rung lost, none printed twice
+    assert len(placed) == np.prod(proof_grid(grid, rotation))
+
+
+@pytest.mark.parametrize("grid", [STRIP_GRID, (2, 3)])
+def test_a_full_turn_is_the_identity(grid):
+    items = list(range(grid[0] * grid[1]))
+    assert rotate_grid(items, grid, 0) == items
+    assert rotate_grid(items, grid, 4) == items
+    assert rotate_grid(items, grid, -1) == rotate_grid(items, grid, 3)
+
+
+def test_a_quarter_turn_ccw_moves_the_dense_end_from_the_right_column_to_the_top_row():
+    """The point of the feature: the same rung lands on a different part of the frame."""
+    rows, cols = proof_grid(STRIP_GRID, 1)
+    cells = rotate_grid(strip_cells(), STRIP_GRID, 1)
+    densest = [(r, c) for r in range(rows) for c in range(cols) if cells[r * cols + c][2] == STRIP_DENSITIES[-1]]
+    assert densest == [(0, c) for c in range(cols)]
+    # ...and the grade ladder takes over the horizontal.
+    assert [cells[c][3] for c in range(cols)] == list(STRIP_GRADES)
+
+
+def test_the_grid_shape_only_swaps_on_an_odd_quarter_turn():
+    assert proof_grid((2, 3), 0) == (2, 3)
+    assert proof_grid((2, 3), 1) == (3, 2)
+    assert proof_grid((2, 3), 2) == (2, 3)
+    assert proof_grid((2, 3), 3) == (3, 2)
+
+
+@pytest.mark.parametrize("grid", [STRIP_GRID, RING_GRID, (2, 3)])
+@pytest.mark.parametrize("rotation", range(4))
+def test_the_accent_follows_the_patch_it_marks(grid, rotation):
+    """rotated_cell must agree with rotate_grid, or the highlight lands on another rung."""
+    items = list(range(grid[0] * grid[1]))
+    placed = rotate_grid(items, grid, rotation)
+    cols = proof_grid(grid, rotation)[1]
+    for base_row in range(grid[0]):
+        for base_col in range(grid[1]):
+            row, col = rotated_cell((base_row, base_col), grid, rotation)
+            assert placed[row * cols + col] == base_row * grid[1] + base_col

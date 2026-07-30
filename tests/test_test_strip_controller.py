@@ -54,11 +54,17 @@ class TestStripWorker(unittest.TestCase):
         self.assertEqual(seen, [(d, g) for _, _, d, g in strip_cells()])
         # One progress tick per patch, counting up to the total.
         self.assertEqual(ticks, [(i + 1, len(seen)) for i in range(len(seen))])
-        mosaic, content_rect = done[0]
+        mosaics, content_rect = done[0]
         self.assertEqual(content_rect, (0, 0, 8, 8))
-        # Top-left patch came from the first render, bottom-right from the last.
-        self.assertEqual(mosaic[0, 0, 0], 0.0)
-        self.assertEqual(mosaic[-1, -1, 0], float(len(seen) - 1))
+        self.assertEqual(len(mosaics), 4, "one assembled orientation per quarter-turn")
+        # Unrotated: top-left patch came from the first render, bottom-right from the last.
+        self.assertEqual(mosaics[0][0, 0, 0], 0.0)
+        self.assertEqual(mosaics[0][-1, -1, 0], float(len(seen) - 1))
+        # A quarter-turn CCW brings the right column up to the top row — the same 25 renders,
+        # sliced differently, which is why rotating never re-renders.
+        cols = STRIP_GRID[1]
+        self.assertEqual(mosaics[1][0, 0, 0], float(cols - 1))  # was top-right
+        self.assertEqual(mosaics[1][0, -1, 0], float(len(seen) - 1))  # was bottom-right
 
     def test_metrics_never_escape_the_strip(self):
         """A proof must not disturb the histogram/bounds writeback the real render owns."""
@@ -137,8 +143,9 @@ class TestStripLifecycle(unittest.TestCase):
         del self.controller
         gc.collect()
 
-    def _mosaic(self) -> np.ndarray:
-        return np.zeros((8, 8, 3), dtype=np.float32)
+    def _mosaic(self) -> tuple:
+        """One mosaic per quarter-turn, as the worker emits them, valued by orientation."""
+        return tuple(np.full((8, 8, 3), float(k), dtype=np.float32) for k in range(4))
 
     def _print_strip(self) -> None:
         self.controller.toggle_test_strip()
@@ -308,6 +315,85 @@ class TestStripLifecycle(unittest.TestCase):
             enter_mode()
             self.assertFalse(self.controller.state.test_strip)
             self.assertIsNone(self.controller.state.test_strip_mosaic)
+
+    def test_rotation_is_declined_when_no_proof_is_up_so_the_image_still_turns(self):
+        self.assertFalse(self.controller.rotate_test_strip(1))
+        self.assertEqual(self.controller.state.test_strip_rotation, 0)
+        self.assertEqual(self.strip_tasks, [])
+
+    def test_rotating_a_printed_proof_swaps_orientation_without_re_rendering(self):
+        """The print assembled all four, so a turn is a swap rather than 25 fresh renders."""
+        self._print_strip()
+        self.assertTrue(self.controller.rotate_test_strip(1))
+
+        self.assertEqual(self.controller.state.test_strip_rotation, 1)
+        self.assertEqual(len(self.strip_tasks), 1, "no reprint")
+        self.assertFalse(self.controller.state.test_strip_pending)
+        self.assertIs(self.controller.state.test_strip_mosaic, self.controller.state.test_strip_mosaics[1])
+        self.assertEqual(self.announced[-1], True)
+        # The ladder itself goes to the worker unrotated — every orientation comes off one print.
+        self.assertEqual(list(self.strip_tasks[0].overrides), strip_overrides())
+        self.assertEqual(self.strip_tasks[0].grid, STRIP_GRID)
+
+    def test_rotation_wraps_at_a_full_turn(self):
+        self._print_strip()
+        for expected in (3, 2, 1, 0):
+            self.controller.rotate_test_strip(-1)
+            self.assertEqual(self.controller.state.test_strip_rotation, expected)
+        self.assertIs(self.controller.state.test_strip_mosaic, self.controller.state.test_strip_mosaics[0])
+
+    def test_a_proof_that_is_only_expected_cannot_swallow_the_rotate_controls(self):
+        """Consuming on `pending` left `[` / `]` dead for the session if a print never landed:
+        nothing on screen to turn, and the image no longer turning either."""
+        self.controller.toggle_test_strip()
+        self.assertTrue(self.controller.state.test_strip_pending)
+        self.assertFalse(self.controller.rotate_test_strip(1))
+        self.assertEqual(self.controller.state.test_strip_rotation, 0)
+
+    def test_a_failed_print_stops_waiting_for_a_proof_that_will_never_land(self):
+        self.controller.toggle_test_strip()
+        self.controller._on_strip_error("boom")
+
+        self.assertFalse(self.controller.state.test_strip_pending)
+        self.assertEqual(self.progress[-1], (0, 0))  # total <= 0 hides the bar
+
+    def test_a_failed_render_elsewhere_leaves_a_printed_proof_alone(self):
+        self._print_strip()
+        self.controller._on_strip_error("boom")
+        self.assertTrue(self.controller.state.test_strip)
+
+    def test_picking_under_a_rotated_ladder_commits_the_patch_that_was_clicked(self):
+        self._print_strip()
+        self.controller.state.test_strip_rotation = 1
+        self.controller.apply_test_strip_pick(0, 3)
+
+        # A quarter-turn CCW puts the grade ladder on the columns and the densest rung on row 0.
+        exposure = self.mock_session_manager.update_config.call_args.args[0].exposure
+        self.assertEqual(exposure.density, STRIP_DENSITIES[-1])
+        self.assertEqual(exposure.grade, STRIP_GRADES[3])
+
+    def test_the_chosen_orientation_outlives_the_proof_it_was_set_on(self):
+        self._print_strip()
+        self.controller.rotate_test_strip(1)
+        self.controller.toggle_test_strip(force=False)
+        self.assertEqual(self.controller.state.test_strip_rotation, 1)
+
+    def test_one_cache_entry_serves_every_orientation(self):
+        """RenderMemo holds one entry per file hash, so folding rotation into the key would make
+        turning the ladder and turning it back two full reprints."""
+        keys = set()
+        for rotation in range(4):
+            self.controller.state.test_strip_rotation = rotation
+            keys.add(self.controller._strip_memo_key())
+        self.assertEqual(len(keys), 1)
+        self.controller.state.test_strip_rotation = 0
+
+        self._print_strip()
+        self.controller.rotate_test_strip(1)
+        self.controller.toggle_test_strip(force=False)
+        self.controller.toggle_test_strip()
+        self.assertEqual(len(self.strip_tasks), 1, "a rotated proof must still be a cache hit")
+        self.assertIs(self.controller.state.test_strip_mosaic, self.controller.state.test_strip_mosaics[1])
 
     def test_the_grain_focuser_toggles_without_rendering_anything(self):
         # It magnifies the frame the canvas already holds, so unlike the strip it must never

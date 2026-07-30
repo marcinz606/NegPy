@@ -1,7 +1,7 @@
 """Analysis-panel histogram/zone math. Pure NumPy/OpenCV, no Qt."""
 
 from functools import lru_cache
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Sequence, Tuple
 
 import cv2
 import numpy as np
@@ -234,6 +234,32 @@ def strip_nearest_cell(density: float, grade: float) -> Tuple[int, int]:
     col = int(np.argmin([abs(d - density) for d in STRIP_DENSITIES]))
     row = int(np.argmin([abs(g - grade) for g in STRIP_GRADES]))
     return row, col
+
+
+def _rotation_index(grid: Tuple[int, int], rotation: int) -> np.ndarray:
+    """Row-major indices of `grid` after `rotation` quarter-turns CCW."""
+    rows, cols = grid
+    return np.rot90(np.arange(rows * cols).reshape(rows, cols), rotation % 4)
+
+
+def proof_grid(grid: Tuple[int, int], rotation: int) -> Tuple[int, int]:
+    """(rows, cols) after `rotation` quarter-turns. Both ladders are square today, so this only
+    bites if one changes length."""
+    rows, cols = grid
+    return (cols, rows) if rotation % 2 else (rows, cols)
+
+
+def rotate_grid(items: Sequence[Any], grid: Tuple[int, int], rotation: int) -> List[Any]:
+    """Row-major `items` re-placed by `rotation` quarter-turns CCW — np.rot90's k, the same
+    convention as GeometryConfig.rotation."""
+    return [items[i] for i in _rotation_index(grid, rotation).ravel()]
+
+
+def rotated_cell(base: Tuple[int, int], grid: Tuple[int, int], rotation: int) -> Tuple[int, int]:
+    """Where a base (row, col) lands after the rotation."""
+    flat = _rotation_index(grid, rotation).ravel()
+    pos = int(np.flatnonzero(flat == base[0] * grid[1] + base[1])[0])
+    return divmod(pos, proof_grid(grid, rotation)[1])
 
 
 # Stouffer T2115: 21 steps 0.15 D apart — 20 intervals, 3.00 D total, which is exactly the

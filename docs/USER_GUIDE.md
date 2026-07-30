@@ -239,6 +239,7 @@ Colour timing, like the dichroic filters on an enlarger head. A **Global / Shado
 *   **Temperature**: a warm↔cool lever driving the region's magenta/yellow pair (cyan stays put, as in a real darkroom).
 *   **Cyan / Magenta / Yellow** (-1–1): the three filtration axes — Cyan↔Red, Magenta↔Green, Yellow↔Blue.
 *   **Cast Removal** (0.0–1.0): neutralizes the residual colour cast a negative leaves in the print, balancing each layer so greys stay neutral from deep shadows through highlights (C-41). Applied strength scales with how many clean near-neutrals the frame has. Default ~0.5; 0 turns it off.
+*   **Ring-around** (target icon, or `Shift+F`): prints the frame as a 5×5 mosaic stepping 2cc at a time out to ±4cc on the magenta and yellow axes, so the direction of a colour cast is visible instead of guessed. Each patch is a real render of the part of the frame it covers; click one to keep its filtration. The ladder is absolute and centred on neutral, so a ring printed off one frame compares to the next. `Escape` or a second press clears it, and any edit drops it. See **Rotating a proof** below.
 
 <!-- panel:tone -->
 ### 6.2 Tone — density, contrast, and the print curve
@@ -250,6 +251,10 @@ The paper's response. A **Global / R / G / B** selector at the top scopes most c
 *   **Auto Density**: meters each frame's midtone and anchors print brightness there, so dense and flat negatives land consistently.
 *   **Auto Grade**: aims each frame at a contrast target instead of printing the negative's own range, so dense negatives stop printing over-contrasty and flat ones stop printing muddy.
 *   **Set Targets** (sliders icon): tune the exact brightness/contrast the two helpers aim for. Applies to every frame and is remembered between sessions.
+
+**Test strip** (grid icon, or `Shift+T`): prints the frame as a 5×5 grid, Print Density rising left to right and ISO-R Grade softening top to bottom, so the diagonals read light-to-dark and soft-to-hard like a split-filter test strip. Both ladders are absolute and centred on their defaults, so the settings you already have are one of the patches. Each patch is a real render of the part of the frame it covers; click one to keep it. `Escape` or a second press clears it, and any edit drops it.
+
+**Rotating a proof** — a patch only shows the slice of the frame at its own grid slot, so the part you want to judge is stuck at whichever rung sits over it. While either proof is up, the 90° **rotate** buttons and `[` / `]` turn the *ladder* instead of the image: each press moves the dense/hard end onto a different edge, and the axis labels follow. The image's own rotation is untouched, and turning is instant — printing a proof assembles all four orientations at once. The orientation you land on is kept for the rest of the session.
 
 **Exposure:**
 

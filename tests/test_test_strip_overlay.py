@@ -1,6 +1,7 @@
 """Canvas side of the test strip: it paints over the content rect, and while it is up
 the canvas is a picker — no tool and no pan may steal the click."""
 
+from dataclasses import replace
 from unittest.mock import patch
 
 import numpy as np
@@ -111,6 +112,22 @@ def test_patch_rects_tile_the_content_rect_exactly() -> None:
     assert union == rect
 
 
+def test_a_printed_proof_claims_the_keyboard() -> None:
+    """Its controls are single-key. The sidebar button disables itself mid-print, handing focus to
+    the next widget in the chain, and a spin box there swallows those keys as text."""
+    overlay = _strip_overlay()
+    with patch.object(overlay, "setFocus") as spy:
+        overlay.on_test_strip_changed()
+    assert spy.called
+
+
+def test_a_dismissed_proof_does_not_grab_the_keyboard() -> None:
+    overlay = _strip_overlay(up=False)
+    with patch.object(overlay, "setFocus") as spy:
+        overlay.on_test_strip_changed()
+    assert not spy.called
+
+
 def test_clearing_the_strip_drops_the_hover_and_the_picker_cursor() -> None:
     overlay = _strip_overlay()
     overlay._strip_hover = (1, 2)
@@ -120,6 +137,47 @@ def test_clearing_the_strip_drops_the_hover_and_the_picker_cursor() -> None:
 
     assert overlay._strip_hover is None
     assert overlay._strip_cache is None
+
+
+def _strip_labels(overlay: CanvasOverlay):
+    """(top_texts, left_texts, accented cell) the proof asked for on its last paint."""
+    pixmap = QPixmap(400, 400)
+    painter = QPainter(pixmap)
+    with patch.object(overlay, "_draw_strip_labels") as spy:
+        overlay._draw_test_strip(painter)
+    painter.end()
+    return spy.call_args.args[2:]
+
+
+def _labelled_overlay() -> CanvasOverlay:
+    """Big enough that the labels aren't dropped for want of room."""
+    overlay = _strip_overlay()
+    overlay._view_rect = QRectF(0, 0, 400, 400)
+    overlay._current_size = (400, 400)
+    cfg = overlay.state.config
+    overlay.state.config = replace(cfg, exposure=replace(cfg.exposure, density=STRIP_DENSITIES[0]))
+    return overlay
+
+
+def test_the_unrotated_ladder_labels_density_along_the_top() -> None:
+    top, left, current = _strip_labels(_labelled_overlay())
+
+    assert top == [f"D {d:.1f}" for d in STRIP_DENSITIES]
+    assert left == [f"R {g:.0f}" for g in STRIP_GRADES]
+    assert current == (2, 0)  # default grade, thinnest density
+
+
+def test_a_quarter_turn_moves_the_labels_with_the_patches() -> None:
+    """The labels name which ladder runs along which axis. Rotate the patches without them
+    and the strip claims a density ladder where the grades now are."""
+    overlay = _labelled_overlay()
+    overlay.state.test_strip_rotation = 1
+    top, left, current = _strip_labels(overlay)
+
+    assert top == [f"R {g:.0f}" for g in STRIP_GRADES]
+    # Density now runs down the rows, densest at the top.
+    assert left == [f"D {d:.1f}" for d in reversed(STRIP_DENSITIES)]
+    assert current == (len(STRIP_DENSITIES) - 1, 2)
 
 
 def _ring_overlay() -> CanvasOverlay:

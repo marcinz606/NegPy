@@ -55,11 +55,12 @@ from negpy.services.assets.half_frame import base_hash, slice_half
 from negpy.services.assets.sidecar import load_or_promote, write_sidecar
 from negpy.features.exposure.analysis import (
     RING_GRID,
-    STRIP_DENSITIES,
-    STRIP_GRADES,
     STRIP_GRID,
+    proof_grid,
     ring_cells,
     ring_overrides,
+    rotate_grid,
+    strip_cells,
     strip_overrides,
 )
 from negpy.features.exposure.logic import (
@@ -470,6 +471,7 @@ class AppController(QObject):
         self.render_worker.finished.connect(self._on_render_finished)
         self.render_worker.metrics_updated.connect(self._on_metrics_updated)
         self.render_worker.error.connect(self._on_render_error)
+        self.render_worker.error.connect(self._on_strip_error)
 
         self.export_worker.progress.connect(self.export_progress.emit)
         self.export_worker.progress.connect(self._on_batch_progress)
@@ -940,6 +942,8 @@ class AppController(QObject):
         Both ladders are absolute, so each proof supplies the fields it varies and its mosaic
         is invariant to whatever those currently are. Pinning them makes print/pick/print again
         a cache hit. Any other edit (crop, paper, toning...) lands on a different key.
+
+        Rotation is not in the key: an entry holds all four orientations.
         """
         exposure = self.state.config.exposure
         if kind == "colour":
@@ -1237,20 +1241,16 @@ class AppController(QObject):
         if self.state.preview_raw is None:
             return
 
-        if kind == "colour":
-            overrides = ring_overrides()
-            grid = RING_GRID
-            toast = "Printing the colour ring-around…"
-        else:
-            overrides = strip_overrides()
-            grid = STRIP_GRID
-            toast = "Printing test strip…"
+        # Unrotated: one print yields every orientation, so rotating never re-renders.
+        grid = RING_GRID if kind == "colour" else STRIP_GRID
+        overrides = ring_overrides() if kind == "colour" else strip_overrides()
+        toast = "Printing the colour ring-around…" if kind == "colour" else "Printing test strip…"
 
         # Reprinting an unchanged proof is a pile of renders for pixels we already have.
         cached = self._strip_memo.get(self.state.current_file_hash or "", self._strip_memo_key(kind))
         if cached is not None:
             self.state.test_strip_kind = kind
-            self.on_strip_finished(cached["mosaic"], cached["content_rect"], from_cache=True)
+            self.on_strip_finished(cached["mosaics"], cached["content_rect"], from_cache=True)
             return
 
         proofing = self.state.soft_proof_enabled
@@ -1293,10 +1293,11 @@ class AppController(QObject):
         self.state.test_strip = False
         self.state.test_strip_pending = False
         self.state.test_strip_mosaic = None
+        self.state.test_strip_mosaics = None
         self.state.test_strip_content_rect = None
         self.test_strip_changed.emit(False)
 
-    def on_strip_finished(self, mosaic: Any, content_rect: Any, from_cache: bool = False) -> None:
+    def on_strip_finished(self, mosaics: Any, content_rect: Any, from_cache: bool = False) -> None:
         # A render that landed while the strip was building already cancelled it.
         if not (self.state.test_strip_pending or from_cache):
             return
@@ -1310,15 +1311,36 @@ class AppController(QObject):
             self._strip_memo.store(
                 self.state.current_file_hash or "",
                 self._strip_memo_key(self.state.test_strip_kind),
-                {"mosaic": mosaic, "content_rect": content_rect},
+                {"mosaics": mosaics, "content_rect": content_rect},
             )
         self.state.test_strip_pending = False
         self.state.test_strip = True
-        self.state.test_strip_mosaic = mosaic
+        self.state.test_strip_mosaics = mosaics
+        self.state.test_strip_mosaic = mosaics[self.state.test_strip_rotation]
         self.state.test_strip_content_rect = content_rect
         self.test_strip_changed.emit(True)
         label = "Ring-around" if self.state.test_strip_kind == "colour" else "Test strip"
         self.status_message_requested.emit(f"{label} ready — click a patch to keep it", 4000)
+
+    def rotate_test_strip(self, direction: int) -> bool:
+        """Turn the ladder rather than the image while a proof is on the canvas; True = consumed.
+
+        Gated on a mosaic being up, never on `pending`: the rotate controls are global, and a
+        proof that is only expected must not swallow them. Mid-print the turn falls through to
+        the image, dropping the print like any other edit.
+        """
+        if not (self.state.test_strip and self.state.test_strip_mosaics):
+            return False
+        self.state.test_strip_rotation = (self.state.test_strip_rotation + direction) % 4
+        self.state.test_strip_mosaic = self.state.test_strip_mosaics[self.state.test_strip_rotation]
+        self.test_strip_changed.emit(True)
+        return True
+
+    def _on_strip_error(self, _message: str) -> None:
+        """A print that errors never reaches on_strip_finished, and the stuck `pending` flag holds
+        the progress bar open and blocks a reprint."""
+        if self.state.test_strip_pending:
+            self._clear_test_strip()
 
     def apply_test_strip_pick(self, row: int, col: int) -> None:
         """Commit the clicked patch's settings, then drop the proof.
@@ -1329,11 +1351,15 @@ class AppController(QObject):
         if not self.state.test_strip:
             return
         exposure = self.state.config.exposure
-        if self.state.test_strip_kind == "colour":
-            _, _, magenta, yellow = ring_cells()[row * RING_GRID[1] + col]
-            new_exposure = replace(exposure, wb_magenta=magenta, wb_yellow=yellow)
+        colour = self.state.test_strip_kind == "colour"
+        base_grid = RING_GRID if colour else STRIP_GRID
+        rotation = self.state.test_strip_rotation
+        cells = rotate_grid(ring_cells() if colour else strip_cells(), base_grid, rotation)
+        _, _, first, second = cells[row * proof_grid(base_grid, rotation)[1] + col]
+        if colour:
+            new_exposure = replace(exposure, wb_magenta=first, wb_yellow=second)
         else:
-            new_exposure = replace(exposure, density=STRIP_DENSITIES[col], grade=STRIP_GRADES[row])
+            new_exposure = replace(exposure, density=first, grade=second)
         self._clear_test_strip()
         self.session.update_config(replace(self.state.config, exposure=new_exposure), persist=True)
         self.request_render()

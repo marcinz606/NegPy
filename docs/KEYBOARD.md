@@ -36,6 +36,8 @@ Numpad keys can be bound separately from the number row (e.g. `Num+9` vs `9`). N
 | `Shift + S` | Toggle Scratch Tool |
 | `Shift + B` | Toggle Dodge & Burn Mask Draw |
 | `Shift + R` | Toggle Analysis Region Draw |
+| `Shift + T` | Print the density × grade test strip |
+| `Shift + F` | Print the colour ring-around (M/Y filtration) |
 | `\|` | Peek flat scan (digital intermediate preview) |
 | `Esc` | First press clears in-progress points, second puts the tool down |
 
@@ -46,6 +48,8 @@ Numpad keys can be bound separately from the number row (e.g. `Num+9` vs `9`). N
 | `]` | Rotate 90° CW |
 | `H` | Flip Horizontal |
 | `V` | Flip Vertical |
+
+While a test strip or ring-around is up, `[` / `]` turn that proof's ladder instead of the image.
 
 ## System Actions
 | Key | Action |

@@ -147,10 +147,11 @@ class ColourSidebar(BaseSidebar):
         if printing:
             return "Printing the colour ring-around…"
         return tooltip_with_shortcut(
-            "Colour Ring-Around: print the frame as a 5×5 mosaic — the centre patch at the current "
-            "filtration, the ring stepping 1cc at a time out to ±2cc on the magenta and yellow axes. "
-            "Click the patch that looks neutral to keep its filtration. With Cast Removal on the "
-            "patches separate less, since it corrects toward neutral underneath.",
+            "Colour Ring-Around: print the frame as a 5×5 mosaic — the centre patch neutral, the "
+            "ring stepping 2cc at a time out to ±4cc on the magenta and yellow axes. Click the patch "
+            "that looks neutral to keep its filtration. The 90° rotate controls turn the ladder while "
+            "it is up. With Cast Removal on the patches separate less, since it corrects toward "
+            "neutral underneath.",
             "toggle_ring_around",
         )
 

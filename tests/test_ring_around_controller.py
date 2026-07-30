@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.exposure.analysis import RING_GRID, STRIP_GRID, ring_cells, ring_overrides
+from negpy.features.exposure.analysis import RING_GRID, STRIP_GRID, ring_cells, ring_overrides, rotate_grid
 
 
 class RingAroundWorker(unittest.TestCase):
@@ -53,10 +53,10 @@ class RingAroundWorker(unittest.TestCase):
             self.assertEqual(density, base.exposure.density)
             self.assertEqual(grade, base.exposure.grade)
 
-        mosaic, _rect = done[0]
+        mosaics, _rect = done[0]
         # Top-left patch from the first render, bottom-right from the last — slicing is right.
-        self.assertEqual(mosaic[0, 0, 0], 0.0)
-        self.assertEqual(mosaic[-1, -1, 0], float(RING_GRID[0] * RING_GRID[1] - 1))
+        self.assertEqual(mosaics[0][0, 0, 0], 0.0)
+        self.assertEqual(mosaics[0][-1, -1, 0], float(RING_GRID[0] * RING_GRID[1] - 1))
 
 
 class RingAroundLifecycle(unittest.TestCase):
@@ -105,8 +105,9 @@ class RingAroundLifecycle(unittest.TestCase):
         del self.controller
         gc.collect()
 
-    def _mosaic(self) -> np.ndarray:
-        return np.zeros((10, 10, 3), dtype=np.float32)
+    def _mosaic(self) -> tuple:
+        """One mosaic per quarter-turn, as the worker emits them."""
+        return tuple(np.full((10, 10, 3), float(k), dtype=np.float32) for k in range(4))
 
     def _print_ring(self) -> None:
         self.controller.toggle_ring_around()
@@ -218,6 +219,20 @@ class RingAroundLifecycle(unittest.TestCase):
         self.controller.request_render()
         self.assertFalse(self.controller.state.test_strip)
         self.assertIsNone(self.controller.state.test_strip_mosaic)
+
+    def test_rotating_the_ring_turns_its_axes_and_the_pick_follows(self):
+        """The magenta axis is the rows unrotated; a quarter-turn puts it on the columns, and
+        a click has to read the cell that is actually there."""
+        self._print_ring()
+        self.assertTrue(self.controller.rotate_test_strip(1))
+        self.assertEqual(len(self.strip_tasks), 1, "the ring's orientations come off one print too")
+        self.assertIs(self.controller.state.test_strip_mosaic, self.controller.state.test_strip_mosaics[1])
+
+        self.controller.apply_test_strip_pick(0, 0)
+        after = self.controller.state.config.exposure
+        _, _, m, y = rotate_grid(ring_cells(), RING_GRID, 1)[0]
+        self.assertAlmostEqual(after.wb_magenta, m)
+        self.assertAlmostEqual(after.wb_yellow, y)
 
     def test_compare_and_flat_peek_take_the_canvas_from_the_ring(self):
         for enter_mode in (self.controller.toggle_compare, lambda: self.controller.toggle_flat_peek(force=True)):

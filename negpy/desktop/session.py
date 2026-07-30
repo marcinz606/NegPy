@@ -107,13 +107,18 @@ class AppState:
 
     # Density x grade test strip: session-only proof, dropped by any real render. The
     # mosaic is the assembled patches at preview resolution, content_rect its picture area.
+    # `mosaics` is one per quarter-turn, `mosaic` the one on screen; rotating swaps between them.
     test_strip: bool = False
     test_strip_pending: bool = False
     test_strip_mosaic: Optional[Any] = None
+    test_strip_mosaics: Optional[tuple] = None
     test_strip_content_rect: Optional[tuple] = None
     # Which proof owns the canvas: "tone" (density × grade) or "colour" (M/Y ring-around).
     # One slot, so every path that drops a proof drops both kinds.
     test_strip_kind: str = "tone"
+    # Quarter-turns CCW the ladder is turned by. Shared by both kinds and kept across clear and
+    # reprint, so a chosen orientation sticks for the session.
+    test_strip_rotation: int = 0
 
     # Reverse scroll-wheel zoom direction on the image viewer (scroll up = zoom out).
     invert_zoom_scroll: bool = False

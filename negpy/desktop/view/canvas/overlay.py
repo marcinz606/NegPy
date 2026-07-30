@@ -19,8 +19,11 @@ from negpy.features.exposure.analysis import (
     STRIP_GRADES,
     STRIP_GRID,
     loupe_acutance,
+    proof_grid,
     ring_cc,
     ring_nearest_cell,
+    rotate_grid,
+    rotated_cell,
     strip_cell_at,
     strip_nearest_cell,
     zone_grid,
@@ -847,7 +850,12 @@ class CanvasOverlay(QWidget):
     def on_test_strip_changed(self) -> None:
         """Strip came up or went away — drop the hover highlight and the picker cursor."""
         self._strip_hover = None
-        if not self.state.test_strip:
+        if self.state.test_strip:
+            # A proof's controls are all single-key and a focused sidebar spin box eats those as
+            # text. Printing from the sidebar button strands focus in one: it disables itself
+            # mid-print, handing focus to the next widget in the chain.
+            self.setFocus()
+        else:
             self._strip_cache = None
             self.unsetCursor()
         self.update()
@@ -864,9 +872,13 @@ class CanvasOverlay(QWidget):
         self._strip_cache = (key, img)
         return img
 
-    def _strip_grid(self) -> Tuple[int, int]:
-        """(rows, cols) of the proof currently on the canvas."""
+    def _strip_base_grid(self) -> Tuple[int, int]:
+        """(rows, cols) of the proof's unrotated ladder."""
         return RING_GRID if self.state.test_strip_kind == "colour" else STRIP_GRID
+
+    def _strip_grid(self) -> Tuple[int, int]:
+        """(rows, cols) of the proof as it sits on the canvas, after its rotation."""
+        return proof_grid(self._strip_base_grid(), self.state.test_strip_rotation)
 
     def _strip_patch_rects(self, rect: QRectF) -> List[Tuple[int, int, QRectF]]:
         """(row, col, screen rect) per patch. Edges are computed from the same fractions
@@ -916,10 +928,11 @@ class CanvasOverlay(QWidget):
         """A darkroom proof mosaic: the frame sliced into a grid, each patch printed at its own
         settings. Click a patch to keep it.
 
-        Tone strip — columns darken left to right, rows soften top to bottom, so the diagonals
-        read light/dark and hard/soft. Colour ring-around — the centre patch is the filtration
-        in force and the ring steps out to ±5cc on the magenta and yellow axes, so the
-        direction of a cast is visible instead of guessed.
+        Unrotated, the tone strip's columns darken left to right and its rows soften top to
+        bottom, so the diagonals read light/dark and hard/soft; the colour ring-around centres
+        on neutral and steps out to ±4cc on the magenta and yellow axes, so the direction of a
+        cast is visible instead of guessed. The 90° rotate controls turn either ladder while it
+        is up, bringing the far rungs onto a different part of the frame.
 
         The mosaic replaces the canvas frame over the content rect rather than tinting it —
         these are real renders, and a wash over them would misreport the tone being judged.
@@ -950,25 +963,27 @@ class CanvasOverlay(QWidget):
 
         if min(rect.width() / cols, rect.height() / rows) < _STRIP_LABEL_MIN_PX:
             return
+        exposure = self.state.config.exposure
+        base_grid = self._strip_base_grid()
+        rotation = self.state.test_strip_rotation
         if self.state.test_strip_kind == "colour":
-            exposure = self.state.config.exposure
-            self._draw_strip_labels(
-                painter,
-                patches,
-                # :+g so a fractional step prints as one rather than rounding away.
-                [f"Y {ring_cc(c):+g}" for c in range(cols)],
-                [f"M {ring_cc(r):+g}" for r in range(rows)],
-                ring_nearest_cell(exposure.wb_magenta, exposure.wb_yellow),
-            )
+            # :+g so a fractional step prints as one rather than rounding away.
+            pairs = [(f"Y {ring_cc(c):+g}", f"M {ring_cc(r):+g}") for r in range(base_grid[0]) for c in range(base_grid[1])]
+            current = ring_nearest_cell(exposure.wb_magenta, exposure.wb_yellow)
         else:
-            exposure = self.state.config.exposure
-            self._draw_strip_labels(
-                painter,
-                patches,
-                [f"D {d:.1f}" for d in STRIP_DENSITIES],
-                [f"R {g:.0f}" for g in STRIP_GRADES],
-                strip_nearest_cell(exposure.density, exposure.grade),
-            )
+            pairs = [(f"D {d:.1f}", f"R {g:.0f}") for g in STRIP_GRADES for d in STRIP_DENSITIES]
+            current = strip_nearest_cell(exposure.density, exposure.grade)
+        # An odd quarter-turn transposes which ladder runs along which axis, so each patch carries
+        # both labels and the axis picks one.
+        placed = rotate_grid(pairs, base_grid, rotation)
+        axis = rotation % 2
+        self._draw_strip_labels(
+            painter,
+            patches,
+            [placed[c][axis] for c in range(cols)],
+            [placed[r * cols][1 - axis] for r in range(rows)],
+            rotated_cell(current, base_grid, rotation),
+        )
 
     def _draw_placed_heals(self, painter: QPainter) -> None:
         """Thin outlines of committed heals (strokes + legacy spots) while a retouch tool is active."""

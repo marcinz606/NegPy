@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 from PyQt6.QtWidgets import QApplication
 
 from negpy.desktop.view.canvas.toolbar import ActionToolbar
+from negpy.domain.models import WorkspaceConfig
 
 if not QApplication.instance():
     _app = QApplication(sys.argv)
@@ -160,6 +161,31 @@ class TestCanvasToolbarResponsive(unittest.TestCase):
         # Whatever the row hides at the narrow width, the overflow copy still works.
         self.assertTrue(tb._ov_compare_action.isVisible())
         self.assertTrue(tb._ov_undo_action.isVisible())
+
+
+class TestRotateRouting(unittest.TestCase):
+    """The 90° rotate buttons are shared: a proof on the canvas takes the turn instead of
+    the image, so the ladder can be brought onto a different part of the frame."""
+
+    def test_a_proof_on_the_canvas_takes_the_rotation(self):
+        tb = _make_toolbar()
+        tb.controller.rotate_test_strip.return_value = True
+
+        tb.rotate(1)
+
+        tb.controller.rotate_test_strip.assert_called_once_with(1)
+        tb.session.update_config.assert_not_called()
+
+    def test_with_no_proof_up_the_image_still_rotates(self):
+        tb = _make_toolbar()
+        tb.controller.rotate_test_strip.return_value = False
+        tb.session.state.config = WorkspaceConfig()
+
+        tb.rotate(1)
+
+        tb.session.update_config.assert_called_once()
+        self.assertEqual(tb.session.update_config.call_args.args[0].geometry.rotation, 1)
+        tb.controller.rerender_active_view.assert_called_once()
 
 
 if __name__ == "__main__":

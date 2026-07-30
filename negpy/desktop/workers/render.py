@@ -8,7 +8,7 @@ from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.exposure.analysis import output_histogram, strip_mosaic
+from negpy.features.exposure.analysis import output_histogram, proof_grid, rotate_grid, strip_mosaic
 from negpy.features.flatfield.logic import apply_flatfield
 from negpy.features.geometry.batch_autocrop import detect_crop_candidate, resolve_roll_crops
 from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix
@@ -57,7 +57,7 @@ class RenderTask:
 class TestStripTask:
     """Request to print a proof mosaic off one frame: the density × grade strip or the colour
     ring-around. `overrides` is one ExposureConfig field-override dict per patch, row-major
-    over `grid`."""
+    over `grid`, unrotated — the worker assembles all four orientations."""
 
     buffer: np.ndarray
     config: WorkspaceConfig
@@ -176,7 +176,7 @@ class RenderWorker(QObject):
 
     finished = pyqtSignal(object, dict)  # (ndarray|GPUTexture, metrics)
     metrics_updated = pyqtSignal(dict)  # Late-arriving metrics (histogram, etc.)
-    strip_finished = pyqtSignal(object, object)  # (mosaic ndarray, content_rect|None)
+    strip_finished = pyqtSignal(object, object)  # (one mosaic ndarray per quarter-turn, content_rect|None)
     strip_progress = pyqtSignal(int, int)  # (patches printed, total)
     error = pyqtSignal(str)
 
@@ -298,14 +298,17 @@ class RenderWorker(QObject):
                     content_rect = metrics.get("content_rect")
                 self.strip_progress.emit(len(tiles), len(task.overrides))
 
-            mosaic = strip_mosaic(tiles, task.grid)
-            # Proof the assembled mosaic, not each tile: the transform is per-pixel, so
-            # one pass over the finished frame is identical and 16x cheaper.
+            # One mosaic per quarter-turn while the tiles are still in hand: a rotated ladder needs
+            # a different slice of each render. Peak memory is unchanged, the tiles dominate.
+            mosaics = tuple(strip_mosaic(rotate_grid(tiles, task.grid, k), proof_grid(task.grid, k)) for k in range(4))
+            # Proof the assembled mosaics, not each tile: the transform is per-pixel, so one pass
+            # per frame is identical and far cheaper than one per patch.
             if task.icc_input_path or task.icc_output_path:
-                mosaic = self._soft_proof(
-                    mosaic, task.config, task.color_space, task.icc_input_path, task.icc_output_path, task.monitor_icc_bytes
+                mosaics = tuple(
+                    self._soft_proof(m, task.config, task.color_space, task.icc_input_path, task.icc_output_path, task.monitor_icc_bytes)
+                    for m in mosaics
                 )
-            self.strip_finished.emit(mosaic, content_rect)
+            self.strip_finished.emit(mosaics, content_rect)
 
         except Exception as e:
             logger.exception("Test strip render failed")

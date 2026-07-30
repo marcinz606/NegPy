@@ -280,7 +280,8 @@ class ToneSidebar(BaseSidebar):
             return "Printing the test strip…"
         return tooltip_with_shortcut(
             "Test Strip: print the frame as a 5×5 grid — Print Density increasing left to right, "
-            "ISO-R Grade softening top to bottom. Click the patch you like to keep its settings.",
+            "ISO-R Grade softening top to bottom. Click the patch you like to keep its settings. "
+            "The 90° rotate controls turn the ladder while it is up.",
             "toggle_test_strip",
         )
 
