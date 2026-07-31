@@ -2,7 +2,9 @@ from dataclasses import replace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from PyQt6.QtWidgets import QDialog
+from PyQt6.QtCore import QPoint, QPointF, QPropertyAnimation, Qt
+from PyQt6.QtGui import QWheelEvent
+from PyQt6.QtWidgets import QAbstractItemView, QApplication, QDialog
 
 from negpy.desktop.session import DesktopSessionManager
 from negpy.desktop.view.sidebar.files import THUMB_CELL_MAX, THUMB_CELL_MIN, FileBrowser
@@ -382,3 +384,142 @@ def test_thumbnail_size_out_of_range_setting_is_clamped(session):
     controller.session = session
     restored = FileBrowser(controller)
     assert restored.list_view.target_cell == THUMB_CELL_MAX
+
+
+# --- Session panel scrolling & empty-space menu ---------------------------
+
+
+def _wheel(angle_y: int = 0, pixel_y: int = 0) -> QWheelEvent:
+    return QWheelEvent(
+        QPointF(10.0, 10.0),
+        QPointF(10.0, 10.0),
+        QPoint(0, pixel_y),
+        QPoint(0, angle_y),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+
+
+def _scrollable(browser, value: int = 0):
+    """Lay the panel out narrow and short so the grid genuinely overflows — the
+    scrollbar range is recomputed from the layout, so it can't just be faked."""
+    browser.resize(240, 300)
+    browser.show()
+    QApplication.processEvents()
+    view = browser.list_view
+    bar = view.verticalScrollBar()
+    assert bar.maximum() > 2 * view._row_step(), "fixture grid does not scroll"
+    bar.setValue(value)
+    QApplication.processEvents()
+    return bar
+
+
+def test_grid_scrolls_per_pixel(browser):
+    """ScrollPerItem snaps to whole rows, so no partial offset (and no easing) is
+    representable — it is what made the wheel jump several frames at a time."""
+    assert browser.list_view.verticalScrollMode() == QAbstractItemView.ScrollMode.ScrollPerPixel
+
+
+def test_one_wheel_notch_scrolls_exactly_one_row(browser):
+    view = browser.list_view
+    _scrollable(browser)
+    view.wheelEvent(_wheel(angle_y=-120))
+    assert view._scroll_target == view._row_step()
+
+
+def test_wheel_scroll_is_animated_not_instant(browser):
+    view = browser.list_view
+    bar = _scrollable(browser)
+    view.wheelEvent(_wheel(angle_y=-120))
+    assert view._scroll_anim.state() == QPropertyAnimation.State.Running
+    assert view._scroll_anim.duration() > 0
+    assert view._scroll_anim.endValue() == view._scroll_target
+    # The jump is eased in, not applied on the spot.
+    assert bar.value() != view._scroll_target
+
+
+def test_consecutive_notches_accumulate_onto_the_running_target(browser):
+    """A fast spin must cover the full distance, not restart from wherever the
+    easing had reached."""
+    view = browser.list_view
+    _scrollable(browser)
+    view.wheelEvent(_wheel(angle_y=-120))
+    assert view._scroll_target == view._row_step()
+    view.wheelEvent(_wheel(angle_y=-120))
+    assert view._scroll_target == 2 * view._row_step()
+
+
+def test_wheel_up_scrolls_back(browser):
+    view = browser.list_view
+    bar = _scrollable(browser, value=2 * view._row_step())
+    start = bar.value()  # the layout may clamp the requested offset
+    view.wheelEvent(_wheel(angle_y=120))
+    assert view._scroll_target == start - view._row_step()
+
+
+def test_wheel_target_is_clamped_to_the_scroll_range(browser):
+    view = browser.list_view
+    bar = _scrollable(browser, value=2 * view._row_step())
+    for _ in range(20):
+        view.wheelEvent(_wheel(angle_y=120))  # up, well past the top
+    assert view._scroll_target == bar.minimum()
+    assert view._scroll_anim.endValue() == bar.minimum()
+
+
+def test_trackpad_pixel_delta_scrolls_immediately(browser):
+    """Trackpads already deliver continuous deltas; easing them would add lag."""
+    view = browser.list_view
+    bar = _scrollable(browser, value=100)
+    start = bar.value()
+    view.wheelEvent(_wheel(pixel_y=-40))
+    assert bar.value() == start + 40
+    assert view._scroll_anim.state() != QPropertyAnimation.State.Running
+
+
+def test_session_menu_mirrors_the_toolbar_tools(browser):
+    labels = [a.text() for a in browser._build_session_menu().actions() if not a.isSeparator()]
+    assert labels == ["Add files…", "Add folder…", "Clear all"]
+
+
+def test_session_menu_clear_all_disabled_when_nothing_loaded(browser, session):
+    session.state.uploaded_files = []
+    clear = [a for a in browser._build_session_menu().actions() if a.text() == "Clear all"][0]
+    assert not clear.isEnabled()
+
+
+def test_session_menu_clear_all_enabled_with_files(browser):
+    clear = [a for a in browser._build_session_menu().actions() if a.text() == "Clear all"][0]
+    assert clear.isEnabled()
+
+
+def test_right_click_on_empty_space_opens_the_session_menu(browser):
+    """Previously this returned early, leaving empty space (and an empty session)
+    with no context menu at all."""
+    with (
+        patch.object(browser, "_build_session_menu") as session_menu,
+        patch.object(browser, "_build_context_menu") as frame_menu,
+    ):
+        browser._show_context_menu(QPoint(5, 99999))
+    session_menu.assert_called_once()
+    frame_menu.assert_not_called()
+
+
+def test_right_click_on_a_frame_still_opens_the_frame_menu(browser):
+    idx = browser.session.asset_model.index(0, 0)
+    with (
+        patch.object(browser.list_view, "indexAt", return_value=idx),
+        patch.object(browser, "_build_context_menu") as frame_menu,
+        patch.object(browser, "_build_session_menu") as session_menu,
+    ):
+        browser._show_context_menu(QPoint(5, 5))
+    frame_menu.assert_called_once()
+    session_menu.assert_not_called()
+
+
+def test_session_menu_clear_all_clears_every_frame(browser, session):
+    session.clear_files = MagicMock()
+    with patch("negpy.desktop.view.sidebar.files.confirm_unload", return_value=True):
+        browser._on_clear_all()
+    session.clear_files.assert_called_once()

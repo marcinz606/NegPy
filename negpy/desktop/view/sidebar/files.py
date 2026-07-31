@@ -1,9 +1,21 @@
 import os
 
 import qtawesome as qta
-from PyQt6.QtCore import Qt, QItemSelectionModel, QModelIndex, QRect, QRectF, QSize, QTimer, pyqtSignal
+from PyQt6.QtCore import (
+    Qt,
+    QEasingCurve,
+    QItemSelectionModel,
+    QModelIndex,
+    QPropertyAnimation,
+    QRect,
+    QRectF,
+    QSize,
+    QTimer,
+    pyqtSignal,
+)
 from PyQt6.QtGui import QActionGroup, QColor, QKeySequence, QPainter, QPainterPath, QPen, QShortcut
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QCheckBox,
     QDialog,
@@ -174,6 +186,10 @@ class ThumbnailGridView(QListView):
     """
 
     SPACING = 2
+    # One notch scrolls one row of thumbnails. Qt's default (ScrollPerItem, three
+    # "lines" a notch) advanced 4-5 frames at a time in a single-column panel.
+    WHEEL_ROWS_PER_NOTCH = 1.0
+    SCROLL_ANIM_MS = 160
 
     def __init__(self, parent=None, target_cell: int = THUMB_CELL_DEFAULT):
         super().__init__(parent)
@@ -185,6 +201,13 @@ class ThumbnailGridView(QListView):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setSpacing(self.SPACING)
+        # Per-pixel is what makes a partial-row offset representable at all; under
+        # ScrollPerItem the view snaps to whole rows and no easing is possible.
+        self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self._scroll_anim = QPropertyAnimation(self.verticalScrollBar(), b"value", self)
+        self._scroll_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._scroll_anim.setDuration(self.SCROLL_ANIM_MS)
+        self._scroll_target = 0
         self._apply_cell(self._target_cell)
 
     @staticmethod
@@ -216,6 +239,9 @@ class ThumbnailGridView(QListView):
         self._last_cell = cell
         self.setGridSize(QSize(cell + self.SPACING, cell + self.SPACING))
         self.setIconSize(QSize(cell, cell))
+        # ScrollPerPixel leaves singleStep at 1px, which makes the scrollbar arrows
+        # and arrow keys crawl; a quarter row is a usable step.
+        self.verticalScrollBar().setSingleStep(max(1, (cell + self.SPACING) // 4))
 
     def _relayout(self) -> None:
         self._apply_cell(self.cell_for_width(self.viewport().width()))
@@ -224,13 +250,37 @@ class ThumbnailGridView(QListView):
         super().resizeEvent(event)
         self._relayout()
 
+    def _row_step(self) -> int:
+        """Pixels one row of thumbnails occupies."""
+        return max(1, self.gridSize().height())
+
     def wheelEvent(self, event) -> None:
+        bar = self.verticalScrollBar()
         pixel = event.pixelDelta()
         if not pixel.isNull() and pixel.y() != 0:
-            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - pixel.y())
+            # Trackpads already deliver continuous deltas; easing them adds lag.
+            self._scroll_anim.stop()
+            bar.setValue(bar.value() - pixel.y())
             event.accept()
-        else:
+            return
+
+        notches = event.angleDelta().y() / 120.0
+        if not notches:
             super().wheelEvent(event)
+            return
+
+        # Accumulate onto the in-flight target so a fast spin covers the whole
+        # distance instead of restarting from wherever the easing had reached.
+        running = self._scroll_anim.state() == QPropertyAnimation.State.Running
+        base = self._scroll_target if running else bar.value()
+        target = int(round(base - notches * self.WHEEL_ROWS_PER_NOTCH * self._row_step()))
+        self._scroll_target = max(bar.minimum(), min(bar.maximum(), target))
+
+        self._scroll_anim.stop()
+        self._scroll_anim.setStartValue(bar.value())
+        self._scroll_anim.setEndValue(self._scroll_target)
+        self._scroll_anim.start()
+        event.accept()
 
 
 class FileBrowser(QWidget):
@@ -484,8 +534,13 @@ class FileBrowser(QWidget):
             if confirm_unload(self, count=count):
                 self.session.remove_selected_files()
         else:
-            if confirm_unload(self, clear_all=True):
-                self.session.clear_files()
+            self._on_clear_all()
+
+    def _on_clear_all(self) -> None:
+        """Drop every loaded frame. The empty-space menu always means *all*, unlike
+        the toolbar button, which clears the selection when one is active."""
+        if confirm_unload(self, clear_all=True):
+            self.session.clear_files()
 
     def _update_unload_button(self) -> None:
         if len(self.session.state.selected_indices) > 1:
@@ -700,6 +755,10 @@ class FileBrowser(QWidget):
     def _show_context_menu(self, pos) -> None:
         index = self.list_view.indexAt(pos)
         if not index.isValid():
+            # Empty space carries the session-level tools, so they stay reachable
+            # without travelling back to the toolbar at the top of the panel — and
+            # are discoverable at all when the session is empty.
+            self._build_session_menu().exec(self.list_view.viewport().mapToGlobal(pos))
             return
         actual = self.session.asset_model.display_to_actual(index.row())
         if actual < 0:
@@ -745,6 +804,18 @@ class FileBrowser(QWidget):
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.session.sync_selected_settings(dlg.selected(), dlg.bounds_flags(), dlg.scope())
+
+    def _build_session_menu(self) -> QMenu:
+        """Mirrors the panel toolbar's add/clear tools, for a right click on empty space."""
+        icon_color = THEME.text_primary
+        menu = QMenu(self)
+        menu.addAction(qta.icon("fa5s.file-import", color=icon_color), "Add files…").triggered.connect(self._on_add_files)
+        menu.addAction(qta.icon("fa5s.folder-plus", color=icon_color), "Add folder…").triggered.connect(self._on_add_folder)
+        menu.addSeparator()
+        clear = menu.addAction(qta.icon("fa5s.times-circle", color=icon_color), "Clear all")
+        clear.triggered.connect(self._on_clear_all)
+        clear.setEnabled(bool(self.session.state.uploaded_files))
+        return menu
 
     def _build_context_menu(self) -> QMenu:
         state = self.session.state

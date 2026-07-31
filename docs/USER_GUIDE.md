@@ -55,6 +55,8 @@ Toolbar buttons, left to right:
 
 Below the toolbar: a **filter box** (substring match; toggle **`.*`** for regex) and a **tally**, e.g. "36 frames · 12 keepers · 3 rejected".
 
+Right-clicking **empty space** in the film strip offers **Add files**, **Add folder** and **Clear all**, so those tools stay in reach part-way down a long roll instead of only at the top of the panel. Here **Clear all** always means the whole session, never just the selection.
+
 ### Triage (culling the roll)
 
 Right-click a thumbnail (or use keyboard shortcuts) to mark frames while you review the sheet:
