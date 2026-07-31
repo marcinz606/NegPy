@@ -235,9 +235,9 @@ fn gamut_aware_chroma_eff(lab: vec3<f32>, saturation: f32) -> f32 {
 // Skin-tone mask and chroma rein -- mirror _skin_weight / _skin_chroma_rein_kernel
 // in kernel/image/logic.py exactly, same constants.
 const SKIN_HUE_CENTER_DEG = 52.0;
-const SKIN_HUE_WIDTH_DEG = 25.0;
-const SKIN_CHROMA_FULL = 55.0;
-const SKIN_CHROMA_ZERO = 85.0;
+const SKIN_HUE_WIDTH_DEG = 20.0;
+const SKIN_CHROMA_FULL = 35.0;
+const SKIN_CHROMA_ZERO = 60.0;
 const SKIN_L_LO = 15.0;
 const SKIN_L_HI = 95.0;
 const SKIN_CEIL_AT_FULL = 22.0;

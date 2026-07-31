@@ -331,21 +331,22 @@ class TestLabParity:
     def test_skin_protection_tight_parity(self):
         """Skin chroma rein at Chroma 1.0 -- the path the saturation scale never
         reaches, so this is the only cover for skin_weight/skin_chroma_rein's WGSL
-        mirror. Patches rather than a gradient: per-channel normalization flattens
-        a uniform cast, so only spatially varying colour survives into the skin
-        band. Half this frame lands at mask weight > 0.3 (protection alone moves it
-        by ~0.11), so a mirror that silently no-ops would fail here."""
+        mirror. Two neutral patches anchor the per-channel normalization (which
+        would otherwise flatten a uniform cast) so the six warm ones keep their
+        colour and land inside the mask: 75% of the frame at weight > 0.3. The
+        no-op assertion below is what keeps this a real cover -- protection has to
+        move the CPU render by more than the parity tolerance it then checks."""
         h, w = 64, 64
         img = np.full((h, w, 3), 0.5, dtype=np.float32)
         negatives = [
-            (0.20, 0.55, 0.80),
-            (0.30, 0.60, 0.75),
-            (0.15, 0.45, 0.85),
-            (0.45, 0.50, 0.55),
-            (0.10, 0.30, 0.60),
-            (0.60, 0.62, 0.65),
-            (0.25, 0.65, 0.90),
-            (0.35, 0.40, 0.45),
+            (0.08, 0.08, 0.08),
+            (0.92, 0.92, 0.92),
+            (0.30, 0.62, 0.70),
+            (0.34, 0.66, 0.72),
+            (0.28, 0.64, 0.68),
+            (0.32, 0.68, 0.74),
+            (0.36, 0.66, 0.70),
+            (0.30, 0.70, 0.66),
         ]
         for i, col in enumerate(negatives):
             img[(i // 4) * 32 : (i // 4) * 32 + 32, (i % 4) * 16 : (i % 4) * 16 + 16] = col
@@ -360,6 +361,12 @@ class TestLabParity:
 
         cpu_arr = np.asarray(cpu_result)[..., :3].astype(np.float64)
         gpu_arr = np.asarray(gpu_result)[..., :3].astype(np.float64)
+
+        s_off = replace(s, lab=replace(s.lab, skin_protection=0.0))
+        cpu_off = np.asarray(self.cpu.process(img, s_off, "parity_test_skin_rein_off"))[..., :3].astype(np.float64)
+        moved = float(np.mean(np.abs(cpu_arr - cpu_off)))
+        assert moved > 0.01, f"protection barely moves this frame ({moved:.4f}) -- a dead mirror would pass"
+
         mad = float(np.mean(np.abs(cpu_arr - gpu_arr)))
         mx = float(np.max(np.abs(cpu_arr - gpu_arr)))
         assert mad < 0.01, f"mean abs diff {mad:.4f}"

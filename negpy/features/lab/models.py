@@ -18,7 +18,7 @@ class LabConfig:
     """
 
     saturation: float = 1.0
-    skin_protection: float = 0.0
+    skin_protection: float = 0.5
     clahe_strength: float = 0.0
     sharpen: float = 0.25
     sharpen_method: SharpenMethod = SharpenMethod.USM

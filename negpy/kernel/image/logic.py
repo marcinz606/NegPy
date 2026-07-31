@@ -254,15 +254,18 @@ def _in_gamut_lab(l_val: float, a: float, b: float, m: np.ndarray, white: np.nda
 # Skin-tone mask for skin_chroma_rein. Axis-aligned reduction of the CIELAB
 # skin locus: hue is the axis that stays put across the whole tonal range
 # (literature places skin at 40-65deg; a rendered portrait frame here measured
-# median ~52deg, p10-p90 ~41-73deg), chroma is bounded (skin ~12-40, sunburnt
-# ~60, a pure saturated red ~104), lightness is free apart from the two ends
-# where the hue angle turns to noise. The chroma window is what keeps saturated
-# reds out of the band -- hue alone cannot tell a face from a red car, since
-# pure red sits at ~35-40deg in this working space.
+# median ~52deg, p10-p90 ~41-73deg), chroma is bounded, lightness is free apart
+# from the two ends where the hue angle turns to noise.
+#
+# The chroma window is the discriminator and it is the measured skin locus
+# (C* ~12-40), not a gamut bound: sunset (~57), terracotta (~53) and brick
+# (~51) all sit inside the hue band. It cuts both ways -- skin above C* ~50
+# keeps only partial weight, and warm objects at skin's own chroma (wood, tan
+# leather, sand) are the same colour as skin. Neither is separable per-pixel.
 _SKIN_HUE_CENTER_DEG = np.float32(52.0)
-_SKIN_HUE_WIDTH_DEG = np.float32(25.0)
-_SKIN_CHROMA_FULL = np.float32(55.0)
-_SKIN_CHROMA_ZERO = np.float32(85.0)
+_SKIN_HUE_WIDTH_DEG = np.float32(20.0)
+_SKIN_CHROMA_FULL = np.float32(35.0)
+_SKIN_CHROMA_ZERO = np.float32(60.0)
 _SKIN_L_LO = np.float32(15.0)
 _SKIN_L_HI = np.float32(95.0)
 

@@ -2,6 +2,7 @@ import unittest
 import numpy as np
 import cv2
 from negpy.kernel.image.logic import _skin_weight, lab_to_rgb_working, rgb_to_lab_working, skin_chroma_rein
+from negpy.features.lab.models import LabConfig
 from negpy.features.lab.logic import (
     apply_chroma_denoise,
     apply_clahe,
@@ -388,6 +389,26 @@ class TestSkinMask(unittest.TestCase):
         self.assertGreater(np.hypot(lab[1], lab[2]), 85.0)
         self.assertLess(_skin_weight(float(lab[0]), float(lab[1]), float(lab[2])), 0.01)
 
+    def test_deep_skin_scores_high(self) -> None:
+        """Deep skin is low-chroma and dark but sits at the same hue -- the chroma
+        window must not be tightened to where it drops out."""
+        self.assertGreater(_skin_weight(27.0, *_lab(27.0, 22.0, 53.0)[0, 1:]), 0.9)
+
+    def test_saturated_warm_objects_score_low(self) -> None:
+        """Sunset, terracotta, brick and autumn colour all sit inside the skin hue
+        band -- only the chroma window keeps them out. The loose window this
+        replaced scored them 0.98 / 0.96 / 0.89 / 0.47, reining a sunset harder
+        than a face; they now measure 0.04 / 0.18 / 0.25 / 0.00."""
+        for name, (l_val, chroma, hue) in {
+            "sunset": (71.0, 57.0, 55.0),
+            "terracotta": (55.0, 53.0, 45.0),
+            "brick": (39.0, 51.0, 40.0),
+            "autumn leaf": (53.0, 71.0, 54.0),
+            "rust": (44.0, 69.0, 48.0),
+        }.items():
+            with self.subTest(name):
+                self.assertLess(_skin_weight(l_val, *_lab(l_val, chroma, hue)[0, 1:]), 0.3)
+
     def test_neutral_and_shadow_score_zero(self) -> None:
         self.assertEqual(_skin_weight(50.0, 0.3, 0.4), 0.0)
         self.assertEqual(_skin_weight(0.0, 20.0, 25.0), 0.0)
@@ -414,17 +435,17 @@ class TestSkinChromaRein(unittest.TestCase):
         np.testing.assert_allclose(skin_chroma_rein(lab, 0.5), lab, atol=1e-5)
 
     def test_excessive_skin_chroma_is_pulled_down(self) -> None:
-        lab = _lab(65.0, 60.0, 52.0)
-        self.assertLess(_chroma(skin_chroma_rein(lab, 0.5)), 50.0)
+        lab = _lab(65.0, 45.0, 52.0)
+        self.assertLess(_chroma(skin_chroma_rein(lab, 0.5)), 43.0)
 
     def test_hue_and_lightness_preserved(self) -> None:
-        lab = _lab(65.0, 60.0, 52.0)
+        lab = _lab(65.0, 45.0, 52.0)
         out = skin_chroma_rein(lab, 0.8)
         self.assertAlmostEqual(float(out[0, 0]), 65.0, places=4)
         self.assertAlmostEqual(float(np.degrees(np.arctan2(out[0, 2], out[0, 1]))), 52.0, places=3)
 
     def test_stronger_reins_harder(self) -> None:
-        lab = _lab(65.0, 60.0, 52.0)
+        lab = _lab(65.0, 45.0, 52.0)
         chromas = [_chroma(skin_chroma_rein(lab, s)) for s in (0.2, 0.5, 0.8, 1.0)]
         self.assertEqual(chromas, sorted(chromas, reverse=True))
 
@@ -434,12 +455,26 @@ class TestSkinProtectionInSaturation(unittest.TestCase):
         """The point of the control: protection works with Chroma at 1.0, where
         the scale itself is a no-op."""
         img = np.zeros((4, 4, 3), dtype=np.float32)
-        img[:, :, 0] = 0.85
-        img[:, :, 1] = 0.35
-        img[:, :, 2] = 0.18  # ruddy skin, chroma well above the knee
+        img[:, :, 0] = 0.53
+        img[:, :, 1] = 0.27
+        img[:, :, 2] = 0.16  # skin at L* 65, C* 35, 52deg -- above the knee, mask weight 1.0
 
         before = _chroma(rgb_to_lab_working(img)[0, :1])
         after = _chroma(rgb_to_lab_working(apply_saturation(img, 1.0, 0.8))[0, :1])
+
+        self.assertLess(after, before - 1.0)
+
+    def test_on_by_default(self) -> None:
+        """Ships on at half strength -- a look decision, so pin it."""
+        self.assertEqual(LabConfig().skin_protection, 0.5)
+
+        img = np.zeros((4, 4, 3), dtype=np.float32)
+        img[:, :, 0] = 0.53
+        img[:, :, 1] = 0.27
+        img[:, :, 2] = 0.16  # skin, C* 35 -- above the knee at strength 0.5
+
+        before = _chroma(rgb_to_lab_working(img)[0, :1])
+        after = _chroma(rgb_to_lab_working(apply_saturation(img, 1.0, LabConfig().skin_protection))[0, :1])
 
         self.assertLess(after, before - 1.0)
 
