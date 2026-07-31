@@ -3167,36 +3167,49 @@ class AppController(QObject):
         self.session.jump_to_step(index)
         self.request_export()
 
-    def request_linear_output_export(self) -> None:
-        """Export the current file's decoded linear buffer as an untagged 16-bit TIFF."""
-        from PyQt6.QtWidgets import QFileDialog
-
+    def request_linear_output_export(self, files: list[dict] | None = None) -> None:
+        """Export decoded linear buffers as untagged 16-bit TIFFs to the export folder."""
         from negpy.services.export.linear_output import export_linear_output, is_linear_output_supported
-
-        file_path = self.state.current_file_path
-        if not file_path:
-            return
-        if not is_linear_output_supported(file_path):
-            self.set_status("Linear Output requires a Pakon RAW or LinearRaw DNG file", 4000)
-            return
 
         export_path = self._ensure_valid_export_path()
         if not export_path:
             return
 
-        stem = os.path.splitext(os.path.basename(file_path))[0]
-        default_name = f"{stem}_linear.tiff"
-        out_path, _ = QFileDialog.getSaveFileName(
-            None, "Export Linear Output", os.path.join(export_path, default_name), "TIFF Files (*.tiff *.tif)"
-        )
-        if not out_path:
+        if files is None:
+            file_path = self.state.current_file_path
+            if not file_path:
+                return
+            if not is_linear_output_supported(file_path):
+                self.set_status("Linear Output is not supported for this file type", 4000)
+                return
+            files = [{"path": file_path, "name": os.path.basename(file_path)}]
+
+        supported = [f for f in files if is_linear_output_supported(f["path"])]
+        if not supported:
+            self.set_status("No files support Linear Output", 4000)
             return
 
-        try:
-            export_linear_output(file_path, out_path, geometry=self.state.config.geometry)
-            self.set_status(f"Linear Output saved: {os.path.basename(out_path)}", 4000)
-        except Exception as e:
-            QMessageBox.warning(None, "Linear Output", f"Export failed: {e}")
+        if len(supported) > 1 and not self._confirm_bulk_export(f"Linear-export {len(supported)} frames?"):
+            return
+
+        exported = 0
+        geometry = self.state.config.geometry
+        for f in supported:
+            stem = os.path.splitext(os.path.basename(f["path"]))[0]
+            out_path = os.path.join(export_path, f"{stem}_linear.tiff")
+            counter = 2
+            while os.path.exists(out_path):
+                out_path = os.path.join(export_path, f"{stem}_linear_{counter}.tiff")
+                counter += 1
+            try:
+                export_linear_output(f["path"], out_path, geometry=geometry)
+                exported += 1
+            except Exception as e:
+                logger.warning("Linear output failed for %s: %s", f.get("name"), e)
+                self.set_status(f"Linear Output failed: {os.path.basename(f['path'])}: {e}", 4000)
+
+        if exported:
+            self.set_status(f"Linear Output: exported {exported} file(s)", 4000)
 
     def request_export(self) -> None:
         """Exports the current file using the settings currently shown in the Export panel."""

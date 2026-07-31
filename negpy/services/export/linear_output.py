@@ -191,6 +191,7 @@ def _decode_camera_raw(file_path: str, geometry: Optional[GeometryConfig] = None
         output_color=rawpy.ColorSpace.raw,
         demosaic_algorithm=algo,
         user_flip=0,
+        adjust_maximum_thr=0.0,
     )
     raw.close()
     rgb = ensure_rgb(rgb)

@@ -798,7 +798,23 @@ class ExportSidebar(BaseSidebar):
 
     def _on_export_clicked(self) -> None:
         if self.state.linear_output:
-            self.controller.request_linear_output_export()
+            scope = self._export_scope
+            if scope in ("all_current", "all_saved"):
+                files = [
+                    self.state.uploaded_files[i]
+                    for i in self.controller.session.asset_model.visible_actual_indices_ordered()
+                    if not self.state.uploaded_files[i].get("excluded")
+                ]
+                self.controller.request_linear_output_export(files=files)
+            elif scope == "selected":
+                files = [
+                    self.state.uploaded_files[i]
+                    for i in self.state.selected_indices
+                    if 0 <= i < len(self.state.uploaded_files) and not self.state.uploaded_files[i].get("excluded")
+                ]
+                self.controller.request_linear_output_export(files=files)
+            else:
+                self.controller.request_linear_output_export()
             return
         scope = self._export_scope
         if scope == "selected":
