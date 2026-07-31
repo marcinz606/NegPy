@@ -1109,7 +1109,10 @@ class AppController(QObject):
                 return
             idx = self.state.selected_file_idx
             files = self.state.uploaded_files
-            for path, h in neighbor_paths_and_hashes(files, idx):
+            if idx < 0 or not files:
+                return
+            display_order = self.session.asset_model.visible_actual_indices_ordered()
+            for path, h in neighbor_paths_and_hashes(files, display_order, idx):
                 # Match the cache key load_file will use for this neighbour: its own saved
                 # linear_raw, not the current file's. Otherwise the warm buffer lands under
                 # the wrong key and navigation re-decodes anyway.

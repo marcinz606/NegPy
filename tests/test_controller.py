@@ -64,6 +64,23 @@ class TestAppController(unittest.TestCase):
         mock_slot.assert_called_once_with(1.0)
         self.assertFalse(self.controller.state.hq_preview)
 
+    def test_prefetch_neighbors_no_selection_is_noop(self):
+        """With no current selection the scheduled prefetch must fire harmlessly:
+        no load requested, and crucially no exception out of the QTimer slot (PyQt6
+        aborts the process on one). Regression: it used to reach the asset model
+        before checking for an empty state."""
+        from PyQt6.QtTest import QTest
+
+        self.controller.state.uploaded_files = []
+        self.controller.state.selected_file_idx = -1
+        mock_slot = MagicMock()
+        self.controller.preview_load_requested.connect(mock_slot)
+
+        self.controller._schedule_prefetch_neighbors()
+        QTest.qWait(120)  # let the 50ms singleShot fire
+
+        mock_slot.assert_not_called()
+
     def test_decode_failure_badges_file_and_success_clears_it(self):
         self.mock_session_manager.asset_model = MagicMock()
         state = self.mock_session_manager.state

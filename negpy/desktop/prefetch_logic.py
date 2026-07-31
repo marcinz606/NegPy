@@ -3,23 +3,30 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 
 
-def neighbor_indices(n_files: int, current_index: int) -> List[int]:
+def display_neighbor_indices(display_order: List[int], current_index: int) -> List[int]:
     """
-    Returns actual list indices for previous and next file, in-bounds.
+    Actual indices of the prev/next files in filmstrip (display) order.
+
+    `display_order` is the display-ordered list of actual indices
+    (AssetListModel.visible_actual_indices_ordered); `current_index` is an actual
+    index. Mirrors next_file/prev_file so prefetch warms exactly the frames
+    navigation lands on, not the raw uploaded_files (discovery-order) neighbours.
     """
-    if n_files <= 0 or current_index < 0 or current_index >= n_files:
+    try:
+        pos = display_order.index(current_index)
+    except ValueError:
         return []
     out: List[int] = []
-    if current_index > 0:
-        out.append(current_index - 1)
-    if current_index + 1 < n_files:
-        out.append(current_index + 1)
+    if pos > 0:
+        out.append(display_order[pos - 1])
+    if pos + 1 < len(display_order):
+        out.append(display_order[pos + 1])
     return out
 
 
-def neighbor_paths_and_hashes(files: List[dict], current_index: int) -> List[Tuple[str, Optional[str]]]:
+def neighbor_paths_and_hashes(files: List[dict], display_order: List[int], current_index: int) -> List[Tuple[str, Optional[str]]]:
     """
-    (path, hash) for prev/next neighbors; hash may be None.
+    (path, hash) for the prev/next neighbours in display order; hash may be None.
     """
-    ni = neighbor_indices(len(files), current_index)
+    ni = display_neighbor_indices(display_order, current_index)
     return [(files[i]["path"], files[i].get("hash")) for i in ni]
