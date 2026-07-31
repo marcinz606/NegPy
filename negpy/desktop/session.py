@@ -153,6 +153,9 @@ class AppState:
     # Transient: preview is currently peeking the flat render (not persisted).
     flat_peek: bool = False
 
+    # Temporary A/B toggle: when True, _decode_sensor_rgb uses adjust_maximum_thr=0.0.
+    fix_adjust_maximum: bool = True
+
     @property
     def local_hidden_masks(self) -> set:
         """The current file's hidden-mask indices (empty = all shown). Returns a fresh,

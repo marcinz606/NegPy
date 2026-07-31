@@ -107,6 +107,15 @@ class ProcessSidebar(BaseSidebar):
         raw_row.addWidget(self.lock_bounds_btn, 1)
         self.layout.addLayout(raw_row)
 
+        self.fix_amt_btn = self._small_toggle(
+            "mdi6.ab-testing",
+            "Fix WL",
+            self.state.fix_adjust_maximum,
+            "A/B: pin RAW white level to camera max (disable rawpy adjust_maximum_thr). "
+            "ON = fixed white level, OFF = legacy 75% threshold. Triggers re-decode.",
+        )
+        self.layout.addWidget(self.fix_amt_btn)
+
         buf_row = QHBoxLayout()
         self.analysis_buffer_slider = CompactSlider("Analysis Buffer", 0.0, 0.25, conf.analysis_buffer)
         self.analysis_region_btn = self._tool_toggle(
@@ -230,6 +239,7 @@ class ProcessSidebar(BaseSidebar):
         self.lock_bounds_btn.toggled.connect(self._on_lock_bounds_toggled)
         self.linear_raw_btn.toggled.connect(self._on_linear_raw_toggled)
         self.narrowband_scan_btn.toggled.connect(self._on_narrowband_scan_toggled)
+        self.fix_amt_btn.toggled.connect(lambda c: self.controller.toggle_fix_adjust_maximum(c))
 
         self.analysis_buffer_slider.valueChanged.connect(lambda v: self._on_buffer_changed(v, persist=False))
         self.analysis_buffer_slider.valueCommitted.connect(lambda v: self._on_buffer_changed(v, persist=True))
@@ -445,6 +455,7 @@ class ProcessSidebar(BaseSidebar):
             self.lock_bounds_btn.setChecked(conf.lock_bounds)
             self.linear_raw_btn.setChecked(conf.linear_raw)
             self.narrowband_scan_btn.setChecked(conf.narrowband_scan)
+            self.fix_amt_btn.setChecked(self.state.fix_adjust_maximum)
 
             profiles = CrosstalkProfiles.list_profiles()
             if profiles != [self.crosstalk_combo.itemText(i) for i in range(self.crosstalk_combo.count())]:
@@ -489,6 +500,7 @@ class ProcessSidebar(BaseSidebar):
             self.lock_bounds_btn,
             self.linear_raw_btn,
             self.narrowband_scan_btn,
+            self.fix_amt_btn,
             self.ch_global_btn,
             self.ch_r_btn,
             self.ch_g_btn,

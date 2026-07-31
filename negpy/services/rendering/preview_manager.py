@@ -68,6 +68,8 @@ class PreviewManager:
 
     def __init__(self) -> None:
         self._cache = PreviewBufferCache(APP_CONFIG)
+        # Temporary A/B flag: when True, use adjust_maximum_thr=0.0 in postprocess.
+        self.fix_adjust_maximum: bool = True
 
     # ------------------------------------------------------------------
     # Internal helpers — operate on an already-open raw object so that
@@ -142,6 +144,7 @@ class PreviewManager:
         user_wb = None if use_camera_wb else [1, 1, 1, 1]
 
         t_pp = time.perf_counter()
+        amt_kw = {"adjust_maximum_thr": 0.0} if self.fix_adjust_maximum else {}
         rgb = raw.postprocess(
             gamma=(1, 1),
             no_auto_bright=True,
@@ -151,6 +154,7 @@ class PreviewManager:
             output_color=rawpy.ColorSpace.raw,
             demosaic_algorithm=demosaic,
             user_flip=0,
+            **amt_kw,
             **post_kw,
         )
         log("load-timing decode.postprocess %.0fms (fast=%s) %s", (time.perf_counter() - t_pp) * 1000, use_fast, file_path)
@@ -327,6 +331,7 @@ class PreviewManager:
                     demosaic = rawpy.DemosaicAlgorithm.LINEAR
                     # half_size casts X-Trans channel ratios (skews detection); Bayer is fine.
                     post_kw = {} if is_xtrans(raw) else {"half_size": True}
+                amt_kw2 = {"adjust_maximum_thr": 0.0} if self.fix_adjust_maximum else {}
                 rgb = raw.postprocess(
                     gamma=(1, 1),
                     no_auto_bright=True,
@@ -336,6 +341,7 @@ class PreviewManager:
                     output_color=rawpy.ColorSpace.raw,
                     demosaic_algorithm=demosaic,
                     user_flip=0,
+                    **amt_kw2,
                     **post_kw,
                 )
             return uint16_to_float32(ensure_rgb(rgb))

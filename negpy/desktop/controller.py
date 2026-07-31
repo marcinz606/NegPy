@@ -1156,6 +1156,13 @@ class AppController(QObject):
         if self.state.current_file_path:
             self.load_file(self.state.current_file_path, preserve_zoom=True)
 
+    def toggle_fix_adjust_maximum(self, enabled: bool) -> None:
+        self.state.fix_adjust_maximum = enabled
+        self.render_worker.processor.fix_adjust_maximum = enabled
+        self.preview_service.fix_adjust_maximum = enabled
+        if self.state.current_file_path:
+            self.load_file(self.state.current_file_path, preserve_zoom=True)
+
     def handle_canvas_clicked(self, nx: float, ny: float) -> None:
         if self.state.active_tool == ToolMode.WB_PICK:
             self._handle_wb_pick(nx, ny)

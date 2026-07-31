@@ -111,6 +111,9 @@ class ImageProcessor:
         self.engine_cpu = DarkroomEngine()
         self.engine_gpu: Optional[GPUEngine] = None
 
+        # Temporary A/B flag: when True, use adjust_maximum_thr=0.0 in _decode_sensor_rgb.
+        self.fix_adjust_maximum: bool = True
+
         # Last decoded full-res source (decode+flatfield) — skips re-decode on repeat export.
         # One entry only (full-res buffers are large); treated read-only downstream.
         self._source_cache_key: Optional[tuple] = None
@@ -435,6 +438,7 @@ class ImageProcessor:
             algo = get_best_demosaic_algorithm(raw)
             user_wb = [1, 1, 1, 1] if linear_raw else None
             post_kw: Dict[str, Any] = {"half_size": True} if fast and _use_half_size_decode(raw, linear_raw) else {}
+            amt_kw = {"adjust_maximum_thr": 0.0} if self.fix_adjust_maximum else {}
             rgb = raw.postprocess(
                 gamma=(1, 1),
                 no_auto_bright=True,
@@ -444,7 +448,7 @@ class ImageProcessor:
                 output_color=rawpy.ColorSpace.raw,
                 demosaic_algorithm=algo,
                 user_flip=0,
-                adjust_maximum_thr=0.0,
+                **amt_kw,
                 **post_kw,
             )
             rgb = ensure_rgb(rgb)
