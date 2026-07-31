@@ -22,7 +22,7 @@ class ProcessConfig:
     """
 
     process_mode: ProcessMode = ProcessMode.C41
-    linear_raw: bool = True
+    linear_raw: bool = False
     # Correct narrowband RGB camera scans via the bundled RGBScan input profile
     # (applied at preview soft-proof / export; an explicit Input ICC overrides it).
     narrowband_scan: bool = False

@@ -69,7 +69,8 @@ def test_measure_capture_reads_central_crop_only():
 
 
 def test_sensor_token_tracks_matrix():
-    off = WorkspaceConfig().process
+    # linear_raw is explicit: the unmix is gated on it (test_effective_matrix_needs_linear_raw).
+    off = replace(WorkspaceConfig().process, linear_raw=True)
     on = replace(off, sensor_matrix=(1, 0, 0, 0, 1, 0, 0, 0, 1))
     on2 = replace(off, sensor_matrix=(1, -0.1, 0, 0, 1, 0, 0, 0, 1))
     assert sensor_token(off) == ""
@@ -151,7 +152,7 @@ def test_run_pipeline_gates_triplets(monkeypatch):
     img = np.full((8, 8, 3), 0.5, dtype=np.float32)
     matrix = (1.0, -0.1, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
     cfg = WorkspaceConfig()
-    cfg = replace(cfg, process=replace(cfg.process, sensor_matrix=matrix))
+    cfg = replace(cfg, process=replace(cfg.process, sensor_matrix=matrix, linear_raw=True))
 
     ip.run_pipeline(img, cfg, "h", render_size_ref=float(APP_CONFIG.preview_render_size), prefer_gpu=False)
     assert calls == [matrix]

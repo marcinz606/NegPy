@@ -142,12 +142,12 @@ class TestApplyScanSetup(unittest.TestCase):
         self.assertFalse(config.process.narrowband_scan)
 
     def test_linear_raw_flip_reloads_the_open_frame(self):
-        self.controller.apply_scan_setup("camera", "white")
+        self.controller.apply_scan_setup("scanner", "white")
         self.controller.load_file.assert_called_once_with("/a.dng")
         self.assertFalse(self.mock_session_manager.update_config.call_args.kwargs["render"])
 
-    def test_narrowband_only_change_renders_without_reloading(self):
-        self.controller.apply_scan_setup("scanner", "narrowband")
+    def test_unchanged_linear_raw_renders_without_reloading(self):
+        self.controller.apply_scan_setup("camera", "white")
         self.controller.load_file.assert_not_called()
         self.assertTrue(self.mock_session_manager.update_config.call_args.kwargs["render"])
 
