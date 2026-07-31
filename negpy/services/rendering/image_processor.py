@@ -444,6 +444,7 @@ class ImageProcessor:
                 output_color=rawpy.ColorSpace.raw,
                 demosaic_algorithm=algo,
                 user_flip=0,
+                adjust_maximum_thr=0.0,
                 **post_kw,
             )
             rgb = ensure_rgb(rgb)
