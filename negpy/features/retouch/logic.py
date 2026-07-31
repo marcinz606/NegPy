@@ -62,13 +62,11 @@ _IR_NOISE_SIGMA = 3.0
 # Bounds the rescale so >50% coverage (median inside the dust) can't scale the ratio clean
 # and silently disable IR removal. ponytail: absolute; the knob if a scanner needs more.
 _IR_PIVOT_LO = 0.60
-# Weak-IR contrast normalization. Dip depth is scanner-dependent: a Coolscan 5000's clean-film
-# MAD σ runs 0.038–0.063 while a Plustek/SilverFast HDRi DNG measures 0.005, so the same speck
-# reads 0.62 on one and 0.92 on the other and every absolute landmark below (ir_detect_cutoff,
-# the _fit_refraction_gammas band, the gain) misses it. Stretch-only: σ ≥ _IR_REF_SIGMA leaves
-# the ratio exactly untouched, so a Coolscan renders byte-identical.
+# Dip depth is scanner-dependent — clean-film MAD σ is 0.038–0.063 on a Coolscan 5000 against
+# 0.005 on a Plustek/SilverFast HDRi DNG, putting one speck at ratio 0.62 and the other at 0.92,
+# past every absolute landmark below. Stretch-only, so σ ≥ _IR_REF_SIGMA is an exact no-op.
 _IR_REF_SIGMA = 0.02
-_IR_SCALE_MAX = 6.0  # bounds a degenerate/quantized plane whose σ measures ~0
+_IR_SCALE_MAX = 6.0  # bounds a degenerate/quantized plane measuring σ ~0
 # Crosstalk unmixing: dye/silver absorbs some IR, so the IR plane carries a ghost of
 # the image that normalize_ir's spatial high-pass can't see (a sharp edge survives it).
 _IR_XTALK_MAX = 0.8  # per-channel exponent cap; ≥0 only — density can only block IR
@@ -853,6 +851,28 @@ def score_weighted_fill(img: np.ndarray, score: np.ndarray, scales: Tuple[int, .
     return fill
 
 
+def _borrow_clean_grain(src: np.ndarray, clean: np.ndarray, sigma: float) -> np.ndarray:
+    """Detail of the nearest clean pixel, per pixel, high-passed at ``sigma``.
+
+    Real film rather than synthesized noise: the donor is the closest pixel the IR score calls
+    clean, so it carries the same emulsion, density and scanner noise as the hole it fills.
+    Ceiling: deep inside a wide defect every pixel resolves to the same few boundary donors and
+    the paste flattens toward a constant, leaving those interiors to the fill's own blend.
+    """
+    h, w = clean.shape
+    # DIST_LABEL_PIXEL numbers the zero pixels 1..N in raster order, so flatnonzero inverts it.
+    _, labels = cv2.distanceTransformWithLabels((~clean).astype(np.uint8), cv2.DIST_L2, 3, labelType=cv2.DIST_LABEL_PIXEL)
+    nearest = np.flatnonzero(clean.ravel())[labels.ravel().astype(np.intp) - 1]
+    # Mirror through the donor, don't sample it: a whole row across a hair shares one nearest
+    # clean pixel, and pasting that verbatim streaks the grain into bands.
+    ny, nx = np.divmod(nearest, w)
+    py, px = np.divmod(np.arange(h * w), w)
+    mirrored = np.clip(2 * ny - py, 0, h - 1) * w + np.clip(2 * nx - px, 0, w - 1)
+    take = np.where(clean.ravel()[mirrored], mirrored, nearest)
+    grain = src - cv2.GaussianBlur(src, (0, 0), sigma)
+    return grain.reshape(-1, 3)[take].reshape(src.shape)
+
+
 def apply_ir_reconstruction(img: ImageBuffer, score_det: np.ndarray) -> ImageBuffer:
     """Bake the score-weighted fill into the linear source (new array). The detection-scale
     score is upsampled; the fill convolutions rerun at the buffer's own resolution with
@@ -869,9 +889,18 @@ def apply_ir_reconstruction(img: ImageBuffer, score_det: np.ndarray) -> ImageBuf
     a = np.clip((_IR_WRITE_HI - score) / (_IR_WRITE_HI - _IR_WRITE_LO), 0.0, 1.0)
     a = (a * a * (3.0 - 2.0 * a))[..., None]
     out = src * (1.0 - a) + fill * a
-    # Original-floor rule: dust is dark in negative transmittance — repairs only lighten.
-    np.maximum(out, src, out=out)
-    return ensure_image(out)
+    # A weighted average lands grainless, so a repair reads as a smooth patch against film.
+    sigma = max(1.0, factor)
+    clean = score >= _IR_WRITE_HI
+    if clean.any():
+        out += a * _borrow_clean_grain(src, clean, sigma)
+    # Original-floor rule: dust is dark in negative transmittance — repairs only lighten. Compared
+    # on the low-frequency deficit, since per pixel it is a half-wave rectifier: it keeps the
+    # fill's grain peaks and clips its troughs, sitting the repair ~3% bright with half the
+    # texture. Under the same ramp, so a pixel the fill never touched stays byte-identical.
+    lo_deficit = cv2.GaussianBlur(src, (0, 0), sigma) - cv2.GaussianBlur(out, (0, 0), sigma)
+    out += a * np.maximum(lo_deficit, 0.0)
+    return ensure_image(np.maximum(out, 0.0))
 
 
 def route_ir_defects(score: np.ndarray) -> Optional[np.ndarray]:
@@ -968,10 +997,10 @@ def _ir_clean_base(img_det: np.ndarray, ratio: np.ndarray) -> np.ndarray:
 
 
 def _ir_normalize_ratio(ratio: np.ndarray, live: np.ndarray) -> np.ndarray:
-    """Put both ratio landmarks where the absolute constants expect them: the measured
-    clean-film floor on ``_IR_GAIN_IDENTITY``, then the dip scale on ``_IR_REF_SIGMA``
-    (see the constants block). ``live`` only: the dead-margin 1.0s inflate σ ~20% on a
-    strip scan. MAD, not std, so a dusty minority can't move either landmark."""
+    """Both ratio landmarks onto what the absolute constants expect: clean-film floor on
+    ``_IR_GAIN_IDENTITY``, dip scale on ``_IR_REF_SIGMA`` (see the constants block). ``live``
+    only: the dead-margin 1.0s inflate σ ~20% on a strip scan. MAD, not std, so a dusty
+    minority can't move either landmark."""
     sample = ratio[live]
     if sample.size < 500:  # nothing measurable: leave the landmarks alone
         return ratio
@@ -983,9 +1012,8 @@ def _ir_normalize_ratio(ratio: np.ndarray, live: np.ndarray) -> np.ndarray:
     # A clipped pivot is an exact no-op: x/x is 1.0 in IEEE, float32 × 1.0 exact.
     scale = _IR_GAIN_IDENTITY / pivot
     ratio = (ratio * scale).astype(np.float32)
-    # The rescale carries σ with it, so the stretch needs no second median pass. Dips only:
-    # deepening clean film's *upward* excursions serves nothing, and a noiseless synthetic
-    # plane would take the full _IR_SCALE_MAX and land its clean level at 1.15.
+    # The rescale carries σ with it, so no second median pass. Dips only: a noiseless plane
+    # takes the full _IR_SCALE_MAX, which would land its clean level at 1.15.
     k = float(np.clip(_IR_REF_SIGMA / max(sigma * scale, 1e-6), 1.0, _IR_SCALE_MAX))
     if k > 1.0:
         stretched = _IR_GAIN_IDENTITY - (_IR_GAIN_IDENTITY - ratio) * k
@@ -1104,6 +1132,12 @@ def apply_hair_inpaint(
         a = np.minimum(d / float(dilate_px + 1), 1.0)[..., None]
         blended = crop * (1.0 - a) + dec * a
         out[y0:y1, x0:x1][mb] = blended[mb]
+    # Navier–Stokes propagates a smooth field, so the fill lands grainless (see
+    # apply_ir_reconstruction, which fills the same kind of hole by a different route).
+    filled_px = m.astype(bool)
+    clean = ~filled_px
+    if clean.any():
+        out[filled_px] += _borrow_clean_grain(src, clean, max(1.0, factor))[filled_px]
     return out
 
 

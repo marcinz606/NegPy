@@ -65,9 +65,16 @@ def test_workspace_config_roundtrip_ir_fields():
     assert WorkspaceConfig.from_flat_dict(old).retouch.ir_threshold == 0.4
 
 
+def _lowpass(a, sigma: float = 2.0) -> np.ndarray:
+    """The scale the original-floor rule guards: structure, not individual grain. One octave
+    above the rule's own correction scale, where its single pass has converged (worst residual
+    darkening 5e-6 there against 2e-3 at σ 1)."""
+    return cv2.GaussianBlur(np.asarray(a, dtype=np.float32), (0, 0), sigma)
+
+
 def test_ir_reconstruction_heals_defect_end_to_end():
     """IR speck → continuous score → score-weighted fill rebuilds it from clean
-    neighbours, and never darkens anything (the original-floor rule)."""
+    neighbours, and never darkens the structure under it (the original-floor rule)."""
     h, w = 80, 80
     rng = np.random.default_rng(17)
     img = np.clip(np.full((h, w, 3), 0.5) + rng.normal(0, 0.01, (h, w, 3)), 0, 1).astype(np.float32)
@@ -79,7 +86,47 @@ def test_ir_reconstruction_heals_defect_end_to_end():
     assert abs(float(score[40, 40]) - _IR_SCORE_FLOOR) < 1e-6
     out = np.asarray(apply_ir_reconstruction(img, score))
     assert float(out[40, 40].min()) > 0.4, "the speck is rebuilt to the surround level"
-    assert (out >= np.asarray(img) - 1e-6).all(), "a repair may only lighten"
+    assert (_lowpass(out) >= _lowpass(img) - 1e-4).all(), "a repair may only lighten"
+
+
+def _repaired_hair_frame(h: int = 160, w: int = 160, seed: int = 31):
+    """Grainy film, one hairline in the IR plane, visible already at the surrounding level —
+    what the fill receives, since apply_ir_attenuation runs first and brings a semi-transparent
+    defect back to ~0.99 of its surround. With nothing left to repair, whatever the fill does to
+    the level is its own bias."""
+    rng = np.random.default_rng(seed)
+    img = np.clip(0.45 + rng.normal(0, 0.02, (h, w, 3)), 1e-3, 1.0).astype(np.float32)
+    ir = np.clip(0.9 + rng.normal(0, 0.004, (h, w)), 0.0, 1.0).astype(np.float32)
+    ir[40:120, 78:82] *= 0.5
+    return img, ir
+
+
+def _core_and_surround(out: np.ndarray):
+    core = out[50:110, 79:81].reshape(-1, 3).mean(0)
+    surround = np.concatenate([out[50:110, 60:70].reshape(-1, 3), out[50:110, 90:100].reshape(-1, 3)]).mean(0)
+    return core, surround
+
+
+def test_repair_is_not_biased_brighter_than_the_film_it_replaces():
+    """A repair sits at the level of the film around it. Taking the original-floor rule per pixel
+    instead half-wave rectifies it (grain peaks kept, troughs clipped), which is worth 2% here and
+    3% on the real hair in samples/ir — enough for a healed hair to read as a dark line."""
+    img, ir = _repaired_hair_frame()
+    score = ir_defect_score(normalize_ir(ir), ir_detect_cutoff(0.66, True))
+    core, surround = _core_and_surround(np.asarray(apply_ir_reconstruction(img, score)))
+    assert float((core / surround).max()) < 1.015, f"repair sits brighter than its film: {core / surround}"
+
+
+def test_repair_keeps_the_grain_of_the_film_around_it():
+    """A local weighted average lands grainless, so _borrow_clean_grain pastes the nearest clean
+    film's detail back into it: 88% of the surrounding amplitude on this hairline."""
+    img, ir = _repaired_hair_frame()
+    score = ir_defect_score(normalize_ir(ir), ir_detect_cutoff(0.66, True))
+    out = np.asarray(apply_ir_reconstruction(img, score))
+    detail = out[:, :, 1] - cv2.GaussianBlur(out[:, :, 1], (0, 0), 1.5)
+    inside = float(detail[50:110, 79:81].std())
+    outside = float(np.concatenate([detail[50:110, 60:70].ravel(), detail[50:110, 90:100].ravel()]).std())
+    assert inside > 0.75 * outside, f"repair is smooth: σ {inside:.5f} against {outside:.5f} on clean film"
 
 
 def test_ir_reconstruction_is_identity_on_clean_film():
@@ -732,8 +779,9 @@ def test_ir_fill_leaves_clean_pixels_byte_identical():
     untouched = score >= _IR_WRITE_HI
     assert untouched.sum() > 0.9 * untouched.size
     assert np.array_equal(out[untouched], np.asarray(img)[untouched])
-    assert (out >= np.asarray(img) - 1e-6).all()
-    assert float(out[60, 60].min()) > 0.3, "the core is still rebuilt"
+    assert (_lowpass(out) >= _lowpass(img) - 1e-4).all()
+    # Region mean, not one pixel's channel min: transplanted grain puts real troughs back.
+    assert float(out[58:62, 58:62].mean()) > 0.3, "the core is still rebuilt"
 
 
 def test_ir_fill_follows_an_edge_through_the_defect():
