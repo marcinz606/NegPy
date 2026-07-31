@@ -251,25 +251,44 @@ def _in_gamut_lab(l_val: float, a: float, b: float, m: np.ndarray, white: np.nda
     return r >= -tol and r <= one + tol and g >= -tol and g <= one + tol and bl >= -tol and bl <= one + tol
 
 
-# Skin-tone hue protection for gamut_aware_chroma_scale. Grounded in a real
-# sample (a rendered portrait frame, moderate-lightness/moderate-chroma
-# warm-hue pixels): hue angle atan2(b,a) median ~52deg, p10-p90 ~41-73deg.
-# Gaussian-weighted around the center; strength scales how much any push
-# (boost or cut) is pulled back toward identity in that band. Not exposed as
-# a control -- a flat, always-on improvement to the existing tool, not a new
-# one. Constants are from a single frame's rough hue mask, not a validated
-# skin detector; revisit if checked against more real frames shows drift.
+# Skin-tone mask for skin_chroma_rein. Axis-aligned reduction of the CIELAB
+# skin locus: hue is the axis that stays put across the whole tonal range
+# (literature places skin at 40-65deg; a rendered portrait frame here measured
+# median ~52deg, p10-p90 ~41-73deg), chroma is bounded (skin ~12-40, sunburnt
+# ~60, a pure saturated red ~104), lightness is free apart from the two ends
+# where the hue angle turns to noise. The chroma window is what keeps saturated
+# reds out of the band -- hue alone cannot tell a face from a red car, since
+# pure red sits at ~35-40deg in this working space.
 _SKIN_HUE_CENTER_DEG = np.float32(52.0)
 _SKIN_HUE_WIDTH_DEG = np.float32(25.0)
-_SKIN_PROTECTION_STRENGTH = np.float32(0.5)
+_SKIN_CHROMA_FULL = np.float32(55.0)
+_SKIN_CHROMA_ZERO = np.float32(85.0)
+_SKIN_L_LO = np.float32(15.0)
+_SKIN_L_HI = np.float32(95.0)
+
+# Chroma ceiling the rein pulls toward: _SKIN_CEIL_AT_FULL / strength, so the
+# ceiling runs off past any reachable chroma as strength approaches 0 and the
+# control fades out continuously. A lerp to some finite "off" ceiling instead
+# would step discontinuously the moment the slider left 0. The knee starts at a
+# fraction of the ceiling so ordinary skin below it passes through untouched.
+_SKIN_CEIL_AT_FULL = np.float32(22.0)
+_SKIN_KNEE_START_FRAC = np.float32(0.6)
 
 
 @njit(inline="always")
-def _skin_protection_weight(a: float, b: float) -> float:
-    """0 (no protection) to ~1 (full protection) based on hue-angle distance
-    from the measured skin-tone hue center. Near-neutral pixels (tiny a/b)
-    have an undefined/noisy hue angle, so gate on chroma too -- a low-chroma
-    pixel isn't meaningfully "skin-hued" regardless of what atan2 returns."""
+def _smoothstep_scalar(e0: float, e1: float, x: float) -> float:
+    t = (x - e0) / (e1 - e0)
+    if t < 0.0:
+        t = 0.0
+    elif t > 1.0:
+        t = 1.0
+    return float(t * t * (np.float32(3.0) - np.float32(2.0) * t))
+
+
+@njit(inline="always")
+def _skin_weight(l_val: float, a: float, b: float) -> float:
+    """0 (not skin) to 1 (dead centre of the skin locus). Near-neutral pixels
+    have an undefined hue angle, so gate on chroma before trusting atan2."""
     chroma = np.sqrt(a * a + b * b)
     if chroma < np.float32(2.0):
         return 0.0
@@ -278,7 +297,61 @@ def _skin_protection_weight(a: float, b: float) -> float:
     # Wrap to [-180, 180] so e.g. 179 vs -179 reads as 2deg apart, not 358.
     dist = dist - np.float32(360.0) * np.round(dist / np.float32(360.0))
     x = dist / _SKIN_HUE_WIDTH_DEG
-    return float(np.exp(np.float32(-0.5) * x * x))
+    w_hue = np.exp(np.float32(-0.5) * x * x)
+    w_chroma = np.float32(1.0) - _smoothstep_scalar(_SKIN_CHROMA_FULL, _SKIN_CHROMA_ZERO, chroma)
+    w_light = _smoothstep_scalar(np.float32(0.0), _SKIN_L_LO, l_val) * (
+        np.float32(1.0) - _smoothstep_scalar(_SKIN_L_HI, np.float32(100.0), l_val)
+    )
+    return float(w_hue * w_chroma * w_light)
+
+
+@parallel_njit(cache=True, fastmath=True)
+def _skin_chroma_rein_kernel(lab: np.ndarray, strength: float) -> np.ndarray:
+    """Soft chroma ceiling inside the skin mask -- see skin_chroma_rein."""
+    n = lab.shape[0]
+    out = np.empty((n, 3), dtype=np.float32)
+    one = np.float32(1.0)
+    ceiling = _SKIN_CEIL_AT_FULL / strength
+    start = _SKIN_KNEE_START_FRAC * ceiling
+    span = ceiling - start
+    for i in prange(n):
+        l_val = lab[i, 0]
+        a = lab[i, 1]
+        b = lab[i, 2]
+        chroma = np.sqrt(a * a + b * b)
+        scale = one
+        if chroma > start:
+            w = _skin_weight(l_val, a, b)
+            if w > 0.0:
+                knee = start + span * (one - np.exp(-(chroma - start) / span))
+                scale = (chroma + w * (knee - chroma)) / chroma
+        out[i, 0] = l_val
+        out[i, 1] = a * scale
+        out[i, 2] = b * scale
+    return out
+
+
+def skin_chroma_rein(lab: np.ndarray, strength: float) -> np.ndarray:
+    """
+    Pull skin-hued pixels down toward a chroma ceiling, leaving hue and L*
+    untouched (a* and b* scale together). Independent of the Chroma scale, so
+    it also reins in skin that arrived over-chromatic from the print curve.
+
+    One-directional: chroma is only ever reduced, never added. That is what
+    keeps saturation=0.0 reaching true grey without a special case, and what
+    makes it safe to run after the gamut knee -- a smaller chroma cannot
+    overshoot a gamut the full-strength push already fitted inside.
+
+    `strength` drives the ceiling itself rather than a blend amount, so the
+    control has one meaning: how tightly skin chroma is reined. The knee is the
+    same softplus shape as gamut_aware_chroma_scale's and the print curve's
+    toe/shoulder bounds. Accepts any array whose last axis is (L, a, b).
+    """
+    arr = np.ascontiguousarray(lab, dtype=np.float32)
+    if strength <= 0.0:
+        return arr
+    out = _skin_chroma_rein_kernel(arr.reshape(-1, 3), np.float32(strength))
+    return out.reshape(arr.shape)
 
 
 @parallel_njit(cache=True, fastmath=True)
@@ -300,14 +373,6 @@ def _gamut_aware_chroma_scale_kernel(
     leaves atan2(b,a) unchanged) -- clamping only the channel(s) that overshot
     changes the R:G:B ratio the eye actually sees. This sidesteps that by
     never overshooting in the first place.
-
-    Above 1.0, also pulls the *local* target back toward identity in the
-    skin-tone hue band before doing any of the above -- see
-    _skin_protection_weight. The gamut-aware knee then runs on this
-    already-softened local target, not the raw requested saturation.
-    Boost-only: desaturation (saturation <= 1.0) is a plain flat scale,
-    unaffected -- asking for less saturation should mean exactly that, not
-    stop short of zero for unrelated hue reasons.
     """
     n = lab.shape[0]
     out = np.empty((n, 3), dtype=np.float32)
@@ -318,26 +383,21 @@ def _gamut_aware_chroma_scale_kernel(
         a = lab[i, 1]
         b = lab[i, 2]
         if saturation <= one:
-            # Desaturation never overshoots the gamut (moving toward the
-            # achromatic axis can't push a channel further out of range), and
-            # skin protection only applies to the boost direction -- asking
-            # for less saturation, including all the way to zero, should mean
-            # exactly that, not stop short for unrelated hue reasons.
+            # Desaturation never overshoots the gamut -- moving toward the
+            # achromatic axis can't push a channel further out of range.
             eff = saturation
         else:
-            w = _skin_protection_weight(a, b)
-            local_sat = saturation - _SKIN_PROTECTION_STRENGTH * w * (saturation - one)
-            if _in_gamut_lab(l_val, a * local_sat, b * local_sat, m, white, eps, kappa, c):
+            if _in_gamut_lab(l_val, a * saturation, b * saturation, m, white, eps, kappa, c):
                 # Full push already lands in gamut -- use it directly. Without this,
-                # bisecting only within [1, local_sat] always converges lo toward
-                # local_sat itself (an artifact of that being the search's own
+                # bisecting only within [1, saturation] always converges lo toward
+                # saturation itself (an artifact of that being the search's own
                 # upper bound, not a real constraint), and the knee formula below
                 # then misreads "the boundary is right at the edge of what I asked
                 # for" and throttles pixels that were never going to clip at all.
-                eff = local_sat
+                eff = saturation
             else:
                 lo = one
-                hi = local_sat
+                hi = saturation
                 still_ok = _in_gamut_lab(l_val, a, b, m, white, eps, kappa, c)
                 for _ in range(iters):
                     mid = (lo + hi) / np.float32(2.0)
@@ -349,7 +409,7 @@ def _gamut_aware_chroma_scale_kernel(
                 if s_max < one + np.float32(1e-4):
                     s_max = one + np.float32(1e-4)
                 knee = s_max - one
-                eff = one + knee * (one - np.exp(-(local_sat - one) / knee))
+                eff = one + knee * (one - np.exp(-(saturation - one) / knee))
         out[i, 0] = l_val
         out[i, 1] = a * eff
         out[i, 2] = b * eff

@@ -134,6 +134,7 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
     )),
     ("Lab", (
         _row("Chroma", "lab", "saturation"),
+        _row("Skin Protection", "lab", "skin_protection"),
         _row("CLAHE", "lab", "clahe_strength"),
         _row("Sharpening", "lab", "sharpen"),
         _row("Sharpen Method", "lab", "sharpen_method"),

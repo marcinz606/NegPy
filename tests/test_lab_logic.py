@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 import cv2
-from negpy.kernel.image.logic import lab_to_rgb_working, rgb_to_lab_working
+from negpy.kernel.image.logic import _skin_weight, lab_to_rgb_working, rgb_to_lab_working, skin_chroma_rein
 from negpy.features.lab.logic import (
     apply_chroma_denoise,
     apply_clahe,
@@ -335,54 +335,6 @@ class TestLabLogic(unittest.TestCase):
 
         np.testing.assert_allclose(gamut_aware, naive, atol=1e-5)
 
-    def test_skin_protection_dampens_boost_near_skin_hue(self) -> None:
-        """A mild boost on a hue close to the measured skin-tone
-        band (~52deg) should land short of the full requested push, purely
-        from hue -- both colors here are mild enough (chroma ~5) to stay
-        nowhere near the gamut edge, isolating skin protection from
-        gamut-awareness entirely."""
-        img = np.full((4, 4, 3), 0.5, dtype=np.float32)
-        img[:, :, 0] = 0.56  # mild red, hue ~20deg -- close enough to the
-        # 52deg skin center for the Gaussian's tail to still bite.
-
-        lab_in = rgb_to_lab_working(img)
-        out = apply_saturation(img, 1.3)
-        lab_out = rgb_to_lab_working(out)
-        eff = float(lab_out[0, 0, 1] / lab_in[0, 0, 1])
-
-        self.assertLess(eff, 1.3)
-        self.assertGreater(eff, 1.0)
-
-    def test_skin_protection_negligible_far_from_skin_hue(self) -> None:
-        """The same mild boost on a hue far from the skin band
-        (blue, ~291deg) should land at essentially the exact requested value
-        -- confirms protection is actually hue-gated, not a blanket damping."""
-        img = np.full((4, 4, 3), 0.5, dtype=np.float32)
-        img[:, :, 2] = 0.56  # mild blue, hue ~291deg -- ~121deg from the skin
-        # center, past the Gaussian's meaningful range (weight ~1e-5).
-
-        lab_in = rgb_to_lab_working(img)
-        out = apply_saturation(img, 1.3)
-        lab_out = rgb_to_lab_working(out)
-        eff = float(lab_out[0, 0, 1] / lab_in[0, 0, 1])
-
-        self.assertAlmostEqual(eff, 1.3, delta=1e-3)
-
-    def test_skin_protection_boost_only(self) -> None:
-        """Desaturating a skin-hued color must be a plain flat
-        scale, unaffected by skin protection -- asking for less saturation
-        should mean exactly that, including all the way to zero, not stop
-        short for hue reasons. Regression for the specific case where
-        symmetric (boost+cut) protection made saturation=0.0 not reach true
-        gray for warm hues."""
-        img = np.zeros((4, 4, 3), dtype=np.float32)
-        img[:, :, 0] = 1.0  # pure red, hue ~40deg -- close to skin center
-
-        desat = apply_saturation(img, 0.0)
-        r, g, b = float(desat[0, 0, 0]), float(desat[0, 0, 1]), float(desat[0, 0, 2])
-        self.assertAlmostEqual(r, g, delta=1e-3)
-        self.assertAlmostEqual(g, b, delta=1e-3)
-
     def test_chroma_denoise(self) -> None:
         img = np.full((100, 100, 3), 0.5, dtype=np.float32)
         lab = rgb_to_lab_working(img)
@@ -412,6 +364,100 @@ class TestLabLogic(unittest.TestCase):
         self.assertLess(halo, 3.0)
         # Still denoises well away from the edge.
         self.assertLess(float(np.var(res_lab[:, :40, 1])), float(np.var(lab[:, :40, 1])))
+
+
+def _lab(l_val: float, chroma: float, hue_deg: float) -> np.ndarray:
+    rad = np.radians(hue_deg)
+    return np.array([[l_val, chroma * np.cos(rad), chroma * np.sin(rad)]], dtype=np.float32)
+
+
+def _chroma(lab: np.ndarray) -> float:
+    return float(np.hypot(lab[0, 1], lab[0, 2]))
+
+
+class TestSkinMask(unittest.TestCase):
+    def test_skin_patch_scores_high(self) -> None:
+        """Mid-lightness, moderate-chroma warm hue -- the middle of the skin locus."""
+        self.assertGreater(_skin_weight(65.0, *_lab(65.0, 28.0, 52.0)[0, 1:]), 0.9)
+
+    def test_saturated_red_scores_near_zero(self) -> None:
+        """The regression the hue-only mask couldn't catch: pure red sits ~40deg
+        in this working space, close enough for a hue Gaussian to damp it like a
+        face, but at chroma ~104 it is far outside the skin locus."""
+        lab = rgb_to_lab_working(np.array([[[1.0, 0.0, 0.0]]], dtype=np.float32))[0, 0]
+        self.assertGreater(np.hypot(lab[1], lab[2]), 85.0)
+        self.assertLess(_skin_weight(float(lab[0]), float(lab[1]), float(lab[2])), 0.01)
+
+    def test_neutral_and_shadow_score_zero(self) -> None:
+        self.assertEqual(_skin_weight(50.0, 0.3, 0.4), 0.0)
+        self.assertEqual(_skin_weight(0.0, 20.0, 25.0), 0.0)
+
+    def test_cool_hue_scores_zero(self) -> None:
+        self.assertLess(_skin_weight(65.0, *_lab(65.0, 28.0, 250.0)[0, 1:]), 1e-3)
+
+
+class TestSkinChromaRein(unittest.TestCase):
+    def test_zero_strength_is_identity(self) -> None:
+        lab = _lab(60.0, 70.0, 52.0)
+        np.testing.assert_array_equal(skin_chroma_rein(lab, 0.0), lab)
+
+    def test_never_raises_chroma(self) -> None:
+        for chroma in (5.0, 20.0, 40.0, 60.0, 80.0, 100.0):
+            for hue in (0.0, 52.0, 120.0, 250.0):
+                lab = _lab(60.0, chroma, hue)
+                self.assertLessEqual(_chroma(skin_chroma_rein(lab, 1.0)), chroma + 1e-4)
+
+    def test_below_the_knee_untouched(self) -> None:
+        """Ordinary skin chroma passes through: at strength 0.5 the ceiling is
+        44 and the knee starts at 26.4, so a C* of 20 is left alone."""
+        lab = _lab(65.0, 20.0, 52.0)
+        np.testing.assert_allclose(skin_chroma_rein(lab, 0.5), lab, atol=1e-5)
+
+    def test_excessive_skin_chroma_is_pulled_down(self) -> None:
+        lab = _lab(65.0, 60.0, 52.0)
+        self.assertLess(_chroma(skin_chroma_rein(lab, 0.5)), 50.0)
+
+    def test_hue_and_lightness_preserved(self) -> None:
+        lab = _lab(65.0, 60.0, 52.0)
+        out = skin_chroma_rein(lab, 0.8)
+        self.assertAlmostEqual(float(out[0, 0]), 65.0, places=4)
+        self.assertAlmostEqual(float(np.degrees(np.arctan2(out[0, 2], out[0, 1]))), 52.0, places=3)
+
+    def test_stronger_reins_harder(self) -> None:
+        lab = _lab(65.0, 60.0, 52.0)
+        chromas = [_chroma(skin_chroma_rein(lab, s)) for s in (0.2, 0.5, 0.8, 1.0)]
+        self.assertEqual(chromas, sorted(chromas, reverse=True))
+
+
+class TestSkinProtectionInSaturation(unittest.TestCase):
+    def test_acts_at_chroma_one(self) -> None:
+        """The point of the control: protection works with Chroma at 1.0, where
+        the scale itself is a no-op."""
+        img = np.zeros((4, 4, 3), dtype=np.float32)
+        img[:, :, 0] = 0.85
+        img[:, :, 1] = 0.35
+        img[:, :, 2] = 0.18  # ruddy skin, chroma well above the knee
+
+        before = _chroma(rgb_to_lab_working(img)[0, :1])
+        after = _chroma(rgb_to_lab_working(apply_saturation(img, 1.0, 0.8))[0, :1])
+
+        self.assertLess(after, before - 1.0)
+
+    def test_off_is_identity_at_chroma_one(self) -> None:
+        img = np.full((4, 4, 3), 0.5, dtype=np.float32)
+        img[:, :, 0] = 0.85
+        np.testing.assert_array_equal(apply_saturation(img, 1.0, 0.0), img)
+
+    def test_desaturation_still_reaches_grey(self) -> None:
+        """Protection only ever removes chroma, so asking for zero still means
+        zero -- no special case needed, unlike the boost-damping it replaced."""
+        img = np.zeros((4, 4, 3), dtype=np.float32)
+        img[:, :, 0] = 1.0  # pure red, hue ~40deg -- inside the skin hue band
+
+        desat = apply_saturation(img, 0.0, 1.0)
+        r, g, b = float(desat[0, 0, 0]), float(desat[0, 0, 1]), float(desat[0, 0, 2])
+        self.assertAlmostEqual(r, g, delta=1e-3)
+        self.assertAlmostEqual(g, b, delta=1e-3)
 
 
 class TestGlowAndHalation(unittest.TestCase):

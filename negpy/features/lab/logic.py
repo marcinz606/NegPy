@@ -4,7 +4,13 @@ import cv2
 import numpy as np
 
 from negpy.domain.types import ImageBuffer
-from negpy.kernel.image.logic import gamut_aware_chroma_scale, lab_to_rgb_working, rgb_to_lab_working, working_oetf_encode
+from negpy.kernel.image.logic import (
+    gamut_aware_chroma_scale,
+    lab_to_rgb_working,
+    rgb_to_lab_working,
+    skin_chroma_rein,
+    working_oetf_encode,
+)
 from negpy.kernel.image.validation import ensure_image
 
 
@@ -213,7 +219,7 @@ def apply_rl_sharpening(
     return ensure_image(np.clip(out, 0.0, 1.0))
 
 
-def apply_saturation(img: ImageBuffer, saturation: float) -> ImageBuffer:
+def apply_saturation(img: ImageBuffer, saturation: float, skin_protection: float = 0.0) -> ImageBuffer:
     """
     Adjusts saturation by scaling chroma (a*, b*) in CIELAB.
     Preserves perceived lightness, unlike HSV S-scaling which darkens
@@ -225,13 +231,21 @@ def apply_saturation(img: ImageBuffer, saturation: float) -> ImageBuffer:
     since clamping only the overshooting channel(s) changes the R:G:B ratio.
     A soft per-pixel knee toward each pixel's real in-gamut headroom avoids
     that instead of clamping after the fact.
+
+    Skin protection (see skin_chroma_rein) then reins skin-hued chroma in
+    against a ceiling. It shares this one Lab round trip but is independent of
+    the scale: it runs at saturation 1.0 too, since skin can arrive
+    over-chromatic from the print curve without Chroma pushing it there.
     """
-    if saturation == 1.0:
+    if saturation == 1.0 and skin_protection <= 0.0:
         return img
 
     lab = rgb_to_lab_working(img.astype(np.float32))
-    res_lab = gamut_aware_chroma_scale(lab, saturation)
-    res_rgb = lab_to_rgb_working(res_lab)
+    if saturation != 1.0:
+        lab = gamut_aware_chroma_scale(lab, saturation)
+    if skin_protection > 0.0:
+        lab = skin_chroma_rein(lab, skin_protection)
+    res_rgb = lab_to_rgb_working(lab)
     return ensure_image(np.clip(res_rgb, 0.0, 1.0))
 
 

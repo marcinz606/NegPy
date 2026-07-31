@@ -1345,7 +1345,7 @@ class GPUEngine:
                 self._sharpen_kernel_key = kernel_key
         l_data = (
             struct.pack(
-                "fffffffff",
+                "ffffffffff",
                 float(lab.sharpen),
                 float(lab.chroma_denoise),
                 float(lab.saturation),
@@ -1357,8 +1357,9 @@ class GPUEngine:
                 float(sharpen_radius_px),
                 float(lab.sharpen_masking),
                 1.0 if lab.sharpen_method == SharpenMethod.RL else 0.0,
+                float(lab.skin_protection),
             )
-            + b"\x00" * 12
+            + b"\x00" * 8
         )
 
         is_bw = 1 if settings.process.process_mode == ProcessMode.BW else 0

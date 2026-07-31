@@ -10,7 +10,7 @@ struct LabUniforms {
     sharpen_radius_px: f32,
     sharpen_masking: f32,
     sharpen_method: f32,
-    _pad1: f32,
+    skin_protection: f32,
     _pad2: f32,
     _pad3: f32,
 };
@@ -208,35 +208,16 @@ fn in_gamut_lab(lab: vec3<f32>) -> bool {
 // the overshooting channel(s) changes the R:G:B ratio even though the a*/b*
 // scale itself preserves hue exactly). Mirrors gamut_aware_chroma_scale in
 // kernel/image/logic.py -- 10 bisection iterations, same as the CPU path.
-// Skin-tone hue protection -- mirrors _skin_protection_weight in
-// kernel/image/logic.py exactly, same constants.
-const SKIN_HUE_CENTER_DEG = 52.0;
-const SKIN_HUE_WIDTH_DEG = 25.0;
-const SKIN_PROTECTION_STRENGTH = 0.5;
-
-fn skin_protection_weight(a: f32, b: f32) -> f32 {
-    let chroma = length(vec2<f32>(a, b));
-    if (chroma < 2.0) { return 0.0; }
-    let hue_deg = degrees(atan2(b, a));
-    var dist = hue_deg - SKIN_HUE_CENTER_DEG;
-    dist = dist - 360.0 * round(dist / 360.0);
-    let x = dist / SKIN_HUE_WIDTH_DEG;
-    return exp(-0.5 * x * x);
-}
-
 fn gamut_aware_chroma_eff(lab: vec3<f32>, saturation: f32) -> f32 {
-    // Skin protection is boost-only -- desaturation never overshoots the gamut
-    // and shouldn't stop short of what was asked for unrelated hue reasons.
+    // Desaturation never overshoots the gamut.
     if (saturation <= 1.0) { return saturation; }
-    let w = skin_protection_weight(lab.y, lab.z);
-    let local_sat = saturation - SKIN_PROTECTION_STRENGTH * w * (saturation - 1.0);
     // Full push already lands in gamut -- use it directly. Without this, bisecting
-    // only within [1, local_sat] always converges lo toward local_sat itself (an
+    // only within [1, saturation] always converges lo toward saturation itself (an
     // artifact of that being the search's own upper bound, not a real constraint),
     // and the knee below then throttles pixels that were never going to clip.
-    if (in_gamut_lab(vec3<f32>(lab.x, lab.y * local_sat, lab.z * local_sat))) { return local_sat; }
+    if (in_gamut_lab(vec3<f32>(lab.x, lab.y * saturation, lab.z * saturation))) { return saturation; }
     var lo = 1.0;
-    var hi = local_sat;
+    var hi = saturation;
     let still_ok = in_gamut_lab(lab);
     for (var i = 0; i < 10; i++) {
         let mid = (lo + hi) / 2.0;
@@ -248,7 +229,44 @@ fn gamut_aware_chroma_eff(lab: vec3<f32>, saturation: f32) -> f32 {
     }
     let s_max = max(lo, 1.0 + 1e-4);
     let knee = s_max - 1.0;
-    return 1.0 + knee * (1.0 - exp(-(local_sat - 1.0) / knee));
+    return 1.0 + knee * (1.0 - exp(-(saturation - 1.0) / knee));
+}
+
+// Skin-tone mask and chroma rein -- mirror _skin_weight / _skin_chroma_rein_kernel
+// in kernel/image/logic.py exactly, same constants.
+const SKIN_HUE_CENTER_DEG = 52.0;
+const SKIN_HUE_WIDTH_DEG = 25.0;
+const SKIN_CHROMA_FULL = 55.0;
+const SKIN_CHROMA_ZERO = 85.0;
+const SKIN_L_LO = 15.0;
+const SKIN_L_HI = 95.0;
+const SKIN_CEIL_AT_FULL = 22.0;
+const SKIN_KNEE_START_FRAC = 0.6;
+
+fn skin_weight(lab: vec3<f32>) -> f32 {
+    let chroma = length(lab.yz);
+    if (chroma < 2.0) { return 0.0; }
+    let hue_deg = degrees(atan2(lab.z, lab.y));
+    var dist = hue_deg - SKIN_HUE_CENTER_DEG;
+    dist = dist - 360.0 * round(dist / 360.0);
+    let x = dist / SKIN_HUE_WIDTH_DEG;
+    let w_hue = exp(-0.5 * x * x);
+    let w_chroma = 1.0 - smoothstep(SKIN_CHROMA_FULL, SKIN_CHROMA_ZERO, chroma);
+    let w_light = smoothstep(0.0, SKIN_L_LO, lab.x) * (1.0 - smoothstep(SKIN_L_HI, 100.0, lab.x));
+    return w_hue * w_chroma * w_light;
+}
+
+fn skin_chroma_rein(lab: vec3<f32>, strength: f32) -> vec3<f32> {
+    let ceiling = SKIN_CEIL_AT_FULL / strength;
+    let start = SKIN_KNEE_START_FRAC * ceiling;
+    let chroma = length(lab.yz);
+    if (chroma <= start) { return lab; }
+    let w = skin_weight(lab);
+    if (w <= 0.0) { return lab; }
+    let span = ceiling - start;
+    let knee = start + span * (1.0 - exp(-(chroma - start) / span));
+    let scale = (chroma + w * (knee - chroma)) / chroma;
+    return vec3<f32>(lab.x, lab.y * scale, lab.z * scale);
 }
 
 fn rgb_to_hsv(c: vec3<f32>) -> vec3<f32> {
@@ -324,12 +342,18 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 
     // 2. Global Saturation (CIELAB chroma scaling — preserves L*; gamut-aware
-    // above 1.0, see gamut_aware_chroma_eff)
-    if (params.saturation != 1.0) {
+    // above 1.0, see gamut_aware_chroma_eff) and the skin chroma rein, which is
+    // independent of it and runs at saturation 1.0 too.
+    if (params.saturation != 1.0 || params.skin_protection > 0.0) {
         var lab = rgb_to_lab(color);
-        let eff = gamut_aware_chroma_eff(lab, params.saturation);
-        lab.y = lab.y * eff;
-        lab.z = lab.z * eff;
+        if (params.saturation != 1.0) {
+            let eff = gamut_aware_chroma_eff(lab, params.saturation);
+            lab.y = lab.y * eff;
+            lab.z = lab.z * eff;
+        }
+        if (params.skin_protection > 0.0) {
+            lab = skin_chroma_rein(lab, params.skin_protection);
+        }
         color = lab_to_rgb(lab);
     }
 

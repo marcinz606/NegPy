@@ -203,8 +203,19 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
 
     Below 1.0 (desaturating) is a flat scale — moving toward the achromatic axis can't push a channel out of range, so there is nothing to guard against. Above 1.0 (`gamut_aware_chroma_scale` in `kernel/image/logic.py`, mirrored in `lab.wgsl`) is **gamut-aware**: a flat $a^{\ast}/b^{\ast}$ scale preserves hue exactly (uniform scaling of both components leaves $\text{atan2}(b,a)$ unchanged), but a naive flat scale plus a hard per-channel RGB clamp does not — clamping only the channel(s) that overshot changes the R:G:B ratio the eye sees. Per pixel, `_in_gamut_lab` checks whether the boosted (L,a,b) decodes to linear working RGB within $[0,1]$ on all channels; pixels that stay in gamut at full strength get the flat scale unchanged. Pixels that would clip get a smooth softplus-style knee toward their own actual in-gamut headroom instead — the same knee shape as the print curve's toe/shoulder bounds — found by bisecting the max in-gamut scale to <0.1% error in 10 iterations.
 
-    A boost-only **skin-tone protection** band (`_skin_protection_weight`) softens the requested saturation toward identity, Gaussian-weighted around a hue angle of $52°\pm25°$ (measured from a rendered portrait frame's moderate-lightness/moderate-chroma warm-hue pixels), gated on chroma $\geq 2$ so near-neutral pixels with noisy hue angles aren't affected. It runs before the gamut knee, on the local (already-softened) target, not the raw requested saturation, and only applies above 1.0 — desaturating to any degree, including zero, means exactly that. Not exposed as a control — a flat, always-on refinement of Chroma, not a new one.
-3.  **Sharpening**: A **Method** selector picks Unsharp Mask or Deconvolution; both share the Amount/Radius/Masking controls and the same $\text{radius} \cdot \text{scale factor}$ Gaussian taps from `gaussian_kernel_1d` (uploaded to the `sharpen_k` storage buffer, convolved identically on CPU `cv2.sepFilter2D` and the separable WGSL passes), so CPU and GPU match bit-for-bit.
+3.  **Skin Protection** (`skin_chroma_rein` in `kernel/image/logic.py`, mirrored in `lab.wgsl`, `lab.skin_protection`, default 0): a soft chroma ceiling inside a skin mask, applied after the saturation scale but independent of it — it runs at Chroma 1.0 too, since skin can arrive over-chromatic from the print curve without Chroma pushing it there.
+
+    The mask (`_skin_weight`) is the axis-aligned reduction of the CIELAB skin locus, a product of three terms: a Gaussian on hue at $52°\pm25°$ (measured from a rendered portrait frame; the literature places skin at 40–65° across the whole Monk/Fitzpatrick range), a one-sided chroma window with full weight to $C^{\ast}=55$ and zero by $85$, and a lightness rolloff below $L^{\ast}=15$ and above $95$. Pixels under $C^{\ast}=2$ short-circuit to zero, their hue angle being noise. **The chroma window is what makes the mask usable**: hue alone cannot tell a face ($C^{\ast}\approx 27$) from a pure saturated red ($C^{\ast}\approx 104$), which sits at ~40° in this working space and was damped like skin by the hue-only band this replaced.
+
+    The operator, with $w$ the mask weight and $s$ the slider:
+
+    $$C_{\text{ceil}} = \frac{22}{s}, \qquad C_0 = 0.6\,C_{\text{ceil}}, \qquad C_{\text{knee}} = C_0 + (C_{\text{ceil}}-C_0)\left(1 - e^{-(C-C_0)/(C_{\text{ceil}}-C_0)}\right)$$
+
+    for $C > C_0$, identity below it, and $C_{\text{out}} = C + w\,(C_{\text{knee}} - C)$. Same softplus knee as the gamut bound above and the print curve's toe/shoulder. $a^{\ast}$ and $b^{\ast}$ scale together by $C_{\text{out}}/C$, so **hue and $L^{\ast}$ are untouched**. The ceiling is a reciprocal rather than a lerp to some finite "off" value so it runs off past any reachable chroma as $s \to 0$ and the control fades out continuously instead of stepping the moment the slider leaves 0.
+
+    Chroma is only ever reduced, never added. That is what keeps `saturation = 0.0` reaching true grey without a special case (the boost-only asymmetry the previous band needed), and what makes it safe to run after the gamut knee — a smaller chroma cannot overshoot a gamut the full-strength push already fitted inside.
+
+4.  **Sharpening**: A **Method** selector picks Unsharp Mask or Deconvolution; both share the Amount/Radius/Masking controls and the same $\text{radius} \cdot \text{scale factor}$ Gaussian taps from `gaussian_kernel_1d` (uploaded to the `sharpen_k` storage buffer, convolved identically on CPU `cv2.sepFilter2D` and the separable WGSL passes), so CPU and GPU match bit-for-bit.
 
     **Unsharp Mask**, on the Lightness channel ($L$) in LAB space, with halo suppression (`lab_sharpen_h/v.wgsl`):
 
@@ -223,7 +234,7 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
 
     $$\mathrm{RGB}_{out} = \mathrm{clamp}\left(\mathrm{RGB} \cdot \max\left(1 + \left(\frac{\hat{o}_N}{\max(o,\epsilon)} - 1\right) \cdot \mathrm{amount} \cdot m,\ 0\right),\ 0,\ 1\right)$$
 
-4.  **Glow**: Simulates lens bloom (a print-side effect) by blurring highlights and adding them back in linear light.
+5.  **Glow**: Simulates lens bloom (a print-side effect) by blurring highlights and adding them back in linear light.
 
     $$I_{out} = I + B_{glow} \cdot s_{glow}$$
     $$B_{glow} = \text{GaussianBlur}(I \cdot m_{hl})$$
@@ -231,7 +242,7 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
     *   $m_{hl}$: **Display-domain** highlight mask (lens bloom follows perceived print brightness), quadratically ramped from code value 0.5 to 1.0.
     *   Applied equally to all three channels; the sum is clamped at the stage output.
 
-5.  **Halation**: Simulates the red scatter caused by light reflecting back through the film base at capture. Uses a larger-radius Gaussian than Glow and a strongly red-biased highlight source. Because scattered light is *added exposure*, the composite is additive in linear light (not a screen blend), and the mask thresholds **linear reflectance** ($t = 0.65$) so the halation footprint is fixed by scene exposure instead of moving with Grade/Density.
+6.  **Halation**: Simulates the red scatter caused by light reflecting back through the film base at capture. Uses a larger-radius Gaussian than Glow and a strongly red-biased highlight source. Because scattered light is *added exposure*, the composite is additive in linear light (not a screen blend), and the mask thresholds **linear reflectance** ($t = 0.65$) so the halation footprint is fixed by scene exposure instead of moving with Grade/Density.
 
     $$I_{out} = I + B_{hal} \cdot s_{hal}$$
     $$B_{hal} = \text{GaussianBlur}(I_R \cdot m_{lin} \cdot C_{hal})$$

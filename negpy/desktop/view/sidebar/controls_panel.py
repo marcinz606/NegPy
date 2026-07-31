@@ -544,6 +544,11 @@ class ControlsPanel(QWidget):
                 ["saturation_inc", "saturation_dec"],
             )
         )
+        lab.skin_protection_slider.setToolTip(
+            "Holds skin-hued colour under a chroma ceiling so faces don't go sunburnt — hue and lightness "
+            "untouched, and chroma is only ever pulled down. Independent of Chroma: it also reins in skin "
+            "that arrived over-saturated from the print curve. 0 = off, 1.0 = matte"
+        )
         exp.dye_separation_slider.setToolTip(
             tooltip_with_shortcut(
                 "Pushes the print's dye densities apart before decode, in the same matrix slot as the "
