@@ -207,7 +207,7 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
 
     The mask (`_skin_weight`) is the axis-aligned reduction of the CIELAB skin locus, a product of three terms: a Gaussian on hue at $52°\pm20°$ (measured from a rendered portrait frame; the literature places skin at 40–65° across the whole Monk/Fitzpatrick range), a one-sided chroma window with full weight to $C^{\ast}=35$ and zero by $60$, and a lightness rolloff below $L^{\ast}=15$ and above $95$. Pixels under $C^{\ast}=2$ short-circuit to zero, their hue angle being noise.
 
-    **The chroma window is the discriminator, and it is the measured skin locus** ($C^{\ast}\approx 12$–$40$ light through deep), not a gamut bound: sunset ($C^{\ast}\approx 57$), terracotta ($\approx 53$) and brick ($\approx 51$) all sit inside the hue band and score 0.04 / 0.18 / 0.25 against skin's 0.95–1.00. It cuts both ways — skin above $C^{\ast}\approx 50$ keeps only partial weight, and warm objects at skin's own chroma (wood, tan leather, sand) are simply the same colour as skin. Neither is separable per-pixel.
+    **The chroma window is the discriminator, and it is the measured skin locus** ($C^{\ast}$ 12–40, light through deep), not a gamut bound: sunset ($C^{\ast}\approx 57$), terracotta ($\approx 53$) and brick ($\approx 51$) all sit inside the hue band and score 0.04 / 0.18 / 0.25 against skin's 0.95–1.00. It cuts both ways — skin above $C^{\ast}\approx 50$ keeps only partial weight, and warm objects at skin's own chroma (wood, tan leather, sand) are simply the same colour as skin. Neither is separable per-pixel.
 
     The operator, with $w$ the mask weight and $s$ the slider:
 
