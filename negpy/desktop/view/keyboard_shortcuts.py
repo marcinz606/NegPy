@@ -13,7 +13,8 @@ from negpy.desktop.view.shortcut_registry import (
     set_current_bindings,
     slider_step_for,
 )
-from negpy.desktop.view.slider_shortcut_groups import SLIDER_GROUP_BY_ACTION, sign_for_action
+from negpy.desktop.view.slider_shortcut_groups import SLIDER_GROUP_BY_ACTION, SLIDER_GROUPS, sign_for_action
+from negpy.desktop.view.slider_targets import slider_widget_map
 
 
 def _context_undo(controller) -> None:
@@ -108,6 +109,7 @@ class ShortcutManager:
             "toggle_left_panel": self.window.toggle_session_dock,
             "toggle_right_panel": self.window.toggle_controls_dock,
             "reset_panel_layout": self.window.reset_panel_layout,
+            "tab_favourites": lambda: right.show_tab_by_key("favourites"),
             "tab_setup": lambda: right.show_tab_by_key("setup"),
             "tab_geometry": lambda: right.show_tab_by_key("geometry"),
             "tab_tone": lambda: right.show_tab_by_key("tone"),
@@ -130,96 +132,11 @@ class ShortcutManager:
             "show_analysis_help": self.window.right_panel.show_analysis_help,
         }
 
-        slider_targets: dict[str, Callable[[], object]] = {
-            "cyan_inc": lambda: controls.colour_sidebar.cyan_slider,
-            "cyan_dec": lambda: controls.colour_sidebar.cyan_slider,
-            "magenta_up": lambda: controls.colour_sidebar.magenta_slider,
-            "magenta_down": lambda: controls.colour_sidebar.magenta_slider,
-            "yellow_up": lambda: controls.colour_sidebar.yellow_slider,
-            "yellow_down": lambda: controls.colour_sidebar.yellow_slider,
-            "temp_warm": lambda: controls.colour_sidebar.temp_slider,
-            "temp_cool": lambda: controls.colour_sidebar.temp_slider,
-            "density_up": lambda: controls.tone_sidebar.density_slider,
-            "density_down": lambda: controls.tone_sidebar.density_slider,
-            "grade_up": lambda: controls.tone_sidebar.grade_slider,
-            "grade_down": lambda: controls.tone_sidebar.grade_slider,
-            "toe_inc": lambda: controls.tone_sidebar.toe_slider,
-            "toe_dec": lambda: controls.tone_sidebar.toe_slider,
-            "toe_width_inc": lambda: controls.tone_sidebar.toe_w_slider,
-            "toe_width_dec": lambda: controls.tone_sidebar.toe_w_slider,
-            "shoulder_inc": lambda: controls.tone_sidebar.sh_slider,
-            "shoulder_dec": lambda: controls.tone_sidebar.sh_slider,
-            "shoulder_width_inc": lambda: controls.tone_sidebar.sh_w_slider,
-            "shoulder_width_dec": lambda: controls.tone_sidebar.sh_w_slider,
-            "snap_inc": lambda: controls.tone_sidebar.midtone_gamma_slider,
-            "snap_dec": lambda: controls.tone_sidebar.midtone_gamma_slider,
-            "shadow_density_inc": lambda: controls.tone_sidebar.shadow_density_slider,
-            "shadow_density_dec": lambda: controls.tone_sidebar.shadow_density_slider,
-            "highlight_density_inc": lambda: controls.tone_sidebar.highlight_density_slider,
-            "highlight_density_dec": lambda: controls.tone_sidebar.highlight_density_slider,
-            "shadow_grade_inc": lambda: controls.tone_sidebar.shadow_grade_slider,
-            "shadow_grade_dec": lambda: controls.tone_sidebar.shadow_grade_slider,
-            "highlight_grade_inc": lambda: controls.tone_sidebar.highlight_grade_slider,
-            "highlight_grade_dec": lambda: controls.tone_sidebar.highlight_grade_slider,
-            "offset_inc": lambda: controls.geometry_sidebar.offset_slider,
-            "offset_dec": lambda: controls.geometry_sidebar.offset_slider,
-            "fine_rot_inc": lambda: controls.geometry_sidebar.fine_rot_slider,
-            "fine_rot_dec": lambda: controls.geometry_sidebar.fine_rot_slider,
-            "analysis_buffer_inc": lambda: controls.process_sidebar.analysis_buffer_slider,
-            "analysis_buffer_dec": lambda: controls.process_sidebar.analysis_buffer_slider,
-            "luma_range_clip_inc": lambda: controls.process_sidebar.luma_range_clip_slider,
-            "luma_range_clip_dec": lambda: controls.process_sidebar.luma_range_clip_slider,
-            "color_range_clip_inc": lambda: controls.process_sidebar.color_range_clip_slider,
-            "color_range_clip_dec": lambda: controls.process_sidebar.color_range_clip_slider,
-            "white_point_inc": lambda: controls.process_sidebar.white_point_slider,
-            "white_point_dec": lambda: controls.process_sidebar.white_point_slider,
-            "black_point_inc": lambda: controls.process_sidebar.black_point_slider,
-            "black_point_dec": lambda: controls.process_sidebar.black_point_slider,
-            "separation_inc": lambda: controls.process_sidebar.crosstalk_strength_slider,
-            "separation_dec": lambda: controls.process_sidebar.crosstalk_strength_slider,
-            "chroma_denoise_inc": lambda: controls.lab_sidebar.chroma_denoise_slider,
-            "chroma_denoise_dec": lambda: controls.lab_sidebar.chroma_denoise_slider,
-            "saturation_inc": lambda: controls.lab_sidebar.saturation_slider,
-            "saturation_dec": lambda: controls.lab_sidebar.saturation_slider,
-            "dye_separation_inc": lambda: controls.tone_sidebar.dye_separation_slider,
-            "dye_separation_dec": lambda: controls.tone_sidebar.dye_separation_slider,
-            "separation_damping_inc": lambda: controls.tone_sidebar.separation_damping_slider,
-            "separation_damping_dec": lambda: controls.tone_sidebar.separation_damping_slider,
-            "clahe_inc": lambda: controls.lab_sidebar.clahe_slider,
-            "clahe_dec": lambda: controls.lab_sidebar.clahe_slider,
-            "sharpen_inc": lambda: controls.lab_sidebar.sharpen_slider,
-            "sharpen_dec": lambda: controls.lab_sidebar.sharpen_slider,
-            "glow_inc": lambda: controls.lab_sidebar.glow_slider,
-            "glow_dec": lambda: controls.lab_sidebar.glow_slider,
-            "halation_inc": lambda: controls.lab_sidebar.halation_slider,
-            "halation_dec": lambda: controls.lab_sidebar.halation_slider,
-            "threshold_inc": lambda: controls.retouch_sidebar.threshold_slider,
-            "threshold_dec": lambda: controls.retouch_sidebar.threshold_slider,
-            "auto_size_inc": lambda: controls.retouch_sidebar.auto_size_slider,
-            "auto_size_dec": lambda: controls.retouch_sidebar.auto_size_slider,
-            "manual_size_inc": lambda: controls.retouch_sidebar.manual_size_slider,
-            "manual_size_dec": lambda: controls.retouch_sidebar.manual_size_slider,
-            "selenium_inc": lambda: controls.toning_sidebar.selenium_slider,
-            "selenium_dec": lambda: controls.toning_sidebar.selenium_slider,
-            "sepia_inc": lambda: controls.toning_sidebar.sepia_slider,
-            "sepia_dec": lambda: controls.toning_sidebar.sepia_slider,
-            "shadow_hue_inc": lambda: controls.toning_sidebar.shadow_hue_slider,
-            "shadow_hue_dec": lambda: controls.toning_sidebar.shadow_hue_slider,
-            "shadow_strength_inc": lambda: controls.toning_sidebar.shadow_str_slider,
-            "shadow_strength_dec": lambda: controls.toning_sidebar.shadow_str_slider,
-            "highlight_hue_inc": lambda: controls.toning_sidebar.highlight_hue_slider,
-            "highlight_hue_dec": lambda: controls.toning_sidebar.highlight_hue_slider,
-            "highlight_strength_inc": lambda: controls.toning_sidebar.highlight_str_slider,
-            "highlight_strength_dec": lambda: controls.toning_sidebar.highlight_str_slider,
-            "vignette_str_inc": lambda: controls.finish_sidebar.vignette_burn_slider,
-            "vignette_str_dec": lambda: controls.finish_sidebar.vignette_burn_slider,
-            "vignette_size_inc": lambda: controls.finish_sidebar.vignette_size_slider,
-            "vignette_size_dec": lambda: controls.finish_sidebar.vignette_size_slider,
-            "border_size_inc": lambda: controls.finish_sidebar.border_slider,
-            "border_size_dec": lambda: controls.finish_sidebar.border_slider,
-        }
-        for action_id, getter in slider_targets.items():
-            actions[action_id] = self._slider_adjuster(getter, action_id)
+        widgets = slider_widget_map(controls)
+        for group in SLIDER_GROUPS:
+            getter = widgets[group.id]
+            actions[group.inc_action] = self._slider_adjuster(getter, group.inc_action)
+            actions[group.dec_action] = self._slider_adjuster(getter, group.dec_action)
         return actions
 
     def apply_bindings(self, bindings: dict[str, str]) -> None:

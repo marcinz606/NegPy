@@ -25,6 +25,7 @@ The right-hand tabs are arranged in the order you actually work, which mirrors t
 | **Exposure** | sun | Filtration · Tone · Dodge & Burn | White balance, print density/contrast/curve/saturation, local burns |
 | **Colour** | palette | Lab · Toning | Chroma, sharpening, effects, split/chemical toning |
 | **Finish** | brush | Retouch · Finishing | Dust removal, vignette, border, carrier |
+| **Favourites** | star | Your chosen sliders | Quick access to the controls you use most |
 | **History** | clock | Edit history | Step back through every change |
 | **Export** | file | Export settings | Format, size, colour, batch output |
 | **Metadata** | tags | Archival metadata | Original camera/lens/film details |
@@ -33,6 +34,8 @@ The right-hand tabs are arranged in the order you actually work, which mirrors t
 You don't have to touch every panel. NegPy's defaults are tuned to produce a good print straight away, and most frames need only a crop, maybe a white-balance nudge, and export.
 
 A small **dot** on a panel header (and on a tab icon) means you've changed something from its default. Every panel header has a **reset** action to return that panel to defaults, and an **ⓘ** that opens this guide at that panel's section.
+
+Both side panels can be narrowed to give the canvas more room. As the controls panel shrinks, tab icons that no longer fit move into a **»** menu at the right of the tab bar; the tab you are on always stays visible.
 
 ---
 
@@ -56,6 +59,8 @@ Toolbar buttons, left to right:
 Below the toolbar: a **filter box** (substring match; toggle **`.*`** for regex) and a **tally**, e.g. "36 frames · 12 keepers · 3 rejected".
 
 Right-clicking **empty space** in the film strip offers **Add files**, **Add folder** and **Clear all**, so those tools stay in reach part-way down a long roll instead of only at the top of the panel. Here **Clear all** always means the whole session, never just the selection.
+
+Narrow the panel and the toolbar buttons that no longer fit move into a **»** menu at its right edge, so the panel can be squeezed down to give the image more room without losing any tool.
 
 ### Triage (culling the roll)
 
@@ -393,7 +398,23 @@ The paper margin takes the mat colour, so it runs into the border with no seam.
 
 ---
 
-## 9. History tab
+## 9. Favourites tab
+
+The sliders you reach for most, gathered in one place so a routine edit no longer costs a tab
+switch and a scroll. Empty until you fill it.
+
+*   **Edit Favourites**: opens a picker. Tick sliders on the left, order them on the right with
+    the arrow buttons, then **Apply**.
+*   The panel then shows those sliders in your chosen order. They are the *same* controls as in
+    their home panels — moving one here moves it there, and vice versa. Nothing is duplicated or
+    moved out of its own tab.
+*   A favourite hides itself when its original does. Favourite a Filtration slider and it will
+    disappear while you are in black & white, where it has nothing to act on.
+*   Your selection is remembered between sessions.
+
+---
+
+## 10. History tab
 
 A scrollable list of every edit step (last 100 kept), newest on top; the current step is bold.
 
@@ -402,7 +423,7 @@ A scrollable list of every edit step (last 100 kept), newest on top; the current
 
 ---
 
-## 10. Export tab
+## 11. Export tab
 
 ### Output intent
 
@@ -435,7 +456,7 @@ The primary **Export** action. Its chevron menu picks the scope: current frame (
 
 ---
 
-## 11. Metadata tab
+## 12. Metadata tab
 
 Archival metadata for the **original analog capture** (camera, lens, film, process), written into exported files as EXIF and embedded XMP so DAMs like Lightroom show your film gear rather than the scanner.
 
@@ -466,7 +487,7 @@ When you set capture gear, it's written to standard EXIF and the digitizing rig 
 
 ---
 
-## 12. Scan tab
+## 13. Scan tab
 
 Capture film directly into NegPy (Linux and macOS; unavailable on Windows). Two collapsible sections:
 
@@ -477,7 +498,7 @@ Camera scanning needs the optional `python-gphoto2` dependency (`pip install gph
 
 ---
 
-## 13. Startup Override (`override.toml`)
+## 14. Startup Override (`override.toml`)
 
 If NegPy crashes on launch or has rendering glitches, you can force backend settings without touching code. On first run NegPy creates `Documents/NegPy/override.toml` with defaults for your OS. Edit it and restart.
 

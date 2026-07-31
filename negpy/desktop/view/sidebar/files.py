@@ -40,6 +40,7 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import _source_effective_bounds
 from negpy.desktop.view.confirm import confirm_unload
+from negpy.desktop.view.widgets.overflow_bar import OverflowBar
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog, open_paste_dialog
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
@@ -152,11 +153,11 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         painter.restore()
 
 
-# Thumbnail size preference (px), as set by the filmstrip's size slider. The default
-# is chosen so one column fills the session sidebar at its minimum width (~240px
-# viewport) — the sidebar can't be dragged narrower, so this is the smallest the
-# filmstrip is ever laid out at, and a single full-width frame is the most legible
-# use of it. Dropping toward THUMB_CELL_MIN fits a second column at that same width.
+# Thumbnail size preference (px), as set by the filmstrip's size slider. The default is
+# chosen so one column fills the session sidebar at a typical narrow width (~240px viewport),
+# where a single full-width frame is the most legible use of it. Dropping toward
+# THUMB_CELL_MIN fits a second column at that same width. (The panel can now be dragged
+# narrower still — the toolbar overflows — and the grid simply keeps one column.)
 #
 # The maximum is the default: the slider only shrinks frames. Anything larger just
 # holds a widened sidebar at one column — cells fill the panel, so a 500px-wide
@@ -328,8 +329,7 @@ class FileBrowser(QWidget):
         icon_size = QSize(16, 16)
         btn_height = 28
 
-        toolbar_row = QHBoxLayout()
-        toolbar_row.setSpacing(4)
+        toolbar_row = OverflowBar(height=btn_height, spacing=4)
 
         self.add_files_btn = QToolButton()
         self.add_files_btn.setIcon(qta.icon("fa5s.file-import", color=THEME.text_primary))
@@ -427,19 +427,26 @@ class FileBrowser(QWidget):
             btn.setFixedHeight(btn_height)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        toolbar_row.addWidget(self.add_files_btn)
-        toolbar_row.addWidget(self.add_folder_btn)
-        toolbar_row.addWidget(self.unload_btn)
-        toolbar_row.addWidget(self._create_separator())
-        toolbar_row.addWidget(self.hot_folder_btn)
-        toolbar_row.addWidget(self.rgb_scan_btn)
-        toolbar_row.addWidget(self.half_frame_btn)
-        toolbar_row.addWidget(self.apply_btn)
-        toolbar_row.addStretch()
-        toolbar_row.addWidget(self._create_separator())
-        toolbar_row.addWidget(self.sheet_btn)
-        toolbar_row.addWidget(self.sort_btn)
-        layout.addLayout(toolbar_row)
+        # OverflowBar rather than a QHBoxLayout: a plain row made the whole session panel
+        # unshrinkable below every button laid end to end, so each new tool widened it for good.
+        for widget, label in (
+            (self.add_files_btn, "Add files"),
+            (self.add_folder_btn, "Add folder"),
+            (self.unload_btn, "Clear all"),
+            (None, None),
+            (self.hot_folder_btn, "Hot Folder"),
+            (self.rgb_scan_btn, "RGB Scan"),
+            (self.half_frame_btn, "Half Frame"),
+            (self.apply_btn, "Apply settings"),
+            (None, None),
+            (self.sheet_btn, "Sheet filter"),
+            (self.sort_btn, "Sort"),
+        ):
+            if widget is None:
+                toolbar_row.add_separator(self._create_separator())
+            else:
+                toolbar_row.add_button(widget, label)
+        layout.addWidget(toolbar_row)
 
         saved_sort = self.session.repo.get_global_setting("file_sort_order") or "name"
         saved_desc = self.session.repo.get_global_setting("file_sort_descending") or False
@@ -454,6 +461,9 @@ class FileBrowser(QWidget):
             qta.icon("fa5s.search", color=THEME.text_secondary),
             QLineEdit.ActionPosition.LeadingPosition,
         )
+        # The elastic item in this row: its natural minimum is what now keeps the panel from
+        # narrowing further, and the other two here are fixed-width by design.
+        self.search_input.setMinimumWidth(40)
         self.regex_btn = QPushButton(".*")
         self.regex_btn.setCheckable(True)
         self.regex_btn.setFixedWidth(36)
@@ -461,8 +471,8 @@ class FileBrowser(QWidget):
         search_row.addWidget(self.search_input)
         search_row.addWidget(self.regex_btn)
 
-        # Thumbnail size lives here rather than the toolbar row above, which already
-        # overflows the sidebar's minimum width with its eight buttons.
+        # Thumbnail size lives here rather than the toolbar row above, to keep that row's
+        # overflow menu to file actions.
         saved_cell = self.session.repo.get_global_setting("thumbnail_cell_size") or THUMB_CELL_DEFAULT
         self.thumb_size_slider = QSlider(Qt.Orientation.Horizontal)
         self.thumb_size_slider.setRange(THUMB_CELL_MIN, THUMB_CELL_MAX)

@@ -4,7 +4,6 @@ from typing import Any, Dict
 import qtawesome as qta
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtWidgets import (
-    QHBoxLayout,
     QPushButton,
     QScrollArea,
     QSplitter,
@@ -17,6 +16,7 @@ from negpy.desktop.controller import AppController
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
 from negpy.desktop.view.sidebar.export import ExportSidebar
+from negpy.desktop.view.sidebar.favourites import FavouritesSidebar
 from negpy.desktop.view.sidebar.history import HistoryPanel
 from negpy.desktop.view.sidebar.metadata import MetadataSidebar
 from negpy.desktop.view.styles.templates import EditedDot
@@ -24,6 +24,7 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.charts import PhotometricCurveWidget, StepWedgeWidget, ZoneStripWidget
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.stats import DensitometerRow, NegativeStatsWidget
+from negpy.desktop.view.widgets.overflow_bar import OverflowBar
 
 
 class RightPanel(QWidget):
@@ -90,6 +91,7 @@ class RightPanel(QWidget):
 
         # Tab content widgets
         self.controls_panel = ControlsPanel(self.controller)
+        self.favourites_sidebar = FavouritesSidebar(self.controller, self.controls_panel)
         self.export_sidebar = ExportSidebar(self.controller)
         self.metadata_sidebar = MetadataSidebar(self.controller)
         self.history_panel = HistoryPanel(self.controller)
@@ -115,16 +117,15 @@ class RightPanel(QWidget):
             (page["key"], page["icon_name"], page["tooltip"], page["widget"], page["sections"]) for page in self.controls_panel.pages
         ]
         tab_specs += [
+            ("favourites", "fa5s.star", "Favourites", self.favourites_sidebar, []),
             ("history", "fa5s.history", "History", self.history_panel, []),
             ("export", "fa5s.file-export", "Export", self.export_sidebar, []),
             ("metadata", "fa5s.tags", "Metadata", self.metadata_sidebar, []),
             ("scan", "fa5s.camera-retro", "Scan", self.scan_page, []),
         ]
 
-        # Icon-only tab switcher
-        switcher_layout = QHBoxLayout()
-        switcher_layout.setContentsMargins(0, 0, 0, 0)
-        switcher_layout.setSpacing(0)
+        # Icon-only tab switcher; spills into a » menu when the panel is narrowed
+        self.switcher = OverflowBar(tile=True, height=38, min_item=36)
 
         self.stack = QStackedWidget()
         self.stack.setContentsMargins(0, 8, 0, 0)
@@ -149,7 +150,7 @@ class RightPanel(QWidget):
             btn.setFixedHeight(38)
             btn.edited_dot = EditedDot(btn)
             btn.clicked.connect(lambda _checked=False, idx=i: self._switch_tab(idx))
-            switcher_layout.addWidget(btn, 1)
+            self.switcher.add_button(btn, tooltip)
 
             self.stack.addWidget(wrap_scroll(content))
             self._tab_buttons.append(btn)
@@ -169,7 +170,7 @@ class RightPanel(QWidget):
         tabs_vbox = QVBoxLayout(tabs_container)
         tabs_vbox.setContentsMargins(0, 0, 0, 0)
         tabs_vbox.setSpacing(0)
-        tabs_vbox.addLayout(switcher_layout)
+        tabs_vbox.addWidget(self.switcher)
         tabs_vbox.addWidget(self.stack, 1)
 
         # Vertical splitter lets the user resize Analysis vs. the tabs below
@@ -278,6 +279,7 @@ class RightPanel(QWidget):
         self.stack.setCurrentIndex(index)
         for i, btn in enumerate(self._tab_buttons):
             btn.setChecked(i == index)
+        self.switcher.set_pinned(index)
         self._refresh_tab_icons()
 
         # The heal/scratch tools live on the tab hosting the Retouch section;

@@ -227,6 +227,17 @@ class BaseSlider(QWidget):
         self._emit_value()
         self._on_committed()
 
+    def mirror_value(self, value: float, commit: bool) -> None:
+        """Drive this slider from a mirror copy of it (see clone_slider), so the mirror's
+        gesture runs the original's own binding chain instead of writing config itself.
+
+        _rebase_commit=False for the same reason as adjust_by: it leaves the commit baseline
+        pre-gesture, or the trailing _on_committed() would see no change and never fire."""
+        self.setValue(value, _rebase_commit=False)
+        self._emit_value()
+        if commit:
+            self._on_committed()
+
     def mouseDoubleClickEvent(self, event) -> None:
         """Resets to default value."""
         self.setValue(self._default, _rebase_commit=False)
@@ -537,6 +548,34 @@ class KelvinSlider(CompactSlider):
     def setEnabled(self, enabled: bool) -> None:
         super().setEnabled(enabled)
         self._apply_temp(self.value())
+
+
+def clone_slider(src: CompactSlider) -> CompactSlider:
+    """A second widget onto the same control, for the Favourites panel: a QWidget has one
+    parent, so a favourite mirrors its slider rather than re-parenting it out of its section.
+
+    Exact-type dispatch, and unhandled classes raise: a PowerWarpSlider rebuilt as a plain
+    CompactSlider would keep its range but silently lose its nonlinear travel."""
+    label = src.label.text()
+    cls = type(src)
+    if cls is HueSlider:
+        return HueSlider(label, src._default)
+    if cls is KelvinSlider:
+        return KelvinSlider(label)
+    if cls is CompactSlider:
+        return CompactSlider(
+            label,
+            src._min,
+            src._max,
+            src._default,
+            step=src.spin.singleStep(),
+            precision=src._precision,
+            color=src._label_color,
+            has_neutral=src.slider.objectName() == "neutral_slider",
+            unit=src.spin.suffix(),
+            inverted=src.slider.invertedAppearance(),
+        )
+    raise TypeError(f"clone_slider: unhandled slider class {cls.__name__}")
 
 
 class RangeSlider(QWidget):

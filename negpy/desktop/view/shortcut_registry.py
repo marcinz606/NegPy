@@ -141,6 +141,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "tab_export": ShortcutEntry("Ctrl+7", "Export tab", "Tabs"),
     "tab_metadata": ShortcutEntry("Ctrl+8", "Metadata tab", "Tabs"),
     "tab_scan": ShortcutEntry("Ctrl+9", "Scan tab", "Tabs"),
+    "tab_favourites": ShortcutEntry("Ctrl+0", "Favourites tab", "Tabs"),
     "fit_view": ShortcutEntry("0", "Fit to window", "View"),
     "zoom_100": ShortcutEntry("1", "Zoom 100%", "View"),
     "zoom_200": ShortcutEntry("2", "Zoom 200%", "View"),

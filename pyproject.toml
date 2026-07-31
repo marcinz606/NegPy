@@ -78,6 +78,8 @@ markers = [
     "metrics: opt-in performance metrics tests",
 ]
 addopts = "-m 'not slow'"
+# Lets test modules share helpers via `from conftest import ...` (FakeRepo/FakeController).
+pythonpath = ["tests"]
 
 [tool.ruff]
 line-length = 140
