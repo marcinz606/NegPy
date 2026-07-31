@@ -206,6 +206,7 @@ class AppController(QObject):
     monitor_profile_changed = pyqtSignal()
     compare_changed = pyqtSignal(bool)
     flat_output_changed = pyqtSignal(bool)
+    linear_output_changed = pyqtSignal(bool)
     flat_peek_changed = pyqtSignal(bool)
     zoom_requested = pyqtSignal(float)
     zoom_changed = pyqtSignal(float)
@@ -3004,6 +3005,8 @@ class AppController(QObject):
         if self.state.flat_output == enabled:
             return
         self.state.flat_output = enabled
+        if enabled:
+            self.state.linear_output = False
         self.session.save_flat_output_prefs()
         # Flat masters default to full resolution; only honour Print/Pixels when the
         # user explicitly selects those modes in the export panel.
@@ -3019,9 +3022,24 @@ class AppController(QObject):
                 persist=True,
             )
         self.flat_output_changed.emit(enabled)
+        if enabled:
+            self.linear_output_changed.emit(False)
         # If a peek is active and flat output was turned off, drop back to the edit.
         if not enabled and self.state.flat_peek:
             self.toggle_flat_peek(force=False)
+
+    def set_linear_output(self, enabled: bool) -> None:
+        """Toggle the linear output intent (raw loader dump, no pipeline)."""
+        if self.state.linear_output == enabled:
+            return
+        self.state.linear_output = enabled
+        if enabled:
+            self.state.flat_output = False
+            self.flat_output_changed.emit(False)
+            if self.state.flat_peek:
+                self.toggle_flat_peek(force=False)
+        self.session.save_flat_output_prefs()
+        self.linear_output_changed.emit(enabled)
 
     def toggle_flat_peek(self, force: Optional[bool] = None) -> None:
         """Preview the flat master render in the canvas without changing the saved edit.
@@ -3148,6 +3166,37 @@ class AppController(QObject):
         """Load a history step, then export it through the normal export path."""
         self.session.jump_to_step(index)
         self.request_export()
+
+    def request_linear_output_export(self) -> None:
+        """Export the current file's decoded linear buffer as an untagged 16-bit TIFF."""
+        from PyQt6.QtWidgets import QFileDialog
+
+        from negpy.services.export.linear_output import export_linear_output, is_linear_output_supported
+
+        file_path = self.state.current_file_path
+        if not file_path:
+            return
+        if not is_linear_output_supported(file_path):
+            self.set_status("Linear Output requires a Pakon RAW or LinearRaw DNG file", 4000)
+            return
+
+        export_path = self._ensure_valid_export_path()
+        if not export_path:
+            return
+
+        stem = os.path.splitext(os.path.basename(file_path))[0]
+        default_name = f"{stem}_linear.tiff"
+        out_path, _ = QFileDialog.getSaveFileName(
+            None, "Export Linear Output", os.path.join(export_path, default_name), "TIFF Files (*.tiff *.tif)"
+        )
+        if not out_path:
+            return
+
+        try:
+            export_linear_output(file_path, out_path, geometry=self.state.config.geometry)
+            self.set_status(f"Linear Output saved: {os.path.basename(out_path)}", 4000)
+        except Exception as e:
+            QMessageBox.warning(None, "Linear Output", f"Export failed: {e}")
 
     def request_export(self) -> None:
         """Exports the current file using the settings currently shown in the Export panel."""

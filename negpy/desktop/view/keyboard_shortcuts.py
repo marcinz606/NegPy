@@ -130,6 +130,7 @@ class ShortcutManager:
             "zoom_100": self.window.canvas.zoom_to_original,
             "zoom_200": lambda: self.window.canvas.zoom_to_percent(200.0),
             "export": controller.request_export,
+            "export_linear_output": controller.request_linear_output_export,
             "copy": controller.session.copy_settings,
             "copy_with_bounds": controller.session.copy_settings_with_bounds,
             "paste": lambda: open_paste_dialog(self.window, controller),

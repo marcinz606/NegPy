@@ -92,6 +92,7 @@ class ExportSidebar(BaseSidebar):
         self.flat_peek_btn.toggled.connect(lambda checked: self.controller.toggle_flat_peek(force=checked))
         self.flat_bake_btn.clicked.connect(self.controller.request_batch_normalization)
         self.controller.flat_output_changed.connect(self._on_flat_output_changed)
+        self.controller.linear_output_changed.connect(self._on_linear_output_changed)
         self.controller.flat_peek_changed.connect(self._on_flat_peek_changed)
 
         self.contact_sheet_btn.clicked.connect(self.controller.request_contact_sheet)
@@ -145,10 +146,10 @@ class ExportSidebar(BaseSidebar):
 
         repo = self.controller.session.repo
         expanded = bool(repo.get_global_setting("section_expanded_export_presets", default=False))
-        section = CollapsibleSection("Presets", expanded=expanded, icon=qta.icon("fa5s.layer-group", color="#aaa"))
-        section.set_content(content)
-        section.expanded_changed.connect(lambda checked: repo.save_global_setting("section_expanded_export_presets", checked))
-        self.layout.addWidget(section)
+        self._presets_section = CollapsibleSection("Presets", expanded=expanded, icon=qta.icon("fa5s.layer-group", color="#aaa"))
+        self._presets_section.set_content(content)
+        self._presets_section.expanded_changed.connect(lambda checked: repo.save_global_setting("section_expanded_export_presets", checked))
+        self.layout.addWidget(self._presets_section)
 
     # --- Contact sheet -------------------------------------------------------
 
@@ -492,7 +493,13 @@ class ExportSidebar(BaseSidebar):
             "print look (auto density/grade, cast removal, lab effects, toning, vignette) and "
             "writes a wide-gamut, high-bit-depth file. Your in-app preview is unaffected."
         )
-        for btn in (self.intent_print_btn, self.intent_flat_btn):
+        self.intent_linear_btn = QPushButton("Linear")
+        self.intent_linear_btn.setToolTip(
+            "Export the raw decoded sensor data as an untagged 16-bit TIFF, before any "
+            "NegPy processing (no normalization, exposure, lab, toning, color management). "
+            "Supported for Pakon RAW and LinearRaw DNG (SilverFast/VueScan) files."
+        )
+        for btn in (self.intent_print_btn, self.intent_flat_btn, self.intent_linear_btn):
             btn.setCheckable(True)
             btn.setStyleSheet(labeled_toggle_qss())
             intent_row.addWidget(btn)
@@ -500,7 +507,10 @@ class ExportSidebar(BaseSidebar):
         self.intent_btn_group.setExclusive(True)
         self.intent_btn_group.addButton(self.intent_print_btn, 0)
         self.intent_btn_group.addButton(self.intent_flat_btn, 1)
-        if self.state.flat_output:
+        self.intent_btn_group.addButton(self.intent_linear_btn, 2)
+        if self.state.linear_output:
+            self.intent_linear_btn.setChecked(True)
+        elif self.state.flat_output:
             self.intent_flat_btn.setChecked(True)
         else:
             self.intent_print_btn.setChecked(True)
@@ -534,14 +544,28 @@ class ExportSidebar(BaseSidebar):
         self.flat_roll_warning = hint_label("For consistent masters across a roll, lock one baseline for every frame.", kind="warning")
         box.addWidget(self.flat_roll_warning)
 
+        self.linear_hint_label = hint_label(
+            "Exports the loader's decoded buffer as an untagged 16-bit TIFF. "
+            "No pipeline processing, no color management, no scaling. "
+            "Pakon RAW and LinearRaw DNG (SilverFast/VueScan)."
+        )
+        box.addWidget(self.linear_hint_label)
+
         self.layout.addWidget(container)
 
     def _sync_flat_enabled(self) -> None:
-        on = self.intent_flat_btn.isChecked()
+        flat_on = self.intent_flat_btn.isChecked()
+        linear_on = self.intent_linear_btn.isChecked()
         if hasattr(self, "form"):
-            self.form.set_flat_mode(on)
-        self.flat_hint_label.setVisible(on)
-        self.flat_peek_btn.setVisible(on)
+            self.form.set_flat_mode(flat_on)
+            self.form.setVisible(not linear_on)
+        self.flat_hint_label.setVisible(flat_on)
+        self.flat_peek_btn.setVisible(flat_on)
+        self.linear_hint_label.setVisible(linear_on)
+        if hasattr(self, "_presets_section"):
+            self._presets_section.setVisible(not linear_on)
+        if hasattr(self, "_sidecars_section"):
+            self._sidecars_section.setVisible(not linear_on)
         self._sync_flat_roll_warning()
         if hasattr(self, "form"):
             self._refresh_export_enabled()
@@ -559,14 +583,27 @@ class ExportSidebar(BaseSidebar):
 
     def _on_flat_output_toggled(self, btn_id: int, checked: bool) -> None:
         if checked:
-            self.controller.set_flat_output(btn_id == 1)
+            if btn_id == 2:
+                self.controller.set_linear_output(True)
+            else:
+                self.controller.set_linear_output(False)
+                self.controller.set_flat_output(btn_id == 1)
             self._sync_flat_enabled()
 
     def _on_flat_output_changed(self, enabled: bool) -> None:
         self.intent_btn_group.blockSignals(True)
         if enabled:
             self.intent_flat_btn.setChecked(True)
-        else:
+        elif not self.state.linear_output:
+            self.intent_print_btn.setChecked(True)
+        self.intent_btn_group.blockSignals(False)
+        self._sync_flat_enabled()
+
+    def _on_linear_output_changed(self, enabled: bool) -> None:
+        self.intent_btn_group.blockSignals(True)
+        if enabled:
+            self.intent_linear_btn.setChecked(True)
+        elif not self.state.flat_output:
             self.intent_print_btn.setChecked(True)
         self.intent_btn_group.blockSignals(False)
         self._sync_flat_enabled()
@@ -670,11 +707,13 @@ class ExportSidebar(BaseSidebar):
 
         repo = self.controller.session.repo
         expanded = bool(repo.get_global_setting("section_expanded_export_sidecars", default=False))
-        section = CollapsibleSection("Sidecars", expanded=expanded, icon=qta.icon("fa5s.file-export", color="#aaa"))
-        section.setToolTip("Optional plain-file copies of edits next to your sources, for archival. SQLite stays primary.")
-        section.set_content(content)
-        section.expanded_changed.connect(lambda checked: repo.save_global_setting("section_expanded_export_sidecars", checked))
-        self.layout.addWidget(section)
+        self._sidecars_section = CollapsibleSection("Sidecars", expanded=expanded, icon=qta.icon("fa5s.file-export", color="#aaa"))
+        self._sidecars_section.setToolTip("Optional plain-file copies of edits next to your sources, for archival. SQLite stays primary.")
+        self._sidecars_section.set_content(content)
+        self._sidecars_section.expanded_changed.connect(
+            lambda checked: repo.save_global_setting("section_expanded_export_sidecars", checked)
+        )
+        self.layout.addWidget(self._sidecars_section)
 
     # --- Batch ---------------------------------------------------------------
 
@@ -758,6 +797,9 @@ class ExportSidebar(BaseSidebar):
             self.controller.session.repo.save_global_setting("export_scope", key)
 
     def _on_export_clicked(self) -> None:
+        if self.state.linear_output:
+            self.controller.request_linear_output_export()
+            return
         scope = self._export_scope
         if scope == "selected":
             self.controller.request_export_selected()
@@ -927,9 +969,18 @@ class ExportSidebar(BaseSidebar):
     def _refresh_export_enabled(self) -> None:
         """Disable the Export action when the current format/colour-space pairing
         can't be encoded (JPEG XL only tags a subset of colour spaces)."""
-        blocked = self.form.is_export_blocked()
-        self.export_main_btn.setEnabled(not blocked)
-        self.export_menu_btn.setEnabled(not blocked)
+        linear_on = self.state.linear_output
+        if linear_on:
+            from negpy.services.export.linear_output import is_linear_output_supported
+
+            path = self.state.current_file_path or ""
+            supported = bool(path) and is_linear_output_supported(path)
+            self.export_main_btn.setEnabled(supported)
+            self.export_menu_btn.setEnabled(True)
+        else:
+            blocked = self.form.is_export_blocked()
+            self.export_main_btn.setEnabled(not blocked)
+            self.export_menu_btn.setEnabled(not blocked)
 
     def sync_ui(self) -> None:
         conf = self.state.config.export
@@ -957,7 +1008,9 @@ class ExportSidebar(BaseSidebar):
                 self.cs_template_combo.setCurrentText(saved_template)
             else:
                 self.cs_template_combo.setCurrentText(ContactSheetTemplates.DEFAULT_NAME)
-            if self.state.flat_output:
+            if self.state.linear_output:
+                self.intent_linear_btn.setChecked(True)
+            elif self.state.flat_output:
                 self.intent_flat_btn.setChecked(True)
             else:
                 self.intent_print_btn.setChecked(True)

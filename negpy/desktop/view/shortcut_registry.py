@@ -147,6 +147,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "zoom_100": ShortcutEntry("1", "Zoom 100%", "View"),
     "zoom_200": ShortcutEntry("2", "Zoom 200%", "View"),
     "export": ShortcutEntry("Ctrl+E", "Export", "Actions"),
+    "export_linear_output": ShortcutEntry("", "Export Linear Output", "Actions"),
     "copy": ShortcutEntry("Ctrl+C", "Copy settings", "Actions"),
     "copy_with_bounds": ShortcutEntry("Ctrl+Shift+C", "Copy settings (with bounds)", "Actions"),
     "paste": ShortcutEntry("Ctrl+V", "Paste settings", "Actions"),

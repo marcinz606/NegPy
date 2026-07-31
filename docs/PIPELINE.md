@@ -138,6 +138,17 @@ $$I_{out} = \text{clip}\big(\text{lift} + \text{gain} \cdot (1 - \text{val}),\ 0
 
 Both are fixed (no per-frame metering) so an evenly-exposed roll renders identically; manual white balance still rides as an additive per-channel shift in log space. For a flat intent the engine also bypasses the creative stages (Local Contrast, Retouch, Lab, Toning, Finish, and dodge/burn masks are skipped too); only Geometry → Normalization → this log map → Crop run. Export is full-resolution; the colour space follows the export selection (color-managed at encode like the print path), as 16-bit TIFF. CPU engine is forced (no GPU flat shader) for numerical exactness.
 
+### Linear Output
+**Code**: `negpy.services.export.linear_output`
+
+When the render intent is **Linear**, the entire darkroom pipeline is bypassed. The source file is decoded to its native linear buffer, lossless geometry (EXIF orientation + user rotation/flip) is applied, and the result is written as an untagged 16-bit TIFF with zlib compression. No normalization, exposure, colour management, flatfield, or sensor correction runs.
+
+*   **Pakon RAW**: the uint16 scanner data (14-bit sensor) is scaled by a fixed 4× expansion factor (`PAKON_EXPANSION`) to use more of the 16-bit output range. MakeTiff uses 2×; 4× places the typical negative peak around 50–55 % of the range.
+*   **LinearRaw DNG**: 4-channel VueScan (RGB+IR) and 3-channel SilverFast HDRi files are read directly via tifffile, bypassing rawpy. The IR channel, when present, is written as a separate grayscale TIFF with an `_ir` suffix.
+*   **Camera RAW**: demosaiced by rawpy with `user_wb=[1,1,1,1]` (unity), `output_color=raw` (sensor-native), `gamma=(1,1)` (linear), `no_auto_bright=True`. The camera's as-shot white balance multipliers (green-normalized to three RGB values) are embedded in XMP as `RAW-WB: R G B` inside `dc:description`, matching the MakeTiff/ColorPerfect convention. The source filename is stored in `crs:RawFileName`.
+
+Source device metadata (Make, Model, DateTime) is carried through to the output TIFF when available from the source file.
+
 ---
 
 ## 4. Local Contrast (CLAHE)

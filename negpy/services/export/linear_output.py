@@ -1,0 +1,320 @@
+"""Linear Output: export a loader's decoded buffer as an untagged 16-bit TIFF.
+
+Bypasses the entire darkroom pipeline — no normalization, exposure, lab,
+toning, finish, flatfield, or sensor-crosstalk correction. The output is
+the closest thing to "what the scanner/camera actually captured" that NegPy
+can produce, with only lossless geometry (EXIF orientation + user rotation/flip)
+baked in.
+"""
+
+import io
+import os
+from dataclasses import dataclass
+from typing import Optional
+
+import numpy as np
+import rawpy
+import tifffile as _tifffile
+
+from negpy.features.geometry.models import GeometryConfig
+from negpy.infrastructure.loaders.constants import SUPPORTED_JPEG_EXTENSIONS, SUPPORTED_RAW_EXTENSIONS, SUPPORTED_TIFF_EXTENSIONS
+from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, get_best_demosaic_algorithm, read_orientation
+from negpy.infrastructure.loaders.pakon_loader import PakonLoader
+from negpy.infrastructure.loaders.rawpy_loader import (
+    _find_linearraw_page,
+    _is_dng,
+    _peek_hdri_ir_page,
+    _peek_linearraw_4ch,
+)
+from negpy.kernel.image.logic import _to_uint16_jit, apply_exif_orientation, ensure_rgb, uint16_to_float32
+
+
+@dataclass(frozen=True)
+class _CameraWB:
+    """Camera white balance multipliers extracted before the unity-WB decode."""
+
+    as_shot: tuple[float, float, float, float]
+    daylight: tuple[float, float, float, float]
+
+
+@dataclass(frozen=True)
+class _SourceMeta:
+    """Device and timestamp metadata from the source file."""
+
+    make: Optional[str] = None
+    model: Optional[str] = None
+    datetime: Optional[str] = None
+
+
+def _read_source_meta_tiff(file_path: str) -> _SourceMeta:
+    try:
+        with _tifffile.TiffFile(file_path) as tif:
+            tags = tif.pages[0].tags
+            make = tags.get("Make")
+            model = tags.get("Model")
+            dt = tags.get("DateTime")
+            return _SourceMeta(
+                make=str(make.value).strip() if make else None,
+                model=str(model.value).strip() if model else None,
+                datetime=str(dt.value).strip() if dt else None,
+            )
+    except Exception:
+        return _SourceMeta()
+
+
+def _is_camera_raw(file_path: str) -> bool:
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext in SUPPORTED_TIFF_EXTENSIONS | SUPPORTED_JPEG_EXTENSIONS:
+        return False
+    if PakonLoader.can_handle(file_path):
+        return False
+    return ext in SUPPORTED_RAW_EXTENSIONS
+
+
+def is_linear_output_supported(file_path: str) -> bool:
+    if PakonLoader.can_handle(file_path):
+        return True
+    if _is_dng(file_path):
+        return _is_linearraw_dng(file_path) or _is_camera_raw(file_path)
+    if _is_camera_raw(file_path):
+        return True
+    return False
+
+
+def _is_linearraw_dng(file_path: str) -> bool:
+    """True if the DNG contains a LinearRaw IFD (3 or 4 samples)."""
+    try:
+        with _tifffile.TiffFile(file_path) as tif:
+            return _find_linearraw_page(tif, samples=4) is not None or _find_linearraw_page(tif, samples=3) is not None
+    except Exception:
+        return False
+
+
+def _apply_geometry(f32: np.ndarray, orientation: int, geometry: Optional[GeometryConfig]) -> np.ndarray:
+    f32 = apply_exif_orientation(f32, orientation)
+    if geometry is not None:
+        if geometry.rotation != 0:
+            f32 = np.rot90(f32, k=geometry.rotation)
+        if geometry.flip_horizontal:
+            f32 = np.ascontiguousarray(np.fliplr(f32))
+        if geometry.flip_vertical:
+            f32 = np.ascontiguousarray(np.flipud(f32))
+    return f32
+
+
+def _decode_linear(
+    file_path: str, geometry: Optional[GeometryConfig] = None
+) -> tuple[np.ndarray, Optional[np.ndarray], Optional[_CameraWB], _SourceMeta]:
+    """Decode to an oriented float32 buffer. Returns (rgb, ir_or_none, camera_wb_or_none, source_meta)."""
+    if PakonLoader.can_handle(file_path):
+        rgb, ir = _decode_pakon(file_path, geometry)
+        return rgb, ir, None, _SourceMeta()
+    if _is_dng(file_path):
+        meta = _read_source_meta_tiff(file_path)
+        if _is_linearraw_dng(file_path):
+            rgb, ir = _decode_dng(file_path, geometry)
+            return rgb, ir, None, meta
+        if _is_camera_raw(file_path):
+            rgb, ir, wb = _decode_camera_raw(file_path, geometry)
+            return rgb, ir, wb, meta
+    if _is_camera_raw(file_path):
+        return _decode_camera_raw(file_path, geometry)
+    raise ValueError(f"Linear Output is not supported for this file type: {file_path}")
+
+
+PAKON_EXPANSION = 4.0
+
+
+def _decode_pakon(file_path: str, geometry: Optional[GeometryConfig] = None) -> tuple[np.ndarray, None]:
+    loader = PakonLoader()
+    ctx_mgr, metadata = loader.load(file_path)
+    with ctx_mgr as wrapper:
+        if not isinstance(wrapper, NonStandardFileWrapper):
+            raise TypeError("Expected NonStandardFileWrapper from PakonLoader")
+        f32 = wrapper.data
+    f32 = np.clip(f32 * PAKON_EXPANSION, 0.0, 1.0)
+    f32 = _apply_geometry(f32, metadata.get("orientation", 0), geometry)
+    return f32, None
+
+
+def _decode_dng(file_path: str, geometry: Optional[GeometryConfig] = None) -> tuple[np.ndarray, Optional[np.ndarray]]:
+    peeked_4ch = _peek_linearraw_4ch(file_path)
+    if peeked_4ch is not None:
+        rgb, ir = peeked_4ch
+        orientation = read_orientation(file_path)
+        rgb = _apply_geometry(rgb, orientation, geometry)
+        ir = _apply_geometry(ir, orientation, geometry)
+        return rgb, ir
+
+    # 3-channel LinearRaw (SilverFast HDRi): read directly via tifffile.
+    try:
+        with _tifffile.TiffFile(file_path) as tif:
+            page = _find_linearraw_page(tif, samples=3)
+            if page is None:
+                raise ValueError(f"No LinearRaw IFD found in {file_path}")
+            arr = page.asarray()
+    except ValueError:
+        raise
+    except Exception as e:
+        raise ValueError(f"Failed to read LinearRaw data from {file_path}: {e}") from e
+
+    if arr.dtype == np.uint16:
+        scale = 1.0 / 65535.0
+    elif arr.dtype == np.uint8:
+        scale = 1.0 / 255.0
+    else:
+        scale = 1.0
+    rgb = np.clip(arr.astype(np.float32) * scale, 0.0, 1.0)
+
+    ir = _peek_hdri_ir_page(file_path)
+    orientation = read_orientation(file_path)
+    rgb = _apply_geometry(rgb, orientation, geometry)
+    if ir is not None:
+        ir = _apply_geometry(ir, orientation, geometry)
+    return rgb, ir
+
+
+def _decode_camera_raw(file_path: str, geometry: Optional[GeometryConfig] = None) -> tuple[np.ndarray, None, _CameraWB, _SourceMeta]:
+    raw = rawpy.imread(file_path)
+    wb = _CameraWB(
+        as_shot=tuple(raw.camera_whitebalance),  # type: ignore[arg-type]
+        daylight=tuple(raw.daylight_whitebalance),  # type: ignore[arg-type]
+    )
+    ts = raw.other.timestamp
+    dt_str = ts.strftime("%Y:%m:%d %H:%M:%S") if ts else None
+    algo = get_best_demosaic_algorithm(raw)
+    rgb = raw.postprocess(
+        gamma=(1, 1),
+        no_auto_bright=True,
+        user_wb=[1, 1, 1, 1],
+        output_bps=16,
+        output_color=rawpy.ColorSpace.raw,
+        demosaic_algorithm=algo,
+        user_flip=0,
+    )
+    raw.close()
+    rgb = ensure_rgb(rgb)
+    f32 = uint16_to_float32(rgb)
+    orientation = read_orientation(file_path)
+    f32 = _apply_geometry(f32, orientation, geometry)
+    meta = _SourceMeta(datetime=dt_str)
+    return f32, None, wb, meta
+
+
+def _normalize_wb_rgb(wb: tuple[float, float, float, float]) -> tuple[float, float, float]:
+    """Normalize RGGB multipliers to green=1, return (R, G, B)."""
+    g = wb[1] if wb[1] > 0 else 1.0
+    return (wb[0] / g, 1.0, wb[2] / g)
+
+
+def _build_xmp(source_path: str, wb: _CameraWB) -> bytes:
+    r, g, b = _normalize_wb_rgb(wb.as_shot)
+    raw_name = os.path.basename(source_path)
+    xmp = (
+        "<?xpacket begin='﻿' id='W5M0MpCehiHzreSzNTczkc9d'?>\n"
+        "<x:xmpmeta xmlns:x='adobe:ns:meta/'>\n"
+        "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>\n"
+        " <rdf:Description rdf:about=''\n"
+        "  xmlns:crs='http://ns.adobe.com/camera-raw-settings/1.0/'>\n"
+        f"  <crs:RawFileName>{raw_name}</crs:RawFileName>\n"
+        " </rdf:Description>\n"
+        " <rdf:Description rdf:about=''\n"
+        "  xmlns:dc='http://purl.org/dc/elements/1.1/'>\n"
+        "  <dc:description>\n"
+        "   <rdf:Alt>\n"
+        f"    <rdf:li xml:lang='x-default'>RAW-WB: {r:.6f} {g:.6f} {b:.6f}</rdf:li>\n"
+        "   </rdf:Alt>\n"
+        "  </dc:description>\n"
+        " </rdf:Description>\n"
+        "</rdf:RDF>\n"
+        "</x:xmpmeta>\n"
+        "<?xpacket end='w'?>"
+    )
+    return xmp.encode("utf-8")
+
+
+def _write_tiff(
+    f32: np.ndarray,
+    dest,
+    source_name: str,
+    camera_wb: Optional[_CameraWB] = None,
+    source_path: Optional[str] = None,
+    source_meta: Optional[_SourceMeta] = None,
+) -> None:
+    """Write a float32 buffer as an untagged 16-bit TIFF to *dest* (path or file-like)."""
+    u16 = _to_uint16_jit(np.ascontiguousarray(f32, dtype=np.float32))
+    photometric = "rgb" if f32.ndim == 3 else "minisblack"
+    description = f"NegPy Linear Output -- no color management, no scaling applied. Source: {source_name}"
+
+    extratags: list[tuple] = []
+    if camera_wb is not None and source_path is not None:
+        xmp_bytes = _build_xmp(source_path, camera_wb)
+        extratags.append((700, 1, len(xmp_bytes), xmp_bytes, True))
+
+    if source_meta is not None:
+        if source_meta.make:
+            extratags.append((271, 2, 0, source_meta.make, True))
+        if source_meta.model:
+            extratags.append((272, 2, 0, source_meta.model, True))
+
+    dt = (source_meta.datetime if source_meta else None) or None
+
+    _tifffile.imwrite(
+        dest,
+        u16,
+        photometric=photometric,
+        compression="zlib",
+        predictor=True,
+        description=description,
+        software="NegPy",
+        datetime=dt,
+        extratags=extratags or None,
+        metadata=None,
+    )
+
+
+def _write_ir_tiff(ir: np.ndarray, dest, source_name: str) -> None:
+    """Write a single-channel IR buffer as an untagged 16-bit grayscale TIFF."""
+    u16 = _to_uint16_jit(np.ascontiguousarray(ir[:, :, np.newaxis] if ir.ndim == 2 else ir, dtype=np.float32))
+    if u16.ndim == 3 and u16.shape[2] == 1:
+        u16 = u16[:, :, 0]
+    description = f"NegPy Linear Output -- infrared channel. Source: {source_name}"
+    _tifffile.imwrite(
+        dest,
+        u16,
+        photometric="minisblack",
+        compression="zlib",
+        predictor=True,
+        description=description,
+    )
+
+
+def export_linear_output(file_path: str, output_path: str, geometry: Optional[GeometryConfig] = None) -> None:
+    """Decode *file_path* and write an untagged linear 16-bit TIFF to *output_path*.
+
+    Lossless geometry (90-degree rotation, horizontal/vertical flip) from *geometry*
+    is applied; fine rotation is ignored (it resamples).
+
+    If the source has an IR channel, it is written as a separate grayscale TIFF
+    with an ``_ir`` suffix next to the RGB output.
+    """
+    f32, ir, camera_wb, meta = _decode_linear(file_path, geometry)
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    _write_tiff(f32, output_path, os.path.basename(file_path), camera_wb, source_path=file_path, source_meta=meta)
+
+    if ir is not None:
+        stem, ext = os.path.splitext(output_path)
+        ir_path = f"{stem}_ir{ext}"
+        _write_ir_tiff(ir, ir_path, os.path.basename(file_path))
+
+
+def export_linear_output_bytes(file_path: str, geometry: Optional[GeometryConfig] = None) -> tuple[bytes, str]:
+    """Like export_linear_output but returns (tiff_bytes, filename_stem) for in-memory use.
+
+    IR is not included in the returned bytes (use export_linear_output for IR).
+    """
+    f32, _ir, camera_wb, meta = _decode_linear(file_path, geometry)
+    buf = io.BytesIO()
+    _write_tiff(f32, buf, os.path.basename(file_path), camera_wb, source_path=file_path, source_meta=meta)
+    stem = os.path.splitext(os.path.basename(file_path))[0]
+    return buf.getvalue(), stem
