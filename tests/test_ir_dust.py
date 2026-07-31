@@ -12,11 +12,14 @@ from negpy.features.retouch.logic import (
     _IR_GAIN_IDENTITY,
     _IR_GAMMA_FALLBACK,
     _IR_GAMMA_HI,
+    _IR_NOISE_SIGMA,
     _IR_PIVOT_LO,
+    _IR_REF_SIGMA,
     _IR_SCORE_FLOOR,
     _IR_WRITE_HI,
     _IR_WRITE_LO,
     _fit_refraction_gammas,
+    _ir_normalize_ratio,
     _mask_to_strokes,
     apply_hair_inpaint,
     apply_ir_attenuation,
@@ -406,14 +409,18 @@ def _cap_fallback_fraction(ratio: np.ndarray) -> float:
 def test_ir_pivot_is_a_no_op_on_a_quiet_scanner():
     """A noiseless plane measures its clean floor above _IR_GAIN_IDENTITY, clips to it and
     divides by exactly 1.0 — bit-identical, not merely close. Deliberately noiseless: at
-    σ 0.004 the pivot lands at 0.9695 (factor 1.0005), which is not array_equal."""
+    σ 0.004 the pivot lands at 0.9695 (factor 1.0005), which is not array_equal. Clean film
+    only: at σ 0 the dip stretch takes its full _IR_SCALE_MAX, deepening the speck."""
     ir = np.full((200, 200), 0.9, dtype=np.float32)
     ir[98:102, 98:102] = 0.1
     img = np.full((200, 200, 3), 0.5, dtype=np.float32)
     img[98:102, 98:102] = 0.05
 
     ratio, _, _, _ = ir_ratio_and_gain(ir.copy(), img)
-    assert np.array_equal(ratio, normalize_ir(ir))
+    raw = normalize_ir(ir)
+    clean = raw >= _IR_GAIN_IDENTITY
+    assert np.array_equal(ratio[clean], raw[clean])
+    assert float(ratio[98:102, 98:102].max()) < float(raw[98:102, 98:102].max())
 
 
 def test_ir_pivot_tracks_the_scan_noise():
@@ -516,6 +523,35 @@ def test_ir_pivot_floor_bounds_the_rescale():
     assert abs(float(score[202:210, 152:160].min()) - _IR_SCORE_FLOOR) < 1e-6
 
 
+def test_the_same_defect_scores_the_same_on_a_weak_ir_plane():
+    """Dip depth is scanner-dependent (Coolscan ratio σ 0.038–0.063, Plustek/SilverFast
+    0.005), so a defect measuring 20σ on both lands at ratio 0.32 on one and 0.87 on the
+    other — the second sails over every absolute cutoff and the frame renders dusty."""
+    for sigma in (0.005, 0.03):
+        ir = _noisy_ir(sigma, seed=11)
+        ir[200:212, 150:162] -= 20.0 * sigma
+        img = _flat_visible(seed=12)
+        img[200:212, 150:162] *= 0.55
+        ratio, _, _, _ = ir_ratio_and_gain(ir, img)
+        score = ir_defect_score(ratio, ir_detect_cutoff(0.66, True))
+        assert float(score[202:210, 152:160].min()) < _IR_WRITE_LO, f"σ {sigma}"  # takes the full fill
+
+
+def test_a_normal_ir_plane_keeps_its_dip_scale():
+    """The stretch is one-sided: a plane already at or above _IR_REF_SIGMA must come out of
+    _ir_normalize_ratio as the pivot rescale alone, exactly — that is what keeps a Coolscan
+    frame byte-identical."""
+    ratio = normalize_ir(_noisy_ir(0.04, seed=13))
+    live = np.ones(ratio.shape, dtype=bool)
+    sample = ratio[live]
+    med = float(np.median(sample))
+    sigma = 1.4826 * float(np.median(np.abs(sample - med)))
+    pivot = float(np.clip(med - _IR_NOISE_SIGMA * sigma, _IR_PIVOT_LO, _IR_GAIN_IDENTITY))
+    assert sigma * (_IR_GAIN_IDENTITY / pivot) >= _IR_REF_SIGMA
+    pivot_only = (ratio * (_IR_GAIN_IDENTITY / pivot)).astype(np.float32)
+    assert np.array_equal(_ir_normalize_ratio(ratio, live), pivot_only)
+
+
 def _ghosted_frame(ghost: float, size: int = 240):
     """Synthetic scan: sharp-edged image content, an IR plane that partially absorbs
     it (the ghost normalize_ir's spatial high-pass can't remove), and one dust speck
@@ -555,12 +591,15 @@ def test_ir_decontaminate_removes_ghost():
 
 
 def test_ir_decontaminate_noop_on_clean_ir():
-    """No ghost → the fit lands at noise level and the ratio passes through untouched,
-    so a clean scanner renders exactly as it did before."""
-    img, ir, _ = _ghosted_frame(ghost=0.0)
+    """No ghost → the fit lands at noise level and clean film passes through untouched,
+    so a clean scanner renders exactly as it did before. (The speck is exempt: this plane
+    is noiseless, so _ir_normalize_ratio stretches its dip.)"""
+    img, ir, speck = _ghosted_frame(ghost=0.0)
     raw = normalize_ir(ir)
     clean, _, _, _ = ir_ratio_and_gain(ir, img)
-    assert np.allclose(clean, raw, atol=1e-6)
+    keep = raw >= _IR_GAIN_IDENTITY
+    keep[speck] = False
+    assert np.allclose(clean[keep], raw[keep], atol=1e-6)
 
 
 def test_ir_gain_median_near_unity_with_ghost():

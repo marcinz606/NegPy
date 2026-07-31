@@ -62,6 +62,13 @@ _IR_NOISE_SIGMA = 3.0
 # Bounds the rescale so >50% coverage (median inside the dust) can't scale the ratio clean
 # and silently disable IR removal. ponytail: absolute; the knob if a scanner needs more.
 _IR_PIVOT_LO = 0.60
+# Weak-IR contrast normalization. Dip depth is scanner-dependent: a Coolscan 5000's clean-film
+# MAD σ runs 0.038–0.063 while a Plustek/SilverFast HDRi DNG measures 0.005, so the same speck
+# reads 0.62 on one and 0.92 on the other and every absolute landmark below (ir_detect_cutoff,
+# the _fit_refraction_gammas band, the gain) misses it. Stretch-only: σ ≥ _IR_REF_SIGMA leaves
+# the ratio exactly untouched, so a Coolscan renders byte-identical.
+_IR_REF_SIGMA = 0.02
+_IR_SCALE_MAX = 6.0  # bounds a degenerate/quantized plane whose σ measures ~0
 # Crosstalk unmixing: dye/silver absorbs some IR, so the IR plane carries a ghost of
 # the image that normalize_ir's spatial high-pass can't see (a sharp edge survives it).
 _IR_XTALK_MAX = 0.8  # per-channel exponent cap; ≥0 only — density can only block IR
@@ -960,10 +967,11 @@ def _ir_clean_base(img_det: np.ndarray, ratio: np.ndarray) -> np.ndarray:
     return np.where(den > _IR_CAP_MIN_SUPPORT, base, dil)
 
 
-def _ir_pivot_rescale(ratio: np.ndarray, live: np.ndarray) -> np.ndarray:
-    """Rescale so the measured clean-film floor lands on ``_IR_GAIN_IDENTITY`` (see the
-    constants block). ``live`` only: the dead-margin 1.0s inflate σ ~20% on a strip scan.
-    MAD, not std, so a dusty minority can't move the floor."""
+def _ir_normalize_ratio(ratio: np.ndarray, live: np.ndarray) -> np.ndarray:
+    """Put both ratio landmarks where the absolute constants expect them: the measured
+    clean-film floor on ``_IR_GAIN_IDENTITY``, then the dip scale on ``_IR_REF_SIGMA``
+    (see the constants block). ``live`` only: the dead-margin 1.0s inflate σ ~20% on a
+    strip scan. MAD, not std, so a dusty minority can't move either landmark."""
     sample = ratio[live]
     if sample.size < 500:  # nothing measurable: leave the landmarks alone
         return ratio
@@ -973,7 +981,16 @@ def _ir_pivot_rescale(ratio: np.ndarray, live: np.ndarray) -> np.ndarray:
     if pivot <= _IR_PIVOT_LO:
         logger.warning("IR dust: clean-film pivot floored at %.2f (IR σ %.3f) — very noisy IR plane", _IR_PIVOT_LO, sigma)
     # A clipped pivot is an exact no-op: x/x is 1.0 in IEEE, float32 × 1.0 exact.
-    return (ratio * (_IR_GAIN_IDENTITY / pivot)).astype(np.float32)
+    scale = _IR_GAIN_IDENTITY / pivot
+    ratio = (ratio * scale).astype(np.float32)
+    # The rescale carries σ with it, so the stretch needs no second median pass. Dips only:
+    # deepening clean film's *upward* excursions serves nothing, and a noiseless synthetic
+    # plane would take the full _IR_SCALE_MAX and land its clean level at 1.15.
+    k = float(np.clip(_IR_REF_SIGMA / max(sigma * scale, 1e-6), 1.0, _IR_SCALE_MAX))
+    if k > 1.0:
+        stretched = _IR_GAIN_IDENTITY - (_IR_GAIN_IDENTITY - ratio) * k
+        ratio = np.where(ratio < _IR_GAIN_IDENTITY, stretched, ratio).astype(np.float32)
+    return ratio
 
 
 def ir_ratio_and_gain(ir_det: np.ndarray, img_det: np.ndarray) -> Tuple[np.ndarray, np.ndarray, bool, Tuple[float, ...]]:
@@ -998,7 +1015,7 @@ def ir_ratio_and_gain(ir_det: np.ndarray, img_det: np.ndarray) -> Tuple[np.ndarr
     degenerate = ghost > _IR_DEGENERATE_GHOST
     # After the unmixing, never before: it clips log(ratio) at 1.0, and a rescaled clean
     # population piles into that clip and flattens the fitted exponent.
-    ratio = _ir_pivot_rescale(ratio, live)
+    ratio = _ir_normalize_ratio(ratio, live)
 
     gammas = _fit_refraction_gammas(ratio, vis_log, img_det)
     base = np.clip(ratio / _IR_GAIN_IDENTITY, 1e-4, 1.0)
