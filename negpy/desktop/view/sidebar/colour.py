@@ -1,11 +1,9 @@
-import qtawesome as qta
-from PyQt6.QtWidgets import QButtonGroup, QHBoxLayout, QPushButton
+from PyQt6.QtWidgets import QButtonGroup, QHBoxLayout
 
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import wrap_tooltip
-from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider, KelvinSlider
 from negpy.features.exposure.logic import kelvin_to_wb, wb_to_kelvin
 
@@ -58,16 +56,17 @@ class ColourSidebar(BaseSidebar):
             "(its own tint preserved); committing the slider while locked updates the target. "
             "Each region (Global/Shadows/Highlights) holds its own lock.",
         )
-        self.region_reset_btn = QPushButton(" Reset")
-        self.region_reset_btn.setIcon(qta.icon("fa5s.undo", color=THEME.text_primary, color_disabled=THEME.text_muted))
-        self.region_reset_btn.setToolTip("Reset the selected region's white balance — Temperature and Cyan/Magenta/Yellow back to neutral")
+        self.region_reset_btn = self._icon_action(
+            "fa5s.undo",
+            "Reset the selected region's white balance — Temperature and Cyan/Magenta/Yellow back to neutral",
+        )
         self.ring_btn = self._tool_toggle("mdi.target", "", self._ring_tooltip())
         self.ring_btn.setFixedWidth(36)
 
         tools_row = QHBoxLayout()
         tools_row.addWidget(self.pick_wb_btn, 1)
         tools_row.addWidget(self.temp_lock_btn, 1)
-        tools_row.addWidget(self.region_reset_btn, 1)
+        tools_row.addWidget(self.region_reset_btn)
         tools_row.addWidget(self.ring_btn)
         self.layout.addLayout(tools_row)
 

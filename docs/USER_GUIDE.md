@@ -242,7 +242,7 @@ Colour timing, like the dichroic filters on an enlarger head. A **Global / Shado
 
 *   **Pick WB** (eyedropper): click a pixel that should be neutral grey; NegPy solves the CMY filtration to make it neutral in the selected region.
 *   **Roll Lock**: re-aims each newly opened frame's temperature to the current target (its own tint preserved), a per-region lock for consistent warmth across a roll.
-*   **Reset**: return the selected region's temperature and CMY to neutral.
+*   **Reset** (undo-arrow icon): return the selected region's temperature and CMY to neutral.
 *   **Temperature**: a warm↔cool lever driving the region's magenta/yellow pair (cyan stays put, as in a real darkroom).
 *   **Cyan / Magenta / Yellow** (-1 to 1): the three filtration axes, Cyan↔Red, Magenta↔Green and Yellow↔Blue.
 *   **Cast Removal** (0.0 to 1.0): neutralizes the residual colour cast a negative leaves in the print, balancing each layer so greys stay neutral from deep shadows through highlights (C-41). Applied strength scales with how many clean near-neutrals the frame has. Default ~0.5; 0 turns it off.
