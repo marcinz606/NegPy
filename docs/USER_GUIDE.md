@@ -116,6 +116,12 @@ Ten cells on the Adams scale, where **0 is paper black and V is 18% mid-grey**, 
 
 A spot densitometer. Hover the image to read the pixel: per-channel density above film base (ΔD, relative to this scan's normalization, not absolute), the displayed tone's reflection print density, and its print zone (0 = paper black, V = 18% mid-grey, X = paper white). In B&W mode the ΔD channels read the pre-conversion colour record.
 
+#### Zone placement
+
+The probe made actionable — what a darkroom enlarging analyser does. Turn on the crosshair tool in the canvas toolbar (it ships unbound; give it a key in the shortcut editor if you use it often) and click the image to pin a spot; a second click pins another, and a third replaces whichever pin is nearer. Each pin appears here as a row: what zone it reads now, and a **target** you step in thirds of a zone. With one pin, **Place zones** solves Print Density so that tone prints on its target; with two pins (typically a shadow and a highlight) it solves Print Density *and* ISO-R Grade so both land. Stepping a target previews the solve live without committing; Place zones commits it as one undoable edit and turns off Auto Density (and Auto Grade for two pins), since a meter left on would re-move the placed tones.
+
+Asking for a zone the paper cannot reach shows an amber `→ lands …` with the closest zone the print can make — the solve pegs at the slider's end, like an analyser pegging at grade 5. Pins are proofs, not edits: they clear on Esc (a second Esc puts the tool down), on any other edit, and when you change frames. The measured zone reads through the print curve — the same model the chart and step wedge use — so after placing, the pin reads its target by construction; later stages (Lab, toning) can still shade the final pixel the hover probe reads.
+
 #### Negative stats
 
 The four numeric rows at the bottom. Each one has the same explanation on hover, and each is a measurement of the negative rather than of your edit:

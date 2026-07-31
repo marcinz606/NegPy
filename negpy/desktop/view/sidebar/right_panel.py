@@ -23,7 +23,7 @@ from negpy.desktop.view.styles.templates import EditedDot
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.charts import PhotometricCurveWidget, StepWedgeWidget, ZoneStripWidget
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
-from negpy.desktop.view.widgets.stats import DensitometerRow, NegativeStatsWidget
+from negpy.desktop.view.widgets.stats import DensitometerRow, NegativeStatsWidget, ZonePlacementRows
 from negpy.desktop.view.widgets.overflow_bar import OverflowBar
 
 
@@ -57,6 +57,7 @@ class RightPanel(QWidget):
         self.step_wedge = StepWedgeWidget()
         self.zone_strip = ZoneStripWidget()
         self.probe_row = DensitometerRow()
+        self.zone_placement = ZonePlacementRows()
         self.stats_widget = NegativeStatsWidget()
         self._clip_fracs: tuple = (None, None)
 
@@ -68,6 +69,7 @@ class RightPanel(QWidget):
         analysis_layout.addWidget(self.step_wedge, 0)
         analysis_layout.addWidget(self.zone_strip, 0)
         analysis_layout.addWidget(self.probe_row, 0)
+        analysis_layout.addWidget(self.zone_placement, 0)
         analysis_layout.addWidget(self.stats_widget, 0)
 
         repo = self.controller.session.repo
@@ -257,6 +259,10 @@ class RightPanel(QWidget):
         self.controller.metrics_available.connect(self._update_histograms)
         self.controller.pixel_readout_rgb.connect(self.curve_widget.set_marker)
         self.controller.densitometer_readout.connect(self._on_densitometer)
+        self.controller.zone_pins_changed.connect(self._refresh_zone_placement)
+        self.zone_placement.target_changed.connect(self.controller.set_zone_pin_target)
+        self.zone_placement.apply_clicked.connect(self.controller.apply_zone_placement)
+        self.zone_placement.clear_clicked.connect(self.controller.clear_zone_pins)
         self.controller.tone_drag_changed.connect(self.curve_widget.set_active_param)
         self.controller.config_updated.connect(self.export_sidebar.sync_ui)
         self.controller.config_updated.connect(self.metadata_sidebar.sync_ui)
@@ -360,10 +366,15 @@ class RightPanel(QWidget):
             self.zone_strip.setVisible(True)
             self.zone_strip.update_data(occ, zone_warnings(occ))
 
+    def _refresh_zone_placement(self) -> None:
+        self.zone_placement.refresh(self.controller.zone_pin_readouts())
+
     def _update_analysis(self) -> None:
         metrics = self.controller.session.state.last_metrics
 
         self._update_histograms(metrics)
+        # Measured zones read through the current config, so they track every render.
+        self._refresh_zone_placement()
 
         from negpy.features.exposure.logic import curve_params_from_metrics
 

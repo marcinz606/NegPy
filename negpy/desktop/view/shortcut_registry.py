@@ -45,6 +45,9 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "toggle_test_strip": ShortcutEntry("Shift+T", "Density × grade test strip", "Tools"),
     "toggle_ring_around": ShortcutEntry("Shift+F", "Colour ring-around (M/Y filtration)", "Tools"),
     "toggle_grain_focuser": ShortcutEntry("Shift+L", "Grain focuser loupe", "Tools"),
+    # No free Shift+letter left in the Tools row — a duplicate key goes dead via
+    # activatedAmbiguously, so this ships unbound.
+    "zone_placement": ShortcutEntry("", "Zone placement — pin tones and set which zones they print as", "Tools"),
     "cancel_tool": ShortcutEntry("Esc", "Cancel active tool (first press clears in-progress points)", "Tools"),
     "cyan_dec": ShortcutEntry("", "Cyan down", "Exposure"),
     "cyan_inc": ShortcutEntry("", "Cyan up", "Exposure"),

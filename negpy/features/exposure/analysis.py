@@ -66,6 +66,15 @@ def zone_of_encoded(enc: Any) -> Any:
     return np.where(enc <= mid, 5.0 * enc / mid, 5.0 + 5.0 * (enc - mid) / (1.0 - mid))
 
 
+def encoded_of_zone(zone: float) -> float:
+    """Exact inverse of zone_of_encoded; kept beside it so the ruler can't fork."""
+    z = min(max(float(zone), 0.0), 10.0)
+    mid = _mid_gray_encoded()
+    if z <= 5.0:
+        return mid * z / 5.0
+    return mid + (1.0 - mid) * (z - 5.0) / 5.0
+
+
 def zone_occupancy(l_bins: np.ndarray) -> np.ndarray:
     """Fold display-encoded luma histogram bins into ZONE_COUNT occupancy fractions."""
     l_bins = np.asarray(l_bins, dtype=float)

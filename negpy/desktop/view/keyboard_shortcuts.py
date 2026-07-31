@@ -28,13 +28,16 @@ def _context_undo(controller) -> None:
 
 def _context_cancel(controller, window) -> None:
     """Esc ladder: a test strip is dismissed first (it owns the canvas while up), then the
-    grain focuser loupe, then in-progress tool geometry (polyline points, straighten line),
-    then the tool itself."""
+    grain focuser loupe, then in-progress tool geometry (polyline points, straighten line,
+    zone pins), then the tool itself."""
     if controller.state.test_strip or controller.state.test_strip_pending:
         controller.toggle_test_strip(force=False)
         return
     if controller.state.grain_focuser:
         controller.toggle_grain_focuser(force=False)
+        return
+    if controller.state.active_tool == ToolMode.ZONE_PLACE and controller.state.zone_pins:
+        controller.clear_zone_pins()
         return
     if not window.canvas.overlay.cancel_in_progress():
         controller.cancel_active_tool()
@@ -106,6 +109,7 @@ class ShortcutManager:
             "toggle_test_strip": controller.toggle_test_strip,
             "toggle_ring_around": controller.toggle_ring_around,
             "toggle_grain_focuser": controller.toggle_grain_focuser,
+            "zone_placement": controller.toggle_zone_placement,
             "cancel_tool": lambda: _context_cancel(controller, self.window),
             "toggle_left_panel": self.window.toggle_session_dock,
             "toggle_right_panel": self.window.toggle_controls_dock,

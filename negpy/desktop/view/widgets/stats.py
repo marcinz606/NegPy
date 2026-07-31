@@ -1,7 +1,7 @@
-from typing import List
+from typing import List, Optional, Sequence, Tuple
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QGridLayout, QLabel, QWidget
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QPushButton, QToolButton, QVBoxLayout, QWidget
 
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.exposure.stats import StatRow
@@ -58,6 +58,118 @@ class DensitometerRow(QWidget):
         from negpy.features.exposure.densitometer import format_reading
 
         self._value.setText(_PROBE_EMPTY if reading is None else format_reading(reading))
+
+
+class ZonePlacementRows(QWidget):
+    """Zone-placement rows under the probe: one per pinned spot with a ⅓-step target
+    stepper, plus Place/Clear. Dumb widget — the controller owns the pins and the solve;
+    rows arrive via refresh() as (index, measured roman, target zone, achieved roman
+    when the target is out of the paper's scale, solvable)."""
+
+    target_changed = pyqtSignal(int, float)
+    apply_clicked = pyqtSignal()
+    clear_clicked = pyqtSignal()
+
+    _TOOLTIP = (
+        "Zone placement — each pin is a probed spot on the canvas; step its target zone and "
+        "Place zones solves Print Density (one pin) or Print Density + Grade (two pins) so the "
+        "pinned tones print there. Applying turns the matching autos off for this frame."
+    )
+    _PIN_COLOURS = (THEME.accent_primary, "#FFFFFF")
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        col = QVBoxLayout(self)
+        col.setContentsMargins(4, 0, 4, 0)
+        col.setSpacing(2)
+        name_css = f"color: {THEME.text_secondary}; font-size: {THEME.font_size_xs}px;"
+        value_css = f"color: {THEME.text_primary}; font-size: {THEME.font_size_xs}px;"
+        warn_css = f"color: {THEME.accent_secondary}; font-size: {THEME.font_size_xs}px;"
+
+        self._targets: dict = {}
+        self._rows: List[QWidget] = []
+        self._names: List[QLabel] = []
+        self._target_labels: List[QLabel] = []
+        self._lands: List[QLabel] = []
+        self._steppers: List[Tuple[QToolButton, QToolButton]] = []
+        for i, colour in enumerate(self._PIN_COLOURS):
+            row = QWidget()
+            grid = QGridLayout(row)
+            grid.setContentsMargins(0, 0, 0, 0)
+            grid.setHorizontalSpacing(6)
+            grid.setColumnStretch(1, 1)
+            swatch = QLabel()
+            swatch.setFixedSize(8, 8)
+            swatch.setStyleSheet(f"background: {colour}; border-radius: 4px;")
+            name = QLabel("")
+            name.setStyleSheet(name_css)
+            minus = QToolButton()
+            minus.setText("−")
+            plus = QToolButton()
+            plus.setText("+")
+            target = QLabel("")
+            target.setStyleSheet(value_css)
+            target.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            target.setMinimumWidth(34)
+            lands = QLabel("")
+            lands.setStyleSheet(warn_css)
+            minus.clicked.connect(lambda _=False, idx=i: self._step(idx, -1.0 / 3.0))
+            plus.clicked.connect(lambda _=False, idx=i: self._step(idx, 1.0 / 3.0))
+            grid.addWidget(swatch, 0, 0)
+            grid.addWidget(name, 0, 1)
+            grid.addWidget(minus, 0, 2)
+            grid.addWidget(target, 0, 3)
+            grid.addWidget(plus, 0, 4)
+            grid.addWidget(lands, 1, 1, 1, 4)
+            col.addWidget(row)
+            self._rows.append(row)
+            self._names.append(name)
+            self._target_labels.append(target)
+            self._lands.append(lands)
+            self._steppers.append((minus, plus))
+
+        buttons = QHBoxLayout()
+        buttons.setContentsMargins(0, 2, 0, 2)
+        self.apply_btn = QPushButton("Place zones")
+        self.clear_btn = QPushButton("Clear pins")
+        self.apply_btn.clicked.connect(self.apply_clicked.emit)
+        self.clear_btn.clicked.connect(self.clear_clicked.emit)
+        buttons.addWidget(self.apply_btn)
+        buttons.addWidget(self.clear_btn)
+        col.addLayout(buttons)
+
+        self.setToolTip(self._TOOLTIP)
+        self.setVisible(False)
+
+    def _step(self, index: int, delta: float) -> None:
+        if index in self._targets:
+            self.target_changed.emit(index, self._targets[index] + delta)
+
+    def refresh(self, readouts: Sequence[Tuple[int, str, float, Optional[str], bool]]) -> None:
+        from negpy.features.exposure.densitometer import zone_roman
+
+        self._targets = {}
+        self.setVisible(bool(readouts))
+        for row in self._rows:
+            row.setVisible(False)
+        solvable = False
+        for index, measured, target, achieved, row_solvable in readouts:
+            if not 0 <= index < len(self._rows):
+                continue
+            self._targets[index] = target
+            self._rows[index].setVisible(True)
+            self._names[index].setText(f"Pin {index + 1} · reads {measured}")
+            self._target_labels[index].setText(zone_roman(target))
+            if achieved is not None:
+                self._lands[index].setText(f"→ lands {achieved}")
+                self._lands[index].setToolTip("Outside the paper's scale at this grade and exposure — closest print shown.")
+            else:
+                self._lands[index].setText("")
+                self._lands[index].setToolTip("")
+            self._lands[index].setVisible(achieved is not None)
+            solvable = row_solvable
+        self.apply_btn.setEnabled(solvable)
+        self.apply_btn.setToolTip("Both pins read the same tone — grade needs two different tones." if not solvable else "")
 
 
 class NegativeStatsWidget(QWidget):

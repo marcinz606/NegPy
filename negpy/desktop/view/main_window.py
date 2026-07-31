@@ -424,6 +424,7 @@ class MainWindow(QMainWindow):
         self.controller.grain_focuser_changed.connect(lambda _on: self.canvas.overlay.update())
         self.controller.test_strip_changed.connect(lambda _up: self.canvas.overlay.on_test_strip_changed())
         self.canvas.test_strip_picked.connect(self.controller.apply_test_strip_pick)
+        self.controller.zone_pins_changed.connect(self.canvas.overlay.update)
 
         self.controller.status_message_requested.connect(self.canvas.hud.showMessage)
         self.controller.status_progress_requested.connect(self.canvas.hud.set_progress)
@@ -566,6 +567,7 @@ class MainWindow(QMainWindow):
         self.controls_panel.colour_sidebar.pick_wb_btn.setChecked(mode == ToolMode.WB_PICK)
         self.controls_panel.geometry_sidebar.manual_crop_btn.setChecked(mode == ToolMode.CROP_MANUAL)
         self.controls_panel.retouch_sidebar.pick_dust_btn.setChecked(mode == ToolMode.DUST_PICK)
+        self.toolbar._on_zone_placement_changed(mode == ToolMode.ZONE_PLACE)
 
         self._update_title()
         self._refresh_image_info()

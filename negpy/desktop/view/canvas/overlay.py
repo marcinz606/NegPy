@@ -61,6 +61,8 @@ _ZONE_CLIP_COLOR = QColor(220, 80, 80)  # paper black / paper white, same red th
 _STRIP_LABEL_MIN_PX = 34.0  # below this patch size the two axis labels overlap
 _STRIP_LABEL_INSET_PX = 6.0
 
+_PIN_RADIUS_PX = 7.0  # zone-placement pin ring
+
 _LOUPE_RADIUS_PX = 128.0
 # Device px per buffer px inside the glass. At fit-zoom on a 1600 px buffer the canvas
 # already shows ~0.75 device px per buffer px, so a literal 1:1 loupe would magnify ~1.3x —
@@ -547,6 +549,11 @@ class CanvasOverlay(QWidget):
         elif self.state.zones_overlay and content_aligned:
             self._draw_zone_grid(painter)
 
+        # Pins are content-anchored, so they hide with the strip (whose mosaic
+        # replaces the frame) and in the uncropped tool views.
+        if self.state.zone_pins and content_aligned and not self.state.test_strip:
+            self._draw_zone_pins(painter)
+
         if self._rotation_grid_visible:
             self._draw_rotation_grid(painter, visible_rect)
 
@@ -780,6 +787,32 @@ class CanvasOverlay(QWidget):
             painter.drawText(cell.translated(1.0, 1.0), Qt.AlignmentFlag.AlignCenter, label)
             painter.setPen(_ZONE_CLIP_COLOR if zone in (0, 10) else label_white)
             painter.drawText(cell, Qt.AlignmentFlag.AlignCenter, label)
+        painter.restore()
+
+    def _draw_zone_pins(self, painter: QPainter) -> None:
+        """Zone-placement pins: a numbered ring per probed spot with its measured zone."""
+        rect = self._content_view_rect()
+        if rect.isEmpty():
+            return
+        shadow = QColor(0, 0, 0, 160)
+        painter.save()
+        painter.setFont(_overlay_label_font(painter))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for i, pin in enumerate(self.state.zone_pins):
+            colour = QColor(THEME.accent_primary) if i == 0 else QColor(255, 255, 255, 230)
+            p = QPointF(rect.x() + pin.nx * rect.width(), rect.y() + pin.ny * rect.height())
+            for pen_colour, width in ((shadow, 3.5), (colour, 1.5)):
+                pen = QPen(pen_colour, width)
+                pen.setCosmetic(True)
+                painter.setPen(pen)
+                painter.drawEllipse(p, _PIN_RADIUS_PX, _PIN_RADIUS_PX)
+            label = f"{i + 1} · {pin.label}" if pin.label else f"{i + 1}"
+            tr = QRectF(p.x() + _PIN_RADIUS_PX + 4.0, p.y() - 11.0, 140.0, 22.0)
+            align = Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
+            painter.setPen(shadow)
+            painter.drawText(tr.translated(1.0, 1.0), align, label)
+            painter.setPen(colour)
+            painter.drawText(tr, align, label)
         painter.restore()
 
     def _draw_grain_loupe(self, painter: QPainter) -> None:

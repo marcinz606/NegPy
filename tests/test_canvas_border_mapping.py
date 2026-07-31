@@ -151,6 +151,7 @@ def test_densitometer_not_double_compensated() -> None:
             content_rect=lambda: _CONTENT,
         ),
     )
+    stub._sample_normalized_log = AppController._sample_normalized_log.__get__(stub)
 
     reading = AppController._compute_densitometer_reading(stub, 0.25, 0.25, (0.5, 0.5, 0.5))
 
