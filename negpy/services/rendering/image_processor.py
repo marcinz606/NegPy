@@ -438,6 +438,7 @@ class ImageProcessor:
             rgb = raw.postprocess(
                 gamma=(1, 1),
                 no_auto_bright=True,
+                adjust_maximum_thr=0.0,  # fixed white level, never the frame's own max
                 use_camera_wb=not linear_raw,
                 user_wb=user_wb,
                 output_bps=16,

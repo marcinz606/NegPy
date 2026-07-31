@@ -67,6 +67,7 @@ def _fast_demosaic(raw: Any) -> np.ndarray:
         raw.postprocess(
             use_camera_wb=True,
             user_wb=None,
+            adjust_maximum_thr=0.0,
             half_size=True,
             no_auto_bright=True,
             bright=1.0,

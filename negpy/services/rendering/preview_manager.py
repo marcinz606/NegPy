@@ -145,6 +145,7 @@ class PreviewManager:
         rgb = raw.postprocess(
             gamma=(1, 1),
             no_auto_bright=True,
+            adjust_maximum_thr=0.0,
             use_camera_wb=use_camera_wb,
             user_wb=user_wb,
             output_bps=16,
@@ -330,6 +331,7 @@ class PreviewManager:
                 rgb = raw.postprocess(
                     gamma=(1, 1),
                     no_auto_bright=True,
+                    adjust_maximum_thr=0.0,
                     use_camera_wb=False,
                     user_wb=[1, 1, 1, 1],
                     output_bps=16,
