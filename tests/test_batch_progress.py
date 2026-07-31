@@ -1,3 +1,4 @@
+from dataclasses import replace
 from unittest.mock import MagicMock
 
 from PyQt6.QtCore import Qt
@@ -83,6 +84,7 @@ def test_export_batch_keeps_source_cache_for_consecutive_same_file(tmp_path) -> 
 
     # Real batches carry ExportPresets (SAME_AS_SOURCE output), like the controller builds.
     preset = preset_from_export_config(DEFAULT_WORKSPACE_CONFIG.export)
+    preset = replace(preset, output_path=str(tmp_path))
 
     def _task(name: str) -> ExportTask:
         return ExportTask(
@@ -102,8 +104,6 @@ def test_export_batch_keeps_source_cache_for_consecutive_same_file(tmp_path) -> 
     assert proc.process_export.call_count == 3
 
     # _same_decode_source mirrors the _load_source_f32 cache key fields.
-    from dataclasses import replace
-
     a, b = _task("a.cr2"), _task("b.cr2")
     assert _same_decode_source(a, _task("a.cr2"))
     assert not _same_decode_source(a, b)
