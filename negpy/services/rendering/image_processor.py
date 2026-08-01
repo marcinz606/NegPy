@@ -37,6 +37,8 @@ from negpy.features.retouch.logic import (
     ir_ratio_and_gain,
     route_ir_defects,
 )
+from negpy.features.retouch import openice
+from negpy.features.retouch.models import IR_METHOD_OPENICE
 from negpy.features.rgbscan.logic import merge_rgb_triplet, rgbscan_token
 from negpy.features.rgbscan.models import is_rgb_triplet
 from negpy.features.stitch.logic import stitch_composite
@@ -136,6 +138,10 @@ class ImageProcessor:
         # like _hair so creative-slider drags reuse the baked buffer.
         self._ir_recon_key: Optional[tuple] = None
         self._ir_recon_value: Optional[tuple] = None
+        # The OpenICE method's whole result, on its own slot: the two IR methods share no
+        # state, so whichever loses can be deleted without unpicking the other.
+        self._ice_key: Optional[tuple] = None
+        self._ice_value: Optional[tuple] = None
 
         if APP_CONFIG.use_gpu:
             gpu = GPUDevice.get()
@@ -191,6 +197,8 @@ class ImageProcessor:
         ret = settings.retouch
         if self._is_flat(settings) or ir_buffer is None or not ret.ir_dust_remove:
             return img, None, False, None
+        if ret.ir_method == IR_METHOD_OPENICE:
+            return self._ir_bake_openice(img, ir_buffer, ret, source_key)
         ratio_det, gain_det, degenerate, _ = self._ir_ratio_gain(ir_buffer, img, source_key)
         if degenerate:
             return img, None, True, None
@@ -205,6 +213,26 @@ class ImageProcessor:
             self._ir_recon_key = key
             self._ir_recon_value = (out, routed)
         return out, (ratio_det < 0.97), False, routed
+
+    def _ir_bake_openice(
+        self, img: np.ndarray, ir_buffer: np.ndarray, ret: Any, source_key: str
+    ) -> Tuple[np.ndarray, Optional[np.ndarray], bool, Optional[np.ndarray]]:
+        """The OpenICE method (``features/retouch/openice.py``). Its weight ramp is measured
+        off the buffer's own IR noise, so calibration is per resolution and the whole result
+        caches under one key, unlike the NegPy method's split gain/recon."""
+        key = (source_key, round(float(ret.ir_threshold), 6), img.shape, ir_buffer.shape)
+        if key == self._ice_key and self._ice_value is not None:
+            return self._ice_value
+        h, w = img.shape[:2]
+        long_edge = max(h, w)
+        dims = None
+        if long_edge > APP_CONFIG.preview_render_size:
+            s = APP_CONFIG.preview_render_size / long_edge
+            dims = (max(1, round(w * s)), max(1, round(h * s)))
+        val = openice.run(img, ir_buffer, float(ret.ir_threshold), dims)
+        self._ice_key = key
+        self._ice_value = val
+        return val
 
     def _hair_inpaint(self, img: np.ndarray, hair_masks: List[np.ndarray], cache_key: str) -> np.ndarray:
         """Structure-following inpaint of detected hairs, baked into the source before

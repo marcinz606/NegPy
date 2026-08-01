@@ -384,6 +384,9 @@ An **Overlay** button cycles the detection overlay (Off → Marked → IR) so yo
 **IR Removal** uses the scanner's infrared channel to remove dust invisible to the colour dyes (only enabled when the scan carries an IR plane):
 
 *   Toggle **IR Removal** and set **IR Threshold** (0.05 to 0.95; lower catches more).
+*   **Method** picks how the film under a defect is rebuilt. Both use the same IR plane and the same threshold slider.
+    *   **NegPy** (default) divides semi-transparent dust back out, fills opaque cores with a weighted average of the clean film around them, and transplants grain from the nearest clean pixel.
+    *   **OpenICE** works in log density and restores detail rather than averaging it away: at each scale it adds back the picture detail that beats the infrared's own contrast at that scale, so texture under a speck survives. It measures clear-film level and dye-to-infrared crosstalk from each frame, and leaves film it judges clean untouched bit-for-bit. Better on fine detail and gentler elsewhere in the frame, but less proven across scanners, so try both on a frame you know.
 *   The IR plane is read from 4-channel TIFFs and DNGs (VueScan, NegPy's own scanner output), SilverFast's iSRD TIFFs and 64-bit **HDRi RAW DNGs**, and `_IR.tif` sidecars. Scan to HDRi (not plain HDR) if you want IR data in the file; B&W and Kodachrome block infrared like dust does, so those frames are skipped automatically.
 
 **Manual Heal** (header shows the current spot count):

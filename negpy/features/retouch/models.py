@@ -5,6 +5,12 @@ from typing import List, Tuple
 # heals keep their footprint when preview_render_size changes.
 HEAL_SIZE_REF = 1600
 
+# IR reconstruction methods: the ratio/score/fill chain in logic.py, and the Digital ICE
+# port in openice.py. Two implementations of one stage, side by side until scans decide.
+IR_METHOD_NEGPY = "negpy"
+IR_METHOD_OPENICE = "openice"
+IR_METHODS = (IR_METHOD_NEGPY, IR_METHOD_OPENICE)
+
 
 @dataclass(frozen=True)
 class RetouchConfig:
@@ -19,8 +25,12 @@ class RetouchConfig:
     manual_heal_strokes: List[Tuple] = field(default_factory=list)
     manual_dust_size: int = 6
     ir_dust_remove: bool = False
+    # Which reconstruction runs (IR_METHODS). ir_attenuation is the NegPy method's alone —
+    # OpenICE folds that tier into its own base term.
+    ir_method: str = IR_METHOD_NEGPY
     # Sensitivity on the normalized IR ratio (higher = conservative). Default 0.66 →
     # cutoff 0.59 with attenuation on: division fixes shallow dust, the fill rebuilds cores.
+    # OpenICE reads it as a bias on its per-frame weight ramp.
     ir_threshold: float = 0.66
     # IR-division tier: recover the image under semi-transparent dust (no cloning).
     # Tracks ir_dust_remove from the single "IR Removal" control; B&W/Kodachrome

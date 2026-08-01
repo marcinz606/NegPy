@@ -1,10 +1,11 @@
-from PyQt6.QtWidgets import QPushButton, QHBoxLayout
+from PyQt6.QtWidgets import QComboBox, QPushButton, QHBoxLayout
 import qtawesome as qta
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.session import ToolMode
-from negpy.desktop.view.styles.templates import section_subheader
+from negpy.desktop.view.styles.templates import field_label, section_subheader, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
+from negpy.features.retouch.models import IR_METHOD_NEGPY, IR_METHOD_OPENICE
 
 _IR_REMOVAL_TIP = (
     "Use the scanner's infrared channel to remove dust and scratches (invisible to the colour dyes): faint "
@@ -12,6 +13,16 @@ _IR_REMOVAL_TIP = (
     "rebuilt from clean neighbouring film, and only defects too wide to see across are inpainted."
 )
 _IR_THRESH_TIP = "Lower catches more dust, higher is conservative. Smooth response, no cliff."
+# Order matches _IR_METHOD_KEYS.
+_IR_METHOD_LABELS = ("NegPy", "OpenICE")
+_IR_METHOD_KEYS = (IR_METHOD_NEGPY, IR_METHOD_OPENICE)
+_IR_METHOD_TIP = wrap_tooltip(
+    "How the film under a defect is rebuilt. NegPy divides semi-transparent dust out, fills "
+    "opaque cores with a weighted average of the clean film around them, and transplants grain "
+    "from the nearest clean pixel. OpenICE works in log density and restores detail instead of "
+    "averaging it away, keeping texture under a speck; it measures clear-film level and "
+    "dye-to-infrared crosstalk per frame. Better on fine detail, less proven across scanners."
+)
 _OPTICAL_TIP = (
     "Find and remove dust specks on the visible scan by local contrast — no infrared channel needed. "
     "Set sensitivity with Threshold and Size below."
@@ -48,6 +59,15 @@ class RetouchSidebar(BaseSidebar):
         # --- IR REMOVAL ------------------------------------------------------
         self.ir_subheader = section_subheader("IR REMOVAL")
         self.layout.addWidget(self.ir_subheader)
+        method_row = QHBoxLayout()
+        self.ir_method_label = field_label("Method")
+        self.ir_method_combo = QComboBox()
+        self.ir_method_combo.addItems(_IR_METHOD_LABELS)
+        self.ir_method_combo.setToolTip(_IR_METHOD_TIP)
+        method_row.addWidget(self.ir_method_label)
+        method_row.addWidget(self.ir_method_combo, 1)
+        self.layout.addLayout(method_row)
+
         self.ir_dust_btn = self._small_toggle("fa5s.broom", "IR Removal", conf.ir_dust_remove, _IR_REMOVAL_TIP)
         self.ir_threshold_slider = CompactSlider("IR Threshold", 0.05, 0.95, float(conf.ir_threshold))
         self.ir_threshold_slider.setToolTip(_IR_THRESH_TIP)
@@ -61,6 +81,8 @@ class RetouchSidebar(BaseSidebar):
             self.ir_subheader: "Detect and remove dust/scratches using the scanner's infrared channel",
             self.ir_dust_btn: _IR_REMOVAL_TIP,
             self.ir_threshold_slider: _IR_THRESH_TIP,
+            self.ir_method_label: _IR_METHOD_TIP,
+            self.ir_method_combo: _IR_METHOD_TIP,
         }
 
         # --- MANUAL HEAL (bottom) -------------------------------------------
@@ -121,6 +143,9 @@ class RetouchSidebar(BaseSidebar):
         self.ir_threshold_slider.valueChanged.connect(
             lambda v: self.update_config_section("retouch", readback_metrics=False, ir_threshold=float(v))
         )
+        self.ir_method_combo.currentIndexChanged.connect(
+            lambda i: self.update_config_section("retouch", persist=True, render=True, ir_method=_IR_METHOD_KEYS[i])
+        )
 
     def _on_overlay_clicked(self) -> None:
         # cycle_dust_overlay emits dust_overlay_changed (repaints the canvas) but
@@ -168,6 +193,8 @@ class RetouchSidebar(BaseSidebar):
             # plane, and a checked-but-greyed button reads as stuck-on.
             self.ir_dust_btn.setChecked(conf.ir_dust_remove and self.state.has_ir)
             self.ir_threshold_slider.setValue(float(conf.ir_threshold))
+            method = conf.ir_method if conf.ir_method in _IR_METHOD_KEYS else IR_METHOD_NEGPY
+            self.ir_method_combo.setCurrentIndex(_IR_METHOD_KEYS.index(method))
             self._set_ir_controls_enabled(self.state.has_ir)
             if self.state.has_ir and self.state.ir_degenerate:
                 self.ir_dust_btn.setToolTip("IR channel carries image content (B&W / Kodachrome) — IR correction disabled for this frame")
@@ -186,6 +213,7 @@ class RetouchSidebar(BaseSidebar):
             self.pick_scratch_btn,
             self.ir_dust_btn,
             self.ir_threshold_slider,
+            self.ir_method_combo,
         ]
         for w in widgets:
             w.blockSignals(blocked)

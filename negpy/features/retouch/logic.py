@@ -7,7 +7,7 @@ from numba import njit  # type: ignore
 
 from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R, ImageBuffer
 from negpy.features.geometry.logic import map_coords_to_geometry, smooth_polyline
-from negpy.features.retouch.models import HEAL_SIZE_REF
+from negpy.features.retouch.models import HEAL_SIZE_REF, IR_METHOD_NEGPY
 from negpy.kernel.image.logic import get_luminance, working_oetf_decode, working_oetf_encode
 from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.system.logging import get_logger
@@ -1071,7 +1071,9 @@ def ir_bake_token(retouch, has_ir: bool) -> str:
     source_hash so a toggle or threshold drag invalidates the engine cache."""
     if not (retouch.ir_dust_remove and has_ir):
         return ""
-    return f"|ir{int(retouch.ir_attenuation)}r{round(float(retouch.ir_threshold), 3)}"
+    method = getattr(retouch, "ir_method", IR_METHOD_NEGPY)
+    tail = "" if method == IR_METHOD_NEGPY else f"|{method}"
+    return f"|ir{int(retouch.ir_attenuation)}r{round(float(retouch.ir_threshold), 3)}{tail}"
 
 
 def apply_hair_inpaint(
