@@ -134,36 +134,117 @@ class TestZonePlacementLifecycle(unittest.TestCase):
         del self.controller
         gc.collect()
 
-    def _enter(self) -> None:
-        self.controller.toggle_zone_placement()
+    def _arm(self, zone: float = 5.0) -> None:
+        self.controller.arm_zone_target(zone)
 
     def _pin(self, nx: float, ny: float) -> None:
         self.controller.handle_canvas_clicked(nx, ny)
 
-    def test_click_with_tool_active_pins_a_spot(self):
-        self._enter()
-        self._pin(0.5, 0.2)
+    def _place(self, nx: float, ny: float, zone: float = 5.0) -> None:
+        self._arm(zone)
+        self._pin(nx, ny)
+
+    def test_arming_a_zone_puts_the_tool_up(self):
+        from negpy.desktop.session import ToolMode
+
+        self._arm(5.0)
+        self.assertEqual(self.controller.state.active_tool, ToolMode.ZONE_PLACE)
+        self.assertEqual(self.controller.state.zone_arm_target, 5.0)
+
+    def test_arming_the_same_zone_again_disarms_and_puts_the_tool_down(self):
+        from negpy.desktop.session import ToolMode
+
+        self._arm(5.0)
+        self._arm(5.0)
+        self.assertIsNone(self.controller.state.zone_arm_target)
+        self.assertEqual(self.controller.state.active_tool, ToolMode.NONE)
+
+    def test_arming_another_zone_replaces_the_arm(self):
+        self._arm(5.0)
+        self._arm(3.0)
+        self.assertEqual(self.controller.state.zone_arm_target, 3.0)
+
+    def test_an_armed_click_places_the_pin_on_that_zone(self):
+        self.controller._is_rendering = False
+        n = len(self.render_tasks)
+        self._place(0.5, 0.2, zone=3.0)
         pins = self.controller.state.zone_pins
         self.assertEqual(len(pins), 1)
-        # Default target is the measured zone rounded to the nearest third.
-        self.assertAlmostEqual(pins[0].target_zone * 3.0, round(pins[0].target_zone * 3.0))
+        self.assertEqual(pins[0].target_zone, 3.0)
+        self.assertTrue(pins[0].retargeted, "an asked-for zone must survive a later drag")
+        self.assertIsNone(self.controller.state.zone_arm_target, "placing spends the arm")
+        self.assertEqual(len(self.render_tasks), n + 1, "the solve previews at once")
+        self.mock_session_manager.update_config.assert_not_called()
+
+    def test_an_unarmed_click_meters_without_touching_the_image(self):
+        self._place(0.5, 0.2, zone=3.0)
+        self.controller._is_rendering = False
+        n = len(self.render_tasks)
+        self._pin(0.5, 0.8)
+        pins = self.controller.state.zone_pins
+        self.assertEqual(len(pins), 2)
+        self.assertFalse(pins[1].retargeted)
+        self.assertAlmostEqual(pins[1].target_zone, round(self.controller._pin_zone(pins[1].val_luma) * 3.0) / 3.0)
+        self.assertEqual(len(self.render_tasks), n, "a bare read must not move the print")
 
     def test_clicks_without_the_tool_do_not_pin(self):
         self._pin(0.5, 0.2)
         self.assertEqual(self.controller.state.zone_pins, [])
 
     def test_third_click_replaces_the_nearest_pin(self):
-        self._enter()
-        self._pin(0.2, 0.2)
-        self._pin(0.8, 0.8)
-        self._pin(0.3, 0.3)
+        self._place(0.2, 0.2)
+        self._place(0.8, 0.8)
+        self._place(0.3, 0.3)
         pins = self.controller.state.zone_pins
         self.assertEqual(len(pins), 2)
         self.assertEqual(sorted(round(p.nx, 1) for p in pins), [0.3, 0.8])
 
+    def test_removing_a_pin_keeps_the_others_and_re_solves(self):
+        self._place(0.5, 0.2, zone=7.0)
+        self._place(0.5, 0.8, zone=3.0)
+        self.controller._is_rendering = False
+        n = len(self.render_tasks)
+        self.controller.remove_zone_pin(0)
+        pins = self.controller.state.zone_pins
+        self.assertEqual(len(pins), 1)
+        self.assertEqual(pins[0].target_zone, 3.0)
+        self.assertEqual(len(self.render_tasks), n + 1, "the survivor re-solves on its own")
+        self.mock_session_manager.update_config.assert_not_called()
+
+    def test_removing_the_last_pin_puts_the_committed_print_back_and_the_tool_down(self):
+        from negpy.desktop.session import ToolMode
+
+        self._place(0.5, 0.2, zone=3.0)
+        self.controller._is_rendering = False
+        n = len(self.render_tasks)
+        self.controller.remove_zone_pin(0)
+        self.assertEqual(self.controller.state.zone_pins, [])
+        self.assertEqual(len(self.render_tasks), n + 1)
+        self.assertIs(self.render_tasks[-1].config, self.controller.state.config)
+        self.assertEqual(self.controller.state.active_tool, ToolMode.NONE)
+
+    def test_esc_disarms_then_clears_then_puts_the_tool_down(self):
+        from negpy.desktop.session import ToolMode
+        from negpy.desktop.view.keyboard_shortcuts import _context_cancel
+
+        window = MagicMock()
+        window.canvas.overlay.cancel_in_progress.return_value = False
+        self._place(0.5, 0.2)
+        self._arm(7.0)
+
+        _context_cancel(self.controller, window)
+        self.assertIsNone(self.controller.state.zone_arm_target)
+        self.assertEqual(len(self.controller.state.zone_pins), 1)
+
+        _context_cancel(self.controller, window)
+        self.assertEqual(self.controller.state.zone_pins, [])
+        self.assertEqual(self.controller.state.active_tool, ToolMode.ZONE_PLACE)
+
+        _context_cancel(self.controller, window)
+        self.assertEqual(self.controller.state.active_tool, ToolMode.NONE)
+
     def test_apply_commits_and_flips_the_right_autos(self):
-        self._enter()
-        self._pin(0.5, 0.2)
+        self._place(0.5, 0.2)
         self.controller.apply_zone_placement()
         committed = self.mock_session_manager.update_config.call_args
         exposure = committed.args[0].exposure
@@ -174,36 +255,51 @@ class TestZonePlacementLifecycle(unittest.TestCase):
         self.assertLessEqual(exposure.density, 2.0)
 
     def test_two_pin_apply_also_writes_grade(self):
-        self._enter()
-        self._pin(0.5, 0.2)
-        self._pin(0.5, 0.8)
+        self._place(0.5, 0.2, zone=7.0)
+        self._place(0.5, 0.8, zone=3.0)
         self.controller.apply_zone_placement()
         exposure = self.mock_session_manager.update_config.call_args.args[0].exposure
         self.assertFalse(exposure.auto_exposure)
         self.assertFalse(exposure.auto_normalize_contrast)
         self.assertEqual(exposure.grade, round(exposure.grade))
 
-    def test_apply_keeps_pins_and_the_next_real_render_drops_them(self):
-        self._enter()
-        self._pin(0.5, 0.2)
-        self.controller.apply_zone_placement()
-        self.assertEqual(len(self.controller.state.zone_pins), 1)
+    def test_accepting_commits_and_puts_the_tool_down(self):
+        from negpy.desktop.session import ToolMode
+
+        self._place(0.5, 0.2)
         self.controller._is_rendering = False
-        self.controller.request_render()
+        n = len(self.render_tasks)
+        self.controller.apply_zone_placement()
+        self.mock_session_manager.update_config.assert_called_once()
+        self.assertEqual(self.controller.state.zone_pins, [], "the placement is made; the proof is spent")
+        self.assertEqual(self.controller.state.active_tool, ToolMode.NONE)
+        self.assertEqual(len(self.render_tasks), n + 1, "one render of the committed edit")
+        self.assertIsNone(self.render_tasks[-1].config_override if hasattr(self.render_tasks[-1], "config_override") else None)
+
+    def test_esc_discards_the_preview_without_committing(self):
+        from negpy.desktop.view.keyboard_shortcuts import _context_cancel
+
+        window = MagicMock()
+        window.canvas.overlay.cancel_in_progress.return_value = False
+        self._place(0.5, 0.2, zone=3.0)
+        self.controller._is_rendering = False
+        n = len(self.render_tasks)
+        _context_cancel(self.controller, window)
+        self.mock_session_manager.update_config.assert_not_called()
         self.assertEqual(self.controller.state.zone_pins, [])
+        self.assertEqual(len(self.render_tasks), n + 1, "the committed print comes back")
+        self.assertIs(self.render_tasks[-1].config, self.controller.state.config)
 
     def test_an_override_render_leaves_the_pins_alone(self):
         from negpy.domain.models import WorkspaceConfig
 
-        self._enter()
-        self._pin(0.5, 0.2)
+        self._place(0.5, 0.2)
         self.controller._is_rendering = False
         self.controller.request_render(readback_metrics=False, config_override=WorkspaceConfig())
         self.assertEqual(len(self.controller.state.zone_pins), 1)
 
     def test_loading_another_frame_drops_the_pins(self):
-        self._enter()
-        self._pin(0.5, 0.2)
+        self._place(0.5, 0.2)
         with patch.object(self.controller, "_file_hash_for_path", return_value=None):
             self.controller.load_file("/nowhere/other.raw")
         self.assertEqual(self.controller.state.zone_pins, [])
@@ -211,14 +307,12 @@ class TestZonePlacementLifecycle(unittest.TestCase):
     def test_leaving_the_tool_drops_the_pins(self):
         from negpy.desktop.session import ToolMode
 
-        self._enter()
-        self._pin(0.5, 0.2)
+        self._place(0.5, 0.2)
         self.controller.set_active_tool(ToolMode.NONE)
         self.assertEqual(self.controller.state.zone_pins, [])
 
     def test_target_change_previews_without_committing(self):
-        self._enter()
-        self._pin(0.5, 0.2)
+        self._place(0.5, 0.2)
         self.controller._is_rendering = False
         n = len(self.render_tasks)
         self.controller.set_zone_pin_target(0, 3.0)
@@ -230,8 +324,7 @@ class TestZonePlacementLifecycle(unittest.TestCase):
         self.assertEqual(self.controller.state.zone_pins[0].target_zone, 3.0)
 
     def test_clear_restores_the_committed_render_after_a_preview(self):
-        self._enter()
-        self._pin(0.5, 0.2)
+        self._place(0.5, 0.2)
         self.controller._is_rendering = False
         self.controller.set_zone_pin_target(0, 3.0)
         self.controller._is_rendering = False
@@ -241,22 +334,21 @@ class TestZonePlacementLifecycle(unittest.TestCase):
         self.assertEqual(len(self.render_tasks), n + 1)
         self.assertIs(self.render_tasks[-1].config, self.controller.state.config)
 
-    def test_entering_the_tool_takes_the_canvas_from_the_strip(self):
+    def test_arming_a_zone_takes_the_canvas_from_the_strip(self):
         self.controller.toggle_test_strip()
         mosaics = tuple(np.zeros((8, 8, 3), np.float32) for _ in range(4))
         self.controller.on_strip_finished(mosaics, (0, 0, 8, 8))
         self.assertTrue(self.controller.state.test_strip)
-        self._enter()
+        self._arm(5.0)
         self.assertFalse(self.controller.state.test_strip)
 
     def test_apply_with_no_pins_commits_nothing(self):
-        self._enter()
+        self._arm()
         self.controller.apply_zone_placement()
         self.mock_session_manager.update_config.assert_not_called()
 
     def test_dragging_a_pin_rereads_the_tone_under_it(self):
-        self._enter()
-        self._pin(0.5, 0.15)
+        self._place(0.5, 0.15)
         before = self.controller.state.zone_pins[0]
         self.controller.move_zone_pin(0, 0.5, 0.85)
         pin = self.controller.state.zone_pins[0]
@@ -265,23 +357,21 @@ class TestZonePlacementLifecycle(unittest.TestCase):
         self.assertNotEqual(pin.label, "")
 
     def test_dragging_an_untargeted_pin_follows_the_new_reading(self):
-        self._enter()
-        self._pin(0.5, 0.15)
-        self.controller.move_zone_pin(0, 0.5, 0.85)
-        pin = self.controller.state.zone_pins[0]
+        self._place(0.5, 0.15)
+        self._pin(0.5, 0.5)  # unarmed: a metering pin, no target of its own
+        self.controller.move_zone_pin(1, 0.5, 0.85)
+        pin = self.controller.state.zone_pins[1]
         measured = self.controller._pin_zone(pin.val_luma)
         self.assertAlmostEqual(pin.target_zone, round(measured * 3.0) / 3.0)
 
     def test_dragging_a_retargeted_pin_keeps_its_target(self):
-        self._enter()
-        self._pin(0.5, 0.15)
+        self._place(0.5, 0.15)
         self.controller.set_zone_pin_target(0, 3.0)
         self.controller.move_zone_pin(0, 0.5, 0.85)
         self.assertEqual(self.controller.state.zone_pins[0].target_zone, 3.0)
 
     def test_the_preview_refreshes_when_the_drag_ends_not_during_it(self):
-        self._enter()
-        self._pin(0.5, 0.15)
+        self._place(0.5, 0.15)
         self.controller._is_rendering = False
         self.controller.set_zone_pin_target(0, 3.0)
         self.controller._is_rendering = False
@@ -293,7 +383,9 @@ class TestZonePlacementLifecycle(unittest.TestCase):
         self.assertFalse(self.render_tasks[-1].readback_metrics)
 
     def test_a_drag_without_a_preview_up_renders_nothing(self):
-        self._enter()
+        self._arm()
+        self._pin(0.5, 0.15)
+        self.controller.clear_zone_pins()
         self._pin(0.5, 0.15)
         self.controller._is_rendering = False
         n = len(self.render_tasks)
@@ -301,8 +393,7 @@ class TestZonePlacementLifecycle(unittest.TestCase):
         self.assertEqual(len(self.render_tasks), n)
 
     def test_readouts_skip_the_solve_mid_drag(self):
-        self._enter()
-        self._pin(0.5, 0.15)
+        self._place(0.5, 0.15)
         self._pin(0.5, 0.85)
         with patch.object(self.controller, "_solve_zone_placement", wraps=self.controller._solve_zone_placement) as solve:
             self.controller.zone_pin_readouts()
@@ -311,12 +402,12 @@ class TestZonePlacementLifecycle(unittest.TestCase):
             self.controller.zone_pin_readouts()
             self.assertEqual(solve.call_count, 1, "the nested bisection is too slow to run per mouse-move")
             self.controller.move_zone_pin(0, 0.5, 0.45, final=True)
+            self.assertEqual(solve.call_count, 2, "the drag's end re-solves for the preview")
             self.controller.zone_pin_readouts()
-            self.assertEqual(solve.call_count, 2)
+            self.assertEqual(solve.call_count, 3)
 
     def test_degenerate_pins_neither_preview_nor_apply(self):
-        self._enter()
-        self._pin(0.2, 0.5)
+        self._place(0.2, 0.5)
         self._pin(0.8, 0.5)  # same ramp row -> same tone
         self.controller._is_rendering = False
         n = len(self.render_tasks)
@@ -324,6 +415,58 @@ class TestZonePlacementLifecycle(unittest.TestCase):
         self.assertEqual(len(self.render_tasks), n)
         self.controller.apply_zone_placement()
         self.mock_session_manager.update_config.assert_not_called()
+
+
+class TestZoneStripArming(unittest.TestCase):
+    """The strip is the control: a cell click says which zone the next pin prints as."""
+
+    def _strip(self):
+        from negpy.desktop.view.widgets.charts import ZoneStripWidget
+
+        strip = ZoneStripWidget()
+        strip.resize(100, 24)
+        strip.update_data(np.full(10, 0.1))
+        return strip
+
+    def _click(self, strip, x: float):
+        from PyQt6.QtCore import QEvent, QPointF, Qt
+        from PyQt6.QtGui import QMouseEvent
+
+        strip.mousePressEvent(
+            QMouseEvent(
+                QEvent.Type.MouseButtonPress,
+                QPointF(x, 12.0),
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+        )
+
+    def test_a_cell_click_reports_its_zone(self):
+        strip = self._strip()
+        zones: list = []
+        strip.zone_clicked.connect(zones.append)
+        self._click(strip, 5.0)  # cell 0
+        self._click(strip, 55.0)  # cell V
+        self._click(strip, 99.0)  # cell IX
+        self.assertEqual(zones, [0, 5, 9])
+
+    def test_the_armed_cell_is_remembered_for_the_repaint(self):
+        strip = self._strip()
+        strip.set_armed(5)
+        self.assertEqual(strip._armed, 5)
+        strip.set_armed(None)
+        self.assertIsNone(strip._armed)
+
+    def test_a_click_with_no_data_reports_nothing(self):
+        from negpy.desktop.view.widgets.charts import ZoneStripWidget
+
+        strip = ZoneStripWidget()
+        strip.resize(100, 24)
+        zones: list = []
+        strip.zone_clicked.connect(zones.append)
+        self._click(strip, 55.0)
+        self.assertEqual(zones, [])
 
 
 class TestZonePlacementRows(unittest.TestCase):
@@ -360,6 +503,44 @@ class TestZonePlacementRows(unittest.TestCase):
         self.assertTrue(w.apply_btn.isEnabled())
         w.refresh([(0, "V", 5.0, None, False), (1, "V", 5.0, None, False)])
         self.assertFalse(w.apply_btn.isEnabled())
+
+    def test_each_row_can_drop_its_own_pin(self):
+        w = self._widget()
+        w.refresh([(0, "V", 5.0, None, True), (1, "III", 3.0, None, True)])
+        removed: list = []
+        w.remove_clicked.connect(removed.append)
+        w._removes[1].click()
+        self.assertEqual(removed, [1])
+
+
+class TestZonePlacementConfirmKey(unittest.TestCase):
+    """Enter accepts the placement from the canvas, with one pin or two."""
+
+    def _overlay(self, pins: int):
+        from negpy.desktop.session import AppState, ToolMode
+        from negpy.desktop.view.canvas.overlay import CanvasOverlay
+        from negpy.features.exposure.placement import ZonePin
+
+        state = AppState()
+        state.zone_pins = [ZonePin(nx=0.5, ny=0.5, val_rgb=(0.5,) * 3, val_luma=0.5, target_zone=5.0) for _ in range(pins)]
+        overlay = CanvasOverlay(state)
+        overlay.set_tool_mode(ToolMode.ZONE_PLACE)
+        return overlay
+
+    def test_enter_accepts_one_pin_and_two(self):
+        for count in (1, 2):
+            overlay = self._overlay(count)
+            confirmed: list = []
+            overlay.zone_placement_confirmed.connect(lambda: confirmed.append(True))
+            overlay._finish_draw_if_active()
+            self.assertEqual(len(confirmed), 1, f"{count} pin(s) must accept on Enter")
+
+    def test_enter_with_no_pins_accepts_nothing(self):
+        overlay = self._overlay(0)
+        confirmed: list = []
+        overlay.zone_placement_confirmed.connect(lambda: confirmed.append(True))
+        overlay._finish_draw_if_active()
+        self.assertEqual(confirmed, [])
 
 
 if __name__ == "__main__":

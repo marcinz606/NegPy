@@ -189,6 +189,8 @@ def test_context_cancel_two_stage() -> None:
     controller.state.test_strip = False
     controller.state.test_strip_pending = False
     controller.state.grain_focuser = False
+    controller.state.zone_arm_target = None
+    controller.state.zone_pins = []
     window.canvas.overlay.cancel_in_progress.return_value = True
     _context_cancel(controller, window)
     controller.cancel_active_tool.assert_not_called()

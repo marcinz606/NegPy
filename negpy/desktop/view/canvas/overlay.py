@@ -164,6 +164,7 @@ class CanvasOverlay(QWidget):
     straighten_completed = pyqtSignal(float)  # fine-rotation delta, stored convention (CCW+)
     test_strip_picked = pyqtSignal(int, int)  # (row, col) of the clicked patch
     zone_pin_moved = pyqtSignal(int, float, float, bool)  # (pin index, nx, ny, drag ended)
+    zone_placement_confirmed = pyqtSignal()  # Enter over the canvas: commit the solved print
 
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
@@ -2133,6 +2134,8 @@ class CanvasOverlay(QWidget):
         elif self._tool_mode == ToolMode.CROP_MANUAL:
             self._end_crop_drag()
             self.crop_confirmed.emit()
+        elif self._tool_mode == ToolMode.ZONE_PLACE and self.state.zone_pins:
+            self.zone_placement_confirmed.emit()
 
     def has_scratch_points(self) -> bool:
         return bool(self._scratch_pts)

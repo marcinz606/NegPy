@@ -631,27 +631,52 @@ class ZoneStripWidget(QWidget):
     10-cell print-zone occupancy strip (0–IX): cell tone = zone brightness,
     opacity = occupancy (√-scaled so small-but-real mass reads). Extreme cells
     tint red on blocked shadows / blown highlights.
+
+    Also the zone-placement control: clicking a cell asks for that zone, and the
+    next click on the photo places a tone there.
     """
+
+    zone_clicked = pyqtSignal(int)
 
     _LABELS = ("0", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX")
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(24)
+        self.setFixedHeight(26)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setMouseTracking(True)
         self._occ: np.ndarray | None = None
         self._warn: tuple[bool, bool] = (False, False)
+        self._armed: int | None = None
 
     def update_data(self, occ: np.ndarray | None, warnings: tuple[bool, bool] = (False, False)) -> None:
         self._occ = occ
         self._warn = warnings
         self.update()
 
+    def set_armed(self, zone: int | None) -> None:
+        """Outline the zone waiting for a canvas click, or clear it."""
+        if zone != self._armed:
+            self._armed = zone
+            self.update()
+
+    def _cell_at(self, x: float) -> int:
+        return int(min(max(x / self.width() * len(self._LABELS), 0), len(self._LABELS) - 1))
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and self._occ is not None and self.width() > 0:
+            self.zone_clicked.emit(self._cell_at(event.position().x()))
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
     def mouseMoveEvent(self, event) -> None:
         if self._occ is not None and self.width() > 0:
-            cell = int(min(max(event.position().x() / self.width() * len(self._LABELS), 0), len(self._LABELS) - 1))
-            self.setToolTip(f"Zone {self._LABELS[cell]} — {float(self._occ[cell]) * 100:.1f}%")
+            cell = self._cell_at(event.position().x())
+            self.setToolTip(f"Zone {self._LABELS[cell]} — {float(self._occ[cell]) * 100:.1f}% · click to place a tone here")
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+        else:
+            self.unsetCursor()
         super().mouseMoveEvent(event)
 
     def paintEvent(self, event) -> None:
@@ -676,8 +701,12 @@ class ZoneStripWidget(QWidget):
                 painter.fillRect(x0, 0, x1 - x0, h, QColor(tone, tone, tone, alpha))
                 if (shadow_warn and i <= 1) or (highlight_warn and i == n - 1):
                     painter.fillRect(x0, 0, x1 - x0, h, QColor(220, 80, 80, 90))
-                painter.setPen(QPen(QColor(130, 130, 130, 160)))
+                armed = i == self._armed
+                painter.setPen(QPen(QColor(THEME.accent_primary) if armed else QColor(130, 130, 130, 160)))
                 painter.drawText(QRect(x0, 0, x1 - x0, h), Qt.AlignmentFlag.AlignCenter, self._LABELS[i])
+                if armed:
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawRect(QRect(x0, 0, x1 - x0 - 1, h - 1))
                 if i:
                     painter.setPen(QPen(QColor("#1A1A1A"), 1))
                     painter.drawLine(x0, 0, x0, h)

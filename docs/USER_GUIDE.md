@@ -78,7 +78,7 @@ The right-click menu also offers **Copy/Paste Settings** (with or without normal
 <!-- panel:analysis -->
 ## 3. Analysis readout (always visible)
 
-Pinned above the tabs, this is your feedback while printing. Drag the divider to resize it, or collapse it entirely. Everything in it describes the frame you're on and updates as you edit; nothing in it is a control. Top to bottom:
+Pinned above the tabs, this is your feedback while printing. Drag the divider to resize it, or collapse it entirely. Everything in it describes the frame you're on and updates as you edit; the zone strip is the one part you can also act through. Top to bottom:
 
 #### Photometric curve
 
@@ -112,17 +112,21 @@ A 21-step Stouffer-style grey wedge printed through your current curve, in even 
 
 Ten cells on the Adams scale, where **0 is paper black and V is 18% mid-grey**, and the last cell (IX) also absorbs paper white. The brightness of each cell is the zone's tone; how solid it looks is how much of the frame lands there. This is the fastest read of whether a frame is low-key, high-key or sitting sensibly in the middle. The end cells tint **red** when shadows are blocked up or highlights are blown. Hover a cell for its exact percentage.
 
+It is also where you place a tone: **click a cell, then click that spot on the photo** and the print is solved so the spot lands on that zone — see Zone placement below. The armed cell is outlined until you spend it; clicking it again, or Esc, cancels.
+
 #### Probe
 
 A spot densitometer. Hover the image to read the pixel: per-channel density above film base (ΔD, relative to this scan's normalization, not absolute), the displayed tone's reflection print density, and its print zone (0 = paper black, V = 18% mid-grey, X = paper white). In B&W mode the ΔD channels read the pre-conversion colour record.
 
 #### Zone placement
 
-The probe made actionable — what a darkroom enlarging analyser does. Turn on the crosshair tool in the canvas toolbar (it ships unbound; give it a key in the shortcut editor if you use it often) and click the image to pin a spot; a second click pins another, and a third replaces whichever pin is nearer. Each pin appears here as a row: what zone it reads now, and a **target** you step in thirds of a zone.
+The probe made actionable — what a darkroom enlarging analyser does. **Click a zone on the strip above, then click that spot on the photo**: the print is solved so the spot prints on the zone you asked for, and you see it straight away. Ask for a second zone the same way and click a second spot; a third spot replaces whichever pin is nearer. Each pin appears here as a row: what zone it reads now, and the **target** it was given, which the − / + buttons trim in thirds of a zone.
 
-Pins are handles — drag one to move it, and the zone beside it re-reads as it travels (the cursor turns into a hand over a pin you can grab). A pin still sitting on its own reading follows the tone under it; once you have stepped its target, dragging keeps that target and the caption reads `1 · IV⅓ → VI` — where it is now, and where you are asking it to print. The arrow disappears once the two agree, so a placed print shows plain readings. With one pin, **Place zones** solves Print Density so that tone prints on its target; with two pins (typically a shadow and a highlight) it solves Print Density *and* ISO-R Grade so both land. Stepping a target previews the solve live without committing; Place zones commits it as one undoable edit and turns off Auto Density (and Auto Grade for two pins), since a meter left on would re-move the placed tones.
+With one pin, Print Density is solved so that tone prints on its target; with two (typically a shadow and a highlight) Print Density *and* ISO-R Grade are solved so both land. What you see until you accept is a preview — **Place zones**, or **Enter** over the photo, commits it as one undoable edit, turns off Auto Density (and Auto Grade for two pins) since a meter left on would re-move the placed tones, and closes the tool. One pin is enough to accept; you don't have to place a second. **Esc** discards instead: the armed zone first, then the pins and the preview with them, leaving the print as it was. The **✕** on a row removes just that pin — remove the last one and you are back to the committed print.
 
-Asking for a zone the paper cannot reach shows an amber `→ lands …` with the closest zone the print can make — the solve pegs at the slider's end, like an analyser pegging at grade 5. Pins are proofs, not edits: they clear on Esc (a second Esc puts the tool down), on any other edit, and when you change frames. The measured zone reads through the print curve — the same model the chart and step wedge use — so after placing, the pin reads its target by construction; later stages (Lab, toning) can still shade the final pixel the hover probe reads.
+Pins are handles — drag one to move it, and the zone beside it re-reads as it travels (the cursor turns into a hand over a pin you can grab). A pin keeps the zone it was asked for while it travels, and its caption reads `1 · IV⅓ → VI` — where it is now, and where you are asking it to print; the arrow disappears once the two agree. Clicking the photo without picking a zone first simply pins a reading, leaving the print alone.
+
+Asking for a zone the paper cannot reach shows an amber `→ lands …` with the closest zone the print can make — the solve pegs at the slider's end, like an analyser pegging at grade 5. Pins are proofs, not edits: Esc cancels an armed zone, then clears the pins, then puts the tool down; they also go on any other edit and when you change frames. The measured zone reads through the print curve — the same model the chart and step wedge use — so after placing, the pin reads its target by construction; later stages (Lab, toning) can still shade the final pixel the hover probe reads.
 
 #### Negative stats
 

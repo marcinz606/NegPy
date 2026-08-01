@@ -110,6 +110,9 @@ class AppState:
     # by any real render like the test strip. Never persisted.
     zone_pins: List[Any] = field(default_factory=list)
 
+    # Zone picked on the strip and waiting for the canvas click that spends it.
+    zone_arm_target: Optional[float] = None
+
     # Density x grade test strip: session-only proof, dropped by any real render. The
     # mosaic is the assembled patches at preview resolution, content_rect its picture area.
     # `mosaics` is one per quarter-turn, `mosaic` the one on screen; rotating swaps between them.

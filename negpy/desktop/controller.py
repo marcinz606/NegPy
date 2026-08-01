@@ -196,6 +196,7 @@ class AppController(QObject):
     strip_requested = pyqtSignal(TestStripTask)
     test_strip_changed = pyqtSignal(bool)  # True = mosaic is up, False = cleared or building
     zone_pins_changed = pyqtSignal()
+    zone_arm_changed = pyqtSignal(object)  # armed zone, or None
     asset_discovery_requested = pyqtSignal(AssetDiscoveryTask)
     stitch_requested = pyqtSignal(object)
     thumbnail_requested = pyqtSignal(list)
@@ -364,10 +365,8 @@ class AppController(QObject):
         self._render_debounce.timeout.connect(self.request_render)
 
         self._crop_bounds_dirty = False
-        # Zone placement: a preview render is on the canvas / keep the pins through
-        # the one render Apply itself fires.
+        # Zone placement: a preview render is on the canvas.
         self._zone_preview_shown = False
-        self._pin_keep_once = False
         self._pin_dragging = False
         self._pin_solution: Optional[Any] = None
 
@@ -1312,15 +1311,13 @@ class AppController(QObject):
         self.state.grain_focuser = (not self.state.grain_focuser) if force is None else bool(force)
         self.grain_focuser_changed.emit(self.state.grain_focuser)
 
-    def toggle_zone_placement(self, force: Optional[bool] = None) -> None:
-        """Zone placement tool: pin tones on the canvas and set which zones they print as."""
-        active = self.state.active_tool == ToolMode.ZONE_PLACE
-        target = (not active) if force is None else bool(force)
-        if not target:
-            if active:
-                self.set_active_tool(ToolMode.NONE)
-            return
+    def arm_zone_target(self, zone: float) -> None:
+        """Zone picked on the strip: the next canvas click prints that spot there.
+        Picking the armed zone again disarms."""
         if self.state.preview_raw is None:
+            return
+        if self.state.zone_arm_target == float(zone):
+            self._disarm_zone_target()
             return
         # Same reason compare, the peek and the strip are exclusive: they all want the canvas.
         restore = self.state.compare_mode or self.state.flat_peek
@@ -1333,26 +1330,52 @@ class AppController(QObject):
         self._clear_test_strip()
         if restore:
             self.request_render()
+        self.state.zone_arm_target = float(zone)
         self.set_active_tool(ToolMode.ZONE_PLACE)
+        self.zone_arm_changed.emit(self.state.zone_arm_target)
+
+    def _disarm_zone_target(self) -> None:
+        """Drop the armed zone; with no pins to keep the tool honest, put it down too."""
+        armed = self.state.zone_arm_target is not None
+        self.state.zone_arm_target = None
+        if armed:
+            self.zone_arm_changed.emit(None)
+        if not self.state.zone_pins and self.state.active_tool == ToolMode.ZONE_PLACE:
+            self.set_active_tool(ToolMode.NONE)
 
     def _handle_zone_pin(self, nx: float, ny: float) -> None:
+        """Armed: the pin prints on the zone picked from the strip. Unarmed: it just
+        meters, taking the zone it already reads so the print doesn't move."""
         from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R
         from negpy.features.exposure.placement import ZonePin
 
         val = self._sample_normalized_log(nx, ny, radius=2)
         if val is None:
             return
+        armed = self.state.zone_arm_target
         val_luma = LUMA_R * val[0] + LUMA_G * val[1] + LUMA_B * val[2]
-        measured = self._pin_zone(val_luma)
-        pin = ZonePin(nx=nx, ny=ny, val_rgb=val, val_luma=val_luma, target_zone=round(measured * 3.0) / 3.0)
+        target = armed if armed is not None else round(self._pin_zone(val_luma) * 3.0) / 3.0
+        pin = ZonePin(
+            nx=nx,
+            ny=ny,
+            val_rgb=val,
+            val_luma=val_luma,
+            target_zone=target,
+            retargeted=armed is not None,
+        )
         pins = self.state.zone_pins
         if len(pins) < 2:
             pins.append(pin)
         else:
             nearest = min(range(len(pins)), key=lambda i: (pins[i].nx - nx) ** 2 + (pins[i].ny - ny) ** 2)
             pins[nearest] = pin
+        if armed is not None:
+            self.state.zone_arm_target = None
+            self.zone_arm_changed.emit(None)
         self._refresh_pin_labels()
         self.zone_pins_changed.emit()
+        if armed is not None:
+            self._preview_zone_solution()
 
     def move_zone_pin(self, index: int, nx: float, ny: float, final: bool = False) -> None:
         """Drag a pin: re-reads the tone under it so its zone tracks the cursor. A pin
@@ -1450,20 +1473,34 @@ class AppController(QObject):
         )
 
     def apply_zone_placement(self) -> None:
-        """Commit the solved Print Density (and Grade) and turn off the autos it
-        replaces — leaving one on would let the meter re-move the placed tones."""
+        """Commit the solved Print Density (and Grade), turn off the autos it replaces
+        — leaving one on would let the meter re-move the placed tones — and put the
+        tool down: the placement is made, so the pins have done their job."""
         sol = self._solve_zone_placement()
         if sol is None:
             return
         self._zone_preview_shown = False
-        self._pin_keep_once = True
         self.session.update_config(
             replace(self.state.config, exposure=replace(self.state.config.exposure, **sol.fields)),
             persist=True,
         )
+        self.set_active_tool(ToolMode.NONE)  # drops the pins; no preview left to restore
         self.request_render()
+
+    def remove_zone_pin(self, index: int) -> None:
+        """Drop one pin. What is left re-solves; dropping the last one puts the
+        committed print back and the tool down — nothing left to place."""
+        pins = self.state.zone_pins
+        if not 0 <= index < len(pins):
+            return
+        pins.pop(index)
+        self._pin_solution = None
         self._refresh_pin_labels()
         self.zone_pins_changed.emit()
+        if not pins:
+            self.set_active_tool(ToolMode.NONE)
+        elif self._zone_preview_shown:
+            self._preview_zone_solution()
 
     def clear_zone_pins(self) -> None:
         """Drop the pins; restores the committed edit if a preview was on the canvas."""
@@ -1473,6 +1510,9 @@ class AppController(QObject):
             self.request_render()
 
     def _drop_zone_pins(self) -> None:
+        if self.state.zone_arm_target is not None:
+            self.state.zone_arm_target = None
+            self.zone_arm_changed.emit(None)
         if not self.state.zone_pins and not self._zone_preview_shown:
             return
         self.state.zone_pins.clear()
@@ -2853,14 +2893,10 @@ class AppController(QObject):
 
         # The strip's patches were printed from the config as it stood; once the edit
         # moves they are a proof of something else, so drop them (this also cancels a
-        # strip still building). Zone pins die the same way, except through the one
-        # render Apply itself fires — its commit is what the pins now describe.
+        # strip still building). Zone pins die the same way.
         if config_override is None:
             self._clear_test_strip()
-            if self._pin_keep_once:
-                self._pin_keep_once = False
-            else:
-                self._drop_zone_pins()
+            self._drop_zone_pins()
 
         if self.state.preview_raw is None:
             return

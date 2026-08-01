@@ -14,7 +14,6 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.controller import AppController
-from negpy.desktop.session import ToolMode
 from negpy.desktop.view.keyboard_shortcuts import _context_undo
 from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog
 from negpy.desktop.view.shortcut_registry import key_for, tooltip_with_shortcut
@@ -175,13 +174,6 @@ class ActionToolbar(QWidget):
             )
         )
 
-        self.btn_zone_place = QToolButton()
-        self.btn_zone_place.setCheckable(True)
-        self.btn_zone_place.setIcon(qta.icon("fa5s.crosshairs", color=icon_color))
-        self.btn_zone_place.setToolTip(
-            tooltip_with_shortcut("Zone placement — pin tones on the canvas and set which zones they print as", "zone_placement")
-        )
-
         # GPU availability drives the overflow toggle built below (btn moved off the row).
         self._gpu_available = GPUDevice.get().is_available
 
@@ -261,11 +253,6 @@ class ActionToolbar(QWidget):
                 "acutance figure for comparing sharpness across the frame (reads true on HQ)",
                 "toggle_grain_focuser",
             )
-        )
-        self._ov_zone_place_action = overflow_menu.addAction(qta.icon("fa5s.crosshairs", color=icon_color), "Zone Placement")
-        self._ov_zone_place_action.setCheckable(True)
-        self._ov_zone_place_action.setToolTip(
-            tooltip_with_shortcut("Zone placement — pin tones on the canvas and set which zones they print as", "zone_placement")
         )
         self._ov_undo_action = overflow_menu.addAction(qta.icon("mdi.undo", color=icon_color), "Undo")
         self._ov_undo_action.setToolTip(tooltip_with_shortcut("Undo", "undo"))
@@ -363,7 +350,6 @@ class ActionToolbar(QWidget):
             self.btn_compare,
             self.btn_zones,
             self.btn_loupe,
-            self.btn_zone_place,
             self.btn_overflow,
         ]
         for btn in standard_buttons:
@@ -403,12 +389,11 @@ class ActionToolbar(QWidget):
         row_layout.addWidget(self.btn_compare)
         row_layout.addWidget(self.btn_zones)
         row_layout.addWidget(self.btn_loupe)
-        row_layout.addWidget(self.btn_zone_place)
         row_layout.addWidget(self.btn_overflow)
         row_layout.addWidget(self.btn_toggle_right)
 
         # Overflow groups for responsive resize (first listed = first collapsed).
-        self._ov_view_toggles: list = [self.btn_compare, self.btn_zones, self.btn_loupe, self.btn_zone_place]
+        self._ov_view_toggles: list = [self.btn_compare, self.btn_zones, self.btn_loupe]
         self._ov_undo_redo: list = [self._sep3, self.btn_undo, self.btn_redo]
         self._ov_zoom_extra: list = [self.btn_zoom_fit, self.btn_zoom_original]
         self._ov_hq_group: list = [self.btn_hq, self._sep2]
@@ -427,12 +412,6 @@ class ActionToolbar(QWidget):
 
     def _on_zones_changed(self, active: bool) -> None:
         for widget in (self.btn_zones, self._ov_zones_action):
-            widget.blockSignals(True)
-            widget.setChecked(active)
-            widget.blockSignals(False)
-
-    def _on_zone_placement_changed(self, active: bool) -> None:
-        for widget in (self.btn_zone_place, self._ov_zone_place_action):
             widget.blockSignals(True)
             widget.setChecked(active)
             widget.blockSignals(False)
@@ -478,8 +457,6 @@ class ActionToolbar(QWidget):
         self.btn_loupe.toggled.connect(lambda checked: self.controller.toggle_grain_focuser(force=checked))
         self._ov_loupe_action.triggered.connect(lambda checked: self.controller.toggle_grain_focuser(force=checked))
         self.controller.grain_focuser_changed.connect(self._on_grain_focuser_changed)
-        self.btn_zone_place.toggled.connect(lambda checked: self.controller.toggle_zone_placement(force=checked))
-        self._ov_zone_place_action.triggered.connect(lambda checked: self.controller.toggle_zone_placement(force=checked))
         self._ov_gpu_action.toggled.connect(self._on_gpu_toggled)
         self.controller.zoom_changed.connect(self._on_zoom_changed)
 
@@ -661,7 +638,6 @@ class ActionToolbar(QWidget):
         self._ov_flat_peek_action.setChecked(state.flat_peek)
         self._on_zones_changed(state.zones_overlay)
         self._on_grain_focuser_changed(state.grain_focuser)
-        self._on_zone_placement_changed(state.active_tool == ToolMode.ZONE_PLACE)
 
         geo = state.config.geometry
         self.btn_flip_h.setChecked(geo.flip_horizontal)

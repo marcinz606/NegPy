@@ -406,6 +406,7 @@ class MainWindow(QMainWindow):
         self.canvas.scratch_completed.connect(self.controller.handle_heal_stroke_completed)
         self.canvas.straighten_completed.connect(self.controller.handle_straighten_completed)
         self.canvas.zone_pin_moved.connect(self.controller.move_zone_pin)
+        self.canvas.zone_placement_confirmed.connect(self.controller.apply_zone_placement)
         self.canvas.local_mask_selected.connect(self.controller.select_local_mask)
         self.canvas.local_mask_edited.connect(self.controller.handle_local_mask_edited)
         self.canvas.local_vertex_deleted.connect(self.controller.delete_local_vertex)
@@ -426,6 +427,7 @@ class MainWindow(QMainWindow):
         self.controller.test_strip_changed.connect(lambda _up: self.canvas.overlay.on_test_strip_changed())
         self.canvas.test_strip_picked.connect(self.controller.apply_test_strip_pick)
         self.controller.zone_pins_changed.connect(self.canvas.overlay.update)
+        self.controller.zone_arm_changed.connect(self._on_zone_armed)
 
         self.controller.status_message_requested.connect(self.canvas.hud.showMessage)
         self.controller.status_progress_requested.connect(self.canvas.hud.set_progress)
@@ -559,6 +561,15 @@ class MainWindow(QMainWindow):
         if hasattr(self, "loading_overlay"):
             self.loading_overlay.setGeometry(self.canvas.rect())
 
+    def _on_zone_armed(self, zone) -> None:
+        """Say where the armed zone is spent — the strip highlight alone doesn't tell
+        you the canvas is now waiting for a click."""
+        if zone is None:
+            return
+        from negpy.features.exposure.densitometer import zone_roman
+
+        self.canvas.hud.showMessage(f"click the photo to place zone {zone_roman(float(zone))}", timeout=3000)
+
     def _sync_tool_buttons(self) -> None:
         """Updates toggle button states to match active_tool."""
         mode = self.state.active_tool
@@ -568,7 +579,6 @@ class MainWindow(QMainWindow):
         self.controls_panel.colour_sidebar.pick_wb_btn.setChecked(mode == ToolMode.WB_PICK)
         self.controls_panel.geometry_sidebar.manual_crop_btn.setChecked(mode == ToolMode.CROP_MANUAL)
         self.controls_panel.retouch_sidebar.pick_dust_btn.setChecked(mode == ToolMode.DUST_PICK)
-        self.toolbar._on_zone_placement_changed(mode == ToolMode.ZONE_PLACE)
 
         self._update_title()
         self._refresh_image_info()

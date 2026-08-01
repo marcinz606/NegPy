@@ -62,18 +62,19 @@ class DensitometerRow(QWidget):
 
 class ZonePlacementRows(QWidget):
     """Zone-placement rows under the probe: one per pinned spot with a ⅓-step target
-    stepper, plus Place/Clear. Dumb widget — the controller owns the pins and the solve;
-    rows arrive via refresh() as (index, measured roman, target zone, achieved roman
-    when the target is out of the paper's scale, solvable)."""
+    stepper and its own remove button, plus Place zones. Dumb widget — the controller
+    owns the pins and the solve; rows arrive via refresh() as (index, measured roman,
+    target zone, achieved roman when the target is out of the paper's scale, solvable)."""
 
     target_changed = pyqtSignal(int, float)
     apply_clicked = pyqtSignal()
-    clear_clicked = pyqtSignal()
+    remove_clicked = pyqtSignal(int)
 
     _TOOLTIP = (
-        "Zone placement — each pin is a probed spot on the canvas; step its target zone and "
-        "Place zones solves Print Density (one pin) or Print Density + Grade (two pins) so the "
-        "pinned tones print there. Applying turns the matching autos off for this frame."
+        "Zone placement — pick a zone on the strip above, then click the photo: that spot is asked "
+        "to print there. The steppers trim a pin by thirds, and Place zones solves Print Density "
+        "(one pin) or Print Density + Grade (two pins) so the pinned tones land. Applying turns the "
+        "matching autos off for this frame."
     )
     _PIN_COLOURS = (THEME.accent_primary, "#FFFFFF")
 
@@ -92,6 +93,7 @@ class ZonePlacementRows(QWidget):
         self._target_labels: List[QLabel] = []
         self._lands: List[QLabel] = []
         self._steppers: List[Tuple[QToolButton, QToolButton]] = []
+        self._removes: List[QToolButton] = []
         for i, colour in enumerate(self._PIN_COLOURS):
             row = QWidget()
             grid = QGridLayout(row)
@@ -113,29 +115,34 @@ class ZonePlacementRows(QWidget):
             target.setMinimumWidth(34)
             lands = QLabel("")
             lands.setStyleSheet(warn_css)
+            remove = QToolButton()
+            remove.setText("✕")
+            remove.setToolTip("Remove this pin")
             minus.clicked.connect(lambda _=False, idx=i: self._step(idx, -1.0 / 3.0))
             plus.clicked.connect(lambda _=False, idx=i: self._step(idx, 1.0 / 3.0))
+            remove.clicked.connect(lambda _=False, idx=i: self.remove_clicked.emit(idx))
             grid.addWidget(swatch, 0, 0)
             grid.addWidget(name, 0, 1)
             grid.addWidget(minus, 0, 2)
             grid.addWidget(target, 0, 3)
             grid.addWidget(plus, 0, 4)
-            grid.addWidget(lands, 1, 1, 1, 4)
+            grid.addWidget(remove, 0, 5)
+            grid.addWidget(lands, 1, 1, 1, 5)
             col.addWidget(row)
             self._rows.append(row)
             self._names.append(name)
             self._target_labels.append(target)
             self._lands.append(lands)
             self._steppers.append((minus, plus))
+            self._removes.append(remove)
 
         buttons = QHBoxLayout()
         buttons.setContentsMargins(0, 2, 0, 2)
         self.apply_btn = QPushButton("Place zones")
-        self.clear_btn = QPushButton("Clear pins")
+        self.apply_btn.setProperty("primary", True)  # the commit here, like Export in its panel
+        self.apply_btn.setToolTip("Commit the solved print (Enter)")
         self.apply_btn.clicked.connect(self.apply_clicked.emit)
-        self.clear_btn.clicked.connect(self.clear_clicked.emit)
         buttons.addWidget(self.apply_btn)
-        buttons.addWidget(self.clear_btn)
         col.addLayout(buttons)
 
         self.setToolTip(self._TOOLTIP)
