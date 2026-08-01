@@ -165,6 +165,8 @@ class PreviewLoadTask:
     stitch_transforms: tuple[tuple[float, ...], ...] = ()
     stitch_canvas: tuple[int, int] = (0, 0)
     stitch_sizes: tuple[tuple[int, int], ...] = ()
+    stitch_triplets: tuple[tuple[str, str], ...] = ()  # per-part (green, blue) RGB-scan exposures
+    stitch_align: bool = True
     flatfield_profile_id: str = ""  # per-part flat-field profile for stitch previews
 
 
@@ -485,7 +487,9 @@ class AssetDiscoveryWorker(QObject):
         out = []
         for a in assets:
             entry = stitches.get(a["path"])
-            if entry and entry.get("paths") and all(os.path.exists(p) for p in entry["paths"]):
+            # Triplet exposures count as parts — one missing decodes that part red-only.
+            needed = [*(entry.get("paths") or ()), *(p for t in entry.get("triplets") or () for p in t if p)] if entry else []
+            if entry and entry.get("paths") and all(os.path.exists(p) for p in needed):
                 out.append(
                     {
                         **a,
@@ -495,6 +499,8 @@ class AssetDiscoveryWorker(QObject):
                         "stitch_transforms": tuple(tuple(float(v) for v in t) for t in entry["transforms"]),
                         "stitch_canvas": (int(entry["canvas"][0]), int(entry["canvas"][1])),
                         "stitch_sizes": tuple((int(s[0]), int(s[1])) for s in entry["sizes"]),
+                        "stitch_triplets": tuple((str(t[0]), str(t[1])) for t in entry.get("triplets") or ()),
+                        "stitch_align": bool(entry.get("align", True)),
                     }
                 )
             else:
@@ -577,6 +583,8 @@ class PreviewLoadWorker(QObject):
                     stitch_transforms=task.stitch_transforms,
                     stitch_canvas=task.stitch_canvas,
                     stitch_sizes=task.stitch_sizes,
+                    stitch_triplets=task.stitch_triplets,
+                    stitch_align=task.stitch_align,
                 )
                 raw, dims, metadata = self._preview_service.load_linear_preview_stitch(
                     task.file_path,

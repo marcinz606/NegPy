@@ -38,9 +38,9 @@ from negpy.features.retouch.logic import (
     route_ir_defects,
 )
 from negpy.features.rgbscan.logic import merge_rgb_triplet, rgbscan_token
-from negpy.features.rgbscan.models import is_rgb_triplet
+from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.stitch.logic import stitch_composite
-from negpy.features.stitch.models import stitch_token
+from negpy.features.stitch.models import stitch_has_triplets, stitch_token
 from negpy.domain.interfaces import PipelineContext
 from negpy.services.rendering.engine import DarkroomEngine
 from negpy.services.rendering.gpu_engine import GPUEngine
@@ -99,6 +99,23 @@ def _detection_downsample(buf: np.ndarray) -> np.ndarray:
         return buf
     s = APP_CONFIG.preview_render_size / long_edge
     return cv2.resize(buf, (max(1, int(round(w * s))), max(1, int(round(h * s)))), interpolation=cv2.INTER_AREA)
+
+
+def _part_params(params: WorkspaceConfig, index: int) -> WorkspaceConfig:
+    """Params for stitch part ``index``, carrying that part's own R/G/B exposures.
+
+    Empty ``stitch_triplets`` (composites registered before triplet support) falls back
+    to ``params.rgbscan``."""
+    triplets = params.stitch.stitch_triplets
+    if index >= len(triplets):
+        return params
+    green, blue = triplets[index]
+    rgbscan = (
+        RgbScanConfig(enabled=True, green_path=green, blue_path=blue, align=params.stitch.stitch_align)
+        if (green and blue)
+        else RgbScanConfig()
+    )
+    return dc_replace(params, rgbscan=rgbscan)
 
 
 class ImageProcessor:
@@ -309,7 +326,7 @@ class ImageProcessor:
         # come from _load_source_f32, which already applied it; triplet composites take
         # each channel from its own single-band exposure, so unmixing them would inject
         # crosstalk that was never captured.
-        if not skip_flatfield and not is_rgb_triplet(settings.rgbscan):
+        if not skip_flatfield and not is_rgb_triplet(settings.rgbscan) and not stitch_has_triplets(settings.stitch):
             img = apply_sensor_correction(img, effective_sensor_matrix(settings.process))
         h_orig, w_cols = img.shape[:2]
         # Fold the buffer resolution into source_hash: toggling HQ re-decodes the same
@@ -456,11 +473,12 @@ class ImageProcessor:
         """Decode a source file to a flatfield-corrected, EXIF-oriented float32 buffer.
 
         A stitch composite decodes every part and assembles them by replaying the
-        registration stored in ``params.stitch``.
+        registration stored in ``params.stitch``, each part against its own rgbscan
+        config rather than the primary's.
 
         Returns (f32_buffer, ir_buffer, source_color_space).
         """
-        is_triplet = is_rgb_triplet(params.rgbscan)
+        is_triplet = is_rgb_triplet(params.rgbscan) or stitch_has_triplets(params.stitch)
         # Narrowband triplet channels don't survive half_size CFA binning.
         fast_decode = fast_decode and not is_triplet
 
@@ -485,7 +503,7 @@ class ImageProcessor:
             parts, irs = [], []
             source_cs = WORKING_COLOR_SPACE
             for i, path in enumerate((file_path, *params.stitch.stitch_paths)):
-                f32, ir, cs = self._decode_oriented_f32(path, params, fast_decode)
+                f32, ir, cs = self._decode_oriented_f32(path, _part_params(params, i), fast_decode)
                 if i == 0:
                     source_cs = cs
                 parts.append(f32)

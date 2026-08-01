@@ -478,3 +478,295 @@ def test_stitch_token_identity(tmp_path):
     # Missing part file -> inactive token (same convention as rgbscan_token).
     gone = StitchConfig(**{**base, "stitch_paths": (str(tmp_path / "missing.nef"),)})
     assert stitch_token(gone) == ""
+
+
+# ── RGB-scan triplet parts ────────────────────────────────────────────
+
+
+def _triplet_tifs(tmp_path, tag, values, width=80, offset=0):
+    """Three constant-colour exposures; each carries its own channel at ``values``."""
+    import tifffile
+
+    paths = []
+    for i, name in enumerate("rgb"):
+        frame = np.zeros((80, width, 3), np.uint16)
+        frame[..., i] = values[i]
+        frame[..., (i + 1) % 3] = offset + i  # decoy: must not reach the composite
+        p = tmp_path / f"{tag}_{name}.tif"
+        tifffile.imwrite(str(p), frame)
+        paths.append(str(p))
+    return paths
+
+
+def _side_by_side_triplet_config(part0, part1):
+    """Two 80px parts laid out edge to edge — under _MIN_OVERLAP_PX, so no gain
+    compensation smears one part's values into the other's."""
+    return StitchConfig(
+        stitch_enabled=True,
+        stitch_paths=(part1[0],),
+        stitch_transforms=((1.0, 0.0, 0.0, 0.0, 1.0, 0.0), (1.0, 0.0, 80.0, 0.0, 1.0, 0.0)),
+        stitch_canvas=(160, 80),
+        stitch_sizes=((80, 80), (80, 80)),
+        stitch_triplets=((part0[1], part0[2]), (part1[1], part1[2])),
+        stitch_align=False,
+    )
+
+
+def test_stitch_token_covers_triplets(tmp_path):
+    """Swapping a part's green/blue exposure must invalidate every render cache."""
+    part = tmp_path / "a.nef"
+    green = tmp_path / "a_g.nef"
+    blue = tmp_path / "a_b.nef"
+    for f in (part, green, blue):
+        f.write_bytes(b"x")
+    base = dict(
+        stitch_enabled=True,
+        stitch_paths=(str(part),),
+        stitch_transforms=((1.0, 0.0, 0.0, 0.0, 1.0, 0.0), (1.0, 0.0, 50.0, 0.0, 1.0, 0.0)),
+        stitch_canvas=(100, 100),
+        stitch_sizes=((60, 100), (60, 100)),
+    )
+    plain = stitch_token(StitchConfig(**base))
+    with_triplet = stitch_token(StitchConfig(**base, stitch_triplets=(("", ""), (str(green), str(blue)))))
+    assert with_triplet != plain
+    unaligned = stitch_token(StitchConfig(**base, stitch_triplets=(("", ""), (str(green), str(blue))), stitch_align=False))
+    assert unaligned != with_triplet
+    # A vanished exposure is as fatal as a vanished part -> inactive token.
+    gone = stitch_token(StitchConfig(**base, stitch_triplets=(("", ""), (str(tmp_path / "no.nef"), str(blue)))))
+    assert gone == ""
+
+
+def test_workspace_config_roundtrip_preserves_stitch_triplets():
+    from dataclasses import replace
+
+    from negpy.domain.models import WorkspaceConfig
+
+    stitch = StitchConfig(
+        stitch_enabled=True,
+        stitch_paths=("/p1",),
+        stitch_transforms=((1.0, 0.0, 0.0, 0.0, 1.0, 0.0), (1.0, 0.0, 40.0, 0.0, 1.0, 0.0)),
+        stitch_canvas=(120, 80),
+        stitch_sizes=((80, 80), (80, 80)),
+        stitch_triplets=(("/p0g", "/p0b"), ("/p1g", "/p1b")),
+        stitch_align=False,
+    )
+    restored = WorkspaceConfig.from_flat_dict(replace(WorkspaceConfig(), stitch=stitch).to_dict())
+    assert restored.stitch == stitch
+    hash(restored.stitch)
+
+
+def test_load_source_f32_merges_each_part_with_its_own_triplet(tmp_path):
+    """Each part merges with its own green/blue exposures, never the primary's."""
+    from dataclasses import replace
+
+    from negpy.domain.models import WorkspaceConfig
+    from negpy.features.rgbscan.models import RgbScanConfig
+    from negpy.services.rendering.image_processor import ImageProcessor
+
+    part0 = _triplet_tifs(tmp_path, "p0", (1000, 2000, 3000))
+    part1 = _triplet_tifs(tmp_path, "p1", (1100, 2100, 3100), offset=7)
+    stitch = _side_by_side_triplet_config(part0, part1)
+    params = replace(
+        WorkspaceConfig(),
+        stitch=stitch,
+        rgbscan=RgbScanConfig(enabled=True, green_path=part0[1], blue_path=part0[2], align=False),
+    )
+
+    f32, _, _ = ImageProcessor()._load_source_f32(part0[0], params)
+    assert f32.shape == (80, 160, 3)
+    left = f32[:, 5:75].reshape(-1, 3).mean(axis=0) * 65535.0
+    right = f32[:, 85:155].reshape(-1, 3).mean(axis=0) * 65535.0
+    assert np.allclose(left, (1000, 2000, 3000), atol=2)
+    assert np.allclose(right, (1100, 2100, 3100), atol=2)
+
+
+def test_load_linear_preview_stitch_merges_triplet_parts(tmp_path):
+    """Preview path must route each triplet part through the RGB merge too."""
+    from negpy.services.rendering.preview_manager import PreviewManager
+
+    part0 = _triplet_tifs(tmp_path, "p0", (1000, 2000, 3000))
+    part1 = _triplet_tifs(tmp_path, "p1", (1100, 2100, 3100), offset=7)
+    stitch = _side_by_side_triplet_config(part0, part1)
+
+    out, dims, _ = PreviewManager().load_linear_preview_stitch(part0[0], stitch, "Adobe RGB", use_camera_wb=False)
+    assert dims == (80, 160)
+    arr = np.asarray(out)
+    assert np.allclose(arr[:, 5:75].reshape(-1, 3).mean(axis=0) * 65535.0, (1000, 2000, 3000), atol=2)
+    assert np.allclose(arr[:, 85:155].reshape(-1, 3).mean(axis=0) * 65535.0, (1100, 2100, 3100), atol=2)
+
+
+def test_resolve_asset_stitch_carries_triplets():
+    from negpy.desktop.session import resolve_asset_stitch
+    from negpy.domain.models import WorkspaceConfig
+
+    asset = {
+        "path": "/p0",
+        "stitch_paths": ["/p1"],
+        "stitch_transforms": [[1, 0, 0, 0, 1, 0], [1, 0, 40, 0, 1, 0]],
+        "stitch_canvas": [120, 80],
+        "stitch_sizes": [[80, 80], [80, 80]],
+        "stitch_triplets": [["/p0g", "/p0b"], ["/p1g", "/p1b"]],
+        "stitch_align": False,
+    }
+    out = resolve_asset_stitch(WorkspaceConfig(), asset)
+    assert out.stitch.stitch_triplets == (("/p0g", "/p0b"), ("/p1g", "/p1b"))
+    assert out.stitch.stitch_align is False
+    hash(out.stitch)
+
+
+def test_attach_restored_stitches_needs_the_triplet_exposures(tmp_path):
+    from negpy.desktop.workers.render import AssetDiscoveryWorker
+
+    files = {n: tmp_path / n for n in ("p0.nef", "p1.nef", "p1_g.nef", "p1_b.nef")}
+    for f in files.values():
+        f.write_bytes(b"x")
+    assets = [{"name": "p0.nef", "path": str(files["p0.nef"]), "hash": "h0"}]
+    entry = {
+        "paths": [str(files["p1.nef"])],
+        "transforms": [[1, 0, 0, 0, 1, 0], [1, 0, 40, 0, 1, 0]],
+        "canvas": [120, 80],
+        "sizes": [[80, 80], [80, 80]],
+        "triplets": [["", ""], [str(files["p1_g.nef"]), str(files["p1_b.nef"])]],
+        "align": False,
+        "hash": "digest#stitch",
+    }
+    out = AssetDiscoveryWorker()._attach_restored_stitches([dict(assets[0])], {str(files["p0.nef"]): entry})
+    assert out[0]["stitch_triplets"] == (("", ""), (str(files["p1_g.nef"]), str(files["p1_b.nef"])))
+    assert out[0]["stitch_align"] is False
+
+    entry["triplets"][1][0] = str(tmp_path / "gone.nef")
+    plain = AssetDiscoveryWorker()._attach_restored_stitches([dict(assets[0])], {str(files["p0.nef"]): entry})
+    assert "stitch_paths" not in plain[0]
+
+
+def _mock_controller(files, selected):
+    from unittest.mock import MagicMock
+
+    from negpy.desktop.session import AppState
+
+    c = MagicMock()
+    c.state = AppState()
+    c.session.state = c.state
+    c.state.uploaded_files = files
+    c.state.selected_indices = selected
+    c.state.selected_file_idx = selected[0] if selected else -1
+    c._batch_busy.return_value = False
+    c._begin_batch.return_value = 1
+    return c
+
+
+def _triplet_asset(tag, align=True):
+    return {
+        "name": f"{tag} (RGB)",
+        "path": f"/{tag}_r.raf",
+        "hash": f"h_{tag}",
+        "green_path": f"/{tag}_g.raf",
+        "blue_path": f"/{tag}_b.raf",
+        "align": align,
+    }
+
+
+def test_request_stitch_selected_accepts_triplets():
+    from negpy.desktop.controller import AppController
+
+    c = _mock_controller([_triplet_asset("a"), _triplet_asset("b")], [0, 1])
+    AppController.request_stitch_selected(c)
+    task = c.stitch_requested.emit.call_args.args[0]
+    assert [f["path"] for f in task.files] == ["/a_r.raf", "/b_r.raf"]
+
+
+def test_on_stitch_registered_stores_per_part_triplets():
+    from negpy.desktop.controller import AppController
+
+    c = _mock_controller([_triplet_asset("a"), _triplet_asset("b")], [0, 1])
+    payload = {
+        "files": [_triplet_asset("a"), _triplet_asset("b")],
+        "transforms": ((1.0, 0.0, 0.0, 0.0, 1.0, 0.0), (1.0, 0.0, 40.0, 0.0, 1.0, 0.0)),
+        "canvas": (120, 80),
+        "sizes": ((80, 80), (80, 80)),
+    }
+    AppController._on_stitch_registered(c, payload)
+    composite = c.session.apply_stitch.call_args.args[1]
+    assert composite["stitch_triplets"] == (("/a_g.raf", "/a_b.raf"), ("/b_g.raf", "/b_b.raf"))
+    assert composite["stitch_align"] is True
+    assert composite["green_path"] == "/a_g.raf" and composite["blue_path"] == "/a_b.raf"
+
+
+def test_request_unstitch_restores_triplet_assets():
+    from negpy.desktop.controller import AppController
+
+    composite = {
+        "name": "a+b (Stitch)",
+        "path": "/a_r.raf",
+        "hash": "digest#stitch",
+        "stitch_paths": ("/b_r.raf",),
+        "stitch_triplets": (("/a_g.raf", "/a_b.raf"), ("/b_g.raf", "/b_b.raf")),
+        "stitch_align": True,
+    }
+    c = _mock_controller([composite], [0])
+    AppController.request_unstitch(c)
+    paths, kwargs = c.request_asset_discovery.call_args.args[0], c.request_asset_discovery.call_args.kwargs
+    assert set(paths) == {"/a_r.raf", "/b_r.raf", "/a_g.raf", "/a_b.raf", "/b_g.raf", "/b_b.raf"}
+    assert kwargs["restore_triplets"] == {
+        "/a_r.raf": ["/a_g.raf", "/a_b.raf", True],
+        "/b_r.raf": ["/b_g.raf", "/b_b.raf", True],
+    }
+
+
+def test_component_paths_decomposes_composites():
+    from negpy.desktop.controller import _component_paths
+
+    composite = {
+        "path": "/a_r.raf",
+        "green_path": "/a_g.raf",
+        "blue_path": "/a_b.raf",
+        "stitch_paths": ("/b_r.raf",),
+        "stitch_triplets": (("/a_g.raf", "/a_b.raf"), ("/b_g.raf", "/b_b.raf")),
+    }
+    assert set(_component_paths([composite])) == {
+        "/a_r.raf",
+        "/a_g.raf",
+        "/a_b.raf",
+        "/b_r.raf",
+        "/b_g.raf",
+        "/b_b.raf",
+    }
+
+
+def test_stitch_real_rgb_triplet_samples():
+    """End-to-end on the real narrowband capture: two overlapping parts, three
+    exposures each (samples/stitch/Roll001_Frame00{1,2}_{R,G,B}.raf)."""
+    import os
+
+    from negpy.services.rendering.preview_manager import PreviewManager
+
+    def triplet(frame):
+        return [os.path.join("samples", "stitch", f"Roll001_Frame{frame}_{ch}.raf") for ch in "RGB"]
+
+    part0, part1 = triplet("001"), triplet("002")
+    if not all(os.path.exists(p) for p in (*part0, *part1)):
+        pytest.skip("RGB-triplet stitch samples not present")
+
+    pm = PreviewManager()
+    merged = [
+        np.asarray(pm.load_linear_preview_rgb(r, g, b, "Adobe RGB", use_camera_wb=False)[0], dtype=np.float32) for r, g, b in (part0, part1)
+    ]
+    transforms, (cw, ch) = register_parts(merged)
+    h, w = merged[0].shape[:2]
+    assert w < cw < 2 * w  # the parts overlap, so the canvas is wider than one and narrower than two
+
+    cfg = StitchConfig(
+        stitch_enabled=True,
+        stitch_paths=(part1[0],),
+        stitch_transforms=tuple(tuple(float(v) for v in m.ravel()) for m in transforms),
+        stitch_canvas=(cw, ch),
+        stitch_sizes=tuple((p.shape[1], p.shape[0]) for p in merged),
+        stitch_triplets=((part0[1], part0[2]), (part1[1], part1[2])),
+    )
+    out, dims, _ = pm.load_linear_preview_stitch(part0[0], cfg, "Adobe RGB", use_camera_wb=False)
+    arr = np.asarray(out, dtype=np.float32)
+    assert arr.shape == (ch, cw, 3)
+    assert 0.0 <= float(arr.min()) and float(arr.max()) <= 1.0
+    # A red-only merge collapses the three channels onto each other.
+    means = [float(arr[..., i].mean()) for i in range(3)]
+    assert max(means) - min(means) > 0.01

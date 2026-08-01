@@ -18,6 +18,13 @@ class StitchConfig:
     stitch_transforms: tuple[tuple[float, ...], ...] = ()  # per part incl. primary, 2x3 row-major
     stitch_canvas: tuple[int, int] = (0, 0)  # full-res (W, H)
     stitch_sizes: tuple[tuple[int, int], ...] = ()  # full-res decoded (W, H) per part
+    stitch_triplets: tuple[tuple[str, str], ...] = ()  # RGB-scan (green, blue) per part incl. primary
+    stitch_align: bool = True  # sub-pixel registration within each part's triplet
+
+
+def stitch_has_triplets(config: StitchConfig) -> bool:
+    """True when any part is assembled from an R/G/B exposure triplet."""
+    return any(green and blue for green, blue in config.stitch_triplets)
 
 
 def stitch_token(config: StitchConfig) -> str:
@@ -30,9 +37,17 @@ def stitch_token(config: StitchConfig) -> str:
             parts.append(f"{path}:{os.path.getmtime(path)}")
         except OSError:
             return ""
+    for green, blue in config.stitch_triplets:
+        for path in (green, blue):
+            if not path:
+                continue
+            try:
+                parts.append(f"{path}:{os.path.getmtime(path)}")
+            except OSError:
+                return ""
     geometry = repr((config.stitch_transforms, config.stitch_canvas, config.stitch_sizes))
     digest = hashlib.sha256(geometry.encode()).hexdigest()[:12]
-    return f"|stitch:{':'.join(parts)}:{digest}"
+    return f"|stitch:{':'.join(parts)}:{digest}:a{int(config.stitch_align)}"
 
 
 def stitch_name(part_paths: Sequence[str]) -> str:

@@ -368,6 +368,8 @@ def resolve_asset_stitch(params: WorkspaceConfig, asset: dict) -> WorkspaceConfi
                 stitch_transforms=tuple(tuple(float(v) for v in t) for t in asset.get("stitch_transforms") or ()),
                 stitch_canvas=(int(canvas[0]), int(canvas[1])),
                 stitch_sizes=tuple((int(s[0]), int(s[1])) for s in asset.get("stitch_sizes") or ()),
+                stitch_triplets=tuple((str(t[0]), str(t[1])) for t in asset.get("stitch_triplets") or ()),
+                stitch_align=bool(asset.get("stitch_align", True)),
             ),
         )
     return replace(params, stitch=StitchConfig())
@@ -1119,6 +1121,8 @@ class DesktopSessionManager(QObject):
                 "transforms": [list(t) for t in f["stitch_transforms"]],
                 "canvas": list(f["stitch_canvas"]),
                 "sizes": [list(s) for s in f["stitch_sizes"]],
+                "triplets": [list(t) for t in f.get("stitch_triplets") or ()],
+                "align": bool(f.get("stitch_align", True)),
                 "hash": f["hash"],
             }
             for f in self.state.uploaded_files

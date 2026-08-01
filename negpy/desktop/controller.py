@@ -107,6 +107,19 @@ def _capture_import_key(path: str) -> str:
     return os.path.normcase(os.path.abspath(path))
 
 
+def _component_paths(files: List[Dict]) -> List[str]:
+    """Every source file behind the loaded assets, composites decomposed into their parts.
+
+    Re-discovery over an asset list that only saw primaries would drop the rest."""
+    paths: List[str] = []
+    for f in files:
+        paths.append(f["path"])
+        paths.extend(f[k] for k in ("green_path", "blue_path") if f.get(k))
+        paths.extend(f.get("stitch_paths") or ())
+        paths.extend(p for t in f.get("stitch_triplets") or () for p in t if p)
+    return list(dict.fromkeys(paths))
+
+
 def _autocrop_fingerprint(config: WorkspaceConfig, workspace_color_space: str) -> tuple:
     """Identity of every setting that changes detection pixels or crop coordinates."""
     geometry = config.geometry
@@ -819,13 +832,7 @@ class AppController(QObject):
                 replace(self.state.config, process=replace(self.state.config.process, narrowband_scan=True)), persist=True
             )
             self.request_render()
-        paths: List[str] = []
-        for f in files:
-            paths.append(f["path"])
-            for k in ("green_path", "blue_path"):
-                if f.get(k):
-                    paths.append(f[k])
-        self.request_asset_discovery(paths, replace_existing=True, reselect_path=self.state.current_file_path)
+        self.request_asset_discovery(_component_paths(files), replace_existing=True, reselect_path=self.state.current_file_path)
 
     def apply_scan_setup(self, capture: str, light: str) -> None:
         """Apply the scanning-setup wizard's answer: Linear RAW and Narrowband are rig
@@ -891,13 +898,7 @@ class AppController(QObject):
         files = self.session.state.uploaded_files
         if not files:
             return
-        paths: List[str] = []
-        for f in files:
-            paths.append(f["path"])
-            for k in ("green_path", "blue_path"):
-                if f.get(k):
-                    paths.append(f[k])
-        self.request_asset_discovery(paths, replace_existing=True, reselect_path=self.state.current_file_path)
+        self.request_asset_discovery(_component_paths(files), replace_existing=True, reselect_path=self.state.current_file_path)
 
     def _on_discovery_progress(self, current: int, total: int, name: str) -> None:
         self.set_status(f"HASHING {current}/{total}: {name}")
@@ -1109,6 +1110,8 @@ class AppController(QObject):
                 stitch_transforms=stitch.stitch_transforms if stitch.stitch_enabled else (),
                 stitch_canvas=stitch.stitch_canvas,
                 stitch_sizes=stitch.stitch_sizes,
+                stitch_triplets=stitch.stitch_triplets if stitch.stitch_enabled else (),
+                stitch_align=stitch.stitch_align,
                 flatfield_profile_id=flatfield.profile_id if (stitch.stitch_enabled and flatfield.apply) else "",
             )
         )
@@ -2646,8 +2649,8 @@ class AppController(QObject):
         if len(ordered) < 2:
             self.set_status("Select two or more frames to stitch", 4000)
             return
-        if any(f.get("green_path") or f.get("stitch_paths") for f in ordered):
-            self.set_status("Stitching RGB-scan or already-stitched frames is not supported", 4000)
+        if any(f.get("stitch_paths") for f in ordered):
+            self.set_status("Stitching an already-stitched frame is not supported", 4000)
             return
         if self._begin_batch("stitch", "Stitching frames", abortable=True) is None:
             return
@@ -2662,6 +2665,7 @@ class AppController(QObject):
         self._end_batch("stitch")
         files = payload["files"]
         part_paths = [f["path"] for f in files]
+        triplets = tuple((f.get("green_path") or "", f.get("blue_path") or "") for f in files)
         composite = {
             "name": stitch_name(part_paths),
             "path": part_paths[0],
@@ -2670,7 +2674,12 @@ class AppController(QObject):
             "stitch_transforms": payload["transforms"],
             "stitch_canvas": payload["canvas"],
             "stitch_sizes": payload["sizes"],
+            "stitch_triplets": triplets,
+            "stitch_align": bool(files[0].get("align", True)),
         }
+        if all(triplets[0]):
+            # Thumbnail decode and the sensor-unmix skip read the primary's pair from here.
+            composite.update(green_path=triplets[0][0], blue_path=triplets[0][1], align=composite["stitch_align"])
         wanted = set(part_paths)
         indices = [i for i, f in enumerate(self.state.uploaded_files) if f["path"] in wanted]
         self.session.apply_stitch(indices, composite)
@@ -2698,12 +2707,17 @@ class AppController(QObject):
         if not parts:
             return
         paths = [asset["path"], *parts]
+        # Triplet parts must come back as triplet assets, not as loose exposures.
+        align = bool(asset.get("stitch_align", True))
+        triplets = {path: [green, blue, align] for path, (green, blue) in zip(paths, asset.get("stitch_triplets") or ()) if green and blue}
+        for green, blue, _ in triplets.values():
+            paths.extend((green, blue))
         self.state.uploaded_files.pop(idx)
         self.session.state.thumbnails.pop(asset["name"], None)
         self.session.state.rendered_thumbnails.discard(asset["name"])
         self.session.asset_model.refresh()
         self._pending_scanned_file = paths[0]
-        self.request_asset_discovery(paths)
+        self.request_asset_discovery(paths, restore_triplets=triplets or None)
 
     def _select_file_by_path(self, path: str) -> bool:
         """Find a file by path in uploaded_files and select it."""

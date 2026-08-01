@@ -454,6 +454,8 @@ class WorkspaceConfig:
                 stitch_transforms=tuple(tuple(float(v) for v in row) for row in d.get("stitch_transforms", ())),
                 stitch_canvas=(int(canvas[0]), int(canvas[1])),
                 stitch_sizes=tuple((int(s[0]), int(s[1])) for s in d.get("stitch_sizes", ())),
+                stitch_triplets=tuple((str(t[0]), str(t[1])) for t in d.get("stitch_triplets", ())),
+                stitch_align=bool(d.get("stitch_align", True)),
             )
 
         return cls(

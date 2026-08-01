@@ -427,8 +427,14 @@ class PreviewManager:
         parts, irs = [], []
         meta: dict = {}
         for i, path in enumerate((primary_path, *stitch.stitch_paths)):
+            green, blue = stitch.stitch_triplets[i] if i < len(stitch.stitch_triplets) else ("", "")
             # file_hash=None: the composite hash is not the parts' content hash.
-            out, _, part_meta = self.load_linear_preview(path, color_space, use_camera_wb, full_resolution, None)
+            if green and blue:
+                out, _, part_meta = self.load_linear_preview_rgb(
+                    path, green, blue, color_space, use_camera_wb, full_resolution, None, align=stitch.stitch_align
+                )
+            else:
+                out, _, part_meta = self.load_linear_preview(path, color_space, use_camera_wb, full_resolution, None)
             parts.append(apply_flatfield(np.asarray(out, dtype=np.float32), flatfield))
             irs.append(part_meta.get("ir_preview"))
             if i == 0:
