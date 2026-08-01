@@ -59,6 +59,36 @@ def _read_source_meta_tiff(file_path: str) -> _SourceMeta:
                 datetime=str(dt.value).strip() if dt else None,
             )
     except Exception:
+        return _read_source_meta_exif(file_path)
+
+
+def _read_source_meta_exif(file_path: str) -> _SourceMeta:
+    """Fallback: scan for an embedded EXIF TIFF block (works for RAF, ORF, etc.)."""
+    try:
+        with open(file_path, "rb") as f:
+            header = f.read(4096)
+        marker = header.find(b"Exif\x00\x00")
+        if marker < 0:
+            return _SourceMeta()
+        tiff_bytes = header[marker + 6 :]
+        import logging
+
+        prev = logging.getLogger("tifffile").level
+        logging.getLogger("tifffile").setLevel(logging.CRITICAL)
+        try:
+            tif = _tifffile.TiffFile(io.BytesIO(tiff_bytes))
+        finally:
+            logging.getLogger("tifffile").setLevel(prev)
+            tags = tif.pages[0].tags
+            make = tags.get("Make")
+            model = tags.get("Model")
+            dt = tags.get("DateTime")
+            return _SourceMeta(
+                make=str(make.value).strip() if make else None,
+                model=str(model.value).strip() if model else None,
+                datetime=str(dt.value).strip() if dt else None,
+            )
+    except Exception:
         return _SourceMeta()
 
 
