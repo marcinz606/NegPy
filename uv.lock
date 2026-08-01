@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.13"
 
 [[package]]
@@ -327,7 +327,6 @@ dependencies = [
     { name = "numba" },
     { name = "numpy" },
     { name = "opencv-python-headless" },
-    { name = "pieusb" },
     { name = "piexif" },
     { name = "pillow" },
     { name = "pyqt6" },
@@ -350,6 +349,9 @@ dev = [
     { name = "ruff" },
     { name = "ty" },
 ]
+pieusb = [
+    { name = "pieusb" },
+]
 scanner = [
     { name = "python-sane" },
 ]
@@ -362,7 +364,6 @@ requires-dist = [
     { name = "numba", specifier = "==0.65.1" },
     { name = "numpy", specifier = "==2.4.4" },
     { name = "opencv-python-headless", specifier = "==4.13.0.92" },
-    { name = "pieusb", editable = "../sw/pieusb" },
     { name = "piexif", specifier = "==1.1.3" },
     { name = "pillow", specifier = "==12.2.0" },
     { name = "pyqt6", specifier = "==6.11.0" },
@@ -383,6 +384,7 @@ dev = [
     { name = "ruff", specifier = "==0.14.10" },
     { name = "ty", specifier = ">=0.0.26" },
 ]
+pieusb = [{ name = "pieusb", specifier = ">=0.2.0" }]
 scanner = [{ name = "python-sane", specifier = ">=2.9" }]
 
 [[package]]
@@ -497,18 +499,16 @@ wheels = [
 
 [[package]]
 name = "pieusb"
-source = { editable = "../sw/pieusb" }
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "libusb-package" },
     { name = "numpy" },
     { name = "pyusb" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "libusb-package", specifier = ">=1.0.30.0" },
-    { name = "numpy", specifier = ">=2.4.4" },
-    { name = "pyusb", specifier = ">=1.3.1" },
+sdist = { url = "https://files.pythonhosted.org/packages/93/82/304cf642c52036c175956bc5200575502326c4577ec194915addc491f714/pieusb-0.2.0.tar.gz", hash = "sha256:e1427061e648ab4fa4695edcb368185fbf0f42f6af2de4d97e46b1e4fd542e45", size = 48692, upload-time = "2026-07-29T12:36:33.004Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/81/3f/779deeb48275b8e4a9bcfca53ca04e595775babfb06b913d17d981f6f817/pieusb-0.2.0-py3-none-any.whl", hash = "sha256:924877549b704c1dae1f15249eb238b19876b4e39fed5c754f599a1634b13005", size = 39120, upload-time = "2026-07-29T12:36:31.844Z" },
 ]
 
 [[package]]
