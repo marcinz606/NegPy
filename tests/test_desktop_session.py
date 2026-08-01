@@ -515,6 +515,33 @@ class TestDesktopSessionSync(unittest.TestCase):
         args, _ = self.mock_repo.save_file_settings.call_args
         self.assertEqual(args[1].geometry.autocrop_offset, 0)
 
+    def test_sync_fresh_target_keeps_sticky_workflow_not_bare_defaults(self):
+        """P0-5 Variant B: a target frame with no saved edits must fall back to the
+        sticky-aware hydrated config, not bare WorkspaceConfig(), so syncing one field
+        doesn't silently reset its scan/process-mode to dataclass defaults."""
+        sticky = {
+            "last_export_config": {},
+            "last_process_mode": "E-6",
+            "last_narrowband_scan": True,
+        }
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
+        self.mock_repo.load_file_settings.return_value = None  # fresh target, no DB row
+
+        self.session.state.selected_file_idx = 0
+        self.session.state.current_file_hash = "hash1"
+        self.session.state.config = replace(WorkspaceConfig(), exposure=replace(WorkspaceConfig().exposure, density=1.5))
+
+        self.session.update_selection([0, 1])
+        with patch("negpy.desktop.session.load_or_promote", return_value=None):
+            self.session.sync_selected_settings([_row("Print Density")])
+
+        args, _ = self.mock_repo.save_file_settings.call_args
+        saved = args[1]
+        self.assertEqual(saved.exposure.density, 1.5)  # the one synced field
+        # Sticky workflow settings survive because the base was config_for_asset, not defaults.
+        self.assertTrue(saved.process.narrowband_scan)
+        self.assertEqual(saved.process.process_mode, "E-6")
+
     def test_sync_selected_settings_empty_is_noop(self):
         self.session.state.selected_file_idx = 0
         self.session.state.current_file_hash = "hash1"

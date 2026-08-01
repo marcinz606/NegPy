@@ -2429,7 +2429,7 @@ class AppController(QObject):
         """
         self._end_batch("normalization")
         for f_info in self.state.uploaded_files:
-            p = self.session.repo.load_file_settings(f_info["hash"]) or replace(self.state.config)
+            p = self.session.repo.load_file_settings(f_info["hash"]) or self.session.config_for_asset(f_info)
             new_process = replace(
                 p.process,
                 use_luma_average=True,
@@ -2480,7 +2480,7 @@ class AppController(QObject):
         if data:
             locked_floors, locked_ceils = data
             for f_info in self.state.uploaded_files:
-                p = self.session.repo.load_file_settings(f_info["hash"]) or replace(self.state.config)
+                p = self.session.repo.load_file_settings(f_info["hash"]) or self.session.config_for_asset(f_info)
                 new_process = replace(
                     p.process,
                     use_luma_average=True,
@@ -3213,6 +3213,7 @@ class AppController(QObject):
         flush = self.flush_export_settings
         if flush is not None:
             flush()
+
     def request_linear_output_export(self, files: list[dict] | None = None) -> None:
         """Export decoded linear buffers as untagged 16-bit TIFFs to the export folder."""
         from negpy.services.export.linear_output import export_linear_output, is_linear_output_supported

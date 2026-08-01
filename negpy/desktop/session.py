@@ -869,7 +869,7 @@ class DesktopSessionManager(QObject):
             if idx == self.state.selected_file_idx or not (0 <= idx < len(self.state.uploaded_files)):
                 continue
             target_hash = self.state.uploaded_files[idx]["hash"]
-            target_config = self.repo.load_file_settings(target_hash) or WorkspaceConfig()
+            target_config = self.repo.load_file_settings(target_hash) or self.config_for_asset(self.state.uploaded_files[idx])
             target_path = self.state.uploaded_files[idx]["path"]
             synced = apply_selected_fields(source_config, target_config, rows)
             if src_bounds is not None:
@@ -919,7 +919,7 @@ class DesktopSessionManager(QObject):
                 count += 1
                 continue
             target_hash = self.state.uploaded_files[idx]["hash"]
-            target_config = self.repo.load_file_settings(target_hash) or WorkspaceConfig()
+            target_config = self.repo.load_file_settings(target_hash) or self.config_for_asset(self.state.uploaded_files[idx])
             synced = apply_selected_fields(source, target_config, rows)
             self.push_external_history(target_hash, target_config, synced)
             self.repo.save_file_settings(target_hash, synced, file_path=self.state.uploaded_files[idx]["path"])

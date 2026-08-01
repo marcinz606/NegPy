@@ -95,6 +95,36 @@ class TestAppController(unittest.TestCase):
         self.controller._on_preview_loaded("/tmp/a.dng", None, (0, 0), "", None, "")
         self.assertNotIn("decode_failed", state.uploaded_files[0])
 
+    def test_normalization_finished_uses_hydrated_base_not_active_edit(self):
+        """P0-5 Variant A: a frame with no saved edits must take its per-asset hydrated
+        config as the write base, never the active frame's crop/heals/local sections."""
+        from negpy.domain.models import GeometryConfig, RetouchConfig
+
+        state = self.mock_session_manager.state
+        state.uploaded_files = [
+            {"name": "a.dng", "path": "/tmp/a.dng", "hash": "hash1"},
+            {"name": "b.dng", "path": "/tmp/b.dng", "hash": "hash2"},
+        ]
+        state.current_file_hash = "hash1"
+        state.config = replace(
+            WorkspaceConfig(),
+            geometry=GeometryConfig(manual_crop_rect=(0.1, 0.1, 0.9, 0.9)),
+            retouch=RetouchConfig(manual_dust_spots=[(0.5, 0.5, 3)]),
+        )
+        self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
+
+        with patch.object(self.controller, "_end_batch"), patch.object(self.controller, "request_render"):
+            self.controller._on_normalization_finished((0.0, 0.0, 0.0), (1.0, 1.0, 1.0))
+
+        saved = {c.args[0]: c.args[1] for c in self.mock_session_manager.repo.save_file_settings.call_args_list}
+        self.assertIn("hash2", saved)
+        self.assertIsNone(saved["hash2"].geometry.manual_crop_rect)
+        self.assertEqual(saved["hash2"].retouch.manual_dust_spots, [])
+        # Baseline still broadcast onto the fresh frame.
+        self.assertTrue(saved["hash2"].process.use_luma_average)
+        self.mock_session_manager.config_for_asset.assert_any_call(state.uploaded_files[1])
+
     def test_clear_roll_baseline_resets_axes(self):
         state = self.mock_session_manager.state
         state.config = replace(
@@ -1140,6 +1170,7 @@ class TestPresetExportSelected(unittest.TestCase):
 
     def test_batch_normalization_records_history_for_other_files(self):
         self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
         self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9))
 
         pushed = {c.args[0] for c in self.mock_session_manager.push_external_history.call_args_list}
