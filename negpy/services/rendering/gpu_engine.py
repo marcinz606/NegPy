@@ -1907,6 +1907,12 @@ class GPUEngine:
             k_radius = len(gaussian_kernel_1d(settings.lab.sharpen_radius * scale_factor)) // 2
             mult = 6 if settings.lab.sharpen_method == SharpenMethod.RL else 1
             halo = max(halo, k_radius * mult)
+        # Glow/halation taps reach up to their radius (max(., . * scale_factor) in
+        # lab.wgsl); without this the bloom seams at tile edges on big exports.
+        if settings.lab.glow_amount > 0.0:
+            halo = max(halo, int(np.ceil(max(3.0, 15.0 * scale_factor))))
+        if settings.lab.halation_strength > 0.0:
+            halo = max(halo, int(np.ceil(max(5.0, 25.0 * scale_factor))))
         halo = min(halo, 512)
 
         for ty in range(0, crop_h, TILE_SIZE):

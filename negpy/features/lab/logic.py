@@ -308,7 +308,7 @@ def apply_glow_and_halation(
         enc = working_oetf_encode(img)
         luma = enc[:, :, 0] * np.float32(LUM_R) + enc[:, :, 1] * np.float32(LUM_G) + enc[:, :, 2] * np.float32(LUM_B)
         threshold = 0.5
-        glow_mask = np.clip((luma - threshold) / (1.0 - threshold), 0.0, 1.0) ** 2
+        glow_mask = np.clip((luma - threshold) / (1.0 - threshold), 0.0, 1.0)
         base_r = max(3, int(15 * scale_factor))
         k = min((base_r * 2 + 1) | 1, 201)
         sigma = base_r * 0.5
@@ -319,7 +319,7 @@ def apply_glow_and_halation(
     if halation_strength > 0.0:
         lin_luma = img[:, :, 0] * np.float32(LUM_R) + img[:, :, 1] * np.float32(LUM_G) + img[:, :, 2] * np.float32(LUM_B)
         t = HALATION_THRESHOLD_LINEAR
-        hal_mask = np.clip((lin_luma - t) / (1.0 - t), 0.0, 1.0) ** 2
+        hal_mask = np.clip((lin_luma - t) / (1.0 - t), 0.0, 1.0)
         base_r = max(5, int(25 * scale_factor))
         k = min((base_r * 2 + 1) | 1, 301)
         sigma = base_r * 0.5

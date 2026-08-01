@@ -433,7 +433,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 
     // 4. Glow and Halation
-    // Radii match the CPU defaults (base_r at scale_factor=1): glow=15px, halation=25px.
+    // Radii match the CPU base_r (glow=15px, halation=25px at scale_factor=1) and scale
+    // with resolution so full-res exports keep the preview footprint.
     // Accumulate highlight-weighted Gaussian samples then divide by the fixed kernel
     // weight sum (BLOOM_GAUSS_SUM) — mirrors how a normalised Gaussian convolution
     // kernel divides by its total weight, so intensity decays naturally with distance
@@ -443,8 +444,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         // Halation mask in LINEAR reflectance: fixed by scene exposure, so the
         // footprint doesn't move with grade/density (mirrors CPU logic.py).
         let HALATION_THRESHOLD_LINEAR = 0.65;
-        let GLOW_RADIUS = 15.0;
-        let HAL_RADIUS = 25.0;
+        // Radii scale with resolution so a full-res export keeps the preview footprint
+        // (mirrors CPU logic.py's base_r = max(., int(. * scale_factor))).
+        let GLOW_RADIUS = max(3.0, 15.0 * params.scale_factor);
+        let HAL_RADIUS = max(5.0, 25.0 * params.scale_factor);
 
         var glow_accum = vec3<f32>(0.0);
         var hal_accum = vec3<f32>(0.0);

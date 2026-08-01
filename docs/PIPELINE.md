@@ -269,7 +269,7 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
     $$I_{out} = I + B_{glow} \cdot s_{glow}$$
     $$B_{glow} = \text{GaussianBlur}(I \cdot m_{hl})$$
 
-    *   $m_{hl}$: **Display-domain** highlight mask (lens bloom follows perceived print brightness), quadratically ramped from code value 0.5 to 1.0.
+    *   $m_{hl}$: **Display-domain** highlight mask (lens bloom follows perceived print brightness), linearly ramped from code value 0.5 to 1.0.
     *   Applied equally to all three channels; the sum is clamped at the stage output.
 
 6.  **Halation**: Simulates the red scatter caused by light reflecting back through the film base at capture. Uses a larger-radius Gaussian than Glow and a strongly red-biased highlight source. Because scattered light is *added exposure*, the composite is additive in linear light (not a screen blend), and the mask thresholds **linear reflectance** ($t = 0.65$) so the halation footprint is fixed by scene exposure instead of moving with Grade/Density.
@@ -278,7 +278,7 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
     $$B_{hal} = \text{GaussianBlur}(I_R \cdot m_{lin} \cdot C_{hal})$$
 
     *   $I_R$: Red channel used as the scatter source.
-    *   $m_{lin}$: Linear-light highlight mask, quadratically ramped from reflectance 0.65 to 1.0.
+    *   $m_{lin}$: Linear-light highlight mask, linearly ramped from reflectance 0.65 to 1.0.
     *   $C_{hal}$: Per-channel tint weights $(1.0,\ 0.3,\ 0.05)$ for red-dominant scatter.
 
 ---
