@@ -62,7 +62,7 @@ _STRIP_LABEL_MIN_PX = 34.0  # below this patch size the two axis labels overlap
 _STRIP_LABEL_INSET_PX = 6.0
 
 _PIN_RADIUS_PX = 7.0  # zone-placement pin ring
-_PIN_GRAB_PX = 16.0  # grab radius — wider than the ring so the handle is easy to catch
+_PIN_GRAB_PX = 16.0  # grab radius, wider than the drawn ring
 
 _LOUPE_RADIUS_PX = 128.0
 # Device px per buffer px inside the glass. At fit-zoom on a 1600 px buffer the canvas
@@ -83,8 +83,8 @@ def loupe_src_rect(buf_w: int, buf_h: int, cx: float, cy: float, side: float) ->
 
 
 def zone_pin_caption(index: int, pin: Any) -> str:
-    """`1 · IV⅓ → VI` — what the pin reads now and where it is asked to print;
-    the arrow drops once the two agree (after Place zones, or on an untouched pin)."""
+    """`1 · IV⅓ → VI`: what the pin reads now, and the zone it is asked to print on
+    while the two differ."""
     from negpy.features.exposure.densitometer import zone_roman
 
     head = f"{index + 1} · {pin.label}" if pin.label else f"{index + 1}"
@@ -808,8 +808,7 @@ class CanvasOverlay(QWidget):
         painter.restore()
 
     def _draw_zone_pins(self, painter: QPainter) -> None:
-        """Zone-placement pins: a numbered ring per probed spot, reading the zone it sits
-        on and (until they agree) the zone it is asked to print."""
+        """Zone-placement pins: a numbered ring per probed spot with its caption."""
         shadow = QColor(0, 0, 0, 160)
         painter.save()
         painter.setFont(_overlay_label_font(painter))
@@ -1755,8 +1754,8 @@ class CanvasOverlay(QWidget):
         return best
 
     def _clamped_content_norm(self, pos: QPointF) -> Optional[Tuple[float, float]]:
-        """Content-normalized `pos`, clamped to the frame so a drag that runs off the
-        edge keeps tracking instead of dying."""
+        """Content-normalized `pos`, clamped to the frame so a drag past the edge keeps
+        tracking."""
         rect = self._content_view_rect()
         if rect.isEmpty():
             return None
@@ -1854,7 +1853,7 @@ class CanvasOverlay(QWidget):
                     self.zone_pin_moved.emit(self._pin_drag_index, norm[0], norm[1], False)
                 event.accept()
                 return
-            # Over a pin the cursor promises the grab; elsewhere the tool's own crosshair.
+            # Unset over bare frame so the widget inherits the tool's crosshair.
             if self._hit_zone_pin(event.position()) is not None:
                 self.setCursor(Qt.CursorShape.OpenHandCursor)
             else:

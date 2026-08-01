@@ -562,8 +562,8 @@ class MainWindow(QMainWindow):
             self.loading_overlay.setGeometry(self.canvas.rect())
 
     def _on_zone_armed(self, zone) -> None:
-        """Say where the armed zone is spent — the strip highlight alone doesn't tell
-        you the canvas is now waiting for a click."""
+        """Name the armed zone on the canvas: the strip highlight is in the sidebar,
+        away from the click it is waiting for."""
         if zone is None:
             return
         from negpy.features.exposure.densitometer import zone_roman

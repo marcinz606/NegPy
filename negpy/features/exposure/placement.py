@@ -29,8 +29,7 @@ class ZonePin:
     val_luma: float
     target_zone: float
     label: str = ""
-    # A pin still on its measured zone re-reads as it is dragged; one the user
-    # has stepped keeps the zone it was given.
+    # Set once a zone is asked for: a dragged pin keeps it instead of re-reading.
     retargeted: bool = False
 
 

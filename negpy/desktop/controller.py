@@ -365,7 +365,6 @@ class AppController(QObject):
         self._render_debounce.timeout.connect(self.request_render)
 
         self._crop_bounds_dirty = False
-        # Zone placement: a preview render is on the canvas.
         self._zone_preview_shown = False
         self._pin_dragging = False
         self._pin_solution: Optional[Any] = None
@@ -1335,7 +1334,7 @@ class AppController(QObject):
         self.zone_arm_changed.emit(self.state.zone_arm_target)
 
     def _disarm_zone_target(self) -> None:
-        """Drop the armed zone; with no pins to keep the tool honest, put it down too."""
+        """Drop the armed zone, and the tool with it when no pins remain."""
         armed = self.state.zone_arm_target is not None
         self.state.zone_arm_target = None
         if armed:
@@ -1344,8 +1343,8 @@ class AppController(QObject):
             self.set_active_tool(ToolMode.NONE)
 
     def _handle_zone_pin(self, nx: float, ny: float) -> None:
-        """Armed: the pin prints on the zone picked from the strip. Unarmed: it just
-        meters, taking the zone it already reads so the print doesn't move."""
+        """Armed: the pin takes the zone picked on the strip. Unarmed: it takes the zone
+        it already reads, so a bare click meters without moving the print."""
         from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R
         from negpy.features.exposure.placement import ZonePin
 
@@ -1378,9 +1377,8 @@ class AppController(QObject):
             self._preview_zone_solution()
 
     def move_zone_pin(self, index: int, nx: float, ny: float, final: bool = False) -> None:
-        """Drag a pin: re-reads the tone under it so its zone tracks the cursor. A pin
-        still following its reading re-snaps its target to the new tone; a retargeted
-        one keeps the zone it was given. The solve waits for the drag to end."""
+        """Drag a pin: re-samples the tone under it. An untargeted pin re-snaps to the
+        new reading, a retargeted one keeps its zone, and the solve waits for `final`."""
         from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R
 
         pins = self.state.zone_pins
@@ -1421,8 +1419,9 @@ class AppController(QObject):
         )
 
     def _refresh_pin_labels(self) -> None:
-        """Re-read each pin's zone through the current curve. Runs before every
-        zone_pins_changed emit so the canvas caption is fresh whatever repaints first."""
+        """Re-read each pin's zone through the current curve. Called before every
+        zone_pins_changed emit: the overlay and the sidebar repaint in connection
+        order, so the label cannot be left to whichever runs first."""
         from negpy.features.exposure.densitometer import zone_roman
 
         pins = self.state.zone_pins
@@ -1441,8 +1440,8 @@ class AppController(QObject):
             self._pin_solution = None
             return []
         self._refresh_pin_labels()
-        # The two-pin nested bisection costs ~15 ms — the last solve stands in while
-        # a pin is being dragged, and the drag's end recomputes it.
+        # The two-pin nested bisection costs ~15 ms, too slow per mouse-move: mid-drag
+        # the last solve stands in, and the drag's end recomputes it.
         if not self._pin_dragging:
             self._pin_solution = self._solve_zone_placement()
         sol = self._pin_solution
@@ -1473,9 +1472,8 @@ class AppController(QObject):
         )
 
     def apply_zone_placement(self) -> None:
-        """Commit the solved Print Density (and Grade), turn off the autos it replaces
-        — leaving one on would let the meter re-move the placed tones — and put the
-        tool down: the placement is made, so the pins have done their job."""
+        """Commit the solved Print Density (and Grade) and put the tool down. The autos
+        it replaces go off: one left on would re-move the placed tones."""
         sol = self._solve_zone_placement()
         if sol is None:
             return
@@ -1488,8 +1486,8 @@ class AppController(QObject):
         self.request_render()
 
     def remove_zone_pin(self, index: int) -> None:
-        """Drop one pin. What is left re-solves; dropping the last one puts the
-        committed print back and the tool down — nothing left to place."""
+        """Drop one pin; what remains re-solves. Dropping the last one puts the committed
+        print back and the tool down."""
         pins = self.state.zone_pins
         if not 0 <= index < len(pins):
             return
