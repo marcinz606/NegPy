@@ -13,7 +13,7 @@ _CLEAN_IR = 0.74
 _IR_SIGMA = 0.011
 
 
-def _frame(defects=(), seed=7, ir_sigma=_IR_SIGMA, texture=1.0):
+def _frame(defects=(), seed=7, ir_sigma=_IR_SIGMA, texture=1.0, clean_ir=_CLEAN_IR):
     """Synthetic linear negative + IR. ``defects`` are (cx, cy, r, transmittance) discs,
     neutral: a real defect blocks the visible channels and IR by the same fraction."""
     rng = np.random.default_rng(seed)
@@ -21,7 +21,7 @@ def _frame(defects=(), seed=7, ir_sigma=_IR_SIGMA, texture=1.0):
     tex = 0.5 + texture * (0.16 * np.sin(x / 7.0) * np.cos(y / 11.0) + 0.03 * rng.standard_normal((_H, _W)))
     rgb = np.stack([tex * 0.95, tex * 0.55, tex * 0.30], -1)
     rgb = np.clip(rgb + 0.008 * rng.standard_normal(rgb.shape), 0.02, 1.0).astype(np.float32)
-    ir = np.clip(_CLEAN_IR + ir_sigma * rng.standard_normal((_H, _W)), 0.0, 1.0).astype(np.float32)
+    ir = np.clip(clean_ir + ir_sigma * rng.standard_normal((_H, _W)), 0.0, 1.0).astype(np.float32)
     for cx, cy, r, t in defects:
         m = ((x - cx) ** 2 + (y - cy) ** 2) <= r * r
         rgb[m] *= t
@@ -85,7 +85,7 @@ def test_clean_film_is_left_bit_identical():
     rgb, ir = _frame()
     out, trigger, w = oi.reconstruct(rgb, ir, oi.calibrate(rgb, ir, 0.66))
     assert not trigger.any()
-    # The write ramp reaches zero at w == 1, so every fully-confident pixel is untouched.
+    # A fully-confident pixel is excluded by `keep`, so it is never written.
     clean = w >= 1.0
     assert clean.mean() > 0.9
     assert np.array_equal(out[clean], rgb[clean])
@@ -102,6 +102,22 @@ def test_reconstruction_lifts_a_neutral_speck_towards_the_clean_film():
     assert after < 0.35 * before
 
 
+def test_a_shallow_speck_is_repaired_at_full_strength():
+    """ICE writes max(L3, acc) for every pixel under full confidence. Scaling that write
+    by confidence spares clean film nothing the margin does not already gate, and costs a
+    shallow speck — which never reaches the weight floor — most of its repair."""
+    spot = (128, 128, 3, 0.96)  # detected, but nowhere near the weight floor
+    rgb, ir = _frame([spot])
+    clean_rgb, _ = _frame()
+    out, _, w = oi.reconstruct(rgb, ir, oi.calibrate(rgb, ir, 0.66))
+    m = _disc(*spot[:3])
+    # w ≈ 0.88 here; a smoothstep ramp from 1.0 down to 0.6 would pass ~20% of the lift.
+    assert 0.6 < float(np.median(w[m])) < 1.0, "shallow by construction: off the weight floor"
+    before = float(np.abs(rgb[m] - clean_rgb[m]).mean())
+    after = float(np.abs(out[m] - clean_rgb[m]).mean())
+    assert after < 0.7 * before
+
+
 def test_a_repair_never_darkens():
     """ "Only fill, never darken": a defect steals light, so the bake may only add it."""
     rgb, ir = _frame([(128, 128, 4, 0.25), (60, 190, 2, 0.5)])
@@ -110,11 +126,31 @@ def test_a_repair_never_darkens():
 
 
 def test_give_up_triggers_on_a_defect_wider_than_the_window_but_not_on_a_speck():
-    speck, blob = (70, 70, 2, 0.1), (180, 180, 14, 0.1)
-    rgb, ir = _frame([speck, blob])
-    _, trigger, _ = oi.reconstruct(rgb, ir, oi.calibrate(rgb, ir, 0.66))
+    """Both conditions are required: past the 9×9 window *and* under the dust floor.
+
+    The floor is ICE's 6.5%-of-clear-film transmittance, which only clears the dead-margin
+    cut when clear film sits near full scale — the Coolscan case ICE was built around. On a
+    scanner whose IR runs darker the dead margin claims those pixels first and this trigger
+    never fires, which is why the frame here is built with a bright, quiet IR plane.
+    """
+    speck, blob = (70, 70, 2, 0.058), (180, 180, 14, 0.058)
+    rgb, ir = _frame([speck, blob], ir_sigma=0.002, clean_ir=1.0)
+    cal = oi.calibrate(rgb, ir, 0.66)
+    assert oi._DEAD_FLOOR < ir[_disc(*blob[:3])].max() < oi.density_inv(np.float32([cal.dust_floor]))[0]
+    _, trigger, _ = oi.reconstruct(rgb, ir, cal)
     assert not trigger[_disc(*speck[:3])].any()
     assert trigger[_disc(*blob[:3])].mean() > 0.5
+
+
+def test_a_wide_but_translucent_defect_is_reconstructed_not_given_up():
+    """The floor is a transmittance, not a depth in noise σ. Anchored to σ it lands ~10x
+    shallower and hands ordinary deep dust to the router instead of repairing it."""
+    blob = (180, 180, 14, 0.30)  # wider than the window, but far from opaque
+    rgb, ir = _frame([blob])
+    out, trigger, _ = oi.reconstruct(rgb, ir, oi.calibrate(rgb, ir, 0.66))
+    m = _disc(*blob[:3])
+    assert trigger[m].mean() < 0.05
+    assert (out[m] > rgb[m]).mean() > 0.9
 
 
 def test_degenerate_guard_fires_when_the_ir_plane_mirrors_the_image():

@@ -62,9 +62,13 @@ _MARGIN_SIGMA = 2.5
 _RAMP_MIN = 180.0  # ≈3% light loss; a quantized plane can measure σ ≈ 0
 _RAMP_MAX = 4100.0  # ≈50%
 _CLEAR_SIGMA = 3.0  # calibration sees only pixels this close to the median
-# Give-up floor, in ramps below weight saturation. ICE's is ~15 ramps deep, unreachable on
-# any scan measured here; 3 keeps the trigger rare without making it unreachable.
-_DUST_FLOOR_RAMPS = 3.0
+# ICE's Cfg_DustFloor is the absolute D(0.065·M). Carried over as the transmittance
+# fraction it encodes, measured against this frame's clear-film reference — the same
+# substitution the gate and ramp above need, for the same reason. Anchoring it to σ
+# instead put it ~10x shallower, which fires the give-up trigger on ordinary deep dust
+# and routes it away from the reconstruction that should have repaired it.
+_DUST_FLOOR_TRANSMITTANCE = 0.065
+_DUST_FLOOR_DROP = float(_K * math.log(1.0 / _DUST_FLOOR_TRANSMITTANCE))
 _DEAD_FLOOR = 0.05  # below this the beam is blocked outright: holder, not film
 # |pearson(gate, green density)| above this: the IR mirrors the picture (B&W, Kodachrome).
 # Dust is uncorrelated with the image; a silver image is not.
@@ -213,7 +217,7 @@ def calibrate(rgb: np.ndarray, ir: np.ndarray, threshold: float) -> IceCalibrati
     ramp = float(np.clip(n * g_sigma, _RAMP_MIN, _RAMP_MAX))
     # `g_med - ir_ref` absorbs the systematic offset the 3-tap min puts between the two.
     margin = min(_WEIGHT_BIAS, g_med - ir_ref - _MARGIN_SIGMA * g_sigma)
-    dust_floor = ir_ref + margin - _DUST_FLOOR_RAMPS * ramp
+    dust_floor = ir_ref - _DUST_FLOOR_DROP
     return IceCalibration(c, ir_ref, ramp, margin, dust_floor, degenerate)
 
 
@@ -337,16 +341,6 @@ def _reconstruct_tile(d_rgb: np.ndarray, gate: np.ndarray, w: np.ndarray, cal: I
 
 
 _BAND_ROWS = 256
-# Full reconstruction at or below this weight, nothing at 1. ICE has no equivalent and
-# mottles: it rebuilds any pixel under 1 and floors at the original, which half-wave-
-# rectifies IR noise into one-sided brightening. Dust sits at the weight floor, so the
-# ramp costs it nothing.
-_WRITE_LO = 0.6
-
-
-def _write_ramp(w: np.ndarray) -> np.ndarray:
-    t = np.clip((1.0 - w) / (1.0 - _WRITE_LO), 0.0, 1.0)
-    return t * t * (3.0 - 2.0 * t)
 
 
 def reconstruct(img: np.ndarray, ir: np.ndarray, cal: IceCalibration) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -378,8 +372,11 @@ def reconstruct(img: np.ndarray, ir: np.ndarray, cal: IceCalibration) -> Tuple[n
         # Already clean, wider than the window, or a non-positive reconstruction.
         keep = (w >= 1.0) | hopeless | (acc <= 0.0).any(axis=-1)
         # "Only fill, never darken": a defect steals light, so a repair may only lighten.
+        # Written at full strength wherever w < 1, as ICE does (max(L3, acc)). A confidence
+        # ramp here looks like cheap insurance against mottling and is not: dust sits at the
+        # weight floor only once it is deep, so the ramp cost shallow specks most of their
+        # repair (measured on samples/scans: 81% of the lift at a 15-25% dip).
         lift = np.where(keep[..., None], 0.0, np.maximum(acc - d_rgb, 0.0))
-        lift *= _write_ramp(w)[..., None]
         s, e = y0 - a, y1 - a
         # Verbatim where nothing was lifted: D/D⁻¹ is not bit-exact in float32, and an
         # untouched pixel must come out byte-identical.
