@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import pytest
 
@@ -83,3 +85,16 @@ def test_create_bakes_and_activates_via_provider(store_dir):
 def test_create_returns_none_when_reference_unreadable(store_dir, monkeypatch):
     monkeypatch.setattr(FlatFieldProfiles, "_bake_gain", staticmethod(lambda path: None))
     assert FlatFieldProfiles.create("rig", "/gone.dng") is None
+
+
+def test_metadata_reads_do_not_require_the_gain(store_dir):
+    # A file with metadata but no gain member: get()/list_profiles must still work,
+    # proving the sidebar's per-sync list build never decompresses the gain array.
+    directory = ffstore.APP_CONFIG.flatfield_dir
+    os.makedirs(directory, exist_ok=True)
+    np.savez_compressed(os.path.join(directory, "meta-only.npz"), name="MetaOnly", k1=0.05, source="/x.dng")
+
+    prof = FlatFieldProfiles.get("meta-only")
+    assert prof is not None and prof.name == "MetaOnly" and prof.k1 == 0.05
+    assert ("meta-only", "MetaOnly") in FlatFieldProfiles.list_profiles()
+    assert FlatFieldProfiles.load_gain("meta-only") is None  # no gain member to resolve

@@ -67,14 +67,15 @@ class FlatFieldProfiles:
         )
 
     @staticmethod
-    def _load(profile_id: str) -> Optional[Dict[str, np.ndarray]]:
-        """Read a profile file eagerly into a dict (closing the archive), or None if absent."""
+    def _read(profile_id: str, keys: Tuple[str, ...]) -> Optional[Dict[str, np.ndarray]]:
+        """Read only the named members of a profile file (a zip — untouched members are
+        never decompressed, so metadata reads skip the ~MB gain array), or None if absent."""
         path = FlatFieldProfiles._path_for_id(profile_id)
         if not profile_id or not os.path.exists(path):
             return None
         try:
             with np.load(path, allow_pickle=False) as data:
-                return {k: data[k] for k in data.files}
+                return {k: data[k] for k in keys if k in data.files}
         except Exception:
             logger.exception("Flat-field: failed to read profile %s", profile_id)
             return None
@@ -97,20 +98,21 @@ class FlatFieldProfiles:
     @staticmethod
     def load_gain(profile_id: str) -> Optional[Tuple[np.ndarray, str]]:
         """(gain map, content token) for the render-path provider; None if missing/unreadable."""
-        data = FlatFieldProfiles._load(profile_id)
-        if data is None:
+        data = FlatFieldProfiles._read(profile_id, ("gain", "token"))
+        if data is None or "gain" not in data:
             return None
-        try:
-            gain = np.ascontiguousarray(data["gain"], dtype=np.float32)
-        except Exception:
-            return None
+        gain = np.ascontiguousarray(data["gain"], dtype=np.float32)
         token = str(data["token"]) if "token" in data else gain_token(gain)
         return gain, token
 
     @staticmethod
     def get(profile_id: str) -> Optional[FlatFieldProfile]:
-        """Profile metadata (name, k1, source), or None if the file is gone."""
-        data = FlatFieldProfiles._load(profile_id)
+        """Profile metadata (name, k1, source), or None if the file is gone.
+
+        Metadata-only read — the gain array is not decompressed, so this stays cheap
+        on the hot path (the sidebar rebuilds the profile list on every config sync).
+        """
+        data = FlatFieldProfiles._read(profile_id, ("name", "k1", "source"))
         if data is None:
             return None
         return FlatFieldProfile(
@@ -138,8 +140,8 @@ class FlatFieldProfiles:
     @staticmethod
     def set_k1(profile_id: str, k1: float) -> None:
         """Rewrite a profile's rig distortion in place, preserving its baked gain."""
-        data = FlatFieldProfiles._load(profile_id)
-        if data is None:
+        data = FlatFieldProfiles._read(profile_id, ("gain", "name", "source"))
+        if data is None or "gain" not in data:
             return
         FlatFieldProfiles._write(
             profile_id,

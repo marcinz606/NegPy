@@ -1,7 +1,9 @@
 import os
 
 import qtawesome as qta
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QApplication,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
@@ -103,7 +105,13 @@ class FlatFieldSidebar(BaseSidebar):
         default_name = os.path.splitext(os.path.basename(path))[0]
         name, ok = QInputDialog.getText(self, "Save Flat-Field Profile", "Profile name:", text=default_name)
         if ok and name:
-            self.controller.save_flatfield_profile(name, path)
+            # save_flatfield_profile decodes the reference RAW to bake the gain — a
+            # brief blocking beat on the GUI thread, so show a wait cursor.
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            try:
+                self.controller.save_flatfield_profile(name, path)
+            finally:
+                QApplication.restoreOverrideCursor()
             self._refresh_profiles()
             self.sync_ui()
 
