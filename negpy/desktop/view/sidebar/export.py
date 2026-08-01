@@ -547,9 +547,25 @@ class ExportSidebar(BaseSidebar):
         self.linear_hint_label = hint_label(
             "Exports the loader's decoded buffer as an untagged 16-bit TIFF. "
             "No pipeline processing, no color management, no scaling. "
-            "Pakon RAW and LinearRaw DNG (SilverFast/VueScan)."
+            "Pakon RAW, LinearRaw DNG (SilverFast/VueScan), and camera RAW."
         )
         box.addWidget(self.linear_hint_label)
+
+        expansion_row = QHBoxLayout()
+        expansion_row.setContentsMargins(0, 0, 0, 0)
+        self.linear_expansion_label = field_label("Expansion")
+        expansion_row.addWidget(self.linear_expansion_label)
+        self.linear_expansion_combo = QComboBox()
+        self.linear_expansion_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        expansion_row.addWidget(self.linear_expansion_combo)
+        self.linear_expansion_row = QWidget()
+        self.linear_expansion_row.setLayout(expansion_row)
+        self.linear_expansion_row.setVisible(False)
+        box.addWidget(self.linear_expansion_row)
+        self.linear_expansion_hint = hint_label("Leave at the default unless you know why you need to change it.")
+        self.linear_expansion_hint.setVisible(False)
+        box.addWidget(self.linear_expansion_hint)
+        self.linear_expansion_combo.currentIndexChanged.connect(self._on_linear_expansion_changed)
 
         self.layout.addWidget(container)
 
@@ -562,6 +578,11 @@ class ExportSidebar(BaseSidebar):
         self.flat_hint_label.setVisible(flat_on)
         self.flat_peek_btn.setVisible(flat_on)
         self.linear_hint_label.setVisible(linear_on)
+        if hasattr(self, "linear_expansion_row"):
+            self.linear_expansion_row.setVisible(linear_on)
+            self.linear_expansion_hint.setVisible(linear_on)
+            if linear_on:
+                self._refresh_linear_expansion_combo()
         if hasattr(self, "_presets_section"):
             self._presets_section.setVisible(not linear_on)
         if hasattr(self, "_sidecars_section"):
@@ -607,6 +628,47 @@ class ExportSidebar(BaseSidebar):
             self.intent_print_btn.setChecked(True)
         self.intent_btn_group.blockSignals(False)
         self._sync_flat_enabled()
+
+    _EXPANSION_OPTIONS: dict[str, list[tuple[str, float | None]]] = {
+        "pakon": [("4× (default)", None), ("2×", 2.0), ("Off", 1.0)],
+        "pakon_f335": [("Off (default)", None), ("2×", 2.0), ("4×", 4.0)],
+        "dng": [("Off (default)", None), ("2×", 2.0), ("4×", 4.0)],
+        "camera": [],
+        "unsupported": [],
+    }
+
+    def _refresh_linear_expansion_combo(self) -> None:
+        from negpy.services.export.linear_output import linear_output_source_type
+
+        path = self.state.current_file_path or ""
+        source_type = linear_output_source_type(path) if path else "unsupported"
+        options = self._EXPANSION_OPTIONS.get(source_type, [])
+
+        combo = self.linear_expansion_combo
+        combo.blockSignals(True)
+        combo.clear()
+        if not options:
+            combo.addItem("N/A")
+            combo.setEnabled(False)
+        else:
+            for label, _val in options:
+                combo.addItem(label)
+            combo.setEnabled(True)
+            current = self.state.linear_expansion
+            for i, (_label, val) in enumerate(options):
+                if val == current:
+                    combo.setCurrentIndex(i)
+                    break
+            else:
+                combo.setCurrentIndex(0)
+        combo.blockSignals(False)
+        self._current_expansion_source_type = source_type
+
+    def _on_linear_expansion_changed(self, index: int) -> None:
+        source_type = getattr(self, "_current_expansion_source_type", "unsupported")
+        options = self._EXPANSION_OPTIONS.get(source_type, [])
+        if 0 <= index < len(options):
+            self.state.linear_expansion = options[index][1]
 
     def _on_flat_peek_changed(self, active: bool) -> None:
         self.flat_peek_btn.blockSignals(True)
@@ -993,6 +1055,8 @@ class ExportSidebar(BaseSidebar):
             supported = bool(path) and is_linear_output_supported(path)
             self.export_main_btn.setEnabled(supported)
             self.export_menu_btn.setEnabled(True)
+            if hasattr(self, "linear_expansion_row"):
+                self._refresh_linear_expansion_combo()
         else:
             blocked = self.form.is_export_blocked()
             self.export_main_btn.setEnabled(not blocked)

@@ -81,6 +81,20 @@ def is_linear_output_supported(file_path: str) -> bool:
     return False
 
 
+def linear_output_source_type(file_path: str) -> str:
+    """Classify a file for Linear Output expansion options.
+
+    Returns ``"pakon"``, ``"dng"``, ``"camera"``, or ``"unsupported"``.
+    """
+    if PakonLoader.can_handle(file_path):
+        return "pakon_f335" if _is_pakon_f335(file_path) else "pakon"
+    if _is_dng(file_path) and _is_linearraw_dng(file_path):
+        return "dng"
+    if _is_camera_raw(file_path):
+        return "camera"
+    return "unsupported"
+
+
 def _is_linearraw_dng(file_path: str) -> bool:
     """True if the DNG contains a LinearRaw IFD (3 or 4 samples)."""
     try:
@@ -103,44 +117,80 @@ def _apply_geometry(f32: np.ndarray, orientation: int, geometry: Optional[Geomet
 
 
 def _decode_linear(
-    file_path: str, geometry: Optional[GeometryConfig] = None
+    file_path: str, geometry: Optional[GeometryConfig] = None, expansion: Optional[float] = None
 ) -> tuple[np.ndarray, Optional[np.ndarray], Optional[_CameraWB], _SourceMeta]:
     """Decode to an oriented float32 buffer. Returns (rgb, ir_or_none, camera_wb_or_none, source_meta)."""
     if PakonLoader.can_handle(file_path):
-        rgb, ir = _decode_pakon(file_path, geometry)
-        return rgb, ir, None, _SourceMeta()
+        rgb, ir = _decode_pakon(file_path, geometry, expansion=expansion)
+        meta = _SourceMeta(make="Pakon", model=_pakon_spec_desc(file_path))
+        return rgb, ir, None, meta
     if _is_dng(file_path):
         meta = _read_source_meta_tiff(file_path)
         if _is_linearraw_dng(file_path):
-            rgb, ir = _decode_dng(file_path, geometry)
+            rgb, ir = _decode_dng(file_path, geometry, expansion=expansion)
             return rgb, ir, None, meta
         if _is_camera_raw(file_path):
             rgb, ir, wb = _decode_camera_raw(file_path, geometry)
             return rgb, ir, wb, meta
     if _is_camera_raw(file_path):
-        return _decode_camera_raw(file_path, geometry)
+        meta = _read_source_meta_tiff(file_path)
+        rgb, ir, wb, decode_meta = _decode_camera_raw(file_path, geometry)
+        merged = _SourceMeta(
+            make=meta.make or decode_meta.make,
+            model=meta.model or decode_meta.model,
+            datetime=meta.datetime or decode_meta.datetime,
+        )
+        return rgb, ir, wb, merged
     raise ValueError(f"Linear Output is not supported for this file type: {file_path}")
 
 
 PAKON_EXPANSION = 4.0
+_F335_SIZE = 72000000
 
 
-def _decode_pakon(file_path: str, geometry: Optional[GeometryConfig] = None) -> tuple[np.ndarray, None]:
+def _is_pakon_f335(file_path: str) -> bool:
+    try:
+        return abs(os.path.getsize(file_path) - _F335_SIZE) < 1024
+    except OSError:
+        return False
+
+
+def _default_pakon_expansion(file_path: str) -> float:
+    # F335 is 16-bit; all others assumed 14-bit (confirmed for F135, unverified for 2k Square / Panoram).
+    return 1.0 if _is_pakon_f335(file_path) else PAKON_EXPANSION
+
+
+def _pakon_spec_desc(file_path: str) -> str:
+    try:
+        file_size = os.path.getsize(file_path)
+        spec = next((s for s in PakonLoader.PAKON_SPECS if abs(file_size - s["size"]) < 1024), None)
+        return spec["desc"] if spec else "Unknown"
+    except OSError:
+        return "Unknown"
+
+
+def _decode_pakon(file_path: str, geometry: Optional[GeometryConfig] = None, expansion: Optional[float] = None) -> tuple[np.ndarray, None]:
     loader = PakonLoader()
     ctx_mgr, metadata = loader.load(file_path)
     with ctx_mgr as wrapper:
         if not isinstance(wrapper, NonStandardFileWrapper):
             raise TypeError("Expected NonStandardFileWrapper from PakonLoader")
         f32 = wrapper.data
-    f32 = np.clip(f32 * PAKON_EXPANSION, 0.0, 1.0)
+    factor = expansion if expansion is not None else _default_pakon_expansion(file_path)
+    if factor > 1.0:
+        f32 = np.clip(f32 * factor, 0.0, 1.0)
     f32 = _apply_geometry(f32, metadata.get("orientation", 0), geometry)
     return f32, None
 
 
-def _decode_dng(file_path: str, geometry: Optional[GeometryConfig] = None) -> tuple[np.ndarray, Optional[np.ndarray]]:
+def _decode_dng(
+    file_path: str, geometry: Optional[GeometryConfig] = None, expansion: Optional[float] = None
+) -> tuple[np.ndarray, Optional[np.ndarray]]:
     peeked_4ch = _peek_linearraw_4ch(file_path)
     if peeked_4ch is not None:
         rgb, ir = peeked_4ch
+        if expansion is not None and expansion > 1.0:
+            rgb = np.clip(rgb * expansion, 0.0, 1.0)
         orientation = read_orientation(file_path)
         rgb = _apply_geometry(rgb, orientation, geometry)
         ir = _apply_geometry(ir, orientation, geometry)
@@ -165,6 +215,8 @@ def _decode_dng(file_path: str, geometry: Optional[GeometryConfig] = None) -> tu
     else:
         scale = 1.0
     rgb = np.clip(arr.astype(np.float32) * scale, 0.0, 1.0)
+    if expansion is not None and expansion > 1.0:
+        rgb = np.clip(rgb * expansion, 0.0, 1.0)
 
     ir = _peek_hdri_ir_page(file_path)
     orientation = read_orientation(file_path)
@@ -234,6 +286,25 @@ def _build_xmp(source_path: str, wb: _CameraWB) -> bytes:
     return xmp.encode("utf-8")
 
 
+def _effective_expansion(file_path: str, expansion: Optional[float]) -> float:
+    if PakonLoader.can_handle(file_path):
+        factor = expansion if expansion is not None else _default_pakon_expansion(file_path)
+        return factor if factor > 1.0 else 1.0
+    if _is_dng(file_path) and _is_linearraw_dng(file_path):
+        return expansion if (expansion is not None and expansion > 1.0) else 1.0
+    return 1.0
+
+
+def _source_format_label(file_path: str) -> str:
+    if PakonLoader.can_handle(file_path):
+        return f"Pakon {_pakon_spec_desc(file_path)}"
+    if _is_dng(file_path) and _is_linearraw_dng(file_path):
+        return "DNG LinearRaw"
+    if _is_camera_raw(file_path):
+        return "camera RAW"
+    return "unknown"
+
+
 def _write_tiff(
     f32: np.ndarray,
     dest,
@@ -241,11 +312,24 @@ def _write_tiff(
     camera_wb: Optional[_CameraWB] = None,
     source_path: Optional[str] = None,
     source_meta: Optional[_SourceMeta] = None,
+    expansion: float = 1.0,
+    source_format: str = "",
 ) -> None:
     """Write a float32 buffer as an untagged 16-bit TIFF to *dest* (path or file-like)."""
     u16 = _to_uint16_jit(np.ascontiguousarray(f32, dtype=np.float32))
     photometric = "rgb" if f32.ndim == 3 else "minisblack"
-    description = f"NegPy Linear Output -- no color management, no scaling applied. Source: {source_name}"
+    parts = [f"source: {source_format or source_name}"]
+    if expansion > 1.0:
+        parts.append(f"expansion: x{expansion:g}")
+    else:
+        parts.append("no scaling")
+    if camera_wb is not None:
+        r, g, b = _normalize_wb_rgb(camera_wb.as_shot)
+        parts.append(f"no WB applied (as-shot: {r:.3f} {g:.3f} {b:.3f})")
+    else:
+        parts.append("no WB applied")
+    parts.append("no color management")
+    description = f"NegPy Linear Output -- {', '.join(parts)}."
 
     extratags: list[tuple] = []
     if camera_wb is not None and source_path is not None:
@@ -290,18 +374,27 @@ def _write_ir_tiff(ir: np.ndarray, dest, source_name: str) -> None:
     )
 
 
-def export_linear_output(file_path: str, output_path: str, geometry: Optional[GeometryConfig] = None) -> None:
+def export_linear_output(
+    file_path: str, output_path: str, geometry: Optional[GeometryConfig] = None, expansion: Optional[float] = None
+) -> None:
     """Decode *file_path* and write an untagged linear 16-bit TIFF to *output_path*.
 
     Lossless geometry (90-degree rotation, horizontal/vertical flip) from *geometry*
     is applied; fine rotation is ignored (it resamples).
 
+    *expansion* scales the linear data before writing (e.g. 4.0 for Pakon's 14-bit
+    sensor → 16-bit range). ``None`` uses the source-type default; values <= 1.0 disable.
+
     If the source has an IR channel, it is written as a separate grayscale TIFF
     with an ``_ir`` suffix next to the RGB output.
     """
-    f32, ir, camera_wb, meta = _decode_linear(file_path, geometry)
+    eff = _effective_expansion(file_path, expansion)
+    fmt = _source_format_label(file_path)
+    f32, ir, camera_wb, meta = _decode_linear(file_path, geometry, expansion=expansion)
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
-    _write_tiff(f32, output_path, os.path.basename(file_path), camera_wb, source_path=file_path, source_meta=meta)
+    _write_tiff(
+        f32, output_path, os.path.basename(file_path), camera_wb, source_path=file_path, source_meta=meta, expansion=eff, source_format=fmt
+    )
 
     if ir is not None:
         stem, ext = os.path.splitext(output_path)
@@ -314,8 +407,10 @@ def export_linear_output_bytes(file_path: str, geometry: Optional[GeometryConfig
 
     IR is not included in the returned bytes (use export_linear_output for IR).
     """
+    eff = _effective_expansion(file_path, None)
+    fmt = _source_format_label(file_path)
     f32, _ir, camera_wb, meta = _decode_linear(file_path, geometry)
     buf = io.BytesIO()
-    _write_tiff(f32, buf, os.path.basename(file_path), camera_wb, source_path=file_path, source_meta=meta)
+    _write_tiff(f32, buf, os.path.basename(file_path), camera_wb, source_path=file_path, source_meta=meta, expansion=eff, source_format=fmt)
     stem = os.path.splitext(os.path.basename(file_path))[0]
     return buf.getvalue(), stem

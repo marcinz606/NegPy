@@ -13,12 +13,15 @@ from negpy.services.export.linear_output import (
     _CameraWB,
     _SourceMeta,
     _build_xmp,
+    _default_pakon_expansion,
+    _effective_expansion,
     _is_camera_raw,
     _normalize_wb_rgb,
     _write_tiff,
     export_linear_output,
     export_linear_output_bytes,
     is_linear_output_supported,
+    linear_output_source_type,
 )
 
 
@@ -51,6 +54,15 @@ def _make_pakon_raw(tmp_dir: str, h: int = 1000, w: int = 1500) -> str:
     path = os.path.join(tmp_dir, "test_scan.raw")
     data.tofile(path)
     assert os.path.getsize(path) == h * w * 3 * 2  # 9000000
+    return path
+
+
+def _make_pakon_f335_raw(tmp_dir: str) -> str:
+    """Create a synthetic F335 RAW file (4000×3000, 72 MB)."""
+    data = np.random.RandomState(55).randint(0, 65535, size=(4000, 3000, 3), dtype=np.uint16)
+    path = os.path.join(tmp_dir, "f335_scan.raw")
+    data.tofile(path)
+    assert os.path.getsize(path) == 72000000
     return path
 
 
@@ -108,7 +120,10 @@ class TestExportLinearOutput:
             desc = tf.pages[0].description
             assert "NegPy Linear Output" in desc
             assert "no color management" in desc
-            assert "test_scan.raw" in desc
+            assert "no WB applied" in desc
+            assert "Pakon" in desc
+            assert "F135" in desc
+            assert "x4" in desc
 
     def test_pixel_values_roundtrip(self, tmp_path: str) -> None:
         """The output uint16 values should be the expanded float32 loader output * 65535, rounded."""
@@ -461,3 +476,67 @@ class TestCameraRawSupport:
         _write_tiff(f32, out, "test.raw")
         with tifffile.TiffFile(out) as tf:
             assert tf.pages[0].tags["Software"].value == "NegPy"
+
+
+class TestF335Detection:
+    def test_f335_detected_by_size(self, tmp_path: str) -> None:
+        path = _make_pakon_f335_raw(str(tmp_path))
+        assert _default_pakon_expansion(path) == 1.0
+
+    def test_f135_gets_4x(self, tmp_path: str) -> None:
+        path = _make_pakon_raw(str(tmp_path))
+        assert _default_pakon_expansion(path) == 4.0
+
+    def test_source_type_f335(self, tmp_path: str) -> None:
+        path = _make_pakon_f335_raw(str(tmp_path))
+        assert linear_output_source_type(path) == "pakon_f335"
+
+    def test_source_type_f135(self, tmp_path: str) -> None:
+        path = _make_pakon_raw(str(tmp_path))
+        assert linear_output_source_type(path) == "pakon"
+
+    def test_f335_export_no_expansion(self, tmp_path: str) -> None:
+        path = _make_pakon_f335_raw(str(tmp_path))
+        out = os.path.join(str(tmp_path), "output.tiff")
+        export_linear_output(path, out)
+        with tifffile.TiffFile(out) as tf:
+            arr = tf.pages[0].asarray()
+            assert arr.dtype == np.uint16
+            assert arr.shape == (4000, 3000, 3)
+            assert arr.max() > 0
+            desc = tf.pages[0].description
+            assert "no scaling" in desc
+            assert "F335" in desc
+
+    def test_f135_description_records_expansion(self, tmp_path: str) -> None:
+        path = _make_pakon_raw(str(tmp_path))
+        out = os.path.join(str(tmp_path), "output.tiff")
+        export_linear_output(path, out)
+        with tifffile.TiffFile(out) as tf:
+            desc = tf.pages[0].description
+            assert "x4" in desc
+            assert "F135" in desc
+
+    def test_effective_expansion_camera_raw(self, tmp_path: str) -> None:
+        path = os.path.join(str(tmp_path), "photo.nef")
+        open(path, "wb").close()
+        assert _effective_expansion(path, None) == 1.0
+        assert _effective_expansion(path, 2.0) == 1.0
+
+    def test_pakon_make_model_tags(self, tmp_path: str) -> None:
+        path = _make_pakon_raw(str(tmp_path))
+        out = os.path.join(str(tmp_path), "output.tiff")
+        export_linear_output(path, out)
+        with tifffile.TiffFile(out) as tf:
+            tags = tf.pages[0].tags
+            assert tags["Make"].value == "Pakon"
+            assert "F135 Plus Low Res" in tags["Model"].value
+
+    def test_f335_make_model_tags(self, tmp_path: str) -> None:
+        path = _make_pakon_f335_raw(str(tmp_path))
+        out = os.path.join(str(tmp_path), "output.tiff")
+        export_linear_output(path, out)
+        with tifffile.TiffFile(out) as tf:
+            tags = tf.pages[0].tags
+            assert tags["Make"].value == "Pakon"
+            assert "F335" in tags["Model"].value

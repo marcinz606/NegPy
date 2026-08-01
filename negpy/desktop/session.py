@@ -164,6 +164,8 @@ class AppState:
 
     # Linear Output: export the loader's raw decoded buffer as an untagged 16-bit TIFF.
     linear_output: bool = False
+    # Linear Output expansion factor override. None = source-type default (4× Pakon, off DNG).
+    linear_expansion: float | None = None
 
     @property
     def local_hidden_masks(self) -> set:
