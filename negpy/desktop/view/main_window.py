@@ -405,6 +405,7 @@ class MainWindow(QMainWindow):
         self.canvas.lasso_completed.connect(self.controller.handle_lasso_completed)
         self.canvas.scratch_completed.connect(self.controller.handle_heal_stroke_completed)
         self.canvas.straighten_completed.connect(self.controller.handle_straighten_completed)
+        self.canvas.zone_pin_moved.connect(self.controller.move_zone_pin)
         self.canvas.local_mask_selected.connect(self.controller.select_local_mask)
         self.canvas.local_mask_edited.connect(self.controller.handle_local_mask_edited)
         self.canvas.local_vertex_deleted.connect(self.controller.delete_local_vertex)

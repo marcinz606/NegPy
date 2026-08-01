@@ -254,6 +254,66 @@ class TestZonePlacementLifecycle(unittest.TestCase):
         self.controller.apply_zone_placement()
         self.mock_session_manager.update_config.assert_not_called()
 
+    def test_dragging_a_pin_rereads_the_tone_under_it(self):
+        self._enter()
+        self._pin(0.5, 0.15)
+        before = self.controller.state.zone_pins[0]
+        self.controller.move_zone_pin(0, 0.5, 0.85)
+        pin = self.controller.state.zone_pins[0]
+        self.assertAlmostEqual(pin.ny, 0.85)
+        self.assertNotAlmostEqual(pin.val_luma, before.val_luma)
+        self.assertNotEqual(pin.label, "")
+
+    def test_dragging_an_untargeted_pin_follows_the_new_reading(self):
+        self._enter()
+        self._pin(0.5, 0.15)
+        self.controller.move_zone_pin(0, 0.5, 0.85)
+        pin = self.controller.state.zone_pins[0]
+        measured = self.controller._pin_zone(pin.val_luma)
+        self.assertAlmostEqual(pin.target_zone, round(measured * 3.0) / 3.0)
+
+    def test_dragging_a_retargeted_pin_keeps_its_target(self):
+        self._enter()
+        self._pin(0.5, 0.15)
+        self.controller.set_zone_pin_target(0, 3.0)
+        self.controller.move_zone_pin(0, 0.5, 0.85)
+        self.assertEqual(self.controller.state.zone_pins[0].target_zone, 3.0)
+
+    def test_the_preview_refreshes_when_the_drag_ends_not_during_it(self):
+        self._enter()
+        self._pin(0.5, 0.15)
+        self.controller._is_rendering = False
+        self.controller.set_zone_pin_target(0, 3.0)
+        self.controller._is_rendering = False
+        n = len(self.render_tasks)
+        self.controller.move_zone_pin(0, 0.5, 0.5)
+        self.assertEqual(len(self.render_tasks), n)
+        self.controller.move_zone_pin(0, 0.5, 0.85, final=True)
+        self.assertEqual(len(self.render_tasks), n + 1)
+        self.assertFalse(self.render_tasks[-1].readback_metrics)
+
+    def test_a_drag_without_a_preview_up_renders_nothing(self):
+        self._enter()
+        self._pin(0.5, 0.15)
+        self.controller._is_rendering = False
+        n = len(self.render_tasks)
+        self.controller.move_zone_pin(0, 0.5, 0.85, final=True)
+        self.assertEqual(len(self.render_tasks), n)
+
+    def test_readouts_skip_the_solve_mid_drag(self):
+        self._enter()
+        self._pin(0.5, 0.15)
+        self._pin(0.5, 0.85)
+        with patch.object(self.controller, "_solve_zone_placement", wraps=self.controller._solve_zone_placement) as solve:
+            self.controller.zone_pin_readouts()
+            self.assertEqual(solve.call_count, 1)
+            self.controller.move_zone_pin(0, 0.5, 0.5)
+            self.controller.zone_pin_readouts()
+            self.assertEqual(solve.call_count, 1, "the nested bisection is too slow to run per mouse-move")
+            self.controller.move_zone_pin(0, 0.5, 0.45, final=True)
+            self.controller.zone_pin_readouts()
+            self.assertEqual(solve.call_count, 2)
+
     def test_degenerate_pins_neither_preview_nor_apply(self):
         self._enter()
         self._pin(0.2, 0.5)

@@ -368,6 +368,8 @@ class AppController(QObject):
         # the one render Apply itself fires.
         self._zone_preview_shown = False
         self._pin_keep_once = False
+        self._pin_dragging = False
+        self._pin_solution: Optional[Any] = None
 
         self._cursor_readout_timer = QTimer()
         self._cursor_readout_timer.setSingleShot(True)
@@ -1349,7 +1351,29 @@ class AppController(QObject):
         else:
             nearest = min(range(len(pins)), key=lambda i: (pins[i].nx - nx) ** 2 + (pins[i].ny - ny) ** 2)
             pins[nearest] = pin
+        self._refresh_pin_labels()
         self.zone_pins_changed.emit()
+
+    def move_zone_pin(self, index: int, nx: float, ny: float, final: bool = False) -> None:
+        """Drag a pin: re-reads the tone under it so its zone tracks the cursor. A pin
+        still following its reading re-snaps its target to the new tone; a retargeted
+        one keeps the zone it was given. The solve waits for the drag to end."""
+        from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R
+
+        pins = self.state.zone_pins
+        if not 0 <= index < len(pins):
+            return
+        self._pin_dragging = not final
+        val = self._sample_normalized_log(nx, ny, radius=2)
+        if val is not None:
+            pin = pins[index]
+            val_luma = LUMA_R * val[0] + LUMA_G * val[1] + LUMA_B * val[2]
+            target = pin.target_zone if pin.retargeted else round(self._pin_zone(val_luma) * 3.0) / 3.0
+            pins[index] = replace(pin, nx=nx, ny=ny, val_rgb=val, val_luma=val_luma, target_zone=target)
+            self._refresh_pin_labels()
+        self.zone_pins_changed.emit()
+        if final and self._zone_preview_shown:
+            self._preview_zone_solution()
 
     def _pin_zone(self, val_luma: float) -> float:
         from negpy.features.exposure.placement import predicted_zone
@@ -1373,6 +1397,17 @@ class AppController(QObject):
             self.state.zone_pins,
         )
 
+    def _refresh_pin_labels(self) -> None:
+        """Re-read each pin's zone through the current curve. Runs before every
+        zone_pins_changed emit so the canvas caption is fresh whatever repaints first."""
+        from negpy.features.exposure.densitometer import zone_roman
+
+        pins = self.state.zone_pins
+        for i, pin in enumerate(pins):
+            label = zone_roman(self._pin_zone(pin.val_luma))
+            if pin.label != label:
+                pins[i] = replace(pin, label=label)
+
     def zone_pin_readouts(self) -> List[Tuple[int, str, float, Optional[str], bool]]:
         """Sidebar rows: (index, measured roman, target zone, achieved roman when the
         target is out of the paper's scale, solvable). Refreshes each pin's canvas label."""
@@ -1380,15 +1415,18 @@ class AppController(QObject):
 
         pins = self.state.zone_pins
         if not pins:
+            self._pin_solution = None
             return []
-        sol = self._solve_zone_placement()
+        self._refresh_pin_labels()
+        # The two-pin nested bisection costs ~15 ms — the last solve stands in while
+        # a pin is being dragged, and the drag's end recomputes it.
+        if not self._pin_dragging:
+            self._pin_solution = self._solve_zone_placement()
+        sol = self._pin_solution
         rows = []
         for i, pin in enumerate(pins):
-            label = zone_roman(self._pin_zone(pin.val_luma))
-            if pin.label != label:
-                pins[i] = replace(pin, label=label)
-            achieved = zone_roman(sol.achieved[i]) if sol is not None and sol.clamped else None
-            rows.append((i, label, pin.target_zone, achieved, sol is not None))
+            achieved = zone_roman(sol.achieved[i]) if sol is not None and sol.clamped and i < len(sol.achieved) else None
+            rows.append((i, pin.label, pin.target_zone, achieved, sol is not None))
         return rows
 
     def set_zone_pin_target(self, index: int, zone: float) -> None:
@@ -1396,11 +1434,15 @@ class AppController(QObject):
         pins = self.state.zone_pins
         if not 0 <= index < len(pins):
             return
-        pins[index] = replace(pins[index], target_zone=min(max(float(zone), 0.0), 10.0))
+        pins[index] = replace(pins[index], target_zone=min(max(float(zone), 0.0), 10.0), retargeted=True)
         self.zone_pins_changed.emit()
+        self._preview_zone_solution()
+
+    def _preview_zone_solution(self) -> None:
         sol = self._solve_zone_placement()
         if sol is None:
             return
+        self._pin_solution = sol
         self._zone_preview_shown = True
         self.request_render(
             readback_metrics=False,
@@ -1420,6 +1462,7 @@ class AppController(QObject):
             persist=True,
         )
         self.request_render()
+        self._refresh_pin_labels()
         self.zone_pins_changed.emit()
 
     def clear_zone_pins(self) -> None:
@@ -1434,6 +1477,8 @@ class AppController(QObject):
             return
         self.state.zone_pins.clear()
         self._zone_preview_shown = False
+        self._pin_dragging = False
+        self._pin_solution = None
         self.zone_pins_changed.emit()
 
     def toggle_ring_around(self, force: Optional[bool] = None) -> None:

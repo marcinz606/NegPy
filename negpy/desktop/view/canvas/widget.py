@@ -43,6 +43,7 @@ _TOOL_CURSORS: dict[ToolMode, Qt.CursorShape] = {
     ToolMode.LOCAL_DRAW: Qt.CursorShape.CrossCursor,
     ToolMode.ANALYSIS_DRAW: Qt.CursorShape.CrossCursor,
     ToolMode.STRAIGHTEN: Qt.CursorShape.CrossCursor,
+    ToolMode.ZONE_PLACE: Qt.CursorShape.CrossCursor,
 }
 
 _scratch_pen_cursor: Optional[QCursor] = None
@@ -115,6 +116,7 @@ class ImageCanvas(QWidget):
     scratch_completed = pyqtSignal(list)
     straighten_completed = pyqtSignal(float)
     test_strip_picked = pyqtSignal(int, int)
+    zone_pin_moved = pyqtSignal(int, float, float, bool)
     local_mask_selected = pyqtSignal(int)
     local_mask_edited = pyqtSignal(int, list)
     local_vertex_deleted = pyqtSignal(int, int)
@@ -169,6 +171,7 @@ class ImageCanvas(QWidget):
         self.overlay.scratch_completed.connect(self.scratch_completed.emit)
         self.overlay.straighten_completed.connect(self.straighten_completed.emit)
         self.overlay.test_strip_picked.connect(self.test_strip_picked.emit)
+        self.overlay.zone_pin_moved.connect(self.zone_pin_moved.emit)
         self.overlay.local_mask_selected.connect(self.local_mask_selected.emit)
         self.overlay.local_mask_edited.connect(self.local_mask_edited.emit)
         self.overlay.local_vertex_deleted.connect(self.local_vertex_deleted.emit)
