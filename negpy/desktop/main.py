@@ -8,8 +8,11 @@ from PyQt6.QtWidgets import QApplication, QProxyStyle, QStyle
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import DesktopSessionManager
 from negpy.desktop.view.main_window import MainWindow
+from negpy.features.flatfield.logic import set_gain_provider
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.services.assets.crosstalk import CrosstalkProfiles
+from negpy.services.assets.flatfield import FlatFieldProfiles
+from negpy.services.assets.flatfield_migration import migrate_legacy_flatfield_profiles
 from negpy.services.assets.gear import GearProfiles
 from negpy.kernel.system.config import APP_CONFIG, BASE_USER_DIR
 from negpy.kernel.system.logging import get_logger, setup_logging
@@ -128,6 +131,12 @@ def main() -> None:
         # UI scale can be applied via QT_SCALE_FACTOR, which Qt only reads at startup.
         repo = StorageRepository(APP_CONFIG.edits_db_path, APP_CONFIG.settings_db_path)
         repo.initialize()
+
+        # Resolve flat-field gains by profile id from the on-disk store (keeps the
+        # numpy logic layer free of any storage dependency), then migrate any legacy
+        # DB-backed profiles into that store.
+        set_gain_provider(FlatFieldProfiles.load_gain)
+        migrate_legacy_flatfield_profiles(repo)
 
         scale = float(repo.get_global_setting("ui_scale", 1.0) or 1.0)
         scale = max(0.8, min(1.2, scale))

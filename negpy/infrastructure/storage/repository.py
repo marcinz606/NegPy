@@ -56,18 +56,6 @@ class StorageRepository(IRepository):
                 pass
 
             conn.execute("""
-                CREATE TABLE IF NOT EXISTS flatfield_profiles (
-                    name TEXT PRIMARY KEY,
-                    path TEXT
-                )
-            """)
-            # Migration: add radial distortion coefficient (rig-level, like the flat frame).
-            try:
-                conn.execute("ALTER TABLE flatfield_profiles ADD COLUMN k1 REAL DEFAULT 0.0")
-            except sqlite3.OperationalError:
-                pass
-
-            conn.execute("""
                 CREATE TABLE IF NOT EXISTS edit_history (
                     file_hash TEXT,
                     step_index INTEGER,
@@ -141,34 +129,6 @@ class StorageRepository(IRepository):
         """
         with self._connect(self.edits_db_path) as conn:
             conn.execute("DELETE FROM normalization_rolls WHERE name = ?", (name,))
-
-    def save_flatfield_profile(self, name: str, path: str, k1: float = 0.0) -> None:
-        """Persists a named flat-field reference profile (reference path + rig distortion)."""
-        with self._connect(self.edits_db_path) as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO flatfield_profiles (name, path, k1) VALUES (?, ?, ?)",
-                (name, path, float(k1)),
-            )
-
-    def get_flatfield_profile(self, name: str) -> Optional[tuple[str, float]]:
-        """Returns (reference path, distortion k1) for a named flat-field profile."""
-        with self._connect(self.edits_db_path) as conn:
-            cursor = conn.execute("SELECT path, k1 FROM flatfield_profiles WHERE name = ?", (name,))
-            row = cursor.fetchone()
-            if row:
-                return str(row[0]), float(row[1] or 0.0)
-        return None
-
-    def list_flatfield_profiles(self) -> list[str]:
-        """Returns names of all saved flat-field profiles."""
-        with self._connect(self.edits_db_path) as conn:
-            cursor = conn.execute("SELECT name FROM flatfield_profiles ORDER BY name")
-            return [row[0] for row in cursor.fetchall()]
-
-    def delete_flatfield_profile(self, name: str) -> None:
-        """Deletes a named flat-field profile."""
-        with self._connect(self.edits_db_path) as conn:
-            conn.execute("DELETE FROM flatfield_profiles WHERE name = ?", (name,))
 
     def save_file_mark(self, file_hash: str, mark: Optional[str]) -> None:
         """Persists a triage mark ('keeper'/'excluded'); None clears it."""
@@ -387,7 +347,6 @@ class StorageRepository(IRepository):
             edit_history = self._count(conn, "edit_history")
             file_marks = self._count(conn, "file_marks")
             normalization_rolls = self._count(conn, "normalization_rolls")
-            flatfield_profiles = self._count(conn, "flatfield_profiles")
 
         with self._connect(self.settings_db_path) as conn:
             global_settings = self._count(conn, "global_settings")
@@ -401,7 +360,6 @@ class StorageRepository(IRepository):
             "edit_history": edit_history,
             "file_marks": file_marks,
             "normalization_rolls": normalization_rolls,
-            "flatfield_profiles": flatfield_profiles,
             "export_presets": export_presets,
             # global_settings rows minus the single export_presets row (if present).
             "app_preferences": max(0, global_settings - (1 if has_presets_row else 0)),
@@ -426,17 +384,20 @@ class StorageRepository(IRepository):
 
     def clear_saved_edits(self) -> None:
         """Drop per-image looks: saved edits, their undo history, and keep/reject
-        marks. Rig calibration (normalization rolls, flat-field profiles), export
-        presets, and app preferences are left intact — so a reloaded image starts
-        from defaults without losing the user's tooling."""
+        marks. Rig calibration (normalization rolls), export presets, and app
+        preferences are left intact — so a reloaded image starts from defaults
+        without losing the user's tooling. Flat-field profiles live in the file
+        store (APP_CONFIG.flatfield_dir), not here, so they are untouched too."""
         self._wipe(self.edits_db_path, ["file_settings", "edit_history", "file_marks"])
 
     def reset_everything(self) -> None:
         """Full clean slate: every table in both databases. Export presets, rig
         profiles, and all app preferences go too. Schema is preserved (rows only),
-        so the app keeps working against the emptied databases without re-init."""
+        so the app keeps working against the emptied databases without re-init.
+        File-store assets (flat-field profiles, sensor/crosstalk matrices) are on
+        disk, not in these databases, so they survive — as with a fresh install."""
         self._wipe(
             self.edits_db_path,
-            ["file_settings", "edit_history", "file_marks", "normalization_rolls", "flatfield_profiles"],
+            ["file_settings", "edit_history", "file_marks", "normalization_rolls"],
         )
         self._wipe(self.settings_db_path, ["global_settings"])

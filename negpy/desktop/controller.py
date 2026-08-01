@@ -122,7 +122,7 @@ def _autocrop_fingerprint(config: WorkspaceConfig, workspace_color_space: str) -
         int(geometry.autocrop_offset),
         round(float(geometry.autocrop_rebate_trim), 4),
         bool(flatfield.apply),
-        str(flatfield.reference_path),
+        str(flatfield.profile_id),
         round(float(flatfield.k1), 9),
         bool(config.process.linear_raw),
         bool(rgbscan.enabled),
@@ -1030,7 +1030,7 @@ class AppController(QObject):
                 stitch_transforms=stitch.stitch_transforms if stitch.stitch_enabled else (),
                 stitch_canvas=stitch.stitch_canvas,
                 stitch_sizes=stitch.stitch_sizes,
-                flatfield_path=flatfield.reference_path if (stitch.stitch_enabled and flatfield.apply) else "",
+                flatfield_profile_id=flatfield.profile_id if (stitch.stitch_enabled and flatfield.apply) else "",
             )
         )
 
@@ -2216,34 +2216,46 @@ class AppController(QObject):
         self.session.update_config(replace(self.state.config, process=new_process))
         self.request_render()
 
-    def set_active_flatfield_profile(self, name: str) -> None:
+    def set_active_flatfield_profile(self, profile_id: str) -> None:
         """
         Selects the globally active flat-field reference profile (or clears it when
-        ``name`` is empty). Applies its path to the current image and re-renders.
+        ``profile_id`` is empty). Stamps its id + rig distortion onto the current
+        image and re-renders.
         """
-        self.session.repo.save_global_setting("flatfield_active_profile", name or "")
-        rec = self.session.repo.get_flatfield_profile(name) if name else None
-        path, k1 = rec if rec else ("", 0.0)
-        new_ff = replace(self.state.config.flatfield, reference_path=path or "", apply=bool(path), k1=k1)
+        from negpy.services.assets.flatfield import FlatFieldProfiles
+
+        self.session.repo.save_global_setting("flatfield_active_profile", profile_id or "")
+        prof = FlatFieldProfiles.get(profile_id) if profile_id else None
+        pid = prof.id if prof else ""
+        new_ff = replace(self.state.config.flatfield, profile_id=pid, apply=bool(pid), k1=prof.k1 if prof else 0.0)
         self.session.update_config(replace(self.state.config, flatfield=new_ff), persist=True)
         self.request_render()
 
     def save_flatfield_profile(self, name: str, path: str) -> None:
         """
-        Saves a reference image as a named flat-field profile and makes it active.
+        Bakes a reference image into a named flat-field profile and makes it active.
         """
-        self.session.repo.save_flatfield_profile(name, path)
-        self.set_active_flatfield_profile(name)
+        from negpy.services.assets.flatfield import FlatFieldProfiles
+
+        profile_id = FlatFieldProfiles.create(name, path)
+        if profile_id is None:
+            self.set_status("Flat-field: could not read that reference image", 3000)
+            return
+        self.set_active_flatfield_profile(profile_id)
         self.set_status(f"Flat-field profile '{name}' saved", 2000)
 
-    def delete_flatfield_profile(self, name: str) -> None:
+    def delete_flatfield_profile(self, profile_id: str) -> None:
         """
         Removes a flat-field profile; clears the active correction if it was selected.
         """
-        if not name:
+        from negpy.features.flatfield.logic import invalidate_gain
+        from negpy.services.assets.flatfield import FlatFieldProfiles
+
+        if not profile_id:
             return
-        self.session.repo.delete_flatfield_profile(name)
-        if self.session.repo.get_global_setting("flatfield_active_profile") == name:
+        FlatFieldProfiles.delete(profile_id)
+        invalidate_gain(profile_id)
+        if self.session.repo.get_global_setting("flatfield_active_profile") == profile_id:
             self.set_active_flatfield_profile("")
 
     def load_gear_library(self):
@@ -2273,9 +2285,9 @@ class AppController(QObject):
         self.session.update_config(replace(self.state.config, flatfield=new_ff), persist=True)
         active = self.session.repo.get_global_setting("flatfield_active_profile") or ""
         if active:
-            rec = self.session.repo.get_flatfield_profile(active)
-            path = rec[0] if rec else ""
-            self.session.repo.save_flatfield_profile(active, path, k1)
+            from negpy.services.assets.flatfield import FlatFieldProfiles
+
+            FlatFieldProfiles.set_k1(active, k1)
         self.request_render()
 
     # ── Scanner integration ───────────────────────────────────────────

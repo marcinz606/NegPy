@@ -16,6 +16,7 @@ from negpy.features.stitch.models import StitchConfig
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG
+from negpy.services.assets.flatfield import FlatFieldProfiles
 from negpy.services.assets.sidecar import load_or_promote
 
 
@@ -536,13 +537,14 @@ class DesktopSessionManager(QObject):
                 metadata=replace(config.metadata, protect_original_metadata=bool(sticky_protect)),
             )
 
-        # Flat-field reference and distortion k1 are rig-global: the active profile's
+        # Flat-field profile and distortion k1 are rig-global: the active profile's
         # values always override the per-file ones. New files default to enabled when a
         # profile is active; saved files keep their toggle.
         active_ff = self.repo.get_global_setting("flatfield_active_profile")
-        ff_rec = self.repo.get_flatfield_profile(active_ff) if active_ff else None
-        ff_path, ff_k1 = ff_rec if ff_rec else ("", 0.0)
-        config = replace(config, flatfield=replace(config.flatfield, reference_path=ff_path, k1=ff_k1))
+        ff_prof = FlatFieldProfiles.get(active_ff) if active_ff else None
+        ff_id = ff_prof.id if ff_prof else ""
+        ff_k1 = ff_prof.k1 if ff_prof else 0.0
+        config = replace(config, flatfield=replace(config.flatfield, profile_id=ff_id, k1=ff_k1))
 
         # Temperature roll-locks (per region): re-aim each locked region's M/Y
         # pair at its Kelvin target, keeping the frame's own off-locus tint.
@@ -561,7 +563,7 @@ class DesktopSessionManager(QObject):
         if only_global:
             return config
 
-        config = replace(config, flatfield=replace(config.flatfield, apply=bool(ff_path)))
+        config = replace(config, flatfield=replace(config.flatfield, apply=bool(ff_id)))
 
         # Workflow settings — safe to carry across all files on a roll
         sticky_mode = self.repo.get_global_setting("last_process_mode")

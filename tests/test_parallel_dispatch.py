@@ -128,6 +128,7 @@ def test_override_parsing_and_apply():
         user_icc_dir="",
         crosstalk_dir="",
         sensor_dir="",
+        flatfield_dir="",
         gear_dir="",
         contact_sheet_templates_dir="",
         default_export_dir="",

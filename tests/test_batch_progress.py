@@ -107,7 +107,7 @@ def test_export_batch_keeps_source_cache_for_consecutive_same_file(tmp_path) -> 
     a, b = _task("a.cr2"), _task("b.cr2")
     assert _same_decode_source(a, _task("a.cr2"))
     assert not _same_decode_source(a, b)
-    flat = replace(DEFAULT_WORKSPACE_CONFIG, flatfield=replace(DEFAULT_WORKSPACE_CONFIG.flatfield, apply=True, reference_path="/f.dng"))
+    flat = replace(DEFAULT_WORKSPACE_CONFIG, flatfield=replace(DEFAULT_WORKSPACE_CONFIG.flatfield, apply=True, profile_id="rig-1"))
     a_flat = ExportTask(file_info=a.file_info, params=flat, export_settings=preset)
     assert not _same_decode_source(a, a_flat)
 

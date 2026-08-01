@@ -165,7 +165,7 @@ class PreviewLoadTask:
     stitch_transforms: tuple[tuple[float, ...], ...] = ()
     stitch_canvas: tuple[int, int] = (0, 0)
     stitch_sizes: tuple[tuple[int, int], ...] = ()
-    flatfield_path: str = ""  # per-part flat-field for stitch previews
+    flatfield_profile_id: str = ""  # per-part flat-field profile for stitch previews
 
 
 class RenderWorker(QObject):
@@ -585,7 +585,7 @@ class PreviewLoadWorker(QObject):
                     use_camera_wb=task.use_camera_wb,
                     full_resolution=task.full_resolution,
                     file_hash=task.file_hash,
-                    flatfield_path=task.flatfield_path,
+                    flatfield_profile_id=task.flatfield_profile_id,
                 )
                 source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
                 ir_preview = metadata.get("ir_preview")

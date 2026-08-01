@@ -24,7 +24,6 @@ _EDIT_ROWS = (
 )
 _TOOLING_ROWS = (
     ("normalization_rolls", "Normalization rolls"),
-    ("flatfield_profiles", "Flat-field profiles"),
     ("export_presets", "Export presets"),
     ("app_preferences", "App preferences"),
 )
@@ -173,7 +172,7 @@ class DatabaseDialog(QDialog):
 
     def _update_enabled(self, stats: dict) -> None:
         edits = stats.get("file_settings", 0) + stats.get("edit_history", 0) + stats.get("file_marks", 0)
-        total = edits + sum(stats.get(k, 0) for k in ("normalization_rolls", "flatfield_profiles", "export_presets", "app_preferences"))
+        total = edits + sum(stats.get(k, 0) for k in ("normalization_rolls", "export_presets", "app_preferences"))
         self.clear_edits_btn.setEnabled(edits > 0)
         self.reset_all_btn.setEnabled(total > 0)
         self.clear_thumbs_btn.setEnabled(stats.get("thumbnails", 0) > 0)

@@ -226,7 +226,7 @@ Where the frame gets its final shape: what's inside the print, and whether it si
 Corrects uneven illumination (vignetting/falloff) from your copy-stand or scanner light, using a reference shot of the bare light source.
 
 *   **Flatfield Correction**: apply the active reference to this image (enabled once a profile exists).
-*   **Reference Profile** dropdown + **Add…** / **Delete**: pick a reference image and save it as a named profile.
+*   **Reference Profile** dropdown + **Add…** / **Delete**: pick a reference image and save it as a named profile. **Add…** reads the reference once and bakes its correction into the profile, so the original reference file can then be moved, renamed or deleted without affecting your edits — the profile is self-contained (stored in NegPy's own `flatfield` folder, like sensor and crosstalk profiles).
 *   **Distortion** (-0.25 to 0.25): radial lens-distortion correction for the rig, saved with the profile. Use the film rebate as a straight-edge reference.
 
 ---

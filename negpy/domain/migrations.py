@@ -47,6 +47,11 @@ DROPPED_KEYS: frozenset[str] = frozenset(
         "density_saturation_damping",
         "density_damping_spatial",
         "vibrance",  # Lab Vibrance, retired in favour of the per-pixel Dye Separation
+        # Flat-field moved from a stored reference *path* to an opaque profile_id
+        # (baked gain in the file store). The DB migration rewrites edits it can
+        # reach; this drops the legacy key from any that slip through (sidecars,
+        # presets) so it doesn't warn — that edit just needs its profile re-picked.
+        "reference_path",
     }
 )
 

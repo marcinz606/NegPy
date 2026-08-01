@@ -78,20 +78,22 @@ class FlatFieldSidebar(BaseSidebar):
     def _refresh_profiles(self) -> None:
         # Preserve the caller's block state: unblocking here would let sync_ui's
         # setCurrentIndex re-fire _on_profile_selected and loop into update_config.
+        from negpy.services.assets.flatfield import FlatFieldProfiles
+
         prev = self.profile_combo.signalsBlocked()
         self.profile_combo.blockSignals(True)
         self.profile_combo.clear()
         self.profile_combo.addItem(_NONE_LABEL, "")
-        for name in self.controller.session.repo.list_flatfield_profiles():
-            self.profile_combo.addItem(name, name)
+        for profile_id, name in FlatFieldProfiles.list_profiles():
+            self.profile_combo.addItem(name, profile_id)
         self.profile_combo.blockSignals(prev)
 
     def _on_profile_selected(self, _idx: int) -> None:
-        name = self.profile_combo.currentData() or ""
+        profile_id = self.profile_combo.currentData() or ""
         active = self.controller.session.repo.get_global_setting("flatfield_active_profile") or ""
-        if name == active:
+        if profile_id == active:
             return
-        self.controller.set_active_flatfield_profile(name)
+        self.controller.set_active_flatfield_profile(profile_id)
         self.sync_ui()
 
     def _on_add(self) -> None:
@@ -106,9 +108,9 @@ class FlatFieldSidebar(BaseSidebar):
             self.sync_ui()
 
     def _on_delete(self) -> None:
-        name = self.profile_combo.currentData()
-        if name:
-            self.controller.delete_flatfield_profile(name)
+        profile_id = self.profile_combo.currentData()
+        if profile_id:
+            self.controller.delete_flatfield_profile(profile_id)
             self._refresh_profiles()
             self.sync_ui()
 
@@ -123,9 +125,9 @@ class FlatFieldSidebar(BaseSidebar):
             self.profile_combo.setCurrentIndex(idx if idx >= 0 else 0)
 
             self.enable_btn.setChecked(conf.apply)
-            self.enable_btn.setEnabled(bool(conf.reference_path))
+            self.enable_btn.setEnabled(bool(conf.profile_id))
             self.k1_slider.setValue(conf.k1)
-            self.k1_slider.setEnabled(bool(conf.reference_path))
+            self.k1_slider.setEnabled(bool(conf.profile_id))
         finally:
             self.block_signals(False)
 

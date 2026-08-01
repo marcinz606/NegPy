@@ -19,7 +19,6 @@ def _seed(repo):
     repo.save_history_step("hash-a", 1, replace(cfg))
     repo.save_file_mark("hash-a", "keeper")
     repo.save_normalization_roll("roll-1", (0.1, 0.1, 0.1), (0.9, 0.9, 0.9))
-    repo.save_flatfield_profile("rig-1", "/refs/flat.dng", k1=-0.05)
     repo.save_export_presets([ExportPreset(name="mine")])
     repo.save_global_setting("window_geometry", [0, 0, 800, 600])
     repo.save_global_setting("last_open_folder", "/photos")
@@ -34,7 +33,6 @@ def test_database_stats_counts_each_category(tmp_path):
     assert stats["edit_history"] == 2
     assert stats["file_marks"] == 1
     assert stats["normalization_rolls"] == 1
-    assert stats["flatfield_profiles"] == 1
     assert stats["export_presets"] == 1
     # export_presets is one row inside global_settings; it must not inflate the
     # preferences count, which here is the two real settings we saved.
@@ -51,7 +49,6 @@ def test_stats_on_empty_db_are_all_zero(tmp_path):
         "edit_history",
         "file_marks",
         "normalization_rolls",
-        "flatfield_profiles",
         "export_presets",
         "app_preferences",
     ):
@@ -71,7 +68,6 @@ def test_clear_saved_edits_drops_only_per_image_data(tmp_path):
     assert stats["file_marks"] == 0
     # Tooling kept.
     assert stats["normalization_rolls"] == 1
-    assert stats["flatfield_profiles"] == 1
     assert stats["export_presets"] == 1
     assert stats["app_preferences"] == 2
 
@@ -103,7 +99,6 @@ def test_reset_everything_wipes_both_databases(tmp_path):
         "edit_history",
         "file_marks",
         "normalization_rolls",
-        "flatfield_profiles",
         "export_presets",
         "app_preferences",
     ):

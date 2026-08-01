@@ -151,7 +151,7 @@ def test_batch_autocrop_applies_flatfield_and_crop_free_geometry(
     flatfield = replace(
         base.flatfield,
         apply=flatfield_enabled,
-        reference_path="/flat.dng",
+        profile_id="rig-1",
         k1=0.23,
     )
     config = replace(base, geometry=geometry, flatfield=flatfield)

@@ -163,7 +163,7 @@ class TestConfigDeserialization(unittest.TestCase):
     def test_flatfield_apply_does_not_collide_with_rgbscan_enabled(self):
         """flatfield.apply and rgbscan.enabled must round-trip independently (#356)."""
         cfg = WorkspaceConfig(
-            flatfield=replace(WorkspaceConfig().flatfield, apply=True, reference_path="/r.dng"),
+            flatfield=replace(WorkspaceConfig().flatfield, apply=True, profile_id="abc123"),
             rgbscan=replace(WorkspaceConfig().rgbscan, enabled=False),
         )
         back = WorkspaceConfig.from_flat_dict(cfg.to_dict())

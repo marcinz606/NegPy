@@ -398,7 +398,7 @@ class PreviewManager:
         use_camera_wb: bool = False,
         full_resolution: bool = False,
         file_hash: str | None = None,
-        flatfield_path: str = "",
+        flatfield_profile_id: str = "",
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """Assemble a stitch composite at preview scale by replaying the stored
         registration. Flat-field is applied per part here (a composite canvas must
@@ -407,7 +407,7 @@ class PreviewManager:
         Returned dims are the full-resolution canvas, matching the single-file
         convention of (original height, width) alongside a downsampled buffer.
         """
-        flatfield = FlatFieldConfig(apply=bool(flatfield_path), reference_path=flatfield_path)
+        flatfield = FlatFieldConfig(apply=bool(flatfield_profile_id), profile_id=flatfield_profile_id)
         key = None
         if file_hash and color_space is not None:
             token = stitch_token(stitch)
