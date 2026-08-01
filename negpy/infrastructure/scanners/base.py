@@ -28,6 +28,7 @@ class ScannerCapabilities:
     supported_depths: tuple[int, ...]
     sources: tuple[ScanMode, ...]
     max_area_mm: tuple[float, float]  # (width, height)
+    autofocus: bool = True
     auto_exposure: bool = False
     adapter_frame_capacity: int | None = None  # transport capacity bound, not an exposure count
     adapter_frame_control: bool = False

@@ -378,6 +378,8 @@ class ScanSidebar(QWidget):
         self.eject_btn.setVisible(caps.can_eject)
         self.eject_btn.setEnabled(caps.can_eject and not self._scanning)
         self.frame_label.setText(f"Frame: {caps.max_area_mm[0]:.0f} × {caps.max_area_mm[1]:.0f} mm")
+        self.autofocus_check.setChecked(caps.autofocus)
+        self.autofocus_check.setVisible(caps.autofocus)
 
         # If no film sources, show banner
         if not caps.sources:

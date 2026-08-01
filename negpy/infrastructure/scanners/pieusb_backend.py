@@ -23,7 +23,7 @@ def _require_pieusb() -> None:
     try:
         import pieusb
     except ImportError:
-        raise ScannerUnavailable('pieusb not importable.') from None
+        raise ScannerUnavailable('pieusb not importable. Install: uv sync --group pieusb') from None
 
 class PieusbSession:
     device_id: str
@@ -78,7 +78,8 @@ class PieusbBackend:
                 supported_depths=supported_depths,
                 sources=(ScanMode.POSITIVE,),
                 max_area_mm=(max_w, max_h),
-                auto_exposure=True
+                auto_exposure=True,
+                autofocus=False
             )
             device_str = f'pieusb:{dev.dev.bus}:{dev.dev.address}'
             self._devices_map[device_str] = dev

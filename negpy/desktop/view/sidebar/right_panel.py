@@ -99,7 +99,7 @@ class RightPanel(QWidget):
         self.metadata_sidebar = MetadataSidebar(self.controller)
         self.history_panel = HistoryPanel(self.controller)
 
-        from negpy.desktop.view.sidebar.scan import ScanSidebar, _ScanUnsupportedPlaceholder
+        from negpy.desktop.view.sidebar.scan import ScanSidebar
 
         self.scan_sidebar = ScanSidebar(self.controller)
 
