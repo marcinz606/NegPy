@@ -53,7 +53,7 @@ class ScanWorker(QObject):
     """Background worker for scanner operations. Mirrors RenderWorker pattern."""
 
     devices_ready = pyqtSignal(list)  # list[ScannerDevice]
-    progress = pyqtSignal(float)  # 0.0..1.0
+    progress = pyqtSignal(float, str)  # 0.0..1.0, phase name
     finished = pyqtSignal(str)  # output rgb file path
     frame_done = pyqtSignal(int, str)  # batch: frame number, rgb file path
     batch_finished = pyqtSignal(list)  # batch: all written rgb paths (also on stop/error)

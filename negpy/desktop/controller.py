@@ -289,7 +289,7 @@ class AppController(QObject):
     scan_backend_requested = pyqtSignal(str)
     scan_requested = pyqtSignal(ScanRequest)
     scan_devices_ready = pyqtSignal(list)
-    scan_progress = pyqtSignal(float)
+    scan_progress = pyqtSignal(float, str) # progress, phase name
     scan_finished = pyqtSignal(str)
     scan_error = pyqtSignal(str)
     scan_started = pyqtSignal()
