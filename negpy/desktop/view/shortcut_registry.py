@@ -130,6 +130,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "vignette_size_inc": ShortcutEntry("Alt+S", "Vignette size up", "Finishing"),
     "border_size_dec": ShortcutEntry("Alt+Shift+D", "Border width down", "Finishing"),
     "border_size_inc": ShortcutEntry("Alt+D", "Border width up", "Finishing"),
+    "browse_parent": ShortcutEntry("Alt+Up", "Go up one library folder", "Navigation"),
     "focus_search": ShortcutEntry("Ctrl+F", "Focus the film strip search box", "Navigation"),
     "search_library": ShortcutEntry("Ctrl+Shift+F", "Search every library folder and load the matches", "Navigation"),
     "toggle_library_tree": ShortcutEntry("", "Show/hide the library folder tree", "View"),

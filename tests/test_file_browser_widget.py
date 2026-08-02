@@ -530,15 +530,20 @@ def test_session_menu_clear_all_clears_every_frame(browser, session):
 
 
 @pytest.fixture
-def library(tmp_path):
-    """scans/ with a container folder, a roll, and a roll that also has a subfolder."""
+def library(tmp_path, session):
+    """scans/ with a container folder, a roll, and a roll that also has a subfolder.
+
+    Registered as the library root, so scans/ is the top of the branch — exactly what
+    the app sees, and what decides whether a go-up tile belongs on the sheet."""
     (tmp_path / "scans" / "roll_a").mkdir(parents=True)
     (tmp_path / "scans" / "roll_b" / "rescans").mkdir(parents=True)
     (tmp_path / "scans" / "roll_a" / "a1.NEF").write_bytes(b"1")
     (tmp_path / "scans" / "roll_a" / "a2.NEF").write_bytes(b"2")
     (tmp_path / "scans" / "roll_b" / "b1.NEF").write_bytes(b"3")
     (tmp_path / "scans" / "roll_b" / "rescans" / "b1_v2.NEF").write_bytes(b"4")
-    return tmp_path / "scans"
+    root = tmp_path / "scans"
+    session.repo.get_global_setting.side_effect = lambda key, default=None: ([str(root)] if key == "library_roots" else default)
+    return root
 
 
 def _folder_names(session):
@@ -585,7 +590,7 @@ def test_a_loaded_folders_subfolders_stay_on_the_sheet(browser, session, library
 
     browser.browse_folder(str(library / "roll_b"))
 
-    assert _folder_names(session) == ["rescans"]
+    assert _folder_names(session) == ["scans", "rescans"]  # the way back up, then the subfolder
 
 
 def test_container_folder_needs_no_prompt(browser, session, library, monkeypatch):
@@ -638,3 +643,86 @@ def test_browsing_never_unloads_the_current_roll(browser, session, library):
     browser.browse_folder(str(library))
 
     assert session.state.uploaded_files == before
+
+
+def test_a_browsed_subfolder_offers_a_way_back_up(browser, session, library, monkeypatch):
+    monkeypatch.setattr(browser, "_confirm_load", lambda contents: True)
+
+    browser.browse_folder(str(library / "roll_a"))
+
+    up = session.asset_model.folders[0]
+    assert up.is_parent and up.path == str(library) and up.summary() == "Go up"
+
+
+def test_the_library_root_is_the_top(browser, session, library):
+    browser.browse_folder(str(library))
+
+    assert not any(f.is_parent for f in session.asset_model.folders)
+
+
+def test_going_up_returns_to_the_parent(browser, session, library, monkeypatch):
+    monkeypatch.setattr(browser, "_confirm_load", lambda contents: True)
+    browser.browse_folder(str(library / "roll_b" / "rescans"))
+
+    browser.browse_parent()
+
+    assert browser._browsed_folder == str(library / "roll_b")
+    assert [f.name for f in session.asset_model.folders] == ["scans", "rescans"]  # up tile, then subfolder
+
+
+def test_going_up_from_a_root_does_nothing(browser, session, library):
+    browser.browse_folder(str(library))
+
+    browser.browse_parent()
+
+    assert browser._browsed_folder == str(library)
+
+
+def test_going_up_before_browsing_anything_is_a_noop(browser, library):
+    browser.browse_parent()
+
+    assert browser._browsed_folder == ""
+
+
+def test_the_go_up_tile_is_not_counted_as_a_folder(browser, session, library, monkeypatch):
+    monkeypatch.setattr(browser, "_confirm_load", lambda contents: True)
+
+    browser.browse_folder(str(library / "roll_b"))
+    browser._update_tally()
+
+    assert session.asset_model.folder_count == 2  # up tile + rescans, for row maths
+    assert "1 folder" in browser.tally_label.text()  # but only one is a place to go into
+
+
+def test_clicking_the_go_up_tile_navigates(browser, session, library, monkeypatch):
+    monkeypatch.setattr(browser, "_confirm_load", lambda contents: True)
+    browser.browse_folder(str(library / "roll_a"))
+
+    browser._on_item_clicked(session.asset_model.index(0, 0))
+
+    assert browser._browsed_folder == str(library)
+
+
+def test_add_folder_on_a_container_shows_its_subfolders(browser, session, library):
+    """Picking the directory everything lives under used to dead-end on
+    "no supported assets found" — the importer looks in a folder, not through it."""
+    browser.open_or_browse(str(library))
+
+    browser.controller.request_asset_discovery.assert_not_called()
+    assert [f.name for f in session.asset_model.folders] == ["roll_a", "roll_b"]
+    assert "subfolders" in browser.controller.set_status.call_args.args[0]
+
+
+def test_add_folder_on_a_roll_still_just_loads_it(browser, session, library):
+    browser.open_or_browse(str(library / "roll_a"))
+
+    browser.controller.request_asset_discovery.assert_called_once_with([str(library / "roll_a")], auto_open=True)
+
+
+def test_add_folder_on_an_empty_folder_says_so(browser, session, tmp_path):
+    (tmp_path / "void").mkdir()
+
+    browser.open_or_browse(str(tmp_path / "void"))
+
+    browser.controller.request_asset_discovery.assert_not_called()
+    assert "no images" in browser.controller.set_status.call_args.args[0]

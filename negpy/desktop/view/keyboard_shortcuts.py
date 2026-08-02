@@ -113,6 +113,7 @@ class ShortcutManager:
             "toggle_ring_around": controller.toggle_ring_around,
             "toggle_grain_focuser": controller.toggle_grain_focuser,
             "cancel_tool": lambda: _context_cancel(controller, self.window),
+            "browse_parent": self.window.session_panel.file_browser.browse_parent,
             "focus_search": self.window.session_panel.file_browser.focus_search,
             "search_library": self.window.session_panel.file_browser.search_library,
             "toggle_library_tree": self.window.session_panel.toggle_library_tree,

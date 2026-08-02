@@ -257,6 +257,11 @@ class AssetListModel(QAbstractListModel):
         self.layoutChanged.emit()
 
     @property
+    def folders(self) -> list:
+        """The tiles as shown, including the go-up tile when there is one."""
+        return [] if self._filter_text else list(self._folders)
+
+    @property
     def folder_count(self) -> int:
         """Tiles currently shown — zero while a search is active (a query is about
         frames, and a folder cannot answer `film:portra`)."""

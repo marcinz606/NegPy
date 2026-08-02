@@ -111,7 +111,8 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         block = glyph + 6 + line * 2
         top = area.y() + max(0, (area.height() - block) // 2)
 
-        icon = qta.icon("fa5s.folder", color=THEME.text_primary if hover else THEME.text_secondary)
+        glyph_name = "fa5s.level-up-alt" if folder.is_parent else "fa5s.folder"
+        icon = qta.icon(glyph_name, color=THEME.text_primary if hover else THEME.text_secondary)
         icon.paint(painter, QRect(area.center().x() - glyph // 2, top, glyph, glyph))
 
         text_top = top + glyph + 6
@@ -635,11 +636,35 @@ class FileBrowser(QWidget):
             self.session.repo.save_global_setting("library_autoload_folders", True)
         return True
 
+    def _parent_entry(self, path: str) -> "FolderEntry | None":
+        """The go-up tile for a browsed folder, or None at a library root.
+
+        A root is the top of its branch — walking above it would leave the library and
+        put folders on the sheet that the tree cannot show.
+        """
+        roots = self.session.repo.get_global_setting("library_roots", []) or []
+        current = os.path.normpath(path)
+        if current in {os.path.normpath(r) for r in roots}:
+            return None
+        parent = os.path.dirname(current)
+        if not parent or parent == current:
+            return None
+        return FolderEntry(parent, os.path.basename(parent) or parent, 0, 0, is_parent=True)
+
+    def browse_parent(self) -> None:
+        """Step out of the folder being browsed, into the one that holds it."""
+        if not self._browsed_folder:
+            return
+        parent = self._parent_entry(self._browsed_folder)
+        if parent is not None:
+            self.browse_folder(parent.path)
+
     def _show_folder(self, contents, load: bool, add_to_session: bool = False) -> None:
         """Browsing only changes the tiles. Frames come and go on an accepted load —
         wandering into a folder must never quietly unload the roll you were working on."""
         self._browsed_folder = contents.path
-        self.session.asset_model.set_folders(contents.folders)
+        parent = self._parent_entry(contents.path)
+        self.session.asset_model.set_folders([*([parent] if parent else []), *contents.folders])
         if load:
             self.controller.open_library_folder(contents.path, add_to_session=add_to_session)
         self._update_tally()
@@ -796,7 +821,7 @@ class FileBrowser(QWidget):
 
     def _update_tally(self) -> None:
         files = self.session.state.uploaded_files
-        folders = self.session.asset_model.folder_count
+        folders = sum(1 for f in self.session.asset_model.folders if not f.is_parent)
         if not files:
             if folders and self._browsed_folder:
                 name = os.path.basename(self._browsed_folder.rstrip(os.sep)) or self._browsed_folder
@@ -875,7 +900,24 @@ class FileBrowser(QWidget):
         folder = QFileDialog.getExistingDirectory(self, "Select Folder", start_dir)
         if folder:
             self.session.repo.save_global_setting("last_open_folder", os.path.dirname(folder))
+            self.open_or_browse(folder)
+
+    def open_or_browse(self, folder: str) -> None:
+        """Load a folder's images, or — when it only holds subfolders — show those.
+
+        Picking the one directory everything lives under used to dead-end on "no
+        supported assets found", because the importer looks in that folder and not
+        through it. Its subfolders are the answer, so show them.
+        """
+        contents = scan_folder(folder)
+        if contents.image_count:
             self.controller.request_asset_discovery([folder], auto_open=True)
+            self._show_folder(contents, load=False)
+        elif contents.folders:
+            self._show_folder(contents, load=False)
+            self.controller.set_status(f"No images directly in that folder — showing its {len(contents.folders)} subfolders", 5000)
+        else:
+            self.controller.set_status("That folder has no images in it", 4000)
 
     def _activate_file(self, index) -> None:
         """Load a thumbnail into the main viewer, skipping a redundant reload of the
@@ -905,10 +947,12 @@ class FileBrowser(QWidget):
         folder = self.session.asset_model.folder_at(index.row()) if index.isValid() else None
         if folder is not None:
             menu = QMenu(self)
-            menu.addAction("Open folder").triggered.connect(lambda: self.browse_folder(folder.path))
-            act_add = menu.addAction("Add to session")
-            act_add.triggered.connect(lambda: self.browse_folder(folder.path, add_to_session=True))
-            act_add.setEnabled(bool(folder.image_count))
+            label = "Go up" if folder.is_parent else "Open folder"
+            menu.addAction(label).triggered.connect(lambda: self.browse_folder(folder.path))
+            if not folder.is_parent:
+                act_add = menu.addAction("Add to session")
+                act_add.triggered.connect(lambda: self.browse_folder(folder.path, add_to_session=True))
+                act_add.setEnabled(bool(folder.image_count))
             menu.exec(self.list_view.viewport().mapToGlobal(pos))
             return
         if not index.isValid():

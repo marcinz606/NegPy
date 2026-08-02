@@ -53,6 +53,8 @@ The top of the panel is a folder tree of the places your scans live. Press **+**
 
 Click any folder, in the tree or on the sheet, to look inside it. Its subfolders appear on the contact sheet as plain tiles showing the folder's name and what is in it ("36 photos", "2 folders"), so you can keep drilling down without going back to the tree. A folder that also holds photos shows both: its subfolder tiles first, then its frames.
 
+The first tile is the way back out — an arrow labelled with the folder above, or **Alt+Up**. It stops at the folder you added to the library, which is the top of that branch.
+
 When you enter a folder that actually contains images, NegPy asks whether to **load the roll** — and only then does it hash and thumbnail them, which is the part that takes a moment on a big roll. Say no and nothing happens; your open frames stay exactly as they were. Tick **Always load without asking** in that prompt if you would rather it just get on with it.
 
 Loading a roll replaces what's in the film strip (right-click a tile → **Add to session** appends instead). Nothing is lost either way: your edits live in NegPy's database, not in the list of open files.
@@ -65,7 +67,7 @@ NegPy reads the tree straight from disk and never creates, renames, moves or del
 
 Toolbar buttons, left to right:
 
-*   **Add files** / **Add folder**: load individual images or every image in a folder.
+*   **Add files** / **Add folder**: load individual images or every image in a folder. Pick a folder that only holds *other* folders and NegPy shows you those instead of reporting that it found nothing — the same tiles the library tree gives you. Dropping a folder on the window does the same.
 *   **Clear all**: unload everything (or, when several frames are selected, unload just those).
 *   **Hot Folder**: watches the current folder and auto-loads new files as they appear, handy when a scanner drops files into a directory.
 *   **RGB Scan**: treats the folder as red/green/blue exposure triplets and assembles each frame from three shots (for narrowband trichrome scanning). Right-click a frame → **Edit RGB Triplet…** to assign the three files by hand.

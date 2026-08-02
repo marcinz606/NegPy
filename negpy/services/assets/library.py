@@ -24,14 +24,21 @@ from negpy.services.assets.search import Term, facts_for, match
 
 @dataclass(frozen=True)
 class FolderEntry:
-    """A subfolder as the contact sheet shows it: a name and what is inside."""
+    """A folder as the contact sheet shows it: a name and what is inside.
+
+    ``is_parent`` marks the one tile that goes back up rather than down; it carries no
+    counts, because reading them would mean listing a folder you are only passing through.
+    """
 
     path: str
     name: str
     image_count: int
     subfolder_count: int
+    is_parent: bool = False
 
     def summary(self) -> str:
+        if self.is_parent:
+            return "Go up"
         parts = []
         if self.image_count:
             parts.append(f"{self.image_count} photo{'s' if self.image_count != 1 else ''}")

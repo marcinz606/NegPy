@@ -593,6 +593,10 @@ class MainWindow(QMainWindow):
 
     def dropEvent(self, event) -> None:
         paths = [u.toLocalFile() for u in event.mimeData().urls()]
-        if paths:
+        if len(paths) == 1 and os.path.isdir(paths[0]):
+            # Same courtesy as Add folder: a dropped folder that only holds subfolders
+            # shows them rather than reporting that it found nothing.
+            self.session_panel.file_browser.open_or_browse(paths[0])
+        elif paths:
             self.controller.request_asset_discovery(paths, auto_open=True)
         event.acceptProposedAction()
