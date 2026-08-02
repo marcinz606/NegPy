@@ -2,12 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from negpy.infrastructure.scanners.base import (
-    ScannerDevice,
-    ScannerSession,
-    ScannerUnavailable,
-    ScannerCapabilities
-)
+from negpy.infrastructure.scanners.base import ScannerDevice, ScannerSession, ScannerUnavailable, ScannerCapabilities
 from negpy.infrastructure.scanners.params import ScanParams, ScanMode
 from negpy.infrastructure.scanners.result import ScanResult
 
@@ -19,32 +14,43 @@ from collections.abc import Callable
 
 import threading
 
+
 def _require_pieusb() -> None:
     try:
-        import pieusb
+        # An actual import, not find_spec: a resolvable spec still fails to load
+        # if pyusb or libusb_package's bundled library is missing or ABI-broken,
+        # which is the failure this is here to catch.
+        import pieusb  # noqa: F401
     except ImportError:
-        raise ScannerUnavailable('pieusb not importable. Install: uv sync --group pieusb') from None
+        raise ScannerUnavailable("pieusb not importable. Install: uv sync --group pieusb") from None
+
 
 class PieusbSession:
     device_id: str
 
     def __init__(self, info: DeviceInfo) -> None:
         self.dev = Scanner(info)
-    
+
     def scan(
         self,
         params: ScanParams,
         progress: Callable[[float], None],
         cancel: threading.Event,
-    ) -> ScanResult: ...
+    ) -> ScanResult:
+        raise NotImplementedError("PieusbSession is a stub; use PieusbBackend.scan")
+
     def eject(self) -> bool:
         return False
+
     def close(self) -> None:
         self.dev.close()
+
     def __enter__(self) -> "ScannerSession":
         return self
+
     def __exit__(self, *exc: object) -> None:
         self.close()
+
 
 class PieusbBackend:
     def __init__(self) -> None:
@@ -58,7 +64,7 @@ class PieusbBackend:
             return self._devices_cache
 
         return self.refresh_devices()
-    
+
     def refresh_devices(self) -> list[ScannerDevice]:
         from pieusb import get_devices
         from pieusb.types import Filter
@@ -79,16 +85,13 @@ class PieusbBackend:
                 sources=(ScanMode.POSITIVE,),
                 max_area_mm=(max_w, max_h),
                 auto_exposure=True,
-                autofocus=False
+                autofocus=False,
             )
-            device_str = f'pieusb:{dev.dev.bus}:{dev.dev.address}'
+            device_str = f"pieusb:{dev.dev.bus}:{dev.dev.address}"
             self._devices_map[device_str] = dev
-            self._devices_cache.append(ScannerDevice(
-                id=device_str,
-                vendor=dev.inquiry.vendor,
-                model=dev.inquiry.model_str,
-                capabilities=caps
-            ))
+            self._devices_cache.append(
+                ScannerDevice(id=device_str, vendor=dev.inquiry.vendor, model=dev.inquiry.model_str, capabilities=caps)
+            )
 
         return self._devices_cache
 
@@ -100,18 +103,18 @@ class PieusbBackend:
         cancel: threading.Event,
     ) -> ScanResult:
         from pieusb.scanner import Scanner
+        from pieusb.types import ScanPhase
 
         if cancel.is_set():
-            raise Exception('Scan was cancelled')
+            raise Exception("Scan was cancelled")
 
         dev = self._devices_map[device_id]
 
         with Scanner(dev) as s:
-
             if params.capture_ir:
-                s.mode = 'rgbi'
+                s.mode = "rgbi"
             else:
-                s.mode = 'rgb'
+                s.mode = "rgb"
 
             s.color_depth = params.depth
             s.resolution = params.dpi
@@ -130,35 +133,42 @@ class PieusbBackend:
 
             result = None
 
+            # Auto exposure meters from a preview pass, which is a full scan and
+            # reports its own 0..100%. Compress it into the head of the bar so
+            # the caller still sees one monotonic sweep instead of two. The
+            # share is a guess at relative cost: the preview runs at the
+            # device's preview resolution, so it is short next to the real scan
+            # but not free, since it pays warm-up and calibration again.
+            metering_share = 0.1 if params.auto_exposure else 0.0
+
             def on_update(update):
                 scanned, total = update.scanned_lines, update.total_lines
-                if scanned is not None and total:
-                    progress(scanned / total)
+                if scanned is None or not total:
+                    return
+                fraction = scanned / total
+                if update.phase == ScanPhase.METERING:
+                    progress(fraction * metering_share)
+                else:
+                    progress(metering_share + fraction * (1.0 - metering_share))
 
             def on_complete(scan_result):
                 nonlocal result
-                result = ScanResult(
-                    rgb=scan_result.rgb,
-                    ir=scan_result.ir,
-                    dpi=params.dpi,
-                    device_model=dev.inquiry.model_str
-                )
+                result = ScanResult(rgb=scan_result.rgb, ir=scan_result.ir, dpi=params.dpi, device_model=dev.inquiry.model_str)
 
             s.scan(on_update, on_complete)
 
             while not s.wait(0.2):
                 if cancel.is_set():
                     s.cancel()
-                    raise Exception('Scan was cancelled')
+                    raise Exception("Scan was cancelled")
 
             if result is None:
-                raise Exception('Error while assembling the scan result')
+                raise Exception("Error while assembling the scan result")
 
             return result
 
-
     def open_session(self, device_id: str) -> ScannerSession:
-        raise NotImplementedError('open_session not yet implemented in PieusbBackend')
+        raise NotImplementedError("open_session not yet implemented in PieusbBackend")
 
     def eject(self, device_id: str) -> bool:
         return False

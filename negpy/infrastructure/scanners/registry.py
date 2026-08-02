@@ -8,10 +8,12 @@ def _make_sane() -> ScannerBackend:
 
     return SaneBackend()
 
+
 def _make_pieusb() -> ScannerBackend:
     from negpy.infrastructure.scanners.pieusb_backend import PieusbBackend
 
     return PieusbBackend()
+
 
 DEFAULT_BACKEND_ID = "sane"
 
