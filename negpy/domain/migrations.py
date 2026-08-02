@@ -7,6 +7,11 @@ Not here: coercions that must run on *every* construction rather than only on lo
 — ``ExposureConfig.__post_init__`` (legacy 0-5 paper grade → ISO R, cast_removal
 bool → strength) and the tuple-rehydrating ``__post_init__``s. String literals only
 (no ``domain.models`` import — that module imports this one).
+
+Also not here: migrations that rewrite *rows* rather than a config payload, since those
+need a repository and this module stays dependency-free. They live beside the feature
+they belong to — ``services/assets/hash_migration.py`` (edits saved under a superseded
+content hash) and ``services/assets/flatfield_migration.py`` (legacy profile table).
 """
 
 from typing import Any, Dict

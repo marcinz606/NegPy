@@ -1160,7 +1160,11 @@ class DesktopSessionManager(QObject):
         """
         import os
 
-        from negpy.kernel.image.logic import calculate_file_hash
+        from negpy.kernel.image.logic import file_hashes
+        from negpy.kernel.system.logging import get_logger
+        from negpy.services.assets.hash_migration import migrate_asset_hash
+
+        logger = get_logger(__name__)
 
         if validated_info:
             for info in validated_info:
@@ -1179,24 +1183,29 @@ class DesktopSessionManager(QObject):
                     self.state.rendered_thumbnails.discard(old["name"])
                     self.state.uploaded_files[same_path_idx] = info
                     continue
-                if any(f["hash"] == info["hash"] for f in self.state.uploaded_files):
+                clash = next((f for f in self.state.uploaded_files if f["hash"] == info["hash"]), None)
+                if clash is not None:
+                    logger.info("Skipping %s: same content hash as %s", info["path"], clash["path"])
                     continue
+                migrate_asset_hash(self.repo, info)
                 self.state.uploaded_files.append(info)
         else:
             for path in file_paths:
                 try:
-                    f_hash = calculate_file_hash(path)
+                    f_hash, legacy = file_hashes(path)
                     if f_hash.startswith("err_"):
                         continue
 
-                    if any(f["hash"] == f_hash for f in self.state.uploaded_files):
+                    clash = next((f for f in self.state.uploaded_files if f["hash"] == f_hash), None)
+                    if clash is not None:
+                        logger.info("Skipping %s: same content hash as %s", path, clash["path"])
                         continue
 
-                    self.state.uploaded_files.append({"name": os.path.basename(path), "path": path, "hash": f_hash})
+                    info = {"name": os.path.basename(path), "path": path, "hash": f_hash, "legacy_hash": legacy}
+                    migrate_asset_hash(self.repo, info)
+                    self.state.uploaded_files.append(info)
                 except Exception as e:
-                    from negpy.kernel.system.logging import get_logger
-
-                    get_logger(__name__).error(f"Failed to add {path}: {e}")
+                    logger.error(f"Failed to add {path}: {e}")
 
         # Marks: DB is the source of truth; toggles write through, so the
         # unconditional overlay can't lose one.

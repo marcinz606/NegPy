@@ -584,27 +584,57 @@ def get_luminance(img: np.ndarray) -> np.ndarray:
     return LUMA_R * img[..., 0] + LUMA_G * img[..., 1] + LUMA_B * img[..., 2]
 
 
-def calculate_file_hash(file_path: str) -> str:
-    """
-    Fingerprint using file size + head/tail samples.
+_HEAD_TAIL = 1024 * 1024
+_INTERIOR_CHUNKS = 16
+_INTERIOR_CHUNK = 256 * 1024
+
+
+def file_hashes(file_path: str) -> tuple[str, str]:
+    """(current, legacy) fingerprints in one pass.
+
+    Current = size + 1 MiB head + 1 MiB tail + 16 evenly-spaced 256 KiB interior chunks.
+    Head/tail alone collide across same-size scans of one frame, whose container header
+    and trailer are byte-identical. Legacy is the pre-interior digest, computed here only
+    so persisted edits can be rehomed onto the current one; nothing else may use it.
+
+    Files <= 2 MiB have no interior, so both digests are equal — those identities are
+    unchanged by the interior sampling and need no migration.
     """
     try:
         file_size = os.path.getsize(file_path)
         hasher = hashlib.sha256()
-        hasher.update(str(file_size).encode())
+        legacy = hashlib.sha256()
+        size_bytes = str(file_size).encode()
+        hasher.update(size_bytes)
+        legacy.update(size_bytes)
 
         with open(file_path, "rb") as f:
-            hasher.update(f.read(1024 * 1024))
-            if file_size > 2 * 1024 * 1024:
-                f.seek(-1024 * 1024, os.SEEK_END)
-                hasher.update(f.read(1024 * 1024))
+            head = f.read(_HEAD_TAIL)
+            hasher.update(head)
+            legacy.update(head)
+            if file_size > 2 * _HEAD_TAIL:
+                f.seek(-_HEAD_TAIL, os.SEEK_END)
+                tail = f.read(_HEAD_TAIL)
+                hasher.update(tail)
+                legacy.update(tail)
+                # Chunks overlap once the interior is under 4 MiB, which just makes
+                # coverage contiguous; the read count stays bounded either way.
+                step = (file_size - 2 * _HEAD_TAIL) // _INTERIOR_CHUNKS
+                for i in range(_INTERIOR_CHUNKS):
+                    f.seek(_HEAD_TAIL + i * step)
+                    hasher.update(f.read(_INTERIOR_CHUNK))
 
-        return hasher.hexdigest()
+        return hasher.hexdigest(), legacy.hexdigest()
     except Exception as e:
         import uuid
 
         logger.error(f"Hash error for {file_path}: {e}")
-        return f"err_{uuid.uuid4()}"
+        return f"err_{uuid.uuid4()}", ""
+
+
+def calculate_file_hash(file_path: str) -> str:
+    """Content fingerprint used as the edit-store identity. See :func:`file_hashes`."""
+    return file_hashes(file_path)[0]
 
 
 def prepare_thumbnail(img: Any, size: int) -> Any:

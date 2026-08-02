@@ -182,21 +182,27 @@ class StorageRepository(IRepository):
         return None
 
     def rehome_file_settings(self, old_hash: str, new_hash: str, file_path: str) -> None:
-        """Copy settings from old_hash to new_hash (with updated path), then delete old entry."""
+        """Move settings, undo history and triage mark from old_hash to new_hash (with
+        updated path). No-op if new_hash already holds an edit — a live edit is never
+        clobbered by a rehome."""
         if old_hash == new_hash:
             return
         with self._connect(self.edits_db_path) as conn:
-            cursor = conn.execute(
+            if conn.execute("SELECT 1 FROM file_settings WHERE file_hash = ?", (new_hash,)).fetchone():
+                return
+            row = conn.execute(
                 "SELECT settings_json FROM file_settings WHERE file_hash = ?",
                 (old_hash,),
+            ).fetchone()
+            if not row:
+                return
+            conn.execute(
+                "INSERT OR REPLACE INTO file_settings (file_hash, settings_json, file_path) VALUES (?, ?, ?)",
+                (new_hash, row[0], file_path),
             )
-            row = cursor.fetchone()
-            if row:
-                conn.execute(
-                    "INSERT OR REPLACE INTO file_settings (file_hash, settings_json, file_path) VALUES (?, ?, ?)",
-                    (new_hash, row[0], file_path),
-                )
-                conn.execute("DELETE FROM file_settings WHERE file_hash = ?", (old_hash,))
+            conn.execute("DELETE FROM file_settings WHERE file_hash = ?", (old_hash,))
+            conn.execute("UPDATE OR REPLACE edit_history SET file_hash = ? WHERE file_hash = ?", (new_hash, old_hash))
+            conn.execute("UPDATE OR REPLACE file_marks SET file_hash = ? WHERE file_hash = ?", (new_hash, old_hash))
 
     def save_history_step(self, file_hash: str, index: int, settings: WorkspaceConfig) -> None:
         with self._connect(self.edits_db_path) as conn:

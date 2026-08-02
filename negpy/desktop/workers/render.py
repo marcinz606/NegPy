@@ -400,7 +400,8 @@ class AssetDiscoveryWorker(QObject):
         import os
 
         from negpy.infrastructure.loaders.constants import is_ir_sidecar_path
-        from negpy.kernel.image.logic import calculate_file_hash
+        from negpy.kernel.image.logic import file_hashes
+        from negpy.services.assets.hash_migration import blank_ambiguous_legacy_hashes
 
         discovered_paths = []
         for path in task.paths:
@@ -427,11 +428,13 @@ class AssetDiscoveryWorker(QObject):
             self.progress.emit(i + 1, total, name)
 
             try:
-                f_hash = calculate_file_hash(path)
+                f_hash, legacy = file_hashes(path)
                 if not f_hash.startswith("err_"):
-                    valid_assets.append({"name": name, "path": path, "hash": f_hash})
+                    valid_assets.append({"name": name, "path": path, "hash": f_hash, "legacy_hash": legacy})
             except Exception as e:
                 logger.error(f"Skipping invalid file {path}: {e}")
+
+        blank_ambiguous_legacy_hashes(valid_assets)
 
         if task.restore_triplets:
             valid_assets = self._attach_restored_triplets(valid_assets, task.restore_triplets)
@@ -458,8 +461,18 @@ class AssetDiscoveryWorker(QObject):
                 continue
             self.progress.emit(i + 1, len(assets), f"Split {a['name']}")
             split_x = detect_split_x_for_file(a["path"])
+            legacy = a.get("legacy_hash")
             for half in (1, 2):
-                out.append({**a, "name": half_name(a["name"], half), "hash": half_hash(a["hash"], half), "half": half, "split_x": split_x})
+                out.append(
+                    {
+                        **a,
+                        "name": half_name(a["name"], half),
+                        "hash": half_hash(a["hash"], half),
+                        "legacy_hash": half_hash(legacy, half) if legacy else "",
+                        "half": half,
+                        "split_x": split_x,
+                    }
+                )
         return out
 
     def _attach_restored_triplets(self, assets: list, triplets: dict) -> list:
@@ -495,6 +508,9 @@ class AssetDiscoveryWorker(QObject):
                         **a,
                         "name": stitch_name([a["path"], *entry["paths"]]),
                         "hash": entry["hash"],
+                        # The composite hash is the parts' — inheriting the primary part's
+                        # legacy digest would rehome that part's edit onto the composite.
+                        "legacy_hash": "",
                         "stitch_paths": tuple(entry["paths"]),
                         "stitch_transforms": tuple(tuple(float(v) for v in t) for t in entry["transforms"]),
                         "stitch_canvas": (int(entry["canvas"][0]), int(entry["canvas"][1])),
