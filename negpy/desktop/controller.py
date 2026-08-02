@@ -1017,14 +1017,23 @@ class AppController(QObject):
             self.session.state.rendered_thumbnails.clear()
             self.session.add_files([], validated_info=valid_assets)
             self.generate_missing_thumbnails()
-            idx = next(
-                (
-                    i
-                    for i, f in enumerate(self.session.state.uploaded_files)
-                    if reselect_path in (f.get("path"), f.get("green_path"), f.get("blue_path"))
-                ),
-                0,
-            )
+            idx = None
+            if reselect_path:
+                # Guard on a set path: `None in (path, green_path, blue_path)` spuriously
+                # matches any non-RGB frame (its green/blue paths are absent → None).
+                idx = next(
+                    (
+                        i
+                        for i, f in enumerate(self.session.state.uploaded_files)
+                        if reselect_path in (f.get("path"), f.get("green_path"), f.get("blue_path"))
+                    ),
+                    None,
+                )
+            if idx is None:
+                # No prior frame to restore (a fresh folder open): land on the first frame
+                # in filmstrip (sorted/filtered) order, not discovery order.
+                ordered = self.session.asset_model.visible_actual_indices_ordered()
+                idx = ordered[0] if ordered else 0
             self.session.select_file(idx)
             self._start_next_asset_discovery()
             return
@@ -1037,7 +1046,12 @@ class AppController(QObject):
             if pending_scan and self._select_file_by_path(pending_scan):
                 selected_pending_scan = True
             elif auto_open and not self.state.current_file_path and len(self.session.state.uploaded_files) > first_new_idx:
-                self.session.select_file(first_new_idx)
+                # Select the first newly-loaded frame in filmstrip (sorted/filtered) order,
+                # not discovery order — otherwise the initial frame lands mid-strip.
+                new_indices = set(range(first_new_idx, len(self.session.state.uploaded_files)))
+                ordered = self.session.asset_model.visible_actual_indices_ordered()
+                target = next((i for i in ordered if i in new_indices), first_new_idx)
+                self.session.select_file(target)
         else:
             self.set_status("NO SUPPORTED ASSETS FOUND", 3000)
             self.status_progress_requested.emit(0, 0)

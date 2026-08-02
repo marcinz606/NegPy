@@ -1373,6 +1373,57 @@ class TestRgbScanModeReload(unittest.TestCase):
         self.assertEqual(state.uploaded_files, merged)
         self.mock_session_manager.select_file.assert_called_once_with(0)
 
+    def test_replace_fresh_open_selects_first_in_sorted_order(self):
+        # Library double-click loads via replace_existing=True with no frame to reselect;
+        # the fallback must land on the sorted-first frame, not discovery index 0.
+        state = self.mock_session_manager.state
+        state.uploaded_files = []
+
+        def add_files(_paths, validated_info=None):
+            state.uploaded_files.extend(validated_info or [])
+
+        self.mock_session_manager.add_files.side_effect = add_files
+        self.mock_session_manager.asset_model = MagicMock()
+        self.mock_session_manager.asset_model.visible_actual_indices_ordered.return_value = [1, 2, 0]
+        self.controller.generate_missing_thumbnails = MagicMock()
+        self.controller._replace_after_discovery = True
+        self.controller._reselect_after_discovery = None
+
+        discovered = [
+            {"name": "c", "path": "/c.dng", "hash": "h3"},
+            {"name": "a", "path": "/a.dng", "hash": "h1"},
+            {"name": "b", "path": "/b.dng", "hash": "h2"},
+        ]
+        self.controller._on_discovery_finished(discovered)
+
+        self.mock_session_manager.select_file.assert_called_once_with(1)
+
+    def test_auto_open_selects_first_in_sorted_order_not_discovery_order(self):
+        state = self.mock_session_manager.state
+        state.uploaded_files = []
+        state.current_file_path = None
+
+        def add_files(_paths, validated_info=None):
+            state.uploaded_files.extend(validated_info or [])
+
+        self.mock_session_manager.add_files.side_effect = add_files
+        self.mock_session_manager.asset_model = MagicMock()
+        self.controller.generate_missing_thumbnails = MagicMock()
+        self.controller._auto_open_after_discovery = True
+
+        # Discovery order c, a, b (indices 0,1,2); filmstrip sorts by name to a, b, c.
+        discovered = [
+            {"name": "c", "path": "/c.dng", "hash": "h3"},
+            {"name": "a", "path": "/a.dng", "hash": "h1"},
+            {"name": "b", "path": "/b.dng", "hash": "h2"},
+        ]
+        self.mock_session_manager.asset_model.visible_actual_indices_ordered.return_value = [1, 2, 0]
+
+        self.controller._on_discovery_finished(discovered)
+
+        # First in sorted order is "a" at actual index 1, not the first-discovered "c" at 0.
+        self.mock_session_manager.select_file.assert_called_once_with(1)
+
 
 class TestDiscoveryProgressPopup(unittest.TestCase):
     """Folder-load hashing drives the shared batch progress popup."""
@@ -1382,6 +1433,8 @@ class TestDiscoveryProgressPopup(unittest.TestCase):
         self.mock_session_manager.state = AppState()
         self.mock_session_manager.repo = MagicMock()
         self.mock_session_manager.repo.get_global_setting.return_value = False
+        self.mock_session_manager.asset_model = MagicMock()
+        self.mock_session_manager.asset_model.visible_actual_indices_ordered.return_value = []
 
         with (
             patch("negpy.desktop.controller.RenderWorker") as mock_rw_class,
