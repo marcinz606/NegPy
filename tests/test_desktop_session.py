@@ -21,6 +21,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.mock_repo = MagicMock(spec=StorageRepository)
         self.mock_repo.load_file_settings.return_value = None
         self.mock_repo.load_file_settings_by_path.return_value = None
+        self.mock_repo.load_file_settings_many.return_value = {}
 
         # Mock global settings with correct types
         def mock_get_global(key, default=None):
@@ -940,11 +941,12 @@ class TestTriageMarks(unittest.TestCase):
     def test_reject_toggles_and_persists(self):
         self.session.toggle_mark("excluded")
         self.assertTrue(self.session.state.uploaded_files[0]["excluded"])
-        self.mock_repo.save_file_mark.assert_called_with("hash1", "excluded")
+        # The path rides along so a library search (which never hashes) can see the mark.
+        self.mock_repo.save_file_mark.assert_called_with("hash1", "excluded", file_path="p1")
 
         self.session.toggle_mark("excluded")
         self.assertFalse(self.session.state.uploaded_files[0]["excluded"])
-        self.mock_repo.save_file_mark.assert_called_with("hash1", None)
+        self.mock_repo.save_file_mark.assert_called_with("hash1", None, file_path="p1")
 
     def test_marks_are_mutually_exclusive(self):
         self.session.toggle_mark("keeper")
@@ -1056,6 +1058,116 @@ class TestRollActionRecoveryRoundTrip(unittest.TestCase):
 
         self.session.redo()
         self.assertEqual(self.session.state.config.exposure.density, 1.5)
+
+
+class TestThumbnailKeying(unittest.TestCase):
+    """Thumbnails are keyed by asset identity, not display name."""
+
+    def test_same_named_files_in_two_folders_keep_distinct_thumbnails(self):
+        from PyQt6.QtCore import Qt
+
+        state = AppState()
+        state.uploaded_files = [
+            {"name": "IMG_0042.tif", "path": "/a/IMG_0042.tif", "hash": "h1"},
+            {"name": "IMG_0042.tif", "path": "/b/IMG_0042.tif", "hash": "h2"},
+        ]
+        state.thumbnails = {"h1": "thumb-a", "h2": "thumb-b"}
+        model = AssetListModel(state)
+
+        first = model.data(model.index(0, 0), Qt.ItemDataRole.DecorationRole)
+        second = model.data(model.index(1, 0), Qt.ItemDataRole.DecorationRole)
+        self.assertEqual({first, second}, {"thumb-a", "thumb-b"})
+
+    def test_triplet_key_is_namespaced_away_from_its_red_exposure(self):
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
+        red = {"name": "a.nef", "path": "/a.nef", "hash": "h1"}
+        triplet = {**red, "name": "a (RGB)", "green_path": "/g.nef", "blue_path": "/b.nef"}
+        self.assertEqual(asset_thumbnail_key(red), "h1")
+        self.assertEqual(asset_thumbnail_key(triplet), "h1-rgb")
+
+    def test_unloading_one_frame_keeps_its_twins_thumbnail(self):
+        repo = MagicMock(spec=StorageRepository)
+        repo.get_global_setting.return_value = None
+        repo.load_file_settings.return_value = None
+        repo.load_file_settings_by_path.return_value = None
+        repo.load_file_settings_many.return_value = {}
+        repo.get_max_history_index.return_value = 0
+        session = DesktopSessionManager(repo)
+        session.state.uploaded_files = [
+            {"name": "IMG_0042.tif", "path": "/a/IMG_0042.tif", "hash": "h1"},
+            {"name": "IMG_0042.tif", "path": "/b/IMG_0042.tif", "hash": "h2"},
+        ]
+        session.state.thumbnails = {"h1": "thumb-a", "h2": "thumb-b"}
+        session.state.selected_file_idx = 0
+        session.state.selected_indices = [0]
+
+        session.remove_current_file()
+
+        self.assertEqual(session.state.thumbnails, {"h2": "thumb-b"})
+
+
+class TestSearchFacts(unittest.TestCase):
+    """Metadata filtering against a real repository: the sheet filter sees a frame's
+    saved edit, and the facts follow later writes."""
+
+    def setUp(self):
+        import tempfile
+
+        from negpy.features.metadata.models import MetadataConfig
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = StorageRepository(f"{self.tmp.name}/edits.db", f"{self.tmp.name}/settings.db")
+        self.repo.initialize()
+        self.session = DesktopSessionManager(self.repo)
+        self.session.state.uploaded_files = [
+            {"name": "a.dng", "path": f"{self.tmp.name}/a.dng", "hash": "hash1", "mtime": 1710000000.0},
+            {"name": "b.dng", "path": f"{self.tmp.name}/b.dng", "hash": "hash2", "mtime": 1710000000.0},
+        ]
+        portra = replace(WorkspaceConfig(), metadata=MetadataConfig(film="Portra 400", film_iso=400, camera_model="F3"))
+        self.repo.save_file_settings("hash1", portra, file_path=self.session.state.uploaded_files[0]["path"])
+        self.session.asset_model.refresh()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _visible(self) -> set:
+        files = self.session.state.uploaded_files
+        return {files[i]["name"] for i in self.session.asset_model.visible_actual_indices_ordered()}
+
+    def test_metadata_term_filters_the_sheet(self):
+        self.session.asset_model.set_filter("film:portra", regex=False)
+        self.assertEqual(self._visible(), {"a.dng"})
+
+    def test_numeric_and_flag_terms(self):
+        self.session.asset_model.set_filter("iso:>=400", regex=False)
+        self.assertEqual(self._visible(), {"a.dng"})
+        self.session.asset_model.set_filter("-edited:", regex=False)
+        self.assertEqual(self._visible(), {"b.dng"})
+
+    def test_bare_word_still_matches_the_filename(self):
+        self.session.asset_model.set_filter("b.dng", regex=False)
+        self.assertEqual(self._visible(), {"b.dng"})
+
+    def test_facts_are_cached_until_a_write_invalidates_them(self):
+        first = self.session.search_facts()
+        self.assertIs(self.session.search_facts(), first)
+
+        self.session.settings_saved.emit()
+        self.assertIsNot(self.session.search_facts(), first)
+
+    def test_facts_follow_a_later_settings_write(self):
+        from negpy.features.metadata.models import MetadataConfig
+
+        self.session.asset_model.set_filter("film:velvia", regex=False)
+        self.assertEqual(self._visible(), set())
+
+        velvia = replace(WorkspaceConfig(), metadata=MetadataConfig(film="Velvia 50"))
+        self.repo.save_file_settings("hash2", velvia, file_path=self.session.state.uploaded_files[1]["path"])
+        self.session.settings_saved.emit()
+
+        self.session.asset_model.set_filter("film:velvia", regex=False)
+        self.assertEqual(self._visible(), {"b.dng"})
 
 
 if __name__ == "__main__":

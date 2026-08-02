@@ -71,6 +71,14 @@ class StorageRepository(IRepository):
                 )
             """)
 
+            # Migration: add file_path so a mark can be resolved without the file's hash —
+            # library search joins by path (it never hashes) and would otherwise be blind
+            # to triage marks on frames it has not loaded.
+            try:
+                conn.execute("ALTER TABLE file_marks ADD COLUMN file_path TEXT")
+            except sqlite3.OperationalError:
+                pass  # already exists
+
             # Migration: add file_path column for path-based settings recovery
             try:
                 conn.execute("ALTER TABLE file_settings ADD COLUMN file_path TEXT")
@@ -130,11 +138,14 @@ class StorageRepository(IRepository):
         with self._connect(self.edits_db_path) as conn:
             conn.execute("DELETE FROM normalization_rolls WHERE name = ?", (name,))
 
-    def save_file_mark(self, file_hash: str, mark: Optional[str]) -> None:
+    def save_file_mark(self, file_hash: str, mark: Optional[str], file_path: str = "") -> None:
         """Persists a triage mark ('keeper'/'excluded'); None clears it."""
         with self._connect(self.edits_db_path) as conn:
             if mark:
-                conn.execute("INSERT OR REPLACE INTO file_marks (file_hash, mark) VALUES (?, ?)", (file_hash, mark))
+                conn.execute(
+                    "INSERT OR REPLACE INTO file_marks (file_hash, mark, file_path) VALUES (?, ?, ?)",
+                    (file_hash, mark, file_path),
+                )
             else:
                 conn.execute("DELETE FROM file_marks WHERE file_hash = ?", (file_hash,))
 
@@ -143,6 +154,13 @@ class StorageRepository(IRepository):
         with self._connect(self.edits_db_path) as conn:
             cursor = conn.execute("SELECT file_hash, mark FROM file_marks")
             return {row[0]: row[1] for row in cursor.fetchall()}
+
+    def load_file_marks_by_path(self) -> dict[str, str]:
+        """Triage marks as {file_path: mark}, for lookups that have no hash in hand.
+        Marks written before the path column exists are absent, not wrong."""
+        with self._connect(self.edits_db_path) as conn:
+            cursor = conn.execute("SELECT file_path, mark FROM file_marks WHERE file_path IS NOT NULL AND file_path != ''")
+            return {str(row[0]): str(row[1]) for row in cursor.fetchall()}
 
     def save_file_settings(self, file_hash: str, settings: WorkspaceConfig, file_path: str = "") -> None:
         with self._connect(self.edits_db_path) as conn:
@@ -163,6 +181,40 @@ class StorageRepository(IRepository):
                 data = json.loads(row[0])
                 return WorkspaceConfig.from_flat_dict(data)
         return None
+
+    def load_file_settings_many(self, hashes: List[str]) -> dict[str, WorkspaceConfig]:
+        """Saved edits for many hashes in one connection — the search facts for a whole
+        roll cost one round trip, not one per frame. Hashes with no saved edit are absent
+        from the result, which is what marks a frame as never edited."""
+        out: dict[str, WorkspaceConfig] = {}
+        if not hashes:
+            return out
+        with self._connect(self.edits_db_path) as conn:
+            # Chunked to stay under SQLite's bound-variable limit on long rolls.
+            for start in range(0, len(hashes), 500):
+                chunk = hashes[start : start + 500]
+                placeholders = ",".join("?" * len(chunk))
+                cursor = conn.execute(
+                    f"SELECT file_hash, settings_json FROM file_settings WHERE file_hash IN ({placeholders})",
+                    chunk,
+                )
+                for file_hash, settings_json in cursor.fetchall():
+                    out[str(file_hash)] = WorkspaceConfig.from_flat_dict(json.loads(settings_json))
+        return out
+
+    def load_settings_by_path(self) -> dict[str, WorkspaceConfig]:
+        """Every saved edit that knows its file path, as {file_path: config}.
+
+        The bridge that lets a search join edit metadata onto files it has not opened —
+        and the reason library search never needs a hash. Only edited files have a row,
+        so this stays small next to the size of an archive.
+        """
+        out: dict[str, WorkspaceConfig] = {}
+        with self._connect(self.edits_db_path) as conn:
+            cursor = conn.execute("SELECT file_path, settings_json FROM file_settings WHERE file_path IS NOT NULL AND file_path != ''")
+            for file_path, settings_json in cursor.fetchall():
+                out[str(file_path)] = WorkspaceConfig.from_flat_dict(json.loads(settings_json))
+        return out
 
     def load_file_settings_by_path(self, file_path: str) -> Optional[tuple[str, WorkspaceConfig]]:
         """Look up settings by file path (fallback for when hash changed due to EXIF edits).

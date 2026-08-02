@@ -455,7 +455,13 @@ class FileBrowser(QWidget):
 
         search_row = QHBoxLayout()
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Filter by filename...")
+        self.search_input.setPlaceholderText("Filter — name, film:portra, iso:>=400…")
+        self.search_input.setToolTip(
+            "Filter the sheet. A bare word matches the filename; terms are combined with AND.\n"
+            "Fields: film, camera, lens, developer, format, scanning, roll, frame, iso, push,\n"
+            "name, path, ext, date, keeper, rejected, edited.\n"
+            'Examples:  film:portra iso:>=400   ·   camera:"Nikon F3" -rejected:   ·   date:>=2024-03'
+        )
         self.search_input.setClearButtonEnabled(True)
         self.search_input.addAction(
             qta.icon("fa5s.search", color=THEME.text_secondary),
@@ -468,8 +474,18 @@ class FileBrowser(QWidget):
         self.regex_btn.setCheckable(True)
         self.regex_btn.setFixedWidth(36)
         self.regex_btn.setToolTip("Regex mode")
+
+        # Same query text, wider net: the box above filters what is loaded, this runs
+        # it against every library folder and opens what it finds.
+        self.library_search_btn = QToolButton()
+        self.library_search_btn.setIcon(qta.icon("mdi.folder-search-outline", color=THEME.text_primary))
+        self.library_search_btn.setFixedSize(28, 28)
+        self.library_search_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.library_search_btn.setToolTip("Search the whole library — runs this search across your library folders and loads the matches")
+
         search_row.addWidget(self.search_input)
         search_row.addWidget(self.regex_btn)
+        search_row.addWidget(self.library_search_btn)
 
         # Thumbnail size lives here rather than the toolbar row above, to keep that row's
         # overflow menu to file actions.
@@ -516,7 +532,9 @@ class FileBrowser(QWidget):
         self.session.state_changed.connect(self.sync_ui)
         self.session.files_changed.connect(self._on_files_changed)
         self.search_input.textChanged.connect(lambda _: self.filter_timer.start())
+        self.search_input.returnPressed.connect(self.search_library)
         self.regex_btn.toggled.connect(lambda _: self.filter_timer.start())
+        self.library_search_btn.clicked.connect(self.search_library)
         # Relayout live while dragging, but only write the setting on release —
         # a drag crosses dozens of values and each save is a DB round-trip.
         self.thumb_size_slider.valueChanged.connect(self.list_view.set_target_cell)
@@ -527,6 +545,14 @@ class FileBrowser(QWidget):
         del_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Delete), self.list_view)
         del_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
         del_shortcut.activated.connect(self._on_delete_key)
+
+    def search_library(self) -> None:
+        """Run the box's query against the library folders instead of the loaded roll."""
+        self.controller.request_library_search(self.search_input.text())
+
+    def focus_search(self) -> None:
+        self.search_input.setFocus()
+        self.search_input.selectAll()
 
     def _save_thumb_size(self) -> None:
         self.session.repo.save_global_setting("thumbnail_cell_size", self.thumb_size_slider.value())

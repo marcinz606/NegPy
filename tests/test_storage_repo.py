@@ -1,5 +1,8 @@
 import sqlite3
+from dataclasses import replace
 
+from negpy.domain.models import WorkspaceConfig
+from negpy.features.metadata.models import MetadataConfig
 from negpy.infrastructure.storage.repository import StorageRepository
 
 
@@ -38,6 +41,53 @@ def test_save_global_settings_matches_single_write_path(tmp_path):
             conn.close()
 
     assert rows(repo_batch) == rows(repo_single)
+
+
+def _config(film: str) -> WorkspaceConfig:
+    return replace(WorkspaceConfig(), metadata=MetadataConfig(film=film))
+
+
+def test_load_file_settings_many_returns_only_saved_hashes(tmp_path):
+    repo = _repo(tmp_path)
+    repo.save_file_settings("h1", _config("Portra"), file_path="/a/1.nef")
+    repo.save_file_settings("h2", _config("Velvia"), file_path="/a/2.nef")
+
+    loaded = repo.load_file_settings_many(["h1", "h2", "missing"])
+    assert set(loaded) == {"h1", "h2"}
+    assert loaded["h1"].metadata.film == "Portra"
+    assert repo.load_file_settings_many([]) == {}
+
+
+def test_load_file_settings_many_handles_more_than_one_chunk(tmp_path):
+    repo = _repo(tmp_path)
+    hashes = [f"h{i}" for i in range(1200)]  # over the 500-per-query chunk
+    for h in hashes:
+        repo.save_file_settings(h, _config("Portra"), file_path=f"/a/{h}.nef")
+
+    assert len(repo.load_file_settings_many(hashes)) == 1200
+
+
+def test_load_settings_by_path_skips_rows_without_a_path(tmp_path):
+    repo = _repo(tmp_path)
+    repo.save_file_settings("h1", _config("Portra"), file_path="/a/1.nef")
+    repo.save_file_settings("h2", _config("Velvia"))  # legacy row, no path
+
+    by_path = repo.load_settings_by_path()
+    assert set(by_path) == {"/a/1.nef"}
+    assert by_path["/a/1.nef"].metadata.film == "Portra"
+
+
+def test_file_marks_are_resolvable_by_path(tmp_path):
+    repo = _repo(tmp_path)
+    repo.save_file_mark("h1", "keeper", file_path="/a/1.nef")
+    repo.save_file_mark("h2", "excluded", file_path="/a/2.nef")
+    repo.save_file_mark("h3", "keeper")  # written without a path
+
+    assert repo.load_file_marks_by_path() == {"/a/1.nef": "keeper", "/a/2.nef": "excluded"}
+    assert repo.load_file_marks() == {"h1": "keeper", "h2": "excluded", "h3": "keeper"}
+
+    repo.save_file_mark("h1", None)
+    assert repo.load_file_marks_by_path() == {"/a/2.nef": "excluded"}
 
 
 def test_initialize_enables_wal(tmp_path):

@@ -186,9 +186,9 @@ class TestAppController(unittest.TestCase):
             {"name": "bad.dng", "path": "/tmp/bad.dng", "hash": "h1"},
             {"name": "good.dng", "path": "/tmp/good.dng", "hash": "h2"},
         ]
-        self.controller._thumb_requested = ["bad.dng", "good.dng"]
+        self.controller._thumb_requested = ["h1", "h2"]
 
-        self.controller._on_thumbnails_finished({"good.dng": Image.new("RGB", (4, 4))})
+        self.controller._on_thumbnails_finished({"h2": Image.new("RGB", (4, 4))})
 
         self.assertIn("decode_failed", state.uploaded_files[0])
         self.assertNotIn("decode_failed", state.uploaded_files[1])
@@ -202,13 +202,13 @@ class TestAppController(unittest.TestCase):
             {"name": "a.dng", "path": "/tmp/a.dng", "hash": "h1"},
             {"name": "b.dng", "path": "/tmp/b.dng", "hash": "h2"},
         ]
-        self.controller._thumb_requested = ["a.dng", "b.dng"]
+        self.controller._thumb_requested = ["h1", "h2"]
         img = Image.new("RGB", (4, 4))
-        self.controller._on_thumbnails_finished({"a.dng": img, "b.dng": img})
+        self.controller._on_thumbnails_finished({"h1": img, "h2": img})
         self.assertNotIn("decode_failed", state.uploaded_files[0])
 
         # A second, narrower batch result must not badge frames absent from it.
-        self.controller._on_thumbnails_finished({"a.dng": img})
+        self.controller._on_thumbnails_finished({"h1": img})
         self.assertNotIn("decode_failed", state.uploaded_files[1])
 
     def test_batch_thumbnail_does_not_clobber_rendered(self):
@@ -219,20 +219,19 @@ class TestAppController(unittest.TestCase):
         self.mock_session_manager.asset_model = MagicMock()
         state = self.mock_session_manager.state
         state.uploaded_files = [{"name": "a.dng", "path": "/tmp/a.dng", "hash": "h1"}]
-        self.controller._thumb_requested = ["a.dng"]
+        self.controller._thumb_requested = ["h1"]
 
         rendered = Image.new("RGB", (4, 4), (255, 0, 0))
         placeholder = Image.new("RGB", (4, 4), (0, 255, 0))
-        self.controller._on_rendered_thumbnail({"a.dng": rendered})
-        self.controller._on_thumbnails_finished({"a.dng": placeholder})
+        self.controller._on_rendered_thumbnail({"h1": rendered})
+        self.controller._on_thumbnails_finished({"h1": placeholder})
 
-        self.assertEqual(state.thumbnails["a.dng"].pixmap(4, 4).toImage().pixelColor(0, 0).red(), 255)
+        self.assertEqual(state.thumbnails["h1"].pixmap(4, 4).toImage().pixelColor(0, 0).red(), 255)
 
-    def test_rendered_thumbnail_keys_by_asset_name_not_file_basename(self):
-        """An RGB-scan triplet's asset name ("<base> (RGB)") differs from the underlying
-        red exposure's filename — the rendered-thumbnail task must key by the former,
-        since that's what the filmstrip (AssetListModel) looks up. Keying by the raw
-        basename orphans the thumbnail under a name nothing ever reads (issue #575)."""
+    def test_rendered_thumbnail_keys_by_asset_identity_not_filename(self):
+        """Thumbnails are keyed by asset identity, so two same-named files in different
+        folders can't overwrite each other, and an RGB-scan triplet's merged thumbnail
+        lands under its own key rather than the red exposure's (issue #575)."""
         import numpy as np
         from negpy.features.rgbscan.models import RgbScanConfig
         from dataclasses import replace as dc_replace
@@ -259,7 +258,7 @@ class TestAppController(unittest.TestCase):
         self.controller.thumbnail_update_requested.connect(lambda task: captured.setdefault("task", task))
         self.controller._update_thumbnail_from_state(persist=False)
 
-        self.assertEqual(captured["task"].filename, "_DSC1316 (RGB)")
+        self.assertEqual(captured["task"].file_hash, "h1-rgb")
 
     def test_capture_worker_cancelled_is_forwarded(self):
         cancelled = MagicMock()
@@ -1960,3 +1959,100 @@ class TestClearThumbnailCache(unittest.TestCase):
         self.controller.clear_thumbnail_cache()
 
         self.assertEqual(seen, [{}])
+
+
+class TestLibrarySearch(unittest.TestCase):
+    """The library search runs the film-strip query against folders on disk and opens
+    what it finds. It must never hash: identity stays the loader's job."""
+
+    def setUp(self):
+        self.mock_session_manager = MagicMock(spec=DesktopSessionManager)
+        self.mock_session_manager.state = AppState()
+        self.mock_session_manager.repo = MagicMock()
+        self.mock_session_manager.repo.load_settings_by_path.return_value = {}
+        self.mock_session_manager.repo.load_file_marks_by_path.return_value = {}
+
+        with (
+            patch("negpy.desktop.controller.RenderWorker") as mock_rw_class,
+            patch("negpy.desktop.controller.PreviewManager") as mock_pm_class,
+        ):
+            mock_rw_class.return_value = MagicMock()
+            mock_pm_class.return_value = MagicMock(spec=PreviewManager)
+            self.controller = AppController(self.mock_session_manager)
+
+        self.tasks = []
+        self.controller.library_search_requested.connect(self.tasks.append)
+
+    def tearDown(self):
+        import gc
+
+        for thread in [
+            self.controller.render_thread,
+            self.controller.export_thread,
+            self.controller.thumb_thread,
+            self.controller.norm_thread,
+            self.controller.discovery_thread,
+            self.controller.preview_load_thread,
+            self.controller.scan_thread,
+        ]:
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                thread.wait()
+        del self.controller
+        gc.collect()
+
+    def _set_roots(self, roots):
+        self.mock_session_manager.repo.get_global_setting.side_effect = lambda key, default=None: (
+            roots if key == "library_roots" else default
+        )
+
+    def test_empty_query_does_not_search(self):
+        self._set_roots(["/photos"])
+        self.controller.request_library_search("   ")
+        self.assertEqual(self.tasks, [])
+
+    def test_search_without_roots_asks_for_a_folder_first(self):
+        self._set_roots([])
+        self.controller.request_library_search("film:portra")
+        self.assertEqual(self.tasks, [])
+
+    def test_search_carries_roots_edits_and_marks(self):
+        self._set_roots(["/photos"])
+        self.mock_session_manager.repo.load_settings_by_path.return_value = {"/photos/a.nef": WorkspaceConfig()}
+        self.mock_session_manager.repo.load_file_marks_by_path.return_value = {"/photos/a.nef": "keeper"}
+
+        self.controller.request_library_search("film:portra")
+
+        self.assertEqual(len(self.tasks), 1)
+        task = self.tasks[0]
+        self.assertEqual(task.roots, ["/photos"])
+        self.assertEqual(task.query, "film:portra")
+        self.assertEqual(set(task.configs_by_path), {"/photos/a.nef"})
+        self.assertEqual(task.marks_by_path, {"/photos/a.nef": "keeper"})
+
+    def test_results_replace_the_session(self):
+        with patch.object(self.controller, "request_asset_discovery") as discovery:
+            self.controller._on_library_search_finished(["/photos/a.nef", "/photos/b.nef"])
+
+        discovery.assert_called_once_with(["/photos/a.nef", "/photos/b.nef"], auto_open=True, replace_existing=True)
+
+    def test_no_results_leaves_the_session_alone(self):
+        with patch.object(self.controller, "request_asset_discovery") as discovery:
+            self.controller._on_library_search_finished([])
+
+        discovery.assert_not_called()
+
+    def test_open_library_folder_replaces_or_appends(self):
+        with patch("negpy.desktop.controller.os.path.isdir", return_value=True):
+            with patch.object(self.controller, "request_asset_discovery") as discovery:
+                self.controller.open_library_folder("/photos/roll_a")
+                self.assertTrue(discovery.call_args.kwargs["replace_existing"])
+
+                self.controller.open_library_folder("/photos/roll_a", add_to_session=True)
+                self.assertFalse(discovery.call_args.kwargs["replace_existing"])
+
+    def test_missing_folder_is_reported_not_opened(self):
+        with patch("negpy.desktop.controller.os.path.isdir", return_value=False):
+            with patch.object(self.controller, "request_asset_discovery") as discovery:
+                self.controller.open_library_folder("/photos/gone")
+        discovery.assert_not_called()

@@ -30,6 +30,7 @@ def session(qapp):
     repo.get_global_setting.return_value = None
     repo.load_file_settings.return_value = None
     repo.load_file_settings_by_path.return_value = None
+    repo.load_file_settings_many.return_value = {}
     repo.get_max_history_index.return_value = 0
     mgr = DesktopSessionManager(repo)
     mgr.state.uploaded_files = [
@@ -51,7 +52,7 @@ def browser(session):
 
 def test_search_input_is_present(browser):
     assert browser.search_input is not None
-    assert browser.search_input.placeholderText() == "Filter by filename..."
+    assert "film:portra" in browser.search_input.placeholderText()
     assert browser.regex_btn.isCheckable()
 
 

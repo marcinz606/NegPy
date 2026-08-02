@@ -41,7 +41,15 @@ Both side panels can be narrowed to give the canvas more room. As the controls p
 
 ## 2. Film strip (left panel)
 
-The header shows the NegPy logo and version (and an update link when a new release is out). Below it is the file browser.
+The header shows the NegPy logo and version (and an update link when a new release is out). Below it is your library's folder tree, and under that the file browser.
+
+### Your library (the folder tree)
+
+The top of the panel is a folder tree of the places your scans live. Press **+** to add a folder to the library; **↻** re-reads it from disk. Click any folder to load its frames into the film strip, or right-click → **Add to session** to append them to what's already open. Drag the divider to give the tree more or less room; the panel remembers where you left it. The tree appears once you have added a folder.
+
+Folders are your folders. NegPy reads the tree straight from disk and never creates, renames, moves or deletes anything in it — reorganize in Finder or Explorer and the tree simply shows the new arrangement next time you refresh. Because every edit is stored against the image's content, moving a file between folders keeps its edit, its history and its keep/reject mark.
+
+Opening a folder replaces what's in the film strip. Nothing is lost by that: your edits live in NegPy's database, not in the list of open files.
 
 ### Importing & managing files
 
@@ -56,7 +64,30 @@ Toolbar buttons, left to right:
 *   **Sheet filter** (funnel): show *All frames*, *Keepers only*, or *Hide rejected*.
 *   **Sort**: by Name or Date, ascending or descending.
 
-Below the toolbar: a **filter box** (substring match; toggle **`.*`** for regex) and a **tally**, e.g. "36 frames · 12 keepers · 3 rejected".
+Below the toolbar: a **filter box**, a **`.*`** regex toggle, a **search-library** button and a **tally**, e.g. "36 frames · 12 keepers · 3 rejected".
+
+#### Filtering the sheet
+
+Type a plain word and it matches the filename, as before. Beyond that the box takes `field:value` terms, which is how you find a frame by what it *is* rather than what it was called:
+
+| Term | Finds |
+|---|---|
+| `film:portra` | frames whose film stock contains "portra" |
+| `camera:"Nikon F3"` | quote anything with a space |
+| `iso:>=400` | numeric fields also take `>`, `>=`, `<`, `<=` (`iso`, `frame`, `push`) |
+| `date:2024-03` · `date:>=2024` | by file date; a partial date is a prefix |
+| `roll:` `developer:` `lens:` `format:` `scanning:` | the rest of the Metadata panel |
+| `name:` `path:` `ext:tif` | file identity |
+| `keeper:` `rejected:` `edited:` | frames carrying that mark, or with a saved edit |
+| `-rejected:` `-film:velvia` | a leading `-` negates any term |
+
+Terms combine with AND, so `film:portra iso:>=400 -rejected:` is all three conditions at once. Metadata comes from each frame's own **Metadata** panel, so it is searchable once you've filled it in — a frame you have never edited is findable by name, extension, date and mark. The **`.*`** toggle switches the box back to a plain regex over filenames, which ignores the field syntax.
+
+#### Searching the whole library
+
+The filter box narrows what is already open. The **magnifier-over-folder** button beside it (or **Enter** in the box) runs the same search across every library folder instead, and loads what it finds — so `film:portra` finds your Portra frames in folders you haven't opened this month. The status bar counts files as it goes.
+
+This works without opening anything because NegPy already knows which edit belongs to which file. A frame you have never edited is still findable by name, extension or date; film stock, camera and the rest come from frames you have filled in. The folders are only read, never indexed in the background and never modified.
 
 Right-clicking **empty space** in the film strip offers **Add files**, **Add folder** and **Clear all**, so those tools stay in reach part-way down a long roll instead of only at the top of the panel. Here **Clear all** always means the whole session, never just the selection.
 

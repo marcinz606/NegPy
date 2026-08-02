@@ -17,7 +17,9 @@ from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.services.assets.flatfield import FlatFieldProfiles
+from negpy.services.assets.search import facts_for, match, parse_query
 from negpy.services.assets.sidecar import load_or_promote
+from negpy.services.assets.thumbnails import asset_thumbnail_key
 
 
 class ToolMode(Enum):
@@ -49,8 +51,8 @@ class AppState:
     # picker so a pick writes the selected region's CMY fields.
     wb_pick_region: int = 0
     uploaded_files: List[Dict[str, Any]] = field(default_factory=list)
-    thumbnails: Dict[str, Any] = field(default_factory=dict)  # filename -> QIcon/QPixmap
-    # Names whose thumbnail came from a canvas render (correct, inverted); the batch
+    thumbnails: Dict[str, Any] = field(default_factory=dict)  # asset_thumbnail_key -> QIcon/QPixmap
+    # Keys whose thumbnail came from a canvas render (correct, inverted); the batch
     # generator must not overwrite these with its cheaper source-decode placeholder.
     rendered_thumbnails: Set[str] = field(default_factory=set)
     source_exif: Dict[str, Any] = field(default_factory=dict)  # file_hash -> piexif dict
@@ -189,19 +191,35 @@ class AppState:
             self.local_hidden_masks_by_hash.pop(h, None)
 
 
+def _asset_mtime(asset: Dict[str, Any]) -> float:
+    """Discovery stamps ``mtime`` on every asset; ones assembled elsewhere (triplet
+    edit, stitch) fall back to a stat so a mixed list still sorts by date."""
+    stamped = asset.get("mtime")
+    if stamped is not None:
+        return float(stamped)
+    try:
+        return os.path.getmtime(asset["path"])
+    except OSError:
+        return 0.0
+
+
 class AssetListModel(QAbstractListModel):
     """
     Model for the uploaded files list with thumbnail support.
     """
 
-    def __init__(self, state: AppState):
+    def __init__(self, state: AppState, facts_provider: Optional[Any] = None):
         super().__init__()
         self._state = state
+        # Returns {asset hash: facts}; without one, plain queries see file facts only
+        # (name/ext/date), which is all a model built outside a session can know.
+        self._facts_provider = facts_provider
         self._sort_order = "name"  # "name" | "date"
         self._sort_descending = False
         self._filter_text: str = ""
         self._filter_regex: bool = False
         self._filter_pattern: Optional[re.Pattern] = None
+        self._filter_terms: list = []
         self._sheet_filter: str = "all"  # "all" | "keepers" | "unrejected"
         self._sorted_indices: list[int] = []
         self._rebuild_indices()
@@ -212,22 +230,15 @@ class AssetListModel(QAbstractListModel):
         if self._sort_order == "name":
             indices.sort(key=lambda i: files[i]["name"].lower(), reverse=self._sort_descending)
         else:
-
-            def _mtime(i: int) -> float:
-                try:
-                    return os.path.getmtime(files[i]["path"])
-                except OSError:
-                    return 0.0
-
-            indices.sort(key=_mtime, reverse=self._sort_descending)
+            indices.sort(key=lambda i: _asset_mtime(files[i]), reverse=self._sort_descending)
 
         if self._filter_text:
             if self._filter_pattern is not None:
                 pattern = self._filter_pattern
                 indices = [i for i in indices if pattern.search(files[i]["name"])]
-            else:
-                needle = self._filter_text
-                indices = [i for i in indices if needle in files[i]["name"].lower()]
+            elif self._filter_terms:
+                facts = self._facts_provider() if self._facts_provider else {}
+                indices = [i for i in indices if match(self._filter_terms, facts.get(files[i]["hash"]) or facts_for(files[i]))]
 
         if self._sheet_filter == "keepers":
             indices = [i for i in indices if files[i].get("keeper")]
@@ -258,12 +269,16 @@ class AssetListModel(QAbstractListModel):
         self.layoutChanged.emit()
 
     def set_filter(self, text: str, regex: bool) -> bool:
-        """Updates filter. Returns True on success, False if regex failed to compile."""
+        """Updates filter. Returns True on success, False if regex failed to compile.
+
+        Regex mode stays a whole-text pattern on the filename; plain mode is the
+        `field:value` query language (a bare word still matches the filename)."""
         text = text.strip()
         if not text:
             self._filter_text = ""
             self._filter_regex = regex
             self._filter_pattern = None
+            self._filter_terms = []
             self._rebuild_indices()
             self.layoutChanged.emit()
             return True
@@ -276,10 +291,12 @@ class AssetListModel(QAbstractListModel):
             self._filter_text = text
             self._filter_regex = True
             self._filter_pattern = pattern
+            self._filter_terms = []
         else:
             self._filter_text = text.lower()
             self._filter_regex = False
             self._filter_pattern = None
+            self._filter_terms = parse_query(text)
 
         self._rebuild_indices()
         self.layoutChanged.emit()
@@ -315,7 +332,7 @@ class AssetListModel(QAbstractListModel):
             return file_info["name"]
 
         if role == Qt.ItemDataRole.DecorationRole:
-            return self._state.thumbnails.get(file_info["name"])
+            return self._state.thumbnails.get(asset_thumbnail_key(file_info))
 
         if role == Qt.ItemDataRole.ToolTipRole:
             failed = file_info.get("decode_failed")
@@ -408,7 +425,12 @@ class DesktopSessionManager(QObject):
         super().__init__()
         self.repo = repo
         self.state = AppState()
-        self.asset_model = AssetListModel(self.state)
+        self._search_facts: Optional[Dict[str, Dict[str, Any]]] = None
+        self.asset_model = AssetListModel(self.state, self.search_facts)
+        # Both signals already fire from every mutation that can change a frame's
+        # searchable facts — file list changes and any settings write.
+        self.files_changed.connect(self._invalidate_search_facts)
+        self.settings_saved.connect(self._invalidate_search_facts)
         # is_dirty initialised to False via AppState default
 
         # Load global hardware settings
@@ -475,6 +497,27 @@ class DesktopSessionManager(QObject):
             self.state.linear_output = bool(saved_linear_output)
 
         self.state.export_presets = self.repo.load_export_presets()
+
+    def _invalidate_search_facts(self) -> None:
+        self._search_facts = None
+
+    def _drop_thumbnail(self, asset: Dict[str, Any]) -> None:
+        """Forget an unloaded asset's in-memory thumbnail (the disk cache keeps it)."""
+        key = asset_thumbnail_key(asset)
+        self.state.thumbnails.pop(key, None)
+        self.state.rendered_thumbnails.discard(key)
+
+    def search_facts(self) -> Dict[str, Dict[str, Any]]:
+        """Searchable facts per asset hash, rebuilt on first use after any change.
+
+        The saved edits come back in one query rather than one per frame, so a whole
+        roll's metadata costs a single round trip on the first keystroke after a change.
+        """
+        if self._search_facts is None:
+            files = self.state.uploaded_files
+            configs = self.repo.load_file_settings_many([f["hash"] for f in files])
+            self._search_facts = {f["hash"]: facts_for(f, configs.get(f["hash"])) for f in files}
+        return self._search_facts
 
     def set_gpu_enabled(self, enabled: bool) -> None:
         """Updates and persists the hardware acceleration preference."""
@@ -835,7 +878,7 @@ class DesktopSessionManager(QObject):
             f[mark] = set_all
             if set_all:
                 f[other] = False
-            self.repo.save_file_mark(f["hash"], mark if set_all else None)
+            self.repo.save_file_mark(f["hash"], mark if set_all else None, file_path=f.get("path", ""))
         self.asset_model.refresh()
         self.files_changed.emit()
 
@@ -1179,8 +1222,7 @@ class DesktopSessionManager(QObject):
                 )
                 if same_path_idx is not None:
                     old = self.state.uploaded_files[same_path_idx]
-                    self.state.thumbnails.pop(old["name"], None)
-                    self.state.rendered_thumbnails.discard(old["name"])
+                    self._drop_thumbnail(old)
                     self.state.uploaded_files[same_path_idx] = info
                     continue
                 clash = next((f for f in self.state.uploaded_files if f["hash"] == info["hash"]), None)
@@ -1228,9 +1270,7 @@ class DesktopSessionManager(QObject):
             return
         pos = valid[0]
         for i in reversed(valid):
-            removed = self.state.uploaded_files.pop(i)
-            self.state.thumbnails.pop(removed["name"], None)
-            self.state.rendered_thumbnails.discard(removed["name"])
+            self._drop_thumbnail(self.state.uploaded_files.pop(i))
         marks = self.repo.load_file_marks()
         m = marks.get(composite["hash"])
         composite = {**composite, "keeper": m == "keeper", "excluded": m == "excluded"}
@@ -1297,9 +1337,7 @@ class DesktopSessionManager(QObject):
         """
         idx = self.state.selected_file_idx
         if 0 <= idx < len(self.state.uploaded_files):
-            file_info = self.state.uploaded_files.pop(idx)
-            self.state.thumbnails.pop(file_info["name"], None)
-            self.state.rendered_thumbnails.discard(file_info["name"])
+            self._drop_thumbnail(self.state.uploaded_files.pop(idx))
 
             if not self.state.uploaded_files:
                 self._reset_active_image_state()
@@ -1321,9 +1359,7 @@ class DesktopSessionManager(QObject):
 
         for idx in indices:
             if 0 <= idx < len(self.state.uploaded_files):
-                file_info = self.state.uploaded_files.pop(idx)
-                self.state.thumbnails.pop(file_info["name"], None)
-                self.state.rendered_thumbnails.discard(file_info["name"])
+                self._drop_thumbnail(self.state.uploaded_files.pop(idx))
 
         if not self.state.uploaded_files:
             self._reset_active_image_state()

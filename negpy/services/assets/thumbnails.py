@@ -43,12 +43,22 @@ async def generate_batch_thumbnails(
                     await progress_callback(completed, f_info["name"])
                 else:
                     progress_callback(completed, f_info["name"])
-            return f_info["name"], thumb
+            return asset_thumbnail_key(f_info), thumb
 
     tasks = [_worker(f) for f in files]
     results = await asyncio.gather(*tasks)
 
-    return {name: thumb for name, thumb in results if isinstance(thumb, Image.Image)}
+    return {key: thumb for key, thumb in results if isinstance(thumb, Image.Image)}
+
+
+def asset_thumbnail_key(asset: Dict[str, Any]) -> str:
+    """The one key an asset's thumbnail lives under, in memory and on disk.
+
+    Keyed by identity rather than display name: two same-named files from different
+    folders would otherwise overwrite each other's thumbnail, and a triplet's merged
+    thumb would be shadowed by its red exposure's.
+    """
+    return thumbnail_cache_key(asset["hash"], bool(asset.get("green_path") and asset.get("blue_path")))
 
 
 def thumbnail_cache_key(file_hash: str, is_triplet: bool) -> str:

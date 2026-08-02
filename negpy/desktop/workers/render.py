@@ -77,8 +77,7 @@ class TestStripTask:
 class ThumbnailUpdateTask:
     """Request to update the filmstrip thumbnail from a rendered buffer."""
 
-    filename: str
-    file_hash: str
+    file_hash: str  # asset_thumbnail_key — the filmstrip and the disk cache share it
     buffer: np.ndarray
     # Display-transform inputs, from AppController.display_transform_params — must be
     # the same pair the canvas used for this buffer or the thumbnail's colour drifts.
@@ -380,7 +379,7 @@ class ThumbnailWorker(QObject):
                 monitor_icc_bytes=task.monitor_icc_bytes,
             )
             if thumb:
-                self.rendered_finished.emit({task.filename: thumb})
+                self.rendered_finished.emit({task.file_hash: thumb})
         except Exception as e:
             logger.error(f"Thumbnail update failure: {e}")
 
@@ -432,7 +431,10 @@ class AssetDiscoveryWorker(QObject):
             try:
                 f_hash, legacy = file_hashes(path)
                 if not f_hash.startswith("err_"):
-                    valid_assets.append({"name": name, "path": path, "hash": f_hash, "legacy_hash": legacy})
+                    # Stamped once here so sorting and date search never stat per row.
+                    valid_assets.append(
+                        {"name": name, "path": path, "hash": f_hash, "legacy_hash": legacy, "mtime": os.path.getmtime(path)}
+                    )
             except Exception as e:
                 logger.error(f"Skipping invalid file {path}: {e}")
 

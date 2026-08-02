@@ -30,6 +30,7 @@ from negpy.desktop.workers.render import (
     ThumbnailWorker,
 )
 from negpy.desktop.workers.scan_worker import BatchRequest, RollPreviewRequest, ScanRequest, ScanWorker
+from negpy.desktop.workers.library import LibrarySearchTask, LibrarySearchWorker
 from negpy.desktop.workers.stitch import StitchTask, StitchWorker
 from negpy.features.stitch.models import stitch_hash, stitch_name
 from negpy.desktop.workers.capture_worker import (
@@ -74,8 +75,7 @@ from negpy.features.geometry.models import FINE_ROTATION_LIMIT, AutocropMode
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig
 from negpy.features.process.models import ProcessConfig, ProcessMode, invalidate_local_bounds, scan_setup_values
-from negpy.features.rgbscan.models import is_rgb_triplet
-from negpy.services.assets.thumbnails import thumbnail_cache_key
+from negpy.services.assets.thumbnails import asset_thumbnail_key
 from negpy.kernel.system.paths import get_resource_path
 from negpy.features.retouch.logic import fallback_source_offset, select_source_offset
 from negpy.features.retouch.models import HEAL_SIZE_REF, RetouchConfig
@@ -216,6 +216,8 @@ class AppController(QObject):
     zone_pins_changed = pyqtSignal()
     zone_arm_changed = pyqtSignal(object)  # armed zone, or None
     asset_discovery_requested = pyqtSignal(AssetDiscoveryTask)
+    library_search_requested = pyqtSignal(LibrarySearchTask)
+    library_search_finished = pyqtSignal(int)  # frames found (0 = nothing matched)
     stitch_requested = pyqtSignal(object)
     thumbnail_requested = pyqtSignal(list)
     thumbnail_update_requested = pyqtSignal(ThumbnailUpdateTask)
@@ -347,6 +349,10 @@ class AppController(QObject):
         self.discovery_thread = QThread()
         self.discovery_worker = AssetDiscoveryWorker()
         self.discovery_worker.moveToThread(self.discovery_thread)
+        # Shares the discovery thread: a library search ends in a discovery anyway,
+        # and neither should ever run while the other is walking the disk.
+        self.library_worker = LibrarySearchWorker()
+        self.library_worker.moveToThread(self.discovery_thread)
         self.discovery_thread.start()
 
         self.preview_load_thread = QThread()
@@ -554,6 +560,10 @@ class AppController(QObject):
         self.discovery_worker.finished.connect(self._on_discovery_finished)
         self.discovery_worker.error.connect(self._on_render_error)
         self.discovery_worker.error.connect(self._on_discovery_batch_error)
+        self.library_search_requested.connect(self.library_worker.search)
+        self.library_worker.progress.connect(self._on_library_walk_progress)
+        self.library_worker.finished.connect(self._on_library_search_finished)
+        self.library_worker.error.connect(self._on_render_error)
 
         self.preview_load_requested.connect(self.preview_load_worker.process)
         self.preview_load_worker.splash.connect(self._on_splash_preview)
@@ -615,11 +625,11 @@ class AppController(QObject):
         self.session.files_changed.connect(self._render_debounce.start)
 
     def generate_missing_thumbnails(self) -> None:
-        missing = [f for f in self.state.uploaded_files if f["name"] not in self.state.thumbnails]
+        missing = [f for f in self.state.uploaded_files if asset_thumbnail_key(f) not in self.state.thumbnails]
         if missing:
             if self._begin_batch("thumbnails", "Generating thumbnails", abortable=False) is None:
                 return
-            self._thumb_requested = [f["name"] for f in missing]
+            self._thumb_requested = [asset_thumbnail_key(f) for f in missing]
             self.set_status("GENERATING THUMBNAILS...")
             self.thumbnail_requested.emit(missing)
 
@@ -637,35 +647,36 @@ class AppController(QObject):
         self.status_progress_requested.emit(current, total)
         self.batch_progress.emit(current, total, name)
 
-    def _set_thumbnail(self, name: str, pil_img: Any) -> None:
+    def _set_thumbnail(self, key: str, pil_img: Any) -> None:
         u8_arr = np.array(pil_img.convert("RGB"))
-        self.state.thumbnails[name] = QIcon(QPixmap.fromImage(ImageConverter.to_qimage(u8_arr)))
+        self.state.thumbnails[key] = QIcon(QPixmap.fromImage(ImageConverter.to_qimage(u8_arr)))
 
     def _on_thumbnails_finished(self, new_thumbs: Dict[str, Any]) -> None:
         self.status_progress_requested.emit(0, 0)
         self._end_batch("thumbnails")
-        for name, pil_img in new_thumbs.items():
+        for key, pil_img in new_thumbs.items():
             # A frame that already rendered on the canvas has the correct (inverted)
             # thumbnail; don't let this batch overwrite it with the source-decode placeholder.
-            if pil_img and name not in self.state.rendered_thumbnails:
-                self._set_thumbnail(name, pil_img)
+            if pil_img and key not in self.state.rendered_thumbnails:
+                self._set_thumbnail(key, pil_img)
 
         requested = getattr(self, "_thumb_requested", [])
         self._thumb_requested = []
-        failed = {n for n in requested if not new_thumbs.get(n)}
+        failed = {k for k in requested if not new_thumbs.get(k)}
         for f in self.state.uploaded_files:
-            if f["name"] in failed:
+            key = asset_thumbnail_key(f)
+            if key in failed:
                 f.setdefault("decode_failed", _THUMB_FAILED_MSG)
-            elif f["name"] in new_thumbs and f.get("decode_failed") == _THUMB_FAILED_MSG:
+            elif key in new_thumbs and f.get("decode_failed") == _THUMB_FAILED_MSG:
                 del f["decode_failed"]
         self.session.asset_model.refresh()
 
     def _on_rendered_thumbnail(self, new_thumbs: Dict[str, Any]) -> None:
         """A canvas render produced a thumbnail — it supersedes any batch placeholder."""
-        for name, pil_img in new_thumbs.items():
+        for key, pil_img in new_thumbs.items():
             if pil_img:
-                self._set_thumbnail(name, pil_img)
-                self.state.rendered_thumbnails.add(name)
+                self._set_thumbnail(key, pil_img)
+                self.state.rendered_thumbnails.add(key)
         self.session.asset_model.refresh()
 
     # --- Batch progress popup -------------------------------------------------
@@ -824,6 +835,65 @@ class AppController(QObject):
     def _start_next_asset_discovery(self) -> None:
         if self._pending_asset_discoveries and not self._discovery_running and self._active_batch is None:
             self._start_asset_discovery(self._pending_asset_discoveries.pop(0))
+
+    # --- Library (folders on disk) --------------------------------------------
+
+    def library_roots(self) -> List[str]:
+        saved = self.session.repo.get_global_setting("library_roots", []) or []
+        return [p for p in saved if isinstance(p, str)]
+
+    def open_library_folder(self, folder: str, add_to_session: bool = False) -> None:
+        """Load a folder's frames. Replacing the session costs nothing — every edit
+        lives in the database under its own content hash, not in the file list."""
+        if not os.path.isdir(folder):
+            self.set_status("Folder is no longer on disk", 3000)
+            return
+        self.request_asset_discovery(
+            [folder],
+            auto_open=True,
+            replace_existing=not add_to_session,
+            reselect_path=self.state.current_file_path if add_to_session else None,
+        )
+
+    def invalidate_library_walk(self) -> None:
+        """Drop the cached traversal so the next search re-reads the folders."""
+        QMetaObject.invokeMethod(self.library_worker, "invalidate", Qt.ConnectionType.QueuedConnection)
+
+    def request_library_search(self, query: str, rewalk: bool = False) -> None:
+        """Search every library root, not just the loaded frames, and open the matches.
+
+        Edit metadata joins onto unopened files by path, so a frame is findable by its
+        film stock without being in the session — and without being hashed.
+        """
+        query = (query or "").strip()
+        if not query:
+            self.set_status("Type a search first, e.g. film:portra", 3000)
+            return
+        roots = self.library_roots()
+        if not roots:
+            self.set_status("Add a library folder first", 4000)
+            return
+        self.set_status("SEARCHING LIBRARY...")
+        self.library_search_requested.emit(
+            LibrarySearchTask(
+                roots=roots,
+                query=query,
+                configs_by_path=self.session.repo.load_settings_by_path(),
+                marks_by_path=self.session.repo.load_file_marks_by_path(),
+                rewalk=rewalk,
+            )
+        )
+
+    def _on_library_walk_progress(self, walked: int) -> None:
+        self.set_status(f"SEARCHING LIBRARY... {walked} files")
+
+    def _on_library_search_finished(self, paths: List[str]) -> None:
+        self.library_search_finished.emit(len(paths))
+        if not paths:
+            self.set_status("No frames in the library match that search", 4000)
+            return
+        self.set_status(f"{len(paths)} frame{'s' if len(paths) != 1 else ''} found", 3000)
+        self.request_asset_discovery(paths, auto_open=True, replace_existing=True)
 
     def set_rgb_scan_mode(self, enabled: bool) -> None:
         """Persist the RGB-scan toggle and re-discover already-loaded assets so the
@@ -2733,8 +2803,9 @@ class AppController(QObject):
         for green, blue, _ in triplets.values():
             paths.extend((green, blue))
         self.state.uploaded_files.pop(idx)
-        self.session.state.thumbnails.pop(asset["name"], None)
-        self.session.state.rendered_thumbnails.discard(asset["name"])
+        key = asset_thumbnail_key(asset)
+        self.session.state.thumbnails.pop(key, None)
+        self.session.state.rendered_thumbnails.discard(key)
         self.session.asset_model.refresh()
         self._pending_scanned_file = paths[0]
         self.request_asset_discovery(paths, restore_triplets=triplets or None)
@@ -3829,10 +3900,6 @@ class AppController(QObject):
         idx = self.state.selected_file_idx
         if not (0 <= idx < len(self.state.uploaded_files)):
             return
-        # The filmstrip keys state.thumbnails by the asset's display name, which for an
-        # RGB-scan triplet is "<base> (RGB)" — NOT basename(current_file_path), which is
-        # the underlying red exposure's filename. Keying by the wrong name silently
-        # orphans every triplet's rendered thumbnail under a key nothing ever reads.
         asset_name = self.state.uploaded_files[idx]["name"]
 
         with self.state.metrics_lock:
@@ -3856,13 +3923,11 @@ class AppController(QObject):
         # Same transform the canvas used for this buffer, so the filmstrip and the
         # canvas can't disagree about the frame's colour.
         display_cs, monitor_bytes = self.display_transform_params(splash=bool(metrics.get("splash")))
-        # Cache under the triplet-namespaced key so the batch (source) path re-serves this
-        # rendered positive instead of the uninverted source merge it decodes itself.
-        cache_key = thumbnail_cache_key(self.state.current_file_hash, is_rgb_triplet(self.state.config.rgbscan))
+        # The asset's own key, so the batch (source) path re-serves this rendered positive
+        # instead of the uninverted source merge it would decode itself.
         self.thumbnail_update_requested.emit(
             ThumbnailUpdateTask(
-                filename=asset_name,
-                file_hash=cache_key,
+                file_hash=asset_thumbnail_key(self.state.uploaded_files[idx]),
                 buffer=buffer,
                 color_space=display_cs,
                 monitor_icc_bytes=monitor_bytes,
