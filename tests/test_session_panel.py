@@ -55,10 +55,16 @@ def test_splitter_height_is_restored_only_once_the_panel_has_one(panel):
     panel.hide()
 
 
-def test_opening_a_folder_reaches_the_controller(panel, tmp_path):
+def test_tree_browses_through_the_film_strip(panel, tmp_path):
+    """A folder entered from the tree takes the same route as one entered from the
+    sheet — browse first, prompt before loading."""
+    (tmp_path / "library" / "roll_a").mkdir()
+
     panel.library_tree.folder_opened.emit(str(tmp_path / "library"), False)
 
-    panel.controller.open_library_folder.assert_called_once_with(str(tmp_path / "library"), False)
+    # An image-less folder just lists itself; nothing is hashed and nothing is loaded.
+    assert [f.name for f in panel.file_browser.session.asset_model._folders] == ["roll_a"]
+    panel.controller.open_library_folder.assert_not_called()
 
 
 def test_changing_roots_drops_the_cached_walk(panel):

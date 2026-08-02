@@ -524,3 +524,117 @@ def test_session_menu_clear_all_clears_every_frame(browser, session):
     with patch("negpy.desktop.view.sidebar.files.confirm_unload", return_value=True):
         browser._on_clear_all()
     session.clear_files.assert_called_once()
+
+
+# --- Library browsing: folder tiles in the sheet, and the load prompt ---------
+
+
+@pytest.fixture
+def library(tmp_path):
+    """scans/ with a container folder, a roll, and a roll that also has a subfolder."""
+    (tmp_path / "scans" / "roll_a").mkdir(parents=True)
+    (tmp_path / "scans" / "roll_b" / "rescans").mkdir(parents=True)
+    (tmp_path / "scans" / "roll_a" / "a1.NEF").write_bytes(b"1")
+    (tmp_path / "scans" / "roll_a" / "a2.NEF").write_bytes(b"2")
+    (tmp_path / "scans" / "roll_b" / "b1.NEF").write_bytes(b"3")
+    (tmp_path / "scans" / "roll_b" / "rescans" / "b1_v2.NEF").write_bytes(b"4")
+    return tmp_path / "scans"
+
+
+def _folder_names(session):
+    return [f.name for f in session.asset_model._folders]
+
+
+def test_browsing_a_container_folder_lists_it_without_loading(browser, session, library):
+    browser.browse_folder(str(library))
+
+    assert _folder_names(session) == ["roll_a", "roll_b"]
+    browser.controller.open_library_folder.assert_not_called()  # nothing hashed, nothing loaded
+
+
+def test_folder_counts_come_from_a_listing_not_a_load(browser, session, library):
+    browser.browse_folder(str(library))
+    roll_a, roll_b = session.asset_model._folders
+
+    assert (roll_a.image_count, roll_a.subfolder_count) == (2, 0)
+    assert (roll_b.image_count, roll_b.subfolder_count) == (1, 1)
+
+
+def test_a_folder_with_photos_prompts_before_loading(browser, session, library, monkeypatch):
+    asked = []
+    monkeypatch.setattr(browser, "_confirm_load", lambda contents: asked.append(contents.image_count) or True)
+
+    browser.browse_folder(str(library / "roll_a"))
+
+    assert asked == [2]
+    browser.controller.open_library_folder.assert_called_once_with(str(library / "roll_a"), add_to_session=False)
+
+
+def test_declining_the_prompt_loads_nothing_and_stays_put(browser, session, library, monkeypatch):
+    browser.browse_folder(str(library))  # tiles for scans/
+    monkeypatch.setattr(browser, "_confirm_load", lambda contents: False)
+
+    browser.browse_folder(str(library / "roll_a"))
+
+    browser.controller.open_library_folder.assert_not_called()
+    assert _folder_names(session) == ["roll_a", "roll_b"]  # still browsing scans/
+
+
+def test_a_loaded_folders_subfolders_stay_on_the_sheet(browser, session, library, monkeypatch):
+    monkeypatch.setattr(browser, "_confirm_load", lambda contents: True)
+
+    browser.browse_folder(str(library / "roll_b"))
+
+    assert _folder_names(session) == ["rescans"]
+
+
+def test_container_folder_needs_no_prompt(browser, session, library, monkeypatch):
+    monkeypatch.setattr(browser, "_confirm_load", lambda contents: pytest.fail("should not ask"))
+
+    browser.browse_folder(str(library))
+
+    assert _folder_names(session) == ["roll_a", "roll_b"]
+
+
+def test_clicking_a_folder_tile_enters_it(browser, session, library):
+    browser.browse_folder(str(library))
+    entered = []
+    browser.browse_folder = lambda path, add_to_session=False: entered.append(path)
+
+    browser._on_item_clicked(session.asset_model.index(0, 0))
+
+    assert entered == [str(library / "roll_a")]
+
+
+def test_folder_tiles_sit_before_the_frames_and_are_not_assets(browser, session, library):
+    session.state.uploaded_files = [{"name": "x.cr2", "path": "/tmp/x.cr2", "hash": "hx"}]
+    session.asset_model.refresh()
+    browser.browse_folder(str(library))
+
+    model = session.asset_model
+    assert model.rowCount() == 3  # two tiles + one frame
+    assert model.display_to_actual(0) == -1  # a tile is not a frame
+    assert model.display_to_actual(2) == 0
+    assert model.actual_to_display(0) == 2
+    assert model.visible_actual_indices_ordered() == [0]
+
+
+def test_a_search_hides_the_folder_tiles(browser, session, library):
+    browser.browse_folder(str(library))
+    assert session.asset_model.folder_count == 2
+
+    session.asset_model.set_filter("nothing_matches", regex=False)
+    assert session.asset_model.folder_count == 0
+    assert session.asset_model.rowCount() == 0
+
+    session.asset_model.set_filter("", regex=False)
+    assert session.asset_model.folder_count == 2
+
+
+def test_browsing_never_unloads_the_current_roll(browser, session, library):
+    """Wandering into a folder is navigation, not a decision about your open work."""
+    before = list(session.state.uploaded_files)
+
+    browser.browse_folder(str(library))
+
+    assert session.state.uploaded_files == before

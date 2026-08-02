@@ -45,11 +45,21 @@ The header shows the NegPy logo and version (and an update link when a new relea
 
 ### Your library (the folder tree)
 
-The top of the panel is a folder tree of the places your scans live. Press **+** to add a folder to the library; **↻** re-reads it from disk. Click any folder to load its frames into the film strip, or right-click → **Add to session** to append them to what's already open. Drag the divider to give the tree more or less room; the panel remembers where you left it. The tree appears once you have added a folder.
+The top of the panel is a folder tree of the places your scans live. Press **+** to add a folder — point it at the one big `Scans` directory you keep everything under, subfolders and all. **↻** re-reads it from disk. Drag the divider to give the tree more or less room; the panel remembers where you left it. The tree appears once you have added a folder.
 
-Folders are your folders. NegPy reads the tree straight from disk and never creates, renames, moves or deletes anything in it — reorganize in Finder or Explorer and the tree simply shows the new arrangement next time you refresh. Because every edit is stored against the image's content, moving a file between folders keeps its edit, its history and its keep/reject mark.
+**Adding a folder costs nothing.** Nothing is opened, decoded or hashed when you add it or click through it — NegPy just lists what is there.
 
-Opening a folder replaces what's in the film strip. Nothing is lost by that: your edits live in NegPy's database, not in the list of open files.
+#### Walking around
+
+Click any folder, in the tree or on the sheet, to look inside it. Its subfolders appear on the contact sheet as plain tiles showing the folder's name and what is in it ("36 photos", "2 folders"), so you can keep drilling down without going back to the tree. A folder that also holds photos shows both: its subfolder tiles first, then its frames.
+
+When you enter a folder that actually contains images, NegPy asks whether to **load the roll** — and only then does it hash and thumbnail them, which is the part that takes a moment on a big roll. Say no and nothing happens; your open frames stay exactly as they were. Tick **Always load without asking** in that prompt if you would rather it just get on with it.
+
+Loading a roll replaces what's in the film strip (right-click a tile → **Add to session** appends instead). Nothing is lost either way: your edits live in NegPy's database, not in the list of open files.
+
+#### Folders are your folders
+
+NegPy reads the tree straight from disk and never creates, renames, moves or deletes anything in it — reorganize in Finder or Explorer and the tree simply shows the new arrangement next time you refresh. Because every edit is stored against the image's content, moving a file between folders keeps its edit, its history and its keep/reject mark.
 
 ### Importing & managing files
 

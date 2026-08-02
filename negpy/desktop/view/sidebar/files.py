@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QListView,
     QMenu,
+    QMessageBox,
     QPushButton,
     QSlider,
     QStyle,
@@ -45,6 +46,7 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog, open_paste_dialog
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
 from negpy.infrastructure.loaders.helpers import get_supported_raw_wildcards
+from negpy.services.assets.library import FolderEntry, scan_folder
 
 
 class _ThumbnailDelegate(QStyledItemDelegate):
@@ -83,8 +85,56 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         painter.drawLine(cx, cy - 4, cx, cy + 1)
         painter.drawPoint(cx, cy + 4)
 
+    def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
+        # A folder row carries no icon, and the default hint for one is the text's own
+        # height — it would draw into a sliver at the corner of its cell instead of
+        # filling it like a thumbnail does.
+        if isinstance(index.data(Qt.ItemDataRole.UserRole), FolderEntry):
+            return option.decorationSize
+        return super().sizeHint(option, index)
+
+    def _paint_folder(self, painter: QPainter, option: QStyleOptionViewItem, folder) -> None:
+        """A subfolder tile: no picture to show, so the name and what's inside it."""
+        area = option.rect.adjusted(self._MARGIN, self._MARGIN, -self._MARGIN, -self._MARGIN)
+        hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(QPen(QColor(THEME.text_muted if hover else THEME.border_color), 1))
+        painter.setBrush(QColor(255, 255, 255, 14 if hover else 8))
+        painter.drawRoundedRect(area.adjusted(0, 0, -1, -1), self._RADIUS, self._RADIUS)
+
+        # Glyph and labels as one centred block, so a tall square cell doesn't leave the
+        # name stranded above a band of empty tile.
+        line = painter.fontMetrics().height()
+        glyph = min(48, max(20, area.height() // 3))
+        block = glyph + 6 + line * 2
+        top = area.y() + max(0, (area.height() - block) // 2)
+
+        icon = qta.icon("fa5s.folder", color=THEME.text_primary if hover else THEME.text_secondary)
+        icon.paint(painter, QRect(area.center().x() - glyph // 2, top, glyph, glyph))
+
+        text_top = top + glyph + 6
+        text_area = QRect(area.x() + 6, text_top, area.width() - 12, line)
+        painter.setPen(QColor(THEME.text_primary))
+        name = painter.fontMetrics().elidedText(folder.name, Qt.TextElideMode.ElideMiddle, text_area.width())
+        painter.drawText(text_area, int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter), name)
+
+        painter.setPen(QColor(THEME.text_muted))
+        painter.drawText(
+            text_area.translated(0, line),
+            int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter),
+            folder.summary(),
+        )
+        painter.restore()
+
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
-        file_info = index.data(Qt.ItemDataRole.UserRole) or {}
+        payload = index.data(Qt.ItemDataRole.UserRole)
+        if isinstance(payload, FolderEntry):
+            self._paint_folder(painter, option, payload)
+            return
+
+        file_info = payload or {}
         failed = bool(file_info.get("decode_failed"))
 
         icon = index.data(Qt.ItemDataRole.DecorationRole)
@@ -309,6 +359,8 @@ class FileBrowser(QWidget):
         self.filter_timer.setSingleShot(True)
         self.filter_timer.setInterval(200)
         self.filter_timer.timeout.connect(self._apply_filter)
+
+        self._browsed_folder = ""
 
         self._init_ui()
         self._connect_signals()
@@ -546,6 +598,52 @@ class FileBrowser(QWidget):
         del_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
         del_shortcut.activated.connect(self._on_delete_key)
 
+    def browse_folder(self, path: str, add_to_session: bool = False) -> None:
+        """Enter a library folder: list what is in it, and ask before loading a roll.
+
+        Browsing is free — listing a folder is one directory read, so a library of
+        thousands of scans can be walked around without decoding or hashing anything.
+        Only an accepted prompt starts the hashing pass.
+        """
+        contents = scan_folder(path)
+        if not contents.image_count:
+            # Nothing to ask about: a container folder just shows what it holds.
+            self._show_folder(contents, load=False)
+            return
+        if not self._confirm_load(contents):
+            return
+        self._show_folder(contents, load=True, add_to_session=add_to_session)
+
+    def _confirm_load(self, contents) -> bool:
+        if self.session.repo.get_global_setting("library_autoload_folders", False):
+            return True
+
+        n = contents.image_count
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Load roll")
+        box.setText(f"Load {n} image{'s' if n != 1 else ''} from “{os.path.basename(contents.path.rstrip(os.sep))}”?")
+        box.setInformativeText("They are hashed and thumbnailed on load, which takes a moment on a large roll.")
+        remember = QCheckBox("Always load without asking")
+        box.setCheckBox(remember)
+        load = box.addButton("Load", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        if box.clickedButton() is not load:
+            return False
+        if remember.isChecked():
+            self.session.repo.save_global_setting("library_autoload_folders", True)
+        return True
+
+    def _show_folder(self, contents, load: bool, add_to_session: bool = False) -> None:
+        """Browsing only changes the tiles. Frames come and go on an accepted load —
+        wandering into a folder must never quietly unload the roll you were working on."""
+        self._browsed_folder = contents.path
+        self.session.asset_model.set_folders(contents.folders)
+        if load:
+            self.controller.open_library_folder(contents.path, add_to_session=add_to_session)
+        self._update_tally()
+
     def search_library(self) -> None:
         """Run the box's query against the library folders instead of the loaded roll."""
         self.controller.request_library_search(self.search_input.text())
@@ -698,13 +796,21 @@ class FileBrowser(QWidget):
 
     def _update_tally(self) -> None:
         files = self.session.state.uploaded_files
+        folders = self.session.asset_model.folder_count
         if not files:
-            self.tally_label.setVisible(False)
+            if folders and self._browsed_folder:
+                name = os.path.basename(self._browsed_folder.rstrip(os.sep)) or self._browsed_folder
+                self.tally_label.setText(f"{name} · {folders} folder{'s' if folders != 1 else ''}")
+                self.tally_label.setVisible(True)
+            else:
+                self.tally_label.setVisible(False)
             return
         keepers = sum(1 for f in files if f.get("keeper"))
         rejected = sum(1 for f in files if f.get("excluded"))
         n = len(files)
         text = f"{n} frame{'s' if n != 1 else ''}"
+        if folders:
+            text += f" · {folders} folder{'s' if folders != 1 else ''}"
         if keepers:
             text += f" · {keepers} keeper{'s' if keepers != 1 else ''}"
         if rejected:
@@ -783,13 +889,28 @@ class FileBrowser(QWidget):
         # multi-selection for batch actions and are left to the selectionChanged handler.
         if QApplication.keyboardModifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier):
             return
+        folder = self.session.asset_model.folder_at(index.row())
+        if folder is not None:
+            self.browse_folder(folder.path)
+            return
         self._activate_file(index)
 
     def _on_item_double_clicked(self, index) -> None:
+        if self.session.asset_model.folder_at(index.row()) is not None:
+            return  # the single click already entered it
         self._activate_file(index)
 
     def _show_context_menu(self, pos) -> None:
         index = self.list_view.indexAt(pos)
+        folder = self.session.asset_model.folder_at(index.row()) if index.isValid() else None
+        if folder is not None:
+            menu = QMenu(self)
+            menu.addAction("Open folder").triggered.connect(lambda: self.browse_folder(folder.path))
+            act_add = menu.addAction("Add to session")
+            act_add.triggered.connect(lambda: self.browse_folder(folder.path, add_to_session=True))
+            act_add.setEnabled(bool(folder.image_count))
+            menu.exec(self.list_view.viewport().mapToGlobal(pos))
+            return
         if not index.isValid():
             # Empty space carries the session-level tools, so they stay reachable
             # without travelling back to the toolbar at the top of the panel — and

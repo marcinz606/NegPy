@@ -89,7 +89,9 @@ class SessionPanel(QWidget):
         self.splitter.setSizes([max(0, height), max(1, self.splitter.height() - height)])
 
     def _connect_signals(self) -> None:
-        self.library_tree.folder_opened.connect(self.controller.open_library_folder)
+        # The tree browses; the film strip owns the prompt and the folder tiles, so a
+        # folder entered from the tree and one entered from the sheet behave the same.
+        self.library_tree.folder_opened.connect(self.file_browser.browse_folder)
         self.library_tree.roots_changed.connect(self._on_roots_changed)
         self.splitter.splitterMoved.connect(self._save_splitter)
 

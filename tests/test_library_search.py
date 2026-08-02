@@ -108,3 +108,49 @@ def test_walk_cache_sees_new_files_after_invalidate(tree):
     assert len(cache.files([str(tree)])) == before  # cached on purpose
     cache.invalidate()
     assert len(cache.files([str(tree)])) == before + 1
+
+
+def test_scan_folder_lists_subfolders_with_counts(tree):
+    from negpy.services.assets.library import scan_folder
+
+    contents = scan_folder(str(tree))
+
+    assert [f.name for f in contents.folders] == ["roll_a", "roll_b"]
+    roll_a, roll_b = contents.folders
+    assert (roll_a.image_count, roll_a.subfolder_count) == (2, 0)
+    assert (roll_b.image_count, roll_b.subfolder_count) == (0, 1)  # only the nested dir
+    assert contents.image_count == 0  # the root itself holds no images
+
+
+def test_scan_folder_returns_its_own_images(tree):
+    from negpy.services.assets.library import scan_folder
+
+    contents = scan_folder(str(tree / "roll_a"))
+
+    assert sorted(os.path.basename(p) for p in contents.image_paths) == ["IMG_0001.NEF", "IMG_0002.NEF"]
+    assert contents.folders == ()
+
+
+def test_scan_folder_ignores_ir_sidecars_and_dot_dirs(tree):
+    from negpy.services.assets.library import scan_folder
+
+    nested = scan_folder(str(tree / "roll_b" / "nested"))
+    assert [os.path.basename(p) for p in nested.image_paths] == ["scan.tif"]
+
+    root = scan_folder(str(tree))
+    assert ".hidden" not in [f.name for f in root.folders]
+
+
+def test_scan_folder_on_a_missing_path_is_empty_not_fatal(tree):
+    from negpy.services.assets.library import scan_folder
+
+    contents = scan_folder(str(tree / "nope"))
+    assert contents.folders == () and contents.image_paths == ()
+
+
+def test_folder_summary_reads_naturally(tree):
+    from negpy.services.assets.library import FolderEntry
+
+    assert FolderEntry("/p", "n", 1, 0).summary() == "1 photo"
+    assert FolderEntry("/p", "n", 36, 2).summary() == "36 photos · 2 folders"
+    assert FolderEntry("/p", "n", 0, 0).summary() == "empty"
