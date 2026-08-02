@@ -34,6 +34,7 @@ from negpy.features.retouch.logic import (
     ir_bake_token,
     ir_defect_score,
     ir_detect_cutoff,
+    ir_detect_target,
     ir_ratio_and_gain,
     route_ir_defects,
 )
@@ -182,19 +183,23 @@ class ImageProcessor:
 
     def _ir_ratio_gain(self, ir_buffer: np.ndarray, img: np.ndarray, source_key: str) -> tuple:
         """Cached (ratio_det, gain_det, degenerate, gammas) at detection scale."""
+        # Detection follows the buffer it will repair (capped): the score is upsampled onto
+        # that buffer, so a coarse detection writes a fat mask and averages over a wide
+        # support — see _IR_MAX_UPSAMPLE.
+        target = ir_detect_target(max(img.shape[:2]), APP_CONFIG.preview_render_size)
         # Key on the source shape — downsample_ir is deterministic in it, so this
         # discriminates the same as the detection shape but resolves before the
         # downsample runs. _ir_bake and _augment_retouch both call this per render;
         # keying on the result made the second call repay a full-res erode to build
         # a key it then hit.
-        key = (source_key, ir_buffer.shape)
+        key = (source_key, ir_buffer.shape, target)
         if key == self._ir_gain_key and self._ir_gain_value is not None:
             return self._ir_gain_value
-        # Min-preserving (not _detection_downsample) — INTER_AREA averages a sub-pixel
+        # Min-preserving (not _downsample_to_long_edge) — INTER_AREA averages a sub-pixel
         # hair's dip away. No-op on the preview path, where preview_ir already arrives
         # min-pooled at this scale.
-        ir_det = downsample_ir(np.ascontiguousarray(ir_buffer, dtype=np.float32), APP_CONFIG.preview_render_size)
-        val = ir_ratio_and_gain(ir_det, _detection_downsample(img))
+        ir_det = downsample_ir(np.ascontiguousarray(ir_buffer, dtype=np.float32), target)
+        val = ir_ratio_and_gain(ir_det, _downsample_to_long_edge(img, target))
         self._ir_gain_key = key
         self._ir_gain_value = val
         return val

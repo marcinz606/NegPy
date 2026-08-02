@@ -28,6 +28,7 @@ from negpy.features.retouch.logic import (
     ir_bake_token,
     ir_defect_score,
     ir_detect_cutoff,
+    ir_detect_target,
     ir_ratio_and_gain,
     normalize_ir,
     route_ir_defects,
@@ -127,6 +128,65 @@ def test_repair_keeps_the_grain_of_the_film_around_it():
     inside = float(detail[50:110, 79:81].std())
     outside = float(np.concatenate([detail[50:110, 60:70].ravel(), detail[50:110, 90:100].ravel()]).std())
     assert inside > 0.75 * outside, f"repair is smooth: σ {inside:.5f} against {outside:.5f} on clean film"
+
+
+def _edge_frame(size: int = 512, seed: int = 5):
+    """Grainy film with one tonal step: dense (light in the positive) left of it, thin right —
+    a licence-plate letter edge, in source transmittance."""
+    rng = np.random.default_rng(seed)
+    ramp = np.clip((np.arange(size, dtype=np.float32) - size / 2) / 8.0, 0.0, 1.0)
+    level = (0.02 + 0.09 * ramp)[None, :, None]
+    img = np.clip(level * (1.0 + rng.normal(0, 0.03, (size, size, 3))), 1e-4, 1.0).astype(np.float32)
+    ir = np.clip(0.9 + rng.normal(0, 0.004, (size, size)), 0.0, 1.0).astype(np.float32)
+    return img, ir
+
+
+def _occlude(img: np.ndarray, ir: np.ndarray, cy: int, cx: int, radius: float = 5.0, depth: float = 0.85):
+    """A neutral occluder dims both planes, so the untouched frame stays exact ground truth."""
+    yy, xx = np.mgrid[0 : img.shape[0], 0 : img.shape[1]]
+    t = (1.0 - depth * np.exp(-((np.hypot(yy - cy, xx - cx) / radius) ** 2))).astype(np.float32)
+    return (img * t[..., None]).astype(np.float32), (ir * t).astype(np.float32)
+
+
+def _bake(img: np.ndarray, ir: np.ndarray, preview_long_edge: int) -> np.ndarray:
+    """The IR bake as ImageProcessor runs it: detection scale from ``ir_detect_target``."""
+    ir_det = downsample_ir(ir, ir_detect_target(max(img.shape[:2]), preview_long_edge))
+    img_det = cv2.resize(img, ir_det.shape[1::-1], interpolation=cv2.INTER_AREA)
+    ratio, gain, degenerate, _ = ir_ratio_and_gain(ir_det, img_det)
+    assert not degenerate
+    score = ir_defect_score(ratio, ir_detect_cutoff(0.66, True))
+    return np.asarray(apply_ir_reconstruction(apply_ir_attenuation(img, gain), score))
+
+
+def test_ir_repair_does_not_overshoot_across_a_tonal_edge():
+    """A defect straddling a hard edge must not be rebuilt from the bright side of it: lifting
+    the dense side toward the neighbourhood mean prints as a dark blotch on a light area.
+
+    Preview scale 3.7× under the buffer (a 5958 px scan against preview 1600), which is where
+    it bit — detecting there instead of at the buffer's own scale read +0.43 dex peak / +0.16
+    mean here, and +0.41 on samples/scans/20260731_001.
+    """
+    img, ir = _edge_frame()
+    cy = cx = 256
+    out = _bake(*_occlude(img, ir, cy, cx), preview_long_edge=int(512 / 3.7))
+
+    yy, xx = np.mgrid[0 : img.shape[0], 0 : img.shape[1]]
+    truth = img.mean(-1)
+    under_defect = (np.hypot(yy - cy, xx - cx) < 8) & (truth < 0.045)
+    err = np.log10(out.mean(-1) / truth)[under_defect]
+    assert float(err.max()) < 0.33, f"dense side over-lifted by {err.max():.2f} dex"
+    assert float(err.mean()) < 0.12, f"dense side over-lifted by {err.mean():.2f} dex on average"
+
+
+def test_ir_detect_target_follows_the_buffer_and_stays_capped():
+    from negpy.features.retouch.logic import _IR_DETECT_MAX, _IR_MAX_UPSAMPLE
+
+    assert ir_detect_target(1200, 1600) == 1200, "never upscales past the buffer"
+    assert ir_detect_target(1600, 1600) == 1600
+    assert ir_detect_target(5958, 1600) == min(int(np.ceil(5958 / _IR_MAX_UPSAMPLE)), _IR_DETECT_MAX)
+    assert ir_detect_target(40000, 1600) == _IR_DETECT_MAX
+    sizes = [ir_detect_target(n, 1600) for n in (1600, 2400, 4000, 8000)]
+    assert sizes == sorted(sizes), "monotone in the buffer size"
 
 
 def test_ir_reconstruction_is_identity_on_clean_film():
