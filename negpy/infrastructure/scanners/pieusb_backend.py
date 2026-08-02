@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from negpy.infrastructure.scanners.base import ScannerDevice, ScannerSession, ScannerUnavailable, ScannerCapabilities
+
+from negpy.infrastructure.scanners.base import (
+    ScannerDevice,
+    ScannerSession,
+    ScannerUnavailable,
+    ScannerCapabilities,
+    TransientScanError
+)
 from negpy.infrastructure.scanners.params import ScanParams, ScanMode
 from negpy.infrastructure.scanners.result import ScanResult
 
@@ -28,8 +35,9 @@ def _require_pieusb() -> None:
 class PieusbSession:
     device_id: str
 
-    def __init__(self, info: DeviceInfo) -> None:
-        self.dev = Scanner(info)
+
+    def __init__(self, backend: PieusbBackend) -> None:
+        raise NotImplementedError('PieusbSession not yet implemented')
 
     def scan(
         self,
@@ -99,10 +107,13 @@ class PieusbBackend:
         self,
         device_id: str,
         params: ScanParams,
-        progress: Callable[[float], None],
+        progress: Callable[[float, str], None],
         cancel: threading.Event,
     ) -> ScanResult:
         from pieusb.scanner import Scanner
+
+        from pieusb.exceptions import WarmingUp, DeviceNotReady
+
         from pieusb.types import ScanPhase
 
         if cancel.is_set():
@@ -132,29 +143,21 @@ class PieusbBackend:
                 s.br_y = int(br_y)
 
             result = None
-
-            # Auto exposure meters from a preview pass, which is a full scan and
-            # reports its own 0..100%. Compress it into the head of the bar so
-            # the caller still sees one monotonic sweep instead of two. The
-            # share is a guess at relative cost: the preview runs at the
-            # device's preview resolution, so it is short next to the real scan
-            # but not free, since it pays warm-up and calibration again.
-            metering_share = 0.1 if params.auto_exposure else 0.0
+            scan_error = None
 
             def on_update(update):
-                scanned, total = update.scanned_lines, update.total_lines
-                if scanned is None or not total:
-                    return
-                fraction = scanned / total
-                if update.phase == ScanPhase.METERING:
-                    progress(fraction * metering_share)
-                else:
-                    progress(metering_share + fraction * (1.0 - metering_share))
+                progress(update.progress, update.phase)
 
             def on_complete(scan_result):
-                nonlocal result
-                result = ScanResult(rgb=scan_result.rgb, ir=scan_result.ir, dpi=params.dpi, device_model=dev.inquiry.model_str)
-
+                nonlocal result, scan_error
+                scan_error = scan_result.error
+                result = ScanResult(
+                    rgb=scan_result.rgb,
+                    ir=scan_result.ir,
+                    dpi=params.dpi,
+                    device_model=dev.inquiry.model_str
+                )
+            
             s.scan(on_update, on_complete)
 
             while not s.wait(0.2):
@@ -162,8 +165,8 @@ class PieusbBackend:
                     s.cancel()
                     raise Exception("Scan was cancelled")
 
-            if result is None:
-                raise Exception("Error while assembling the scan result")
+            if result is None or result.rgb is None:
+                raise Exception('Error while assembling the scan result')
 
             return result
 
