@@ -41,23 +41,30 @@ Both side panels can be narrowed to give the canvas more room. As the controls p
 
 ## 2. Film strip (left panel)
 
-The header shows the NegPy logo and version (and an update link when a new release is out). Below it is your library's folder tree, and under that the file browser.
+The header shows the NegPy logo and version (and an update link when a new release is out). Below it: the toolbar, the search box, and then two collapsible sections — **Library** (the folders your scans live in) and **Film Strip** (the frames you have open). Click either heading to fold it away; the one still open takes the whole panel, and a folded one keeps just its heading. NegPy remembers which were open.
 
-### Your library (the folder tree)
+### Your library
 
-The top of the panel is a folder tree of the places your scans live. Press **+** to add a folder — point it at the one big `Scans` directory you keep everything under, subfolders and all. **↻** re-reads it from disk. Drag the divider to give the tree more or less room; the panel remembers where you left it. The tree appears once you have added a folder.
+The **Library** section is a folder tree of the places your scans live. Press **+** to add a folder — point it at the one big `Scans` directory you keep everything under, subfolders and all. **↻** re-reads it from disk. Each row shows what is inside it ("36 photos", "2 folders"), and subfolders are read when you expand them.
 
-**Adding a folder costs nothing.** Nothing is opened, decoded or hashed when you add it or click through it — NegPy just lists what is there.
+**Browsing costs nothing.** Nothing is opened, decoded or hashed when you add a folder or click through the tree — NegPy just lists what is there.
+
+#### The Library button
+
+The **Library** button (book icon, first in the toolbar, or **Ctrl+L**) opens the folder your scans live in. The first time you press it, NegPy asks you to pick that folder and remembers it. It is also where the panel goes on its own: on launch when you don't restore a session, and whenever you unload the last frame — your rolls are a more useful resting state than an empty sheet.
+
+To point it somewhere else, add another folder with **+**; to forget them all, use **Clear Library** in *Manage Database* (that clears the list of folders only — your images, folders and edits are untouched).
 
 #### Walking around
 
-Click any folder, in the tree or on the sheet, to look inside it. Its subfolders appear on the contact sheet as plain tiles showing the folder's name and what is in it ("36 photos", "2 folders"), so you can keep drilling down without going back to the tree. A folder that also holds photos shows both: its subfolder tiles first, then its frames.
+*   **Click** a folder to select it, **double-click** (or **Enter**) to open it.
+*   **Ctrl+click** several folders and open them together to load more than one roll at once — you are asked once, for the total.
+*   **Alt+Up** moves the selection to the folder above.
+*   The tree sorts the way the sheet does: change **Sort** to Date or Descending and the folders follow.
 
-The first tile is the way back out — an arrow labelled with the folder above, or **Alt+Up**. It stops at the folder you added to the library, which is the top of that branch.
+When you open a folder that actually contains images, NegPy asks whether to **load the roll** — and only then does it hash and thumbnail them, which is the part that takes a moment on a big roll. Say no and nothing happens; your open frames stay exactly as they were. Tick **Always load without asking** in that prompt if you would rather it just get on with it.
 
-When you enter a folder that actually contains images, NegPy asks whether to **load the roll** — and only then does it hash and thumbnail them, which is the part that takes a moment on a big roll. Say no and nothing happens; your open frames stay exactly as they were. Tick **Always load without asking** in that prompt if you would rather it just get on with it.
-
-Loading a roll replaces what's in the film strip (right-click a tile → **Add to session** appends instead). Nothing is lost either way: your edits live in NegPy's database, not in the list of open files.
+Loading a roll replaces what's in the film strip (right-click → **Add to session** appends instead). Nothing is lost either way: your edits live in NegPy's database, not in the list of open files.
 
 #### Folders are your folders
 
@@ -67,7 +74,7 @@ NegPy reads the tree straight from disk and never creates, renames, moves or del
 
 Toolbar buttons, left to right:
 
-*   **Add files** / **Add folder**: load individual images or every image in a folder. Pick a folder that only holds *other* folders and NegPy shows you those instead of reporting that it found nothing — the same tiles the library tree gives you. Dropping a folder on the window does the same.
+*   **Add files** / **Add folder**: load individual images or every image in a folder. Pick a folder that only holds *other* folders and NegPy reveals it in the Library section instead of reporting that it found nothing. Dropping a folder on the window does the same.
 *   **Clear all**: unload everything (or, when several frames are selected, unload just those).
 *   **Hot Folder**: watches the current folder and auto-loads new files as they appear, handy when a scanner drops files into a directory.
 *   **RGB Scan**: treats the folder as red/green/blue exposure triplets and assembles each frame from three shots (for narrowband trichrome scanning). Right-click a frame → **Edit RGB Triplet…** to assign the three files by hand.
@@ -76,7 +83,7 @@ Toolbar buttons, left to right:
 *   **Sheet filter** (funnel): show *All frames*, *Keepers only*, or *Hide rejected*.
 *   **Sort**: by Name or Date, ascending or descending.
 
-Below the toolbar: a **filter box**, a **`.*`** regex toggle, a **search-library** button and a **tally**, e.g. "36 frames · 12 keepers · 3 rejected".
+Above both sections: a **filter box**, a **`.*`** regex toggle and a **search-library** button. Inside the Film Strip section, a **tally**, e.g. "36 frames · 12 keepers · 3 rejected".
 
 #### Filtering the sheet
 

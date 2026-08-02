@@ -25,6 +25,7 @@ _EDIT_ROWS = (
 _TOOLING_ROWS = (
     ("normalization_rolls", "Normalization rolls"),
     ("export_presets", "Export presets"),
+    ("library_roots", "Library folders"),
     ("app_preferences", "App preferences"),
 )
 
@@ -99,6 +100,10 @@ class DatabaseDialog(QDialog):
         self.clear_thumbs_btn.setToolTip("Delete the cached file-grid thumbnails. They are regenerated as images are loaded.")
         self.clear_thumbs_btn.clicked.connect(self._on_clear_thumbnails)
 
+        self.clear_library_btn = QPushButton("Clear Library")
+        self.clear_library_btn.setToolTip("Forget which folders your library points at. The folders and their files are untouched.")
+        self.clear_library_btn.clicked.connect(self._on_clear_library)
+
         self.reset_all_btn = QPushButton("Reset Everything")
         self.reset_all_btn.setToolTip(
             "Wipe the entire database: edits, history, marks, rig profiles, export presets and all app preferences."
@@ -115,6 +120,7 @@ class DatabaseDialog(QDialog):
 
         row.addWidget(self.clear_edits_btn)
         row.addWidget(self.clear_thumbs_btn)
+        row.addWidget(self.clear_library_btn)
         row.addWidget(self.reset_all_btn)
         row.addStretch(1)
         row.addWidget(close_btn)
@@ -164,6 +170,7 @@ class DatabaseDialog(QDialog):
             self._size_label.setText("Could not read the database.")
             return
         stats["thumbnails"] = thumb_count
+        stats["library_roots"] = len(self.repo.get_global_setting("library_roots", []) or [])
         for key, lbl in self._value_labels.items():
             lbl.setText(f"{stats.get(key, 0):,}")
         db_bytes = stats.get("edits_db_bytes", 0) + stats.get("settings_db_bytes", 0)
@@ -176,6 +183,7 @@ class DatabaseDialog(QDialog):
         self.clear_edits_btn.setEnabled(edits > 0)
         self.reset_all_btn.setEnabled(total > 0)
         self.clear_thumbs_btn.setEnabled(stats.get("thumbnails", 0) > 0)
+        self.clear_library_btn.setEnabled(stats.get("library_roots", 0) > 0)
 
     def _confirm(self, title: str, text: str, ok_label: str, informative: str = "This cannot be undone.") -> bool:
         box = QMessageBox(self)
@@ -215,6 +223,22 @@ class DatabaseDialog(QDialog):
             self.controller.clear_thumbnail_cache()
         except Exception as exc:
             QMessageBox.critical(self, "Clear failed", f"Could not clear the thumbnail cache:\n{exc}")
+        self._refresh()
+
+    def _on_clear_library(self) -> None:
+        if not self._confirm(
+            "Clear Library",
+            "Forget the folders your library points at?\n\n"
+            "Only the list of folders is cleared — the folders, your images and their edits are untouched.",
+            "Clear Library",
+            "You can point the library at a folder again at any time.",
+        ):
+            return
+        try:
+            self.repo.save_global_setting("library_roots", [])
+        except Exception as exc:
+            QMessageBox.critical(self, "Clear failed", f"Could not clear the library:\n{exc}")
+        self.controller.library_cleared.emit()
         self._refresh()
 
     def _on_reset_all(self) -> None:

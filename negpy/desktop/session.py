@@ -222,10 +222,6 @@ class AssetListModel(QAbstractListModel):
         self._filter_terms: list = []
         self._sheet_filter: str = "all"  # "all" | "keepers" | "unrejected"
         self._sorted_indices: list[int] = []
-        # Subfolders of the browsed folder, drawn as tiles before the frames so you can
-        # keep drilling down from the sheet. They are not assets: display_to_actual
-        # returns -1 for them, which every caller already treats as "not a frame".
-        self._folders: list[Any] = []
         self._rebuild_indices()
 
     def _rebuild_indices(self) -> None:
@@ -250,25 +246,6 @@ class AssetListModel(QAbstractListModel):
             indices = [i for i in indices if not files[i].get("excluded")]
 
         self._sorted_indices = indices
-
-    def set_folders(self, folders) -> None:
-        """Replace the subfolder tiles shown ahead of the frames."""
-        self._folders = list(folders)
-        self.layoutChanged.emit()
-
-    @property
-    def folders(self) -> list:
-        """The tiles as shown, including the go-up tile when there is one."""
-        return [] if self._filter_text else list(self._folders)
-
-    @property
-    def folder_count(self) -> int:
-        """Tiles currently shown — zero while a search is active (a query is about
-        frames, and a folder cannot answer `film:portra`)."""
-        return 0 if self._filter_text else len(self._folders)
-
-    def folder_at(self, display_row: int) -> Optional[Any]:
-        return self._folders[display_row] if 0 <= display_row < self.folder_count else None
 
     def set_sheet_filter(self, mode: str) -> None:
         if mode not in ("all", "keepers", "unrejected"):
@@ -332,38 +309,24 @@ class AssetListModel(QAbstractListModel):
         return list(self._sorted_indices)
 
     def display_to_actual(self, display_row: int) -> int:
-        row = display_row - self.folder_count
-        if row < 0 or row >= len(self._sorted_indices):
+        if display_row < 0 or display_row >= len(self._sorted_indices):
             return -1
-        return self._sorted_indices[row]
+        return self._sorted_indices[display_row]
 
     def actual_to_display(self, actual_idx: int) -> int:
         try:
-            return self._sorted_indices.index(actual_idx) + self.folder_count
+            return self._sorted_indices.index(actual_idx)
         except ValueError:
             return -1
 
     def rowCount(self, parent=QModelIndex()) -> int:
-        return self.folder_count + len(self._sorted_indices)
+        return len(self._sorted_indices)
 
     def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
-        if not index.isValid():
+        if not index.isValid() or index.row() >= len(self._sorted_indices):
             return None
 
-        folder = self.folder_at(index.row())
-        if folder is not None:
-            if role == Qt.ItemDataRole.DisplayRole:
-                return folder.name
-            if role == Qt.ItemDataRole.ToolTipRole:
-                return f"{folder.path}\n{folder.summary()}"
-            if role == Qt.ItemDataRole.UserRole:
-                return folder
-            return None
-
-        row = index.row() - self.folder_count
-        if row >= len(self._sorted_indices):
-            return None
-        file_info = self._state.uploaded_files[self._sorted_indices[row]]
+        file_info = self._state.uploaded_files[self._sorted_indices[index.row()]]
 
         if role == Qt.ItemDataRole.DisplayRole:
             return file_info["name"]

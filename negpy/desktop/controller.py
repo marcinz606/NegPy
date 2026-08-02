@@ -218,6 +218,7 @@ class AppController(QObject):
     asset_discovery_requested = pyqtSignal(AssetDiscoveryTask)
     library_search_requested = pyqtSignal(LibrarySearchTask)
     library_search_finished = pyqtSignal(int)  # frames found (0 = nothing matched)
+    library_cleared = pyqtSignal()  # roots forgotten elsewhere — the panel must re-read them
     stitch_requested = pyqtSignal(object)
     thumbnail_requested = pyqtSignal(list)
     thumbnail_update_requested = pyqtSignal(ThumbnailUpdateTask)
@@ -843,13 +844,17 @@ class AppController(QObject):
         return [p for p in saved if isinstance(p, str)]
 
     def open_library_folder(self, folder: str, add_to_session: bool = False) -> None:
-        """Load a folder's frames. Replacing the session costs nothing — every edit
-        lives in the database under its own content hash, not in the file list."""
-        if not os.path.isdir(folder):
+        self.open_library_folders([folder], add_to_session=add_to_session)
+
+    def open_library_folders(self, folders: List[str], add_to_session: bool = False) -> None:
+        """Load one or several folders' frames. Replacing the session costs nothing —
+        every edit lives in the database under its own content hash, not in the file list."""
+        present = [f for f in folders if os.path.isdir(f)]
+        if not present:
             self.set_status("Folder is no longer on disk", 3000)
             return
         self.request_asset_discovery(
-            [folder],
+            present,
             auto_open=True,
             replace_existing=not add_to_session,
             reselect_path=self.state.current_file_path if add_to_session else None,

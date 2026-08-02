@@ -123,3 +123,30 @@ def test_clear_on_empty_db_is_a_noop(tmp_path):
     repo.clear_saved_edits()  # must not raise
     repo.reset_everything()  # must not raise
     assert repo.database_stats()["file_settings"] == 0
+
+
+def test_clear_library_forgets_the_folders_only(tmp_path, qapp):
+    """The library is a list of places to look, not data — clearing it must not touch
+    saved edits, and must never touch the folders themselves."""
+    from unittest.mock import MagicMock
+
+    from negpy.desktop.view.widgets.database_dialog import DatabaseDialog
+
+    repo = StorageRepository(str(tmp_path / "edits.db"), str(tmp_path / "settings.db"))
+    repo.initialize()
+    repo.save_global_setting("library_roots", [str(tmp_path)])
+    repo.save_file_settings("h1", WorkspaceConfig(), file_path="/a/1.nef")
+
+    controller = MagicMock()
+    controller.asset_store.thumbnail_stats.return_value = (0, 0)
+    dialog = DatabaseDialog(repo, controller)
+    assert dialog.clear_library_btn.isEnabled()
+
+    dialog._confirm = lambda *a, **k: True
+    dialog._on_clear_library()
+
+    assert repo.get_global_setting("library_roots") == []
+    assert repo.load_file_settings("h1") is not None
+    assert tmp_path.is_dir()
+    assert not dialog.clear_library_btn.isEnabled()
+    controller.library_cleared.emit.assert_called_once_with()

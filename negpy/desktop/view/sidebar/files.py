@@ -46,7 +46,19 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog, open_paste_dialog
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
 from negpy.infrastructure.loaders.helpers import get_supported_raw_wildcards
-from negpy.services.assets.library import FolderEntry, scan_folder
+from negpy.desktop.view.sidebar.library_tree import LibraryTree
+from negpy.desktop.view.widgets.collapsible import CollapsibleSection
+from negpy.services.assets.library import folder_counts
+
+
+_UNBOUNDED_HEIGHT = 16777215  # QWIDGETSIZE_MAX — Qt's "no maximum"
+# With both sections open the panel splits 40/60: the tree is for finding a roll, the
+# sheet is where the work happens, so the frames get the larger half.
+_LIBRARY_SHARE, _FRAMES_SHARE = 2, 3
+
+
+def _folder_label(path: str) -> str:
+    return os.path.basename(path.rstrip(os.sep)) or path
 
 
 class _ThumbnailDelegate(QStyledItemDelegate):
@@ -85,57 +97,8 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         painter.drawLine(cx, cy - 4, cx, cy + 1)
         painter.drawPoint(cx, cy + 4)
 
-    def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
-        # A folder row carries no icon, and the default hint for one is the text's own
-        # height — it would draw into a sliver at the corner of its cell instead of
-        # filling it like a thumbnail does.
-        if isinstance(index.data(Qt.ItemDataRole.UserRole), FolderEntry):
-            return option.decorationSize
-        return super().sizeHint(option, index)
-
-    def _paint_folder(self, painter: QPainter, option: QStyleOptionViewItem, folder) -> None:
-        """A subfolder tile: no picture to show, so the name and what's inside it."""
-        area = option.rect.adjusted(self._MARGIN, self._MARGIN, -self._MARGIN, -self._MARGIN)
-        hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
-
-        painter.save()
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setPen(QPen(QColor(THEME.text_muted if hover else THEME.border_color), 1))
-        painter.setBrush(QColor(255, 255, 255, 14 if hover else 8))
-        painter.drawRoundedRect(area.adjusted(0, 0, -1, -1), self._RADIUS, self._RADIUS)
-
-        # Glyph and labels as one centred block, so a tall square cell doesn't leave the
-        # name stranded above a band of empty tile.
-        line = painter.fontMetrics().height()
-        glyph = min(48, max(20, area.height() // 3))
-        block = glyph + 6 + line * 2
-        top = area.y() + max(0, (area.height() - block) // 2)
-
-        glyph_name = "fa5s.level-up-alt" if folder.is_parent else "fa5s.folder"
-        icon = qta.icon(glyph_name, color=THEME.text_primary if hover else THEME.text_secondary)
-        icon.paint(painter, QRect(area.center().x() - glyph // 2, top, glyph, glyph))
-
-        text_top = top + glyph + 6
-        text_area = QRect(area.x() + 6, text_top, area.width() - 12, line)
-        painter.setPen(QColor(THEME.text_primary))
-        name = painter.fontMetrics().elidedText(folder.name, Qt.TextElideMode.ElideMiddle, text_area.width())
-        painter.drawText(text_area, int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter), name)
-
-        painter.setPen(QColor(THEME.text_muted))
-        painter.drawText(
-            text_area.translated(0, line),
-            int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter),
-            folder.summary(),
-        )
-        painter.restore()
-
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
-        payload = index.data(Qt.ItemDataRole.UserRole)
-        if isinstance(payload, FolderEntry):
-            self._paint_folder(painter, option, payload)
-            return
-
-        file_info = payload or {}
+        file_info = index.data(Qt.ItemDataRole.UserRole) or {}
         failed = bool(file_info.get("decode_failed"))
 
         icon = index.data(Qt.ItemDataRole.DecorationRole)
@@ -341,6 +304,9 @@ class FileBrowser(QWidget):
     """
 
     file_selected = pyqtSignal(str)
+    library_requested = pyqtSignal(bool)  # reveal the library (arg: ask for a folder if unset)
+    browse_requested = pyqtSignal(str)  # reveal this folder in the tree
+    sort_changed = pyqtSignal()  # the folder tree follows the sheet's sort
 
     def __init__(self, controller: AppController):
         super().__init__()
@@ -360,8 +326,6 @@ class FileBrowser(QWidget):
         self.filter_timer.setSingleShot(True)
         self.filter_timer.setInterval(200)
         self.filter_timer.timeout.connect(self._apply_filter)
-
-        self._browsed_folder = ""
 
         self._init_ui()
         self._connect_signals()
@@ -383,6 +347,10 @@ class FileBrowser(QWidget):
         btn_height = 28
 
         toolbar_row = OverflowBar(height=btn_height, spacing=4)
+
+        self.library_btn = QToolButton()
+        self.library_btn.setIcon(qta.icon("fa5s.book-open", color=THEME.text_primary))
+        self.library_btn.setToolTip("Library — browse the folder your scans live in")
 
         self.add_files_btn = QToolButton()
         self.add_files_btn.setIcon(qta.icon("fa5s.file-import", color=THEME.text_primary))
@@ -466,6 +434,7 @@ class FileBrowser(QWidget):
         self.sort_btn.setMenu(sort_menu)
 
         for btn in (
+            self.library_btn,
             self.add_files_btn,
             self.add_folder_btn,
             self.unload_btn,
@@ -483,6 +452,7 @@ class FileBrowser(QWidget):
         # OverflowBar rather than a QHBoxLayout: a plain row made the whole session panel
         # unshrinkable below every button laid end to end, so each new tool widened it for good.
         for widget, label in (
+            (self.library_btn, "Library"),
             (self.add_files_btn, "Add files"),
             (self.add_folder_btn, "Add folder"),
             (self.unload_btn, "Clear all"),
@@ -549,12 +519,13 @@ class FileBrowser(QWidget):
         self.thumb_size_slider.setFixedWidth(72)
         self.thumb_size_slider.setToolTip("Thumbnail size — smaller fits more columns in the panel")
         search_row.addWidget(self.thumb_size_slider)
+        # Above both sections: one box that filters the frames and searches the library,
+        # so it belongs to neither and stays reachable when either is folded away.
         layout.addLayout(search_row)
 
         self.tally_label = QLabel("")
         self.tally_label.setStyleSheet(f"color: {THEME.text_secondary}; font-size: 10px;")
         self.tally_label.setVisible(False)
-        layout.addWidget(self.tally_label)
 
         self.list_view = ThumbnailGridView(target_cell=self.thumb_size_slider.value())
         self.list_view.setModel(self.session.asset_model)
@@ -565,13 +536,50 @@ class FileBrowser(QWidget):
         self.list_view.setAlternatingRowColors(False)
         self.list_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
-        layout.addWidget(self.list_view)
+        self.library_tree = LibraryTree(self.controller)
+        self.library_section = self._make_section("Library", "fa5s.folder-open", self.library_tree, "library_section_expanded")
+
+        frames = QWidget()
+        frames_layout = QVBoxLayout(frames)
+        frames_layout.setContentsMargins(0, 0, 0, 0)
+        frames_layout.setSpacing(4)
+        frames_layout.addWidget(self.tally_label)
+        frames_layout.addWidget(self.list_view, 1)
+        self.frames_section = self._make_section("Film Strip", "fa5s.film", frames, "frames_section_expanded")
+
+        layout.addWidget(self.library_section)
+        layout.addWidget(self.frames_section)
+        self._rebalance_sections()
 
         # Applied after list_view exists — the filter prunes selection against the view.
         saved_sheet = self.session.repo.get_global_setting("sheet_filter") or "all"
         self._apply_sheet_filter(str(saved_sheet), save=False)
 
+    def _make_section(self, title: str, icon: str, content: QWidget, setting: str) -> CollapsibleSection:
+        saved = self.session.repo.get_global_setting(setting)
+        section = CollapsibleSection(title, expanded=True if saved is None else bool(saved), icon=qta.icon(icon, color=THEME.text_muted))
+        section.set_content(content)
+        section.expanded_changed.connect(lambda on, key=setting: self._on_section_toggled(key, on))
+        return section
+
+    def _on_section_toggled(self, setting: str, expanded: bool) -> None:
+        self.session.repo.save_global_setting(setting, expanded)
+        self._rebalance_sections()
+
+    def _rebalance_sections(self) -> None:
+        """Expanded sections share the panel; a collapsed one keeps only its header.
+
+        Stretch alone is not enough — a collapsed section would still be handed leftover
+        space — so its height is pinned to the header until it opens again.
+        """
+        layout = self.layout()
+        for section, share in ((self.library_section, _LIBRARY_SHARE), (self.frames_section, _FRAMES_SHARE)):
+            expanded = section.toggle_button.isChecked()
+            layout.setStretchFactor(section, share if expanded else 0)
+            section.setMaximumHeight(_UNBOUNDED_HEIGHT if expanded else section.toggle_button.height())
+
     def _connect_signals(self) -> None:
+        self.library_btn.clicked.connect(lambda: self.library_requested.emit(True))
         self.add_files_btn.clicked.connect(self._on_add_files)
         self.add_folder_btn.clicked.connect(self._on_add_folder)
         self.unload_btn.clicked.connect(self._on_unload_clicked)
@@ -584,6 +592,9 @@ class FileBrowser(QWidget):
         self.half_frame_btn.toggled.connect(self._on_half_frame_toggled)
         self.session.state_changed.connect(self.sync_ui)
         self.session.files_changed.connect(self._on_files_changed)
+        # Unloading the last frame leaves nothing to show — fall back to the library
+        # rather than an empty panel. Never prompts: the user asked to unload, not to load.
+        self.session.session_emptied.connect(lambda: self.library_requested.emit(False))
         self.search_input.textChanged.connect(lambda _: self.filter_timer.start())
         self.search_input.returnPressed.connect(self.search_library)
         self.regex_btn.toggled.connect(lambda _: self.filter_timer.start())
@@ -599,31 +610,48 @@ class FileBrowser(QWidget):
         del_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
         del_shortcut.activated.connect(self._on_delete_key)
 
-    def browse_folder(self, path: str, add_to_session: bool = False) -> None:
-        """Enter a library folder: list what is in it, and ask before loading a roll.
+    def load_folder(self, path: str, add_to_session: bool = False) -> None:
+        """Load one folder's images, asking first.
 
-        Browsing is free — listing a folder is one directory read, so a library of
-        thousands of scans can be walked around without decoding or hashing anything.
-        Only an accepted prompt starts the hashing pass.
+        Listing a folder is free and belongs to the library tree; this is the expensive
+        half, and an accepted prompt is the only thing that starts the hashing pass.
         """
-        contents = scan_folder(path)
-        if not contents.image_count:
-            # Nothing to ask about: a container folder just shows what it holds.
-            self._show_folder(contents, load=False)
+        images, _ = folder_counts(path)
+        if not images:
+            self.controller.set_status(f"No images directly in “{_folder_label(path)}”", 4000)
             return
-        if not self._confirm_load(contents):
+        if not self._confirm_load(images, _folder_label(path)):
             return
-        self._show_folder(contents, load=True, add_to_session=add_to_session)
+        self.controller.open_library_folder(path, add_to_session=add_to_session)
 
-    def _confirm_load(self, contents) -> bool:
+    def load_folders(self, paths, add_to_session: bool = False) -> None:
+        """Load one folder, or a whole selection of them at once."""
+        paths = [p for p in paths if p]
+        if len(paths) == 1:
+            self.load_folder(paths[0], add_to_session=add_to_session)
+            return
+        if not paths:
+            return
+
+        counted = [(p, folder_counts(p)[0]) for p in paths]
+        loadable = [p for p, n in counted if n]
+        total = sum(n for _, n in counted)
+        if not loadable:
+            self.controller.set_status("Those folders have no images in them", 4000)
+            return
+        if not self._confirm_load(total, f"{len(loadable)} folders"):
+            return
+        self.controller.open_library_folders(loadable, add_to_session=add_to_session)
+
+    def _confirm_load(self, image_count: int, label: str) -> bool:
         if self.session.repo.get_global_setting("library_autoload_folders", False):
             return True
 
-        n = contents.image_count
+        n = image_count
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Question)
         box.setWindowTitle("Load roll")
-        box.setText(f"Load {n} image{'s' if n != 1 else ''} from “{os.path.basename(contents.path.rstrip(os.sep))}”?")
+        box.setText(f"Load {n} image{'s' if n != 1 else ''} from “{label}”?")
         box.setInformativeText("They are hashed and thumbnailed on load, which takes a moment on a large roll.")
         remember = QCheckBox("Always load without asking")
         box.setCheckBox(remember)
@@ -635,39 +663,6 @@ class FileBrowser(QWidget):
         if remember.isChecked():
             self.session.repo.save_global_setting("library_autoload_folders", True)
         return True
-
-    def _parent_entry(self, path: str) -> "FolderEntry | None":
-        """The go-up tile for a browsed folder, or None at a library root.
-
-        A root is the top of its branch — walking above it would leave the library and
-        put folders on the sheet that the tree cannot show.
-        """
-        roots = self.session.repo.get_global_setting("library_roots", []) or []
-        current = os.path.normpath(path)
-        if current in {os.path.normpath(r) for r in roots}:
-            return None
-        parent = os.path.dirname(current)
-        if not parent or parent == current:
-            return None
-        return FolderEntry(parent, os.path.basename(parent) or parent, 0, 0, is_parent=True)
-
-    def browse_parent(self) -> None:
-        """Step out of the folder being browsed, into the one that holds it."""
-        if not self._browsed_folder:
-            return
-        parent = self._parent_entry(self._browsed_folder)
-        if parent is not None:
-            self.browse_folder(parent.path)
-
-    def _show_folder(self, contents, load: bool, add_to_session: bool = False) -> None:
-        """Browsing only changes the tiles. Frames come and go on an accepted load —
-        wandering into a folder must never quietly unload the roll you were working on."""
-        self._browsed_folder = contents.path
-        parent = self._parent_entry(contents.path)
-        self.session.asset_model.set_folders([*([parent] if parent else []), *contents.folders])
-        if load:
-            self.controller.open_library_folder(contents.path, add_to_session=add_to_session)
-        self._update_tally()
 
     def search_library(self) -> None:
         """Run the box's query against the library folders instead of the loaded roll."""
@@ -797,6 +792,7 @@ class FileBrowser(QWidget):
         self.act_sort_name.setChecked(order == "name")
         self.act_sort_date.setChecked(order == "date")
         self.session.asset_model.set_sort_order(order)
+        self.sort_changed.emit()
         if save:
             self.session.repo.save_global_setting("file_sort_order", order)
 
@@ -804,8 +800,12 @@ class FileBrowser(QWidget):
         self.act_sort_asc.setChecked(not descending)
         self.act_sort_desc.setChecked(descending)
         self.session.asset_model.set_sort_descending(descending)
+        self.sort_changed.emit()
         if save:
             self.session.repo.save_global_setting("file_sort_descending", descending)
+
+    def sort_choice(self) -> tuple[str, bool]:
+        return ("date" if self.act_sort_date.isChecked() else "name", self.act_sort_desc.isChecked())
 
     def _apply_sheet_filter(self, mode: str, save: bool = True) -> None:
         self.act_sheet_all.setChecked(mode == "all")
@@ -821,21 +821,13 @@ class FileBrowser(QWidget):
 
     def _update_tally(self) -> None:
         files = self.session.state.uploaded_files
-        folders = sum(1 for f in self.session.asset_model.folders if not f.is_parent)
         if not files:
-            if folders and self._browsed_folder:
-                name = os.path.basename(self._browsed_folder.rstrip(os.sep)) or self._browsed_folder
-                self.tally_label.setText(f"{name} · {folders} folder{'s' if folders != 1 else ''}")
-                self.tally_label.setVisible(True)
-            else:
-                self.tally_label.setVisible(False)
+            self.tally_label.setVisible(False)
             return
         keepers = sum(1 for f in files if f.get("keeper"))
         rejected = sum(1 for f in files if f.get("excluded"))
         n = len(files)
         text = f"{n} frame{'s' if n != 1 else ''}"
-        if folders:
-            text += f" · {folders} folder{'s' if folders != 1 else ''}"
         if keepers:
             text += f" · {keepers} keeper{'s' if keepers != 1 else ''}"
         if rejected:
@@ -903,19 +895,19 @@ class FileBrowser(QWidget):
             self.open_or_browse(folder)
 
     def open_or_browse(self, folder: str) -> None:
-        """Load a folder's images, or — when it only holds subfolders — show those.
+        """Load a folder's images, or — when it only holds subfolders — reveal it in the
+        library tree so its subfolders are one click away.
 
         Picking the one directory everything lives under used to dead-end on "no
         supported assets found", because the importer looks in that folder and not
-        through it. Its subfolders are the answer, so show them.
+        through it.
         """
-        contents = scan_folder(folder)
-        if contents.image_count:
+        images, subfolders = folder_counts(folder)
+        if images:
             self.controller.request_asset_discovery([folder], auto_open=True)
-            self._show_folder(contents, load=False)
-        elif contents.folders:
-            self._show_folder(contents, load=False)
-            self.controller.set_status(f"No images directly in that folder — showing its {len(contents.folders)} subfolders", 5000)
+        elif subfolders:
+            self.browse_requested.emit(folder)
+            self.controller.set_status(f"No images directly in that folder — showing its {subfolders} subfolders", 5000)
         else:
             self.controller.set_status("That folder has no images in it", 4000)
 
@@ -931,30 +923,13 @@ class FileBrowser(QWidget):
         # multi-selection for batch actions and are left to the selectionChanged handler.
         if QApplication.keyboardModifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier):
             return
-        folder = self.session.asset_model.folder_at(index.row())
-        if folder is not None:
-            self.browse_folder(folder.path)
-            return
         self._activate_file(index)
 
     def _on_item_double_clicked(self, index) -> None:
-        if self.session.asset_model.folder_at(index.row()) is not None:
-            return  # the single click already entered it
         self._activate_file(index)
 
     def _show_context_menu(self, pos) -> None:
         index = self.list_view.indexAt(pos)
-        folder = self.session.asset_model.folder_at(index.row()) if index.isValid() else None
-        if folder is not None:
-            menu = QMenu(self)
-            label = "Go up" if folder.is_parent else "Open folder"
-            menu.addAction(label).triggered.connect(lambda: self.browse_folder(folder.path))
-            if not folder.is_parent:
-                act_add = menu.addAction("Add to session")
-                act_add.triggered.connect(lambda: self.browse_folder(folder.path, add_to_session=True))
-                act_add.setEnabled(bool(folder.image_count))
-            menu.exec(self.list_view.viewport().mapToGlobal(pos))
-            return
         if not index.isValid():
             # Empty space carries the session-level tools, so they stay reachable
             # without travelling back to the toolbar at the top of the panel — and

@@ -33,6 +33,7 @@ def test_toolbar_keeps_every_action(panel):
     browser = panel.file_browser
     toolbar = _toolbar(panel)
     expected = [
+        browser.library_btn,
         browser.add_files_btn,
         browser.add_folder_btn,
         browser.unload_btn,

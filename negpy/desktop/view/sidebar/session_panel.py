@@ -1,6 +1,5 @@
 from PyQt6.QtWidgets import (
     QWidget,
-    QSplitter,
     QVBoxLayout,
     QLabel,
 )
@@ -8,10 +7,7 @@ from PyQt6.QtCore import pyqtSignal, Qt, QThread
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.sidebar.header import SidebarHeader
 from negpy.desktop.view.sidebar.files import FileBrowser
-from negpy.desktop.view.sidebar.library_tree import LibraryTree
 from negpy.kernel.system.version import check_for_updates
-
-_TREE_DEFAULT_HEIGHT = 180
 
 
 class UpdateCheckWorker(QThread):
@@ -27,8 +23,8 @@ class UpdateCheckWorker(QThread):
 
 class SessionPanel(QWidget):
     """
-    Left sidebar panel containing the library folder tree, the filmstrip file
-    browser and the update check.
+    Left sidebar panel containing the film strip (which holds the library folder
+    tree) and the update check.
     """
 
     def __init__(self, controller: AppController):
@@ -59,59 +55,59 @@ class SessionPanel(QWidget):
         self.update_worker.finished.connect(self._on_update_found)
         self.update_worker.start()
 
-        self.library_tree = LibraryTree(self.controller)
         self.file_browser = FileBrowser(self.controller)
+        self.library_tree = self.file_browser.library_tree
+        layout.addWidget(self.file_browser, 1)
 
-        # A splitter rather than a fixed stack: the tree is a navigator, and how much
-        # of the panel it deserves depends entirely on how deep the user's folders go.
-        self.splitter = QSplitter(Qt.Orientation.Vertical)
-        self.splitter.addWidget(self.library_tree)
-        self.splitter.addWidget(self.file_browser)
-        self.splitter.setStretchFactor(1, 1)
-        self.splitter.setChildrenCollapsible(True)
-        layout.addWidget(self.splitter, 1)
-
-        self._splitter_restored = False
-        # Hidden until the user has a library: an empty tree is just a taller panel.
-        self.library_tree.setVisible(bool(self.controller.library_roots()))
-
-    def showEvent(self, event) -> None:
-        # Sizes are restored here, not in the constructor: QSplitter scales whatever it
-        # is given to the space it actually has, and before the first show that is zero.
-        super().showEvent(event)
-        if not self._splitter_restored:
-            self._splitter_restored = True
-            self._restore_splitter()
-
-    def _restore_splitter(self) -> None:
-        saved = self.controller.session.repo.get_global_setting("library_tree_height")
-        height = int(saved) if saved is not None else _TREE_DEFAULT_HEIGHT
-        self.splitter.setSizes([max(0, height), max(1, self.splitter.height() - height)])
+        # Hidden until the user has a library: an empty section is just clutter.
+        self.file_browser.library_section.setVisible(bool(self.controller.library_roots()))
 
     def _connect_signals(self) -> None:
-        # The tree browses; the film strip owns the prompt and the folder tiles, so a
-        # folder entered from the tree and one entered from the sheet behave the same.
-        self.library_tree.folder_opened.connect(self.file_browser.browse_folder)
+        # The tree navigates, the film strip loads: browsing folders is free and stays
+        # with the tree, while the prompt and the frames belong to the strip.
+        self.library_tree.folders_activated.connect(self.file_browser.load_folders)
+        self.library_tree.folders_appended.connect(lambda paths: self.file_browser.load_folders(paths, add_to_session=True))
         self.library_tree.roots_changed.connect(self._on_roots_changed)
-        self.splitter.splitterMoved.connect(self._save_splitter)
+        self.file_browser.library_requested.connect(self.show_library)
+        self.file_browser.browse_requested.connect(self.library_tree.reveal)
+        self.file_browser.sort_changed.connect(lambda: self.library_tree.set_sort(*self.file_browser.sort_choice()))
+        self.controller.library_cleared.connect(self._on_library_cleared)
+
+    def show_library(self, ask_if_unset: bool = True) -> None:
+        """Reveal the library's primary folder in the tree, asking for one if unset.
+
+        The panel's resting state: with nothing loaded there is nothing else to show,
+        and a list of rolls beats a blank sheet.
+        """
+        primary = self.library_tree.primary_root()
+        if not primary:
+            if not ask_if_unset or not self.library_tree.add_root():
+                return
+            primary = self.library_tree.primary_root()
+        self.file_browser.library_section.setVisible(True)
+        self.file_browser.library_section.expand()
+        self.library_tree.reveal(primary)
+
+    def browse_parent(self) -> None:
+        """Alt+Up: move the tree's selection one folder up."""
+        self.library_tree.select_parent()
 
     def _on_roots_changed(self) -> None:
         # Folders moved or a root was added — the cached walk describes a tree that
         # no longer exists.
+        self.library_tree.reload()
         self.controller.invalidate_library_walk()
         if self.controller.library_roots():
-            self.library_tree.setVisible(True)
+            self.file_browser.library_section.setVisible(True)
 
-    def _save_splitter(self, *_args) -> None:
-        self.controller.session.repo.save_global_setting("library_tree_height", self.splitter.sizes()[0])
+    def _on_library_cleared(self) -> None:
+        self._on_roots_changed()
+        self.file_browser.library_section.setVisible(False)
 
     def toggle_library_tree(self) -> None:
-        """Show/hide the folder tree; adding a root reveals it again.
-
-        Keyed off isHidden (explicitly hidden) rather than isVisible (also false when
-        the whole panel is docked away), so the toggle still flips while the session
-        panel is closed instead of always resolving to 'show'."""
-        self.library_tree.setVisible(self.library_tree.isHidden())
+        """Fold the folder section away, or bring it back."""
+        section = self.file_browser.library_section
+        section.toggle_button.setChecked(not section.toggle_button.isChecked())
 
     def _on_update_found(self, version: str) -> None:
         self.update_label.setText(
