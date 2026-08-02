@@ -3213,6 +3213,7 @@ class AppController(QObject):
         flush = self.flush_export_settings
         if flush is not None:
             flush()
+
     def request_linear_output_export(self, files: list[dict] | None = None) -> None:
         """Export decoded linear buffers as untagged 16-bit TIFFs to the export folder."""
         from negpy.services.export.linear_output import export_linear_output, is_linear_output_supported

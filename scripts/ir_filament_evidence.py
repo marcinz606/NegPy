@@ -124,7 +124,7 @@ def synthetic_frame(long_edge: int, seed: int = 7):
     ir = (_SYNTH_IR_CLEAN * t_ir).astype(np.float32)
     source = clean.copy()
     for c in range(3):
-        source[:, :, c] *= t_ir**_SYNTH_GAMMAS[c]
+        source[:, :, c] *= t_ir ** _SYNTH_GAMMAS[c]
     return clean, source.astype(np.float32), ir, regions, edges
 
 
@@ -184,7 +184,9 @@ def measure(src, out, clean, alpha, other, edges, routed, scale_px: float) -> di
     core = (alpha >= 0.5 * float(alpha.max())) & elsewhere
     changed = (np.abs(out - src).max(axis=2) > 0.002) & _grow(truth, 12 * r) & elsewhere
     # Grain reference: ground truth in the same pixels, or (real scan) a clean annulus.
-    ref = _highpass_sigma(clean, core) if clean is not None else _highpass_sigma(out, _grow(truth, 8 * r) & ~_grow(truth, 2 * r) & elsewhere)
+    ref = (
+        _highpass_sigma(clean, core) if clean is not None else _highpass_sigma(out, _grow(truth, 8 * r) & ~_grow(truth, 2 * r) & elsewhere)
+    )
     m = {
         "defect_px": int(truth.sum()),
         "repaired_px": int(changed.sum()),

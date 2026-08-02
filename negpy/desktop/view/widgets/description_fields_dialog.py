@@ -17,12 +17,7 @@ class DescriptionFieldsDialog(QDialog):
         self.setMinimumWidth(320)
 
         root = QVBoxLayout(self)
-        root.addWidget(
-            hint_label(
-                "Checked fields are joined with • into the export ImageDescription. "
-                "Empty values are skipped."
-            )
-        )
+        root.addWidget(hint_label("Checked fields are joined with • into the export ImageDescription. Empty values are skipped."))
 
         enabled = set(normalize_description_fields(selected))
         self._checks: dict[str, QCheckBox] = {}

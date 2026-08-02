@@ -8,7 +8,13 @@ from typing import Any, Optional
 
 from negpy.features.metadata.exif_read import ScanExif, extract_scan_from_exif
 from negpy.features.metadata.gear_models import GearLibrary
-from negpy.features.metadata.models import MetadataConfig, PUSH_PULL_LABELS, normalize_description_fields, DEFAULT_DESCRIPTION_FIELDS, resolve_description_fields
+from negpy.features.metadata.models import (
+    MetadataConfig,
+    PUSH_PULL_LABELS,
+    normalize_description_fields,
+    DEFAULT_DESCRIPTION_FIELDS,
+    resolve_description_fields,
+)
 
 _NEGPY_SOFTWARE = "NegPy"
 NEGPY_SOFTWARE = _NEGPY_SOFTWARE
