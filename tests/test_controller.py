@@ -139,6 +139,30 @@ class TestAppController(unittest.TestCase):
         self.assertTrue(saved["hash2"].process.use_luma_average)
         self.mock_session_manager.config_for_asset.assert_any_call(state.uploaded_files[1])
 
+    def test_write_edit_sidecars_uses_hydrated_base_not_active_edit(self):
+        """A frame with no saved edit must get its own hydrated config written to its
+        sidecar, never the active frame's edit (which load_or_promote would later promote
+        into that file's persistent DB row)."""
+        from negpy.domain.models import GeometryConfig
+
+        state = self.mock_session_manager.state
+        state.config = replace(state.config, geometry=GeometryConfig(manual_crop_rect=(0.1, 0.1, 0.9, 0.9)))
+        hydrated = WorkspaceConfig()
+        self.mock_session_manager.config_for_asset.return_value = hydrated
+        frame = {"name": "b.dng", "path": "/tmp/b.dng", "hash": "hash2"}
+
+        with (
+            patch("negpy.desktop.controller.load_or_promote", return_value=None),
+            patch("negpy.desktop.controller.write_sidecar") as mock_write,
+        ):
+            written = self.controller._write_edit_sidecars([frame])
+
+        self.assertEqual(written, 1)
+        self.mock_session_manager.config_for_asset.assert_called_once_with(frame)
+        params = mock_write.call_args.args[1]
+        self.assertIs(params, hydrated)
+        self.assertIsNone(params.geometry.manual_crop_rect)
+
     def test_clear_roll_baseline_resets_axes(self):
         state = self.mock_session_manager.state
         state.config = replace(

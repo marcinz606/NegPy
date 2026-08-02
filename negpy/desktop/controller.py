@@ -3575,7 +3575,7 @@ class AppController(QObject):
         written = 0
         for f in files:
             half = int(f.get("half") or 0)
-            params = load_or_promote(repo, f["hash"], f["path"], half=half) or self.state.config
+            params = load_or_promote(repo, f["hash"], f["path"], half=half) or self.session.config_for_asset(f)
             try:
                 write_sidecar(f["path"], params, half=half)
                 written += 1
