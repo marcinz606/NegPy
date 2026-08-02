@@ -54,6 +54,20 @@ class TestAppController(unittest.TestCase):
         del self.controller
         gc.collect()
 
+    def test_busy_toast_is_taken_down_when_the_frame_lands(self):
+        """A slow render step holds its toast open; the finished frame clears it, and a
+        toast nobody claimed is left alone."""
+        msgs = []
+        self.controller.status_message_requested.connect(lambda text, timeout: msgs.append(text))
+
+        self.controller._on_render_busy("removing IR dust")
+        self.assertEqual(msgs, ["removing IR dust"])
+        self.controller._clear_busy_toast()
+        self.assertEqual(msgs, ["removing IR dust", ""])
+
+        self.controller._clear_busy_toast()
+        self.assertEqual(len(msgs), 2, "nothing pending — an unrelated toast stays up")
+
     def test_load_file_emits_zoom_reset(self):
         """Test that loading a file normally resets the zoom."""
         mock_slot = MagicMock()

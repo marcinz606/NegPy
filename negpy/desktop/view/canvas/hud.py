@@ -89,6 +89,10 @@ class CanvasHud(QWidget):
     def showMessage(self, text: str, timeout: int = 0) -> None:
         if text == "Image Updated":
             return
+        if not text:  # a step that posted a long-lived toast has finished
+            self._toast_timer.stop()
+            self.toast.hide()
+            return
         self.toast.setText(text.lower())
         self.toast.show()
         self._toast_timer.start(timeout if timeout > 0 else _DEFAULT_TOAST_MS)

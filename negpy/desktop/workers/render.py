@@ -180,11 +180,13 @@ class RenderWorker(QObject):
     metrics_updated = pyqtSignal(dict)  # Late-arriving metrics (histogram, etc.)
     strip_finished = pyqtSignal(object, object)  # (one mosaic ndarray per quarter-turn, content_rect|None)
     strip_progress = pyqtSignal(int, int)  # (patches printed, total)
+    busy = pyqtSignal(str)  # a slow uncached pipeline step is starting
     error = pyqtSignal(str)
 
     def __init__(self) -> None:
         super().__init__()
         self._processor = ImageProcessor()
+        self._processor.on_slow_step = self.busy.emit
 
     @property
     def processor(self) -> ImageProcessor:

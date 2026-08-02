@@ -238,6 +238,29 @@ def test_ir_two_tier_bake() -> None:
     assert detected is None, "no strokes for an IR-only config"
 
 
+def test_ir_bake_announces_itself_only_when_it_has_work() -> None:
+    """The bake runs for seconds at export scale, so it posts a busy cue — but only on a
+    cache miss, or every creative-slider drag would flash one."""
+    from dataclasses import replace
+
+    from negpy.features.retouch.models import RetouchConfig
+
+    ir = np.full((200, 200), 0.9, dtype=np.float32)
+    ir[150:154, 150:154] = 0.1
+    img = np.full((200, 200, 3), 0.5, dtype=np.float32)
+    img[150:154, 150:154] = 0.08
+
+    labels: list = []
+    service = ImageProcessor()
+    service.on_slow_step = labels.append
+    cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(ir_dust_remove=True))
+
+    service._ir_bake(img, ir, cfg, "s")
+    assert labels == ["removing IR dust"]
+    service._ir_bake(img, ir, cfg, "s")
+    assert len(labels) == 1, "a cache hit must not post a cue"
+
+
 def test_ir_bake_fill_runs_without_attenuation() -> None:
     """ir_attenuation off is no longer a full escape hatch: the division gain is
     skipped, but the score-weighted fill still repairs opaque defects."""

@@ -93,6 +93,9 @@ from negpy.services.view.coordinate_mapping import CoordinateMapping
 logger = get_logger(__name__)
 
 _THUMB_FAILED_MSG = "thumbnail failed — file may be unreadable"
+# Busy toasts are cleared when the frame lands; the timeout is only a backstop for a
+# render that dies without reaching _on_render_finished.
+_BUSY_TOAST_MS = 30000
 
 
 @dataclass(frozen=True)
@@ -365,6 +368,7 @@ class AppController(QObject):
 
         self.canvas: Any = None
         self._is_rendering = False
+        self._busy_toast = False
         self._pending_render_task: Any = None
 
         # Last displayed render per frame — navigate-back paints it instantly
@@ -502,6 +506,7 @@ class AppController(QObject):
         self._render_cleanup_requested.connect(self.render_worker.cleanup)
         self.render_worker.strip_finished.connect(self.on_strip_finished)
         self.render_worker.strip_progress.connect(self.on_strip_progress)
+        self.render_worker.busy.connect(self._on_render_busy)
         self.render_worker.finished.connect(self._on_render_finished)
         self.render_worker.metrics_updated.connect(self._on_metrics_updated)
         self.render_worker.error.connect(self._on_render_error)
@@ -3657,8 +3662,19 @@ class AppController(QObject):
             return False, remember
         return None, False
 
+    def _on_render_busy(self, label: str) -> None:
+        """Slow uncached render step (IR bake, inpaint) — hold a toast until the frame lands."""
+        self._busy_toast = True
+        self.set_status(label, _BUSY_TOAST_MS)
+
+    def _clear_busy_toast(self) -> None:
+        if self._busy_toast:
+            self._busy_toast = False
+            self.set_status("")
+
     def _on_render_finished(self, _result: Any, metrics: Dict[str, Any]) -> None:
         self._is_rendering = False
+        self._clear_busy_toast()
 
         if self._first_render_t0 is not None and not metrics.get("ephemeral"):
             logger.info(
@@ -3749,6 +3765,7 @@ class AppController(QObject):
 
     def _on_render_error(self, message: str) -> None:
         self.state.is_processing = self._is_rendering = False
+        self._busy_toast = False  # the failure message below replaces the toast
         logger.error(f"Worker failure: {message}")
         self.set_status(f"Failed to load file: {message}", 5000)
         self.load_failed.emit()
