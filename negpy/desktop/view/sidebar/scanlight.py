@@ -1672,7 +1672,12 @@ class ScanlightSidebar(QWidget):
             shutter_r=shutter,
             shutter_g=shutter,
             shutter_b=shutter,
-            shutter_w=shutter,
+            # A white-light frame is not calibrated, so there is no baked exposure to force —
+            # its live-view steppers are the exposure control (see _refresh_preset_ui). Copying
+            # the RGB shutter here overwrote the operator's choice at capture time with a
+            # narrowband value: too long under white light, and rejected outright by a body
+            # whose shutter is dial-locked, which failed the capture (issue #746).
+            shutter_w="" if self._settings.white_mode else shutter,
             iso=iso,
             aperture=aperture,
             roll_name=self.roll_edit.text().strip() or "Roll001",

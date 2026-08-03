@@ -6,6 +6,7 @@ at app launch.
 """
 
 import sys
+from dataclasses import replace
 from unittest.mock import MagicMock
 
 import pytest
@@ -129,6 +130,25 @@ def test_builtin_white_preset_sets_white_mode():
     w._on_preset_selected(idx)
     assert w._settings.white_mode is True
     assert w._settings.white_process_mode == "auto"  # B&W/slide merged → NegPy autodetects
+
+
+def test_white_preset_does_not_inherit_the_rgb_shutter(tmp_path):
+    """Issue #746: a white-light frame has no baked exposure — its live-view steppers own it.
+    Carrying the previous RGB preset's shutter over forced a narrowband value onto the body,
+    overexposing the frame, and failed the capture outright on a dial-locked Fujifilm."""
+    w = _sidebar()
+    w._settings = replace(w._settings, shutter_r="1/20", shutter_w="1/20")  # as a calibrated RGB preset leaves it
+
+    idx = w.preset_combo.findData("White Light (B&W or Slide Film)")
+    w.preset_combo.setCurrentIndex(idx)
+    w._on_preset_selected(idx)
+
+    assert w._settings.white_mode is True
+    assert w._settings.shutter_w == ""  # nothing is forced; the camera keeps what the live view set
+
+    w.folder_edit.setText(str(tmp_path))
+    w._start_capture(retake=False)
+    assert w.controller.start_capture.call_args[0][0].shutter_w == ""
 
 
 def test_white_preset_hint_shows_then_clears():
