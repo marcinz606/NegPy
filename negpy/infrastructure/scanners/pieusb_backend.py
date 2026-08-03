@@ -75,9 +75,10 @@ class PieusbBackend:
         from pieusb import get_devices
         from pieusb.types import Filter
 
-        self._devices_cache = []
-        self._devices_map = {}
+        self._devices_cache = None
         devices = get_devices()
+        self._devices_map = {}
+        self._devices_cache = []
         for dev in devices:
             native_res = dev.inquiry.max_resolution_x
             max_w = dev.inquiry.max_scan_w / native_res * 25.4
@@ -154,10 +155,12 @@ class PieusbBackend:
             
             s.scan(on_update, on_complete)
 
-            while not s.wait(0.2):
+            done = False
+            while not done:
                 if cancel.is_set():
                     s.cancel()
                     raise Exception("Scan was cancelled")
+                done = s.wait(0.2)
 
             if result is None or result.rgb is None:
                 raise Exception('Error while assembling the scan result')
