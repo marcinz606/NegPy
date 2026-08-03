@@ -749,6 +749,24 @@ def test_fuji_gets_a_patient_event_drain(tmp_path):
     camera.close()
 
 
+def test_the_preview_never_drains_before_a_capture_has_happened(fake, tmp_path):
+    """Issue #745: on a freshly opened Canon EOS, wait_for_event with nothing pending
+    segfaults the process, and no `except` can catch that. Nothing but an actual still may
+    arm the preview loop's drain."""
+    import time
+
+    camera = GphotoCamera(gp_module=fake, jpeg_path=str(tmp_path / "lv.jpg"), settings_path=str(tmp_path / "lv.json"))
+    camera.start()
+    for _ in range(300):
+        if fake.previews >= 3:
+            break
+        time.sleep(0.01)
+
+    assert fake.previews >= 3  # the stream is genuinely running
+    assert fake.event_waits == []  # ...and never touched the event queue
+    camera.close()
+
+
 def test_preview_survives_a_still_that_leaves_late_events(fake, tmp_path):
     """Issue #658's core failure: events the body hands over only after a pause killed every
     capture_preview after the first still. The preview thread now drains before its first

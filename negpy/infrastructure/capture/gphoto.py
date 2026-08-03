@@ -288,6 +288,10 @@ class GphotoCamera:
         self._busy = threading.Event()
         # The post-shot event drain of the last successful still (see _finish_shot_async).
         self._post_shot: Optional[threading.Thread] = None
+        # Raised by a completed still, consumed by the preview loop before its next frame.
+        # A flag rather than the loop watching `_busy`: a capture can begin and end between
+        # two poll ticks, and a missed drain is what blocks the next preview on Fujifilm.
+        self._drain_owed = threading.Event()
         self._reset_body_state()
 
     def _reset_body_state(self) -> None:
@@ -298,6 +302,7 @@ class GphotoCamera:
         self._preview_broken = False
         self._drain_silence_ms = _DRAIN_SILENCE_MS
         self._drain_budget_s = _EVENT_DRAIN_S
+        self._drain_owed.clear()  # a fresh body owes nothing until it has taken a shot
         self._magnifier: Optional[_Magnifier] = None
         self._magnifier_ratios: Optional[tuple[str, str]] = None
         self._magnifier_off = ""
@@ -704,6 +709,7 @@ class GphotoCamera:
         except self._gp.GPhoto2Error as exc:
             raise GphotoError(f"capture failed: {exc}") from exc
         else:
+            self._drain_owed.set()  # the preview must clear this shot's stragglers before resuming
             self._finish_shot_async()
             drained_async = True
         finally:
@@ -815,23 +821,24 @@ class GphotoCamera:
     def _preview_loop(self) -> None:
         next_settings = 0.0
         failures = 0
-        # Drain before the first frame, after every still, and before every retry: Fujifilm
-        # queues post-shot events past the overlapped drain's quiet window, and events left
-        # unread block capture_preview until the camera is power-cycled (issue #658). Costs
-        # one empty wait_for_event on bodies with a clean queue.
-        drain_first = True
+        # Drain after a still, never before one: Fujifilm queues post-shot events past the
+        # overlapped drain's quiet window, and events left unread block capture_preview
+        # (issue #658). Draining with nothing pending is not merely wasteful — on a freshly
+        # opened Canon EOS, wait_for_event segfaults the process (issue #745), which no
+        # `except` can catch. `_drain_owed` is raised only by a completed still.
+        saw_capture = False
         while not self._stop.is_set():
             if self._busy.is_set():  # stand aside for a capture rather than race it for the lock
-                drain_first = True
                 self._stop.wait(0.02)
                 continue
             try:
                 with self._lock:
                     if self._camera is None:
                         return
-                    if drain_first:
+                    if self._drain_owed.is_set():
+                        self._drain_owed.clear()
+                        saw_capture = True
                         self._drain_events()
-                        drain_first = False
                     frame = self._camera.capture_preview()
                     data = bytes(memoryview(frame.get_data_and_size()))
                 self._publish_frame(data)
@@ -841,7 +848,8 @@ class GphotoCamera:
                     next_settings = time.monotonic() + _SETTINGS_INTERVAL_S
             except Exception as exc:  # noqa: BLE001 — a dropped frame must not kill the thread
                 failures += 1
-                drain_first = True  # a failed frame may be blocked by unread events — clear them before retrying
+                if saw_capture:
+                    self._drain_owed.set()  # unread events can block a retry, but only a capture leaves any
                 logger.warning("gphoto2 live view (%d/%d): %s", failures, _MAX_PREVIEW_FAILURES, exc)
                 if failures >= _MAX_PREVIEW_FAILURES:
                     # Repeated failures used to mean one thing — the body is gone — and the whole
