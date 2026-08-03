@@ -1,5 +1,15 @@
 # Change Log
 
+## 0.47.0
+
+- New: **Work prints** — save the live edit under a name from the History tab (Ctrl+Shift+S); click one to make it live, right-click to export, rename or delete. They outlive undo and an edit made after stepping back.
+- New: **Library folders and metadata search** — a tree of your own roots above the film strip, browsable without loading a thing, plus one query language (`film:portra iso:>=400 -rejected:`) that either filters the loaded roll or searches folders on disk. Ctrl+L opens the library, Alt+Up walks up. Searching an archive is a directory walk, not a hash pass.
+- New: **A third zone-placement pin** — places a mid tone as well as the two extremes, solving one knee control (Shadows Grade, Highlights Grade or Snap) chosen by which of them measurably moves that pin; when the asks conflict the readout reports where the pins actually land.
+- Fix: **Camera scanning crash on Canon EOS** — the event queue is no longer drained before the first capture; white-light captures also stop inheriting the RGB preset's shutter. @light-sntchr
+- Fix: **Opening a folder selects the first frame in filmstrip order** — discovery order landed mid-strip once the strip sorted by name or date. @seanharding
+- Fix: **GPU test strip and colour ring-around previews render** — alpha is stripped before RGB888 display. @jboneng
+- Fix: **No history step for an edit that changes nothing** — re-applying identical settings pushed dead rows and discarded the redo branch.
+
 ## 0.46.0
 
 - New: **Zone placement** — click a cell in the Analysis zone strip, click that spot on the photo, and Print Density (one pin) or Density and ISO-R Grade (two pins) solve so it prints there; pins drag live and Apply is one undo step.
