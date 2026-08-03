@@ -8,6 +8,7 @@ from negpy.features.exposure.analysis import encoded_of_zone, zone_of_encoded
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.exposure.placement import (
     DENSITY_RANGE,
+    KNEE_CANDIDATES,
     ZonePin,
     predicted_zone,
     solve_placement,
@@ -86,6 +87,91 @@ class TestPlacementSolver(unittest.TestCase):
         applied = replace(self.exposure, **sol.fields)
         for i, pin in enumerate(pins):
             self.assertAlmostEqual(sol.achieved[i], predicted_zone(applied, None, METRICS, pin.val_luma), places=6)
+
+
+class TestKneeSolve(unittest.TestCase):
+    """Third pin: Density + Grade from the extremes, plus one knee control for the middle."""
+
+    def setUp(self):
+        self.exposure = ExposureConfig()
+        self.extremes = [_pin(0.65, 3.0), _pin(0.30, 8.0)]
+
+    def _two_pin_zone_of(self, val: float) -> float:
+        """Where `val` lands once the two extremes are placed — the zone a third pin
+        starts from, so a test can ask for something a known distance away."""
+        two = solve_placement(self.exposure, None, METRICS, self.extremes)
+        return predicted_zone(replace(self.exposure, **two.fields), None, METRICS, val)
+
+    def test_three_pins_solve_one_knee_control(self):
+        mid = _pin(0.48, self._two_pin_zone_of(0.48) + 0.4)
+        sol = solve_placement(self.exposure, None, METRICS, [*self.extremes, mid])
+        self.assertIsNotNone(sol)
+        self.assertIn(sol.knee, [c.field for c in KNEE_CANDIDATES])
+        self.assertEqual(
+            set(sol.fields),
+            {"density", "grade", sol.knee, "auto_exposure", "auto_normalize_contrast"},
+        )
+
+    def test_solved_knee_stays_inside_its_slider(self):
+        mid = _pin(0.48, self._two_pin_zone_of(0.48) + 0.4)
+        sol = solve_placement(self.exposure, None, METRICS, [*self.extremes, mid])
+        candidate = next(c for c in KNEE_CANDIDATES if c.field == sol.knee)
+        self.assertGreaterEqual(sol.fields[sol.knee], candidate.lo)
+        self.assertLessEqual(sol.fields[sol.knee], candidate.hi)
+
+    def test_third_pin_gets_closer_than_a_two_pin_solve_leaves_it(self):
+        where = self._two_pin_zone_of(0.48)
+        ask = where + 0.7
+        sol = solve_placement(self.exposure, None, METRICS, [*self.extremes, _pin(0.48, ask)])
+        self.assertLess(abs(sol.achieved[2] - ask), abs(where - ask))
+
+    def test_the_extremes_still_land_with_a_third_pin_in_play(self):
+        mid = _pin(0.48, self._two_pin_zone_of(0.48) + 0.4)
+        sol = solve_placement(self.exposure, None, METRICS, [*self.extremes, mid])
+        self.assertAlmostEqual(sol.achieved[0], 3.0, delta=0.2)
+        self.assertAlmostEqual(sol.achieved[1], 8.0, delta=0.2)
+
+    def test_a_knee_pin_either_side_of_its_centre_both_converge(self):
+        for val in (0.72, 0.36):
+            with self.subTest(val=val):
+                ask = self._two_pin_zone_of(val) + 0.3
+                sol = solve_placement(self.exposure, None, METRICS, [*self.extremes, _pin(val, ask)])
+                self.assertIsNotNone(sol)
+                self.assertAlmostEqual(sol.achieved[2], ask, delta=0.35)
+
+    def test_a_third_pin_already_on_target_leaves_the_knee_alone(self):
+        mid = _pin(0.48, self._two_pin_zone_of(0.48))
+        sol = solve_placement(self.exposure, None, METRICS, [*self.extremes, mid])
+        self.assertEqual(sol.knee, "")
+        self.assertEqual(set(sol.fields), {"density", "grade", "auto_exposure", "auto_normalize_contrast"})
+        self.assertEqual(len(sol.achieved), 3)
+
+    def test_an_unreachable_third_target_reads_as_clamped(self):
+        sol = solve_placement(self.exposure, None, METRICS, [*self.extremes, _pin(0.48, 0.0)])
+        self.assertTrue(sol.clamped)
+        self.assertNotAlmostEqual(sol.achieved[2], 0.0, delta=0.2)
+
+    def test_three_pins_sharing_one_tone_are_unsolvable(self):
+        pins = [_pin(0.5, 3.0), _pin(0.5, 5.0), _pin(0.5, 8.0)]
+        self.assertIsNone(solve_placement(self.exposure, None, METRICS, pins))
+
+    def test_the_solve_is_bounded_by_the_pass_cap(self):
+        import negpy.features.exposure.placement as placement
+
+        calls = 0
+        real = placement.predicted_zone
+
+        def counted(*args):
+            nonlocal calls
+            calls += 1
+            return real(*args)
+
+        mid = _pin(0.48, self._two_pin_zone_of(0.48) + 0.4)
+        with patch.object(placement, "predicted_zone", counted):
+            solve_placement(self.exposure, None, METRICS, [*self.extremes, mid])
+        # A 2-pin solve is ~1.5k evaluations; the cap keeps three pins within a small
+        # multiple of that rather than a third nested bisection's blow-up.
+        self.assertLess(calls, 20_000)
 
 
 class TestZonePlacementLifecycle(unittest.TestCase):
@@ -191,13 +277,20 @@ class TestZonePlacementLifecycle(unittest.TestCase):
         self._pin(0.5, 0.2)
         self.assertEqual(self.controller.state.zone_pins, [])
 
-    def test_third_click_replaces_the_nearest_pin(self):
+    def test_a_third_click_pins_a_third_tone(self):
         self._place(0.2, 0.2)
         self._place(0.8, 0.8)
+        self._place(0.5, 0.5)
+        self.assertEqual(len(self.controller.state.zone_pins), 3)
+
+    def test_fourth_click_replaces_the_nearest_pin(self):
+        self._place(0.2, 0.2)
+        self._place(0.8, 0.8)
+        self._place(0.5, 0.5)
         self._place(0.3, 0.3)
         pins = self.controller.state.zone_pins
-        self.assertEqual(len(pins), 2)
-        self.assertEqual(sorted(round(p.nx, 1) for p in pins), [0.3, 0.8])
+        self.assertEqual(len(pins), 3)
+        self.assertEqual(sorted(round(p.nx, 1) for p in pins), [0.3, 0.5, 0.8])
 
     def test_removing_a_pin_keeps_the_others_and_re_solves(self):
         self._place(0.5, 0.2, zone=7.0)
@@ -262,6 +355,33 @@ class TestZonePlacementLifecycle(unittest.TestCase):
         self.assertFalse(exposure.auto_exposure)
         self.assertFalse(exposure.auto_normalize_contrast)
         self.assertEqual(exposure.grade, round(exposure.grade))
+
+    def test_the_caption_names_what_is_being_solved(self):
+        self.assertEqual(self.controller.zone_solve_caption(), "")
+        self._place(0.5, 0.2, zone=7.0)
+        self.controller.zone_pin_readouts()
+        self.assertEqual(self.controller.zone_solve_caption(), "Solving Print Density")
+        self._place(0.5, 0.8, zone=3.0)
+        self.controller.zone_pin_readouts()
+        self.assertEqual(self.controller.zone_solve_caption(), "Solving Print Density + ISO-R Grade")
+
+    def test_a_third_pin_extends_the_caption(self):
+        self._place(0.5, 0.2, zone=7.0)
+        self._place(0.5, 0.8, zone=3.0)
+        self._place(0.5, 0.5, zone=6.0)
+        self.controller.zone_pin_readouts()
+        caption = self.controller.zone_solve_caption()
+        self.assertTrue(caption.startswith("Solving Print Density + ISO-R Grade"), caption)
+
+    def test_a_three_pin_apply_writes_the_solved_knee(self):
+        self._place(0.5, 0.2, zone=7.0)
+        self._place(0.5, 0.8, zone=3.0)
+        self._place(0.5, 0.5, zone=6.0)
+        sol = self.controller._solve_zone_placement()
+        self.controller.apply_zone_placement()
+        exposure = self.mock_session_manager.update_config.call_args.args[0].exposure
+        if sol.knee:
+            self.assertEqual(getattr(exposure, sol.knee), sol.fields[sol.knee])
 
     def test_accepting_commits_and_puts_the_tool_down(self):
         from negpy.desktop.session import ToolMode

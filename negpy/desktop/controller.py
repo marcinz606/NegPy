@@ -180,6 +180,14 @@ def baseline_compare_config(config: WorkspaceConfig) -> WorkspaceConfig:
     )
 
 
+# Solved knee fields under their slider names (sidebar/tone.py).
+_KNEE_LABELS = {
+    "shadow_grade": "Shadows Grade",
+    "highlight_grade": "Highlights Grade",
+    "midtone_gamma": "Snap",
+}
+
+
 def history_step_label(prev: Optional[WorkspaceConfig], config: WorkspaceConfig, index: int) -> str:
     """List label for a history step: index + which config sections changed vs. the previous step."""
     if prev is None:
@@ -1458,7 +1466,7 @@ class AppController(QObject):
         """Armed: the pin takes the zone picked on the strip. Unarmed: it takes the zone
         it already reads, so a bare click meters without moving the print."""
         from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R
-        from negpy.features.exposure.placement import ZonePin
+        from negpy.features.exposure.placement import MAX_PINS, ZonePin
 
         val = self._sample_normalized_log(nx, ny, radius=2)
         if val is None:
@@ -1475,7 +1483,7 @@ class AppController(QObject):
             retargeted=armed is not None,
         )
         pins = self.state.zone_pins
-        if len(pins) < 2:
+        if len(pins) < MAX_PINS:
             pins.append(pin)
         else:
             nearest = min(range(len(pins)), key=lambda i: (pins[i].nx - nx) ** 2 + (pins[i].ny - ny) ** 2)
@@ -1563,6 +1571,19 @@ class AppController(QObject):
             rows.append((i, pin.label, pin.target_zone, achieved, sol is not None))
         return rows
 
+    def zone_solve_caption(self) -> str:
+        """What the current pins are solving, named as the sliders name it. Reads the
+        solution `zone_pin_readouts` cached — call it after, not before."""
+        sol = self._pin_solution
+        if sol is None or not self.state.zone_pins:
+            return ""
+        controls = ["Print Density"]
+        if "grade" in sol.fields:
+            controls.append("ISO-R Grade")
+        if sol.knee:
+            controls.append(_KNEE_LABELS[sol.knee])
+        return "Solving " + " + ".join(controls)
+
     def set_zone_pin_target(self, index: int, zone: float) -> None:
         """Retarget one pin and preview the solved exposure without committing it."""
         pins = self.state.zone_pins
@@ -1584,8 +1605,9 @@ class AppController(QObject):
         )
 
     def apply_zone_placement(self) -> None:
-        """Commit the solved Print Density (and Grade) and put the tool down. The autos
-        it replaces go off: one left on would re-move the placed tones."""
+        """Commit the solved Print Density (and Grade, and the knee control a third pin
+        was solved on) and put the tool down. The autos it replaces go off: one left on
+        would re-move the placed tones."""
         sol = self._solve_zone_placement()
         if sol is None:
             return

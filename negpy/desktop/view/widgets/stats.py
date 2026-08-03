@@ -27,6 +27,10 @@ _TOOLTIPS = {
 
 _PROBE_EMPTY = "—"
 
+# One per zone-placement pin, in pin order; the canvas overlay draws its rings in these
+# same colours, so the sidebar row and the pin on the photo can be matched by eye.
+PIN_COLOURS = (THEME.accent_primary, "#FFFFFF", THEME.channel_blue)
+
 
 class DensitometerRow(QWidget):
     """Hover spot-densitometer read-out shown between the H&D curve and the stats."""
@@ -73,10 +77,9 @@ class ZonePlacementRows(QWidget):
     _TOOLTIP = (
         "Zone placement — pick a zone on the strip above, then click the photo: that spot is asked "
         "to print there. The steppers trim a pin by thirds, and Place zones solves Print Density "
-        "(one pin) or Print Density + Grade (two pins) so the pinned tones land. Applying turns the "
-        "matching autos off for this frame."
+        "(one pin), Print Density + Grade (two pins), or those plus one knee control for the middle "
+        "tone (three pins) so the pinned tones land. Applying turns the matching autos off for this frame."
     )
-    _PIN_COLOURS = (THEME.accent_primary, "#FFFFFF")
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -94,7 +97,7 @@ class ZonePlacementRows(QWidget):
         self._lands: List[QLabel] = []
         self._steppers: List[Tuple[QToolButton, QToolButton]] = []
         self._removes: List[QToolButton] = []
-        for i, colour in enumerate(self._PIN_COLOURS):
+        for i, colour in enumerate(PIN_COLOURS):
             row = QWidget()
             grid = QGridLayout(row)
             grid.setContentsMargins(0, 0, 0, 0)
@@ -145,6 +148,11 @@ class ZonePlacementRows(QWidget):
         buttons.addWidget(self.apply_btn)
         col.addLayout(buttons)
 
+        self.solving = QLabel("")
+        self.solving.setStyleSheet(name_css)
+        self.solving.setVisible(False)
+        col.addWidget(self.solving)
+
         self.setToolTip(self._TOOLTIP)
         self.setVisible(False)
 
@@ -152,7 +160,7 @@ class ZonePlacementRows(QWidget):
         if index in self._targets:
             self.target_changed.emit(index, self._targets[index] + delta)
 
-    def refresh(self, readouts: Sequence[Tuple[int, str, float, Optional[str], bool]]) -> None:
+    def refresh(self, readouts: Sequence[Tuple[int, str, float, Optional[str], bool]], solving: str = "") -> None:
         from negpy.features.exposure.densitometer import zone_roman
 
         self._targets = {}
@@ -176,7 +184,9 @@ class ZonePlacementRows(QWidget):
             self._lands[index].setVisible(achieved is not None)
             solvable = row_solvable
         self.apply_btn.setEnabled(solvable)
-        self.apply_btn.setToolTip("Both pins read the same tone — grade needs two different tones." if not solvable else "")
+        self.apply_btn.setToolTip("The outer pins read the same tone — grade needs two different tones." if not solvable else "")
+        self.solving.setText(solving)
+        self.solving.setVisible(bool(solving))
 
 
 class NegativeStatsWidget(QWidget):

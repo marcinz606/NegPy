@@ -369,7 +369,8 @@ class RightPanel(QWidget):
             self.zone_strip.update_data(occ, zone_warnings(occ))
 
     def _refresh_zone_placement(self) -> None:
-        self.zone_placement.refresh(self.controller.zone_pin_readouts())
+        # readouts() first: it is what refreshes the cached solution the caption reads.
+        self.zone_placement.refresh(self.controller.zone_pin_readouts(), self.controller.zone_solve_caption())
 
     def _update_analysis(self) -> None:
         metrics = self.controller.session.state.last_metrics

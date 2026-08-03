@@ -13,6 +13,7 @@ from negpy.desktop.converters import ImageConverter
 from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.canvas.crop_guides import CropGuide, guide_shapes
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.stats import PIN_COLOURS
 from negpy.features.exposure.analysis import (
     RING_GRID,
     STRIP_DENSITIES,
@@ -814,7 +815,7 @@ class CanvasOverlay(QWidget):
         painter.setFont(_overlay_label_font(painter))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         for i, (pin, p) in enumerate(zip(self.state.zone_pins, self._zone_pin_screen_points())):
-            colour = QColor(THEME.accent_primary) if i == 0 else QColor(255, 255, 255, 230)
+            colour = QColor(PIN_COLOURS[i]) if i < len(PIN_COLOURS) else QColor(255, 255, 255, 230)
             radius = _PIN_RADIUS_PX + (2.0 if i == self._pin_drag_index else 0.0)
             for pen_colour, width in ((shadow, 3.5), (colour, 1.5)):
                 pen = QPen(pen_colour, width)
