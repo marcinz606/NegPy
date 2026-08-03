@@ -81,6 +81,18 @@ class TestJumpToStep(unittest.TestCase):
         self.session.jump_to_step(2)
         self.assertEqual(self.session.state.config, self.cfg_b)
 
+    def test_persisting_an_unchanged_config_records_no_step(self):
+        """A step whose config equals the one before it renders as a dead '· —' row."""
+        self.session.update_config(self.cfg_b, persist=True)
+        self.assertEqual(self.session.state.undo_index, 2)
+        self.assertEqual(self.session.state.max_history_index, 2)
+
+    def test_persisting_an_unchanged_config_keeps_the_redo_branch(self):
+        self.session.jump_to_step(1)
+        self.session.update_config(self.session.state.config, persist=True)
+        self.assertEqual(self.session.state.max_history_index, 2)
+        self.assertIn(2, [i for i, _ in self.repo.load_all_history("h")])
+
     def test_edit_after_jump_truncates_future(self):
         self.session.jump_to_step(0)
         self.session.update_config(_exposure_variant(), persist=True)

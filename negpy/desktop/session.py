@@ -994,6 +994,12 @@ class DesktopSessionManager(QObject):
         """
         Updates global config and optionally saves to disk.
         """
+        # A step identical to the live config renders as a dead "· —" row in the History
+        # panel and costs a redo branch — reloading the same work print, resetting an
+        # already-default panel or pasting identical settings all land here.
+        if persist and record_history and config == self.state.config:
+            record_history = False
+
         if persist and record_history and self.state.current_file_hash:
             # If editing after an undo, drop the now-orphaned future branch
             if self.state.undo_index < self.state.max_history_index:

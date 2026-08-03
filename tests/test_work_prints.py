@@ -118,6 +118,14 @@ class TestWorkPrintController(unittest.TestCase):
         self.session.undo()
         self.assertEqual(self.session.state.config, _variant(0.6))
 
+    def test_clicking_an_unchanged_work_print_adds_no_history_step(self):
+        self.session.save_work_print("wp")
+        index = self.session.state.undo_index
+        self.session.load_work_print("wp")
+        self.session.load_work_print("wp")
+        self.assertEqual(self.session.state.undo_index, index)
+        self.assertEqual(self.session.state.max_history_index, index)
+
     def test_loading_a_missing_work_print_changes_nothing(self):
         self.session.load_work_print("nothing")
         self.assertEqual(self.session.state.config, _variant(1.4))
