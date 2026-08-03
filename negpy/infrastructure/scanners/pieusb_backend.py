@@ -4,18 +4,16 @@ from typing import TYPE_CHECKING
 
 
 from negpy.infrastructure.scanners.base import (
+    ScannerCapabilities,
     ScannerDevice,
     ScannerSession,
     ScannerUnavailable,
-    ScannerCapabilities,
-    TransientScanError
 )
 from negpy.infrastructure.scanners.params import ScanParams, ScanMode
 from negpy.infrastructure.scanners.result import ScanResult
 
 if TYPE_CHECKING:
     from pieusb.types import DeviceInfo
-    from pieusb.scanner import Scanner
 
 from collections.abc import Callable
 
@@ -42,7 +40,7 @@ class PieusbSession:
     def scan(
         self,
         params: ScanParams,
-        progress: Callable[[float], None],
+        progress: Callable[[float, str], None],
         cancel: threading.Event,
     ) -> ScanResult:
         raise NotImplementedError("PieusbSession is a stub; use PieusbBackend.scan")
@@ -111,10 +109,6 @@ class PieusbBackend:
         cancel: threading.Event,
     ) -> ScanResult:
         from pieusb.scanner import Scanner
-
-        from pieusb.exceptions import WarmingUp, DeviceNotReady
-
-        from pieusb.types import ScanPhase
 
         if cancel.is_set():
             raise Exception("Scan was cancelled")

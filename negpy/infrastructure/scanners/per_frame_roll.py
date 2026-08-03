@@ -57,7 +57,7 @@ class PerFrameRollSession:
                 frame=slot,
             )
             try:
-                result = self._backend.scan(self._device.id, params, lambda _fraction: None, cancel)
+                result = self._backend.scan(self._device.id, params, lambda _fraction, _phase="": None, cancel)
             except Exception as error:
                 if cancel.is_set():
                     return

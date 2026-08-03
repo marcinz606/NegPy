@@ -210,6 +210,29 @@ def test_scan_worker_reports_eject_failure() -> None:
     assert errors == ["transport refused"]
 
 
+def test_progress_without_a_phase_is_reported_as_scanning() -> None:
+    """A backend with one phase calls progress(fraction); the signal needs both.
+
+    SANE does exactly this, so passing `self.progress.emit` straight to the
+    backend would raise on every update.
+    """
+
+    class _ProgressService(_ScanService):
+        def run_scan(self, *, device_id, params, progress, cancel):
+            progress(0.25)  # no phase — the SANE shape
+            progress(0.5, "Calibrating")  # a backend that names its phases
+            return object()
+
+    worker = ScanWorker()
+    worker._service = _ProgressService()  # type: ignore[assignment]
+    seen: list[tuple[float, str]] = []
+    worker.progress.connect(lambda fraction, phase: seen.append((fraction, phase)))
+
+    worker.run_scan(_scan_request())
+
+    assert seen == [(0.25, "Scanning"), (0.5, "Calibrating")]
+
+
 def test_scan_worker_emits_cancelled_when_acquisition_returns_after_cancel() -> None:
     worker = ScanWorker()
     service = _ScanService(cancel_during_acquisition=True)

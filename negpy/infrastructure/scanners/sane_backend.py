@@ -726,10 +726,16 @@ class SaneSession:
     def scan(
         self,
         params: ScanParams,
-        progress: Callable[[float], None],
+        progress: Callable[..., None],
         cancel: threading.Event,
     ) -> ScanResult:
-        """Scan one frame on the held handle. Blocks until complete or cancelled."""
+        """Scan one frame on the held handle. Blocks until complete or cancelled.
+
+        `progress` is `...` rather than `[[float], None]` because SANE reports one
+        phase and so calls `progress(fraction)`, while ScannerSession declares the
+        `(fraction, phase)` form callers must accept; only `...` is assignable to
+        both. See ScannerBackend's progress obligation.
+        """
         if self.closed:
             raise RuntimeError(f"Scanner session for {self.device_id} is closed")
         return self._backend._scan_on_device(self._dev, self.device_id, params, progress, cancel)
@@ -931,7 +937,7 @@ class SaneBackend:
         self,
         device_id: str,
         params: ScanParams,
-        progress: Callable[[float], None],
+        progress: Callable[..., None],
         cancel: threading.Event,
     ) -> ScanResult:
         """Execute a one-shot scan via SANE (open, scan, close). Blocks until complete or cancelled."""
@@ -962,7 +968,7 @@ class SaneBackend:
         dev,
         device_id: str,
         params: ScanParams,
-        progress: Callable[[float], None],
+        progress: Callable[..., None],
         cancel: threading.Event,
     ) -> ScanResult:
         """Scan one frame on an already-open handle. sane_cancel()s the frame when

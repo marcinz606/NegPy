@@ -128,7 +128,9 @@ class ScanWorker(QObject):
                     result = service.run_scan(
                         device_id=req.device_id,
                         params=req.params,
-                        progress=self.progress.emit,
+                        # A one-phase backend calls progress(fraction), which a
+                        # two-argument signal's emit rejects on its own.
+                        progress=lambda fraction, phase="Scanning": self.progress.emit(fraction, phase),
                         cancel=self._cancel_event,
                     )
                 except Exception as error:
@@ -204,8 +206,8 @@ class ScanWorker(QObject):
                 frame_params = dataclasses.replace(req.params, frame=frame, window=window, frame_offset_mm=offset)
                 base = index / total
 
-                def _progress(fraction: float, _base: float = base) -> None:
-                    self.progress.emit(_base + min(1.0, max(0.0, fraction)) / total)
+                def _progress(fraction: float, phase: str = "Scanning", _base: float = base) -> None:
+                    self.progress.emit(_base + min(1.0, max(0.0, fraction)) / total, phase)
 
                 try:
                     result = service.run_scan(req.device_id, frame_params, _progress, self._cancel_event)
