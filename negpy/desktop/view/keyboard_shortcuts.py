@@ -139,6 +139,7 @@ class ShortcutManager:
             "copy": controller.session.copy_settings,
             "copy_with_bounds": controller.session.copy_settings_with_bounds,
             "paste": lambda: open_paste_dialog(self.window, controller),
+            "save_work_print": self.window.right_panel.history_panel.save_work_print,
             "undo": lambda: _context_undo(controller),
             "redo": controller.session.redo,
             "show_shortcuts": lambda: _show_shortcuts(self.window),

@@ -156,6 +156,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "copy": ShortcutEntry("Ctrl+C", "Copy settings", "Actions"),
     "copy_with_bounds": ShortcutEntry("Ctrl+Shift+C", "Copy settings (with bounds)", "Actions"),
     "paste": ShortcutEntry("Ctrl+V", "Paste settings", "Actions"),
+    "save_work_print": ShortcutEntry("Ctrl+Shift+S", "Save the current edit as a named work print", "Actions"),
     "undo": ShortcutEntry("Ctrl+Z", "Undo", "Actions"),
     "redo": ShortcutEntry("Ctrl+Y", "Redo", "Actions"),
     "show_shortcuts": ShortcutEntry("?", "Show shortcuts", "Help"),

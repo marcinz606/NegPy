@@ -26,7 +26,7 @@ The right-hand tabs are arranged in the order you actually work, which mirrors t
 | **Colour** | palette | Lab · Toning | Chroma, sharpening, effects, split/chemical toning |
 | **Finish** | brush | Retouch · Finishing | Dust removal, vignette, border, carrier |
 | **Favourites** | star | Your chosen sliders | Quick access to the controls you use most |
-| **History** | clock | Edit history | Step back through every change |
+| **History** | clock | Work prints · Edit history | Keep named versions, step back through every change |
 | **Export** | file | Export settings | Format, size, colour, batch output |
 | **Metadata** | tags | Archival metadata | Original camera/lens/film details |
 | **Scan** | camera | Scanner · Camera Scanning | Capture film directly (Linux/macOS) |
@@ -498,6 +498,22 @@ switch and a scroll. Empty until you fill it.
 ---
 
 ## 10. History tab
+
+Two lists: the versions you chose to keep, above the running record of every change.
+
+### Work prints
+
+A **work print** is a named version of this frame — the darkroom habit of keeping the prints you made on the way to the final one, so you can go back to the third attempt after deciding the fifth went too far.
+
+*   **Save work print** (**Ctrl+Shift+S**) keeps the current edit under a name; NegPy offers *Work print 1*, *Work print 2* and so on. Saving over an existing name asks first.
+*   **Click** one to make it live. That counts as an edit, so **Ctrl+Z** puts back what was on screen before — you cannot lose your place by looking at an old version.
+*   **Right-click** → **Export this version…**, **Rename…** or **Delete**.
+
+Work prints differ from history steps in the way that matters: they are **never pruned and never thrown away by a later edit**. The undo history keeps the last 100 steps and drops the branch above you when you edit after stepping back; a work print survives both. The list only appears once you've saved one.
+
+They belong to the frame, not to your presets — a preset is a look you apply to other images, a work print is one version of this print. Both live in NegPy's database; work prints are not written to `.negpy` sidecars.
+
+### Edit history
 
 A scrollable list of every edit step (last 100 kept), newest on top; the current step is bold.
 

@@ -405,6 +405,7 @@ class DesktopSessionManager(QObject):
     state_changed = pyqtSignal()
     files_changed = pyqtSignal()  # File list additions only — does not trigger sidebar sync
     history_changed = pyqtSignal()  # Emitted when undo/redo/persist happens
+    work_prints_changed = pyqtSignal()  # A named version was saved, renamed or deleted
     settings_saved = pyqtSignal()
     active_file_changing = pyqtSignal()  # Outgoing file about to be replaced — last chance to snapshot it
     settings_copied = pyqtSignal()
@@ -1072,6 +1073,49 @@ class DesktopSessionManager(QObject):
                 self._config_dirty = True
                 self.state_changed.emit()
                 self.history_changed.emit()
+
+    def work_prints(self) -> List[str]:
+        """This frame's named versions, newest first."""
+        if not self.state.current_file_hash:
+            return []
+        return self.repo.list_work_prints(self.state.current_file_hash)
+
+    def next_work_print_name(self) -> str:
+        """Default name offered for the next save: the first free `Work print N`."""
+        taken = set(self.work_prints())
+        n = 1
+        while f"Work print {n}" in taken:
+            n += 1
+        return f"Work print {n}"
+
+    def save_work_print(self, name: str) -> None:
+        """Keep the live edit under `name`. Unlike a history step this is never pruned
+        and never truncated by a later edit."""
+        if not (self.state.current_file_hash and name):
+            return
+        self.repo.save_work_print(self.state.current_file_hash, name, self.state.config)
+        self.work_prints_changed.emit()
+
+    def load_work_print(self, name: str) -> None:
+        """Make a named version live. Committed through update_config, so it lands on the
+        undo stack and a plain Ctrl+Z puts back what was on screen before."""
+        if not self.state.current_file_hash:
+            return
+        config = self.repo.load_work_print(self.state.current_file_hash, name)
+        if config is not None:
+            self.update_config(config, persist=True)
+
+    def rename_work_print(self, name: str, new_name: str) -> None:
+        if not (self.state.current_file_hash and new_name) or new_name == name:
+            return
+        self.repo.rename_work_print(self.state.current_file_hash, name, new_name)
+        self.work_prints_changed.emit()
+
+    def delete_work_print(self, name: str) -> None:
+        if not self.state.current_file_hash:
+            return
+        self.repo.delete_work_print(self.state.current_file_hash, name)
+        self.work_prints_changed.emit()
 
     def jump_to_step(self, index: int) -> None:
         """Load an arbitrary history step (random-access undo/redo)."""

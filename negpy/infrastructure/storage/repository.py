@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import os
+import time
 from contextlib import contextmanager
 from typing import Any, List, Optional
 from negpy.domain.models import ExportPreset, WorkspaceConfig
@@ -61,6 +62,19 @@ class StorageRepository(IRepository):
                     step_index INTEGER,
                     settings_json TEXT,
                     PRIMARY KEY (file_hash, step_index)
+                )
+            """)
+
+            # Named versions of one frame's edit. Deliberately not a column on
+            # edit_history: an edit after stepping back truncates the future branch, so a
+            # named step would be deleted by the very thing it is meant to survive.
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS work_prints (
+                    file_hash TEXT,
+                    name TEXT,
+                    created_at REAL,
+                    settings_json TEXT,
+                    PRIMARY KEY (file_hash, name)
                 )
             """)
 
@@ -254,7 +268,44 @@ class StorageRepository(IRepository):
             )
             conn.execute("DELETE FROM file_settings WHERE file_hash = ?", (old_hash,))
             conn.execute("UPDATE OR REPLACE edit_history SET file_hash = ? WHERE file_hash = ?", (new_hash, old_hash))
+            conn.execute("UPDATE OR REPLACE work_prints SET file_hash = ? WHERE file_hash = ?", (new_hash, old_hash))
             conn.execute("UPDATE OR REPLACE file_marks SET file_hash = ? WHERE file_hash = ?", (new_hash, old_hash))
+
+    def save_work_print(self, file_hash: str, name: str, settings: WorkspaceConfig) -> None:
+        """Store (or replace) a named version of this frame's edit."""
+        with self._connect(self.edits_db_path) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO work_prints (file_hash, name, created_at, settings_json) VALUES (?, ?, ?, ?)",
+                (file_hash, name, time.time(), json.dumps(settings.to_dict(), default=str)),
+            )
+
+    def list_work_prints(self, file_hash: str) -> List[str]:
+        """This frame's work-print names, newest first."""
+        with self._connect(self.edits_db_path) as conn:
+            cursor = conn.execute(
+                "SELECT name FROM work_prints WHERE file_hash = ? ORDER BY created_at DESC, rowid DESC",
+                (file_hash,),
+            )
+            return [str(row[0]) for row in cursor.fetchall()]
+
+    def load_work_print(self, file_hash: str, name: str) -> Optional[WorkspaceConfig]:
+        with self._connect(self.edits_db_path) as conn:
+            row = conn.execute(
+                "SELECT settings_json FROM work_prints WHERE file_hash = ? AND name = ?",
+                (file_hash, name),
+            ).fetchone()
+        return WorkspaceConfig.from_flat_dict(json.loads(row[0])) if row else None
+
+    def rename_work_print(self, file_hash: str, name: str, new_name: str) -> None:
+        with self._connect(self.edits_db_path) as conn:
+            conn.execute(
+                "UPDATE OR REPLACE work_prints SET name = ? WHERE file_hash = ? AND name = ?",
+                (new_name, file_hash, name),
+            )
+
+    def delete_work_print(self, file_hash: str, name: str) -> None:
+        with self._connect(self.edits_db_path) as conn:
+            conn.execute("DELETE FROM work_prints WHERE file_hash = ? AND name = ?", (file_hash, name))
 
     def save_history_step(self, file_hash: str, index: int, settings: WorkspaceConfig) -> None:
         with self._connect(self.edits_db_path) as conn:
@@ -403,6 +454,7 @@ class StorageRepository(IRepository):
         with self._connect(self.edits_db_path) as conn:
             file_settings = self._count(conn, "file_settings")
             edit_history = self._count(conn, "edit_history")
+            work_prints = self._count(conn, "work_prints")
             file_marks = self._count(conn, "file_marks")
             normalization_rolls = self._count(conn, "normalization_rolls")
 
@@ -416,6 +468,7 @@ class StorageRepository(IRepository):
         return {
             "file_settings": file_settings,
             "edit_history": edit_history,
+            "work_prints": work_prints,
             "file_marks": file_marks,
             "normalization_rolls": normalization_rolls,
             "export_presets": export_presets,
@@ -441,12 +494,12 @@ class StorageRepository(IRepository):
             conn.execute("VACUUM")
 
     def clear_saved_edits(self) -> None:
-        """Drop per-image looks: saved edits, their undo history, and keep/reject
-        marks. Rig calibration (normalization rolls), export presets, and app
+        """Drop per-image looks: saved edits, their undo history, work prints, and
+        keep/reject marks. Rig calibration (normalization rolls), export presets, and app
         preferences are left intact — so a reloaded image starts from defaults
         without losing the user's tooling. Flat-field profiles live in the file
         store (APP_CONFIG.flatfield_dir), not here, so they are untouched too."""
-        self._wipe(self.edits_db_path, ["file_settings", "edit_history", "file_marks"])
+        self._wipe(self.edits_db_path, ["file_settings", "edit_history", "work_prints", "file_marks"])
 
     def reset_everything(self) -> None:
         """Full clean slate: every table in both databases. Export presets, rig
@@ -456,6 +509,6 @@ class StorageRepository(IRepository):
         disk, not in these databases, so they survive — as with a fresh install."""
         self._wipe(
             self.edits_db_path,
-            ["file_settings", "edit_history", "file_marks", "normalization_rolls"],
+            ["file_settings", "edit_history", "work_prints", "file_marks", "normalization_rolls"],
         )
         self._wipe(self.settings_db_path, ["global_settings"])

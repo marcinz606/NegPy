@@ -20,6 +20,7 @@ from negpy.desktop.view.styles.theme import THEME
 _EDIT_ROWS = (
     ("file_settings", "Saved edits (images)"),
     ("edit_history", "Undo-history steps"),
+    ("work_prints", "Work prints"),
     ("file_marks", "Keep / reject marks"),
 )
 _TOOLING_ROWS = (
@@ -178,7 +179,7 @@ class DatabaseDialog(QDialog):
         self._update_enabled(stats)
 
     def _update_enabled(self, stats: dict) -> None:
-        edits = stats.get("file_settings", 0) + stats.get("edit_history", 0) + stats.get("file_marks", 0)
+        edits = sum(stats.get(k, 0) for k in ("file_settings", "edit_history", "work_prints", "file_marks"))
         total = edits + sum(stats.get(k, 0) for k in ("normalization_rolls", "export_presets", "app_preferences"))
         self.clear_edits_btn.setEnabled(edits > 0)
         self.reset_all_btn.setEnabled(total > 0)

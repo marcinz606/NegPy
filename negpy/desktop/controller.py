@@ -3303,6 +3303,11 @@ class AppController(QObject):
         self.session.jump_to_step(index)
         self.request_export()
 
+    def export_work_print(self, name: str) -> None:
+        """Make a named version live, then export it through the normal export path."""
+        self.session.load_work_print(name)
+        self.request_export()
+
     def _flush_export_ui(self) -> None:
         """Push pending Export-panel edits into state before any export path reads config."""
         flush = self.flush_export_settings
