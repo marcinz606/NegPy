@@ -56,7 +56,7 @@ camera = [
     "gphoto2>=2.5 ; sys_platform != 'win32'",
 ]
 pieusb = [
-    "pieusb>=0.3.1",
+    "pieusb>=0.3.2",
 ]
 
 [project.urls]
