@@ -14,6 +14,9 @@ class ScannerSettings:
     capture_ir: bool = False
     autofocus: bool = True
     auto_exposure: bool = False
+    # Hardware scan exposure time in microseconds (SANE `scan-exposure-time`).
+    # None = scanner default. Only meaningful when the device exposes the option.
+    exposure_time_us: int | None = None
     frame_from: int = 1
     frame_to: int = 1
     output_folder: str = ""

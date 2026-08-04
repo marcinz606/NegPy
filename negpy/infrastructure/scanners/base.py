@@ -33,6 +33,7 @@ class ScannerCapabilities:
     adapter_frame_control: bool = False
     can_eject: bool = False
     frame_pitch_mm: float = 0.0  # feed-axis distance between frame positions; 0.0 = unknown
+    exposure_time_us: tuple[int, int] | None = None  # (min, max) in microseconds
 
 
 @dataclass(frozen=True)

@@ -283,3 +283,47 @@ class TestSplitRgbi:
         assert ir.shape == (2, 3)
         assert np.array_equal(rgb, arr[:, :, :3])
         assert np.array_equal(ir, arr[:, :, 3])
+
+
+class TestScanExposureTimeCapability:
+    """Detection of the SANE `scan-exposure-time` option (e.g. genesys)."""
+
+    def test_range_tuple_detected(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _detect_scan_exposure_time
+
+        opt = {"scan_exposure_time": FakeOption(constraint=(11000, 65535, 1))}
+        assert _detect_scan_exposure_time(opt) == (11000, 65535)
+
+    def test_hyphenated_key_detected(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _detect_scan_exposure_time
+
+        opt = {"scan-exposure-time": FakeOption(constraint=(11000, 65535, 1))}
+        assert _detect_scan_exposure_time(opt) == (11000, 65535)
+
+    def test_absent_returns_none(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _detect_scan_exposure_time
+
+        assert _detect_scan_exposure_time({"source": FakeOption()}) is None
+
+    def test_caps_from_options_wires_exposure_time(self) -> None:
+        caps = _caps_from_options(
+            {
+                "source": FakeOption(constraint=["Negative", "Positive", "Transparency"]),
+                "resolution": FakeOption(constraint=[300, 600, 1200, 2400, 3600]),
+                "depth": FakeOption(constraint=[8, 16]),
+                "scan_exposure_time": FakeOption(constraint=(11000, 65535, 1)),
+            },
+            "genesys:libusb:003:005",
+        )
+        assert caps.exposure_time_us == (11000, 65535)
+
+    def test_caps_from_options_defaults_exposure_time_none(self) -> None:
+        caps = _caps_from_options(
+            {
+                "source": FakeOption(constraint=["Negative", "Positive", "Transparency"]),
+                "resolution": FakeOption(constraint=[300, 600, 1200, 2400, 3600]),
+                "depth": FakeOption(constraint=[8, 16]),
+            },
+            "plustek:libusb:001:008",
+        )
+        assert caps.exposure_time_us is None

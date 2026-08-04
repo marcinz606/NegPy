@@ -306,6 +306,14 @@ def _find_ir_option(opt) -> str | None:
     return None
 
 
+def _find_scan_exposure_time_option(opt) -> str | None:
+    """Return the device's `scan-exposure-time` option key, if present."""
+    for key in opt:
+        if str(key).lower().replace("-", "_") == "scan_exposure_time":
+            return str(key)
+    return None
+
+
 def _find_eject_option(opt) -> str | None:
     """Return the device's vendor eject/unload action option, if any."""
     for key in opt:
@@ -407,6 +415,42 @@ def _detect_auto_exposure(opt) -> bool:
     return _has_usable_option(opt, "ae")
 
 
+def _detect_scan_exposure_time(opt) -> tuple[int, int] | None:
+    """Return (min_us, max_us) when the device has a usable ``scan-exposure-time`` option.
+
+    python-sane may expose it as ``scan_exposure_time`` or ``scan-exposure-time``;
+    handles both conventions. Values are in microseconds — genesys reports plain ints,
+    other backends that use SANE_FIXED carry the same numeric range when accessed via
+    python-sane.
+    """
+    name: str | None = None
+    for key in opt:
+        if str(key).lower().replace("-", "_") == "scan_exposure_time":
+            name = str(key)
+            break
+    if not name or name not in opt:
+        return None
+    option = opt[name]
+    if not _option_is_usable(option):
+        return None
+    constraint = getattr(option, "constraint", None)
+
+    values: list[float | int] | None = None
+    if isinstance(constraint, tuple) and len(constraint) >= 2:
+        values = [constraint[0], constraint[1]]
+    elif isinstance(constraint, list) and len(constraint) == 2:
+        values = [constraint[0], constraint[1]]
+    if values is not None:
+        try:
+            lo_ = int(float(values[0]))
+            hi_ = int(float(values[1]))
+            if 0 < lo_ <= hi_ and hi_ < 1_200_000_000:
+                return (lo_, hi_)
+        except (ValueError, TypeError, OverflowError):
+            return None
+    return None
+
+
 def _detect_eject(opt) -> bool:
     """True when the device exposes a usable eject/unload action."""
     option_name = _find_eject_option(opt)
@@ -478,6 +522,7 @@ def _caps_from_options(opt, device_id: str = "") -> ScannerCapabilities:
         adapter_frame_control=_detect_adapter_frame_control(opt),
         can_eject=_detect_eject(opt),
         frame_pitch_mm=_feed_pitch_mm(opt),
+        exposure_time_us=_detect_scan_exposure_time(opt),
     )
 
 
@@ -901,6 +946,17 @@ class SaneBackend:
                     dev.ae = True
                 except Exception as e:
                     raise RuntimeError(f"Could not enable auto-exposure: {e}") from e
+
+            # Manual scan exposure time (SANE `scan-exposure-time`). Applied only
+            # when the device exposes the option; a device without it ignores the
+            # request silently so a saved setting never breaks a different scanner.
+            if params.exposure_time_us is not None:
+                _et_name = _find_scan_exposure_time_option(option_map)
+                if _et_name is not None:
+                    try:
+                        setattr(dev, _et_name, int(params.exposure_time_us))
+                    except Exception as e:
+                        raise RuntimeError(f"Could not set scan-exposure-time={params.exposure_time_us}: {e}") from e
 
             # Inline IR via a boolean option (coolscan3 `infrared`): the 4th
             # sample rides in the same frame, no mode/source change. IR was

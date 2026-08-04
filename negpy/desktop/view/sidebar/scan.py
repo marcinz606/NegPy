@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QProgressBar,
     QPushButton,
+    QSlider,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -138,6 +139,25 @@ class ScanSidebar(QWidget):
         self.ae_check.setToolTip("Meter exposure in hardware before the scan")
         self.form.addRow(self.ae_check)
 
+        # Scan exposure time (SANE `scan-exposure-time`), shown only when the
+        # device reports a usable range. Slider in microseconds; label shows
+        # the value in a human-readable form.
+        self.exposure_row_widget = QWidget()
+        exposure_layout = QHBoxLayout(self.exposure_row_widget)
+        exposure_layout.setContentsMargins(0, 0, 0, 0)
+        exposure_layout.setSpacing(6)
+        self.exposure_slider = QSlider(Qt.Orientation.Horizontal)
+        self.exposure_slider.setSingleStep(1)
+        self.exposure_slider.setToolTip("Scan exposure time (microseconds)")
+        self.exposure_value_label = QLabel()
+        self.exposure_value_label.setMinimumWidth(64)
+        exposure_layout.addWidget(self.exposure_slider, 1)
+        exposure_layout.addWidget(self.exposure_value_label)
+        self.exposure_label = QLabel("Exposure")
+        self.form.addRow(self.exposure_label, self.exposure_row_widget)
+        self.exposure_label.setVisible(False)
+        self.exposure_row_widget.setVisible(False)
+
         # Frame range (roll/strip feeders only — shown when a live capacity is known).
         self.frame_range_widget = QWidget()
         frame_row = QHBoxLayout(self.frame_range_widget)
@@ -241,6 +261,7 @@ class ScanSidebar(QWidget):
         self.ir_check.toggled.connect(lambda: self._update_settings_from_ui())
         self.autofocus_check.toggled.connect(lambda: self._update_settings_from_ui())
         self.ae_check.toggled.connect(lambda: self._update_settings_from_ui())
+        self.exposure_slider.valueChanged.connect(self._on_exposure_changed)
         self.frame_from_spin.valueChanged.connect(self._on_frame_from_changed)
         self.frame_to_spin.valueChanged.connect(self._on_frame_to_changed)
         self.scan_window_btn.clicked.connect(self._on_set_scan_window)
@@ -346,6 +367,8 @@ class ScanSidebar(QWidget):
             self.eject_btn.setVisible(False)
             self.frame_range_label.setVisible(False)
             self.frame_range_widget.setVisible(False)
+            self.exposure_label.setVisible(False)
+            self.exposure_row_widget.setVisible(False)
             return
 
         caps = device.capabilities
@@ -417,6 +440,26 @@ class ScanSidebar(QWidget):
             self.ae_check.setChecked(False)
             self.ae_check.setToolTip("Auto-exposure not supported by this device")
 
+        # Scan exposure time — shown only when the device reports a usable range.
+        self.exposure_slider.blockSignals(True)
+        et_range = caps.exposure_time_us
+        if et_range is not None:
+            lo_us, hi_us = et_range
+            self.exposure_slider.setRange(int(lo_us), int(hi_us))
+            current = self._settings.exposure_time_us
+            if current is None or current < lo_us or current > hi_us:
+                current = lo_us
+            self.exposure_slider.setValue(int(current))
+            self.exposure_label.setVisible(True)
+            self.exposure_row_widget.setVisible(True)
+        else:
+            self.exposure_slider.setRange(0, 1)
+            self.exposure_slider.setValue(0)
+            self.exposure_label.setVisible(False)
+            self.exposure_row_widget.setVisible(False)
+        self.exposure_slider.blockSignals(False)
+        self._update_exposure_value_label()
+
         # Frame range — only a roll/strip feeder reporting a live capacity
         capacity = caps.adapter_frame_capacity
         has_frames = capacity is not None
@@ -447,6 +490,19 @@ class ScanSidebar(QWidget):
         self.ae_check.blockSignals(False)
         self.frame_from_spin.blockSignals(False)
         self.frame_to_spin.blockSignals(False)
+
+    def _on_exposure_changed(self, _value: int) -> None:
+        self._update_exposure_value_label()
+        self._update_settings_from_ui()
+
+    def _update_exposure_value_label(self) -> None:
+        us = self.exposure_slider.value()
+        if us >= 1_000_000:
+            self.exposure_value_label.setText(f"{us / 1_000_000:.2f} s")
+        elif us >= 1_000:
+            self.exposure_value_label.setText(f"{us / 1_000:.1f} ms")
+        else:
+            self.exposure_value_label.setText(f"{us} us")
 
     def _on_frame_from_changed(self, _value: int) -> None:
         if self.frame_to_spin.value() < self.frame_from_spin.value():
@@ -554,12 +610,18 @@ class ScanSidebar(QWidget):
         frames, frame_windows, base_window = resolve_batch_selection(
             self._settings, self.frame_from_spin.value(), self.frame_to_spin.value()
         )
+        exposure_time_us = (
+            self._settings.exposure_time_us
+            if self._settings.exposure_time_us is not None and self.exposure_row_widget.isVisible()
+            else None
+        )
         base_params = ScanParams(
             dpi=dpi,
             depth=depth,
             capture_ir=capture_ir,
             autofocus=autofocus,
             auto_exposure=auto_exposure,
+            exposure_time_us=exposure_time_us,
             window=base_window,
             frame_offset_mm=self._settings.frame_offset_mm,
         )
@@ -685,6 +747,7 @@ class ScanSidebar(QWidget):
             capture_ir=self.ir_check.isChecked() and self.ir_check.isEnabled(),
             autofocus=self.autofocus_check.isChecked(),
             auto_exposure=self.ae_check.isChecked() and self.ae_check.isEnabled(),
+            exposure_time_us=(self.exposure_slider.value() if self.exposure_row_widget.isVisible() else None),
             frame_from=self.frame_from_spin.value(),
             frame_to=self.frame_to_spin.value(),
             output_folder=self.folder_edit.text().strip(),

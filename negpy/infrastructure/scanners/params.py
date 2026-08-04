@@ -25,6 +25,10 @@ class ScanParams:
     # Hardware auto-exposure (SANE `ae`), distinct from NegPy's rendering
     # auto-exposure. An explicit request fails if the option is unavailable.
     auto_exposure: bool = False
+    # Hardware scan exposure time in microseconds (SANE `scan-exposure-time`).
+    # None = let the scanner use its default; ignored when the device has no
+    # such option.
+    exposure_time_us: int | None = None
 
 
 MIN_FRAME_EXTENT_MM = 1.0  # below this a capped scan is a useless sliver
