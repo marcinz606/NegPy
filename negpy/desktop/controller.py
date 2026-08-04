@@ -3367,8 +3367,6 @@ class AppController(QObject):
         expansion = self.state.linear_expansion
         rgbscan = cfg.rgbscan
         stitch = cfg.stitch if cfg.stitch.stitch_enabled else None
-        flatfield = cfg.flatfield if stitch else None
-        process = cfg.process if stitch else None
         for f in supported:
             stem = os.path.splitext(os.path.basename(f["path"]))[0]
             out_path = os.path.join(export_path, f"{stem}_linear.tiff")
@@ -3384,8 +3382,11 @@ class AppController(QObject):
                     expansion=expansion,
                     rgbscan=rgbscan,
                     stitch=stitch,
-                    flatfield=flatfield,
-                    process=process,
+                    flatfield=cfg.flatfield,
+                    process=cfg.process,
+                    apply_wb=self.state.linear_apply_wb,
+                    apply_flatfield=self.state.linear_apply_flatfield,
+                    apply_sensor=self.state.linear_apply_sensor,
                 )
                 exported += 1
             except Exception as e:

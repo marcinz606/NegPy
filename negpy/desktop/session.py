@@ -168,6 +168,10 @@ class AppState:
     linear_output: bool = False
     # Linear Output expansion factor override. None = source-type default (4× Pakon, off DNG).
     linear_expansion: float | None = None
+    # Linear Output optional corrections (off by default — raw dump philosophy).
+    linear_apply_wb: bool = False
+    linear_apply_flatfield: bool = False
+    linear_apply_sensor: bool = False
 
     @property
     def local_hidden_masks(self) -> set:
@@ -496,6 +500,10 @@ class DesktopSessionManager(QObject):
         saved_linear_output = self.repo.get_global_setting("linear_output")
         if saved_linear_output is not None:
             self.state.linear_output = bool(saved_linear_output)
+        for key in ("linear_apply_wb", "linear_apply_flatfield", "linear_apply_sensor"):
+            val = self.repo.get_global_setting(key)
+            if val is not None:
+                setattr(self.state, key, bool(val))
 
         self.state.export_presets = self.repo.load_export_presets()
 
@@ -574,6 +582,9 @@ class DesktopSessionManager(QObject):
         """Persists the flat / linear output preferences."""
         self.repo.save_global_setting("flat_output", self.state.flat_output)
         self.repo.save_global_setting("linear_output", self.state.linear_output)
+        self.repo.save_global_setting("linear_apply_wb", self.state.linear_apply_wb)
+        self.repo.save_global_setting("linear_apply_flatfield", self.state.linear_apply_flatfield)
+        self.repo.save_global_setting("linear_apply_sensor", self.state.linear_apply_sensor)
 
     def _apply_sticky_settings(self, config: WorkspaceConfig, only_global: bool = False) -> WorkspaceConfig:
         """

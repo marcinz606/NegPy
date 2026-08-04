@@ -569,6 +569,37 @@ class ExportSidebar(BaseSidebar):
         box.addWidget(self.linear_expansion_hint)
         self.linear_expansion_combo.currentIndexChanged.connect(self._on_linear_expansion_changed)
 
+        self.linear_corrections_label = field_label("Corrections")
+        self.linear_corrections_label.setVisible(False)
+        box.addWidget(self.linear_corrections_label)
+
+        self.linear_wb_checkbox = QCheckBox("Apply white balance")
+        self.linear_wb_checkbox.setToolTip("Multiply by the as-shot WB gains before writing")
+        self.linear_wb_checkbox.setChecked(self.state.linear_apply_wb)
+        self.linear_wb_checkbox.setVisible(False)
+        self.linear_wb_checkbox.toggled.connect(self._on_linear_correction_changed)
+        box.addWidget(self.linear_wb_checkbox)
+
+        self.linear_flatfield_checkbox = QCheckBox("Apply flatfield")
+        self.linear_flatfield_checkbox.setToolTip("Apply the flatfield gain correction")
+        self.linear_flatfield_checkbox.setChecked(self.state.linear_apply_flatfield)
+        self.linear_flatfield_checkbox.setVisible(False)
+        self.linear_flatfield_checkbox.toggled.connect(self._on_linear_correction_changed)
+        box.addWidget(self.linear_flatfield_checkbox)
+
+        self.linear_sensor_checkbox = QCheckBox("Apply sensor correction")
+        self.linear_sensor_checkbox.setToolTip("Apply the sensor crosstalk unmixing matrix")
+        self.linear_sensor_checkbox.setChecked(self.state.linear_apply_sensor)
+        self.linear_sensor_checkbox.setVisible(False)
+        self.linear_sensor_checkbox.toggled.connect(self._on_linear_correction_changed)
+        box.addWidget(self.linear_sensor_checkbox)
+
+        self.linear_corrections_hint = hint_label(
+            "Corrections are baked in and cannot be undone from the exported file. Re-export from the original RAW to get uncorrected data."
+        )
+        self.linear_corrections_hint.setVisible(False)
+        box.addWidget(self.linear_corrections_hint)
+
         self.layout.addWidget(container)
 
     def _sync_flat_enabled(self) -> None:
@@ -585,6 +616,12 @@ class ExportSidebar(BaseSidebar):
             self.linear_expansion_hint.setVisible(linear_on)
             if linear_on:
                 self._refresh_linear_expansion_combo()
+        if hasattr(self, "linear_corrections_label") and not linear_on:
+            self.linear_corrections_label.setVisible(False)
+            self.linear_wb_checkbox.setVisible(False)
+            self.linear_flatfield_checkbox.setVisible(False)
+            self.linear_sensor_checkbox.setVisible(False)
+            self.linear_corrections_hint.setVisible(False)
         if hasattr(self, "_presets_section"):
             self._presets_section.setVisible(not linear_on)
         if hasattr(self, "_sidecars_section"):
@@ -666,11 +703,46 @@ class ExportSidebar(BaseSidebar):
         combo.blockSignals(False)
         self._current_expansion_source_type = source_type
 
+        is_camera = source_type == "camera"
+        self.linear_corrections_label.setVisible(is_camera)
+        self.linear_wb_checkbox.setVisible(is_camera)
+        self.linear_flatfield_checkbox.setVisible(is_camera)
+        self.linear_sensor_checkbox.setVisible(is_camera)
+
+        has_flatfield = bool(self.state.config.flatfield.apply and self.state.config.flatfield.profile_id)
+        self.linear_flatfield_checkbox.setEnabled(has_flatfield)
+        if not has_flatfield:
+            self.linear_flatfield_checkbox.setToolTip("No flatfield profile configured")
+        else:
+            self.linear_flatfield_checkbox.setToolTip("Apply the flatfield gain correction")
+
+        has_matrix = self.state.config.process.sensor_matrix is not None
+        self.linear_sensor_checkbox.setEnabled(has_matrix)
+        if not has_matrix:
+            self.linear_sensor_checkbox.setToolTip("No sensor correction matrix configured")
+        else:
+            self.linear_sensor_checkbox.setToolTip("Apply the sensor crosstalk unmixing matrix")
+
+        any_on = (
+            self.state.linear_apply_wb
+            or (self.state.linear_apply_flatfield and has_flatfield)
+            or (self.state.linear_apply_sensor and has_matrix)
+        )
+        self.linear_corrections_hint.setVisible(is_camera and any_on)
+
     def _on_linear_expansion_changed(self, index: int) -> None:
         source_type = getattr(self, "_current_expansion_source_type", "unsupported")
         options = self._EXPANSION_OPTIONS.get(source_type, [])
         if 0 <= index < len(options):
             self.state.linear_expansion = options[index][1]
+
+    def _on_linear_correction_changed(self, _checked: bool) -> None:
+        self.state.linear_apply_wb = self.linear_wb_checkbox.isChecked()
+        self.state.linear_apply_flatfield = self.linear_flatfield_checkbox.isChecked()
+        self.state.linear_apply_sensor = self.linear_sensor_checkbox.isChecked()
+        self.controller.session.save_flat_output_prefs()
+        any_on = self.state.linear_apply_wb or self.state.linear_apply_flatfield or self.state.linear_apply_sensor
+        self.linear_corrections_hint.setVisible(any_on)
 
     def _on_flat_peek_changed(self, active: bool) -> None:
         self.flat_peek_btn.blockSignals(True)
@@ -1104,6 +1176,9 @@ class ExportSidebar(BaseSidebar):
             else:
                 self.intent_print_btn.setChecked(True)
             self.flat_peek_btn.setChecked(self.state.flat_peek)
+            self.linear_wb_checkbox.setChecked(self.state.linear_apply_wb)
+            self.linear_flatfield_checkbox.setChecked(self.state.linear_apply_flatfield)
+            self.linear_sensor_checkbox.setChecked(self.state.linear_apply_sensor)
         finally:
             self.block_signals(False)
 
@@ -1127,6 +1202,9 @@ class ExportSidebar(BaseSidebar):
             self.cs_template_combo,
             self.sidecars_enabled_btn,
             self.flat_peek_btn,
+            self.linear_wb_checkbox,
+            self.linear_flatfield_checkbox,
+            self.linear_sensor_checkbox,
         ]
         for w in widgets:
             w.blockSignals(blocked)

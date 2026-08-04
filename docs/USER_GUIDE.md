@@ -535,6 +535,7 @@ A scrollable list of every edit step (last 100 kept), newest on top; the current
     *   **LinearRaw DNG** — SilverFast HDRi (3-channel) and VueScan (4-channel RGB+IR). IR is written as a separate grayscale TIFF with an `_ir` suffix.
     *   **Camera RAW** — demosaiced with unity white balance (1,1,1,1). The camera's as-shot WB is written into XMP (`RAW-WB: R G B`, MakeTiff-compatible) so it can be applied downstream. Source device and timestamp are preserved. RGB-scan triplets (narrowband R/G/B exposures) are merged into a single combined TIFF. Stitch composites are assembled with flatfield and sensor correction applied per-part for clean seams; stitch + triplet combinations are also supported.
     *   **Expansion**: scales the linear data before writing. The combo box shows source-appropriate options: Pakon F135/F235 default to 4×, F335 and LinearRaw DNG default to off. Camera RAW files have no expansion option. Leave at the default unless you know why you need to change it.
+    *   **Corrections** (camera RAW only): three optional toggles that bake corrections into the linear output before writing. All default to off (raw dump philosophy). **Apply white balance** multiplies by the as-shot WB gains. **Apply flatfield** applies the flatfield gain correction. **Apply sensor correction** applies the sensor crosstalk unmixing matrix. For stitch composites, flatfield and sensor correction are always applied per-part regardless of these toggles (required for clean seams).
 
 ### Export button
 

@@ -15,6 +15,7 @@ from negpy.kernel.image.logic import apply_exif_orientation
 from negpy.services.export.linear_output import (
     _CameraWB,
     _SourceMeta,
+    _apply_white_balance,
     _build_xmp,
     _default_pakon_expansion,
     _effective_expansion,
@@ -885,3 +886,171 @@ class TestStitchExport:
         label = _source_format_label(path, stitch=stitch)
         assert "stitch 2-part" in label
         assert "RGB triplet" in label
+
+
+class TestLinearCorrections:
+    """Tests for optional per-step corrections (WB, flatfield, sensor)."""
+
+    def _patch_decode(self, path_to_buf: dict[str, np.ndarray]):
+        def fake_decode(path: str):
+            return path_to_buf[path], _MOCK_WB, _MOCK_META
+
+        return mock.patch(
+            "negpy.services.export.linear_output._decode_camera_raw_buffer",
+            side_effect=fake_decode,
+        )
+
+    def test_apply_white_balance_scales_channels(self) -> None:
+        f32 = np.full((4, 4, 3), 0.5, dtype=np.float32)
+        wb = _CameraWB(as_shot=(2.0, 1.0, 3.0, 1.0), daylight=(1.0, 1.0, 1.0, 1.0))
+        result = _apply_white_balance(f32, wb)
+        assert result.shape == f32.shape
+        np.testing.assert_allclose(result[:, :, 0], 1.0, atol=1e-6)
+        np.testing.assert_allclose(result[:, :, 1], 0.5, atol=1e-6)
+        np.testing.assert_allclose(result[:, :, 2], 1.0, atol=1e-6)
+
+    def test_apply_white_balance_clamps(self) -> None:
+        f32 = np.full((4, 4, 3), 0.8, dtype=np.float32)
+        wb = _CameraWB(as_shot=(2.0, 1.0, 2.0, 1.0), daylight=(1.0, 1.0, 1.0, 1.0))
+        result = _apply_white_balance(f32, wb)
+        assert result.max() <= 1.0
+
+    def test_apply_wb_flag_bakes_wb(self, tmp_path: str) -> None:
+        p = os.path.join(str(tmp_path), "photo.nef")
+        open(p, "wb").close()
+
+        buf = np.full((10, 10, 3), 0.3, dtype=np.float32)
+        out = os.path.join(str(tmp_path), "out.tiff")
+
+        with self._patch_decode({p: buf}):
+            export_linear_output(p, out, apply_wb=True)
+
+        with tifffile.TiffFile(out) as tf:
+            desc = tf.pages[0].description
+            assert "WB applied" in desc
+            assert "no WB applied" not in desc
+
+    def test_no_apply_wb_flag_records_raw(self, tmp_path: str) -> None:
+        p = os.path.join(str(tmp_path), "photo.nef")
+        open(p, "wb").close()
+
+        buf = np.full((10, 10, 3), 0.3, dtype=np.float32)
+        out = os.path.join(str(tmp_path), "out.tiff")
+
+        with self._patch_decode({p: buf}):
+            export_linear_output(p, out, apply_wb=False)
+
+        with tifffile.TiffFile(out) as tf:
+            desc = tf.pages[0].description
+            assert "no WB applied" in desc
+
+    def test_apply_flatfield_calls_correction(self, tmp_path: str) -> None:
+        from negpy.features.flatfield.models import FlatFieldConfig
+
+        p = os.path.join(str(tmp_path), "photo.nef")
+        open(p, "wb").close()
+
+        buf = np.full((10, 10, 3), 0.3, dtype=np.float32)
+        ff = FlatFieldConfig(apply=True, profile_id="test")
+        out = os.path.join(str(tmp_path), "out.tiff")
+
+        with (
+            self._patch_decode({p: buf}),
+            mock.patch("negpy.services.export.linear_output._apply_flatfield_correction", return_value=buf) as ff_mock,
+        ):
+            export_linear_output(p, out, flatfield=ff, apply_flatfield=True)
+
+        ff_mock.assert_called_once()
+        with tifffile.TiffFile(out) as tf:
+            assert "flatfield" in tf.pages[0].description
+
+    def test_no_apply_flatfield_skips(self, tmp_path: str) -> None:
+        from negpy.features.flatfield.models import FlatFieldConfig
+
+        p = os.path.join(str(tmp_path), "photo.nef")
+        open(p, "wb").close()
+
+        buf = np.full((10, 10, 3), 0.3, dtype=np.float32)
+        ff = FlatFieldConfig(apply=True, profile_id="test")
+        out = os.path.join(str(tmp_path), "out.tiff")
+
+        with (
+            self._patch_decode({p: buf}),
+            mock.patch("negpy.services.export.linear_output._apply_flatfield_correction", return_value=buf) as ff_mock,
+        ):
+            export_linear_output(p, out, flatfield=ff, apply_flatfield=False)
+
+        ff_mock.assert_not_called()
+
+    def test_apply_sensor_calls_correction(self, tmp_path: str) -> None:
+        from negpy.features.process.models import ProcessConfig
+
+        p = os.path.join(str(tmp_path), "photo.nef")
+        open(p, "wb").close()
+
+        buf = np.full((10, 10, 3), 0.3, dtype=np.float32)
+        matrix = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+        proc = ProcessConfig(sensor_matrix=matrix)
+        out = os.path.join(str(tmp_path), "out.tiff")
+
+        with (
+            self._patch_decode({p: buf}),
+            mock.patch("negpy.services.export.linear_output.apply_sensor_correction", return_value=buf) as sc_mock,
+        ):
+            export_linear_output(p, out, process=proc, apply_sensor=True)
+
+        sc_mock.assert_called_once()
+        with tifffile.TiffFile(out) as tf:
+            assert "sensor" in tf.pages[0].description
+
+    def test_apply_sensor_noop_without_matrix(self, tmp_path: str) -> None:
+        from negpy.features.process.models import ProcessConfig
+
+        p = os.path.join(str(tmp_path), "photo.nef")
+        open(p, "wb").close()
+
+        buf = np.full((10, 10, 3), 0.3, dtype=np.float32)
+        proc = ProcessConfig(sensor_matrix=None)
+        out = os.path.join(str(tmp_path), "out.tiff")
+
+        with (
+            self._patch_decode({p: buf}),
+            mock.patch("negpy.services.export.linear_output.apply_sensor_correction", return_value=buf) as sc_mock,
+        ):
+            export_linear_output(p, out, process=proc, apply_sensor=True)
+
+        sc_mock.assert_not_called()
+
+    def test_no_apply_sensor_skips(self, tmp_path: str) -> None:
+        from negpy.features.process.models import ProcessConfig
+
+        p = os.path.join(str(tmp_path), "photo.nef")
+        open(p, "wb").close()
+
+        buf = np.full((10, 10, 3), 0.3, dtype=np.float32)
+        proc = ProcessConfig()
+        out = os.path.join(str(tmp_path), "out.tiff")
+
+        with (
+            self._patch_decode({p: buf}),
+            mock.patch("negpy.services.export.linear_output.apply_sensor_correction", return_value=buf) as sc_mock,
+        ):
+            export_linear_output(p, out, process=proc, apply_sensor=False)
+
+        sc_mock.assert_not_called()
+
+    def test_description_lists_corrections(self, tmp_path: str) -> None:
+        f32 = np.full((4, 4, 3), 0.5, dtype=np.float32)
+        out = os.path.join(str(tmp_path), "out.tiff")
+        _write_tiff(f32, out, "test.nef", flatfield_applied=True, sensor_applied=True)
+        with tifffile.TiffFile(out) as tf:
+            desc = tf.pages[0].description
+            assert "corrections: flatfield, sensor" in desc
+
+    def test_description_no_corrections_by_default(self, tmp_path: str) -> None:
+        f32 = np.full((4, 4, 3), 0.5, dtype=np.float32)
+        out = os.path.join(str(tmp_path), "out.tiff")
+        _write_tiff(f32, out, "test.nef")
+        with tifffile.TiffFile(out) as tf:
+            desc = tf.pages[0].description
+            assert "corrections:" not in desc

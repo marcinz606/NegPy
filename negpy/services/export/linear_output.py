@@ -17,11 +17,11 @@ import numpy as np
 import rawpy
 import tifffile as _tifffile
 
-from negpy.features.flatfield.logic import apply_flatfield
+from negpy.features.flatfield.logic import apply_flatfield as _apply_flatfield_correction
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.process.models import ProcessConfig
-from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix
+from negpy.features.process.sensor import apply_sensor_correction
 from negpy.features.rgbscan.logic import merge_rgb_triplet
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.stitch.logic import stitch_composite
@@ -160,6 +160,16 @@ def _apply_geometry(f32: np.ndarray, orientation: int, geometry: Optional[Geomet
     return f32
 
 
+def _apply_white_balance(f32: np.ndarray, wb: _CameraWB) -> np.ndarray:
+    """Multiply a linear RGB buffer by the as-shot white-balance gains."""
+    r, _g, b = _normalize_wb_rgb(wb.as_shot)
+    f32 = f32.copy()
+    f32[:, :, 0] *= r
+    f32[:, :, 2] *= b
+    np.clip(f32, 0.0, 1.0, out=f32)
+    return f32
+
+
 def _decode_linear(
     file_path: str,
     geometry: Optional[GeometryConfig] = None,
@@ -168,10 +178,16 @@ def _decode_linear(
     stitch: Optional[StitchConfig] = None,
     flatfield: Optional[FlatFieldConfig] = None,
     process: Optional[ProcessConfig] = None,
+    apply_wb: bool = False,
+    apply_flatfield: bool = False,
+    apply_sensor: bool = False,
 ) -> tuple[np.ndarray, Optional[np.ndarray], Optional[_CameraWB], _SourceMeta]:
     """Decode to an oriented float32 buffer. Returns (rgb, ir_or_none, camera_wb_or_none, source_meta)."""
     if stitch is not None and stitch.stitch_enabled and stitch.stitch_paths:
-        return _decode_stitch(file_path, stitch, geometry, flatfield, process)
+        rgb, ir, wb, meta = _decode_stitch(file_path, stitch, geometry, flatfield, process)
+        if apply_wb and wb is not None:
+            rgb = _apply_white_balance(rgb, wb)
+        return rgb, ir, wb, meta
     if PakonLoader.can_handle(file_path):
         rgb, ir = _decode_pakon(file_path, geometry, expansion=expansion)
         meta = _SourceMeta(make="Pakon", model=_pakon_spec_desc(file_path))
@@ -186,7 +202,12 @@ def _decode_linear(
             return rgb, ir, wb, meta
     if _is_camera_raw(file_path):
         if rgbscan is not None and is_rgb_triplet(rgbscan):
-            return _decode_camera_raw_triplet(file_path, rgbscan, geometry)
+            rgb, ir, wb, meta = _decode_camera_raw_triplet(file_path, rgbscan, geometry)
+            if apply_flatfield and flatfield is not None:
+                rgb = _apply_flatfield_correction(rgb, flatfield)
+            if apply_wb and wb is not None:
+                rgb = _apply_white_balance(rgb, wb)
+            return rgb, ir, wb, meta
         meta = _read_source_meta_tiff(file_path)
         rgb, ir, wb, decode_meta = _decode_camera_raw(file_path, geometry)
         merged = _SourceMeta(
@@ -194,6 +215,12 @@ def _decode_linear(
             model=meta.model or decode_meta.model,
             datetime=meta.datetime or decode_meta.datetime,
         )
+        if apply_flatfield and flatfield is not None:
+            rgb = _apply_flatfield_correction(rgb, flatfield)
+        if apply_sensor and process is not None and process.sensor_matrix is not None:
+            rgb = apply_sensor_correction(rgb, process.sensor_matrix)
+        if apply_wb and wb is not None:
+            rgb = _apply_white_balance(rgb, wb)
         return rgb, ir, wb, merged
     raise ValueError(f"Linear Output is not supported for this file type: {file_path}")
 
@@ -377,9 +404,9 @@ def _decode_stitch_part(
         f32, _, _ = _decode_camera_raw_buffer(file_path)
 
     if flatfield is not None:
-        f32 = apply_flatfield(f32, flatfield)
-    if not is_triplet and process is not None:
-        f32 = apply_sensor_correction(f32, effective_sensor_matrix(process))
+        f32 = _apply_flatfield_correction(f32, flatfield)
+    if not is_triplet and process is not None and process.sensor_matrix is not None:
+        f32 = apply_sensor_correction(f32, process.sensor_matrix)
     return f32
 
 
@@ -491,6 +518,9 @@ def _write_tiff(
     source_meta: Optional[_SourceMeta] = None,
     expansion: float = 1.0,
     source_format: str = "",
+    wb_applied: bool = False,
+    flatfield_applied: bool = False,
+    sensor_applied: bool = False,
 ) -> None:
     """Write a float32 buffer as an untagged 16-bit TIFF to *dest* (path or file-like)."""
     u16 = _to_uint16_jit(np.ascontiguousarray(f32, dtype=np.float32))
@@ -502,9 +532,15 @@ def _write_tiff(
         parts.append("no scaling")
     if camera_wb is not None:
         r, g, b = _normalize_wb_rgb(camera_wb.as_shot)
-        parts.append(f"no WB applied (as-shot: {r:.3f} {g:.3f} {b:.3f})")
+        if wb_applied:
+            parts.append(f"WB applied (as-shot: {r:.3f} {g:.3f} {b:.3f})")
+        else:
+            parts.append(f"no WB applied (as-shot: {r:.3f} {g:.3f} {b:.3f})")
     else:
         parts.append("no WB applied")
+    corrections = [s for s, on in (("flatfield", flatfield_applied), ("sensor", sensor_applied)) if on]
+    if corrections:
+        parts.append(f"corrections: {', '.join(corrections)}")
     parts.append("no color management")
     description = f"NegPy Linear Output -- {', '.join(parts)}."
 
@@ -560,6 +596,9 @@ def export_linear_output(
     stitch: Optional[StitchConfig] = None,
     flatfield: Optional[FlatFieldConfig] = None,
     process: Optional[ProcessConfig] = None,
+    apply_wb: bool = False,
+    apply_flatfield: bool = False,
+    apply_sensor: bool = False,
 ) -> None:
     """Decode *file_path* and write an untagged linear 16-bit TIFF to *output_path*.
 
@@ -576,17 +615,41 @@ def export_linear_output(
     applicable), applies flatfield and sensor correction per-part, then assembles
     via stitch_composite.
 
+    *apply_wb*, *apply_flatfield*, *apply_sensor*: optional per-step corrections.
+    When False (default), the raw dump is written unchanged.  When True, the
+    corresponding correction is applied before writing.
+
     If the source has an IR channel, it is written as a separate grayscale TIFF
     with an ``_ir`` suffix next to the RGB output.
     """
     eff = _effective_expansion(file_path, expansion)
     fmt = _source_format_label(file_path, rgbscan, stitch)
     f32, ir, camera_wb, meta = _decode_linear(
-        file_path, geometry, expansion=expansion, rgbscan=rgbscan, stitch=stitch, flatfield=flatfield, process=process
+        file_path,
+        geometry,
+        expansion=expansion,
+        rgbscan=rgbscan,
+        stitch=stitch,
+        flatfield=flatfield,
+        process=process,
+        apply_wb=apply_wb,
+        apply_flatfield=apply_flatfield,
+        apply_sensor=apply_sensor,
     )
+    is_stitch = stitch is not None and stitch.stitch_enabled and stitch.stitch_paths
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     _write_tiff(
-        f32, output_path, os.path.basename(file_path), camera_wb, source_path=file_path, source_meta=meta, expansion=eff, source_format=fmt
+        f32,
+        output_path,
+        os.path.basename(file_path),
+        camera_wb,
+        source_path=file_path,
+        source_meta=meta,
+        expansion=eff,
+        source_format=fmt,
+        wb_applied=apply_wb,
+        flatfield_applied=apply_flatfield or is_stitch,
+        sensor_applied=apply_sensor or is_stitch,
     )
 
     if ir is not None:
