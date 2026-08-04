@@ -447,7 +447,7 @@ def _decode_stitch(
 
 def _normalize_wb_rgb(wb: tuple[float, float, float, float]) -> tuple[float, float, float]:
     """Normalize RGGB multipliers to green=1, return (R, G, B)."""
-    g = wb[1] if wb[1] > 0 else 1.0
+    g = (wb[1] + wb[3]) / 2.0 if (wb[1] + wb[3]) > 0 else 1.0
     return (wb[0] / g, 1.0, wb[2] / g)
 
 

@@ -439,15 +439,16 @@ class TestCameraRawSupport:
         assert _is_camera_raw(path)
 
     def test_normalize_wb_rgb(self) -> None:
-        r, g, b = _normalize_wb_rgb((398.0, 302.0, 873.0, 0.0))
+        r, g, b = _normalize_wb_rgb((398.0, 302.0, 873.0, 304.0))
         assert g == 1.0
-        assert abs(r - 398.0 / 302.0) < 1e-6
-        assert abs(b - 873.0 / 302.0) < 1e-6
+        g_avg = (302.0 + 304.0) / 2.0
+        assert abs(r - 398.0 / g_avg) < 1e-6
+        assert abs(b - 873.0 / g_avg) < 1e-6
 
     def test_build_xmp_maketiff_format(self) -> None:
         wb = _CameraWB(
-            as_shot=(398.0, 302.0, 873.0, 0.0),
-            daylight=(1.94, 0.94, 1.38, 0.0),
+            as_shot=(398.0, 302.0, 873.0, 304.0),
+            daylight=(1.94, 0.94, 1.38, 0.96),
         )
         xmp = _build_xmp("/path/to/DSCF3404.RAF", wb)
         text = xmp.decode("utf-8")
