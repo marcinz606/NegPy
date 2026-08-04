@@ -451,9 +451,21 @@ def _normalize_wb_rgb(wb: tuple[float, float, float, float]) -> tuple[float, flo
     return (wb[0] / g, 1.0, wb[2] / g)
 
 
-def _build_xmp(source_path: str, wb: _CameraWB) -> bytes:
-    r, g, b = _normalize_wb_rgb(wb.as_shot)
+def _build_xmp(source_path: str, wb: _CameraWB, title: str = "", wb_applied: bool = False) -> bytes:
     raw_name = os.path.basename(source_path)
+    title_block = ""
+    if title:
+        title_block = f"  <dc:title>\n   <rdf:Alt>\n    <rdf:li xml:lang='x-default'>{title}</rdf:li>\n   </rdf:Alt>\n  </dc:title>\n"
+    desc_block = ""
+    if not wb_applied:
+        r, g, b = _normalize_wb_rgb(wb.as_shot)
+        desc_block = (
+            "  <dc:description>\n"
+            "   <rdf:Alt>\n"
+            f"    <rdf:li xml:lang='x-default'>RAW-WB: {r:.6f} {g:.6f} {b:.6f}</rdf:li>\n"
+            "   </rdf:Alt>\n"
+            "  </dc:description>\n"
+        )
     xmp = (
         "<?xpacket begin='﻿' id='W5M0MpCehiHzreSzNTczkc9d'?>\n"
         "<x:xmpmeta xmlns:x='adobe:ns:meta/'>\n"
@@ -464,11 +476,8 @@ def _build_xmp(source_path: str, wb: _CameraWB) -> bytes:
         " </rdf:Description>\n"
         " <rdf:Description rdf:about=''\n"
         "  xmlns:dc='http://purl.org/dc/elements/1.1/'>\n"
-        "  <dc:description>\n"
-        "   <rdf:Alt>\n"
-        f"    <rdf:li xml:lang='x-default'>RAW-WB: {r:.6f} {g:.6f} {b:.6f}</rdf:li>\n"
-        "   </rdf:Alt>\n"
-        "  </dc:description>\n"
+        f"{title_block}"
+        f"{desc_block}"
         " </rdf:Description>\n"
         "</rdf:RDF>\n"
         "</x:xmpmeta>\n"
@@ -546,7 +555,7 @@ def _write_tiff(
 
     extratags: list[tuple] = []
     if camera_wb is not None and source_path is not None:
-        xmp_bytes = _build_xmp(source_path, camera_wb)
+        xmp_bytes = _build_xmp(source_path, camera_wb, title=description, wb_applied=wb_applied)
         extratags.append((700, 1, len(xmp_bytes), xmp_bytes, True))
 
     if source_meta is not None:
