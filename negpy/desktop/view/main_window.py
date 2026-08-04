@@ -1,14 +1,16 @@
 import os
-from typing import Callable, Optional
+from typing import Optional
 
 import numpy as np
 from PIL import Image
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QEvent, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
     QMainWindow,
+    QMenu,
     QMessageBox,
+    QPushButton,
     QStatusBar,
     QVBoxLayout,
     QWidget,
@@ -89,31 +91,57 @@ def _display_buffer_for_canvas(buffer: object) -> object:
 
 
 class _EmptyStateOverlay(QWidget):
-    """Shown on top of the canvas when no image is loaded."""
+    """Shown on top of the canvas when no image is loaded.
 
-    def __init__(self, parent: QWidget, on_tour: "Callable[[], None]") -> None:
+    Tracks the canvas rather than the window: hiding a dock resizes the canvas
+    without resizing the window, which used to leave this stranded off-centre
+    while the floating toolbar (which the canvas lays out) moved with it.
+    """
+
+    add_files_requested = pyqtSignal()
+    add_folder_requested = pyqtSignal()
+    tour_requested = pyqtSignal()
+
+    def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
+        parent.installEventFilter(self)
+
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.setSpacing(12)
 
-        from PyQt6.QtWidgets import QLabel, QPushButton
+        self.load_btn = QPushButton("Load some scans to get started")
+        self.load_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.load_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {THEME.text_muted}; "
+            f"border: none; font-size: 15px; padding: 4px 8px; }}"
+            f"QPushButton:hover {{ color: {THEME.text_primary}; text-decoration: underline; }}"
+        )
+        self.load_btn.clicked.connect(self._show_load_menu)
+        layout.addWidget(self.load_btn, alignment=Qt.AlignmentFlag.AlignHCenter)
 
-        label = QLabel("Load some scans to get started")
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 15px;")
-        layout.addWidget(label)
-
-        tour_btn = QPushButton("Take the tour")
-        tour_btn.setFixedWidth(140)
-        tour_btn.setStyleSheet(
+        self.tour_btn = QPushButton("Take the tour")
+        self.tour_btn.setFixedWidth(140)
+        self.tour_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.tour_btn.setStyleSheet(
             f"QPushButton {{ background: transparent; color: {THEME.text_muted}; "
             f"border: 1px solid {THEME.border_primary}; border-radius: 3px; "
             f"padding: 5px 14px; font-size: 12px; }}"
             f"QPushButton:hover {{ color: {THEME.text_primary}; }}"
         )
-        tour_btn.clicked.connect(on_tour)
-        layout.addWidget(tour_btn, alignment=Qt.AlignmentFlag.AlignHCenter)
+        self.tour_btn.clicked.connect(self.tour_requested)
+        layout.addWidget(self.tour_btn, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+    def _show_load_menu(self) -> None:
+        menu = QMenu(self)
+        menu.addAction("Add files…").triggered.connect(self.add_files_requested)
+        menu.addAction("Add folder…").triggered.connect(self.add_folder_requested)
+        menu.exec(self.load_btn.mapToGlobal(self.load_btn.rect().bottomLeft()))
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self.parent() and event.type() == QEvent.Type.Resize:
+            self.setGeometry(self.parent().rect())
+        return False
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -231,7 +259,11 @@ class MainWindow(QMainWindow):
         self.toolbar = ActionToolbar(self.controller)
         self.canvas.set_floating_toolbar(self.toolbar)
 
-        self.empty_state = _EmptyStateOverlay(self.canvas, lambda: self.show_tutorial())
+        self.empty_state = _EmptyStateOverlay(self.canvas)
+        self.empty_state.tour_requested.connect(self.show_tutorial)
+        # session_panel is built further down; resolve the browser lazily.
+        self.empty_state.add_files_requested.connect(lambda: self.session_panel.file_browser.prompt_add_files())
+        self.empty_state.add_folder_requested.connect(lambda: self.session_panel.file_browser.prompt_add_folder())
         self.empty_state.raise_()
 
         self.loading_overlay = LoadingOverlay(self.canvas)

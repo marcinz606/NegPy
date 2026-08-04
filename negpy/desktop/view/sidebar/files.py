@@ -583,8 +583,8 @@ class FileBrowser(QWidget):
 
     def _connect_signals(self) -> None:
         self.library_btn.clicked.connect(lambda: self.library_requested.emit(True))
-        self.add_files_btn.clicked.connect(self._on_add_files)
-        self.add_folder_btn.clicked.connect(self._on_add_folder)
+        self.add_files_btn.clicked.connect(self.prompt_add_files)
+        self.add_folder_btn.clicked.connect(self.prompt_add_folder)
         self.unload_btn.clicked.connect(self._on_unload_clicked)
         self.list_view.clicked.connect(self._on_item_clicked)
         self.list_view.doubleClicked.connect(self._on_item_double_clicked)
@@ -877,7 +877,8 @@ class FileBrowser(QWidget):
         if new_files:
             self.controller.request_asset_discovery(new_files)
 
-    def _on_add_files(self) -> None:
+    def prompt_add_files(self) -> None:
+        """Public entry point: also driven by the canvas empty state."""
         wildcards = get_supported_raw_wildcards()
         start_dir = self.session.repo.get_global_setting("last_open_folder", "") or ""
         files, _ = QFileDialog.getOpenFileNames(
@@ -890,7 +891,8 @@ class FileBrowser(QWidget):
             self.session.repo.save_global_setting("last_open_folder", os.path.dirname(files[0]))
             self.controller.request_asset_discovery(files, auto_open=True)
 
-    def _on_add_folder(self) -> None:
+    def prompt_add_folder(self) -> None:
+        """Public entry point: also driven by the canvas empty state."""
         start_dir = self.session.repo.get_global_setting("last_open_folder", "") or ""
         folder = QFileDialog.getExistingDirectory(self, "Select Folder", start_dir)
         if folder:
@@ -988,8 +990,8 @@ class FileBrowser(QWidget):
         """Mirrors the panel toolbar's add/clear tools, for a right click on empty space."""
         icon_color = THEME.text_primary
         menu = QMenu(self)
-        menu.addAction(qta.icon("fa5s.file-import", color=icon_color), "Add files…").triggered.connect(self._on_add_files)
-        menu.addAction(qta.icon("fa5s.folder-plus", color=icon_color), "Add folder…").triggered.connect(self._on_add_folder)
+        menu.addAction(qta.icon("fa5s.file-import", color=icon_color), "Add files…").triggered.connect(self.prompt_add_files)
+        menu.addAction(qta.icon("fa5s.folder-plus", color=icon_color), "Add folder…").triggered.connect(self.prompt_add_folder)
         menu.addSeparator()
         clear = menu.addAction(qta.icon("fa5s.times-circle", color=icon_color), "Clear all")
         clear.triggered.connect(self._on_clear_all)

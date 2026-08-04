@@ -39,7 +39,10 @@ class SessionPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self.header = SidebarHeader(self.controller)
+        repo = self.controller.session.repo
+        persisted = repo.get_global_setting("section_expanded_app_header")
+        self.header = SidebarHeader(self.controller, expanded=bool(persisted) if persisted is not None else True)
+        self.header.expanded_changed.connect(lambda v: repo.save_global_setting("section_expanded_app_header", v))
         layout.addWidget(self.header)
 
         self.update_label = QLabel("")
