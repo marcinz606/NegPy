@@ -533,7 +533,7 @@ A scrollable list of every edit step (last 100 kept), newest on top; the current
 *   **Linear**: bypass the entire darkroom pipeline and dump the scanner's or camera's decoded buffer as an untagged linear 16-bit TIFF. No normalization, exposure, colour management, flatfield, or sensor correction — just the raw data with lossless geometry (rotation/flip) applied. Supported sources:
     *   **Pakon RAW** — 4× expansion by default (14-bit sensor range scaled into 16-bit). F335 files (16-bit sensor) default to no expansion.
     *   **LinearRaw DNG** — SilverFast HDRi (3-channel) and VueScan (4-channel RGB+IR). IR is written as a separate grayscale TIFF with an `_ir` suffix.
-    *   **Camera RAW** — demosaiced with unity white balance (1,1,1,1). The camera's as-shot WB is written into XMP (`RAW-WB: R G B`, MakeTiff-compatible) so it can be applied downstream. Source device and timestamp are preserved.
+    *   **Camera RAW** — demosaiced with unity white balance (1,1,1,1). The camera's as-shot WB is written into XMP (`RAW-WB: R G B`, MakeTiff-compatible) so it can be applied downstream. Source device and timestamp are preserved. RGB-scan triplets (narrowband R/G/B exposures) are merged into a single combined TIFF.
     *   **Expansion**: scales the linear data before writing. The combo box shows source-appropriate options: Pakon F135/F235 default to 4×, F335 and LinearRaw DNG default to off. Camera RAW files have no expansion option. Leave at the default unless you know why you need to change it.
 
 ### Export button

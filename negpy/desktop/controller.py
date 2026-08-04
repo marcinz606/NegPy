@@ -3364,6 +3364,7 @@ class AppController(QObject):
         exported = 0
         geometry = self.state.config.geometry
         expansion = self.state.linear_expansion
+        rgbscan = self.state.config.rgbscan
         for f in supported:
             stem = os.path.splitext(os.path.basename(f["path"]))[0]
             out_path = os.path.join(export_path, f"{stem}_linear.tiff")
@@ -3372,7 +3373,7 @@ class AppController(QObject):
                 out_path = os.path.join(export_path, f"{stem}_linear_{counter}.tiff")
                 counter += 1
             try:
-                export_linear_output(f["path"], out_path, geometry=geometry, expansion=expansion)
+                export_linear_output(f["path"], out_path, geometry=geometry, expansion=expansion, rgbscan=rgbscan)
                 exported += 1
             except Exception as e:
                 logger.warning("Linear output failed for %s: %s", f.get("name"), e)

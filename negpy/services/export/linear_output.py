@@ -17,6 +17,8 @@ import rawpy
 import tifffile as _tifffile
 
 from negpy.features.geometry.models import GeometryConfig
+from negpy.features.rgbscan.logic import merge_rgb_triplet
+from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.infrastructure.loaders.constants import SUPPORTED_JPEG_EXTENSIONS, SUPPORTED_RAW_EXTENSIONS, SUPPORTED_TIFF_EXTENSIONS
 from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, get_best_demosaic_algorithm, read_orientation
 from negpy.infrastructure.loaders.pakon_loader import PakonLoader
@@ -134,20 +136,28 @@ def _is_linearraw_dng(file_path: str) -> bool:
         return False
 
 
+def _apply_user_geometry(f32: np.ndarray, geometry: GeometryConfig) -> np.ndarray:
+    if geometry.rotation != 0:
+        f32 = np.rot90(f32, k=geometry.rotation)
+    if geometry.flip_horizontal:
+        f32 = np.ascontiguousarray(np.fliplr(f32))
+    if geometry.flip_vertical:
+        f32 = np.ascontiguousarray(np.flipud(f32))
+    return f32
+
+
 def _apply_geometry(f32: np.ndarray, orientation: int, geometry: Optional[GeometryConfig]) -> np.ndarray:
     f32 = apply_exif_orientation(f32, orientation)
     if geometry is not None:
-        if geometry.rotation != 0:
-            f32 = np.rot90(f32, k=geometry.rotation)
-        if geometry.flip_horizontal:
-            f32 = np.ascontiguousarray(np.fliplr(f32))
-        if geometry.flip_vertical:
-            f32 = np.ascontiguousarray(np.flipud(f32))
+        f32 = _apply_user_geometry(f32, geometry)
     return f32
 
 
 def _decode_linear(
-    file_path: str, geometry: Optional[GeometryConfig] = None, expansion: Optional[float] = None
+    file_path: str,
+    geometry: Optional[GeometryConfig] = None,
+    expansion: Optional[float] = None,
+    rgbscan: Optional[RgbScanConfig] = None,
 ) -> tuple[np.ndarray, Optional[np.ndarray], Optional[_CameraWB], _SourceMeta]:
     """Decode to an oriented float32 buffer. Returns (rgb, ir_or_none, camera_wb_or_none, source_meta)."""
     if PakonLoader.can_handle(file_path):
@@ -163,6 +173,8 @@ def _decode_linear(
             rgb, ir, wb = _decode_camera_raw(file_path, geometry)
             return rgb, ir, wb, meta
     if _is_camera_raw(file_path):
+        if rgbscan is not None and is_rgb_triplet(rgbscan):
+            return _decode_camera_raw_triplet(file_path, rgbscan, geometry)
         meta = _read_source_meta_tiff(file_path)
         rgb, ir, wb, decode_meta = _decode_camera_raw(file_path, geometry)
         merged = _SourceMeta(
@@ -256,7 +268,12 @@ def _decode_dng(
     return rgb, ir
 
 
-def _decode_camera_raw(file_path: str, geometry: Optional[GeometryConfig] = None) -> tuple[np.ndarray, None, _CameraWB, _SourceMeta]:
+def _decode_camera_raw_buffer(file_path: str) -> tuple[np.ndarray, _CameraWB, _SourceMeta]:
+    """Decode a camera RAW to an oriented float32 buffer without applying user geometry.
+
+    Returns (f32, camera_wb, source_meta).  EXIF orientation *is* applied (lossless,
+    baked into the file) but user rotation/flip is not — the caller decides that.
+    """
     raw = rawpy.imread(file_path)
     wb = _CameraWB(
         as_shot=tuple(raw.camera_whitebalance),  # type: ignore[arg-type]
@@ -279,9 +296,43 @@ def _decode_camera_raw(file_path: str, geometry: Optional[GeometryConfig] = None
     rgb = ensure_rgb(rgb)
     f32 = uint16_to_float32(rgb)
     orientation = read_orientation(file_path)
-    f32 = _apply_geometry(f32, orientation, geometry)
+    f32 = apply_exif_orientation(f32, orientation)
     meta = _SourceMeta(datetime=dt_str)
+    return f32, wb, meta
+
+
+def _decode_camera_raw(file_path: str, geometry: Optional[GeometryConfig] = None) -> tuple[np.ndarray, None, _CameraWB, _SourceMeta]:
+    f32, wb, meta = _decode_camera_raw_buffer(file_path)
+    if geometry is not None:
+        f32 = _apply_user_geometry(f32, geometry)
     return f32, None, wb, meta
+
+
+def _decode_camera_raw_triplet(
+    file_path: str, rgbscan: RgbScanConfig, geometry: Optional[GeometryConfig] = None
+) -> tuple[np.ndarray, None, Optional[_CameraWB], _SourceMeta]:
+    """Decode three narrowband exposures and merge into one RGB buffer."""
+    primary_f32, wb, meta = _decode_camera_raw_buffer(file_path)
+    file_meta = _read_source_meta_tiff(file_path)
+    merged_meta = _SourceMeta(
+        make=file_meta.make or meta.make,
+        model=file_meta.model or meta.model,
+        datetime=file_meta.datetime or meta.datetime,
+    )
+
+    cache: dict[str, np.ndarray] = {file_path: primary_f32}
+
+    def _decode(path: str) -> np.ndarray:
+        if path in cache:
+            return cache[path]
+        buf, _, _ = _decode_camera_raw_buffer(path)
+        cache[path] = buf
+        return buf
+
+    f32 = merge_rgb_triplet(_decode, file_path, rgbscan.green_path, rgbscan.blue_path, align=rgbscan.align)
+    if geometry is not None:
+        f32 = _apply_user_geometry(f32, geometry)
+    return f32, None, wb, merged_meta
 
 
 def _normalize_wb_rgb(wb: tuple[float, float, float, float]) -> tuple[float, float, float]:
@@ -325,12 +376,14 @@ def _effective_expansion(file_path: str, expansion: Optional[float]) -> float:
     return 1.0
 
 
-def _source_format_label(file_path: str) -> str:
+def _source_format_label(file_path: str, rgbscan: Optional[RgbScanConfig] = None) -> str:
     if PakonLoader.can_handle(file_path):
         return f"Pakon {_pakon_spec_desc(file_path)}"
     if _is_dng(file_path) and _is_linearraw_dng(file_path):
         return "DNG LinearRaw"
     if _is_camera_raw(file_path):
+        if rgbscan is not None and is_rgb_triplet(rgbscan):
+            return "camera RAW (RGB triplet)"
         return "camera RAW"
     return "unknown"
 
@@ -405,7 +458,11 @@ def _write_ir_tiff(ir: np.ndarray, dest, source_name: str) -> None:
 
 
 def export_linear_output(
-    file_path: str, output_path: str, geometry: Optional[GeometryConfig] = None, expansion: Optional[float] = None
+    file_path: str,
+    output_path: str,
+    geometry: Optional[GeometryConfig] = None,
+    expansion: Optional[float] = None,
+    rgbscan: Optional[RgbScanConfig] = None,
 ) -> None:
     """Decode *file_path* and write an untagged linear 16-bit TIFF to *output_path*.
 
@@ -415,12 +472,15 @@ def export_linear_output(
     *expansion* scales the linear data before writing (e.g. 4.0 for Pakon's 14-bit
     sensor → 16-bit range). ``None`` uses the source-type default; values <= 1.0 disable.
 
+    *rgbscan*, when a valid triplet config, merges three narrowband exposures into
+    one combined RGB buffer before writing.
+
     If the source has an IR channel, it is written as a separate grayscale TIFF
     with an ``_ir`` suffix next to the RGB output.
     """
     eff = _effective_expansion(file_path, expansion)
-    fmt = _source_format_label(file_path)
-    f32, ir, camera_wb, meta = _decode_linear(file_path, geometry, expansion=expansion)
+    fmt = _source_format_label(file_path, rgbscan)
+    f32, ir, camera_wb, meta = _decode_linear(file_path, geometry, expansion=expansion, rgbscan=rgbscan)
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     _write_tiff(
         f32, output_path, os.path.basename(file_path), camera_wb, source_path=file_path, source_meta=meta, expansion=eff, source_format=fmt

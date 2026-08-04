@@ -2,12 +2,14 @@
 
 import io
 import os
+from unittest import mock
 
 import numpy as np
 import pytest
 import tifffile
 
 from negpy.features.geometry.models import GeometryConfig
+from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.kernel.image.logic import apply_exif_orientation
 from negpy.services.export.linear_output import (
     _CameraWB,
@@ -17,6 +19,7 @@ from negpy.services.export.linear_output import (
     _effective_expansion,
     _is_camera_raw,
     _normalize_wb_rgb,
+    _source_format_label,
     _write_tiff,
     export_linear_output,
     export_linear_output_bytes,
@@ -540,3 +543,156 @@ class TestF335Detection:
             tags = tf.pages[0].tags
             assert tags["Make"].value == "Pakon"
             assert "F335" in tags["Model"].value
+
+
+def _make_fake_camera_raws(tmp_dir: str, h: int = 40, w: int = 60) -> tuple[str, str, str]:
+    """Create three empty .nef files to act as triplet paths."""
+    paths = []
+    for name in ("red.nef", "green.nef", "blue.nef"):
+        p = os.path.join(tmp_dir, name)
+        open(p, "wb").close()
+        paths.append(p)
+    return tuple(paths)  # type: ignore[return-value]
+
+
+def _triplet_buffers(h: int = 40, w: int = 60) -> dict[str, np.ndarray]:
+    """Synthetic RGB buffers where each exposure is bright in its own channel."""
+    r = np.full((h, w, 3), 0.1, dtype=np.float32)
+    r[..., 0] = 0.8
+    g = np.full((h, w, 3), 0.1, dtype=np.float32)
+    g[..., 1] = 0.7
+    b = np.full((h, w, 3), 0.1, dtype=np.float32)
+    b[..., 2] = 0.9
+    return {"r": r, "g": g, "b": b}
+
+
+_MOCK_WB = _CameraWB(as_shot=(1.5, 1.0, 2.0, 1.0), daylight=(2.0, 1.0, 1.5, 1.0))
+_MOCK_META = _SourceMeta(make="Nikon", model="D850", datetime="2026:01:01 12:00:00")
+
+
+class TestTripletExport:
+    """Linear Output with RGB-scan triplet merge."""
+
+    def _patch_decode(self, paths: tuple[str, str, str], bufs: dict[str, np.ndarray]):
+        mapping = {paths[0]: bufs["r"], paths[1]: bufs["g"], paths[2]: bufs["b"]}
+
+        def fake_decode(path: str):
+            return mapping[path], _MOCK_WB, _MOCK_META
+
+        return mock.patch(
+            "negpy.services.export.linear_output._decode_camera_raw_buffer",
+            side_effect=fake_decode,
+        )
+
+    def test_triplet_produces_merged_tiff(self, tmp_path: str) -> None:
+        paths = _make_fake_camera_raws(str(tmp_path))
+        bufs = _triplet_buffers()
+        rgbscan = RgbScanConfig(enabled=True, green_path=paths[1], blue_path=paths[2], align=False)
+        out = os.path.join(str(tmp_path), "triplet_linear.tiff")
+
+        with self._patch_decode(paths, bufs):
+            export_linear_output(paths[0], out, rgbscan=rgbscan)
+
+        assert os.path.exists(out)
+        with tifffile.TiffFile(out) as tf:
+            arr = tf.pages[0].asarray()
+            assert arr.dtype == np.uint16
+            assert arr.shape == (40, 60, 3)
+            f32 = arr.astype(np.float32) / 65535.0
+            assert f32[0, 0, 0] == pytest.approx(0.8, abs=0.01)
+            assert f32[0, 0, 1] == pytest.approx(0.7, abs=0.01)
+            assert f32[0, 0, 2] == pytest.approx(0.9, abs=0.01)
+
+    def test_triplet_channels_from_correct_exposures(self, tmp_path: str) -> None:
+        """Red channel from red exposure, green from green, blue from blue."""
+        paths = _make_fake_camera_raws(str(tmp_path))
+        bufs = _triplet_buffers()
+        rgbscan = RgbScanConfig(enabled=True, green_path=paths[1], blue_path=paths[2], align=False)
+        out = os.path.join(str(tmp_path), "out.tiff")
+
+        with self._patch_decode(paths, bufs):
+            export_linear_output(paths[0], out, rgbscan=rgbscan)
+
+        with tifffile.TiffFile(out) as tf:
+            f32 = tf.pages[0].asarray().astype(np.float32) / 65535.0
+            assert f32[..., 0].mean() == pytest.approx(0.8, abs=0.01)
+            assert f32[..., 1].mean() == pytest.approx(0.7, abs=0.01)
+            assert f32[..., 2].mean() == pytest.approx(0.9, abs=0.01)
+
+    def test_triplet_description_mentions_triplet(self, tmp_path: str) -> None:
+        paths = _make_fake_camera_raws(str(tmp_path))
+        bufs = _triplet_buffers()
+        rgbscan = RgbScanConfig(enabled=True, green_path=paths[1], blue_path=paths[2], align=False)
+        out = os.path.join(str(tmp_path), "out.tiff")
+
+        with self._patch_decode(paths, bufs):
+            export_linear_output(paths[0], out, rgbscan=rgbscan)
+
+        with tifffile.TiffFile(out) as tf:
+            desc = tf.pages[0].description
+            assert "RGB triplet" in desc
+
+    def test_triplet_preserves_wb_metadata(self, tmp_path: str) -> None:
+        paths = _make_fake_camera_raws(str(tmp_path))
+        bufs = _triplet_buffers()
+        rgbscan = RgbScanConfig(enabled=True, green_path=paths[1], blue_path=paths[2], align=False)
+        out = os.path.join(str(tmp_path), "out.tiff")
+
+        with self._patch_decode(paths, bufs):
+            export_linear_output(paths[0], out, rgbscan=rgbscan)
+
+        with tifffile.TiffFile(out) as tf:
+            desc = tf.pages[0].description
+            assert "no WB applied" in desc
+            assert "as-shot:" in desc
+
+    def test_triplet_preserves_make_model(self, tmp_path: str) -> None:
+        paths = _make_fake_camera_raws(str(tmp_path))
+        bufs = _triplet_buffers()
+        rgbscan = RgbScanConfig(enabled=True, green_path=paths[1], blue_path=paths[2], align=False)
+        out = os.path.join(str(tmp_path), "out.tiff")
+
+        with self._patch_decode(paths, bufs):
+            export_linear_output(paths[0], out, rgbscan=rgbscan)
+
+        with tifffile.TiffFile(out) as tf:
+            tags = tf.pages[0].tags
+            assert tags["Make"].value == "Nikon"
+            assert tags["Model"].value == "D850"
+
+    def test_triplet_with_geometry(self, tmp_path: str) -> None:
+        paths = _make_fake_camera_raws(str(tmp_path))
+        bufs = _triplet_buffers()
+        rgbscan = RgbScanConfig(enabled=True, green_path=paths[1], blue_path=paths[2], align=False)
+        geo = GeometryConfig(rotation=1)
+        out = os.path.join(str(tmp_path), "out.tiff")
+
+        with self._patch_decode(paths, bufs):
+            export_linear_output(paths[0], out, geometry=geo, rgbscan=rgbscan)
+
+        with tifffile.TiffFile(out) as tf:
+            arr = tf.pages[0].asarray()
+            assert arr.shape == (60, 40, 3)
+
+    def test_no_triplet_without_rgbscan(self, tmp_path: str) -> None:
+        """Without rgbscan config, camera RAW goes through the normal single-file path."""
+        paths = _make_fake_camera_raws(str(tmp_path))
+        bufs = _triplet_buffers()
+        out = os.path.join(str(tmp_path), "out.tiff")
+
+        with self._patch_decode(paths, bufs):
+            export_linear_output(paths[0], out)
+
+        with tifffile.TiffFile(out) as tf:
+            arr = tf.pages[0].asarray()
+            assert arr.shape == (40, 60, 3)
+            f32 = arr.astype(np.float32) / 65535.0
+            assert f32[0, 0, 0] == pytest.approx(0.8, abs=0.01)
+            assert f32[0, 0, 1] == pytest.approx(0.1, abs=0.01)
+
+    def test_source_format_label_triplet(self, tmp_path: str) -> None:
+        path = os.path.join(str(tmp_path), "test.nef")
+        open(path, "wb").close()
+        rgbscan = RgbScanConfig(enabled=True, green_path="g.nef", blue_path="b.nef")
+        assert _source_format_label(path, rgbscan) == "camera RAW (RGB triplet)"
+        assert _source_format_label(path) == "camera RAW"
