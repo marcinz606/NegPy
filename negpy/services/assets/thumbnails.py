@@ -36,6 +36,8 @@ async def generate_batch_thumbnails(
                 float(f_info.get("split_x") or 0.5),
                 f_info.get("green_path") or "",
                 f_info.get("blue_path") or "",
+                tuple(f_info["crop_rect"]) if f_info.get("crop_rect") else None,
+                float(f_info.get("gutter_thickness") or 0.0),
             )
             completed += 1
             if progress_callback:
@@ -154,6 +156,8 @@ def get_thumbnail_worker(
     split_x: float = 0.5,
     green_path: str = "",
     blue_path: str = "",
+    crop_rect: Optional[tuple[float, float, float, float]] = None,
+    gutter_thickness: float = 0.0,
 ) -> Optional[Image.Image]:
     """
     Checks cache -> extracts/renders -> resize.
@@ -173,7 +177,7 @@ def get_thumbnail_worker(
         if half:
             from negpy.services.assets.half_frame import slice_half
 
-            img = Image.fromarray(slice_half(np.asarray(img), half, split_x))
+            img = Image.fromarray(slice_half(np.asarray(img), half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness))
 
         square_img: Image.Image = prepare_thumbnail(img, ts)
 

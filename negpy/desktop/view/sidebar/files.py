@@ -382,6 +382,11 @@ class FileBrowser(QWidget):
         self.half_frame_btn.setChecked(bool(self.session.repo.get_global_setting("half_frame_mode", False)))
         self._update_half_frame_style(self.half_frame_btn.isChecked())
 
+        self.half_frame_adjust_btn = QToolButton()
+        self.half_frame_adjust_btn.setIcon(qta.icon("mdi.tune-variant", color=THEME.text_primary))
+        self.half_frame_adjust_btn.setToolTip("Adjust Half Frame split — reposition the crop rectangle and split line for the current scan")
+        self.half_frame_adjust_btn.clicked.connect(self._on_half_frame_adjust)
+
         self.apply_btn = QToolButton()
         self.apply_btn.setIcon(qta.icon("fa5s.clone", color=THEME.text_primary))
         self.apply_btn.setToolTip("Apply settings from the current frame to selected frames or the whole roll")
@@ -441,6 +446,7 @@ class FileBrowser(QWidget):
             self.hot_folder_btn,
             self.rgb_scan_btn,
             self.half_frame_btn,
+            self.half_frame_adjust_btn,
             self.apply_btn,
             self.sheet_btn,
             self.sort_btn,
@@ -460,6 +466,7 @@ class FileBrowser(QWidget):
             (self.hot_folder_btn, "Hot Folder"),
             (self.rgb_scan_btn, "RGB Scan"),
             (self.half_frame_btn, "Half Frame"),
+            (self.half_frame_adjust_btn, "Adjust Half Frame"),
             (self.apply_btn, "Apply settings"),
             (None, None),
             (self.sheet_btn, "Sheet filter"),
@@ -863,7 +870,44 @@ class FileBrowser(QWidget):
 
     def _on_half_frame_toggled(self, checked: bool) -> None:
         self._update_half_frame_style(checked)
+        if checked and self.session.state.uploaded_files:
+            # Offer the rectangle editor on the current frame; the saved profile
+            # is applied to every half-frame split from then on.
+            current = self.session.state.current_file_path
+            path = None
+            if current:
+                for f in self.session.state.uploaded_files:
+                    if f.get("path") == current:
+                        path = current
+                        break
+            if path is None:
+                path = self.session.state.uploaded_files[0].get("path")
+            if path:
+                self.controller.open_half_frame_dialog(path)
         self.controller.set_half_frame_mode(checked)
+
+    def _on_half_frame_adjust(self) -> None:
+        """Re-open the half-frame rectangle editor on the current image."""
+        current = self.session.state.current_file_path
+        path = None
+        if current:
+            for f in self.session.state.uploaded_files:
+                if f.get("path") == current:
+                    path = current
+                    break
+        if path is None and self.session.state.uploaded_files:
+            path = self.session.state.uploaded_files[0].get("path")
+        if not path:
+            return
+        profile = self.controller.open_half_frame_dialog(path)
+        if profile is not None:
+            # Re-discover so the new profile takes effect immediately.
+            files = self.session.state.uploaded_files
+            self.controller.request_asset_discovery(
+                [f["path"] for f in files if "path" in f],
+                replace_existing=True,
+                reselect_path=self.session.state.current_file_path,
+            )
 
     def _scan_folder(self) -> None:
         if not self.session.state.uploaded_files:

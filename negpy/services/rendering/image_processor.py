@@ -614,7 +614,12 @@ class ImageProcessor:
 
     @staticmethod
     def _slice_half_source(
-        f32_buffer: np.ndarray, ir_full: Optional[np.ndarray], half: int, split_x: float
+        f32_buffer: np.ndarray,
+        ir_full: Optional[np.ndarray],
+        half: int,
+        split_x: float,
+        crop_rect: Optional[tuple[float, float, float, float]] = None,
+        gutter_thickness: float = 0.0,
     ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
         """Slice a decoded source down to one half-frame; copies so the shared
         per-file decode cache is never mutated downstream. No-op when half == 0."""
@@ -622,9 +627,9 @@ class ImageProcessor:
             return f32_buffer, ir_full
         from negpy.services.assets.half_frame import slice_half
 
-        f32_buffer = np.ascontiguousarray(slice_half(f32_buffer, half, split_x))
+        f32_buffer = np.ascontiguousarray(slice_half(f32_buffer, half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness))
         if ir_full is not None:
-            ir_full = np.ascontiguousarray(slice_half(ir_full, half, split_x))
+            ir_full = np.ascontiguousarray(slice_half(ir_full, half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness))
         return f32_buffer, ir_full
 
     def process_export(
@@ -639,6 +644,8 @@ class ImageProcessor:
         working_color_space: str = WORKING_COLOR_SPACE,
         half: int = 0,
         split_x: float = 0.5,
+        crop_rect: Optional[tuple[float, float, float, float]] = None,
+        gutter_thickness: float = 0.0,
     ) -> Tuple[Optional[bytes], str]:
         """Performs high-resolution export with color management."""
         try:
@@ -646,7 +653,9 @@ class ImageProcessor:
             params = dc_replace(params, export=export_settings)
 
             f32_buffer, ir_full, source_cs = self._load_source_f32(file_path, params)
-            f32_buffer, ir_full = self._slice_half_source(f32_buffer, ir_full, half, split_x)
+            f32_buffer, ir_full = self._slice_half_source(
+                f32_buffer, ir_full, half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness
+            )
             target_cs = export_settings.export_color_space
             if target_cs == ColorSpace.SAME_AS_SOURCE.value:
                 target_cs = source_cs
@@ -851,6 +860,8 @@ class ImageProcessor:
         fast_decode: bool = False,
         half: int = 0,
         split_x: float = 0.5,
+        crop_rect: Optional[tuple[float, float, float, float]] = None,
+        gutter_thickness: float = 0.0,
     ) -> Optional[np.ndarray]:
         """Render a file (with its edits) to a small sRGB uint8 RGB array for tiling.
 
@@ -866,7 +877,9 @@ class ImageProcessor:
             from negpy.infrastructure.display.color_mgmt import apply_display_transform
 
             f32_buffer, ir_full, _ = self._load_source_f32(file_path, params, fast_decode=fast_decode)
-            f32_buffer, ir_full = self._slice_half_source(f32_buffer, ir_full, half, split_x)
+            f32_buffer, ir_full = self._slice_half_source(
+                f32_buffer, ir_full, half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness
+            )
 
             # Proof scale: everything downstream only needs target_long_px. The
             # cached source buffer is shared, so resize (never mutate) it.

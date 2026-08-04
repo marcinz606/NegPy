@@ -40,6 +40,7 @@ def test_toolbar_keeps_every_action(panel):
         browser.hot_folder_btn,
         browser.rgb_scan_btn,
         browser.half_frame_btn,
+        browser.half_frame_adjust_btn,
         browser.apply_btn,
         browser.sheet_btn,
         browser.sort_btn,
@@ -51,7 +52,7 @@ def test_narrowing_the_panel_raises_a_populated_overflow_menu(panel, qapp):
     """QToolBar's native extension menu was tried first and came up empty: widgets added with
     addWidget() become QWidgetActions its popup cannot host."""
     toolbar = _toolbar(panel)
-    panel.resize(300, 700)
+    panel.resize(360, 700)
     qapp.processEvents()
     assert not toolbar.overflow_btn.isVisible()
 

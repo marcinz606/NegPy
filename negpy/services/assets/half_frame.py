@@ -31,19 +31,64 @@ def half_name(name: str, half: int) -> str:
     return f"{name} [{half}]"
 
 
-def slice_half(buf: np.ndarray, half: int, split_x: float) -> np.ndarray:
-    """View of one half of a decoded buffer, split at the normalized gutter x."""
-    w = buf.shape[1]
+def slice_half(
+    buf: np.ndarray,
+    half: int,
+    split_x: float,
+    crop_rect: Optional[tuple[float, float, float, float]] = None,
+    gutter_thickness: float = 0.0,
+) -> np.ndarray:
+    """View of one half of a decoded buffer.
+
+    The scan is first cropped to ``crop_rect`` (normalized x1,y1,x2,y2; None =
+    full frame), then split at the normalized gutter ``split_x`` relative to the
+    cropped width. A ``gutter_thickness`` (normalized fraction of the cropped
+    width) discards a band centered on the split so the physical black separator
+    between the two exposures does not bleed into either half.
+    """
+    a = buf
+    if crop_rect is not None:
+        h, w = a.shape[:2]
+        x1, y1, x2, y2 = crop_rect
+        cx1 = min(max(int(round(w * x1)), 0), w)
+        cx2 = min(max(int(round(w * x2)), 0), w)
+        cy1 = min(max(int(round(h * y1)), 0), h)
+        cy2 = min(max(int(round(h * y2)), 0), h)
+        if cx2 <= cx1 or cy2 <= cy1:
+            return a[:, :1]
+        a = a[cy1:cy2, cx1:cx2]
+    w = a.shape[1]
     xs = min(max(int(round(w * split_x)), 1), w - 1)
-    return buf[:, :xs] if half == 1 else buf[:, xs:]
+    if gutter_thickness > 0:
+        gw = max(1, int(round(w * gutter_thickness)))
+        lo = max(1, xs - gw // 2)
+        hi = min(w - 1, lo + gw)
+        lo = max(1, hi - gw)
+        left = a[:, :lo]
+        right = a[:, hi:]
+        return left if half == 1 else right
+    return a[:, :xs] if half == 1 else a[:, xs:]
 
 
 def slice_for_asset(buf: np.ndarray, file_info: Dict[str, Any]) -> np.ndarray:
-    """Apply the asset's half slice; no-op for whole-frame assets."""
+    """Apply the asset's half slice; no-op for whole-frame assets.
+
+    Recognizes an optional ``crop_rect`` (normalized x1,y1,x2,y2) and
+    ``gutter_thickness`` (normalized fraction of the cropped width) set by the
+    half-frame rectangle editor.
+    """
     half = int(file_info.get("half") or 0)
     if not half:
         return buf
-    return slice_half(buf, half, float(file_info.get("split_x") or 0.5))
+    raw_rect = file_info.get("crop_rect")
+    crop_rect = tuple(float(v) for v in raw_rect) if isinstance(raw_rect, (tuple, list)) else None
+    return slice_half(
+        buf,
+        half,
+        float(file_info.get("split_x") or 0.5),
+        crop_rect=crop_rect,
+        gutter_thickness=float(file_info.get("gutter_thickness") or 0.0),
+    )
 
 
 def detect_split_x(buf: np.ndarray) -> float:

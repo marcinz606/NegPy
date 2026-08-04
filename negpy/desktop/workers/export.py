@@ -141,6 +141,8 @@ class ExportWorker(QObject):
                     working_color_space=task.working_color_space,
                     half=int(task.file_info.get("half") or 0),
                     split_x=float(task.file_info.get("split_x") or 0.5),
+                    crop_rect=tuple(task.file_info["crop_rect"]) if task.file_info.get("crop_rect") else None,
+                    gutter_thickness=float(task.file_info.get("gutter_thickness") or 0.0),
                 )
 
                 if not bits:
@@ -238,6 +240,8 @@ class ExportWorker(QObject):
                     fast_decode=True,
                     half=int(task.file_info.get("half") or 0),
                     split_x=float(task.file_info.get("split_x") or 0.5),
+                    crop_rect=tuple(task.file_info["crop_rect"]) if task.file_info.get("crop_rect") else None,
+                    gutter_thickness=float(task.file_info.get("gutter_thickness") or 0.0),
                 )
                 if tile is not None:
                     tiles.append(tile)

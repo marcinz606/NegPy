@@ -161,6 +161,7 @@ class _DiscoveryRequest:
     rgb_scan: bool
     half_frame: bool
     restore_stitches: Optional[dict] = None
+    half_frame_profile: Optional[dict] = None  # {crop_rect, split_x, gutter_thickness}
 
 
 def baseline_compare_config(config: WorkspaceConfig) -> WorkspaceConfig:
@@ -805,6 +806,7 @@ class AppController(QObject):
             rgb_scan=bool(self.session.repo.get_global_setting("rgbscan_mode", False)),
             half_frame=bool(self.session.repo.get_global_setting("half_frame_mode", False)),
             restore_stitches=restore_stitches,
+            half_frame_profile=self.half_frame_profile(),
         )
         if self._discovery_running:
             self._pending_asset_discoveries.append(request)
@@ -838,6 +840,7 @@ class AppController(QObject):
             restore_triplets=request.restore_triplets,
             half_frame=request.half_frame,
             restore_stitches=request.restore_stitches,
+            half_frame_profile=request.half_frame_profile,
         )
         self.asset_discovery_requested.emit(task)
 
@@ -992,6 +995,67 @@ class AppController(QObject):
             return
         self.request_asset_discovery(_component_paths(files), replace_existing=True, reselect_path=self.state.current_file_path)
 
+    # ── half-frame split & crop profile ─────────────────────────────────
+
+    _HALF_FRAME_PROFILE_KEY = "half_frame_profile"
+
+    def half_frame_profile(self) -> dict | None:
+        """Saved ``(crop_rect, split_x, gutter_thickness)`` profile, shared across
+        every half-frame split. Scanner-independent — the same crop/split applies
+        whether the scans came from a SANE scanner, a camera copy-stand, or a
+        folder import."""
+        return self.session.repo.get_global_setting(self._HALF_FRAME_PROFILE_KEY, default=None)
+
+    def save_half_frame_profile(self, crop_rect, split_x: float, gutter_thickness: float) -> None:
+        self.session.repo.save_global_setting(
+            self._HALF_FRAME_PROFILE_KEY,
+            {
+                "crop_rect": list(crop_rect),
+                "split_x": float(split_x),
+                "gutter_thickness": float(gutter_thickness),
+            },
+        )
+
+    def open_half_frame_dialog(self, file_path: str) -> dict | None:
+        """Open the half-frame split & crop editor on one scan; return the profile
+        dict on Apply, None on cancel."""
+        import numpy as np
+
+        from negpy.desktop.view.widgets.half_frame_dialog import HalfFrameDialog
+        from negpy.services.assets.half_frame import detect_split_x
+        from negpy.services.assets.thumbnails import decode_source_image
+
+        try:
+            img = decode_source_image(file_path)
+            if img is None:
+                return None
+            buf = np.asarray(img)
+        except Exception as e:
+            self.set_status(f"Could not load preview: {e}")
+            return None
+
+        saved = self.half_frame_profile()
+        initial_rect = tuple(saved["crop_rect"]) if saved else None
+        initial_split = saved["split_x"] if saved else detect_split_x(buf)
+        initial_gutter = saved["gutter_thickness"] if saved else 0.0
+
+        dialog = HalfFrameDialog(
+            buf,
+            initial_rect=initial_rect,
+            initial_split=initial_split,
+            initial_gutter=initial_gutter,
+            parent=None,
+        )
+        if dialog.exec():
+            profile = {
+                "crop_rect": list(dialog.crop_rect()),
+                "split_x": dialog.split_x(),
+                "gutter_thickness": dialog.gutter_thickness(),
+            }
+            self.save_half_frame_profile(profile["crop_rect"], profile["split_x"], profile["gutter_thickness"])
+            return profile
+        return None
+
     def _on_discovery_progress(self, current: int, total: int, name: str) -> None:
         self.set_status(f"HASHING {current}/{total}: {name}")
         self.status_progress_requested.emit(current, total)
@@ -1086,15 +1150,28 @@ class AppController(QObject):
                 return f.get("hash")
         return None
 
-    def _active_half(self) -> Optional[tuple[int, float]]:
-        """(half, split_x) of the active asset, or None for whole-frame assets."""
+    def _active_half(self) -> Optional[tuple[int, float, tuple[float, float, float, float] | None, float]]:
+        """(half, split_x, crop_rect, gutter_thickness) of the active asset, or None for whole-frame."""
         h = self.state.current_file_hash
         if not h:
             return None
         for f in self.state.uploaded_files:
             if f.get("hash") == h:
                 half = int(f.get("half") or 0)
-                return (half, float(f.get("split_x") or 0.5)) if half else None
+                if not half:
+                    return None
+                cr = f.get("crop_rect")
+                crop_rect: tuple[float, float, float, float] | None = None
+                if isinstance(cr, (tuple, list)):
+                    vals = tuple(float(v) for v in cr)
+                    if len(vals) == 4:
+                        crop_rect = vals  # type: ignore[assignment]
+                return (
+                    half,
+                    float(f.get("split_x") or 0.5),
+                    crop_rect,
+                    float(f.get("gutter_thickness") or 0.0),
+                )
         return None
 
     def _render_memo_key(self, config: Optional[WorkspaceConfig] = None) -> str:
@@ -1242,12 +1319,29 @@ class AppController(QObject):
         half_info = self._active_half()
         if half_info is None:
             return raw, dims
-        half, split_x = half_info
-        raw = np.ascontiguousarray(slice_half(raw, half, split_x))
+        half, split_x, crop_rect, gutter_thickness = half_info
+        raw = np.ascontiguousarray(slice_half(raw, half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness))
         if dims is not None:
             h0, w0 = dims
+            if crop_rect is not None:
+                x1, y1, x2, y2 = crop_rect
+                cx1 = min(max(int(round(w0 * x1)), 0), w0)
+                cx2 = min(max(int(round(w0 * x2)), 0), w0)
+                cy1 = min(max(int(round(h0 * y1)), 0), h0)
+                cy2 = min(max(int(round(h0 * y2)), 0), h0)
+                w0 = max(1, cx2 - cx1)
+                h0 = max(1, cy2 - cy1)
             xs = min(max(int(round(w0 * split_x)), 1), w0 - 1)
-            dims = (h0, xs) if half == 1 else (h0, w0 - xs)
+            if gutter_thickness > 0:
+                gw = max(1, int(round(w0 * gutter_thickness)))
+                lo = max(1, xs - gw // 2)
+                hi = min(w0 - 1, lo + gw)
+                left_w = lo
+                right_w = w0 - hi
+                w_half = left_w if half == 1 else right_w
+            else:
+                w_half = xs if half == 1 else w0 - xs
+            dims = (h0, w_half)
         return raw, dims
 
     def _on_splash_preview(self, file_path: str, raw: Any, dims: Any) -> None:

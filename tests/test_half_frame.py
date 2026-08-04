@@ -173,3 +173,35 @@ def test_halves_measure_independent_bounds():
     # Floors differ per half (dark vs bright frame). Ceils can legitimately agree:
     # both halves keep a sliver of the bright gutter at the slice boundary.
     assert not np.allclose(b1.floors, b2.floors)
+
+
+class TestSliceHalfCropGutter:
+    def test_crop_rect_slices_only_the_cropped_region(self):
+        buf = np.arange(2 * 100 * 3, dtype=np.float32).reshape(2, 100, 3)
+        # crop to x 0.2..0.8 (20..80), split at 0.5 of the crop (x=50)
+        left = slice_half(buf, 1, 0.5, crop_rect=(0.2, 0.0, 0.8, 1.0))
+        right = slice_half(buf, 2, 0.5, crop_rect=(0.2, 0.0, 0.8, 1.0))
+        assert left.shape[1] + right.shape[1] == 60
+        # left covers x 20..50, right x 50..80
+        np.testing.assert_array_equal(left, buf[:, 20:50])
+        np.testing.assert_array_equal(right, buf[:, 50:80])
+
+    def test_gutter_thickness_discards_a_band_at_the_split(self):
+        buf = np.arange(2 * 100 * 3, dtype=np.float32).reshape(2, 100, 3)
+        # gutter of 0.2 of the cropped width (20 px) around the split at 0.5
+        left = slice_half(buf, 1, 0.5, crop_rect=(0.0, 0.0, 1.0, 1.0), gutter_thickness=0.2)
+        right = slice_half(buf, 2, 0.5, crop_rect=(0.0, 0.0, 1.0, 1.0), gutter_thickness=0.2)
+        # 10 px discarded each side of x=50 → left 0..40, right 60..100
+        np.testing.assert_array_equal(left, buf[:, :40])
+        np.testing.assert_array_equal(right, buf[:, 60:])
+
+    def test_slice_for_asset_reads_crop_and_gutter(self):
+        buf = np.arange(2 * 100 * 3, dtype=np.float32).reshape(2, 100, 3)
+        info = {
+            "half": 1,
+            "split_x": 0.5,
+            "crop_rect": (0.0, 0.0, 1.0, 1.0),
+            "gutter_thickness": 0.2,
+        }
+        out = slice_for_asset(buf, info)
+        np.testing.assert_array_equal(out, buf[:, :40])

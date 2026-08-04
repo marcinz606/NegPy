@@ -78,7 +78,7 @@ Toolbar buttons, left to right:
 *   **Clear all**: unload everything (or, when several frames are selected, unload just those).
 *   **Hot Folder**: watches the current folder and auto-loads new files as they appear, handy when a scanner drops files into a directory.
 *   **RGB Scan**: treats the folder as red/green/blue exposure triplets and assembles each frame from three shots (for narrowband trichrome scanning). Right-click a frame → **Edit RGB Triplet…** to assign the three files by hand.
-*   **Half Frame**: splits each scan into two frames (for half-frame cameras), edited and metered separately.
+*   **Half Frame**: splits each scan into two frames (for half-frame cameras), edited and metered separately. When enabled, a rectangle editor opens on the current scan: drag the green box to crop (everything outside is discarded), drag the orange line to set the split, and use the **Cut thickness** slider to discard a band centered on the split (the physical black separator between the two exposures). The setting is saved and applied to every half-frame split from then on, regardless of how the scans were acquired (SANE scanner, camera copy-stand, or folder import). The **Adjust Half Frame** toolbutton (next to Half Frame) re-opens the editor on the current scan to fine-tune. Auto-detection of the gutter still seeds the initial split position.
 *   **Apply (clone)**: copy the current frame's settings to selected frames or the whole roll. You choose which aspects in a dialog (crop and rotation are always per-image).
 *   **Sheet filter** (funnel): show *All frames*, *Keepers only*, or *Hide rejected*.
 *   **Sort**: by Name or Date, ascending or descending.
@@ -597,7 +597,7 @@ When you set capture gear, it's written to standard EXIF and the digitizing rig 
 
 Capture film directly into NegPy (Linux and macOS; unavailable on Windows). Two collapsible sections:
 
-*   **Scanner (SANE)**: drive a supported flatbed/film scanner over SANE.
+*   **Scanner (SANE)**: drive a supported flatbed/film scanner over SANE. Common controls: backend/device selection, DPI, bit depth, IR channel, autofocus, hardware auto-exposure, frame range (roll feeders), scan window, output format, folder and filename template. When the connected scanner exposes a SANE `scan-exposure-time` option (e.g. some genesys devices), an **Exposure** slider appears below Auto-exposure — set it to override the scanner's default exposure time; the value shows in µs, ms or s as appropriate. A device without the option hides the slider, so a saved value never breaks a different scanner.
 *   **Camera Scanning**: DSLR/mirrorless copy-stand capture. Auto-connects the camera over USB (PC-Remote mode). With a NegPy **Scanlight** connected it captures narrowband R/G/B triplets from saved film-stock presets; without one it does a single white-light exposure. A **Live View** window helps you frame and focus; captured frames land in the hot folder and flow straight into RGB-Scan mode.
 
 Camera scanning needs the optional `python-gphoto2` dependency (`pip install gphoto2`; no Windows build). See [CAMERA_SCANNING.md](CAMERA_SCANNING.md).
