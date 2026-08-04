@@ -6,9 +6,9 @@ per-channel power law. § numbers track ``../openICE/docs/pipeline.md``.
 
 Shares no code with the ``logic.py`` IR chain, deliberately — see CLAUDE.md.
 
-Two departures from the original: no dither (the ℓ=3 band already restores real grain, and
-it is the only serial dependency in the algorithm), and the level constants are measured
-per frame rather than fixed — see ``calibrate``.
+Two departures from the original: the level constants are measured per frame rather than
+fixed (see ``calibrate``), and the §8 dither is drawn from a coordinate hash rather than
+ICE's frame-global LCG, which is the algorithm's only serial dependency.
 """
 
 import math
@@ -80,6 +80,17 @@ _CALIB_MIN_PIXELS = 4096
 _CALIB_ROWS = 256  # whole rows, at working resolution — striding would break the 3-tap min
 
 _HALO = 8  # pyramid reach (4) + the band-range cross (1); bands overlap by this
+
+# --- §8 dither ----------------------------------------------------------------------
+# ICE's synthetic grain. Not optional decoration: the ℓ=3 band restores real grain from the
+# pixel itself, and a pixel fully covered by dust has none left, so without this the repair
+# comes back glassy against the film around it (issue #732). Amplitudes and band anchors are
+# ICE's own and do transfer — unlike the level constants above, they scale with the density
+# of the pixel being written, not with the scanner's absolute IR level.
+_DITHER_AMP = np.array([0.015, 0.015, 0.025], dtype=np.float32)  # Cfg_DitherAmt{R,G,B}
+_DITHER_LO = float(_K * math.log1p(math.floor(0.01 * _M)))
+_DITHER_HI = float(_K * math.log1p(math.floor(0.99 * _M)))
+_DITHER_ENV = 4.0 / (_DITHER_HI - _DITHER_LO) ** 2  # parabola peaking at 1 mid-band
 
 
 def _min3(a: np.ndarray) -> np.ndarray:
@@ -340,6 +351,37 @@ def _reconstruct_tile(d_rgb: np.ndarray, gate: np.ndarray, w: np.ndarray, cal: I
     return acc
 
 
+def _uniform(row0: int, shape: Tuple[int, int]) -> np.ndarray:
+    """Per-pixel, per-channel draw in [-0.5, 0.5), hashed from absolute image coordinates.
+
+    ICE advances one frame-global LCG per draw, which serializes the whole reconstruction;
+    hashing the coordinate instead also keeps a pixel's grain independent of which band it
+    lands in, so the banded and single-pass paths stay identical.
+    """
+    h, w = shape
+    iy = (np.arange(row0, row0 + h, dtype=np.uint32) * np.uint32(0x165667B1))[:, None, None]
+    ix = (np.arange(w, dtype=np.uint32) * np.uint32(0x27D4EB2D))[None, :, None]
+    ic = (np.arange(3, dtype=np.uint32) * np.uint32(0x9E3779B9))[None, None, :]
+    k = iy ^ ix ^ ic
+    k ^= k >> np.uint32(15)
+    k *= np.uint32(0x2C1B3C6D)
+    k ^= k >> np.uint32(13)
+    k *= np.uint32(0x297A2D39)
+    k ^= k >> np.uint32(16)
+    return (k >> np.uint32(8)).astype(np.float32) * np.float32(2.0**-24) - np.float32(0.5)
+
+
+def _dither(acc: np.ndarray, row0: int) -> np.ndarray:
+    """§8: zero-mean grain, parabolic across the density band and zero outside it, scaled by
+    the reconstructed density itself. Suppressed unless ``acc + dither`` also stays in band,
+    as ICE does; ICE's second draw for the never-darken comparison is not reproduced (its
+    own docs call that a bug — it can store a value below the scan)."""
+    env = _DITHER_ENV * (_DITHER_HI - acc) * (acc - _DITHER_LO)
+    d = env * _uniform(row0, acc.shape[:2]) * (_DITHER_AMP * acc)
+    in_band = (acc > _DITHER_LO) & (acc < _DITHER_HI)
+    return np.where(in_band & (acc + d > _DITHER_LO) & (acc + d < _DITHER_HI), d, 0.0).astype(np.float32)
+
+
 _BAND_ROWS = 256
 
 
@@ -369,12 +411,14 @@ def reconstruct(img: np.ndarray, ir: np.ndarray, cal: IceCalibration) -> Tuple[n
         gate, w = _gate_and_weight(d_rgb, density(ir_t), ir_t >= _DEAD_FLOOR, cal)
         hopeless = _giveup_trigger(gate, cal.dust_floor)
         acc = _reconstruct_tile(d_rgb, gate, w, cal)
-        # Already clean, wider than the window, or a non-positive reconstruction.
+        # Already clean, wider than the window, or a non-positive reconstruction. Tested on
+        # the bare accumulator: ICE's positivity guard runs before the dither is added.
         keep = (w >= 1.0) | hopeless | (acc <= 0.0).any(axis=-1)
+        acc = acc + _dither(acc, a)
         # "Only fill, never darken": a defect steals light, so a repair may only lighten.
-        # Written at full strength wherever w < 1, as ICE does (max(L3, acc)). A confidence
-        # ramp here looks like cheap insurance against mottling and is not: dust sits at the
-        # weight floor only once it is deep, so the ramp cost shallow specks most of their
+        # Written at full strength wherever w < 1, as ICE does (max(L3, acc + dither)). A
+        # confidence ramp here looks like cheap insurance against mottling and is not: dust
+        # sits at the weight floor only once it is deep, so the ramp cost shallow specks most of their
         # repair (measured on samples/scans: 81% of the lift at a 15-25% dip).
         lift = np.where(keep[..., None], 0.0, np.maximum(acc - d_rgb, 0.0))
         s, e = y0 - a, y1 - a

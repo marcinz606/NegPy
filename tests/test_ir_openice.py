@@ -1,3 +1,4 @@
+import contextlib
 from dataclasses import replace
 
 import cv2
@@ -27,6 +28,18 @@ def _frame(defects=(), seed=7, ir_sigma=_IR_SIGMA, texture=1.0, clean_ir=_CLEAN_
         rgb[m] *= t
         ir[m] *= t
     return rgb, ir.astype(np.float32)
+
+
+@contextlib.contextmanager
+def _no_dither():
+    """§8 grain is a random per-pixel write, so it floors how close a repair can land to the
+    clean frame. Tests that measure repair accuracy pin it off (ICE's own ice_no_dither)."""
+    amp = oi._DITHER_AMP
+    oi._DITHER_AMP = np.zeros(3, np.float32)
+    try:
+        yield
+    finally:
+        oi._DITHER_AMP = amp
 
 
 def _disc(cx, cy, r):
@@ -109,7 +122,8 @@ def test_a_shallow_speck_is_repaired_at_full_strength():
     spot = (128, 128, 3, 0.96)  # detected, but nowhere near the weight floor
     rgb, ir = _frame([spot])
     clean_rgb, _ = _frame()
-    out, _, w = oi.reconstruct(rgb, ir, oi.calibrate(rgb, ir, 0.66))
+    with _no_dither():
+        out, _, w = oi.reconstruct(rgb, ir, oi.calibrate(rgb, ir, 0.66))
     m = _disc(*spot[:3])
     # w ≈ 0.88 here; a smoothstep ramp from 1.0 down to 0.6 would pass ~20% of the lift.
     assert 0.6 < float(np.median(w[m])) < 1.0, "shallow by construction: off the weight floor"
@@ -213,6 +227,35 @@ def test_banding_matches_a_single_pass():
     finally:
         oi._BAND_ROWS = original
     assert np.abs(banded - whole).max() < 1e-6
+
+
+def test_dither_grains_a_repair_without_shifting_its_level():
+    """A pixel fully covered by dust has no grain of its own left for the finest band to
+    restore, so the repair reads as a smooth patch against film unless §8 adds grain (#732)."""
+    blob = (128, 128, 8, 0.15)
+    rgb, ir = _frame([blob])
+    cal = oi.calibrate(rgb, ir, 0.66)
+    grained, _, w = oi.reconstruct(rgb, ir, cal)
+    with _no_dither():
+        smooth, _, _ = oi.reconstruct(rgb, ir, cal)
+
+    core = _disc(128, 128, 6)  # inside the blob, clear of its edge
+    delta = grained - smooth
+    assert float(delta[core].std()) > 0.01 * float(smooth[core].mean())
+    assert abs(float(delta[core].mean())) < 0.1 * float(delta[core].std())
+    assert not delta[w >= 1.0].any(), "grain belongs to the repair, not to clean film"
+
+
+def test_dither_is_zero_mean_in_band_and_silent_outside_it():
+    """ICE's envelope: a parabola over [D(0.01M), D(0.99M)] peaking at 1, times ±amount/2 of
+    the pixel's own density. Outside the band, or if the grain would leave it, no grain."""
+    mid = np.full((256, 256, 3), 0.5 * (oi._DITHER_LO + oi._DITHER_HI), np.float32)
+    d = oi._dither(mid, 0)
+    assert abs(float(d.mean())) < 0.01 * float(np.abs(d).max())
+    peak = np.abs(d).max(axis=(0, 1)) / (0.5 * oi._DITHER_AMP * mid[0, 0])
+    assert np.allclose(peak, 1.0, atol=0.02)
+    for x in (oi._DITHER_LO - 1.0, oi._DITHER_HI + 1.0):
+        assert not oi._dither(np.full((16, 16, 3), x, np.float32), 0).any()
 
 
 def test_threshold_biases_the_ramp_monotonically():
