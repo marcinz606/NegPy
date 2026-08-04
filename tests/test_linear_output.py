@@ -10,6 +10,7 @@ import tifffile
 
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.rgbscan.models import RgbScanConfig
+from negpy.features.stitch.models import StitchConfig
 from negpy.kernel.image.logic import apply_exif_orientation
 from negpy.services.export.linear_output import (
     _CameraWB,
@@ -696,3 +697,191 @@ class TestTripletExport:
         rgbscan = RgbScanConfig(enabled=True, green_path="g.nef", blue_path="b.nef")
         assert _source_format_label(path, rgbscan) == "camera RAW (RGB triplet)"
         assert _source_format_label(path) == "camera RAW"
+
+
+def _make_stitch_config(
+    part1_path: str,
+    w: int = 60,
+    h: int = 40,
+    triplets: tuple[tuple[str, str], ...] = (),
+) -> StitchConfig:
+    """Two side-by-side parts with 10px overlap, identity + offset transforms."""
+    offset = w - 10
+    return StitchConfig(
+        stitch_enabled=True,
+        stitch_paths=(part1_path,),
+        stitch_transforms=(
+            (1.0, 0.0, 0.0, 0.0, 1.0, 0.0),
+            (1.0, 0.0, float(offset), 0.0, 1.0, 0.0),
+        ),
+        stitch_canvas=(w + offset, h),
+        stitch_sizes=((w, h), (w, h)),
+        stitch_triplets=triplets,
+    )
+
+
+class TestStitchExport:
+    """Linear Output with stitch composites."""
+
+    def _patch_decode(self, path_to_buf: dict[str, np.ndarray]):
+        def fake_decode(path: str):
+            return path_to_buf[path], _MOCK_WB, _MOCK_META
+
+        return mock.patch(
+            "negpy.services.export.linear_output._decode_camera_raw_buffer",
+            side_effect=fake_decode,
+        )
+
+    def test_stitch_produces_composite_tiff(self, tmp_path: str) -> None:
+        p0 = os.path.join(str(tmp_path), "part0.nef")
+        p1 = os.path.join(str(tmp_path), "part1.nef")
+        for p in (p0, p1):
+            open(p, "wb").close()
+
+        h, w = 40, 60
+        buf0 = np.full((h, w, 3), 0.4, dtype=np.float32)
+        buf1 = np.full((h, w, 3), 0.6, dtype=np.float32)
+        stitch = _make_stitch_config(p1, w=w, h=h)
+        out = os.path.join(str(tmp_path), "stitch_linear.tiff")
+
+        with self._patch_decode({p0: buf0, p1: buf1}):
+            export_linear_output(p0, out, stitch=stitch)
+
+        assert os.path.exists(out)
+        with tifffile.TiffFile(out) as tf:
+            arr = tf.pages[0].asarray()
+            assert arr.dtype == np.uint16
+            expected_w = w + (w - 10)
+            assert arr.shape == (h, expected_w, 3)
+
+    def test_stitch_description_mentions_stitch(self, tmp_path: str) -> None:
+        p0 = os.path.join(str(tmp_path), "part0.nef")
+        p1 = os.path.join(str(tmp_path), "part1.nef")
+        for p in (p0, p1):
+            open(p, "wb").close()
+
+        h, w = 40, 60
+        buf = np.full((h, w, 3), 0.5, dtype=np.float32)
+        stitch = _make_stitch_config(p1, w=w, h=h)
+        out = os.path.join(str(tmp_path), "out.tiff")
+
+        with self._patch_decode({p0: buf, p1: buf}):
+            export_linear_output(p0, out, stitch=stitch)
+
+        with tifffile.TiffFile(out) as tf:
+            desc = tf.pages[0].description
+            assert "stitch 2-part" in desc
+
+    def test_stitch_preserves_make_model(self, tmp_path: str) -> None:
+        p0 = os.path.join(str(tmp_path), "part0.nef")
+        p1 = os.path.join(str(tmp_path), "part1.nef")
+        for p in (p0, p1):
+            open(p, "wb").close()
+
+        h, w = 40, 60
+        buf = np.full((h, w, 3), 0.5, dtype=np.float32)
+        stitch = _make_stitch_config(p1, w=w, h=h)
+        out = os.path.join(str(tmp_path), "out.tiff")
+
+        with self._patch_decode({p0: buf, p1: buf}):
+            export_linear_output(p0, out, stitch=stitch)
+
+        with tifffile.TiffFile(out) as tf:
+            tags = tf.pages[0].tags
+            assert tags["Make"].value == "Nikon"
+            assert tags["Model"].value == "D850"
+
+    def test_stitch_with_geometry(self, tmp_path: str) -> None:
+        p0 = os.path.join(str(tmp_path), "part0.nef")
+        p1 = os.path.join(str(tmp_path), "part1.nef")
+        for p in (p0, p1):
+            open(p, "wb").close()
+
+        h, w = 40, 60
+        buf = np.full((h, w, 3), 0.5, dtype=np.float32)
+        stitch = _make_stitch_config(p1, w=w, h=h)
+        geo = GeometryConfig(rotation=1)
+        out = os.path.join(str(tmp_path), "out.tiff")
+
+        with self._patch_decode({p0: buf, p1: buf}):
+            export_linear_output(p0, out, geometry=geo, stitch=stitch)
+
+        with tifffile.TiffFile(out) as tf:
+            arr = tf.pages[0].asarray()
+            expected_w = w + (w - 10)
+            assert arr.shape == (expected_w, h, 3)
+
+    def test_stitch_with_triplets(self, tmp_path: str) -> None:
+        """Stitch where each part is an RGB triplet."""
+        p0r = os.path.join(str(tmp_path), "p0_r.nef")
+        p0g = os.path.join(str(tmp_path), "p0_g.nef")
+        p0b = os.path.join(str(tmp_path), "p0_b.nef")
+        p1r = os.path.join(str(tmp_path), "p1_r.nef")
+        p1g = os.path.join(str(tmp_path), "p1_g.nef")
+        p1b = os.path.join(str(tmp_path), "p1_b.nef")
+        for p in (p0r, p0g, p0b, p1r, p1g, p1b):
+            open(p, "wb").close()
+
+        h, w = 40, 60
+        bufs = {}
+        for path, ch in [(p0r, 0), (p0g, 1), (p0b, 2), (p1r, 0), (p1g, 1), (p1b, 2)]:
+            arr = np.full((h, w, 3), 0.1, dtype=np.float32)
+            arr[..., ch] = 0.7
+            bufs[path] = arr
+
+        triplets = ((p0g, p0b), (p1g, p1b))
+        stitch = _make_stitch_config(p1r, w=w, h=h, triplets=triplets)
+        out = os.path.join(str(tmp_path), "out.tiff")
+
+        with self._patch_decode(bufs):
+            export_linear_output(p0r, out, stitch=stitch)
+
+        assert os.path.exists(out)
+        with tifffile.TiffFile(out) as tf:
+            desc = tf.pages[0].description
+            assert "stitch 2-part" in desc
+            assert "RGB triplet" in desc
+
+    def test_stitch_triplet_no_wb_in_output(self, tmp_path: str) -> None:
+        """Triplet composites don't record WB (narrowband captures have no meaningful WB)."""
+        p0r = os.path.join(str(tmp_path), "p0_r.nef")
+        p0g = os.path.join(str(tmp_path), "p0_g.nef")
+        p0b = os.path.join(str(tmp_path), "p0_b.nef")
+        p1r = os.path.join(str(tmp_path), "p1_r.nef")
+        p1g = os.path.join(str(tmp_path), "p1_g.nef")
+        p1b = os.path.join(str(tmp_path), "p1_b.nef")
+        for p in (p0r, p0g, p0b, p1r, p1g, p1b):
+            open(p, "wb").close()
+
+        h, w = 40, 60
+        buf = np.full((h, w, 3), 0.5, dtype=np.float32)
+        bufs = {p: buf for p in (p0r, p0g, p0b, p1r, p1g, p1b)}
+
+        triplets = ((p0g, p0b), (p1g, p1b))
+        stitch = _make_stitch_config(p1r, w=w, h=h, triplets=triplets)
+        out = os.path.join(str(tmp_path), "out.tiff")
+
+        with self._patch_decode(bufs):
+            export_linear_output(p0r, out, stitch=stitch)
+
+        with tifffile.TiffFile(out) as tf:
+            desc = tf.pages[0].description
+            assert "as-shot:" not in desc
+
+    def test_source_format_label_stitch(self, tmp_path: str) -> None:
+        path = os.path.join(str(tmp_path), "test.nef")
+        open(path, "wb").close()
+        stitch = StitchConfig(stitch_enabled=True, stitch_paths=("/p1.nef",))
+        assert "stitch 2-part" in _source_format_label(path, stitch=stitch)
+
+    def test_source_format_label_stitch_triplet(self, tmp_path: str) -> None:
+        path = os.path.join(str(tmp_path), "test.nef")
+        open(path, "wb").close()
+        stitch = StitchConfig(
+            stitch_enabled=True,
+            stitch_paths=("/p1.nef",),
+            stitch_triplets=(("g0.nef", "b0.nef"), ("g1.nef", "b1.nef")),
+        )
+        label = _source_format_label(path, stitch=stitch)
+        assert "stitch 2-part" in label
+        assert "RGB triplet" in label

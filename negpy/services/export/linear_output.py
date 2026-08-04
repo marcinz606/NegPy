@@ -1,10 +1,11 @@
 """Linear Output: export a loader's decoded buffer as an untagged 16-bit TIFF.
 
-Bypasses the entire darkroom pipeline — no normalization, exposure, lab,
-toning, finish, flatfield, or sensor-crosstalk correction. The output is
-the closest thing to "what the scanner/camera actually captured" that NegPy
-can produce, with only lossless geometry (EXIF orientation + user rotation/flip)
-baked in.
+For single files, bypasses the entire darkroom pipeline — no normalization,
+exposure, lab, toning, finish, flatfield, or sensor-crosstalk correction.
+
+For composites (stitch / RGB-scan triplets), flatfield and sensor correction
+are applied per-part before assembly so the output is physically correct
+(no vignetting seams or channel crosstalk).
 """
 
 import io
@@ -16,9 +17,15 @@ import numpy as np
 import rawpy
 import tifffile as _tifffile
 
+from negpy.features.flatfield.logic import apply_flatfield
+from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.geometry.models import GeometryConfig
+from negpy.features.process.models import ProcessConfig
+from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix
 from negpy.features.rgbscan.logic import merge_rgb_triplet
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
+from negpy.features.stitch.logic import stitch_composite
+from negpy.features.stitch.models import StitchConfig, stitch_has_triplets
 from negpy.infrastructure.loaders.constants import SUPPORTED_JPEG_EXTENSIONS, SUPPORTED_RAW_EXTENSIONS, SUPPORTED_TIFF_EXTENSIONS
 from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, get_best_demosaic_algorithm, read_orientation
 from negpy.infrastructure.loaders.pakon_loader import PakonLoader
@@ -158,8 +165,13 @@ def _decode_linear(
     geometry: Optional[GeometryConfig] = None,
     expansion: Optional[float] = None,
     rgbscan: Optional[RgbScanConfig] = None,
+    stitch: Optional[StitchConfig] = None,
+    flatfield: Optional[FlatFieldConfig] = None,
+    process: Optional[ProcessConfig] = None,
 ) -> tuple[np.ndarray, Optional[np.ndarray], Optional[_CameraWB], _SourceMeta]:
     """Decode to an oriented float32 buffer. Returns (rgb, ir_or_none, camera_wb_or_none, source_meta)."""
+    if stitch is not None and stitch.stitch_enabled and stitch.stitch_paths:
+        return _decode_stitch(file_path, stitch, geometry, flatfield, process)
     if PakonLoader.can_handle(file_path):
         rgb, ir = _decode_pakon(file_path, geometry, expansion=expansion)
         meta = _SourceMeta(make="Pakon", model=_pakon_spec_desc(file_path))
@@ -335,6 +347,77 @@ def _decode_camera_raw_triplet(
     return f32, None, wb, merged_meta
 
 
+def _decode_stitch_part(
+    file_path: str,
+    rgbscan: Optional[RgbScanConfig],
+    flatfield: Optional[FlatFieldConfig],
+    process: Optional[ProcessConfig],
+) -> np.ndarray:
+    """Decode one stitch part with flatfield and sensor correction applied.
+
+    Triplet merge is performed when *rgbscan* is a valid triplet config.
+    Sensor correction is skipped for triplets (no cross-channel leakage
+    with narrowband exposures).
+    """
+    is_triplet = rgbscan is not None and is_rgb_triplet(rgbscan)
+
+    if is_triplet:
+        primary_f32, _, _ = _decode_camera_raw_buffer(file_path)
+        cache: dict[str, np.ndarray] = {file_path: primary_f32}
+
+        def _decode(path: str) -> np.ndarray:
+            if path in cache:
+                return cache[path]
+            buf, _, _ = _decode_camera_raw_buffer(path)
+            cache[path] = buf
+            return buf
+
+        f32 = merge_rgb_triplet(_decode, file_path, rgbscan.green_path, rgbscan.blue_path, align=rgbscan.align)
+    else:
+        f32, _, _ = _decode_camera_raw_buffer(file_path)
+
+    if flatfield is not None:
+        f32 = apply_flatfield(f32, flatfield)
+    if not is_triplet and process is not None:
+        f32 = apply_sensor_correction(f32, effective_sensor_matrix(process))
+    return f32
+
+
+def _decode_stitch(
+    file_path: str,
+    stitch: StitchConfig,
+    geometry: Optional[GeometryConfig],
+    flatfield: Optional[FlatFieldConfig],
+    process: Optional[ProcessConfig],
+) -> tuple[np.ndarray, None, Optional[_CameraWB], _SourceMeta]:
+    """Decode all stitch parts, apply per-part corrections, and assemble."""
+    all_paths = [file_path, *stitch.stitch_paths]
+    has_triplets = stitch_has_triplets(stitch)
+
+    primary_meta = _read_source_meta_tiff(file_path)
+    _, wb, decode_meta = _decode_camera_raw_buffer(file_path)
+    merged_meta = _SourceMeta(
+        make=primary_meta.make or decode_meta.make,
+        model=primary_meta.model or decode_meta.model,
+        datetime=primary_meta.datetime or decode_meta.datetime,
+    )
+
+    parts: list[np.ndarray] = []
+    for i, path in enumerate(all_paths):
+        part_rgbscan: Optional[RgbScanConfig] = None
+        if i < len(stitch.stitch_triplets):
+            green, blue = stitch.stitch_triplets[i]
+            if green and blue:
+                part_rgbscan = RgbScanConfig(enabled=True, green_path=green, blue_path=blue, align=stitch.stitch_align)
+        parts.append(_decode_stitch_part(path, part_rgbscan, flatfield, process))
+
+    irs: list[None] = [None] * len(parts)
+    f32, _ = stitch_composite(parts, irs, stitch)
+    if geometry is not None:
+        f32 = _apply_user_geometry(f32, geometry)
+    return f32, None, wb if not has_triplets else None, merged_meta
+
+
 def _normalize_wb_rgb(wb: tuple[float, float, float, float]) -> tuple[float, float, float]:
     """Normalize RGGB multipliers to green=1, return (R, G, B)."""
     g = wb[1] if wb[1] > 0 else 1.0
@@ -376,12 +459,23 @@ def _effective_expansion(file_path: str, expansion: Optional[float]) -> float:
     return 1.0
 
 
-def _source_format_label(file_path: str, rgbscan: Optional[RgbScanConfig] = None) -> str:
+def _source_format_label(
+    file_path: str,
+    rgbscan: Optional[RgbScanConfig] = None,
+    stitch: Optional[StitchConfig] = None,
+) -> str:
+    is_stitch = stitch is not None and stitch.stitch_enabled and stitch.stitch_paths
     if PakonLoader.can_handle(file_path):
         return f"Pakon {_pakon_spec_desc(file_path)}"
     if _is_dng(file_path) and _is_linearraw_dng(file_path):
         return "DNG LinearRaw"
     if _is_camera_raw(file_path):
+        if is_stitch and stitch_has_triplets(stitch):
+            n = 1 + len(stitch.stitch_paths)
+            return f"camera RAW (stitch {n}-part, RGB triplet)"
+        if is_stitch:
+            n = 1 + len(stitch.stitch_paths)
+            return f"camera RAW (stitch {n}-part)"
         if rgbscan is not None and is_rgb_triplet(rgbscan):
             return "camera RAW (RGB triplet)"
         return "camera RAW"
@@ -463,6 +557,9 @@ def export_linear_output(
     geometry: Optional[GeometryConfig] = None,
     expansion: Optional[float] = None,
     rgbscan: Optional[RgbScanConfig] = None,
+    stitch: Optional[StitchConfig] = None,
+    flatfield: Optional[FlatFieldConfig] = None,
+    process: Optional[ProcessConfig] = None,
 ) -> None:
     """Decode *file_path* and write an untagged linear 16-bit TIFF to *output_path*.
 
@@ -475,12 +572,18 @@ def export_linear_output(
     *rgbscan*, when a valid triplet config, merges three narrowband exposures into
     one combined RGB buffer before writing.
 
+    *stitch*, when active, decodes all parts (with per-part triplet merge if
+    applicable), applies flatfield and sensor correction per-part, then assembles
+    via stitch_composite.
+
     If the source has an IR channel, it is written as a separate grayscale TIFF
     with an ``_ir`` suffix next to the RGB output.
     """
     eff = _effective_expansion(file_path, expansion)
-    fmt = _source_format_label(file_path, rgbscan)
-    f32, ir, camera_wb, meta = _decode_linear(file_path, geometry, expansion=expansion, rgbscan=rgbscan)
+    fmt = _source_format_label(file_path, rgbscan, stitch)
+    f32, ir, camera_wb, meta = _decode_linear(
+        file_path, geometry, expansion=expansion, rgbscan=rgbscan, stitch=stitch, flatfield=flatfield, process=process
+    )
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     _write_tiff(
         f32, output_path, os.path.basename(file_path), camera_wb, source_path=file_path, source_meta=meta, expansion=eff, source_format=fmt
