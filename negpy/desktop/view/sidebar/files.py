@@ -549,6 +549,9 @@ class FileBrowser(QWidget):
 
         layout.addWidget(self.library_section)
         layout.addWidget(self.frames_section)
+        # Absorbs the surplus when every section is collapsed — otherwise Qt spreads it
+        # into the gaps between the rows above. Stretch 0 leaves an open section its share.
+        layout.addStretch(0)
         self._rebalance_sections()
 
         # Applied after list_view exists — the filter prunes selection against the view.

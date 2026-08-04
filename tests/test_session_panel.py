@@ -71,6 +71,19 @@ def test_a_collapsed_section_keeps_only_its_header(panel):
     assert browser.layout().stretch(browser.layout().indexOf(browser.frames_section)) > 0
 
 
+def test_collapsing_both_sections_keeps_the_panel_top_aligned(panel, qapp):
+    """With nothing expanded the leftover height must not spread into the gaps (#754)."""
+    browser = panel.file_browser
+    browser.library_section.toggle_button.setChecked(False)
+    browser.frames_section.toggle_button.setChecked(False)
+
+    browser.resize(300, 900)
+    browser.show()
+    qapp.processEvents()
+
+    assert browser.frames_section.y() < 200  # ~115 stacked, ~707 spread
+
+
 def test_expanding_a_section_gives_it_back_a_share(panel):
     browser = panel.file_browser
     browser.frames_section.toggle_button.setChecked(False)
