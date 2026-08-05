@@ -12,6 +12,7 @@ from negpy.features.geometry.models import GeometryConfig
 from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.features.stitch.models import StitchConfig
 from negpy.kernel.image.logic import apply_exif_orientation
+from negpy.infrastructure.loaders.nef_loader import is_coolscan_nef
 from negpy.services.export.linear_output import (
     TIFF_GAMMA_OPTIONS,
     _CameraWB,
@@ -1225,3 +1226,112 @@ class TestTiffLinearOutput:
             tags = {t.code: t.value for t in tf.pages[0].tags.values()}
             assert tags.get(271) == "Nikon"
             assert tags.get(272) == "CoolScan 5000"
+
+
+def _make_coolscan_nef(tmp_dir: str, h: int = 200, w: int = 300, channels: int = 3) -> str:
+    """Create a synthetic Coolscan-style NEF: thumbnail in IFD0, full-res RGB in SubIFD."""
+    thumb = np.zeros((50, 75, 3), dtype=np.uint8)
+    rng = np.random.RandomState(42)
+    fullres = rng.randint(0, 65535, (h, w, channels), dtype=np.uint16)
+    path = os.path.join(tmp_dir, "coolscan.nef")
+    with tifffile.TiffWriter(path) as tw:
+        tw.write(thumb, photometric="rgb", subifds=1)
+        tw.write(fullres, photometric="rgb")
+    return path
+
+
+def _make_camera_nef(tmp_dir: str) -> str:
+    """Create a synthetic camera-style NEF: single-channel Bayer, no RGB SubIFD."""
+    bayer = np.zeros((200, 300), dtype=np.uint16)
+    path = os.path.join(tmp_dir, "camera.nef")
+    with tifffile.TiffWriter(path) as tw:
+        tw.write(bayer, photometric="minisblack")
+    return path
+
+
+class TestCoolscanNef:
+    def test_detect_coolscan_nef(self, tmp_path: str) -> None:
+        path = _make_coolscan_nef(str(tmp_path))
+        assert is_coolscan_nef(path)
+
+    def test_camera_nef_not_detected(self, tmp_path: str) -> None:
+        path = _make_camera_nef(str(tmp_path))
+        assert not is_coolscan_nef(path)
+
+    def test_non_nef_not_detected(self, tmp_path: str) -> None:
+        path = os.path.join(str(tmp_path), "photo.tiff")
+        tifffile.imwrite(path, np.zeros((10, 10, 3), dtype=np.uint16))
+        assert not is_coolscan_nef(path)
+
+    def test_coolscan_nef_not_camera_raw(self, tmp_path: str) -> None:
+        path = _make_coolscan_nef(str(tmp_path))
+        assert not _is_camera_raw(path)
+
+    def test_camera_nef_is_camera_raw(self, tmp_path: str) -> None:
+        path = _make_camera_nef(str(tmp_path))
+        assert _is_camera_raw(path)
+
+    def test_linear_output_supported(self, tmp_path: str) -> None:
+        path = _make_coolscan_nef(str(tmp_path))
+        assert is_linear_output_supported(path)
+
+    def test_source_type_nef(self, tmp_path: str) -> None:
+        path = _make_coolscan_nef(str(tmp_path))
+        assert linear_output_source_type(path) == "nef"
+
+    def test_source_format_label(self, tmp_path: str) -> None:
+        path = _make_coolscan_nef(str(tmp_path))
+        assert _source_format_label(path) == "Coolscan NEF"
+
+    def test_no_expansion(self, tmp_path: str) -> None:
+        path = _make_coolscan_nef(str(tmp_path))
+        assert _effective_expansion(path, None) == 1.0
+        assert _effective_expansion(path, 4.0) == 1.0
+
+    def test_export_roundtrip(self, tmp_path: str) -> None:
+        path = _make_coolscan_nef(str(tmp_path))
+        out = os.path.join(str(tmp_path), "output.tiff")
+        export_linear_output(path, out)
+        with tifffile.TiffFile(out) as tf:
+            arr = tf.pages[0].asarray()
+            assert arr.dtype == np.uint16
+            assert arr.shape == (200, 300, 3)
+            desc = tf.pages[0].description
+            assert "Coolscan NEF" in desc
+            assert "no scaling" in desc
+
+    def test_export_4ch_splits_ir(self, tmp_path: str) -> None:
+        path = _make_coolscan_nef(str(tmp_path), channels=4)
+        out = os.path.join(str(tmp_path), "output.tiff")
+        export_linear_output(path, out)
+        ir_path = os.path.join(str(tmp_path), "output_ir.tiff")
+        assert os.path.exists(ir_path)
+        with tifffile.TiffFile(out) as tf:
+            assert tf.pages[0].asarray().shape == (200, 300, 3)
+        with tifffile.TiffFile(ir_path) as tf:
+            assert tf.pages[0].asarray().shape == (200, 300)
+
+    def test_loader_returns_float32(self, tmp_path: str) -> None:
+        from negpy.infrastructure.loaders.nef_loader import NefLoader
+
+        path = _make_coolscan_nef(str(tmp_path))
+        loader = NefLoader()
+        wrapper, metadata = loader.load(path)
+        with wrapper as w:
+            assert w.data.dtype == np.float32
+            assert w.data.shape == (200, 300, 3)
+            assert w.data.min() >= 0.0
+            assert w.data.max() <= 1.0
+        assert "orientation" in metadata
+        assert "ir" in metadata
+
+    def test_loader_extracts_ir(self, tmp_path: str) -> None:
+        from negpy.infrastructure.loaders.nef_loader import NefLoader
+
+        path = _make_coolscan_nef(str(tmp_path), channels=4)
+        loader = NefLoader()
+        wrapper, metadata = loader.load(path)
+        with wrapper as w:
+            assert w.data.shape == (200, 300, 3)
+        assert metadata["ir"] is not None
+        assert metadata["ir"].shape == (200, 300)
