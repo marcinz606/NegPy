@@ -725,6 +725,10 @@ class DesktopSessionManager(QObject):
         sticky_narrowband = self.repo.get_global_setting("last_narrowband_scan")
         if sticky_narrowband is not None:
             config = replace(config, process=replace(config.process, narrowband_scan=bool(sticky_narrowband)))
+        # Hue Trim is a property of the light source, not the frame, so it carries across files.
+        sticky_hue_trim = self.repo.get_global_setting("last_hue_trim")
+        if sticky_hue_trim is not None:
+            config = replace(config, process=replace(config.process, hue_trim=float(sticky_hue_trim)))
 
         # Processing toggles (Auto Density / Auto Grade / Shadow Neutral / Paper
         # White / Paper Black / Cast Removal) are workflow preferences, not

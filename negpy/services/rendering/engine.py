@@ -14,6 +14,7 @@ from negpy.features.exposure.processor import (
     NormalizationProcessor,
     PhotometricProcessor,
 )
+from negpy.features.process.hue import apply_hue_trim
 from negpy.features.toning.processor import ToningProcessor
 from negpy.features.lab.logic import apply_clahe
 from negpy.features.lab.processor import PhotoLabProcessor
@@ -155,12 +156,15 @@ class DarkroomEngine:
 
         def run_exposure(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
             img_out = PhotometricProcessor(settings.exposure, settings.local).process(img_in, ctx)
-            return img_out
+            # Light-source hue correction: rides the exposure stage (it needs the print, and a
+            # stage of its own would re-run everything behind it on a slider drag), but it is a
+            # capture fix, so it stays inside the flat intent below.
+            return apply_hue_trim(img_out, settings.process.hue_trim)
 
         # Dodge/burn masks are print-exposure inputs, so they key this stage.
         current_img, pipeline_changed = self._run_stage(
             current_img,
-            (settings.exposure, settings.local),
+            (settings.exposure, settings.local, settings.process.hue_trim),
             "exposure",
             run_exposure,
             context,

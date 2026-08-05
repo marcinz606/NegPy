@@ -75,6 +75,11 @@ class ProcessConfig:
     sensor_matrix: Optional[tuple] = None
     sensor_profile: str = "None"
 
+    # Hue Trim: light-source hue rotation in degrees, applied to the print in the
+    # CIELAB a*b* plane (features/process/hue.py). An odd source spectrum rotates
+    # every hue by a near-constant angle; 0.0 = off.
+    hue_trim: float = 0.0
+
     lock_bounds: bool = False
 
     roll_name: Optional[str] = None

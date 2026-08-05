@@ -1,4 +1,5 @@
 import gc
+import math
 import os
 import struct
 import time
@@ -226,11 +227,11 @@ class GPUEngine:
             "density_hist",
         ]
         # Packed byte size per stage. A stage may exceed the 256B dynamic-offset
-        # alignment (exposure, 288B) — it then occupies multiple aligned slots.
+        # alignment (exposure, 304B) — it then occupies multiple aligned slots.
         self._uniform_sizes = {
             "geometry": 32,
             "normalization": 112,
-            "exposure": 288,
+            "exposure": 304,
             "clahe_u": 32,
             "retouch_u": 16,
             "lab": 96,
@@ -1307,6 +1308,9 @@ class GPUEngine:
             # the w-lanes carry Separation Damping's green/blue k.
             + struct.pack("ffff", _sg3[0], _sg3[1], _sg3[2], sat_k3[1])
             + struct.pack("ffff", _hg3[0], _hg3[1], _hg3[2], sat_k3[2])
+            # Hue Trim in radians (x; yzw pad) — the shader rotates the linear print
+            # before the encode, mirroring apply_hue_trim on the CPU.
+            + struct.pack("ffff", math.radians(float(settings.process.hue_trim)), 0.0, 0.0, 0.0)
         )
 
         cls = float(settings.lab.clahe_strength)

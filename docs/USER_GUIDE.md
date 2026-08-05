@@ -253,6 +253,10 @@ Applying it sets the defaults for newly loaded files, updates the open frame, an
 *   **Matrix**: the crosstalk profile for your film/scanner. *Default* is built-in; drop custom `.toml` matrices in `<Documents>/NegPy/crosstalk/` (see [CROSSTALK.md](CROSSTALK.md)). The slider button opens a matrix editor.
 *   **Strength** (0.0 to 1.0): how much of the unmix to apply, for richer and cleaner colour separation. Because it changes what the analysis reads, **re-run Batch Analysis** after changing it.
 
+**Light source:**
+
+*   **Hue Trim** (-30° to 30°, default 0): rotates every hue by a fixed angle to undo the rotation an unusual scanning light imposes. Narrowband LED and odd-phosphor panels sample the dyes away from where the film expects, which turns *every* colour by roughly the same angle — yellows reading orange, greens going olive — while leaving neutrals alone. That is why white balance cannot fix it: the error is a rotation, not a cast, so there is no grey to correct. Judge it on a subject you know the colour of (foliage, a clear blue sky, skin) and leave it at 0 for an ordinary broadband light. The setting is **sticky**: a light source is a property of your rig, so it carries to the next file until you change it. Neutrals are untouched, so it never disturbs the colour-balance clip above.
+
 **Normalize** (E-6 only): auto-stretches a slide's histogram to fill the dynamic range. Useful for faded/expired slides.
 
 <!-- panel:roll -->

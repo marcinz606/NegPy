@@ -48,6 +48,9 @@ struct ExposureUniforms {
     // These rows push the block past 256B: exposure spans two UBO slots.
     split_sh: vec4<f32>,
     split_hi: vec4<f32>,
+    // Hue Trim: x = rotation in radians, yzw pad. Free of charge — 288B already
+    // occupied two aligned slots, so this row does not add one.
+    hue: vec4<f32>,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -86,6 +89,50 @@ fn separation_damping_gain(k: f32, damping: f32, chroma: f32) -> f32 {
 fn oetf_encode(t: f32) -> f32 {
     let x = clamp(t, 0.0, 1.0);
     return pow(x, 0.45470693);
+}
+
+// Hue Trim needs CIELAB, so the two conversions are inlined here (WGSL has no
+// includes). Copied verbatim from lab.wgsl's rgb_to_lab/lab_to_rgb — Adobe RGB
+// 1998 primaries, D65, scene-linear in and out. A primaries or white-point
+// change must update both copies (see CLAUDE.md's inlined-row invariant).
+fn hue_rgb_to_lab(rgb: vec3<f32>) -> vec3<f32> {
+    let r = max(rgb.r, 0.0);
+    let g = max(rgb.g, 0.0);
+    let b = max(rgb.b, 0.0);
+
+    var x = r * 0.5767309 + g * 0.1855540 + b * 0.1881852;
+    var y = r * 0.2973769 + g * 0.6273491 + b * 0.0752741;
+    var z = r * 0.0270343 + g * 0.0706872 + b * 0.9911085;
+
+    x = x / 0.95047;
+    y = y / 1.00000;
+    z = z / 1.08883;
+
+    if (x > 0.008856) { x = pow(x, 1.0/3.0); } else { x = (7.787 * x) + (16.0 / 116.0); }
+    if (y > 0.008856) { y = pow(y, 1.0/3.0); } else { y = (7.787 * y) + (16.0 / 116.0); }
+    if (z > 0.008856) { z = pow(z, 1.0/3.0); } else { z = (7.787 * z) + (16.0 / 116.0); }
+
+    return vec3<f32>((116.0 * y) - 16.0, 500.0 * (x - y), 200.0 * (y - z));
+}
+
+fn hue_lab_to_rgb(lab: vec3<f32>) -> vec3<f32> {
+    var y = (lab.x + 16.0) / 116.0;
+    var x = lab.y / 500.0 + y;
+    var z = y - lab.z / 200.0;
+
+    if (pow(x, 3.0) > 0.008856) { x = pow(x, 3.0); } else { x = (x - 16.0 / 116.0) / 7.787; }
+    if (pow(y, 3.0) > 0.008856) { y = pow(y, 3.0); } else { y = (y - 16.0 / 116.0) / 7.787; }
+    if (pow(z, 3.0) > 0.008856) { z = pow(z, 3.0); } else { z = (z - 16.0 / 116.0) / 7.787; }
+
+    x = x * 0.95047;
+    y = y * 1.00000;
+    z = z * 1.08883;
+
+    let r = x * 2.0413690 + y * -0.5649464 + z * -0.3446944;
+    let g = x * -0.9692660 + y * 1.8760108 + z * 0.0415560;
+    let b = x * 0.0134474 + y * -0.1183897 + z * 1.0154096;
+
+    return max(vec3<f32>(r, g, b), vec3<f32>(0.0));
 }
 
 @compute @workgroup_size(8, 8)
@@ -211,6 +258,17 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (params.mode == 1u) {
         let l = dot(transmittance, vec3<f32>(0.2126, 0.7152, 0.0722));
         transmittance = vec3<f32>(l, l, l);
+    }
+
+    // Hue Trim on the linear print, before the encode — the CPU applies it to the
+    // same scene-linear buffer (features/process/hue.py), which is what keeps the
+    // two paths in parity. Clamped to [0,1] like the CPU: the print is bounded.
+    if (params.hue.x != 0.0) {
+        let lab = hue_rgb_to_lab(transmittance);
+        let c = cos(params.hue.x);
+        let s = sin(params.hue.x);
+        let rotated = vec3<f32>(lab.x, lab.y * c - lab.z * s, lab.y * s + lab.z * c);
+        transmittance = clamp(hue_lab_to_rgb(rotated), vec3<f32>(0.0), vec3<f32>(1.0));
     }
 
     let res = vec3<f32>(

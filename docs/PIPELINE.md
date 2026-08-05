@@ -124,6 +124,19 @@ It is inert at $k = 1$ for any $c$, since it redistributes Dye Separation's push
 
 The matrix half of this is the standard masking operator. The chroma-dependence is not: published treatments stay linear in density and let the print curve supply the nonlinearity. So read $c_0$ and the exponent as a control built to sit in a physical domain (density above paper base, neutrals fixed, monotone) rather than a measurement of one. Lateral dye/inhibitor spread of roughly 20 to 200 µm is not modelled either; that is an acutance effect and belongs with sharpening.
 
+### Hue Trim (light-source hue rotation)
+**Code**: `negpy.features.process.hue.apply_hue_trim`, mirrored in `exposure.wgsl`
+
+An unusual scanning light rotates hues rather than casting them. Measured on one negative scanned twice — a narrowband-ish panel and a broadband white LED, same body, same frame — the hue error $|\Delta H|$ stayed within 16–21° across CIELAB chroma 4 to 60+. A colour cast would have *shrunk* with chroma, since a fixed $a^{\ast}/b^{\ast}$ offset barely turns an already-saturated colour, and a general channel mix would have *grown*. Flat in chroma is the signature of a rotation, so the correction is one:
+
+$$\begin{pmatrix} a' \\ b' \end{pmatrix} = \begin{pmatrix} \cos\theta & -\sin\theta \\ \sin\theta & \cos\theta \end{pmatrix} \begin{pmatrix} a \\ b \end{pmatrix}$$
+
+with $L^{\ast}$ untouched. $\theta$ is `process.hue_trim` in degrees (0 = off, ±30 range). Because a rotation fixes the origin, neutrals cannot move, so this never fights the per-channel colour clip of §2 — the two are orthogonal: that one places the grey axis, this one turns everything around it.
+
+It runs on the **scene-linear print** — after the H&D curve, before the working OETF — which is the domain the reference measurement was taken in. It rides the exposure stage rather than owning one, so a slider drag does not re-run normalization behind it, and it stays *inside* `RenderIntent.FLAT`: a light's hue error is a capture defect like the sensor unmix of §2, not a look, so a digital-intermediate master should already be free of it.
+
+The GPU mirror inlines `rgb_to_lab`/`lab_to_rgb` (copied verbatim from `lab.wgsl` — WGSL has no includes) and rotates `transmittance` before `oetf_encode`, since the GPU encodes at the end of the exposure pass while the CPU stays linear to the end of the pipeline. $\theta$ rides a `hue` vec4 appended to `ExposureUniforms`; the block was already 288 B and so already spanned two 256 B-aligned slots, so the row costs no extra slot (`_uniform_sizes["exposure"]` = 304).
+
 ### Flat (log) master, "for editing elsewhere"
 **Code**: `negpy.features.exposure.processor.PhotometricProcessor._process_flat` → `apply_flat_curve`
 

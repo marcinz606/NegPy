@@ -211,6 +211,20 @@ class ProcessSidebar(BaseSidebar):
         self.crosstalk_strength_slider = CompactSlider("Strength", 0.0, 1.0, conf.crosstalk_strength, has_neutral=True)
         self.layout.addWidget(self.crosstalk_strength_slider)
 
+        self.layout.addWidget(section_subheader("LIGHT SOURCE"))
+
+        self.hue_trim_slider = CompactSlider("Hue Trim", -30.0, 30.0, conf.hue_trim, step=0.5, precision=10, has_neutral=True, unit="°")
+        self.hue_trim_slider.setToolTip(
+            "<table width='280'><tr><td>"
+            "Hue Trim — rotates every hue by a fixed angle (degrees) to undo the rotation an unusual "
+            "scanning light imposes. Narrowband LED and odd-phosphor sources shift hues by a near-constant "
+            "angle (yellows reading orange, greens olive) that white balance cannot fix, because it is a "
+            "rotation rather than a cast. Neutrals are unaffected, so it does not disturb cast removal. "
+            "Leave at 0 for a standard broadband light."
+            "</td></tr></table>"
+        )
+        self.layout.addWidget(self.hue_trim_slider)
+
         self.normalize_e6_btn = QPushButton(" Normalize")
         self.normalize_e6_btn.setCheckable(True)
         self.normalize_e6_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary))
@@ -261,8 +275,17 @@ class ProcessSidebar(BaseSidebar):
         self.manage_crosstalk_btn.clicked.connect(self._open_crosstalk_editor)
         self.crosstalk_strength_slider.valueChanged.connect(lambda v: self._on_crosstalk_strength_changed(v, persist=False))
         self.crosstalk_strength_slider.valueCommitted.connect(lambda v: self._on_crosstalk_strength_changed(v, persist=True))
+        self.hue_trim_slider.valueChanged.connect(lambda v: self._on_hue_trim_changed(v, persist=False))
+        self.hue_trim_slider.valueCommitted.connect(lambda v: self._on_hue_trim_changed(v, persist=True))
         self.normalize_e6_btn.toggled.connect(self._on_normalize_e6_toggled)
         self.sync_ui()
+
+    def _on_hue_trim_changed(self, val: float, persist: bool = True) -> None:
+        # Sticky on commit only: a light source is a rig property, so the next file starts
+        # from the same trim — but not from every intermediate value of a slider drag.
+        self.update_config_section("process", hue_trim=val, persist=persist)
+        if persist:
+            self.controller.session.repo.save_global_setting("last_hue_trim", float(val))
 
     def _on_white_point_changed(self, val: float, persist: bool = True) -> None:
         self.update_config_section("process", persist=persist, **{self._wp_field(): val})
@@ -461,6 +484,7 @@ class ProcessSidebar(BaseSidebar):
             self.lock_bounds_btn.setChecked(conf.lock_bounds)
             self.linear_raw_btn.setChecked(conf.linear_raw)
             self.narrowband_scan_btn.setChecked(conf.narrowband_scan)
+            self.hue_trim_slider.setValue(conf.hue_trim)
 
             profiles = CrosstalkProfiles.list_profiles()
             if profiles != [self.crosstalk_combo.itemText(i) for i in range(self.crosstalk_combo.count())]:
