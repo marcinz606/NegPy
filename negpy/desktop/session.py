@@ -173,6 +173,7 @@ class AppState:
     linear_apply_flatfield: bool = False
     linear_apply_sensor: bool = False
     linear_apply_ice: bool = False
+    linear_gamma_key: str = "linear"
 
     @property
     def local_hidden_masks(self) -> set:
@@ -505,6 +506,9 @@ class DesktopSessionManager(QObject):
             val = self.repo.get_global_setting(key)
             if val is not None:
                 setattr(self.state, key, bool(val))
+        saved_gamma = self.repo.get_global_setting("linear_gamma_key")
+        if saved_gamma is not None:
+            self.state.linear_gamma_key = str(saved_gamma)
 
         self.state.export_presets = self.repo.load_export_presets()
 
@@ -587,6 +591,7 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting("linear_apply_flatfield", self.state.linear_apply_flatfield)
         self.repo.save_global_setting("linear_apply_sensor", self.state.linear_apply_sensor)
         self.repo.save_global_setting("linear_apply_ice", self.state.linear_apply_ice)
+        self.repo.save_global_setting("linear_gamma_key", self.state.linear_gamma_key)
 
     def _apply_sticky_settings(self, config: WorkspaceConfig, only_global: bool = False) -> WorkspaceConfig:
         """

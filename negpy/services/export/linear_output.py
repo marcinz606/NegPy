@@ -111,6 +111,10 @@ def _is_camera_raw(file_path: str) -> bool:
     return ext in SUPPORTED_RAW_EXTENSIONS
 
 
+def _is_tiff(file_path: str) -> bool:
+    return os.path.splitext(file_path)[1].lower() in SUPPORTED_TIFF_EXTENSIONS
+
+
 def is_linear_output_supported(file_path: str) -> bool:
     if PakonLoader.can_handle(file_path):
         return True
@@ -118,13 +122,15 @@ def is_linear_output_supported(file_path: str) -> bool:
         return _is_linearraw_dng(file_path) or _is_camera_raw(file_path)
     if _is_camera_raw(file_path):
         return True
+    if _is_tiff(file_path):
+        return True
     return False
 
 
 def linear_output_source_type(file_path: str) -> str:
     """Classify a file for Linear Output expansion options.
 
-    Returns ``"pakon"``, ``"dng"``, ``"camera"``, or ``"unsupported"``.
+    Returns ``"pakon"``, ``"dng"``, ``"camera"``, ``"tiff"``, or ``"unsupported"``.
     """
     if PakonLoader.can_handle(file_path):
         return "pakon_f335" if _is_pakon_f335(file_path) else "pakon"
@@ -132,6 +138,8 @@ def linear_output_source_type(file_path: str) -> str:
         return "dng"
     if _is_camera_raw(file_path):
         return "camera"
+    if _is_tiff(file_path):
+        return "tiff"
     return "unsupported"
 
 
@@ -158,6 +166,41 @@ def _apply_geometry(f32: np.ndarray, orientation: int, geometry: Optional[Geomet
     f32 = apply_exif_orientation(f32, orientation)
     if geometry is not None:
         f32 = _apply_user_geometry(f32, geometry)
+    return f32
+
+
+TIFF_GAMMA_OPTIONS: list[tuple[str, str]] = [
+    ("linear", "Linear (1.0)"),
+    ("1.8", "Gamma 1.8"),
+    ("2.2", "Gamma 2.2"),
+    ("2.4", "Gamma 2.4"),
+    ("2.6", "Gamma 2.6"),
+    ("srgb", "sRGB"),
+    ("lstar", "L*"),
+    ("rec709", "Rec.709"),
+]
+
+
+def _linearize(f32: np.ndarray, gamma_key: str) -> np.ndarray:
+    """Reverse a gamma encoding to recover linear-light values."""
+    if gamma_key == "linear":
+        return f32
+    f32 = np.clip(f32, 0.0, 1.0)
+    if gamma_key in ("1.8", "2.2", "2.4", "2.6"):
+        g = float(gamma_key)
+        return np.power(f32, g, dtype=np.float32)
+    if gamma_key == "srgb":
+        lo = f32 / 12.92
+        hi = np.power((f32 + 0.055) / 1.055, 2.4, dtype=np.float32)
+        return np.where(f32 <= 0.04045, lo, hi).astype(np.float32)
+    if gamma_key == "rec709":
+        lo = f32 / 4.5
+        hi = np.power((f32 + 0.099) / 1.099, 1.0 / 0.45, dtype=np.float32)
+        return np.where(f32 <= 0.081, lo, hi).astype(np.float32)
+    if gamma_key == "lstar":
+        lo = f32 / 9.0329
+        hi = np.power((f32 + 0.16) / 1.16, 3.0, dtype=np.float32)
+        return np.where(f32 <= 0.08, lo, hi).astype(np.float32)
     return f32
 
 
@@ -219,6 +262,7 @@ def _decode_linear(
     apply_wb: bool = False,
     apply_flatfield: bool = False,
     apply_sensor: bool = False,
+    gamma_key: str = "linear",
 ) -> tuple[np.ndarray, Optional[np.ndarray], Optional[_CameraWB], _SourceMeta]:
     """Decode to an oriented float32 buffer. Returns (rgb, ir_or_none, camera_wb_or_none, source_meta)."""
     if stitch is not None and stitch.stitch_enabled and stitch.stitch_paths:
@@ -260,6 +304,10 @@ def _decode_linear(
         if apply_wb and wb is not None:
             rgb = _apply_white_balance(rgb, wb)
         return rgb, ir, wb, merged
+    if _is_tiff(file_path):
+        meta = _read_source_meta_tiff(file_path)
+        rgb, ir = _decode_tiff(file_path, geometry, gamma_key=gamma_key)
+        return rgb, ir, None, meta
     raise ValueError(f"Linear Output is not supported for this file type: {file_path}")
 
 
@@ -286,6 +334,41 @@ def _pakon_spec_desc(file_path: str) -> str:
         return spec["desc"] if spec else "Unknown"
     except OSError:
         return "Unknown"
+
+
+def _decode_tiff(
+    file_path: str,
+    geometry: Optional[GeometryConfig] = None,
+    gamma_key: str = "linear",
+) -> tuple[np.ndarray, Optional[np.ndarray]]:
+    """Read a TIFF, optionally linearize, strip everything. Returns (rgb, ir_or_none)."""
+    with _tifffile.TiffFile(file_path) as tif:
+        page = tif.pages[0]
+        arr = page.asarray()
+        samples = page.samplesperpixel
+    if arr.dtype == np.uint16:
+        scale = 1.0 / 65535.0
+    elif arr.dtype == np.uint8:
+        scale = 1.0 / 255.0
+    elif arr.dtype == np.float32:
+        scale = 1.0
+    else:
+        scale = 1.0 / float(np.iinfo(arr.dtype).max) if np.issubdtype(arr.dtype, np.integer) else 1.0
+    f32 = arr.astype(np.float32) * scale
+    ir = None
+    if samples == 4 and f32.ndim == 3 and f32.shape[2] == 4:
+        ir = f32[:, :, 3]
+        f32 = f32[:, :, :3]
+    elif samples == 1 and f32.ndim == 2:
+        f32 = np.stack([f32, f32, f32], axis=2)
+    f32 = np.clip(f32, 0.0, 1.0)
+    if gamma_key != "linear":
+        f32 = _linearize(f32, gamma_key)
+    orientation = read_orientation(file_path)
+    f32 = _apply_geometry(f32, orientation, geometry)
+    if ir is not None:
+        ir = _apply_geometry(ir, orientation, geometry)
+    return f32, ir
 
 
 def _decode_pakon(file_path: str, geometry: Optional[GeometryConfig] = None, expansion: Optional[float] = None) -> tuple[np.ndarray, None]:
@@ -553,6 +636,8 @@ def _source_format_label(
         if rgbscan is not None and is_rgb_triplet(rgbscan):
             return "camera RAW (RGB triplet)"
         return "camera RAW"
+    if _is_tiff(file_path):
+        return "TIFF"
     return "unknown"
 
 
@@ -569,6 +654,7 @@ def _write_tiff(
     flatfield_applied: bool = False,
     sensor_applied: bool = False,
     ice_applied: bool = False,
+    gamma_key: str = "linear",
 ) -> None:
     """Write a float32 buffer as an untagged 16-bit TIFF to *dest* (path or file-like)."""
     u16 = _to_uint16_jit(np.ascontiguousarray(f32, dtype=np.float32))
@@ -578,6 +664,9 @@ def _write_tiff(
         parts.append(f"expansion: x{expansion:g}")
     else:
         parts.append("no scaling")
+    if gamma_key != "linear":
+        gamma_labels = dict(TIFF_GAMMA_OPTIONS)
+        parts.append(f"linearized from {gamma_labels.get(gamma_key, gamma_key)}")
     if camera_wb is not None:
         r, g, b = _normalize_wb_rgb(camera_wb.as_shot)
         if wb_applied:
@@ -649,6 +738,7 @@ def export_linear_output(
     apply_sensor: bool = False,
     apply_ice: bool = False,
     retouch: Optional[RetouchConfig] = None,
+    gamma_key: str = "linear",
 ) -> None:
     """Decode *file_path* and write an untagged linear 16-bit TIFF to *output_path*.
 
@@ -687,6 +777,7 @@ def export_linear_output(
         apply_wb=apply_wb,
         apply_flatfield=apply_flatfield,
         apply_sensor=apply_sensor,
+        gamma_key=gamma_key,
     )
     ice_applied = False
     if apply_ice and ir is not None:
@@ -708,6 +799,7 @@ def export_linear_output(
         flatfield_applied=apply_flatfield or is_stitch,
         sensor_applied=apply_sensor or is_stitch,
         ice_applied=ice_applied,
+        gamma_key=gamma_key,
     )
 
     if ir is not None:

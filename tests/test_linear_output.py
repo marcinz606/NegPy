@@ -13,6 +13,7 @@ from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.features.stitch.models import StitchConfig
 from negpy.kernel.image.logic import apply_exif_orientation
 from negpy.services.export.linear_output import (
+    TIFF_GAMMA_OPTIONS,
     _CameraWB,
     _SourceMeta,
     _apply_white_balance,
@@ -20,6 +21,8 @@ from negpy.services.export.linear_output import (
     _default_pakon_expansion,
     _effective_expansion,
     _is_camera_raw,
+    _is_tiff,
+    _linearize,
     _normalize_wb_rgb,
     _source_format_label,
     _write_tiff,
@@ -76,11 +79,11 @@ class TestIsLinearOutputSupported:
         path = _make_pakon_raw(str(tmp_path))
         assert is_linear_output_supported(path)
 
-    def test_regular_tiff_not_supported(self, tmp_path: str) -> None:
+    def test_regular_tiff_supported(self, tmp_path: str) -> None:
         path = os.path.join(str(tmp_path), "photo.tiff")
         arr = np.zeros((10, 10, 3), dtype=np.uint16)
         tifffile.imwrite(path, arr)
-        assert not is_linear_output_supported(path)
+        assert is_linear_output_supported(path)
 
     def test_nonexistent_raw_supported_by_extension(self) -> None:
         """A .raw extension is in SUPPORTED_RAW_EXTENSIONS; support is a format check."""
@@ -152,8 +155,9 @@ class TestExportLinearOutput:
         np.testing.assert_allclose(actual_u16.astype(np.int32), expected_u16.astype(np.int32), atol=1)
 
     def test_rejects_unsupported_file(self, tmp_path: str) -> None:
-        path = os.path.join(str(tmp_path), "photo.tiff")
-        tifffile.imwrite(path, np.zeros((10, 10, 3), dtype=np.uint16))
+        path = os.path.join(str(tmp_path), "photo.jpeg")
+        with open(path, "wb") as fh:
+            fh.write(b"\xff\xd8\xff\xe0")
         out = os.path.join(str(tmp_path), "out.tiff")
         with pytest.raises(ValueError, match="not supported"):
             export_linear_output(path, out)
@@ -1055,3 +1059,128 @@ class TestLinearCorrections:
         with tifffile.TiffFile(out) as tf:
             desc = tf.pages[0].description
             assert "corrections:" not in desc
+
+    def test_description_includes_gamma_linearization(self, tmp_path: str) -> None:
+        f32 = np.full((4, 4, 3), 0.5, dtype=np.float32)
+        out = os.path.join(str(tmp_path), "out.tiff")
+        _write_tiff(f32, out, "test.tif", gamma_key="2.2")
+        with tifffile.TiffFile(out) as tf:
+            desc = tf.pages[0].description
+            assert "linearized from Gamma 2.2" in desc
+
+    def test_description_no_gamma_for_linear(self, tmp_path: str) -> None:
+        f32 = np.full((4, 4, 3), 0.5, dtype=np.float32)
+        out = os.path.join(str(tmp_path), "out.tiff")
+        _write_tiff(f32, out, "test.tif", gamma_key="linear")
+        with tifffile.TiffFile(out) as tf:
+            desc = tf.pages[0].description
+            assert "linearized" not in desc
+
+
+class TestTiffLinearOutput:
+    def test_is_tiff_extensions(self) -> None:
+        assert _is_tiff("scan.tif")
+        assert _is_tiff("scan.tiff")
+        assert _is_tiff("scan.TIF")
+        assert not _is_tiff("scan.dng")
+        assert not _is_tiff("scan.nef")
+
+    def test_linearize_identity(self) -> None:
+        data = np.array([0.0, 0.25, 0.5, 0.75, 1.0], dtype=np.float32)
+        result = _linearize(data, "linear")
+        np.testing.assert_array_equal(result, data)
+
+    def test_linearize_gamma_22(self) -> None:
+        data = np.array([0.0, 0.5, 1.0], dtype=np.float32)
+        result = _linearize(data, "2.2")
+        np.testing.assert_allclose(result[0], 0.0, atol=1e-7)
+        np.testing.assert_allclose(result[1], 0.5**2.2, rtol=1e-5)
+        np.testing.assert_allclose(result[2], 1.0, atol=1e-7)
+
+    def test_linearize_srgb(self) -> None:
+        result = _linearize(np.array([0.0, 0.04045, 0.5, 1.0], dtype=np.float32), "srgb")
+        np.testing.assert_allclose(result[0], 0.0, atol=1e-7)
+        np.testing.assert_allclose(result[1], 0.04045 / 12.92, rtol=1e-5)
+        np.testing.assert_allclose(result[3], 1.0, atol=1e-7)
+
+    def test_linearize_lstar(self) -> None:
+        result = _linearize(np.array([0.0, 1.0], dtype=np.float32), "lstar")
+        np.testing.assert_allclose(result[0], 0.0, atol=1e-7)
+        np.testing.assert_allclose(result[1], 1.0, atol=1e-7)
+
+    def test_linearize_rec709(self) -> None:
+        result = _linearize(np.array([0.0, 0.081, 1.0], dtype=np.float32), "rec709")
+        np.testing.assert_allclose(result[0], 0.0, atol=1e-7)
+        np.testing.assert_allclose(result[1], 0.081 / 4.5, rtol=1e-5)
+        np.testing.assert_allclose(result[2], 1.0, atol=1e-7)
+
+    def test_linearize_clamps_input(self) -> None:
+        data = np.array([-0.1, 1.5], dtype=np.float32)
+        result = _linearize(data, "2.2")
+        assert result[0] >= 0.0
+        assert result[1] <= 1.0
+
+    def test_linearize_all_gamma_options_have_keys(self) -> None:
+        keys = [k for k, _ in TIFF_GAMMA_OPTIONS]
+        data = np.array([0.5], dtype=np.float32)
+        for key in keys:
+            result = _linearize(data, key)
+            assert result.shape == data.shape
+
+    def test_source_type_tiff(self, tmp_path: str) -> None:
+        path = os.path.join(str(tmp_path), "scan.tif")
+        tifffile.imwrite(path, np.zeros((4, 4, 3), dtype=np.uint16))
+        assert linear_output_source_type(path) == "tiff"
+
+    def test_tiff_supported(self, tmp_path: str) -> None:
+        path = os.path.join(str(tmp_path), "scan.tif")
+        tifffile.imwrite(path, np.zeros((4, 4, 3), dtype=np.uint16))
+        assert is_linear_output_supported(path)
+
+    def test_source_format_label_tiff(self) -> None:
+        assert _source_format_label("scan.tif") == "TIFF"
+        assert _source_format_label("scan.tiff") == "TIFF"
+
+    def test_decode_tiff_rgb(self, tmp_path: str) -> None:
+        from negpy.services.export.linear_output import _decode_tiff
+
+        rng = np.random.RandomState(42)
+        data = rng.randint(0, 65535, size=(10, 10, 3), dtype=np.uint16)
+        path = os.path.join(str(tmp_path), "rgb.tif")
+        tifffile.imwrite(path, data)
+        rgb, ir = _decode_tiff(path)
+        assert rgb.shape == (10, 10, 3)
+        assert rgb.dtype == np.float32
+        assert ir is None
+
+    def test_decode_tiff_4ch_splits_ir(self, tmp_path: str) -> None:
+        from negpy.services.export.linear_output import _decode_tiff
+
+        data = np.ones((8, 8, 4), dtype=np.uint16) * 32768
+        path = os.path.join(str(tmp_path), "4ch.tif")
+        tifffile.imwrite(path, data)
+        rgb, ir = _decode_tiff(path)
+        assert rgb.shape == (8, 8, 3)
+        assert ir is not None
+        assert ir.shape[:2] == (8, 8)
+
+    def test_decode_tiff_applies_gamma(self, tmp_path: str) -> None:
+        from negpy.services.export.linear_output import _decode_tiff
+
+        data = np.full((4, 4, 3), 32768, dtype=np.uint16)
+        path = os.path.join(str(tmp_path), "gamma.tif")
+        tifffile.imwrite(path, data)
+        rgb_lin, _ = _decode_tiff(path, gamma_key="linear")
+        rgb_22, _ = _decode_tiff(path, gamma_key="2.2")
+        assert np.all(rgb_22 < rgb_lin)
+
+    def test_export_tiff_with_gamma(self, tmp_path: str) -> None:
+        data = np.full((4, 4, 3), 32768, dtype=np.uint16)
+        src = os.path.join(str(tmp_path), "input.tif")
+        tifffile.imwrite(src, data)
+        out = os.path.join(str(tmp_path), "output.tiff")
+        export_linear_output(src, out, gamma_key="2.2")
+        with tifffile.TiffFile(out) as tf:
+            desc = tf.pages[0].description
+            assert "linearized from Gamma 2.2" in desc
+            assert "source: TIFF" in desc

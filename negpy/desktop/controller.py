@@ -3471,7 +3471,7 @@ class AppController(QObject):
             if not is_linear_output_supported(file_path):
                 self.set_status("Linear Output is not supported for this file type", 4000)
                 return
-            files = [{"path": file_path, "name": os.path.basename(file_path)}]
+            files = [{"path": file_path, "name": os.path.basename(file_path), "hash": self.state.current_file_hash}]
 
         supported = [f for f in files if is_linear_output_supported(f["path"])]
         if not supported:
@@ -3507,6 +3507,7 @@ class AppController(QObject):
                     apply_sensor=self.state.linear_apply_sensor,
                     apply_ice=self.state.linear_apply_ice,
                     retouch=params.retouch,
+                    gamma_key=self.state.linear_gamma_key,
                 )
                 exported += 1
             except Exception as e:
