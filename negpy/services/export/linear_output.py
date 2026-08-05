@@ -646,6 +646,21 @@ def _source_format_label(
     return "unknown"
 
 
+def _parse_tiff_datetime(dt_str: Optional[str]) -> Optional[str]:
+    """Validate/normalise a TIFF DateTime string to ``YYYY:MM:DD HH:MM:SS``."""
+    if not dt_str:
+        return None
+    from datetime import datetime
+
+    for fmt in ("%Y:%m:%d %H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y.%m.%d %H.%M.%S", "%Y:%m:%d", "%Y-%m-%d"):
+        try:
+            parsed = datetime.strptime(dt_str.strip(), fmt)
+            return parsed.strftime("%Y:%m:%d %H:%M:%S")
+        except ValueError:
+            continue
+    return None
+
+
 def _write_tiff(
     f32: np.ndarray,
     dest,
@@ -687,17 +702,20 @@ def _write_tiff(
     description = f"NegPy Linear Output -- {', '.join(parts)}."
 
     extratags: list[tuple] = []
-    if camera_wb is not None and source_path is not None:
-        xmp_bytes = _build_xmp(source_path, camera_wb, title=description, wb_applied=wb_applied)
-        extratags.append((700, 1, len(xmp_bytes), xmp_bytes, True))
-
-    if source_meta is not None:
-        if source_meta.make:
-            extratags.append((271, 2, 0, source_meta.make, True))
-        if source_meta.model:
-            extratags.append((272, 2, 0, source_meta.model, True))
-
-    dt = (source_meta.datetime if source_meta else None) or None
+    dt: Optional[str] = None
+    try:
+        if camera_wb is not None and source_path is not None:
+            xmp_bytes = _build_xmp(source_path, camera_wb, title=description, wb_applied=wb_applied)
+            extratags.append((700, 1, len(xmp_bytes), xmp_bytes, True))
+        if source_meta is not None:
+            if source_meta.make:
+                extratags.append((271, 2, 0, source_meta.make, True))
+            if source_meta.model:
+                extratags.append((272, 2, 0, source_meta.model, True))
+        dt = _parse_tiff_datetime((source_meta.datetime if source_meta else None) or None)
+    except Exception:
+        extratags = []
+        dt = None
 
     _tifffile.imwrite(
         dest,
