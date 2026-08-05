@@ -34,7 +34,7 @@ from negpy.infrastructure.loaders.fff_loader import is_flextight_fff
 from negpy.infrastructure.loaders.nef_loader import is_coolscan_nef
 from negpy.infrastructure.loaders.noritsu_loader import is_noritsu_raw, detect_noritsu_dims
 from negpy.infrastructure.loaders.ir_planes import find_ir_plane
-from negpy.infrastructure.loaders.tiff_loader import _read_sidecar_ir
+from negpy.infrastructure.loaders.tiff_loader import _extract_ir_from_extrasamples, _read_sidecar_ir
 from negpy.infrastructure.loaders.rawpy_loader import (
     _find_linearraw_page,
     _is_dng,
@@ -105,6 +105,37 @@ def _read_source_meta_exif(file_path: str) -> _SourceMeta:
             )
     except Exception:
         return _SourceMeta()
+
+
+def _read_fff_meta(file_path: str) -> _SourceMeta:
+    """Build _SourceMeta from FFF proprietary tags (plist + firmware)."""
+    try:
+        from negpy.infrastructure.loaders.fff_loader import _parse_fff_firmware, _parse_fff_plist
+
+        with _tifffile.TiffFile(file_path) as tif:
+            p0_tags = getattr(tif.pages[0], "tags", None)
+            if p0_tags is None:
+                return _SourceMeta()
+            parts: dict = {}
+            plist_tag = p0_tags.get(50457)
+            if plist_tag is not None and isinstance(plist_tag.value, bytes):
+                parts.update(_parse_fff_plist(plist_tag.value))
+            fw_tag = p0_tags.get(46279)
+            if fw_tag is not None and isinstance(fw_tag.value, bytes):
+                parts.update(_parse_fff_firmware(fw_tag.value))
+        make = "Imacon/Hasselblad"
+        serial = parts.get("scanner_serial", "")
+        model_parts = [s for s in ("Flextight", serial) if s]
+        model = " ".join(model_parts) if model_parts else None
+        film = parts.get("film_stock")
+        film_type = parts.get("film_type")
+        if film and film_type:
+            make = f"{make} ({film}, {film_type})"
+        elif film:
+            make = f"{make} ({film})"
+        return _SourceMeta(make=make, model=model, datetime=parts.get("scan_date"))
+    except Exception:
+        return _SourceMeta(make="Imacon/Hasselblad")
 
 
 def _is_camera_raw(file_path: str) -> bool:
@@ -310,7 +341,7 @@ def _decode_linear(
         rgb, ir = _decode_nef(file_path, geometry, gamma_key=gamma_key)
         return rgb, ir, None, meta
     if is_flextight_fff(file_path):
-        meta = _read_source_meta_tiff(file_path)
+        meta = _read_fff_meta(file_path)
         rgb, ir = _decode_fff(file_path, geometry)
         return rgb, ir, None, meta
     if is_noritsu_raw(file_path):
@@ -394,8 +425,7 @@ def _decode_tiff(
     f32 = arr.astype(np.float32) * scale
     ir = None
     if samples == 4 and f32.ndim == 3 and f32.shape[2] == 4:
-        ir = f32[:, :, 3]
-        f32 = f32[:, :, :3]
+        f32, ir = _extract_ir_from_extrasamples(file_path, f32)
     elif samples == 1 and f32.ndim == 2:
         f32 = np.stack([f32, f32, f32], axis=2)
 
@@ -407,7 +437,7 @@ def _decode_tiff(
             pass
 
     if ir is None:
-        ir, _ = _read_sidecar_ir(file_path)
+        ir, _mask = _read_sidecar_ir(file_path)
 
     f32 = np.clip(f32, 0.0, 1.0)
     if gamma_key != "linear":

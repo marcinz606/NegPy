@@ -1161,11 +1161,21 @@ class TestTiffLinearOutput:
 
         data = np.ones((8, 8, 4), dtype=np.uint16) * 32768
         path = os.path.join(str(tmp_path), "4ch.tif")
-        tifffile.imwrite(path, data)
+        tifffile.imwrite(path, data, extrasamples=[0])
         rgb, ir = _decode_tiff(path)
         assert rgb.shape == (8, 8, 3)
         assert ir is not None
         assert ir.shape[:2] == (8, 8)
+
+    def test_decode_tiff_4ch_alpha_not_ir(self, tmp_path: str) -> None:
+        from negpy.services.export.linear_output import _decode_tiff
+
+        data = np.ones((8, 8, 4), dtype=np.uint16) * 32768
+        path = os.path.join(str(tmp_path), "4ch_alpha.tif")
+        tifffile.imwrite(path, data, extrasamples=[2])
+        rgb, ir = _decode_tiff(path)
+        assert rgb.shape == (8, 8, 3)
+        assert ir is None
 
     def test_decode_tiff_applies_gamma(self, tmp_path: str) -> None:
         from negpy.services.export.linear_output import _decode_tiff

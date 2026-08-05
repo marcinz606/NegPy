@@ -1,4 +1,6 @@
 import os
+import plistlib
+import re
 from typing import Any, ContextManager, Optional, Tuple
 
 import numpy as np
@@ -12,6 +14,63 @@ from negpy.kernel.image.logic import srgb_to_linear, uint8_to_float32, uint16_to
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+_FILM_TYPES = {0: "positive", 1: "negative", 2: "b&w"}
+
+
+def _parse_fff_plist(raw: bytes) -> dict:
+    """Extract FlexColor metadata from tag 50457.
+
+    Returns a flat dict with scanner-relevant fields or {} on failure.
+    The plist may have a 4-byte length prefix (FlexColor 4.8.10+) and is
+    always null-padded to a fixed block size.
+    """
+    try:
+        xml_start = raw.find(b"<?xml")
+        end = raw.find(b"</plist>")
+        if xml_start < 0 or end < 0:
+            return {}
+        plist = plistlib.loads(raw[xml_start : end + len(b"</plist>")])
+        settings = plist.get("ImageSettings", [{}])[0]
+        ic = settings.get("ImageCorrection", {})
+        desc = settings.get("ImageDescription", {})
+        created = settings.get("Created", {})
+
+        result: dict = {}
+        film_name = settings.get("Name")
+        if film_name:
+            result["film_stock"] = film_name
+        film_type = ic.get("FilmType")
+        if film_type is not None:
+            result["film_type"] = _FILM_TYPES.get(film_type, str(film_type))
+        gamma = ic.get("Gamma")
+        if gamma is not None:
+            result["flexcolor_gamma"] = round(float(gamma), 2)
+        res = desc.get("Resolution")
+        if res:
+            result["scan_dpi"] = int(res)
+        if created.get("Year"):
+            result["scan_date"] = f"{created['Year']:04d}-{created.get('Month', 0):02d}-{created.get('Day', 0):02d}"
+        return result
+    except Exception:
+        return {}
+
+
+def _parse_fff_firmware(raw: bytes) -> dict:
+    """Extract FlexColor version and scanner serial from tag 46279."""
+    try:
+        text = raw.decode("latin1", errors="replace")
+        result: dict = {}
+        ver = re.search(r"(\d+\.\d+[\.\d]* \w+)", text)
+        if ver:
+            result["flexcolor_version"] = ver.group(1)
+        ser = re.search(r"(FX\d+)", text)
+        if ser:
+            result["scanner_serial"] = ser.group(1)
+        return result
+    except Exception:
+        return {}
 
 
 def _find_full_res_ifd(tif: tifffile.TiffFile) -> Optional[Any]:
@@ -77,6 +136,8 @@ class FffLoader(IImageLoader):
             arr = page.asarray()
 
             icc_bytes: Optional[bytes] = None
+            fff_meta: dict = {}
+            p0_tags = getattr(tif.pages[0], "tags", None)
             for p in (page, tif.pages[0]):
                 tags = getattr(p, "tags", None)
                 if tags is None:
@@ -85,6 +146,13 @@ class FffLoader(IImageLoader):
                 if tag is not None and tag.value:
                     icc_bytes = bytes(tag.value)
                     break
+            if p0_tags is not None:
+                plist_tag = p0_tags.get(50457)
+                if plist_tag is not None and isinstance(plist_tag.value, bytes):
+                    fff_meta.update(_parse_fff_plist(plist_tag.value))
+                fw_tag = p0_tags.get(46279)
+                if fw_tag is not None and isinstance(fw_tag.value, bytes):
+                    fff_meta.update(_parse_fff_firmware(fw_tag.value))
 
         # Imacon/Flextight scanners have no IR hardware — no 4th channel exists.
         # 4-channel branch kept for defensive consistency with TiffLoader.
@@ -115,5 +183,6 @@ class FffLoader(IImageLoader):
             "color_space": color_space,
             "icc_profile": icc_bytes,
             "ir": ir,
+            **fff_meta,
         }
         return NonStandardFileWrapper(f32), metadata
