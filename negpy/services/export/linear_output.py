@@ -33,6 +33,8 @@ from negpy.infrastructure.loaders.pakon_loader import PakonLoader
 from negpy.infrastructure.loaders.fff_loader import is_flextight_fff
 from negpy.infrastructure.loaders.nef_loader import is_coolscan_nef
 from negpy.infrastructure.loaders.noritsu_loader import is_noritsu_raw, detect_noritsu_dims
+from negpy.infrastructure.loaders.ir_planes import find_ir_plane
+from negpy.infrastructure.loaders.tiff_loader import _read_sidecar_ir
 from negpy.infrastructure.loaders.rawpy_loader import (
     _find_linearraw_page,
     _is_dng,
@@ -396,6 +398,17 @@ def _decode_tiff(
         f32 = f32[:, :, :3]
     elif samples == 1 and f32.ndim == 2:
         f32 = np.stack([f32, f32, f32], axis=2)
+
+    if ir is None:
+        try:
+            with _tifffile.TiffFile(file_path) as tif:
+                ir = find_ir_plane(tif.pages[1:], f32.shape[0], f32.shape[1])
+        except Exception:
+            pass
+
+    if ir is None:
+        ir, _ = _read_sidecar_ir(file_path)
+
     f32 = np.clip(f32, 0.0, 1.0)
     if gamma_key != "linear":
         f32 = _linearize(f32, gamma_key)
@@ -968,7 +981,7 @@ def export_linear_output(
         gamma_key=gamma_key,
     )
 
-    if ir is not None:
+    if ir is not None and not ice_applied:
         stem, ext = os.path.splitext(output_path)
         ir_path = f"{stem}_ir{ext}"
         _write_ir_tiff(ir, ir_path, os.path.basename(file_path))
