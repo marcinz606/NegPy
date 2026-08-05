@@ -14,6 +14,7 @@ from negpy.features.stitch.models import StitchConfig
 from negpy.kernel.image.logic import apply_exif_orientation
 from negpy.infrastructure.loaders.fff_loader import is_flextight_fff
 from negpy.infrastructure.loaders.nef_loader import is_coolscan_nef
+from negpy.infrastructure.loaders.noritsu_loader import is_noritsu_raw, KNOWN_NORITSU_DIMS, KNOWN_NORITSU_HEIGHTS, detect_noritsu_dims
 from negpy.services.export.linear_output import (
     TIFF_GAMMA_OPTIONS,
     _CameraWB,
@@ -1420,3 +1421,156 @@ class TestFlextightFff:
             assert w.data.max() <= 1.0
         assert "orientation" in metadata
         assert "ir" in metadata
+
+
+def _make_noritsu_raw(tmp_dir: str, w: int = 4042, h: int = 6391) -> str:
+    """Create a synthetic Noritsu RAW file: headerless BGR16 LE, 12-bit data."""
+    rng = np.random.RandomState(42)
+    bgr = rng.randint(0, 4096, size=(h, w, 3), dtype=np.uint16)
+    path = os.path.join(tmp_dir, "FULL000000020000.RAW")
+    bgr.astype("<u2").tofile(path)
+    assert os.path.getsize(path) == w * h * 3 * 2
+    return path
+
+
+def _make_noritsu_raw_small(tmp_dir: str) -> str:
+    """Create a Noritsu RAW with the smallest known dims (3551×4502)."""
+    w, h = 3551, 4502
+    rng = np.random.RandomState(77)
+    bgr = rng.randint(0, 4096, size=(h, w, 3), dtype=np.uint16)
+    path = os.path.join(tmp_dir, "FULL_small.raw")
+    bgr.astype("<u2").tofile(path)
+    return path
+
+
+class TestNoritsuRaw:
+    def test_detect_noritsu_raw(self, tmp_path: str) -> None:
+        path = _make_noritsu_raw(str(tmp_path))
+        assert is_noritsu_raw(path)
+
+    def test_pakon_not_detected_as_noritsu(self, tmp_path: str) -> None:
+        path = _make_pakon_raw(str(tmp_path))
+        assert not is_noritsu_raw(path)
+
+    def test_unknown_size_not_detected(self, tmp_path: str) -> None:
+        data = np.zeros(12345678, dtype=np.uint8)
+        path = os.path.join(str(tmp_path), "mystery.raw")
+        data.tofile(path)
+        assert not is_noritsu_raw(path)
+
+    def test_non_raw_ext_not_detected(self, tmp_path: str) -> None:
+        path = os.path.join(str(tmp_path), "photo.tiff")
+        tifffile.imwrite(path, np.zeros((10, 10, 3), dtype=np.uint16))
+        assert not is_noritsu_raw(path)
+
+    def test_noritsu_not_camera_raw(self, tmp_path: str) -> None:
+        path = _make_noritsu_raw(str(tmp_path))
+        assert not _is_camera_raw(path)
+
+    def test_linear_output_supported(self, tmp_path: str) -> None:
+        path = _make_noritsu_raw(str(tmp_path))
+        assert is_linear_output_supported(path)
+
+    def test_source_type_noritsu(self, tmp_path: str) -> None:
+        path = _make_noritsu_raw(str(tmp_path))
+        assert linear_output_source_type(path) == "noritsu"
+
+    def test_source_format_label(self, tmp_path: str) -> None:
+        path = _make_noritsu_raw(str(tmp_path))
+        assert _source_format_label(path) == "Noritsu RAW"
+
+    def test_default_expansion(self, tmp_path: str) -> None:
+        path = _make_noritsu_raw(str(tmp_path))
+        assert _effective_expansion(path, None) == 16.0
+
+    def test_custom_expansion(self, tmp_path: str) -> None:
+        path = _make_noritsu_raw(str(tmp_path))
+        assert _effective_expansion(path, 8.0) == 8.0
+
+    def test_export_roundtrip(self, tmp_path: str) -> None:
+        path = _make_noritsu_raw(str(tmp_path))
+        out = os.path.join(str(tmp_path), "output.tiff")
+        export_linear_output(path, out)
+        with tifffile.TiffFile(out) as tf:
+            arr = tf.pages[0].asarray()
+            assert arr.dtype == np.uint16
+            assert arr.shape == (6391, 4042, 3)
+            desc = tf.pages[0].description
+            assert "Noritsu RAW" in desc
+            assert "expansion: x16" in desc
+
+    def test_export_custom_expansion(self, tmp_path: str) -> None:
+        path = _make_noritsu_raw(str(tmp_path))
+        out = os.path.join(str(tmp_path), "output.tiff")
+        export_linear_output(path, out, expansion=8.0)
+        with tifffile.TiffFile(out) as tf:
+            desc = tf.pages[0].description
+            assert "expansion: x8" in desc
+
+    def test_bgr_to_rgb_swap(self, tmp_path: str) -> None:
+        """Verify the loader performs BGR to RGB channel swap."""
+        w, h = 4042, 6391
+        bgr = np.zeros((h, w, 3), dtype=np.uint16)
+        bgr[:, :, 0] = 100  # B channel
+        bgr[:, :, 1] = 200  # G channel
+        bgr[:, :, 2] = 300  # R channel
+        path = os.path.join(str(tmp_path), "swap_test.raw")
+        bgr.astype("<u2").tofile(path)
+
+        from negpy.infrastructure.loaders.noritsu_loader import NoritsuLoader
+
+        loader = NoritsuLoader()
+        wrapper, metadata = loader.load(path)
+        with wrapper as w_obj:
+            f32 = w_obj.data
+            r_val = f32[0, 0, 0]
+            g_val = f32[0, 0, 1]
+            b_val = f32[0, 0, 2]
+            assert r_val > g_val > b_val
+
+    def test_loader_returns_float32(self, tmp_path: str) -> None:
+        from negpy.infrastructure.loaders.noritsu_loader import NoritsuLoader
+
+        path = _make_noritsu_raw(str(tmp_path))
+        loader = NoritsuLoader()
+        wrapper, metadata = loader.load(path)
+        with wrapper as w:
+            assert w.data.dtype == np.float32
+            assert w.data.shape == (6391, 4042, 3)
+            assert w.data.min() >= 0.0
+            assert w.data.max() <= 1.0
+        assert metadata["orientation"] == 0
+        assert metadata["ir"] is None
+
+    def test_all_known_dims_unique_sizes(self) -> None:
+        """Every known dimension pair must produce a unique file size."""
+        sizes = [w * h * 6 for w, h in KNOWN_NORITSU_DIMS]
+        assert len(sizes) == len(set(sizes))
+
+    def test_small_dims_detected(self, tmp_path: str) -> None:
+        path = _make_noritsu_raw_small(str(tmp_path))
+        assert is_noritsu_raw(path)
+
+    def test_novel_width_known_height_detected(self, tmp_path: str) -> None:
+        """Tier 2: a new width (not in the table) under a known height resolves."""
+        novel_w, h = 5555, 5028
+        assert (novel_w, h) not in KNOWN_NORITSU_DIMS
+        rng = np.random.RandomState(99)
+        bgr = rng.randint(0, 4096, size=(h, novel_w, 3), dtype=np.uint16)
+        path = os.path.join(str(tmp_path), "novel.raw")
+        bgr.astype("<u2").tofile(path)
+        dims = detect_noritsu_dims(path)
+        assert dims == (novel_w, h)
+        assert is_noritsu_raw(path)
+
+    def test_ambiguous_heights_not_detected(self, tmp_path: str) -> None:
+        """If a file size divides evenly by multiple known heights, reject it."""
+        from math import lcm
+
+        common = lcm(KNOWN_NORITSU_HEIGHTS[0], KNOWN_NORITSU_HEIGHTS[1])
+        size = common * 6
+        data = np.zeros(size, dtype=np.uint8)
+        path = os.path.join(str(tmp_path), "ambiguous.raw")
+        data.tofile(path)
+        assert detect_noritsu_dims(path) is None
+        assert not is_noritsu_raw(path)

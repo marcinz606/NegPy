@@ -32,6 +32,7 @@ from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, get_bes
 from negpy.infrastructure.loaders.pakon_loader import PakonLoader
 from negpy.infrastructure.loaders.fff_loader import is_flextight_fff
 from negpy.infrastructure.loaders.nef_loader import is_coolscan_nef
+from negpy.infrastructure.loaders.noritsu_loader import is_noritsu_raw, detect_noritsu_dims
 from negpy.infrastructure.loaders.rawpy_loader import (
     _find_linearraw_page,
     _is_dng,
@@ -114,6 +115,8 @@ def _is_camera_raw(file_path: str) -> bool:
         return False
     if is_flextight_fff(file_path):
         return False
+    if is_noritsu_raw(file_path):
+        return False
     return ext in SUPPORTED_RAW_EXTENSIONS
 
 
@@ -129,6 +132,8 @@ def is_linear_output_supported(file_path: str) -> bool:
     if is_coolscan_nef(file_path):
         return True
     if is_flextight_fff(file_path):
+        return True
+    if is_noritsu_raw(file_path):
         return True
     if _is_camera_raw(file_path):
         return True
@@ -150,6 +155,8 @@ def linear_output_source_type(file_path: str) -> str:
         return "nef"
     if is_flextight_fff(file_path):
         return "fff"
+    if is_noritsu_raw(file_path):
+        return "noritsu"
     if _is_camera_raw(file_path):
         return "camera"
     if _is_tiff(file_path):
@@ -304,6 +311,10 @@ def _decode_linear(
         meta = _read_source_meta_tiff(file_path)
         rgb, ir = _decode_fff(file_path, geometry)
         return rgb, ir, None, meta
+    if is_noritsu_raw(file_path):
+        rgb, ir = _decode_noritsu(file_path, geometry, expansion=expansion)
+        meta = _SourceMeta(make="Noritsu")
+        return rgb, ir, None, meta
     if _is_camera_raw(file_path):
         if rgbscan is not None and is_rgb_triplet(rgbscan):
             rgb, ir, wb, meta = _decode_camera_raw_triplet(file_path, rgbscan, geometry)
@@ -334,6 +345,7 @@ def _decode_linear(
 
 
 PAKON_EXPANSION = 4.0
+NORITSU_EXPANSION = 16.0
 _F335_SIZE = 72000000
 
 
@@ -484,6 +496,27 @@ def _decode_fff(
     if ir is not None:
         ir = _apply_geometry(ir, orientation, geometry)
     return f32, ir
+
+
+def _decode_noritsu(
+    file_path: str,
+    geometry: Optional[GeometryConfig] = None,
+    expansion: Optional[float] = None,
+) -> tuple[np.ndarray, None]:
+    """Read a headerless Noritsu EZController RAW. Returns (rgb, None)."""
+    dims = detect_noritsu_dims(file_path)
+    if dims is None:
+        raise ValueError(f"Unknown Noritsu dimensions for {file_path}")
+    w, h = dims
+    with open(file_path, "rb") as f:
+        data = np.fromfile(f, dtype="<u2", count=w * h * 3)
+    arr = data.reshape(h, w, 3)[:, :, ::-1]  # BGR → RGB
+    f32 = arr.astype(np.float32) / 65535.0
+    factor = expansion if expansion is not None else NORITSU_EXPANSION
+    if factor > 1.0:
+        f32 = np.clip(f32 * factor, 0.0, 1.0)
+    f32 = _apply_geometry(f32, 0, geometry)
+    return f32, None
 
 
 def _decode_dng(
@@ -712,6 +745,9 @@ def _effective_expansion(file_path: str, expansion: Optional[float]) -> float:
     if PakonLoader.can_handle(file_path):
         factor = expansion if expansion is not None else _default_pakon_expansion(file_path)
         return factor if factor > 1.0 else 1.0
+    if is_noritsu_raw(file_path):
+        factor = expansion if expansion is not None else NORITSU_EXPANSION
+        return factor if factor > 1.0 else 1.0
     if _is_dng(file_path) and _is_linearraw_dng(file_path):
         return expansion if (expansion is not None and expansion > 1.0) else 1.0
     if _is_tiff(file_path):
@@ -733,6 +769,8 @@ def _source_format_label(
         return "Coolscan NEF"
     if is_flextight_fff(file_path):
         return "Flextight FFF"
+    if is_noritsu_raw(file_path):
+        return "Noritsu RAW"
     if _is_camera_raw(file_path):
         if is_stitch and stitch_has_triplets(stitch):
             n = 1 + len(stitch.stitch_paths)

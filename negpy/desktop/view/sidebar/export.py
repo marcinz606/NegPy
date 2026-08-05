@@ -701,6 +701,7 @@ class ExportSidebar(BaseSidebar):
         "dng": [("Off (default)", None), ("2×", 2.0), ("4×", 4.0)],
         "nef": [],
         "fff": [],
+        "noritsu": [("16× (default)", None), ("8×", 8.0), ("Off", 1.0)],
         "camera": [],
         "tiff": [("Off (default)", None), ("2×", 2.0), ("4×", 4.0)],
         "unsupported": [],
