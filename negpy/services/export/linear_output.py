@@ -11,7 +11,7 @@ are applied per-part before assembly so the output is physically correct
 import io
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import rawpy
@@ -407,10 +407,50 @@ def _decode_tiff(
     gamma_key: str = "linear",
     expansion: Optional[float] = None,
 ) -> tuple[np.ndarray, Optional[np.ndarray]]:
-    """Read a TIFF via the main loader, optionally linearize. Returns (rgb, ir_or_none)."""
-    from negpy.infrastructure.loaders.tiff_loader import TiffLoader
+    """Read a TIFF, optionally linearize. Returns (rgb, ir_or_none)."""
+    from negpy.infrastructure.loaders.ir_planes import find_ir_plane
+    from negpy.infrastructure.loaders.tiff_loader import _extract_ir_from_extrasamples, _read_sidecar_ir
 
-    return _decode_via_loader(TiffLoader(), file_path, geometry, gamma_key, expansion)
+    with _tifffile.TiffFile(file_path) as tif:
+        page = tif.pages[0]
+        arr = page.asarray()
+    if arr.dtype == np.uint16:
+        scale = 1.0 / 65535.0
+    elif arr.dtype == np.uint8:
+        scale = 1.0 / 255.0
+    elif arr.dtype == np.float32:
+        scale = 1.0
+    else:
+        scale = 1.0 / float(np.iinfo(arr.dtype).max) if np.issubdtype(arr.dtype, np.integer) else 1.0
+    f32 = arr.astype(np.float32) * scale
+
+    ir: Optional[np.ndarray] = None
+    if f32.ndim == 3 and f32.shape[2] == 4:
+        f32, ir = _extract_ir_from_extrasamples(file_path, f32)
+    elif f32.ndim == 2:
+        f32 = np.stack([f32, f32, f32], axis=2)
+
+    if ir is None:
+        try:
+            with _tifffile.TiffFile(file_path) as tif:
+                ir = find_ir_plane(tif.pages[1:], f32.shape[0], f32.shape[1])
+        except Exception:
+            pass
+
+    if ir is None:
+        ir_result, _mask = _read_sidecar_ir(file_path)
+        ir = ir_result
+
+    f32 = np.clip(f32, 0.0, 1.0)
+    if gamma_key != "linear":
+        f32 = _linearize(f32, gamma_key)
+    if expansion is not None and expansion > 1.0:
+        f32 = np.clip(f32 * expansion, 0.0, 1.0)
+    orientation = read_orientation(file_path)
+    f32 = _apply_geometry(f32, orientation, geometry)
+    if ir is not None:
+        ir = _apply_geometry(ir, orientation, geometry)
+    return f32, ir
 
 
 def _decode_pakon(file_path: str, geometry: Optional[GeometryConfig] = None, expansion: Optional[float] = None) -> tuple[np.ndarray, None]:
@@ -428,7 +468,7 @@ def _decode_pakon(file_path: str, geometry: Optional[GeometryConfig] = None, exp
 
 
 def _decode_via_loader(
-    loader: "IImageLoader",
+    loader: Any,
     file_path: str,
     geometry: Optional[GeometryConfig] = None,
     gamma_key: str = "linear",
