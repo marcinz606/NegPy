@@ -71,7 +71,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         return w.controls_panel.process_sidebar.analysis_buffer_slider
 
     def _crosstalk(w: "MainWindow") -> Optional[QWidget]:
-        return w.controls_panel.process_sidebar.crosstalk_combo
+        return w.controls_panel.sensor_sidebar.crosstalk_combo
 
     def _roll(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.roll_sidebar.analyze_roll_btn
@@ -308,7 +308,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "measured under a different matrix are invalid."
             ),
             target=_crosstalk,
-            section_attr="process_section",
+            section_attr="sensor_section",
         ),
         TutorialStep(
             title="Roll Consistency — Batch Analysis",

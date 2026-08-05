@@ -4,7 +4,6 @@ import qtawesome as qta
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QComboBox,
-    QDialog,
     QHBoxLayout,
     QPushButton,
 )
@@ -12,12 +11,11 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.sidebar.tone import _CH_COLORS, _CH_LABEL, _CH_SUFFIX
-from negpy.desktop.view.styles.templates import EditedDot, field_label, section_subheader
+from negpy.desktop.view.styles.templates import EditedDot, field_label
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.process.models import ProcessMode, invalidate_local_bounds
-from negpy.services.assets.crosstalk import CrosstalkProfiles
 
 # Luma Range Clip slider mapping: positions 0..100 clip the histogram tails; negative
 # positions -100..0 map to an outward log-density margin (gentler-than-zero stretch).
@@ -182,49 +180,6 @@ class ProcessSidebar(BaseSidebar):
         wp_bp_row.addWidget(self.black_point_slider)
         self.layout.addLayout(wp_bp_row)
 
-        self.layout.addWidget(section_subheader("CROSSTALK"))
-
-        matrix_row = QHBoxLayout()
-        self.crosstalk_label = field_label("Matrix")
-        self.crosstalk_combo = QComboBox()
-        self.crosstalk_combo.addItems(CrosstalkProfiles.list_profiles())
-        self.crosstalk_combo.setCurrentText(conf.crosstalk_profile)
-        # Wrap the long tooltip in a fixed-width table so Qt word-wraps it to the
-        # panel width instead of rendering one line that runs off the screen (plain
-        # text tooltips are not auto-wrapped — only rich text is).
-        self.crosstalk_combo.setToolTip(
-            "<table width='280'><tr><td>"
-            "Spectral crosstalk (dye unmix): applies the film's crosstalk matrix to the raw NEGATIVE "
-            "densities before analysis and inversion — the physically correct domain (the matrices are "
-            "derived from negative dye-density curves). 'Default' is built-in; drop custom .toml matrices "
-            "in the NegPy/crosstalk folder (see docs/CROSSTALK.md). Re-run Batch Analysis after changing this."
-            "</td></tr></table>"
-        )
-        self.manage_crosstalk_btn = self._icon_action(
-            "fa5s.sliders-h", "Open the crosstalk matrix editor — view, copy and edit density-unmix profiles", width=32
-        )
-        matrix_row.addWidget(self.crosstalk_label)
-        matrix_row.addWidget(self.crosstalk_combo, 1)
-        matrix_row.addWidget(self.manage_crosstalk_btn)
-        self.layout.addLayout(matrix_row)
-
-        self.crosstalk_strength_slider = CompactSlider("Strength", 0.0, 1.0, conf.crosstalk_strength, has_neutral=True)
-        self.layout.addWidget(self.crosstalk_strength_slider)
-
-        self.layout.addWidget(section_subheader("LIGHT SOURCE"))
-
-        self.hue_trim_slider = CompactSlider("Hue Trim", -30.0, 30.0, conf.hue_trim, step=0.5, precision=10, has_neutral=True, unit="°")
-        self.hue_trim_slider.setToolTip(
-            "<table width='280'><tr><td>"
-            "Hue Trim — rotates every hue by a fixed angle (degrees) to undo the rotation an unusual "
-            "scanning light imposes. Narrowband LED and odd-phosphor sources shift hues by a near-constant "
-            "angle (yellows reading orange, greens olive) that white balance cannot fix, because it is a "
-            "rotation rather than a cast. Neutrals are unaffected, so it does not disturb cast removal. "
-            "Leave at 0 for a standard broadband light."
-            "</td></tr></table>"
-        )
-        self.layout.addWidget(self.hue_trim_slider)
-
         self.normalize_e6_btn = QPushButton(" Normalize")
         self.normalize_e6_btn.setCheckable(True)
         self.normalize_e6_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary))
@@ -271,21 +226,8 @@ class ProcessSidebar(BaseSidebar):
         self.black_point_slider.valueChanged.connect(lambda v: self._on_black_point_changed(v, persist=False))
         self.black_point_slider.valueCommitted.connect(lambda v: self._on_black_point_changed(v, persist=True))
 
-        self.crosstalk_combo.currentTextChanged.connect(self._on_crosstalk_profile_changed)
-        self.manage_crosstalk_btn.clicked.connect(self._open_crosstalk_editor)
-        self.crosstalk_strength_slider.valueChanged.connect(lambda v: self._on_crosstalk_strength_changed(v, persist=False))
-        self.crosstalk_strength_slider.valueCommitted.connect(lambda v: self._on_crosstalk_strength_changed(v, persist=True))
-        self.hue_trim_slider.valueChanged.connect(lambda v: self._on_hue_trim_changed(v, persist=False))
-        self.hue_trim_slider.valueCommitted.connect(lambda v: self._on_hue_trim_changed(v, persist=True))
         self.normalize_e6_btn.toggled.connect(self._on_normalize_e6_toggled)
         self.sync_ui()
-
-    def _on_hue_trim_changed(self, val: float, persist: bool = True) -> None:
-        # Sticky on commit only: a light source is a rig property, so the next file starts
-        # from the same trim — but not from every intermediate value of a slider drag.
-        self.update_config_section("process", hue_trim=val, persist=persist)
-        if persist:
-            self.controller.session.repo.save_global_setting("last_hue_trim", float(val))
 
     def _on_white_point_changed(self, val: float, persist: bool = True) -> None:
         self.update_config_section("process", persist=persist, **{self._wp_field(): val})
@@ -332,80 +274,6 @@ class ProcessSidebar(BaseSidebar):
         win = self.window()
         if isinstance(win, MainWindow):
             win.show_scan_setup()
-
-    def _on_crosstalk_profile_changed(self, name: str) -> None:
-        # Bake the matrix into the config so saved edits stay reproducible if the
-        # profile file is later moved/deleted. The persisted per-frame bounds were
-        # analyzed under the previous matrix — clear them so the stretch re-derives
-        # from the unmixed data (otherwise the mask redistribution leaks through).
-        matrix = CrosstalkProfiles.get_matrix(name)
-        self.update_config_section(
-            "process",
-            persist=True,
-            render=True,
-            crosstalk_profile=name,
-            crosstalk_matrix=matrix,
-            **invalidate_local_bounds(self.state.config.process),
-        )
-
-    def _on_crosstalk_strength_changed(self, val: float, persist: bool = True) -> None:
-        self.update_config_section(
-            "process",
-            persist=persist,
-            render=True,
-            crosstalk_strength=val,
-            **invalidate_local_bounds(self.state.config.process),
-        )
-
-    def _open_crosstalk_editor(self) -> None:
-        from negpy.desktop.view.widgets.crosstalk_editor_dialog import CrosstalkEditorDialog
-
-        conf = self.state.config.process
-        self._crosstalk_snapshot = (conf.crosstalk_profile, conf.crosstalk_matrix, conf.crosstalk_strength)
-        dlg = CrosstalkEditorDialog(conf.crosstalk_profile, conf.crosstalk_strength, parent=self)
-        dlg.matrix_previewed.connect(self._on_crosstalk_preview)
-        dlg.profiles_changed.connect(self.sync_ui)
-        dlg.finished.connect(lambda result: self._on_crosstalk_editor_finished(dlg, result))
-        self._crosstalk_dialog = dlg  # keep a reference so the modeless dialog isn't GC'd
-        dlg.show()
-
-    def _on_crosstalk_preview(self, matrix: object, strength: float) -> None:
-        self.update_config_section(
-            "process",
-            persist=False,
-            render=True,
-            crosstalk_matrix=tuple(matrix) if matrix is not None else None,
-            crosstalk_strength=strength,
-            **invalidate_local_bounds(self.state.config.process),
-        )
-
-    def _on_crosstalk_editor_finished(self, dlg, result: int) -> None:
-        if result == QDialog.DialogCode.Accepted:
-            name = dlg.selected_name() or CrosstalkProfiles.DEFAULT_NAME
-            snap_strength = self._crosstalk_snapshot[2]
-            self.update_config_section(
-                "process",
-                persist=True,
-                render=True,
-                crosstalk_profile=name,
-                # Default stores no matrix (falls back to the built-in) by convention.
-                crosstalk_matrix=None if name == CrosstalkProfiles.DEFAULT_NAME else tuple(dlg.working_matrix()),
-                # Preview strength is view-only; only adopt it if the edit had crosstalk off.
-                crosstalk_strength=dlg.preview_strength() if snap_strength == 0 else snap_strength,
-                **invalidate_local_bounds(self.state.config.process),
-            )
-        else:
-            profile, matrix, strength = self._crosstalk_snapshot
-            self.update_config_section(
-                "process",
-                persist=True,
-                render=True,
-                crosstalk_profile=profile,
-                crosstalk_matrix=matrix,
-                crosstalk_strength=strength,
-                **invalidate_local_bounds(self.state.config.process),
-            )
-        self.sync_ui()
 
     def _on_normalize_e6_toggled(self, checked: bool) -> None:
         self.update_config_section(
@@ -484,19 +352,6 @@ class ProcessSidebar(BaseSidebar):
             self.lock_bounds_btn.setChecked(conf.lock_bounds)
             self.linear_raw_btn.setChecked(conf.linear_raw)
             self.narrowband_scan_btn.setChecked(conf.narrowband_scan)
-            self.hue_trim_slider.setValue(conf.hue_trim)
-
-            profiles = CrosstalkProfiles.list_profiles()
-            if profiles != [self.crosstalk_combo.itemText(i) for i in range(self.crosstalk_combo.count())]:
-                self.crosstalk_combo.clear()
-                self.crosstalk_combo.addItems(profiles)
-            self.crosstalk_combo.setCurrentText(conf.crosstalk_profile)
-            self.crosstalk_strength_slider.setValue(conf.crosstalk_strength)
-            is_bw = conf.process_mode == ProcessMode.BW
-            self.crosstalk_label.setVisible(not is_bw)
-            self.crosstalk_combo.setVisible(not is_bw)
-            self.manage_crosstalk_btn.setVisible(not is_bw)
-            self.crosstalk_strength_slider.setVisible(not is_bw)
             self.autodetect_btn.setChecked(self.state.autodetect_enabled)
 
             has_region = conf.analysis_rect is not None
@@ -539,8 +394,6 @@ class ProcessSidebar(BaseSidebar):
             self.color_range_clip_slider,
             self.white_point_slider,
             self.black_point_slider,
-            self.crosstalk_combo,
-            self.crosstalk_strength_slider,
             self.normalize_e6_btn,
         ]
         for w in widgets:

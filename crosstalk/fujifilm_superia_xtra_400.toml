@@ -1,4 +1,5 @@
 name = "Fujicolor Superia X-TRA 400 (approx)"
+type = "specsheet-based"
 matrix = [
   [1.0000,  -0.0459,  -0.0272],
   [-0.0482,   1.0000,  -0.0586],

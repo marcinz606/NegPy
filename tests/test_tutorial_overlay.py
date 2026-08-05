@@ -13,6 +13,7 @@ _VALID_SECTION_ATTRS = {
     "flatfield_section",
     "geometry_section",
     "process_section",
+    "sensor_section",
     "roll_section",
     "colour_section",
     "tone_section",

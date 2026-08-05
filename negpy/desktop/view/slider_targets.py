@@ -33,7 +33,7 @@ SLIDER_ATTRS: dict[str, str] = {
     "color_range_clip": "process_sidebar.color_range_clip_slider",
     "white_point": "process_sidebar.white_point_slider",
     "black_point": "process_sidebar.black_point_slider",
-    "separation": "process_sidebar.crosstalk_strength_slider",
+    "separation": "sensor_sidebar.crosstalk_strength_slider",
     "chroma_denoise": "lab_sidebar.chroma_denoise_slider",
     "saturation": "lab_sidebar.saturation_slider",
     "clahe": "lab_sidebar.clahe_slider",

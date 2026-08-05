@@ -1,4 +1,5 @@
-name = "Kodak VISION3 250D 5207/7207"
+name = "Kodak VISION3 250D 5207/7207 (approx)"
+type = "specsheet-based"
 
 # 3x3 row-major density unmixing matrix (out R/G/B × in R/G/B)
 # Derived analytically from spectral dye-density curves

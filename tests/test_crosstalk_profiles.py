@@ -161,3 +161,54 @@ def test_bundled_wins_on_name_collision_dedup(tmp_path, monkeypatch):
 
     assert CrosstalkProfiles.list_profiles() == ["Default", "Portra 400"]
     assert CrosstalkProfiles.get_matrix("Portra 400") == [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+
+
+def test_type_groups_profiles_for_the_dropdown(tmp_path, monkeypatch):
+    """`type` is provenance, and the dropdown groups by it — a datasheet estimate must not sit
+    in the same bucket as one measured on a real rig."""
+    monkeypatch.setattr(APP_CONFIG, "crosstalk_dir", str(tmp_path))
+    for fname, name, ptype in (
+        ("sheet.toml", "Sheet Stock", "specsheet-based"),
+        ("rig.toml", "My Rig", "tuned"),
+        ("meas.toml", "Measured Stock", "measured"),
+    ):
+        _write(
+            os.path.join(tmp_path, fname),
+            f'name = "{name}"\ntype = "{ptype}"\nmatrix = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]\n',
+        )
+
+    groups = CrosstalkProfiles.grouped_profiles()
+    assert [h for h, _ in groups] == ["Built-in", "Measured", "Tuned on a rig", "From spec sheets (approx)"]
+    assert dict(groups)["Built-in"] == [CrosstalkProfiles.DEFAULT_NAME]
+    assert dict(groups)["Measured"] == ["Measured Stock"]
+    assert dict(groups)["From spec sheets (approx)"] == ["Sheet Stock"]
+    assert CrosstalkProfiles.get_type("My Rig") == "tuned"
+
+
+def test_grouping_never_drops_a_profile(tmp_path, monkeypatch):
+    """An unrecognised or missing type must still be selectable — it falls through to "Other"
+    rather than vanishing from the dropdown."""
+    monkeypatch.setattr(APP_CONFIG, "crosstalk_dir", str(tmp_path))
+    _write(
+        os.path.join(tmp_path, "weird.toml"),
+        'name = "Weird"\ntype = "handed-down-by-owls"\nmatrix = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]\n',
+    )
+    _write(
+        os.path.join(tmp_path, "bare.toml"),
+        'name = "Bare"\nmatrix = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]\n',
+    )
+
+    groups = CrosstalkProfiles.grouped_profiles()
+    flat = [n for _h, names in groups for n in names]
+    assert sorted(flat) == sorted(CrosstalkProfiles.list_profiles()), "grouping lost or invented a profile"
+    assert dict(groups)["Other"] == ["Bare", "Weird"]
+    assert CrosstalkProfiles.get_matrix("Weird") is not None
+
+
+def test_saved_profiles_are_marked_tuned(tmp_path, monkeypatch):
+    """Anything saved from the editor was dialled in on a real rig, so it must not be grouped
+    with the bundled spec-sheet estimates."""
+    monkeypatch.setattr(APP_CONFIG, "crosstalk_dir", str(tmp_path))
+    CrosstalkProfiles.save("Mine", [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0])
+    assert CrosstalkProfiles.get_type("Mine") == "tuned"
+    assert dict(CrosstalkProfiles.grouped_profiles())["Tuned on a rig"] == ["Mine"]

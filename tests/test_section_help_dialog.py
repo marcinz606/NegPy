@@ -48,10 +48,13 @@ def test_a_slice_stops_at_the_next_section() -> None:
 def test_cross_doc_links_are_flattened_to_their_text() -> None:
     """Qt paints anchors in the app's accent red, unreadable at body size, and the modal has
     nowhere to navigate to anyway."""
-    process = guide_markdown("process")
+    # The CROSSTALK.md links live in the Sensor / Light Calibration section, which owns the
+    # crosstalk matrix; Process only cross-references it in prose.
+    sensor = guide_markdown("sensor")
 
-    assert "CROSSTALK.md" in process
-    assert "](" not in process
+    assert "CROSSTALK.md" in sensor
+    for key in ("sensor", "process"):
+        assert "](" not in guide_markdown(key), f"unflattened link in the {key} guide"
 
 
 def test_the_analysis_guide_still_covers_every_read_out() -> None:

@@ -207,14 +207,29 @@ Save and recall a complete edit (the full workspace) by name.
 *   **Trash**: delete the selected preset.
 
 <!-- panel:sensor -->
-### 4.2 Sensor Calibration: un-mix your camera's channels
+### 4.2 Sensor / Light Calibration: what your rig does to the colours
 
-Only relevant for **single-shot narrowband** (RGB-LED trichrome) camera scans. The camera's colour filters overlap the light source's bands, so a pure red exposure leaks a little into green and blue. That leak is a fixed property of your sensor and light together and has nothing to do with the film, so it is corrected on the linear capture before inversion.
+Everything here corrects the *capture*, not the look: three different things sit between the scene and your file — the camera's colour filters, the film's dyes, and the light source — and each gets its own control. They are not interchangeable, and none substitutes for another.
+
+**Trichrome Calibration**, for **single-shot narrowband** (RGB-LED trichrome) camera scans. The camera's colour filters overlap the light's bands, so a pure red exposure leaks a little into green and blue. That leak is a fixed property of your sensor and light together and has nothing to do with the film, so it is corrected on the linear capture before inversion.
 
 *   **Profile**: the sensor matrix to apply. Custom `.toml` matrices live in `<Documents>/NegPy/sensor/`.
 *   **Calibrate** (vials icon): build a profile from three bare-light R/G/B exposures.
 
-The panel greys out unless **Linear RAW** is on, since profiles are calibrated against neutral white balance and the as-shot gains would misapply the matrix. Your selection is remembered either way. It is also skipped for RGB-triplet assets, which never had the leak. Because it changes what the analysis reads, **re-run Batch Analysis** after changing it.
+This block greys out unless **Linear RAW** is on, since profiles are calibrated against neutral white balance and the as-shot gains would misapply the matrix. Your selection is remembered either way. It is also skipped for RGB-triplet assets, which never had the leak. Because it changes what the analysis reads, **re-run Batch Analysis** after changing it.
+
+**Crosstalk** (hidden in B&W), a channel unmix applied to the raw negative densities before inversion. The film's dyes each absorb outside their own band, but they are not the only cause: your light's spectrum and your sensor's colour filters mix the channels too, and in the density domain all three arrive as the same kind of error. So treat the matrix as *your whole scanning setup*, not just the film — a profile that works beautifully on one rig may be wrong on another with the same stock.
+
+*   **Matrix**: the profile to apply. *Default* is built-in; drop custom `.toml` matrices in `<Documents>/NegPy/crosstalk/` (see [CROSSTALK.md](CROSSTALK.md)). The slider button opens a matrix editor.
+*   **Strength** (0.0 to 1.0): how much of the unmix to apply, for richer and cleaner colour separation. Because it changes what the analysis reads, **re-run Batch Analysis** after changing it.
+
+> **The bundled film matrices are derived from published spec sheets, not measured** — which is why they are all marked *(approx)*. They describe the film's **dyes alone**, so they are only the whole story where your capture reads each dye cleanly: a **true RGB scan** (a Coolscan-style mono sensor lit one band at a time) or a **calibrated trichrome rig** (see *Trichrome Calibration* above). With a broadband light and a Bayer sensor, the capture adds mixing of its own that a dyes-only matrix does not describe — it may still help, but treat the number as a starting point rather than a correction for your setup.
+
+**Worth experimenting with.** Start from *Default*, raise **Strength** until colours separate without going garish, and if a stock or a light gives you trouble, open the matrix editor, nudge the six off-diagonal terms and save the result as your own profile. Name it after the *combination* — "Gold 200 + Spectracolor", not just the film. A profile you tuned on your own rig beats any datasheet, and profiles that work are genuinely worth [contributing back](CROSSTALK.md#contributing-a-matrix), since nobody can guess your light and sensor for you.
+
+**Light source:**
+
+*   **Hue Trim** (-30° to 30°, default 0): rotates every hue by a fixed angle to undo the rotation an unusual scanning light imposes. Narrowband LED and odd-phosphor panels sample the dyes away from where the film expects, which turns *every* colour by roughly the same angle — yellows reading orange, greens going olive — while leaving neutrals alone. That is why white balance cannot fix it: the error is a rotation, not a cast, so there is no grey to correct. Judge it on a subject you know the colour of (foliage, a clear blue sky, skin) and leave it at 0 for an ordinary broadband light. The setting is **sticky**: a light source is a property of your rig, so it carries to the next file until you change it. Neutrals are untouched, so it never disturbs the colour-balance clip in **Process**.
 
 <!-- panel:process -->
 ### 4.3 Process: negative → positive
@@ -248,14 +263,7 @@ Applying it sets the defaults for newly loaded files, updates the open frame, an
 *   **Colour Clip** (-100 to 100): the per-channel colour-balance clip (orange-mask removal), independent of the tonal range. Positive tightens channel balance; negative samples nearer the extremes.
 *   **Global / R / G / B** selector → **White Point** / **Black Point** (-0.25 to 0.25): manual offsets on top of the auto-detected bounds. Positive white point brightens; positive black point lifts blacks. In R/G/B mode these become per-layer trims: per-dye-layer film-base (Dmin) and Dmax corrections, i.e. scanner-style per-channel levels. Hidden in B&W.
 
-**Crosstalk** (hidden in B&W), spectral dye unmixing applied to the raw negative before inversion:
-
-*   **Matrix**: the crosstalk profile for your film/scanner. *Default* is built-in; drop custom `.toml` matrices in `<Documents>/NegPy/crosstalk/` (see [CROSSTALK.md](CROSSTALK.md)). The slider button opens a matrix editor.
-*   **Strength** (0.0 to 1.0): how much of the unmix to apply, for richer and cleaner colour separation. Because it changes what the analysis reads, **re-run Batch Analysis** after changing it.
-
-**Light source:**
-
-*   **Hue Trim** (-30° to 30°, default 0): rotates every hue by a fixed angle to undo the rotation an unusual scanning light imposes. Narrowband LED and odd-phosphor panels sample the dyes away from where the film expects, which turns *every* colour by roughly the same angle — yellows reading orange, greens going olive — while leaving neutrals alone. That is why white balance cannot fix it: the error is a rotation, not a cast, so there is no grey to correct. Judge it on a subject you know the colour of (foliage, a clear blue sky, skin) and leave it at 0 for an ordinary broadband light. The setting is **sticky**: a light source is a property of your rig, so it carries to the next file until you change it. Neutrals are untouched, so it never disturbs the colour-balance clip above.
+**Crosstalk**, **Hue Trim** and the sensor unmix all live in **Sensor / Light Calibration** (§4.2) — they correct the capture rather than the negative-to-positive conversion.
 
 **Normalize** (E-6 only): auto-stretches a slide's histogram to fill the dynamic range. Useful for faded/expired slides.
 

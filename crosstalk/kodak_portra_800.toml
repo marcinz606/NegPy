@@ -1,4 +1,5 @@
 name = "Kodak Portra 800 (approx)"
+type = "specsheet-based"
 matrix = [
   [1.0000,  -0.0201,   0.0008],
   [-0.1368,   1.0000,  -0.0400],

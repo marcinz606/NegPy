@@ -1,4 +1,5 @@
 name = "Kodak Ektar 100 (approx)"
+type = "specsheet-based"
 matrix = [
   [1.0000,  -0.0288,  -0.0088],
   [-0.0984,   1.0000,  -0.0390],

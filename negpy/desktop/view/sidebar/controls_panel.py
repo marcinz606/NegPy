@@ -156,7 +156,10 @@ class ControlsPanel(QWidget):
 
         self.sensor_sidebar = SensorSidebar(self.controller)
         self.sensor_section = self._make_section(
-            "Sensor Calibration",
+            # Holds every capture-side correction now, not just the sensor unmix:
+            # the film-dye crosstalk matrix and the light's Hue Trim live here too.
+            # The persisted "sensor" section key stays.
+            "Sensor / Light Calibration",
             "sensor",
             self.sensor_sidebar,
             icon=qta.icon("fa5s.vials", color=icon_color),
@@ -237,7 +240,7 @@ class ControlsPanel(QWidget):
             (
                 "setup",
                 "fa5s.cogs",
-                "Setup — Presets, Sensor Calibration, Process, Roll Analysis",
+                "Setup — Presets, Sensor / Light Calibration, Process, Roll Analysis",
                 [self.presets_section, self.sensor_section, self.process_section, self.roll_section],
                 ["sensor_section", "process_section", "roll_section"],
             ),
@@ -343,6 +346,7 @@ class ControlsPanel(QWidget):
         geo = self.geometry_sidebar
         lab = self.lab_sidebar
         proc = self.process_sidebar
+        sen = self.sensor_sidebar
         ret = self.retouch_sidebar
         ton = self.toning_sidebar
         fin = self.finish_sidebar
@@ -521,11 +525,12 @@ class ControlsPanel(QWidget):
             )
         )
 
-        proc.crosstalk_strength_slider.setToolTip(
+        sen.crosstalk_strength_slider.setToolTip(
             tooltip_with_shortcut(
-                "Spectral-crosstalk unmix on the raw negative densities — how much of the film's matrix to "
-                "apply. 1.0 = each layer's leak fully subtracted from the others; 0 = scanned densities "
-                "untouched. Re-run Batch Analysis after changing it",
+                "Channel unmix on the raw negative densities — how much of the matrix to apply. 1.0 = each "
+                "channel's leak fully subtracted from the others; 0 = scanned densities untouched. The leak "
+                "comes from the film's dyes, your light's spectrum and your sensor's filters together, so "
+                "tune this per scanning setup rather than per stock. Re-run Batch Analysis after changing it",
                 ["separation_inc", "separation_dec"],
             )
         )

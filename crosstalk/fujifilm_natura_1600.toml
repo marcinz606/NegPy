@@ -1,4 +1,5 @@
 name = "Fujicolor Natura 1600 (approx)"
+type = "specsheet-based"
 matrix = [
   [1.0000,  -0.0564,  -0.0261],
   [-0.0580,   1.0000,  -0.0683],

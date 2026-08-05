@@ -1,4 +1,5 @@
-name = "Harman Phoenix II (approx, starter)"
+name = "Harman Phoenix II (approx)"
+type = "specsheet-based"
 matrix = [
   [1.0000,  -0.0579,  -0.0171],
   [-0.0390,   1.0000,  -0.0492],

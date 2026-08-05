@@ -4,6 +4,7 @@ import qtawesome as qta
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
+    QComboBox,
     QDialog,
     QGridLayout,
     QHBoxLayout,
@@ -23,7 +24,15 @@ from negpy.desktop.view.styles.templates import dialog_pane_qss, hint_label, pan
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.process.models import DEFAULT_CROSSTALK_MATRIX
-from negpy.services.assets.crosstalk import CrosstalkProfiles
+from negpy.services.assets.crosstalk import TYPE_MEASURED, TYPE_SPECSHEET, TYPE_TUNED, CrosstalkProfiles
+
+#: Selectable provenances, in the order the Matrix dropdown groups them. "Other" is not
+#: offered: it exists to keep a hand-written type loadable, not as something to choose.
+_TYPE_CHOICES: tuple[tuple[str, str], ...] = (
+    (TYPE_TUNED, "Tuned on a rig"),
+    (TYPE_MEASURED, "Measured"),
+    (TYPE_SPECSHEET, "From spec sheets (approx)"),
+)
 
 
 def flat_to_grid(flat: List[float]) -> List[List[float]]:
@@ -159,6 +168,25 @@ class CrosstalkEditorDialog(QDialog):
         self.name_edit.textChanged.connect(self._on_name_changed)
         name_row.addWidget(self.name_edit, 1)
         rl.addLayout(name_row)
+
+        type_row = QHBoxLayout()
+        type_row.addWidget(QLabel("Type"))
+        self.type_combo = QComboBox()
+        for value, label in _TYPE_CHOICES:
+            self.type_combo.addItem(label, value)
+        self.type_combo.setToolTip(
+            "<table width='300'><tr><td>"
+            "Where these numbers came from — it groups the profile in the Matrix dropdown and tells "
+            "the next person how far to trust it.<br><br>"
+            "<b>Measured</b>: fitted against real scans of a known reference.<br>"
+            "<b>Tuned on a rig</b>: dialled in by eye on real frames. The default for anything you "
+            "edit here, and an honest claim.<br>"
+            "<b>From spec sheets</b>: read off published dye-density curves — describes the film's "
+            "dyes only, not your light or sensor. Every bundled profile is this."
+            "</td></tr></table>"
+        )
+        type_row.addWidget(self.type_combo, 1)
+        rl.addLayout(type_row)
 
         info = QLabel(
             "<b>Spectral crosstalk unmix</b><br>"
@@ -303,6 +331,16 @@ class CrosstalkEditorDialog(QDialog):
     def _all_names(self) -> list:
         return CrosstalkProfiles.list_profiles()
 
+    def selected_type(self) -> str:
+        return self.type_combo.currentData() or TYPE_TUNED
+
+    def _set_type(self, value: str) -> None:
+        """Select `value`, falling back to Tuned for a built-in or hand-written type — the
+        combo only offers the three real provenances, and saving must not silently relabel
+        an unknown one as spec-sheet just because it sits first in the list."""
+        idx = self.type_combo.findData(value)
+        self.type_combo.setCurrentIndex(idx if idx >= 0 else self.type_combo.findData(TYPE_TUNED))
+
     def _set_grid(self, flat: List[float]) -> None:
         grid = flat_to_grid(flat)
         for r in range(3):
@@ -354,9 +392,11 @@ class CrosstalkEditorDialog(QDialog):
         self._updating = True
         self._set_grid(self._matrix_for(name))
         self.name_edit.setText(name)
+        self._set_type(CrosstalkProfiles.get_type(name))
         self._updating = False
 
         self.name_edit.setEnabled(editable)
+        self.type_combo.setEnabled(editable)
         self._set_grid_enabled(editable)
         self.save_btn.setEnabled(editable)
         self.delete_btn.setEnabled(editable)
@@ -387,6 +427,8 @@ class CrosstalkEditorDialog(QDialog):
         if self._selected_name is None:
             return
         new_name = unique_copy_name(self._selected_name, self._all_names())
+        # A copy of a bundled spec-sheet matrix becomes something you are about to tune, so it
+        # takes the editable default rather than inheriting the datasheet's provenance claim.
         CrosstalkProfiles.save(new_name, self.working_matrix())
         self.profiles_changed.emit()
         self._reload_list(select=new_name)
@@ -398,7 +440,7 @@ class CrosstalkEditorDialog(QDialog):
         old = self._selected_name
         if old and old != name and not CrosstalkProfiles.is_bundled(old):
             CrosstalkProfiles.delete(old)
-        CrosstalkProfiles.save(name, self.working_matrix())
+        CrosstalkProfiles.save(name, self.working_matrix(), self.selected_type())
         self.profiles_changed.emit()
         self._reload_list(select=name)
 

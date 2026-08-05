@@ -1,8 +1,8 @@
 # Custom Crosstalk Matrices
 
-The **Crosstalk** control in the Process sidebar runs *spectral crosstalk* correction.
-NegPy ships with one built-in matrix (**Default**), but you can drop in your own —
-calibrated per film stock or scanner — without touching any code.
+The **Crosstalk** control in the Sensor / Light Calibration sidebar runs channel-unmix
+correction. NegPy ships with one built-in matrix (**Default**), but you can drop in your
+own — calibrated for your film *and your scanning setup* — without touching any code.
 
 ---
 
@@ -14,6 +14,39 @@ result is muddy, low-separation color. Crosstalk correction *unmixes* the channe
 multiplying the per-pixel **negative density** vector by a 3×3 matrix, *before*
 normalization and the print curve — the domain the matrices were derived in
 (secondary dye absorptions are linear in negative dye density).
+
+**The dyes are not the only cause.** Your light source's spectrum and your sensor's
+colour-filter passbands mix the channels as well: a broad or oddly-shaped light samples
+each dye away from its peak and picks up its neighbours, and a camera's colour filters
+overlap. In the density domain all three causes arrive as the same kind of error — a
+linear mix — which is why one 3×3 can absorb them together, and why the same film can
+need different matrices on different rigs.
+
+So think of a matrix as belonging to a **whole scanning setup**, not to a film stock.
+A profile someone derived from a datasheet describes the dyes alone; the one that
+actually makes *your* scans sing is the one you tuned on your own light and camera.
+
+> ### What the bundled matrices actually are
+>
+> Every bundled profile is **read off a published spectral-dye-density spec sheet, not
+> measured on a scan** — hence the *(approx)* in each name. Two consequences worth knowing
+> before you trust one:
+>
+> - They model the **dyes only**. That is the complete correction only when your capture
+>   reads each dye band cleanly — a **true RGB scan** (a Nikon Coolscan and friends read a
+>   mono sensor under one LED at a time) or a **calibrated trichrome setup**. With a
+>   broadband light and a Bayer sensor, your light and CFA add mixing the datasheet knows
+>   nothing about, and the dyes-only matrix is not the right shape for it.
+> - Consumer datasheets usually publish one *aggregate* midscale-neutral curve rather than
+>   separated C/M/Y curves, so even the dye part is an estimate read off a plot by eye.
+>
+> None of that makes them useless — they are a far better starting point than identity for
+> a trichrome rig. It does mean you should not expect a bundled stock name to be "the"
+> correction for your scanner, and that a matrix you tune yourself is the more trustworthy
+> object. Bundled matrices are read-only; **Make Editable Copy** to start from one.
+(Two related controls sit in the same panel and are *not* substitutes: the **sensor**
+matrix corrects the camera in the linear capture, and **Hue Trim** rotates hue for an
+odd light spectrum. See [USER_GUIDE.md](USER_GUIDE.md) §4.2.)
 
 The math, per pixel on the raw decoded negative:
 
@@ -61,13 +94,15 @@ Put `.toml` files in your user folder:
 <Documents>/NegPy/crosstalk/
 ```
 
-On first run NegPy copies the bundled gallery (`crosstalk/` in the repo) here, so
-you start with some ready-made profiles. Each file is one matrix:
+The bundled gallery (`crosstalk/` in the repo) is read straight from the app, not copied
+here, so those profiles stay in the dropdown alongside yours and update with each release.
+A bundled name wins over a user file with the same name. Each file is one matrix:
 
 ```toml
 # my_film.toml
-name = "Kodak Gold 200"        # optional display name; falls back to the filename
-matrix = [                     # 3x3, row-major (out R/G/B × in R/G/B)
+name = "Gold 200 + Spectracolor"   # optional display name; falls back to the filename
+type = "tuned"                     # optional provenance; groups it in the dropdown
+matrix = [                         # 3x3, row-major (out R/G/B × in R/G/B)
   [ 1.00, -0.05, -0.02],
   [-0.04,  1.00, -0.08],
   [-0.01, -0.10,  1.00],
@@ -76,6 +111,16 @@ matrix = [                     # 3x3, row-major (out R/G/B × in R/G/B)
 
 - `matrix` is **required**: exactly 3 rows of 3 numbers.
 - `name` is **optional**. If omitted, the dropdown shows the filename (without `.toml`).
+- `type` is **optional** and says *where the numbers came from*, which is what decides how
+  far to trust one. The dropdown groups profiles under a heading per type:
+
+  | `type` | Dropdown group | Meaning |
+  | :--- | :--- | :--- |
+  | `measured` | Measured | Fitted against real scans of a known reference. |
+  | `tuned` | Tuned on a rig | Dialled in by eye on real frames. What the editor saves. |
+  | `specsheet-based` | From spec sheets (approx) | Read off published dye-density curves. Every bundled profile. |
+  | anything else / absent | Other | Still loads and works — it just isn't claiming a provenance. |
+
 - Malformed files (wrong shape, non-numbers, bad TOML) are silently skipped.
 - The name `Default` is reserved for the built-in matrix and ignored if reused.
 
@@ -87,10 +132,29 @@ presets stay reproducible even if you later move or delete the file.
 ## Using it
 
 1. Drop your `.toml` into `<Documents>/NegPy/crosstalk/`.
-2. Open the **Process** sidebar → the **crosstalk dropdown** under CROSSTALK. New files
-   appear the next time the panel syncs (e.g. switching photos); restart if you don't see it.
-3. Pick your profile and raise **Crosstalk** above 0 to apply it.
+2. Open the **Sensor / Light Calibration** sidebar → the **crosstalk dropdown** under
+   CROSSTALK. New files appear the next time the panel syncs (e.g. switching photos);
+   restart if you don't see it.
+3. Pick your profile and raise **Strength** above 0 to apply it.
 4. Pick **Default** to revert to the built-in matrix.
+
+### Rolling your own — the short version
+
+You do not need spectral data or a spectrophotometer to get a better matrix than
+*Default*, and you are the only person who can measure your own rig. Recommended loop:
+
+1. Pick a frame you know the real colours of — foliage, sky, a grey card, skin.
+2. Start on **Default** and raise **Strength** until colours separate but before they go
+   garish. For many rigs this alone is the whole win.
+3. Still wrong in a specific way? Open the matrix editor, **Make Editable Copy**, and nudge
+   the off-diagonal term for the pair that is off (a green leaking into red reads as
+   `out R / in G`). Work one term at a time and in small steps — `0.02` is visible.
+4. Save it named after the **combination**, e.g. `Gold 200 + Spectracolor`, not just the
+   film. Re-run **Batch Analysis**, then check it on a second frame before trusting it.
+
+If hues are turned rather than muddied — every colour rotated the same way, neutrals
+fine — that is a light-spectrum problem and **Hue Trim** is the cheaper fix; a matrix
+will fight it. Muddy, low-separation colour is the crosstalk signature.
 
 ### Editing matrices in the app
 
@@ -117,6 +181,12 @@ have to hand-edit TOML:
 
 ## Contributing a matrix
 
-Calibrated a film stock or scanner? Add your `.toml` to the repo's
-[`crosstalk/`](../crosstalk/) folder and open a PR — bundled matrices ship to all
-users on the next release. See [`crosstalk/README.md`](../crosstalk/README.md).
+Tuned one for your setup? Please send it. Add your `.toml` to the repo's
+[`crosstalk/`](../crosstalk/) folder and open a PR — bundled matrices ship to all users on
+the next release. See [`crosstalk/README.md`](../crosstalk/README.md).
+
+Say what rig it came from in the profile name and the PR: the film stock, the light source
+and the camera or scanner. Nobody can derive your light and sensor from a datasheet, so a
+measured-in-anger profile for a common combination is more useful to other people than any
+amount of theory — and light panels get discontinued, so profiles for the ones people
+actually own are worth keeping.
