@@ -17,6 +17,10 @@ class PreviewCacheKey:
     use_camera_wb: bool
     workspace_color_space: str
     full_resolution: bool
+    half: int = 0
+    split_x: float = 0.5
+    crop_rect: tuple[float, float, float, float] | None = None
+    gutter_thickness: float = 0.0
 
     def as_tuple(self) -> Hashable:
         return (
@@ -24,6 +28,10 @@ class PreviewCacheKey:
             self.use_camera_wb,
             self.workspace_color_space,
             self.full_resolution,
+            self.half,
+            round(self.split_x, 6),
+            self.crop_rect,
+            round(self.gutter_thickness, 6),
         )
 
 

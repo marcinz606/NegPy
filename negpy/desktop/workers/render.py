@@ -143,6 +143,7 @@ class AssetDiscoveryTask:
     restore_triplets: dict | None = None  # {red_path: [green, blue]} — rebuild known triplets (session restore).
     half_frame: bool = False  # Expand each file into two half-frame assets (left/right).
     restore_stitches: dict | None = None  # {primary_path: {paths, transforms, canvas, sizes, hash}} (session restore).
+    half_frame_profile: dict | None = None  # {crop_rect, split_x, gutter_thickness} override
 
 
 @dataclass(frozen=True)
@@ -167,6 +168,9 @@ class PreviewLoadTask:
     stitch_triplets: tuple[tuple[str, str], ...] = ()  # per-part (green, blue) RGB-scan exposures
     stitch_align: bool = True
     flatfield_profile_id: str = ""  # per-part flat-field profile for stitch previews
+    half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None = (
+        None  # (half, split_x, crop_rect, gutter_thickness)
+    )
 
 
 class RenderWorker(QObject):
@@ -452,13 +456,18 @@ class AssetDiscoveryWorker(QObject):
             valid_assets = self._attach_restored_stitches(valid_assets, task.restore_stitches)
 
         if task.half_frame and valid_assets:
-            valid_assets = self._expand_half_frames(valid_assets)
+            valid_assets = self._expand_half_frames(valid_assets, profile=task.half_frame_profile)
 
         self.finished.emit(valid_assets)
 
-    def _expand_half_frames(self, assets: list) -> list:
+    def _expand_half_frames(self, assets: list, profile: dict | None = None) -> list:
         """Expand each file into two half-frame assets sharing the path, with
-        per-half hash/name identities. Triplet assets stay whole (unsupported combo)."""
+        per-half hash/name identities. Triplet assets stay whole (unsupported combo).
+
+        When ``profile`` is set (a {crop_rect, split_x, gutter_thickness} dict saved
+        from the half-frame rectangle editor), it overrides the auto-detected split
+        and adds the crop rect + gutter to every expanded half.
+        """
         from negpy.services.assets.half_frame import detect_split_x_for_file, half_hash, half_name
 
         out = []
@@ -467,19 +476,26 @@ class AssetDiscoveryWorker(QObject):
                 out.append(a)
                 continue
             self.progress.emit(i + 1, len(assets), f"Split {a['name']}")
-            split_x = detect_split_x_for_file(a["path"])
+            if profile is not None:
+                split_x = float(profile.get("split_x") or 0.5)
+            else:
+                split_x = detect_split_x_for_file(a["path"])
             legacy = a.get("legacy_hash")
             for half in (1, 2):
-                out.append(
-                    {
-                        **a,
-                        "name": half_name(a["name"], half),
-                        "hash": half_hash(a["hash"], half),
-                        "legacy_hash": half_hash(legacy, half) if legacy else "",
-                        "half": half,
-                        "split_x": split_x,
-                    }
-                )
+                entry = {
+                    **a,
+                    "name": half_name(a["name"], half),
+                    "hash": half_hash(a["hash"], half),
+                    "legacy_hash": half_hash(legacy, half) if legacy else "",
+                    "half": half,
+                    "split_x": split_x,
+                }
+                if profile is not None:
+                    cr = profile.get("crop_rect")
+                    if cr is not None:
+                        entry["crop_rect"] = tuple(cr)
+                    entry["gutter_thickness"] = float(profile.get("gutter_thickness") or 0.0)
+                out.append(entry)
         return out
 
     def _attach_restored_triplets(self, assets: list, triplets: dict) -> list:
@@ -589,6 +605,7 @@ class PreviewLoadWorker(QObject):
                     use_camera_wb=task.use_camera_wb,
                     full_resolution=task.full_resolution,
                     file_hash=task.file_hash,
+                    half_slice=task.half_slice,
                 )
             except Exception as e:
                 logger.debug("Preview cache warm failed for %s: %s", task.file_path, e)
@@ -660,6 +677,7 @@ class PreviewLoadWorker(QObject):
                     full_resolution=task.full_resolution,
                     file_hash=task.file_hash,
                     log_timings=True,
+                    half_slice=task.half_slice,
                 )
                 if sp is not None:
                     sbuf, sdims = sp
@@ -672,6 +690,7 @@ class PreviewLoadWorker(QObject):
                     full_resolution=task.full_resolution,
                     file_hash=task.file_hash,
                     log_timings=True,
+                    half_slice=task.half_slice,
                 )
             source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
             ir_preview = metadata.get("ir_preview")

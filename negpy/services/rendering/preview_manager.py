@@ -75,7 +75,11 @@ class PreviewManager:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _try_splash_from_open_raw(raw: Any, file_path: str) -> Optional[Tuple[ImageBuffer, Dimensions]]:
+    def _try_splash_from_open_raw(
+        raw: Any,
+        file_path: str,
+        half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None = None,
+    ) -> Optional[Tuple[ImageBuffer, Dimensions]]:
         """
         Extract a splash preview from an already-open raw object.
         Returns None if a thumb cannot be extracted or converted.
@@ -96,6 +100,13 @@ class PreviewManager:
         except Exception:
             return None
         arr = np.ascontiguousarray(np.array(img, dtype=np.float32) / 255.0)
+        # Half-frame slice before the splash downsample so the splash shows the
+        # active half, not the whole scan (and at the same pixels the linear load slices).
+        if half_slice is not None:
+            half, split_x, crop_rect, gutter_thickness = half_slice
+            from negpy.services.assets.half_frame import slice_half
+
+            arr = np.ascontiguousarray(slice_half(arr, half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness))
         h, w = arr.shape[:2]
         if max(h, w) > APP_CONFIG.preview_render_size:
             scale = APP_CONFIG.preview_render_size / max(h, w)
@@ -116,10 +127,16 @@ class PreviewManager:
         full_resolution: bool,
         file_hash: str | None,
         log_timings: bool = False,
+        half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None = None,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """
         Decode and resize a linear preview from an already-open raw object.
         Handles cache write on completion.
+
+        ``half_slice``: (half, split_x, crop_rect, gutter_thickness) — when set,
+        the half-frame slice is applied to the full-res decode BEFORE the preview
+        downsample so analysis sees the same pixels export analyzes (slice then
+        downsample), not whole-scan-averaged pixels (downsample then slice).
         """
         t_decode = time.perf_counter()
         log = logger.info if log_timings else logger.debug
@@ -174,6 +191,20 @@ class PreviewManager:
                 h_orig, w_orig = w_orig, h_orig
         else:
             h_orig, w_orig = _output_dimensions_from_raw(raw, h_p, w_p)
+        # Half-frame slice before the downsample so the analysis stage sees the
+        # same pixels export analyzes (slice → downsample), not whole-scan pixels
+        # averaged across the gutter/other half (downsample → slice).
+        if half_slice is not None:
+            half, split_x, crop_rect, gutter_thickness = half_slice
+            from negpy.services.assets.half_frame import slice_half
+
+            full_linear = np.ascontiguousarray(
+                slice_half(full_linear, half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness)
+            )
+            if ir_full is not None:
+                ir_full = np.ascontiguousarray(slice_half(ir_full, half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness))
+            h_p, w_p = full_linear.shape[:2]
+            h_orig, w_orig = (h_p, w_p)
         t_resize0 = time.perf_counter()
         max_res = APP_CONFIG.preview_render_size
         if max(h_p, w_p) > max_res and not full_resolution:
@@ -223,6 +254,10 @@ class PreviewManager:
                 use_camera_wb=use_camera_wb,
                 workspace_color_space=color_space,
                 full_resolution=full_resolution,
+                half=half_slice[0] if half_slice else 0,
+                split_x=half_slice[1] if half_slice else 0.5,
+                crop_rect=half_slice[2] if half_slice else None,
+                gutter_thickness=half_slice[3] if half_slice else 0.0,
             )
             # The cache entry aliases the returned buffer — the same read-only
             # contract as a cache hit (callers must not mutate preview buffers),
@@ -258,10 +293,14 @@ class PreviewManager:
         full_resolution: bool = False,
         file_hash: str | None = None,
         log_timings: bool = False,
+        half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None = None,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """
         Loads linear RGB, downsamples for display.
         If color_space is None, uses the source's declared space (metadata).
+
+        ``half_slice``: (half, split_x, crop_rect, gutter_thickness) — slice the
+        half before the preview downsample so analysis matches export.
         """
         t_all = time.perf_counter()
         log = logger.info if log_timings else logger.debug
@@ -273,6 +312,10 @@ class PreviewManager:
                 use_camera_wb=use_camera_wb,
                 workspace_color_space=color_space,
                 full_resolution=full_resolution,
+                half=half_slice[0] if half_slice else 0,
+                split_x=half_slice[1] if half_slice else 0.5,
+                crop_rect=half_slice[2] if half_slice else None,
+                gutter_thickness=half_slice[3] if half_slice else 0.0,
             )
             hit = self._cache.get(ck)
             if hit is not None:
@@ -290,6 +333,10 @@ class PreviewManager:
                     use_camera_wb=use_camera_wb,
                     workspace_color_space=color_space,
                     full_resolution=full_resolution,
+                    half=half_slice[0] if half_slice else 0,
+                    split_x=half_slice[1] if half_slice else 0.5,
+                    crop_rect=half_slice[2] if half_slice else None,
+                    gutter_thickness=half_slice[3] if half_slice else 0.0,
                 )
                 hit = self._cache.get(ck)
                 if hit is not None:
@@ -307,6 +354,7 @@ class PreviewManager:
                 full_resolution,
                 file_hash,
                 log_timings,
+                half_slice=half_slice,
             )
         log(
             "load-timing load_linear_preview %.0fms (decode %.0fms + open)",
@@ -456,6 +504,7 @@ class PreviewManager:
         full_resolution: bool = False,
         file_hash: str | None = None,
         log_timings: bool = False,
+        half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None = None,
     ) -> Tuple[Optional[Tuple[ImageBuffer, Dimensions]], Tuple[ImageBuffer, Dimensions, dict]]:
         """
         Open the RAW file once and return both the splash preview and the linear
@@ -476,6 +525,10 @@ class PreviewManager:
                 use_camera_wb=use_camera_wb,
                 workspace_color_space=color_space,
                 full_resolution=full_resolution,
+                half=half_slice[0] if half_slice else 0,
+                split_x=half_slice[1] if half_slice else 0.5,
+                crop_rect=half_slice[2] if half_slice else None,
+                gutter_thickness=half_slice[3] if half_slice else 0.0,
             )
             hit = self._cache.get(ck)
             if hit is not None:
@@ -497,6 +550,10 @@ class PreviewManager:
                     use_camera_wb=use_camera_wb,
                     workspace_color_space=color_space,
                     full_resolution=full_resolution,
+                    half=half_slice[0] if half_slice else 0,
+                    split_x=half_slice[1] if half_slice else 0.5,
+                    crop_rect=half_slice[2] if half_slice else None,
+                    gutter_thickness=half_slice[3] if half_slice else 0.0,
                 )
                 hit = self._cache.get(ck)
                 if hit is not None:
@@ -508,7 +565,7 @@ class PreviewManager:
         splash_result: Optional[Tuple[ImageBuffer, Dimensions]] = None
         with ctx_mgr as raw:
             if not full_resolution:
-                splash_result = self._try_splash_from_open_raw(raw, file_path)
+                splash_result = self._try_splash_from_open_raw(raw, file_path, half_slice=half_slice)
             linear_result = self._load_from_open_raw(
                 raw,
                 metadata,
@@ -518,6 +575,7 @@ class PreviewManager:
                 full_resolution,
                 file_hash,
                 log_timings,
+                half_slice=half_slice,
             )
         log(
             "load-timing load_splash_and_linear %.0fms (decode %.0fms + open)",
