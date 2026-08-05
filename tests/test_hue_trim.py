@@ -1,8 +1,7 @@
 """Hue Trim: the a*b* rotation that undoes a light source's hue shift.
 
-Covers the CPU op's invariants and CPU/GPU parity — the rotation is written twice (hue.py and the
-inlined block in exposure.wgsl), so a drift between them would show as GPU previews disagreeing
-with CPU exports.
+The rotation is written twice (hue.py and the inlined block in exposure.wgsl), so drift between
+them would show up as GPU previews disagreeing with CPU exports.
 """
 
 import unittest
@@ -44,8 +43,7 @@ class TestHueTrimLogic(unittest.TestCase):
             np.testing.assert_allclose(delta, angle, atol=0.5, err_msg=f"angle {angle}")
 
     def test_neutrals_are_untouched(self):
-        """The whole point of a rotation over a cast: greys must not move, so it cannot
-        fight the base-anchored cast removal upstream."""
+        """Greys must not move, or this would fight the base-anchored cast removal upstream."""
         grey = np.stack([np.linspace(0.02, 0.98, 16, dtype=np.float32)] * 3, axis=-1)[None, :, :]
         out = np.asarray(apply_hue_trim(grey, 20.0))
         self.assertLess(float(np.max(_chroma_of(out))), 0.05)
@@ -70,11 +68,10 @@ class TestHueTrimLogic(unittest.TestCase):
 
 
 def _chromatic_negative(h: int = 64, w: int = 64, seed: int = 7) -> np.ndarray:
-    """A synthetic linear negative with real per-channel spread.
+    """A synthetic linear negative whose channels oppose, so the print carries real chroma.
 
-    A near-neutral test ramp is useless here: a hue rotation barely moves low-chroma pixels, so a
-    grey gradient makes both the parity and the has-any-effect assertions pass vacuously. The
-    channels are given opposing gradients so the inverted print carries genuine chroma.
+    A grey ramp makes the parity and has-any-effect assertions pass vacuously: a rotation barely
+    moves low-chroma pixels.
     """
     rng = np.random.default_rng(seed)
     x = np.linspace(0.05, 0.9, w, dtype=np.float32)

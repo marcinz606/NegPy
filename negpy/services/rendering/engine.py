@@ -156,9 +156,8 @@ class DarkroomEngine:
 
         def run_exposure(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
             img_out = PhotometricProcessor(settings.exposure, settings.local).process(img_in, ctx)
-            # Light-source hue correction: rides the exposure stage (it needs the print, and a
-            # stage of its own would re-run everything behind it on a slider drag), but it is a
-            # capture fix, so it stays inside the flat intent below.
+            # Rides this stage: it needs the print, and its own stage would re-run everything
+            # behind it on a drag. Stays inside the flat intent below (capture fix, not a look).
             return apply_hue_trim(img_out, settings.process.hue_trim)
 
         # Dodge/burn masks are print-exposure inputs, so they key this stage.

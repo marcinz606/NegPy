@@ -1308,8 +1308,7 @@ class GPUEngine:
             # the w-lanes carry Separation Damping's green/blue k.
             + struct.pack("ffff", _sg3[0], _sg3[1], _sg3[2], sat_k3[1])
             + struct.pack("ffff", _hg3[0], _hg3[1], _hg3[2], sat_k3[2])
-            # Hue Trim in radians (x; yzw pad) — the shader rotates the linear print
-            # before the encode, mirroring apply_hue_trim on the CPU.
+            # Hue Trim, radians (x; yzw pad); the shader rotates before its encode.
             + struct.pack("ffff", math.radians(float(settings.process.hue_trim)), 0.0, 0.0, 0.0)
         )
 

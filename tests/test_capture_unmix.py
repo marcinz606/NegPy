@@ -91,3 +91,18 @@ def test_unmix_log_image_matches_matrix():
     expected = np.einsum("hwc,kc->hwk", log, m.astype(np.float32))
     np.testing.assert_allclose(out, expected, atol=1e-6)
     assert unmix_log_image(log, None) is log
+
+
+def test_legacy_default_crosstalk_profile_name_migrates():
+    """The built-in profile was renamed "Default" -> "Generic C41". Saved edits store the
+    display name, so an un-migrated one leaves the dropdown matching no row."""
+    from negpy.domain.models import WorkspaceConfig
+
+    d = WorkspaceConfig().to_dict()
+    d["crosstalk_profile"] = "Default"
+    cfg = WorkspaceConfig.from_flat_dict(d)
+    assert cfg.process.crosstalk_profile == "Generic C41"
+
+    # A user profile that happens to sit alongside it is untouched.
+    d["crosstalk_profile"] = "My Rig"
+    assert WorkspaceConfig.from_flat_dict(d).process.crosstalk_profile == "My Rig"

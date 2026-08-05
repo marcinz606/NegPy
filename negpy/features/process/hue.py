@@ -1,15 +1,11 @@
-"""Hue Trim — corrects the hue rotation an unusual scanning light imposes on every colour.
+"""Hue Trim: undoes the hue rotation an unusual scanning light imposes.
 
-A narrowband or odd-phosphor light source rotates hues by a roughly *constant* angle rather than
-casting them: measured on one negative scanned under two lights, |ΔH| stayed within 16-21° across
-CIELAB chroma 4 to 60+. A colour cast would have shrunk with chroma (a fixed a*b* offset barely
-turns a saturated colour) and a general channel mix would have grown, so the correction is a single
-rotation about the neutral axis. That also leaves neutrals exactly where the base-anchored cast
-removal put them, so this cannot fight normalization.
+A rotation, not a cast. Measured on one negative under two lights, |ΔH| held 16-21° across
+CIELAB chroma 4 to 60+; a cast shrinks with chroma, a channel mix grows. Rotating about the
+neutral axis therefore fixes neutrals, so it cannot fight the cast removal in normalization.
 
-Applied to the print (scene-linear positive, after the print curve) because the reference
-measurement was taken there, and inside the flat render intent because a light's hue error is a
-capture defect, not a look — a digital-intermediate master should already be free of it.
+Runs on the scene-linear print, and inside RenderIntent.FLAT: a light's hue error is a capture
+defect like the sensor unmix, not a look.
 """
 
 from __future__ import annotations

@@ -26,8 +26,8 @@ from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.process.models import DEFAULT_CROSSTALK_MATRIX
 from negpy.services.assets.crosstalk import TYPE_MEASURED, TYPE_SPECSHEET, TYPE_TUNED, CrosstalkProfiles
 
-#: Selectable provenances, in the order the Matrix dropdown groups them. "Other" is not
-#: offered: it exists to keep a hand-written type loadable, not as something to choose.
+#: Selectable provenances, in dropdown group order. "Other" is not offered: it exists to
+#: keep a hand-written type loadable, not as something to choose.
 _TYPE_CHOICES: tuple[tuple[str, str], ...] = (
     (TYPE_TUNED, "Tuned on a rig"),
     (TYPE_MEASURED, "Measured"),
@@ -335,9 +335,9 @@ class CrosstalkEditorDialog(QDialog):
         return self.type_combo.currentData() or TYPE_TUNED
 
     def _set_type(self, value: str) -> None:
-        """Select `value`, falling back to Tuned for a built-in or hand-written type — the
-        combo only offers the three real provenances, and saving must not silently relabel
-        an unknown one as spec-sheet just because it sits first in the list."""
+        """Select `value`, falling back to Tuned for a built-in or hand-written type.
+
+        Not the first entry: saving must not relabel an unknown type as a spec-sheet claim."""
         idx = self.type_combo.findData(value)
         self.type_combo.setCurrentIndex(idx if idx >= 0 else self.type_combo.findData(TYPE_TUNED))
 
@@ -427,8 +427,7 @@ class CrosstalkEditorDialog(QDialog):
         if self._selected_name is None:
             return
         new_name = unique_copy_name(self._selected_name, self._all_names())
-        # A copy of a bundled spec-sheet matrix becomes something you are about to tune, so it
-        # takes the editable default rather than inheriting the datasheet's provenance claim.
+        # Takes the `tuned` default rather than inheriting a datasheet provenance claim.
         CrosstalkProfiles.save(new_name, self.working_matrix())
         self.profiles_changed.emit()
         self._reload_list(select=new_name)

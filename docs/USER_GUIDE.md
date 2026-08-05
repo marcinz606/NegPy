@@ -20,7 +20,7 @@ The right-hand tabs are arranged in the order you actually work, which mirrors t
 
 | Tab | Icon | Panels | What it's for |
 |-----|------|--------|---------------|
-| **Setup** | cogs | Presets · Sensor Calibration · Process · Roll Analysis | Film type, negative→positive normalization, roll-wide baselines |
+| **Setup** | cogs | Presets · Calibration · Process · Roll Analysis | Film type, capture-side colour corrections, negative→positive normalization, roll-wide baselines |
 | **Geometry** | crop | Geometry · Flat Field | Crop, straighten, lens/falloff correction |
 | **Exposure** | sun | Filtration · Tone · Dodge & Burn | White balance, print density/contrast/curve/saturation, local burns |
 | **Colour** | palette | Lab · Toning | Chroma, sharpening, effects, split/chemical toning |
@@ -207,7 +207,7 @@ Save and recall a complete edit (the full workspace) by name.
 *   **Trash**: delete the selected preset.
 
 <!-- panel:sensor -->
-### 4.2 Sensor / Light Calibration: what your rig does to the colours
+### 4.2 Calibration: what your rig does to the colours
 
 Everything here corrects the *capture*, not the look: three different things sit between the scene and your file — the camera's colour filters, the film's dyes, and the light source — and each gets its own control. They are not interchangeable, and none substitutes for another.
 
@@ -220,12 +220,12 @@ This block greys out unless **Linear RAW** is on, since profiles are calibrated 
 
 **Crosstalk** (hidden in B&W), a channel unmix applied to the raw negative densities before inversion. The film's dyes each absorb outside their own band, but they are not the only cause: your light's spectrum and your sensor's colour filters mix the channels too, and in the density domain all three arrive as the same kind of error. So treat the matrix as *your whole scanning setup*, not just the film — a profile that works beautifully on one rig may be wrong on another with the same stock.
 
-*   **Matrix**: the profile to apply. *Default* is built-in; drop custom `.toml` matrices in `<Documents>/NegPy/crosstalk/` (see [CROSSTALK.md](CROSSTALK.md)). The slider button opens a matrix editor.
+*   **Matrix**: the profile to apply, grouped in the dropdown by where its numbers came from (measured, tuned on a rig, or from spec sheets). *Generic C41* is the built-in; drop custom `.toml` matrices in `<Documents>/NegPy/crosstalk/` (see [CROSSTALK.md](CROSSTALK.md)). The slider button opens a matrix editor, where a **Type** control records that provenance for your own profiles.
 *   **Strength** (0.0 to 1.0): how much of the unmix to apply, for richer and cleaner colour separation. Because it changes what the analysis reads, **re-run Batch Analysis** after changing it.
 
 > **The bundled film matrices are derived from published spec sheets, not measured** — which is why they are all marked *(approx)*. They describe the film's **dyes alone**, so they are only the whole story where your capture reads each dye cleanly: a **true RGB scan** (a Coolscan-style mono sensor lit one band at a time) or a **calibrated trichrome rig** (see *Trichrome Calibration* above). With a broadband light and a Bayer sensor, the capture adds mixing of its own that a dyes-only matrix does not describe — it may still help, but treat the number as a starting point rather than a correction for your setup.
 
-**Worth experimenting with.** Start from *Default*, raise **Strength** until colours separate without going garish, and if a stock or a light gives you trouble, open the matrix editor, nudge the six off-diagonal terms and save the result as your own profile. Name it after the *combination* — "Gold 200 + Spectracolor", not just the film. A profile you tuned on your own rig beats any datasheet, and profiles that work are genuinely worth [contributing back](CROSSTALK.md#contributing-a-matrix), since nobody can guess your light and sensor for you.
+**Worth experimenting with.** - if a stock or a light gives you trouble, open the matrix editor, nudge the six off-diagonal terms and save the result as your own profile. Name it after the *combination* — "Gold 200 + Spectracolor", not just the film. A profile you tuned on your own rig beats any datasheet, and profiles that work are genuinely worth [contributing back](CROSSTALK.md#contributing-a-matrix), since nobody can guess your light and sensor for you.
 
 **Light source:**
 
@@ -263,7 +263,7 @@ Applying it sets the defaults for newly loaded files, updates the open frame, an
 *   **Colour Clip** (-100 to 100): the per-channel colour-balance clip (orange-mask removal), independent of the tonal range. Positive tightens channel balance; negative samples nearer the extremes.
 *   **Global / R / G / B** selector → **White Point** / **Black Point** (-0.25 to 0.25): manual offsets on top of the auto-detected bounds. Positive white point brightens; positive black point lifts blacks. In R/G/B mode these become per-layer trims: per-dye-layer film-base (Dmin) and Dmax corrections, i.e. scanner-style per-channel levels. Hidden in B&W.
 
-**Crosstalk**, **Hue Trim** and the sensor unmix all live in **Sensor / Light Calibration** (§4.2) — they correct the capture rather than the negative-to-positive conversion.
+**Crosstalk**, **Hue Trim** and the sensor unmix all live in **Calibration** (§4.2) — they correct the capture rather than the negative-to-positive conversion.
 
 **Normalize** (E-6 only): auto-stretches a slide's histogram to fill the dynamic range. Useful for faded/expired slides.
 

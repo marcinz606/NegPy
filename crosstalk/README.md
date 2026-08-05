@@ -1,7 +1,7 @@
 # Crosstalk matrix gallery
 
 Community-contributed channel-unmix matrices for NegPy's **Crosstalk** controls
-(Sensor / Light Calibration panel: *Matrix* + *Strength*).
+(Calibration panel: *Matrix* + *Strength*).
 
 Every `.toml` here is bundled with the app and copied into a user's
 `<Documents>/NegPy/crosstalk/` folder on first run, so they show up in the sidebar

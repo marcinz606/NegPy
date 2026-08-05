@@ -156,10 +156,9 @@ class ControlsPanel(QWidget):
 
         self.sensor_sidebar = SensorSidebar(self.controller)
         self.sensor_section = self._make_section(
-            # Holds every capture-side correction now, not just the sensor unmix:
-            # the film-dye crosstalk matrix and the light's Hue Trim live here too.
-            # The persisted "sensor" section key stays.
-            "Sensor / Light Calibration",
+            # Bare name: it holds the crosstalk matrix and Hue Trim as well as the sensor
+            # unmix. The persisted "sensor" section key stays.
+            "Calibration",
             "sensor",
             self.sensor_sidebar,
             icon=qta.icon("fa5s.vials", color=icon_color),
@@ -240,7 +239,7 @@ class ControlsPanel(QWidget):
             (
                 "setup",
                 "fa5s.cogs",
-                "Setup — Presets, Sensor / Light Calibration, Process, Roll Analysis",
+                "Setup — Presets, Calibration, Process, Roll Analysis",
                 [self.presets_section, self.sensor_section, self.process_section, self.roll_section],
                 ["sensor_section", "process_section", "roll_section"],
             ),

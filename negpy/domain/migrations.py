@@ -109,6 +109,12 @@ def migrate_flat_config(data: Dict[str, Any]) -> Dict[str, Any]:
         data["crosstalk_strength"] = min(max(float(data.pop("color_separation")) - 1.0, 0.0), 1.0)
     data.pop("color_separation", None)
 
+    # The built-in crosstalk profile "Default" was renamed "Generic C41". Saved edits store the
+    # display name; the render is unaffected (a None matrix still falls back to the built-in),
+    # but the dropdown would match no row and show the wrong profile as selected.
+    if data.get("crosstalk_profile") == "Default":
+        data["crosstalk_profile"] = "Generic C41"
+
     # Vignette became an exposure-domain burn: old ±1 strength (neg = darken)
     # maps to stops (pos = burn) with an approximate look-preserving factor.
     if "vignette_strength" in data and "vignette_stops" not in data:

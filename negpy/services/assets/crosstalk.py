@@ -6,18 +6,17 @@ from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.paths import get_resource_path
 from negpy.services.assets.naming import escape_toml_string, slugify
 
-DEFAULT_NAME = "Default"
+# Renamed from "Default"
+DEFAULT_NAME = "Generic C41"
 
-# `type` in a profile TOML: where its numbers came from, which is what decides how far to
-# trust one. Free-form on disk (an unknown value groups under "Other"), but these are the
-# names the app writes and groups by.
+# A profile's `type` records where its numbers came from. Free-form on disk; anything
+# outside this set groups under "Other" rather than disappearing.
 TYPE_SPECSHEET = "specsheet-based"  # read off published spectral dye-density curves
 TYPE_MEASURED = "measured"  # fitted against real scans of a known reference
-TYPE_TUNED = "tuned"  # dialled in by eye on a real rig (what the editor saves)
+TYPE_TUNED = "tuned"  # dialled in by eye on a rig; what the editor saves
 TYPE_BUILTIN = "built-in"
 
-#: Dropdown group order and headings. A profile's type decides its group; the trailing
-#: entry catches anything unrecognised so a hand-written type never hides a profile.
+#: Dropdown group order and headings; the trailing entry is the catch-all.
 GROUP_ORDER: tuple[tuple[str, str], ...] = (
     (TYPE_BUILTIN, "Built-in"),
     (TYPE_MEASURED, "Measured"),
@@ -32,7 +31,7 @@ class CrosstalkProfiles:
     TOML I/O for user spectral-crosstalk matrices.
 
     Files live in APP_CONFIG.crosstalk_dir. The built-in hardcoded matrix is
-    exposed as the "Default" profile. Disk I/O only happens on dropdown build
+    exposed as the "Generic C41" profile. Disk I/O only happens on dropdown build
     and on selection -- never per render (matrices are baked into ProcessConfig).
     """
 
@@ -76,9 +75,7 @@ class CrosstalkProfiles:
     def _parse_file(path: str) -> Optional[tuple]:
         """Parses a .toml file to (name, flat 9-float list), or None if invalid.
 
-        The optional `type` key is read separately by `_scan_types` rather than widened into
-        this tuple: several callers unpack it positionally, and a missing type must never
-        make a profile unloadable."""
+        `type` is read separately by `_scan_types`: callers unpack this tuple positionally."""
         try:
             with open(path, "rb") as f:
                 data = tomllib.load(f)
@@ -132,9 +129,8 @@ class CrosstalkProfiles:
     def grouped_profiles() -> List[tuple]:
         """[(heading, [profile names])] in GROUP_ORDER, skipping empty groups.
 
-        Drives the dropdown's section headings. Every profile lands in exactly one group, so
-        the flattened names are `list_profiles()` reordered — nothing can be dropped by an
-        unrecognised type (those fall through to "Other")."""
+        Every profile lands in exactly one group, so the flattened names are `list_profiles()`
+        reordered; an unrecognised type cannot drop one."""
         types = CrosstalkProfiles._scan_types()
         known = {t for t, _ in GROUP_ORDER if t}
         buckets: dict = {t: [] for t, _ in GROUP_ORDER}
@@ -146,14 +142,14 @@ class CrosstalkProfiles:
 
     @staticmethod
     def get_type(name: str) -> str:
-        """A profile's type, or TYPE_BUILTIN for Default / "" when unknown."""
+        """A profile's type, or TYPE_BUILTIN for the built-in / "" when unknown."""
         if name == DEFAULT_NAME:
             return TYPE_BUILTIN
         return CrosstalkProfiles._scan_types().get(name, "")
 
     @staticmethod
     def list_profiles() -> List[str]:
-        """["Default", *sorted custom display-names]."""
+        """["Generic C41", *sorted custom display-names]."""
         return [DEFAULT_NAME, *sorted(CrosstalkProfiles._scan().keys())]
 
     @staticmethod
@@ -168,7 +164,7 @@ class CrosstalkProfiles:
 
     @staticmethod
     def is_bundled(name: str) -> bool:
-        """True for read-only profiles: the built-in Default or any bundled matrix."""
+        """True for read-only profiles: the built-in or any bundled matrix."""
         return name == DEFAULT_NAME or name in CrosstalkProfiles.scan_bundled()
 
     @staticmethod
@@ -180,9 +176,7 @@ class CrosstalkProfiles:
     def save(name: str, matrix: List[float], profile_type: str = TYPE_TUNED) -> str:
         """Write a user profile TOML (row-major 3×3) and return its path.
 
-        Defaults to `tuned`: anything saved from the editor was dialled in on a real rig,
-        which is a stronger claim than the bundled spec-sheet estimates and should not be
-        grouped with them."""
+        Defaults to `tuned` so editor saves are not grouped with the spec-sheet estimates."""
         os.makedirs(APP_CONFIG.crosstalk_dir, exist_ok=True)
         rows = "\n".join("  [{:.6g}, {:.6g}, {:.6g}],".format(*matrix[i * 3 : i * 3 + 3]) for i in range(3))
         content = f'name = "{escape_toml_string(name)}"\ntype = "{escape_toml_string(profile_type)}"\nmatrix = [\n{rows}\n]\n'

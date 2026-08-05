@@ -11,13 +11,9 @@ from negpy.services.assets.sensor import SensorProfiles
 
 class SensorSidebar(BaseSidebar):
     """
-    Every capture-side colour correction: what the sensor, the film's dyes and the
-    light source each do to the channels, before any creative decision.
-
-    Three separate causes, deliberately three separate controls — SENSOR un-mixes
-    the camera's cross-channel response (linear capture), CROSSTALK un-mixes the
-    film's dye absorptions (negative density), LIGHT SOURCE rotates hue for an odd
-    source spectrum (the print). None of them substitutes for another.
+    Capture-side colour corrections, one per cause and not interchangeable: the
+    camera's cross-channel response (linear capture), the film's dye absorptions
+    (negative density), and an odd light spectrum's hue rotation (the print).
     """
 
     def _init_ui(self) -> None:
@@ -132,10 +128,9 @@ class SensorSidebar(BaseSidebar):
     def _fill_crosstalk_combo(self) -> None:
         """Rebuild the matrix dropdown with a non-selectable heading per provenance group.
 
-        Headings are real combo rows disabled through the model — Qt has no group concept —
-        so they are skipped by keyboard/wheel navigation and can never be chosen. They are
-        bracketed so a heading can't collide with a profile name if one is ever named after
-        a group, which would otherwise let setCurrentText land on a heading.
+        Qt has no group concept, so headings are combo rows disabled through the model.
+        Bracketing them keeps a heading from colliding with a profile name, which would let
+        setCurrentText land on one.
         """
         self.crosstalk_combo.clear()
         for heading, names in CrosstalkProfiles.grouped_profiles():
@@ -158,9 +153,9 @@ class SensorSidebar(BaseSidebar):
     def _apply_gate(self, conf) -> None:
         """Grey the sensor unmix and show "None" while it cannot be applied.
 
-        Display-only: conf.sensor_profile is deliberately left alone, so the
-        selection comes back intact after a Linear RAW round-trip. Scoped to the
-        SENSOR block — crosstalk and Hue Trim do not depend on the decode basis.
+        Display-only: conf.sensor_profile is left alone, so the selection comes back intact
+        after a Linear RAW round-trip. Crosstalk and Hue Trim do not depend on the decode
+        basis, so they stay enabled.
         """
         available = sensor_unmix_available(conf)
         self.sensor_combo.setCurrentText(conf.sensor_profile if available else SensorProfiles.NONE_NAME)
@@ -279,8 +274,7 @@ class SensorSidebar(BaseSidebar):
         self.sync_ui()
 
     def _on_hue_trim_changed(self, val: float, persist: bool = True) -> None:
-        # Sticky on commit only: a light source is a rig property, so the next file starts
-        # from the same trim — but not from every intermediate value of a slider drag.
+        # Sticky on commit only, so a drag doesn't write every intermediate value.
         self.update_config_section("process", hue_trim=val, persist=persist)
         if persist:
             self.controller.session.repo.save_global_setting("last_hue_trim", float(val))
@@ -295,14 +289,12 @@ class SensorSidebar(BaseSidebar):
                 self.sensor_combo.addItems(profiles)
             self._apply_gate(conf)
 
-            # Compare the rendered rows, headings included, so a profile whose `type` changed
-            # (moving it between groups without changing the name set) also rebuilds. Cheap:
-            # the alternative was tearing the dropdown down on every sync.
+            # Headings included, so a changed `type` rebuilds too (the name set alone would not).
             if self._expected_crosstalk_rows() != [self.crosstalk_combo.itemText(i) for i in range(self.crosstalk_combo.count())]:
                 self._fill_crosstalk_combo()
             self.crosstalk_combo.setCurrentText(conf.crosstalk_profile)
             self.crosstalk_strength_slider.setValue(conf.crosstalk_strength)
-            # Dye crosstalk is a colour operation: nothing to unmix on one B&W emulsion.
+            # Nothing to unmix on one B&W emulsion.
             is_bw = conf.process_mode == ProcessMode.BW
             for w in (self.crosstalk_header, self.crosstalk_label, self.crosstalk_combo, self.manage_crosstalk_btn):
                 w.setVisible(not is_bw)

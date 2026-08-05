@@ -48,8 +48,8 @@ struct ExposureUniforms {
     // These rows push the block past 256B: exposure spans two UBO slots.
     split_sh: vec4<f32>,
     split_hi: vec4<f32>,
-    // Hue Trim: x = rotation in radians, yzw pad. Free of charge — 288B already
-    // occupied two aligned slots, so this row does not add one.
+    // Hue Trim: x = rotation in radians, yzw pad. Costs no slot; 288B already
+    // spanned two.
     hue: vec4<f32>,
 };
 
@@ -91,10 +91,9 @@ fn oetf_encode(t: f32) -> f32 {
     return pow(x, 0.45470693);
 }
 
-// Hue Trim needs CIELAB, so the two conversions are inlined here (WGSL has no
-// includes). Copied verbatim from lab.wgsl's rgb_to_lab/lab_to_rgb — Adobe RGB
-// 1998 primaries, D65, scene-linear in and out. A primaries or white-point
-// change must update both copies (see CLAUDE.md's inlined-row invariant).
+// Copied verbatim from lab.wgsl's rgb_to_lab/lab_to_rgb (WGSL has no includes):
+// Adobe RGB 1998 primaries, D65, scene-linear both ways. A primaries or
+// white-point change must update both copies.
 fn hue_rgb_to_lab(rgb: vec3<f32>) -> vec3<f32> {
     let r = max(rgb.r, 0.0);
     let g = max(rgb.g, 0.0);
@@ -260,9 +259,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         transmittance = vec3<f32>(l, l, l);
     }
 
-    // Hue Trim on the linear print, before the encode — the CPU applies it to the
-    // same scene-linear buffer (features/process/hue.py), which is what keeps the
-    // two paths in parity. Clamped to [0,1] like the CPU: the print is bounded.
+    // Before the encode: the CPU rotates the same scene-linear buffer
+    // (features/process/hue.py), which is what holds parity.
     if (params.hue.x != 0.0) {
         let lab = hue_rgb_to_lab(transmittance);
         let c = cos(params.hue.x);

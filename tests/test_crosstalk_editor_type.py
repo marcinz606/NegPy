@@ -1,4 +1,4 @@
-"""The crosstalk editor's Type control — provenance must survive a round-trip.
+"""The crosstalk editor's Type control: provenance must survive a round-trip.
 
 A profile's `type` decides which group it lands in and how far the next person trusts it, so a
 save that silently relabelled one would be worse than having no control at all.
@@ -28,8 +28,8 @@ def _app():
 
 @pytest.fixture(autouse=True)
 def _isolated(tmp_path, monkeypatch):
-    """User dir on tmp, bundled gallery pointed at nothing — otherwise the real 16 bundled
-    profiles show up and the assertions below stop being about the fixture."""
+    """User dir on tmp, bundled gallery pointed at nothing, or the real 16 show up and the
+    assertions below stop being about the fixture."""
     monkeypatch.setattr(APP_CONFIG, "crosstalk_dir", str(tmp_path))
     monkeypatch.setattr("negpy.services.assets.crosstalk.get_resource_path", lambda _: str(tmp_path / "_none"))
 
@@ -58,8 +58,8 @@ def test_selecting_a_profile_shows_its_type(_app):
 
 
 def test_unknown_type_falls_back_to_tuned_not_the_first_entry(_app, tmp_path):
-    """A hand-written type must not be relabelled 'spec sheet' just because the combo lists it
-    somewhere — an unrecognised provenance is closest to 'tuned', never a datasheet claim."""
+    """A hand-written type must not be relabelled 'spec sheet' just because that entry sits
+    first in the combo."""
     with open(tmp_path / "odd.toml", "w", encoding="utf-8") as f:
         f.write('name = "Odd"\ntype = "handed-down-by-owls"\nmatrix = [[1.0,0.0,0.0],[0.0,1.0,0.0],[0.0,0.0,1.0]]\n')
 

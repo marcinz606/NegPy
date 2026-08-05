@@ -48,8 +48,8 @@ def test_a_slice_stops_at_the_next_section() -> None:
 def test_cross_doc_links_are_flattened_to_their_text() -> None:
     """Qt paints anchors in the app's accent red, unreadable at body size, and the modal has
     nowhere to navigate to anyway."""
-    # The CROSSTALK.md links live in the Sensor / Light Calibration section, which owns the
-    # crosstalk matrix; Process only cross-references it in prose.
+    # The CROSSTALK.md links live in the Calibration section, which owns the crosstalk
+    # matrix; Process only cross-references it in prose.
     sensor = guide_markdown("sensor")
 
     assert "CROSSTALK.md" in sensor

@@ -1,7 +1,7 @@
 # Custom Crosstalk Matrices
 
-The **Crosstalk** control in the Sensor / Light Calibration sidebar runs channel-unmix
-correction. NegPy ships with one built-in matrix (**Default**), but you can drop in your
+The **Crosstalk** control in the Calibration sidebar runs channel-unmix
+correction. NegPy ships with one built-in matrix (**Generic C41**), but you can drop in your
 own — calibrated for your film *and your scanning setup* — without touching any code.
 
 ---
@@ -26,6 +26,10 @@ So think of a matrix as belonging to a **whole scanning setup**, not to a film s
 A profile someone derived from a datasheet describes the dyes alone; the one that
 actually makes *your* scans sing is the one you tuned on your own light and camera.
 
+Two related controls sit in the same panel and are *not* substitutes: the **sensor**
+matrix corrects the camera in the linear capture, and **Hue Trim** rotates hue for an
+odd light spectrum. See [USER_GUIDE.md](USER_GUIDE.md) §4.2.
+
 > ### What the bundled matrices actually are
 >
 > Every bundled profile is **read off a published spectral-dye-density spec sheet, not
@@ -44,9 +48,6 @@ actually makes *your* scans sing is the one you tuned on your own light and came
 > a trichrome rig. It does mean you should not expect a bundled stock name to be "the"
 > correction for your scanner, and that a matrix you tune yourself is the more trustworthy
 > object. Bundled matrices are read-only; **Make Editable Copy** to start from one.
-(Two related controls sit in the same panel and are *not* substitutes: the **sensor**
-matrix corrects the camera in the linear capture, and **Hue Trim** rotates hue for an
-odd light spectrum. See [USER_GUIDE.md](USER_GUIDE.md) §4.2.)
 
 The math, per pixel on the raw decoded negative:
 
@@ -122,7 +123,7 @@ matrix = [                         # 3x3, row-major (out R/G/B × in R/G/B)
   | anything else / absent | Other | Still loads and works — it just isn't claiming a provenance. |
 
 - Malformed files (wrong shape, non-numbers, bad TOML) are silently skipped.
-- The name `Default` is reserved for the built-in matrix and ignored if reused.
+- The name `Generic C41` is reserved for the built-in matrix and ignored if reused.
 
 The chosen matrix is **baked into the edit** when you select it, so saved edits and
 presets stay reproducible even if you later move or delete the file.
@@ -132,19 +133,18 @@ presets stay reproducible even if you later move or delete the file.
 ## Using it
 
 1. Drop your `.toml` into `<Documents>/NegPy/crosstalk/`.
-2. Open the **Sensor / Light Calibration** sidebar → the **crosstalk dropdown** under
-   CROSSTALK. New files appear the next time the panel syncs (e.g. switching photos);
-   restart if you don't see it.
+2. Open the **Calibration** sidebar → the **crosstalk dropdown** under CROSSTALK. New files
+   appear the next time the panel syncs (e.g. switching photos); restart if you don't see it.
 3. Pick your profile and raise **Strength** above 0 to apply it.
-4. Pick **Default** to revert to the built-in matrix.
+4. Pick **Generic C41** to revert to the built-in matrix.
 
 ### Rolling your own — the short version
 
 You do not need spectral data or a spectrophotometer to get a better matrix than
-*Default*, and you are the only person who can measure your own rig. Recommended loop:
+*Generic C41*, and you are the only person who can measure your own rig. Recommended loop:
 
 1. Pick a frame you know the real colours of — foliage, sky, a grey card, skin.
-2. Start on **Default** and raise **Strength** until colours separate but before they go
+2. Start on **Generic C41** and raise **Strength** until colours separate but before they go
    garish. For many rigs this alone is the whole win.
 3. Still wrong in a specific way? Open the matrix editor, **Make Editable Copy**, and nudge
    the off-diagonal term for the pair that is off (a green leaking into red reads as
@@ -161,7 +161,7 @@ will fight it. Muddy, low-separation colour is the crosstalk signature.
 The **sliders icon** next to the dropdown opens the **matrix editor**, so you don't
 have to hand-edit TOML:
 
-- Browse every profile — bundled matrices (and **Default**) show a lock and are
+- Browse every profile — bundled matrices (and **Generic C41**) show a lock and are
   **read-only**; your own profiles are editable.
 - Drag the off-diagonal grid sliders (`out R/G/B` × `in R/G/B`) and the preview updates
   live. The diagonal is fixed — the matrix is row-normalized on apply, which makes the
