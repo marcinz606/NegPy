@@ -1251,6 +1251,23 @@ def _make_camera_nef(tmp_dir: str) -> str:
     return path
 
 
+def _make_camera_nef_with_preview(tmp_dir: str) -> str:
+    """Camera NEF with both a Bayer SubIFD and an RGB preview SubIFD.
+
+    Real Nikon cameras routinely embed a full-res RGB preview alongside
+    the CFA data. This must NOT match the scanner detector.
+    """
+    thumb = np.zeros((50, 75, 3), dtype=np.uint8)
+    bayer = np.zeros((4000, 6000), dtype=np.uint16)
+    preview = np.zeros((4000, 6000, 3), dtype=np.uint8)
+    path = os.path.join(tmp_dir, "camera_preview.nef")
+    with tifffile.TiffWriter(path) as tw:
+        tw.write(thumb, photometric="rgb", subifds=2)
+        tw.write(bayer, photometric="minisblack")
+        tw.write(preview, photometric="rgb")
+    return path
+
+
 class TestCoolscanNef:
     def test_detect_coolscan_nef(self, tmp_path: str) -> None:
         path = _make_coolscan_nef(str(tmp_path))
@@ -1259,6 +1276,15 @@ class TestCoolscanNef:
     def test_camera_nef_not_detected(self, tmp_path: str) -> None:
         path = _make_camera_nef(str(tmp_path))
         assert not is_coolscan_nef(path)
+
+    def test_camera_nef_with_preview_not_detected(self, tmp_path: str) -> None:
+        """Camera NEF with RGB preview SubIFD alongside Bayer data must not match."""
+        path = _make_camera_nef_with_preview(str(tmp_path))
+        assert not is_coolscan_nef(path)
+
+    def test_camera_nef_with_preview_is_camera_raw(self, tmp_path: str) -> None:
+        path = _make_camera_nef_with_preview(str(tmp_path))
+        assert _is_camera_raw(path)
 
     def test_non_nef_not_detected(self, tmp_path: str) -> None:
         path = os.path.join(str(tmp_path), "photo.tiff")
@@ -1574,3 +1600,73 @@ class TestNoritsuRaw:
         data.tofile(path)
         assert detect_noritsu_dims(path) is None
         assert not is_noritsu_raw(path)
+
+    def test_tier3_novel_height_detected(self, tmp_path: str) -> None:
+        """Tier 3: a file whose dimensions match no known height but has
+        exactly one film-plausible divisor pair resolves.
+
+        4001 is prime, so 4001×4001 is the only (w,h) where both are in
+        the scan-width range — the open divisor search finds it uniquely.
+        """
+        w, h = 4001, 4001
+        assert h not in KNOWN_NORITSU_HEIGHTS
+        assert (w, h) not in KNOWN_NORITSU_DIMS
+        data = np.zeros(w * h * 3, dtype=np.uint16)
+        path = os.path.join(str(tmp_path), "tier3.raw")
+        data.astype("<u2").tofile(path)
+        dims = detect_noritsu_dims(path)
+        assert dims == (w, h)
+
+    def test_tier3_ambiguous_rejected(self, tmp_path: str) -> None:
+        """Tier 3: if multiple film-plausible divisor pairs exist, reject."""
+        w, h = 4000, 6000
+        assert h not in KNOWN_NORITSU_HEIGHTS
+        data = np.zeros(w * h * 3, dtype=np.uint16)
+        path = os.path.join(str(tmp_path), "ambiguous_t3.raw")
+        data.astype("<u2").tofile(path)
+        assert detect_noritsu_dims(path) is None
+
+    def test_pakon_noritsu_tier1_sizes_disjoint(self) -> None:
+        """No known Noritsu dimension pair produces a file size within Pakon's tolerance."""
+        from negpy.infrastructure.loaders.pakon_loader import PakonLoader
+
+        for w, h in KNOWN_NORITSU_DIMS:
+            noritsu_size = w * h * 6
+            for spec in PakonLoader.PAKON_SPECS:
+                assert abs(noritsu_size - spec["size"]) >= 1024, (
+                    f"Noritsu {w}x{h} ({noritsu_size}) collides with Pakon {spec['desc']} ({spec['size']})"
+                )
+
+    def test_pakon_noritsu_tier2_no_collision_above_min_scan_width(self) -> None:
+        """No Noritsu tier-2 file at a real scan width lands in Pakon's tolerance.
+
+        The narrowest known Noritsu scan width is 3551. Checks every known height
+        x every width from 3000-15000 (generous margin below the minimum).
+        Widths below 3000 are implausible for any real film scan.
+        """
+        from negpy.infrastructure.loaders.pakon_loader import PakonLoader
+
+        min_scan_width = 3000
+        collisions: list[str] = []
+        for h in KNOWN_NORITSU_HEIGHTS:
+            for w in range(min_scan_width, 15001):
+                noritsu_size = w * h * 6
+                for spec in PakonLoader.PAKON_SPECS:
+                    if abs(noritsu_size - spec["size"]) < 1024:
+                        collisions.append(f"{w}x{h} ({noritsu_size}) vs Pakon {spec['desc']} ({spec['size']})")
+        assert not collisions, f"Collisions at real scan widths: {collisions}"
+
+    def test_pakon_noritsu_theoretical_collision_documented(self) -> None:
+        """Document the known theoretical collision at width 1777 (not a real scan width).
+
+        Height 4502, width 1777 produces 48,000,324 bytes — within Pakon's
+        48M ± 1024 window. This is harmless because: (a) 1777 is far below
+        any real Noritsu scan width (min known: 3551), and (b) Pakon checks
+        first in the factory, so this size would be claimed as Pakon.
+        """
+        from negpy.infrastructure.loaders.pakon_loader import PakonLoader
+
+        collision_size = 1777 * 4502 * 6
+        pakon_48m = next(s for s in PakonLoader.PAKON_SPECS if s["size"] == 48000000)
+        assert abs(collision_size - pakon_48m["size"]) < 1024
+        assert 1777 < 3000  # well below any real scan width

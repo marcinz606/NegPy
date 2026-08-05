@@ -38,12 +38,39 @@ def _find_rgb_subifd(tif: tifffile.TiffFile) -> Optional[Any]:
     return best
 
 
+def _has_cfa_subifd(tif: tifffile.TiffFile) -> bool:
+    """True if any SubIFD carries Bayer/CFA data (camera NEF indicator).
+
+    Camera NEFs embed an RGB preview SubIFD alongside the Bayer mosaic data,
+    so "has RGB SubIFD" alone is not enough to detect a scanner NEF — we must
+    also confirm there's no CFA data.
+    """
+    page0 = tif.pages[0]
+    for sub in page0.pages or []:
+        tags = getattr(sub, "tags", None)
+        if tags is None:
+            continue
+        photo_tag = tags.get("PhotometricInterpretation")
+        comp_tag = tags.get("Compression")
+        spp_tag = tags.get("SamplesPerPixel")
+        if photo_tag is not None and int(photo_tag.value) == 32803:
+            return True
+        if comp_tag is not None and int(comp_tag.value) == 34713:
+            return True
+        spp = int(spp_tag.value) if spp_tag is not None else 1
+        if spp == 1 and sub.shape[0] * sub.shape[1] > 100_000:
+            return True
+    return False
+
+
 def is_coolscan_nef(file_path: str) -> bool:
-    """True if this NEF is a Nikon Coolscan scanner file (already-processed RGB in SubIFDs)."""
+    """True if this NEF is a Nikon Coolscan scanner file (RGB SubIFDs, no CFA data)."""
     if os.path.splitext(file_path)[1].lower() != ".nef":
         return False
     try:
         with tifffile.TiffFile(file_path) as tif:
+            if _has_cfa_subifd(tif):
+                return False
             return _find_rgb_subifd(tif) is not None
     except Exception:
         return False
@@ -78,6 +105,8 @@ class NefLoader(IImageLoader):
                     icc_bytes = bytes(tag.value)
                     break
 
+        # Coolscan NEFs have no separate IR channel (ICE is baked at scan time).
+        # 4-channel branch kept for defensive consistency with TiffLoader.
         ir: Optional[np.ndarray] = None
         if arr.ndim == 3 and arr.shape[2] == 4:
             ir = normalize_ir_to_float32(arr[:, :, 3])

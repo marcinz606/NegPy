@@ -30,13 +30,21 @@ KNOWN_NORITSU_DIMS: list[tuple[int, int]] = [
 KNOWN_NORITSU_HEIGHTS: list[int] = sorted({h for _, h in KNOWN_NORITSU_DIMS})
 
 
+_MIN_SCAN_WIDTH = 2000
+_MAX_SCAN_WIDTH = 15000
+_MIN_ASPECT = 1.0
+_MAX_ASPECT = 4.5
+
+
 def detect_noritsu_dims(file_path: str) -> Optional[tuple[int, int]]:
     """Tiered dimension detection for a headerless Noritsu RAW file.
 
     Tier 1: exact match against KNOWN_NORITSU_DIMS.
     Tier 2: try each known height — if exactly one divides the file size
-    evenly, use it to solve for width. A new width under a known height
-    is expected (widths vary per frame length).
+    evenly, use it to solve for width.
+    Tier 3: open divisor search — enumerate all (w, h) where w*h*6 == size,
+    both dimensions in a sane scanner range, and aspect ratio is film-plausible.
+    Accept only if exactly one candidate survives.
 
     Returns (width, height) or None if ambiguous/unknown.
     """
@@ -54,6 +62,21 @@ def detect_noritsu_dims(file_path: str) -> Optional[tuple[int, int]]:
             height_matches.append((size // stride, h))
     if len(height_matches) == 1:
         return height_matches[0]
+
+    total_pixels = size // 6
+    if total_pixels * 6 != size:
+        return None
+    candidates: list[tuple[int, int]] = []
+    for w in range(_MIN_SCAN_WIDTH, _MAX_SCAN_WIDTH + 1):
+        if total_pixels % w == 0:
+            h = total_pixels // w
+            if h < _MIN_SCAN_WIDTH:
+                continue
+            aspect = max(w, h) / min(w, h)
+            if _MIN_ASPECT <= aspect <= _MAX_ASPECT:
+                candidates.append((w, h))
+    if len(candidates) == 1:
+        return candidates[0]
     return None
 
 

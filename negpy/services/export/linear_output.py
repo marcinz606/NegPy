@@ -305,7 +305,7 @@ def _decode_linear(
             return rgb, ir, wb, meta
     if is_coolscan_nef(file_path):
         meta = _read_source_meta_tiff(file_path)
-        rgb, ir = _decode_nef(file_path, geometry)
+        rgb, ir = _decode_nef(file_path, geometry, gamma_key=gamma_key)
         return rgb, ir, None, meta
     if is_flextight_fff(file_path):
         meta = _read_source_meta_tiff(file_path)
@@ -425,6 +425,7 @@ def _decode_pakon(file_path: str, geometry: Optional[GeometryConfig] = None, exp
 def _decode_nef(
     file_path: str,
     geometry: Optional[GeometryConfig] = None,
+    gamma_key: str = "linear",
 ) -> tuple[np.ndarray, Optional[np.ndarray]]:
     """Read a Coolscan NEF via SubIFDs. Returns (rgb, ir_or_none)."""
     from negpy.infrastructure.loaders.nef_loader import _find_rgb_subifd
@@ -452,6 +453,8 @@ def _decode_nef(
     elif f32.ndim == 2:
         f32 = np.stack([f32, f32, f32], axis=2)
     f32 = np.clip(f32, 0.0, 1.0)
+    if gamma_key != "linear":
+        f32 = _linearize(f32, gamma_key)
 
     orientation = read_orientation(file_path)
     f32 = _apply_geometry(f32, orientation, geometry)

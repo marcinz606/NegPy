@@ -86,6 +86,8 @@ class FffLoader(IImageLoader):
                     icc_bytes = bytes(tag.value)
                     break
 
+        # Imacon/Flextight scanners have no IR hardware — no 4th channel exists.
+        # 4-channel branch kept for defensive consistency with TiffLoader.
         ir: Optional[np.ndarray] = None
         if arr.ndim == 3 and arr.shape[2] == 4:
             ir = normalize_ir_to_float32(arr[:, :, 3])

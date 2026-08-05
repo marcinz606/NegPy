@@ -734,10 +734,10 @@ class ExportSidebar(BaseSidebar):
         combo.blockSignals(False)
         self._current_expansion_source_type = source_type
 
-        is_tiff = source_type == "tiff"
-        self.linear_gamma_row.setVisible(is_tiff)
-        self.linear_gamma_hint.setVisible(is_tiff)
-        if is_tiff:
+        needs_gamma = source_type in ("tiff", "nef")
+        self.linear_gamma_row.setVisible(needs_gamma)
+        self.linear_gamma_hint.setVisible(needs_gamma)
+        if needs_gamma:
             self._refresh_linear_gamma_combo()
 
         is_camera = source_type == "camera"
