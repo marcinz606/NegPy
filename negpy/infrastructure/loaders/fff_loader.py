@@ -7,10 +7,9 @@ import numpy as np
 import tifffile
 
 from negpy.domain.interfaces import IImageLoader
-from negpy.domain.models import ColorSpace
-from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, identify_color_space_from_icc, read_orientation
+from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, read_orientation
 from negpy.infrastructure.loaders.ir_planes import normalize_ir_to_float32
-from negpy.kernel.image.logic import srgb_to_linear, uint8_to_float32, uint16_to_float32
+from negpy.kernel.image.logic import uint8_to_float32, uint16_to_float32
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
@@ -124,8 +123,7 @@ class FffLoader(IImageLoader):
     top-level IFD (picked by pixel count, not SubfileType tag). The data is
     uninverted scanner output — linear, no gamma applied.
 
-    Color space handling follows TiffLoader: ICC profile → identify space →
-    linearise if sRGB. Untagged 16-bit is assumed linear.
+    Data is returned as-is — no color-space assumptions or linearization.
     """
 
     def load(self, file_path: str, linear_raw: bool = False) -> Tuple[ContextManager[Any], dict]:
@@ -135,17 +133,8 @@ class FffLoader(IImageLoader):
                 raise ValueError(f"No full-res RGB IFD in {file_path}")
             arr = page.asarray()
 
-            icc_bytes: Optional[bytes] = None
             fff_meta: dict = {}
             p0_tags = getattr(tif.pages[0], "tags", None)
-            for p in (page, tif.pages[0]):
-                tags = getattr(p, "tags", None)
-                if tags is None:
-                    continue
-                tag = tags.get("InterColorProfile")
-                if tag is not None and tag.value:
-                    icc_bytes = bytes(tag.value)
-                    break
             if p0_tags is not None:
                 plist_tag = p0_tags.get(50457)
                 if plist_tag is not None and isinstance(plist_tag.value, bytes):
@@ -170,18 +159,8 @@ class FffLoader(IImageLoader):
         else:
             f32 = np.clip(arr.astype(np.float32), 0, 1)
 
-        color_space = None
-        if not linear_raw:
-            color_space = identify_color_space_from_icc(icc_bytes)
-            if color_space is None and arr.dtype == np.uint8:
-                color_space = ColorSpace.SRGB.value
-            if color_space == ColorSpace.SRGB.value:
-                f32 = srgb_to_linear(f32)
-
         metadata = {
             "orientation": read_orientation(file_path),
-            "color_space": color_space,
-            "icc_profile": icc_bytes,
             "ir": ir,
             **fff_meta,
         }
