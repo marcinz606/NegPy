@@ -306,7 +306,7 @@ def _decode_linear(
         return rgb, ir, wb, merged
     if _is_tiff(file_path):
         meta = _read_source_meta_tiff(file_path)
-        rgb, ir = _decode_tiff(file_path, geometry, gamma_key=gamma_key)
+        rgb, ir = _decode_tiff(file_path, geometry, gamma_key=gamma_key, expansion=expansion)
         return rgb, ir, None, meta
     raise ValueError(f"Linear Output is not supported for this file type: {file_path}")
 
@@ -340,6 +340,7 @@ def _decode_tiff(
     file_path: str,
     geometry: Optional[GeometryConfig] = None,
     gamma_key: str = "linear",
+    expansion: Optional[float] = None,
 ) -> tuple[np.ndarray, Optional[np.ndarray]]:
     """Read a TIFF, optionally linearize, strip everything. Returns (rgb, ir_or_none)."""
     with _tifffile.TiffFile(file_path) as tif:
@@ -364,6 +365,8 @@ def _decode_tiff(
     f32 = np.clip(f32, 0.0, 1.0)
     if gamma_key != "linear":
         f32 = _linearize(f32, gamma_key)
+    if expansion is not None and expansion > 1.0:
+        f32 = np.clip(f32 * expansion, 0.0, 1.0)
     orientation = read_orientation(file_path)
     f32 = _apply_geometry(f32, orientation, geometry)
     if ir is not None:
@@ -613,6 +616,8 @@ def _effective_expansion(file_path: str, expansion: Optional[float]) -> float:
         return factor if factor > 1.0 else 1.0
     if _is_dng(file_path) and _is_linearraw_dng(file_path):
         return expansion if (expansion is not None and expansion > 1.0) else 1.0
+    if _is_tiff(file_path):
+        return expansion if (expansion is not None and expansion > 1.0) else 1.0
     return 1.0
 
 
@@ -655,6 +660,7 @@ def _write_tiff(
     sensor_applied: bool = False,
     ice_applied: bool = False,
     gamma_key: str = "linear",
+    strip_profiles: bool = False,
 ) -> None:
     """Write a float32 buffer as an untagged 16-bit TIFF to *dest* (path or file-like)."""
     u16 = _to_uint16_jit(np.ascontiguousarray(f32, dtype=np.float32))
@@ -678,11 +684,14 @@ def _write_tiff(
     corrections = [s for s, on in (("flatfield", flatfield_applied), ("sensor", sensor_applied), ("ICE", ice_applied)) if on]
     if corrections:
         parts.append(f"corrections: {', '.join(corrections)}")
-    parts.append("no color management")
+    if strip_profiles:
+        parts.append("no color management (profiles stripped)")
+    else:
+        parts.append("no color management")
     description = f"NegPy Linear Output -- {', '.join(parts)}."
 
     extratags: list[tuple] = []
-    if camera_wb is not None and source_path is not None:
+    if not strip_profiles and camera_wb is not None and source_path is not None:
         xmp_bytes = _build_xmp(source_path, camera_wb, title=description, wb_applied=wb_applied)
         extratags.append((700, 1, len(xmp_bytes), xmp_bytes, True))
 
@@ -739,6 +748,7 @@ def export_linear_output(
     apply_ice: bool = False,
     retouch: Optional[RetouchConfig] = None,
     gamma_key: str = "linear",
+    strip_profiles: bool = False,
 ) -> None:
     """Decode *file_path* and write an untagged linear 16-bit TIFF to *output_path*.
 
@@ -800,6 +810,7 @@ def export_linear_output(
         sensor_applied=apply_sensor or is_stitch,
         ice_applied=ice_applied,
         gamma_key=gamma_key,
+        strip_profiles=strip_profiles,
     )
 
     if ir is not None:

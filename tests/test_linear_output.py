@@ -1184,3 +1184,55 @@ class TestTiffLinearOutput:
             desc = tf.pages[0].description
             assert "linearized from Gamma 2.2" in desc
             assert "source: TIFF" in desc
+
+    def test_decode_tiff_with_expansion(self, tmp_path: str) -> None:
+        from negpy.services.export.linear_output import _decode_tiff
+
+        data = np.full((4, 4, 3), 16384, dtype=np.uint16)
+        path = os.path.join(str(tmp_path), "dim.tif")
+        tifffile.imwrite(path, data)
+        rgb_no_exp, _ = _decode_tiff(path)
+        rgb_2x, _ = _decode_tiff(path, expansion=2.0)
+        np.testing.assert_allclose(rgb_2x, np.clip(rgb_no_exp * 2.0, 0.0, 1.0), atol=1e-6)
+
+    def test_export_tiff_with_expansion(self, tmp_path: str) -> None:
+        data = np.full((4, 4, 3), 16384, dtype=np.uint16)
+        src = os.path.join(str(tmp_path), "input.tif")
+        tifffile.imwrite(src, data)
+        out = os.path.join(str(tmp_path), "output.tiff")
+        export_linear_output(src, out, expansion=2.0)
+        with tifffile.TiffFile(out) as tf:
+            desc = tf.pages[0].description
+            assert "expansion: x2" in desc
+
+    def test_strip_profiles_removes_xmp(self, tmp_path: str) -> None:
+        f32 = np.full((4, 4, 3), 0.5, dtype=np.float32)
+        wb = _CameraWB(as_shot=(512.0, 256.0, 304.0, 700.0), daylight=(1.0, 1.0, 1.0, 1.0))
+        out_with = os.path.join(str(tmp_path), "with.tiff")
+        _write_tiff(f32, out_with, "test.nef", camera_wb=wb, source_path="/fake/test.nef")
+        out_stripped = os.path.join(str(tmp_path), "stripped.tiff")
+        _write_tiff(f32, out_stripped, "test.nef", camera_wb=wb, source_path="/fake/test.nef", strip_profiles=True)
+        with tifffile.TiffFile(out_with) as tf:
+            assert 700 in [t.code for t in tf.pages[0].tags.values()]
+        with tifffile.TiffFile(out_stripped) as tf:
+            tag_codes = [t.code for t in tf.pages[0].tags.values()]
+            assert 700 not in tag_codes  # no XMP
+            assert 34675 not in tag_codes  # no ICC profile
+
+    def test_strip_profiles_description(self, tmp_path: str) -> None:
+        f32 = np.full((4, 4, 3), 0.5, dtype=np.float32)
+        out = os.path.join(str(tmp_path), "out.tiff")
+        _write_tiff(f32, out, "test.tif", strip_profiles=True)
+        with tifffile.TiffFile(out) as tf:
+            desc = tf.pages[0].description
+            assert "profiles stripped" in desc
+
+    def test_strip_profiles_keeps_make_model(self, tmp_path: str) -> None:
+        f32 = np.full((4, 4, 3), 0.5, dtype=np.float32)
+        meta = _SourceMeta(make="Nikon", model="D750")
+        out = os.path.join(str(tmp_path), "out.tiff")
+        _write_tiff(f32, out, "test.nef", source_meta=meta, strip_profiles=True)
+        with tifffile.TiffFile(out) as tf:
+            tags = {t.code: t.value for t in tf.pages[0].tags.values()}
+            assert tags.get(271) == "Nikon"
+            assert tags.get(272) == "D750"
