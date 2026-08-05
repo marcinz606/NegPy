@@ -33,8 +33,6 @@ from negpy.infrastructure.loaders.pakon_loader import PakonLoader
 from negpy.infrastructure.loaders.fff_loader import is_flextight_fff
 from negpy.infrastructure.loaders.nef_loader import is_coolscan_nef
 from negpy.infrastructure.loaders.noritsu_loader import is_noritsu_raw, detect_noritsu_dims
-from negpy.infrastructure.loaders.ir_planes import find_ir_plane
-from negpy.infrastructure.loaders.tiff_loader import _extract_ir_from_extrasamples, _read_sidecar_ir
 from negpy.infrastructure.loaders.rawpy_loader import (
     _find_linearraw_page,
     _is_dng,
@@ -409,46 +407,10 @@ def _decode_tiff(
     gamma_key: str = "linear",
     expansion: Optional[float] = None,
 ) -> tuple[np.ndarray, Optional[np.ndarray]]:
-    """Read a TIFF, optionally linearize, strip everything. Returns (rgb, ir_or_none)."""
-    with _tifffile.TiffFile(file_path) as tif:
-        page = tif.pages[0]
-        arr = page.asarray()
-        samples = page.samplesperpixel
-    if arr.dtype == np.uint16:
-        scale = 1.0 / 65535.0
-    elif arr.dtype == np.uint8:
-        scale = 1.0 / 255.0
-    elif arr.dtype == np.float32:
-        scale = 1.0
-    else:
-        scale = 1.0 / float(np.iinfo(arr.dtype).max) if np.issubdtype(arr.dtype, np.integer) else 1.0
-    f32 = arr.astype(np.float32) * scale
-    ir = None
-    if samples == 4 and f32.ndim == 3 and f32.shape[2] == 4:
-        f32, ir = _extract_ir_from_extrasamples(file_path, f32)
-    elif samples == 1 and f32.ndim == 2:
-        f32 = np.stack([f32, f32, f32], axis=2)
+    """Read a TIFF via the main loader, optionally linearize. Returns (rgb, ir_or_none)."""
+    from negpy.infrastructure.loaders.tiff_loader import TiffLoader
 
-    if ir is None:
-        try:
-            with _tifffile.TiffFile(file_path) as tif:
-                ir = find_ir_plane(tif.pages[1:], f32.shape[0], f32.shape[1])
-        except Exception:
-            pass
-
-    if ir is None:
-        ir, _mask = _read_sidecar_ir(file_path)
-
-    f32 = np.clip(f32, 0.0, 1.0)
-    if gamma_key != "linear":
-        f32 = _linearize(f32, gamma_key)
-    if expansion is not None and expansion > 1.0:
-        f32 = np.clip(f32 * expansion, 0.0, 1.0)
-    orientation = read_orientation(file_path)
-    f32 = _apply_geometry(f32, orientation, geometry)
-    if ir is not None:
-        ir = _apply_geometry(ir, orientation, geometry)
-    return f32, ir
+    return _decode_via_loader(TiffLoader(), file_path, geometry, gamma_key, expansion)
 
 
 def _decode_pakon(file_path: str, geometry: Optional[GeometryConfig] = None, expansion: Optional[float] = None) -> tuple[np.ndarray, None]:
@@ -465,83 +427,49 @@ def _decode_pakon(file_path: str, geometry: Optional[GeometryConfig] = None, exp
     return f32, None
 
 
+def _decode_via_loader(
+    loader: "IImageLoader",
+    file_path: str,
+    geometry: Optional[GeometryConfig] = None,
+    gamma_key: str = "linear",
+    expansion: Optional[float] = None,
+) -> tuple[np.ndarray, Optional[np.ndarray]]:
+    """Decode through a main-path loader with linear_raw=True, then apply geometry."""
+    ctx_mgr, metadata = loader.load(file_path, linear_raw=True)
+    with ctx_mgr as wrapper:
+        f32 = wrapper.data if isinstance(wrapper, NonStandardFileWrapper) else np.asarray(wrapper)
+    ir = metadata.get("ir")
+    f32 = np.clip(f32, 0.0, 1.0)
+    if gamma_key != "linear":
+        f32 = _linearize(f32, gamma_key)
+    if expansion is not None and expansion > 1.0:
+        f32 = np.clip(f32 * expansion, 0.0, 1.0)
+    orientation = metadata.get("orientation", 0)
+    f32 = _apply_geometry(f32, orientation, geometry)
+    if ir is not None:
+        ir = _apply_geometry(ir, orientation, geometry)
+    return f32, ir
+
+
 def _decode_nef(
     file_path: str,
     geometry: Optional[GeometryConfig] = None,
     gamma_key: str = "linear",
 ) -> tuple[np.ndarray, Optional[np.ndarray]]:
-    """Read a Coolscan NEF via SubIFDs. Returns (rgb, ir_or_none)."""
-    from negpy.infrastructure.loaders.nef_loader import _find_rgb_subifd
+    """Read a Coolscan NEF via the main loader. Returns (rgb, ir_or_none)."""
+    from negpy.infrastructure.loaders.nef_loader import NefLoader
 
-    with _tifffile.TiffFile(file_path) as tif:
-        sub = _find_rgb_subifd(tif)
-        if sub is None:
-            raise ValueError(f"No RGB SubIFD in {file_path}")
-        arr = sub.asarray()
-
-    if arr.dtype == np.uint16:
-        scale = 1.0 / 65535.0
-    elif arr.dtype == np.uint8:
-        scale = 1.0 / 255.0
-    elif arr.dtype == np.float32:
-        scale = 1.0
-    else:
-        scale = 1.0 / float(np.iinfo(arr.dtype).max) if np.issubdtype(arr.dtype, np.integer) else 1.0
-    f32 = arr.astype(np.float32) * scale
-
-    ir = None
-    if f32.ndim == 3 and f32.shape[2] == 4:
-        ir = f32[:, :, 3]
-        f32 = f32[:, :, :3]
-    elif f32.ndim == 2:
-        f32 = np.stack([f32, f32, f32], axis=2)
-    f32 = np.clip(f32, 0.0, 1.0)
-    if gamma_key != "linear":
-        f32 = _linearize(f32, gamma_key)
-
-    orientation = read_orientation(file_path)
-    f32 = _apply_geometry(f32, orientation, geometry)
-    if ir is not None:
-        ir = _apply_geometry(ir, orientation, geometry)
-    return f32, ir
+    return _decode_via_loader(NefLoader(), file_path, geometry, gamma_key)
 
 
 def _decode_fff(
     file_path: str,
     geometry: Optional[GeometryConfig] = None,
 ) -> tuple[np.ndarray, Optional[np.ndarray]]:
-    """Read a Flextight FFF via largest RGB IFD. Returns (rgb, ir_or_none)."""
-    from negpy.infrastructure.loaders.fff_loader import _find_full_res_ifd
+    """Read a Flextight FFF via the main loader. Returns (rgb, ir_or_none)."""
+    from negpy.infrastructure.loaders.fff_loader import FffLoader
 
-    with _tifffile.TiffFile(file_path) as tif:
-        page = _find_full_res_ifd(tif)
-        if page is None:
-            raise ValueError(f"No full-res RGB IFD in {file_path}")
-        arr = page.asarray()
-
-    if arr.dtype == np.uint16:
-        scale = 1.0 / 65535.0
-    elif arr.dtype == np.uint8:
-        scale = 1.0 / 255.0
-    elif arr.dtype == np.float32:
-        scale = 1.0
-    else:
-        scale = 1.0 / float(np.iinfo(arr.dtype).max) if np.issubdtype(arr.dtype, np.integer) else 1.0
-    f32 = arr.astype(np.float32) * scale
-
-    ir = None
-    if f32.ndim == 3 and f32.shape[2] == 4:
-        ir = f32[:, :, 3]
-        f32 = f32[:, :, :3]
-    elif f32.ndim == 2:
-        f32 = np.stack([f32, f32, f32], axis=2)
-    f32 = np.clip(f32, 0.0, 1.0)
-
-    orientation = read_orientation(file_path)
-    f32 = _apply_geometry(f32, orientation, geometry)
-    if ir is not None:
-        ir = _apply_geometry(ir, orientation, geometry)
-    return f32, ir
+    return _decode_via_loader(FffLoader(), file_path, geometry)
 
 
 def _decode_noritsu(
