@@ -3505,6 +3505,8 @@ class AppController(QObject):
                     apply_wb=self.state.linear_apply_wb,
                     apply_flatfield=self.state.linear_apply_flatfield,
                     apply_sensor=self.state.linear_apply_sensor,
+                    apply_ice=self.state.linear_apply_ice,
+                    retouch=params.retouch,
                 )
                 exported += 1
             except Exception as e:

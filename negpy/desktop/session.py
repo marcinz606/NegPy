@@ -172,6 +172,7 @@ class AppState:
     linear_apply_wb: bool = False
     linear_apply_flatfield: bool = False
     linear_apply_sensor: bool = False
+    linear_apply_ice: bool = False
 
     @property
     def local_hidden_masks(self) -> set:
@@ -500,7 +501,7 @@ class DesktopSessionManager(QObject):
         saved_linear_output = self.repo.get_global_setting("linear_output")
         if saved_linear_output is not None:
             self.state.linear_output = bool(saved_linear_output)
-        for key in ("linear_apply_wb", "linear_apply_flatfield", "linear_apply_sensor"):
+        for key in ("linear_apply_wb", "linear_apply_flatfield", "linear_apply_sensor", "linear_apply_ice"):
             val = self.repo.get_global_setting(key)
             if val is not None:
                 setattr(self.state, key, bool(val))
@@ -585,6 +586,7 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting("linear_apply_wb", self.state.linear_apply_wb)
         self.repo.save_global_setting("linear_apply_flatfield", self.state.linear_apply_flatfield)
         self.repo.save_global_setting("linear_apply_sensor", self.state.linear_apply_sensor)
+        self.repo.save_global_setting("linear_apply_ice", self.state.linear_apply_ice)
 
     def _apply_sticky_settings(self, config: WorkspaceConfig, only_global: bool = False) -> WorkspaceConfig:
         """

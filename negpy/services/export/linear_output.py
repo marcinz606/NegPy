@@ -18,6 +18,7 @@ import rawpy
 import tifffile as _tifffile
 
 from negpy.features.flatfield.logic import apply_flatfield as _apply_flatfield_correction
+from negpy.features.retouch.models import IR_METHOD_OPENICE, RetouchConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.process.models import ProcessConfig
@@ -168,6 +169,43 @@ def _apply_white_balance(f32: np.ndarray, wb: _CameraWB) -> np.ndarray:
     f32[:, :, 2] *= b
     np.clip(f32, 0.0, 1.0, out=f32)
     return f32
+
+
+def _apply_ice(rgb: np.ndarray, ir: np.ndarray, retouch: RetouchConfig) -> np.ndarray:
+    """Apply IR dust correction to a linear RGB buffer using the IR channel."""
+    if retouch.ir_method == IR_METHOD_OPENICE:
+        from negpy.features.retouch import openice
+
+        corrected, _, _, _ = openice.run(rgb, ir, float(retouch.ir_threshold), None)
+        return corrected
+
+    from negpy.features.retouch.logic import (
+        apply_ir_attenuation,
+        apply_ir_reconstruction,
+        downsample_ir,
+        ir_defect_score,
+        ir_detect_cutoff,
+        ir_detect_target,
+        ir_ratio_and_gain,
+    )
+
+    target = ir_detect_target(max(rgb.shape[:2]), max(rgb.shape[:2]))
+    ir_det = downsample_ir(np.ascontiguousarray(ir, dtype=np.float32), target)
+    h, w = rgb.shape[:2]
+    if max(h, w) > target:
+        import cv2
+
+        s = target / max(h, w)
+        rgb_det = cv2.resize(rgb, (max(1, round(w * s)), max(1, round(h * s))), interpolation=cv2.INTER_AREA)
+    else:
+        rgb_det = rgb
+    ratio_det, gain_det, degenerate, _ = ir_ratio_and_gain(ir_det, rgb_det)
+    if degenerate:
+        return rgb
+    score_det = ir_defect_score(ratio_det, ir_detect_cutoff(retouch.ir_threshold, retouch.ir_attenuation))
+    out = apply_ir_attenuation(rgb, gain_det) if retouch.ir_attenuation else rgb
+    out = apply_ir_reconstruction(out, score_det)
+    return out
 
 
 def _decode_linear(
@@ -530,6 +568,7 @@ def _write_tiff(
     wb_applied: bool = False,
     flatfield_applied: bool = False,
     sensor_applied: bool = False,
+    ice_applied: bool = False,
 ) -> None:
     """Write a float32 buffer as an untagged 16-bit TIFF to *dest* (path or file-like)."""
     u16 = _to_uint16_jit(np.ascontiguousarray(f32, dtype=np.float32))
@@ -547,7 +586,7 @@ def _write_tiff(
             parts.append(f"no WB applied (as-shot: {r:.3f} {g:.3f} {b:.3f})")
     else:
         parts.append("no WB applied")
-    corrections = [s for s, on in (("flatfield", flatfield_applied), ("sensor", sensor_applied)) if on]
+    corrections = [s for s, on in (("flatfield", flatfield_applied), ("sensor", sensor_applied), ("ICE", ice_applied)) if on]
     if corrections:
         parts.append(f"corrections: {', '.join(corrections)}")
     parts.append("no color management")
@@ -608,6 +647,8 @@ def export_linear_output(
     apply_wb: bool = False,
     apply_flatfield: bool = False,
     apply_sensor: bool = False,
+    apply_ice: bool = False,
+    retouch: Optional[RetouchConfig] = None,
 ) -> None:
     """Decode *file_path* and write an untagged linear 16-bit TIFF to *output_path*.
 
@@ -624,9 +665,11 @@ def export_linear_output(
     applicable), applies flatfield and sensor correction per-part, then assembles
     via stitch_composite.
 
-    *apply_wb*, *apply_flatfield*, *apply_sensor*: optional per-step corrections.
-    When False (default), the raw dump is written unchanged.  When True, the
-    corresponding correction is applied before writing.
+    *apply_wb*, *apply_flatfield*, *apply_sensor*, *apply_ice*: optional per-step
+    corrections.  When False (default), the raw dump is written unchanged.  When
+    True, the corresponding correction is applied before writing.  *apply_ice*
+    requires an IR channel in the source and a *retouch* config; it uses the
+    configured IR method and threshold.
 
     If the source has an IR channel, it is written as a separate grayscale TIFF
     with an ``_ir`` suffix next to the RGB output.
@@ -645,6 +688,11 @@ def export_linear_output(
         apply_flatfield=apply_flatfield,
         apply_sensor=apply_sensor,
     )
+    ice_applied = False
+    if apply_ice and ir is not None:
+        ret = retouch if retouch is not None else RetouchConfig()
+        f32 = _apply_ice(f32, ir, ret)
+        ice_applied = True
     is_stitch = stitch is not None and stitch.stitch_enabled and stitch.stitch_paths
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     _write_tiff(
@@ -659,6 +707,7 @@ def export_linear_output(
         wb_applied=apply_wb,
         flatfield_applied=apply_flatfield or is_stitch,
         sensor_applied=apply_sensor or is_stitch,
+        ice_applied=ice_applied,
     )
 
     if ir is not None:
