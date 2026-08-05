@@ -30,6 +30,7 @@ from negpy.features.stitch.models import StitchConfig, stitch_has_triplets
 from negpy.infrastructure.loaders.constants import SUPPORTED_JPEG_EXTENSIONS, SUPPORTED_RAW_EXTENSIONS, SUPPORTED_TIFF_EXTENSIONS
 from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, get_best_demosaic_algorithm, read_orientation
 from negpy.infrastructure.loaders.pakon_loader import PakonLoader
+from negpy.infrastructure.loaders.fff_loader import is_flextight_fff
 from negpy.infrastructure.loaders.nef_loader import is_coolscan_nef
 from negpy.infrastructure.loaders.rawpy_loader import (
     _find_linearraw_page,
@@ -111,6 +112,8 @@ def _is_camera_raw(file_path: str) -> bool:
         return False
     if is_coolscan_nef(file_path):
         return False
+    if is_flextight_fff(file_path):
+        return False
     return ext in SUPPORTED_RAW_EXTENSIONS
 
 
@@ -125,6 +128,8 @@ def is_linear_output_supported(file_path: str) -> bool:
         return _is_linearraw_dng(file_path) or _is_camera_raw(file_path)
     if is_coolscan_nef(file_path):
         return True
+    if is_flextight_fff(file_path):
+        return True
     if _is_camera_raw(file_path):
         return True
     if _is_tiff(file_path):
@@ -135,7 +140,7 @@ def is_linear_output_supported(file_path: str) -> bool:
 def linear_output_source_type(file_path: str) -> str:
     """Classify a file for Linear Output expansion options.
 
-    Returns ``"pakon"``, ``"dng"``, ``"camera"``, ``"nef"``, ``"tiff"``, or ``"unsupported"``.
+    Returns ``"pakon"``, ``"dng"``, ``"camera"``, ``"nef"``, ``"fff"``, ``"tiff"``, or ``"unsupported"``.
     """
     if PakonLoader.can_handle(file_path):
         return "pakon_f335" if _is_pakon_f335(file_path) else "pakon"
@@ -143,6 +148,8 @@ def linear_output_source_type(file_path: str) -> str:
         return "dng"
     if is_coolscan_nef(file_path):
         return "nef"
+    if is_flextight_fff(file_path):
+        return "fff"
     if _is_camera_raw(file_path):
         return "camera"
     if _is_tiff(file_path):
@@ -293,6 +300,10 @@ def _decode_linear(
         meta = _read_source_meta_tiff(file_path)
         rgb, ir = _decode_nef(file_path, geometry)
         return rgb, ir, None, meta
+    if is_flextight_fff(file_path):
+        meta = _read_source_meta_tiff(file_path)
+        rgb, ir = _decode_fff(file_path, geometry)
+        return rgb, ir, None, meta
     if _is_camera_raw(file_path):
         if rgbscan is not None and is_rgb_triplet(rgbscan):
             rgb, ir, wb, meta = _decode_camera_raw_triplet(file_path, rgbscan, geometry)
@@ -411,6 +422,44 @@ def _decode_nef(
         if sub is None:
             raise ValueError(f"No RGB SubIFD in {file_path}")
         arr = sub.asarray()
+
+    if arr.dtype == np.uint16:
+        scale = 1.0 / 65535.0
+    elif arr.dtype == np.uint8:
+        scale = 1.0 / 255.0
+    elif arr.dtype == np.float32:
+        scale = 1.0
+    else:
+        scale = 1.0 / float(np.iinfo(arr.dtype).max) if np.issubdtype(arr.dtype, np.integer) else 1.0
+    f32 = arr.astype(np.float32) * scale
+
+    ir = None
+    if f32.ndim == 3 and f32.shape[2] == 4:
+        ir = f32[:, :, 3]
+        f32 = f32[:, :, :3]
+    elif f32.ndim == 2:
+        f32 = np.stack([f32, f32, f32], axis=2)
+    f32 = np.clip(f32, 0.0, 1.0)
+
+    orientation = read_orientation(file_path)
+    f32 = _apply_geometry(f32, orientation, geometry)
+    if ir is not None:
+        ir = _apply_geometry(ir, orientation, geometry)
+    return f32, ir
+
+
+def _decode_fff(
+    file_path: str,
+    geometry: Optional[GeometryConfig] = None,
+) -> tuple[np.ndarray, Optional[np.ndarray]]:
+    """Read a Flextight FFF via largest RGB IFD. Returns (rgb, ir_or_none)."""
+    from negpy.infrastructure.loaders.fff_loader import _find_full_res_ifd
+
+    with _tifffile.TiffFile(file_path) as tif:
+        page = _find_full_res_ifd(tif)
+        if page is None:
+            raise ValueError(f"No full-res RGB IFD in {file_path}")
+        arr = page.asarray()
 
     if arr.dtype == np.uint16:
         scale = 1.0 / 65535.0
@@ -682,6 +731,8 @@ def _source_format_label(
         return "DNG LinearRaw"
     if is_coolscan_nef(file_path):
         return "Coolscan NEF"
+    if is_flextight_fff(file_path):
+        return "Flextight FFF"
     if _is_camera_raw(file_path):
         if is_stitch and stitch_has_triplets(stitch):
             n = 1 + len(stitch.stitch_paths)

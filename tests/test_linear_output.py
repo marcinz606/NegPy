@@ -12,6 +12,7 @@ from negpy.features.geometry.models import GeometryConfig
 from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.features.stitch.models import StitchConfig
 from negpy.kernel.image.logic import apply_exif_orientation
+from negpy.infrastructure.loaders.fff_loader import is_flextight_fff
 from negpy.infrastructure.loaders.nef_loader import is_coolscan_nef
 from negpy.services.export.linear_output import (
     TIFF_GAMMA_OPTIONS,
@@ -1335,3 +1336,87 @@ class TestCoolscanNef:
             assert w.data.shape == (200, 300, 3)
         assert metadata["ir"] is not None
         assert metadata["ir"].shape == (200, 300)
+
+
+def _make_flextight_fff(tmp_dir: str, h: int = 400, w: int = 600, channels: int = 3) -> str:
+    """Create a synthetic Flextight FFF: big-endian TIFF, full-res RGB in IFD0, small preview in IFD1."""
+    rng = np.random.RandomState(42)
+    fullres = rng.randint(0, 65535, (h, w, channels), dtype=np.uint16)
+    preview = np.zeros((50, 75, 3), dtype=np.uint8)
+    path = os.path.join(tmp_dir, "scan.fff")
+    with tifffile.TiffWriter(path, byteorder=">") as tw:
+        tw.write(fullres, photometric="rgb")
+        tw.write(preview, photometric="rgb")
+    return path
+
+
+class TestFlextightFff:
+    def test_detect_flextight_fff(self, tmp_path: str) -> None:
+        path = _make_flextight_fff(str(tmp_path))
+        assert is_flextight_fff(path)
+
+    def test_non_fff_not_detected(self, tmp_path: str) -> None:
+        path = os.path.join(str(tmp_path), "photo.tiff")
+        tifffile.imwrite(path, np.zeros((10, 10, 3), dtype=np.uint16))
+        assert not is_flextight_fff(path)
+
+    def test_fff_not_camera_raw(self, tmp_path: str) -> None:
+        path = _make_flextight_fff(str(tmp_path))
+        assert not _is_camera_raw(path)
+
+    def test_linear_output_supported(self, tmp_path: str) -> None:
+        path = _make_flextight_fff(str(tmp_path))
+        assert is_linear_output_supported(path)
+
+    def test_source_type_fff(self, tmp_path: str) -> None:
+        path = _make_flextight_fff(str(tmp_path))
+        assert linear_output_source_type(path) == "fff"
+
+    def test_source_format_label(self, tmp_path: str) -> None:
+        path = _make_flextight_fff(str(tmp_path))
+        assert _source_format_label(path) == "Flextight FFF"
+
+    def test_no_expansion(self, tmp_path: str) -> None:
+        path = _make_flextight_fff(str(tmp_path))
+        assert _effective_expansion(path, None) == 1.0
+        assert _effective_expansion(path, 4.0) == 1.0
+
+    def test_export_roundtrip(self, tmp_path: str) -> None:
+        path = _make_flextight_fff(str(tmp_path))
+        out = os.path.join(str(tmp_path), "output.tiff")
+        export_linear_output(path, out)
+        with tifffile.TiffFile(out) as tf:
+            arr = tf.pages[0].asarray()
+            assert arr.dtype == np.uint16
+            assert arr.shape == (400, 600, 3)
+            desc = tf.pages[0].description
+            assert "Flextight FFF" in desc
+            assert "no scaling" in desc
+
+    def test_picks_largest_ifd(self, tmp_path: str) -> None:
+        """When multiple IFDs exist, the largest by pixel count is used."""
+        rng = np.random.RandomState(42)
+        fullres = rng.randint(0, 65535, (500, 750, 3), dtype=np.uint16)
+        small = np.zeros((50, 75, 3), dtype=np.uint16)
+        path = os.path.join(str(tmp_path), "multi.fff")
+        with tifffile.TiffWriter(path, byteorder=">") as tw:
+            tw.write(fullres, photometric="rgb")
+            tw.write(small, photometric="rgb")
+        out = os.path.join(str(tmp_path), "output.tiff")
+        export_linear_output(path, out)
+        with tifffile.TiffFile(out) as tf:
+            assert tf.pages[0].asarray().shape == (500, 750, 3)
+
+    def test_loader_returns_float32(self, tmp_path: str) -> None:
+        from negpy.infrastructure.loaders.fff_loader import FffLoader
+
+        path = _make_flextight_fff(str(tmp_path))
+        loader = FffLoader()
+        wrapper, metadata = loader.load(path)
+        with wrapper as w:
+            assert w.data.dtype == np.float32
+            assert w.data.shape == (400, 600, 3)
+            assert w.data.min() >= 0.0
+            assert w.data.max() <= 1.0
+        assert "orientation" in metadata
+        assert "ir" in metadata

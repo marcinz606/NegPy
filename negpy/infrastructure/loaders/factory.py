@@ -3,6 +3,7 @@ from typing import Any, ContextManager, Tuple
 from negpy.infrastructure.loaders.pakon_loader import PakonLoader
 from negpy.infrastructure.loaders.tiff_loader import TiffLoader
 from negpy.infrastructure.loaders.jpeg_loader import JpegLoader
+from negpy.infrastructure.loaders.fff_loader import FffLoader, is_flextight_fff
 from negpy.infrastructure.loaders.nef_loader import NefLoader, is_coolscan_nef
 from negpy.infrastructure.loaders.rawpy_loader import RawpyLoader
 from negpy.infrastructure.loaders.constants import (
@@ -21,6 +22,7 @@ class LoaderFactory:
         self._tiff = TiffLoader()
         self._jpeg = JpegLoader()
         self._nef = NefLoader()
+        self._fff = FffLoader()
         self._rawpy = RawpyLoader()
 
     def get_loader(self, file_path: str, linear_raw: bool = False) -> Tuple[ContextManager[Any], dict]:
@@ -37,6 +39,9 @@ class LoaderFactory:
 
         if is_coolscan_nef(file_path):
             return self._nef.load(file_path, linear_raw=linear_raw)
+
+        if is_flextight_fff(file_path):
+            return self._fff.load(file_path, linear_raw=linear_raw)
 
         return self._rawpy.load(file_path)
 

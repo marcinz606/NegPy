@@ -700,6 +700,7 @@ class ExportSidebar(BaseSidebar):
         "pakon_f335": [("Off (default)", None), ("2×", 2.0), ("4×", 4.0)],
         "dng": [("Off (default)", None), ("2×", 2.0), ("4×", 4.0)],
         "nef": [],
+        "fff": [],
         "camera": [],
         "tiff": [("Off (default)", None), ("2×", 2.0), ("4×", 4.0)],
         "unsupported": [],
