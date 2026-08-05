@@ -660,7 +660,6 @@ def _write_tiff(
     sensor_applied: bool = False,
     ice_applied: bool = False,
     gamma_key: str = "linear",
-    strip_profiles: bool = False,
 ) -> None:
     """Write a float32 buffer as an untagged 16-bit TIFF to *dest* (path or file-like)."""
     u16 = _to_uint16_jit(np.ascontiguousarray(f32, dtype=np.float32))
@@ -684,14 +683,11 @@ def _write_tiff(
     corrections = [s for s, on in (("flatfield", flatfield_applied), ("sensor", sensor_applied), ("ICE", ice_applied)) if on]
     if corrections:
         parts.append(f"corrections: {', '.join(corrections)}")
-    if strip_profiles:
-        parts.append("no color management (profiles stripped)")
-    else:
-        parts.append("no color management")
+    parts.append("no color management")
     description = f"NegPy Linear Output -- {', '.join(parts)}."
 
     extratags: list[tuple] = []
-    if not strip_profiles and camera_wb is not None and source_path is not None:
+    if camera_wb is not None and source_path is not None:
         xmp_bytes = _build_xmp(source_path, camera_wb, title=description, wb_applied=wb_applied)
         extratags.append((700, 1, len(xmp_bytes), xmp_bytes, True))
 
@@ -748,7 +744,6 @@ def export_linear_output(
     apply_ice: bool = False,
     retouch: Optional[RetouchConfig] = None,
     gamma_key: str = "linear",
-    strip_profiles: bool = False,
 ) -> None:
     """Decode *file_path* and write an untagged linear 16-bit TIFF to *output_path*.
 
@@ -810,7 +805,6 @@ def export_linear_output(
         sensor_applied=apply_sensor or is_stitch,
         ice_applied=ice_applied,
         gamma_key=gamma_key,
-        strip_profiles=strip_profiles,
     )
 
     if ir is not None:

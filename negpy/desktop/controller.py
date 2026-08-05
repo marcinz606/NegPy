@@ -3508,7 +3508,6 @@ class AppController(QObject):
                     apply_ice=self.state.linear_apply_ice,
                     retouch=params.retouch,
                     gamma_key=self.state.linear_gamma_key,
-                    strip_profiles=self.state.linear_strip_profiles,
                 )
                 exported += 1
             except Exception as e:

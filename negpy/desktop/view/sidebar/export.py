@@ -617,13 +617,6 @@ class ExportSidebar(BaseSidebar):
         box.addWidget(self.linear_gamma_hint)
         self.linear_gamma_combo.currentIndexChanged.connect(self._on_linear_gamma_changed)
 
-        self.linear_strip_checkbox = QCheckBox("Strip color profiles")
-        self.linear_strip_checkbox.setToolTip("Remove all ICC profiles, color space tags, and XMP color metadata from the exported TIFF")
-        self.linear_strip_checkbox.setChecked(self.state.linear_strip_profiles)
-        self.linear_strip_checkbox.setVisible(False)
-        self.linear_strip_checkbox.toggled.connect(self._on_linear_strip_changed)
-        box.addWidget(self.linear_strip_checkbox)
-
         self.linear_corrections_hint = hint_label(
             "Corrections are baked in and cannot be undone from the exported file. Re-export from the original RAW to get uncorrected data."
         )
@@ -649,7 +642,6 @@ class ExportSidebar(BaseSidebar):
         if hasattr(self, "linear_gamma_row") and not linear_on:
             self.linear_gamma_row.setVisible(False)
             self.linear_gamma_hint.setVisible(False)
-            self.linear_strip_checkbox.setVisible(False)
         if hasattr(self, "linear_corrections_label") and not linear_on:
             self.linear_corrections_label.setVisible(False)
             self.linear_wb_checkbox.setVisible(False)
@@ -742,7 +734,6 @@ class ExportSidebar(BaseSidebar):
         is_tiff = source_type == "tiff"
         self.linear_gamma_row.setVisible(is_tiff)
         self.linear_gamma_hint.setVisible(is_tiff)
-        self.linear_strip_checkbox.setVisible(is_tiff)
         if is_tiff:
             self._refresh_linear_gamma_combo()
 
@@ -811,10 +802,6 @@ class ExportSidebar(BaseSidebar):
         if 0 <= index < len(TIFF_GAMMA_OPTIONS):
             self.state.linear_gamma_key = TIFF_GAMMA_OPTIONS[index][0]
             self.controller.session.save_flat_output_prefs()
-
-    def _on_linear_strip_changed(self, checked: bool) -> None:
-        self.state.linear_strip_profiles = checked
-        self.controller.session.save_flat_output_prefs()
 
     def _on_linear_correction_changed(self, _checked: bool) -> None:
         self.state.linear_apply_wb = self.linear_wb_checkbox.isChecked()
@@ -1263,7 +1250,6 @@ class ExportSidebar(BaseSidebar):
             self.linear_flatfield_checkbox.setChecked(self.state.linear_apply_flatfield)
             self.linear_sensor_checkbox.setChecked(self.state.linear_apply_sensor)
             self.linear_ice_checkbox.setChecked(self.state.linear_apply_ice)
-            self.linear_strip_checkbox.setChecked(self.state.linear_strip_profiles)
             self._refresh_linear_gamma_combo()
         finally:
             self.block_signals(False)
@@ -1293,7 +1279,6 @@ class ExportSidebar(BaseSidebar):
             self.linear_sensor_checkbox,
             self.linear_ice_checkbox,
             self.linear_gamma_combo,
-            self.linear_strip_checkbox,
         ]
         for w in widgets:
             w.blockSignals(blocked)

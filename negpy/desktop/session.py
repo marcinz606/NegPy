@@ -174,7 +174,6 @@ class AppState:
     linear_apply_sensor: bool = False
     linear_apply_ice: bool = False
     linear_gamma_key: str = "linear"
-    linear_strip_profiles: bool = False
 
     @property
     def local_hidden_masks(self) -> set:
@@ -510,9 +509,6 @@ class DesktopSessionManager(QObject):
         saved_gamma = self.repo.get_global_setting("linear_gamma_key")
         if saved_gamma is not None:
             self.state.linear_gamma_key = str(saved_gamma)
-        saved_strip = self.repo.get_global_setting("linear_strip_profiles")
-        if saved_strip is not None:
-            self.state.linear_strip_profiles = bool(saved_strip)
 
         self.state.export_presets = self.repo.load_export_presets()
 
@@ -596,7 +592,6 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting("linear_apply_sensor", self.state.linear_apply_sensor)
         self.repo.save_global_setting("linear_apply_ice", self.state.linear_apply_ice)
         self.repo.save_global_setting("linear_gamma_key", self.state.linear_gamma_key)
-        self.repo.save_global_setting("linear_strip_profiles", self.state.linear_strip_profiles)
 
     def _apply_sticky_settings(self, config: WorkspaceConfig, only_global: bool = False) -> WorkspaceConfig:
         """
