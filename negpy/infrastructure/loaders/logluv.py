@@ -308,6 +308,21 @@ _XYZ_TO_LRGB = np.array(
 )
 
 
+def normalize_linear(lin: np.ndarray) -> np.ndarray:
+    """Per-channel percentile black/white normalization.
+
+    Maps raw HDR linear RGB into [0, 1] using the 0.2th/99.8th percentile
+    per channel, correcting the per-channel black/gain offset inherent in
+    Flextight CCD data (worst on red — weak CCD response, shallow C-41 cyan).
+    """
+    flat = lin.reshape(-1, lin.shape[-1])
+    lo = np.percentile(flat, 0.2, axis=0)
+    hi = np.percentile(flat, 99.8, axis=0)
+    denom = hi - lo
+    denom = np.where(denom > 0, denom, 1.0)
+    return np.clip((lin - lo) / denom, 0.0, 1.0)
+
+
 def xyz_to_linear_rgb(xyz: np.ndarray) -> np.ndarray:
     """CIE XYZ (..., 3) → linear sRGB float64 (..., 3), unbounded."""
     xyz = np.asarray(xyz, dtype=np.float64)
@@ -383,8 +398,8 @@ def decode_logluv_strips(
     packed = packed[:npixels_total].reshape(height, width)
     xyz = px_to_xyz(packed)
     lin = xyz_to_linear_rgb(xyz)
-    f32 = np.clip(lin, 0.0, 1.0).astype(np.float32)
-    return f32
+    normed = normalize_linear(lin)
+    return normed.astype(np.float32)
 
 
 def _tag_to_list(tag) -> list:

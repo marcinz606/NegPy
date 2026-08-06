@@ -6,6 +6,7 @@ from negpy.infrastructure.loaders.logluv import (
     decode_strip_logluv32,
     logluv24_to_xyz,
     logluv32_to_xyz,
+    normalize_linear,
     xyz_to_linear_rgb,
 )
 
@@ -86,6 +87,36 @@ class TestLogLuv24:
         packed = np.array([(le10 << 14) | ce], dtype=np.uint32)
         xyz = logluv24_to_xyz(packed)
         assert xyz[0, 1] > 0.0
+
+
+class TestNormalizeLinear:
+    def test_hdr_values_normalized_to_unit_range(self):
+        lin = np.array(
+            [[[0.1, 0.05, 0.2], [0.5, 0.4, 0.6], [2.0, 1.8, 3.0], [4.0, 3.5, 5.0]]],
+            dtype=np.float64,
+        )
+        normed = normalize_linear(lin)
+        assert normed.min() >= 0.0
+        assert normed.max() <= 1.0
+
+    def test_per_channel_offset_correction(self):
+        rng = np.random.default_rng(42)
+        n = 1000
+        r = rng.uniform(0.5, 2.0, n)
+        g = rng.uniform(0.1, 1.5, n)
+        b = rng.uniform(0.3, 1.8, n)
+        lin = np.stack([r, g, b], axis=-1).reshape(1, n, 3)
+        normed = normalize_linear(lin)
+        for ch in range(3):
+            vals = normed[0, :, ch]
+            assert vals.min() >= 0.0
+            assert vals.max() <= 1.0
+            assert vals.max() > 0.9
+
+    def test_uniform_channel_not_divided_by_zero(self):
+        lin = np.full((1, 10, 3), 0.5, dtype=np.float64)
+        normed = normalize_linear(lin)
+        assert np.all(np.isfinite(normed))
 
 
 class TestXyzToLinearRgb:
