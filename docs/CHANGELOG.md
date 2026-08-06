@@ -1,5 +1,21 @@
 # Change Log
 
+## 0.48.0
+
+- Change: **Calibration section** — the sensor unmix, the crosstalk matrix and Hue Trim now sit together, out of Process, since all three correct the capture rather than the negative-to-positive conversion. Crosstalk is reframed as a property of a whole scanning setup rather than of a film stock; the bundled matrices are marked "(approx)" and grouped by provenance, and "Default" is now "Generic C41".
+- New: **Hue Trim** — a ±30° rotation of the print's colours about the neutral axis, for a narrowband or odd-phosphor light that rotates hues instead of casting them, where white balance has no grey to correct. Sticky across frames, since the light is a rig property.
+- New: **Scanner formats as Linear Output sources** — Coolscan NEF, Flextight FFF (including LogLuv-encoded), Noritsu RAW and generic TIFF, the last with an Input gamma selector for files whose encoding is tagged wrong. @thetalkingdrum
+- New: **Composites and correction toggles in Linear Output** — RGB-scan triplets merge into one TIFF and stitch composites assemble per part; optional WB, flat-field and sensor-correction checkboxes bake those into camera RAW exports, all off by default. @thetalkingdrum
+- New: **IR dust removal in Linear Output** — bakes the frame's IR correction (NegPy or OpenICE) into the written file; shown only when the source carries an IR channel. @thetalkingdrum
+- New: **Half-frame rectangle editor** — turning on Half Frame opens an editor on the current scan: a crop box, a draggable split line and a Cut thickness slider for the black separator band. The setting is saved and reused for every half-frame split; Adjust Half Frame reopens it. @diegotonetti99
+- Fix: **Linear Output batch export uses each file's own settings** — the current frame's RGB-scan, stitch, flat-field and process config was applied to every file; the XMP also gains dc:title so Bridge shows the description, and drops the RAW-WB gains when WB is baked in. @thetalkingdrum
+- Fix: **OpenICE repairs keep the film's grain** — solid dust leaves nothing to rebuild from, so the patch came back glassy against the film around it; ICE's own dither is back, drawn from pixel coordinates so a banded pass matches a whole-frame one.
+- New: **Scanner exposure slider** — appears in the Scan tab when the SANE backend exposes `scan-exposure-time`, and stays hidden on devices without it. @diegotonetti99
+- New: **Clickable canvas empty state** — "Load some scans to get started" is now a button offering Add files / Add folder. @linkmodo
+- Fix: **Session panel stays stacked with every section collapsed** — leftover height spread into the gaps between toolbar, filter row and headers.
+- Fix: **Canvas empty state stays centred** — it tracked the window, so hiding a dock left it drifting off to one side. @linkmodo
+- Change: **Sidebar branding folds away** — logo and version collapse behind a chevron, remembered across launches. @linkmodo
+
 ## 0.47.0
 
 - New: **Work prints** — save the live edit under a name from the History tab (Ctrl+Shift+S); click one to make it live, right-click to export, rename or delete. They outlive undo and an edit made after stepping back.
