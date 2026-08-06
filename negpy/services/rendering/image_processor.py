@@ -982,6 +982,10 @@ class ImageProcessor:
 
         is_greyscale = color_space == ColorSpace.GREYSCALE.value
 
+        buffer, bypassed = self._try_matrix_bypass(buffer, icc_input)
+        if bypassed:
+            icc_input = None
+
         if fmt == ExportFormat.TIFF:
             if is_greyscale:
                 img_int = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=16)
@@ -1240,6 +1244,37 @@ class ImageProcessor:
         return None
 
     @staticmethod
+    def _try_matrix_bypass(buffer: np.ndarray, input_icc_path: Optional[str]) -> Tuple[np.ndarray, bool]:
+        """Apply a primaries-only transform if the input ICC is a matrix/TRC D65 profile.
+
+        Returns (transformed_buffer, True) when the bypass fired, so the caller
+        can clear icc_input and let the normal working→output CMS path run.
+        Returns (buffer, False) unchanged for LUT-based or non-D65 profiles.
+        """
+        if not input_icc_path or not os.path.exists(input_icc_path):
+            return buffer, False
+        try:
+            with open(input_icc_path, "rb") as f:
+                icc_data = f.read()
+            from negpy.infrastructure.display.icc_profile import (
+                extract_primaries_matrix,
+                is_d65_whitepoint,
+                is_matrix_trc_profile,
+            )
+
+            if not is_matrix_trc_profile(icc_data) or not is_d65_whitepoint(icc_data):
+                return buffer, False
+            src_to_xyz = extract_primaries_matrix(icc_data)
+            if src_to_xyz is None:
+                return buffer, False
+            from negpy.kernel.image.logic import apply_primaries_transform
+
+            return apply_primaries_transform(buffer, src_to_xyz), True
+        except Exception as e:
+            logger.warning("Matrix-TRC bypass failed, falling back to full CMS: %s", e)
+            return buffer, False
+
+    @staticmethod
     def _has_custom_icc(input_icc_path: Optional[str], output_icc_path: Optional[str]) -> bool:
         """True when an input or output ICC override file is present."""
         return bool((input_icc_path and os.path.exists(input_icc_path)) or (output_icc_path and os.path.exists(output_icc_path)))
@@ -1492,6 +1527,11 @@ class ImageProcessor:
             # littleCMS needs RGB against the RGB working/output profiles.
             if pil_img.mode != "RGB":
                 pil_img = pil_img.convert("RGB")
+            buf_f32 = np.asarray(pil_img, dtype=np.float32) / 255.0
+            buf_f32, bypassed = ImageProcessor._try_matrix_bypass(buf_f32, input_icc_path)
+            if bypassed:
+                pil_img = Image.fromarray(np.clip(buf_f32 * 255.0 + 0.5, 0, 255).astype(np.uint8))
+                input_icc_path = None
             p_src = ImageProcessor._resolve_src_profile(working_color_space, input_icc_path)
             # Custom output profile, or the working space when only an input is set.
             p_dst = ImageProcessor._resolve_dst_profile(working_color_space, output_icc_path)

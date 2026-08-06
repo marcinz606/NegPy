@@ -183,6 +183,33 @@ _LAB_KAPPA = 7.787
 
 
 @parallel_njit(cache=True, fastmath=True)
+def _matmul_3x3_kernel(px: np.ndarray, m: np.ndarray) -> np.ndarray:
+    """Row-parallel 3x3 matrix multiply over an (N, 3) pixel array."""
+    n = px.shape[0]
+    out = np.empty((n, 3), dtype=np.float32)
+    for i in prange(n):
+        r, g, b = px[i, 0], px[i, 1], px[i, 2]
+        out[i, 0] = m[0, 0] * r + m[0, 1] * g + m[0, 2] * b
+        out[i, 1] = m[1, 0] * r + m[1, 1] * g + m[1, 2] * b
+        out[i, 2] = m[2, 0] * r + m[2, 1] * g + m[2, 2] * b
+    return out
+
+
+def apply_primaries_transform(img: np.ndarray, src_to_xyz: np.ndarray) -> np.ndarray:
+    """Apply a primaries-only colour transform (no TRC decode/encode).
+
+    Concatenates XYZ_to_working @ src_to_XYZ and applies via a per-pixel
+    matrix multiply.  Operates on the buffer in whatever encoding it
+    already has — the TRC is never touched.
+    """
+    m_total = np.ascontiguousarray((_XYZ_TO_WORKING.astype(np.float64) @ src_to_xyz).astype(np.float32))
+    h, w = img.shape[:2]
+    flat = img.reshape(-1, 3).astype(np.float32, copy=False)
+    out = _matmul_3x3_kernel(flat, m_total)
+    return np.clip(out.reshape(h, w, 3), 0.0, 1.0)
+
+
+@parallel_njit(cache=True, fastmath=True)
 def _rgb_to_lab_kernel(px: np.ndarray, m: np.ndarray, white: np.ndarray, eps: float, kappa: float) -> np.ndarray:
     """Row-parallel linear working RGB -> CIELAB (D65) over an (N, 3) pixel list."""
     n = px.shape[0]
