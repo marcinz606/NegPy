@@ -1454,6 +1454,130 @@ class TestFlextightFff:
         assert "orientation" in metadata
 
 
+def _make_logluv_fff(tmp_dir: str, h: int = 4, w: int = 6) -> str:
+    """Create a synthetic SGI LogLuv32 FFF file (minimal hand-built TIFF)."""
+    import struct
+
+    from negpy.infrastructure.loaders.logluv import (
+        COMPRESSION_SGILOG,
+    )
+
+    UVSCALE = 410.0
+    U_NEU = 0.210526316
+    V_NEU = 0.473684211
+    PHOTOMETRIC_LOGLUV = 32845
+
+    rng = np.random.RandomState(123)
+    luminance = rng.uniform(0.01, 1.0, (h, w))
+
+    def logl16_from_y(y):
+        le = np.floor(256.0 * (np.log2(np.abs(y)) + 64.0)).astype(np.int64)
+        le = np.clip(le, 0, 0x7FFF)
+        le = np.where(y <= 0, 0, le)
+        return le.astype(np.uint32)
+
+    le = logl16_from_y(luminance)
+    ue = np.clip(np.trunc(UVSCALE * U_NEU), 0, 255).astype(np.uint32)
+    ve = np.clip(np.trunc(UVSCALE * V_NEU), 0, 255).astype(np.uint32)
+    packed = (le << 16) | (ue << 8) | ve
+
+    pixel_bytes = packed.astype(">u4").tobytes()
+
+    byte_order = b"MM"
+    ifd_offset = 8
+    n_tags = 8
+    ifd_size = 2 + n_tags * 12 + 4
+    strip_offset = ifd_offset + ifd_size
+
+    ifd = struct.pack(">H", n_tags)
+
+    def tag(t, typ, cnt, val):
+        if typ == 3:
+            return struct.pack(">HHIH2x", t, typ, cnt, val)
+        return struct.pack(">HHII", t, typ, cnt, val)
+
+    ifd += tag(256, 4, 1, w)  # ImageWidth
+    ifd += tag(257, 4, 1, h)  # ImageLength
+    ifd += tag(258, 3, 1, 32)  # BitsPerSample
+    ifd += tag(259, 3, 1, COMPRESSION_SGILOG)  # Compression
+    ifd += tag(262, 3, 1, PHOTOMETRIC_LOGLUV)  # PhotometricInterpretation
+    ifd += tag(273, 4, 1, strip_offset)  # StripOffsets
+    ifd += tag(277, 3, 1, 3)  # SamplesPerPixel
+    ifd += tag(278, 4, 1, h)  # RowsPerStrip
+    ifd += struct.pack(">I", 0)  # next IFD
+
+    header = byte_order + struct.pack(">HI", 42, ifd_offset)
+
+    # StripByteCounts: we omit it — the decoder should handle this
+    # Actually we need it. Rebuild with 9 tags.
+    n_tags = 9
+    ifd_size = 2 + n_tags * 12 + 4
+    strip_offset = ifd_offset + ifd_size
+
+    ifd = struct.pack(">H", n_tags)
+    ifd += tag(256, 4, 1, w)
+    ifd += tag(257, 4, 1, h)
+    ifd += tag(258, 3, 1, 32)
+    ifd += tag(259, 3, 1, COMPRESSION_SGILOG)
+    ifd += tag(262, 3, 1, PHOTOMETRIC_LOGLUV)
+    ifd += tag(273, 4, 1, strip_offset)
+    ifd += tag(277, 3, 1, 3)
+    ifd += tag(278, 4, 1, h)
+    ifd += tag(279, 4, 1, len(pixel_bytes))  # StripByteCounts
+    ifd += struct.pack(">I", 0)
+
+    header = byte_order + struct.pack(">HI", 42, ifd_offset)
+    data = header + ifd + pixel_bytes
+
+    path = os.path.join(tmp_dir, "logluv.fff")
+    with open(path, "wb") as f:
+        f.write(data)
+    return path
+
+
+class TestFlextightLogLuv:
+    def test_detect_logluv_fff(self, tmp_path: str) -> None:
+        path = _make_logluv_fff(str(tmp_path))
+        assert is_flextight_fff(path)
+
+    def test_loader_decodes_logluv(self, tmp_path: str) -> None:
+        from negpy.infrastructure.loaders.fff_loader import FffLoader
+
+        path = _make_logluv_fff(str(tmp_path), h=4, w=6)
+        loader = FffLoader()
+        wrapper, metadata = loader.load(path)
+        with wrapper as w:
+            assert w.data.dtype == np.float32
+            assert w.data.shape == (4, 6, 3)
+            assert w.data.min() >= 0.0
+            assert w.data.max() <= 1.0
+        assert "orientation" in metadata
+
+    def test_logluv_export_roundtrip(self, tmp_path: str) -> None:
+        path = _make_logluv_fff(str(tmp_path), h=10, w=15)
+        out = os.path.join(str(tmp_path), "output.tiff")
+        export_linear_output(path, out)
+        with tifffile.TiffFile(out) as tf:
+            arr = tf.pages[0].asarray()
+            assert arr.dtype == np.uint16
+            assert arr.shape == (10, 15, 3)
+            desc = tf.pages[0].description
+            assert "Flextight FFF" in desc
+
+    def test_logluv_produces_nonzero_rgb(self, tmp_path: str) -> None:
+        from negpy.infrastructure.loaders.fff_loader import FffLoader
+
+        path = _make_logluv_fff(str(tmp_path), h=4, w=6)
+        loader = FffLoader()
+        wrapper, _meta = loader.load(path)
+        with wrapper as w:
+            assert w.data.mean() > 0.01, "LogLuv decode produced near-zero output"
+
+    def test_logluv_source_type(self, tmp_path: str) -> None:
+        path = _make_logluv_fff(str(tmp_path))
+        assert linear_output_source_type(path) == "fff"
+
+
 def _make_noritsu_raw(tmp_dir: str, w: int = 4042, h: int = 6391) -> str:
     """Create a synthetic Noritsu RAW file: headerless BGR16 LE, 12-bit data."""
     rng = np.random.RandomState(42)

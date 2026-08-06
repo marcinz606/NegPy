@@ -8,6 +8,9 @@ import tifffile
 
 from negpy.domain.interfaces import IImageLoader
 from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, read_orientation
+from negpy.infrastructure.loaders.logluv import (
+    decode_logluv_strips,
+)
 from negpy.kernel.image.logic import uint8_to_float32, uint16_to_float32
 from negpy.kernel.system.logging import get_logger
 
@@ -71,13 +74,17 @@ def _parse_fff_firmware(raw: bytes) -> dict:
         return {}
 
 
+_PHOTOMETRIC_RGB = 2
+_PHOTOMETRIC_LOGLUV = 32845
+
+
 def _find_full_res_ifd(tif: tifffile.TiffFile) -> Optional[Any]:
-    """Return the largest RGB IFD by pixel count.
+    """Return the largest image IFD by pixel count.
 
     FFF files can have multiple IFDs flagged as full-resolution (the SubfileType
     tag is unreliable — e.g. a small secondary image tagged full-res). Pixel
     count is the reliable signal, matching the approach in flexcolor-tool and
-    the reference loader.
+    the reference loader. Accepts both RGB and LogLuv photometric.
     """
     best = None
     best_pixels = 0
@@ -92,7 +99,18 @@ def _find_full_res_ifd(tif: tifffile.TiffFile) -> Optional[Any]:
             continue
         spp = int(spp_tag.value) if not hasattr(spp_tag.value, "__len__") else int(spp_tag.value[0])
         photo = int(photo_tag.value)
-        if spp < 3 or photo != 2:
+        if photo == _PHOTOMETRIC_LOGLUV:
+            pixels = page.shape[0] * page.shape[1] if hasattr(page, "shape") else 0
+            if pixels == 0:
+                w_tag = tags.get("ImageWidth")
+                h_tag = tags.get("ImageLength")
+                if w_tag and h_tag:
+                    pixels = int(w_tag.value) * int(h_tag.value)
+            if pixels > best_pixels:
+                best = page
+                best_pixels = pixels
+            continue
+        if spp < 3 or photo != _PHOTOMETRIC_RGB:
             continue
         bits = int(bps_tag.value) if bps_tag and not hasattr(bps_tag.value, "__len__") else (int(bps_tag.value[0]) if bps_tag else 8)
         if bits < 16:
@@ -119,16 +137,12 @@ def _has_sgilog_ifd(tif: tifffile.TiffFile) -> bool:
 
 
 def is_flextight_fff(file_path: str) -> bool:
-    """True if this FFF is an Imacon/Hasselblad Flextight scanner file (16-bit RGB in a top-level IFD)."""
+    """True if this FFF is an Imacon/Hasselblad Flextight scanner file."""
     if os.path.splitext(file_path)[1].lower() != ".fff":
         return False
     try:
         with tifffile.TiffFile(file_path) as tif:
-            if _find_full_res_ifd(tif) is not None:
-                return True
-            if _has_sgilog_ifd(tif):
-                logger.warning(f"SGI LogLuv FFF detected but not supported: {file_path}")
-            return False
+            return _find_full_res_ifd(tif) is not None
     except Exception:
         return False
 
@@ -136,9 +150,9 @@ def is_flextight_fff(file_path: str) -> bool:
 class FffLoader(IImageLoader):
     """Loader for Imacon/Hasselblad Flextight FFF scanner files.
 
-    These are big-endian TIFFs with the full-res 16-bit linear RGB image in a
-    top-level IFD (picked by pixel count, not SubfileType tag). The data is
-    uninverted scanner output — linear, no gamma applied.
+    Handles two variants:
+    - Uncompressed 16-bit RGB (standard FFF from FlexColor export)
+    - SGI LogLuv compressed (raw .3fr/.fff from the scanner hardware)
 
     Data is returned as-is — no color-space assumptions or linearization.
     """
@@ -147,10 +161,33 @@ class FffLoader(IImageLoader):
         with tifffile.TiffFile(file_path) as tif:
             page = _find_full_res_ifd(tif)
             if page is None:
-                if _has_sgilog_ifd(tif):
-                    raise ValueError(f"SGI LogLuv encoded FFF files are not supported: {file_path}")
-                raise ValueError(f"No full-res RGB IFD in {file_path}")
-            arr = page.asarray()
+                raise ValueError(f"No full-res image IFD in {file_path}")
+
+            page_tags = getattr(page, "tags", None)
+            comp_tag = page_tags.get("Compression") if page_tags else None
+            is_logluv = comp_tag is not None and int(comp_tag.value) in _SGILOG_COMPRESSIONS
+
+            if is_logluv:
+                w_tag = page_tags.get("ImageWidth")
+                h_tag = page_tags.get("ImageLength")
+                w = int(w_tag.value) if w_tag else page.shape[1]
+                h = int(h_tag.value) if h_tag else page.shape[0]
+                with open(file_path, "rb") as fh:
+                    raw_data = fh.read()
+                byte_order = "<" if tif.byteorder == "<" else ">"
+                f32 = decode_logluv_strips([page], w, h, raw_data, byte_order)
+            else:
+                arr = page.asarray()
+                if arr.ndim == 3 and arr.shape[2] > 3:
+                    arr = np.ascontiguousarray(arr[:, :, :3])
+                elif arr.ndim == 2:
+                    arr = np.stack([arr] * 3, axis=-1)
+                if arr.dtype == np.uint8:
+                    f32 = uint8_to_float32(np.ascontiguousarray(arr))
+                elif arr.dtype == np.uint16:
+                    f32 = uint16_to_float32(np.ascontiguousarray(arr))
+                else:
+                    f32 = np.clip(arr.astype(np.float32), 0, 1)
 
             fff_meta: dict = {}
             p0_tags = getattr(tif.pages[0], "tags", None)
@@ -161,18 +198,6 @@ class FffLoader(IImageLoader):
                 fw_tag = p0_tags.get(46279)
                 if fw_tag is not None and isinstance(fw_tag.value, bytes):
                     fff_meta.update(_parse_fff_firmware(fw_tag.value))
-
-        if arr.ndim == 3 and arr.shape[2] > 3:
-            arr = np.ascontiguousarray(arr[:, :, :3])
-        elif arr.ndim == 2:
-            arr = np.stack([arr] * 3, axis=-1)
-
-        if arr.dtype == np.uint8:
-            f32 = uint8_to_float32(np.ascontiguousarray(arr))
-        elif arr.dtype == np.uint16:
-            f32 = uint16_to_float32(np.ascontiguousarray(arr))
-        else:
-            f32 = np.clip(arr.astype(np.float32), 0, 1)
 
         metadata = {
             "orientation": read_orientation(file_path),
