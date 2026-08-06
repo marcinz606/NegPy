@@ -50,6 +50,7 @@ class GPUCanvasWidget(QWidget):
         self.pan_x: float = 0.0
         self.pan_y: float = 0.0
         self._bg: Tuple[float, float, float] = (0.02, 0.02, 0.02)
+        self.fit_height_reserve: float = 0.0
 
         # Debounce resize to prevent context thrashing
         self.resize_timer = QTimer()
@@ -369,10 +370,14 @@ class GPUCanvasWidget(QWidget):
             ww, wh = float(current_tex.width), float(current_tex.height)
             iw, ih = float(self.image_size[0]), float(self.image_size[1])
 
-            r = min(ww / iw, wh / ih)
+            dpr = self.devicePixelRatioF()
+            reserve_px = self.fit_height_reserve * dpr
+            fit_h = max(1.0, wh - reserve_px)
+            r = min(ww / iw, fit_h / ih)
             nw, nh = iw * r, ih * r
 
-            nx, ny = (ww - nw) / 2.0, (wh - nh) / 2.0
+            nx = (ww - nw) / 2.0
+            ny = (fit_h - nh) / 2.0
 
             self.device.queue.write_buffer(
                 self.uniform_buffer,

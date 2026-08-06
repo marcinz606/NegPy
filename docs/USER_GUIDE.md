@@ -11,7 +11,7 @@ This guide is for new users. It explains what each control does, when you'd reac
 ### Screen layout
 
 *   **Left, the film strip**: your loaded frames as a contact sheet, plus import, sorting, and triage tools.
-*   **Centre, the canvas**: the live preview of the current frame. Most tools (crop, white-balance picker, heal brush, dodge/burn masks) are used by clicking directly on it. With nothing loaded it shows **Load some scans to get started** — click it for **Add files** / **Add folder**.
+*   **Centre, the canvas**: the live preview of the current frame. Most tools (crop, white-balance picker, heal brush, dodge/burn masks) are used by clicking directly on it. A floating toolbar along the bottom holds Fit/1:1 zoom, undo/redo, rotate/flip and more, moving overflow items into an **⋯** menu when the window narrows — that menu also has **Immersive Canvas** (image fills the canvas and the toolbar overlaps it; turn off to reserve space above the toolbar so it never occludes the image). With nothing loaded it shows **Load some scans to get started** — click it for **Add files** / **Add folder**.
 *   **Right, the controls**: a pinned **Analysis** readout at the top, and below it an icon tab bar. Each icon opens a *workflow page* holding one or more collapsible panels.
 
 ### The workflow (and the order things happen)

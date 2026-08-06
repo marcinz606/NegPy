@@ -249,6 +249,15 @@ class ImageCanvas(QWidget):
             return int(buf.width), int(buf.height)
         return None
 
+    def _toolbar_reserved_height(self) -> int:
+        """Logical pixels reserved at the canvas bottom for the floating toolbar
+        when immersive mode is off."""
+        tb = self._floating_toolbar
+        if tb is None:
+            return 0
+        size = tb.pill_size_hint() if hasattr(tb, "pill_size_hint") else tb.sizeHint()
+        return size.height() + _TOOLBAR_INSET
+
     def _fit_scale(self) -> Optional[float]:
         """Device-pixel scale the shader applies at zoom_level 1.0 — its fit ratio
         min(viewport / image). True pixel zoom = zoom_level * _fit_scale()."""
@@ -259,6 +268,8 @@ class ImageCanvas(QWidget):
         dpr = self.devicePixelRatioF()
         vw = max(1.0, self.width() * dpr)
         vh = max(1.0, self.height() * dpr)
+        if not self.state.immersive_canvas:
+            vh = max(1.0, vh - self._toolbar_reserved_height() * dpr)
         return min(vw / max(1, img_w), vh / max(1, img_h))
 
     def current_zoom_percent(self) -> int:
@@ -523,7 +534,10 @@ class ImageCanvas(QWidget):
 
     def _sync_transform(self) -> None:
         """Propagates zoom/pan to sub-widgets."""
+        reserve = self._toolbar_reserved_height() if not self.state.immersive_canvas else 0
+        self.gpu_widget.fit_height_reserve = reserve
         self.gpu_widget.set_transform(self.zoom_level, self.pan_offset.x(), self.pan_offset.y())
+        self.overlay.fit_height_reserve = reserve
         self.overlay.set_transform(self.zoom_level, self.pan_offset.x(), self.pan_offset.y())
         self.zoom_changed.emit(self.zoom_level)
         self.update()

@@ -333,6 +333,11 @@ class MainWindow(QMainWindow):
         else:
             self.setWindowTitle("NegPy")
 
+    def _on_immersive_changed(self) -> None:
+        if getattr(self, "_last_immersive", None) != self.controller.session.state.immersive_canvas:
+            self._last_immersive = self.controller.session.state.immersive_canvas
+            self.canvas.fit_to_window()
+
     def show_tutorial(self) -> None:
         from negpy.desktop.view.widgets.tutorial_steps import build
 
@@ -409,6 +414,7 @@ class MainWindow(QMainWindow):
     def _connect_signals(self) -> None:
         """Wire controller and view."""
         self.controller.session.state_changed.connect(self._update_title)
+        self.controller.session.state_changed.connect(self._on_immersive_changed)
 
         # visibilityChanged only mirrors the button — it also fires on close/minimize,
         # so we persist in the toggle methods to avoid clobbering the saved state on exit.

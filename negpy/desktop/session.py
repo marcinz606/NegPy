@@ -95,6 +95,11 @@ class AppState:
     # Canvas background color swatch index (0=Black, 1=Dark Grey, 2=Mid Grey)
     canvas_bg_index: int = 0
 
+    # When False, fit-to-window reserves space for the floating toolbar so the
+    # image never sits behind it.  When True (default), the image fills the full
+    # canvas and the toolbar overlaps.
+    immersive_canvas: bool = True
+
     # Crop tool composition guide (CropGuide value); display-only, so not in GeometryConfig
     crop_guide: str = "thirds"
     crop_guide_orientation: int = 0
@@ -459,6 +464,10 @@ class DesktopSessionManager(QObject):
         if saved_bg is not None:
             self.state.canvas_bg_index = int(saved_bg)
 
+        saved_immersive = self.repo.get_global_setting("immersive_canvas")
+        if saved_immersive is not None:
+            self.state.immersive_canvas = bool(saved_immersive)
+
         saved_guide = self.repo.get_global_setting("crop_guide")
         if saved_guide in set(CropGuide):
             self.state.crop_guide = str(saved_guide)
@@ -552,6 +561,13 @@ class DesktopSessionManager(QObject):
         if self.state.autodetect_enabled != enabled:
             self.state.autodetect_enabled = enabled
             self.repo.save_global_setting("autodetect_enabled", enabled)
+            self.state_changed.emit()
+
+    def set_immersive_canvas(self, enabled: bool) -> None:
+        """Updates and persists the immersive canvas preference."""
+        if self.state.immersive_canvas != enabled:
+            self.state.immersive_canvas = enabled
+            self.repo.save_global_setting("immersive_canvas", enabled)
             self.state_changed.emit()
 
     def set_canvas_bg(self, index: int) -> None:

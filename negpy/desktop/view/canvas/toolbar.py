@@ -321,6 +321,12 @@ class ActionToolbar(QWidget):
             self._reset_panel_layout,
         )
         reset_layout_action.setToolTip("Restore the default panel sizes and positions")
+        self._ov_immersive_action = overflow_menu.addAction("Immersive Canvas")
+        self._ov_immersive_action.setCheckable(True)
+        self._ov_immersive_action.setChecked(self.session.state.immersive_canvas)
+        self._ov_immersive_action.setToolTip(
+            tooltip_with_shortcut("Toolbar overlaps image — turn off to fit the image above the toolbar", "toggle_immersive_canvas")
+        )
         overflow_menu.addSeparator()
 
         db_action = overflow_menu.addAction(qta.icon("fa5s.database", color=icon_color), "Manage Database…", self._show_database_dialog)
@@ -477,6 +483,7 @@ class ActionToolbar(QWidget):
         self._ov_flat_peek_action.triggered.connect(lambda checked: self.controller.toggle_flat_peek(force=checked))
         self._ov_undo_action.triggered.connect(lambda: _context_undo(self.controller))
         self._ov_redo_action.triggered.connect(self.session.redo)
+        self._ov_immersive_action.triggered.connect(self._on_immersive_toggled)
 
     def _on_overflow_unload(self) -> None:
         from negpy.desktop.view.confirm import confirm_unload
@@ -485,6 +492,9 @@ class ActionToolbar(QWidget):
             return
         if confirm_unload(self):
             self.session.remove_current_file()
+
+    def _on_immersive_toggled(self, checked: bool) -> None:
+        self.session.set_immersive_canvas(checked)
 
     def _on_gpu_toggled(self, checked: bool) -> None:
         if checked != self.session.state.gpu_enabled:
@@ -644,6 +654,7 @@ class ActionToolbar(QWidget):
         self.btn_flip_v.setChecked(geo.flip_vertical)
         self._ov_flip_h_action.setChecked(geo.flip_horizontal)
         self._ov_flip_v_action.setChecked(geo.flip_vertical)
+        self._ov_immersive_action.setChecked(state.immersive_canvas)
 
         self.btn_undo.setEnabled(state.undo_index > 0)
         self.btn_redo.setEnabled(state.undo_index < state.max_history_index)

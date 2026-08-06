@@ -248,6 +248,7 @@ class CanvasOverlay(QWidget):
         self.zoom_level: float = 1.0
         self.pan_x: float = 0.0
         self.pan_y: float = 0.0
+        self.fit_height_reserve: float = 0.0
 
         self._view_rect: QRectF = QRectF()
 
@@ -434,18 +435,18 @@ class CanvasOverlay(QWidget):
             self._view_rect = QRectF()
             return
 
-        # No margins - use full widget dimensions
         w, h = self.width(), self.height()
         img_w, img_h = size.width(), size.height()
 
-        scale_fit = min(w / img_w, h / img_h)
+        fit_h = max(1.0, h - self.fit_height_reserve)
+        scale_fit = min(w / img_w, fit_h / img_h)
         total_scale = scale_fit * self.zoom_level
 
         final_w = img_w * total_scale
         final_h = img_h * total_scale
 
         center_x = (w / 2) + (self.pan_x * w)
-        center_y = (h / 2) + (self.pan_y * h)
+        center_y = (fit_h / 2) + (self.pan_y * h)
 
         self._view_rect = QRectF(center_x - (final_w / 2), center_y - (final_h / 2), final_w, final_h)
         self._remap_inflight_points(old_rect)
