@@ -28,6 +28,10 @@ def _values(**overrides) -> dict:
         "filename_pattern": "{{ original_name }}_{{ size }}",
         "overwrite": False,
         "export_color_space": ColorSpace.SRGB.value,
+        "tiff_compression": "zlib",
+        "webp_quality": 90,
+        "webp_lossless": False,
+        "webp_method": 4,
         "icc_input_path": None,
         "icc_output_path": None,
     }
@@ -178,6 +182,26 @@ def test_flat_preset_editor_limits_format_choices(qapp):
     form = ExportSettingsForm()
     form.load(_values(export_fmt=ExportFormat.JPEG))
     form.set_flat_mode(True, preset_editor=True)
-    assert [form.fmt_combo.itemText(i) for i in range(form.fmt_combo.count())] == [ExportFormat.TIFF.value]
+    assert [form.fmt_combo.itemText(i) for i in range(form.fmt_combo.count())] == [ExportFormat.TIFF.value, ExportFormat.JXL.value]
     form.set_flat_mode(False, preset_editor=True)
     assert ExportFormat.JPEG.value in [form.fmt_combo.itemText(i) for i in range(form.fmt_combo.count())]
+
+
+def test_tiff_compression_controls(qapp):
+    form = ExportSettingsForm()
+    form.load(_values(export_fmt=ExportFormat.TIFF, tiff_compression="zlib"))
+    assert not form._tiff_container.isHidden()
+    assert form.tiff_jxl_effort_spin.isHidden()
+    form.load(_values(export_fmt=ExportFormat.TIFF, tiff_compression="jpegxl"))
+    assert not form._tiff_container.isHidden()
+    assert not form.tiff_jxl_effort_spin.isHidden()
+    out = form.values()
+    assert out["tiff_compression"] == "jpegxl"
+
+
+def test_tiff_compression_hidden_for_non_tiff(qapp):
+    form = ExportSettingsForm()
+    form.load(_values(export_fmt=ExportFormat.JPEG))
+    assert form._tiff_container.isHidden()
+    form.load(_values(export_fmt=ExportFormat.JXL))
+    assert form._tiff_container.isHidden()

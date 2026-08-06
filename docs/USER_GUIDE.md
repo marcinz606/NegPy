@@ -539,10 +539,10 @@ A scrollable list of every edit step (last 100 kept), newest on top; the current
 ### Output intent
 
 *   **Print** (default): the full creative look you see on screen.
-*   **Flat**: a flat, neutral, low-contrast master that keeps maximum tonal/colour information for editing elsewhere (Lightroom, Darktable, Photoshop). Skips the print look, effects, toning, and vignette, and writes a wide-gamut 16-bit TIFF. Your in-app preview is unaffected.
+*   **Flat**: a flat, neutral, low-contrast master that keeps maximum tonal/colour information for editing elsewhere (Lightroom, Darktable, Photoshop). Skips the print look, effects, toning, and vignette, and writes a 16-bit TIFF (or lossless JPEG XL when JXL is selected and the colour space is taggable — sRGB, P3, Rec 2020, or Greyscale). Your in-app preview is unaffected.
     *   **Preview Flat**: temporarily show the flat master on the canvas without changing your edit.
     *   **Roll Baseline**: measure every visible frame and share one exposure baseline, so flat masters are consistent across a roll (recommended before a flat batch).
-*   **Linear**: bypass the entire darkroom pipeline and dump the scanner's or camera's decoded buffer as an untagged linear 16-bit TIFF. No normalization, exposure, colour management, flatfield, or sensor correction — just the raw data with lossless geometry (rotation/flip) applied. Supported sources:
+*   **Linear**: bypass the entire darkroom pipeline and dump the scanner's or camera's decoded buffer as an untagged linear 16-bit file. Output format is selectable: **TIFF** (default, zlib-compressed), **TIFF (JXL compressed)** (lossless JXL encoding inside a TIFF container — preserves TIFF compatibility with better compression), or **JPEG XL** (standalone lossless). An **Effort** slider (1–9, default 7) controls encoder speed vs. compression for the JXL-based formats. No normalization, exposure, colour management, flatfield, or sensor correction — just the raw data with lossless geometry (rotation/flip) applied. Supported sources:
     *   **Pakon RAW** — 4× expansion by default (14-bit sensor range scaled into 16-bit). F335 files (16-bit sensor) default to no expansion.
     *   **LinearRaw DNG** — SilverFast HDRi (3-channel) and VueScan (4-channel RGB+IR). IR is written as a separate grayscale TIFF with an `_ir` suffix.
     *   **Camera RAW** — demosaiced with unity white balance (1,1,1,1). The camera's as-shot WB is written into XMP (`RAW-WB: R G B`) so it can be applied by downstream tools. Source device and timestamp are preserved. RGB-scan triplets (narrowband R/G/B exposures) are merged into a single combined TIFF. Stitch composites are assembled with flatfield and sensor correction applied per-part for clean seams; stitch + triplet combinations are also supported.
@@ -554,7 +554,7 @@ A scrollable list of every edit step (last 100 kept), newest on top; the current
     *   **Apply ICE dust removal** (visible when an IR channel is available): applies IR-based dust and scratch correction to the linear output before writing. Off by default.
     *   **Corrections** (camera RAW only): three optional toggles that bake corrections into the linear output before writing. All default to off (raw dump philosophy). **Apply white balance** multiplies by the as-shot WB gains. **Apply flatfield** applies the flatfield gain correction. **Apply sensor correction** applies the sensor crosstalk unmixing matrix. For stitch composites, flatfield and sensor correction are always applied per-part regardless of these toggles (required for clean seams).
 
-    The output TIFF is always written clean — no ICC profiles, no EXIF color space tags, and no XMP color metadata from the source are carried through. Only raw pixels plus device metadata (Make, Model, DateTime) from the source file.
+    The output file is always written clean — no ICC profiles, no EXIF color space tags, and no XMP color metadata from the source are carried through. Only raw pixels plus device metadata (Make, Model, DateTime) from the source file.
 
 ### Export button
 
@@ -562,7 +562,7 @@ The primary **Export** action. Its chevron menu picks the scope: current frame (
 
 ### Format / Size / Colour / Destination
 
-*   **Format**: `JPEG`, `TIFF`, `PNG`, `JPEG XL`, or `WebP` (with quality/effort options per format).
+*   **Format**: `JPEG`, `TIFF`, `PNG`, `JPEG XL`, or `WebP` (with quality/effort options per format). TIFF offers a **Compression** choice between Zlib (default) and JPEG XL (lossless JXL encoding inside the TIFF container, with an **Effort** slider).
 *   **Colour Space**: `Same as Source`, `sRGB`, `Adobe RGB`, `ProPhoto RGB`, `P3 D65`, `Rec 2020`, or `Greyscale` (true B&W output).
 *   **Input / Output ICC**: soft-proof against, and optionally embed, an ICC profile. Output is the destination profile (default); Input treats the profile as the source (when a scan's profile is known but untagged).
 *   **Paper Aspect Ratio**: final print ratio, or *Original* (no resize).

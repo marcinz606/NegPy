@@ -3483,14 +3483,16 @@ class AppController(QObject):
 
         exported = 0
         expansion = self.state.linear_expansion
+        linear_fmt = self.state.linear_format
+        out_ext = "jxl" if linear_fmt == "jxl" else "tiff"  # tiff_jxl is still a .tiff file
         for f in supported:
             params = self._batch_params_for(f)
             stitch = params.stitch if params.stitch.stitch_enabled else None
             stem = os.path.splitext(os.path.basename(f["path"]))[0]
-            out_path = os.path.join(export_path, f"{stem}_linear.tiff")
+            out_path = os.path.join(export_path, f"{stem}_linear.{out_ext}")
             counter = 2
             while os.path.exists(out_path):
-                out_path = os.path.join(export_path, f"{stem}_linear_{counter}.tiff")
+                out_path = os.path.join(export_path, f"{stem}_linear_{counter}.{out_ext}")
                 counter += 1
             try:
                 export_linear_output(
@@ -3508,6 +3510,8 @@ class AppController(QObject):
                     apply_ice=self.state.linear_apply_ice,
                     retouch=params.retouch,
                     gamma_key=self.state.linear_gamma_key,
+                    output_format=linear_fmt,
+                    jxl_effort=self.state.linear_jxl_effort,
                 )
                 exported += 1
             except Exception as e:

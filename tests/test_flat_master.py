@@ -241,6 +241,29 @@ class TestFlatConfigHelpers(unittest.TestCase):
         self.assertEqual(result.shape[1], 6000)
         self.assertAlmostEqual(result.shape[0] / result.shape[1], 5333 / 8000, places=2)
 
+    def test_flat_export_config_allows_jxl_for_taggable_space(self):
+        src = ExportConfig(
+            export_fmt=ExportFormat.JXL,
+            export_color_space=ColorSpace.SRGB.value,
+        )
+        out = flat_export_config(src)
+        self.assertEqual(out.export_fmt, ExportFormat.JXL)
+        self.assertTrue(out.jxl_lossless)
+
+    def test_flat_export_config_falls_back_to_tiff_for_untaggable_jxl(self):
+        src = ExportConfig(
+            export_fmt=ExportFormat.JXL,
+            export_color_space=ColorSpace.PROPHOTO.value,
+        )
+        out = flat_export_config(src)
+        self.assertEqual(out.export_fmt, ExportFormat.TIFF)
+
+    def test_flat_export_config_falls_back_to_tiff_for_non_jxl(self):
+        for fmt in (ExportFormat.JPEG, ExportFormat.PNG, ExportFormat.WEBP):
+            src = ExportConfig(export_fmt=fmt, export_color_space=ColorSpace.SRGB.value)
+            out = flat_export_config(src)
+            self.assertEqual(out.export_fmt, ExportFormat.TIFF, f"expected TIFF fallback for {fmt}")
+
 
 class TestRenderIntentSerialization(unittest.TestCase):
     def test_round_trips_through_flat_dict(self):

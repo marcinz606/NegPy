@@ -174,6 +174,8 @@ class AppState:
     linear_apply_sensor: bool = False
     linear_apply_ice: bool = False
     linear_gamma_key: str = "linear"
+    linear_format: str = "tiff"
+    linear_jxl_effort: int = 7
 
     @property
     def local_hidden_masks(self) -> set:
@@ -509,6 +511,12 @@ class DesktopSessionManager(QObject):
         saved_gamma = self.repo.get_global_setting("linear_gamma_key")
         if saved_gamma is not None:
             self.state.linear_gamma_key = str(saved_gamma)
+        saved_linear_fmt = self.repo.get_global_setting("linear_format")
+        if saved_linear_fmt is not None:
+            self.state.linear_format = str(saved_linear_fmt)
+        saved_jxl_effort = self.repo.get_global_setting("linear_jxl_effort")
+        if saved_jxl_effort is not None:
+            self.state.linear_jxl_effort = int(saved_jxl_effort)
 
         self.state.export_presets = self.repo.load_export_presets()
 
@@ -592,6 +600,8 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting("linear_apply_sensor", self.state.linear_apply_sensor)
         self.repo.save_global_setting("linear_apply_ice", self.state.linear_apply_ice)
         self.repo.save_global_setting("linear_gamma_key", self.state.linear_gamma_key)
+        self.repo.save_global_setting("linear_format", self.state.linear_format)
+        self.repo.save_global_setting("linear_jxl_effort", self.state.linear_jxl_effort)
 
     def _apply_sticky_settings(self, config: WorkspaceConfig, only_global: bool = False) -> WorkspaceConfig:
         """

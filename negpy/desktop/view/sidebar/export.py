@@ -32,6 +32,7 @@ from negpy.desktop.view.styles.templates import (
 )
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
+from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.widgets.export_settings_form import ExportSettingsForm, constrain_combo
 from negpy.desktop.view.widgets.split_button import make_split_button
 from negpy.domain.models import ColorSpace, preset_display_name
@@ -547,11 +548,36 @@ class ExportSidebar(BaseSidebar):
         box.addWidget(self.flat_roll_warning)
 
         self.linear_hint_label = hint_label(
-            "Exports the loader's decoded buffer as an untagged 16-bit TIFF. "
+            "Exports the loader's decoded buffer as an untagged 16-bit file. "
             "No pipeline processing, no color management, no scaling. "
             "Pakon RAW, LinearRaw DNG (SilverFast/VueScan), and camera RAW."
         )
         box.addWidget(self.linear_hint_label)
+
+        fmt_row = QHBoxLayout()
+        fmt_row.setContentsMargins(0, 0, 0, 0)
+        fmt_row.addWidget(field_label("Format"))
+        self.linear_format_combo = QComboBox()
+        self.linear_format_combo.addItem("TIFF", "tiff")
+        self.linear_format_combo.addItem("TIFF (JXL compressed)", "tiff_jxl")
+        self.linear_format_combo.addItem("JPEG XL (lossless)", "jxl")
+        idx = self.linear_format_combo.findData(self.state.linear_format)
+        if idx >= 0:
+            self.linear_format_combo.setCurrentIndex(idx)
+        self.linear_format_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        fmt_row.addWidget(self.linear_format_combo)
+        self.linear_format_row = QWidget()
+        self.linear_format_row.setLayout(fmt_row)
+        self.linear_format_row.setVisible(False)
+        box.addWidget(self.linear_format_row)
+        self.linear_format_combo.currentIndexChanged.connect(self._on_linear_format_changed)
+
+        self.linear_jxl_effort_slider = CompactSlider("Effort", 1, 9, 7, step=1, precision=1)
+        self.linear_jxl_effort_slider.label.setToolTip("Encoder effort: higher = slower, smaller file")
+        self.linear_jxl_effort_slider.setValue(self.state.linear_jxl_effort)
+        self.linear_jxl_effort_slider.setVisible(False)
+        self.linear_jxl_effort_slider.valueChanged.connect(self._on_linear_jxl_effort_changed)
+        box.addWidget(self.linear_jxl_effort_slider)
 
         expansion_row = QHBoxLayout()
         expansion_row.setContentsMargins(0, 0, 0, 0)
@@ -634,6 +660,10 @@ class ExportSidebar(BaseSidebar):
         self.flat_hint_label.setVisible(flat_on)
         self.flat_peek_btn.setVisible(flat_on)
         self.linear_hint_label.setVisible(linear_on)
+        if hasattr(self, "linear_format_row"):
+            self.linear_format_row.setVisible(linear_on)
+        if hasattr(self, "linear_jxl_effort_slider"):
+            self.linear_jxl_effort_slider.setVisible(linear_on and self.state.linear_format in ("jxl", "tiff_jxl"))
         if hasattr(self, "linear_expansion_row"):
             self.linear_expansion_row.setVisible(linear_on)
             self.linear_expansion_hint.setVisible(linear_on)
@@ -798,6 +828,18 @@ class ExportSidebar(BaseSidebar):
         else:
             combo.setCurrentIndex(0)
         combo.blockSignals(False)
+
+    def _on_linear_format_changed(self, index: int) -> None:
+        fmt = self.linear_format_combo.itemData(index)
+        if fmt:
+            self.state.linear_format = str(fmt)
+            self.controller.session.save_flat_output_prefs()
+        if hasattr(self, "linear_jxl_effort_slider"):
+            self.linear_jxl_effort_slider.setVisible(self.state.linear_format in ("jxl", "tiff_jxl"))
+
+    def _on_linear_jxl_effort_changed(self, value: float) -> None:
+        self.state.linear_jxl_effort = int(value)
+        self.controller.session.save_flat_output_prefs()
 
     def _on_linear_gamma_changed(self, index: int) -> None:
         from negpy.services.export.linear_output import TIFF_GAMMA_OPTIONS
@@ -1109,6 +1151,7 @@ class ExportSidebar(BaseSidebar):
             "jxl_lossless": conf.jxl_lossless,
             "jxl_distance": conf.jxl_distance,
             "jxl_effort": conf.jxl_effort,
+            "tiff_compression": conf.tiff_compression,
             "webp_quality": conf.webp_quality,
             "webp_lossless": conf.webp_lossless,
             "webp_method": conf.webp_method,
@@ -1148,6 +1191,7 @@ class ExportSidebar(BaseSidebar):
             jxl_lossless=vals["jxl_lossless"],
             jxl_distance=vals["jxl_distance"],
             jxl_effort=vals["jxl_effort"],
+            tiff_compression=vals["tiff_compression"],
             webp_quality=vals["webp_quality"],
             webp_lossless=vals["webp_lossless"],
             webp_method=vals["webp_method"],

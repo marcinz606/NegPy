@@ -173,6 +173,57 @@ class TestExportLinearOutput:
         assert os.path.exists(out_path)
 
 
+class TestExportLinearOutputJxl:
+    def test_jxl_roundtrip(self, tmp_path: str) -> None:
+        raw_path = _make_pakon_raw(str(tmp_path))
+        out_path = os.path.join(str(tmp_path), "output.jxl")
+
+        export_linear_output(raw_path, out_path, output_format="jxl")
+
+        assert os.path.exists(out_path)
+        import imagecodecs
+
+        with open(out_path, "rb") as f:
+            data = f.read()
+        decoded = imagecodecs.jpegxl_decode(data)
+        assert decoded.dtype == np.uint16
+        assert decoded.shape == (1000, 1500, 3)
+
+    def test_jxl_pixel_values_match_tiff(self, tmp_path: str) -> None:
+        raw_path = _make_pakon_raw(str(tmp_path))
+        tiff_path = os.path.join(str(tmp_path), "output.tiff")
+        jxl_path = os.path.join(str(tmp_path), "output.jxl")
+
+        export_linear_output(raw_path, tiff_path, output_format="tiff")
+        export_linear_output(raw_path, jxl_path, output_format="jxl")
+
+        with tifffile.TiffFile(tiff_path) as tf:
+            tiff_u16 = tf.pages[0].asarray()
+
+        import imagecodecs
+
+        with open(jxl_path, "rb") as f:
+            jxl_u16 = imagecodecs.jpegxl_decode(f.read())
+
+        np.testing.assert_array_equal(tiff_u16, jxl_u16)
+
+    def test_default_format_is_tiff(self, tmp_path: str) -> None:
+        raw_path = _make_pakon_raw(str(tmp_path))
+        out_path = os.path.join(str(tmp_path), "output.tiff")
+        export_linear_output(raw_path, out_path)
+        with tifffile.TiffFile(out_path) as tf:
+            assert tf.pages[0].asarray().dtype == np.uint16
+
+    def test_ir_sidecar_always_tiff(self, tmp_path: str) -> None:
+        dng_path = _make_linearraw_dng_4ch(str(tmp_path))
+        out_path = os.path.join(str(tmp_path), "output.jxl")
+        export_linear_output(dng_path, out_path, output_format="jxl")
+        ir_path = os.path.join(str(tmp_path), "output_ir.tiff")
+        assert os.path.exists(ir_path)
+        with tifffile.TiffFile(ir_path) as tf:
+            assert tf.pages[0].asarray().dtype == np.uint16
+
+
 class TestExportLinearOutputBytes:
     def test_returns_valid_tiff(self, tmp_path: str) -> None:
         raw_path = _make_pakon_raw(str(tmp_path))

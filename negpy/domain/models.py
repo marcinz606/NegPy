@@ -198,6 +198,7 @@ class ExportConfig:
     jxl_lossless: bool = True
     jxl_distance: float = 1.0  # libjxl distance; only used when jxl_lossless is False
     jxl_effort: int = 7
+    tiff_compression: str = "zlib"
     webp_quality: int = 90
     webp_lossless: bool = False
     webp_method: int = 4  # PIL encode effort 0-6, higher = slower/smaller
@@ -257,6 +258,7 @@ class ExportPreset:
     jxl_lossless: bool = True
     jxl_distance: float = 1.0
     jxl_effort: int = 7
+    tiff_compression: str = "zlib"
     webp_quality: int = 90
     webp_lossless: bool = False
     webp_method: int = 4
@@ -294,6 +296,7 @@ class ExportPreset:
             "jxl_lossless": self.jxl_lossless,
             "jxl_distance": self.jxl_distance,
             "jxl_effort": self.jxl_effort,
+            "tiff_compression": self.tiff_compression,
             "webp_quality": self.webp_quality,
             "webp_lossless": self.webp_lossless,
             "webp_method": self.webp_method,
@@ -336,6 +339,7 @@ def preset_from_export_config(conf: ExportConfig, name: str = "Current settings"
         jxl_lossless=conf.jxl_lossless,
         jxl_distance=conf.jxl_distance,
         jxl_effort=conf.jxl_effort,
+        tiff_compression=conf.tiff_compression,
         webp_quality=conf.webp_quality,
         webp_lossless=conf.webp_lossless,
         webp_method=conf.webp_method,
@@ -526,11 +530,17 @@ def flat_export_config(export: ExportConfig | ExportPreset) -> Any:
     ``ExportPreset`` — both share the same sizing/format field names — and
     returns the same type it was given.
 
-    Always delivers 16-bit TIFF. Resolution defaults to full original size; if
-    the user explicitly chose Print or Pixels sizing in the export panel, those
-    settings are honoured so flat masters can be downscaled when requested.
+    Delivers 16-bit lossless in TIFF (default) or JXL (if the user chose it
+    and the colour space is JXL-taggable). Resolution defaults to full
+    original size; if the user explicitly chose Print or Pixels sizing in the
+    export panel, those settings are honoured so flat masters can be
+    downscaled when requested.
     """
-    overrides: Dict[str, Any] = {"export_fmt": ExportFormat.TIFF}
+    fmt = export.export_fmt
+    if fmt == ExportFormat.JXL and not export_blocked(fmt, export.export_color_space):
+        overrides: Dict[str, Any] = {"jxl_lossless": True}
+    else:
+        overrides = {"export_fmt": ExportFormat.TIFF}
     if export.export_resolution_mode not in (
         ExportResolutionMode.PRINT.value,
         ExportResolutionMode.TARGET_PX.value,

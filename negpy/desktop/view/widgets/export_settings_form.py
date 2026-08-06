@@ -114,9 +114,32 @@ class ExportSettingsForm(QWidget):
         quality_box.addWidget(self.quality_spin)
         format_box.addWidget(self._quality_container)
 
+        self._build_tiff(format_box)
         self._build_jxl(format_box)
         self._build_webp(format_box)
         root.addWidget(self._format_section)
+
+    def _build_tiff(self, root: QVBoxLayout) -> None:
+        self._tiff_container = QWidget()
+        tiff_box = QVBoxLayout(self._tiff_container)
+        tiff_box.setContentsMargins(0, 0, 0, 0)
+
+        comp_row = QHBoxLayout()
+        comp_row.addWidget(self._row_label("Compression"))
+        self.tiff_compression_combo = QComboBox()
+        self.tiff_compression_combo.addItem("Zlib", "zlib")
+        self.tiff_compression_combo.addItem("JPEG XL", "jpegxl")
+        constrain_combo(self.tiff_compression_combo)
+        self.tiff_compression_combo.currentIndexChanged.connect(self._on_tiff_compression_changed)
+        comp_row.addWidget(self.tiff_compression_combo)
+        tiff_box.addLayout(comp_row)
+
+        self.tiff_jxl_effort_spin = CompactSlider("Effort", 1, 9, 7, step=1, precision=1)
+        self.tiff_jxl_effort_spin.label.setToolTip("Encoder effort: higher = slower, smaller file")
+        self.tiff_jxl_effort_spin.valueChanged.connect(self._on_changed)
+        tiff_box.addWidget(self.tiff_jxl_effort_spin)
+
+        root.addWidget(self._tiff_container)
 
     def _build_jxl(self, root: QVBoxLayout) -> None:
         self._jxl_container = QWidget()
@@ -352,6 +375,7 @@ class ExportSettingsForm(QWidget):
 
     def _on_fmt_changed(self, fmt: str) -> None:
         self._quality_container.setVisible(fmt == ExportFormat.JPEG)
+        self._tiff_container.setVisible(fmt == ExportFormat.TIFF)
         self._jxl_container.setVisible(fmt == ExportFormat.JXL)
         self._webp_container.setVisible(fmt == ExportFormat.WEBP)
         self._apply_jxl_constraints()
@@ -376,6 +400,11 @@ class ExportSettingsForm(QWidget):
         if is_jxl:
             self.icc_output_combo.setCurrentIndex(0)  # None — no custom output profile
         self.icc_output_combo.setEnabled(not is_jxl)
+
+    def _on_tiff_compression_changed(self, _idx: int) -> None:
+        is_jxl = self.tiff_compression_combo.currentData() == "jpegxl"
+        self.tiff_jxl_effort_spin.setVisible(is_jxl)
+        self._on_changed()
 
     def _on_jxl_lossless_toggled(self, lossless: bool) -> None:
         self.jxl_distance_spin.setEnabled(not lossless)
@@ -460,11 +489,12 @@ class ExportSettingsForm(QWidget):
             self.fmt_combo.blockSignals(True)
             self.fmt_combo.clear()
             if enabled:
-                flat_formats = [ExportFormat.TIFF.value]
+                flat_formats = [ExportFormat.TIFF.value, ExportFormat.JXL.value]
                 self.fmt_combo.addItems(flat_formats)
                 self.fmt_combo.setCurrentText(current if current in flat_formats else ExportFormat.TIFF.value)
                 self._quality_container.setVisible(False)
-                self._jxl_container.setVisible(False)
+                self._tiff_container.setVisible(current == ExportFormat.TIFF.value)
+                self._jxl_container.setVisible(current == ExportFormat.JXL.value)
                 self._webp_container.setVisible(False)
             else:
                 all_formats = [f.value for f in ExportFormat]
@@ -505,6 +535,14 @@ class ExportSettingsForm(QWidget):
             self.jxl_distance_spin.setEnabled(not v.get("jxl_lossless", True))
             self.jxl_effort_spin.setValue(v.get("jxl_effort", 7))
             self._jxl_container.setVisible(v["export_fmt"] == ExportFormat.JXL)
+
+            tiff_comp = v.get("tiff_compression", "zlib")
+            comp_idx = self.tiff_compression_combo.findData(tiff_comp)
+            if comp_idx >= 0:
+                self.tiff_compression_combo.setCurrentIndex(comp_idx)
+            self.tiff_jxl_effort_spin.setValue(v.get("jxl_effort", 7))
+            self.tiff_jxl_effort_spin.setVisible(tiff_comp == "jpegxl")
+            self._tiff_container.setVisible(v["export_fmt"] == ExportFormat.TIFF)
 
             self.webp_quality_spin.setValue(v.get("webp_quality", 90))
             self.webp_lossless_check.setChecked(v.get("webp_lossless", False))
@@ -548,7 +586,10 @@ class ExportSettingsForm(QWidget):
             "jpeg_quality": int(self.quality_spin.value()),
             "jxl_lossless": self.jxl_lossless_check.isChecked(),
             "jxl_distance": self.jxl_distance_spin.value(),
-            "jxl_effort": int(self.jxl_effort_spin.value()),
+            "jxl_effort": int(self.tiff_jxl_effort_spin.value())
+            if self.fmt_combo.currentText() == ExportFormat.TIFF
+            else int(self.jxl_effort_spin.value()),
+            "tiff_compression": self.tiff_compression_combo.currentData() or "zlib",
             "webp_quality": int(self.webp_quality_spin.value()),
             "webp_lossless": self.webp_lossless_check.isChecked(),
             "webp_method": int(self.webp_method_spin.value()),
