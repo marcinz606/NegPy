@@ -11,6 +11,10 @@ SUPPORTED_JPEG_EXTENSIONS: Set[str] = {
     ".jpeg",
 }
 
+SUPPORTED_JXL_EXTENSIONS: Set[str] = {
+    ".jxl",
+}
+
 SUPPORTED_RAW_EXTENSIONS: Set[str] = (
     {
         ".3fr",
@@ -58,6 +62,7 @@ SUPPORTED_RAW_EXTENSIONS: Set[str] = (
     }
     | SUPPORTED_TIFF_EXTENSIONS
     | SUPPORTED_JPEG_EXTENSIONS
+    | SUPPORTED_JXL_EXTENSIONS
 )
 
 # Longest first: "_ir_valid" must win before "_ir" is tested against the same stem.
