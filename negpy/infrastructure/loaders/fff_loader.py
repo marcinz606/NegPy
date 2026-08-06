@@ -104,13 +104,31 @@ def _find_full_res_ifd(tif: tifffile.TiffFile) -> Optional[Any]:
     return best
 
 
+_SGILOG_COMPRESSIONS = {34676, 34677}
+
+
+def _has_sgilog_ifd(tif: tifffile.TiffFile) -> bool:
+    for page in tif.pages:
+        tags = getattr(page, "tags", None)
+        if tags is None:
+            continue
+        comp_tag = tags.get("Compression")
+        if comp_tag is not None and int(comp_tag.value) in _SGILOG_COMPRESSIONS:
+            return True
+    return False
+
+
 def is_flextight_fff(file_path: str) -> bool:
     """True if this FFF is an Imacon/Hasselblad Flextight scanner file (16-bit RGB in a top-level IFD)."""
     if os.path.splitext(file_path)[1].lower() != ".fff":
         return False
     try:
         with tifffile.TiffFile(file_path) as tif:
-            return _find_full_res_ifd(tif) is not None
+            if _find_full_res_ifd(tif) is not None:
+                return True
+            if _has_sgilog_ifd(tif):
+                logger.warning(f"SGI LogLuv FFF detected but not supported: {file_path}")
+            return False
     except Exception:
         return False
 
@@ -129,6 +147,8 @@ class FffLoader(IImageLoader):
         with tifffile.TiffFile(file_path) as tif:
             page = _find_full_res_ifd(tif)
             if page is None:
+                if _has_sgilog_ifd(tif):
+                    raise ValueError(f"SGI LogLuv encoded FFF files are not supported: {file_path}")
                 raise ValueError(f"No full-res RGB IFD in {file_path}")
             arr = page.asarray()
 
