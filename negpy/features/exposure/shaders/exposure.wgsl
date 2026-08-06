@@ -175,10 +175,15 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let d_max_base = select(vec3<f32>(params.d_max) - toe3 * params.toe_height, vec3<f32>(params.d_max), toe_neg);
     let d_max_eff = max(d_max_base, d_min_eff + vec3<f32>(0.1));
 
-    // Dodge/burn print-exposure offset (EV stops), same domain as cmy_offsets.
+    // Dodge/burn print exposure (stops, positive = burn; same domain as cmy_offsets) in .r,
+    // local grade as a slope multiplier (local_grade_factor_map) in .g. The dummy
+    // texture is zero-filled, so the gate is what keeps gfac off 0.
     var ev = 0.0;
+    var gfac = 1.0;
     if (params.ev_scale.w != 0.0) {
-        ev = textureLoad(ev_tex, coords, 0).r;
+        let local_maps = textureLoad(ev_tex, coords, 0);
+        ev = local_maps.r;
+        gfac = local_maps.g;
     }
 
     var dens: vec3<f32>;
@@ -186,7 +191,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     for (var ch = 0; ch < 3; ch++) {
         let val = color[ch] + params.cmy_offsets[ch] + ev * params.ev_scale[ch];
         // Quadratic per-channel core (curvature 0 -> the original straight line).
-        var v = params.slopes[ch] * (val - params.pivots[ch]) + params.curvatures[ch] * val * val;
+        // gfac is the local grade: a slope rotation about this channel's pivot, so a
+        // masked region's own midtone holds. Curvature stays global.
+        var v = params.slopes[ch] * gfac * (val - params.pivots[ch]) + params.curvatures[ch] * val * val;
 
         // Variable-gamma paper S-curve: extra local gamma at the midtone centre
         // (v_star), easing to zero toward toe/shoulder. Mirrors the CPU kernel.

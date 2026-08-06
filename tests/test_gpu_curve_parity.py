@@ -301,6 +301,46 @@ class TestGpuCurveParity(unittest.TestCase):
         self.assertLess(mad, 0.01, f"mean abs diff {mad:.4f}")
         self.assertLess(mx, 0.04, f"max abs diff {mx:.4f}")
 
+    def test_cpu_gpu_match_local_grade(self):
+        """Dodge/burn EV and the local grade share one uploaded texture (.r and .g)
+        on the GPU and two kernel arguments on the CPU — a mask that changes both
+        catches a swapped plane or a missing multiply in either path."""
+        from negpy.features.local.models import LocalAdjustmentsConfig, PolygonMask
+        from negpy.services.rendering.image_processor import ImageProcessor
+
+        processor = ImageProcessor()
+        if processor.engine_gpu is None:
+            self.skipTest("GPU engine not initialised")
+
+        rng = np.random.default_rng(5)
+        h, w = 64, 64
+        grad = np.linspace(0.05, 0.9, w, dtype=np.float32)
+        img = np.repeat(grad[None, :], h, axis=0)
+        img = np.stack([img, img * 0.95, img * 0.9], axis=-1)
+        img = np.ascontiguousarray(img + rng.uniform(0, 0.01, img.shape).astype(np.float32))
+
+        s = WorkspaceConfig()
+        square = ((0.15, 0.15), (0.85, 0.15), (0.85, 0.85), (0.15, 0.85))
+        masks = (
+            PolygonMask(vertices=square, stops=0.8, feather=0.03, grade=-35.0),
+            PolygonMask(vertices=((0.0, 0.6), (0.5, 0.6), (0.5, 1.0), (0.0, 1.0)), stops=0.0, feather=0.0, grade=30.0),
+        )
+        settings = replace(s, local=LocalAdjustmentsConfig(masks=masks))
+        cpu = self._render(processor, settings, img, prefer_gpu=False)
+        gpu = self._render(processor, settings, img, prefer_gpu=True)
+
+        self.assertEqual(cpu.shape, gpu.shape)
+        mad = float(np.mean(np.abs(cpu - gpu)))
+        mx = float(np.max(np.abs(cpu - gpu)))
+        self.assertLess(mad, 0.01, f"mean abs diff {mad:.4f}")
+        self.assertLess(mx, 0.04, f"max abs diff {mx:.4f}")
+
+        # Both paths ignoring the grade plane would pass parity vacuously.
+        ev_only = replace(settings, local=LocalAdjustmentsConfig(masks=tuple(replace(m, grade=0.0) for m in masks)))
+        for label, gpu_path in (("cpu", False), ("gpu", True)):
+            engaged = float(np.mean(np.abs(self._render(processor, ev_only, img, prefer_gpu=gpu_path) - (cpu if label == "cpu" else gpu))))
+            self.assertGreater(engaged, 0.002, f"{label} local grade barely engaged ({engaged:.5f})")
+
 
 if __name__ == "__main__":
     unittest.main()

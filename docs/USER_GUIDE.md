@@ -380,16 +380,19 @@ In R/G/B mode the sliders become per-layer trims on top of the global value, for
 Paint polygon masks and lighten or darken just those areas.
 
 *   **Draw Mask**: click to place vertices; double-click / Enter / a click near the start closes the mask; Esc cancels. To edit an existing mask, select it in the list, then drag a vertex, click an edge "+" to add a point, or right-click a vertex to delete.
-*   **Mask list**: each mask shows Dodge (lighten) or Burn (darken) and its strength. The eye toggles its outline; the trash deletes it.
-*   **Strength** (-1 to 1 EV): dodge (+) or burn (−) for the selected mask.
+*   **Mask list**: each mask shows Dodge (lighten), Burn (darken) or Grade (contrast only), with the values it carries. The eye toggles its outline; the trash deletes it.
+*   **Burn** (-2 to 2 stops, default 0): print exposure for the selected mask, signed the way the rest of NegPy signs light on paper — **positive burns** (longer exposure, darker paper), **negative dodges** (held back, brighter paper). Same direction as Print Density and the Finishing edge burn. A freshly drawn mask sits at 0, so it changes nothing until you give it a value.
 *   **Feather** (0.0 to 0.15): edge softness for the selected mask, as a fraction of the frame's short side.
+*   **Grade** (-40 to 40 R): prints the selected mask at its own contrast, in ISO-R points off the frame's Grade — negative is harder. This is the darkroom's burn-in through the hard filter: burn a sky at −20 R and it darkens without the highlights beside it flattening; dodge a face at +15 R and the shadow opens without going chalky. The rotation happens about the region's own midtone, so a mask with Burn 0 and a Grade set changes only contrast, not overall density. Overlapping masks add their grades, and the result is clamped to the ISO-R ladder (R50…R180) like every other grade in NegPy.
 
 **Printing Notes** (Export tab, or **Shift+N**) turns the frame into the printer's marked-up work print. Each mask is outlined and labelled with its number and its value in stops, and a card in the corner carries the print recipe: paper, Print Density, ISO-R Grade (with the split-grade trims when they are set), filtration, toe/shoulder, Snap, edge burn, and the dodge/burn list.
 
 Two conventions worth knowing, both borrowed from the darkroom rather than from the sliders:
 
 *   **Burns are hatched, dodges are left open** — shading marks where the paper gets *extra* exposure.
-*   **The numbers are exposure, not brightness.** A burn reads `+`, a dodge reads `−`, so a mask set to −1.00 EV on the Strength slider is written `Burn +1`. Values land on ⅓/½/¼ fractions where they are close enough, otherwise they print as decimals.
+*   **The numbers are exposure, not brightness** — the same convention the Burn slider uses, so a mask at +1.00 st is written `Burn +1`. Values land on ⅓/½/¼ fractions where they are close enough, otherwise they print as decimals.
+
+A mask with a local **Grade** also carries the grade it actually prints at, not the trim: a burn of +1.00 st at −20 R on a frame graded R115 is written `Burn +1 @ R95`, and a grade-only mask reads `Grade @ R95`.
 
 Every mask is on the map, including ones whose outline you hid with the eye: that eye is there to unclutter editing, and a printing record that quietly omits a burn would be wrong. The overlay steps aside while a test strip, the flat peek, the before/after baseline, or the crop and analysis tools own the canvas. Both the preview and its export live in the Export tab's **Printing Notes** section.
 

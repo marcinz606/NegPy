@@ -23,8 +23,8 @@ class _MaskRow(QWidget):
 
 class LocalSidebar(BaseSidebar):
     """
-    Polygon-mask dodge/burn local adjustments. Draw a polygon, then tune
-    its strength (dodge/burn EV) and feather independently of other masks.
+    Polygon-mask dodge/burn local adjustments. Draw a polygon, then tune its
+    print exposure, its grade and its feather independently of other masks.
     """
 
     def _init_ui(self) -> None:
@@ -49,16 +49,31 @@ class LocalSidebar(BaseSidebar):
         )
         self.layout.addWidget(self.mask_list)
 
-        self.strength_slider = CompactSlider("Strength", -1.0, 1.0, 0.3, step=0.05, precision=100, has_neutral=True, unit=" EV")
-        self.strength_slider.setToolTip("EV adjustment for the selected mask — positive brightens (dodge), negative darkens (burn)")
+        # Exposure-signed like the frame's Print Density and the Finishing edge burn:
+        # positive is more light on the paper, hence darker.
+        self.burn_slider = CompactSlider("Burn", -2.0, 2.0, 0.0, step=0.05, precision=100, has_neutral=True, unit=" st")
+        self.burn_slider.setToolTip(
+            "Print exposure for the selected mask, in stops — positive burns (longer exposure, "
+            "darker paper), negative dodges (held back, brighter paper)"
+        )
 
         self.feather_slider = CompactSlider("Feather", 0.0, 0.15, 0.04, step=0.005, precision=1000)
         self.feather_slider.setToolTip("Edge softness for the selected mask")
 
+        # inverted like every other grade slider (Tone's ISO-R Grade, split grade,
+        # layer trims): dragging right is harder paper, even though R falls.
+        self.grade_slider = CompactSlider("Grade", -40.0, 40.0, 0.0, step=5.0, precision=1, has_neutral=True, unit=" R", inverted=True)
+        self.grade_slider.setToolTip(
+            "Print the selected mask at its own grade, in ISO-R points off the frame's Grade — "
+            "negative is harder, the darkroom's burn-in through the hard filter. The region's own "
+            "midtone holds, so this changes its contrast without moving its overall density."
+        )
+
         slider_row = QHBoxLayout()
-        slider_row.addWidget(self.strength_slider)
-        slider_row.addWidget(self.feather_slider)
+        slider_row.addWidget(self.burn_slider)
+        slider_row.addWidget(self.grade_slider)
         self.layout.addLayout(slider_row)
+        self.layout.addWidget(self.feather_slider)
 
         self.mask_count_label = QLabel("0 masks")
         self.mask_count_label.setStyleSheet(field_label_qss())
@@ -68,8 +83,9 @@ class LocalSidebar(BaseSidebar):
 
     def _connect_signals(self) -> None:
         self.draw_btn.toggled.connect(self._on_draw_toggled)
-        self.strength_slider.valueChanged.connect(lambda v: self.controller.update_selected_local_mask(strength=float(v)))
+        self.burn_slider.valueChanged.connect(lambda v: self.controller.update_selected_local_mask(stops=float(v)))
         self.feather_slider.valueChanged.connect(lambda v: self.controller.update_selected_local_mask(feather=float(v)))
+        self.grade_slider.valueChanged.connect(lambda v: self.controller.update_selected_local_mask(grade=float(v)))
 
     def _on_draw_toggled(self, checked: bool) -> None:
         self.controller.set_active_tool(ToolMode.LOCAL_DRAW if checked else ToolMode.NONE)
@@ -84,14 +100,24 @@ class LocalSidebar(BaseSidebar):
         return btn
 
     def _build_mask_row(self, i: int, mask) -> _MaskRow:
-        kind = "Dodge" if mask.strength >= 0 else "Burn"
+        if mask.stops > 0:
+            kind, colour = "Burn", "#4A8FE8"
+        elif mask.stops < 0:
+            kind, colour = "Dodge", "#E8C84A"
+        else:
+            # A mask that only changes grade is neither: it re-prints the area
+            # at its own contrast without adding or holding back exposure.
+            kind, colour = "Grade", THEME.text_primary
         row = _MaskRow()
         lay = QHBoxLayout(row)
         lay.setContentsMargins(6, 2, 4, 2)
         lay.setSpacing(4)
 
-        label = QLabel(f"{i + 1}.  {kind}   {mask.strength:+.2f} EV")
-        label.setStyleSheet(f"color: {'#E8C84A' if mask.strength >= 0 else '#4A8FE8'};")
+        values = [f"{mask.stops:+.2f} st"] if mask.stops else []
+        if mask.grade:
+            values.append(f"{mask.grade:+.0f} R")
+        label = QLabel(f"{i + 1}.  {kind}   " + "  ".join(values))
+        label.setStyleSheet(f"color: {colour};")
         label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
         visible = i not in self.state.local_hidden_masks
@@ -143,15 +169,17 @@ class LocalSidebar(BaseSidebar):
             if n:
                 self.mask_list.setFixedHeight(_MASK_ROW_H * n + 2 * self.mask_list.frameWidth())
             self.mask_list.blockSignals(False)
-            self.strength_slider.setEnabled(has_selection)
+            self.burn_slider.setEnabled(has_selection)
             self.feather_slider.setEnabled(has_selection)
+            self.grade_slider.setEnabled(has_selection)
             if has_selection:
                 mask = conf.masks[idx]
-                self.strength_slider.setValue(mask.strength)
+                self.burn_slider.setValue(mask.stops)
                 self.feather_slider.setValue(mask.feather)
+                self.grade_slider.setValue(mask.grade)
         finally:
             self.block_signals(False)
 
     def block_signals(self, blocked: bool) -> None:
-        for w in [self.draw_btn, self.strength_slider, self.feather_slider]:
+        for w in [self.draw_btn, self.burn_slider, self.feather_slider, self.grade_slider]:
             w.blockSignals(blocked)

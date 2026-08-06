@@ -779,8 +779,8 @@ class TestAppController(unittest.TestCase):
 
         verts = ((0.1, 0.1), (0.9, 0.1), (0.5, 0.9))
         masks = (
-            PolygonMask(vertices=verts, strength=0.3, feather=0.02),
-            PolygonMask(vertices=verts, strength=-0.3, feather=0.02),
+            PolygonMask(vertices=verts, stops=-0.3, feather=0.02),
+            PolygonMask(vertices=verts, stops=0.3, feather=0.02),
         )
         self.controller.state.config = replace(self.controller.state.config, local=LocalAdjustmentsConfig(masks=masks))
         # Hidden-mask state is keyed by the open file's hash; give the tests one.
@@ -827,7 +827,7 @@ class TestAppController(unittest.TestCase):
         # Simulate an undo/redo/jump that swaps in a config with fewer masks: the stored
         # index 1 now points past the end and must be dropped from the returned set.
         verts = ((0.1, 0.1), (0.9, 0.1), (0.5, 0.9))
-        one_mask = (PolygonMask(vertices=verts, strength=0.3, feather=0.02),)
+        one_mask = (PolygonMask(vertices=verts, stops=-0.3, feather=0.02),)
         self.controller.state.config = replace(self.controller.state.config, local=LocalAdjustmentsConfig(masks=one_mask))
         self.assertEqual(self.controller.state.local_hidden_masks, set())
 

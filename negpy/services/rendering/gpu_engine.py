@@ -41,7 +41,7 @@ from negpy.features.geometry.logic import (
 )
 from negpy.features.lab.logic import gaussian_kernel_1d, rl_iterations
 from negpy.features.lab.models import SharpenMethod
-from negpy.features.local.logic import compute_local_ev_map
+from negpy.features.local.logic import compute_local_maps
 from negpy.features.process.models import ProcessMode, per_channel_point_offsets
 from negpy.features.retouch.logic import build_heal_regions
 from negpy.features.retouch.models import HEAL_SIZE_REF
@@ -434,15 +434,15 @@ class GPUEngine:
         source_hash: Optional[str] = None,
         readback_metrics: bool = True,
         vignette_full_crop: Optional[Tuple[int, int, int, int]] = None,
-        local_ev: Optional[np.ndarray] = None,
+        local_maps: Optional[np.ndarray] = None,
         analysis_source_hash: Optional[str] = None,
     ) -> Tuple[Any, Dict[str, Any]]:
         """
         Executes the full pipeline, returning a GPU texture and associated metrics.
 
-        ``local_ev`` is a pre-rasterised dodge/burn EV map already in the
-        post-geometry frame; tiled export passes a per-tile slice. When None and
-        masks are present, it is computed here from ``settings.local``.
+        ``local_maps`` is the pre-rasterised (h, w, 2) dodge/burn EV + local grade
+        map already in the post-geometry frame; tiled export passes a per-tile slice.
+        When None and masks are present, it is computed here from ``settings.local``.
         """
         if not self.gpu.is_available:
             raise RuntimeError("GPU not available")
@@ -752,8 +752,8 @@ class GPUEngine:
                 h_rot,
             )
             if settings.local.masks:
-                if local_ev is None:
-                    local_ev = compute_local_ev_map(
+                if local_maps is None:
+                    local_maps = compute_local_maps(
                         settings.local,
                         h_rot,
                         w_rot,
@@ -764,7 +764,19 @@ class GPUEngine:
                         flip_vertical=settings.geometry.flip_vertical,
                         distortion_k1=k1_eff,
                     )
-                tex_local_ev.upload(np.stack([local_ev] * 3, axis=-1))
+                from negpy.features.exposure.logic import local_grade_factor_map
+
+                # r = dodge/burn EV, g = local grade slope factor, b unused. One
+                # texture, so the local-grade map costs no bind slot.
+                tex_local_ev.upload(
+                    np.dstack(
+                        [
+                            local_maps[:, :, 0],
+                            local_grade_factor_map(local_maps[:, :, 1], settings.exposure.grade),
+                            np.zeros_like(local_maps[:, :, 0]),
+                        ]
+                    )
+                )
             self._dispatch_pass(
                 enc,
                 "exposure",
@@ -1775,10 +1787,10 @@ class GPUEngine:
         # ponytail: mask vertices are distortion-mapped (centres land right), but the
         # feathered falloff isn't re-warped — negligible unless a mask sits at the frame
         # edge under strong k1. Rasterise on a warped grid if that combo ever matters.
-        local_ev_rot: Optional[np.ndarray] = None
+        local_maps_rot: Optional[np.ndarray] = None
         if settings.local.masks:
             h_rot_full, w_rot_full = img_rot.shape[:2]
-            local_ev_rot = compute_local_ev_map(
+            local_maps_rot = compute_local_maps(
                 settings.local,
                 h_rot_full,
                 w_rot_full,
@@ -1926,7 +1938,7 @@ class GPUEngine:
                     min(w_rot, x1 + tx + tw + halo),
                     min(h_rot, y1 + ty + th + halo),
                 )
-                ev_tile = np.ascontiguousarray(local_ev_rot[iy1:iy2, ix1:ix2]) if local_ev_rot is not None else None
+                maps_tile = np.ascontiguousarray(local_maps_rot[iy1:iy2, ix1:ix2]) if local_maps_rot is not None else None
                 ox, oy = x1 + tx - ix1, y1 + ty - iy1
                 tile_res, _ = self.process_to_texture(
                     img_rot[iy1:iy2, ix1:ix2],
@@ -1943,7 +1955,7 @@ class GPUEngine:
                     clahe_cdf_override=global_cdfs,
                     apply_layout=False,
                     vignette_full_crop=(crop_w, crop_h, tx - ox, ty - oy),
-                    local_ev=ev_tile,
+                    local_maps=maps_tile,
                 )
                 full_source_res[ty : ty + th, tx : tx + tw] = self._readback_downsampled(tile_res)[oy : oy + th, ox : ox + tw]
 

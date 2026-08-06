@@ -744,10 +744,11 @@ class TestLocalParity:
         _assert_mostly_close(cpu_result, gpu_result, atol=1.5e-1, rtol=1.5e-1, max_violation_frac=0.01)
 
     @staticmethod
-    def _mask(strength: float, feather: float = 0.0) -> PolygonMask:
+    def _mask(stops: float, feather: float = 0.0) -> PolygonMask:
+        """Print exposure in stops: positive burns, negative dodges."""
         return PolygonMask(
             vertices=((0.25, 0.25), (0.75, 0.25), (0.75, 0.75), (0.25, 0.75)),
-            strength=strength,
+            stops=stops,
             feather=feather,
         )
 
@@ -755,11 +756,11 @@ class TestLocalParity:
         self._run_and_compare(_make_base_settings())
 
     def test_dodge(self):
-        s = replace(_make_base_settings(), local=LocalAdjustmentsConfig(masks=(self._mask(1.0),)))
+        s = replace(_make_base_settings(), local=LocalAdjustmentsConfig(masks=(self._mask(-1.0),)))
         self._run_and_compare(s)
 
     def test_burn(self):
-        s = replace(_make_base_settings(), local=LocalAdjustmentsConfig(masks=(self._mask(-1.0),)))
+        s = replace(_make_base_settings(), local=LocalAdjustmentsConfig(masks=(self._mask(1.0),)))
         self._run_and_compare(s)
 
     def test_feathered(self):
@@ -768,8 +769,8 @@ class TestLocalParity:
 
     def test_multiple_masks(self):
         masks = (
-            PolygonMask(vertices=((0.1, 0.1), (0.45, 0.1), (0.45, 0.45), (0.1, 0.45)), strength=1.0),
-            PolygonMask(vertices=((0.55, 0.55), (0.9, 0.55), (0.9, 0.9), (0.55, 0.9)), strength=-1.0),
+            PolygonMask(vertices=((0.1, 0.1), (0.45, 0.1), (0.45, 0.45), (0.1, 0.45)), stops=-1.0),
+            PolygonMask(vertices=((0.55, 0.55), (0.9, 0.55), (0.9, 0.9), (0.55, 0.9)), stops=1.0),
         )
         s = replace(_make_base_settings(), local=LocalAdjustmentsConfig(masks=masks))
         self._run_and_compare(s)

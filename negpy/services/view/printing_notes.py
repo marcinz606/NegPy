@@ -1,15 +1,14 @@
 """Printer's notes: the print recipe and the dodge/burn map as a darkroom printer writes them.
 
 Everything here is text, in the *exposure* domain a printing record uses: a burn adds
-exposure and reads `+`, a dodge withholds it and reads `−`. `PolygonMask.strength` is
-the opposite convention (positive = dodge = brighter print), so `mask_notes` is the one
-place that inverts it.
+exposure and reads `+`, a dodge withholds it and reads `−`. `PolygonMask.stops` carries
+that same convention, so nothing here re-signs it.
 """
 
 from dataclasses import dataclass
 from typing import List
 
-from negpy.features.exposure.models import ExposureConfig
+from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.exposure.papers import resolve_paper
 from negpy.features.finish.models import FinishConfig
 from negpy.features.local.models import LocalAdjustmentsConfig
@@ -35,20 +34,61 @@ def stops_label(stops: float) -> str:
     return f"{sign}{mag:.2f}"
 
 
+def local_grade_label(grade: float, delta: float) -> str:
+    """The grade a mask actually prints at, as "R95"; empty when it prints at the frame's."""
+    if not delta or grade <= 0.0:
+        return ""
+    c = EXPOSURE_CONSTANTS
+    r = min(max(grade + delta, float(c["iso_r_min"])), float(c["iso_r_max"]))
+    return f"R{r:.0f}"
+
+
 @dataclass(frozen=True)
 class MaskNote:
     number: int  # 1-based, matching the Dodge & Burn mask list
     is_burn: bool
-    stops: str
+    stops: str  # stops_label's "0" when the mask changes nothing but grade
+    local_r: str = ""
 
     @property
     def kind(self) -> str:
+        if self.stops == "0":
+            return "Grade"
         return "Burn" if self.is_burn else "Dodge"
 
+    @property
+    def badge(self) -> str:
+        """Short form for the map drawn on the print."""
+        parts = [str(self.number)]
+        if self.stops != "0":
+            parts.append(self.stops)
+        if self.local_r:
+            parts.append(self.local_r)
+        return " ".join(parts)
 
-def mask_notes(local: LocalAdjustmentsConfig) -> List[MaskNote]:
-    """One note per mask, in list order, with strength re-signed as printing exposure."""
-    return [MaskNote(number=i + 1, is_burn=m.strength < 0, stops=stops_label(-m.strength)) for i, m in enumerate(local.masks)]
+    @property
+    def summary(self) -> str:
+        """Long form for the record card."""
+        text = f"{self.number} {self.kind}"
+        if self.stops != "0":
+            text += f" {self.stops}"
+        if self.local_r:
+            text += f" @ {self.local_r}"
+        return text
+
+
+def mask_notes(local: LocalAdjustmentsConfig, grade: float = 0.0) -> List[MaskNote]:
+    """One note per mask, in list order. `grade` is the frame's ISO R, which turns a
+    mask's grade delta into the grade it prints at."""
+    return [
+        MaskNote(
+            number=i + 1,
+            is_burn=m.stops > 0,
+            stops=stops_label(m.stops),
+            local_r=local_grade_label(grade, m.grade),
+        )
+        for i, m in enumerate(local.masks)
+    ]
 
 
 def recipe_lines(exposure: ExposureConfig, local: LocalAdjustmentsConfig, finish: FinishConfig, *, frame: str = "") -> List[str]:
@@ -88,8 +128,8 @@ def recipe_lines(exposure: ExposureConfig, local: LocalAdjustmentsConfig, finish
     if finish.vignette_stops:
         lines.append(f"Edge burn {stops_label(finish.vignette_stops)} stop")
 
-    notes = mask_notes(local)
+    notes = mask_notes(local, exposure.grade)
     if notes:
-        lines.append("Dodge & burn: " + " · ".join(f"{n.number} {n.kind} {n.stops}" for n in notes))
+        lines.append("Dodge & burn: " + " · ".join(n.summary for n in notes))
 
     return lines

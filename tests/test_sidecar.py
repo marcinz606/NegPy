@@ -17,7 +17,7 @@ def _rich_config() -> WorkspaceConfig:
     return WorkspaceConfig(
         exposure=ExposureConfig(density=0.42, grade=130.0),
         geometry=GeometryConfig(fine_rotation=1.5, manual_crop_rect=(0.1, 0.2, 0.8, 0.9)),
-        local=LocalAdjustmentsConfig(masks=(PolygonMask(vertices=((0.0, 0.0), (0.5, 0.5)), strength=0.7, feather=0.05),)),
+        local=LocalAdjustmentsConfig(masks=(PolygonMask(vertices=((0.0, 0.0), (0.5, 0.5)), stops=-0.7, feather=0.05),)),
     )
 
 
@@ -41,7 +41,7 @@ def test_roundtrip_next_to_source(tmp_path):
     assert tuple(d["manual_crop_rect"]) == (0.1, 0.2, 0.8, 0.9)
     masks = d["local_masks"]["masks"]
     assert len(masks) == 1
-    assert masks[0]["strength"] == 0.7
+    assert masks[0]["stops"] == -0.7
     assert masks[0]["feather"] == 0.05
 
 

@@ -1543,7 +1543,7 @@ class CanvasOverlay(QWidget):
             drag_this = working is not None
             draw_ctrl = working if working is not None else ctrl
             curve = smooth_polyline([(p.x(), p.y()) for p in draw_ctrl], closed=True)
-            outline = QColor(232, 200, 74) if mask.strength >= 0 else QColor(74, 143, 232)
+            outline = QColor(74, 143, 232) if mask.stops > 0 else QColor(232, 200, 74)
             max_alpha = 70 if is_selected else 32
 
             # Skip the feathered fill mid-drag; it re-rasters every frame.
@@ -1595,7 +1595,7 @@ class CanvasOverlay(QWidget):
         unclutters editing, but a record that omits a burn is wrong."""
         polys = [
             ([QPointF(x, y) for x, y in smooth_polyline([(p.x(), p.y()) for p in pts], closed=True)], note)
-            for pts, note in zip(self._local_mask_screen_polys, mask_notes(self.state.config.local))
+            for pts, note in zip(self._local_mask_screen_polys, mask_notes(self.state.config.local, self.state.config.exposure.grade))
             if len(pts) >= 3
         ]
         paint_map(painter, polys)
@@ -1611,7 +1611,9 @@ class CanvasOverlay(QWidget):
             uv_grid = self.state.last_metrics.get("uv_grid")
         if uv_grid is None and self.state.config.local.masks:
             return None
-        return notes_sheet(self._qimage, self._content_rect, self.state.config.local, uv_grid, self._recipe_lines())
+        return notes_sheet(
+            self._qimage, self._content_rect, self.state.config.local, uv_grid, self._recipe_lines(), self.state.config.exposure.grade
+        )
 
     def _draw_local_handles(self, painter: QPainter, ctrl_pts: List[QPointF], color: QColor) -> None:
         """Draggable vertices + '+' discs on edge midpoints for the selected mask."""

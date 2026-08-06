@@ -27,7 +27,7 @@ def _rasterise_mask(
     return mask_f
 
 
-def compute_local_ev_map(
+def compute_local_maps(
     config: LocalAdjustmentsConfig,
     h: int,
     w: int,
@@ -39,13 +39,14 @@ def compute_local_ev_map(
     distortion_k1: float = 0.0,
 ) -> np.ndarray:
     """
-    Build the per-pixel dodge/burn EV map [h, w] float32: ev = sum over masks
-    of strength * alpha, where alpha is the feathered polygon mask. Positive =
-    dodge, negative = burn. All-zeros when there are no masks.
+    Build the per-pixel dodge/burn maps [h, w, 2] float32, each plane the sum over
+    masks of the mask's value times its feathered alpha: plane 0 is print exposure
+    in stops (positive = burn, negative = dodge), plane 1 the local grade delta in
+    ISO-R points. One rasterisation feeds both. All-zeros when there are no masks.
     """
-    ev = np.zeros((h, w), dtype=np.float32)
+    maps = np.zeros((h, w, 2), dtype=np.float32)
     if not config.masks:
-        return ev
+        return maps
 
     short_side = float(min(h, w))
     for mask in config.masks:
@@ -68,6 +69,8 @@ def compute_local_ev_map(
 
         sigma_px = mask.feather * short_side
         alpha = _rasterise_mask(smooth_polyline(transformed, closed=True), h, w, sigma_px)
-        ev += mask.strength * alpha
+        maps[:, :, 0] += mask.stops * alpha
+        if mask.grade:
+            maps[:, :, 1] += mask.grade * alpha
 
-    return ev
+    return maps

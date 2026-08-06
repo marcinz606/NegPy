@@ -2374,7 +2374,7 @@ class AppController(QObject):
 
         from negpy.features.local.models import PolygonMask
 
-        mask = PolygonMask(vertices=raw_vertices, strength=0.3)
+        mask = PolygonMask(vertices=raw_vertices)
         local = self.state.config.local
         new_masks = local.masks + (mask,)
         new_local = replace(local, masks=new_masks)

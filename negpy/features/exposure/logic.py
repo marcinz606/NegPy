@@ -114,6 +114,8 @@ def _apply_print_curve_kernel(
     ev_map: np.ndarray,
     ev_scale: np.ndarray,
     use_ev: bool,
+    grade_map: np.ndarray,
+    use_grade: bool,
     bpc: bool = False,
 ) -> np.ndarray:
     """
@@ -127,8 +129,11 @@ def _apply_print_curve_kernel(
 
     d_min_rgb: per-channel paper-white floor (base+fog incl. tint). dye_mix:
     dye coupling above that floor (D_rgb = M · D_dye) when use_dye_mix is set.
-    ev_map/ev_scale: per-pixel dodge/burn print-exposure offset (EV stops ×
-    normalized-space stop size) when use_ev is set; same domain as cmy_offsets.
+    ev_map/ev_scale: per-pixel dodge/burn print-exposure offset (stops × the
+    normalized-space stop size, positive = burn) when use_ev is set; same domain as
+    cmy_offsets.
+    grade_map: per-pixel slope multiplier (local_grade_factor_map) when use_grade
+    is set — burning or dodging through a harder/softer filter.
 
     Output is linear reflectance (transmittance = 10^-D); the working-space OETF is
     applied at the engine output, not here.
@@ -190,12 +195,18 @@ def _apply_print_curve_kernel(
     for y in prange(h):
         dens = np.empty(3, dtype=np.float64)
         for x in range(w):
+            gfac = 1.0
+            if use_grade:
+                gfac = grade_map[y, x]
             for ch in range(3):
                 val = img[y, x, ch] + cmy_offsets[ch]
                 if use_ev:
                     val = val + ev_map[y, x] * ev_scale[ch]
                 # Quadratic per-channel core (curvature 0 -> the original straight line).
-                v = slopes[ch] * (val - pivots[ch]) + curvatures[ch] * val * val
+                # gfac is the local grade: a slope rotation about this channel's pivot,
+                # so the region's own midtone holds. Curvature (the cast-removal
+                # quadratic) stays global.
+                v = slopes[ch] * gfac * (val - pivots[ch]) + curvatures[ch] * val * val
 
                 # Variable-gamma paper S-curve: extra local gamma at the midtone
                 # centre (v_star), easing to zero toward toe/shoulder. Centred on
@@ -531,6 +542,7 @@ def apply_characteristic_curve(
     paper: Optional[PaperProfile] = None,
     ev_map: Optional[np.ndarray] = None,
     ev_scale: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    grade_map: Optional[np.ndarray] = None,
     bpc: bool = False,
     toe_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     shoulder_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
@@ -547,8 +559,8 @@ def apply_characteristic_curve(
 ) -> ImageBuffer:
     """Applies the asymmetric H&D print curve per channel in log-density space.
 
-    ev_map (H×W, EV stops; positive = dodge) with ev_scale (see local_ev_scale)
-    applies per-pixel dodge/burn as print-exposure offsets ahead of the curve.
+    ev_map (H×W, stops; positive = burn) with ev_scale (see local_ev_scale) applies
+    per-pixel dodge/burn as print-exposure offsets ahead of the curve.
 
     dye_separation(_trims): density-domain saturation, composed into the
     dye_mix slot (see resolve_saturation_matrix/compose_density_matrices).
@@ -575,6 +587,8 @@ def apply_characteristic_curve(
     dye_mix = np.ascontiguousarray(np.eye(3) if composed is None else composed)
     use_ev = ev_map is not None
     ev_arr = np.ascontiguousarray(ev_map.astype(np.float32)) if ev_map is not None else np.zeros((1, 1), dtype=np.float32)
+    use_grade = grade_map is not None
+    grade_arr = np.ascontiguousarray(grade_map.astype(np.float32)) if grade_map is not None else np.ones((1, 1), dtype=np.float32)
 
     toe3, sh3 = per_channel_toe_shoulder(toe, shoulder, toe_trims, shoulder_trims)
     tw3, sw3 = per_channel_widths(toe_width, shoulder_width, toe_width_trims, shoulder_width_trims)
@@ -617,6 +631,8 @@ def apply_characteristic_curve(
         ev_map=ev_arr,
         ev_scale=np.ascontiguousarray(np.array(ev_scale, dtype=np.float32)),
         use_ev=use_ev,
+        grade_map=grade_arr,
+        use_grade=use_grade,
         bpc=bool(bpc),
     )
     return ensure_image(res)
@@ -744,6 +760,23 @@ def _grade_trim_mult(grade: float, trim: float, c: Dict[str, Any]) -> float:
     r0 = min(max(float(grade), float(c["iso_r_min"])), float(c["iso_r_max"]))
     r1 = min(max(r0 + float(trim), float(c["iso_r_min"])), float(c["iso_r_max"]))
     return r0 / r1
+
+
+def local_grade_factor_map(grade_deltas: np.ndarray, grade: float) -> np.ndarray:
+    """
+    Per-pixel slope multiplier for the local-grade map: the same R/(R+ΔR) ratio
+    _grade_trim_mult gives a per-layer trim, so a masked region prints at its own
+    grade on the same ladder. Rotation happens about the channel pivot in the
+    kernel, which is what keeps a grade-only mask from shifting its own midtone.
+    Single source for the CPU kernel and the GPU's uploaded map.
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    c = EXPOSURE_CONSTANTS
+    r_min, r_max = float(c["iso_r_min"]), float(c["iso_r_max"])
+    r0 = min(max(float(grade), r_min), r_max)
+    r1 = np.clip(r0 + grade_deltas.astype(np.float32), r_min, r_max)
+    return (r0 / r1).astype(np.float32)
 
 
 def split_grade_deltas(
@@ -1059,11 +1092,12 @@ def filtration_offsets(wb_cmy: Tuple[float, float, float], bounds: Any) -> Tuple
 
 def local_ev_scale(bounds: Any) -> Tuple[float, float, float]:
     """
-    Normalized-space size of one dodge/burn EV stop per channel: -log10(2) over
-    the channel's stretch range (like filtration_offsets); negative so positive
-    EV (dodge) lowers print exposure. Range 1 when bounds are None.
+    Normalized-space size of one dodge/burn stop per channel: log10(2) over the
+    channel's stretch range (like filtration_offsets). Positive, because the map is
+    exposure-signed: a positive value is a burn and must raise print exposure.
+    Range 1 when bounds are None.
     """
-    step = -float(np.log10(2.0))
+    step = float(np.log10(2.0))
     if bounds is None:
         return (step, step, step)
     out = []

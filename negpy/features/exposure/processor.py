@@ -15,6 +15,7 @@ from negpy.features.exposure.logic import (
     grade_coupled_shape,
     split_grade_deltas,
     local_ev_scale,
+    local_grade_factor_map,
     per_channel_curve_params,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig, RenderIntent
@@ -36,7 +37,7 @@ from negpy.features.exposure.normalization import (
     resolve_crosstalk_matrix,
     unmix_log_image,
 )
-from negpy.features.local.logic import compute_local_ev_map
+from negpy.features.local.logic import compute_local_maps
 from negpy.features.local.models import LocalAdjustmentsConfig
 from negpy.features.process.models import ProcessConfig, ProcessMode, per_channel_point_offsets
 from negpy.kernel.image.logic import get_luminance
@@ -184,12 +185,12 @@ class PhotometricProcessor:
         self.config = config
         self.local_config = local_config
 
-    def _build_ev_map(self, image: ImageBuffer, context: PipelineContext) -> Optional[np.ndarray]:
+    def _build_local_maps(self, image: ImageBuffer, context: PipelineContext) -> Optional[np.ndarray]:
         if self.local_config is None or not self.local_config.masks:
             return None
         h, w = image.shape[:2]
         geo = context.metrics.get("geometry_params", {})
-        return compute_local_ev_map(
+        return compute_local_maps(
             self.local_config,
             h,
             w,
@@ -272,7 +273,11 @@ class PhotometricProcessor:
             lum = get_luminance(image)
             image = np.stack([lum, lum, lum], axis=-1)
 
-        ev_map = self._build_ev_map(image, context)
+        local_maps = self._build_local_maps(image, context)
+        ev_map = None if local_maps is None else np.ascontiguousarray(local_maps[:, :, 0])
+        grade_map = None
+        if local_maps is not None and local_maps[:, :, 1].any():
+            grade_map = local_grade_factor_map(np.ascontiguousarray(local_maps[:, :, 1]), self.config.grade)
 
         img_pos = apply_characteristic_curve(
             image,
@@ -292,6 +297,7 @@ class PhotometricProcessor:
             paper=paper,
             ev_map=ev_map,
             ev_scale=local_ev_scale(final_bounds),
+            grade_map=grade_map,
             bpc=not self.config.paper_black,
             toe_trims=(self.config.toe_trim_red, self.config.toe_trim_green, self.config.toe_trim_blue),
             shoulder_trims=(self.config.shoulder_trim_red, self.config.shoulder_trim_green, self.config.shoulder_trim_blue),

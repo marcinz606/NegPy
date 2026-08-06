@@ -104,7 +104,7 @@ def paint_map(painter: QPainter, polys: Sequence[Poly], scale: float = 1.0) -> N
         painter.drawPolygon(poly)
         painter.restore()
 
-        _draw_badge(painter, _badge_anchor(poly), f"{note.number} {note.stops}", colour, scale)
+        _draw_badge(painter, _badge_anchor(poly), note.badge, colour, scale)
 
 
 def card_size(lines: Sequence[str], scale: float = 1.0) -> Tuple[float, float]:
@@ -150,12 +150,12 @@ def paint_card(
     return rect
 
 
-def mapped_polys(local: LocalAdjustmentsConfig, uv_grid: Optional[np.ndarray], content: QRectF) -> List[Poly]:
+def mapped_polys(local: LocalAdjustmentsConfig, uv_grid: Optional[np.ndarray], content: QRectF, grade: float = 0.0) -> List[Poly]:
     """Mask vertices as smoothed polygons inside `content`, paired with their notes."""
     polys: List[Poly] = []
     if uv_grid is None:
         return polys
-    for mask, note in zip(local.masks, mask_notes(local)):
+    for mask, note in zip(local.masks, mask_notes(local, grade)):
         if len(mask.vertices) < 3:
             continue
         ctrl = [CoordinateMapping.map_raw_to_viewport(rx, ry, uv_grid) for rx, ry in mask.vertices]
@@ -170,6 +170,7 @@ def notes_sheet(
     local: LocalAdjustmentsConfig,
     uv_grid: Optional[np.ndarray],
     lines: Sequence[str],
+    grade: float = 0.0,
 ) -> QImage:
     """The rendered frame with the map drawn on it and the recipe in a band below."""
     scale = max(1.0, max(frame.width(), frame.height()) / _SHEET_SCALE_REF)
@@ -187,7 +188,7 @@ def notes_sheet(
             content = QRectF(off_x, off_y, cw, ch)
         else:
             content = QRectF(0, 0, frame.width(), frame.height())
-        paint_map(painter, mapped_polys(local, uv_grid, content), scale)
+        paint_map(painter, mapped_polys(local, uv_grid, content, grade), scale)
         if lines:
             paint_card(painter, QPointF(_CARD_PAD_PX * scale, frame.height()), lines, scale, background=None)
     finally:

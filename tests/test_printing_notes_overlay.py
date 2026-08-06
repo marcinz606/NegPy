@@ -14,8 +14,8 @@ from negpy.desktop.view.canvas.printing_notes import card_size, notes_sheet
 from negpy.features.local.models import LocalAdjustmentsConfig, PolygonMask
 
 W = H = 200
-BURN = PolygonMask(vertices=((0.05, 0.05), (0.45, 0.05), (0.45, 0.45), (0.05, 0.45)), strength=-1.0)
-DODGE = PolygonMask(vertices=((0.55, 0.55), (0.95, 0.55), (0.95, 0.95), (0.55, 0.95)), strength=0.5)
+BURN = PolygonMask(vertices=((0.05, 0.05), (0.45, 0.05), (0.45, 0.45), (0.05, 0.45)), stops=1.0)
+DODGE = PolygonMask(vertices=((0.55, 0.55), (0.95, 0.55), (0.95, 0.95), (0.55, 0.95)), stops=-0.5)
 
 
 def _uv_grid(h: int = H, w: int = W) -> np.ndarray:

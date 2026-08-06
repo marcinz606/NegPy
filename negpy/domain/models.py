@@ -435,11 +435,18 @@ class WorkspaceConfig:
             masks = []
             for m in d.get("masks", []):
                 verts = tuple(tuple(v) for v in m.get("vertices", []))
+                # A mask's exposure was brightness-signed (`strength`, positive =
+                # dodge) before it became exposure-signed stops (positive = burn) —
+                # the same flip vignette_strength -> vignette_stops made. Nested in
+                # local_masks, so it can't live in MIGRATIONS' flat rewrites; keyed
+                # on the legacy name, which only a pre-flip save carries.
+                stops = -float(m["strength"]) if "strength" in m else float(m.get("stops", 0.0))
                 masks.append(
                     PolygonMask(
                         vertices=verts,
-                        strength=float(m.get("strength", 0.3)),
+                        stops=stops,
                         feather=float(m.get("feather", 0.04)),
+                        grade=float(m.get("grade", 0.0)),
                     )
                 )
             return LocalAdjustmentsConfig(masks=tuple(masks))
