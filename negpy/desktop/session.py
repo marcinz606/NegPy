@@ -513,7 +513,9 @@ class DesktopSessionManager(QObject):
             self.state.linear_gamma_key = str(saved_gamma)
         saved_linear_fmt = self.repo.get_global_setting("linear_format")
         if saved_linear_fmt is not None:
-            self.state.linear_format = str(saved_linear_fmt)
+            # "tiff_jxl" (TIFF-with-JXL-compression) was retired — too few readers
+            # actually support the tag. Anyone with it saved falls back to plain TIFF.
+            self.state.linear_format = str(saved_linear_fmt) if saved_linear_fmt in ("tiff", "jxl") else "tiff"
         saved_jxl_effort = self.repo.get_global_setting("linear_jxl_effort")
         if saved_jxl_effort is not None:
             self.state.linear_jxl_effort = int(saved_jxl_effort)

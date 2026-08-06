@@ -2,6 +2,7 @@
 
 from negpy.desktop.view.widgets.export_settings_form import ExportSettingsForm
 from negpy.domain.models import (
+    JXL_TAGGABLE_SPACES,
     AspectRatio,
     ColorSpace,
     ExportFormat,
@@ -28,7 +29,6 @@ def _values(**overrides) -> dict:
         "filename_pattern": "{{ original_name }}_{{ size }}",
         "overwrite": False,
         "export_color_space": ColorSpace.SRGB.value,
-        "tiff_compression": "zlib",
         "webp_quality": 90,
         "webp_lossless": False,
         "webp_method": 4,
@@ -75,6 +75,18 @@ def test_jxl_supported_space_not_blocked(qapp):
     assert not form.is_export_blocked()
 
 
+def test_jxl_switches_same_as_source_to_srgb(qapp):
+    """'Same as Source' resolves per-file at export time — usually to the Adobe
+    RGB working space for scans/raws — which JXL can't tag. The form must not let
+    a user park on that combination; it self-heals to sRGB like any other
+    untaggable space (test_jxl_switches_unsupported_current_space_to_srgb)."""
+    form = ExportSettingsForm()
+    form.load(_values(export_fmt=ExportFormat.TIFF, export_color_space=ColorSpace.SAME_AS_SOURCE.value))
+    form.fmt_combo.setCurrentText(ExportFormat.JXL)
+    assert form.color_space_combo.currentText() == ColorSpace.SRGB.value
+    assert not form.is_export_blocked()
+
+
 def test_jxl_greys_unsupported_color_spaces_and_disables_output_icc(qapp):
     form = ExportSettingsForm()
     form.load(_values(export_fmt=ExportFormat.JXL, export_color_space=ColorSpace.SRGB.value))
@@ -82,13 +94,7 @@ def test_jxl_greys_unsupported_color_spaces_and_disables_output_icc(qapp):
     model = form.color_space_combo.model()
     for i in range(form.color_space_combo.count()):
         space = form.color_space_combo.itemText(i)
-        supported = space in {
-            ColorSpace.SRGB.value,
-            ColorSpace.P3_D65.value,
-            ColorSpace.REC2020.value,
-            ColorSpace.GREYSCALE.value,
-            ColorSpace.SAME_AS_SOURCE.value,
-        }
+        supported = space in JXL_TAGGABLE_SPACES
         assert model.item(i).isEnabled() == supported, space
 
     # Custom output ICC override would mistag — forced off and disabled for JXL.
@@ -148,15 +154,18 @@ def test_load_does_not_emit_changed(qapp):
     assert not fired
 
 
-def test_flat_mode_hides_format_section(qapp):
+def test_flat_mode_limits_format_choices(qapp):
     form = ExportSettingsForm()
-    form.load(_values())
+    form.load(_values(export_fmt=ExportFormat.JPEG))
     assert not form._format_section.isHidden()
     form.set_flat_mode(True)
-    assert form._format_section.isHidden()
+    assert not form._format_section.isHidden()
     assert form.flat_mode()
+    assert [form.fmt_combo.itemData(i) for i in range(form.fmt_combo.count())] == [ExportFormat.TIFF.value, ExportFormat.JXL.value]
+    assert form.fmt_combo.itemText(1) == "JXL (lossless)"
     form.set_flat_mode(False)
     assert not form._format_section.isHidden()
+    assert ExportFormat.JPEG.value in [form.fmt_combo.itemText(i) for i in range(form.fmt_combo.count())]
 
 
 def test_flat_mode_hides_paper_ratio_for_original(qapp):
@@ -178,30 +187,22 @@ def test_flat_mode_skips_jxl_export_block(qapp):
     assert not form.is_export_blocked()
 
 
-def test_flat_preset_editor_limits_format_choices(qapp):
+def test_flat_mode_forces_jxl_lossless_and_hides_the_toggle(qapp):
+    """flat_export_config() always overrides jxl_lossless=True for a flat master —
+    the lossy toggle/distance row would be silently ignored, so flat mode hides it
+    and pins the checkbox rather than showing a control with no effect."""
     form = ExportSettingsForm()
-    form.load(_values(export_fmt=ExportFormat.JPEG))
-    form.set_flat_mode(True, preset_editor=True)
-    assert [form.fmt_combo.itemText(i) for i in range(form.fmt_combo.count())] == [ExportFormat.TIFF.value, ExportFormat.JXL.value]
-    form.set_flat_mode(False, preset_editor=True)
-    assert ExportFormat.JPEG.value in [form.fmt_combo.itemText(i) for i in range(form.fmt_combo.count())]
+    form.load(_values(export_fmt=ExportFormat.JXL, jxl_lossless=False, export_color_space=ColorSpace.SRGB.value))
+    assert not form.jxl_lossless_check.isChecked()
+    assert not form.jxl_lossless_check.isHidden()
 
+    form.set_flat_mode(True)
+    assert form.fmt_combo.currentData() == ExportFormat.JXL.value
+    assert form.jxl_lossless_check.isChecked()
+    assert form.jxl_lossless_check.isHidden()
+    assert form.jxl_distance_spin.isHidden()
 
-def test_tiff_compression_controls(qapp):
-    form = ExportSettingsForm()
-    form.load(_values(export_fmt=ExportFormat.TIFF, tiff_compression="zlib"))
-    assert not form._tiff_container.isHidden()
-    assert form.tiff_jxl_effort_spin.isHidden()
-    form.load(_values(export_fmt=ExportFormat.TIFF, tiff_compression="jpegxl"))
-    assert not form._tiff_container.isHidden()
-    assert not form.tiff_jxl_effort_spin.isHidden()
-    out = form.values()
-    assert out["tiff_compression"] == "jpegxl"
-
-
-def test_tiff_compression_hidden_for_non_tiff(qapp):
-    form = ExportSettingsForm()
-    form.load(_values(export_fmt=ExportFormat.JPEG))
-    assert form._tiff_container.isHidden()
-    form.load(_values(export_fmt=ExportFormat.JXL))
-    assert form._tiff_container.isHidden()
+    form.set_flat_mode(False)
+    assert form.fmt_combo.currentData() == ExportFormat.JXL.value
+    assert not form.jxl_lossless_check.isHidden()
+    assert not form.jxl_distance_spin.isHidden()

@@ -109,9 +109,15 @@ def test_jxl_fields_roundtrip_through_preset():
 
 
 def test_export_blocked_pure_helper_mirrors_jxl_table():
-    """The UI/controller gate must stay in sync with the encoder's tag table."""
-    assert JXL_TAGGABLE_SPACES == set(_JXL_COLOR) | {ColorSpace.SAME_AS_SOURCE.value}
+    """The UI/controller gate must stay in sync with the encoder's tag table.
+
+    Same as Source is deliberately excluded from JXL_TAGGABLE_SPACES even though
+    it's a legal ExportConfig value: it resolves per-file at export time, usually
+    to the untaggable Adobe RGB working space for scans/raws with no embedded
+    profile, so allowing it here would pass this check and hard-fail deep in the
+    encoder instead (see _JXL_COLOR / _encode_export)."""
+    assert JXL_TAGGABLE_SPACES == set(_JXL_COLOR)
     assert export_blocked(ExportFormat.JXL, ColorSpace.PROPHOTO.value)
     assert not export_blocked(ExportFormat.JXL, ColorSpace.SRGB.value)
-    assert not export_blocked(ExportFormat.JXL, ColorSpace.SAME_AS_SOURCE.value)
+    assert export_blocked(ExportFormat.JXL, ColorSpace.SAME_AS_SOURCE.value)
     assert not export_blocked(ExportFormat.TIFF, ColorSpace.PROPHOTO.value)

@@ -559,7 +559,6 @@ class ExportSidebar(BaseSidebar):
         fmt_row.addWidget(field_label("Format"))
         self.linear_format_combo = QComboBox()
         self.linear_format_combo.addItem("TIFF", "tiff")
-        self.linear_format_combo.addItem("TIFF (JXL compressed)", "tiff_jxl")
         self.linear_format_combo.addItem("JPEG XL (lossless)", "jxl")
         idx = self.linear_format_combo.findData(self.state.linear_format)
         if idx >= 0:
@@ -663,7 +662,7 @@ class ExportSidebar(BaseSidebar):
         if hasattr(self, "linear_format_row"):
             self.linear_format_row.setVisible(linear_on)
         if hasattr(self, "linear_jxl_effort_slider"):
-            self.linear_jxl_effort_slider.setVisible(linear_on and self.state.linear_format in ("jxl", "tiff_jxl"))
+            self.linear_jxl_effort_slider.setVisible(linear_on and self.state.linear_format == "jxl")
         if hasattr(self, "linear_expansion_row"):
             self.linear_expansion_row.setVisible(linear_on)
             self.linear_expansion_hint.setVisible(linear_on)
@@ -835,7 +834,7 @@ class ExportSidebar(BaseSidebar):
             self.state.linear_format = str(fmt)
             self.controller.session.save_flat_output_prefs()
         if hasattr(self, "linear_jxl_effort_slider"):
-            self.linear_jxl_effort_slider.setVisible(self.state.linear_format in ("jxl", "tiff_jxl"))
+            self.linear_jxl_effort_slider.setVisible(self.state.linear_format == "jxl")
 
     def _on_linear_jxl_effort_changed(self, value: float) -> None:
         self.state.linear_jxl_effort = int(value)
@@ -1151,7 +1150,6 @@ class ExportSidebar(BaseSidebar):
             "jxl_lossless": conf.jxl_lossless,
             "jxl_distance": conf.jxl_distance,
             "jxl_effort": conf.jxl_effort,
-            "tiff_compression": conf.tiff_compression,
             "webp_quality": conf.webp_quality,
             "webp_lossless": conf.webp_lossless,
             "webp_method": conf.webp_method,
@@ -1191,7 +1189,6 @@ class ExportSidebar(BaseSidebar):
             jxl_lossless=vals["jxl_lossless"],
             jxl_distance=vals["jxl_distance"],
             jxl_effort=vals["jxl_effort"],
-            tiff_compression=vals["tiff_compression"],
             webp_quality=vals["webp_quality"],
             webp_lossless=vals["webp_lossless"],
             webp_method=vals["webp_method"],

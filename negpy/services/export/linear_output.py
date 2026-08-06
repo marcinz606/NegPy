@@ -832,13 +832,8 @@ def _write_tiff(
     sensor_applied: bool = False,
     ice_applied: bool = False,
     gamma_key: str = "linear",
-    tiff_compression: str = "zlib",
-    jxl_effort: int = 7,
 ) -> None:
-    """Write a float32 buffer as an untagged 16-bit TIFF to *dest* (path or file-like).
-
-    *tiff_compression*: ``"zlib"`` (default) or ``"jpegxl"`` (lossless JXL inside TIFF container).
-    """
+    """Write a float32 buffer as an untagged 16-bit TIFF to *dest* (path or file-like)."""
     u16 = _to_uint16_jit(np.ascontiguousarray(f32, dtype=np.float32))
     photometric = "rgb" if f32.ndim == 3 else "minisblack"
     parts = [f"source: {source_format or source_name}"]
@@ -879,17 +874,12 @@ def _write_tiff(
         extratags = []
         dt = None
 
-    compress_args: dict = {}
-    if tiff_compression == "jpegxl":
-        compress_args = {"compression": "jpegxl", "compressionargs": {"effort": jxl_effort}}
-    else:
-        compress_args = {"compression": "zlib", "predictor": True}
-
     _tifffile.imwrite(
         dest,
         u16,
         photometric=photometric,
-        **compress_args,
+        compression="zlib",
+        predictor=True,
         description=description,
         software="NegPy",
         datetime=dt,
@@ -957,8 +947,8 @@ def export_linear_output(
     """Decode *file_path* and write an untagged linear 16-bit file to *output_path*.
 
     *output_format*: ``"tiff"`` (default, zlib-compressed) or ``"jxl"`` (lossless
-    JPEG XL). *jxl_effort*: 1–9 (higher = smaller file, slower encode).
-    IR sidecars are always TIFF regardless.
+    JPEG XL). *jxl_effort*: 1–9 (higher = smaller file, slower encode), used only
+    for ``"jxl"``. IR sidecars are always TIFF regardless.
     """
     eff = _effective_expansion(file_path, expansion)
     fmt = _source_format_label(file_path, rgbscan, stitch)
@@ -986,7 +976,6 @@ def export_linear_output(
     if output_format == "jxl":
         _write_jxl(f32, output_path, effort=jxl_effort)
     else:
-        tiff_comp = "jpegxl" if output_format == "tiff_jxl" else "zlib"
         _write_tiff(
             f32,
             output_path,
@@ -1001,8 +990,6 @@ def export_linear_output(
             sensor_applied=apply_sensor or is_stitch,
             ice_applied=ice_applied,
             gamma_key=gamma_key,
-            tiff_compression=tiff_comp,
-            jxl_effort=jxl_effort,
         )
 
     if ir is not None and not ice_applied:

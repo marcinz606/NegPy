@@ -165,15 +165,17 @@ EXPORT_COLOR_SPACES: list[str] = [cs.value for cs in ColorSpace if cs not in (Co
 
 
 # Colour spaces JPEG XL can tag (mirror _JXL_COLOR in image_processor). Same as
-# Source is allowed — resolved at export time and rejected by the encoder if it
-# lands on an unsupported space.
+# Source is deliberately excluded: it resolves per-file at export time (usually to
+# the Adobe RGB working space for scans/raws with no embedded profile), and Adobe
+# RGB isn't JXL-taggable — so allowing it here would pass this upfront check and
+# still hard-fail deep in the encoder. Blocking it here forces an explicit,
+# taggable choice instead.
 JXL_TAGGABLE_SPACES = frozenset(
     {
         ColorSpace.SRGB.value,
         ColorSpace.P3_D65.value,
         ColorSpace.REC2020.value,
         ColorSpace.GREYSCALE.value,
-        ColorSpace.SAME_AS_SOURCE.value,
     }
 )
 
@@ -198,7 +200,6 @@ class ExportConfig:
     jxl_lossless: bool = True
     jxl_distance: float = 1.0  # libjxl distance; only used when jxl_lossless is False
     jxl_effort: int = 7
-    tiff_compression: str = "zlib"
     webp_quality: int = 90
     webp_lossless: bool = False
     webp_method: int = 4  # PIL encode effort 0-6, higher = slower/smaller
@@ -258,7 +259,6 @@ class ExportPreset:
     jxl_lossless: bool = True
     jxl_distance: float = 1.0
     jxl_effort: int = 7
-    tiff_compression: str = "zlib"
     webp_quality: int = 90
     webp_lossless: bool = False
     webp_method: int = 4
@@ -296,7 +296,6 @@ class ExportPreset:
             "jxl_lossless": self.jxl_lossless,
             "jxl_distance": self.jxl_distance,
             "jxl_effort": self.jxl_effort,
-            "tiff_compression": self.tiff_compression,
             "webp_quality": self.webp_quality,
             "webp_lossless": self.webp_lossless,
             "webp_method": self.webp_method,
@@ -339,7 +338,6 @@ def preset_from_export_config(conf: ExportConfig, name: str = "Current settings"
         jxl_lossless=conf.jxl_lossless,
         jxl_distance=conf.jxl_distance,
         jxl_effort=conf.jxl_effort,
-        tiff_compression=conf.tiff_compression,
         webp_quality=conf.webp_quality,
         webp_lossless=conf.webp_lossless,
         webp_method=conf.webp_method,

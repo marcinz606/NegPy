@@ -3484,7 +3484,7 @@ class AppController(QObject):
         exported = 0
         expansion = self.state.linear_expansion
         linear_fmt = self.state.linear_format
-        out_ext = "jxl" if linear_fmt == "jxl" else "tiff"  # tiff_jxl is still a .tiff file
+        out_ext = "jxl" if linear_fmt == "jxl" else "tiff"
         for f in supported:
             params = self._batch_params_for(f)
             stitch = params.stitch if params.stitch.stitch_enabled else None

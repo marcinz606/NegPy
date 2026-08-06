@@ -749,22 +749,14 @@ class ImageProcessor:
                 img_int = float_to_uint16(buffer)
                 img_out, icc_bytes = self._apply_color_management_u16(img_int, working_color_space, color_space, icc_output, icc_input)
 
-            tiff_comp = getattr(export_settings, "tiff_compression", "zlib")
-            if tiff_comp == "jpegxl":
-                compress_args = {
-                    "compression": "jpegxl",
-                    "compressionargs": {"effort": getattr(export_settings, "jxl_effort", 7)},
-                }
-            else:
-                compress_args = {"compression": "zlib", "predictor": True}
-
             output_buf = io.BytesIO()
             tifffile.imwrite(
                 output_buf,
                 img_out,
                 photometric="rgb" if img_out.ndim == 3 else "minisblack",
                 iccprofile=icc_bytes,
-                **compress_args,
+                compression="zlib",
+                predictor=True,
             )
             return output_buf.getvalue(), "tiff"
         elif fmt == ExportFormat.PNG:

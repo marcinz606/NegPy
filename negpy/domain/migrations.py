@@ -57,6 +57,10 @@ DROPPED_KEYS: frozenset[str] = frozenset(
         # reach; this drops the legacy key from any that slip through (sidecars,
         # presets) so it doesn't warn — that edit just needs its profile re-picked.
         "reference_path",
+        # TIFF-with-JXL-compression option: too few readers actually support the
+        # jpegxl TIFF compression tag, so it never shipped past this branch — TIFF
+        # is zlib-only again and lossless JXL stays a standalone format.
+        "tiff_compression",
     }
 )
 
