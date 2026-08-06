@@ -171,7 +171,7 @@ When the render intent is **Linear**, the entire darkroom pipeline is bypassed. 
 
 **Optional corrections** (camera RAW only): three toggles let you bake corrections into the linear output before writing. All default to off (raw dump philosophy — the output is unchanged sensor data). *Apply white balance* multiplies the buffer by the as-shot WB gains (green-normalized). *Apply flatfield* applies the configured flatfield gain correction. *Apply sensor correction* applies the crosstalk unmixing matrix. For stitch composites, flatfield and sensor correction are always applied per-part regardless of these toggles — without them, vignetting and crosstalk differences create visible seams at part boundaries.
 
-Source device metadata (Make, Model, DateTime) is carried through to the output TIFF when available from the source file. For Flextight FFF files, the Make field includes film stock and type from the embedded plist, and the Model field includes the scanner serial.
+**Output is always clean.** The TIFF is written from scratch — only raw pixels plus Make/Model/DateTime from the source. ICC profiles, EXIF color space tags, and XMP color metadata from scanner software or editors are never copied through. The description field records the source format, expansion, white balance, and any applied corrections, and ends with "no color management". For Flextight FFF files, the Make field includes film stock and type from the embedded plist, and the Model field includes the scanner serial.
 
 ---
 

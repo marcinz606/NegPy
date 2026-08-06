@@ -554,6 +554,8 @@ A scrollable list of every edit step (last 100 kept), newest on top; the current
     *   **Apply ICE dust removal** (visible when an IR channel is available): applies IR-based dust and scratch correction to the linear output before writing. Off by default.
     *   **Corrections** (camera RAW only): three optional toggles that bake corrections into the linear output before writing. All default to off (raw dump philosophy). **Apply white balance** multiplies by the as-shot WB gains. **Apply flatfield** applies the flatfield gain correction. **Apply sensor correction** applies the sensor crosstalk unmixing matrix. For stitch composites, flatfield and sensor correction are always applied per-part regardless of these toggles (required for clean seams).
 
+    The output TIFF is always written clean — no ICC profiles, no EXIF color space tags, and no XMP color metadata from the source are carried through. Only raw pixels plus device metadata (Make, Model, DateTime) from the source file.
+
 ### Export button
 
 The primary **Export** action. Its chevron menu picks the scope: current frame (Ctrl+E), selected frames, all visible with current settings, or all visible with each frame's saved settings.
