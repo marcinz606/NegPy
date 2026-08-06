@@ -109,6 +109,10 @@ class AppState:
     # Grain focuser: 1:1-ish loupe following the cursor; display-only, session-only.
     grain_focuser: bool = False
 
+    # Printing notes: dodge/burn map + print recipe over the frame; display-only,
+    # session-only — never persisted.
+    printing_notes: bool = False
+
     # Zone-placement pins (ZonePin: probed spot + target zone); session-only, dropped
     # by any real render like the test strip. Never persisted.
     zone_pins: List[Any] = field(default_factory=list)

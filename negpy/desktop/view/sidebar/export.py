@@ -66,6 +66,7 @@ class ExportSidebar(BaseSidebar):
         self._add_presets_section()
         self._add_sidecars_section()
         self._add_contact_sheet_section()
+        self._add_printing_notes_section()
         self._add_preview_section()
         self._sync_flat_enabled()
 
@@ -98,6 +99,9 @@ class ExportSidebar(BaseSidebar):
         self.controller.flat_peek_changed.connect(self._on_flat_peek_changed)
 
         self.contact_sheet_btn.clicked.connect(self.controller.request_contact_sheet)
+        self.printing_notes_btn.clicked.connect(self.controller.request_printing_notes_export)
+        self.printing_notes_preview_btn.toggled.connect(lambda checked: self.controller.toggle_printing_notes(force=checked))
+        self.controller.printing_notes_changed.connect(self._on_printing_notes_changed)
         self.cs_save_template_btn.clicked.connect(self._on_save_contact_sheet_template)
         self.cs_delete_template_btn.clicked.connect(self._on_delete_contact_sheet_template)
         self.cs_template_combo.currentTextChanged.connect(self._on_contact_sheet_template_changed)
@@ -152,6 +156,57 @@ class ExportSidebar(BaseSidebar):
         self._presets_section.set_content(content)
         self._presets_section.expanded_changed.connect(lambda checked: repo.save_global_setting("section_expanded_export_presets", checked))
         self.layout.addWidget(self._presets_section)
+
+    # --- Printing notes ------------------------------------------------------
+
+    def _add_printing_notes_section(self) -> None:
+        """Collapsible PRINTING NOTES section: the canvas preview toggle + the export."""
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(6)
+
+        self.printing_notes_preview_btn = self._tool_toggle(
+            "fa5s.eye",
+            "Preview",
+            "Show the marked-up work print over the frame: burns hatched, dodges open, each mask "
+            "labelled with its value in stops, plus a card with the print recipe. Display only.",
+        )
+        self.printing_notes_preview_btn.setChecked(self.state.printing_notes)
+        self.printing_notes_preview_btn.setFixedHeight(default_button_height())
+
+        self.printing_notes_btn = QPushButton(" Export")
+        self.printing_notes_btn.setObjectName("printing_notes_btn")
+        self.printing_notes_btn.setProperty("primary", True)
+        self.printing_notes_btn.setFixedHeight(default_button_height())
+        self.printing_notes_btn.setIcon(qta.icon("mdi.playlist-edit", color="white"))
+        self.printing_notes_btn.setToolTip(
+            "Save this frame as a marked-up work print — the map plus the print recipe below it — as its "
+            "own JPEG in the export folder. The print itself is untouched. Resolution follows the "
+            "preview, so turn HQ on for a full-resolution sheet."
+        )
+
+        btn_row = QHBoxLayout()
+        btn_row.addWidget(self.printing_notes_preview_btn, 1)
+        btn_row.addWidget(self.printing_notes_btn, 1)
+        content_layout.addLayout(btn_row)
+
+        repo = self.controller.session.repo
+        expanded = bool(repo.get_global_setting("section_expanded_printing_notes", default=False))
+        self.printing_notes_section = CollapsibleSection(
+            "Printing Notes", expanded=expanded, icon=qta.icon("mdi.playlist-edit", color="#aaa")
+        )
+        self.printing_notes_section.setToolTip("The printer's record for this frame: dodge/burn map + print recipe.")
+        self.printing_notes_section.set_content(content)
+        self.printing_notes_section.expanded_changed.connect(
+            lambda checked: repo.save_global_setting("section_expanded_printing_notes", checked)
+        )
+        self.layout.addWidget(self.printing_notes_section)
+
+    def _on_printing_notes_changed(self, active: bool) -> None:
+        self.printing_notes_preview_btn.blockSignals(True)
+        self.printing_notes_preview_btn.setChecked(active)
+        self.printing_notes_preview_btn.blockSignals(False)
 
     # --- Contact sheet -------------------------------------------------------
 
@@ -1236,6 +1291,7 @@ class ExportSidebar(BaseSidebar):
             self._update_cs_colors_btn_tooltip()
             self.cs_output_path_edit.setText(conf.contact_sheet_output_path)
             self.sidecars_enabled_btn.setChecked(conf.export_sidecars_enabled)
+            self.printing_notes_preview_btn.setChecked(self.state.printing_notes)
             self._refresh_contact_sheet_templates()
             saved_template = conf.contact_sheet_template.strip()
             if saved_template and saved_template in ContactSheetTemplates.list_templates():
@@ -1277,6 +1333,7 @@ class ExportSidebar(BaseSidebar):
             self.cs_template_combo,
             self.sidecars_enabled_btn,
             self.flat_peek_btn,
+            self.printing_notes_preview_btn,
             self.linear_wb_checkbox,
             self.linear_flatfield_checkbox,
             self.linear_sensor_checkbox,

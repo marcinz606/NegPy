@@ -220,6 +220,8 @@ class AppController(QObject):
     dust_overlay_changed = pyqtSignal()
     zones_overlay_changed = pyqtSignal(bool)
     grain_focuser_changed = pyqtSignal(bool)
+    printing_notes_changed = pyqtSignal(bool)
+    printing_notes_requested = pyqtSignal()  # the canvas holds the annotated pixels
     strip_requested = pyqtSignal(TestStripTask)
     test_strip_changed = pyqtSignal(bool)  # True = mosaic is up, False = cleared or building
     zone_pins_changed = pyqtSignal()
@@ -1508,6 +1510,35 @@ class AppController(QObject):
         holds, so no re-render is needed."""
         self.state.grain_focuser = (not self.state.grain_focuser) if force is None else bool(force)
         self.grain_focuser_changed.emit(self.state.grain_focuser)
+
+    def toggle_printing_notes(self, force: Optional[bool] = None) -> None:
+        """Printing-notes overlay (dodge/burn map + print recipe). Repaint only — every
+        number it shows is already in the config, so no re-render is needed."""
+        self.state.printing_notes = (not self.state.printing_notes) if force is None else bool(force)
+        self.printing_notes_changed.emit(self.state.printing_notes)
+
+    def request_printing_notes_export(self) -> None:
+        """Save the marked-up work print as its own file. The annotated pixels live in the
+        canvas, so the view answers the signal (the print itself is never touched)."""
+        if not self.state.current_file_path:
+            return
+        self.printing_notes_requested.emit()
+
+    def printing_notes_target_path(self) -> Optional[str]:
+        """Next free `<stem>_notes.jpg` in the export folder."""
+        export_path = self._ensure_valid_export_path()
+        if not export_path or not self.state.current_file_path:
+            return None
+        if self.state.config.export.output_mode == ExportPresetOutputMode.SAME_AS_SOURCE:
+            export_path = os.path.dirname(self.state.current_file_path)
+        stem = os.path.splitext(os.path.basename(self.state.current_file_path))[0]
+        os.makedirs(export_path, exist_ok=True)
+        path = os.path.join(export_path, f"{stem}_notes.jpg")
+        counter = 2
+        while os.path.exists(path):
+            path = os.path.join(export_path, f"{stem}_notes_{counter}.jpg")
+            counter += 1
+        return path
 
     def arm_zone_target(self, zone: float) -> None:
         """Zone picked on the strip: the next canvas click prints that spot there.

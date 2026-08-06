@@ -1,4 +1,5 @@
 import math
+import os
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -12,6 +13,7 @@ from PyQt6.QtWidgets import QWidget
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.canvas.crop_guides import CropGuide, guide_shapes
+from negpy.desktop.view.canvas.printing_notes import notes_sheet, paint_card, paint_map
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.stats import PIN_COLOURS
 from negpy.features.exposure.analysis import (
@@ -34,6 +36,8 @@ from negpy.features.exposure.densitometer import zone_roman
 from negpy.features.geometry.logic import rotation_drag_angle, smooth_polyline, straighten_delta_degrees, translate_manual_crop_rect
 from negpy.features.local.logic import _rasterise_mask
 from negpy.features.retouch.models import HEAL_SIZE_REF
+from negpy.services.view.coordinate_mapping import CoordinateMapping
+from negpy.services.view.printing_notes import mask_notes, recipe_lines
 
 _LASSO_SNAP_PX = 12.0
 _CROP_HANDLE_PX = 10.0
@@ -61,6 +65,9 @@ _ZONE_CLIP_COLOR = QColor(220, 80, 80)  # paper black / paper white, same red th
 
 _STRIP_LABEL_MIN_PX = 34.0  # below this patch size the two axis labels overlap
 _STRIP_LABEL_INSET_PX = 6.0
+
+_NOTES_CARD_INSET_PX = 12.0
+_NOTES_CARD_TOP_PX = 40.0  # clears the HUD's top-left filename pill
 
 _PIN_RADIUS_PX = 7.0  # zone-placement pin ring
 _PIN_GRAB_PX = 16.0  # grab radius, wider than the drawn ring
@@ -572,6 +579,16 @@ class CanvasOverlay(QWidget):
         # replaces the frame) and in the uncropped tool views.
         if self.state.zone_pins and content_aligned and not self.state.test_strip:
             self._draw_zone_pins(painter)
+
+        # Not over the compare baseline: that render has no masks applied, so a map
+        # drawn on it would mark burns the picture underneath hasn't had.
+        if (
+            self.state.printing_notes
+            and content_aligned
+            and not self.state.test_strip
+            and not self.state.last_metrics.get("compare", False)
+        ):
+            self._draw_printing_notes(painter)
 
         if self._rotation_grid_visible:
             self._draw_rotation_grid(painter, visible_rect)
@@ -1205,35 +1222,8 @@ class CanvasOverlay(QWidget):
         return QRectF(self._view_rect.x() + off_x * sx, self._view_rect.y() + off_y * sy, cw * sx, ch * sy)
 
     def _raw_to_screen(self, rx: float, ry: float, uv_grid: np.ndarray, buckets: int = 100) -> QPointF:
-        """
-        Inverse UV-grid lookup: raw-normalised (0-1) -> screen position.
-
-        Two-stage nearest-neighbour: a coarse pass over a `buckets`-decimated grid
-        locates the neighbourhood cheaply, then a full-resolution pass over that
-        bucket's window pins the exact pixel. The coarse pass alone snapped results
-        to bucket centres (± step/2 grid pixels ≈ 3-20px depending on preview size,
-        magnified by zoom) — enough to draw a heal outline entirely off the healed
-        spot even though the heal itself landed exactly where clicked.
-        """
-        h_uv, w_uv = uv_grid.shape[:2]
-        step = max(1, h_uv // buckets)
-        small = uv_grid[::step, ::step]
-        dist = (small[..., 0] - rx) ** 2 + (small[..., 1] - ry) ** 2
-        idx = int(np.argmin(dist))
-        h_s, w_s = small.shape[:2]
-        vy, vx = divmod(idx, w_s)
-
-        # Refine: exact search across the coarse cell and its neighbours.
-        py, px = vy * step, vx * step
-        y0, y1 = max(0, py - step), min(h_uv, py + step + 1)
-        x0, x1 = max(0, px - step), min(w_uv, px + step + 1)
-        window = uv_grid[y0:y1, x0:x1]
-        wdist = (window[..., 0] - rx) ** 2 + (window[..., 1] - ry) ** 2
-        widx = int(np.argmin(wdist))
-        wy, wx = divmod(widx, window.shape[1])
-
-        nx = min((x0 + wx + 0.5) / w_uv, 1.0)
-        ny = min((y0 + wy + 0.5) / h_uv, 1.0)
+        """Inverse UV-grid lookup: raw-normalised (0-1) -> screen position."""
+        nx, ny = CoordinateMapping.map_raw_to_viewport(rx, ry, uv_grid, buckets)
         rect = self._content_view_rect()
         return QPointF(rect.x() + nx * rect.width(), rect.y() + ny * rect.height())
 
@@ -1590,6 +1580,38 @@ class CanvasOverlay(QWidget):
             if is_selected and self._tool_mode in (ToolMode.NONE, ToolMode.LOCAL_DRAW) and not self._lasso_drawing:
                 self._draw_local_handles(painter, draw_ctrl, outline)
         self._mask_img_cache = fresh_cache
+
+    def _frame_name(self) -> str:
+        path = self.state.current_file_path
+        return os.path.basename(path) if path else ""
+
+    def _recipe_lines(self) -> List[str]:
+        conf = self.state.config
+        return recipe_lines(conf.exposure, conf.local, conf.finish, frame=self._frame_name())
+
+    def _draw_printing_notes(self, painter: QPainter) -> None:
+        """The printer's marked-up work print: hatched burns, open dodges, ±stop badges,
+        and the print recipe. Every mask is on the map, hidden ones included — the eye
+        unclutters editing, but a record that omits a burn is wrong."""
+        polys = [
+            ([QPointF(x, y) for x, y in smooth_polyline([(p.x(), p.y()) for p in pts], closed=True)], note)
+            for pts, note in zip(self._local_mask_screen_polys, mask_notes(self.state.config.local))
+            if len(pts) >= 3
+        ]
+        paint_map(painter, polys)
+        rect = self._content_view_rect()
+        paint_card(painter, QPointF(rect.x() + _NOTES_CARD_INSET_PX, rect.y() + _NOTES_CARD_TOP_PX), self._recipe_lines())
+
+    def printing_notes_sheet(self) -> Optional[QImage]:
+        """The exportable notes sheet: the frame the canvas rendered, the map baked on
+        it, and the recipe in a band below. None when there is nothing to annotate."""
+        if self._qimage is None:
+            return None
+        with self.state.metrics_lock:
+            uv_grid = self.state.last_metrics.get("uv_grid")
+        if uv_grid is None and self.state.config.local.masks:
+            return None
+        return notes_sheet(self._qimage, self._content_rect, self.state.config.local, uv_grid, self._recipe_lines())
 
     def _draw_local_handles(self, painter: QPainter, ctrl_pts: List[QPointF], color: QColor) -> None:
         """Draggable vertices + '+' discs on edge midpoints for the selected mask."""

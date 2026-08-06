@@ -112,6 +112,7 @@ class ShortcutManager:
             "toggle_test_strip": controller.toggle_test_strip,
             "toggle_ring_around": controller.toggle_ring_around,
             "toggle_grain_focuser": controller.toggle_grain_focuser,
+            "toggle_printing_notes": controller.toggle_printing_notes,
             "cancel_tool": lambda: _context_cancel(controller, self.window),
             "show_library": self.window.session_panel.show_library,
             "browse_parent": self.window.session_panel.browse_parent,

@@ -384,6 +384,15 @@ Paint polygon masks and lighten or darken just those areas.
 *   **Strength** (-1 to 1 EV): dodge (+) or burn (−) for the selected mask.
 *   **Feather** (0.0 to 0.15): edge softness for the selected mask, as a fraction of the frame's short side.
 
+**Printing Notes** (Export tab, or **Shift+N**) turns the frame into the printer's marked-up work print. Each mask is outlined and labelled with its number and its value in stops, and a card in the corner carries the print recipe: paper, Print Density, ISO-R Grade (with the split-grade trims when they are set), filtration, toe/shoulder, Snap, edge burn, and the dodge/burn list.
+
+Two conventions worth knowing, both borrowed from the darkroom rather than from the sliders:
+
+*   **Burns are hatched, dodges are left open** — shading marks where the paper gets *extra* exposure.
+*   **The numbers are exposure, not brightness.** A burn reads `+`, a dodge reads `−`, so a mask set to −1.00 EV on the Strength slider is written `Burn +1`. Values land on ⅓/½/¼ fractions where they are close enough, otherwise they print as decimals.
+
+Every mask is on the map, including ones whose outline you hid with the eye: that eye is there to unclutter editing, and a printing record that quietly omits a burn would be wrong. The overlay steps aside while a test strip, the flat peek, the before/after baseline, or the crop and analysis tools own the canvas. Both the preview and its export live in the Export tab's **Printing Notes** section.
+
 ---
 
 ## 7. Colour tab

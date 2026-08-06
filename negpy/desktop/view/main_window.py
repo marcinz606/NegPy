@@ -458,6 +458,8 @@ class MainWindow(QMainWindow):
         self.controller.dust_overlay_changed.connect(self.canvas.overlay.update)
         self.controller.zones_overlay_changed.connect(lambda _on: self.canvas.overlay.update())
         self.controller.grain_focuser_changed.connect(lambda _on: self.canvas.overlay.update())
+        self.controller.printing_notes_changed.connect(lambda _on: self.canvas.overlay.update())
+        self.controller.printing_notes_requested.connect(self._save_printing_notes)
         self.controller.test_strip_changed.connect(lambda _up: self.canvas.overlay.on_test_strip_changed())
         self.canvas.test_strip_picked.connect(self.controller.apply_test_strip_pick)
         self.controller.zone_pins_changed.connect(self.canvas.overlay.update)
@@ -479,6 +481,21 @@ class MainWindow(QMainWindow):
 
     def _refresh_dashboard(self) -> None:
         self.toolbar.refresh_gpu_status()
+
+    def _save_printing_notes(self) -> None:
+        """Write the marked-up work print. The annotated pixels are the canvas's own
+        render, so the composing happens here rather than in an export worker."""
+        sheet = self.canvas.overlay.printing_notes_sheet()
+        if sheet is None:
+            self.controller.set_status("Printing notes need a rendered frame", 4000)
+            return
+        path = self.controller.printing_notes_target_path()
+        if not path:
+            return
+        if sheet.save(path, "JPEG", 95):
+            self.controller.set_status(f"Printing notes saved: {os.path.basename(path)}", 4000)
+        else:
+            self.controller.set_status(f"Could not write {path}", 4000)
 
     def _display_buffer_for_canvas(self, buffer):
         if isinstance(buffer, GPUTexture):
