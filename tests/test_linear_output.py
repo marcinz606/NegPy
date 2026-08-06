@@ -1338,16 +1338,14 @@ class TestCoolscanNef:
             assert "Coolscan NEF" in desc
             assert "no scaling" in desc
 
-    def test_export_4ch_splits_ir(self, tmp_path: str) -> None:
+    def test_export_4ch_drops_extra_channel(self, tmp_path: str) -> None:
         path = _make_coolscan_nef(str(tmp_path), channels=4)
         out = os.path.join(str(tmp_path), "output.tiff")
         export_linear_output(path, out)
         ir_path = os.path.join(str(tmp_path), "output_ir.tiff")
-        assert os.path.exists(ir_path)
+        assert not os.path.exists(ir_path)
         with tifffile.TiffFile(out) as tf:
             assert tf.pages[0].asarray().shape == (200, 300, 3)
-        with tifffile.TiffFile(ir_path) as tf:
-            assert tf.pages[0].asarray().shape == (200, 300)
 
     def test_loader_returns_float32(self, tmp_path: str) -> None:
         from negpy.infrastructure.loaders.nef_loader import NefLoader
@@ -1361,9 +1359,8 @@ class TestCoolscanNef:
             assert w.data.min() >= 0.0
             assert w.data.max() <= 1.0
         assert "orientation" in metadata
-        assert "ir" in metadata
 
-    def test_loader_extracts_ir(self, tmp_path: str) -> None:
+    def test_loader_drops_extra_channel(self, tmp_path: str) -> None:
         from negpy.infrastructure.loaders.nef_loader import NefLoader
 
         path = _make_coolscan_nef(str(tmp_path), channels=4)
@@ -1371,8 +1368,7 @@ class TestCoolscanNef:
         wrapper, metadata = loader.load(path)
         with wrapper as w:
             assert w.data.shape == (200, 300, 3)
-        assert metadata["ir"] is not None
-        assert metadata["ir"].shape == (200, 300)
+        assert metadata.get("ir") is None
 
 
 def _make_flextight_fff(tmp_dir: str, h: int = 400, w: int = 600, channels: int = 3) -> str:
@@ -1456,7 +1452,6 @@ class TestFlextightFff:
             assert w.data.min() >= 0.0
             assert w.data.max() <= 1.0
         assert "orientation" in metadata
-        assert "ir" in metadata
 
 
 def _make_noritsu_raw(tmp_dir: str, w: int = 4042, h: int = 6391) -> str:

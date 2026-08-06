@@ -6,7 +6,6 @@ import tifffile
 
 from negpy.domain.interfaces import IImageLoader
 from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, read_orientation
-from negpy.infrastructure.loaders.ir_planes import normalize_ir_to_float32
 from negpy.kernel.image.logic import uint8_to_float32, uint16_to_float32
 from negpy.kernel.system.logging import get_logger
 
@@ -92,11 +91,7 @@ class NefLoader(IImageLoader):
                 raise ValueError(f"No RGB SubIFD in {file_path}")
             arr = sub.asarray()
 
-        # Coolscan NEFs have no separate IR channel (ICE is baked at scan time).
-        # 4-channel branch kept for defensive consistency with TiffLoader.
-        ir: Optional[np.ndarray] = None
-        if arr.ndim == 3 and arr.shape[2] == 4:
-            ir = normalize_ir_to_float32(arr[:, :, 3])
+        if arr.ndim == 3 and arr.shape[2] > 3:
             arr = np.ascontiguousarray(arr[:, :, :3])
         elif arr.ndim == 2:
             arr = np.stack([arr] * 3, axis=-1)
@@ -110,6 +105,5 @@ class NefLoader(IImageLoader):
 
         metadata = {
             "orientation": read_orientation(file_path),
-            "ir": ir,
         }
         return NonStandardFileWrapper(f32), metadata

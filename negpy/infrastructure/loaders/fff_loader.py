@@ -8,7 +8,6 @@ import tifffile
 
 from negpy.domain.interfaces import IImageLoader
 from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, read_orientation
-from negpy.infrastructure.loaders.ir_planes import normalize_ir_to_float32
 from negpy.kernel.image.logic import uint8_to_float32, uint16_to_float32
 from negpy.kernel.system.logging import get_logger
 
@@ -143,11 +142,7 @@ class FffLoader(IImageLoader):
                 if fw_tag is not None and isinstance(fw_tag.value, bytes):
                     fff_meta.update(_parse_fff_firmware(fw_tag.value))
 
-        # Imacon/Flextight scanners have no IR hardware — no 4th channel exists.
-        # 4-channel branch kept for defensive consistency with TiffLoader.
-        ir: Optional[np.ndarray] = None
-        if arr.ndim == 3 and arr.shape[2] == 4:
-            ir = normalize_ir_to_float32(arr[:, :, 3])
+        if arr.ndim == 3 and arr.shape[2] > 3:
             arr = np.ascontiguousarray(arr[:, :, :3])
         elif arr.ndim == 2:
             arr = np.stack([arr] * 3, axis=-1)
@@ -161,7 +156,6 @@ class FffLoader(IImageLoader):
 
         metadata = {
             "orientation": read_orientation(file_path),
-            "ir": ir,
             **fff_meta,
         }
         return NonStandardFileWrapper(f32), metadata
