@@ -631,7 +631,7 @@ class AppController(QObject):
         self.session.active_file_changing.connect(lambda: self._update_thumbnail_from_state(force_readback=True))
         self.session.session_emptied.connect(self._render_memo.clear)
         self.session.session_emptied.connect(self._strip_memo.clear)
-        self.session.file_selected.connect(self.load_file)
+        self.session.file_selected.connect(self._on_file_selected_load)
         self.session.state_changed.connect(self.config_updated.emit)
         self.session.state_changed.connect(self._render_debounce.start)
         self.session.files_changed.connect(self._render_debounce.start)
@@ -1219,6 +1219,10 @@ class AppController(QObject):
         else:
             exposure = replace(exposure, density=1.0, grade=115.0)
         return f"{kind}:{self._render_memo_key(replace(self.state.config, exposure=exposure))}"
+
+    def _on_file_selected_load(self, file_path: str) -> None:
+        """``session.file_selected`` handler: navigation honors the sticky-zoom preference."""
+        self.load_file(file_path, preserve_zoom=self.state.sticky_zoom)
 
     def load_file(self, file_path: str, preserve_zoom: bool = False, force_detect: bool = False) -> None:
         """

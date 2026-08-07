@@ -137,6 +137,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "search_library": ShortcutEntry("Ctrl+Shift+F", "Search every library folder and load the matches", "Navigation"),
     "toggle_library_tree": ShortcutEntry("", "Show/hide the library folder tree", "View"),
     "toggle_immersive_canvas": ShortcutEntry("", "Immersive canvas (toolbar overlaps image)", "View"),
+    "toggle_sticky_zoom": ShortcutEntry("", "Sticky zoom (keep zoom level when switching images)", "View"),
     "toggle_left_panel": ShortcutEntry("Ctrl+[", "Toggle session panel (re-docks when floating)", "View"),
     "toggle_right_panel": ShortcutEntry("Ctrl+]", "Toggle controls panel (re-docks when floating)", "View"),
     "reset_panel_layout": ShortcutEntry("Ctrl+Shift+L", "Dock session and controls panels", "View"),

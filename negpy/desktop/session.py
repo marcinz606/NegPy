@@ -100,6 +100,10 @@ class AppState:
     # canvas and the toolbar overlaps.
     immersive_canvas: bool = True
 
+    # When True, switching to a different image keeps the current zoom level
+    # instead of resetting to fit-to-window.
+    sticky_zoom: bool = False
+
     # Crop tool composition guide (CropGuide value); display-only, so not in GeometryConfig
     crop_guide: str = "thirds"
     crop_guide_orientation: int = 0
@@ -472,6 +476,10 @@ class DesktopSessionManager(QObject):
         if saved_immersive is not None:
             self.state.immersive_canvas = bool(saved_immersive)
 
+        saved_sticky_zoom = self.repo.get_global_setting("sticky_zoom")
+        if saved_sticky_zoom is not None:
+            self.state.sticky_zoom = bool(saved_sticky_zoom)
+
         saved_guide = self.repo.get_global_setting("crop_guide")
         if saved_guide in set(CropGuide):
             self.state.crop_guide = str(saved_guide)
@@ -572,6 +580,13 @@ class DesktopSessionManager(QObject):
         if self.state.immersive_canvas != enabled:
             self.state.immersive_canvas = enabled
             self.repo.save_global_setting("immersive_canvas", enabled)
+            self.state_changed.emit()
+
+    def set_sticky_zoom(self, enabled: bool) -> None:
+        """Updates and persists whether zoom carries over between images."""
+        if self.state.sticky_zoom != enabled:
+            self.state.sticky_zoom = enabled
+            self.repo.save_global_setting("sticky_zoom", enabled)
             self.state_changed.emit()
 
     def set_canvas_bg(self, index: int) -> None:

@@ -120,6 +120,7 @@ class ShortcutManager:
             "search_library": self.window.session_panel.file_browser.search_library,
             "toggle_library_tree": self.window.session_panel.toggle_library_tree,
             "toggle_immersive_canvas": lambda: controller.session.set_immersive_canvas(not controller.session.state.immersive_canvas),
+            "toggle_sticky_zoom": lambda: controller.session.set_sticky_zoom(not controller.session.state.sticky_zoom),
             "toggle_left_panel": self.window.toggle_session_dock,
             "toggle_right_panel": self.window.toggle_controls_dock,
             "reset_panel_layout": self.window.reset_panel_layout,

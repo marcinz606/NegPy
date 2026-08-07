@@ -327,6 +327,12 @@ class ActionToolbar(QWidget):
         self._ov_immersive_action.setToolTip(
             tooltip_with_shortcut("Toolbar overlaps image — turn off to fit the image above the toolbar", "toggle_immersive_canvas")
         )
+        self._ov_sticky_zoom_action = overflow_menu.addAction("Sticky Zoom")
+        self._ov_sticky_zoom_action.setCheckable(True)
+        self._ov_sticky_zoom_action.setChecked(self.session.state.sticky_zoom)
+        self._ov_sticky_zoom_action.setToolTip(
+            tooltip_with_shortcut("Keep the current zoom level when switching images, instead of resetting to fit", "toggle_sticky_zoom")
+        )
         overflow_menu.addSeparator()
 
         db_action = overflow_menu.addAction(qta.icon("fa5s.database", color=icon_color), "Manage Database…", self._show_database_dialog)
@@ -484,6 +490,7 @@ class ActionToolbar(QWidget):
         self._ov_undo_action.triggered.connect(lambda: _context_undo(self.controller))
         self._ov_redo_action.triggered.connect(self.session.redo)
         self._ov_immersive_action.triggered.connect(self._on_immersive_toggled)
+        self._ov_sticky_zoom_action.triggered.connect(self._on_sticky_zoom_toggled)
 
     def _on_overflow_unload(self) -> None:
         from negpy.desktop.view.confirm import confirm_unload
@@ -495,6 +502,9 @@ class ActionToolbar(QWidget):
 
     def _on_immersive_toggled(self, checked: bool) -> None:
         self.session.set_immersive_canvas(checked)
+
+    def _on_sticky_zoom_toggled(self, checked: bool) -> None:
+        self.session.set_sticky_zoom(checked)
 
     def _on_gpu_toggled(self, checked: bool) -> None:
         if checked != self.session.state.gpu_enabled:
@@ -655,6 +665,7 @@ class ActionToolbar(QWidget):
         self._ov_flip_h_action.setChecked(geo.flip_horizontal)
         self._ov_flip_v_action.setChecked(geo.flip_vertical)
         self._ov_immersive_action.setChecked(state.immersive_canvas)
+        self._ov_sticky_zoom_action.setChecked(state.sticky_zoom)
 
         self.btn_undo.setEnabled(state.undo_index > 0)
         self.btn_redo.setEnabled(state.undo_index < state.max_history_index)

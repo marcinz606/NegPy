@@ -409,6 +409,26 @@ class TestAppController(unittest.TestCase):
 
         mock_slot.assert_not_called()
 
+    def test_file_selected_navigation_resets_zoom_by_default(self):
+        """Switching images via session.file_selected resets zoom unless sticky_zoom is on."""
+        self.controller.state.sticky_zoom = False
+        mock_slot = MagicMock()
+        self.controller.zoom_requested.connect(mock_slot)
+
+        self.controller._on_file_selected_load("dummy.dng")
+
+        mock_slot.assert_called_once_with(1.0)
+
+    def test_file_selected_navigation_preserves_zoom_when_sticky(self):
+        """With sticky_zoom on, switching images must not reset the zoom level."""
+        self.controller.state.sticky_zoom = True
+        mock_slot = MagicMock()
+        self.controller.zoom_requested.connect(mock_slot)
+
+        self.controller._on_file_selected_load("dummy.dng")
+
+        mock_slot.assert_not_called()
+
     def test_toggle_hq_preview_preserves_zoom(self):
         """Test that toggling HQ mode persists via session and preserves zoom."""
         self.controller.state.current_file_path = "dummy.dng"

@@ -609,6 +609,10 @@ class ImageCanvas(QWidget):
         menu.addSeparator()
         act_reset = menu.addAction("Reset View")
         act_reset.triggered.connect(self.fit_to_window)
+        act_sticky_zoom = menu.addAction("Sticky Zoom")
+        act_sticky_zoom.setCheckable(True)
+        act_sticky_zoom.setChecked(self.state.sticky_zoom)
+        act_sticky_zoom.toggled.connect(self._controller.session.set_sticky_zoom)  # type: ignore[union-attr]
         menu.exec(event.globalPos())
 
     def _exec_retouch_menu(self, event) -> None:
