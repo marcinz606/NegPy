@@ -1,0 +1,113 @@
+name: Bug Report
+description: Report unexpected color, artifact, or crash behavior in NegPy
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Color and artifact issues in particular are
+        near-impossible to diagnose from a rendered screenshot alone — please fill in as much of
+        this as you can, and attach a source file if possible.
+
+  - type: input
+    id: negpy-version
+    attributes:
+      label: NegPy version / build
+      description: Version number, or commit hash / branch if built from source
+      placeholder: "e.g. 0.48, or main @ a1b2c3d"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "e.g. macOS 14 Sonoma, Windows 11, Ubuntu 24.04"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scanner
+    attributes:
+      label: Scanner
+      description: Select your scanner, or choose "Other" and specify below
+      options:
+        - Pakon (F135/F235)
+        - Nikon Coolscan (specify model below)
+        - Noritsu
+        - Minolta Dimage Scan Elite
+        - Digital camera (macro/copy setup)
+        - Other / not sure
+        - N/A (not a scan-related issue)
+    validations:
+      required: true
+
+  - type: input
+    id: scanner-detail
+    attributes:
+      label: Scanner model / details
+      description: If you picked Coolscan or "Other" above, specify exact model here. If a digital camera setup, list camera + lens.
+      placeholder: "e.g. Coolscan LS-9000, or Sony A7RIV + 90mm macro"
+
+  - type: input
+    id: light-source
+    attributes:
+      label: Light source
+      description: What's illuminating the film — scanner's built-in lamp/LED, or an external light source for camera-scanning setups
+      placeholder: "e.g. stock Pakon halogen, Kaiser slimlite plano, narrowband LED (specify wavelengths if known)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: correction-mode
+    attributes:
+      label: Correction mode
+      description: What was the Narrowband Trichrome Correction toggle set to when the issue occurred?
+      options:
+        - "On (narrowband trichrome correction enabled)"
+        - "Off"
+        - Not sure / didn't touch this setting
+        - N/A
+    validations:
+      required: true
+
+  - type: input
+    id: input-profile
+    attributes:
+      label: Input ICC profile (if any)
+      description: Which profile was selected under Input ICC, if you set one explicitly
+      placeholder: "e.g. RGBScan.icc, none/default"
+
+  - type: textarea
+    id: settings
+    attributes:
+      label: Relevant process-tab settings
+      description: Any non-default values for Dye Separation, Separation Damping, Dye Mute, ICE, or other sliders you changed
+      placeholder: "e.g. Dye Separation 1.50, Separation Damping 1.00"
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: What did you expect, and what did you get instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: source-file
+    attributes:
+      label: Source file
+      description: |
+        Please attach (or link to) the original scan file, not just the rendered/exported image —
+        the raw file is usually required to actually reproduce and diagnose color/artifact bugs.
+        If you can't share the full file, a small cropped region of the raw scan still helps enormously.
+      placeholder: "Link to file, or drag-and-drop attachment here"
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Before/after, or comparison images, are still useful alongside the source file
