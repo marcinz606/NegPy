@@ -1,5 +1,12 @@
 # Change Log
 
+## 0.48.1
+
+- New: **Printing Notes** — Export tab previews a marked-up work print on canvas (Shift+N) and writes it as `<stem>_notes.jpg`: burns hatched, dodges open, masks badged in stops, print recipe below. Normal exports aren't annotated.
+- New: **Local Grade per dodge/burn mask** — each mask can print at its own contrast, in ISO-R points off the frame's Grade. Burn a sky in through a harder filter.
+- Change: **Dodge/burn now in stops** — the mask slider is "Burn", ±2 stops, default 0; positive burns, negative dodges. Old saves migrate.
+- Fix: **Slider tooltips work on the label too** — hovering a slider's title showed only "double-click to reset" instead of what the control does. Both halves now show the full text.
+
 ## 0.48.0
 
 - Change: **Calibration section** — the sensor unmix, the crosstalk matrix and Hue Trim now sit together, out of Process, since all three correct the capture rather than the negative-to-positive conversion. Crosstalk is reframed as a property of a whole scanning setup rather than of a film stock; the bundled matrices are marked "(approx)" and grouped by provenance, and "Default" is now "Generic C41".
