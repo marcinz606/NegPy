@@ -1245,11 +1245,11 @@ class ImageProcessor:
 
     @staticmethod
     def _try_matrix_bypass(buffer: np.ndarray, input_icc_path: Optional[str]) -> Tuple[np.ndarray, bool]:
-        """Apply a primaries-only transform if the input ICC is a matrix/TRC D65 profile.
+        """Apply a primaries-only transform if the input ICC is a matrix/TRC profile.
 
         Returns (transformed_buffer, True) when the bypass fired, so the caller
         can clear icc_input and let the normal working→output CMS path run.
-        Returns (buffer, False) unchanged for LUT-based or non-D65 profiles.
+        Returns (buffer, False) unchanged for LUT-based profiles.
         """
         if not input_icc_path or not os.path.exists(input_icc_path):
             return buffer, False
@@ -1258,11 +1258,10 @@ class ImageProcessor:
                 icc_data = f.read()
             from negpy.infrastructure.display.icc_profile import (
                 extract_primaries_matrix,
-                is_d65_whitepoint,
                 is_matrix_trc_profile,
             )
 
-            if not is_matrix_trc_profile(icc_data) or not is_d65_whitepoint(icc_data):
+            if not is_matrix_trc_profile(icc_data):
                 return buffer, False
             src_to_xyz = extract_primaries_matrix(icc_data)
             if src_to_xyz is None:

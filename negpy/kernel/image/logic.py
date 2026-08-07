@@ -196,17 +196,21 @@ def _matmul_3x3_kernel(px: np.ndarray, m: np.ndarray) -> np.ndarray:
 
 
 def apply_primaries_transform(img: np.ndarray, src_to_xyz: np.ndarray) -> np.ndarray:
-    """Apply a primaries-only colour transform (no TRC decode/encode).
+    """Apply a primaries-only colour transform (no TRC re-decode from the input profile).
 
-    Concatenates XYZ_to_working @ src_to_XYZ and applies via a per-pixel
-    matrix multiply.  Operates on the buffer in whatever encoding it
-    already has — the TRC is never touched.
+    By the time export calls this, the buffer is already encoded with the
+    *working-space* OETF (not the input profile's own TRC — decoding it with
+    the wrong one is the double-TRC bug this bypass exists to avoid). The
+    XYZ_to_working @ src_to_XYZ matrix is a linear-light operator, so it must
+    run on decoded values: decode, matrix-multiply, re-encode.
     """
     m_total = np.ascontiguousarray((_XYZ_TO_WORKING.astype(np.float64) @ src_to_xyz).astype(np.float32))
-    h, w = img.shape[:2]
-    flat = img.reshape(-1, 3).astype(np.float32, copy=False)
+    linear = working_oetf_decode(img)
+    h, w = linear.shape[:2]
+    flat = linear.reshape(-1, 3).astype(np.float32, copy=False)
     out = _matmul_3x3_kernel(flat, m_total)
-    return np.clip(out.reshape(h, w, 3), 0.0, 1.0)
+    out = np.clip(out.reshape(h, w, 3), 0.0, 1.0)
+    return working_oetf_encode(out)
 
 
 @parallel_njit(cache=True, fastmath=True)
