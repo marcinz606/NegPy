@@ -15,6 +15,10 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.styles.templates import EditedDot, slider_label_qss, slider_handle_qss, wrap_tooltip
 
 
+# text_secondary, not text_muted: #555 on the #161616 tooltip background is ~2.4:1.
+_RESET_HINT = f'<div style="color:{THEME.text_secondary};">Double-click to reset</div>'
+
+
 class _NoScrollSlider(QSlider):
     def __init__(self, *args, default_pos: Optional[float] = None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -108,7 +112,7 @@ class BaseSlider(QWidget):
     dragEnded = pyqtSignal()
 
     def setToolTip(self, text: str) -> None:
-        super().setToolTip(wrap_tooltip(text))
+        super().setToolTip(wrap_tooltip(text, _RESET_HINT))
 
     def __init__(
         self,
@@ -288,7 +292,7 @@ class CompactSlider(BaseSlider):
         header.setSpacing(2)  # explicit: the VBox spacing (0) would otherwise collapse the label<->edited-dot gap
         self.label = QLabel(label)
         self.label.setStyleSheet(slider_label_qss(self._label_color))
-        self.label.setToolTip(f"{label} (double-click to reset)")
+        self.setToolTip(label)
 
         self._edited_dot = EditedDot()
 
@@ -323,6 +327,13 @@ class CompactSlider(BaseSlider):
 
         layout.addLayout(header)
         layout.addWidget(self.slider)
+
+    def setToolTip(self, text: str) -> None:
+        """Mirror onto the label: a child with its own tooltip shadows the parent's, and
+        without one here the label would show nothing on hover. toolTip() is the already
+        wrapped string, so the reset footer is never appended twice."""
+        super().setToolTip(text)
+        self.label.setToolTip(self.toolTip())
 
     def enterEvent(self, event) -> None:
         self.spin.setMaximumWidth(self._spin_full_width)

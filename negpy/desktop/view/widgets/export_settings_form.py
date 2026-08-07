@@ -129,12 +129,12 @@ class ExportSettingsForm(QWidget):
         jxl_box.addWidget(self.jxl_lossless_check)
 
         self.jxl_distance_spin = CompactSlider("Distance", 0.0, 15.0, 1.0, step=0.1)
-        self.jxl_distance_spin.label.setToolTip("libjxl distance: ~1.0 ≈ visually lossless, higher = more loss")
+        self.jxl_distance_spin.setToolTip("libjxl distance: ~1.0 ≈ visually lossless, higher = more loss")
         self.jxl_distance_spin.valueChanged.connect(self._on_changed)
         jxl_box.addWidget(self.jxl_distance_spin)
 
         self.jxl_effort_spin = CompactSlider("Effort", 1, 9, 7, step=1, precision=1)
-        self.jxl_effort_spin.label.setToolTip("Encoder effort: higher = slower, smaller file")
+        self.jxl_effort_spin.setToolTip("Encoder effort: higher = slower, smaller file")
         self.jxl_effort_spin.valueChanged.connect(self._on_changed)
         jxl_box.addWidget(self.jxl_effort_spin)
 
@@ -154,12 +154,12 @@ class ExportSettingsForm(QWidget):
         webp_box.addWidget(self.webp_lossless_check)
 
         self.webp_quality_spin = CompactSlider("Quality", 1, 100, 90, step=1, precision=1)
-        self.webp_quality_spin.label.setToolTip("Lossy: visual quality. Lossless: compression effort.")
+        self.webp_quality_spin.setToolTip("Lossy: visual quality. Lossless: compression effort.")
         self.webp_quality_spin.valueChanged.connect(self._on_changed)
         webp_box.addWidget(self.webp_quality_spin)
 
         self.webp_method_spin = CompactSlider("Method", 0, 6, 4, step=1, precision=1)
-        self.webp_method_spin.label.setToolTip("Encoder effort: higher = slower, smaller file")
+        self.webp_method_spin.setToolTip("Encoder effort: higher = slower, smaller file")
         self.webp_method_spin.valueChanged.connect(self._on_changed)
         webp_box.addWidget(self.webp_method_spin)
 

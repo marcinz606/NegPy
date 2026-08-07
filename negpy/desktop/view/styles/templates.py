@@ -40,16 +40,20 @@ def default_button_height() -> int:
     return _default_btn_height
 
 
-def wrap_tooltip(text: str) -> str:
+def wrap_tooltip(text: str, footer: str = "") -> str:
     """Plain-text tooltips never word-wrap in Qt; rich text does. Wrap in <qt> so
     long tooltips break into lines instead of spanning the screen. Text that
     already carries markup (e.g. tooltip_with_shortcut's chips) must pass through
-    unescaped or its tags render as literal text."""
-    if text.startswith("<qt>"):
-        return text
-    if "<" in text and ">" in text:
-        return f"<qt>{text}</qt>"
-    return f"<qt>{html.escape(text)}</qt>"
+    unescaped or its tags render as literal text.
+
+    `footer` is trusted markup appended inside the <qt> document, so callers adding
+    a boilerplate line don't have to re-implement the escape/passthrough rule."""
+    if not text.startswith("<qt>"):
+        body = text if ("<" in text and ">" in text) else html.escape(text)
+        text = f"<qt>{body}</qt>"
+    if footer:
+        text = text.removesuffix("</qt>") + footer + "</qt>"
+    return text
 
 
 def hint_label(text: str = "", kind: str = "muted") -> QLabel:
