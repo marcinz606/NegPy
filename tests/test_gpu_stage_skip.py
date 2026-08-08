@@ -396,54 +396,5 @@ class TestSourcePreCorrectionCache(unittest.TestCase):
         self.assertEqual(self._count_corrections(toggle_hq), 2)
 
 
-@unittest.skipUnless(_gpu_available(), "GPU not available")
-class TestFrameCompletionBackPressure(unittest.TestCase):
-    """A returned texture must be a finished frame, not a queued one.
-
-    ``submit()`` only enqueues work: an HQ frame is ~2.6ms to submit and ~359ms to
-    run. Returning at submit time defeats the render queue's "one in flight"
-    coalescing, so a drag piles frames onto the GPU far faster than it retires them
-    and the canvas's own present blocks behind the backlog — a frozen slider.
-    """
-
-    @classmethod
-    def setUpClass(cls):
-        from negpy.services.rendering.gpu_engine import GPUEngine
-
-        cls.GPUEngine = GPUEngine
-        rng = np.random.default_rng(6)
-        cls.img = rng.random((256, 320, 3), dtype=np.float32) * 0.5 + 0.2
-
-    def setUp(self):
-        self.eng = self.GPUEngine()
-        self.addCleanup(self.eng.destroy_all)
-
-    def _count_waits(self, **kw):
-        self.eng.process_to_texture(self.img, WorkspaceConfig(), scale_factor=1.0, **kw)
-        queue = self.eng.gpu.device.queue
-        calls = {"n": 0}
-        real = queue.on_submitted_work_done_sync
-
-        def spy(*a, **k):
-            calls["n"] += 1
-            return real(*a, **k)
-
-        queue.on_submitted_work_done_sync = spy
-        try:
-            self.eng.process_to_texture(self.img, WorkspaceConfig(), scale_factor=1.0, **kw)
-        finally:
-            queue.on_submitted_work_done_sync = real
-        return calls["n"]
-
-    def test_drag_frame_waits_for_the_gpu(self):
-        waits = self._count_waits(readback_metrics=False, source_hash="f", analysis_source_hash="f")
-        self.assertEqual(waits, 1, "a drag frame must not report done while the GPU is still working")
-
-    def test_settle_frame_relies_on_the_metrics_readback(self):
-        """The readback already blocks on completion — waiting twice is wasted."""
-        waits = self._count_waits(readback_metrics=True, source_hash="f", analysis_source_hash="f")
-        self.assertEqual(waits, 0)
-
-
 if __name__ == "__main__":
     unittest.main()

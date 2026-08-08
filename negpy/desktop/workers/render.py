@@ -222,12 +222,13 @@ class RenderWorker(QObject):
             # canvas shader without a readback and every consumer of this buffer sees
             # the same unproofed print.
 
-            # The filmstrip thumbnail needs host pixels. This is the only thread that
-            # can take them safely — the engine recycles its stage textures on the next
-            # frame — and the only place that keeps the copy off the UI thread, where at
-            # HQ it is ~976MB and freezes the slider for ~700ms. Settle frames only, so
-            # a drag never pays it.
-            if task.readback_metrics and isinstance(result, GPUTexture):
+            # Host pixels for the filmstrip thumbnail. This is the only thread that can
+            # take them safely — the engine recycles its stage textures on the next
+            # frame. Settle frames only, and never from an HQ render: that copy is
+            # ~976MB and ~700ms of device time to produce a 256px thumbnail that a
+            # preview-sized render already produced identically.
+            wants_thumb = task.readback_metrics and task.preview_size <= APP_CONFIG.preview_render_size
+            if wants_thumb and isinstance(result, GPUTexture):
                 metrics["thumbnail_source"] = np.ascontiguousarray(result.readback()[:, :, :3])
 
             # Ensure ground truth is stored in metrics for view consumption

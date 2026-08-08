@@ -92,8 +92,8 @@ class GPUCanvasWidget(QWidget):
         self.format = self.context.get_preferred_format(adapter).replace("-srgb", "")
         self._configure_context()
 
-        # Uniform buffer now needs 32 bytes (2 * vec4<f32>)
-        self.uniform_buffer = self.device.create_buffer(size=32, usage=wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST)
+        # Uniform buffer: 3 * vec4<f32>
+        self.uniform_buffer = self.device.create_buffer(size=48, usage=wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST)
         self._upload_display_lut()
         self._create_render_pipeline(self.format)
 
@@ -227,7 +227,8 @@ class GPUCanvasWidget(QWidget):
         shader_source = """
         struct RenderUniforms {
             rect: vec4<f32>,
-            transform: vec4<f32> // x: zoom, y: pan_x, z: pan_y
+            transform: vec4<f32>, // x: zoom, y: pan_x, z: pan_y, w: LUT grid size
+            filt: vec4<f32>       // x: image pixels per screen pixel
         };
         @group(0) @binding(1) var<uniform> params: RenderUniforms;
 
@@ -288,6 +289,28 @@ class GPUCanvasWidget(QWidget):
             return 0.0;
         }
 
+        // Minifying: bicubic reads a 4x4 window of a much denser grid, so it is no
+        // more correct than bilinear and costs 4x the taps — at HQ (61Mpx source,
+        // fit zoom) that is 45ms a present on the UI thread against 6.5ms here.
+        fn textureSampleBilinear(uv: vec2<f32>) -> vec4<f32> {
+            let dims = textureDimensions(tex);
+            let fdims = vec2<f32>(f32(dims.x), f32(dims.y));
+            let pixel = uv * fdims - 0.5;
+            let ipos = floor(pixel);
+            let fpos = fract(pixel);
+
+            var col = vec4<f32>(0.0);
+            for (var y = 0; y <= 1; y++) {
+                for (var x = 0; x <= 1; x++) {
+                    let coord = clamp(vec2<i32>(ipos + vec2<f32>(f32(x), f32(y))), vec2<i32>(0), vec2<i32>(dims) - 1);
+                    let wx = select(1.0 - fpos.x, fpos.x, x == 1);
+                    let wy = select(1.0 - fpos.y, fpos.y, y == 1);
+                    col += textureLoad(tex, coord, 0) * (wx * wy);
+                }
+            }
+            return col;
+        }
+
         fn textureSampleBicubic(uv: vec2<f32>) -> vec4<f32> {
             let dims = textureDimensions(tex);
             let fdims = vec2<f32>(f32(dims.x), f32(dims.y));
@@ -314,7 +337,15 @@ class GPUCanvasWidget(QWidget):
 
         @fragment
         fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-            let col = textureSampleBicubic(in.uv);
+            // filt.x >= 1 means one screen pixel covers at most one image pixel, i.e.
+            // we are magnifying — the only regime where the extra taps buy anything.
+            // Must be if/else: assigning bilinear first and overwriting would run both.
+            var col: vec4<f32>;
+            if (params.filt.x >= 1.0) {
+                col = textureSampleBicubic(in.uv);
+            } else {
+                col = textureSampleBilinear(in.uv);
+            }
             let n = params.transform.w;
             let coord = vec3<f32>(lut_coord(col.r, n), lut_coord(col.g, n), lut_coord(col.b, n));
             let mapped = textureSampleLevel(lut_tex, lut_samp, coord, 0.0).rgb;
@@ -337,7 +368,7 @@ class GPUCanvasWidget(QWidget):
                     "visibility": wgpu.ShaderStage.VERTEX | wgpu.ShaderStage.FRAGMENT,
                     "buffer": {
                         "type": wgpu.BufferBindingType.uniform,
-                        "min_binding_size": 32,
+                        "min_binding_size": 48,
                     },
                 },
                 {
@@ -412,7 +443,7 @@ class GPUCanvasWidget(QWidget):
                 self.uniform_buffer,
                 0,
                 struct.pack(
-                    "ffffffff",
+                    "ffffffffffff",
                     (nx / ww) * 2.0 - 1.0,
                     1.0 - (ny / wh) * 2.0,
                     (nw / ww) * 2.0,
@@ -421,6 +452,11 @@ class GPUCanvasWidget(QWidget):
                     self.pan_x,
                     self.pan_y,
                     float(self._lut_n),
+                    # Screen pixels per image pixel: r fits the image, zoom scales it.
+                    r * self.zoom,
+                    0.0,
+                    0.0,
+                    0.0,
                 ),
             )
 
@@ -433,7 +469,7 @@ class GPUCanvasWidget(QWidget):
                         "resource": {
                             "buffer": self.uniform_buffer,
                             "offset": 0,
-                            "size": 32,
+                            "size": 48,
                         },
                     },
                     {"binding": 2, "resource": self.lut_view},

@@ -7,6 +7,7 @@ recycles stage textures from its pool on the next frame.
 """
 
 import unittest
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -108,6 +109,16 @@ class TestWorkerAttachesTheHostCopy(unittest.TestCase):
         arr = np.full((8, 8, 3), 0.5, dtype=np.float32)
         metrics = self._run(self._worker(arr), self._task(arr, readback_metrics=True))
         self.assertIsNone(metrics.get("thumbnail_source"), "a host render is already its own thumbnail source")
+
+    def test_hq_render_is_not_copied(self):
+        """~976MB of device time for a 256px thumbnail a preview render already made."""
+        from negpy.kernel.system.config import APP_CONFIG
+
+        tex = _FakeTexture(np.full((8, 8, 4), 0.5, dtype=np.float32))
+        task = replace(self._task(tex, readback_metrics=True), preview_size=float(APP_CONFIG.preview_render_size * 4))
+        metrics = self._run(self._worker(tex), task)
+        self.assertEqual(tex.readbacks, 0)
+        self.assertIsNone(metrics.get("thumbnail_source"))
 
 
 if __name__ == "__main__":

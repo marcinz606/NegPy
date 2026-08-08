@@ -1,4 +1,3 @@
-import time
 from unittest.mock import MagicMock
 
 from PyQt6.QtCore import QEvent, QPointF, Qt
@@ -37,11 +36,12 @@ def test_adjust_by_clamps_to_range(qapp):
     assert slider.value() == 0.0
 
 
-def test_label_scrub_emits_leading_then_coalesces(qapp):
-    """Leading edge so the preview moves with the gesture, then throttled.
+def test_label_scrub_debounces_value_changes(qapp):
+    """The handle must never wait on a render.
 
-    A pure trailing debounce emitted nothing until the drag paused, which read as a
-    frozen preview; a per-move emit renders faster than the pipeline can keep up.
+    A leading-edge emit was tried and reverted: dispatching mid-drag drags the whole
+    per-render UI fan-out along with the handle, which at HQ preview makes it visibly
+    lag the mouse. Moves are coalesced until the gesture pauses.
     """
     slider = CompactSlider("Density", 0.0, 2.0, 1.0)
     changed = MagicMock()
@@ -56,15 +56,11 @@ def test_label_scrub_emits_leading_then_coalesces(qapp):
 
     assert slider.eventFilter(slider.label, press)
     assert slider.eventFilter(slider.label, move)
-
-    changed.assert_called_once_with(1.2)  # dx=40 * span/400 sensitivity
-    assert not slider.timer.isActive()
-
-    # A second move inside the throttle window is coalesced into one trailing frame.
     assert slider.eventFilter(slider.label, move_again)
-    changed.assert_called_once_with(1.2)
+
+    changed.assert_not_called()
     assert slider.timer.isActive()
-    assert slider.value() == 1.3
+    assert slider.value() == 1.3  # dx=60 * span/400 sensitivity
 
     assert slider.eventFilter(slider.label, release)
     committed.assert_called_once_with(1.3)
@@ -81,7 +77,6 @@ def test_commit_flushes_a_pending_frame_when_the_value_returned(qapp):
     slider.valueChanged.connect(changed)
     slider.valueCommitted.connect(committed)
 
-    slider._last_emit_ms = time.monotonic() * 1000.0  # inside the throttle window
     slider.slider.setValue(slider._to_int(1.5))
     assert slider.timer.isActive()
     changed.assert_not_called()

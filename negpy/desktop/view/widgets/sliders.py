@@ -1,5 +1,4 @@
 import math
-import time
 from typing import Optional
 
 from PyQt6.QtWidgets import (
@@ -19,8 +18,8 @@ from negpy.desktop.view.styles.templates import EditedDot, slider_label_qss, sli
 # text_secondary, not text_muted: #555 on the #161616 tooltip background is ~2.4:1.
 _RESET_HINT = f'<div style="color:{THEME.text_secondary};">Double-click to reset</div>'
 
-# Shortest gap between two valueChanged emissions during a drag (~30/s).
-_EMIT_INTERVAL_MS = 33
+# Quiet period after the last slider step before a render is asked for.
+_EMIT_INTERVAL_MS = 100
 
 
 class _NoScrollSlider(QSlider):
@@ -154,13 +153,10 @@ class BaseSlider(QWidget):
         self.spin.setRange(min_val, max_val)
         self.spin.setValue(default_val)
 
-        # Emit throttle — leading edge plus a guaranteed trailing frame (see
-        # _schedule_emit). A preview frame costs single-digit ms, so a drag can feed
-        # the renderer continuously instead of waiting for the user to pause.
+        # Trailing debounce — see _schedule_emit for why it stays trailing.
         self.timer = QTimer()
         self.timer.setSingleShot(True)
         self.timer.setInterval(_EMIT_INTERVAL_MS)
-        self._last_emit_ms = 0.0
 
         self._connect_base_signals()
 
@@ -217,20 +213,17 @@ class BaseSlider(QWidget):
         self._schedule_emit()
 
     def _schedule_emit(self) -> None:
-        """Emit at once when the window is open, else arm one trailing frame.
+        """Trailing debounce: the handle must never wait on a render.
 
-        The timer is armed only when idle — restarting it on every step is a pure
-        trailing debounce, which emits nothing at all until the drag pauses.
+        A leading edge plus a max-wait was tried and reverted. Emitting mid-drag drags
+        the whole per-render UI fan-out along with the handle — repaint, sidebar
+        resync, analysis panel, canvas present — and at HQ preview that is enough to
+        make the handle visibly lag the mouse. Dispatching only once the drag pauses
+        keeps the slider decoupled from rendering, which is the behaviour to beat.
         """
-        elapsed = time.monotonic() * 1000.0 - self._last_emit_ms
-        if elapsed >= _EMIT_INTERVAL_MS:
-            self.timer.stop()
-            self._emit_value()
-        elif not self.timer.isActive():
-            self.timer.start(max(1, int(_EMIT_INTERVAL_MS - elapsed)))
+        self.timer.start(_EMIT_INTERVAL_MS)
 
     def _emit_value(self) -> None:
-        self._last_emit_ms = time.monotonic() * 1000.0
         self.valueChanged.emit(self.spin.value())
 
     def setValue(self, value: float, _rebase_commit: bool = True) -> None:
