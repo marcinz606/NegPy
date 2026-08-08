@@ -10,6 +10,16 @@ from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskS
 _TRIANGLE = [QPointF(20, 20), QPointF(80, 20), QPointF(50, 80)]
 
 
+def _move(pos: QPointF) -> QMouseEvent:
+    return QMouseEvent(QEvent.Type.MouseMove, pos, Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+
+
+def _release(pos: QPointF) -> QMouseEvent:
+    return QMouseEvent(
+        QEvent.Type.MouseButtonRelease, pos, Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier
+    )
+
+
 def _overlay_with_mask(tool: ToolMode = ToolMode.LOCAL_DRAW, shape: MaskShape = MaskShape.POLYGON) -> CanvasOverlay:
     from PyQt6.QtWidgets import QWidget
 
@@ -113,6 +123,32 @@ def test_dragging_out_an_oval_emits_three_control_points() -> None:
     shape, pts = emitted[0]
     assert shape == "oval"
     assert [(round(x, 3), round(y, 3)) for x, y in pts] == [(0.7, 0.7), (0.5, 0.7), (0.7, 0.5)]
+
+
+def test_a_card_edge_can_be_drawn_off_the_frame() -> None:
+    """The start of a tilted card edge must go past the corner it burns."""
+    overlay = _overlay_with_mask(ToolMode.LOCAL_GRADIENT)
+    emitted: list = []
+    overlay.local_mask_created.connect(lambda shape, pts: emitted.append(pts))
+
+    overlay._handle_shape_press(QPointF(130, -20))  # Outside the 100x100 content rect.
+    overlay._finish_shape_draw(QPointF(60, 40))
+
+    assert len(emitted) == 1
+    assert [(round(x, 2), round(y, 2)) for x, y in emitted[0]] == [(1.3, -0.2), (0.6, 0.4)]
+
+
+def test_a_dragged_handle_is_not_held_inside_the_frame() -> None:
+    overlay = _overlay_with_mask(shape=MaskShape.OVAL)
+    edits: list = []
+    overlay.local_mask_edited.connect(lambda i, pts: edits.append(pts))
+
+    overlay._handle_lasso_press(QPointF(80, 20))  # An axis handle.
+    overlay.mouseMoveEvent(_move(QPointF(150, -30)))
+    overlay.mouseReleaseEvent(_release(QPointF(150, -30)))
+
+    assert len(edits) == 1
+    assert edits[0][1] == (1.5, -0.3)
 
 
 def test_a_shape_click_without_travel_draws_nothing() -> None:

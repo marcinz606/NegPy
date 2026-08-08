@@ -61,15 +61,42 @@ class CoordinateMapping:
         return uv_grid
 
     @staticmethod
+    def _grid_affine(uv_grid: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """The grid as an affine map: (viewport reference, raw reference, 2x2 rate).
+
+        Two central differences give the rate, so the model is exact for the affine part
+        of the geometry (rotation, flips, fine rotation, crop). Distortion is not affine,
+        but the model applies only off the frame, where the grid has no data anyway.
+
+        All samples come from the middle of the grid. A fine rotation fills the grid
+        border with zeros, and those are not coordinates.
+        """
+        h_uv, w_uv = uv_grid.shape[:2]
+        x0, x1 = w_uv // 4, w_uv - 1 - w_uv // 4
+        y0, y1 = h_uv // 4, h_uv - 1 - h_uv // 4
+        cx, cy = w_uv // 2, h_uv // 2
+        d_col = (uv_grid[cy, x1] - uv_grid[cy, x0]) * ((w_uv - 1) / max(x1 - x0, 1))
+        d_row = (uv_grid[y1, cx] - uv_grid[y0, cx]) * ((h_uv - 1) / max(y1 - y0, 1))
+        jacobian = np.stack([d_col, d_row], axis=-1).astype(np.float64)
+        viewport_ref = np.array([cx / (w_uv - 1), cy / (h_uv - 1)], dtype=np.float64)
+        return viewport_ref, np.asarray(uv_grid[cy, cx], dtype=np.float64), jacobian
+
+    @staticmethod
     def map_click_to_raw(nx: float, ny: float, uv_grid: np.ndarray) -> Tuple[float, float]:
         """
         Viewport (0-1) -> Raw (0-1).
+
+        A point off the frame has no grid sample, so the affine model of the grid gives
+        it. Dodge/burn masks use this, because a card edge must start outside the
+        picture to cover a corner when you tilt it.
         """
         h_uv, w_uv = uv_grid.shape[:2]
-        px = int(np.clip(nx * (w_uv - 1), 0, w_uv - 1))
-        py = int(np.clip(ny * (h_uv - 1), 0, h_uv - 1))
-        raw_uv = uv_grid[py, px]
-        return float(raw_uv[0]), float(raw_uv[1])
+        if 0.0 <= nx <= 1.0 and 0.0 <= ny <= 1.0:
+            raw_uv = uv_grid[int(ny * (h_uv - 1)), int(nx * (w_uv - 1))]
+            return float(raw_uv[0]), float(raw_uv[1])
+        viewport_ref, raw_ref, jacobian = CoordinateMapping._grid_affine(uv_grid)
+        out = raw_ref + jacobian @ (np.array([nx, ny], dtype=np.float64) - viewport_ref)
+        return float(out[0]), float(out[1])
 
     @staticmethod
     def map_raw_to_viewport(rx: float, ry: float, uv_grid: np.ndarray, buckets: int = 100) -> Tuple[float, float]:
@@ -99,4 +126,13 @@ class CoordinateMapping:
         widx = int(np.argmin(wdist))
         wy, wx = divmod(widx, window.shape[1])
 
-        return min((x0 + wx + 0.5) / w_uv, 1.0), min((y0 + wy + 0.5) / h_uv, 1.0)
+        nx, ny = min((x0 + wx + 0.5) / w_uv, 1.0), min((y0 + wy + 0.5) / h_uv, 1.0)
+
+        # The nearest sample is more than one grid step away only if the raw point is off
+        # the frame. Then the affine model gives the answer, the inverse of what
+        # map_click_to_raw does there.
+        if float(wdist.flat[widx]) > (2.0 / max(h_uv, w_uv)) ** 2:
+            viewport_ref, raw_ref, jacobian = CoordinateMapping._grid_affine(uv_grid)
+            out = viewport_ref + np.linalg.solve(jacobian, np.array([rx, ry], dtype=np.float64) - raw_ref)
+            return float(out[0]), float(out[1])
+        return nx, ny

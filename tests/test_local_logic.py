@@ -126,6 +126,28 @@ class TestMaskShapes(unittest.TestCase):
         self.assertTrue(np.all(np.diff(row) <= 1e-6))
         np.testing.assert_allclose(ev[10, :], ev[90, :], atol=1e-6)
 
+    def test_a_tilted_card_edge_can_burn_a_full_corner(self) -> None:
+        """A tilted line through a point in the frame always cuts a corner off the full
+        side. The start must go outside the picture to hold the full top edge."""
+        axis = (0.2, 0.4)
+
+        def top_corners(start):
+            grad = LocalMask(
+                vertices=(start, (start[0] + axis[0], start[1] + axis[1])),
+                stops=1.0,
+                shape=MaskShape.GRADIENT,
+            )
+            ev = _ev(LocalAdjustmentsConfig(masks=(grad,)))
+            return float(ev[0, 0]), float(ev[0, 99])
+
+        inside_left, inside_right = top_corners((0.5, 0.0))
+        self.assertAlmostEqual(inside_left, 1.0, places=5)
+        self.assertLess(inside_right, 1.0)  # the corner the tilt cuts off
+
+        outside_left, outside_right = top_corners((1.1, 0.0))
+        self.assertAlmostEqual(outside_left, 1.0, places=5)
+        self.assertAlmostEqual(outside_right, 1.0, places=5)
+
     def test_a_card_edge_needs_only_two_points(self) -> None:
         grad = LocalMask(vertices=((0.25, 0.5), (0.75, 0.5)), stops=1.0, shape=MaskShape.GRADIENT)
         self.assertGreater(float(_ev(LocalAdjustmentsConfig(masks=(grad,))).max()), 0.9)

@@ -1778,6 +1778,17 @@ class CanvasOverlay(QWidget):
 
         return float(np.clip(nb_x, 0, 1)), float(np.clip(nb_y, 0, 1))
 
+    def _map_to_image_coords_unbounded(self, screen_pos: QPointF) -> Optional[Tuple[float, float]]:
+        """As `_map_to_image_coords`, but keeps points off the frame.
+
+        A mask handle can sit outside the picture. A card edge needs this: to burn a
+        full corner at an angle, its line must start beyond that corner.
+        """
+        rect = self._content_view_rect()
+        if rect.isEmpty():
+            return None
+        return (screen_pos.x() - rect.x()) / rect.width(), (screen_pos.y() - rect.y()) / rect.height()
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
         # While the strip is up the canvas is a picker: a click keeps a patch, and no
         # tool (or pan) gets the event.
@@ -2000,26 +2011,22 @@ class CanvasOverlay(QWidget):
             event.accept()
             return
 
+        # Mask handles are not held inside the frame: a card edge that burns a full
+        # corner at an angle has its line outside the picture.
         if self._local_drag_vertex is not None and self._local_edit_verts is not None and not self._view_rect.isEmpty():
-            rect = self._content_view_rect()
-            px = float(np.clip(event.position().x(), rect.left(), rect.right()))
-            py = float(np.clip(event.position().y(), rect.top(), rect.bottom()))
+            pos = event.position()
             if self._local_drag_anchor is not None:
-                delta = QPointF(px, py) - self._local_drag_anchor
-                self._local_drag_anchor = QPointF(px, py)
+                delta = pos - self._local_drag_anchor
+                self._local_drag_anchor = pos
                 self._local_edit_verts = [p + delta for p in self._local_edit_verts]
             else:
-                self._local_edit_verts[self._local_drag_vertex] = QPointF(px, py)
+                self._local_edit_verts[self._local_drag_vertex] = pos
             self.update()
             event.accept()
             return
 
         if self._shape_draw_p1 is not None and event.buttons() & Qt.MouseButton.LeftButton:
-            rect = self._content_view_rect()
-            self._shape_draw_p2 = QPointF(
-                float(np.clip(event.position().x(), rect.left(), rect.right())),
-                float(np.clip(event.position().y(), rect.top(), rect.bottom())),
-            )
+            self._shape_draw_p2 = event.position()
             self.update()
             event.accept()
             return
@@ -2255,24 +2262,17 @@ class CanvasOverlay(QWidget):
         self._emit_mask(MaskShape.POLYGON, pts)
 
     def _emit_mask(self, shape: MaskShape, pts: List[QPointF]) -> None:
-        """Send the drawn points to the controller. Discard the mask if one point is
-        outside the frame."""
-        vertices = []
+        """Send the drawn points to the controller. A point off the frame is kept."""
         if len(pts) >= min_points(shape):
-            for pt in pts:
-                coords = self._map_to_image_coords(pt)
-                if coords is None:
-                    self.update()
-                    return
-                vertices.append(coords)
-            self.local_mask_created.emit(str(shape), vertices)
+            vertices = [self._map_to_image_coords_unbounded(pt) for pt in pts]
+            if all(v is not None for v in vertices):
+                self.local_mask_created.emit(str(shape), vertices)
         self.update()
 
     def _handle_shape_press(self, pos: QPointF) -> None:
         """Start the drag of an oval or a card edge. A click on an existing mask
-        selects that mask, as the lasso tool does."""
-        rect = self._content_view_rect()
-        if not rect.contains(pos):
+        selects that mask, as the lasso tool does. The drag can start off the frame."""
+        if self._content_view_rect().isEmpty():
             return
         if self._try_start_vertex_edit(pos) or self._try_select_mask_at(pos):
             return
@@ -2284,11 +2284,7 @@ class CanvasOverlay(QWidget):
         p1, self._shape_draw_p1, self._shape_draw_p2 = self._shape_draw_p1, None, None
         if p1 is None:
             return
-        rect = self._content_view_rect()
-        p2 = QPointF(
-            float(np.clip(pos.x(), rect.left(), rect.right())),
-            float(np.clip(pos.y(), rect.top(), rect.bottom())),
-        )
+        p2 = pos
         # A click without movement is an error. Do not make a mask with no size.
         if (p2 - p1).manhattanLength() < 8.0:
             self.update()
@@ -2452,16 +2448,9 @@ class CanvasOverlay(QWidget):
             selected = getattr(self.state, "local_selected_mask", -1)
             self._end_local_edit()
             if verts and selected >= 0 and not self._view_rect.isEmpty():
-                rect = self._content_view_rect()
-                w, h = rect.width(), rect.height()
-                vp = [
-                    (
-                        float(np.clip((p.x() - rect.x()) / w, 0.0, 1.0)),
-                        float(np.clip((p.y() - rect.y()) / h, 0.0, 1.0)),
-                    )
-                    for p in verts
-                ]
-                self.local_mask_edited.emit(selected, vp)
+                vp = [self._map_to_image_coords_unbounded(p) for p in verts]
+                if all(v is not None for v in vp):
+                    self.local_mask_edited.emit(selected, vp)
             self.update()
             event.accept()
             return
