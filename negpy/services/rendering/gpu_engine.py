@@ -1094,6 +1094,15 @@ class GPUEngine:
             "neutral_axis_refs": neutral_axis_refs,
         }
 
+        if not tiling_mode and not readback_metrics:
+            # Back-pressure. The caller treats the returned texture as a finished frame,
+            # but submit() only queues the work — an HQ frame is ~2.6ms to submit and
+            # ~359ms to actually run. Without this wait the render queue's "one in
+            # flight" coalescing is defeated: a drag submits frames far faster than the
+            # GPU retires them, and the canvas's own present then blocks behind the
+            # backlog, which reads as a frozen slider. The readback below already waits.
+            device.queue.on_submitted_work_done_sync()
+
         if not tiling_mode and readback_metrics:
             raw_metrics = self._readback_metrics()
             metrics["histogram_raw"] = raw_metrics[:_METRICS_HIST_WORDS].reshape((4, HISTOGRAM_BINS))

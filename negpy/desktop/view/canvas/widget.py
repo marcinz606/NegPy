@@ -327,6 +327,15 @@ class ImageCanvas(QWidget):
         self.gpu_widget.clear()
         self.overlay.update_buffer(None, "sRGB", None)
 
+    def release_gpu_texture(self) -> None:
+        """Drop the displayed texture because the engine is about to destroy its pool.
+
+        The canvas samples pooled stage textures directly, so a frame drawn after the
+        pool is freed fails validation. Zoom/pan survive — only the pixels go.
+        """
+        self._last_buffer = None
+        self.gpu_widget.clear()
+
     def content_rect(self) -> Optional[Tuple[int, int, int, int]]:
         """Image content rect (off_x, off_y, w, h) inside the displayed buffer; None = no borders."""
         return self.overlay._content_rect

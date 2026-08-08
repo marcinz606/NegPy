@@ -222,6 +222,14 @@ class RenderWorker(QObject):
             # canvas shader without a readback and every consumer of this buffer sees
             # the same unproofed print.
 
+            # The filmstrip thumbnail needs host pixels. This is the only thread that
+            # can take them safely — the engine recycles its stage textures on the next
+            # frame — and the only place that keeps the copy off the UI thread, where at
+            # HQ it is ~976MB and freezes the slider for ~700ms. Settle frames only, so
+            # a drag never pays it.
+            if task.readback_metrics and isinstance(result, GPUTexture):
+                metrics["thumbnail_source"] = np.ascontiguousarray(result.readback()[:, :, :3])
+
             # Ensure ground truth is stored in metrics for view consumption
             metrics["base_positive"] = result
             # Render identity, so the controller can reject stale/ephemeral bounds writeback.

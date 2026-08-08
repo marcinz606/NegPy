@@ -1,6 +1,7 @@
 import sys
 from typing import Any, Dict
 
+import numpy as np
 import qtawesome as qta
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtWidgets import (
@@ -353,7 +354,13 @@ class RightPanel(QWidget):
         if source is None:
             source = metrics.get("analysis_buffer")
         if source is None:
-            source = metrics.get("base_positive")
+            # base_positive is a GPU texture on the GPU path; binning it here would mean
+            # a full readback on the UI thread. Drag frames carry no histogram (they ask
+            # for none), so keep the last one rather than blanking the chart.
+            candidate = metrics.get("base_positive")
+            source = candidate if isinstance(candidate, np.ndarray) else None
+        if source is None:
+            return
         bins = output_histogram(source)
 
         self.curve_widget.set_output_histogram(bins)

@@ -412,6 +412,7 @@ class MainWindow(QMainWindow):
         self.controller.image_updated.connect(self._on_image_updated)
         self.controller.preview_loaded.connect(self._refresh_image_info)
         self.controller.loading_started.connect(self._on_loading_started)
+        self.controller.gpu_textures_released.connect(self.canvas.release_gpu_texture)
         self.controller.image_updated.connect(self.loading_overlay.stop)
         self.controller.load_failed.connect(self._on_load_failed)
         self.controller.zoom_changed.connect(self._on_zoom_info_changed)

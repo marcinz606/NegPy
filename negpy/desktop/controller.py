@@ -208,6 +208,9 @@ class AppController(QObject):
     metrics_available = pyqtSignal(dict)
     loading_started = pyqtSignal()
     load_failed = pyqtSignal()
+    # The GPU engine is about to free its texture pool: anything holding a render
+    # texture (the canvas samples one directly) must drop it first.
+    gpu_textures_released = pyqtSignal()
     export_progress = pyqtSignal(int, int, str)
     export_finished = pyqtSignal(float, int)
     render_requested = pyqtSignal(RenderTask)
@@ -1250,10 +1253,14 @@ class AppController(QObject):
             self.loading_started.emit()
         self._thumb_config = None
 
+        # The canvas samples the render texture directly, so it has to let go before
+        # the pool is freed or the next draw references destroyed memory.
+        self.gpu_textures_released.emit()
         self._render_cleanup_requested.emit()
         # The cleanup destroys the GPU textures last_metrics still points at; drop the
-        # densitometer's probe source so hover readouts go quiet until the next render.
+        # densitometer's probe sources so hover readouts go quiet until the next render.
         self.state.last_metrics.pop("normalized_log", None)
+        self.state.last_metrics.pop("base_positive", None)
 
         if memo is not None:
             with self.state.metrics_lock:
@@ -4143,20 +4150,15 @@ class AppController(QObject):
         idx = self.state.selected_file_idx
         if not (0 <= idx < len(self.state.uploaded_files)):
             return
-        asset_name = self.state.uploaded_files[idx]["name"]
-
         with self.state.metrics_lock:
             metrics = dict(self.state.last_metrics)
         buffer = metrics.get("base_positive")
 
+        # Never read a render texture back here: this is the UI thread, and at HQ that
+        # copy is ~976MB / ~700ms — long enough to freeze a slider drag. The render
+        # worker attaches a host copy on settle frames instead.
         if isinstance(buffer, GPUTexture):
-            t0 = time.perf_counter()
-            buffer = buffer.readback()
-            logger.info(
-                "thumb-refresh readback %.1fms %s",
-                (time.perf_counter() - t0) * 1000,
-                asset_name,
-            )
+            buffer = metrics.get("thumbnail_source")
 
         if buffer is not None and not isinstance(buffer, np.ndarray):
             buffer = metrics.get("analysis_buffer")
