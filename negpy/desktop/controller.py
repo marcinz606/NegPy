@@ -110,11 +110,10 @@ class _PendingCaptureImport:
 
 
 def _interactive_proxy(raw: Optional[Any]) -> Optional[Any]:
-    """Preview-resolution stand-in for an HQ buffer, or None when one is not needed.
+    """Preview-resolution stand-in for an HQ buffer; None when one is not needed.
 
-    Everything a frame costs downstream — the pipeline, the canvas present, any
-    readback — scales with this buffer, so dragging against the HQ original makes the
-    main thread pay 60Mpx per gesture step. Built once per load, not per frame.
+    Every downstream cost scales with this buffer, so interactive frames render
+    against it rather than the full-resolution original.
     """
     if not isinstance(raw, np.ndarray) or raw.ndim < 2:
         return None
@@ -129,8 +128,8 @@ def _interactive_proxy(raw: Optional[Any]) -> Optional[Any]:
 def _interactive_ir_proxy(ir: Optional[Any], proxy: Optional[Any]) -> Optional[Any]:
     """IR plane matched to ``proxy``'s shape, or None when no proxy is in use.
 
-    Routed through ``downsample_ir`` rather than a plain resize: a defect is a
-    *minimum* in IR transmittance and INTER_AREA averages sub-pixel minima away.
+    Not a plain resize: a defect is a *minimum* in IR transmittance, which area
+    averaging removes.
     """
     if proxy is None or not isinstance(ir, np.ndarray):
         return None
@@ -240,8 +239,8 @@ class AppController(QObject):
     metrics_available = pyqtSignal(dict)
     loading_started = pyqtSignal()
     load_failed = pyqtSignal()
-    # The GPU engine is about to free its texture pool: anything holding a render
-    # texture (the canvas samples one directly) must drop it first.
+    # Emitted before the GPU engine frees its texture pool; the canvas samples a
+    # pooled texture directly and must drop it first.
     gpu_textures_released = pyqtSignal()
     export_progress = pyqtSignal(int, int, str)
     export_finished = pyqtSignal(float, int)
@@ -1285,8 +1284,6 @@ class AppController(QObject):
             self.loading_started.emit()
         self._thumb_config = None
 
-        # The canvas samples the render texture directly, so it has to let go before
-        # the pool is freed or the next draw references destroyed memory.
         self.gpu_textures_released.emit()
         self._render_cleanup_requested.emit()
         # The cleanup destroys the GPU textures last_metrics still points at; drop the
@@ -3245,9 +3242,8 @@ class AppController(QObject):
         if preview_raw is None:
             return
 
-        # readback_metrics is the settle marker: a drag asks for no metrics. Interactive
-        # frames render against the proxy so the main thread never handles an HQ frame
-        # while the gesture is live; the release re-renders at full resolution.
+        # A drag asks for no metrics; the release does. Interactive frames go through
+        # the proxy, so full resolution is reached only once the gesture settles.
         interactive = not readback_metrics
         ir_buffer = self.state.preview_ir
         if interactive and self.state.preview_proxy is not None:
@@ -3262,9 +3258,8 @@ class AppController(QObject):
         crop_preview_full = self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
         # Only a plain render of the saved edit is reproducible on navigate-back;
         # overrides (compare/flat peek), splash and tool previews are not memoized.
-        # Not interactive either: a proxy frame under the full-resolution config's key
-        # would have navigate-back paint the low-res stand-in (CPU fallback publishes a
-        # host array, which is what the memo stores).
+        # Interactive frames are excluded: a proxy render filed under the full-resolution
+        # config's key would be painted back as if it were the real one.
         memo_key = ""
         if config_override is None and not ephemeral and not crop_preview_full and not interactive:
             memo_key = self._render_memo_key()
@@ -4090,8 +4085,7 @@ class AppController(QObject):
             self._first_render_t0 = None
 
         # Config is replaced wholesale on every edit, so identity detects any change.
-        # Never mid-gesture: the filmstrip only has to be right once the drag settles,
-        # and refreshing it there puts a full-frame copy on the UI thread's critical path.
+        # Not mid-gesture: the filmstrip only has to be right once the drag settles.
         should_update_thumb = (
             self._pending_render_task is None
             and not metrics.get("ephemeral")
@@ -4144,8 +4138,7 @@ class AppController(QObject):
 
         # Don't persist bounds from an ephemeral (splash) render or a render of a different
         # file (late metric after a fast switch) — they aren't this frame's bounds. Nor
-        # from a mid-gesture frame: persisting writes settings and rebuilds the history
-        # panel on the UI thread, and it renders against the proxy anyway.
+        # from a mid-gesture frame, which measured the proxy rather than the real buffer.
         if metrics.get("ephemeral") or metrics.get("interactive"):
             return
         src = metrics.get("source_hash")
@@ -4208,9 +4201,8 @@ class AppController(QObject):
             metrics = dict(self.state.last_metrics)
         buffer = metrics.get("base_positive")
 
-        # Never read a render texture back here: this is the UI thread, and at HQ that
-        # copy is ~976MB / ~700ms — long enough to freeze a slider drag. The render
-        # worker attaches a host copy on settle frames instead.
+        # The render worker supplies host pixels; reading the texture back here would
+        # put a full-frame copy on the UI thread.
         if isinstance(buffer, GPUTexture):
             buffer = metrics.get("thumbnail_source")
 

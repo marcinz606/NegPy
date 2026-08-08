@@ -64,10 +64,8 @@ from negpy.services.export.print import PrintService
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry, WORKING_COLOR_SPACE
 from negpy.infrastructure.display.icc_lut import apply_icc_u16_rgb
 
-# Preview soft-proof LUT grid. Larger than the 33³ display LUT because the proof can
-# clip at the output gamut boundary, and trilinear interpolation across that kink is
-# where the error lives: 65³ halves the worst-case error of the 8-bit PIL round-trip
-# it replaces. Cached per profile combination, so the build cost is paid once.
+# Preview soft-proof LUT grid. Finer than the display LUT because the proof clips at
+# the output gamut boundary, and interpolating across that kink is where the error is.
 PROOF_LUT_SIZE = 65
 
 logger = get_logger(__name__)
@@ -143,8 +141,8 @@ class ImageProcessor:
         self._source_cache_key: Optional[tuple] = None
         self._source_cache_value: Optional[Tuple[np.ndarray, Optional[np.ndarray], str]] = None
 
-        # Flat-field + sensor-unmix corrected source. Both are full-buffer numpy passes
-        # that no creative slider moves, so a drag reuses the corrected buffer.
+        # Flat-field + sensor-unmix corrected source: full-buffer passes that no
+        # creative slider moves.
         self._precorrect_key: Optional[tuple] = None
         self._precorrect_value: Optional[np.ndarray] = None
 
@@ -376,8 +374,8 @@ class ImageProcessor:
         # into source_hash invalidates the engine cache when it changes. Stitch buffers
         # arrive per-part flat-fielded (both decode paths) — correcting the composite
         # canvas as one frame would stretch the gain map across the seam.
-        # Shape is in the key because HQ preview re-decodes the same file at full
-        # resolution under an unchanged source_hash.
+        # Shape is in the key: HQ re-decodes the same file larger under an unchanged
+        # source_hash.
         precorrect_key = (
             source_hash,
             img.shape,
@@ -399,8 +397,7 @@ class ImageProcessor:
             # crosstalk that was never captured.
             if not skip_flatfield and not is_rgb_triplet(settings.rgbscan) and not stitch_has_triplets(settings.stitch):
                 img = apply_sensor_correction(img, effective_sensor_matrix(settings.process))
-            # Both corrections no-op'd — caching would only pin a second reference to a
-            # buffer the preview cache already holds.
+            # Both no-op'd: caching would pin a second reference to the same buffer.
             if img is not source:
                 self._precorrect_key = precorrect_key
                 self._precorrect_value = img
@@ -1295,10 +1292,8 @@ class ImageProcessor:
         """``soft_proof_preview`` baked into an (N,N,N,3) LUT, for the preview only.
 
         Built by pushing the identity grid through ``soft_proof_preview`` itself, so
-        the print-profile / export-space / GRAY branches cannot drift from the real
-        transform. The preview proof previously rebuilt its littleCMS transform per
-        frame (~56ms); this is cached and applies in ~3ms. Export keeps the exact
-        per-pixel transform.
+        the print-profile / export-space / GRAY branches cannot drift from it. Export
+        keeps the exact per-pixel transform.
         """
         try:
             axis = np.linspace(0, 255, size).round().astype(np.uint8)

@@ -62,10 +62,9 @@ def get_display_lut(
     """3D LUT converting the assumed source space (`WORKING_COLOR_SPACE`) to the
     display profile.
 
-    ``proof`` is ``(input_icc_path, output_icc_path)`` when the preview soft-proofs.
-    The LUT then carries source→output-proof→display in one hop, so the canvas
-    shader, the CPU overlay and the filmstrip thumbnail all apply the identical
-    transform to the same buffer — they must, or one frame shows two colours.
+    ``proof`` is ``(input_icc_path, output_icc_path)`` when the preview soft-proofs;
+    the LUT then carries source→output-proof→display in one hop. Every consumer of a
+    rendered buffer must take the same LUT, or one frame shows two colours.
 
     ``working_color_space`` is the profile the camera-native pipeline numbers are
     *assumed* to be in (see `color_spaces.WORKING_COLOR_SPACE`), not a real working
@@ -76,8 +75,8 @@ def get_display_lut(
     profile). Used by both the CPU (`ImageConverter.to_qimage`) and GPU display paths.
     """
     if proof is not None:
-        # Deferred: image_processor owns the proof's branch selection (print profile
-        # vs export space vs GRAY) and pulls this module in itself.
+        # Deferred: image_processor owns the proof's branch selection and imports this
+        # module itself.
         from negpy.services.rendering.image_processor import ImageProcessor
 
         return ImageProcessor.soft_proof_lut(working_color_space, proof[0], proof[1], dst_bytes)

@@ -204,9 +204,8 @@ def get_rendered_thumbnail(
 
     ``color_space``/``monitor_icc_bytes``/``proof`` must come from
     ``AppController.display_transform_params``. Rendered buffers are always in the
-    working space — a soft proof is folded into the display LUT, not baked into the
-    buffer — so dropping ``proof`` here leaves the filmstrip unproofed while the
-    canvas is proofed, and the two visibly disagree.
+    working space: a soft proof rides the display LUT rather than the buffer, so
+    dropping ``proof`` here leaves the filmstrip unproofed beside a proofed canvas.
     """
     try:
         from negpy.infrastructure.display.color_mgmt import apply_display_transform

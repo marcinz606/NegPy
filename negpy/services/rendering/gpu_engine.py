@@ -252,8 +252,8 @@ class GPUEngine:
         self._last_settings: Optional[WorkspaceConfig] = None
         self._last_targets_rev: int = -1
         self._last_scale_factor: float = 1.0
-        # Layout/paper dims key off render_size_ref, which no config field carries —
-        # without this a size-only change could resume past the layout pass.
+        # No config field carries render_size_ref, so a size-only change would
+        # otherwise resume past the layout pass.
         self._last_render_size_ref: Optional[float] = None
         self._retouch_num_regions = 0
         # Region build+upload cache — retouch re-dispatches on every exposure
@@ -335,7 +335,7 @@ class GPUEngine:
     def _cached_autocrop_roi(
         self, img: np.ndarray, settings: WorkspaceConfig, h_rot: int, w_rot: int, source_hash: Optional[str]
     ) -> Tuple[int, int, int, int]:
-        """Autocrop detection is a ~100ms CPU scan and no creative slider moves it.
+        """Autocrop detection is a CPU scan that no creative slider moves.
 
         Uncached without a source hash (export/tiled paths): the key could not tell
         two different buffers apart.
@@ -784,8 +784,8 @@ class GPUEngine:
                 h_rot,
             )
             if settings.local.masks:
-                # Any exposure slider re-enters this stage, but the map only moves with
-                # the masks, the geometry and the grade — rasterise + upload on those.
+                # This stage re-runs for any exposure change, but the map only moves
+                # with the masks, the geometry and the grade.
                 tiled_maps = local_maps is not None
                 ev_key = (
                     settings.local,
@@ -877,9 +877,8 @@ class GPUEngine:
         else:
             prev_tex = tex_expo
 
-        # With no regions the retouch shader is an identity copy, but its per-thread
-        # MVC arrays (array<..., 64> x5) spill to scratch and cost ~18ms at preview
-        # size whichever branch the pixel takes — so pass the buffer through instead.
+        # With no regions the shader is an identity copy, but its per-thread MVC arrays
+        # spill to scratch whichever branch a pixel takes, so pass the buffer through.
         if self._retouch_num_regions > 0:
             tex_ret = self._get_intermediate_texture(
                 w_rot,
@@ -2043,9 +2042,8 @@ class GPUEngine:
         self._bind_group_cache.clear()
         self._bind_layout_cache.clear()
         self._uv_grid_cache = None
-        # The stage textures the incremental render would resume onto are gone, so the
-        # next frame must re-upload and re-run from stage 0. Likewise the local_ev
-        # texture the dodge/burn key tracks.
+        # The stage textures a resume would paint onto are gone (local_ev included),
+        # so the next frame must re-upload and start from stage 0.
         self._current_source_hash = None
         self._last_settings = None
         self._local_ev_key = None

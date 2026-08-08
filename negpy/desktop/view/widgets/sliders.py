@@ -18,10 +18,7 @@ from negpy.desktop.view.styles.templates import EditedDot, slider_label_qss, sli
 # text_secondary, not text_muted: #555 on the #161616 tooltip background is ~2.4:1.
 _RESET_HINT = f'<div style="color:{THEME.text_secondary};">Double-click to reset</div>'
 
-# Quiet period after the last slider step before a render is asked for. Was 100ms
-# while a drag frame could cost a full HQ render; interactive frames now render
-# against a preview-resolution proxy (see AppController._interactive_proxy), so the
-# preview can follow the handle much sooner without putting work on the UI thread.
+# Quiet period after the last slider step before a render is asked for.
 _EMIT_INTERVAL_MS = 33
 
 
@@ -178,8 +175,7 @@ class BaseSlider(QWidget):
         self.slider.sliderReleased.connect(self.dragEnded.emit)
 
     def _on_committed(self) -> None:
-        # Stop the trailing frame: the commit below renders the same value, and letting
-        # the timer fire afterwards costs a second identical round trip.
+        # The commit below renders this value; a trailing frame would repeat it.
         pending = self.timer.isActive()
         self.timer.stop()
         current_val = self.spin.value()
@@ -218,11 +214,8 @@ class BaseSlider(QWidget):
     def _schedule_emit(self) -> None:
         """Trailing debounce: the handle must never wait on a render.
 
-        A leading edge plus a max-wait was tried and reverted. Emitting mid-drag drags
-        the whole per-render UI fan-out along with the handle — repaint, sidebar
-        resync, analysis panel, canvas present — and at HQ preview that is enough to
-        make the handle visibly lag the mouse. Dispatching only once the drag pauses
-        keeps the slider decoupled from rendering, which is the behaviour to beat.
+        Emitting mid-drag pulls the whole per-render UI fan-out onto the handle's own
+        thread. A leading edge was tried here and reverted for that reason.
         """
         self.timer.start(_EMIT_INTERVAL_MS)
 

@@ -1,11 +1,9 @@
 """
 Wall-clock metrics for a preview *render frame* (synthetic buffers, real GPU).
 
-`test_preview_load` covers decode. Nothing measured a frame until now, which is how
-`source_hash` sat unwired through roughly eight perf passes: the machinery to resume
-from the first dirty stage existed, was maintained, and had never once executed.
+`test_preview_load` covers decode; this covers the render itself.
 
-A frame's cost is render-thread wall time **plus the GPU time it still owes** —
+A frame is timed as render-thread wall time **plus the GPU time it still owes**:
 `submit()` only queues work, so timing the call alone lets a change that defers work
 look like a speed-up.
 
@@ -116,9 +114,9 @@ def test_settle_frame(rig) -> None:
 def test_stage_skipping_is_actually_engaged(rig) -> None:
     """The guard the wall-clock budgets cannot give.
 
-    A regression that silently stopped passing ``source_hash`` would still land well
-    inside the budgets at this resolution — it did for eight perf passes — so assert
-    the resume itself: a toning-only change must not re-run the geometry stage.
+    A render that stopped resuming would still land inside the budgets at this
+    resolution, so assert the resume itself: a toning-only change must not re-run
+    the geometry stage.
     """
     proc, img, _ = rig
     engine = proc.engine_gpu

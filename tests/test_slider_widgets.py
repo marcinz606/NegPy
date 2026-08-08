@@ -39,9 +39,8 @@ def test_adjust_by_clamps_to_range(qapp):
 def test_label_scrub_debounces_value_changes(qapp):
     """The handle must never wait on a render.
 
-    A leading-edge emit was tried and reverted: dispatching mid-drag drags the whole
-    per-render UI fan-out along with the handle, which at HQ preview makes it visibly
-    lag the mouse. Moves are coalesced until the gesture pauses.
+    Emitting mid-drag pulls the whole per-render UI fan-out onto the handle's own
+    thread, so moves are coalesced until the gesture pauses.
     """
     slider = CompactSlider("Density", 0.0, 2.0, 1.0)
     changed = MagicMock()

@@ -354,9 +354,8 @@ class RightPanel(QWidget):
         if source is None:
             source = metrics.get("analysis_buffer")
         if source is None:
-            # base_positive is a GPU texture on the GPU path; binning it here would mean
-            # a full readback on the UI thread. Drag frames carry no histogram (they ask
-            # for none), so keep the last one rather than blanking the chart.
+            # A GPU texture cannot be binned here without a full readback on the UI
+            # thread, so keep the last histogram rather than blanking the chart.
             candidate = metrics.get("base_positive")
             source = candidate if isinstance(candidate, np.ndarray) else None
         if source is None:
@@ -381,9 +380,7 @@ class RightPanel(QWidget):
 
     def _update_analysis(self) -> None:
         metrics = self.controller.session.state.last_metrics
-        # Mid-gesture frames carry no metrics to read anyway, and rebuilding the curve,
-        # step wedge and zone strip on the UI thread is what makes a slider handle stutter.
-        # The settle frame refreshes all of it.
+        # Mid-gesture frames carry no metrics; the settle frame refreshes all of this.
         if metrics.get("interactive"):
             return
 

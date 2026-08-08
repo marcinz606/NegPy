@@ -527,9 +527,8 @@ class MainWindow(QMainWindow):
             logger.warning("Render completed but 'base_positive' not found in metrics")
             return
 
-        # A GPU texture goes to the canvas as-is: the GPU display path samples it and
-        # applies the working→display LUT in its shader. Reading it back here forced
-        # every frame through the CPU converter instead.
+        # Passed on as-is: the GPU display path samples the texture and applies the
+        # working→display LUT in its shader.
         buffer = metrics["base_positive"]
         content_rect = metrics.get("content_rect")
 

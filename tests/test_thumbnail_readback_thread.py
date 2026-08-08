@@ -1,9 +1,8 @@
 """The filmstrip thumbnail must never read a GPU texture back on the Qt main thread.
 
-At HQ preview the render texture is ~976MB; reading it back costs ~695ms, and doing
-that on the UI thread freezes the slider mid-drag. The render worker owns the
-readback — it is the only thread that can do it safely anyway, since the engine
-recycles stage textures from its pool on the next frame.
+A full-frame copy there stalls the UI mid-drag. The render worker owns the readback,
+and is the only thread that can take it safely: the engine recycles stage textures
+from its pool on the next frame.
 """
 
 import unittest
@@ -111,7 +110,7 @@ class TestWorkerAttachesTheHostCopy(unittest.TestCase):
         self.assertIsNone(metrics.get("thumbnail_source"), "a host render is already its own thumbnail source")
 
     def test_hq_render_is_not_copied(self):
-        """~976MB of device time for a 256px thumbnail a preview render already made."""
+        """A preview-sized render yields the same thumbnail for a fraction of the copy."""
         from negpy.kernel.system.config import APP_CONFIG
 
         tex = _FakeTexture(np.full((8, 8, 4), 0.5, dtype=np.float32))

@@ -45,8 +45,8 @@ class RenderTask:
     # These pixels are the before/after baseline, not the edit. Echoed in metrics so
     # the BEFORE badge tracks what is painted, not the pending toggle.
     compare: bool = False
-    # A frame produced while a gesture is live. Echoed in metrics so the UI thread can
-    # skip everything that only has to be right once the gesture settles.
+    # Produced while a gesture is live. Echoed in metrics so the UI thread can skip
+    # what only has to be right once the gesture settles.
     interactive: bool = False
 
 
@@ -220,16 +220,12 @@ class RenderWorker(QObject):
             if task.readback_metrics and "histogram_raw" not in metrics and isinstance(result, np.ndarray):
                 metrics["histogram_raw"] = output_histogram(result)
 
-            # The soft proof is not baked here: it rides the display LUT
-            # (AppController.display_transform_params), so a GPU texture reaches the
-            # canvas shader without a readback and every consumer of this buffer sees
-            # the same unproofed print.
+            # The soft proof is not baked in: it rides the display LUT, so a GPU
+            # texture reaches the canvas shader without a readback.
 
-            # Host pixels for the filmstrip thumbnail. This is the only thread that can
-            # take them safely — the engine recycles its stage textures on the next
-            # frame. Settle frames only, and never from an HQ render: that copy is
-            # ~976MB and ~700ms of device time to produce a 256px thumbnail that a
-            # preview-sized render already produced identically.
+            # Host pixels for the filmstrip thumbnail, taken here because the engine
+            # recycles its stage textures on the next frame. Settle frames only, and
+            # never from an HQ render — a preview-sized one yields the same thumbnail.
             wants_thumb = task.readback_metrics and task.preview_size <= APP_CONFIG.preview_render_size
             if wants_thumb and isinstance(result, GPUTexture):
                 metrics["thumbnail_source"] = np.ascontiguousarray(result.readback()[:, :, :3])
@@ -288,8 +284,8 @@ class RenderWorker(QObject):
             # One mosaic per quarter-turn while the tiles are still in hand: a rotated ladder needs
             # a different slice of each render. Peak memory is unchanged, the tiles dominate.
             mosaics = tuple(strip_mosaic(rotate_grid(tiles, task.grid, k), proof_grid(task.grid, k)) for k in range(4))
-            # Unproofed, like every other rendered buffer: the overlay proofs the mosaic
-            # through the same display LUT the canvas uses, so the two cannot disagree.
+            # Unproofed like every other rendered buffer; the overlay proofs the mosaic
+            # through the same display LUT the canvas uses.
             self.strip_finished.emit(mosaics, content_rect)
 
         except Exception as e:

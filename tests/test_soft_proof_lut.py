@@ -1,9 +1,8 @@
 """The preview soft proof rides a cached 3D LUT instead of a per-frame littleCMS transform.
 
-Rebuilding the transform on every frame cost ~56ms of every preview render. The LUT is
-built by pushing the identity grid through ``soft_proof_preview`` itself, so it cannot
-drift from the branch (print profile / export space / GRAY) it is standing in for.
-Export is unaffected — it keeps the exact per-pixel transform.
+The LUT is built by pushing the identity grid through ``soft_proof_preview`` itself,
+so it cannot drift from the branch (print profile / export space / GRAY) it stands in
+for. Export is unaffected — it keeps the exact per-pixel transform.
 """
 
 import unittest

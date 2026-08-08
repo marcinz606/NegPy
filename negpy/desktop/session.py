@@ -64,13 +64,12 @@ class AppState:
     last_metrics: Dict[str, Any] = field(default_factory=dict)
     metrics_lock: threading.Lock = field(default_factory=threading.Lock, init=False, compare=False, repr=False)
     preview_raw: Optional[Any] = None
-    # Preview-resolution stand-in for preview_raw while HQ is on. Interactive frames
-    # render against this so a drag costs the same as it does without HQ; the full
-    # buffer is used again the moment the gesture settles. None when not needed.
+    # Preview-resolution stand-in for preview_raw while HQ is on; interactive frames
+    # render against it. None when preview_raw is already small enough.
     preview_proxy: Optional[Any] = None
     preview_ir: Optional[Any] = None  # downsampled IR float32 [0,1] (H,W); None if source has no IR
-    # IR plane matched to preview_proxy. The pipeline reads the IR against the image it
-    # is given, so proxying one without the other silently mis-corrects the dust.
+    # IR plane matched to preview_proxy. The pipeline reads the IR against whichever
+    # image it is given, and a mismatched pair mis-corrects silently.
     preview_ir_proxy: Optional[Any] = None
     has_ir: bool = False
     ir_degenerate: bool = False  # IR plane carries image content (B&W/Kodachrome) → IR restore disabled

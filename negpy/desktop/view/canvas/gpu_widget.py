@@ -49,7 +49,7 @@ class GPUCanvasWidget(QWidget):
         self._proof: Optional[tuple] = None
         # Identity of the LUT currently uploaded, so a settled frame re-uploads nothing.
         self._lut_key: Optional[tuple] = None
-        # Grid size of that LUT — the proof LUT is finer than the plain display one.
+        # Grid size of that LUT; the proof and display LUTs do not share one.
         self._lut_n: int = DEFAULT_LUT_SIZE
 
         self.zoom: float = 1.0
@@ -139,9 +139,8 @@ class GPUCanvasWidget(QWidget):
         an identity LUT is uploaded so the binding always exists and display is a
         pass-through.
 
-        Stored as rgba16float, not rgba8unorm: the proof LUT is built to beat the
-        8-bit round-trip it replaced, and quantizing it back to 8 bits here would
-        give that away. f16 is filterable in core WebGPU; f32 is not.
+        Stored as rgba16float: 8-bit texels would quantize the proof away, and f32 is
+        not filterable in core WebGPU.
         """
         try:
             lut = get_display_lut(self._working_color_space, self._monitor_icc_bytes, self._proof)
@@ -289,9 +288,8 @@ class GPUCanvasWidget(QWidget):
             return 0.0;
         }
 
-        // Minifying: bicubic reads a 4x4 window of a much denser grid, so it is no
-        // more correct than bilinear and costs 4x the taps — at HQ (61Mpx source,
-        // fit zoom) that is 45ms a present on the UI thread against 6.5ms here.
+        // Minification path. Bicubic reads a 4x4 window of a much denser grid, so it
+        // is no more correct than bilinear there and costs four times the taps.
         fn textureSampleBilinear(uv: vec2<f32>) -> vec4<f32> {
             let dims = textureDimensions(tex);
             let fdims = vec2<f32>(f32(dims.x), f32(dims.y));
@@ -337,9 +335,8 @@ class GPUCanvasWidget(QWidget):
 
         @fragment
         fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-            // filt.x >= 1 means one screen pixel covers at most one image pixel, i.e.
-            // we are magnifying — the only regime where the extra taps buy anything.
-            // Must be if/else: assigning bilinear first and overwriting would run both.
+            // filt.x >= 1 = magnifying, the only regime the extra taps buy anything.
+            // Must be if/else: assigning one then overwriting runs both.
             var col: vec4<f32>;
             if (params.filt.x >= 1.0) {
                 col = textureSampleBicubic(in.uv);

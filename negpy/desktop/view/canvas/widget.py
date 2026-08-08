@@ -328,10 +328,10 @@ class ImageCanvas(QWidget):
         self.overlay.update_buffer(None, "sRGB", None)
 
     def release_gpu_texture(self) -> None:
-        """Drop the displayed texture because the engine is about to destroy its pool.
+        """Drop the displayed texture before the engine frees its pool.
 
         The canvas samples pooled stage textures directly, so a frame drawn after the
-        pool is freed fails validation. Zoom/pan survive — only the pixels go.
+        pool is freed fails validation. Zoom and pan survive.
         """
         self._last_buffer = None
         self.gpu_widget.clear()
@@ -579,8 +579,7 @@ class ImageCanvas(QWidget):
             self.overlay.update()
         else:
             self.gpu_widget.hide()
-            # Only the CPU overlay needs pixels on the host, so the readback lives here
-            # rather than on the way in — the GPU branch above never pays it.
+            # Only the CPU overlay needs host pixels; the GPU branch above never does.
             if isinstance(buffer, GPUTexture):
                 try:
                     readback = buffer.readback()

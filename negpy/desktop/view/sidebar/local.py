@@ -115,9 +115,8 @@ class LocalSidebar(BaseSidebar):
     def _connect_signals(self) -> None:
         for btn, mode in self._tool_modes().items():
             btn.toggled.connect(lambda checked, m=mode: self._on_draw_toggled(checked, m))
-        # Drag steps render only; the commit writes history and settings — the same
-        # split every other sidebar uses. Persisting per step wrote a history row and
-        # rebuilt the history panel on every mouse-move.
+        # Drag steps render only; the commit writes history and settings, as in every
+        # other sidebar.
         for slider, field in (
             (self.burn_slider, "stops"),
             (self.feather_slider, "feather"),
