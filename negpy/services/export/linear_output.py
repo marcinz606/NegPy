@@ -909,11 +909,24 @@ def _write_jxl(
     dest,
     effort: int = 7,
 ) -> None:
-    """Write a float32 buffer as an untagged lossless 16-bit JPEG XL to *dest* (path or file-like)."""
+    """Write a float32 buffer as a lossless 16-bit JPEG XL to *dest* (path or file-like).
+
+    JPEG XL has no legal "no color info" state (its all-default ColourEncoding still
+    resolves to a concrete sRGB assertion, confirmed against both this binding and the
+    reference cjxl CLI) — unlike the TIFF linear output, this can never be truly
+    untagged. transfer=LINEAR is pinned explicitly since the data genuinely is linear
+    and leaving it unset is one implicit-default change away from silently flipping to
+    nonlinear sRGB. primaries is left at the library default (sRGB) for now: the
+    buffer's real primaries are source-device-native and there's no truthful concrete
+    option among what this binding exposes (photometric/primaries/transfer only —
+    PRIMARIES.CUSTOM needs chromaticity coordinates the binding doesn't accept).
+    """
     u16 = _to_uint16_jit(np.ascontiguousarray(f32, dtype=np.float32))
     bits = imagecodecs.jpegxl_encode(
         np.ascontiguousarray(u16),
         bitspersample=16,
+        photometric="RGB",
+        transfer="LINEAR",
         lossless=True,
         effort=effort,
         numthreads=0,
@@ -944,11 +957,13 @@ def export_linear_output(
     output_format: str = "tiff",
     jxl_effort: int = 7,
 ) -> None:
-    """Decode *file_path* and write an untagged linear 16-bit file to *output_path*.
+    """Decode *file_path* and write a linear 16-bit file to *output_path*.
 
-    *output_format*: ``"tiff"`` (default, zlib-compressed) or ``"jxl"`` (lossless
-    JPEG XL). *jxl_effort*: 1–9 (higher = smaller file, slower encode), used only
-    for ``"jxl"``. IR sidecars are always TIFF regardless.
+    *output_format*: ``"tiff"`` (default, zlib-compressed, genuinely untagged) or
+    ``"jxl"`` (lossless JPEG XL — always carries a concrete colour tag, see
+    ``_write_jxl``; not equivalent to the TIFF path's untagged output). *jxl_effort*:
+    1–9 (higher = smaller file, slower encode), used only for ``"jxl"``. IR sidecars
+    are always TIFF regardless.
     """
     eff = _effective_expansion(file_path, expansion)
     fmt = _source_format_label(file_path, rgbscan, stitch)
