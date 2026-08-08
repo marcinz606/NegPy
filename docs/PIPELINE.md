@@ -283,22 +283,22 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
 
     Chroma is only ever reduced, never added. That is what keeps `saturation = 0.0` reaching true grey without a special case (the boost-only asymmetry the previous band needed), and what makes it safe to run after the gamut knee — a smaller chroma cannot overshoot a gamut the full-strength push already fitted inside.
 
-4.  **Sharpening**: A **Method** selector picks Unsharp Mask or Deconvolution; both share the Amount/Radius/Masking controls and the same $\text{radius} \cdot \text{scale factor}$ Gaussian taps from `gaussian_kernel_1d` (uploaded to the `sharpen_k` storage buffer, convolved identically on CPU `cv2.sepFilter2D` and the separable WGSL passes), so CPU and GPU match bit-for-bit.
+4.  **Sharpening**: A **Method** selector picks Unsharp Mask or Deconvolution; both share the Amount/Radius/Masking controls and the same $\text{radius}$ Gaussian taps from `gaussian_kernel_1d` (uploaded to the `sharpen_k` storage buffer, convolved identically on CPU `cv2.sepFilter2D` and the separable WGSL passes), so CPU and GPU match bit-for-bit.
 
     **Unsharp Mask**, on the Lightness channel ($L$) in LAB space, with halo suppression (`lab_sharpen_h/v.wgsl`):
 
-    $$L_{diff} = L - \text{blur}(L, \sigma), \qquad \sigma = \text{radius} \cdot \text{scale factor}$$
-    $$\text{gain} = \text{amount} \cdot 2.5 \cdot \text{smoothstep}(1.5, 2.0, |L_{diff}|) \cdot m$$
+    $$L_{diff} = L - \text{blur}(L, \sigma), \qquad \sigma = \text{radius}$$
+    $$\text{gain} = \text{amount} \cdot 2.5 \cdot \text{smoothstep}(0.25, 0.33, |L_{diff}|) \cdot m$$
     $$L_{final} = \text{clamp}\big(L + L_{diff}\cdot\text{gain},\; L_{min}-2,\; L_{max}+1\big)$$
-    *   **Radius** (px): blur $\sigma$, scaled to the render size so preview and export match.
+    *   **Radius** (px): blur $\sigma$, in output pixels. Acutance belongs to the pixels being written, so the preview under-represents it at fit-to-window; judge sharpening at 1:1.
     *   **Masking** ($m$): edge mask from the boxed $|\nabla L|$, $\text{smoothstep}(0.5t, t, |\nabla L|)$ with $t = 10\cdot\text{masking}$. It protects flat areas (sky, skin, grain), and is off at 0.
-    *   A smoothstep noise gate over $[1.5, 2.0]$ replaces a hard threshold. The overshoot clamp to the local $3\times3$ range ($L_{min}, L_{max}$) kills halos, tighter above (+1) than below (−2) because $L^{\ast}$-domain USM exaggerates light halos.
+    *   A smoothstep noise gate over $[0.25, 0.33]$ replaces a hard threshold; it is sized against $|L_{diff}|$ at a 1 px radius, which tops out near 1.0. The overshoot clamp to the local $3\times3$ range ($L_{min}, L_{max}$) kills halos, tighter above (+1) than below (−2) because $L^{\ast}$-domain USM exaggerates light halos.
 
     **Deconvolution**, Richardson-Lucy on linear luminance $Y$ (Gaussian PSF), reversing the scanner's optical blur (`rl_*.wgsl`). It runs on $Y$, not $L^{\ast}$: optical blur is physical, so the model must live in linear light.
 
     $$\hat{o}_{n+1} = \hat{o}_n \cdot \left(K \otimes \frac{o}{\max(K \otimes \hat{o}_n,\ \epsilon)}\right), \qquad \hat{o}_0 = o = Y$$
 
-    Iterations are fixed by radius, $\text{clamp}(\text{round}(10\cdot\text{radius}), 5, 20)$. That is a function of the *user* radius, never the scaled $\sigma$, so preview and export run identical counts. There is no per-pixel early stop and no damping; the edge mask alone governs grain, matching RawTherapee. The result is applied as an RGB ratio (chroma-preserving), gated by the same $L^{\ast}$ edge mask $m$:
+    Iterations are fixed by radius, $\text{clamp}(\text{round}(10\cdot\text{radius}), 5, 20)$. That is a function of the radius alone, so preview and export run identical counts. There is no per-pixel early stop and no damping; the edge mask alone governs grain, matching RawTherapee. The result is applied as an RGB ratio (chroma-preserving), gated by the same $L^{\ast}$ edge mask $m$:
 
     $$\mathrm{RGB}_{out} = \mathrm{clamp}\left(\mathrm{RGB} \cdot \max\left(1 + \left(\frac{\hat{o}_N}{\max(o,\epsilon)} - 1\right) \cdot \mathrm{amount} \cdot m,\ 0\right),\ 0,\ 1\right)$$
 

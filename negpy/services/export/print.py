@@ -232,7 +232,14 @@ class PrintService:
                     target_h = max_content_h
                     target_w = int(target_h * img_aspect)
 
-            img_scaled = cv2.resize(img, (target_w, target_h), interpolation=cv2.INTER_LANCZOS4)
+            # OpenCV gives INTER_LANCZOS4 no prefilter on a shrink, so it degrades to
+            # bilinear and aliases; INTER_AREA is the only area-correct downscale here.
+            shrinking = target_w < img_w or target_h < img_h
+            img_scaled = cv2.resize(
+                img,
+                (target_w, target_h),
+                interpolation=cv2.INTER_AREA if shrinking else cv2.INTER_LANCZOS4,
+            )
 
         color_hex = border_color.lstrip("#")
         r, g, b = tuple(int(color_hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4))

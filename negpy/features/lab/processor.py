@@ -33,7 +33,6 @@ class PhotoLabProcessor:
             img = sharpen(
                 img,
                 self.config.sharpen,
-                context.scale_factor,
                 radius=self.config.sharpen_radius,
                 masking=self.config.sharpen_masking,
             )

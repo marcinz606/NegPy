@@ -8,6 +8,7 @@ import pytest
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.logic import apply_characteristic_curve, local_grade_factor_map
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask
 from negpy.services.rendering.engine import DarkroomEngine
 
@@ -87,7 +88,9 @@ class TestEndToEnd:
 
     def _config(self, grade_delta: float) -> WorkspaceConfig:
         mask = LocalMask(vertices=((0.0, 0.0), (1.0, 0.0), (1.0, 0.5), (0.0, 0.5)), stops=0.0, feather=0.0, grade=grade_delta)
-        return WorkspaceConfig(local=LocalAdjustmentsConfig(masks=(mask,)))
+        # Sharpen off: its ±3 px support carries the mask edge a few rows past the
+        # boundary, which would hide the leak this test looks for.
+        return WorkspaceConfig(local=LocalAdjustmentsConfig(masks=(mask,)), lab=LabConfig(sharpen=0.0))
 
     def _render(self, grade_delta: float) -> np.ndarray:
         return np.asarray(DarkroomEngine().process(self._frame(), self._config(grade_delta), source_hash=f"local-grade-{grade_delta}"))

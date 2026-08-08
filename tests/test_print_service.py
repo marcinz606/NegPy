@@ -149,3 +149,22 @@ def test_target_px_ignores_print_size_and_dpi():
     out_b, _ = PrintService.apply_layout(img, b)
     assert out_a.shape == out_b.shape
     assert max(out_a.shape[:2]) == 800
+
+
+def test_apply_layout_downscale_is_area_averaged():
+    """A shrink must go through INTER_AREA. INTER_LANCZOS4/CUBIC silently degrade to
+    bilinear on an OpenCV downscale, which aliases and drops detail."""
+    import cv2
+
+    rng = np.random.default_rng(11)
+    img = rng.random((900, 900, 3)).astype(np.float32)
+    config = ExportConfig(
+        export_target_long_edge_px=300,
+        paper_aspect_ratio="1:1",
+        export_resolution_mode=ExportResolutionMode.TARGET_PX.value,
+    )
+
+    result, (x, y, w, h) = PrintService.apply_layout(img, config)
+
+    expected = cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
+    np.testing.assert_allclose(result[y : y + h, x : x + w], expected, atol=1e-6)

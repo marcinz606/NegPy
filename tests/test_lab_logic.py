@@ -72,7 +72,7 @@ class TestLabLogic(unittest.TestCase):
         img = np.zeros((100, 100, 3), dtype=np.float32)
         img[25:75, 25:75, :] = 0.5
 
-        res = apply_output_sharpening(img, amount=1.0, scale_factor=1.0)
+        res = apply_output_sharpening(img, amount=1.0)
 
         # Sharpening should increase variance on edges
         self.assertGreater(np.var(res), np.var(img))
@@ -95,7 +95,7 @@ class TestLabLogic(unittest.TestCase):
         img = np.zeros((40, 40, 3), dtype=np.float32)
         img[:, 20:] = 0.8
 
-        res = apply_output_sharpening(img, amount=1.0, scale_factor=1.0)
+        res = apply_output_sharpening(img, amount=1.0)
 
         l_in = rgb_to_lab_working(img)[..., 0]
         l_out = rgb_to_lab_working(res.astype(np.float32))[..., 0]
@@ -107,7 +107,7 @@ class TestLabLogic(unittest.TestCase):
         rng = np.random.default_rng(3)
         img = np.clip(0.5 + rng.normal(0, 0.001, (64, 64, 3)), 0.0, 1.0).astype(np.float32)
 
-        res = apply_output_sharpening(img, amount=1.0, scale_factor=1.0)
+        res = apply_output_sharpening(img, amount=1.0)
 
         l_in = rgb_to_lab_working(img)[..., 0]
         l_out = rgb_to_lab_working(res.astype(np.float32))[..., 0]
@@ -122,8 +122,8 @@ class TestLabLogic(unittest.TestCase):
         img[:, 32:] = 0.8
         img = np.clip(img + rng.normal(0, 0.02, img.shape), 0.0, 1.0).astype(np.float32)
 
-        res_open = apply_output_sharpening(img, amount=1.0, scale_factor=1.0, masking=0.0)
-        res_masked = apply_output_sharpening(img, amount=1.0, scale_factor=1.0, masking=1.0)
+        res_open = apply_output_sharpening(img, amount=1.0, masking=0.0)
+        res_masked = apply_output_sharpening(img, amount=1.0, masking=1.0)
 
         l_in = rgb_to_lab_working(img)[..., 0]
         l_open = rgb_to_lab_working(res_open.astype(np.float32))[..., 0]
@@ -157,7 +157,7 @@ class TestLabLogic(unittest.TestCase):
             axis=-1,
         ).astype(np.float32)
 
-        res = apply_rl_sharpening(blurred, amount=1.0, scale_factor=1.0, radius=1.0)
+        res = apply_rl_sharpening(blurred, amount=1.0, radius=1.0)
 
         step_y, blur_y, res_y = self._luminance(img), self._luminance(blurred), self._luminance(res.astype(np.float32))
         self.assertLess(float(np.abs(res_y - step_y).mean()), float(np.abs(blur_y - step_y).mean()))
@@ -170,8 +170,8 @@ class TestLabLogic(unittest.TestCase):
         img[:, 32:] = 0.8
         img = np.clip(img + rng.normal(0, 0.02, img.shape), 0.0, 1.0).astype(np.float32)
 
-        res_open = apply_rl_sharpening(img, amount=1.0, scale_factor=1.0, radius=1.0, masking=0.0)
-        res_masked = apply_rl_sharpening(img, amount=1.0, scale_factor=1.0, radius=1.0, masking=1.0)
+        res_open = apply_rl_sharpening(img, amount=1.0, radius=1.0, masking=0.0)
+        res_masked = apply_rl_sharpening(img, amount=1.0, radius=1.0, masking=1.0)
 
         y_in, y_open, y_masked = (
             self._luminance(img),
@@ -190,7 +190,7 @@ class TestLabLogic(unittest.TestCase):
         img[:, :5] = [0.6, 0.2, 0.1]
         img[:, 5:] = [0.1, 0.5, 0.3]
 
-        res = apply_rl_sharpening(img, amount=1.0, scale_factor=1.0, radius=1.0)
+        res = apply_rl_sharpening(img, amount=1.0, radius=1.0)
 
         mask = img.min(axis=-1) > 0.01
         cross = np.abs(res[..., 0] * img[..., 1] - res[..., 1] * img[..., 0])
@@ -588,3 +588,33 @@ class TestGlowAndHalation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SharpenScaleTests(unittest.TestCase):
+    """Radius is in output pixels, so the USM must act on fine detail rather than on
+    image-relative structure — a mid-frequency boost reads as contrast, not sharpness."""
+
+    @staticmethod
+    def _band_gain(before: np.ndarray, after: np.ndarray, period: int) -> float:
+        n = before.shape[1]
+        col = int(round(n / period))
+        f_in = np.abs(np.fft.rfft(before.mean(axis=0)))[col]
+        f_out = np.abs(np.fft.rfft(after.mean(axis=0)))[col]
+        return float(f_out / max(f_in, 1e-9))
+
+    def test_usm_boosts_fine_detail_more_than_coarse(self) -> None:
+        x = np.arange(256, dtype=np.float32)
+        fine = 0.10 * np.sin(2 * np.pi * x / 3.0)
+        coarse = 0.10 * np.sin(2 * np.pi * x / 24.0)
+        img = np.repeat((0.5 + fine + coarse)[None, :], 64, axis=0)
+        img = np.repeat(img[..., None], 3, axis=2).astype(np.float32)
+
+        res = np.asarray(apply_output_sharpening(img, amount=1.0, radius=1.0), dtype=np.float32)
+
+        l_in = rgb_to_lab_working(img)[..., 0]
+        l_out = rgb_to_lab_working(res)[..., 0]
+        fine_gain = self._band_gain(l_in, l_out, 3)
+        coarse_gain = self._band_gain(l_in, l_out, 24)
+
+        self.assertGreater(fine_gain, 1.2)
+        self.assertGreater(fine_gain, coarse_gain)

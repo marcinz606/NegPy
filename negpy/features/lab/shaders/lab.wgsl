@@ -23,8 +23,8 @@ struct LabUniforms {
 @group(0) @binding(3) var sharpen_tex: texture_2d<f32>;
 
 // Sharpen constants — mirrored from features/lab/logic.py.
-const SHARPEN_GATE_LO = 1.5;
-const SHARPEN_GATE_HI = 2.0;
+const SHARPEN_GATE_LO = 0.25;
+const SHARPEN_GATE_HI = 0.33;
 const SHARPEN_OVERSHOOT_LIGHT = 1.0;
 const SHARPEN_OVERSHOOT_DARK = 2.0;
 const SHARPEN_MASK_T_HI = 10.0;
@@ -396,7 +396,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         // raises the bar, protecting flat areas (sky, skin, grain).
         if (params.sharpen_masking > 0.0) {
             let t = SHARPEN_MASK_T_HI * params.sharpen_masking;
-            gain = gain * smoothstep(0.5 * t, t, (grad_box / 9.0) * params.scale_factor);
+            gain = gain * smoothstep(0.5 * t, t, grad_box / 9.0);
         }
 
         // Overshoot clamp to the local range kills halos; tighter above than
@@ -426,7 +426,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 }
             }
             let t = SHARPEN_MASK_T_HI * params.sharpen_masking;
-            gain = gain * smoothstep(0.5 * t, t, (grad_box / 9.0) * params.scale_factor);
+            gain = gain * smoothstep(0.5 * t, t, grad_box / 9.0);
         }
         let ratio = d.x / max(d.y, RL_EPS);
         color = color * max(1.0 + (ratio - 1.0) * gain, 0.0);

@@ -82,8 +82,10 @@ def apply_clahe(img: ImageBuffer, strength: float) -> ImageBuffer:
 
 
 # Sharpen constants — mirrored as WGSL consts in shaders/lab.wgsl.
-SHARPEN_GATE_LO = 1.5
-SHARPEN_GATE_HI = 2.0
+# Gate separating grain from detail in L*; sized against |L - blur| at a 1 px
+# radius, which tops out near 1.0.
+SHARPEN_GATE_LO = 0.25
+SHARPEN_GATE_HI = 0.33
 # L*-domain USM exaggerates light halos, so overshoot above the local max is
 # clamped tighter than undershoot below the local min.
 SHARPEN_OVERSHOOT_LIGHT = 1.0
@@ -121,7 +123,7 @@ def _lab_l_from_y(y: np.ndarray) -> np.ndarray:
     return (np.float32(116.0) * f - np.float32(16.0)).astype(np.float32)
 
 
-def _edge_mask(l_chan: np.ndarray, masking: float, scale_factor: float) -> np.ndarray:
+def _edge_mask(l_chan: np.ndarray, masking: float) -> np.ndarray:
     """Boxed |∇L*| edge mask (smoothstep over 0.5t..t, t=10·masking); shared by
     both sharpen methods. Mirrors the WGSL boxed-gradient loop."""
     lp = np.pad(l_chan, 1, mode="edge")
@@ -129,7 +131,7 @@ def _edge_mask(l_chan: np.ndarray, masking: float, scale_factor: float) -> np.nd
     gy = (lp[2:, 1:-1] - lp[:-2, 1:-1]) * np.float32(0.5)
     grad = cv2.blur(np.hypot(gx, gy).astype(np.float32), (3, 3), borderType=cv2.BORDER_REPLICATE)
     t = SHARPEN_MASK_T_HI * masking
-    return _smoothstep(0.5 * t, t, grad * np.float32(scale_factor))
+    return _smoothstep(0.5 * t, t, grad)
 
 
 def rl_iterations(radius: float) -> int:
@@ -141,7 +143,6 @@ def rl_iterations(radius: float) -> int:
 def apply_output_sharpening(
     img: ImageBuffer,
     amount: float,
-    scale_factor: float = 1.0,
     radius: float = 1.0,
     masking: float = 0.0,
 ) -> ImageBuffer:
@@ -149,6 +150,9 @@ def apply_output_sharpening(
     L-channel unsharp mask; mirrors lab_sharpen_h/v.wgsl + the lab.wgsl sharpen
     block. Soft-gated USM with an overshoot clamp to the local 3x3 range (halo
     suppression) and an optional edge mask (boxed |∇L|) protecting flat areas.
+
+    Radius is in output pixels, so the 1600 px preview under-represents export
+    acutance; judge sharpening at 1:1.
     """
     if amount <= 0:
         return img
@@ -156,14 +160,14 @@ def apply_output_sharpening(
     lab = rgb_to_lab_working(img.astype(np.float32))
     l_chan, a, b = cv2.split(lab)
 
-    k = gaussian_kernel_1d(radius * scale_factor)
+    k = gaussian_kernel_1d(radius)
     l_blur = cv2.sepFilter2D(l_chan, -1, k, k, borderType=cv2.BORDER_REFLECT_101)
 
     diff = l_chan - l_blur
     gain = np.float32(amount * 2.5) * _smoothstep(SHARPEN_GATE_LO, SHARPEN_GATE_HI, np.abs(diff))
 
     if masking > 0.0:
-        gain = gain * _edge_mask(l_chan, masking, scale_factor)
+        gain = gain * _edge_mask(l_chan, masking)
 
     kern3 = np.ones((3, 3), np.uint8)
     l_min = cv2.erode(l_chan, kern3, borderType=cv2.BORDER_REPLICATE)
@@ -182,7 +186,6 @@ def apply_output_sharpening(
 def apply_rl_sharpening(
     img: ImageBuffer,
     amount: float,
-    scale_factor: float = 1.0,
     radius: float = 1.0,
     masking: float = 0.0,
 ) -> ImageBuffer:
@@ -191,6 +194,8 @@ def apply_rl_sharpening(
     as an RGB ratio so chroma is preserved. Mirrors rl_*.wgsl. Iterations are
     fixed by radius (rl_iterations); no per-pixel early stop or damping — the
     edge mask governs grain, matching RawTherapee's shipped configuration.
+
+    Radius is the PSF width in output pixels — see apply_output_sharpening.
     """
     if amount <= 0:
         return img
@@ -202,7 +207,7 @@ def apply_rl_sharpening(
         + np.maximum(rgb[..., 2], 0.0) * np.float32(LUM_B)
     ).astype(np.float32)
 
-    k = gaussian_kernel_1d(radius * scale_factor)
+    k = gaussian_kernel_1d(radius)
     est = obs.copy()
     for _ in range(rl_iterations(radius)):
         blurred = cv2.sepFilter2D(est, -1, k, k, borderType=cv2.BORDER_REFLECT_101)
@@ -212,7 +217,7 @@ def apply_rl_sharpening(
     ratio = est / np.maximum(obs, np.float32(RL_EPS))
     gain = np.float32(amount)
     if masking > 0.0:
-        gain = gain * _edge_mask(_lab_l_from_y(obs), masking, scale_factor)
+        gain = gain * _edge_mask(_lab_l_from_y(obs), masking)
 
     factor = np.maximum(np.float32(1.0) + (ratio - np.float32(1.0)) * gain, 0.0)
     out = rgb * factor[..., np.newaxis]

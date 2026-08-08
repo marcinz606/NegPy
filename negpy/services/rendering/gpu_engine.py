@@ -1415,9 +1415,9 @@ class GPUEngine:
         # need the half-width. Derived from the array itself so support matches.
         sharpen_radius_px = 0
         if lab.sharpen > 0:
-            kernel = gaussian_kernel_1d(lab.sharpen_radius * scale_factor)
+            kernel = gaussian_kernel_1d(lab.sharpen_radius)
             sharpen_radius_px = len(kernel) // 2
-            kernel_key = (float(lab.sharpen_radius), float(scale_factor))
+            kernel_key = (float(lab.sharpen_radius),)
             if self._sharpen_kernel_key != kernel_key:
                 self._buffers["sharpen_k"].upload(kernel)
                 self._sharpen_kernel_key = kernel_key
@@ -1977,12 +1977,12 @@ class GPUEngine:
             # Legacy spots get a golden-angle fallback offset of 2.6·size px.
             halo = max(halo, int(np.ceil(size * (ref_scale * 0.5 + 2.6))) + rim_px + 2)
         # The sharpen blur reads ±kernel-radius px, which outgrows TILE_HALO at
-        # export scale factors — without this, tile seams show in the USM band.
+        # large radii — without this, tile seams show in the USM band.
         # RL's influence spreads with iterations but decays geometrically; 6× the
         # kernel radius covers it in practice (widen if seams appear at extreme
-        # radius×scale). Capped by the 512 ceiling below.
+        # radius). Capped by the 512 ceiling below.
         if settings.lab.sharpen > 0:
-            k_radius = len(gaussian_kernel_1d(settings.lab.sharpen_radius * scale_factor)) // 2
+            k_radius = len(gaussian_kernel_1d(settings.lab.sharpen_radius)) // 2
             mult = 6 if settings.lab.sharpen_method == SharpenMethod.RL else 1
             halo = max(halo, k_radius * mult)
         # Glow/halation taps reach up to their radius (max(., . * scale_factor) in
@@ -2022,8 +2022,14 @@ class GPUEngine:
                 )
                 full_source_res[ty : ty + th, tx : tx + tw] = self._readback_downsampled(tile_res)[oy : oy + th, ox : ox + tw]
 
+        # Mirrors PrintService.apply_layout: only INTER_AREA is area-correct on a shrink.
+        shrinking = content_w < crop_w or content_h < crop_h
         scaled_content = (
-            cv2.resize(full_source_res, (content_w, content_h), interpolation=cv2.INTER_LINEAR)
+            cv2.resize(
+                full_source_res,
+                (content_w, content_h),
+                interpolation=cv2.INTER_AREA if shrinking else cv2.INTER_LANCZOS4,
+            )
             if (content_w != crop_w or content_h != crop_h)
             else full_source_res
         )
