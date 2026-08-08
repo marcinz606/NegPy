@@ -2467,7 +2467,7 @@ class AppController(QObject):
         self.config_updated.emit()
         self.request_render()
 
-    def update_selected_local_mask(self, **changes) -> None:
+    def update_selected_local_mask(self, persist: bool = True, readback_metrics: bool = True, **changes) -> None:
         local = self.state.config.local
         idx = self.state.local_selected_mask
         if not (0 <= idx < len(local.masks)):
@@ -2475,8 +2475,8 @@ class AppController(QObject):
         masks = list(local.masks)
         masks[idx] = replace(masks[idx], **changes)
         new_local = replace(local, masks=tuple(masks))
-        self.session.update_config(replace(self.state.config, local=new_local), persist=True)
-        self.request_render()
+        self.session.update_config(replace(self.state.config, local=new_local), persist=persist)
+        self.request_render(readback_metrics=readback_metrics)
 
     def _handle_wb_pick(self, nx: float, ny: float) -> None:
         """

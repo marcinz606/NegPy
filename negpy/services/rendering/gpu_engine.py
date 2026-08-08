@@ -252,6 +252,9 @@ class GPUEngine:
         self._last_settings: Optional[WorkspaceConfig] = None
         self._last_targets_rev: int = -1
         self._last_scale_factor: float = 1.0
+        # Layout/paper dims key off render_size_ref, which no config field carries —
+        # without this a size-only change could resume past the layout pass.
+        self._last_render_size_ref: Optional[float] = None
         self._retouch_num_regions = 0
         # Region build+upload cache — retouch re-dispatches on every exposure
         # frame, and rebuilds aren't free at hundreds of synthesized regions.
@@ -271,8 +274,12 @@ class GPUEngine:
 
         # (key, grid) — pure function of geometry, reused across settled frames
         self._uv_grid_cache: Optional[Tuple[Tuple, np.ndarray]] = None
+        # (key, roi) — autocrop detection, likewise geometry-only
+        self._autocrop_cache: Optional[Tuple[Tuple, Tuple[int, int, int, int]]] = None
+        # Identity of the dodge/burn EV map currently sitting in the local_ev texture.
+        self._local_ev_key: Optional[Tuple] = None
 
-    def _detect_invalidated_stage(self, settings: WorkspaceConfig, scale_factor: float) -> int:
+    def _detect_invalidated_stage(self, settings: WorkspaceConfig, scale_factor: float, render_size_ref: Optional[float] = None) -> int:
         """
         Determines the earliest pipeline stage that needs re-running.
         Returns stage index (5 unused — dodge/burn lives in the exposure pass):
@@ -288,6 +295,7 @@ class GPUEngine:
         if (
             self._last_settings is None
             or self._last_scale_factor != scale_factor
+            or self._last_render_size_ref != render_size_ref
             or self._last_settings.process.process_mode != settings.process.process_mode
         ):
             return 0
@@ -323,6 +331,36 @@ class GPUEngine:
             return 8
 
         return 9  # Nothing changed
+
+    def _cached_autocrop_roi(
+        self, img: np.ndarray, settings: WorkspaceConfig, h_rot: int, w_rot: int, source_hash: Optional[str]
+    ) -> Tuple[int, int, int, int]:
+        """Autocrop detection is a ~100ms CPU scan and no creative slider moves it.
+
+        Uncached without a source hash (export/tiled paths): the key could not tell
+        two different buffers apart.
+        """
+        if source_hash is None:
+            return _detect_autocrop_roi(img, settings, h_rot, w_rot)
+        g = settings.geometry
+        key = (
+            source_hash,
+            g.rotation,
+            g.flip_horizontal,
+            g.flip_vertical,
+            g.fine_rotation,
+            g.autocrop_offset,
+            g.autocrop_ratio,
+            g.autocrop_mode,
+            g.autocrop_rebate_trim,
+            h_rot,
+            w_rot,
+        )
+        if self._autocrop_cache is not None and self._autocrop_cache[0] == key:
+            return self._autocrop_cache[1]
+        roi = _detect_autocrop_roi(img, settings, h_rot, w_rot)
+        self._autocrop_cache = (key, roi)
+        return roi
 
     def _get_intermediate_texture(self, w: int, h: int, usage: int, label: str) -> GPUTexture:
         """Retrieves or creates a texture from the pool.
@@ -467,7 +505,7 @@ class GPUEngine:
         elif tiling_mode:
             start_stage = 0
         else:
-            start_stage = self._detect_invalidated_stage(settings, scale_factor)
+            start_stage = self._detect_invalidated_stage(settings, scale_factor, render_size_ref)
 
         # ROI calculation
         if tiling_mode and full_dims:
@@ -494,7 +532,7 @@ class GPUEngine:
                     scale_factor=scale_factor,
                 )
             elif settings.geometry.auto_crop_enabled:
-                roi = _detect_autocrop_roi(img, settings, h_rot, w_rot)
+                roi = self._cached_autocrop_roi(img, settings, h_rot, w_rot, analysis_source_hash)
             elif settings.geometry.autocrop_offset > 0:
                 margin = settings.geometry.autocrop_offset * scale_factor
                 roi = apply_margin_to_roi((0, h_rot, 0, w_rot), h_rot, w_rot, margin)
@@ -689,12 +727,6 @@ class GPUEngine:
             wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING,
             "clahe",
         )
-        tex_ret = self._get_intermediate_texture(
-            w_rot,
-            h_rot,
-            wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING,
-            "ret",
-        )
         tex_lab = self._get_intermediate_texture(
             w_rot,
             h_rot,
@@ -752,31 +784,49 @@ class GPUEngine:
                 h_rot,
             )
             if settings.local.masks:
-                if local_maps is None:
-                    local_maps = compute_local_maps(
-                        settings.local,
-                        h_rot,
-                        w_rot,
-                        orig_shape,
-                        rotation=settings.geometry.rotation,
-                        fine_rotation=settings.geometry.fine_rotation,
-                        flip_horizontal=settings.geometry.flip_horizontal,
-                        flip_vertical=settings.geometry.flip_vertical,
-                        distortion_k1=k1_eff,
-                    )
-                from negpy.features.exposure.logic import local_grade_factor_map
-
-                # r = dodge/burn EV, g = local grade slope factor, b unused. One
-                # texture, so the local-grade map costs no bind slot.
-                tex_local_ev.upload(
-                    np.dstack(
-                        [
-                            local_maps[:, :, 0],
-                            local_grade_factor_map(local_maps[:, :, 1], settings.exposure.grade),
-                            np.zeros_like(local_maps[:, :, 0]),
-                        ]
-                    )
+                # Any exposure slider re-enters this stage, but the map only moves with
+                # the masks, the geometry and the grade — rasterise + upload on those.
+                tiled_maps = local_maps is not None
+                ev_key = (
+                    settings.local,
+                    settings.geometry.rotation,
+                    settings.geometry.fine_rotation,
+                    settings.geometry.flip_horizontal,
+                    settings.geometry.flip_vertical,
+                    k1_eff,
+                    settings.exposure.grade,
+                    orig_shape,
+                    w_rot,
+                    h_rot,
                 )
+                if tiled_maps or self._local_ev_key != ev_key:
+                    if local_maps is None:
+                        local_maps = compute_local_maps(
+                            settings.local,
+                            h_rot,
+                            w_rot,
+                            orig_shape,
+                            rotation=settings.geometry.rotation,
+                            fine_rotation=settings.geometry.fine_rotation,
+                            flip_horizontal=settings.geometry.flip_horizontal,
+                            flip_vertical=settings.geometry.flip_vertical,
+                            distortion_k1=k1_eff,
+                        )
+                    from negpy.features.exposure.logic import local_grade_factor_map
+
+                    # r = dodge/burn EV, g = local grade slope factor, b unused. One
+                    # texture, so the local-grade map costs no bind slot.
+                    tex_local_ev.upload(
+                        np.dstack(
+                            [
+                                local_maps[:, :, 0],
+                                local_grade_factor_map(local_maps[:, :, 1], settings.exposure.grade),
+                                np.zeros_like(local_maps[:, :, 0]),
+                            ]
+                        )
+                    )
+                    # A tiled export passes a per-tile slice — not reusable next frame.
+                    self._local_ev_key = None if tiled_maps else ev_key
             self._dispatch_pass(
                 enc,
                 "exposure",
@@ -827,20 +877,33 @@ class GPUEngine:
         else:
             prev_tex = tex_expo
 
-        if start_stage <= 3:
-            self._dispatch_pass(
-                enc,
-                "retouch",
-                [
-                    (0, prev_tex.view),
-                    (1, tex_ret.view),
-                    (2, self._get_uniform_binding("retouch_u")),
-                    (3, self._buffers["retouch_s"]),
-                    (4, self._buffers["retouch_p"]),
-                ],
+        # With no regions the retouch shader is an identity copy, but its per-thread
+        # MVC arrays (array<..., 64> x5) spill to scratch and cost ~18ms at preview
+        # size whichever branch the pixel takes — so pass the buffer through instead.
+        if self._retouch_num_regions > 0:
+            tex_ret = self._get_intermediate_texture(
                 w_rot,
                 h_rot,
+                wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING,
+                "ret",
             )
+            if start_stage <= 3:
+                self._dispatch_pass(
+                    enc,
+                    "retouch",
+                    [
+                        (0, prev_tex.view),
+                        (1, tex_ret.view),
+                        (2, self._get_uniform_binding("retouch_u")),
+                        (3, self._buffers["retouch_s"]),
+                        (4, self._buffers["retouch_p"]),
+                    ],
+                    w_rot,
+                    h_rot,
+                )
+            tex_healed = tex_ret
+        else:
+            tex_healed = prev_tex
 
         if start_stage <= 4:
             # Sharpen state (USM blur, or RL deconvolution) feeds the lab pass; a
@@ -852,7 +915,7 @@ class GPUEngine:
                 # div_v, blur_h, mult_v). Final estimate lands back in rl_a.
                 tex_rl_a = self._get_intermediate_texture(w_rot, h_rot, usage, "rl_a")
                 tex_rl_b = self._get_intermediate_texture(w_rot, h_rot, usage, "rl_b")
-                self._dispatch_pass(enc, "rl_init", [(0, tex_ret.view), (1, tex_rl_a.view)], w_rot, h_rot)
+                self._dispatch_pass(enc, "rl_init", [(0, tex_healed.view), (1, tex_rl_a.view)], w_rot, h_rot)
                 sk = self._buffers["sharpen_k"]
                 for _ in range(rl_iterations(settings.lab.sharpen_radius)):
                     self._dispatch_pass(enc, "rl_blur_h", [(0, tex_rl_a.view), (1, tex_rl_b.view), (2, lab_u), (3, sk)], w_rot, h_rot)
@@ -867,7 +930,7 @@ class GPUEngine:
                     enc,
                     "lab_sharpen_h",
                     [
-                        (0, tex_ret.view),
+                        (0, tex_healed.view),
                         (1, tex_sharpen_h.view),
                         (2, lab_u),
                         (3, self._buffers["sharpen_k"]),
@@ -893,7 +956,7 @@ class GPUEngine:
                 enc,
                 "lab",
                 [
-                    (0, tex_ret.view),
+                    (0, tex_healed.view),
                     (1, tex_lab.view),
                     (2, lab_u),
                     (3, tex_sharpen_v.view),
@@ -1068,6 +1131,7 @@ class GPUEngine:
         self._last_settings = settings
         self._last_targets_rev = exposure_models.TARGETS_REVISION
         self._last_scale_factor = scale_factor
+        self._last_render_size_ref = render_size_ref
         return tex_final, metrics
 
     def _upload_unified_uniforms(
@@ -1979,6 +2043,12 @@ class GPUEngine:
         self._bind_group_cache.clear()
         self._bind_layout_cache.clear()
         self._uv_grid_cache = None
+        # The stage textures the incremental render would resume onto are gone, so the
+        # next frame must re-upload and re-run from stage 0. Likewise the local_ev
+        # texture the dodge/burn key tracks.
+        self._current_source_hash = None
+        self._last_settings = None
+        self._local_ev_key = None
         if collect:
             gc.collect()
         logger.info("GPUEngine: VRAM resources released")

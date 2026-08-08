@@ -1,4 +1,5 @@
 import math
+import time
 from typing import Optional
 
 from PyQt6.QtWidgets import (
@@ -17,6 +18,9 @@ from negpy.desktop.view.styles.templates import EditedDot, slider_label_qss, sli
 
 # text_secondary, not text_muted: #555 on the #161616 tooltip background is ~2.4:1.
 _RESET_HINT = f'<div style="color:{THEME.text_secondary};">Double-click to reset</div>'
+
+# Shortest gap between two valueChanged emissions during a drag (~30/s).
+_EMIT_INTERVAL_MS = 33
 
 
 class _NoScrollSlider(QSlider):
@@ -150,10 +154,13 @@ class BaseSlider(QWidget):
         self.spin.setRange(min_val, max_val)
         self.spin.setValue(default_val)
 
-        # Debounce timer
+        # Emit throttle — leading edge plus a guaranteed trailing frame (see
+        # _schedule_emit). A preview frame costs single-digit ms, so a drag can feed
+        # the renderer continuously instead of waiting for the user to pause.
         self.timer = QTimer()
         self.timer.setSingleShot(True)
-        self.timer.setInterval(100)
+        self.timer.setInterval(_EMIT_INTERVAL_MS)
+        self._last_emit_ms = 0.0
 
         self._connect_base_signals()
 
@@ -172,10 +179,18 @@ class BaseSlider(QWidget):
         self.slider.sliderReleased.connect(self.dragEnded.emit)
 
     def _on_committed(self) -> None:
+        # Stop the trailing frame: the commit below renders the same value, and letting
+        # the timer fire afterwards costs a second identical round trip.
+        pending = self.timer.isActive()
+        self.timer.stop()
         current_val = self.spin.value()
         if current_val != self._last_committed_value:
             self._last_committed_value = current_val
             self.valueCommitted.emit(current_val)
+        elif pending:
+            # Dragged away and back: no commit fires, so that trailing frame is the
+            # only thing that would put the preview back on the committed value.
+            self._emit_value()
 
     def _to_int(self, value: float) -> int:
         """Value -> slider int; subclasses override the pair for nonlinear
@@ -193,15 +208,29 @@ class BaseSlider(QWidget):
         self.spin.blockSignals(True)
         self.spin.setValue(f_val)
         self.spin.blockSignals(False)
-        self.timer.start()
+        self._schedule_emit()
 
     def _on_spin_changed(self, value: float) -> None:
         self.slider.blockSignals(True)
         self.slider.setValue(self._to_int(value))
         self.slider.blockSignals(False)
-        self.timer.start()
+        self._schedule_emit()
+
+    def _schedule_emit(self) -> None:
+        """Emit at once when the window is open, else arm one trailing frame.
+
+        The timer is armed only when idle — restarting it on every step is a pure
+        trailing debounce, which emits nothing at all until the drag pauses.
+        """
+        elapsed = time.monotonic() * 1000.0 - self._last_emit_ms
+        if elapsed >= _EMIT_INTERVAL_MS:
+            self.timer.stop()
+            self._emit_value()
+        elif not self.timer.isActive():
+            self.timer.start(max(1, int(_EMIT_INTERVAL_MS - elapsed)))
 
     def _emit_value(self) -> None:
+        self._last_emit_ms = time.monotonic() * 1000.0
         self.valueChanged.emit(self.spin.value())
 
     def setValue(self, value: float, _rebase_commit: bool = True) -> None:
@@ -434,8 +463,8 @@ class CompactSlider(BaseSlider):
                     sensitivity *= 10.0
                 new_val = max(self._min, min(self._max, self._scrub_start_val + dx * sensitivity))
                 self.setValue(new_val, _rebase_commit=False)
-                # debounce like groove drags; a direct emit renders per mouse-move
-                self.timer.start()
+                # throttle like groove drags; a direct emit renders per mouse-move
+                self._schedule_emit()
                 return True
             if et == QEvent.Type.MouseButtonRelease and self._scrub_active:
                 self._scrub_active = False

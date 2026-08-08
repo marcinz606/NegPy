@@ -15,6 +15,7 @@ from negpy.features.process.sensor import apply_sensor_correction, effective_sen
 from negpy.features.rgbscan.models import is_rgb_triplet
 from negpy.features.geometry.processor import GeometryProcessor
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
+from negpy.infrastructure.display.icc_lut import apply_lut_f32
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.kernel.system.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
 from negpy.kernel.system.logging import get_logger
@@ -262,7 +263,19 @@ class RenderWorker(QObject):
         monitor_icc_bytes: Optional[bytes],
     ) -> np.ndarray:
         """Bake source→output→monitor into the buffer; the display transform is then a
-        no-op (see AppController.display_transform_params)."""
+        no-op (see AppController.display_transform_params).
+
+        The proof rides a cached 3D LUT — rebuilding the littleCMS transform per frame
+        cost ~56ms of every preview. The LUT is built from the same transform, so a
+        fallback to the per-pixel path only happens if the build itself failed.
+        """
+        lut = self._processor.soft_proof_lut(color_space, icc_input_path, icc_output_path, monitor_icc_bytes)
+        if lut is not None and result.dtype == np.float32 and result.ndim == 3 and result.shape[2] >= 3:
+            # A GPU readback carries an alpha lane; apply_lut_f32 wants contiguous RGB.
+            # The canvas dropped that lane itself before, so this moves a copy rather
+            # than adding one.
+            return apply_lut_f32(np.ascontiguousarray(result[:, :, :3]), lut)
+
         pil_proof = self._processor.soft_proof_preview(
             self._processor.buffer_to_pil(result, config),
             color_space,

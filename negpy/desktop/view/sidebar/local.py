@@ -115,9 +115,18 @@ class LocalSidebar(BaseSidebar):
     def _connect_signals(self) -> None:
         for btn, mode in self._tool_modes().items():
             btn.toggled.connect(lambda checked, m=mode: self._on_draw_toggled(checked, m))
-        self.burn_slider.valueChanged.connect(lambda v: self.controller.update_selected_local_mask(stops=float(v)))
-        self.feather_slider.valueChanged.connect(lambda v: self.controller.update_selected_local_mask(feather=float(v)))
-        self.grade_slider.valueChanged.connect(lambda v: self.controller.update_selected_local_mask(grade=float(v)))
+        # Drag steps render only; the commit writes history and settings — the same
+        # split every other sidebar uses. Persisting per step wrote a history row and
+        # rebuilt the history panel on every mouse-move.
+        for slider, field in (
+            (self.burn_slider, "stops"),
+            (self.feather_slider, "feather"),
+            (self.grade_slider, "grade"),
+        ):
+            slider.valueChanged.connect(
+                lambda v, f=field: self.controller.update_selected_local_mask(persist=False, readback_metrics=False, **{f: float(v)})
+            )
+            slider.valueCommitted.connect(lambda v, f=field: self.controller.update_selected_local_mask(**{f: float(v)}))
         self.invert_btn.toggled.connect(lambda v: self.controller.update_selected_local_mask(invert=bool(v)))
 
     def _tool_modes(self) -> dict:

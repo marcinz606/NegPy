@@ -75,21 +75,6 @@ def _read_screen_icc(screen: object) -> Optional[bytes]:
     return data
 
 
-def _display_buffer_for_canvas(buffer: object) -> object:
-    if isinstance(buffer, GPUTexture):
-        try:
-            readback = buffer.readback()
-        except Exception:
-            logger.exception("Failed to read back GPU preview for canvas display")
-            return buffer
-
-        if isinstance(readback, np.ndarray) and readback.ndim == 3 and readback.shape[2] >= 3:
-            return np.ascontiguousarray(readback[:, :, :3])
-        return readback
-
-    return buffer
-
-
 class _EmptyStateOverlay(QWidget):
     """Shown on top of the canvas when no image is loaded.
 
@@ -541,7 +526,10 @@ class MainWindow(QMainWindow):
             logger.warning("Render completed but 'base_positive' not found in metrics")
             return
 
-        buffer = _display_buffer_for_canvas(metrics["base_positive"])
+        # A GPU texture goes to the canvas as-is: the GPU display path samples it and
+        # applies the working→display LUT in its shader. Reading it back here forced
+        # every frame through the CPU converter instead.
+        buffer = metrics["base_positive"]
         content_rect = metrics.get("content_rect")
 
         if isinstance(buffer, np.ndarray) and not self.state.gpu_enabled:

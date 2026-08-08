@@ -21,6 +21,11 @@ class _StubProcessor:
     def soft_proof_preview(self, pil_img, *args, **kwargs):
         return pil_img
 
+    def soft_proof_lut(self, *args, **kwargs):
+        # None routes the worker to the per-pixel PIL path, whose 8-bit round-trip is
+        # what makes the "histogram came from the float buffer" assertion meaningful.
+        return None
+
 
 def _make_worker(result: np.ndarray) -> RenderWorker:
     worker = RenderWorker.__new__(RenderWorker)

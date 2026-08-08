@@ -1,3 +1,4 @@
+import time
 from unittest.mock import MagicMock
 
 from PyQt6.QtCore import QEvent, QPointF, Qt
@@ -36,7 +37,12 @@ def test_adjust_by_clamps_to_range(qapp):
     assert slider.value() == 0.0
 
 
-def test_label_scrub_debounces_value_changes(qapp):
+def test_label_scrub_emits_leading_then_coalesces(qapp):
+    """Leading edge so the preview moves with the gesture, then throttled.
+
+    A pure trailing debounce emitted nothing until the drag paused, which read as a
+    frozen preview; a per-move emit renders faster than the pipeline can keep up.
+    """
     slider = CompactSlider("Density", 0.0, 2.0, 1.0)
     changed = MagicMock()
     committed = MagicMock()
@@ -45,19 +51,47 @@ def test_label_scrub_debounces_value_changes(qapp):
 
     press = _label_event(QEvent.Type.MouseButtonPress, 0.0)
     move = _label_event(QEvent.Type.MouseMove, 40.0, button=Qt.MouseButton.NoButton)
-    release = _label_event(QEvent.Type.MouseButtonRelease, 40.0, buttons=Qt.MouseButton.NoButton)
+    move_again = _label_event(QEvent.Type.MouseMove, 60.0, button=Qt.MouseButton.NoButton)
+    release = _label_event(QEvent.Type.MouseButtonRelease, 60.0, buttons=Qt.MouseButton.NoButton)
 
     assert slider.eventFilter(slider.label, press)
     assert slider.eventFilter(slider.label, move)
 
-    # Scrub moves are coalesced through the debounce timer, not emitted per move.
-    changed.assert_not_called()
+    changed.assert_called_once_with(1.2)  # dx=40 * span/400 sensitivity
+    assert not slider.timer.isActive()
+
+    # A second move inside the throttle window is coalesced into one trailing frame.
+    assert slider.eventFilter(slider.label, move_again)
+    changed.assert_called_once_with(1.2)
     assert slider.timer.isActive()
-    assert slider.value() == 1.2  # dx=40 * span/400 sensitivity
+    assert slider.value() == 1.3
 
     assert slider.eventFilter(slider.label, release)
-    committed.assert_called_once_with(1.2)
-    slider.timer.stop()
+    committed.assert_called_once_with(1.3)
+    # The commit renders that value, so the pending frame must not fire again.
+    assert not slider.timer.isActive()
+
+
+def test_commit_flushes_a_pending_frame_when_the_value_returned(qapp):
+    """Dragging away and back emits no commit, so the trailing frame is the only
+    thing that would restore the preview."""
+    slider = CompactSlider("Density", 0.0, 2.0, 1.0)
+    changed = MagicMock()
+    committed = MagicMock()
+    slider.valueChanged.connect(changed)
+    slider.valueCommitted.connect(committed)
+
+    slider._last_emit_ms = time.monotonic() * 1000.0  # inside the throttle window
+    slider.slider.setValue(slider._to_int(1.5))
+    assert slider.timer.isActive()
+    changed.assert_not_called()
+
+    slider.slider.setValue(slider._to_int(1.0))  # back to the committed value
+    slider._on_committed()
+
+    committed.assert_not_called()
+    changed.assert_called_once_with(1.0)
+    assert not slider.timer.isActive()
 
 
 def test_setvalue_rebases_commit_baseline_across_reuse(qapp):

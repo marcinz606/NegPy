@@ -38,9 +38,11 @@ parts rather than rewriting.
 
 - **No Xvfb installed?** `QT_QPA_PLATFORM=offscreen` works, but every widget
   grab (`window.canvas.grab()`, `window.grab()`) comes back black — take pixel
-  evidence from `controller.state.last_metrics["base_positive"]` instead
-  (readback via `main_window._display_buffer_for_canvas`; it's the exact
-  buffer `_on_image_updated` would hand the canvas). wgpu compute runs fine
+  evidence from `controller.state.last_metrics["base_positive"]` instead; it's
+  the exact buffer `_on_image_updated` hands the canvas. Call `.readback()` on
+  it when soft proof is off, where it is still a `GPUTexture` (the canvas hands
+  those straight to the display shader; only the CPU overlay branch in
+  `ImageCanvas.update_buffer` copies to the host). wgpu compute runs fine
   offscreen.
 - A driver-side `controller.load_file(path)` does not populate
   `state.uploaded_files`, so `_on_image_updated` early-returns and the canvas

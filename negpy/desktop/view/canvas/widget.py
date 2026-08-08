@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, Any, Optional, Tuple
 import math
 import sys
+import numpy as np
 from PyQt6.QtWidgets import QStackedLayout, QMenu, QWidget, QPinchGesture, QGestureEvent
 from PyQt6.QtGui import QCursor, QMouseEvent, QNativeGestureEvent, QPainter, QColor, QWheelEvent
 from PyQt6.QtCore import QEvent, pyqtSignal, Qt, QPointF
@@ -568,6 +569,15 @@ class ImageCanvas(QWidget):
             self.overlay.update()
         else:
             self.gpu_widget.hide()
+            # Only the CPU overlay needs pixels on the host, so the readback lives here
+            # rather than on the way in — the GPU branch above never pays it.
+            if isinstance(buffer, GPUTexture):
+                try:
+                    readback = buffer.readback()
+                    buffer = np.ascontiguousarray(readback[:, :, :3]) if readback.ndim == 3 and readback.shape[2] >= 3 else readback
+                except Exception:
+                    logger.exception("Failed to read back GPU preview for canvas display")
+                    return
             self.overlay.update_buffer(buffer, color_space, content_rect, monitor_icc_bytes=monitor_icc_bytes)
             self.overlay.show()
             self.overlay.raise_()

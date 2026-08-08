@@ -6,6 +6,7 @@ import tifffile
 import imagecodecs
 import numpy as np
 from dataclasses import replace as dc_replace
+from functools import lru_cache
 from PIL import Image, ImageCms
 from typing import Callable, Tuple, Optional, Any, Dict, List
 from negpy.kernel.system.logging import get_logger
@@ -62,6 +63,12 @@ from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, get_bes
 from negpy.services.export.print import PrintService
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry, WORKING_COLOR_SPACE
 from negpy.infrastructure.display.icc_lut import apply_icc_u16_rgb
+
+# Preview soft-proof LUT grid. Larger than the 33³ display LUT because the proof can
+# clip at the output gamut boundary, and trilinear interpolation across that kink is
+# where the error lives: 65³ halves the worst-case error of the 8-bit PIL round-trip
+# it replaces. Cached per profile combination, so the build cost is paid once.
+PROOF_LUT_SIZE = 65
 
 logger = get_logger(__name__)
 
@@ -135,6 +142,11 @@ class ImageProcessor:
         # One entry only (full-res buffers are large); treated read-only downstream.
         self._source_cache_key: Optional[tuple] = None
         self._source_cache_value: Optional[Tuple[np.ndarray, Optional[np.ndarray], str]] = None
+
+        # Flat-field + sensor-unmix corrected source. Both are full-buffer numpy passes
+        # that no creative slider moves, so a drag reuses the corrected buffer.
+        self._precorrect_key: Optional[tuple] = None
+        self._precorrect_value: Optional[np.ndarray] = None
 
         # Source-space dust detection cache. Geometry deliberately excluded from
         # the key (strokes are source-normalized); resolution excluded so an
@@ -364,14 +376,34 @@ class ImageProcessor:
         # into source_hash invalidates the engine cache when it changes. Stitch buffers
         # arrive per-part flat-fielded (both decode paths) — correcting the composite
         # canvas as one frame would stretch the gain map across the seam.
-        if not skip_flatfield and not settings.stitch.stitch_enabled:
-            img = apply_flatfield(img, settings.flatfield)
-        # Sensor unmix is a source pre-correction like flat-field. skip_flatfield buffers
-        # come from _load_source_f32, which already applied it; triplet composites take
-        # each channel from its own single-band exposure, so unmixing them would inject
-        # crosstalk that was never captured.
-        if not skip_flatfield and not is_rgb_triplet(settings.rgbscan) and not stitch_has_triplets(settings.stitch):
-            img = apply_sensor_correction(img, effective_sensor_matrix(settings.process))
+        # Shape is in the key because HQ preview re-decodes the same file at full
+        # resolution under an unchanged source_hash.
+        precorrect_key = (
+            source_hash,
+            img.shape,
+            skip_flatfield,
+            flatfield_token(settings.flatfield),
+            sensor_token(settings.process),
+            rgbscan_token(settings.rgbscan),
+            stitch_token(settings.stitch),
+        )
+        if self._precorrect_key == precorrect_key and self._precorrect_value is not None:
+            img = self._precorrect_value
+        else:
+            source = img
+            if not skip_flatfield and not settings.stitch.stitch_enabled:
+                img = apply_flatfield(img, settings.flatfield)
+            # Sensor unmix is a source pre-correction like flat-field. skip_flatfield buffers
+            # come from _load_source_f32, which already applied it; triplet composites take
+            # each channel from its own single-band exposure, so unmixing them would inject
+            # crosstalk that was never captured.
+            if not skip_flatfield and not is_rgb_triplet(settings.rgbscan) and not stitch_has_triplets(settings.stitch):
+                img = apply_sensor_correction(img, effective_sensor_matrix(settings.process))
+            # Both corrections no-op'd — caching would only pin a second reference to a
+            # buffer the preview cache already holds.
+            if img is not source:
+                self._precorrect_key = precorrect_key
+                self._precorrect_value = img
         h_orig, w_cols = img.shape[:2]
         # Fold the buffer resolution into source_hash: toggling HQ re-decodes the same
         # file at full resolution with unchanged settings, so without this the engine
@@ -441,6 +473,7 @@ class ImageProcessor:
                     scale_factor=scale_factor,
                     render_size_ref=render_size_ref,
                     readback_metrics=readback_metrics,
+                    source_hash=source_hash,
                     analysis_source_hash=source_hash,
                 )
                 context.metrics.update(gpu_metrics)
@@ -891,6 +924,8 @@ class ImageProcessor:
             # cache only pins ~300MB (24MP) across the next frame's decode.
             self._source_cache_key = None
             self._source_cache_value = None
+            self._precorrect_key = None
+            self._precorrect_value = None
 
             # A Print/Target-px export setting sizes the paper from print_size x DPI,
             # which would re-inflate the tile to full print resolution right after the
@@ -1162,8 +1197,8 @@ class ImageProcessor:
             logger.error(f"CMS transformation failed: {e}")
             return pil_img, None
 
+    @staticmethod
     def soft_proof_preview(
-        self,
         pil_img: Image.Image,
         working_color_space: str,
         input_icc_path: Optional[str],
@@ -1186,15 +1221,15 @@ class ImageProcessor:
             # littleCMS needs RGB against the RGB working/output profiles.
             if pil_img.mode != "RGB":
                 pil_img = pil_img.convert("RGB")
-            p_src = self._resolve_src_profile(working_color_space, input_icc_path)
+            p_src = ImageProcessor._resolve_src_profile(working_color_space, input_icc_path)
             # Custom output profile, or the working space when only an input is set.
-            p_dst = self._resolve_dst_profile(working_color_space, output_icc_path)
+            p_dst = ImageProcessor._resolve_dst_profile(working_color_space, output_icc_path)
             if p_dst is None:
                 return pil_img
             # Display the proof lands on: the monitor profile when detected, else sRGB.
             p_display = open_profile_from_bytes(monitor_icc_bytes) if monitor_icc_bytes else ImageCms.createProfile("sRGB")
 
-            if self._is_print_profile(p_dst):
+            if ImageProcessor._is_print_profile(p_dst):
                 # Paper/printer profile: simulate the print on screen (paper white + ink)
                 # via a proof transform — relative-colorimetric source→paper, then
                 # absolute-colorimetric paper→display so the paper white/Dmax show.
@@ -1248,6 +1283,40 @@ class ImageProcessor:
             logger.error(f"Soft-proof preview failed: {e}")
             return pil_img
 
+    @staticmethod
+    @lru_cache(maxsize=8)
+    def soft_proof_lut(
+        working_color_space: str,
+        input_icc_path: Optional[str],
+        output_icc_path: Optional[str],
+        monitor_icc_bytes: Optional[bytes] = None,
+        size: int = PROOF_LUT_SIZE,
+    ) -> Optional[np.ndarray]:
+        """``soft_proof_preview`` baked into an (N,N,N,3) LUT, for the preview only.
+
+        Built by pushing the identity grid through ``soft_proof_preview`` itself, so
+        the print-profile / export-space / GRAY branches cannot drift from the real
+        transform. The preview proof previously rebuilt its littleCMS transform per
+        frame (~56ms); this is cached and applies in ~3ms. Export keeps the exact
+        per-pixel transform.
+        """
+        try:
+            axis = np.linspace(0, 255, size).round().astype(np.uint8)
+            r, g, b = np.meshgrid(axis, axis, axis, indexing="ij")
+            grid = np.ascontiguousarray(np.stack((r, g, b), axis=-1)).reshape(size, size * size, 3)
+            proofed = ImageProcessor.soft_proof_preview(
+                Image.fromarray(grid, mode="RGB"),
+                working_color_space,
+                input_icc_path,
+                output_icc_path,
+                monitor_icc_bytes,
+            )
+            lut = np.asarray(proofed, dtype=np.float32).reshape(size, size, size, 3) / 255.0
+            return np.ascontiguousarray(lut)
+        except Exception as e:
+            logger.warning("Soft-proof LUT build failed, falling back to the per-pixel transform", exc_info=e)
+            return None
+
     def _save_to_pil_buffer(
         self,
         pil_img: Image.Image,
@@ -1273,6 +1342,8 @@ class ImageProcessor:
         if release_source_cache:
             self._source_cache_key = None
             self._source_cache_value = None
+            self._precorrect_key = None
+            self._precorrect_value = None
         if self.engine_gpu:
             self.engine_gpu.cleanup(collect=collect)
 
