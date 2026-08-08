@@ -4,6 +4,7 @@ import io
 import os
 from unittest import mock
 
+import imagecodecs
 import numpy as np
 import pytest
 import tifffile
@@ -214,10 +215,20 @@ class TestExportLinearOutputJxl:
         with tifffile.TiffFile(out_path) as tf:
             assert tf.pages[0].asarray().dtype == np.uint16
 
-    def test_ir_sidecar_always_tiff(self, tmp_path: str) -> None:
+    def test_ir_sidecar_follows_main_format(self, tmp_path: str) -> None:
         dng_path = _make_linearraw_dng_4ch(str(tmp_path))
         out_path = os.path.join(str(tmp_path), "output.jxl")
         export_linear_output(dng_path, out_path, output_format="jxl")
+        ir_path = os.path.join(str(tmp_path), "output_ir.jxl")
+        assert os.path.exists(ir_path)
+        assert not os.path.exists(os.path.join(str(tmp_path), "output_ir.tiff"))
+        decoded = imagecodecs.jpegxl_decode(open(ir_path, "rb").read())
+        assert decoded.dtype == np.uint16
+
+    def test_ir_sidecar_tiff_when_main_is_tiff(self, tmp_path: str) -> None:
+        dng_path = _make_linearraw_dng_4ch(str(tmp_path))
+        out_path = os.path.join(str(tmp_path), "output.tiff")
+        export_linear_output(dng_path, out_path, output_format="tiff")
         ir_path = os.path.join(str(tmp_path), "output_ir.tiff")
         assert os.path.exists(ir_path)
         with tifffile.TiffFile(ir_path) as tf:

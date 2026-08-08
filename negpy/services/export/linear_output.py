@@ -904,6 +904,32 @@ def _write_ir_tiff(ir: np.ndarray, dest, source_name: str) -> None:
     )
 
 
+def _write_ir_jxl(ir: np.ndarray, dest, effort: int = 7) -> None:
+    """Write a single-channel IR buffer as a lossless 16-bit grayscale JPEG XL.
+
+    Unlike the RGB path (see _write_jxl), greyscale has no primaries field to get
+    wrong — transfer=LINEAR is the only tag asserted, and it's true.
+    """
+    u16 = _to_uint16_jit(np.ascontiguousarray(ir[:, :, np.newaxis] if ir.ndim == 2 else ir, dtype=np.float32))
+    if u16.ndim == 3 and u16.shape[2] == 1:
+        u16 = u16[:, :, 0]
+    bits = imagecodecs.jpegxl_encode(
+        np.ascontiguousarray(u16),
+        bitspersample=16,
+        photometric="GRAY",
+        transfer="LINEAR",
+        lossless=True,
+        effort=effort,
+        numthreads=0,
+    )
+    data = bytes(bits)
+    if hasattr(dest, "write"):
+        dest.write(data)
+    else:
+        with open(dest, "wb") as fh:
+            fh.write(data)
+
+
 def _write_jxl(
     f32: np.ndarray,
     dest,
@@ -962,8 +988,9 @@ def export_linear_output(
     *output_format*: ``"tiff"`` (default, zlib-compressed, genuinely untagged) or
     ``"jxl"`` (lossless JPEG XL — always carries a concrete colour tag, see
     ``_write_jxl``; not equivalent to the TIFF path's untagged output). *jxl_effort*:
-    1–9 (higher = smaller file, slower encode), used only for ``"jxl"``. IR sidecars
-    are always TIFF regardless.
+    1–9 (higher = smaller file, slower encode), used only for ``"jxl"``. The IR
+    sidecar (when present and not consumed by ICE) follows the same *output_format*
+    as the main file — single-channel greyscale either way.
     """
     eff = _effective_expansion(file_path, expansion)
     fmt = _source_format_label(file_path, rgbscan, stitch)
@@ -1009,8 +1036,10 @@ def export_linear_output(
 
     if ir is not None and not ice_applied:
         stem, _ext = os.path.splitext(output_path)
-        ir_path = f"{stem}_ir.tiff"
-        _write_ir_tiff(ir, ir_path, os.path.basename(file_path))
+        if output_format == "jxl":
+            _write_ir_jxl(ir, f"{stem}_ir.jxl", effort=jxl_effort)
+        else:
+            _write_ir_tiff(ir, f"{stem}_ir.tiff", os.path.basename(file_path))
 
 
 def export_linear_output_bytes(file_path: str, geometry: Optional[GeometryConfig] = None) -> tuple[bytes, str]:
