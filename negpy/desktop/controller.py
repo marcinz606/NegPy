@@ -3,6 +3,7 @@ import time
 from dataclasses import dataclass, fields, replace
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import cv2
 import numpy as np
 from PyQt6.QtCore import Q_ARG, QMetaObject, QObject, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QIcon, QPixmap
@@ -106,6 +107,23 @@ class _PendingCaptureImport:
     detect_mode: bool = False
     capture_roll: str = ""
     capture_frame: Optional[int] = None
+
+
+def _interactive_proxy(raw: Optional[Any]) -> Optional[Any]:
+    """Preview-resolution stand-in for an HQ buffer, or None when one is not needed.
+
+    Everything a frame costs downstream — the pipeline, the canvas present, any
+    readback — scales with this buffer, so dragging against the HQ original makes the
+    main thread pay 60Mpx per gesture step. Built once per load, not per frame.
+    """
+    if not isinstance(raw, np.ndarray) or raw.ndim < 2:
+        return None
+    long_edge = max(raw.shape[:2])
+    if long_edge <= APP_CONFIG.preview_render_size:
+        return None
+    scale = APP_CONFIG.preview_render_size / float(long_edge)
+    w, h = max(1, round(raw.shape[1] * scale)), max(1, round(raw.shape[0] * scale))
+    return cv2.resize(raw, (w, h), interpolation=cv2.INTER_AREA)
 
 
 def _capture_import_key(path: str) -> str:
@@ -1374,6 +1392,7 @@ class AppController(QObject):
         if ir_preview is not None:
             ir_preview, _ = self._split_active_half(ir_preview, None)
         self.state.preview_raw = raw
+        self.state.preview_proxy = _interactive_proxy(raw)
         self.state.preview_ir = ir_preview
         self.state.has_ir = ir_preview is not None
         if not self.state.has_ir and self.state.dust_overlay_mode == "ir":
@@ -3212,6 +3231,13 @@ class AppController(QObject):
         if preview_raw is None:
             return
 
+        # readback_metrics is the settle marker: a drag asks for no metrics. Interactive
+        # frames render against the proxy so the main thread never handles an HQ frame
+        # while the gesture is live; the release re-renders at full resolution.
+        interactive = not readback_metrics
+        if interactive and self.state.preview_proxy is not None:
+            preview_raw = self.state.preview_proxy
+
         target_size = float(APP_CONFIG.preview_render_size)
         if self.state.hq_preview:
             target_size = float(max(preview_raw.shape[:2]))
@@ -3235,6 +3261,7 @@ class AppController(QObject):
             ephemeral=ephemeral,
             memo_key=memo_key,
             compare=self.state.compare_mode,
+            interactive=interactive,
         )
 
         if self._is_rendering:
@@ -4043,8 +4070,13 @@ class AppController(QObject):
             self._first_render_t0 = None
 
         # Config is replaced wholesale on every edit, so identity detects any change.
+        # Never mid-gesture: the filmstrip only has to be right once the drag settles,
+        # and refreshing it there puts a full-frame copy on the UI thread's critical path.
         should_update_thumb = (
-            self._pending_render_task is None and not metrics.get("ephemeral") and self.state.config is not self._thumb_config
+            self._pending_render_task is None
+            and not metrics.get("ephemeral")
+            and not metrics.get("interactive")
+            and self.state.config is not self._thumb_config
         )
 
         with self.state.metrics_lock:
@@ -4091,8 +4123,10 @@ class AppController(QObject):
         self.metrics_available.emit(metrics)
 
         # Don't persist bounds from an ephemeral (splash) render or a render of a different
-        # file (late metric after a fast switch) — they aren't this frame's bounds.
-        if metrics.get("ephemeral"):
+        # file (late metric after a fast switch) — they aren't this frame's bounds. Nor
+        # from a mid-gesture frame: persisting writes settings and rebuilds the history
+        # panel on the UI thread, and it renders against the proxy anyway.
+        if metrics.get("ephemeral") or metrics.get("interactive"):
             return
         src = metrics.get("source_hash")
         if src is not None and src != self.state.current_file_hash:

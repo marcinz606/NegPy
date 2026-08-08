@@ -45,6 +45,9 @@ class RenderTask:
     # These pixels are the before/after baseline, not the edit. Echoed in metrics so
     # the BEFORE badge tracks what is painted, not the pending toggle.
     compare: bool = False
+    # A frame produced while a gesture is live. Echoed in metrics so the UI thread can
+    # skip everything that only has to be right once the gesture settles.
+    interactive: bool = False
 
 
 @dataclass(frozen=True)
@@ -238,6 +241,7 @@ class RenderWorker(QObject):
             metrics["ephemeral"] = task.ephemeral
             metrics["memo_key"] = task.memo_key
             metrics["compare"] = task.compare
+            metrics["interactive"] = task.interactive
 
             self.finished.emit(result, metrics)
             self.metrics_updated.emit(metrics)

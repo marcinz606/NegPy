@@ -381,6 +381,11 @@ class RightPanel(QWidget):
 
     def _update_analysis(self) -> None:
         metrics = self.controller.session.state.last_metrics
+        # Mid-gesture frames carry no metrics to read anyway, and rebuilding the curve,
+        # step wedge and zone strip on the UI thread is what makes a slider handle stutter.
+        # The settle frame refreshes all of it.
+        if metrics.get("interactive"):
+            return
 
         self._update_histograms(metrics)
         # Measured zones read through the current config, so they track every render.

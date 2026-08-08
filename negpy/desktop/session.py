@@ -64,6 +64,10 @@ class AppState:
     last_metrics: Dict[str, Any] = field(default_factory=dict)
     metrics_lock: threading.Lock = field(default_factory=threading.Lock, init=False, compare=False, repr=False)
     preview_raw: Optional[Any] = None
+    # Preview-resolution stand-in for preview_raw while HQ is on. Interactive frames
+    # render against this so a drag costs the same as it does without HQ; the full
+    # buffer is used again the moment the gesture settles. None when not needed.
+    preview_proxy: Optional[Any] = None
     preview_ir: Optional[Any] = None  # downsampled IR float32 [0,1] (H,W); None if source has no IR
     has_ir: bool = False
     ir_degenerate: bool = False  # IR plane carries image content (B&W/Kodachrome) → IR restore disabled
