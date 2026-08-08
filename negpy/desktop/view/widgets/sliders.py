@@ -18,8 +18,11 @@ from negpy.desktop.view.styles.templates import EditedDot, slider_label_qss, sli
 # text_secondary, not text_muted: #555 on the #161616 tooltip background is ~2.4:1.
 _RESET_HINT = f'<div style="color:{THEME.text_secondary};">Double-click to reset</div>'
 
-# Quiet period after the last slider step before a render is asked for.
-_EMIT_INTERVAL_MS = 100
+# Quiet period after the last slider step before a render is asked for. Was 100ms
+# while a drag frame could cost a full HQ render; interactive frames now render
+# against a preview-resolution proxy (see AppController._interactive_proxy), so the
+# preview can follow the handle much sooner without putting work on the UI thread.
+_EMIT_INTERVAL_MS = 33
 
 
 class _NoScrollSlider(QSlider):
