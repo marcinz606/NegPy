@@ -290,6 +290,7 @@ class CanvasOverlay(QWidget):
 
         self._display_cs: str = ""
         self._monitor_icc_bytes: Optional[bytes] = None
+        self._proof: Optional[tuple] = None
 
         self._buffer_overlay_ratio: float = 0.0
         self._buffer_overlay_visible: bool = False
@@ -441,6 +442,7 @@ class CanvasOverlay(QWidget):
         content_rect: Optional[Tuple[int, int, int, int]] = None,
         gpu_size: Optional[Tuple[int, int]] = None,
         monitor_icc_bytes: Optional[bytes] = None,
+        proof: Optional[tuple] = None,
     ) -> None:
         self._content_rect = content_rect
         self._display_buffer = buffer if isinstance(buffer, np.ndarray) else None
@@ -448,8 +450,9 @@ class CanvasOverlay(QWidget):
         # Kept so a strip mosaic gets the same display transform as this buffer did.
         self._display_cs = color_space
         self._monitor_icc_bytes = monitor_icc_bytes
+        self._proof = proof
         if buffer is not None:
-            self._qimage = ImageConverter.to_qimage(buffer, color_space, monitor_icc_bytes)
+            self._qimage = ImageConverter.to_qimage(buffer, color_space, monitor_icc_bytes, proof)
             self._current_size = (self._qimage.width(), self._qimage.height())
         else:
             self._qimage = None
@@ -978,10 +981,10 @@ class CanvasOverlay(QWidget):
         mosaic = self.state.test_strip_mosaic
         if mosaic is None:
             return None
-        key = (id(mosaic), self._display_cs)
+        key = (id(mosaic), self._display_cs, self._proof)
         if self._strip_cache is not None and self._strip_cache[0] == key:
             return self._strip_cache[1]
-        img = ImageConverter.to_qimage(mosaic, self._display_cs, self._monitor_icc_bytes)
+        img = ImageConverter.to_qimage(mosaic, self._display_cs, self._monitor_icc_bytes, self._proof)
         self._strip_cache = (key, img)
         return img
 

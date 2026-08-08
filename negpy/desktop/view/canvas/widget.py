@@ -551,19 +551,20 @@ class ImageCanvas(QWidget):
         color_space: str,
         content_rect: Optional[Tuple[int, int, int, int]] = None,
         monitor_icc_bytes: Optional[bytes] = None,
+        proof: Optional[tuple] = None,
     ) -> None:
         """
         Switches between CPU and GPU rendering paths.
 
-        ``monitor_icc_bytes`` drives the CPU display transform (working→monitor); it
-        must be None when ``buffer`` is already in display space (e.g. a baked soft
-        proof) to avoid a double conversion. The GPU path manages its own display LUT.
+        ``monitor_icc_bytes`` and ``proof`` describe the working→display transform for
+        this buffer; both paths apply the identical LUT, the GPU one in its shader.
         """
         self._last_buffer = buffer
         if self.state.gpu_enabled and isinstance(buffer, GPUTexture):
             self.gpu_widget.show()
+            self.gpu_widget.set_display_transform(color_space, monitor_icc_bytes, proof)
             self.gpu_widget.update_texture(buffer)
-            self.overlay.update_buffer(None, color_space, content_rect, gpu_size=(buffer.width, buffer.height))
+            self.overlay.update_buffer(None, color_space, content_rect, gpu_size=(buffer.width, buffer.height), proof=proof)
             self.overlay.show()
             self.overlay.raise_()
             self.overlay.update()
@@ -578,7 +579,7 @@ class ImageCanvas(QWidget):
                 except Exception:
                     logger.exception("Failed to read back GPU preview for canvas display")
                     return
-            self.overlay.update_buffer(buffer, color_space, content_rect, monitor_icc_bytes=monitor_icc_bytes)
+            self.overlay.update_buffer(buffer, color_space, content_rect, monitor_icc_bytes=monitor_icc_bytes, proof=proof)
             self.overlay.show()
             self.overlay.raise_()
         self._raise_floating_widgets()

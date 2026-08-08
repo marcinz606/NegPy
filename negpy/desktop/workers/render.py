@@ -15,7 +15,6 @@ from negpy.features.process.sensor import apply_sensor_correction, effective_sen
 from negpy.features.rgbscan.models import is_rgb_triplet
 from negpy.features.geometry.processor import GeometryProcessor
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
-from negpy.infrastructure.display.icc_lut import apply_lut_f32
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.kernel.system.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
 from negpy.kernel.system.logging import get_logger
@@ -32,15 +31,9 @@ class RenderTask:
     config: WorkspaceConfig
     source_hash: str
     preview_size: float
-    icc_input_path: Optional[str] = None
-    icc_output_path: Optional[str] = None
-    color_space: str = "Adobe RGB"
     gpu_enabled: bool = True
     readback_metrics: bool = True
     ir_buffer: Optional[np.ndarray] = None
-    # Monitor ICC profile bytes (detected on the UI thread); soft proof is shown on
-    # this display. None = sRGB display.
-    monitor_icc_bytes: Optional[bytes] = None
     # True while the crop tool is active: show the full uncropped frame instead of
     # the final crop.
     crop_preview_full: bool = False
@@ -66,12 +59,8 @@ class TestStripTask:
     preview_size: float
     overrides: tuple
     grid: tuple
-    icc_input_path: Optional[str] = None
-    icc_output_path: Optional[str] = None
-    color_space: str = "Adobe RGB"
     gpu_enabled: bool = True
     ir_buffer: Optional[np.ndarray] = None
-    monitor_icc_bytes: Optional[bytes] = None
 
 
 @dataclass(frozen=True)
@@ -81,9 +70,10 @@ class ThumbnailUpdateTask:
     file_hash: str  # asset_thumbnail_key — the filmstrip and the disk cache share it
     buffer: np.ndarray
     # Display-transform inputs, from AppController.display_transform_params — must be
-    # the same pair the canvas used for this buffer or the thumbnail's colour drifts.
+    # the same triple the canvas used for this buffer or the thumbnail's colour drifts.
     color_space: str = WORKING_COLOR_SPACE
     monitor_icc_bytes: Optional[bytes] = None
+    proof: Optional[tuple] = None
     persist: bool = True  # False = in-memory filmstrip only, skip the disk JPEG encode.
 
 
@@ -223,20 +213,14 @@ class RenderWorker(QObject):
                 crop_preview_full=task.crop_preview_full,
             )
 
-            soft_proof = task.icc_input_path or task.icc_output_path
-
-            # CPU renders have no in-shader histogram; bin the float output here,
-            # before soft-proofing quantizes it to 8/16-bit (comb artifacts).
+            # CPU renders have no in-shader histogram; bin the float output here.
             if task.readback_metrics and "histogram_raw" not in metrics and isinstance(result, np.ndarray):
                 metrics["histogram_raw"] = output_histogram(result)
 
-            if soft_proof and isinstance(result, GPUTexture):
-                result = result.readback()
-
-            if soft_proof and isinstance(result, np.ndarray):
-                result = self._soft_proof(
-                    result, task.config, task.color_space, task.icc_input_path, task.icc_output_path, task.monitor_icc_bytes
-                )
+            # The soft proof is not baked here: it rides the display LUT
+            # (AppController.display_transform_params), so a GPU texture reaches the
+            # canvas shader without a readback and every consumer of this buffer sees
+            # the same unproofed print.
 
             # Ensure ground truth is stored in metrics for view consumption
             metrics["base_positive"] = result
@@ -252,39 +236,6 @@ class RenderWorker(QObject):
         except Exception as e:
             logger.exception("Render pipeline failed")
             self.error.emit(str(e))
-
-    def _soft_proof(
-        self,
-        result: np.ndarray,
-        config: WorkspaceConfig,
-        color_space: str,
-        icc_input_path: Optional[str],
-        icc_output_path: Optional[str],
-        monitor_icc_bytes: Optional[bytes],
-    ) -> np.ndarray:
-        """Bake source→output→monitor into the buffer; the display transform is then a
-        no-op (see AppController.display_transform_params).
-
-        The proof rides a cached 3D LUT — rebuilding the littleCMS transform per frame
-        cost ~56ms of every preview. The LUT is built from the same transform, so a
-        fallback to the per-pixel path only happens if the build itself failed.
-        """
-        lut = self._processor.soft_proof_lut(color_space, icc_input_path, icc_output_path, monitor_icc_bytes)
-        if lut is not None and result.dtype == np.float32 and result.ndim == 3 and result.shape[2] >= 3:
-            # A GPU readback carries an alpha lane; apply_lut_f32 wants contiguous RGB.
-            # The canvas dropped that lane itself before, so this moves a copy rather
-            # than adding one.
-            return apply_lut_f32(np.ascontiguousarray(result[:, :, :3]), lut)
-
-        pil_proof = self._processor.soft_proof_preview(
-            self._processor.buffer_to_pil(result, config),
-            color_space,
-            icc_input_path,
-            icc_output_path,
-            monitor_icc_bytes,
-        )
-        arr = np.array(pil_proof)
-        return arr.astype(np.float32) / (65535.0 if arr.dtype == np.uint16 else 255.0)
 
     @pyqtSlot(TestStripTask)
     def build_strip(self, task: TestStripTask) -> None:
@@ -324,13 +275,8 @@ class RenderWorker(QObject):
             # One mosaic per quarter-turn while the tiles are still in hand: a rotated ladder needs
             # a different slice of each render. Peak memory is unchanged, the tiles dominate.
             mosaics = tuple(strip_mosaic(rotate_grid(tiles, task.grid, k), proof_grid(task.grid, k)) for k in range(4))
-            # Proof the assembled mosaics, not each tile: the transform is per-pixel, so one pass
-            # per frame is identical and far cheaper than one per patch.
-            if task.icc_input_path or task.icc_output_path:
-                mosaics = tuple(
-                    self._soft_proof(m, task.config, task.color_space, task.icc_input_path, task.icc_output_path, task.monitor_icc_bytes)
-                    for m in mosaics
-                )
+            # Unproofed, like every other rendered buffer: the overlay proofs the mosaic
+            # through the same display LUT the canvas uses, so the two cannot disagree.
             self.strip_finished.emit(mosaics, content_rect)
 
         except Exception as e:
@@ -397,6 +343,7 @@ class ThumbnailWorker(QObject):
                 store,
                 color_space=task.color_space,
                 monitor_icc_bytes=task.monitor_icc_bytes,
+                proof=task.proof,
             )
             if thumb:
                 self.rendered_finished.emit({task.file_hash: thumb})

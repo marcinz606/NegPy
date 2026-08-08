@@ -47,16 +47,18 @@ def test_patch_bounds_tile_a_width_that_does_not_divide_evenly() -> None:
 
 
 def test_the_patches_use_the_canvas_display_transform() -> None:
-    """Guards the double-proof trap: under a soft proof the render worker already baked the
-    proof into the buffer, so the wedge must reuse the canvas's transform, not apply a second."""
+    """The wedge must reuse the canvas's whole transform, proof included — otherwise
+    it describes a different print from the frame beside it."""
     widget = StepWedgeWidget()
+    proof = (None, "/icc/sRGB-v4.icc")
     with patch("negpy.desktop.converters.ImageConverter.to_qimage") as to_qimage:
         to_qimage.return_value = QPixmap(WEDGE_STEPS, 1).toImage()
-        widget.update_data(np.linspace(0.0, 1.0, WEDGE_STEPS), 0.15, "Display P3", b"fake-icc")
+        widget.update_data(np.linspace(0.0, 1.0, WEDGE_STEPS), 0.15, "Display P3", b"fake-icc", proof)
 
-    _buf, cs, icc = to_qimage.call_args[0]
+    _buf, cs, icc, got_proof = to_qimage.call_args[0]
     assert cs == "Display P3"
     assert icc == b"fake-icc"
+    assert got_proof == proof
 
 
 def test_no_data_paints_an_empty_strip_rather_than_raising() -> None:
@@ -117,7 +119,7 @@ def _panel_stub(flat_peek: bool) -> MagicMock:
     panel.controller.state.flat_peek = flat_peek
     panel.controller.session.state.config = WorkspaceConfig()
     panel.controller.session.state.last_metrics = {}
-    panel.controller.display_transform_params.return_value = ("sRGB", None)
+    panel.controller.display_transform_params.return_value = ("sRGB", None, None)
     panel.step_wedge = StepWedgeWidget()
     return panel
 

@@ -426,6 +426,6 @@ class RightPanel(QWidget):
         from negpy.features.exposure.logic import print_curve, print_curve_output
 
         enc = print_curve_output(print_curve(config, slope, pivot, process_mode), wedge_vals())
-        display_cs, monitor_bytes = self.controller.display_transform_params()
+        display_cs, monitor_bytes, proof = self.controller.display_transform_params()
         self.step_wedge.setVisible(True)
-        self.step_wedge.update_data(enc, wedge_step_density(metrics.get("norm_density_range")), display_cs, monitor_bytes)
+        self.step_wedge.update_data(enc, wedge_step_density(metrics.get("norm_density_range")), display_cs, monitor_bytes, proof)

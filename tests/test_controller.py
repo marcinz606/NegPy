@@ -1859,31 +1859,59 @@ class TestDisplayTransformParams(unittest.TestCase):
         del self.controller
         gc.collect()
 
-    def test_proof_active_yields_a_no_op_transform(self):
-        self.controller.proof_active = lambda: True
-        cs, monitor = self.controller.display_transform_params()
-        # sRGB source + no monitor profile is the documented identity case in
-        # get_display_lut, i.e. the already-baked buffer is passed through untouched.
-        self.assertEqual(cs, ColorSpace.SRGB.value)
-        self.assertIsNone(monitor)
+    def test_proof_active_still_reports_the_working_space(self):
+        """The proof is not baked into the buffer — it rides the display LUT.
 
-    def test_proof_inactive_converts_from_the_working_space(self):
-        self.controller.proof_active = lambda: False
-        cs, monitor = self.controller.display_transform_params()
+        Reporting sRGB here (as the baked-buffer era did) would skip the
+        working→display conversion the render still needs.
+        """
+        self.controller.state.soft_proof_enabled = True
+        cs, monitor, proof = self.controller.display_transform_params()
         self.assertEqual(cs, self.controller.state.workspace_color_space)
         self.assertEqual(monitor, b"fake-monitor-profile")
+        self.assertIsNotNone(proof)
+
+    def test_proof_inactive_converts_from_the_working_space(self):
+        self.controller.proof_profiles = lambda: None
+        cs, monitor, proof = self.controller.display_transform_params()
+        self.assertEqual(cs, self.controller.state.workspace_color_space)
+        self.assertEqual(monitor, b"fake-monitor-profile")
+        self.assertIsNone(proof)
 
     def test_splash_buffer_is_treated_as_srgb(self):
-        self.controller.proof_active = lambda: False
-        cs, monitor = self.controller.display_transform_params(splash=True)
+        self.controller.proof_profiles = lambda: None
+        cs, monitor, proof = self.controller.display_transform_params(splash=True)
         self.assertEqual(cs, ColorSpace.SRGB.value)
         self.assertEqual(monitor, b"fake-monitor-profile")
+        self.assertIsNone(proof)
+
+    def test_proof_profiles_follows_the_soft_proof_toggle(self):
+        self.controller.state.soft_proof_enabled = False
+        self.controller.state.config = replace(
+            self.controller.state.config,
+            process=replace(self.controller.state.config.process, narrowband_scan=False),
+        )
+        self.assertIsNone(self.controller.proof_profiles())
+        self.controller.state.soft_proof_enabled = True
+        self.assertIsNotNone(self.controller.proof_profiles())
+
+    def test_narrowband_supplies_an_input_profile_with_the_toggle_off(self):
+        """Narrowband Scan proofs through its own input profile regardless."""
+        self.controller.state.soft_proof_enabled = False
+        self.controller.state.config = replace(
+            self.controller.state.config,
+            process=replace(self.controller.state.config.process, narrowband_scan=True),
+        )
+        proof = self.controller.proof_profiles()
+        self.assertIsNotNone(proof)
+        self.assertTrue(proof[0], "narrowband must supply the input profile")
+        self.assertIsNone(proof[1], "the output profile stays gated on the toggle")
 
     def test_thumbnail_task_carries_the_same_params_as_the_canvas(self):
         """The actual regression: the thumbnail used to hardcode the working space."""
         import numpy as np
 
-        self.controller.proof_active = lambda: True
+        self.controller.state.soft_proof_enabled = True
         state = self.controller.state
         state.uploaded_files = [{"name": "frame.cr2", "path": "/tmp/frame.cr2", "hash": "hash-1"}]
         state.selected_file_idx = 0
@@ -1903,8 +1931,13 @@ class TestDisplayTransformParams(unittest.TestCase):
 
         self.assertEqual(len(emitted), 1)
         task = emitted[0]
-        self.assertEqual((task.color_space, task.monitor_icc_bytes), self.controller.display_transform_params())
-        self.assertNotEqual(task.color_space, state.workspace_color_space)
+        self.assertEqual(
+            (task.color_space, task.monitor_icc_bytes, task.proof),
+            self.controller.display_transform_params(),
+        )
+        # The proof must reach the filmstrip too, or it shows an unproofed frame
+        # next to a proofed canvas.
+        self.assertIsNotNone(task.proof)
 
 
 class TestCompareFlatPeekInteraction(unittest.TestCase):

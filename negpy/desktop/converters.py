@@ -13,18 +13,24 @@ class ImageConverter:
     """
 
     @staticmethod
-    def to_qimage(buffer: np.ndarray, color_space: str = WORKING_COLOR_SPACE, monitor_icc_bytes: Optional[bytes] = None) -> QImage:
+    def to_qimage(
+        buffer: np.ndarray,
+        color_space: str = WORKING_COLOR_SPACE,
+        monitor_icc_bytes: Optional[bytes] = None,
+        proof: Optional[tuple] = None,
+    ) -> QImage:
         """
         Safely converts a NumPy float32 or uint8 buffer to a QImage.
         Performs a deep copy to prevent memory corruption (harsh noise).
 
         ``color_space`` is the working space of ``buffer``; it is color-managed to
         the monitor's display profile (``monitor_icc_bytes``, or sRGB when None) so
-        the preview matches a color-managed view of the export.
+        the preview matches a color-managed view of the export. ``proof`` is the
+        soft-proof profile pair when one is active, folded into the same transform.
         """
         # 1. Color-manage working space → display profile, then quantize to uint8
         if buffer.dtype == np.float32:
-            buffer = apply_display_transform(buffer, color_space, monitor_icc_bytes)
+            buffer = apply_display_transform(buffer, color_space, monitor_icc_bytes, proof)
             u8_buffer = float_to_uint8(buffer)
         else:
             u8_buffer = buffer

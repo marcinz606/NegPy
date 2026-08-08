@@ -1,7 +1,6 @@
-"""CPU renders must publish a float-domain histogram_raw before soft-proof quantization."""
+"""CPU renders must publish a float-domain histogram_raw off the pipeline output."""
 
 import numpy as np
-from PIL import Image
 
 from negpy.desktop.workers.render import RenderTask, RenderWorker
 from negpy.features.exposure.analysis import output_histogram
@@ -14,17 +13,6 @@ class _StubProcessor:
 
     def run_pipeline(self, *args, **kwargs):
         return self._result, {}
-
-    def buffer_to_pil(self, result, config):
-        return Image.fromarray((np.clip(result, 0.0, 1.0) * 255.0).astype(np.uint8))
-
-    def soft_proof_preview(self, pil_img, *args, **kwargs):
-        return pil_img
-
-    def soft_proof_lut(self, *args, **kwargs):
-        # None routes the worker to the per-pixel PIL path, whose 8-bit round-trip is
-        # what makes the "histogram came from the float buffer" assertion meaningful.
-        return None
 
 
 def _make_worker(result: np.ndarray) -> RenderWorker:
@@ -41,7 +29,7 @@ def _run(worker: RenderWorker, task: RenderTask) -> dict:
     return got
 
 
-def test_histogram_raw_binned_from_float_output_before_soft_proof():
+def test_histogram_raw_binned_from_the_float_pipeline_output():
     rng = np.random.default_rng(0)
     float_result = rng.uniform(0.2, 0.8, (32, 32, 3)).astype(np.float32)
     worker = _make_worker(float_result)
@@ -52,12 +40,12 @@ def test_histogram_raw_binned_from_float_output_before_soft_proof():
             config=DEFAULT_WORKSPACE_CONFIG,
             source_hash="h",
             preview_size=32.0,
-            icc_output_path="/fake/display.icc",
         ),
     )
     assert np.array_equal(metrics["histogram_raw"], output_histogram(float_result))
-    # base_positive is the quantized proof buffer; the histogram must not come from it.
-    assert not np.array_equal(metrics["histogram_raw"], output_histogram(metrics["base_positive"]))
+    # The worker hands the render on untouched — no proof is baked into it, so the
+    # histogram and the published buffer describe the same pixels.
+    assert metrics["base_positive"] is float_result
 
 
 def test_histogram_raw_not_recomputed_when_pipeline_provides_it():

@@ -1,7 +1,7 @@
 import io
 import os
 from functools import lru_cache
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 import numpy as np
 from PIL import Image, ImageCms
@@ -54,9 +54,18 @@ def profile_description(data: Optional[bytes]) -> str:
 
 
 @lru_cache(maxsize=16)
-def get_display_lut(working_color_space: str, dst_bytes: Optional[bytes] = None) -> Optional[np.ndarray]:
+def get_display_lut(
+    working_color_space: str,
+    dst_bytes: Optional[bytes] = None,
+    proof: Optional[Tuple[Optional[str], Optional[str]]] = None,
+) -> Optional[np.ndarray]:
     """3D LUT converting the assumed source space (`WORKING_COLOR_SPACE`) to the
     display profile.
+
+    ``proof`` is ``(input_icc_path, output_icc_path)`` when the preview soft-proofs.
+    The LUT then carries source→output-proof→display in one hop, so the canvas
+    shader, the CPU overlay and the filmstrip thumbnail all apply the identical
+    transform to the same buffer — they must, or one frame shows two colours.
 
     ``working_color_space`` is the profile the camera-native pipeline numbers are
     *assumed* to be in (see `color_spaces.WORKING_COLOR_SPACE`), not a real working
@@ -66,6 +75,12 @@ def get_display_lut(working_color_space: str, dst_bytes: Optional[bytes] = None)
     the display is sRGB), so callers can skip it. Cached per (source, display
     profile). Used by both the CPU (`ImageConverter.to_qimage`) and GPU display paths.
     """
+    if proof is not None:
+        # Deferred: image_processor owns the proof's branch selection (print profile
+        # vs export space vs GRAY) and pulls this module in itself.
+        from negpy.services.rendering.image_processor import ImageProcessor
+
+        return ImageProcessor.soft_proof_lut(working_color_space, proof[0], proof[1], dst_bytes)
     if working_color_space == ColorSpace.SRGB.value and dst_bytes is None:
         return None
     try:
@@ -84,7 +99,12 @@ def get_display_lut(working_color_space: str, dst_bytes: Optional[bytes] = None)
         return None
 
 
-def apply_display_transform(buffer: np.ndarray, working_color_space: str, dst_bytes: Optional[bytes] = None) -> np.ndarray:
+def apply_display_transform(
+    buffer: np.ndarray,
+    working_color_space: str,
+    dst_bytes: Optional[bytes] = None,
+    proof: Optional[Tuple[Optional[str], Optional[str]]] = None,
+) -> np.ndarray:
     """Convert a float32 RGB buffer from the working space to the display profile.
 
     No-op for non-RGB buffers (greyscale display stays neutral) or when the
@@ -94,7 +114,7 @@ def apply_display_transform(buffer: np.ndarray, working_color_space: str, dst_by
     """
     if buffer.dtype != np.float32 or buffer.ndim != 3 or buffer.shape[2] != 3:
         return buffer
-    lut = get_display_lut(working_color_space, dst_bytes)
+    lut = get_display_lut(working_color_space, dst_bytes, proof)
     if lut is None:
         return buffer
     from negpy.infrastructure.display.icc_lut import apply_lut_f32

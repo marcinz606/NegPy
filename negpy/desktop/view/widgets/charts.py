@@ -739,11 +739,11 @@ class StepWedgeWidget(QWidget):
         self._step_d: float = 0.0
         self._colors: list = []
 
-    def update_data(self, enc: Any, step_density: float, color_space: str, monitor_icc_bytes: Any = None) -> None:
+    def update_data(self, enc: Any, step_density: float, color_space: str, monitor_icc_bytes: Any = None, proof: Any = None) -> None:
         """`enc` is the 21 display-encoded patch values. The patches go through the same
-        display transform the canvas used, so wedge and frame can't disagree; under a proof
-        `color_space` is already sRGB and the transform a no-op, because the render worker
-        baked the proof into the buffer and proofing it twice blows the saturation out.
+        display transform the canvas used — including the soft proof, which rides the
+        display LUT rather than being baked into the buffer — so wedge and frame can't
+        disagree.
         """
         from negpy.desktop.converters import ImageConverter
 
@@ -753,7 +753,7 @@ class StepWedgeWidget(QWidget):
             self._colors = []
         else:
             buf = np.repeat(np.clip(self._enc, 0.0, 1.0).reshape(1, -1, 1), 3, axis=2)
-            img = ImageConverter.to_qimage(buf, color_space, monitor_icc_bytes)
+            img = ImageConverter.to_qimage(buf, color_space, monitor_icc_bytes, proof)
             self._colors = [img.pixelColor(i, 0) for i in range(img.width())]
         self.update()
 

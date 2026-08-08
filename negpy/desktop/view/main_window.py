@@ -559,8 +559,8 @@ class MainWindow(QMainWindow):
 
         # Shared with the filmstrip thumbnail so the same frame can't render two
         # different colours in the two places (see display_transform_params).
-        display_cs, monitor_bytes = self.controller.display_transform_params(splash=bool(metrics.get("splash")))
-        self.canvas.update_buffer(buffer, display_cs, content_rect=content_rect, monitor_icc_bytes=monitor_bytes)
+        display_cs, monitor_bytes, proof = self.controller.display_transform_params(splash=bool(metrics.get("splash")))
+        self.canvas.update_buffer(buffer, display_cs, content_rect=content_rect, monitor_icc_bytes=monitor_bytes, proof=proof)
 
     def _refresh_image_info(self) -> None:
         """Updates the canvas HUD corner pills."""

@@ -1797,8 +1797,6 @@ class AppController(QObject):
             self.on_strip_finished(cached["mosaics"], cached["content_rect"], from_cache=True)
             return
 
-        proofing = self.state.soft_proof_enabled
-        icc_input = self.effective_input_icc() if (proofing or self.state.config.process.narrowband_scan) else None
         self.state.test_strip_kind = kind
         self.state.test_strip_pending = True
         self.test_strip_changed.emit(False)
@@ -1815,12 +1813,8 @@ class AppController(QObject):
                 preview_size=float(APP_CONFIG.preview_render_size),
                 overrides=tuple(overrides),
                 grid=grid,
-                icc_input_path=icc_input,
-                icc_output_path=self.effective_output_icc() if proofing else None,
-                color_space=self.state.workspace_color_space,
                 gpu_enabled=self.state.gpu_enabled,
                 ir_buffer=self.state.preview_ir,
-                monitor_icc_bytes=self.state.monitor_icc_bytes,
             )
         )
 
@@ -3103,23 +3097,36 @@ class AppController(QObject):
             return get_resource_path("icc/RGBScan.icc")
         return None
 
-    def display_transform_params(self, splash: bool = False) -> tuple[str, Optional[bytes]]:
-        """Source space + monitor profile to hand the display transform for the
-        current render, as ``(color_space, monitor_icc_bytes)``.
+    def display_transform_params(self, splash: bool = False) -> tuple[str, Optional[bytes], Optional[tuple]]:
+        """Everything the display transform needs for the current render, as
+        ``(color_space, monitor_icc_bytes, proof)``.
 
         Single source of truth for every consumer of a rendered buffer — the canvas
-        and the filmstrip thumbnail must agree, or the same frame shows two different
-        colours. With a proof active the render worker already baked
-        source→output→monitor into the buffer, so the transform has to be a no-op
-        (sRGB→sRGB, no monitor profile); treating that buffer as working-space instead
-        re-applies the working→sRGB conversion and blows the saturation out. ``splash``
-        marks the embedded camera thumbnail, which is already sRGB.
+        shader, the CPU overlay and the filmstrip thumbnail must agree, or the same
+        frame shows two different colours. Renders arrive in the working space; a
+        proof is *not* baked into them, it is folded into the display LUT here (see
+        ``get_display_lut``), which is what lets a GPU texture go to the shader
+        untouched. ``splash`` marks the embedded camera thumbnail, already sRGB.
         """
         if splash:
-            return ColorSpace.SRGB.value, self.state.monitor_icc_bytes
-        if self.proof_active():
-            return ColorSpace.SRGB.value, None
-        return self.state.workspace_color_space, self.state.monitor_icc_bytes
+            return ColorSpace.SRGB.value, self.state.monitor_icc_bytes, None
+        return self.state.workspace_color_space, self.state.monitor_icc_bytes, self.proof_profiles()
+
+    def proof_profiles(self) -> Optional[tuple]:
+        """``(input_icc, output_icc)`` for the preview proof, or None when off.
+
+        Narrowband Scan supplies an implicit *input* profile whether or not the
+        soft-proof toggle is on; the output profile only applies with the toggle.
+        """
+        proofing = self.state.soft_proof_enabled
+        narrowband = self.state.config.process.narrowband_scan
+        if not (proofing or narrowband):
+            return None
+        icc_input = self.effective_input_icc() if (proofing or narrowband) else None
+        icc_output = self.effective_output_icc() if proofing else None
+        if not (icc_input or icc_output):
+            return None
+        return icc_input, icc_output
 
     def proof_active(self) -> bool:
         """True when the preview should soft-proof: the toggle is on and an input or
@@ -3202,14 +3209,6 @@ class AppController(QObject):
         if self.state.hq_preview:
             target_size = float(max(preview_raw.shape[:2]))
 
-        # Soft-proof gating: Output/Input ICC only touch the preview when the toggle is
-        # on; otherwise the preview is the edit shown on the monitor (export unaffected).
-        # Narrowband Scan supplies an implicit input profile regardless of the toggle.
-        proofing = self.state.soft_proof_enabled
-        narrowband = self.state.config.process.narrowband_scan
-        icc_input = self.effective_input_icc() if (proofing or narrowband) else None
-        effective_output = self.effective_output_icc() if proofing else None
-
         crop_preview_full = self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
         # Only a plain render of the saved edit is reproducible on navigate-back;
         # overrides (compare/flat peek), splash and tool previews are not memoized.
@@ -3222,13 +3221,9 @@ class AppController(QObject):
             config=config_override if config_override is not None else self.state.config,
             source_hash=self.state.current_file_hash or "preview",
             preview_size=target_size,
-            icc_input_path=icc_input,
-            icc_output_path=effective_output,
-            color_space=self.state.workspace_color_space,
             gpu_enabled=self.state.gpu_enabled,
             readback_metrics=readback_metrics,
             ir_buffer=self.state.preview_ir,
-            monitor_icc_bytes=self.state.monitor_icc_bytes,
             crop_preview_full=crop_preview_full,
             ephemeral=ephemeral,
             memo_key=memo_key,
@@ -4170,7 +4165,7 @@ class AppController(QObject):
 
         # Same transform the canvas used for this buffer, so the filmstrip and the
         # canvas can't disagree about the frame's colour.
-        display_cs, monitor_bytes = self.display_transform_params(splash=bool(metrics.get("splash")))
+        display_cs, monitor_bytes, proof = self.display_transform_params(splash=bool(metrics.get("splash")))
         # The asset's own key, so the batch (source) path re-serves this rendered positive
         # instead of the uninverted source merge it would decode itself.
         self.thumbnail_update_requested.emit(
@@ -4179,6 +4174,7 @@ class AppController(QObject):
                 buffer=buffer,
                 color_space=display_cs,
                 monitor_icc_bytes=monitor_bytes,
+                proof=proof,
                 persist=persist,
             )
         )

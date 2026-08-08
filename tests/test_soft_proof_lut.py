@@ -97,40 +97,42 @@ class TestSoftProofLut(unittest.TestCase):
         self.assertFalse(np.array_equal(plain, on_p3), "the proof must land on the monitor profile")
 
 
-class TestWorkerUsesTheLut(unittest.TestCase):
-    """The worker applies the LUT and falls back when it cannot be built."""
+class TestDisplayTransformCarriesTheProof(unittest.TestCase):
+    """The proof reaches pixels through the display transform, not the render worker."""
 
     def setUp(self):
-        from negpy.desktop.workers.render import RenderWorker
+        from negpy.infrastructure.display.color_mgmt import get_display_lut
 
-        self.worker = RenderWorker.__new__(RenderWorker)
+        get_display_lut.cache_clear()
+        ImageProcessor.soft_proof_lut.cache_clear()
         rng = np.random.default_rng(1)
         self.img = np.ascontiguousarray(rng.random((32, 48, 3), dtype=np.float32))
 
-    def test_lut_path_matches_the_pil_path(self):
-        from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
+    def test_get_display_lut_returns_the_proof_lut(self):
+        from negpy.infrastructure.display.color_mgmt import get_display_lut
 
-        class _Proc:
-            soft_proof_lut = staticmethod(ImageProcessor.soft_proof_lut)
-            soft_proof_preview = staticmethod(ImageProcessor.soft_proof_preview)
-            buffer_to_pil = ImageProcessor.buffer_to_pil
-
-        self.worker._processor = _Proc()
         out_path = _srgb_path()
-        via_lut = self.worker._soft_proof(self.img, DEFAULT_WORKSPACE_CONFIG, WORKING_COLOR_SPACE, None, out_path, None)
+        proofed = get_display_lut(WORKING_COLOR_SPACE, None, (None, out_path))
+        plain = get_display_lut(WORKING_COLOR_SPACE, None, None)
+        self.assertIsNotNone(proofed)
+        self.assertEqual(proofed.shape, (PROOF_LUT_SIZE, PROOF_LUT_SIZE, PROOF_LUT_SIZE, 3))
+        self.assertFalse(plain is not None and plain.shape == proofed.shape and np.array_equal(plain, proofed))
 
-        class _NoLut(_Proc):
-            @staticmethod
-            def soft_proof_lut(*a, **k):
-                return None
+    def test_apply_display_transform_proofs(self):
+        from negpy.infrastructure.display.color_mgmt import apply_display_transform
 
-        self.worker._processor = _NoLut()
-        via_pil = self.worker._soft_proof(self.img, DEFAULT_WORKSPACE_CONFIG, WORKING_COLOR_SPACE, None, out_path, None)
-        # Both stand in for the same transform; the gap is the 8-bit round-trip the
-        # fallback still does, so it is bounded rather than zero.
-        self.assertLess(np.abs(via_lut - via_pil).mean() * 255.0, 1.0)
-        self.assertEqual(via_lut.shape, via_pil.shape)
-        self.assertEqual(via_lut.dtype, np.float32)
+        out_path = _srgb_path()
+        proofed = apply_display_transform(self.img, WORKING_COLOR_SPACE, None, (None, out_path))
+        plain = apply_display_transform(self.img, WORKING_COLOR_SPACE, None, None)
+        self.assertFalse(np.array_equal(proofed, plain), "the proof must change the displayed pixels")
+        expected = apply_lut_f32(self.img, ImageProcessor.soft_proof_lut(WORKING_COLOR_SPACE, None, out_path, None))
+        self.assertTrue(np.array_equal(proofed, expected))
+
+    def test_the_render_worker_no_longer_bakes_a_proof(self):
+        """Baking would strand the buffer on the host and break the zero-copy path."""
+        from negpy.desktop.workers.render import RenderWorker
+
+        self.assertFalse(hasattr(RenderWorker, "_soft_proof"))
 
 
 if __name__ == "__main__":
