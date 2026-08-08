@@ -662,7 +662,7 @@ class AppController(QObject):
         self.poll_light_temp_requested.connect(self.capture_worker.poll_light_temp)
         self.capture_worker.light_temp_polled.connect(self.light_temp_polled.emit)
 
-        self.session.active_file_changing.connect(lambda: self._update_thumbnail_from_state(force_readback=True))
+        self.session.active_file_changing.connect(self._update_thumbnail_from_state)
         self.session.session_emptied.connect(self._render_memo.clear)
         self.session.session_emptied.connect(self._strip_memo.clear)
         self.session.file_selected.connect(self._on_file_selected_load)
@@ -1290,6 +1290,7 @@ class AppController(QObject):
         # densitometer's probe sources so hover readouts go quiet until the next render.
         self.state.last_metrics.pop("normalized_log", None)
         self.state.last_metrics.pop("base_positive", None)
+        self.state.last_metrics.pop("thumbnail_source", None)
 
         if memo is not None:
             with self.state.metrics_lock:
@@ -2295,7 +2296,7 @@ class AppController(QObject):
     def save_current_edits(self) -> None:
         if self.state.current_file_hash:
             self.session.update_config(self.state.config, persist=True)
-            self._update_thumbnail_from_state(force_readback=True)
+            self._update_thumbnail_from_state()
 
     def clear_retouch(self) -> None:
         from negpy.desktop.view.confirm import confirm_clear_heals
@@ -3277,6 +3278,8 @@ class AppController(QObject):
             memo_key=memo_key,
             compare=self.state.compare_mode,
             interactive=interactive,
+            # Mirrors should_update_thumb, minus its pending-task check.
+            wants_thumbnail=(not interactive and not ephemeral and config_override is None and self.state.config is not self._thumb_config),
         )
 
         if self._is_rendering:
@@ -4118,7 +4121,7 @@ class AppController(QObject):
         if should_update_thumb:
             self._thumb_config = self.state.config
             # persist=False: refresh in-memory only; disk JPEG written on switch/save/export.
-            self._update_thumbnail_from_state(force_readback=True, persist=False)
+            self._update_thumbnail_from_state(persist=False)
 
         if self._pending_render_task:
             task = self._pending_render_task
@@ -4189,9 +4192,9 @@ class AppController(QObject):
         owner = self._active_batch if self._active_batch in ("export", "contact_sheet") else "export"
         self._end_batch(owner)
         self.export_finished.emit(elapsed, self._export_failures)
-        self._update_thumbnail_from_state(force_readback=True)
+        self._update_thumbnail_from_state()
 
-    def _update_thumbnail_from_state(self, force_readback: bool = False, persist: bool = True) -> None:
+    def _update_thumbnail_from_state(self, persist: bool = True) -> None:
         if not self.state.current_file_path or not self.state.current_file_hash:
             return
         idx = self.state.selected_file_idx
@@ -4201,8 +4204,8 @@ class AppController(QObject):
             metrics = dict(self.state.last_metrics)
         buffer = metrics.get("base_positive")
 
-        # The render worker supplies host pixels; reading the texture back here would
-        # put a full-frame copy on the UI thread.
+        # The render worker supplies host pixels; reading back here would put a
+        # full-frame copy on the UI thread.
         if isinstance(buffer, GPUTexture):
             buffer = metrics.get("thumbnail_source")
 

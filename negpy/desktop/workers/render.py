@@ -48,6 +48,8 @@ class RenderTask:
     # Produced while a gesture is live. Echoed in metrics so the UI thread can skip
     # what only has to be right once the gesture settles.
     interactive: bool = False
+    # Only the controller knows whether the filmstrip is already current for this config.
+    wants_thumbnail: bool = False
 
 
 @dataclass(frozen=True)
@@ -223,12 +225,12 @@ class RenderWorker(QObject):
             # The soft proof is not baked in: it rides the display LUT, so a GPU
             # texture reaches the canvas shader without a readback.
 
-            # Host pixels for the filmstrip thumbnail, taken here because the engine
-            # recycles its stage textures on the next frame. Settle frames only, and
-            # never from an HQ render — a preview-sized one yields the same thumbnail.
-            wants_thumb = task.readback_metrics and task.preview_size <= APP_CONFIG.preview_render_size
-            if wants_thumb and isinstance(result, GPUTexture):
-                metrics["thumbnail_source"] = np.ascontiguousarray(result.readback()[:, :, :3])
+            # Taken here because the engine recycles its stage textures next frame.
+            # Always assigned: the controller merges metrics into a running dict, so a
+            # stale entry would be filed under this asset's key.
+            metrics["thumbnail_source"] = (
+                np.ascontiguousarray(result.readback()[:, :, :3]) if task.wants_thumbnail and isinstance(result, GPUTexture) else None
+            )
 
             # Ensure ground truth is stored in metrics for view consumption
             metrics["base_positive"] = result

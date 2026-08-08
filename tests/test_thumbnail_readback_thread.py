@@ -6,7 +6,6 @@ from its pool on the next frame.
 """
 
 import unittest
-from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -82,42 +81,54 @@ class TestWorkerAttachesTheHostCopy(unittest.TestCase):
             worker.process(task)
         return got
 
-    def _task(self, buffer, readback_metrics):
+    def _task(self, buffer, wants_thumbnail, preview_size=8.0):
         return RenderTask(
             buffer=np.zeros((8, 8, 3), dtype=np.float32),
             config=DEFAULT_WORKSPACE_CONFIG,
             source_hash="h",
-            preview_size=8.0,
-            readback_metrics=readback_metrics,
+            preview_size=preview_size,
+            readback_metrics=True,
+            wants_thumbnail=wants_thumbnail,
         )
 
-    def test_settle_frame_attaches_a_host_copy(self):
+    def test_attaches_a_host_copy_when_asked(self):
         tex = _FakeTexture(np.full((8, 8, 4), 0.5, dtype=np.float32))
-        metrics = self._run(self._worker(tex), self._task(tex, readback_metrics=True))
+        metrics = self._run(self._worker(tex), self._task(tex, wants_thumbnail=True))
         self.assertEqual(tex.readbacks, 1)
         self.assertIsInstance(metrics.get("thumbnail_source"), np.ndarray)
         self.assertEqual(metrics["thumbnail_source"].shape[2], 3, "alpha lane dropped for the thumbnail")
 
-    def test_drag_frame_does_not_read_back(self):
+    def test_no_copy_when_not_asked(self):
         tex = _FakeTexture(np.full((8, 8, 4), 0.5, dtype=np.float32))
-        metrics = self._run(self._worker(tex), self._task(tex, readback_metrics=False))
-        self.assertEqual(tex.readbacks, 0, "a drag frame must never pay the readback")
+        metrics = self._run(self._worker(tex), self._task(tex, wants_thumbnail=False))
+        self.assertEqual(tex.readbacks, 0)
         self.assertIsNone(metrics.get("thumbnail_source"))
 
-    def test_cpu_render_needs_no_copy(self):
-        arr = np.full((8, 8, 3), 0.5, dtype=np.float32)
-        metrics = self._run(self._worker(arr), self._task(arr, readback_metrics=True))
-        self.assertIsNone(metrics.get("thumbnail_source"), "a host render is already its own thumbnail source")
-
-    def test_hq_render_is_not_copied(self):
-        """A preview-sized render yields the same thumbnail for a fraction of the copy."""
+    def test_hq_render_still_produces_a_thumbnail(self):
+        """Switching images with HQ on never renders that image at preview size."""
         from negpy.kernel.system.config import APP_CONFIG
 
         tex = _FakeTexture(np.full((8, 8, 4), 0.5, dtype=np.float32))
-        task = replace(self._task(tex, readback_metrics=True), preview_size=float(APP_CONFIG.preview_render_size * 4))
+        task = self._task(tex, wants_thumbnail=True, preview_size=float(APP_CONFIG.preview_render_size * 4))
         metrics = self._run(self._worker(tex), task)
-        self.assertEqual(tex.readbacks, 0)
-        self.assertIsNone(metrics.get("thumbnail_source"))
+        self.assertEqual(tex.readbacks, 1)
+        self.assertIsInstance(metrics.get("thumbnail_source"), np.ndarray)
+
+    def test_key_is_always_assigned_so_a_stale_copy_cannot_survive(self):
+        """The controller merges metrics into a running dict, so a render that produced
+        no copy must clear the previous image's."""
+        tex = _FakeTexture(np.full((8, 8, 4), 0.5, dtype=np.float32))
+        metrics = self._run(self._worker(tex), self._task(tex, wants_thumbnail=False))
+        self.assertIn("thumbnail_source", metrics)
+
+        running = {"thumbnail_source": np.full((4, 4, 3), 0.9, dtype=np.float32)}  # previous image
+        running.update(metrics)
+        self.assertIsNone(running["thumbnail_source"])
+
+    def test_cpu_render_needs_no_copy(self):
+        arr = np.full((8, 8, 3), 0.5, dtype=np.float32)
+        metrics = self._run(self._worker(arr), self._task(arr, wants_thumbnail=True))
+        self.assertIsNone(metrics.get("thumbnail_source"), "a host render is already its own thumbnail source")
 
 
 if __name__ == "__main__":

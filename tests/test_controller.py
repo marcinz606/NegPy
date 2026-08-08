@@ -327,7 +327,7 @@ class TestAppController(unittest.TestCase):
         self.controller.state.config = cfg
         self.controller._on_render_finished(None, {})
         self.assertEqual(self.controller._update_thumbnail_from_state.call_count, 1)
-        self.controller._update_thumbnail_from_state.assert_called_with(force_readback=True, persist=False)
+        self.controller._update_thumbnail_from_state.assert_called_with(persist=False)
 
         # Same config object -> no redundant refresh.
         self.controller._on_render_finished(None, {})
