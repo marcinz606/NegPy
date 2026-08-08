@@ -4,6 +4,7 @@ import sys
 import threading
 from typing import Callable
 
+import cv2
 import numpy as np
 
 from negpy.infrastructure.scanners.base import (
@@ -388,13 +389,30 @@ def _find_coolscan3_ir_option(opt, device_id: str) -> str | None:
     return None
 
 
+def _find_ir_source(opt) -> str | None:
+    """Return an IR-named `source` constraint value, if the device switches to IR
+    via source string (e.g. Plustek, or genesys's "Transparency Adapter Infrared")."""
+    if "source" not in opt:
+        return None
+    constraint = opt["source"].constraint
+    if not isinstance(constraint, (list, tuple)):
+        return None
+    for s in constraint:
+        s_lower = str(s).strip().lower()
+        if "ir" in s_lower or "infrared" in s_lower:
+            return str(s)
+    return None
+
+
 def _detect_ir(opt, device_id: str = "") -> bool:
     if _mode_has_rgbi(opt):
         return True
     if _find_ir_option(opt) is not None:
         return True
     coolscan_ir = _find_coolscan3_ir_option(opt, device_id)
-    return coolscan_ir is not None and _option_is_usable(opt[coolscan_ir])
+    if coolscan_ir is not None and _option_is_usable(opt[coolscan_ir]):
+        return True
+    return _find_ir_source(opt) is not None
 
 
 def _has_usable_option(opt, name: str) -> bool:
@@ -529,6 +547,63 @@ def _caps_from_options(opt, device_id: str = "") -> ScannerCapabilities:
 def _split_rgbi(arr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Split an RGBI scan `(H, W, 4)` into RGB `(H, W, 3)` and IR `(H, W)`."""
     return arr[:, :, :3], arr[:, :, 3]
+
+
+# Downsample width for the phase-correlation probe: cheap and denoises the FFT peak
+# (mirrors negpy.features.rgbscan.logic._EST_WIDTH's same tradeoff).
+_IR_ALIGN_PROBE_WIDTH = 1024
+# Correlation-failure guard: past this the estimate is noise, not a real carriage offset.
+_IR_ALIGN_MAX_SHIFT_FRAC = 0.02
+
+
+def _align_ir_to_rgb(rgb: np.ndarray, ir: np.ndarray) -> np.ndarray:
+    """Register a separately-scanned IR plane onto the RGB frame by a whole-pixel shift.
+
+    Only the 'source' IR strategy (a second full mechanical pass — e.g. Plustek, or
+    genesys's "Transparency Adapter Infrared") needs this: the carriage re-homes
+    between the two scans and is not perfectly repeatable, so IR can land a few
+    pixels off the visible frame. Inline RGBI/coolscan3 IR shares one photosite
+    read per line with RGB and is always aligned already.
+
+    Whole pixels only, no sub-pixel interpolation: a dust defect is a *minimum* in
+    the IR ratio, and resampling softens that dip — downsample_ir documents the same
+    failure mode for INTER_AREA (a thin hair's dip shallowed 0.22 -> 0.31 and
+    shattered). This runs on raw sensor counts, upstream of every noise-calibrated
+    landmark in ir_ratio_and_gain (_ir_normalize_ratio's per-frame MAD sigma), so
+    blurring it here would bias those measurements on exactly the low-native-sigma
+    hardware (Plustek/SilverFast, σ ~0.005 per #715) this strategy exists for. A
+    carriage-repeatability offset is whole pixels anyway — nothing is lost by not
+    going sub-pixel.
+    """
+    if ir.size == 0 or rgb.shape[:2] != ir.shape[:2]:
+        return ir
+    ref = rgb.astype(np.float32)
+    if ref.ndim == 3:
+        ref = ref.mean(axis=2)
+    mov = ir.astype(np.float32)
+    if mov.ndim == 3:
+        mov = mov[:, :, 0]
+    h, w = ref.shape[:2]
+    scale = max(1.0, w / _IR_ALIGN_PROBE_WIDTH)
+    if scale > 1.0:
+        sz = (_IR_ALIGN_PROBE_WIDTH, max(1, round(h / scale)))
+        r = cv2.resize(ref, sz, interpolation=cv2.INTER_AREA)
+        m = cv2.resize(mov, sz, interpolation=cv2.INTER_AREA)
+    else:
+        r, m = ref, mov
+    win = cv2.createHanningWindow((r.shape[1], r.shape[0]), cv2.CV_32F)
+    (dx, dy), _resp = cv2.phaseCorrelate(np.ascontiguousarray(r), np.ascontiguousarray(m), win)
+    dx, dy = dx * scale, dy * scale
+    if max(abs(dx), abs(dy)) > max(16.0, _IR_ALIGN_MAX_SHIFT_FRAC * w):
+        return ir
+    ix, iy = int(round(dx)), int(round(dy))
+    if ix == 0 and iy == 0:
+        return ir
+    # out(x, y) = ir(x + ix, y + iy), edge-replicated — matches _estimate_shift's
+    # convention (mov ≈ ref shifted by (dx, dy)) with zero interpolation.
+    x_idx = np.clip(np.arange(w) + ix, 0, w - 1)
+    y_idx = np.clip(np.arange(h) + iy, 0, h - 1)
+    return ir[y_idx][:, x_idx]
 
 
 def _validate_inline_rgbi_parameters(
@@ -1053,16 +1128,24 @@ class SaneBackend:
                 dev.cancel()
                 raise RuntimeError("Scan cancelled")
 
-            # Legacy IR: separate scan via an IR source string (Plustek).
+            # Legacy IR: separate scan via an IR source string (Plustek). Its own
+            # full pass, so it reports its own 0->1 — matches the RGB pass above
+            # rather than sharing one bar, and needs no ir_strategy conditionality.
             if ir_strategy == "source":
                 try:
                     old_source = dev.source
                     ir_source = self._get_ir_source(dev)
                     if ir_source:
                         dev.source = ir_source
+                    if progress:
+                        try:
+                            progress(0.0)
+                        except Exception:
+                            pass
                     dev.start()
-                    ir_array = dev.arr_snap()
+                    ir_array = dev.arr_snap(progress=_snap_progress_callback(progress))
                     dev.source = old_source
+                    ir_array = _align_ir_to_rgb(rgb_array, ir_array)
                 except Exception as e:
                     logger.warning(f"IR scan failed, continuing without IR: {e}")
                     ir_array = None
@@ -1192,13 +1275,6 @@ class SaneBackend:
     @staticmethod
     def _get_ir_source(dev) -> str | None:
         """Find an IR-specific source string if available."""
-        if not hasattr(dev, "opt") or "source" not in dev.opt:
+        if not hasattr(dev, "opt"):
             return None
-        constraint = dev.opt["source"].constraint
-        if not isinstance(constraint, (list, tuple)):
-            return None
-        for s in constraint:
-            s_lower = str(s).strip().lower()
-            if "ir" in s_lower:
-                return str(s)
-        return None
+        return _find_ir_source(dev.opt)

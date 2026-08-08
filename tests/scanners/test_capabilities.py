@@ -242,6 +242,16 @@ class TestCapsFromOptions:
         caps = _caps_from_options(opt, "plustek:libusb:001:008")
         assert caps.ir_channel is True
 
+    def test_ir_from_source_name(self) -> None:
+        # genesys (e.g. Epson flatbeds with a transparency adapter) exposes IR
+        # only as a second `source` value, not a dedicated option or RGBI mode.
+        opt = {
+            "mode": FakeOption(constraint=["Color", "Gray"]),
+            "source": FakeOption(constraint=["Transparency Adapter", "Transparency Adapter Infrared"]),
+        }
+        caps = _caps_from_options(opt, "genesys:libusb:001:003")
+        assert caps.ir_channel is True
+
 
 class TestAutoExposureCapability:
     """Hardware auto-exposure is a presence-only UI gate, mirroring _detect_ir."""
