@@ -1,3 +1,4 @@
+import logging
 import math
 import os
 import sys
@@ -39,6 +40,8 @@ from negpy.features.local.models import MaskShape
 from negpy.features.retouch.models import HEAL_SIZE_REF
 from negpy.services.view.coordinate_mapping import CoordinateMapping
 from negpy.services.view.printing_notes import mask_notes, recipe_lines
+
+logger = logging.getLogger(__name__)
 
 _LASSO_SNAP_PX = 12.0
 _CROP_HANDLE_PX = 10.0
@@ -257,10 +260,11 @@ class CanvasOverlay(QWidget):
         self._wash_cache: Dict[int, Tuple[tuple, QImage]] = {}
 
         # The rendered frame as NumPy, for the instruments that measure pixels (zone grid,
-        # grain loupe). main_window reads a GPU texture back before the canvas sees it, so
-        # this is populated on both engines. No id()-keyed cache — update_buffer invalidates
-        # unconditionally, so it can't go stale.
+        # grain loupe, notes sheet). The GPU path hands over a texture instead, read back
+        # only when one of those asks — a per-frame readback would undo the point of it.
         self._display_buffer: Optional[np.ndarray] = None
+        self._gpu_texture: Optional[Any] = None
+        self._host_qimage_cache: Optional[Tuple[tuple, QImage]] = None
         self._zone_cells: Optional[np.ndarray] = None
         self._zone_labels: List[Tuple[int, int, int]] = []
 
@@ -443,9 +447,12 @@ class CanvasOverlay(QWidget):
         gpu_size: Optional[Tuple[int, int]] = None,
         monitor_icc_bytes: Optional[bytes] = None,
         proof: Optional[tuple] = None,
+        gpu_texture: Optional[Any] = None,
     ) -> None:
         self._content_rect = content_rect
         self._display_buffer = buffer if isinstance(buffer, np.ndarray) else None
+        self._gpu_texture = gpu_texture
+        self._host_qimage_cache = None
         self._zone_cells = None  # rebuilt lazily on the next zones paint
         # Kept so a strip mosaic gets the same display transform as this buffer did.
         self._display_cs = color_space
@@ -465,6 +472,38 @@ class CanvasOverlay(QWidget):
 
         self._recalc_view_rect()
         self.update()
+
+    def drop_gpu_texture(self) -> None:
+        """Forget the displayed texture before the engine frees its pool."""
+        self._gpu_texture = None
+
+    def _host_buffer(self) -> Optional[np.ndarray]:
+        """The displayed frame as NumPy, in working space. Reads the GPU texture back on
+        first ask and holds it until the next frame replaces it."""
+        if self._display_buffer is None and self._gpu_texture is not None:
+            try:
+                rb = self._gpu_texture.readback()
+            except Exception:
+                logger.exception("Failed to read back the GPU frame for a canvas instrument")
+                self._gpu_texture = None
+                return None
+            self._display_buffer = np.ascontiguousarray(rb[:, :, :3]) if rb.ndim == 3 and rb.shape[2] >= 3 else rb
+        return self._display_buffer
+
+    def _host_qimage(self) -> Optional[QImage]:
+        """The displayed frame under its own display transform. `_qimage` already is one
+        on the CPU path; the GPU path draws from the texture, so build it here."""
+        if self._qimage is not None:
+            return self._qimage
+        buf = self._host_buffer()
+        if buf is None:
+            return None
+        key = (id(buf), self._display_cs, self._proof)
+        if self._host_qimage_cache is not None and self._host_qimage_cache[0] == key:
+            return self._host_qimage_cache[1]
+        img = ImageConverter.to_qimage(buf, self._display_cs, self._monitor_icc_bytes, self._proof)
+        self._host_qimage_cache = (key, img)
+        return img
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -812,7 +851,7 @@ class CanvasOverlay(QWidget):
         instead of reflowing under the cursor while panning; zoom deep enough and you're
         inside one cell. Rebuild from the visible sub-rect if that ever matters."""
         if self._zone_cells is None:
-            src = self._display_buffer
+            src = self._host_buffer()
             if src is None:
                 return
             if self._content_rect is not None:
@@ -902,16 +941,15 @@ class CanvasOverlay(QWidget):
         """The darkroom grain magnifier: a circular window at the cursor showing the frame's own
         pixels at `_LOUPE_MAG`, with an acutance figure so sharpness is a number.
 
-        Samples `_qimage` — the image the canvas already blitted, so it is display-transformed
-        exactly once. Re-running ImageConverter here would double-proof it: under a soft proof
-        the worker has already baked the transform and `_display_cs` is sRGB.
+        Samples the frame under the canvas's own display transform, applied exactly once —
+        a second pass would double-proof it.
 
         ponytail: magnifies whatever the canvas holds — a 1600 px frame off a half-size demosaic
         unless HQ preview is on — so the acutance figure is comparative below HQ, not absolute,
         and the badge says which. A true 1:1-of-scan loupe needs a full-res ROI render path;
         RenderTask renders whole frames only.
         """
-        img = self._qimage
+        img = self._host_qimage()
         if img is None:
             return
         rect = self._content_view_rect()
@@ -948,10 +986,11 @@ class CanvasOverlay(QWidget):
         painter.drawEllipse(dest)
 
         acutance = 0.0
-        if self._display_buffer is not None:
+        host = self._host_buffer()
+        if host is not None:
             x0, y0 = int(src.x()), int(src.y())
             x1, y1 = int(src.right()), int(src.bottom())
-            acutance = loupe_acutance(self._display_buffer[y0:y1, x0:x1])
+            acutance = loupe_acutance(host[y0:y1, x0:x1])
         label = f"acutance {acutance:.1f} · {'full res' if self.state.hq_preview else 'preview res'}"
 
         badge = QRectF(dest.center().x() - 96.0, dest.bottom() + 6.0, 192.0, _LOUPE_BADGE_H)
@@ -1689,14 +1728,15 @@ class CanvasOverlay(QWidget):
     def printing_notes_sheet(self) -> Optional[QImage]:
         """The exportable notes sheet: the frame the canvas rendered, the map baked on
         it, and the recipe in a band below. None when there is nothing to annotate."""
-        if self._qimage is None:
+        img = self._host_qimage()
+        if img is None:
             return None
         with self.state.metrics_lock:
             uv_grid = self.state.last_metrics.get("uv_grid")
         if uv_grid is None and self.state.config.local.masks:
             return None
         return notes_sheet(
-            self._qimage, self._content_rect, self.state.config.local, uv_grid, self._recipe_lines(), self.state.config.exposure.grade
+            img, self._content_rect, self.state.config.local, uv_grid, self._recipe_lines(), self.state.config.exposure.grade
         )
 
     def _draw_local_handles(self, painter: QPainter, shape: MaskShape, ctrl_pts: List[QPointF], color: QColor) -> None:
