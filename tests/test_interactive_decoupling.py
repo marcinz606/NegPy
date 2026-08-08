@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
-from negpy.desktop.controller import _interactive_proxy
+from negpy.desktop.controller import _interactive_ir_proxy, _interactive_proxy
 from negpy.kernel.system.config import APP_CONFIG
 
 
@@ -31,6 +31,43 @@ class TestInteractiveProxy(unittest.TestCase):
     def test_non_array_buffers_are_ignored(self):
         self.assertIsNone(_interactive_proxy(None))
         self.assertIsNone(_interactive_proxy(object()))
+
+
+class TestIrFollowsTheProxy(unittest.TestCase):
+    """The pipeline reads the IR plane against the image it is handed.
+
+    Proxying one without the other does not raise — it silently applies the wrong
+    dust correction, which is why this is pinned rather than left to a shape check.
+    """
+
+    def setUp(self):
+        rng = np.random.default_rng(0)
+        self.raw = rng.random((2000, 3000, 3), dtype=np.float32).astype(np.float32)
+        self.ir = np.full((2000, 3000), 0.9, dtype=np.float32)
+        self.ir[500:520, 700:720] = 0.2  # a defect: a minimum in transmittance
+
+    def test_ir_proxy_matches_the_image_proxy(self):
+        proxy = _interactive_proxy(self.raw)
+        ir_proxy = _interactive_ir_proxy(self.ir, proxy)
+        self.assertIsNotNone(ir_proxy)
+        self.assertEqual(ir_proxy.shape[:2], proxy.shape[:2])
+
+    def test_defect_minimum_survives_the_downsample(self):
+        """A defect is a minimum; averaging it away would hide dust from the drag preview."""
+        proxy = _interactive_proxy(self.raw)
+        ir_proxy = _interactive_ir_proxy(self.ir, proxy)
+        self.assertLess(ir_proxy.min(), 0.4)
+
+    def test_no_ir_proxy_without_an_image_proxy(self):
+        self.assertIsNone(_interactive_ir_proxy(self.ir, None))
+
+    def test_no_ir_proxy_without_ir(self):
+        self.assertIsNone(_interactive_ir_proxy(None, _interactive_proxy(self.raw)))
+
+    def test_already_matching_ir_is_passed_through(self):
+        proxy = _interactive_proxy(self.raw)
+        matched = np.full(proxy.shape[:2], 0.9, dtype=np.float32)
+        self.assertIs(_interactive_ir_proxy(matched, proxy), matched)
 
 
 class TestSettleOnlyWorkIsSkipped(unittest.TestCase):

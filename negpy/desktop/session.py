@@ -69,6 +69,9 @@ class AppState:
     # buffer is used again the moment the gesture settles. None when not needed.
     preview_proxy: Optional[Any] = None
     preview_ir: Optional[Any] = None  # downsampled IR float32 [0,1] (H,W); None if source has no IR
+    # IR plane matched to preview_proxy. The pipeline reads the IR against the image it
+    # is given, so proxying one without the other silently mis-corrects the dust.
+    preview_ir_proxy: Optional[Any] = None
     has_ir: bool = False
     ir_degenerate: bool = False  # IR plane carries image content (B&W/Kodachrome) → IR restore disabled
     original_res: tuple[int, int] = (0, 0)

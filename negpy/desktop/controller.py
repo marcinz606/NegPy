@@ -78,7 +78,7 @@ from negpy.features.local.models import LocalAdjustmentsConfig
 from negpy.features.process.models import ProcessConfig, ProcessMode, invalidate_local_bounds, scan_setup_values
 from negpy.services.assets.thumbnails import asset_thumbnail_key
 from negpy.kernel.system.paths import get_resource_path
-from negpy.features.retouch.logic import fallback_source_offset, select_source_offset
+from negpy.features.retouch.logic import downsample_ir, fallback_source_offset, select_source_offset
 from negpy.features.retouch.models import HEAL_SIZE_REF, RetouchConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
@@ -124,6 +124,20 @@ def _interactive_proxy(raw: Optional[Any]) -> Optional[Any]:
     scale = APP_CONFIG.preview_render_size / float(long_edge)
     w, h = max(1, round(raw.shape[1] * scale)), max(1, round(raw.shape[0] * scale))
     return cv2.resize(raw, (w, h), interpolation=cv2.INTER_AREA)
+
+
+def _interactive_ir_proxy(ir: Optional[Any], proxy: Optional[Any]) -> Optional[Any]:
+    """IR plane matched to ``proxy``'s shape, or None when no proxy is in use.
+
+    Routed through ``downsample_ir`` rather than a plain resize: a defect is a
+    *minimum* in IR transmittance and INTER_AREA averages sub-pixel minima away.
+    """
+    if proxy is None or not isinstance(ir, np.ndarray):
+        return None
+    h, w = proxy.shape[:2]
+    if ir.shape[:2] == (h, w):
+        return ir
+    return downsample_ir(ir, max(h, w), dims=(w, h))
 
 
 def _capture_import_key(path: str) -> str:
@@ -1394,6 +1408,7 @@ class AppController(QObject):
         self.state.preview_raw = raw
         self.state.preview_proxy = _interactive_proxy(raw)
         self.state.preview_ir = ir_preview
+        self.state.preview_ir_proxy = _interactive_ir_proxy(ir_preview, self.state.preview_proxy)
         self.state.has_ir = ir_preview is not None
         if not self.state.has_ir and self.state.dust_overlay_mode == "ir":
             self.state.dust_overlay_mode = "off"
@@ -3145,10 +3160,9 @@ class AppController(QObject):
         soft-proof toggle is on; the output profile only applies with the toggle.
         """
         proofing = self.state.soft_proof_enabled
-        narrowband = self.state.config.process.narrowband_scan
-        if not (proofing or narrowband):
+        if not (proofing or self.state.config.process.narrowband_scan):
             return None
-        icc_input = self.effective_input_icc() if (proofing or narrowband) else None
+        icc_input = self.effective_input_icc()
         icc_output = self.effective_output_icc() if proofing else None
         if not (icc_input or icc_output):
             return None
@@ -3235,8 +3249,11 @@ class AppController(QObject):
         # frames render against the proxy so the main thread never handles an HQ frame
         # while the gesture is live; the release re-renders at full resolution.
         interactive = not readback_metrics
+        ir_buffer = self.state.preview_ir
         if interactive and self.state.preview_proxy is not None:
             preview_raw = self.state.preview_proxy
+            # The IR plane must follow the image it is read against.
+            ir_buffer = self.state.preview_ir_proxy
 
         target_size = float(APP_CONFIG.preview_render_size)
         if self.state.hq_preview:
@@ -3245,8 +3262,11 @@ class AppController(QObject):
         crop_preview_full = self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
         # Only a plain render of the saved edit is reproducible on navigate-back;
         # overrides (compare/flat peek), splash and tool previews are not memoized.
+        # Not interactive either: a proxy frame under the full-resolution config's key
+        # would have navigate-back paint the low-res stand-in (CPU fallback publishes a
+        # host array, which is what the memo stores).
         memo_key = ""
-        if config_override is None and not ephemeral and not crop_preview_full:
+        if config_override is None and not ephemeral and not crop_preview_full and not interactive:
             memo_key = self._render_memo_key()
 
         task = RenderTask(
@@ -3256,7 +3276,7 @@ class AppController(QObject):
             preview_size=target_size,
             gpu_enabled=self.state.gpu_enabled,
             readback_metrics=readback_metrics,
-            ir_buffer=self.state.preview_ir,
+            ir_buffer=ir_buffer,
             crop_preview_full=crop_preview_full,
             ephemeral=ephemeral,
             memo_key=memo_key,
