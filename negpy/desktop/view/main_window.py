@@ -442,7 +442,7 @@ class MainWindow(QMainWindow):
         self.canvas.crop_confirmed.connect(self.controller.confirm_manual_crop)
         self.canvas.analysis_rect_changed.connect(self.controller.handle_analysis_rect_changed)
         self.canvas.analysis_confirmed.connect(self.controller.confirm_analysis_region)
-        self.canvas.lasso_completed.connect(self.controller.handle_lasso_completed)
+        self.canvas.local_mask_created.connect(self.controller.handle_local_mask_created)
         self.canvas.scratch_completed.connect(self.controller.handle_heal_stroke_completed)
         self.canvas.straighten_completed.connect(self.controller.handle_straighten_completed)
         self.canvas.zone_pin_moved.connect(self.controller.move_zone_pin)

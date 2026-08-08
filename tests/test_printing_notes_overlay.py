@@ -11,11 +11,11 @@ from PyQt6.QtGui import QImage, QPainter, QPixmap
 from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.canvas.overlay import CanvasOverlay
 from negpy.desktop.view.canvas.printing_notes import card_size, notes_sheet
-from negpy.features.local.models import LocalAdjustmentsConfig, PolygonMask
+from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskShape
 
 W = H = 200
-BURN = PolygonMask(vertices=((0.05, 0.05), (0.45, 0.05), (0.45, 0.45), (0.05, 0.45)), stops=1.0)
-DODGE = PolygonMask(vertices=((0.55, 0.55), (0.95, 0.55), (0.95, 0.95), (0.55, 0.95)), stops=-0.5)
+BURN = LocalMask(vertices=((0.05, 0.05), (0.45, 0.05), (0.45, 0.45), (0.05, 0.45)), stops=1.0)
+DODGE = LocalMask(vertices=((0.55, 0.55), (0.95, 0.55), (0.95, 0.95), (0.55, 0.95)), stops=-0.5)
 
 
 def _uv_grid(h: int = H, w: int = W) -> np.ndarray:
@@ -106,6 +106,20 @@ def test_the_sheet_hatches_the_burn_and_leaves_the_dodge_open() -> None:
     grey = np.array([128, 128, 128, 255], dtype=np.uint8)
     assert (burn_interior != grey).any(axis=-1).mean() > 0.05  # hatch lines
     assert (dodge_interior != grey).any(axis=-1).mean() == 0.0  # open
+
+
+def test_the_sheet_hatches_a_card_edges_full_exposure_side() -> None:
+    """A gradient has no outline. The map marks the half plane with the full burn and
+    leaves the other side clean."""
+    frame = QImage(W, H, QImage.Format.Format_RGB32)
+    frame.fill(0x00808080)
+    edge = LocalMask(vertices=((0.4, 0.5), (0.8, 0.5)), stops=1.0, shape=MaskShape.GRADIENT)
+
+    arr = _to_array(notes_sheet(frame, None, LocalAdjustmentsConfig(masks=(edge,)), _uv_grid(), []))
+
+    grey = np.array([128, 128, 128, 255], dtype=np.uint8)
+    assert (arr[20:60, 5:45] != grey).any(axis=-1).mean() > 0.05  # Hatched, behind the edge.
+    assert (arr[20:60, 175:195] != grey).any(axis=-1).mean() == 0.0  # Past the fade-out.
 
 
 def test_the_sheet_carries_the_recipe_in_a_band_below_the_frame() -> None:

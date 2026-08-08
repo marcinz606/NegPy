@@ -7,7 +7,7 @@ import pytest
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.models import ExposureConfig
 from negpy.features.geometry.models import GeometryConfig
-from negpy.features.local.models import LocalAdjustmentsConfig, PolygonMask
+from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.services.assets.sidecar import load_or_promote, load_sidecar, sidecar_path_for, write_sidecar
 
@@ -17,7 +17,7 @@ def _rich_config() -> WorkspaceConfig:
     return WorkspaceConfig(
         exposure=ExposureConfig(density=0.42, grade=130.0),
         geometry=GeometryConfig(fine_rotation=1.5, manual_crop_rect=(0.1, 0.2, 0.8, 0.9)),
-        local=LocalAdjustmentsConfig(masks=(PolygonMask(vertices=((0.0, 0.0), (0.5, 0.5)), stops=-0.7, feather=0.05),)),
+        local=LocalAdjustmentsConfig(masks=(LocalMask(vertices=((0.0, 0.0), (0.5, 0.5)), stops=-0.7, feather=0.05),)),
     )
 
 

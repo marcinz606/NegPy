@@ -1016,12 +1016,12 @@ class TestRollActionRecoveryRoundTrip(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_hidden_masks_survive_restart(self):
-        from negpy.features.local.models import LocalAdjustmentsConfig, PolygonMask
+        from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask
 
         # hash1 has two masks on disk; index 1 is hidden. The property clamps against the
         # hydrated mask list, so persistence only "counts" if that config reloads too.
         verts = ((0.1, 0.1), (0.9, 0.1), (0.5, 0.9))
-        two_masks = (PolygonMask(vertices=verts), PolygonMask(vertices=verts, stops=0.3))
+        two_masks = (LocalMask(vertices=verts), LocalMask(vertices=verts, stops=0.3))
         cfg = replace(WorkspaceConfig(), local=LocalAdjustmentsConfig(masks=two_masks))
         self.repo.save_file_settings("hash1", cfg, file_path=self.session.state.uploaded_files[0]["path"])
 

@@ -1,7 +1,7 @@
 """Printer's notes: the print recipe and the dodge/burn map as a darkroom printer writes them.
 
 Everything here is text, in the *exposure* domain a printing record uses: a burn adds
-exposure and reads `+`, a dodge withholds it and reads `−`. `PolygonMask.stops` carries
+exposure and reads `+`, a dodge withholds it and reads `−`. `LocalMask.stops` carries
 that same convention, so nothing here re-signs it.
 """
 

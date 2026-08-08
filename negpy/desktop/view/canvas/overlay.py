@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import QWidget
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.canvas.crop_guides import CropGuide, guide_shapes
-from negpy.desktop.view.canvas.printing_notes import notes_sheet, paint_card, paint_map
+from negpy.desktop.view.canvas.printing_notes import notes_outline, notes_sheet, paint_card, paint_map
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.stats import PIN_COLOURS
 from negpy.features.exposure.analysis import (
@@ -34,7 +34,8 @@ from negpy.features.exposure.analysis import (
 )
 from negpy.features.exposure.densitometer import zone_roman
 from negpy.features.geometry.logic import rotation_drag_angle, smooth_polyline, straighten_delta_degrees, translate_manual_crop_rect
-from negpy.features.local.logic import _rasterise_mask
+from negpy.features.local.logic import min_points, outline_points, rasterise
+from negpy.features.local.models import MaskShape
 from negpy.features.retouch.models import HEAL_SIZE_REF
 from negpy.services.view.coordinate_mapping import CoordinateMapping
 from negpy.services.view.printing_notes import mask_notes, recipe_lines
@@ -51,6 +52,14 @@ _ROT_FINE_SENSITIVITY = 0.2  # Shift-drag sensitivity, like the crop-move fine d
 _ROTATION_GRID_DIVISIONS = 10
 _GRID_ALPHA = 70
 _MASK_RASTER_MAX = 384  # px cap for feathered overlay rasters
+
+# The shape that each tool draws, and the tools that permit mask edits.
+_SHAPE_FOR_TOOL = {
+    ToolMode.LOCAL_DRAW: MaskShape.POLYGON,
+    ToolMode.LOCAL_OVAL: MaskShape.OVAL,
+    ToolMode.LOCAL_GRADIENT: MaskShape.GRADIENT,
+}
+_LOCAL_TOOLS = (ToolMode.NONE, *_SHAPE_FOR_TOOL)
 
 # Dust-overlay marker colours: bright, distinct from the muted accent used by
 # manual heals so detected auto vs IR spots are told apart at a glance.
@@ -134,13 +143,24 @@ def _distance_to_polyline(pos: QPointF, pts: List[QPointF]) -> float:
     return best
 
 
-def feathered_mask_image(local_pts: List[Tuple[float, float]], w: int, h: int, sigma_px: float, color: QColor, max_alpha: int) -> QImage:
-    """Tinted premultiplied-alpha QImage of a feathered polygon.
+def feathered_mask_image(
+    shape: MaskShape,
+    local_pts: List[Tuple[float, float]],
+    w: int,
+    h: int,
+    sigma_px: float,
+    color: QColor,
+    max_alpha: int,
+    invert: bool = False,
+) -> QImage:
+    """A tinted premultiplied-alpha QImage of a feathered mask.
 
-    `local_pts` in raster pixel coords; `sigma_px` in raster pixels.
+    `local_pts` are the control points, in raster pixels, and `sigma_px` is also in
+    raster pixels. The engine rasteriser makes the alpha, so the tint agrees with
+    the render.
     """
     norm = [(x / w, y / h) for x, y in local_pts]
-    alpha = _rasterise_mask(norm, h, w, sigma_px)
+    alpha = rasterise(shape, norm, h, w, sigma_px, invert)
     a = alpha * (max_alpha / 255.0)
     buf = np.empty((h, w, 4), dtype=np.uint8)
     buf[..., 0] = (color.red() * a).astype(np.uint8)
@@ -164,7 +184,7 @@ class CanvasOverlay(QWidget):
     analysis_confirmed = pyqtSignal()
     cursor_moved = pyqtSignal(float, float)
     cursor_left = pyqtSignal()
-    lasso_completed = pyqtSignal(list)
+    local_mask_created = pyqtSignal(str, list)  # (shape value, viewport-normalised points)
     scratch_completed = pyqtSignal(list)
     local_mask_selected = pyqtSignal(int)
     local_mask_edited = pyqtSignal(int, list)  # (mask index, viewport-normalized vertices)
@@ -216,10 +236,17 @@ class CanvasOverlay(QWidget):
         self._lasso_pts: List[QPointF] = []
         self._lasso_drawing: bool = False
 
+        # The oval and card-edge tools drag out a shape. They do not click each point.
+        self._shape_draw_p1: Optional[QPointF] = None
+        self._shape_draw_p2: Optional[QPointF] = None
+
         # Scratch heal (open polyline) interaction state
         self._scratch_pts: List[QPointF] = []
         self._heal_drag_pts: List[QPointF] = []
+        # Per mask, in list order: the outline (hit test, notes) and the control points
+        # (drag handles). Only a polygon has the same points in both lists.
         self._local_mask_screen_polys: List[List[QPointF]] = []
+        self._local_mask_screen_ctrl: List[List[QPointF]] = []
         self._mask_img_cache: Dict[tuple, QImage] = {}
 
         # Geometry-aligned IR layer raster, cached by (uv_grid, preview_ir)
@@ -244,6 +271,8 @@ class CanvasOverlay(QWidget):
         # Working screen points while a selected-mask vertex is dragged/added.
         self._local_edit_verts: Optional[List[QPointF]] = None
         self._local_drag_vertex: Optional[int] = None
+        # Set when the handle moves the full mask, as an oval centre does.
+        self._local_drag_anchor: Optional[QPointF] = None
 
         # Straighten tool: reference-line drag (press -> drag -> release applies).
         self._straighten_p1: Optional[QPointF] = None
@@ -341,7 +370,10 @@ class CanvasOverlay(QWidget):
         if mode != ToolMode.LOCAL_DRAW:
             self._lasso_pts = []
             self._lasso_drawing = False
-            self._end_local_edit()
+        self._end_local_edit()
+        if mode not in (ToolMode.LOCAL_OVAL, ToolMode.LOCAL_GRADIENT):
+            self._shape_draw_p1 = None
+            self._shape_draw_p2 = None
         if mode != ToolMode.SCRATCH_PICK:
             self._scratch_pts = []
         if mode != ToolMode.DUST_PICK:
@@ -356,6 +388,7 @@ class CanvasOverlay(QWidget):
     def _end_local_edit(self) -> None:
         self._local_edit_verts = None
         self._local_drag_vertex = None
+        self._local_drag_anchor = None
 
     def _end_crop_drag(self) -> None:
         self._crop_drag_mode = None
@@ -383,6 +416,11 @@ class CanvasOverlay(QWidget):
         if self._tool_mode == ToolMode.LOCAL_DRAW and self._lasso_drawing:
             self._lasso_pts = []
             self._lasso_drawing = False
+            self.update()
+            return True
+        if self._shape_draw_p1 is not None:
+            self._shape_draw_p1 = None
+            self._shape_draw_p2 = None
             self.update()
             return True
         if self._tool_mode == ToolMode.SCRATCH_PICK and self._scratch_pts:
@@ -472,6 +510,10 @@ class CanvasOverlay(QWidget):
 
         if self._lasso_pts:
             self._lasso_pts = [remap(p) for p in self._lasso_pts]
+        if self._shape_draw_p1 is not None:
+            self._shape_draw_p1 = remap(self._shape_draw_p1)
+        if self._shape_draw_p2 is not None:
+            self._shape_draw_p2 = remap(self._shape_draw_p2)
         if self._scratch_pts:
             self._scratch_pts = [remap(p) for p in self._scratch_pts]
         if self._heal_drag_pts:
@@ -545,7 +587,7 @@ class CanvasOverlay(QWidget):
         if self._tool_mode != ToolMode.NONE and visible_rect.contains(self._mouse_pos):
             if self._tool_mode in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK):
                 self._draw_brush(painter)
-            elif self._tool_mode != ToolMode.LOCAL_DRAW:
+            elif self._tool_mode not in _SHAPE_FOR_TOOL:
                 pen = QPen(QColor(255, 255, 255, 80), 1, Qt.PenStyle.DotLine)
                 pen.setCosmetic(True)
                 painter.setPen(pen)
@@ -556,6 +598,8 @@ class CanvasOverlay(QWidget):
             self._draw_local_masks(painter)
         if self._tool_mode == ToolMode.LOCAL_DRAW:
             self._draw_lasso_in_progress(painter)
+        if self._tool_mode in (ToolMode.LOCAL_OVAL, ToolMode.LOCAL_GRADIENT):
+            self._draw_shape_in_progress(painter)
         if self._tool_mode in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK):
             self._draw_placed_heals(painter)
         if self._tool_mode == ToolMode.SCRATCH_PICK:
@@ -1520,6 +1564,7 @@ class CanvasOverlay(QWidget):
             return
         masks = self.state.config.local.masks
         self._local_mask_screen_polys = []
+        self._local_mask_screen_ctrl = []
         if not masks:
             return
 
@@ -1531,19 +1576,21 @@ class CanvasOverlay(QWidget):
         selected = getattr(self.state, "local_selected_mask", -1)
         fresh_cache: Dict[tuple, QImage] = {}
         for i, mask in enumerate(masks):
-            if len(mask.vertices) < 3:
+            is_selected = i == selected
+            if len(mask.vertices) < min_points(mask.shape):
                 self._local_mask_screen_polys.append([])
+                self._local_mask_screen_ctrl.append([])
                 continue
             ctrl = [self._raw_to_screen(rx, ry, uv_grid) for rx, ry in mask.vertices]
-            self._local_mask_screen_polys.append(ctrl)
-
-            is_selected = i == selected
-            if i in getattr(self.state, "local_hidden_masks", ()):
-                continue
             working = self._local_edit_verts if is_selected else None
             drag_this = working is not None
             draw_ctrl = working if working is not None else ctrl
-            curve = smooth_polyline([(p.x(), p.y()) for p in draw_ctrl], closed=True)
+            curve = outline_points(mask.shape, [(p.x(), p.y()) for p in draw_ctrl])
+            self._local_mask_screen_polys.append([QPointF(x, y) for x, y in curve])
+            self._local_mask_screen_ctrl.append(ctrl)
+
+            if i in getattr(self.state, "local_hidden_masks", ()):
+                continue
             outline = QColor(74, 143, 232) if mask.stops > 0 else QColor(232, 200, 74)
             max_alpha = 70 if is_selected else 32
 
@@ -1551,19 +1598,25 @@ class CanvasOverlay(QWidget):
             if not drag_this:
                 sigma_screen = mask.feather * min(self._view_rect.width(), self._view_rect.height())
                 pad = 3.0 * sigma_screen + 2.0
-                xs = [x for x, _ in curve]
-                ys = [y for _, y in curve]
-                x0, y0 = min(xs) - pad, min(ys) - pad
-                bw, bh = max(xs) + pad - x0, max(ys) + pad - y0
+                # A gradient has no boundary, and an inverted mask applies outside its
+                # own. Rasterise both on the full frame, not on a padded bounding box.
+                if mask.shape == MaskShape.GRADIENT or mask.invert:
+                    box = self._content_view_rect()
+                    x0, y0, bw, bh = box.x(), box.y(), box.width(), box.height()
+                else:
+                    xs = [x for x, _ in curve]
+                    ys = [y for _, y in curve]
+                    x0, y0 = min(xs) - pad, min(ys) - pad
+                    bw, bh = max(xs) + pad - x0, max(ys) + pad - y0
                 scale = min(1.0, _MASK_RASTER_MAX / max(bw, bh, 1.0))
                 rw, rh = max(int(bw * scale), 2), max(int(bh * scale), 2)
                 # Bbox-relative points are pan-invariant, so panning reuses the cache.
-                local = tuple((round((x - x0) * scale, 1), round((y - y0) * scale, 1)) for x, y in curve)
+                local = tuple((round((p.x() - x0) * scale, 1), round((p.y() - y0) * scale, 1)) for p in draw_ctrl)
 
-                key = (local, rw, rh, round(sigma_screen * scale, 2), outline.rgb(), max_alpha)
+                key = (mask.shape, mask.invert, local, rw, rh, round(sigma_screen * scale, 2), outline.rgb(), max_alpha)
                 img = self._mask_img_cache.get(key)
                 if img is None:
-                    img = feathered_mask_image(local, rw, rh, sigma_screen * scale, outline, max_alpha)
+                    img = feathered_mask_image(mask.shape, local, rw, rh, sigma_screen * scale, outline, max_alpha, mask.invert)
                 fresh_cache[key] = img
                 painter.drawImage(QRectF(x0, y0, bw, bh), img)
 
@@ -1576,11 +1629,34 @@ class CanvasOverlay(QWidget):
             pen.setCosmetic(True)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPolygon(QPolygonF([QPointF(x, y) for x, y in curve]))
+            if mask.shape == MaskShape.GRADIENT:
+                self._draw_gradient_axis(painter, draw_ctrl[0], draw_ctrl[1])
+            else:
+                painter.drawPolygon(QPolygonF([QPointF(x, y) for x, y in curve]))
 
-            if is_selected and self._tool_mode in (ToolMode.NONE, ToolMode.LOCAL_DRAW) and not self._lasso_drawing:
-                self._draw_local_handles(painter, draw_ctrl, outline)
+            if is_selected and self._tool_mode in _LOCAL_TOOLS and not self._lasso_drawing:
+                self._draw_local_handles(painter, mask.shape, draw_ctrl, outline)
         self._mask_img_cache = fresh_cache
+
+    def _draw_gradient_axis(self, painter: QPainter, a: QPointF, b: QPointF) -> None:
+        """Draw the card edge. A solid line shows full exposure, a dashed line shows
+        zero exposure, and a third line joins them."""
+        dx, dy = b.x() - a.x(), b.y() - a.y()
+        length = math.hypot(dx, dy)
+        if length < 1e-3:
+            return
+        # Make the perpendicular long enough to cross the frame at any angle.
+        span = self._content_view_rect()
+        reach = math.hypot(span.width(), span.height())
+        px, py = -dy / length * reach, dx / length * reach
+        pen = painter.pen()
+        for point, style in ((a, Qt.PenStyle.SolidLine), (b, Qt.PenStyle.DashLine)):
+            edge = QPen(pen)
+            edge.setStyle(style)
+            painter.setPen(edge)
+            painter.drawLine(QPointF(point.x() - px, point.y() - py), QPointF(point.x() + px, point.y() + py))
+        painter.setPen(pen)
+        painter.drawLine(a, b)
 
     def _frame_name(self) -> str:
         path = self.state.current_file_path
@@ -1594,13 +1670,17 @@ class CanvasOverlay(QWidget):
         """The printer's marked-up work print: hatched burns, open dodges, ±stop badges,
         and the print recipe. Every mask is on the map, hidden ones included — the eye
         unclutters editing, but a record that omits a burn is wrong."""
+        rect = self._content_view_rect()
         polys = [
-            ([QPointF(x, y) for x, y in smooth_polyline([(p.x(), p.y()) for p in pts], closed=True)], note)
-            for pts, note in zip(self._local_mask_screen_polys, mask_notes(self.state.config.local, self.state.config.exposure.grade))
-            if len(pts) >= 3
+            (notes_outline(mask.shape, ctrl, rect), note)
+            for mask, ctrl, note in zip(
+                self.state.config.local.masks,
+                self._local_mask_screen_ctrl,
+                mask_notes(self.state.config.local, self.state.config.exposure.grade),
+            )
+            if len(ctrl) >= min_points(mask.shape)
         ]
         paint_map(painter, polys)
-        rect = self._content_view_rect()
         paint_card(painter, QPointF(rect.x() + _NOTES_CARD_INSET_PX, rect.y() + _NOTES_CARD_TOP_PX), self._recipe_lines())
 
     def printing_notes_sheet(self) -> Optional[QImage]:
@@ -1616,8 +1696,9 @@ class CanvasOverlay(QWidget):
             self._qimage, self._content_rect, self.state.config.local, uv_grid, self._recipe_lines(), self.state.config.exposure.grade
         )
 
-    def _draw_local_handles(self, painter: QPainter, ctrl_pts: List[QPointF], color: QColor) -> None:
-        """Draggable vertices + '+' discs on edge midpoints for the selected mask."""
+    def _draw_local_handles(self, painter: QPainter, shape: MaskShape, ctrl_pts: List[QPointF], color: QColor) -> None:
+        """Draw the vertex handles. Only a polygon gets the '+' discs, because only a
+        polygon can take more points."""
         n = len(ctrl_pts)
         if n < 2:
             return
@@ -1625,7 +1706,7 @@ class CanvasOverlay(QWidget):
         # Edge-midpoint "add point" handles: white disc with a plus glyph.
         plus_pen = QPen(QColor(35, 35, 35, 235), 1.5)
         plus_pen.setCosmetic(True)
-        for i in range(n):
+        for i in range(n if shape == MaskShape.POLYGON else 0):
             a, b = ctrl_pts[i], ctrl_pts[(i + 1) % n]
             m = QPointF((a.x() + b.x()) / 2.0, (a.y() + b.y()) / 2.0)
             painter.setPen(Qt.PenStyle.NoPen)
@@ -1665,6 +1746,27 @@ class CanvasOverlay(QWidget):
         painter.setPen(Qt.PenStyle.NoPen)
         r = 5.0 if near_close else 3.0
         painter.drawEllipse(first, r, r)
+
+    def _draw_shape_in_progress(self, painter: QPainter) -> None:
+        """Draw the oval or the card edge during the drag, in the lasso white."""
+        if self._shape_draw_p1 is None or self._shape_draw_p2 is None:
+            return
+        pen = QPen(Qt.GlobalColor.white, 1.5, Qt.PenStyle.SolidLine)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        if self._tool_mode == ToolMode.LOCAL_GRADIENT:
+            self._draw_gradient_axis(painter, self._shape_draw_p1, self._shape_draw_p2)
+            return
+        ctrl = self._oval_ctrl_from_drag(self._shape_draw_p1, self._shape_draw_p2)
+        curve = outline_points(MaskShape.OVAL, [(p.x(), p.y()) for p in ctrl])
+        painter.drawPolygon(QPolygonF([QPointF(x, y) for x, y in curve]))
+
+    @staticmethod
+    def _oval_ctrl_from_drag(p1: QPointF, p2: QPointF) -> List[QPointF]:
+        """Convert a bounding-box drag to the oval centre and its two axis ends."""
+        cx, cy = (p1.x() + p2.x()) / 2.0, (p1.y() + p2.y()) / 2.0
+        return [QPointF(cx, cy), QPointF(p2.x(), cy), QPointF(cx, p2.y())]
 
     def _map_to_image_coords(self, screen_pos: QPointF) -> Optional[Tuple[float, float]]:
         rect = self._content_view_rect()
@@ -1712,6 +1814,11 @@ class CanvasOverlay(QWidget):
 
         if self._tool_mode == ToolMode.LOCAL_DRAW:
             self._handle_lasso_press(event.position())
+            event.accept()
+            return
+
+        if self._tool_mode in (ToolMode.LOCAL_OVAL, ToolMode.LOCAL_GRADIENT):
+            self._handle_shape_press(event.position())
             event.accept()
             return
 
@@ -1897,7 +2004,22 @@ class CanvasOverlay(QWidget):
             rect = self._content_view_rect()
             px = float(np.clip(event.position().x(), rect.left(), rect.right()))
             py = float(np.clip(event.position().y(), rect.top(), rect.bottom()))
-            self._local_edit_verts[self._local_drag_vertex] = QPointF(px, py)
+            if self._local_drag_anchor is not None:
+                delta = QPointF(px, py) - self._local_drag_anchor
+                self._local_drag_anchor = QPointF(px, py)
+                self._local_edit_verts = [p + delta for p in self._local_edit_verts]
+            else:
+                self._local_edit_verts[self._local_drag_vertex] = QPointF(px, py)
+            self.update()
+            event.accept()
+            return
+
+        if self._shape_draw_p1 is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            rect = self._content_view_rect()
+            self._shape_draw_p2 = QPointF(
+                float(np.clip(event.position().x(), rect.left(), rect.right())),
+                float(np.clip(event.position().y(), rect.top(), rect.bottom())),
+            )
             self.update()
             event.accept()
             return
@@ -2022,12 +2144,32 @@ class CanvasOverlay(QWidget):
 
         self.update()
 
-    def _selected_mask_screen_pts(self) -> Optional[List[QPointF]]:
+    def _selected_mask(self):
+        """The selected mask and its screen control points, or None."""
         idx = getattr(self.state, "local_selected_mask", -1)
-        if 0 <= idx < len(self._local_mask_screen_polys):
-            pts = self._local_mask_screen_polys[idx]
-            return pts if len(pts) >= 3 else None
+        masks = self.state.config.local.masks
+        if 0 <= idx < len(masks) and idx < len(self._local_mask_screen_ctrl):
+            pts = self._local_mask_screen_ctrl[idx]
+            if len(pts) >= min_points(masks[idx].shape):
+                return masks[idx], pts
         return None
+
+    def _try_select_mask_at(self, pos: QPointF) -> bool:
+        """Select the mask at `pos`, inside its outline. A card edge has no inside, so
+        it hits near its axis. Returns True if a mask is hit."""
+        masks = self.state.config.local.masks
+        for i, poly_pts in enumerate(self._local_mask_screen_polys):
+            if i >= len(masks):
+                break
+            if masks[i].shape == MaskShape.GRADIENT:
+                ctrl = self._local_mask_screen_ctrl[i]
+                hit = len(ctrl) >= 2 and _distance_to_polyline(pos, ctrl) <= _CROP_HANDLE_PX
+            else:
+                hit = len(poly_pts) >= 3 and QPolygonF(poly_pts).containsPoint(pos, Qt.FillRule.OddEvenFill)
+            if hit:
+                self.local_mask_selected.emit(i)
+                return True
+        return False
 
     def _hit_local_vertex(self, pos: QPointF, pts: List[QPointF]) -> Optional[int]:
         for i, p in enumerate(pts):
@@ -2048,11 +2190,12 @@ class CanvasOverlay(QWidget):
         return None
 
     def try_delete_local_vertex(self, pos: QPointF) -> bool:
-        """Right-click on a selected-mask vertex removes it. Returns True if handled."""
-        pts = self._selected_mask_screen_pts()
-        if pts is None:
+        """Delete the vertex at `pos` from the selected mask. Only a polygon can lose a
+        point. Returns True if handled."""
+        selected = self._selected_mask()
+        if selected is None or selected[0].shape != MaskShape.POLYGON:
             return False
-        vi = self._hit_local_vertex(pos, pts)
+        vi = self._hit_local_vertex(pos, selected[1])
         if vi is None:
             return False
         self.local_vertex_deleted.emit(getattr(self.state, "local_selected_mask", -1), vi)
@@ -2060,15 +2203,20 @@ class CanvasOverlay(QWidget):
 
     def _try_start_vertex_edit(self, pos: QPointF) -> bool:
         """Grab a selected-mask vertex, or insert one at an edge midpoint; True if started."""
-        pts = self._selected_mask_screen_pts()
-        if pts is None:
+        selected = self._selected_mask()
+        if selected is None:
             return False
+        mask, pts = selected
         vi = self._hit_local_vertex(pos, pts)
         if vi is not None:
             self._local_edit_verts = list(pts)
             self._local_drag_vertex = vi
+            # The oval centre moves its axes with it. All other handles move alone.
+            self._local_drag_anchor = pos if (mask.shape == MaskShape.OVAL and vi == 0) else None
             self.update()
             return True
+        if mask.shape != MaskShape.POLYGON:
+            return False
         ei = self._hit_local_edge_midpoint(pos, pts)
         if ei is not None:
             work = list(pts)
@@ -2085,14 +2233,8 @@ class CanvasOverlay(QWidget):
             return
 
         if not self._lasso_drawing:
-            if self._try_start_vertex_edit(pos):
+            if self._try_start_vertex_edit(pos) or self._try_select_mask_at(pos):
                 return
-            for i, poly_pts in enumerate(self._local_mask_screen_polys):
-                if len(poly_pts) < 3:
-                    continue
-                if QPolygonF(poly_pts).containsPoint(pos, Qt.FillRule.OddEvenFill):
-                    self.local_mask_selected.emit(i)
-                    return
             self._lasso_drawing = True
             self._lasso_pts = [pos]
             self.update()
@@ -2110,18 +2252,51 @@ class CanvasOverlay(QWidget):
         pts = self._lasso_pts
         self._lasso_pts = []
         self._lasso_drawing = False
-        if len(pts) < 3:
+        self._emit_mask(MaskShape.POLYGON, pts)
+
+    def _emit_mask(self, shape: MaskShape, pts: List[QPointF]) -> None:
+        """Send the drawn points to the controller. Discard the mask if one point is
+        outside the frame."""
+        vertices = []
+        if len(pts) >= min_points(shape):
+            for pt in pts:
+                coords = self._map_to_image_coords(pt)
+                if coords is None:
+                    self.update()
+                    return
+                vertices.append(coords)
+            self.local_mask_created.emit(str(shape), vertices)
+        self.update()
+
+    def _handle_shape_press(self, pos: QPointF) -> None:
+        """Start the drag of an oval or a card edge. A click on an existing mask
+        selects that mask, as the lasso tool does."""
+        rect = self._content_view_rect()
+        if not rect.contains(pos):
+            return
+        if self._try_start_vertex_edit(pos) or self._try_select_mask_at(pos):
+            return
+        self._shape_draw_p1 = pos
+        self._shape_draw_p2 = pos
+        self.update()
+
+    def _finish_shape_draw(self, pos: QPointF) -> None:
+        p1, self._shape_draw_p1, self._shape_draw_p2 = self._shape_draw_p1, None, None
+        if p1 is None:
+            return
+        rect = self._content_view_rect()
+        p2 = QPointF(
+            float(np.clip(pos.x(), rect.left(), rect.right())),
+            float(np.clip(pos.y(), rect.top(), rect.bottom())),
+        )
+        # A click without movement is an error. Do not make a mask with no size.
+        if (p2 - p1).manhattanLength() < 8.0:
             self.update()
             return
-        vertices = []
-        for pt in pts:
-            coords = self._map_to_image_coords(pt)
-            if coords is None:
-                self.update()
-                return
-            vertices.append(coords)
-        self.lasso_completed.emit(vertices)
-        self.update()
+        if self._tool_mode == ToolMode.LOCAL_GRADIENT:
+            self._emit_mask(MaskShape.GRADIENT, [p1, p2])
+        else:
+            self._emit_mask(MaskShape.OVAL, self._oval_ctrl_from_drag(p1, p2))
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         if self._tool_mode == ToolMode.LOCAL_DRAW and self._lasso_drawing:
@@ -2264,6 +2439,11 @@ class CanvasOverlay(QWidget):
                 # Drag: the painted path becomes one multi-point heal stroke.
                 self.scratch_completed.emit(vertices)
             self.update()
+            event.accept()
+            return
+
+        if self._shape_draw_p1 is not None and event.button() == Qt.MouseButton.LeftButton:
+            self._finish_shape_draw(event.position())
             event.accept()
             return
 

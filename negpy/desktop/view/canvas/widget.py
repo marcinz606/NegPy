@@ -41,6 +41,8 @@ _TOOL_CURSORS: dict[ToolMode, Qt.CursorShape] = {
     ToolMode.CROP_MANUAL: Qt.CursorShape.CrossCursor,
     ToolMode.DUST_PICK: Qt.CursorShape.BlankCursor,
     ToolMode.LOCAL_DRAW: Qt.CursorShape.CrossCursor,
+    ToolMode.LOCAL_OVAL: Qt.CursorShape.CrossCursor,
+    ToolMode.LOCAL_GRADIENT: Qt.CursorShape.CrossCursor,
     ToolMode.ANALYSIS_DRAW: Qt.CursorShape.CrossCursor,
     ToolMode.STRAIGHTEN: Qt.CursorShape.CrossCursor,
     ToolMode.ZONE_PLACE: Qt.CursorShape.CrossCursor,
@@ -112,7 +114,7 @@ class ImageCanvas(QWidget):
     zoom_changed = pyqtSignal(float)
     cursor_position_changed = pyqtSignal(float, float)
     cursor_left_canvas = pyqtSignal()
-    lasso_completed = pyqtSignal(list)
+    local_mask_created = pyqtSignal(str, list)
     scratch_completed = pyqtSignal(list)
     straighten_completed = pyqtSignal(float)
     test_strip_picked = pyqtSignal(int, int)
@@ -168,7 +170,7 @@ class ImageCanvas(QWidget):
         self.overlay.analysis_confirmed.connect(self.analysis_confirmed.emit)
         self.overlay.cursor_moved.connect(self.cursor_position_changed.emit)
         self.overlay.cursor_left.connect(self.cursor_left_canvas.emit)
-        self.overlay.lasso_completed.connect(self.lasso_completed.emit)
+        self.overlay.local_mask_created.connect(self.local_mask_created.emit)
         self.overlay.scratch_completed.connect(self.scratch_completed.emit)
         self.overlay.straighten_completed.connect(self.straighten_completed.emit)
         self.overlay.test_strip_picked.connect(self.test_strip_picked.emit)

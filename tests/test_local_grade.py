@@ -8,7 +8,7 @@ import pytest
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.logic import apply_characteristic_curve, local_grade_factor_map
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
-from negpy.features.local.models import LocalAdjustmentsConfig, PolygonMask
+from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask
 from negpy.services.rendering.engine import DarkroomEngine
 
 R_MIN = float(EXPOSURE_CONSTANTS["iso_r_min"])
@@ -86,7 +86,7 @@ class TestEndToEnd:
         return np.ascontiguousarray(np.stack([img, img * 0.95, img * 0.9], axis=-1))
 
     def _config(self, grade_delta: float) -> WorkspaceConfig:
-        mask = PolygonMask(vertices=((0.0, 0.0), (1.0, 0.0), (1.0, 0.5), (0.0, 0.5)), stops=0.0, feather=0.0, grade=grade_delta)
+        mask = LocalMask(vertices=((0.0, 0.0), (1.0, 0.0), (1.0, 0.5), (0.0, 0.5)), stops=0.0, feather=0.0, grade=grade_delta)
         return WorkspaceConfig(local=LocalAdjustmentsConfig(masks=(mask,)))
 
     def _render(self, grade_delta: float) -> np.ndarray:

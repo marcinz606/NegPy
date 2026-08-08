@@ -377,15 +377,18 @@ In R/G/B mode the sliders become per-layer trims on top of the global value, for
 <!-- panel:local -->
 ### 6.3 Dodge & Burn: local exposure
 
-Paint polygon masks and lighten or darken just those areas.
+Draw masks and lighten or darken just those areas. Three shapes, one per darkroom move:
 
-*   **Draw Mask**: click to place vertices; double-click / Enter / a click near the start closes the mask; Esc cancels. To edit an existing mask, select it in the list, then drag a vertex, click an edge "+" to add a point, or right-click a vertex to delete.
-*   **Mask list**: each mask shows Dodge (lighten), Burn (darken) or Grade (contrast only), with the values it carries. The eye toggles its outline; the trash deletes it.
+*   **Draw Mask** (the cut card): click to place vertices; double-click / Enter / a click near the start closes the mask; Esc cancels. To edit an existing mask, select it in the list, then drag a vertex, click an edge "+" to add a point, or right-click a vertex to delete.
+*   **Oval** (the hole in the card, or a dodging wand): drag out an oval. Three handles: the centre moves it, the other two set each axis, so it can be stretched and tilted. It has a fixed three points — no adding or deleting them.
+*   **Card Edge** (the graduated burn): drag from the edge that gets the full exposure (solid line) to where it fades out (dashed). This is the printer moving a card across the paper — a sky burn, a corner held back. The gap between the two handles is the softness, so **Feather does nothing on this shape**.
+*   **Mask list**: each mask shows its shape icon and Dodge (lighten), Burn (darken) or Grade (contrast only), with the values it carries. The eye toggles its outline; the trash deletes it.
 *   **Burn** (-2 to 2 stops, default 0): print exposure for the selected mask, signed the way the rest of NegPy signs light on paper — **positive burns** (longer exposure, darker paper), **negative dodges** (held back, brighter paper). Same direction as Print Density and the Finishing edge burn. A freshly drawn mask sits at 0, so it changes nothing until you give it a value.
-*   **Feather** (0.0 to 0.15): edge softness for the selected mask, as a fraction of the frame's short side.
+*   **Feather** (0.0 to 0.15): edge softness for the selected mask, as a fraction of the frame's short side. Inactive on a Card Edge.
+*   **Invert**: acts everywhere *except* inside the selected mask — the card itself rather than the hole cut in it. Burn the surround and hold the face with one shape.
 *   **Grade** (-40 to 40 R): prints the selected mask at its own contrast, in ISO-R points off the frame's Grade — negative is harder. This is the darkroom's burn-in through the hard filter: burn a sky at −20 R and it darkens without the highlights beside it flattening; dodge a face at +15 R and the shadow opens without going chalky. The rotation happens about the region's own midtone, so a mask with Burn 0 and a Grade set changes only contrast, not overall density. Overlapping masks add their grades, and the result is clamped to the ISO-R ladder (R50…R180) like every other grade in NegPy.
 
-**Printing Notes** (Export tab, or **Shift+N**) turns the frame into the printer's marked-up work print. Each mask is outlined and labelled with its number and its value in stops, and a card in the corner carries the print recipe: paper, Print Density, ISO-R Grade (with the split-grade trims when they are set), filtration, toe/shoulder, Snap, edge burn, and the dodge/burn list.
+**Printing Notes** (Export tab, or **Shift+N**) turns the frame into the printer's marked-up work print. Each mask is outlined and labelled with its number and its value in stops — a Card Edge has no outline, so it is marked as the side of the frame that gets the full exposure — and a card in the corner carries the print recipe: paper, Print Density, ISO-R Grade (with the split-grade trims when they are set), filtration, toe/shoulder, Snap, edge burn, and the dodge/burn list.
 
 Two conventions worth knowing, both borrowed from the darkroom rather than from the sliders:
 

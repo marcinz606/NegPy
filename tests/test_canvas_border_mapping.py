@@ -102,7 +102,7 @@ def test_lasso_vertices_content_normalized() -> None:
     overlay._lasso_drawing = True
     overlay._lasso_pts = [QPointF(20, 16), QPointF(180, 16), QPointF(100, 144)]
     emitted: list = []
-    overlay.lasso_completed.connect(emitted.append)
+    overlay.local_mask_created.connect(lambda _shape, pts: emitted.append(pts))
 
     overlay._finish_lasso()
 

@@ -5,7 +5,7 @@ from dataclasses import replace
 
 from negpy.features.exposure.models import ExposureConfig
 from negpy.features.finish.models import FinishConfig
-from negpy.features.local.models import LocalAdjustmentsConfig, PolygonMask
+from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask
 from negpy.services.view.printing_notes import mask_notes, recipe_lines, stops_label
 
 SQUARE = ((0.2, 0.2), (0.8, 0.2), (0.8, 0.8), (0.2, 0.8))
@@ -13,7 +13,7 @@ SQUARE = ((0.2, 0.2), (0.8, 0.2), (0.8, 0.8), (0.2, 0.8))
 
 def _local(*stops: float) -> LocalAdjustmentsConfig:
     """Masks by print exposure: positive burns, negative dodges."""
-    return LocalAdjustmentsConfig(masks=tuple(PolygonMask(vertices=SQUARE, stops=s) for s in stops))
+    return LocalAdjustmentsConfig(masks=tuple(LocalMask(vertices=SQUARE, stops=s) for s in stops))
 
 
 def test_stops_are_written_as_darkroom_fractions() -> None:
@@ -84,7 +84,7 @@ def test_auto_flags_are_marked() -> None:
 
 
 def test_a_local_grade_is_written_as_the_grade_it_prints_at() -> None:
-    local = LocalAdjustmentsConfig(masks=(PolygonMask(vertices=SQUARE, stops=1.0, grade=-20.0),))
+    local = LocalAdjustmentsConfig(masks=(LocalMask(vertices=SQUARE, stops=1.0, grade=-20.0),))
     (note,) = mask_notes(local, grade=115.0)
 
     assert note.local_r == "R95"
@@ -93,7 +93,7 @@ def test_a_local_grade_is_written_as_the_grade_it_prints_at() -> None:
 
 
 def test_a_grade_only_mask_is_neither_a_dodge_nor_a_burn() -> None:
-    local = LocalAdjustmentsConfig(masks=(PolygonMask(vertices=SQUARE, stops=0.0, grade=30.0),))
+    local = LocalAdjustmentsConfig(masks=(LocalMask(vertices=SQUARE, stops=0.0, grade=30.0),))
     (note,) = mask_notes(local, grade=115.0)
 
     assert note.kind == "Grade"
@@ -102,7 +102,7 @@ def test_a_grade_only_mask_is_neither_a_dodge_nor_a_burn() -> None:
 
 
 def test_a_local_grade_off_the_ladder_is_written_clamped() -> None:
-    local = LocalAdjustmentsConfig(masks=(PolygonMask(vertices=SQUARE, stops=0.0, grade=-90.0),))
+    local = LocalAdjustmentsConfig(masks=(LocalMask(vertices=SQUARE, stops=0.0, grade=-90.0),))
     (note,) = mask_notes(local, grade=115.0)
 
     assert note.local_r == "R50"
@@ -119,8 +119,8 @@ def test_masks_at_the_frame_grade_carry_no_grade_note() -> None:
 def test_the_record_names_each_mask_grade() -> None:
     local = LocalAdjustmentsConfig(
         masks=(
-            PolygonMask(vertices=SQUARE, stops=1.0, grade=-20.0),
-            PolygonMask(vertices=SQUARE, stops=-0.25),
+            LocalMask(vertices=SQUARE, stops=1.0, grade=-20.0),
+            LocalMask(vertices=SQUARE, stops=-0.25),
         )
     )
     lines = recipe_lines(replace(ExposureConfig(), grade=115.0), local, FinishConfig())

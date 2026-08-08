@@ -20,7 +20,7 @@ from dataclasses import replace
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.models import ExposureConfig
 from negpy.features.lab.models import LabConfig
-from negpy.features.local.models import LocalAdjustmentsConfig, PolygonMask
+from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask
 from negpy.features.retouch.models import RetouchConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.features.geometry.models import GeometryConfig
@@ -744,9 +744,9 @@ class TestLocalParity:
         _assert_mostly_close(cpu_result, gpu_result, atol=1.5e-1, rtol=1.5e-1, max_violation_frac=0.01)
 
     @staticmethod
-    def _mask(stops: float, feather: float = 0.0) -> PolygonMask:
+    def _mask(stops: float, feather: float = 0.0) -> LocalMask:
         """Print exposure in stops: positive burns, negative dodges."""
-        return PolygonMask(
+        return LocalMask(
             vertices=((0.25, 0.25), (0.75, 0.25), (0.75, 0.75), (0.25, 0.75)),
             stops=stops,
             feather=feather,
@@ -769,8 +769,8 @@ class TestLocalParity:
 
     def test_multiple_masks(self):
         masks = (
-            PolygonMask(vertices=((0.1, 0.1), (0.45, 0.1), (0.45, 0.45), (0.1, 0.45)), stops=-1.0),
-            PolygonMask(vertices=((0.55, 0.55), (0.9, 0.55), (0.9, 0.9), (0.55, 0.9)), stops=1.0),
+            LocalMask(vertices=((0.1, 0.1), (0.45, 0.1), (0.45, 0.45), (0.1, 0.45)), stops=-1.0),
+            LocalMask(vertices=((0.55, 0.55), (0.9, 0.55), (0.9, 0.9), (0.55, 0.9)), stops=1.0),
         )
         s = replace(_make_base_settings(), local=LocalAdjustmentsConfig(masks=masks))
         self._run_and_compare(s)

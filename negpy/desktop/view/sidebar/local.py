@@ -6,9 +6,15 @@ from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.styles.templates import field_label_qss
 from negpy.desktop.view.styles.theme import THEME
+from negpy.features.local.models import MaskShape
 
 
 _MASK_ROW_H = 30
+_SHAPE_ICONS = {
+    MaskShape.POLYGON: "fa5s.draw-polygon",
+    MaskShape.OVAL: "fa5s.circle",
+    MaskShape.GRADIENT: "fa5s.grip-lines",
+}
 
 
 class _MaskRow(QWidget):
@@ -36,7 +42,24 @@ class LocalSidebar(BaseSidebar):
             "re-enter this tool): drag a vertex to move it, click an edge '+' dot to add a point, "
             "right-click a vertex to delete it.",
         )
-        self.layout.addWidget(self.draw_btn)
+        self.oval_btn = self._tool_toggle(
+            "fa5s.circle",
+            "Oval",
+            "Burn through a hole in the card, or dodge with a wand: drag out an oval. Its three "
+            "handles move it (centre) and set each axis, so it can be stretched and tilted.",
+        )
+        self.gradient_btn = self._tool_toggle(
+            "fa5s.grip-lines",
+            "Card Edge",
+            "The graduated burn a printer makes by moving a card across the paper: drag from the "
+            "full-exposure edge (solid line) to where it fades out (dashed). The distance between "
+            "the two handles is the softness, so Feather does nothing here.",
+        )
+        tool_row = QHBoxLayout()
+        tool_row.addWidget(self.draw_btn)
+        tool_row.addWidget(self.oval_btn)
+        tool_row.addWidget(self.gradient_btn)
+        self.layout.addLayout(tool_row)
 
         self.mask_list = QListWidget()
         self.mask_list.setToolTip("Click a mask to select it. Use the eye to show/hide its outline and the trash icon to delete it.")
@@ -69,11 +92,19 @@ class LocalSidebar(BaseSidebar):
             "midtone holds, so this changes its contrast without moving its overall density."
         )
 
+        self.invert_btn = QPushButton("Invert")
+        self.invert_btn.setCheckable(True)
+        self.invert_btn.setToolTip(
+            "Act everywhere except inside the selected mask — the card itself instead of the hole "
+            "cut in it. Burn the surround and hold the face, in one mask."
+        )
+
         slider_row = QHBoxLayout()
         slider_row.addWidget(self.burn_slider)
         slider_row.addWidget(self.grade_slider)
         self.layout.addLayout(slider_row)
         self.layout.addWidget(self.feather_slider)
+        self.layout.addWidget(self.invert_btn)
 
         self.mask_count_label = QLabel("0 masks")
         self.mask_count_label.setStyleSheet(field_label_qss())
@@ -82,13 +113,22 @@ class LocalSidebar(BaseSidebar):
         self.layout.addStretch()
 
     def _connect_signals(self) -> None:
-        self.draw_btn.toggled.connect(self._on_draw_toggled)
+        for btn, mode in self._tool_modes().items():
+            btn.toggled.connect(lambda checked, m=mode: self._on_draw_toggled(checked, m))
         self.burn_slider.valueChanged.connect(lambda v: self.controller.update_selected_local_mask(stops=float(v)))
         self.feather_slider.valueChanged.connect(lambda v: self.controller.update_selected_local_mask(feather=float(v)))
         self.grade_slider.valueChanged.connect(lambda v: self.controller.update_selected_local_mask(grade=float(v)))
+        self.invert_btn.toggled.connect(lambda v: self.controller.update_selected_local_mask(invert=bool(v)))
 
-    def _on_draw_toggled(self, checked: bool) -> None:
-        self.controller.set_active_tool(ToolMode.LOCAL_DRAW if checked else ToolMode.NONE)
+    def _tool_modes(self) -> dict:
+        return {
+            self.draw_btn: ToolMode.LOCAL_DRAW,
+            self.oval_btn: ToolMode.LOCAL_OVAL,
+            self.gradient_btn: ToolMode.LOCAL_GRADIENT,
+        }
+
+    def _on_draw_toggled(self, checked: bool, mode: ToolMode) -> None:
+        self.controller.set_active_tool(mode if checked else ToolMode.NONE)
 
     def _row_icon_btn(self, icon_name: str, checkable: bool) -> QPushButton:
         btn = QPushButton()
@@ -116,6 +156,11 @@ class LocalSidebar(BaseSidebar):
         values = [f"{mask.stops:+.2f} st"] if mask.stops else []
         if mask.grade:
             values.append(f"{mask.grade:+.0f} R")
+        if mask.invert:
+            values.append("inv")
+        shape_icon = QLabel()
+        shape_icon.setPixmap(qta.icon(_SHAPE_ICONS[mask.shape], color=colour).pixmap(12, 12))
+        shape_icon.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         label = QLabel(f"{i + 1}.  {kind}   " + "  ".join(values))
         label.setStyleSheet(f"color: {colour};")
         label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
@@ -127,6 +172,7 @@ class LocalSidebar(BaseSidebar):
         delete = self._row_icon_btn("fa5s.trash-alt", checkable=False)
         delete.setToolTip("Delete this mask")
 
+        lay.addWidget(shape_icon)
         lay.addWidget(label)
         lay.addStretch()
         lay.addWidget(eye)
@@ -145,7 +191,8 @@ class LocalSidebar(BaseSidebar):
         conf = self.state.config.local
         self.block_signals(True)
         try:
-            self.draw_btn.setChecked(self.state.active_tool == ToolMode.LOCAL_DRAW)
+            for btn, mode in self._tool_modes().items():
+                btn.setChecked(self.state.active_tool == mode)
 
             n = len(conf.masks)
             self.mask_count_label.setText(f"{n} mask{'s' if n != 1 else ''}")
@@ -169,17 +216,20 @@ class LocalSidebar(BaseSidebar):
             if n:
                 self.mask_list.setFixedHeight(_MASK_ROW_H * n + 2 * self.mask_list.frameWidth())
             self.mask_list.blockSignals(False)
+            mask = conf.masks[idx] if has_selection else None
             self.burn_slider.setEnabled(has_selection)
-            self.feather_slider.setEnabled(has_selection)
+            # The distance between the handles sets the card-edge softness, not a blur.
+            self.feather_slider.setEnabled(has_selection and mask.shape != MaskShape.GRADIENT)
             self.grade_slider.setEnabled(has_selection)
-            if has_selection:
-                mask = conf.masks[idx]
+            self.invert_btn.setEnabled(has_selection)
+            if mask is not None:
                 self.burn_slider.setValue(mask.stops)
                 self.feather_slider.setValue(mask.feather)
                 self.grade_slider.setValue(mask.grade)
+                self.invert_btn.setChecked(mask.invert)
         finally:
             self.block_signals(False)
 
     def block_signals(self, blocked: bool) -> None:
-        for w in [self.draw_btn, self.burn_slider, self.feather_slider, self.grade_slider]:
+        for w in [*self._tool_modes(), self.burn_slider, self.feather_slider, self.grade_slider, self.invert_btn]:
             w.blockSignals(blocked)

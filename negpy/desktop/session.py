@@ -29,6 +29,8 @@ class ToolMode(Enum):
     DUST_PICK = auto()
     SCRATCH_PICK = auto()
     LOCAL_DRAW = auto()
+    LOCAL_OVAL = auto()
+    LOCAL_GRADIENT = auto()
     ANALYSIS_DRAW = auto()
     STRAIGHTEN = auto()
     ZONE_PLACE = auto()

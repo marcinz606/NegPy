@@ -305,7 +305,7 @@ class TestGpuCurveParity(unittest.TestCase):
         """Dodge/burn EV and the local grade share one uploaded texture (.r and .g)
         on the GPU and two kernel arguments on the CPU — a mask that changes both
         catches a swapped plane or a missing multiply in either path."""
-        from negpy.features.local.models import LocalAdjustmentsConfig, PolygonMask
+        from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask
         from negpy.services.rendering.image_processor import ImageProcessor
 
         processor = ImageProcessor()
@@ -322,8 +322,8 @@ class TestGpuCurveParity(unittest.TestCase):
         s = WorkspaceConfig()
         square = ((0.15, 0.15), (0.85, 0.15), (0.85, 0.85), (0.15, 0.85))
         masks = (
-            PolygonMask(vertices=square, stops=0.8, feather=0.03, grade=-35.0),
-            PolygonMask(vertices=((0.0, 0.6), (0.5, 0.6), (0.5, 1.0), (0.0, 1.0)), stops=0.0, feather=0.0, grade=30.0),
+            LocalMask(vertices=square, stops=0.8, feather=0.03, grade=-35.0),
+            LocalMask(vertices=((0.0, 0.6), (0.5, 0.6), (0.5, 1.0), (0.0, 1.0)), stops=0.0, feather=0.0, grade=30.0),
         )
         settings = replace(s, local=LocalAdjustmentsConfig(masks=masks))
         cpu = self._render(processor, settings, img, prefer_gpu=False)

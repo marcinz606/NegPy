@@ -9,7 +9,7 @@ from negpy.features.process.models import ProcessConfig
 from negpy.features.exposure.models import ExposureConfig, RenderIntent
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.lab.models import LabConfig
-from negpy.features.local.models import LocalAdjustmentsConfig, PolygonMask
+from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskShape
 from negpy.features.retouch.models import RetouchConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.features.finish.models import FinishConfig
@@ -442,11 +442,13 @@ class WorkspaceConfig:
                 # on the legacy name, which only a pre-flip save carries.
                 stops = -float(m["strength"]) if "strength" in m else float(m.get("stops", 0.0))
                 masks.append(
-                    PolygonMask(
+                    LocalMask(
                         vertices=verts,
                         stops=stops,
                         feather=float(m.get("feather", 0.04)),
                         grade=float(m.get("grade", 0.0)),
+                        shape=MaskShape(m.get("shape", MaskShape.POLYGON)),
+                        invert=bool(m.get("invert", False)),
                     )
                 )
             return LocalAdjustmentsConfig(masks=tuple(masks))

@@ -36,7 +36,7 @@ def test_enter_finishes_lasso_polygon() -> None:
     overlay._lasso_pts = [QPointF(10, 10), QPointF(40, 10), QPointF(25, 40)]
 
     emitted = []
-    overlay.lasso_completed.connect(emitted.append)
+    overlay.local_mask_created.connect(lambda _shape, pts: emitted.append(pts))
     overlay._finish_draw_if_active()
 
     assert len(emitted) == 1
@@ -51,7 +51,7 @@ def test_enter_ignores_incomplete_lasso() -> None:
     overlay._lasso_pts = [QPointF(10, 10), QPointF(40, 10)]
 
     emitted = []
-    overlay.lasso_completed.connect(emitted.append)
+    overlay.local_mask_created.connect(lambda _shape, pts: emitted.append(pts))
     overlay._finish_draw_if_active()
 
     # Two points can't close a polygon — keep drawing instead of wiping them.
@@ -80,7 +80,7 @@ def test_enter_noop_without_active_draw() -> None:
 
     emitted = []
     overlay.scratch_completed.connect(emitted.append)
-    overlay.lasso_completed.connect(emitted.append)
+    overlay.local_mask_created.connect(lambda _shape, pts: emitted.append(pts))
     overlay._finish_draw_if_active()
 
     assert emitted == []

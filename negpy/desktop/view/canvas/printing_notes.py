@@ -9,14 +9,15 @@ left open. `scale` sizes pens, hatch spacing and type for the exported sheet, wh
 hairline would vanish.
 """
 
+import math
 from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QFont, QFontMetricsF, QImage, QPainter, QPainterPath, QPen, QPolygonF
 
-from negpy.features.geometry.logic import smooth_polyline
-from negpy.features.local.models import LocalAdjustmentsConfig
+from negpy.features.local.logic import min_points, outline_points
+from negpy.features.local.models import LocalAdjustmentsConfig, MaskShape
 from negpy.services.view.coordinate_mapping import CoordinateMapping
 from negpy.services.view.printing_notes import MaskNote, mask_notes
 
@@ -150,17 +151,42 @@ def paint_card(
     return rect
 
 
+def notes_outline(shape: MaskShape, ctrl: List[QPointF], content: QRectF) -> List[QPointF]:
+    """The region that a mask marks on the work print.
+
+    A card edge has no boundary, so it shows as the half plane that gets the full
+    exposure. The ramp is a soft edge, like the feather of a polygon, and stays undrawn.
+    """
+    if shape != MaskShape.GRADIENT:
+        return [QPointF(x, y) for x, y in outline_points(shape, [(p.x(), p.y()) for p in ctrl])]
+    a, b = ctrl[0], ctrl[1]
+    dx, dy = b.x() - a.x(), b.y() - a.y()
+    length = math.hypot(dx, dy)
+    if length < 1e-6:
+        return []
+    reach = math.hypot(content.width(), content.height())
+    ux, uy = dx / length * reach, dy / length * reach
+    px, py = -dy / length * reach, dx / length * reach
+    far = QPointF(a.x() - ux, a.y() - uy)
+    return [
+        QPointF(a.x() - px, a.y() - py),
+        QPointF(a.x() + px, a.y() + py),
+        QPointF(far.x() + px, far.y() + py),
+        QPointF(far.x() - px, far.y() - py),
+    ]
+
+
 def mapped_polys(local: LocalAdjustmentsConfig, uv_grid: Optional[np.ndarray], content: QRectF, grade: float = 0.0) -> List[Poly]:
-    """Mask vertices as smoothed polygons inside `content`, paired with their notes."""
+    """The mask outlines inside `content`, with their notes."""
     polys: List[Poly] = []
     if uv_grid is None:
         return polys
     for mask, note in zip(local.masks, mask_notes(local, grade)):
-        if len(mask.vertices) < 3:
+        if len(mask.vertices) < min_points(mask.shape):
             continue
         ctrl = [CoordinateMapping.map_raw_to_viewport(rx, ry, uv_grid) for rx, ry in mask.vertices]
-        curve = smooth_polyline([(content.x() + nx * content.width(), content.y() + ny * content.height()) for nx, ny in ctrl], closed=True)
-        polys.append(([QPointF(x, y) for x, y in curve], note))
+        screen = [QPointF(content.x() + nx * content.width(), content.y() + ny * content.height()) for nx, ny in ctrl]
+        polys.append((notes_outline(mask.shape, screen, content), note))
     return polys
 
 

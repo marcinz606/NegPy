@@ -2364,17 +2364,19 @@ class AppController(QObject):
         )
         self.request_render()
 
-    def handle_lasso_completed(self, viewport_vertices: list) -> None:
+    def handle_local_mask_created(self, shape: str, viewport_vertices: list) -> None:
+        from negpy.features.local.logic import min_points
+        from negpy.features.local.models import LocalMask, MaskShape
+
+        mask_shape = MaskShape(shape)
         with self.state.metrics_lock:
             uv_grid = self.state.last_metrics.get("uv_grid")
-        if uv_grid is None or len(viewport_vertices) < 3:
+        if uv_grid is None or len(viewport_vertices) < min_points(mask_shape):
             return
 
         raw_vertices = tuple(CoordinateMapping.map_click_to_raw(nx, ny, uv_grid) for nx, ny in viewport_vertices)
 
-        from negpy.features.local.models import PolygonMask
-
-        mask = PolygonMask(vertices=raw_vertices)
+        mask = LocalMask(vertices=raw_vertices, shape=mask_shape)
         local = self.state.config.local
         new_masks = local.masks + (mask,)
         new_local = replace(local, masks=new_masks)
@@ -2386,10 +2388,14 @@ class AppController(QObject):
 
     def handle_local_mask_edited(self, index: int, viewport_vertices: list) -> None:
         """Replace a mask's vertices after an on-canvas drag/add edit (persist on release)."""
+        from negpy.features.local.logic import min_points
+
         with self.state.metrics_lock:
             uv_grid = self.state.last_metrics.get("uv_grid")
         local = self.state.config.local
-        if uv_grid is None or not (0 <= index < len(local.masks)) or len(viewport_vertices) < 3:
+        if uv_grid is None or not (0 <= index < len(local.masks)):
+            return
+        if len(viewport_vertices) < min_points(local.masks[index].shape):
             return
         raw_vertices = tuple(CoordinateMapping.map_click_to_raw(nx, ny, uv_grid) for nx, ny in viewport_vertices)
         masks = list(local.masks)
@@ -2400,11 +2406,15 @@ class AppController(QObject):
         self.request_render()
 
     def delete_local_vertex(self, index: int, vertex_index: int) -> None:
-        """Remove one vertex from a mask (keeps a minimum of 3)."""
+        """Remove one vertex from a polygon mask. Keep a minimum of 3 vertices."""
+        from negpy.features.local.models import MaskShape
+
         local = self.state.config.local
         if not (0 <= index < len(local.masks)):
             return
         mask = local.masks[index]
+        if mask.shape != MaskShape.POLYGON:
+            return
         if len(mask.vertices) <= 3 or not (0 <= vertex_index < len(mask.vertices)):
             return
         verts = mask.vertices[:vertex_index] + mask.vertices[vertex_index + 1 :]
