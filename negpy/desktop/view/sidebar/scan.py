@@ -409,6 +409,9 @@ class ScanSidebar(QWidget):
             self.eject_btn.setVisible(False)
             self.frame_range_label.setVisible(False)
             self.frame_range_widget.setVisible(False)
+            self.scan_window_row_label.setVisible(False)
+            self.scan_window_widget.setVisible(False)
+            self.scan_window_status.setVisible(False)
             self.exposure_label.setVisible(False)
             self.exposure_row_widget.setVisible(False)
             self.autofocus_check.setVisible(False)
@@ -541,13 +544,20 @@ class ScanSidebar(QWidget):
             self.frame_from_spin.setValue(frm)
             self.frame_to_spin.setValue(to)
 
-        self.scan_window_row_label.setVisible(has_frames)
-        self.scan_window_widget.setVisible(has_frames)
-        self.scan_window_status.setVisible(has_frames)
+        # Scan window: a strip/roll feeder previews per-frame windows (StripPreviewDialog);
+        # any other device still gets one quick low-res preview of its single holder
+        # position to set one crop window (QuickScanPreviewDialog).
+        self.scan_window_row_label.setVisible(True)
+        self.scan_window_widget.setVisible(True)
+        self.scan_window_status.setVisible(True)
+        self.scan_window_row_label.setText("Batch" if has_frames else "Window")
         if has_frames:
             self.scan_window_btn.setText("Preview strip…")
             self.scan_window_btn.setToolTip("Preview each frame, set a window per frame, and pick which frames to scan")
-            self._update_scan_window_status()
+        else:
+            self.scan_window_btn.setText("Preview…")
+            self.scan_window_btn.setToolTip("Preview the current holder position and set a crop window for the scan")
+        self._update_scan_window_status()
 
         show_prescan = bool(caps.prescan)
         self.prescan_label.setVisible(show_prescan)
@@ -593,28 +603,40 @@ class ScanSidebar(QWidget):
     def _on_set_scan_window(self) -> None:
         from dataclasses import replace
 
-        from negpy.desktop.view.widgets.strip_preview_dialog import StripPreviewDialog
-
         device = self._current_device()
         if device is None:
             return
-        dialog = StripPreviewDialog(
-            self.controller,
-            device,
-            initial_windows=self._settings.frame_windows,
-            initial_selected=self._settings.selected_frames,
-            initial_offset=self._settings.frame_offset_mm,
-            initial_offset_modifier=self._settings.frame_offset_modifier_mm,
-            parent=self,
-        )
-        if dialog.exec():
-            self.settings = replace(
-                self._settings,
-                frame_windows=dialog.frame_windows(),
-                selected_frames=dialog.selected_frames(),
-                frame_offset_mm=dialog.frame_offset(),
-                frame_offset_modifier_mm=dialog.frame_offset_modifier(),
+
+        if device.capabilities.adapter_frame_capacity is not None:
+            from negpy.desktop.view.widgets.strip_preview_dialog import StripPreviewDialog
+
+            dialog = StripPreviewDialog(
+                self.controller,
+                device,
+                initial_windows=self._settings.frame_windows,
+                initial_selected=self._settings.selected_frames,
+                initial_offset=self._settings.frame_offset_mm,
+                initial_offset_modifier=self._settings.frame_offset_modifier_mm,
+                parent=self,
             )
+            if dialog.exec():
+                self.settings = replace(
+                    self._settings,
+                    frame_windows=dialog.frame_windows(),
+                    selected_frames=dialog.selected_frames(),
+                    frame_offset_mm=dialog.frame_offset(),
+                    frame_offset_modifier_mm=dialog.frame_offset_modifier(),
+                )
+                self._update_scan_window_status()
+                if dialog.scan_requested():
+                    self._on_scan()
+            return
+
+        from negpy.desktop.view.widgets.quick_scan_preview_dialog import QuickScanPreviewDialog
+
+        dialog = QuickScanPreviewDialog(self.controller, device, initial_window=self._settings.scan_window, parent=self)
+        if dialog.exec():
+            self.settings = replace(self._settings, scan_window=dialog.window())
             self._update_scan_window_status()
             if dialog.scan_requested():
                 self._on_scan()

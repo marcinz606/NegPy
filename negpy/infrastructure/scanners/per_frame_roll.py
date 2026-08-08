@@ -42,6 +42,11 @@ class PerFrameRollSession:
         """No-op: a per-frame transport addresses frames directly, never infers a boundary."""
 
     def preview(self, slots: Iterable[int], *, cancel: threading.Event) -> Iterator[RollPreview]:
+        # A device with no adapter (Plustek: single manual holder, no SANE `frame`
+        # option) has one implicit "current position" — requesting frame=1 on it
+        # fails loud (see sane_backend._require_writable_option). slot_count is 1
+        # there anyway, so omitting `frame` costs nothing on a real adapter.
+        has_adapter = self._device.capabilities.adapter_frame_capacity is not None
         for slot in slots:
             if cancel.is_set():
                 return
@@ -54,7 +59,7 @@ class PerFrameRollSession:
                 frame_offset_mm=offset_mm,
                 autofocus=False,
                 auto_exposure=False,
-                frame=slot,
+                frame=slot if has_adapter else None,
             )
             try:
                 result = self._backend.scan(self._device.id, params, lambda _fraction, _phase="": None, cancel)

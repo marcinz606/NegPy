@@ -5,7 +5,6 @@ Read after ``exec()`` via ``selected_frames()`` / ``frame_windows()`` /
 ``frame_offset()``.
 """
 
-import numpy as np
 import qtawesome as qta
 from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtGui import QPixmap, QTransform
@@ -27,6 +26,7 @@ from PyQt6.QtWidgets import (
 from negpy.kernel.system.text import plural
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.scan_preview_common import preview_positive
 from negpy.desktop.view.widgets.scan_window_label import ScanWindowLabel
 from negpy.desktop.workers.scan_worker import RollPreviewRequest
 from negpy.infrastructure.scanners.base import ScannerDevice
@@ -48,24 +48,6 @@ _TILES_PER_ROW = 6  # one SA-21 strip per row; roll adapters (up to 40 frames) w
 # feed-axis start lands on the display's LEFT edge. Tiles 1..N laid left to right then
 # read continuously, like the physical strip. +90 mirrors the feed axis within each tile.
 _DISPLAY_ROTATION_DEG = -90
-
-
-def _preview_positive(rgb: np.ndarray) -> np.ndarray:
-    """Cheap negative→positive for the strip preview: per-channel invert + auto-level.
-
-    Not the real develop pipeline — just enough to read the scene through the
-    orange mask. Each channel is inverted and stretched between its 1st/99th
-    percentiles, which both flips the negative and neutralizes the base cast.
-    """
-    a = rgb.astype(np.float32)
-    if a.ndim == 2:
-        a = a[:, :, None]
-    out = np.empty_like(a)
-    for c in range(a.shape[2]):
-        ch = a[..., c]
-        lo, hi = np.percentile(ch, 1), np.percentile(ch, 99)
-        out[..., c] = 0.0 if hi <= lo else np.clip((hi - ch) / (hi - lo), 0.0, 1.0) * 255.0
-    return out.astype(np.uint8)
 
 
 def _clamp01(v: float) -> float:
@@ -452,7 +434,7 @@ class StripPreviewDialog(QDialog):
             self.status.setText(f"Frame {preview.slot} failed — continuing…")
             return
         try:
-            positive = _preview_positive(preview.rgb)
+            positive = preview_positive(preview.rgb)
             pixmap = QPixmap.fromImage(ImageConverter.to_qimage(positive)).transformed(QTransform().rotate(_DISPLAY_ROTATION_DEG))
         except Exception as e:
             self.status.setText(f"Could not display frame {preview.slot}: {e}")

@@ -298,6 +298,21 @@ def _apply_frame_offset(dev, offset_mm: float) -> None:
         raise RuntimeError(f"Could not set frame offset (subframe)={offset_mm}: {e}") from e
 
 
+def _apply_scan_window(dev, option_map, window: tuple[float, float, float, float] | None) -> None:
+    """Set tl_x/tl_y/br_x/br_y from a normalized window, if any. No-op on None.
+
+    Must be called before every dev.start() a scan makes, not just the first: a
+    device that does a second full pass under a different `source` (the 'source'
+    IR strategy) can reset or re-range its geometry options on that switch, and a
+    silent per-pass window mismatch there yields two differently-shaped arrays.
+    """
+    if window is None:
+        return
+    for name, value in _window_to_option_values(option_map, window).items():
+        if hasattr(dev, name):
+            setattr(dev, name, value)
+
+
 def _find_ir_option(opt) -> str | None:
     """Return a legacy dedicated-IR option, preserving presence-only behavior."""
     for key in opt:
@@ -1060,10 +1075,7 @@ class SaneBackend:
                 x1, y1, x2, y2 = window if window is not None else (0.0, 0.0, 1.0, 1.0)
                 y2 = min(y2, extent_cap)
                 window = (x1, min(y1, y2), x2, y2)
-            if window is not None:
-                for name, value in _window_to_option_values(option_map, window).items():
-                    if hasattr(dev, name):
-                        setattr(dev, name, value)
+            _apply_scan_window(dev, option_map, window)
 
             if progress:
                 try:
@@ -1143,6 +1155,12 @@ class SaneBackend:
                     ir_source = self._get_ir_source(dev)
                     if ir_source:
                         dev.source = ir_source
+                    # A source switch can reset/re-range geometry options on some
+                    # backends — re-apply so the IR pass covers the same window as
+                    # RGB. A silent mismatch here means two differently-shaped
+                    # arrays, and preview_manager's loader-side guard then drops
+                    # the IR plane outright as "belongs to another frame."
+                    _apply_scan_window(dev, option_map, window)
                     if progress:
                         try:
                             progress(0.0)

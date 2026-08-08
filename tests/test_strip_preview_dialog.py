@@ -19,10 +19,10 @@ import pytest
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtWidgets import QApplication
 
+from negpy.desktop.view.widgets.scan_preview_common import preview_positive
 from negpy.desktop.view.widgets.strip_preview_dialog import (
     StripPreviewDialog,
     _display_to_scan_rect,
-    _preview_positive,
     _scan_to_display_rect,
 )
 from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice
@@ -212,7 +212,7 @@ def test_preview_positive_inverts_and_levels() -> None:
     neg = np.zeros((4, 4, 3), dtype=np.uint8)
     neg[:, :2, :] = 20  # low negative value = scene shadow → should become bright
     neg[:, 2:, :] = 200  # high negative value = scene highlight → should become dark
-    pos = _preview_positive(neg)
+    pos = preview_positive(neg)
     assert pos.dtype == np.uint8
     assert pos.shape == neg.shape
     assert pos[:, :2, :].mean() > pos[:, 2:, :].mean()  # inverted

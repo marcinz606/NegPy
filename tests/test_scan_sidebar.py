@@ -163,6 +163,7 @@ def test_no_device_disables_controls() -> None:
     assert sidebar.autofocus_check.isVisibleTo(sidebar) is False
     assert sidebar.depth_combo.isVisibleTo(sidebar) is False
     assert sidebar.depth_label.isVisibleTo(sidebar) is False
+    assert sidebar.scan_window_widget.isVisibleTo(sidebar) is False
 
 
 def test_full_capability_device_enables_coolscan_controls() -> None:
@@ -209,6 +210,64 @@ def test_scan_params_include_prescan_crop() -> None:
     kind, req = controller.started[0]
     assert kind == "scan"
     assert req.params.window == (0.1, 0.2, 0.9, 0.8)
+
+
+def test_minimal_device_still_gets_a_single_shot_preview_window_control() -> None:
+    # No frame adapter to page through, but a single manual holder still gets a
+    # quick low-res preview to set one crop window before the real scan.
+    sidebar, _ = _sidebar(MINIMAL_DEVICE)
+    assert sidebar.scan_window_widget.isVisibleTo(sidebar) is True
+    assert sidebar.scan_window_btn.text() == "Preview…"
+    assert sidebar.scan_window_row_label.text() == "Window"
+
+
+def test_full_capability_device_gets_the_strip_preview_window_control() -> None:
+    sidebar, _ = _sidebar(FULL_DEVICE)
+    assert sidebar.scan_window_widget.isVisibleTo(sidebar) is True
+    assert sidebar.scan_window_btn.text() == "Preview strip…"
+    assert sidebar.scan_window_row_label.text() == "Batch"
+
+
+def test_minimal_device_scan_window_opens_the_quick_preview_dialog(monkeypatch) -> None:
+    sidebar, _ = _sidebar(MINIMAL_DEVICE)
+    rect = (0.2, 0.2, 0.8, 0.8)
+
+    class _FakeDialog:
+        def __init__(self, controller, device, initial_window=None, parent=None) -> None:
+            self.seen = (controller, device, initial_window)
+
+        def exec(self) -> bool:
+            return True
+
+        def window(self):
+            return rect
+
+        def scan_requested(self) -> bool:
+            return False
+
+    monkeypatch.setattr("negpy.desktop.view.widgets.quick_scan_preview_dialog.QuickScanPreviewDialog", _FakeDialog)
+
+    sidebar._on_set_scan_window()
+
+    assert sidebar._settings.scan_window == rect
+
+
+def test_full_capability_device_scan_window_still_opens_the_strip_dialog(monkeypatch) -> None:
+    sidebar, _ = _sidebar(FULL_DEVICE)
+    opened: list = []
+
+    class _FakeDialog:
+        def __init__(self, controller, device, **kwargs) -> None:
+            opened.append(device)
+
+        def exec(self) -> bool:
+            return False  # cancelled — settings must stay untouched
+
+    monkeypatch.setattr("negpy.desktop.view.widgets.strip_preview_dialog.StripPreviewDialog", _FakeDialog)
+
+    sidebar._on_set_scan_window()
+
+    assert opened == [FULL_DEVICE]
 
 
 def test_14_bit_device_defaults_to_14_not_8() -> None:

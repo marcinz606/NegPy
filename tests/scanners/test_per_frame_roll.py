@@ -35,7 +35,7 @@ class _FakeBackend:
 
     def scan(self, device_id, params, progress, cancel) -> ScanResult:
         self.params_seen.append(params)
-        if self._cancel_on == params.frame:
+        if self._cancel_on is not None and self._cancel_on == params.frame:
             cancel.set()
             raise RuntimeError("cancelled mid-scan")
         if params.frame in self._fail_on:
@@ -152,6 +152,28 @@ def test_an_unknown_pitch_disables_offsets_rather_than_guessing() -> None:
 
 def test_slot_count_follows_the_adapter_capacity() -> None:
     assert _session(_FakeBackend(), device=_device(capacity=40)).slot_count == 40
+
+
+def test_frame_less_device_omits_frame_rather_than_requesting_frame_one() -> None:
+    """Plustek etc.: one manual holder, no SANE `frame` option — requesting frame=1
+    on it fails loud (sane_backend._require_writable_option), so it must be omitted."""
+    caps = ScannerCapabilities(
+        ir_channel=False,
+        supported_dpi=(1200,),
+        supported_depths=(8, 16),
+        sources=(ScanMode.NEGATIVE,),
+        max_area_mm=(36.0, 24.0),
+        adapter_frame_capacity=None,
+    )
+    device = ScannerDevice(id="plustek:libusb:001:008", vendor="Plustek", model="OpticFilm", capabilities=caps)
+    backend = _FakeBackend()
+    session = PerFrameRollSession(backend, device, dpi=300)
+    assert session.slot_count == 1
+
+    (preview,) = list(session.preview((1,), cancel=threading.Event()))
+
+    assert backend.params_seen[0].frame is None
+    assert preview.rgb is not None
 
 
 def test_approve_and_close_are_no_ops() -> None:
