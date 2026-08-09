@@ -571,15 +571,20 @@ class CanvasOverlay(QWidget):
         painter = QPainter(self)
 
         parent_bg = getattr(self.parent(), "_bg_color", QColor("#050505"))
-        if not getattr(self.parent(), "gpu_widget", None) or not self.parent().gpu_widget.isVisible():
+        gpu = getattr(self.parent(), "gpu_widget", None)
+        gpu_live = bool(gpu is not None and gpu.isVisible())
+        if not gpu_live:
             painter.fillRect(event.rect(), parent_bg)
 
         if sys.platform in ("darwin", "win32"):
             painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
-            if getattr(self.parent(), "gpu_widget", None) and self.parent().gpu_widget.isVisible():
-                painter.fillRect(event.rect(), Qt.GlobalColor.transparent)
-            else:
+            if not gpu_live:
                 painter.fillRect(event.rect(), parent_bg)
+            elif gpu.presents_to_screen():
+                # Only a native surface underneath is revealed by the hole. Under a
+                # bitmap present the frame is in this very backing store, and the
+                # fill wipes it (issue: white canvas on macOS, black on Windows).
+                painter.fillRect(event.rect(), Qt.GlobalColor.transparent)
             painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)

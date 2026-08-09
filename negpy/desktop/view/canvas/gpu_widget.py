@@ -184,6 +184,17 @@ class GPUCanvasWidget(QWidget):
             address_mode_w=wgpu.AddressMode.clamp_to_edge,
         )
 
+    def presents_to_screen(self) -> bool:
+        """True when the frame goes to a native surface of its own, which the overlay
+        must punch an alpha hole to reveal.
+
+        rendercanvas picks a *bitmap* present on Qt: the frame is blitted into the
+        shared backing store by the widget's own paintEvent, and a hole punched over
+        it erases the frame instead of revealing anything.
+        """
+        sub = getattr(self.canvas, "_subwidget", self.canvas)
+        return bool(getattr(sub, "_present_to_screen", False))
+
     def set_transform(self, zoom: float, px: float, py: float) -> None:
         self.zoom = zoom
         self.pan_x = px
