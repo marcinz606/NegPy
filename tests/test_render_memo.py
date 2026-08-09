@@ -5,8 +5,11 @@ import numpy as np
 from negpy.desktop.render_memo import RenderMemo
 
 
-def _cfg(slots: int = 2) -> SimpleNamespace:
-    return SimpleNamespace(preview_cache_max_full_res_entries=slots)
+def _cfg(slots: int = 2, memo_slots: int | None = None) -> SimpleNamespace:
+    return SimpleNamespace(
+        preview_cache_max_full_res_entries=slots,
+        render_memo_max_entries=slots if memo_slots is None else memo_slots,
+    )
 
 
 def _payload() -> dict:
@@ -54,6 +57,18 @@ def test_budget_evicts_least_recent_file() -> None:
     assert m.get("B", "k") is None
     assert m.get("A", "k") is not None
     assert m.get("C", "k") is not None
+
+
+def test_preview_frames_get_the_bigger_budget() -> None:
+    # Several frames along a roll stay instant; HQ falls back to the full-res budget.
+    m = RenderMemo(_cfg(slots=2, memo_slots=5))
+    for i in range(5):
+        m.store(f"f{i}", "k", _payload())
+    assert m.get("f0", "k") is not None
+
+    m.large_entries = True
+    m.store("f5", "k", _payload())
+    assert len([h for h in ("f0", "f1", "f2", "f3", "f4", "f5") if m.get(h, "k") is not None]) == 2
 
 
 def test_budget_floor_is_two() -> None:
@@ -117,8 +132,7 @@ def test_owned_textures_are_destroyed_when_the_entry_leaves() -> None:
 
 
 def test_restoring_a_frame_from_the_memo_does_not_free_its_own_texture() -> None:
-    # Navigate away, back (served from the memo), away again: the same texture is
-    # re-filed under the entry that owns it.
+    # Away, back (served from the memo), away again: the same texture is re-filed.
     m = RenderMemo(_cfg())
     tex = _FakeTexture()
     m.store("A", "k", _gpu_payload(tex))

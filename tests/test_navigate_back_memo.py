@@ -1,10 +1,9 @@
 """Navigating back to a frame must paint its last render, with no spinner.
 
-The memo used to hold host arrays, which the soft-proof bake produced as a side
-effect. Once the proof moved to the display LUT a render publishes a GPU texture,
-the store site's ndarray guard stopped matching and the memo went permanently
-empty — a spinner on every switch. The texture is now retained out of the engine's
-pool on the way out, so these pin the identity bookkeeping that makes that safe.
+The memo used to hold host arrays, produced as a side effect of the soft-proof bake.
+Once the proof moved to the display LUT the store site's ndarray guard stopped
+matching and the memo went permanently empty. These pin the identity bookkeeping
+that lets a GPU texture be retained out of the engine's pool instead.
 """
 
 import unittest

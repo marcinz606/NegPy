@@ -49,6 +49,10 @@ max_texture_size = "auto"
 # instant. Raise on high-RAM machines together with preview_cache_max_bytes.
 # preview_cache_max_full_res_entries = 2
 
+# How many rendered frames to keep for instant navigate-back (no spinner, no re-render).
+# A preview-size frame is ~27 MB of VRAM; HQ frames follow the full-res budget above.
+# render_memo_max_entries = 8
+
 [logging]
 # Verbosity: "debug", "info", "warning", "error"
 level = "info"
@@ -72,6 +76,7 @@ class OverrideConfig:
     preview_cache_max_bytes: int | None = None
     preview_cache_max_entries: int | None = None
     preview_cache_max_full_res_entries: int | None = None
+    render_memo_max_entries: int | None = None
     log_level: str = "info"
 
     @property
@@ -145,6 +150,9 @@ def _parse(data: dict) -> OverrideConfig:
     raw_cache_fr = performance.get("preview_cache_max_full_res_entries")
     cache_fr: int | None = int(raw_cache_fr) if isinstance(raw_cache_fr, int) and raw_cache_fr > 0 else None
 
+    raw_memo_n = performance.get("render_memo_max_entries")
+    memo_n: int | None = int(raw_memo_n) if isinstance(raw_memo_n, int) and raw_memo_n > 0 else None
+
     log_level = str(logging_section.get("level", "info")).lower()
     if log_level not in ("debug", "info", "warning", "error"):
         log_level = "info"
@@ -159,6 +167,7 @@ def _parse(data: dict) -> OverrideConfig:
         preview_cache_max_bytes=cache_b,
         preview_cache_max_entries=cache_n,
         preview_cache_max_full_res_entries=cache_fr,
+        render_memo_max_entries=memo_n,
         log_level=log_level,
     )
 
@@ -227,3 +236,6 @@ def apply(cfg: OverrideConfig, app_config: AppConfig) -> None:
 
     if cfg.preview_cache_max_full_res_entries is not None:
         app_config.preview_cache_max_full_res_entries = cfg.preview_cache_max_full_res_entries
+
+    if cfg.render_memo_max_entries is not None:
+        app_config.render_memo_max_entries = cfg.render_memo_max_entries

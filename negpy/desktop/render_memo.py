@@ -9,9 +9,8 @@ the authoritative render refreshes metrics quietly in the background (so a
 stale memo can only ever flash briefly, never persist).
 
 Buffers are stored by reference under the same read-only contract as the
-preview cache. A GPU render lands here as the texture itself, retained out of
-the engine's pool on the file switch that would otherwise destroy it — so the
-memo *owns* those textures and frees them when an entry leaves.
+preview cache. A GPU render lands here as the texture itself, retained out of the
+engine's pool on the file switch — so the memo owns those textures and frees them.
 """
 
 from __future__ import annotations
@@ -28,17 +27,18 @@ class RenderMemo:
     def __init__(self, app_config: Any = None) -> None:
         self._app = app_config or APP_CONFIG
         self._entries: "OrderedDict[str, tuple[str, dict]]" = OrderedDict()
+        # Hundreds of MB an entry (HQ renders, strip mosaics): use the full-res knob.
+        self.large_entries = False
 
     def _budget(self) -> int:
-        # One knob governs both HQ retention caches: the active frame plus the
-        # one navigated from (see preview_cache_max_full_res_entries).
-        return max(2, int(getattr(self._app, "preview_cache_max_full_res_entries", 2)))
+        if self.large_entries:
+            return max(2, int(getattr(self._app, "preview_cache_max_full_res_entries", 2)))
+        return max(2, int(getattr(self._app, "render_memo_max_entries", 8)))
 
     def _dispose(self, entry: "Optional[tuple[str, dict]]", keep: "Optional[dict]" = None) -> None:
-        """Free the GPU textures an entry owns. Duck-typed: strip mosaics are plain
-        arrays and must pass through untouched. ``keep`` spares anything the
-        replacing payload also holds — re-storing a frame served *from* the memo
-        hands back the very texture that entry owns."""
+        """Free the GPU textures an entry owns; strip mosaics are arrays and pass
+        through. ``keep`` spares what the replacing payload also holds — re-storing a
+        frame served *from* the memo hands back that entry's own texture."""
         if entry is None:
             return
         spared = [] if keep is None else list(keep.values())

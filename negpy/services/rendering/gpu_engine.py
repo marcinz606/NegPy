@@ -2042,10 +2042,8 @@ class GPUEngine:
     def cleanup(self, collect: bool = True, retain: Optional[GPUTexture] = None) -> None:
         """Evacuates the texture pool; optionally forces garbage collection.
 
-        ``retain`` hands one texture to the caller instead of destroying it (the
-        navigate-back memo keeps the displayed frame alive across a file switch).
-        Its pool key goes with it, so the next render allocates a fresh one rather
-        than painting over pixels somebody else now owns.
+        ``retain`` is handed to the caller instead: its pool key goes with it, so the
+        next render allocates a fresh one rather than painting over borrowed pixels.
         """
         for tex in self._tex_cache.values():
             if tex is not retain:

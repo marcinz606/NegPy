@@ -55,6 +55,9 @@ class AppConfig:
     # slot budget inside the LRU: enough to make navigating back to the previous
     # frame instant, without letting HQ buffers push every small preview out.
     preview_cache_max_full_res_entries: int = 2
+    # Rendered frames kept for instant navigate-back. ~27 MB of VRAM each at
+    # preview_render_size=1600; HQ frames stay on the full-res budget above.
+    render_memo_max_entries: int = 8
     # Canvas zoom (1.0 = 100%)
     canvas_zoom_min: float = 0.25
     canvas_zoom_max: float = 8.0

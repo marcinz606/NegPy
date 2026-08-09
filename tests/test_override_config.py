@@ -81,6 +81,17 @@ class TestOverrideConfigParsing(unittest.TestCase):
         self.assertEqual(cfg.max_texture_size, 4096)
         self.assertEqual(cfg.log_level, "debug")
 
+    def test_parse_render_memo_max_entries(self):
+        cfg = _parse({"performance": {"render_memo_max_entries": 16}})
+        self.assertEqual(cfg.render_memo_max_entries, 16)
+        app = _make_app_config()
+        apply(cfg, app)
+        self.assertEqual(app.render_memo_max_entries, 16)
+
+    def test_parse_render_memo_max_entries_rejects_nonsense(self):
+        for value in (0, -1, "eight", None):
+            self.assertIsNone(_parse({"performance": {"render_memo_max_entries": value}}).render_memo_max_entries)
+
     def test_parse_invalid_backend_falls_back_to_auto(self):
         cfg = _parse({"rendering": {"backend": "directx9"}})
         self.assertEqual(cfg.backend, "auto")
