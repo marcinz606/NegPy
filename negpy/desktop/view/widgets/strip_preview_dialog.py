@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
 from negpy.kernel.system.text import plural
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.scan_preview_common import preview_positive
+from negpy.desktop.view.widgets.scan_preview_common import RollPreviewSignalsMixin, preview_positive
 from negpy.desktop.view.widgets.scan_window_label import ScanWindowLabel
 from negpy.desktop.workers.scan_worker import RollPreviewRequest
 from negpy.infrastructure.scanners.base import ScannerDevice
@@ -97,7 +97,7 @@ class _Tile:
         self.widget = widget
 
 
-class StripPreviewDialog(QDialog):
+class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
     """Preview each frame of a strip; set a per-frame window and frame selection."""
 
     def __init__(
@@ -243,10 +243,7 @@ class StripPreviewDialog(QDialog):
         self._on_offset_changed(self.offset_slider.value())
         self._update_ok_enabled()
 
-        controller.scan_roll_preview_ready.connect(self._on_preview_ready)
-        controller.scan_roll_preview_finished.connect(self._on_preview_finished)
-        controller.scan_error.connect(self._on_error)
-        controller.scan_cancelled.connect(self._on_cancelled)
+        self._connect_preview_signals()
 
     def _build_tile(self, frame: int, initial_window, checked: bool) -> _Tile:
         """A big landscape preview with a subtle overlay box (frame checkbox + preview)."""
@@ -471,16 +468,3 @@ class StripPreviewDialog(QDialog):
         self._previewing = False
         self._set_previewing(False)
         self.status.setText("Preview cancelled.")
-
-    def closeEvent(self, ev) -> None:
-        for signal, slot in (
-            (self._controller.scan_roll_preview_ready, self._on_preview_ready),
-            (self._controller.scan_roll_preview_finished, self._on_preview_finished),
-            (self._controller.scan_error, self._on_error),
-            (self._controller.scan_cancelled, self._on_cancelled),
-        ):
-            try:
-                signal.disconnect(slot)
-            except (TypeError, RuntimeError):
-                pass
-        super().closeEvent(ev)

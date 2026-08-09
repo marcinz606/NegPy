@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QPushButton
 
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.scan_preview_common import preview_positive
+from negpy.desktop.view.widgets.scan_preview_common import RollPreviewSignalsMixin, preview_positive
 from negpy.desktop.view.widgets.scan_window_label import ScanWindowLabel
 from negpy.desktop.workers.scan_worker import RollPreviewRequest
 from negpy.infrastructure.scanners.base import ScannerDevice
@@ -21,7 +21,7 @@ _PREVIEW_FALLBACK_DPI = 500  # only when the device reports no DPI list at all
 _PREVIEW_SLOT = 1  # PerFrameRollSession's only slot on a frame-less device
 
 
-class QuickScanPreviewDialog(QDialog):
+class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
     """Preview the current holder position at low res; set a crop window for the real scan."""
 
     def __init__(self, controller, device: ScannerDevice, initial_window=None, parent=None) -> None:
@@ -90,10 +90,7 @@ class QuickScanPreviewDialog(QDialog):
         btns.addWidget(self.scan_btn)
         layout.addLayout(btns)
 
-        controller.scan_roll_preview_ready.connect(self._on_preview_ready)
-        controller.scan_roll_preview_finished.connect(self._on_preview_finished)
-        controller.scan_error.connect(self._on_error)
-        controller.scan_cancelled.connect(self._on_cancelled)
+        self._connect_preview_signals()
 
     # ── result getters ────────────────────────────────────────────────
 
@@ -168,16 +165,3 @@ class QuickScanPreviewDialog(QDialog):
         self._previewing = False
         self.preview_btn.setEnabled(True)
         self.status.setText("Preview cancelled.")
-
-    def closeEvent(self, ev) -> None:
-        for signal, slot in (
-            (self._controller.scan_roll_preview_ready, self._on_preview_ready),
-            (self._controller.scan_roll_preview_finished, self._on_preview_finished),
-            (self._controller.scan_error, self._on_error),
-            (self._controller.scan_cancelled, self._on_cancelled),
-        ):
-            try:
-                signal.disconnect(slot)
-            except (TypeError, RuntimeError):
-                pass
-        super().closeEvent(ev)
