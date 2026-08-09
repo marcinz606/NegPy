@@ -149,6 +149,7 @@ class ShortcutManager:
             "redo": controller.session.redo,
             "show_shortcuts": lambda: _show_shortcuts(self.window),
             "show_analysis_help": self.window.right_panel.show_analysis_help,
+            "check_for_updates": lambda: self.window.session_panel.check_for_updates(),
         }
 
         widgets = slider_widget_map(controls)

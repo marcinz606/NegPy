@@ -1,24 +1,19 @@
+from typing import Optional
+
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QLabel,
+    QMessageBox,
 )
-from PyQt6.QtCore import pyqtSignal, Qt, QThread
+from PyQt6.QtCore import Qt
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.sidebar.header import SidebarHeader
 from negpy.desktop.view.sidebar.files import FileBrowser
-from negpy.kernel.system.version import check_for_updates
-
-
-class UpdateCheckWorker(QThread):
-    """Background worker to check for new releases."""
-
-    finished = pyqtSignal(str)
-
-    def run(self):
-        new_ver = check_for_updates()
-        if new_ver:
-            self.finished.emit(new_ver)
+from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.update_dialog import UpdateDialog, start_update_check
+from negpy.kernel.system.updater import UpdateInfo
+from negpy.kernel.system.version import get_app_version
 
 
 class SessionPanel(QWidget):
@@ -30,6 +25,7 @@ class SessionPanel(QWidget):
     def __init__(self, controller: AppController):
         super().__init__()
         self.controller = controller
+        self.update_info: Optional[UpdateInfo] = None
 
         self._init_ui()
         self._connect_signals()
@@ -48,15 +44,14 @@ class SessionPanel(QWidget):
         self.update_label = QLabel("")
         self.update_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.update_label.setObjectName("update_label")
-        self.update_label.setOpenExternalLinks(True)
+        self.update_label.setOpenExternalLinks(False)
         self.update_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
         self.update_label.setCursor(Qt.CursorShape.PointingHandCursor)
         self.update_label.setVisible(False)
+        self.update_label.linkActivated.connect(lambda _href: self.show_update_dialog())
         layout.addWidget(self.update_label)
 
-        self.update_worker = UpdateCheckWorker()
-        self.update_worker.finished.connect(self._on_update_found)
-        self.update_worker.start()
+        start_update_check(self._on_update_checked)
 
         self.file_browser = FileBrowser(self.controller)
         self.library_tree = self.file_browser.library_tree
@@ -112,10 +107,36 @@ class SessionPanel(QWidget):
         section = self.file_browser.library_section
         section.toggle_button.setChecked(not section.toggle_button.isChecked())
 
-    def _on_update_found(self, version: str) -> None:
+    def _on_update_checked(self, info: Optional[UpdateInfo]) -> None:
+        if info is None:
+            return
+        self.update_info = info
         self.update_label.setText(
-            '<a href="https://github.com/marcinz606/NegPy/releases" '
-            'style="color:#558B2F; text-decoration:none;">'
-            f"⬇ Update Available: v{version}</a>"
+            f'<a href="#update" style="color:{THEME.status_success}; text-decoration:none;">⬇ Update Available: v{info.version}</a>'
+        )
+        self.update_label.setToolTip(
+            "Install this update — NegPy downloads it, closes, and reopens on the new version"
+            if info.can_self_install
+            else "See what is new and where to download it"
         )
         self.update_label.setVisible(True)
+
+    def show_update_dialog(self) -> None:
+        """Open the update window. Silent while the startup check has found nothing."""
+        if self.update_info is None:
+            return
+        UpdateDialog(self.update_info, self).exec()
+
+    def check_for_updates(self) -> None:
+        """Re-run the release check on demand and report either way."""
+        if self.update_info is not None:
+            self.show_update_dialog()
+            return
+        start_update_check(self._on_manual_check)
+
+    def _on_manual_check(self, info: Optional[UpdateInfo]) -> None:
+        if info is None:
+            QMessageBox.information(self, "NegPy", f"NegPy {get_app_version()} is up to date.")
+            return
+        self._on_update_checked(info)
+        self.show_update_dialog()

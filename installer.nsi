@@ -18,6 +18,8 @@
 Name "${APPNAME}"
 OutFile "dist\${OUTFILE}"
 InstallDir "$PROGRAMFILES64\${APPNAME}"
+# An upgrade must land on top of the existing install, wherever the user put it.
+InstallDirRegKey HKLM "Software\${APPNAME}" "InstallDir"
 RequestExecutionLevel admin
 
 !insertmacro MUI_PAGE_WELCOME
@@ -38,6 +40,8 @@ Section "Install"
 
     WriteUninstaller "$INSTDIR\uninstall.exe"
 
+    WriteRegStr HKLM "Software\${APPNAME}" "InstallDir" "$INSTDIR"
+
     # Registry info for Add/Remove Programs
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "DisplayName" "${APPNAME}"
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "UninstallString" "$\"$INSTDIR\uninstall.exe$\""
@@ -54,5 +58,6 @@ Section "Uninstall"
     Delete "$SMPROGRAMS\${APPNAME}.lnk"
     Delete "$DESKTOP\${APPNAME}.lnk"
     DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}"
+    DeleteRegKey HKLM "Software\${APPNAME}"
     RMDir /r "$INSTDIR"
 SectionEnd

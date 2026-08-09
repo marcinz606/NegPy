@@ -74,6 +74,8 @@ It is built with **Python**, running natively on Linux, macOS, and Windows.
 ### Download
 Grab the latest release for your OS from the **[Releases Page](https://github.com/marcinz606/NegPy/releases)**.
 
+After that NegPy keeps itself current: when a new release is out, the left panel shows an **⬇ Update Available** link that downloads and installs it for you, then reopens on the new version. No manual download, uninstall or reinstall.
+
 #### Linux
 I provide an `.AppImage`. Make it executable using `chmod +x` and It should just work.
 

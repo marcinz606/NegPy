@@ -5,6 +5,7 @@ import pytest
 from negpy.desktop.session import DesktopSessionManager
 from negpy.desktop.view.sidebar.session_panel import SessionPanel
 from negpy.infrastructure.storage.repository import StorageRepository
+from negpy.kernel.system.updater import UpdateInfo
 
 
 def _controller(tmp_path, roots: list[str]) -> MagicMock:
@@ -22,7 +23,7 @@ def _controller(tmp_path, roots: list[str]) -> MagicMock:
 @pytest.fixture
 def panel(qapp, tmp_path, monkeypatch):
     # The update check would hit the network on construction.
-    monkeypatch.setattr("negpy.desktop.view.sidebar.session_panel.check_for_updates", lambda: None)
+    monkeypatch.setattr("negpy.desktop.view.widgets.update_dialog.find_update", lambda *a, **k: None)
     root = tmp_path / "library"
     root.mkdir()
     return SessionPanel(_controller(tmp_path, [str(root)]))
@@ -52,7 +53,7 @@ def test_tree_is_shown_when_the_library_has_roots(panel):
 
 
 def test_tree_hidden_when_no_roots(qapp, tmp_path, monkeypatch):
-    monkeypatch.setattr("negpy.desktop.view.sidebar.session_panel.check_for_updates", lambda: None)
+    monkeypatch.setattr("negpy.desktop.view.widgets.update_dialog.find_update", lambda *a, **k: None)
 
     panel = SessionPanel(_controller(tmp_path, []))
 
@@ -166,3 +167,56 @@ def test_section_states_are_remembered(panel):
     repo = panel.controller.session.repo
     assert repo.get_global_setting("library_section_expanded") is False
     assert repo.get_global_setting("frames_section_expanded") is False
+
+
+# --- the update notice ----------------------------------------------------
+
+
+def _update(**overrides) -> UpdateInfo:
+    fields = dict(
+        version="9.9.9",
+        notes="## What's new",
+        page_url="https://example.test/release",
+        asset_name="NegPy-9.9.9-x86_64.AppImage",
+        download_url="https://example.test/asset",
+        size=1,
+    )
+    return UpdateInfo(**{**fields, **overrides})
+
+
+def test_no_notice_until_a_newer_release_turns_up(panel):
+    panel._on_update_checked(None)
+
+    assert not panel.update_label.isVisibleTo(panel)
+    assert panel.update_info is None
+
+
+def test_the_notice_names_the_new_version(panel, monkeypatch):
+    monkeypatch.setattr("negpy.kernel.system.updater.install_kind", lambda: "appimage")
+
+    panel._on_update_checked(_update())
+
+    assert panel.update_label.isVisibleTo(panel)
+    assert "9.9.9" in panel.update_label.text()
+    assert "#update" in panel.update_label.text()  # the click stays in the app
+
+
+def test_clicking_the_notice_opens_the_update_window(panel, monkeypatch):
+    opened = []
+    monkeypatch.setattr(
+        "negpy.desktop.view.sidebar.session_panel.UpdateDialog", lambda info, parent: MagicMock(exec=lambda: opened.append(info))
+    )
+    panel._on_update_checked(_update())
+
+    panel.update_label.linkActivated.emit("#update")
+
+    assert opened and opened[0].version == "9.9.9"
+
+
+def test_the_window_stays_shut_while_the_running_version_is_current(panel, monkeypatch):
+    monkeypatch.setattr(
+        "negpy.desktop.view.sidebar.session_panel.UpdateDialog",
+        lambda info, parent: pytest.fail("no update to show"),
+    )
+
+    panel.show_update_dialog()

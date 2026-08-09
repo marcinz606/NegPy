@@ -41,7 +41,7 @@ Both side panels can be narrowed to give the canvas more room. As the controls p
 
 ## 2. Film strip (left panel)
 
-The header shows the NegPy logo and version (and an update link when a new release is out); the chevron at its top-right folds the branding away to give the frames more room, and NegPy remembers that too. Below it: the toolbar, the search box, and then two collapsible sections — **Library** (the folders your scans live in) and **Film Strip** (the frames you have open). Click either heading to fold it away; the one still open takes the whole panel, and a folded one keeps just its heading. NegPy remembers which were open.
+The header shows the NegPy logo and version. When a newer release is out, a green **⬇ Update Available** line appears under it — click it to read what changed and let NegPy install it ([§15](#15-updating-negpy)). The chevron at the header's top-right folds the branding away to give the frames more room, and NegPy remembers that too. Below it: the toolbar, the search box, and then two collapsible sections — **Library** (the folders your scans live in) and **Film Strip** (the frames you have open). Click either heading to fold it away; the one still open takes the whole panel, and a folded one keeps just its heading. NegPy remembers which were open.
 
 ### Your library
 
@@ -663,6 +663,28 @@ If NegPy crashes on launch or has rendering glitches, you can force backend sett
 *   **Black/blank preview on Windows** → `backend = "dx12"` or `qt_rhi_backend = "software"`.
 *   **Wayland rendering issues** → `qt_platform = "xcb"` to force X11.
 *   **GPU out-of-memory during export** → `max_texture_size = 4096`.
+
+---
+
+## 15. Updating NegPy
+
+NegPy asks GitHub for the newest release once at startup. If there is one, a green **⬇ Update Available: vX.Y.Z** line appears under the logo in the left panel. Click it to open the update window: the release notes, the download size, and one button.
+
+**Install Update** downloads the build that matches how *this* copy was installed, then closes NegPy, installs it over the old version, and reopens on the new one. You do not download, uninstall or reinstall anything by hand. Nothing is replaced until NegPy has exited, so a failed download or a refused permission prompt leaves your working install exactly as it was.
+
+What happens per platform:
+
+| Install | What NegPy fetches | How it installs |
+|---------|--------------------|-----------------|
+| **Windows** | the `-Setup.exe` installer | Runs it silently over your existing install — Windows asks for administrator approval first, because the app lives in Program Files. Approve it *before* NegPy closes. |
+| **macOS** | the `.dmg` for your chip (Apple silicon or Intel) | Mounts the image and replaces the `NegPy.app` bundle where it currently sits, then reopens it. |
+| **Linux** | the `.AppImage` | Replaces the AppImage file you launched, keeps it executable, and relaunches it. |
+
+Your edits, presets, settings and library are untouched: they live in `Documents/NegPy` and the local database, not in the installation folder.
+
+**When the button says "Open Releases Page" instead**, NegPy cannot swap itself and sends you to GitHub. That is the case when you run from a source checkout, when the release has no build for your platform, or when the app was moved somewhere it no longer matches its installer's layout. The same happens if the folder holding the app is not writable by you (an AppImage in a system directory, or an app bundle in a `/Applications` you do not own) — NegPy says so rather than failing halfway.
+
+You can ask for the check again at any time with the **Check for updates** action (unbound by default — give it a key in the shortcut editor).
 
 ---
 
