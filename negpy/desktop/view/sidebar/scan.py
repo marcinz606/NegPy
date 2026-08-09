@@ -260,7 +260,7 @@ class ScanSidebar(QWidget):
         self.depth_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
         self.ir_check.toggled.connect(lambda: self._update_settings_from_ui())
         self.autofocus_check.toggled.connect(lambda: self._update_settings_from_ui())
-        self.ae_check.toggled.connect(lambda: self._update_settings_from_ui())
+        self.ae_check.toggled.connect(lambda: self._on_ae_toggled())
         self.exposure_slider.valueChanged.connect(self._on_exposure_changed)
         self.frame_from_spin.valueChanged.connect(self._on_frame_from_changed)
         self.frame_to_spin.valueChanged.connect(self._on_frame_to_changed)
@@ -492,6 +492,10 @@ class ScanSidebar(QWidget):
         self.ae_check.blockSignals(False)
         self.frame_from_spin.blockSignals(False)
         self.frame_to_spin.blockSignals(False)
+
+    def _on_ae_toggled(self) -> None:
+        self.exposure_slider.setEnabled(not self.ae_check.isChecked()) 
+        self._update_settings_from_ui()
 
     def _on_exposure_changed(self, _value: int) -> None:
         self._update_exposure_value_label()
