@@ -11,7 +11,15 @@ from PyQt6.QtWidgets import QApplication
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import DesktopSessionManager, AppState, ToolMode
 from negpy.desktop.workers.export import ExportTask, resolve_export_target_path
-from negpy.domain.models import ColorSpace, ExportConfig, ExportFormat, ExportPreset, ExportPresetOutputMode, WorkspaceConfig
+from negpy.domain.models import (
+    ColorSpace,
+    ExportConfig,
+    ExportFormat,
+    ExportPreset,
+    ExportPresetOutputMode,
+    ExportResolutionMode,
+    WorkspaceConfig,
+)
 from negpy.infrastructure.scanners.params import ScanParams
 from negpy.services.rendering.preview_manager import PreviewManager
 
@@ -979,25 +987,28 @@ class TestBatchExportFiltering(unittest.TestCase):
         tasks = self._captured_tasks()
         self.assertEqual([t.file_info["name"] for t in tasks], ["scan.tif", "IMG_0001.cr2"])
 
-    def test_export_all_override_settings_applies_current_export_to_all(self):
+    def test_export_all_applies_current_export_to_all(self):
         self.visible_indices = [0, 1]
         self.controller.state.config = replace(
             self.controller.state.config,
             export=replace(self.controller.state.config.export, export_path="/orig"),
         )
-        self.controller.request_batch_export(override_settings=True)
+        self.controller.request_batch_export()
         tasks = self._captured_tasks()
         for t in tasks:
             self.assertEqual(t.params.export.export_path, "/tmp/out")
 
-    def test_export_all_saved_overrides_path_with_session_values(self):
-        """all_saved scope uses session path/mode/format even when per-file configs are stale."""
+    def test_batch_export_ignores_stale_per_file_export_settings(self):
+        """A frame's saved export block never overrides the panel (issue #750: batch
+        exports came out at the stale 2000px target while the panel said Original)."""
         self.visible_indices = [0, 1]
-        session_export = self.controller.state.config.export
-        # Per-file config has stale SAME_AS_SOURCE (differs from session default
-        # ABSOLUTE) + stale PNG + stale AdobeRGB + stale jpeg_quality — delivery
-        # overrides (mode, fmt, color_space) must use session; sizing (quality) is
-        # preserved from per-file.
+        session_export = replace(
+            self.controller.state.config.export,
+            export_resolution_mode=ExportResolutionMode.ORIGINAL.value,
+            jpeg_quality=90,
+        )
+        self.controller.state.config = replace(self.controller.state.config, export=session_export)
+
         stale_export = replace(
             session_export,
             output_mode=ExportPresetOutputMode.SAME_AS_SOURCE,
@@ -1005,32 +1016,37 @@ class TestBatchExportFiltering(unittest.TestCase):
             output_subfolder="old_sub",
             export_fmt=ExportFormat.PNG,
             export_color_space=ColorSpace.ADOBE_RGB.value,
+            export_resolution_mode=ExportResolutionMode.TARGET_PX.value,
+            export_target_long_edge_px=2000,
+            paper_aspect_ratio="1:1",
+            export_print_size=10.0,
+            export_dpi=150,
             jpeg_quality=50,
+            filename_pattern="{{ original_name }}_stale",
         )
         stale_config = replace(self.controller.state.config, export=stale_export)
         self.mock_session_manager.repo.load_file_settings.return_value = stale_config
-        self.controller.request_batch_export(override_settings=False)
+        self.controller.request_batch_export()
         tasks = self._captured_tasks()
         self.assertEqual(len(tasks), 2)
         for t in tasks:
-            # output_mode is overridden from session (ABSOLUTE), NOT stale (SAME_AS_SOURCE)
-            self.assertEqual(t.params.export.output_mode, session_export.output_mode)
-            self.assertNotEqual(t.params.export.output_mode, ExportPresetOutputMode.SAME_AS_SOURCE)
-            self.assertEqual(t.params.export.output_subfolder, session_export.output_subfolder)
+            for field in (
+                "output_mode",
+                "output_subfolder",
+                "export_fmt",
+                "export_color_space",
+                "export_resolution_mode",
+                "export_target_long_edge_px",
+                "paper_aspect_ratio",
+                "export_print_size",
+                "export_dpi",
+                "jpeg_quality",
+                "filename_pattern",
+            ):
+                self.assertEqual(getattr(t.params.export, field), getattr(session_export, field), field)
+                self.assertEqual(getattr(t.export_settings, field), getattr(session_export, field), field)
             # export_path is validated by _ensure_valid_export_path (mocked to /tmp/out)
             self.assertEqual(t.params.export.export_path, "/tmp/out")
-            # Format/color-space from session config overrides per-file values so
-            # the delivery format matches what the UI shows, not a stale per-file setting.
-            # Without the fix, stale_export.export_fmt=PNG would leak into the export.
-            self.assertEqual(t.params.export.export_fmt, session_export.export_fmt)
-            self.assertNotEqual(t.params.export.export_fmt, ExportFormat.PNG)
-            self.assertEqual(t.params.export.export_color_space, session_export.export_color_space)
-            self.assertNotEqual(t.params.export.export_color_space, ColorSpace.ADOBE_RGB.value)
-            # Quality/sizing from per-file config is preserved
-            self.assertEqual(t.params.export.jpeg_quality, stale_export.jpeg_quality)
-            # Verify export_settings (the delivery config the worker actually reads)
-            self.assertEqual(t.export_settings.export_fmt, session_export.export_fmt)
-            self.assertEqual(t.export_settings.export_color_space, session_export.export_color_space)
 
 
 class TestPresetBatchExport(unittest.TestCase):

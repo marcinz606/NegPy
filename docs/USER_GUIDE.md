@@ -575,7 +575,7 @@ A scrollable list of every edit step (last 100 kept), newest on top; the current
 
 ### Export button
 
-The primary **Export** action. Its chevron menu picks the scope: current frame (Ctrl+E), selected frames, all visible with current settings, or all visible with each frame's saved settings.
+The primary **Export** action. Its chevron menu picks the scope: current frame (Ctrl+E), selected frames, or all visible frames. Every scope uses the settings below — to deliver the same frames in more than one format or size in a single run, use Export Presets.
 
 ### Format / Size / Colour / Destination
 

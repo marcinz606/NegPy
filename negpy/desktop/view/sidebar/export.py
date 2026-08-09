@@ -1033,19 +1033,18 @@ class ExportSidebar(BaseSidebar):
         "selected": (
             "Export selected frames",
             " Export Selected",
-            "Export the selected filmstrip frames, each with its own saved export settings",
+            "Export the selected filmstrip frames using the settings below",
         ),
-        "all_current": (
-            "Export all visible — current settings",
-            " Export All (current settings)",
+        "all": (
+            "Export all visible frames",
+            " Export All",
             "Export every visible frame using the settings below",
         ),
-        "all_saved": (
-            "Export all visible — saved per-frame settings",
-            " Export All (saved settings)",
-            "Export every visible frame using each frame's own saved export settings",
-        ),
     }
+
+    # The two "all visible" scopes (current vs saved per-frame settings) collapsed
+    # into one when per-frame export settings were retired.
+    _RETIRED_EXPORT_SCOPES = {"all_current": "all", "all_saved": "all"}
 
     _PRESET_SCOPES = {
         "current": (
@@ -1090,6 +1089,7 @@ class ExportSidebar(BaseSidebar):
         self.layout.addWidget(container)
 
         saved = self.controller.session.repo.get_global_setting("export_scope", "current")
+        saved = self._RETIRED_EXPORT_SCOPES.get(saved, saved)
         self._set_export_scope(saved if saved in self._EXPORT_SCOPES else "current", persist=False)
 
     def _set_export_scope(self, key: str, persist: bool = True) -> None:
@@ -1110,7 +1110,7 @@ class ExportSidebar(BaseSidebar):
         self._flush_export_settings()
         if self.state.linear_output:
             scope = self._export_scope
-            if scope in ("all_current", "all_saved"):
+            if scope == "all":
                 files = [
                     self.state.uploaded_files[i]
                     for i in self.controller.session.asset_model.visible_actual_indices_ordered()
@@ -1130,10 +1130,8 @@ class ExportSidebar(BaseSidebar):
         scope = self._export_scope
         if scope == "selected":
             self.controller.request_export_selected()
-        elif scope == "all_current":
-            self.controller.request_batch_export(override_settings=True)
-        elif scope == "all_saved":
-            self.controller.request_batch_export(override_settings=False)
+        elif scope == "all":
+            self.controller.request_batch_export()
         else:
             self.controller.request_export()
 

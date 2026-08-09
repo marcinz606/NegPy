@@ -3704,12 +3704,12 @@ class AppController(QObject):
         )
 
     def request_export_selected(self) -> None:
-        """Batch-exports the currently selected files using each file's own saved settings."""
+        """Batch-exports the currently selected files using the current export settings."""
         selected = [self.state.uploaded_files[i] for i in self.state.selected_indices if 0 <= i < len(self.state.uploaded_files)]
         self.request_batch_export(files=[f for f in selected if not f.get("excluded")])
 
-    def request_batch_export(self, override_settings: bool = False, files: list[dict] | None = None) -> None:
-        """Batch-exports the given files (all visible by default) using current settings, optionally applied to all."""
+    def request_batch_export(self, files: list[dict] | None = None) -> None:
+        """Batch-exports the given files (all visible by default) using the current export settings."""
         self._flush_export_ui()
         if self._batch_busy("export"):
             return
@@ -3738,26 +3738,11 @@ class AppController(QObject):
 
         tasks = []
         for f in files:
-            params = self._batch_params_for(f)
-
-            if override_settings:
-                params = replace(params, export=current_export)
-            else:
-                # Always use current session export path/mode/format even for
-                # per-file exports. Per-file configs from the DB bypass
-                # _apply_sticky_settings and may have stale ABSOLUTE/export_path
-                # or export_fmt values that don't match what the UI shows.
-                params = replace(
-                    params,
-                    export=replace(
-                        params.export,
-                        output_mode=current_export.output_mode,
-                        export_path=current_export.export_path,
-                        output_subfolder=current_export.output_subfolder,
-                        export_fmt=current_export.export_fmt,
-                        export_color_space=current_export.export_color_space,
-                    ),
-                )
+            # Delivery settings are session-level. A per-file config from the DB
+            # bypasses _apply_sticky_settings and carries whatever export block was
+            # current when that frame was last saved, so honouring it exports at a
+            # size/format the panel never shows (#750).
+            params = replace(self._batch_params_for(f), export=current_export)
 
             final_export = replace(
                 params.export,
