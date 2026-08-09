@@ -191,8 +191,115 @@ class ScanlightSidebar(QWidget):
         return importlib.util.find_spec("gphoto2") is not None
 
     def _refresh_setup_hint(self) -> None:
-        """Show the setup note only while python-gphoto2 is missing."""
-        self._setup_hint.setVisible(not self._gphoto_available())
+        """Show the setup note only while python-gphoto2 is missing (and the USB backend is
+        armed — the Bluetooth trigger does not use gphoto2 at all)."""
+        self._setup_hint.setVisible(not self._gphoto_available() and self._settings.camera_backend != "fuji_ble")
+
+    # ── camera backend (USB gphoto2 vs Fujifilm Bluetooth) ────────────
+
+    def _fuji_cfg(self) -> dict:
+        """The fuji_ble config the worker needs: the stored pairing plus the drop folder."""
+        s = self._settings
+        return {
+            "address": s.fuji_address,
+            "name": s.fuji_name,
+            "flavor": s.fuji_flavor,
+            "token": s.fuji_token,
+            "serial": s.fuji_serial,
+            "drop_folder": s.fuji_drop_folder,
+        }
+
+    def _push_camera_backend(self) -> None:
+        self.controller.set_camera_backend(self._settings.camera_backend, self._fuji_cfg())
+
+    def _maybe_detect_fuji(self) -> None:
+        """While the Bluetooth backend is armed but not yet linked, look for an advertising
+        body — a camera the operator already bonded elsewhere still advertises, so this can
+        offer to link it rather than show a blank 'not paired'."""
+        if self._settings.camera_backend == "fuji_ble" and not self._settings.fuji_paired and not self._scanning:
+            self.fuji_status.setText("Looking for the camera…")
+            self.controller.detect_fuji(6.0)
+
+    def _refresh_backend_ui(self) -> None:
+        idx = self.backend_combo.findData(self._settings.camera_backend)
+        if idx >= 0:
+            self.backend_combo.blockSignals(True)
+            self.backend_combo.setCurrentIndex(idx)
+            self.backend_combo.blockSignals(False)
+        fuji = self._settings.camera_backend == "fuji_ble"
+        self._fuji_widget.setVisible(fuji)
+        self._refresh_setup_hint()  # the gphoto2 note hides in Bluetooth mode
+        if fuji:
+            self.fuji_status.setText(
+                f"Paired: {self._settings.fuji_name or self._settings.fuji_address}"
+                if self._settings.fuji_paired
+                else "Not paired — put the camera in Bluetooth pairing mode and press Pair."
+            )
+
+    @pyqtSlot(int)
+    def _on_backend_changed(self, _index: int) -> None:
+        backend = self.backend_combo.currentData() or "usb"
+        self._settings = replace(self._settings, camera_backend=backend)
+        self._save_settings()
+        self._refresh_backend_ui()
+        self._push_camera_backend()
+        self._poll_connection_tick()  # refresh the camera dot for the new backend
+        self._maybe_detect_fuji()
+
+    @pyqtSlot()
+    def _on_pair_fuji(self) -> None:
+        self.fuji_pair_btn.setEnabled(False)
+        self.fuji_status.setText("Pairing — keep the camera in pairing mode…")
+        self.controller.pair_fuji(12.0)
+
+    @pyqtSlot(bool, str, dict)
+    def _on_fuji_pairing_finished(self, ok: bool, message: str, pairing: dict) -> None:
+        self.fuji_pair_btn.setEnabled(True)
+        if ok and pairing:
+            self._settings = replace(
+                self._settings,
+                camera_backend="fuji_ble",
+                fuji_address=pairing.get("address", ""),
+                fuji_name=pairing.get("name", ""),
+                fuji_flavor=pairing.get("flavor", ""),
+                fuji_token=pairing.get("token", ""),
+                fuji_serial=pairing.get("serial", ""),
+            )
+            self._save_settings()
+            self._refresh_backend_ui()
+            self._push_camera_backend()
+            self.fuji_status.setText(f"Paired: {message}")
+            self._set_status(f"Paired {message}.")
+            self._poll_connection_tick()
+        else:
+            self.fuji_status.setText(message or "Pairing failed.")
+
+    @pyqtSlot(list)
+    def _on_fuji_detected(self, devices: list) -> None:
+        if self._settings.camera_backend != "fuji_ble" or self._settings.fuji_paired:
+            return  # not in Bluetooth mode, or already linked (the poll dot reflects it)
+        if devices:
+            best = max(devices, key=lambda d: d.get("rssi", -999))
+            name = best.get("name") or best.get("address")
+            self.fuji_status.setText(f"Found: {name} — press Pair to link NegPy to it.")
+        else:
+            self.fuji_status.setText("No Fujifilm camera found — Bluetooth on and the camera awake?")
+
+    @pyqtSlot()
+    def _on_fuji_drop_browse(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Choose the camera's WiFi auto-save folder", self.fuji_drop_edit.text() or "")
+        if folder:
+            self.fuji_drop_edit.setText(folder)
+            self._on_fuji_drop_changed()
+
+    @pyqtSlot()
+    def _on_fuji_drop_changed(self) -> None:
+        folder = self.fuji_drop_edit.text().strip()
+        if folder == self._settings.fuji_drop_folder:
+            return
+        self._settings = replace(self._settings, fuji_drop_folder=folder)
+        self._save_settings()
+        self._push_camera_backend()
 
     # ── UI construction ───────────────────────────────────────────────
 
@@ -257,6 +364,18 @@ class ScanlightSidebar(QWidget):
         self._conn_hint.setWordWrap(True)
         self._conn_hint.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
         layout.addWidget(self._conn_hint)
+        # Which path fires the shutter: USB tethered capture (gphoto2) or the Fujifilm Bluetooth
+        # remote (the RAW still arrives via the camera's WiFi auto-save folder).
+        backend_row = QHBoxLayout()
+        _backend_tag = QLabel("Trigger")
+        _backend_tag.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
+        self.backend_combo = QComboBox()
+        self.backend_combo.setToolTip("How the shutter is fired — USB (gphoto2) or the Fujifilm Bluetooth remote")
+        self.backend_combo.addItem("USB (gphoto2)", "usb")
+        self.backend_combo.addItem("Fujifilm Bluetooth", "fuji_ble")
+        backend_row.addWidget(_backend_tag)
+        backend_row.addWidget(self.backend_combo, 1)
+        layout.addLayout(backend_row)
         status_row = QHBoxLayout()
         self.cam_status = QLabel()
         self.light_status = QLabel()
@@ -268,6 +387,35 @@ class ScanlightSidebar(QWidget):
         status_row.addWidget(self.light_temp)
         status_row.addStretch()
         layout.addLayout(status_row)
+        # Fujifilm Bluetooth controls — only shown while that backend is armed (_refresh_backend_ui).
+        self._fuji_widget = QWidget()
+        _fuji = QVBoxLayout(self._fuji_widget)
+        _fuji.setContentsMargins(0, 0, 0, 0)
+        _fuji.setSpacing(6)
+        _pair_row = QHBoxLayout()
+        self.fuji_pair_btn = QPushButton("Pair…")
+        self.fuji_pair_btn.setToolTip("Discover and pair the Fujifilm body over Bluetooth (put it in pairing mode first)")
+        _pair_row.addWidget(self.fuji_pair_btn)
+        _pair_row.addStretch()
+        _fuji.addLayout(_pair_row)
+        self.fuji_status = QLabel("")
+        self.fuji_status.setWordWrap(True)
+        self.fuji_status.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
+        _fuji.addWidget(self.fuji_status)
+        _drop_row = QHBoxLayout()
+        _drop_tag = QLabel("Drop")
+        _drop_tag.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
+        self.fuji_drop_edit = QLineEdit(self._settings.fuji_drop_folder)
+        self.fuji_drop_edit.setPlaceholderText("WiFi auto-save folder…")
+        self.fuji_drop_edit.setToolTip("Folder the camera's WiFi auto-save writes RAWs to — NegPy watches it after each trigger")
+        self.fuji_drop_browse = QPushButton("…")
+        self.fuji_drop_browse.setFixedWidth(32)
+        _drop_row.addWidget(_drop_tag)
+        _drop_row.addWidget(self.fuji_drop_edit, 1)
+        _drop_row.addWidget(self.fuji_drop_browse)
+        _fuji.addLayout(_drop_row)
+        self._fuji_widget.setVisible(False)
+        layout.addWidget(self._fuji_widget)
         self._set_conn_status(self.cam_status, None, "Camera")
         self._set_conn_status(self.light_status, None, "Light")
         # RGB scanning needs the Scanlight; when it's absent (normal white-light mode) this hint
@@ -395,6 +543,10 @@ class ScanlightSidebar(QWidget):
     def _connect_signals(self) -> None:
         self.off_btn.clicked.connect(self._on_light_off)
         self.folder_browse.clicked.connect(self._on_browse_folder)
+        self.backend_combo.activated.connect(self._on_backend_changed)
+        self.fuji_pair_btn.clicked.connect(self._on_pair_fuji)
+        self.fuji_drop_browse.clicked.connect(self._on_fuji_drop_browse)
+        self.fuji_drop_edit.editingFinished.connect(self._on_fuji_drop_changed)
         self.lv_btn.toggled.connect(self._on_live_view_toggled)
         self.preset_combo.activated.connect(self._on_preset_selected)
         self.preset_new_btn.clicked.connect(self._on_preset_new)
@@ -421,6 +573,8 @@ class ScanlightSidebar(QWidget):
         self.controller.capture_calibration_exposure.connect(self._on_calibration_exposure)
         self.controller.connection_polled.connect(self._on_poll_status)
         self.controller.light_temp_polled.connect(self._on_light_temp)
+        self.controller.fuji_pairing_finished.connect(self._on_fuji_pairing_finished)
+        self.controller.fuji_detected.connect(self._on_fuji_detected)
         self.controller.batch_started.connect(self._keep_scan_windows_on_top)
         # Pop-up toolbar mirrors the panel actions (scan a roll without tab-switching).
         self.lv_window.scanRequested.connect(self._on_scan)
@@ -440,6 +594,9 @@ class ScanlightSidebar(QWidget):
 
     def on_activated(self) -> None:
         """Called when the Scan tab is switched to — kick an immediate connection poll."""
+        self._refresh_backend_ui()  # sync the Trigger selector + arm the worker's backend
+        self._push_camera_backend()
+        self._maybe_detect_fuji()  # an already-bonded body still advertises — offer to link it
         self._refresh_setup_hint()  # re-check whether python-gphoto2 is installed
         self._apply_gating()  # refresh the "what's still missing to scan" hint
         self._poll_connection_tick()
@@ -1452,8 +1609,11 @@ class ScanlightSidebar(QWidget):
         self._camera_has_config = bool(status.get("camera_config", True))
         # An RGB triplet has to write shutter/ISO/aperture onto the body; a camera whose driver
         # entry has no CONFIG cannot be told any of it, so only plain white-light scanning is
-        # honest there — even with a Scanlight attached (issue #621).
-        self._set_rgb_mode(status["light_ok"] and self._camera_has_config)
+        # honest there — even with a Scanlight attached (issue #621). The Bluetooth trigger
+        # (fuji_ble) is the exception: it carries no remote config either, but RGB still works —
+        # the Scanlight supplies the per-channel exposure and the body's shutter is set by hand.
+        _fuji = self._settings.camera_backend == "fuji_ble"
+        self._set_rgb_mode(status["light_ok"] and (self._camera_has_config or _fuji))
         self._refresh_light_channels()  # show/hide the W slider + white preset for the connected model
         claimed = bool(status.get("usb_claimed_elsewhere"))
         # A body another app holds the claim on is present but not usable: gate Scan/Calibrate
@@ -1499,6 +1659,15 @@ class ScanlightSidebar(QWidget):
             )
             self._conn_hint.setStyleSheet(f"color: {_WARN_COLOR}; font-size: {THEME.font_size_small}px;")
             self._conn_hint.setVisible(True)
+            return
+        if self._settings.camera_backend == "fuji_ble":
+            # Bluetooth trigger: presence is "paired", and there is no USB claim to fight.
+            self._conn_hint.setText("Trigger over Bluetooth — pair the body and point its WiFi auto-save at the drop folder.")
+            self._conn_hint.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
+            short = "Camera (BLE)" if ok else "Camera"
+            detail = f"Camera: {model} (Bluetooth)" if ok and model else "Bluetooth trigger not paired"
+            self._set_conn_status(self.cam_status, ok, short, detail)
+            self._conn_hint.setVisible(not ok)
             return
         self._conn_hint.setText("Connect the camera by USB, in PC Remote mode — it's detected automatically.")
         self._conn_hint.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")

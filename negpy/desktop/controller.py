@@ -330,6 +330,11 @@ class AppController(QObject):
     connection_polled = pyqtSignal(dict)  # {usb_ok, usb_model, light_ok, light_detail}
     poll_light_temp_requested = pyqtSignal(str)  # light port (temp-only poll, runs even mid-live-view)
     light_temp_polled = pyqtSignal(object)  # Scanlight LED temperature °C, or None
+    camera_backend_requested = pyqtSignal(str, dict)  # backend ("usb"|"fuji_ble") + fuji config
+    fuji_pair_requested = pyqtSignal(float)  # discovery timeout (s)
+    fuji_pairing_finished = pyqtSignal(bool, str, dict)  # ok, message, pairing dict (empty on failure)
+    fuji_detect_requested = pyqtSignal(float)  # discovery timeout (s)
+    fuji_detected = pyqtSignal(list)  # advertising Fujifilm bodies (advertisement dicts)
 
     def __init__(self, session_manager: DesktopSessionManager):
         super().__init__()
@@ -667,6 +672,11 @@ class AppController(QObject):
         self.capture_worker.poll_status.connect(self.connection_polled.emit)
         self.poll_light_temp_requested.connect(self.capture_worker.poll_light_temp)
         self.capture_worker.light_temp_polled.connect(self.light_temp_polled.emit)
+        self.camera_backend_requested.connect(self.capture_worker.set_camera_backend)
+        self.fuji_pair_requested.connect(self.capture_worker.pair_fuji)
+        self.capture_worker.fuji_pairing_finished.connect(self.fuji_pairing_finished.emit)
+        self.fuji_detect_requested.connect(self.capture_worker.detect_fuji)
+        self.capture_worker.fuji_detected.connect(self.fuji_detected.emit)
 
         self.session.active_file_changing.connect(self._update_thumbnail_from_state)
         self.session.session_emptied.connect(self._render_memo.clear)
@@ -3110,6 +3120,21 @@ class AppController(QObject):
     def poll_light_temp(self, port: str) -> None:
         self._ensure_capture_thread()
         self.poll_light_temp_requested.emit(port)
+
+    def set_camera_backend(self, backend: str, fuji_cfg: dict) -> None:
+        """Arm the shutter path: "usb" (gphoto2) or "fuji_ble" (Bluetooth trigger + drop folder)."""
+        self._ensure_capture_thread()
+        self.camera_backend_requested.emit(backend, fuji_cfg)
+
+    def pair_fuji(self, timeout: float = 12.0) -> None:
+        """Discover + pair a Fujifilm body; result arrives on ``fuji_pairing_finished``."""
+        self._ensure_capture_thread()
+        self.fuji_pair_requested.emit(timeout)
+
+    def detect_fuji(self, timeout: float = 6.0) -> None:
+        """Scan for advertising Fujifilm bodies; result arrives on ``fuji_detected``."""
+        self._ensure_capture_thread()
+        self.fuji_detect_requested.emit(timeout)
 
     def _on_capture_finished(self, paths: list) -> None:
         """Feed the captured frame(s) into NegPy. A 3-file RGB triplet → RGB-Scan negative
