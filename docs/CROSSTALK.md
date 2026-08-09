@@ -20,8 +20,12 @@ the same value, so a mismatched profile resolves to identity rather than mixing 
 correction in. Every profile written before this key existed is a colour negative stock,
 which is why the default is `C41`.
 
-No E-6 matrix ships with NegPy today, so the Crosstalk controls are hidden on slides; add a
-profile marked `process = "E-6"` and they reappear.
+No E-6 matrix ships with NegPy today, so on slides the Matrix dropdown starts empty and it
+and the Strength slider are disabled. The editor button stays live: open it, press **+** for
+a new matrix, and it is created for the process you are working in. The editor's **Process**
+control sets that value on any profile you save, so a matrix built for a slide rig is one you
+can then select. (Crosstalk is hidden outright only in B&W, which has one emulsion and so
+nothing to unmix.)
 
 > **Reversal film reads differently.** On a negative the dyes' unwanted absorptions are an
 > error to remove before inversion, so unmixing moves the render *toward* the scene. A

@@ -217,13 +217,22 @@ class CrosstalkProfiles:
         return os.path.join(APP_CONFIG.crosstalk_dir, f"{slugify(name, 'crosstalk')}.toml")
 
     @staticmethod
-    def save(name: str, matrix: List[float], profile_type: str = TYPE_TUNED) -> str:
+    def save(name: str, matrix: List[float], profile_type: str = TYPE_TUNED, process: Optional[str] = None) -> str:
         """Write a user profile TOML (row-major 3×3) and return its path.
 
-        Defaults to `tuned` so editor saves are not grouped with the spec-sheet estimates."""
+        Defaults to `tuned` so editor saves are not grouped with the spec-sheet estimates.
+        `process` is always written: a matrix only reaches the render in the film process it
+        declares, so leaving it implicit is how a profile saved for a slide becomes invisible."""
+        from negpy.features.process.models import ProcessMode
+
         os.makedirs(APP_CONFIG.crosstalk_dir, exist_ok=True)
         rows = "\n".join("  [{:.6g}, {:.6g}, {:.6g}],".format(*matrix[i * 3 : i * 3 + 3]) for i in range(3))
-        content = f'name = "{escape_toml_string(name)}"\ntype = "{escape_toml_string(profile_type)}"\nmatrix = [\n{rows}\n]\n'
+        content = (
+            f'name = "{escape_toml_string(name)}"\n'
+            f'type = "{escape_toml_string(profile_type)}"\n'
+            f'process = "{escape_toml_string(str(process or ProcessMode.C41))}"\n'
+            f"matrix = [\n{rows}\n]\n"
+        )
         path = CrosstalkProfiles.path_for_name(name)
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)

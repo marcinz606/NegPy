@@ -23,7 +23,7 @@ from negpy.desktop.view.sidebar.tone import _CH_COLORS
 from negpy.desktop.view.styles.templates import dialog_pane_qss, hint_label, pane_header_qss
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
-from negpy.features.process.models import DEFAULT_CROSSTALK_MATRIX
+from negpy.features.process.models import DEFAULT_CROSSTALK_MATRIX, ProcessMode
 from negpy.services.assets.crosstalk import TYPE_MEASURED, TYPE_SPECSHEET, TYPE_TUNED, CrosstalkProfiles
 
 #: Selectable provenances, in dropdown group order. "Other" is not offered: it exists to
@@ -32,6 +32,12 @@ _TYPE_CHOICES: tuple[tuple[str, str], ...] = (
     (TYPE_TUNED, "Tuned on a rig"),
     (TYPE_MEASURED, "Measured"),
     (TYPE_SPECSHEET, "From spec sheets (approx)"),
+)
+
+#: Film processes a matrix can describe. B&W has one emulsion, so there is nothing to unmix.
+_PROCESS_CHOICES: tuple[tuple[str, str], ...] = (
+    (str(ProcessMode.C41), "C41 — colour negative"),
+    (str(ProcessMode.E6), "E-6 — slide / reversal"),
 )
 
 
@@ -98,13 +104,15 @@ class CrosstalkEditorDialog(QDialog):
     renders them and decides whether to apply or restore on close.
     """
 
-    matrix_previewed = pyqtSignal(object, float)  # (flat 9-float matrix, preview strength)
+    matrix_previewed = pyqtSignal(object, float, str)  # (flat 9-float matrix, strength, film process)
     profiles_changed = pyqtSignal()
 
-    def __init__(self, current_profile: str, current_strength: float, parent=None):
+    def __init__(self, current_profile: str, current_strength: float, process_mode: Optional[str] = None, parent=None):
         super().__init__(parent)
         self._selected_name: Optional[str] = None
         self._updating = False
+        # What a new profile is for: the process being worked in, not a fixed default.
+        self._default_process = str(process_mode or ProcessMode.C41)
 
         self.setWindowTitle("Crosstalk Matrices")
         self.resize(680, 620)
@@ -187,6 +195,25 @@ class CrosstalkEditorDialog(QDialog):
         )
         type_row.addWidget(self.type_combo, 1)
         rl.addLayout(type_row)
+
+        process_row = QHBoxLayout()
+        process_row.addWidget(QLabel("Process"))
+        self.process_combo = QComboBox()
+        for value, label in _PROCESS_CHOICES:
+            self.process_combo.addItem(label, value)
+        self.process_combo.setToolTip(
+            "<table width='300'><tr><td>"
+            "The film process these numbers describe. A matrix only reaches the render — and only "
+            "appears in the sidebar's Matrix dropdown — while NegPy is in this mode.<br><br>"
+            "Dye sets do not carry across: a C41 matrix does not describe E-6's dyes, so applying "
+            "one to a slide corrects a leak that is not there. Note also that on a positive an unmix "
+            "moves the render <i>away</i> from the slide's own colour — use it as a separation "
+            "control, not for fidelity."
+            "</td></tr></table>"
+        )
+        self.process_combo.currentIndexChanged.connect(lambda _i: self._emit_preview())
+        process_row.addWidget(self.process_combo, 1)
+        rl.addLayout(process_row)
 
         info = QLabel(
             "<b>Spectral crosstalk unmix</b><br>"
@@ -334,6 +361,13 @@ class CrosstalkEditorDialog(QDialog):
     def selected_type(self) -> str:
         return self.type_combo.currentData() or TYPE_TUNED
 
+    def selected_process(self) -> str:
+        return self.process_combo.currentData() or str(ProcessMode.C41)
+
+    def _set_process(self, value: str) -> None:
+        idx = self.process_combo.findData(value)
+        self.process_combo.setCurrentIndex(idx if idx >= 0 else 0)
+
     def _set_type(self, value: str) -> None:
         """Select `value`, falling back to Tuned for a built-in or hand-written type.
 
@@ -358,7 +392,7 @@ class CrosstalkEditorDialog(QDialog):
     def _emit_preview(self) -> None:
         if self._updating:
             return
-        self.matrix_previewed.emit(self.working_matrix(), self.preview_strength())
+        self.matrix_previewed.emit(self.working_matrix(), self.preview_strength(), self.selected_process())
 
     # ------------------------------------------------------------- list
 
@@ -393,10 +427,12 @@ class CrosstalkEditorDialog(QDialog):
         self._set_grid(self._matrix_for(name))
         self.name_edit.setText(name)
         self._set_type(CrosstalkProfiles.get_type(name))
+        self._set_process(CrosstalkProfiles.get_process(name))
         self._updating = False
 
         self.name_edit.setEnabled(editable)
         self.type_combo.setEnabled(editable)
+        self.process_combo.setEnabled(editable)
         self._set_grid_enabled(editable)
         self.save_btn.setEnabled(editable)
         self.delete_btn.setEnabled(editable)
@@ -419,7 +455,9 @@ class CrosstalkEditorDialog(QDialog):
             name = f"New Matrix {i}"
             i += 1
         identity = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
-        CrosstalkProfiles.save(name, identity)
+        # For the process being worked in — a new matrix the user cannot then select
+        # is the whole reason this key is here.
+        CrosstalkProfiles.save(name, identity, process=self._default_process)
         self.profiles_changed.emit()
         self._reload_list(select=name)
 
@@ -428,7 +466,8 @@ class CrosstalkEditorDialog(QDialog):
             return
         new_name = unique_copy_name(self._selected_name, self._all_names())
         # Takes the `tuned` default rather than inheriting a datasheet provenance claim.
-        CrosstalkProfiles.save(new_name, self.working_matrix())
+        # The process IS inherited: it says which dye set the numbers describe.
+        CrosstalkProfiles.save(new_name, self.working_matrix(), process=self.selected_process())
         self.profiles_changed.emit()
         self._reload_list(select=new_name)
 
@@ -439,7 +478,7 @@ class CrosstalkEditorDialog(QDialog):
         old = self._selected_name
         if old and old != name and not CrosstalkProfiles.is_bundled(old):
             CrosstalkProfiles.delete(old)
-        CrosstalkProfiles.save(name, self.working_matrix(), self.selected_type())
+        CrosstalkProfiles.save(name, self.working_matrix(), self.selected_type(), self.selected_process())
         self.profiles_changed.emit()
         self._reload_list(select=name)
 

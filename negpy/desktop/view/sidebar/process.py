@@ -332,12 +332,20 @@ class ProcessSidebar(BaseSidebar):
             self.luma_range_clip_slider.setValue(_luma_range_value_to_slider(conf.luma_range_clip))
             self.color_range_clip_slider.setValue(_color_value_to_slider(conf.color_range_clip))
 
-            # Per-layer WP/BP trims are meaningless on single-emulsion B&W.
+            # Transparency transfer: the stretch is a fixed window anchored to the decoder's
+            # white level, so nothing that tunes a measured stretch has anything to act on.
+            from negpy.features.exposure.transfer import is_transparency_transfer
+
+            transfer = is_transparency_transfer(conf.process_mode, conf.e6_normalize)
+
+            # Per-layer WP/BP trims are meaningless on single-emulsion B&W, and the
+            # selector goes with the sliders it scopes when those are hidden below.
             is_bw_sel = conf.process_mode == ProcessMode.BW
-            if is_bw_sel and self._channel_index() != 0:
+            hide_channels = is_bw_sel or transfer
+            if hide_channels and self._channel_index() != 0:
                 self.ch_global_btn.setChecked(True)
             for w in (self.ch_global_btn, self.ch_r_btn, self.ch_g_btn, self.ch_b_btn):
-                w.setVisible(not is_bw_sel)
+                w.setVisible(not hide_channels)
 
             idx = self._channel_index()
             suffix = _CH_LABEL[idx]
@@ -367,11 +375,6 @@ class ProcessSidebar(BaseSidebar):
             self.analysis_region_btn.edited_dot.set_active(has_region)
             self.clear_analysis_region_btn.setEnabled(has_region)
 
-            # Transparency transfer: the stretch is a fixed window anchored to the decoder's
-            # white level, so nothing that tunes a measured stretch has anything to act on.
-            from negpy.features.exposure.transfer import is_transparency_transfer
-
-            transfer = is_transparency_transfer(conf.process_mode, conf.e6_normalize)
             for w in (
                 self.analysis_buffer_slider,
                 self.analysis_region_btn,
