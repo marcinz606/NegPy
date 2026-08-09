@@ -352,7 +352,9 @@ Colour timing, like the dichroic filters on an enlarger head. A **Global / Shado
 *   **Reset** (undo-arrow icon): return the selected region's temperature and CMY to neutral.
 *   **Temperature**: a warm↔cool lever driving the region's magenta/yellow pair (cyan stays put, as in a real darkroom).
 *   **Cyan / Magenta / Yellow** (-1 to 1): the three filtration axes, Cyan↔Red, Magenta↔Green and Yellow↔Blue.
-*   **Cast Removal** (0.0 to 1.0): neutralizes the residual colour cast a negative leaves in the print, balancing each layer so greys stay neutral from deep shadows through highlights (C-41). Applied strength scales with how many clean near-neutrals the frame has. Default ~0.5; 0 turns it off.
+*   **Cast Removal** (0.0 to 1.0, **C-41 only**): neutralizes the residual colour cast a negative leaves in the print, balancing each layer so greys stay neutral from deep shadows through highlights. Applied strength scales with how many clean near-neutrals the frame has. Default ~0.5; 0 turns it off.
+
+    Hidden in E-6 and B&W, because the render ignores it there. What it defeats is the **orange mask** — a cast the manufacturer built into the film, not part of the picture. A slide has no mask and its cast *is* the photograph, so solving for a neutral axis would strip out the light you shot in; B&W has one emulsion and no channels to balance. For a slide's colour use **Temperature** and the CMY sliders above, or **Hue Trim** (§4.2) if an unusual scanning light has rotated the hues.
 *   **Ring-around** (target icon, or `Shift+F`): prints the frame as a 5×5 mosaic stepping 2cc at a time out to ±4cc on the magenta and yellow axes, so the direction of a colour cast is visible instead of guessed. Each patch is a real render of the part of the frame it covers; click one to keep its filtration. The ladder is absolute and centred on neutral, so a ring printed off one frame compares to the next. `Escape` or a second press clears it, and any edit drops it. See **Rotating a proof** below.
 
 <!-- panel:tone -->
