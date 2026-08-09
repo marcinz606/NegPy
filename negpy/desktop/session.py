@@ -64,6 +64,10 @@ class AppState:
     last_metrics: Dict[str, Any] = field(default_factory=dict)
     metrics_lock: threading.Lock = field(default_factory=threading.Lock, init=False, compare=False, repr=False)
     preview_raw: Optional[Any] = None
+    # Decoder XYZ->camera matrix for preview_raw. Only the transparency transfer reads it;
+    # None for sources that carry no camera matrix (scanner TIFF, JPEG).
+    preview_cam_xyz: Optional[list] = None
+    preview_camera_wb: Optional[list] = None
     # Preview-resolution stand-in for preview_raw while HQ is on; interactive frames
     # render against it. None when preview_raw is already small enough.
     preview_proxy: Optional[Any] = None

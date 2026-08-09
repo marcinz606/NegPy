@@ -59,7 +59,13 @@ from negpy.kernel.image.logic import (
     working_oetf_decode,
 )
 from negpy.infrastructure.loaders.factory import loader_factory
-from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, get_best_demosaic_algorithm, is_xtrans
+from negpy.infrastructure.loaders.helpers import (
+    NonStandardFileWrapper,
+    camera_wb_multipliers,
+    camera_xyz_matrix,
+    get_best_demosaic_algorithm,
+    is_xtrans,
+)
 from negpy.services.export.print import PrintService
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry, WORKING_COLOR_SPACE
 from negpy.infrastructure.display.icc_lut import apply_icc_u16_rgb
@@ -140,6 +146,9 @@ class ImageProcessor:
         # One entry only (full-res buffers are large); treated read-only downstream.
         self._source_cache_key: Optional[tuple] = None
         self._source_cache_value: Optional[Tuple[np.ndarray, Optional[np.ndarray], str]] = None
+        # Decoder XYZ->camera matrix per source path, filled during decode. Small and
+        # append-only: one 3x3 per file the session has exported.
+        self._cam_xyz_by_path: Dict[str, Tuple[Optional[list], Optional[list]]] = {}
 
         # Flat-field + sensor-unmix corrected source: full-buffer passes that no
         # creative slider moves.
@@ -364,6 +373,8 @@ class ImageProcessor:
         crop_preview_full: bool = False,
         wants_uv_grid: bool = True,
         skip_flatfield: bool = False,
+        cam_xyz: Optional[list] = None,
+        camera_wb: Optional[list] = None,
     ) -> Tuple[Any, Dict[str, Any]]:
         """
         Executes rendering pipeline. Returns result (ndarray/GPUTexture) and metrics.
@@ -440,6 +451,8 @@ class ImageProcessor:
             process_mode=settings.process.process_mode,
             crop_preview_full=crop_preview_full,
             wants_uv_grid=wants_uv_grid,
+            cam_xyz=cam_xyz,
+            camera_wb=camera_wb,
         )
         if metrics:
             context.metrics.update(metrics)
@@ -472,6 +485,8 @@ class ImageProcessor:
                     readback_metrics=readback_metrics,
                     source_hash=source_hash,
                     analysis_source_hash=source_hash,
+                    cam_xyz=cam_xyz,
+                    camera_wb=camera_wb,
                 )
                 context.metrics.update(gpu_metrics)
                 return processed, context.metrics
@@ -539,6 +554,10 @@ class ImageProcessor:
                 **post_kw,
             )
             rgb = ensure_rgb(rgb)
+            # Sensor-native decode leaves the buffer in camera primaries; the transparency
+            # transfer needs the matrix to reach the working space (see capture_color).
+            metadata["cam_xyz"] = camera_xyz_matrix(raw)
+            metadata["camera_wb"] = camera_wb_multipliers(raw)
         return rgb, metadata
 
     def _load_source_f32(
@@ -607,6 +626,9 @@ class ImageProcessor:
         # No embedded profile (scanner-raw linear, sensor-native RAW) → the buffer is
         # already in the working space, so "Same as Source" exports without converting.
         source_cs = str(metadata.get("color_space") or WORKING_COLOR_SPACE)
+        # Memoized rather than returned: the 3-tuple return is unpacked positionally in
+        # several callers, and only the export render needs this.
+        self._cam_xyz_by_path[file_path] = (metadata.get("cam_xyz"), metadata.get("camera_wb"))
         ir_full = metadata.get("ir")
 
         if is_triplet:
@@ -721,6 +743,8 @@ class ImageProcessor:
                     scale_factor=export_scale,
                     bounds_override=bounds_override,
                     readback_metrics=False,
+                    cam_xyz=self._cam_xyz_by_path.get(file_path, (None, None))[0],
+                    camera_wb=self._cam_xyz_by_path.get(file_path, (None, None))[1],
                 )
             else:
                 buffer, _ = self.run_pipeline(
@@ -732,6 +756,8 @@ class ImageProcessor:
                     prefer_gpu=False,
                     wants_uv_grid=False,
                     skip_flatfield=True,  # f32_buffer already flat-fielded by _load_source_f32
+                    cam_xyz=self._cam_xyz_by_path.get(file_path, (None, None))[0],
+                    camera_wb=self._cam_xyz_by_path.get(file_path, (None, None))[1],
                 )
                 buffer = self._apply_scaling_and_border_f32(buffer, params, params.export)
                 # Release full-res arrays pinned in the CPU stage cache.
@@ -963,7 +989,14 @@ class ImageProcessor:
                 prefer_gpu = False
 
             if prefer_gpu and self.engine_gpu:
-                buffer, _ = self.engine_gpu.process(f32_buffer, params, scale_factor=scale_factor, readback_metrics=False)
+                buffer, _ = self.engine_gpu.process(
+                    f32_buffer,
+                    params,
+                    scale_factor=scale_factor,
+                    readback_metrics=False,
+                    cam_xyz=self._cam_xyz_by_path.get(file_path, (None, None))[0],
+                    camera_wb=self._cam_xyz_by_path.get(file_path, (None, None))[1],
+                )
             else:
                 buffer, _ = self.run_pipeline(
                     f32_buffer,
@@ -973,6 +1006,8 @@ class ImageProcessor:
                     prefer_gpu=False,
                     wants_uv_grid=False,
                     skip_flatfield=True,  # f32_buffer already flat-fielded by _load_source_f32
+                    cam_xyz=self._cam_xyz_by_path.get(file_path, (None, None))[0],
+                    camera_wb=self._cam_xyz_by_path.get(file_path, (None, None))[1],
                 )
                 buffer = self._apply_scaling_and_border_f32(buffer, params, params.export)
                 self.engine_cpu.cache.clear()

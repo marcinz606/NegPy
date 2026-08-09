@@ -394,6 +394,30 @@ class TestAppController(unittest.TestCase):
         state.icc_input_path = "/custom.icc"
         self.assertEqual(self.controller.effective_input_icc(), "/custom.icc")
 
+    def test_narrowband_profile_suppressed_by_transparency_transfer(self):
+        """E-6 with Normalize off has already reached the working space via the camera
+        matrix, so the implicit RGBScan input profile would be a competing transform.
+        Narrowband is a sticky setting, so this must hold without the user touching it."""
+        from negpy.features.process.models import ProcessMode
+
+        state = self.controller.state
+        state.config = replace(state.config, process=replace(state.config.process, narrowband_scan=True))
+        self.assertIsNotNone(self.controller.effective_input_icc())
+
+        # E-6 with Normalize ON keeps it — that path is unchanged.
+        state.config = replace(state.config, process=replace(state.config.process, process_mode=ProcessMode.E6, e6_normalize=True))
+        self.assertIsNotNone(self.controller.effective_input_icc())
+
+        state.config = replace(state.config, process=replace(state.config.process, e6_normalize=False))
+        self.assertIsNone(self.controller.effective_input_icc())
+        # ...and the preview must not claim a proof it no longer applies.
+        state.soft_proof_enabled = False
+        self.assertFalse(self.controller.proof_active())
+
+        # An explicit Input ICC is a deliberate choice about the source and still wins.
+        state.icc_input_path = "/custom.icc"
+        self.assertEqual(self.controller.effective_input_icc(), "/custom.icc")
+
     def test_proof_active_with_narrowband_scan(self):
         """Narrowband Scan forces proofing on even with the soft-proof toggle off."""
         state = self.controller.state

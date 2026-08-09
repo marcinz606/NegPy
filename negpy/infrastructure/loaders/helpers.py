@@ -191,6 +191,43 @@ def is_xtrans(raw: Any) -> bool:
         return False
 
 
+def camera_xyz_matrix(raw: Any) -> Optional[list]:
+    """The decoder's XYZ->camera matrix as plain nested lists, or None if it carries none.
+
+    Serialized out of the rawpy object deliberately: the metadata dict outlives the `with`
+    block that owns the decoder, and the numpy view libraw hands back is backed by freed
+    memory once it closes.
+    """
+    try:
+        m = np.asarray(raw.rgb_xyz_matrix, dtype=np.float64)
+    except Exception:
+        return None
+    if m.ndim != 2 or m.shape[0] < 3 or m.shape[1] != 3 or not np.all(np.isfinite(m[:3])):
+        return None
+    # All-zero is libraw's "no colour data" sentinel, not a valid transform.
+    if float(np.abs(m[:3]).max()) < 1e-12:
+        return None
+    return [[float(v) for v in row] for row in m[:3]]
+
+
+def camera_wb_multipliers(raw: Any) -> Optional[list]:
+    """The as-shot white balance as [R, G, B] multipliers, or None if absent.
+
+    Needed only when a buffer is decoded WITHOUT white balance (Linear RAW): the camera
+    matrix is row-normalized, so it assumes a neutral camera signal, and an unbalanced
+    one renders with a heavy cast. Folding these back in reconstructs the balanced
+    signal the matrix expects. Serialized out of the rawpy object for the same
+    lifetime reason as camera_xyz_matrix.
+    """
+    try:
+        wb = [float(v) for v in raw.camera_whitebalance[:3]]
+    except Exception:
+        return None
+    if len(wb) != 3 or not all(np.isfinite(wb)) or min(wb) <= 0.0:
+        return None
+    return wb
+
+
 def get_supported_raw_wildcards() -> str:
     """
     Returns raw formats as string for file dialogs.

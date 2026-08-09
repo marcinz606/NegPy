@@ -11,6 +11,12 @@ struct NormUniforms {
     unmix0: vec4<f32>,
     unmix1: vec4<f32>,
     unmix2: vec4<f32>,
+    // Working-space-from-camera rows for the transparency transfer (identity when the
+    // source carries no camera matrix). Applied in LINEAR, before the log — the print
+    // path never uses them.
+    cam0: vec4<f32>,
+    cam1: vec4<f32>,
+    cam2: vec4<f32>,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -32,14 +38,28 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     var color = textureLoad(input_tex, coords, 0).rgb;
     
     let is_e6 = params.mode == 2u;
+    // Normalize off on E-6 is the transparency transfer: camera primaries -> working
+    // space, and no dye unmix (that models negative film, and its strength defaults
+    // to 0.5, so leaving it on would tint the pass-through).
+    let is_transfer = is_e6 && params.normalize_flag == 0u;
 
     let epsilon = 1e-6;
-    var log_color = log10_vec(max(color, vec3<f32>(epsilon)));
-    log_color = vec3<f32>(
-        dot(params.unmix0.xyz, log_color),
-        dot(params.unmix1.xyz, log_color),
-        dot(params.unmix2.xyz, log_color),
-    );
+    var log_color: vec3<f32>;
+    if (is_transfer) {
+        let cam = vec3<f32>(
+            dot(params.cam0.xyz, color),
+            dot(params.cam1.xyz, color),
+            dot(params.cam2.xyz, color),
+        );
+        log_color = log10_vec(max(cam, vec3<f32>(epsilon)));
+    } else {
+        log_color = log10_vec(max(color, vec3<f32>(epsilon)));
+        log_color = vec3<f32>(
+            dot(params.unmix0.xyz, log_color),
+            dot(params.unmix1.xyz, log_color),
+            dot(params.unmix2.xyz, log_color),
+        );
+    }
 
     var res: vec3<f32>;
 

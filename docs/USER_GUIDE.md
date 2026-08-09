@@ -265,7 +265,18 @@ Applying it sets the defaults for newly loaded files, updates the open frame, an
 
 **Crosstalk**, **Hue Trim** and the sensor unmix all live in **Calibration** (§4.2) — they correct the capture rather than the negative-to-positive conversion.
 
-**Normalize** (E-6 only): auto-stretches a slide's histogram to fill the dynamic range. Useful for faded/expired slides.
+**Normalize** (E-6 only): the switch between two ways of rendering a slide.
+
+*   **On** (default): auto-stretches the histogram to fill the dynamic range, metered per frame, and prints it through the paper model like a negative. Useful for faded or expired slides, and for a print-like look. Because the stretch is metered per frame, two exposures of the same slide converge on a similar render.
+*   **Off**: renders the slide **as captured**. The camera's own colour matrix is applied and the tonal window is fixed to the decoder's white level rather than measured from the frame, so a slide opens looking the way it does in Photoshop, Preview, Affinity or Darktable — and a bracketed set stays a bracket, with each exposure rendering at its own brightness. This is the mode to use when you exposed the slide the way you wanted it and only need to adjust from there.
+
+    With Normalize off the paper simulation has nothing to act on, so the print-specific controls are hidden (paper profile, Paper White/Black, Auto Density, Auto Grade, split-grade and zone density, Dye Separation) along with the normalization tuning above, which only shapes a *measured* stretch. What stays is a plain transfer curve, neutral at its defaults: **Print Density** (exposure), **ISO-R Grade** (contrast), **Toe** / **Shoulder** and their **Width** sliders (shadow and highlight roll-off), the per-layer R/G/B trims on those, and white balance. Lab, Toning and Finish work as usual.
+
+    A source with no camera matrix (a scanner TIFF, a JPEG) is already in the working space and passes straight through.
+
+    **Linear RAW** and **Narrowband** are hidden here, because neither applies to an as-captured render and both are made inert rather than merely hidden (they are sticky settings, so leaving them live but invisible would be a trap). Linear RAW decodes without the as-shot white balance, which the camera matrix assumes is present — the multipliers are folded back in, so the render is identical either way. Narrowband's bundled input profile is suppressed, since the camera matrix has already reached the working space and a second input characterisation would compete with it. An explicit Input ICC in Export still applies.
+
+    Narrowband capture is not recommended for this mode in any case: reproducing a slide's appearance is a colorimetric problem, and narrowband illumination samples the spectrum at three isolated wavelengths, so the inter-band overlap the eye integrates is never measured (the same reason narrowband scans render oversaturated and hue-rotated). Its real payoffs — defeating the orange mask, clean dye separation ahead of a high-gain inversion — belong to negatives, and a transparency has neither. Both toggles keep working normally for C-41, B&W and E-6 with Normalize on.
 
 <!-- panel:roll -->
 ### 4.4 Roll Analysis: a consistent look across the roll

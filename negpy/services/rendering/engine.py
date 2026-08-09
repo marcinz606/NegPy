@@ -155,7 +155,7 @@ class DarkroomEngine:
         current_img, pipeline_changed = self._run_stage(current_img, base_key, "base", run_base, context, pipeline_changed)
 
         def run_exposure(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
-            img_out = PhotometricProcessor(settings.exposure, settings.local).process(img_in, ctx)
+            img_out = PhotometricProcessor(settings.exposure, settings.local, settings.process).process(img_in, ctx)
             # Rides this stage: it needs the print, and its own stage would re-run everything
             # behind it on a drag. Stays inside the flat intent below (capture fix, not a look).
             return apply_hue_trim(img_out, settings.process.hue_trim)

@@ -37,8 +37,16 @@ from negpy.features.exposure.normalization import (
     resolve_crosstalk_matrix,
     unmix_log_image,
 )
+from negpy.features.exposure.transfer import (
+    apply_transfer_curve,
+    is_transparency_transfer,
+    transfer_bounds,
+    transfer_curve_params,
+    transfer_widths,
+)
 from negpy.features.local.logic import compute_local_maps
 from negpy.features.local.models import LocalAdjustmentsConfig
+from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
 from negpy.features.process.models import ProcessConfig, ProcessMode, per_channel_point_offsets
 from negpy.kernel.image.logic import get_luminance
 
@@ -53,6 +61,8 @@ class NormalizationProcessor:
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         epsilon = 1e-6
+        if is_transparency_transfer(context.process_mode, self.config.e6_normalize):
+            return self._process_transparency(image, context)
         # No upper clamp: mirrors normalization.wgsl (only the low side is clamped);
         # values above 1.0 only occur with flat-field gain and must match the GPU.
         img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, None))
@@ -174,6 +184,37 @@ class NormalizationProcessor:
         context.metrics["histogram_density"] = density_histogram(res, context.active_roi)
         return res
 
+    def _process_transparency(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
+        """
+        Transparency normalization: camera primaries -> working space, then a FIXED
+        log-density window.
+
+        No meter runs here. Measured bounds are exactly what makes two exposures of one
+        slide render alike, and a transparency was exposed deliberately — so the window
+        is anchored to the decoder's white level, identical for every frame, and a
+        brighter capture stays brighter.
+        """
+        epsilon = 1e-6
+        # Linear RAW decodes without white balance, which the row-normalized camera matrix
+        # assumes; folding the as-shot multipliers back in makes this render independent of
+        # which decode produced the buffer, so the toggle cannot cast the image here.
+        matrix = camera_to_working_matrix(context.cam_xyz, context.camera_wb if self.config.linear_raw else None)
+        linear = apply_camera_matrix(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), matrix)
+
+        img_log = np.log10(np.clip(linear, epsilon, None))
+        floors, ceils = transfer_bounds()
+        bounds = LogNegativeBounds(floors=floors, ceils=ceils)
+        res = normalize_log_image(img_log, bounds)
+
+        context.metrics["log_bounds"] = bounds
+        context.metrics["log_bounds_base"] = bounds
+        context.metrics["final_bounds"] = bounds
+        context.metrics["norm_density_range"] = luminance_density_range(bounds)
+        context.metrics["scan_clip_fractions"] = measure_clip_fractions(image, context.active_roi, self.config.analysis_buffer)
+        context.metrics["normalized_log"] = res
+        context.metrics["histogram_density"] = density_histogram(res, context.active_roi)
+        return res
+
 
 class PhotometricProcessor:
     """
@@ -181,9 +222,17 @@ class PhotometricProcessor:
     print-exposure offsets.
     """
 
-    def __init__(self, config: ExposureConfig, local_config: Optional[LocalAdjustmentsConfig] = None):
+    def __init__(
+        self,
+        config: ExposureConfig,
+        local_config: Optional[LocalAdjustmentsConfig] = None,
+        process_config: Optional[ProcessConfig] = None,
+    ):
         self.config = config
         self.local_config = local_config
+        # Absent means the print path: only the transparency transfer needs to know
+        # whether Normalize is off, and every other caller renders a print.
+        self.process_config = process_config or ProcessConfig()
 
     def _build_local_maps(self, image: ImageBuffer, context: PipelineContext) -> Optional[np.ndarray]:
         if self.local_config is None or not self.local_config.masks:
@@ -205,6 +254,8 @@ class PhotometricProcessor:
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         if self.config.render_intent == RenderIntent.FLAT:
             return self._process_flat(image, context)
+        if is_transparency_transfer(context.process_mode, self.process_config.e6_normalize, self.config.render_intent):
+            return self._process_transparency(image, context)
 
         paper = effective_paper_profile(self.config.paper_profile, context.process_mode)
         d_min = paper.d_min if self.config.paper_dmin else 0.0
@@ -338,6 +389,35 @@ class PhotometricProcessor:
             res = get_luminance(img_pos)
             res = np.stack([res, res, res], axis=-1)
             return res
+
+        return img_pos
+
+    def _process_transparency(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
+        """
+        Transparency transfer: the exact inverse of the fixed-bounds normalization,
+        deviated only by what the user has actually moved.
+
+        None of the print's automatic grading runs — auto density, auto contrast and
+        cast removal all read the frame to decide a look, which is the opposite of
+        starting from the capture.
+        """
+        exposure_offset, contrast, toe3, sh3 = transfer_curve_params(self.config)
+        cmy_offsets = filtration_offsets(
+            (self.config.wb_cyan, self.config.wb_magenta, self.config.wb_yellow),
+            context.metrics.get("final_bounds"),
+        )
+
+        is_bw = context.process_mode == ProcessMode.BW
+        if is_bw:
+            lum = get_luminance(image)
+            image = np.stack([lum, lum, lum], axis=-1)
+
+        tw3, sw3 = transfer_widths(self.config)
+        img_pos = apply_transfer_curve(image, exposure_offset, contrast, toe3, sh3, cmy_offsets, tw3, sw3)
+
+        if is_bw:
+            res = get_luminance(img_pos)
+            return np.stack([res, res, res], axis=-1)
 
         return img_pos
 

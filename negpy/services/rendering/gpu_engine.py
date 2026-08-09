@@ -42,6 +42,15 @@ from negpy.features.geometry.logic import (
 from negpy.features.lab.logic import gaussian_kernel_1d, rl_iterations
 from negpy.features.lab.models import SharpenMethod
 from negpy.features.local.logic import compute_local_maps
+from negpy.features.exposure.transfer import (
+    TRANSFER_CONSTANTS,
+    TRANSFER_DENSITY_RANGE,
+    is_transparency_transfer,
+    transfer_bounds,
+    transfer_curve_params,
+    transfer_widths,
+)
+from negpy.features.process.capture_color import camera_to_working_matrix
 from negpy.features.process.models import ProcessMode, per_channel_point_offsets
 from negpy.features.retouch.logic import build_heal_regions
 from negpy.features.retouch.models import HEAL_SIZE_REF
@@ -190,6 +199,7 @@ class GPUEngine:
             "geometry": get_resource_path(os.path.join("negpy", "features", "geometry", "shaders", "transform.wgsl")),
             "normalization": get_resource_path(os.path.join("negpy", "features", "exposure", "shaders", "normalization.wgsl")),
             "exposure": get_resource_path(os.path.join("negpy", "features", "exposure", "shaders", "exposure.wgsl")),
+            "transfer": get_resource_path(os.path.join("negpy", "features", "exposure", "shaders", "transfer.wgsl")),
             "output_encode": get_resource_path(os.path.join("negpy", "features", "exposure", "shaders", "output_encode.wgsl")),
             "autocrop": get_resource_path(os.path.join("negpy", "features", "geometry", "shaders", "autocrop.wgsl")),
             "clahe_hist": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "clahe_hist.wgsl")),
@@ -218,6 +228,7 @@ class GPUEngine:
             "geometry",
             "normalization",
             "exposure",
+            "transfer",
             "clahe_u",
             "retouch_u",
             "lab",
@@ -230,8 +241,9 @@ class GPUEngine:
         # alignment (exposure, 304B) — it then occupies multiple aligned slots.
         self._uniform_sizes = {
             "geometry": 32,
-            "normalization": 112,
+            "normalization": 160,
             "exposure": 304,
+            "transfer": 112,
             "clahe_u": 32,
             "retouch_u": 16,
             "lab": 96,
@@ -474,6 +486,8 @@ class GPUEngine:
         vignette_full_crop: Optional[Tuple[int, int, int, int]] = None,
         local_maps: Optional[np.ndarray] = None,
         analysis_source_hash: Optional[str] = None,
+        cam_xyz: Optional[list] = None,
+        camera_wb: Optional[list] = None,
     ) -> Tuple[Any, Dict[str, Any]]:
         """
         Executes the full pipeline, returning a GPU texture and associated metrics.
@@ -698,6 +712,8 @@ class GPUEngine:
             textural_range=textural_range,
             neutral_axis_refs=neutral_axis_refs,
             unmix=unmix_m,
+            cam_xyz=cam_xyz,
+            camera_wb=camera_wb,
         )
         if clahe_cdf_override is not None:
             self._buffers["clahe_c"].upload(clahe_cdf_override)
@@ -827,18 +843,33 @@ class GPUEngine:
                     )
                     # A tiled export passes a per-tile slice — not reusable next frame.
                     self._local_ev_key = None if tiled_maps else ev_key
-            self._dispatch_pass(
-                enc,
-                "exposure",
-                [
-                    (0, tex_norm.view),
-                    (1, tex_expo.view),
-                    (2, self._get_uniform_binding("exposure")),
-                    (3, tex_local_ev.view),
-                ],
-                w_rot,
-                h_rot,
-            )
+            if is_transparency_transfer(settings.process.process_mode, settings.process.e6_normalize):
+                # The transfer curve takes no dodge/burn map: local EV is a print-exposure
+                # input, and the print is exactly what this path replaces.
+                self._dispatch_pass(
+                    enc,
+                    "transfer",
+                    [
+                        (0, tex_norm.view),
+                        (1, tex_expo.view),
+                        (2, self._get_uniform_binding("transfer")),
+                    ],
+                    w_rot,
+                    h_rot,
+                )
+            else:
+                self._dispatch_pass(
+                    enc,
+                    "exposure",
+                    [
+                        (0, tex_norm.view),
+                        (1, tex_expo.view),
+                        (2, self._get_uniform_binding("exposure")),
+                        (3, tex_local_ev.view),
+                    ],
+                    w_rot,
+                    h_rot,
+                )
 
         if settings.lab.clahe_strength > 0:
             if clahe_cdf_override is None and start_stage <= 2:
@@ -1153,6 +1184,8 @@ class GPUEngine:
             Tuple[Tuple[float, float, float], Tuple[float, float, float], Optional[Tuple[float, float, float]], float]
         ] = None,
         unmix: Optional[np.ndarray] = None,
+        cam_xyz: Optional[list] = None,
+        camera_wb: Optional[list] = None,
     ) -> None:
         """Packs and uploads all pipeline parameters to the unified UBO."""
         # scale_s uses the post-rotation dims the geometry pass emits. Zeroed for tiled
@@ -1184,10 +1217,24 @@ class GPUEngine:
         adj_floors = (f[0] + wp3[0], f[1] + wp3[1], f[2] + wp3[2])
         adj_ceils = (c[0] + bp3[0], c[1] + bp3[1], c[2] + bp3[2])
 
+        # Transparency transfer: the fixed window, with no WP/BP trims — mirrors
+        # NormalizationProcessor._process_transparency, whose identity they would break.
+        if is_transparency_transfer(settings.process.process_mode, settings.process.e6_normalize):
+            t_floors, t_ceils = transfer_bounds()
+            adj_floors, adj_ceils = t_floors, t_ceils
+
         # Capture-side dye-unmix rows, resolved once per frame by the caller
         # (shared with NormalizationProcessor); identity when off.
         if unmix is None:
             unmix = np.eye(3)
+
+        # Working-space-from-camera rows; identity when the source carries no matrix
+        # (the shader only reads them on the transfer path).
+        # Linear RAW decodes without white balance; fold the as-shot multipliers back
+        # in so the render does not depend on which decode produced the buffer.
+        cam = camera_to_working_matrix(cam_xyz, camera_wb if settings.process.linear_raw else None)
+        if cam is None:
+            cam = np.eye(3, dtype=np.float32)
 
         n_data = (
             struct.pack("ffff", adj_floors[0], adj_floors[1], adj_floors[2], 0.0)
@@ -1202,6 +1249,9 @@ class GPUEngine:
             + struct.pack("ffff", unmix[0, 0], unmix[0, 1], unmix[0, 2], 0.0)
             + struct.pack("ffff", unmix[1, 0], unmix[1, 1], unmix[1, 2], 0.0)
             + struct.pack("ffff", unmix[2, 0], unmix[2, 1], unmix[2, 2], 0.0)
+            + struct.pack("ffff", float(cam[0, 0]), float(cam[0, 1]), float(cam[0, 2]), 0.0)
+            + struct.pack("ffff", float(cam[1, 0]), float(cam[1, 1]), float(cam[1, 2]), 0.0)
+            + struct.pack("ffff", float(cam[2, 0]), float(cam[2, 1]), float(cam[2, 2]), 0.0)
         )
 
         from negpy.features.exposure.logic import (
@@ -1220,6 +1270,33 @@ class GPUEngine:
         )
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
         from negpy.features.exposure.normalization import LogNegativeBounds, luminance_density_range
+
+        # Transparency transfer params (mirrors transfer.py; inert on the print path).
+        tc = TRANSFER_CONSTANTS
+        t_exp, t_contrast, t_toe3, t_sh3 = transfer_curve_params(settings.exposure)
+        t_tw3, t_sw3 = transfer_widths(settings.exposure)
+        t_cmy = filtration_offsets(
+            (settings.exposure.wb_cyan, settings.exposure.wb_magenta, settings.exposure.wb_yellow),
+            LogNegativeBounds(floors=adj_floors, ceils=adj_ceils),
+        )
+        tr_data = (
+            struct.pack(
+                "ffffffff",
+                float(t_exp),
+                float(t_contrast),
+                float(TRANSFER_DENSITY_RANGE),
+                0.0,
+                float(tc["transfer_contrast_pivot"]),
+                float(tc["transfer_toe_knee"]),
+                float(tc["transfer_shoulder_knee"]),
+                float(2.0 ** float(tc["transfer_baseline_ev"])),
+            )
+            + struct.pack("ffff", t_toe3[0], t_toe3[1], t_toe3[2], 0.0)
+            + struct.pack("ffff", t_sh3[0], t_sh3[1], t_sh3[2], 0.0)
+            + struct.pack("ffff", t_tw3[0], t_tw3[1], t_tw3[2], 0.0)
+            + struct.pack("ffff", t_sw3[0], t_sw3[1], t_sw3[2], 0.0)
+            + struct.pack("ffff", t_cmy[0], t_cmy[1], t_cmy[2], 0.0)
+        )
         from negpy.features.exposure.papers import (
             compose_density_matrices,
             effective_constants,
@@ -1514,7 +1591,9 @@ class GPUEngine:
         dh_data = struct.pack("IIII", crop_offset[0], crop_offset[1], crop_w, crop_h)
 
         full_buffer = bytearray()
-        for name, d in zip(self._uniform_names, [g_data, n_data, e_data, c_data, r_u_data, l_data, t_data, f_data, y_data, dh_data]):
+        for name, d in zip(
+            self._uniform_names, [g_data, n_data, e_data, tr_data, c_data, r_u_data, l_data, t_data, f_data, y_data, dh_data]
+        ):
             full_buffer += d + b"\x00" * (self._slot_bytes(name) - len(d))
 
         if not self.gpu.device:
@@ -1802,6 +1881,8 @@ class GPUEngine:
         scale_factor: float = 1.0,
         bounds_override: Optional[Any] = None,
         readback_metrics: bool = True,
+        cam_xyz: Optional[list] = None,
+        camera_wb: Optional[list] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """High-level processing entry point with automatic tiling."""
         self._init_resources()
@@ -1810,13 +1891,15 @@ class GPUEngine:
         rot = settings.geometry.rotation % 4
         w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)
         if w_rot > max_tex or h_rot > max_tex or (w * h > TILING_THRESHOLD_PX):
-            return self._process_tiled(img, settings, scale_factor, bounds_override=bounds_override)
+            return self._process_tiled(img, settings, scale_factor, bounds_override=bounds_override, cam_xyz=cam_xyz, camera_wb=camera_wb)
         tex_final, metrics = self.process_to_texture(
             img,
             settings,
             scale_factor=scale_factor,
             bounds_override=bounds_override,
             readback_metrics=readback_metrics,
+            cam_xyz=cam_xyz,
+            camera_wb=camera_wb,
         )
         return self._readback_downsampled(tex_final), metrics
 
@@ -1826,6 +1909,8 @@ class GPUEngine:
         settings: WorkspaceConfig,
         scale_factor: float,
         bounds_override: Optional[Any] = None,
+        cam_xyz: Optional[list] = None,
+        camera_wb: Optional[list] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Processes ultra-high resolution images using memory-efficient tiling."""
         h, w = img.shape[:2]
@@ -1877,7 +1962,9 @@ class GPUEngine:
         ):
             reused_cdf = self._readback_clahe_cdf()
 
-        _, metrics_ref = self.process_to_texture(img_small, settings, scale_factor=scale_factor, clahe_cdf_override=reused_cdf)
+        _, metrics_ref = self.process_to_texture(
+            img_small, settings, scale_factor=scale_factor, clahe_cdf_override=reused_cdf, cam_xyz=cam_xyz, camera_wb=camera_wb
+        )
 
         global_cdfs = reused_cdf if reused_cdf is not None else self._readback_clahe_cdf()
 
@@ -2019,6 +2106,8 @@ class GPUEngine:
                     apply_layout=False,
                     vignette_full_crop=(crop_w, crop_h, tx - ox, ty - oy),
                     local_maps=maps_tile,
+                    cam_xyz=cam_xyz,
+                    camera_wb=camera_wb,
                 )
                 full_source_res[ty : ty + th, tx : tx + tw] = self._readback_downsampled(tile_res)[oy : oy + th, ox : ox + tw]
 

@@ -12,7 +12,13 @@ import rawpy
 from negpy.domain.types import Dimensions, ImageBuffer
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.loaders.factory import loader_factory
-from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, get_best_demosaic_algorithm, is_xtrans
+from negpy.infrastructure.loaders.helpers import (
+    NonStandardFileWrapper,
+    camera_wb_multipliers,
+    camera_xyz_matrix,
+    get_best_demosaic_algorithm,
+    is_xtrans,
+)
 from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb, uint16_to_float32
 from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.system.config import APP_CONFIG
@@ -173,6 +179,14 @@ class PreviewManager:
         )
         log("load-timing decode.postprocess %.0fms (fast=%s) %s", (time.perf_counter() - t_pp) * 1000, use_fast, file_path)
         rgb = ensure_rgb(rgb)
+
+        # Sensor-native decode (output_color=raw) leaves the buffer in camera primaries;
+        # the transparency transfer needs the camera matrix to reach the working space.
+        # Absent (scanner TIFF, JPEG) means the source is already profiled — see
+        # features.process.capture_color.
+        metadata["cam_xyz"] = camera_xyz_matrix(raw)
+        # Only needed when use_camera_wb is False; harmless otherwise.
+        metadata["camera_wb"] = camera_wb_multipliers(raw)
 
         # Bake EXIF orientation into the buffer (postprocess runs with user_flip=0).
         orientation = metadata.get("orientation", 1)
