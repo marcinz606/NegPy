@@ -23,7 +23,7 @@ from negpy.features.exposure.normalization import (
     measure_clip_fractions,
     measure_neutral_axis_from_log,
     measure_shadow_refs_from_log,
-    resolve_crosstalk_matrix,
+    effective_crosstalk_matrix,
     unmix_log_image,
     measure_textural_range_from_log,
     prefilter_log_grid,
@@ -594,7 +594,7 @@ class GPUEngine:
 
         analysis_source = None
         prefiltered = None
-        unmix_m = resolve_crosstalk_matrix(settings.process.crosstalk_strength, settings.process.crosstalk_matrix)
+        unmix_m = effective_crosstalk_matrix(settings.process, settings.process.process_mode)
         if needs_bounds_analysis or needs_refs or needs_anchor or needs_textural:
             # Use views to avoid copying the full-res image; crop to ROI first.
             analysis_source = img
@@ -2006,7 +2006,7 @@ class GPUEngine:
 
         # Unmixed like the non-tiled path, lazily (skipped when bounds are locked and
         # no auto refs/anchor/textural need it).
-        unmix_m = resolve_crosstalk_matrix(settings.process.crosstalk_strength, settings.process.crosstalk_matrix)
+        unmix_m = effective_crosstalk_matrix(settings.process, settings.process.process_mode)
         prefiltered_cache: Optional[np.ndarray] = None
 
         def _prefiltered() -> np.ndarray:

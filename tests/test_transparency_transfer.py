@@ -428,6 +428,31 @@ class TestGpuTransferParity(unittest.TestCase):
     def test_no_camera_matrix_matches(self):
         self._assert_parity(*self._both(_e6_config(), cam_xyz=None))
 
+    def test_active_crosstalk_matches(self):
+        """Regression: the shader applied the unmix on the print branch only, so an E-6
+        matrix moved the CPU render and did nothing at all on the GPU — which is the
+        engine the app actually uses. The parity tests missed it because every other case
+        runs with crosstalk gated off, where both engines agree trivially."""
+        from negpy.features.process.models import ProcessMode as _PM
+
+        settings = _e6_config()
+        active = replace(
+            settings,
+            process=replace(
+                settings.process,
+                crosstalk_strength=1.0,
+                crosstalk_process=_PM.E6,
+                crosstalk_matrix=(1.0, -0.05, -0.002, -0.29, 1.0, -0.05, -0.09, -0.19, 1.0),
+            ),
+        )
+        cpu, gpu = self._both(active)
+        self._assert_parity(cpu, gpu)
+
+        # Guard the guard: the matrix must actually be doing something, or this passes
+        # for the wrong reason.
+        off_cpu, _ = self._both(settings)
+        self.assertGreater(float(np.abs(cpu - off_cpu).max()), 0.01)
+
     def test_moved_controls_match(self):
         """Every live control at once, including the per-channel trims that the CPU
         folds and the shader reads from its own uniform lanes."""
@@ -450,3 +475,52 @@ class TestGpuTransferParity(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCrosstalkIsModeAware(unittest.TestCase):
+    """A crosstalk matrix describes one dye set. Every bundled profile is a colour
+    negative stock, so without a mode gate a slide silently gets a negative's
+    correction — and the render disagrees with a UI that already hides it for B&W."""
+
+    def _img(self):
+        rng = np.random.default_rng(31)
+        grad = np.linspace(0.03, 0.5, 48, dtype=np.float32)
+        img = np.repeat(grad[None, :], 48, axis=0)
+        return np.ascontiguousarray(np.stack([img, img * 0.7, img * 0.45], axis=-1) + rng.uniform(0, 0.01, (48, 48, 3)).astype(np.float32))
+
+    def _delta(self, mode, normalize, profile_process):
+        from negpy.domain.interfaces import PipelineContext
+        from negpy.features.exposure.processor import NormalizationProcessor
+
+        img = self._img()
+        out = []
+        for strength in (0.0, 1.0):
+            cfg = DEFAULT_WORKSPACE_CONFIG
+            proc = replace(
+                cfg.process,
+                process_mode=mode,
+                e6_normalize=normalize,
+                crosstalk_strength=strength,
+                crosstalk_process=profile_process,
+            )
+            ctx = PipelineContext(original_size=img.shape[:2], scale_factor=1.0, process_mode=mode, cam_xyz=CAM_XYZ, wants_uv_grid=False)
+            out.append(np.asarray(NormalizationProcessor(proc).process(img.copy(), ctx)))
+        return float(np.abs(out[0] - out[1]).max())
+
+    def test_a_c41_profile_does_nothing_to_e6(self):
+        self.assertEqual(self._delta(ProcessMode.E6, True, ProcessMode.C41), 0.0)
+        self.assertEqual(self._delta(ProcessMode.E6, False, ProcessMode.C41), 0.0)
+
+    def test_a_c41_profile_still_works_on_c41(self):
+        self.assertGreater(self._delta(ProcessMode.C41, True, ProcessMode.C41), 1e-4)
+
+    def test_an_e6_profile_applies_on_both_e6_paths(self):
+        """The transfer path honours crosstalk rather than hard-skipping it: a
+        rig-calibrated matrix is a capture correction, like Hue Trim."""
+        self.assertGreater(self._delta(ProcessMode.E6, True, ProcessMode.E6), 1e-4)
+        self.assertGreater(self._delta(ProcessMode.E6, False, ProcessMode.E6), 1e-4)
+
+    def test_legacy_configs_without_the_field_stay_c41(self):
+        from negpy.features.process.models import ProcessConfig
+
+        self.assertEqual(str(ProcessConfig().crosstalk_process), str(ProcessMode.C41))

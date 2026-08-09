@@ -1,6 +1,6 @@
 import os
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional, Tuple
+from typing import TYPE_CHECKING, Optional, Tuple
 
 import numpy as np
 from numba import njit  # type: ignore
@@ -8,6 +8,9 @@ from numba import njit  # type: ignore
 from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R, ImageBuffer
 from negpy.features.process.models import ProcessMode
 from negpy.kernel.image.validation import ensure_image
+
+if TYPE_CHECKING:
+    from negpy.features.process.models import ProcessConfig
 
 # Above this size the block-median is threaded over row strips (np.median frees the GIL).
 _BLOCK_MEDIAN_PARALLEL_MIN_PIXELS = 2_000_000
@@ -173,6 +176,25 @@ def measure_clip_fractions(
     level = float(EXPOSURE_CONSTANTS["scan_clip_level"])
     clipped = np.mean(img >= level, axis=(0, 1))
     return (float(clipped[0]), float(clipped[1]), float(clipped[2]))
+
+
+def effective_crosstalk_matrix(process: "ProcessConfig", process_mode: Optional[str]) -> Optional[np.ndarray]:
+    """
+    Mode-aware resolve: the configured unmix only when the profile was derived for the
+    film being processed, otherwise None.
+
+    Mirrors effective_paper_profile. A crosstalk matrix describes a dye set's unwanted
+    absorptions, and C-41 and E-6 do not share one — every bundled profile is a colour
+    negative stock, so without this gate a slide silently gets a negative's correction.
+    Legacy configs carry no `crosstalk_process` and default to C-41, which is what every
+    profile that predates the field actually is.
+    """
+    from negpy.features.process.models import ProcessMode
+
+    profile_mode = str(getattr(process, "crosstalk_process", ProcessMode.C41) or ProcessMode.C41)
+    if process_mode is not None and profile_mode != str(process_mode):
+        return None
+    return resolve_crosstalk_matrix(process.crosstalk_strength, process.crosstalk_matrix)
 
 
 def resolve_crosstalk_matrix(strength: float, matrix: Optional[tuple]) -> Optional[np.ndarray]:

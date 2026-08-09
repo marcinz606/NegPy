@@ -117,15 +117,15 @@ class SensorSidebar(BaseSidebar):
     def _heading_row(heading: str) -> str:
         return f"— {heading} —"
 
-    def _expected_crosstalk_rows(self) -> list:
+    def _expected_crosstalk_rows(self, process_mode=None) -> list:
         """The rows _fill_crosstalk_combo would produce, for change detection."""
         rows: list = []
-        for heading, names in CrosstalkProfiles.grouped_profiles():
+        for heading, names in CrosstalkProfiles.grouped_profiles(process_mode):
             rows.append(self._heading_row(heading))
             rows.extend(names)
         return rows
 
-    def _fill_crosstalk_combo(self) -> None:
+    def _fill_crosstalk_combo(self, process_mode=None) -> None:
         """Rebuild the matrix dropdown with a non-selectable heading per provenance group.
 
         Qt has no group concept, so headings are combo rows disabled through the model.
@@ -133,7 +133,7 @@ class SensorSidebar(BaseSidebar):
         setCurrentText land on one.
         """
         self.crosstalk_combo.clear()
-        for heading, names in CrosstalkProfiles.grouped_profiles():
+        for heading, names in CrosstalkProfiles.grouped_profiles(process_mode):
             self.crosstalk_combo.addItem(self._heading_row(heading))
             item = self.crosstalk_combo.model().item(self.crosstalk_combo.count() - 1)
             if item is not None:
@@ -211,6 +211,8 @@ class SensorSidebar(BaseSidebar):
             render=True,
             crosstalk_profile=name,
             crosstalk_matrix=matrix,
+            # Baked with the matrix so the render can gate on it without disk I/O.
+            crosstalk_process=CrosstalkProfiles.get_process(name),
             **invalidate_local_bounds(self.state.config.process),
         )
 
@@ -290,15 +292,22 @@ class SensorSidebar(BaseSidebar):
             self._apply_gate(conf)
 
             # Headings included, so a changed `type` rebuilds too (the name set alone would not).
-            if self._expected_crosstalk_rows() != [self.crosstalk_combo.itemText(i) for i in range(self.crosstalk_combo.count())]:
-                self._fill_crosstalk_combo()
+            if self._expected_crosstalk_rows(conf.process_mode) != [
+                self.crosstalk_combo.itemText(i) for i in range(self.crosstalk_combo.count())
+            ]:
+                self._fill_crosstalk_combo(conf.process_mode)
             self.crosstalk_combo.setCurrentText(conf.crosstalk_profile)
             self.crosstalk_strength_slider.setValue(conf.crosstalk_strength)
-            # Nothing to unmix on one B&W emulsion.
+            # Nothing to unmix on one B&W emulsion, and nothing to offer for a film with no
+            # matrices — an empty dropdown beside a live Strength slider reads as broken.
+            # Keyed on the profile list rather than the mode, so dropping a matching .toml
+            # into the crosstalk folder brings the controls back on its own.
             is_bw = conf.process_mode == ProcessMode.BW
+            has_profiles = bool(CrosstalkProfiles.grouped_profiles(conf.process_mode))
+            show_crosstalk = not is_bw and has_profiles
             for w in (self.crosstalk_header, self.crosstalk_label, self.crosstalk_combo, self.manage_crosstalk_btn):
-                w.setVisible(not is_bw)
-            self.crosstalk_strength_slider.setVisible(not is_bw)
+                w.setVisible(show_crosstalk)
+            self.crosstalk_strength_slider.setVisible(show_crosstalk)
 
             self.hue_trim_slider.setValue(conf.hue_trim)
         finally:

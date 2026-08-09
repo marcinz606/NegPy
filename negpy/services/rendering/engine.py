@@ -145,6 +145,7 @@ class DarkroomEngine:
             settings.process.black_point_trim_blue,
             settings.process.crosstalk_strength,
             settings.process.crosstalk_matrix,
+            settings.process.crosstalk_process,
             settings.process.lock_bounds,
             distortion_k1,
             # Auto Density metering reads retuned targets from EXPOSURE_CONSTANTS,

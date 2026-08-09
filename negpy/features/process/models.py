@@ -67,6 +67,11 @@ class ProcessConfig:
     crosstalk_strength: float = 0.0
     crosstalk_matrix: Optional[tuple] = None
     crosstalk_profile: str = "Generic C41"
+    # Film process the selected crosstalk profile was derived for. Baked at selection so
+    # the render can gate on it without touching the disk (matrices are baked too). A
+    # profile only unmixes film it describes: the dye set differs between C-41 and E-6,
+    # so a mismatch resolves to identity rather than mixing the wrong correction in.
+    crosstalk_process: str = ProcessMode.C41
 
     # Sensor (CFA) crosstalk unmix on the LINEAR capture, before inversion —
     # a per-setup property calibrated from three bare-light R/G/B exposures

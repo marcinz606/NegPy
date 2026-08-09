@@ -126,15 +126,59 @@ class CrosstalkProfiles:
         return types
 
     @staticmethod
-    def grouped_profiles() -> List[tuple]:
+    def _scan_processes() -> dict:
+        """display-name -> film process the matrix describes; bundled wins, like _scan.
+
+        Absent `process` means C-41: every profile that predates the key is a colour
+        negative stock, so that is the honest default rather than a guess."""
+        from negpy.features.process.models import ProcessMode
+
+        out: dict = {}
+        for directory in (APP_CONFIG.crosstalk_dir, get_resource_path("crosstalk")):
+            if not os.path.isdir(directory):
+                continue
+            for fname in os.listdir(directory):
+                if not fname.endswith(".toml"):
+                    continue
+                try:
+                    with open(os.path.join(directory, fname), "rb") as f:
+                        data = tomllib.load(f)
+                except Exception:
+                    continue
+                raw_name = data.get("name")
+                name = raw_name.strip() if isinstance(raw_name, str) and raw_name.strip() else fname[:-5]
+                value = data.get("process")
+                out[name] = str(value).strip() if isinstance(value, str) and value.strip() else str(ProcessMode.C41)
+        out[DEFAULT_NAME] = str(ProcessMode.C41)
+        return out
+
+    @staticmethod
+    def get_process(name: str) -> str:
+        """The film process a profile was derived for; C-41 when unknown."""
+        from negpy.features.process.models import ProcessMode
+
+        return CrosstalkProfiles._scan_processes().get(name, str(ProcessMode.C41))
+
+    @staticmethod
+    def grouped_profiles(process_mode: Optional[str] = None) -> List[tuple]:
         """[(heading, [profile names])] in GROUP_ORDER, skipping empty groups.
+
+        `process_mode` keeps the dropdown to matrices derived for the film being
+        processed — a C-41 dye matrix does not describe E-6's dye set, and offering one
+        invites exactly the mismatch the render gate then discards.
 
         Every profile lands in exactly one group, so the flattened names are `list_profiles()`
         reordered; an unrecognised type cannot drop one."""
         types = CrosstalkProfiles._scan_types()
+        if process_mode is not None:
+            processes = CrosstalkProfiles._scan_processes()
+            types = {n: t for n, t in types.items() if processes.get(n, "") == str(process_mode)}
         known = {t for t, _ in GROUP_ORDER if t}
         buckets: dict = {t: [] for t, _ in GROUP_ORDER}
-        buckets[TYPE_BUILTIN].append(DEFAULT_NAME)
+        from negpy.features.process.models import ProcessMode
+
+        if process_mode is None or str(process_mode) == str(ProcessMode.C41):
+            buckets[TYPE_BUILTIN].append(DEFAULT_NAME)
         for name in sorted(types):
             bucket = types[name] if types[name] in known else ""
             buckets[bucket].append(name)

@@ -39,27 +39,28 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     
     let is_e6 = params.mode == 2u;
     // Normalize off on E-6 is the transparency transfer: camera primaries -> working
-    // space, and no dye unmix (that models negative film, and its strength defaults
-    // to 0.5, so leaving it on would tint the pass-through).
+    // space before the log. Only that conversion is branch-specific.
     let is_transfer = is_e6 && params.normalize_flag == 0u;
 
     let epsilon = 1e-6;
-    var log_color: vec3<f32>;
+    var lin = color;
     if (is_transfer) {
-        let cam = vec3<f32>(
+        lin = vec3<f32>(
             dot(params.cam0.xyz, color),
             dot(params.cam1.xyz, color),
             dot(params.cam2.xyz, color),
         );
-        log_color = log10_vec(max(cam, vec3<f32>(epsilon)));
-    } else {
-        log_color = log10_vec(max(color, vec3<f32>(epsilon)));
-        log_color = vec3<f32>(
-            dot(params.unmix0.xyz, log_color),
-            dot(params.unmix1.xyz, log_color),
-            dot(params.unmix2.xyz, log_color),
-        );
     }
+    var log_color = log10_vec(max(lin, vec3<f32>(epsilon)));
+    // Unmix rides BOTH paths — the transfer honours a rig-calibrated matrix like it
+    // honours Hue Trim. The CPU gates it by film process and packs identity rows when it
+    // does not apply, so there is nothing to branch on here (and branching here is
+    // exactly how this silently stopped working on the GPU once before).
+    log_color = vec3<f32>(
+        dot(params.unmix0.xyz, log_color),
+        dot(params.unmix1.xyz, log_color),
+        dot(params.unmix2.xyz, log_color),
+    );
 
     var res: vec3<f32>;
 

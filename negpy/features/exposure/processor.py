@@ -34,7 +34,7 @@ from negpy.features.exposure.normalization import (
     prefilter_log_grid,
     resolve_analysis_region,
     resolve_bounds_detailed,
-    resolve_crosstalk_matrix,
+    effective_crosstalk_matrix,
     unmix_log_image,
 )
 from negpy.features.exposure.transfer import (
@@ -74,7 +74,7 @@ class NormalizationProcessor:
 
         # Capture-side dye unmix on the negative densities, before any metering,
         # so bounds/anchor/cast refs all read the unmixed film.
-        unmix = resolve_crosstalk_matrix(self.config.crosstalk_strength, self.config.crosstalk_matrix)
+        unmix = effective_crosstalk_matrix(self.config, context.process_mode)
         img_log = unmix_log_image(img_log, unmix)
         prefiltered = unmix_log_image(prefiltered, unmix)
 
@@ -98,7 +98,7 @@ class NormalizationProcessor:
                 or abs(cached_color_clip - self.config.color_range_clip) > 1e-6
                 or cached_norm != self.config.e6_normalize
                 or cached_mode != context.process_mode
-                or cached_unmix != (self.config.crosstalk_strength, self.config.crosstalk_matrix)
+                or cached_unmix != (self.config.crosstalk_strength, self.config.crosstalk_matrix, self.config.crosstalk_process)
             )
 
             if not needs_reanalysis:
@@ -120,7 +120,11 @@ class NormalizationProcessor:
             context.metrics["log_bounds_color_clip_val"] = self.config.color_range_clip
             context.metrics["log_bounds_norm_val"] = self.config.e6_normalize
             context.metrics["log_bounds_mode_val"] = context.process_mode
-            context.metrics["log_bounds_crosstalk_val"] = (self.config.crosstalk_strength, self.config.crosstalk_matrix)
+            context.metrics["log_bounds_crosstalk_val"] = (
+                self.config.crosstalk_strength,
+                self.config.crosstalk_matrix,
+                self.config.crosstalk_process,
+            )
             return analyzed
 
         bounds, base_bounds = resolve_bounds_detailed(self.config, analyze_base)
@@ -141,7 +145,7 @@ class NormalizationProcessor:
                 or cached_ref_buffer is None
                 or abs(cached_ref_buffer - self.config.analysis_buffer) > 1e-5
                 or cached_ref_rect != self.config.analysis_rect
-                or cached_ref_unmix != (self.config.crosstalk_strength, self.config.crosstalk_matrix)
+                or cached_ref_unmix != (self.config.crosstalk_strength, self.config.crosstalk_matrix, self.config.crosstalk_process)
             ):
                 context.metrics["shadow_log_refs"] = measure_shadow_refs_from_log(
                     prefiltered,
@@ -150,7 +154,11 @@ class NormalizationProcessor:
                 )
                 context.metrics["shadow_refs_buffer_val"] = self.config.analysis_buffer
                 context.metrics["shadow_refs_rect_val"] = self.config.analysis_rect
-                context.metrics["shadow_refs_crosstalk_val"] = (self.config.crosstalk_strength, self.config.crosstalk_matrix)
+                context.metrics["shadow_refs_crosstalk_val"] = (
+                    self.config.crosstalk_strength,
+                    self.config.crosstalk_matrix,
+                    self.config.crosstalk_process,
+                )
 
         wp3, bp3 = per_channel_point_offsets(self.config, context.process_mode == ProcessMode.E6)
         if any(v != 0.0 for v in wp3 + bp3):
@@ -202,6 +210,10 @@ class NormalizationProcessor:
         linear = apply_camera_matrix(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), matrix)
 
         img_log = np.log10(np.clip(linear, epsilon, None))
+        # Honoured here too: a rig-calibrated matrix is a capture correction like Hue Trim,
+        # and the mode gate keeps a negative's profile from touching a slide. Inert at the
+        # shipped default, so the as-captured render is unperturbed.
+        img_log = unmix_log_image(img_log, effective_crosstalk_matrix(self.config, context.process_mode))
         floors, ceils = transfer_bounds()
         bounds = LogNegativeBounds(floors=floors, ceils=ceils)
         res = normalize_log_image(img_log, bounds)
