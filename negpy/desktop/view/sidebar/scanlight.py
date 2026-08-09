@@ -780,7 +780,13 @@ class ScanlightSidebar(QWidget):
         and meters noise instead of light."""
         data = self._settings_json()
         floor, ceiling = shutter_seconds(SHUTTER_CANDIDATES[0]), shutter_seconds(SHUTTER_CANDIDATES[-1])
-        labels = tuple(str(o.get("label", "")).strip() for o in (data.get("shutter") or {}).get("options", []))
+        info = data.get("shutter") or {}
+        if not info.get("writable", True):  # absent = unknown, so only an explicit read-only blocks
+            # A body that reports the shutter read-only will silently ignore every write, and the
+            # only symptom is a read-back that never settles (issue #768). Publishing no ladder is
+            # what makes the caller refuse instead of solving against speeds it cannot set.
+            return ()
+        labels = tuple(str(o.get("label", "")).strip() for o in info.get("options", []))
         # usable_ladder drops the unparseables (bulb-like "1/0", "Bulb", "") and returns ascending =
         # fastest-first; the range clamp on top is this UI's own policy, not the solver's.
         return tuple(label for label in usable_ladder(labels) if floor <= shutter_seconds(label) <= ceiling)
@@ -797,6 +803,17 @@ class ScanlightSidebar(QWidget):
         if roi is None:
             self.calib_window.set_status("Click the clear film base (crosshair) first.")
             return
+        candidates = self._available_shutters()
+        if not candidates:
+            # Without the body's own ladder the only speeds we could name are the built-in ones,
+            # and those are spelled in one vendor's vocabulary — writing them onto another body
+            # is ignored rather than refused, which reads as "camera rejected it or it did not
+            # settle" (issue #768, a Nikon D600 handed "0.4"). Say what is actually wrong.
+            self.calib_window.set_status(
+                "This camera is not reporting settable shutter speeds. Set it to Manual (M), "
+                "make sure live view is running, then try again."
+            )
+            return
         # Live view stays up — calibration captures within it (no ~4 s reconnect), like a scan.
         # It's torn down when calibration finishes/fails (_stop_calibration_live_view).
         self._calibrating_preset = name
@@ -810,7 +827,6 @@ class ScanlightSidebar(QWidget):
         # Phase 1: scale the fixed reference start point to the body's live ISO/aperture so the probe
         # begins near target (fewer captures). Levels stay fixed; only the shutter is corrected. On a
         # manual lens the aperture reads blank → ISO-only correction, and the probe absorbs the rest.
-        candidates = self._available_shutters()
         start_levels, start_shutter = normalize_start_point(
             self._current_setting_label("iso"),
             self._current_setting_label("aperture", require_writable=True),

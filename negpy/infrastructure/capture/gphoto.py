@@ -425,6 +425,21 @@ class GphotoCamera:
                 return True  # already there — skip the round trip (a scan re-sends the shutter)
 
             widget = camera.get_single_config(name)
+            offered = _choices(self._gp, widget)
+            if offered and value not in offered:
+                # Writing a label the body never published is how a Sony-flavoured fallback
+                # ladder reached a Nikon: libgphoto2 takes the string, the camera ignores it,
+                # and the only symptom is a read-back that never settles (issue #768). Name
+                # what it does offer — that is the answer to "why", and it costs one log line.
+                logger.warning(
+                    "gphoto2: %s does not offer %r; this body publishes %d values (%s%s)",
+                    name,
+                    value,
+                    len(offered),
+                    ", ".join(offered[:8]),
+                    ", …" if len(offered) > 8 else "",
+                )
+                return False
             widget.set_value(value)
             camera.set_single_config(name, widget)
         except self._gp.GPhoto2Error as exc:
