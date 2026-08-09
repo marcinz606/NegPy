@@ -13,6 +13,20 @@ def _payload() -> dict:
     return {"base_positive": np.zeros((2, 2, 3), dtype=np.float32), "content_rect": None}
 
 
+class _FakeTexture:
+    """Stands in for a GPUTexture: the memo frees by duck-typed destroy()."""
+
+    def __init__(self) -> None:
+        self.destroyed = 0
+
+    def destroy(self) -> None:
+        self.destroyed += 1
+
+
+def _gpu_payload(tex: _FakeTexture) -> dict:
+    return {"base_positive": tex, "content_rect": None}
+
+
 def test_hit_requires_matching_key() -> None:
     m = RenderMemo(_cfg())
     p = _payload()
@@ -81,3 +95,52 @@ def test_clear_and_invalidate() -> None:
     assert m.get("B", "k") is not None
     m.clear()
     assert m.get("B", "k") is None
+
+
+def test_owned_textures_are_destroyed_when_the_entry_leaves() -> None:
+    # A GPU render is retained out of the engine's pool, so the memo owns it.
+    m = RenderMemo(_cfg(slots=2))
+    evicted, overwritten, invalidated, cleared = (_FakeTexture() for _ in range(4))
+
+    m.store("A", "k", _gpu_payload(evicted))
+    m.store("B", "k", _gpu_payload(overwritten))
+    m.store("B", "k2", _gpu_payload(invalidated))  # same frame, new edit
+    assert overwritten.destroyed == 1
+
+    m.store("C", "k", _gpu_payload(cleared))  # evicts A, the least recent
+    assert evicted.destroyed == 1
+
+    m.invalidate("B")
+    assert invalidated.destroyed == 1
+    m.clear()
+    assert cleared.destroyed == 1
+
+
+def test_restoring_a_frame_from_the_memo_does_not_free_its_own_texture() -> None:
+    # Navigate away, back (served from the memo), away again: the same texture is
+    # re-filed under the entry that owns it.
+    m = RenderMemo(_cfg())
+    tex = _FakeTexture()
+    m.store("A", "k", _gpu_payload(tex))
+    payload = m.get("A", "k")
+    assert payload is not None
+    m.store("A", "k", payload)
+    assert tex.destroyed == 0
+    assert m.get("A", "k") is payload
+
+
+def test_rekey_keeps_the_texture_alive() -> None:
+    m = RenderMemo(_cfg())
+    tex = _FakeTexture()
+    m.store("A", "pre-bounds", _gpu_payload(tex))
+    m.rekey("A", "post-bounds")
+    assert tex.destroyed == 0
+    assert m.get("A", "post-bounds") is not None
+
+
+def test_array_payloads_are_left_alone() -> None:
+    # The test-strip memo shares this class and stores plain mosaics.
+    m = RenderMemo(_cfg())
+    m.store("A", "k", _payload())
+    m.store("A", "k2", _payload())
+    m.clear()  # must not raise: ndarray has no destroy()

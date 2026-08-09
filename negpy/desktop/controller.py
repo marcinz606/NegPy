@@ -276,7 +276,7 @@ class AppController(QObject):
     flat_peek_changed = pyqtSignal(bool)
     zoom_requested = pyqtSignal(float)
     zoom_changed = pyqtSignal(float)
-    _render_cleanup_requested = pyqtSignal()
+    _render_cleanup_requested = pyqtSignal(object)  # texture to spare, or None
     status_message_requested = pyqtSignal(str, int)
     status_progress_requested = pyqtSignal(int, int)
     batch_started = pyqtSignal(str, bool)  # title, abortable
@@ -429,6 +429,9 @@ class AppController(QObject):
         # Last displayed render per frame — navigate-back paints it instantly
         # while the authoritative render refreshes underneath.
         self._render_memo = RenderMemo()
+        # (source_hash, memo_key, content_rect) of the settle render whose GPU texture
+        # is on screen; load_file files it under this identity on the way out.
+        self._last_render_identity: Optional[tuple] = None
         # Test strips, keyed density/grade-blind (see _strip_memo_key).
         self._strip_memo = RenderMemo()
 
@@ -1254,6 +1257,24 @@ class AppController(QObject):
             exposure = replace(exposure, density=1.0, grade=115.0)
         return f"{kind}:{self._render_memo_key(replace(self.state.config, exposure=exposure))}"
 
+    def _retain_displayed_texture(self) -> Optional[GPUTexture]:
+        """File the on-screen GPU render in the memo and return it, so the engine
+        cleanup that follows spares it instead of destroying it.
+
+        Refused while a render is in flight or queued: it paints into that same pooled
+        texture, and the pixels would stop matching the key they are filed under.
+        """
+        identity = self._last_render_identity
+        self._last_render_identity = None
+        texture = self.state.last_metrics.get("base_positive")
+        if identity is None or not isinstance(texture, GPUTexture):
+            return None
+        if self._is_rendering or self._pending_render_task is not None:
+            return None
+        source_hash, memo_key, content_rect = identity
+        self._render_memo.store(source_hash, memo_key, {"base_positive": texture, "content_rect": content_rect})
+        return texture
+
     def _on_file_selected_load(self, file_path: str) -> None:
         """``session.file_selected`` handler: navigation honors the sticky-zoom preference."""
         self.load_file(file_path, preserve_zoom=self.state.sticky_zoom)
@@ -1284,8 +1305,13 @@ class AppController(QObject):
             self.loading_started.emit()
         self._thumb_config = None
 
-        self.gpu_textures_released.emit()
-        self._render_cleanup_requested.emit()
+        retained = self._retain_displayed_texture()
+        # The canvas samples the retained texture directly and it now outlives the pool,
+        # so the previous frame stays up under the dimmed spinner. Without one, the
+        # canvas must let go before the engine frees what it is sampling.
+        if retained is None:
+            self.gpu_textures_released.emit()
+        self._render_cleanup_requested.emit(retained)
         # The cleanup destroys the GPU textures last_metrics still points at; drop the
         # densitometer's probe sources so hover readouts go quiet until the next render.
         self.state.last_metrics.pop("normalized_log", None)
@@ -1478,6 +1504,9 @@ class AppController(QObject):
             self.load_file(self.state.current_file_path, preserve_zoom=True, force_detect=True)
 
     def toggle_hq_preview(self) -> None:
+        # Resolution is part of the memo key, so every entry is now a permanent miss
+        # holding a full-size texture. Free them rather than wait for the LRU.
+        self._render_memo.clear()
         self.session.set_hq_preview(not self.state.hq_preview)
         if self.state.current_file_path:
             self.load_file(self.state.current_file_path, preserve_zoom=True)
@@ -4100,23 +4129,32 @@ class AppController(QObject):
             self.state.last_metrics.update(metrics)
             self.state.last_metrics["splash"] = False
 
-        # Memoize the displayed pixels for instant navigate-back. ndarray only:
-        # GPU textures are destroyed on navigation (in the default soft-proof
-        # path the displayed buffer is already a CPU array). Stored by reference
-        # — display buffers are read-only downstream.
         result = metrics.get("base_positive")
-        if metrics.get("memo_key") and isinstance(result, np.ndarray) and metrics.get("source_hash") == self.state.current_file_hash:
-            self._render_memo.store(
-                metrics["source_hash"],
-                metrics["memo_key"],
-                {"base_positive": result, "content_rect": metrics.get("content_rect")},
-            )
+        memoizable = bool(metrics.get("memo_key")) and metrics.get("source_hash") == self.state.current_file_hash
+        # A GPU texture belongs to the engine's pool until the file switch frees it, so
+        # only its identity is kept here; load_file files the texture itself on the way
+        # out, retaining it from that teardown.
+        self._last_render_identity = (
+            (metrics["source_hash"], metrics["memo_key"], metrics.get("content_rect"))
+            if memoizable and isinstance(result, GPUTexture)
+            else None
+        )
 
         if metrics.get("gpu_fallback") and not self._gpu_fallback_notified:
             self._gpu_fallback_notified = True
             self.set_status("GPU acceleration failed — using CPU", 5000)
 
         self.image_updated.emit()
+
+        # Memoize the displayed pixels for instant navigate-back, by reference — display
+        # buffers are read-only downstream. After the repaint: overwriting this frame's
+        # entry frees the texture it owned, which the canvas has just stopped sampling.
+        if memoizable and isinstance(result, np.ndarray):
+            self._render_memo.store(
+                metrics["source_hash"],
+                metrics["memo_key"],
+                {"base_positive": result, "content_rect": metrics.get("content_rect")},
+            )
 
         if should_update_thumb:
             self._thumb_config = self.state.config
@@ -4168,8 +4206,16 @@ class AppController(QObject):
                 )
                 # render=False: the displayed pixels already reflect these measured
                 # bounds — move the frame's memo entry to the updated config's key
-                # so the first navigate-back after an initial render still hits.
+                # so the first navigate-back after an initial render still hits. A GPU
+                # render is not filed until navigate-away, so its pending identity has
+                # to follow the same way.
                 self._render_memo.rekey(src or self.state.current_file_hash or "", self._render_memo_key())
+                if self._last_render_identity is not None:
+                    self._last_render_identity = (
+                        self._last_render_identity[0],
+                        self._render_memo_key(),
+                        self._last_render_identity[2],
+                    )
 
     def _on_render_error(self, message: str) -> None:
         self.state.is_processing = self._is_rendering = False
@@ -4267,6 +4313,8 @@ class AppController(QObject):
         if self.capture_thread.isRunning():
             self.capture_thread.quit()
             self.capture_thread.wait()
+        # Memo-owned textures outlive the pool, so they must die before the device.
+        self._render_memo.clear()
         self.render_worker.destroy_all()
 
         # All GPU-touching threads are now joined; release the wgpu device.

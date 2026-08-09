@@ -67,6 +67,20 @@ class TestGPUEngine(unittest.TestCase):
         self.assertEqual(len(self.engine._tex_cache), 0)
         self.assertIsNone(self.engine._uv_grid_cache)
 
+    def test_cleanup_spares_the_retained_texture(self):
+        """The navigate-back memo keeps the displayed frame across a file switch."""
+        img = np.random.rand(64, 64, 3).astype(np.float32)
+        tex, _ = self.engine.process_to_texture(img, WorkspaceConfig())
+
+        self.engine.cleanup(retain=tex)
+        self.assertIsNotNone(tex.texture, "the memo owns it now")
+        self.assertEqual(len(self.engine._tex_cache), 0, "its pool key goes with it")
+
+        # The next render must not paint over pixels the memo owns.
+        again, _ = self.engine.process_to_texture(img, WorkspaceConfig())
+        self.assertIsNot(again, tex)
+        tex.destroy()
+
     def test_uv_grid_cached_across_frames(self):
         """Same geometry -> reused grid object; geometry change -> rebuilt."""
         from dataclasses import replace

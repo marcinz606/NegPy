@@ -1332,15 +1332,15 @@ class ImageProcessor:
             compression="tiff_lzw" if fmt == "TIFF" else None,
         )
 
-    def cleanup(self, release_source_cache: bool = True, collect: bool = True) -> None:
-        """Evacuates transient GPU resources."""
+    def cleanup(self, release_source_cache: bool = True, collect: bool = True, retain: Any = None) -> None:
+        """Evacuates transient GPU resources; ``retain`` survives the teardown."""
         if release_source_cache:
             self._source_cache_key = None
             self._source_cache_value = None
             self._precorrect_key = None
             self._precorrect_value = None
         if self.engine_gpu:
-            self.engine_gpu.cleanup(collect=collect)
+            self.engine_gpu.cleanup(collect=collect, retain=retain)
 
     def destroy_all(self) -> None:
         """Teardown GPU engine."""

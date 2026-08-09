@@ -191,10 +191,10 @@ class RenderWorker(QObject):
     def processor(self) -> ImageProcessor:
         return self._processor
 
-    @pyqtSlot()
-    def cleanup(self) -> None:
-        """Evacuates transient GPU resources."""
-        self._processor.cleanup()
+    @pyqtSlot(object)
+    def cleanup(self, retain: object = None) -> None:
+        """Evacuates transient GPU resources; ``retain`` is handed to its new owner."""
+        self._processor.cleanup(retain=retain)
 
     def destroy_all(self) -> None:
         """Full teardown of processing resources."""
