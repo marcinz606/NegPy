@@ -116,6 +116,30 @@ def collect_gphoto2_plugins() -> None:
 
 collect_gphoto2_plugins()
 
+
+def collect_fuji_ble() -> None:
+    """Ship the optional Fujifilm Bluetooth trigger (fuji-ble-negpy-trigger + bleak).
+
+    Both are imported lazily by ``negpy.infrastructure.capture.fuji_ble``, so PyInstaller
+    would miss them — and bleak's CoreBluetooth backend (pyobjc) must be bundled for
+    Bluetooth to work in the packaged app. Mirrors the gphoto2 optional-extra pattern:
+    ``uv sync --group fuji-ble`` before building, or the packaged app simply shows its
+    setup hint.
+    """
+    if is_windows:
+        return  # the Bluetooth trigger is macOS/Linux only
+    try:
+        import fujitrigger  # noqa: F401
+    except ImportError:
+        print("fuji-ble-negpy-trigger not installed — packaging without the Bluetooth trigger")
+        return
+    params.append("--collect-all=fujitrigger")
+    params.append("--collect-all=bleak")
+    print("Bundling Fujifilm Bluetooth trigger (fujitrigger + bleak)")
+
+
+collect_fuji_ble()
+
 # Add platform-specific icon
 if is_windows:
     icon_path = os.path.abspath("media/icons/icon.ico")
@@ -312,10 +336,32 @@ def package_windows():
         raise
 
 
+def _add_bluetooth_usage_description(app_path: str) -> None:
+    """bleak/CoreBluetooth requires ``NSBluetoothAlwaysUsageDescription`` in a bundled app's
+    Info.plist, or Bluetooth discovery is denied outright. Inject it (only when the trigger
+    is bundled)."""
+    try:
+        import fujitrigger  # noqa: F401
+    except ImportError:
+        return
+    import plistlib
+
+    info_path = os.path.join(app_path, "Contents", "Info.plist")
+    with open(info_path, "rb") as f:
+        info = plistlib.load(f)
+    usage = "NegPy uses Bluetooth to trigger a Fujifilm camera for automated film scanning."
+    info["NSBluetoothAlwaysUsageDescription"] = usage
+    info["NSBluetoothPeripheralUsageDescription"] = usage  # older macOS key, harmless to include
+    with open(info_path, "wb") as f:
+        plistlib.dump(info, f)
+    print("Added Bluetooth usage description to Info.plist")
+
+
 def package_macos():
     """Package the built application into a DMG with Applications symlink."""
     print(f"Packaging for macOS (DMG) version {VERSION}...")
     app_path = os.path.join("dist", f"{APP_NAME}.app")
+    _add_bluetooth_usage_description(app_path)
     dmg_name = f"{APP_NAME}-{VERSION}-macOS-{get_macos_target_arch()}.dmg"
     dmg_path = os.path.join("dist", dmg_name)
     temp_dmg_dir = os.path.join("dist", "dmg_temp")

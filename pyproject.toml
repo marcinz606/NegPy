@@ -55,6 +55,14 @@ camera = [
     # Camera Scanning tab with them — are macOS and Linux only.
     "gphoto2>=2.5 ; sys_platform != 'win32'",
 ]
+fuji-ble = [
+    # Fujifilm Bluetooth shutter trigger (optional). All device code lives in the standalone
+    # fuji-ble-negpy-trigger package; NegPy keeps only the thin adapter (capture/fuji_ble.py),
+    # mirroring the scanner (python-sane) and camera (gphoto2) groups. macOS/Linux only
+    # (bleak/CoreBluetooth). Pinned to an immutable commit, exactly as the coolscan-roll group
+    # pins coolscanpy.
+    "fuji-ble-negpy-trigger @ git+https://github.com/rohanpandula/fuji-ble-negpy-trigger.git@cb62f9e297078a15db3c364dea7893fa0ebf8bed ; sys_platform != 'win32'",
+]
 
 [project.urls]
 Homepage = "https://github.com/marcinz606/NegPy"
