@@ -169,6 +169,7 @@ class PieusbBackend:
                 max_area_mm=(max_w, max_h),
                 auto_exposure=True,
                 autofocus=False,
+                exposure_time_us=(dev.inquiry.minimum_exposure, dev.inquiry.maximum_exposure),
             )
             device_str = f"pieusb:{dev.dev.bus}:{dev.dev.address}"
             self._devices_map[device_str] = dev
@@ -201,6 +202,10 @@ class PieusbBackend:
             s.color_depth = params.depth
             s.resolution = params.dpi
             s.auto_exp = params.auto_exposure
+            if not params.auto_exposure and params.exposure_time_us is not None:
+                s.exp_time_r = params.exposure_time_us
+                s.exp_time_g = params.exposure_time_us
+                s.exp_time_b = params.exposure_time_us
 
             if params.window is not None:
                 tl_x, tl_y, br_x, br_y = params.window
