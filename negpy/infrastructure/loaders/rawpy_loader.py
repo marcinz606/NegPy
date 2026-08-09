@@ -37,6 +37,97 @@ def _is_dng(file_path: str) -> bool:
     return os.path.splitext(file_path)[1].lower() == ".dng"
 
 
+def _tag_floats(tag: Optional[Any]) -> Tuple[float, ...]:
+    """Flatten a TIFF tag's value to floats. tifffile returns RATIONAL/SRATIONAL tags
+    (dtype 5/10) as raw numerator/denominator pairs, not pre-divided values."""
+    if tag is None:
+        return ()
+    value = tag.value
+    if not isinstance(value, (tuple, list)):
+        value = (value,)
+    if int(tag.dtype) in (5, 10):
+        return tuple(n / d if d else 0.0 for n, d in zip(value[0::2], value[1::2]))
+    return tuple(float(v) for v in value)
+
+
+def _broadcast3(values: Tuple[float, ...], default: float) -> np.ndarray:
+    """First 3 entries of `values` as an (R, G, B) array; a single entry broadcasts to all
+    three (some writers give one BlackLevel/WhiteLevel for the whole frame); empty falls
+    back to `default`."""
+    if len(values) >= 3:
+        return np.asarray(values[:3], dtype=np.float64)
+    if len(values) == 1:
+        return np.full(3, values[0], dtype=np.float64)
+    return np.full(3, default, dtype=np.float64)
+
+
+def _peek_linear_dng_rgb(file_path: str) -> Optional[Tuple[np.ndarray, Optional[Tuple[float, float, float]]]]:
+    """Decode a 3-sample LinearRaw DNG that libraw can't read (DNG 1.7 JPEG-XL from DxO
+    PhotoLab/PureRAW and Lightroom Enhance, and similar) directly via tifffile/imagecodecs,
+    replaying the linearization/black-white steps libraw's postprocess() would otherwise
+    apply. Returns (rgb, wb_gains) as float32 [0,1] sensor-native RGB plus the as-shot white
+    balance gains (R, G, B; None if AsShotNeutral is absent) — gains are not applied here,
+    since NonStandardFileWrapper.postprocess() decides based on use_camera_wb, same as a
+    real rawpy object would. No camera-to-XYZ color matrix: NegPy keeps every RAW source in
+    sensor-native RGB (see _decode_sensor_rgb's output_color=raw), so this mirrors that
+    rather than doing a color-managed decode.
+    """
+    if not _is_dng(file_path):
+        return None
+    try:
+        with tifffile.TiffFile(file_path) as tif:
+            page0 = tif.pages[0]
+            main = _find_linearraw_page(tif, samples=3)
+            if main is None:
+                return None
+            arr = main.asarray()  # type: ignore[attr-defined]
+            if arr.ndim != 3 or arr.shape[2] != 3:
+                return None
+
+            def tag(name: str) -> Optional[Any]:
+                return main.tags.get(name) or page0.tags.get(name)
+
+            # Resolved to plain values here, while the file is still open — TiffTag.value
+            # is lazily read from the file handle and tifffile only warns (reopening the
+            # path) rather than erroring if that happens after this `with` exits.
+            lin_tag = tag("LinearizationTable")
+            lin_table = np.asarray(lin_tag.value, dtype=np.float64) if lin_tag is not None else None
+            black = _tag_floats(tag("BlackLevel"))
+            white = _tag_floats(tag("WhiteLevel"))
+            neutral = _tag_floats(page0.tags.get("AsShotNeutral"))
+            crop_origin = _tag_floats(tag("DefaultCropOrigin"))
+            crop_size = _tag_floats(tag("DefaultCropSize"))
+    except Exception as e:
+        logger.warning(f"Linear DNG peek failed for {file_path}: {e}")
+        return None
+
+    dtype_max = float(np.iinfo(arr.dtype).max) if np.issubdtype(arr.dtype, np.integer) else 1.0
+    data = arr.astype(np.float64)
+
+    if lin_table is not None:
+        idx = np.clip(data, 0, len(lin_table) - 1).astype(np.int64)
+        data = lin_table[idx]
+
+    black3 = _broadcast3(black, 0.0)
+    white3 = _broadcast3(white, dtype_max)
+    data = (data - black3) / np.maximum(white3 - black3, 1e-6)
+    data = np.clip(data, 0.0, 1.0)
+
+    if len(crop_origin) >= 2 and len(crop_size) >= 2:
+        ox, oy = int(round(crop_origin[0])), int(round(crop_origin[1]))
+        cw, ch = int(round(crop_size[0])), int(round(crop_size[1]))
+        h, w = data.shape[:2]
+        if 0 <= oy < h and 0 <= ox < w and cw > 0 and ch > 0 and (cw, ch) != (w, h):
+            data = data[oy : oy + ch, ox : ox + cw]
+
+    wb_gains: Optional[Tuple[float, float, float]] = None
+    if len(neutral) >= 3 and all(n > 0 for n in neutral[:3]):
+        r, g, b = neutral[:3]
+        wb_gains = (g / r, 1.0, g / b)
+
+    return np.ascontiguousarray(data.astype(np.float32)), wb_gains
+
+
 def _peek_linearraw_4ch(file_path: str) -> Optional[Tuple[np.ndarray, np.ndarray]]:
     """Inspect a DNG. If it carries 4 linear samples (RGB + IR), return (rgb, ir) as float32 [0,1].
 
@@ -102,7 +193,10 @@ class RawpyLoader(IImageLoader):
     """
     Standard RAW loader (libraw). For LinearRaw 4-channel DNGs (RGB + IR), bypasses
     rawpy and reads via tifffile so the IR plane is preserved. SilverFast HDRi DNGs keep
-    the libraw decode and get their IR from a separate grayscale page.
+    the libraw decode and get their IR from a separate grayscale page. A 3-channel
+    LinearRaw DNG libraw can't unpack (DNG 1.7 JPEG-XL from DxO PhotoLab/PureRAW and
+    Lightroom Enhance: libraw's DNG-SDK-gated support isn't linked into rawpy's wheels,
+    see rawpy#207) falls back to the same tifffile decode as the SilverFast case.
     """
 
     def load(self, file_path: str) -> Tuple[ContextManager[Any], dict]:
@@ -118,7 +212,24 @@ class RawpyLoader(IImageLoader):
             }
             return NonStandardFileWrapper(rgb), metadata
 
-        raw = rawpy.imread(file_path)
+        if _is_dng(file_path):
+            try:
+                raw = rawpy.imread(file_path)
+                raw.unpack()  # force now: postprocess() would hit the same error later
+            except rawpy.LibRawError:
+                fallback = _peek_linear_dng_rgb(file_path)
+                if fallback is None:
+                    raise
+                rgb, wb_gains = fallback
+                metadata = {
+                    "orientation": read_orientation(file_path),
+                    "raw_flip": 0,
+                    "color_space": None,
+                    "ir": None,
+                }
+                return NonStandardFileWrapper(rgb, wb_gains=wb_gains), metadata
+        else:
+            raw = rawpy.imread(file_path)
 
         metadata = {
             "orientation": read_orientation(file_path),

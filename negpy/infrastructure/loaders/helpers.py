@@ -88,10 +88,20 @@ class NonStandardFileWrapper:
     numpy -> rawpy-like interface.
     """
 
-    def __init__(self, data: np.ndarray, full_output_hw: Optional[Tuple[int, int]] = None) -> None:
+    def __init__(
+        self,
+        data: np.ndarray,
+        full_output_hw: Optional[Tuple[int, int]] = None,
+        wb_gains: Optional[Tuple[float, float, float]] = None,
+    ) -> None:
         self.data = data
         # If set, `sizes` reports this (h, w) for full image; else derived from `data` shape.
         self._full_output_hw: Optional[Tuple[int, int]] = full_output_hw
+        # As-shot (R, G, B) white balance gains, applied by postprocess() when the caller
+        # asks for camera WB. None means the source has no WB to offer (e.g. NegPy's own
+        # scanner DNGs, always neutral) — postprocess() then leaves the data untouched,
+        # same as it always has for those.
+        self.wb_gains: Optional[Tuple[float, float, float]] = wb_gains
 
     @property
     def sizes(self) -> Any:
@@ -114,6 +124,13 @@ class NonStandardFileWrapper:
         data = self.data
         if half_size:
             data = data[::2, ::2]
+
+        if kwargs.get("use_camera_wb") and self.wb_gains is not None:
+            r, g, b = self.wb_gains
+            data = data.astype(np.float32, copy=True)
+            data[..., 0] *= r
+            data[..., 2] *= b
+            data = np.clip(data, 0.0, 1.0)
 
         if gamma is None or tuple(gamma) != (1, 1):
             # LibRaw's default BT.709 display gamma — else linear thumbnails go near-black.
