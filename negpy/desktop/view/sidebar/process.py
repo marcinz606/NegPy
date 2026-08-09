@@ -186,11 +186,15 @@ class ProcessSidebar(BaseSidebar):
         self.normalize_e6_btn.setChecked(conf.e6_normalize)
         self.normalize_e6_btn.setToolTip(
             wrap_tooltip(
-                "Normalize: stretch the histogram to the full dynamic range, metered per frame. "
-                "Off renders the slide as the capture — the camera's own colour matrix and a fixed "
-                "exposure window — so it opens looking like it does in any raw converter, and a "
-                "bracketed set stays a bracketed set. Print controls give way to a plain transfer "
-                "curve (Density, Grade, Toe, Shoulder)."
+                "Normalize: stretch the histogram to the full dynamic range, metered per frame, "
+                "and print it through the paper model. This is a rescue tool for <b>faded or "
+                "expired slides</b>, where the dyes have lost their range and a per-frame stretch "
+                "puts it back. On a slide that was exposed as intended it stretches a range that is "
+                "mostly not picture, which reads washed out.<br><br>"
+                "Off (the default) renders the slide as the capture — the camera's own colour matrix "
+                "and a fixed exposure window — so it opens looking like it does in any raw converter, "
+                "and a bracketed set stays a bracketed set. Print controls give way to a plain "
+                "transfer curve (Density, Grade, Toe, Shoulder)."
             )
         )
         self.layout.addWidget(self.normalize_e6_btn)

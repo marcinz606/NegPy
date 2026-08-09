@@ -37,7 +37,12 @@ class ProcessConfig:
     # cast removal), defaulting to the robust base_color_clip neutral.
     luma_range_clip: float = 0.0
     color_range_clip: float = float(EXPOSURE_CONSTANTS["base_color_clip"])
-    e6_normalize: bool = True
+    # Off by default: Normalize meters a per-frame stretch, which was added to rescue
+    # expired slides and is the wrong opening render for a slide that was exposed
+    # deliberately. A slide's density runs to Dmax but only its top ~1.5 decades carry
+    # picture, so stretching the measured range crushes the picture into the top of the
+    # print curve. Off renders the capture instead; turn it on for faded film.
+    e6_normalize: bool = False
     # Roll-wide baseline applied independently per axis: luma (span) and colour (cast).
     use_luma_average: bool = False
     use_colour_average: bool = False

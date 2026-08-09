@@ -371,8 +371,12 @@ class TestNormalizationContract(unittest.TestCase):
 
     def test_default_process_config_keeps_the_print_path(self):
         """PhotometricProcessor's process_config defaults to a print; a missing argument
-        must never silently route an existing caller into the transfer."""
-        self.assertTrue(ProcessConfig().e6_normalize)
+        must never silently route an existing caller into the transfer. Asserted through
+        the mode test rather than the e6_normalize flag, which now defaults off — it is
+        the C-41 default process_mode that keeps a bare ProcessConfig on the print path."""
+        conf = ProcessConfig()
+        self.assertEqual(conf.process_mode, ProcessMode.C41)
+        self.assertFalse(is_transparency_transfer(conf.process_mode, conf.e6_normalize))
 
 
 @unittest.skipUnless(GPUDevice.get().is_available, "GPU not available")
