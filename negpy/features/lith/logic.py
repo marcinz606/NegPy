@@ -15,10 +15,12 @@ LITH_CONSTANTS: Dict[str, Any] = {
     # dD/dD0 at zero, the foot gamma. Published range is 0.2-0.5: a lot of
     # exposure squeezed into very little density is what reads as creamy.
     "foot_rate": 0.60,
-    # Fraction of the over-exposure the highlight branch sees. Over-exposure
-    # mostly buys an earlier knee; if the foot took the full shift, paper white
-    # would fog by a quarter of a stop of density at the default +2.
-    "foot_veil": 0.20,
+    # Fraction of the over-exposure the highlight branch sees. Lith highlights
+    # are meant to carry a veil, not print as bare paper — over-exposing two to
+    # four stops is what puts tone in them. Below ~0.5 the whole highlight range
+    # collapses to within a fifth of a stop of paper white and reads blown.
+    # Exposure 0 still gives clean white, so the slider keeps that end.
+    "foot_veil": 0.60,
     # ── Infectious knee (second phase) ────────────────────────────────────────
     # Snatch maps to the knee density: knee = d_max·(knee_lo − knee_span·snatch).
     # snatch 0 puts the knee past Dmax (nothing fires), 1 pulls it down to

@@ -48,9 +48,21 @@ class TestTonalCurve:
         assert grad[knee] > 10.0, "the knee should be a cliff, not a slope"
         assert band.max() < 0.05, "past the knee the lith band carries no tone"
 
-    def test_paper_white_survives_the_default_over_exposure(self):
+    def test_over_exposure_veils_the_highlights_without_fogging_them(self):
+        """Lith highlights carry tone, not bare paper: the default +2 stops puts
+        a veil in them. Exposure 0 still prints clean white, so the slider keeps
+        that end of the range."""
         white = _ramp(np.zeros(4, dtype=np.float32))
-        assert _density(_lith(white, exposure=2.0)[0]).max() < 0.15
+        assert _density(_lith(white, exposure=0.0)[0]).max() < 0.10
+        veil = _density(_lith(white, exposure=2.0)[0]).max()
+        assert 0.15 < veil < 0.35, f"paper white at +2 stops sits at {veil:.3f}"
+
+    def test_highlights_keep_separation_at_the_default(self):
+        """The failure this guards: too little veil and the whole highlight range
+        collapses onto paper white and reads blown."""
+        d0 = np.array([0.0, 0.1, 0.2, 0.3, 0.5], dtype=np.float32)
+        spread = np.ptp(_density(_lith(_ramp(d0), exposure=2.0)[0]))
+        assert spread > 0.15, f"highlight branch spans only {spread:.3f} D"
 
     def test_later_snatch_widens_the_black_band(self):
         d0 = np.linspace(0.0, 2.5, 256, dtype=np.float32)
