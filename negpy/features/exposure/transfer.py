@@ -25,6 +25,8 @@ Controls map onto the existing Print sliders, each neutral at its current defaul
   grade (115 R)  -> contrast about a mid-grey pivot
   toe (0.0)      -> shadow roll-off      shoulder (0.0) -> highlight roll-off
   WB C/M/Y (0)   -> per-channel density offsets
+  shadow/highlight_density (0.0) -> Zone Density, the print path's mid-sparing offsets,
+                    re-centred onto this curve's own scale (see zone_geometry)
 """
 
 from typing import Optional, Tuple
@@ -33,7 +35,7 @@ import numpy as np
 
 from negpy.domain.types import ImageBuffer
 from negpy.features.exposure.logic import per_channel_toe_shoulder, per_channel_widths
-from negpy.features.exposure.models import ExposureConfig
+from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.kernel.image.validation import ensure_image
 
 #: Log-density window the fixed-bounds normalization maps to [0, 1]. The floor is the
@@ -72,6 +74,32 @@ TRANSFER_CONSTANTS = {
 }
 
 
+def zone_geometry() -> Tuple[float, float, float]:
+    """(shadow centre, highlight centre, sharpness) for Zone Density, in density.
+
+    Derived from the print path's zone geometry by **tonal position**, not by copying its
+    density numbers. The two curves do not share a density scale: a print runs d_min 0.06
+    to d_max 2.3, the transfer curve runs 0 to TRANSFER_DENSITY_RANGE. Carrying the raw
+    1.50 across put the shadow centre 64% of the way to black on a print but only 50% of
+    the way here, so the slider reached well into the midtones on a slide — on a dusk
+    frame it lifted a quarter of the picture by 0.12 and the midtones by 0.036.
+
+    The sharpness scales with the range for the same reason, so the transition occupies
+    the same share of the scale rather than the same number of decades.
+    """
+    c = EXPOSURE_CONSTANTS
+    d_min, d_max = float(c["d_min"]), float(c["d_max"])
+    span = d_max - d_min
+    anchor = float(c["anchor_target_density"])
+    shadow = (anchor + float(c["zone_density_shadow_offset"]) - d_min) / span
+    highlight = (anchor + float(c["zone_density_highlight_offset"]) - d_min) / span
+    return (
+        shadow * TRANSFER_DENSITY_RANGE,
+        highlight * TRANSFER_DENSITY_RANGE,
+        float(c["zone_density_sharpness"]) * span / TRANSFER_DENSITY_RANGE,
+    )
+
+
 def display_rendering(scene_linear: np.ndarray) -> np.ndarray:
     """
     Scene-linear -> display-linear: the standard rendering a raw converter opens with.
@@ -90,6 +118,25 @@ def display_rendering(scene_linear: np.ndarray) -> np.ndarray:
     num = x * (np.float32(2.51) * x + np.float32(0.03))
     den = x * (np.float32(2.43) * x + np.float32(0.59)) + np.float32(0.14)
     return np.clip(num / np.maximum(den, np.float32(1e-8)), 0.0, 1.0).astype(np.float32)
+
+
+def _sigmoid(x: np.ndarray) -> np.ndarray:
+    """Logistic sigmoid, overflow-safe for large |x| (mirrors logic.py::_fast_sigmoid)."""
+    return (0.5 * (1.0 + np.tanh(0.5 * np.asarray(x, dtype=np.float32)))).astype(np.float32)
+
+
+ZONE_BLACK_TAPER = 1.0
+
+
+def _black_taper(d: np.ndarray, density_range: float) -> np.ndarray:
+    """Fades a shadow lift back to nothing at the bottom of the window.
+
+    On a print, Zone Density is bounded by paper black -- a shadow burn cannot exceed
+    d_max. This curve has no paper, so without a bound a lift walks the black point up
+    with it and the frame simply stops having blacks. Smoothstep so the taper adds no kink.
+    """
+    t = np.clip((np.float32(density_range) - d) / np.float32(ZONE_BLACK_TAPER), 0.0, 1.0)
+    return (t * t * (np.float32(3.0) - np.float32(2.0) * t)).astype(np.float32)
 
 
 def _softplus(x: np.ndarray, width: float) -> np.ndarray:
@@ -154,6 +201,8 @@ def apply_transfer_curve(
     toe_widths: Optional[Tuple[float, float, float]] = None,
     shoulder_widths: Optional[Tuple[float, float, float]] = None,
     density_range: float = TRANSFER_DENSITY_RANGE,
+    shadow_density: float = 0.0,
+    highlight_density: float = 0.0,
 ) -> ImageBuffer:
     """
     Normalized log density -> scene-linear positive.
@@ -184,6 +233,17 @@ def apply_transfer_curve(
 
         if contrast != 1.0:
             d = np.float32(pivot) + (d - np.float32(pivot)) * np.float32(contrast)
+
+        # Zone Density: mid-sparing brightness offsets, the print path's own kernel and
+        # weights (logic.py, "Zone Density (ΔD)"). Positive adds density, so it darkens —
+        # the Density convention, the opposite sign to a Lightroom Shadows slider. Runs
+        # after contrast and before the knees, as it does on the print.
+        if shadow_density != 0.0 or highlight_density != 0.0:
+            sh_c, hi_c, k = zone_geometry()
+            w_sh = _sigmoid(np.float32(k) * (d - np.float32(sh_c)))
+            w_sh = w_sh * _black_taper(d, density_range)
+            w_hi = np.float32(1.0) - _sigmoid(np.float32(k) * (d - np.float32(hi_c)))
+            d = d + np.float32(shadow_density) * w_sh + np.float32(highlight_density) * w_hi
 
         # Shadows sit at high density, highlights at low, so the toe compresses above
         # its knee and the shoulder below its own.

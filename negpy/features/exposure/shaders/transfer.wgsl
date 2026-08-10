@@ -8,7 +8,7 @@ struct TransferUniforms {
     exposure_offset: f32,
     contrast: f32,
     density_range: f32,
-    _pad0: f32,
+    zone_k: f32,
     pivot: f32,
     toe_knee: f32,
     sh_knee: f32,
@@ -19,6 +19,10 @@ struct TransferUniforms {
     toe_width: vec4<f32>,
     shoulder_width: vec4<f32>,
     cmy: vec4<f32>,
+    // Zone Density: (shadow ΔD, highlight ΔD, shadow centre, highlight centre).
+    zone: vec4<f32>,
+    // x = width of the black taper, in density; yzw unused.
+    zone_taper: vec4<f32>,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -66,6 +70,19 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
         d = d - params.exposure_offset + params.cmy[ch] * params.density_range;
         d = params.pivot + (d - params.pivot) * params.contrast;
+
+        // Zone Density: mid-sparing offsets on the print path's own weights. Positive
+        // adds density, so it darkens. After contrast, before the knees — as on the print.
+        if (params.zone.x != 0.0 || params.zone.y != 0.0) {
+            // Fade the shadow lift out at the bottom of the window. A print bounds a
+            // shadow burn at paper black; this curve has no paper, so without the taper a
+            // lift walks the black point up with it and the frame stops having blacks.
+            let t = clamp((params.density_range - d) / params.zone_taper.x, 0.0, 1.0);
+            let taper = t * t * (3.0 - 2.0 * t);
+            let w_sh = taper / (1.0 + exp(-params.zone_k * (d - params.zone.z)));
+            let w_hi = 1.0 - 1.0 / (1.0 + exp(-params.zone_k * (d - params.zone.w)));
+            d = d + params.zone.x * w_sh + params.zone.y * w_hi;
+        }
 
         // Shadows sit at high density, highlights at low, so the toe compresses
         // above its knee and the shoulder below its own.

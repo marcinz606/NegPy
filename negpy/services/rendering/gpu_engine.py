@@ -44,11 +44,13 @@ from negpy.features.lab.models import SharpenMethod
 from negpy.features.local.logic import compute_local_maps
 from negpy.features.exposure.transfer import (
     TRANSFER_CONSTANTS,
+    ZONE_BLACK_TAPER,
     TRANSFER_DENSITY_RANGE,
     is_transparency_transfer,
     transfer_bounds,
     transfer_curve_params,
     transfer_widths,
+    zone_geometry,
 )
 from negpy.features.process.capture_color import camera_to_working_matrix
 from negpy.features.process.models import ProcessMode, per_channel_point_offsets
@@ -243,7 +245,7 @@ class GPUEngine:
             "geometry": 32,
             "normalization": 160,
             "exposure": 304,
-            "transfer": 112,
+            "transfer": 144,
             "clahe_u": 32,
             "retouch_u": 16,
             "lab": 96,
@@ -1279,13 +1281,14 @@ class GPUEngine:
             (settings.exposure.wb_cyan, settings.exposure.wb_magenta, settings.exposure.wb_yellow),
             LogNegativeBounds(floors=adj_floors, ceils=adj_ceils),
         )
+        t_sh_c, t_hi_c, t_zone_k = zone_geometry()
         tr_data = (
             struct.pack(
                 "ffffffff",
                 float(t_exp),
                 float(t_contrast),
                 float(TRANSFER_DENSITY_RANGE),
-                0.0,
+                float(t_zone_k),
                 float(tc["transfer_contrast_pivot"]),
                 float(tc["transfer_toe_knee"]),
                 float(tc["transfer_shoulder_knee"]),
@@ -1296,6 +1299,14 @@ class GPUEngine:
             + struct.pack("ffff", t_tw3[0], t_tw3[1], t_tw3[2], 0.0)
             + struct.pack("ffff", t_sw3[0], t_sw3[1], t_sw3[2], 0.0)
             + struct.pack("ffff", t_cmy[0], t_cmy[1], t_cmy[2], 0.0)
+            + struct.pack(
+                "ffff",
+                float(settings.exposure.shadow_density),
+                float(settings.exposure.highlight_density),
+                float(t_sh_c),
+                float(t_hi_c),
+            )
+            + struct.pack("ffff", float(ZONE_BLACK_TAPER), 0.0, 0.0, 0.0)
         )
         from negpy.features.exposure.papers import (
             compose_density_matrices,

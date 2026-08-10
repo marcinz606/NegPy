@@ -260,6 +260,64 @@ class TestControlsStayLive(unittest.TestCase):
         sh_shadow, sh_high = rel_shift(shoulder=0.8)
         self.assertGreater(sh_high, sh_shadow)
 
+    def test_zone_density_opens_shadows_without_moving_the_highlights(self):
+        """Shadows/Highlights Density are the transfer path's only mid-sparing controls —
+        Toe and Grade both drag the whole scale with them. Negative shadow_density lifts
+        (the Density convention: positive adds density, so it darkens)."""
+        ramp = _ramp(lo=1e-3, hi=0.6)
+        base = _run_stages(ramp, _e6_config())[0][0, :, 1]
+        values = ramp[0, :, 1]
+        shadows, highs = values < np.percentile(values, 10), values > np.percentile(values, 90)
+
+        lifted = _run_stages(ramp, _e6_config(shadow_density=-0.6))[0][0, :, 1]
+        rel = np.abs(lifted - base) / np.maximum(base, 1e-9)
+        self.assertGreater(float(rel[shadows].mean()), 10.0 * float(rel[highs].mean()))
+        self.assertGreater(float(lifted[shadows].mean()), float(base[shadows].mean()))
+
+        pulled = _run_stages(ramp, _e6_config(highlight_density=0.4))[0][0, :, 1]
+        rel_h = np.abs(pulled - base) / np.maximum(base, 1e-9)
+        self.assertGreater(float(rel_h[highs].mean()), float(rel_h[shadows].mean()))
+        self.assertLess(float(pulled[highs].mean()), float(base[highs].mean()))
+
+    def test_zone_density_matches_the_print_by_tonal_position_not_raw_density(self):
+        """Regression: the centres were copied from the print path as raw density numbers.
+        The two curves do not share a density scale — a print runs d_min..d_max, this runs
+        0..TRANSFER_DENSITY_RANGE — so 1.50 sat 64% of the way to black on a print but 50%
+        here, and the Shadows slider reached into the midtones on a slide. What has to
+        match is the *position on the scale*, not the number."""
+        from negpy.features.exposure.models import EXPOSURE_CONSTANTS as C
+        from negpy.features.exposure.transfer import TRANSFER_DENSITY_RANGE, zone_geometry
+
+        sh_c, hi_c, k = zone_geometry()
+        d_min, span = float(C["d_min"]), float(C["d_max"]) - float(C["d_min"])
+        anchor = float(C["anchor_target_density"])
+        for got, print_density in (
+            (sh_c, anchor + float(C["zone_density_shadow_offset"])),
+            (hi_c, anchor + float(C["zone_density_highlight_offset"])),
+        ):
+            self.assertAlmostEqual(got / TRANSFER_DENSITY_RANGE, (print_density - d_min) / span, places=6)
+        # Sharpness scales with the range so the transition spans the same share of the scale.
+        self.assertAlmostEqual(k * TRANSFER_DENSITY_RANGE / span, float(C["zone_density_sharpness"]), places=6)
+        # And the shadow centre must sit below the halfway point, or it is a midtone control.
+        self.assertGreater(sh_c / TRANSFER_DENSITY_RANGE, 0.55)
+
+    def test_zone_density_leaves_the_midtones_alone(self):
+        """The property the mis-centring broke: a shadow lift must not move mid-grey."""
+        ramp = _ramp(lo=1e-4, hi=0.9)
+        base = _run_stages(ramp, _e6_config())[0][0, :, 1]
+        lifted = _run_stages(ramp, _e6_config(shadow_density=-0.6))[0][0, :, 1]
+        mid = (base > 0.40) & (base < 0.75)
+        deep = base < 0.06
+        self.assertTrue(mid.any() and deep.any())
+        self.assertLess(float(np.abs(lifted - base)[mid].max()), 0.03, "a shadow lift moved the midtones")
+        # Mid-sparing means the shadows move by more, *relative to where they started* —
+        # in display terms the deep end sits near zero, so an absolute comparison against
+        # the midtones is meaningless.
+        deep_rel = float(((lifted - base)[deep] / np.maximum(base[deep], 1e-4)).mean())
+        mid_rel = float((np.abs(lifted - base)[mid] / np.maximum(base[mid], 1e-4)).mean())
+        self.assertGreater(deep_rel, 0.15, "a shadow lift did nothing to the shadows")
+        self.assertGreater(deep_rel / max(mid_rel, 1e-6), 5.0, "the lift was not mid-sparing")
+
     def test_knee_widths_are_wired_to_the_width_sliders(self):
         narrow = self._rendered(toe=0.8, toe_width=0.5)
         wide = self._rendered(toe=0.8, toe_width=5.0)
@@ -473,8 +531,70 @@ class TestGpuTransferParity(unittest.TestCase):
             shoulder_width_trim_red=-0.5,
             wb_cyan=0.3,
             wb_yellow=-0.2,
+            shadow_density=-0.5,
+            highlight_density=0.3,
         )
         self._assert_parity(*self._both(settings))
+
+    def test_zone_black_taper_matches(self):
+        """The taper rides a uniform lane the shader did not have. Asserted against a
+        render whose deepest tones actually reach it, and guarded both ways: a shader that
+        ignored the lane would still pass a bare parity check, which is exactly how the
+        crosstalk unmix stayed broken on the GPU."""
+        from negpy.services.rendering.image_processor import ImageProcessor
+
+        processor = ImageProcessor()
+        if processor.engine_gpu is None:
+            self.skipTest("GPU engine not initialised")
+
+        # Deep enough to reach the bottom of the density window, where the taper lives —
+        # _both's own gradient stops around density 1.7 and would never engage it.
+        h, w = 64, 64
+        grad = np.logspace(np.log10(0.4), np.log10(3e-4), w, dtype=np.float32)
+        img = np.ascontiguousarray(np.stack([np.repeat(grad[None, :], h, 0)] * 3, axis=-1))
+        lifted = replace(_e6_config(shadow_density=-0.8), geometry=replace(_e6_config().geometry, autocrop_offset=0))
+
+        def both(tag):
+            # A fresh processor per variant: the engine caches on the source hash, which a
+            # patched module constant does not change, so a shared one would hand back the
+            # previous render and the guard below would pass on a stale buffer.
+            proc = ImageProcessor()
+            return (
+                self._render(proc, lifted, img, prefer_gpu=False, cam_xyz=CAM_XYZ),
+                self._render(proc, lifted, img, prefer_gpu=True, cam_xyz=CAM_XYZ),
+            )
+
+        cpu, gpu = both("on")
+        self._assert_parity(cpu, gpu)
+
+        # The taper must actually be doing something at the black end on BOTH engines, or
+        # parity here is vacuous. Compared against the same lift with the taper spanning
+        # nothing, which is the un-tapered behaviour.
+        # Patched in both namespaces: gpu_engine binds the constant at import, so patching
+        # only the source module would leave the shader packing the real value and the GPU
+        # half of this guard would silently pass on an unchanged render.
+        from unittest.mock import patch
+
+        with (
+            patch("negpy.features.exposure.transfer.ZONE_BLACK_TAPER", 1e-6),
+            patch("negpy.services.rendering.gpu_engine.ZONE_BLACK_TAPER", 1e-6),
+        ):
+            flat_cpu, flat_gpu = both("off")
+        self.assertGreater(float(np.abs(cpu - flat_cpu).max()), 0.01, "taper inert on the CPU")
+        self.assertGreater(float(np.abs(gpu - flat_gpu).max()), 0.01, "taper inert on the GPU")
+
+    def test_zone_density_matches(self):
+        """Zone Density rides a uniform lane the transfer shader did not have. Asserted on
+        its own, and against an inert render, so parity cannot pass by both engines
+        ignoring it — which is exactly how the crosstalk unmix stayed broken on the GPU."""
+        settings = _e6_config()
+        active = _e6_config(shadow_density=-0.7, highlight_density=0.4)
+        cpu, gpu = self._both(active)
+        self._assert_parity(cpu, gpu)
+
+        off_cpu, off_gpu = self._both(settings)
+        self.assertGreater(float(np.abs(cpu - off_cpu).max()), 0.01, "zone density inert on the CPU")
+        self.assertGreater(float(np.abs(gpu - off_gpu).max()), 0.01, "zone density inert on the GPU")
 
 
 if __name__ == "__main__":

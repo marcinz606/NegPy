@@ -425,7 +425,18 @@ class PhotometricProcessor:
             image = np.stack([lum, lum, lum], axis=-1)
 
         tw3, sw3 = transfer_widths(self.config)
-        img_pos = apply_transfer_curve(image, exposure_offset, contrast, toe3, sh3, cmy_offsets, tw3, sw3)
+        img_pos = apply_transfer_curve(
+            image,
+            exposure_offset,
+            contrast,
+            toe3,
+            sh3,
+            cmy_offsets,
+            tw3,
+            sw3,
+            shadow_density=self.config.shadow_density,
+            highlight_density=self.config.highlight_density,
+        )
 
         if is_bw:
             res = get_luminance(img_pos)

@@ -403,14 +403,17 @@ class ToneSidebar(BaseSidebar):
             from negpy.features.exposure.transfer import is_transparency_transfer
 
             transfer = is_transparency_transfer(mode, self.state.config.process.e6_normalize, conf.render_intent)
+            # Shadows/Highlights Density stay live on the transfer path — the curve
+            # implements Zone Density with the print's own weights, and they are the only
+            # controls there that open shadows without moving the whole scale. Split
+            # Grade does not: it rotates contrast about the same centres, which the
+            # transfer curve has no per-zone slope to rotate.
             for w in (
                 self.auto_density_btn,
                 self.auto_grade_btn,
                 self.paper_dmin_btn,
                 self.paper_black_btn,
                 self.midtone_gamma_slider,
-                self.shadow_density_slider,
-                self.highlight_density_slider,
                 self.shadow_grade_slider,
                 self.highlight_grade_slider,
                 self.dye_separation_slider,
