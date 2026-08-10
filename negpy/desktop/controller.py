@@ -2431,7 +2431,7 @@ class AppController(QObject):
         if uv_grid is None or preview is None:
             return
         rx, ry = CoordinateMapping.map_click_to_raw(nx, ny, uv_grid)
-        line = trace_scratch(preview, rx, ry)
+        line = trace_scratch(preview, rx, ry, self.state.config.retouch.scratch_threshold)
         if line is None:
             self.status_message_requested.emit("No scratch found there — click directly on the line", 3000)
             return

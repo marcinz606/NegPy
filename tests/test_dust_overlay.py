@@ -1,6 +1,7 @@
 from dataclasses import replace
 
 import numpy as np
+from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QColor
 
 from negpy.desktop.session import AppState
@@ -136,3 +137,33 @@ def test_repaired_masks_wash_in_their_source_colour():
     ir_img = overlay._mask_wash_qimage(*masks[1])
     ir_on = ir_img.pixelColor(10, 8)
     assert ir_on.alpha() > 0 and ir_on.red() > ir_on.green(), "IR corrections wash magenta"
+
+
+def test_line_tool_hover_traces_a_guide():
+    """The guide has to show what a click would repair, before committing to it."""
+    from negpy.desktop.session import ToolMode
+    from negpy.features.retouch.models import RetouchConfig
+
+    overlay = CanvasOverlay(AppState())
+    h, w = 300, 900
+    rng = np.random.default_rng(3)
+    img = (np.full((h, w, 3), 0.45) + rng.normal(0, 0.012, (h, w, 3))).astype(np.float32)
+    img[h // 2 : h // 2 + 2, :] *= 1.12  # a full-width transport scratch
+
+    overlay.state.preview_raw = img
+    overlay.state.config = replace(overlay.state.config, retouch=RetouchConfig())
+    with overlay.state.metrics_lock:
+        overlay.state.last_metrics["uv_grid"] = _identity_uv(h, w)
+    overlay._tool_mode = ToolMode.SCRATCH_LINE
+    overlay._line_hover_pos = QPointF(0.0, 0.0)
+    overlay._map_to_image_coords = lambda _pos: (0.5, 0.5)  # cursor on the scratch
+
+    overlay._trace_line_hover()
+    assert overlay._line_hover is not None, "hovering a scratch must produce a guide line"
+    nx0, _ny0, nx1, _ny1, width = overlay._line_hover
+    assert nx1 - nx0 > 0.8 and width > 0
+
+    # Off the scratch there is nothing to show.
+    overlay._map_to_image_coords = lambda _pos: (0.5, 0.1)
+    overlay._trace_line_hover()
+    assert overlay._line_hover is None

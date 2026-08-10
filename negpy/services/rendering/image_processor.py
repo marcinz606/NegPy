@@ -371,10 +371,15 @@ class ImageProcessor:
         key = (source_key, img.shape)
         if key == self._manual_key and self._manual_value is not None:
             return self._manual_value
-        # Both are hand-placed repairs on the same buffer, so they share one pass: whichever
-        # calls a pixel more damaged wins, and the fill sees every hole at once.
+        # One pass for both hand-placed sources: whichever calls a pixel more damaged wins,
+        # and the fill sees every hole at once.
         parts = [
-            s for s in (strokes_to_score(img, ret.manual_heal_strokes, ret.manual_dust_spots), lines_to_score(img, lines)) if s is not None
+            s
+            for s in (
+                strokes_to_score(img, ret.manual_heal_strokes, ret.manual_dust_spots),
+                lines_to_score(img, lines, getattr(ret, "scratch_threshold", 0.5)),
+            )
+            if s is not None
         ]
         score = parts[0] if len(parts) == 1 else (np.minimum(*parts) if parts else None)
         if score is None:
@@ -390,7 +395,7 @@ class ImageProcessor:
             # this because its score is measured coarse and carries the same factor here.
             value = (
                 np.asarray(repair_components(img, score, floor=False, factor=film_scale(img.shape[:2]))),
-                route_wide_defects(score),
+                route_wide_defects(score, budget=None),
             )
         self._manual_key = key
         self._manual_value = value

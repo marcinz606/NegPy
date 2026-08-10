@@ -38,6 +38,7 @@ from negpy.features.geometry.logic import rotation_drag_angle, smooth_polyline, 
 from negpy.features.local.logic import min_points, outline_points, rasterise
 from negpy.features.local.models import MaskShape
 from negpy.features.retouch.models import HEAL_SIZE_REF
+from negpy.features.retouch.logic import trace_scratch
 from negpy.services.view.coordinate_mapping import CoordinateMapping
 from negpy.services.view.printing_notes import mask_notes, recipe_lines
 
@@ -174,6 +175,9 @@ def feathered_mask_image(
     return img.copy()  # QImage-from-buffer does not own the memory
 
 
+_LINE_HOVER_DEBOUNCE_MS = 90
+
+
 class CanvasOverlay(QWidget):
     """
     Transparent overlay for image interaction (crop, guides) and CPU rendering fallback.
@@ -306,6 +310,14 @@ class CanvasOverlay(QWidget):
         self._rotation_grid_timer = QTimer(self)
         self._rotation_grid_timer.setSingleShot(True)
         self._rotation_grid_timer.timeout.connect(self._hide_rotation_grid)
+
+        # Guide for the line tool. A trace is a slope search over the whole frame, too heavy
+        # for every mouse-move, so it runs on a debounce and the last result is painted.
+        self._line_hover: Optional[tuple] = None
+        self._line_hover_pos: Optional[QPointF] = None
+        self._line_hover_timer = QTimer(self)
+        self._line_hover_timer.setSingleShot(True)
+        self._line_hover_timer.timeout.connect(self._trace_line_hover)
 
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -647,8 +659,10 @@ class CanvasOverlay(QWidget):
             self._draw_lasso_in_progress(painter)
         if self._tool_mode in (ToolMode.LOCAL_OVAL, ToolMode.LOCAL_GRADIENT):
             self._draw_shape_in_progress(painter)
-        if self._tool_mode in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK):
+        if self._tool_mode in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK, ToolMode.SCRATCH_LINE):
             self._draw_placed_heals(painter)
+        if self._tool_mode == ToolMode.SCRATCH_LINE:
+            self._draw_line_hover(painter)
         if self._tool_mode == ToolMode.SCRATCH_PICK:
             self._draw_scratch_in_progress(painter)
         if self._tool_mode == ToolMode.DUST_PICK:
@@ -1183,9 +1197,56 @@ class CanvasOverlay(QWidget):
             radius = max(2.0, self._brush_screen_radius(size))
             painter.drawEllipse(center, radius, radius)
 
-        # Traced transport scratches: the line is the whole extent it repairs.
-        for nx0, ny0, nx1, ny1, _width in conf.scratch_lines:
-            painter.drawLine(self._raw_to_screen(nx0, ny0, uv_grid), self._raw_to_screen(nx1, ny1, uv_grid))
+        # Traced scratches draw as the band they repair, not a hairline.
+        for line in conf.scratch_lines:
+            self._draw_scratch_line(painter, line, uv_grid, QColor(THEME.accent_primary), 40)
+
+    def _trace_line_hover(self) -> None:
+        """Trace the scratch under the cursor so the guide shows what a click would repair."""
+        pos = self._line_hover_pos
+        preview = self.state.preview_raw
+        if pos is None or preview is None or self._tool_mode != ToolMode.SCRATCH_LINE:
+            return
+        with self.state.metrics_lock:
+            uv_grid = self.state.last_metrics.get("uv_grid")
+        coords = self._map_to_image_coords(pos)
+        if uv_grid is None or coords is None:
+            return
+        rx, ry = CoordinateMapping.map_click_to_raw(coords[0], coords[1], uv_grid)
+        found = trace_scratch(preview, rx, ry, self.state.config.retouch.scratch_threshold)
+        if found != self._line_hover:
+            self._line_hover = found
+            self.update()
+
+    def _draw_scratch_line(self, painter: QPainter, line, uv_grid, color: QColor, band_alpha: int) -> None:
+        """A traced line as the band it actually repairs, not a hairline — the width is the
+        point of the guide."""
+        nx0, ny0, nx1, ny1, width = line
+        a = self._raw_to_screen(nx0, ny0, uv_grid)
+        b = self._raw_to_screen(nx1, ny1, uv_grid)
+        band = QColor(color)
+        band.setAlpha(band_alpha)
+        pen = QPen(band, max(2.0, 2.0 * self._brush_screen_radius(width)), Qt.PenStyle.SolidLine)
+        pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+        painter.setPen(pen)
+        painter.drawLine(a, b)
+        # Centre hairline, so a very thin band is still visible against busy film.
+        centre = QPen(color, 1.0, Qt.PenStyle.SolidLine)
+        centre.setCosmetic(True)
+        painter.setPen(centre)
+        painter.drawLine(a, b)
+
+    def _draw_line_hover(self, painter: QPainter) -> None:
+        """Guide for the line tool: the scratch the cursor is over, before committing it."""
+        if self._tool_mode != ToolMode.SCRATCH_LINE or self._line_hover is None:
+            return
+        with self.state.metrics_lock:
+            uv_grid = self.state.last_metrics.get("uv_grid")
+        if uv_grid is None:
+            return
+        painter.save()
+        self._draw_scratch_line(painter, self._line_hover, uv_grid, QColor(THEME.accent_primary), 70)
+        painter.restore()
 
     def _draw_dust_overlay(self, painter: QPainter) -> None:
         """Display-only visualization of the auto/IR dust-detection set. Modes:
@@ -2012,6 +2073,16 @@ class CanvasOverlay(QWidget):
                 self.setCursor(Qt.CursorShape.ArrowCursor)
             else:
                 self.unsetCursor()
+
+        if self._tool_mode == ToolMode.SCRATCH_LINE:
+            self.setCursor(Qt.CursorShape.ArrowCursor if coords is None else Qt.CursorShape.CrossCursor)
+            self._line_hover_pos = event.position() if coords is not None else None
+            if coords is None:
+                if self._line_hover is not None:
+                    self._line_hover = None
+                    self.update()
+            else:
+                self._line_hover_timer.start(_LINE_HOVER_DEBOUNCE_MS)
 
         if self._tool_mode == ToolMode.ZONE_PLACE:
             if self._pin_drag_index is not None:

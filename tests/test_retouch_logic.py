@@ -4,6 +4,7 @@ import numpy as np
 
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.retouch.logic import (
+    _IR_SCORE_FLOOR,
     apply_hair_inpaint,
     apply_score_repair,
     compute_dust_stats,
@@ -16,6 +17,7 @@ from negpy.features.retouch.logic import (
     normalize_ir,
     repair_components,
     route_wide_defects,
+    scratch_detect_bar,
     strokes_to_score,
     trace_scratch,
 )
@@ -390,3 +392,61 @@ def test_scratch_lines_serialization_roundtrip():
     cfg = WorkspaceConfig(retouch=RetouchConfig(scratch_lines=[(0.1, 0.5, 0.9, 0.52, 3.0)]))
     restored = WorkspaceConfig.from_flat_dict(json.loads(json.dumps(cfg.to_dict())))
     assert [tuple(line) for line in restored.retouch.scratch_lines] == [(0.1, 0.5, 0.9, 0.52, 3.0)]
+
+
+def test_hand_placed_repairs_are_not_refused_by_the_frame_budget():
+    """The budget guards an automatic detector: a garbage IR plane can call half the frame a
+    defect. A hand-placed repair is deliberate, and a full-width scratch covers more than the
+    cap on its own, so it must not be judged by it."""
+    h, w = 400, 1600
+    score = np.ones((h, w), dtype=np.float32)
+    score[190:214, :] = _IR_SCORE_FLOOR  # a wide full-width band: 6% of the frame
+
+    assert route_wide_defects(score) is None, "over budget, as it would be for IR"
+    assert route_wide_defects(score, budget=None) is not None, "a hand-placed repair must still route"
+
+
+def test_wide_scratch_is_repaired():
+    """The band is grown from the scratch, so a thick one is covered rather than cut to a
+    fixed width and left with its flanks showing."""
+    h, w, thick = 400, 1600, 8
+    rng = np.random.default_rng(3)
+    img = (np.full((h, w, 3), 0.45) + rng.normal(0, 0.012, (h, w, 3))).astype(np.float32)
+    row0 = h // 2
+    for x in range(w):
+        img[row0 : row0 + thick, x] *= 1.12
+
+    line = trace_scratch(img, 0.5, (row0 + thick / 2) / h)
+    assert line is not None
+    score = lines_to_score(img, [line])
+    assert score is not None
+    out = np.asarray(repair_components(img, score, floor=False, factor=film_scale((h, w))))
+    routed = route_wide_defects(score, budget=None)
+    if routed is not None:
+        out = np.asarray(apply_hair_inpaint(out, [routed]))
+
+    band = np.s_[row0 : row0 + thick, 60 : w - 60]
+    before = float(np.abs(img[band] - 0.45).mean())
+    after = float(np.abs(out[band] - 0.45).mean())
+    assert after < before * 0.35, f"wide scratch not repaired ({before:.4f} -> {after:.4f})"
+
+
+def test_line_sensitivity_trades_reach_for_restraint():
+    """The slider must actually move the bar: a looser setting follows a scratch further and
+    repairs a wider band, a tighter one holds back."""
+    img, row0, _ = _transport_scratch(depth=0.08)
+    h, w = img.shape[:2]
+    line = trace_scratch(img, 0.5, (row0 + 0.5) / h, threshold=0.5)
+    assert line is not None
+
+    loose = lines_to_score(img, [line], threshold=0.05)
+    tight = lines_to_score(img, [line], threshold=0.95)
+    assert loose is not None
+    n_loose = int((loose < 1.0).sum())
+    n_tight = 0 if tight is None else int((tight < 1.0).sum())
+    assert n_loose > n_tight, f"sensitivity did nothing (loose {n_loose}, tight {n_tight})"
+
+
+def test_scratch_detect_bar_is_monotonic():
+    bars = [scratch_detect_bar(v) for v in (0.05, 0.5, 0.95)]
+    assert bars == sorted(bars), "higher must be more conservative"
