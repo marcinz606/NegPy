@@ -1219,22 +1219,14 @@ class CanvasOverlay(QWidget):
             self.update()
 
     def _draw_scratch_line(self, painter: QPainter, line, uv_grid, color: QColor, band_alpha: int) -> None:
-        """A traced line as the band it actually repairs, not a hairline — the width is the
-        point of the guide."""
+        """A traced line as the band it actually repairs — the width is the point of the guide."""
         nx0, ny0, nx1, ny1, width = line
-        a = self._raw_to_screen(nx0, ny0, uv_grid)
-        b = self._raw_to_screen(nx1, ny1, uv_grid)
         band = QColor(color)
         band.setAlpha(band_alpha)
         pen = QPen(band, max(2.0, 2.0 * self._brush_screen_radius(width)), Qt.PenStyle.SolidLine)
         pen.setCapStyle(Qt.PenCapStyle.FlatCap)
         painter.setPen(pen)
-        painter.drawLine(a, b)
-        # Centre hairline, so a very thin band is still visible against busy film.
-        centre = QPen(color, 1.0, Qt.PenStyle.SolidLine)
-        centre.setCosmetic(True)
-        painter.setPen(centre)
-        painter.drawLine(a, b)
+        painter.drawLine(self._raw_to_screen(nx0, ny0, uv_grid), self._raw_to_screen(nx1, ny1, uv_grid))
 
     def _draw_line_hover(self, painter: QPainter) -> None:
         """Guide for the line tool: the scratch the cursor is over, before committing it."""
