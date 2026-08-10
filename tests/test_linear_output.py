@@ -2,6 +2,7 @@
 
 import io
 import os
+from typing import Optional
 from unittest import mock
 
 import imagecodecs
@@ -22,6 +23,7 @@ from negpy.services.export.linear_output import (
     _SourceMeta,
     _apply_white_balance,
     _build_xmp,
+    _decode_dng,
     _default_pakon_expansion,
     _effective_expansion,
     _is_camera_raw,
@@ -58,6 +60,54 @@ def _make_linearraw_dng_3ch(tmp_dir: str, h: int = 100, w: int = 150) -> str:
     with tifffile.TiffWriter(path) as tw:
         tw.write(data, photometric=_LINEAR_RAW, planarconfig="contig")
     return path
+
+
+# DNG calibration tag codes (TIFF/EP + DNG spec).
+_TAG_LINEARIZATION_TABLE = 50712
+_TAG_BLACK_LEVEL = 50714
+_TAG_WHITE_LEVEL = 50717
+_TAG_DEFAULT_CROP_ORIGIN = 50719
+_TAG_DEFAULT_CROP_SIZE = 50720
+
+
+def _make_linearraw_dng_3ch_tagged(
+    tmp_dir: str,
+    h: int = 100,
+    w: int = 150,
+    max_val: int = 40000,
+    black: Optional[int] = None,
+    white: Optional[int] = None,
+    lin_table: Optional[np.ndarray] = None,
+    crop_origin: Optional[tuple] = None,
+    crop_size: Optional[tuple] = None,
+    with_ir_page: bool = False,
+    seed: int = 77,
+) -> tuple:
+    """Create a synthetic 3-channel LinearRaw DNG with optional DNG calibration tags.
+
+    Returns (path, raw_source_array). `with_ir_page` writes a second, uncropped
+    grayscale page at the source dims, mimicking a SilverFast HDRi IR plane.
+    """
+    rng = np.random.RandomState(seed)
+    data = rng.randint(0, max_val, size=(h, w, 3), dtype=np.uint16)
+    path = os.path.join(tmp_dir, "scan_3ch_tagged.dng")
+    extratags = []
+    if black is not None:
+        extratags.append((_TAG_BLACK_LEVEL, 4, 3, (black, black, black), False))
+    if white is not None:
+        extratags.append((_TAG_WHITE_LEVEL, 4, 3, (white, white, white), False))
+    if lin_table is not None:
+        extratags.append((_TAG_LINEARIZATION_TABLE, 3, len(lin_table), tuple(int(v) for v in lin_table), False))
+    if crop_origin is not None:
+        extratags.append((_TAG_DEFAULT_CROP_ORIGIN, 4, 2, crop_origin, False))
+    if crop_size is not None:
+        extratags.append((_TAG_DEFAULT_CROP_SIZE, 4, 2, crop_size, False))
+    with tifffile.TiffWriter(path) as tw:
+        tw.write(data, photometric=_LINEAR_RAW, planarconfig="contig", extratags=extratags or None)
+        if with_ir_page:
+            ir = np.random.RandomState(seed + 1).randint(0, max_val, size=(h, w), dtype=np.uint16)
+            tw.write(ir, photometric="minisblack")
+    return path, data
 
 
 def _make_pakon_raw(tmp_dir: str, h: int = 1000, w: int = 1500) -> str:
@@ -469,6 +519,146 @@ class TestDngSupport:
         with tifffile.TiffFile(ir_path) as tf:
             ir_arr = tf.pages[0].asarray()
             assert ir_arr.shape == (150, 100)
+
+
+class TestDng3ChTagAwareDecode:
+    """_decode_dng's 3-channel LinearRaw path (SilverFast HDRi and DxO/Lightroom
+    Enhance-style DNGs) reads BlackLevel/WhiteLevel/LinearizationTable/DefaultCrop
+    via _peek_linear_dng_rgb instead of a naive divide-by-container-max."""
+
+    def test_black_white_level_applied(self, tmp_path: str) -> None:
+        """A file with real BlackLevel/WhiteLevel (as DxO/Lightroom Enhance write)
+        gets rescaled to those, not the container max — this is the ~20x bug."""
+        black, white = 1000, 12000
+        path, source = _make_linearraw_dng_3ch_tagged(str(tmp_path), black=black, white=white)
+        out_path = os.path.join(str(tmp_path), "output.tiff")
+
+        export_linear_output(path, out_path)
+
+        expected = np.clip((source.astype(np.float64) - black) / (white - black), 0.0, 1.0)
+        expected_u16 = (expected * 65535.0 + 0.5).astype(np.uint16)
+        with tifffile.TiffFile(out_path) as tf:
+            actual = tf.pages[0].asarray()
+        np.testing.assert_allclose(actual.astype(np.int32), expected_u16.astype(np.int32), atol=1)
+        # sanity: the old naive /65535 scale (~= source unchanged, since the
+        # container max equals the final quantization range) is far darker.
+        assert actual.astype(np.int32).mean() > source.astype(np.int32).mean() * 2
+
+    def test_no_tags_matches_untagged_scale(self, tmp_path: str) -> None:
+        """A file with no calibration tags at all (as SilverFast HDRi writes) is
+        unaffected by the tag-aware decode — same output as the plain /65535 scale."""
+        path, source = _make_linearraw_dng_3ch_tagged(str(tmp_path))
+        out_path = os.path.join(str(tmp_path), "output.tiff")
+
+        export_linear_output(path, out_path)
+
+        expected_u16 = np.clip(source.astype(np.float64), 0, 65535).astype(np.uint16)
+        with tifffile.TiffFile(out_path) as tf:
+            actual = tf.pages[0].asarray()
+        # float64 (tag-aware path) vs float32 (old inline path) intermediate math can
+        # differ by the last bit at quantization boundaries — not a behavior change.
+        np.testing.assert_allclose(actual.astype(np.int32), expected_u16.astype(np.int32), atol=1)
+
+    def test_default_crop_applied(self, tmp_path: str) -> None:
+        """DefaultCropOrigin/Size trims the exported RGB to the declared active area."""
+        path, source = _make_linearraw_dng_3ch_tagged(str(tmp_path), h=100, w=150, crop_origin=(10, 5), crop_size=(120, 80))
+        out_path = os.path.join(str(tmp_path), "output.tiff")
+
+        export_linear_output(path, out_path)
+
+        with tifffile.TiffFile(out_path) as tf:
+            actual = tf.pages[0].asarray()
+        assert actual.shape == (80, 120, 3)
+        expected = source[5 : 5 + 80, 10 : 10 + 120, :]
+        np.testing.assert_allclose(actual.astype(np.int32), expected.astype(np.int32), atol=1)
+
+    def test_crop_with_mismatched_ir_page_raises(self, tmp_path: str) -> None:
+        """A DefaultCrop* that trims RGB but leaves a same-file HDRi IR page at full
+        sensor size must fail loudly, not silently export misaligned planes."""
+        path, _source = _make_linearraw_dng_3ch_tagged(
+            str(tmp_path), h=100, w=150, crop_origin=(10, 5), crop_size=(120, 80), with_ir_page=True
+        )
+        out_path = os.path.join(str(tmp_path), "output.tiff")
+
+        with pytest.raises(ValueError, match="size"):
+            export_linear_output(path, out_path)
+
+    def test_linearization_table_applied(self, tmp_path: str) -> None:
+        """A non-identity LinearizationTable (what DxO/Lightroom Enhance populate)
+        is looked up before the black/white normalization."""
+        max_val = 1000
+        table = np.clip(np.arange(max_val + 1, dtype=np.float64) ** 1.5, 0, 60000).astype(np.uint16)
+        black, white = 0, 50000
+        path, source = _make_linearraw_dng_3ch_tagged(str(tmp_path), max_val=max_val, black=black, white=white, lin_table=table)
+        out_path = os.path.join(str(tmp_path), "output.tiff")
+
+        export_linear_output(path, out_path)
+
+        looked_up = table[np.clip(source, 0, len(table) - 1).astype(np.int64)].astype(np.float64)
+        expected = np.clip((looked_up - black) / (white - black), 0.0, 1.0)
+        expected_u16 = (expected * 65535.0 + 0.5).astype(np.uint16)
+        with tifffile.TiffFile(out_path) as tf:
+            actual = tf.pages[0].asarray()
+        np.testing.assert_allclose(actual.astype(np.int32), expected_u16.astype(np.int32), atol=1)
+
+    def test_peek_failure_wrapped_as_value_error(self, tmp_path: str) -> None:
+        """Any exception from _peek_linear_dng_rgb surfaces as ValueError, matching
+        the exception type the old inline tifffile read always raised on failure."""
+        path = _make_linearraw_dng_3ch(str(tmp_path))
+        out_path = os.path.join(str(tmp_path), "output.tiff")
+
+        with mock.patch(
+            "negpy.services.export.linear_output._peek_linear_dng_rgb",
+            side_effect=RuntimeError("boom"),
+        ):
+            with pytest.raises(ValueError, match="Failed to read LinearRaw data"):
+                export_linear_output(path, out_path)
+
+    def test_decode_dng_no_linearraw_ifd_raises_value_error(self, tmp_path: str) -> None:
+        """A DNG with no LinearRaw IFD at all still raises ValueError, not None
+        propagating silently (peeked_3ch is None branch)."""
+        path = os.path.join(str(tmp_path), "camera.dng")
+        tifffile.imwrite(path, np.zeros((10, 10, 3), dtype=np.uint16), photometric="rgb")
+
+        with pytest.raises(ValueError, match="No LinearRaw IFD found"):
+            _decode_dng(path)
+
+    def test_dxo_shaped_jpegxl_dng_end_to_end(self, tmp_path: str) -> None:
+        """No real DxO PhotoLab/Lightroom Enhance sample is available, so this is the
+        closest synthetic stand-in: a genuinely JPEG-XL-compressed (compression=52546)
+        LinearRaw SubIFD behind a thumbnail IFD0, with LinearizationTable/BlackLevel/
+        WhiteLevel/AsShotNeutral all populated — the same fixture shape
+        tests/test_raw_handlers.py uses to verify _peek_linear_dng_rgb and the
+        RawpyLoader import fallback directly, exercised here end-to-end through
+        export_linear_output instead of calling the peek function in isolation."""
+        h, w = 24, 20
+        table = np.linspace(0, 65535, 1024).astype(np.uint16)
+        codes = np.random.default_rng(0).integers(0, 1024, (h, w, 3)).astype(np.uint16)
+        thumb = np.zeros((max(1, h // 8), max(1, w // 8), 3), dtype=np.uint8)
+        dng_tags = [
+            (50706, 1, 4, (1, 7, 0, 0), True),  # DNGVersion
+            (50707, 1, 4, (1, 4, 0, 0), True),  # DNGBackwardVersion
+            (50712, 3, len(table), tuple(int(x) for x in table), True),  # LinearizationTable
+            (50714, 5, 3, (0, 1, 256, 1, 0, 1), True),  # BlackLevel: R=0, G=256, B=0
+            (50717, 3, 3, (65535, 65535, 65535), True),  # WhiteLevel
+            (50728, 5, 3, (477612, 1000000, 1000000, 1000000, 474074, 1000000), True),  # AsShotNeutral
+        ]
+        path = os.path.join(str(tmp_path), "dxo.dng")
+        with tifffile.TiffWriter(path) as tw:
+            tw.write(thumb, photometric="rgb", subfiletype=1, subifds=1, extratags=dng_tags)
+            tw.write(codes, photometric=_LINEAR_RAW, subfiletype=0, planarconfig="contig", compression=52546)
+        out_path = os.path.join(str(tmp_path), "output.tiff")
+
+        export_linear_output(path, out_path)
+
+        black = np.array([0.0, 256.0, 0.0])
+        white = np.array([65535.0, 65535.0, 65535.0])
+        linear = table[codes.astype(np.int64)].astype(np.float64)
+        expected = np.clip((linear - black) / (white - black), 0.0, 1.0)
+        expected_u16 = (expected * 65535.0 + 0.5).astype(np.uint16)
+        with tifffile.TiffFile(out_path) as tf:
+            actual = tf.pages[0].asarray()
+        np.testing.assert_allclose(actual.astype(np.int32), expected_u16.astype(np.int32), atol=1)
 
 
 class TestCameraRawSupport:

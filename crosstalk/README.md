@@ -20,6 +20,21 @@ trichrome rig, and an incomplete story for a broadband light plus a Bayer sensor
 capture adds mixing of its own. **Measured profiles are especially welcome** — say so in the
 PR if yours came from real scans rather than a datasheet, and drop the `(approx)` from its name.
 
+## Film process
+
+Each profile declares the film it describes; the dropdown and the render both gate on it.
+
+```toml
+process = "E-6"    # or "C41" — the default when absent
+```
+
+Every matrix here is currently `C41`; none ships for E-6, so on slides the dropdown starts
+empty and disabled until a matching profile exists (the in-app matrix editor can create one,
+and stamps it with the process in use). If you add one, note that it means something different
+there: a transparency is the finished image, so unmixing its dyes moves the render away from
+the slide's own appearance rather than toward the scene — a separation/punch control, not a
+correction. See [`../docs/CROSSTALK.md`](../docs/CROSSTALK.md).
+
 ## Contributing
 
 1. Add one `<film_or_scanner>.toml` file to this folder.
@@ -28,6 +43,7 @@ PR if yours came from real scans rather than a datasheet, and drop the `(approx)
    ```toml
    name = "Kodak Portra 400 (Noritsu)"   # optional display name; falls back to filename
    type = "measured"                     # measured | tuned | specsheet-based
+   process = "C41"                       # C41 | E-6 — which film's dyes; C41 when absent
    matrix = [                            # 3x3, row-major (out R/G/B × in R/G/B)
      [ 1.00, -0.05, -0.02],
      [-0.04,  1.00, -0.08],

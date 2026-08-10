@@ -52,7 +52,7 @@ class TestDarkroomEngine(unittest.TestCase):
 
     def test_clahe_stage_cache_invalidation(self):
         """CLAHE cache survives lab-only edits; a strength change invalidates
-        clahe and the stages behind it (retouch, lab)."""
+        clahe and the stages behind it (lab)."""
         from dataclasses import replace
 
         engine = DarkroomEngine()
@@ -62,18 +62,20 @@ class TestDarkroomEngine(unittest.TestCase):
 
         engine.process(img, settings, source_hash="file1")
         assert engine.cache.clahe is not None
-        clahe_id = id(engine.cache.clahe.data)
-        retouch_id = id(engine.cache.retouch.data)
+        # Hold the arrays, don't record their id()s: once the cache drops a buffer,
+        # CPython is free to hand the same address to its replacement, and a recomputed
+        # stage then reads as a cache hit (intermittently, under memory pressure).
+        clahe_data = engine.cache.clahe.data
+        lab_data = engine.cache.lab.data
 
         settings_sat = replace(settings, lab=replace(settings.lab, saturation=1.5))
         engine.process(img, settings_sat, source_hash="file1")
-        assert id(engine.cache.clahe.data) == clahe_id
-        assert id(engine.cache.retouch.data) == retouch_id
+        assert engine.cache.clahe.data is clahe_data
 
         settings_strength = replace(settings_sat, lab=replace(settings_sat.lab, clahe_strength=0.9))
         engine.process(img, settings_strength, source_hash="file1")
-        assert id(engine.cache.clahe.data) != clahe_id
-        assert id(engine.cache.retouch.data) != retouch_id
+        assert engine.cache.clahe.data is not clahe_data
+        assert engine.cache.lab.data is not lab_data
 
     def test_pipeline_produces_metrics(self):
         """Verify pipeline populates expected metrics."""

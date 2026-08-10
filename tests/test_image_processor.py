@@ -138,7 +138,7 @@ def test_load_source_f32_never_fast_decodes_rgbscan_triplets(monkeypatch, tmp_pa
     assert calls and calls[0] is False
 
 
-def test_augment_retouch_reuses_stats_across_threshold_changes(monkeypatch) -> None:
+def test_detect_luma_reuses_stats_across_threshold_changes(monkeypatch) -> None:
     from dataclasses import replace
 
     import negpy.services.rendering.image_processor as ip
@@ -155,16 +155,16 @@ def test_augment_retouch_reuses_stats_across_threshold_changes(monkeypatch) -> N
     service = ImageProcessor()
     for thr in (0.5, 0.6, 0.7):
         cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=True, dust_threshold=thr, dust_size=4))
-        service._augment_retouch(cfg, img, "same-source")
+        service._detect_luma(cfg, img, "same-source")
     assert len(calls) == 1, "stat maps must survive threshold-only changes"
 
     cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=True, dust_threshold=0.7, dust_size=6))
-    service._augment_retouch(cfg, img, "same-source")
+    service._detect_luma(cfg, img, "same-source")
     assert len(calls) == 2, "dust_size changes the blur windows and must recompute"
 
 
 def test_ir_ratio_gain_downsamples_once_per_source(monkeypatch) -> None:
-    """_ir_bake and _augment_retouch each call _ir_ratio_gain every render. The cache key is
+    """_ir_bake and _detect_luma each call _ir_ratio_gain every render. The cache key is
     the source shape, not the downsampled one, so the second call resolves it without
     repaying the full-res erode+resize (~130ms on a 34MP scan)."""
     import negpy.services.rendering.image_processor as ip
@@ -234,8 +234,8 @@ def test_ir_two_tier_bake() -> None:
     assert baked[41, 41].mean() > img[41, 41].mean(), "semi-transparent speck not lifted by division"
     assert float(np.asarray(baked)[151, 151].min()) > 0.4, "opaque core not rebuilt by the fill"
 
-    _, detected, _ = service._augment_retouch(cfg, baked, "s")
-    assert detected is None, "no strokes for an IR-only config"
+    detected, _ = service._detect_luma(cfg, baked, "s")
+    assert detected is None, "nothing for the luma path in an IR-only config"
 
 
 def test_ir_bake_announces_itself_only_when_it_has_work() -> None:
@@ -303,24 +303,23 @@ def test_run_pipeline_routes_wide_ir_blob_to_inpaint(monkeypatch) -> None:
     assert float(out[68, 68, 0]) > 0.4, "blob interior not inpainted out of the source"
 
 
-def test_augment_retouch_cap_keeps_largest(monkeypatch) -> None:
-    """Over budget, the largest detected regions survive."""
-    from dataclasses import replace
+def test_repair_falls_back_to_a_whole_frame_pass_when_defects_swarm() -> None:
+    """Cropping per defect is a win for a handful of specks and a loss for thousands, so
+    past the cap one whole-frame pass runs instead. Same repair either way."""
+    from negpy.features.retouch.logic import _REPAIR_MAX_COMPONENTS, repair_components
 
-    import negpy.services.rendering.image_processor as ip
-    from negpy.features.retouch.models import RetouchConfig
+    rng = np.random.default_rng(3)
+    h = w = 200
+    img = (np.full((h, w, 3), 0.5) + rng.normal(0, 0.005, (h, w, 3))).astype(np.float32)
+    score = np.ones((h, w), dtype=np.float32)
+    n = _REPAIR_MAX_COMPONENTS + 20
+    ys, xs = np.divmod(np.arange(n), 16)
+    for y, x in zip(ys * 6 + 4, xs * 12 + 4):
+        img[y, x] = 0.95
+        score[y, x] = 0.02
 
-    big = ([[0.5, 0.5]], 40.0, 0.1, 0.0, 0.0)
-    small = ([[0.4, 0.4]], 5.0, 0.1, 0.0, 0.0)
-    monkeypatch.setattr(ip, "detect_luma_regions", lambda *a, **k: ([small, big, small, big, big], None))
-
-    img = np.full((160, 160, 3), 0.5, dtype=np.float32)
-    manual = [([[0.1, 0.1]], 3.0, 0.0, 0.0)] * 510  # budget = 512 − 510 = 2
-    cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=True, manual_heal_strokes=manual))
-
-    settings, _, _ = ImageProcessor()._augment_retouch(cfg, img, "s")
-    survivors = settings.retouch.manual_heal_strokes[:2]
-    assert all(s[1] == 40.0 for s in survivors), "cap dropped the largest instead of the head of the list"
+    out = np.asarray(repair_components(img, score))
+    assert float(out[ys * 6 + 4, xs * 12 + 4].max()) < 0.7, "swarming specks must still be repaired"
 
 
 def test_run_pipeline_skip_flatfield(monkeypatch) -> None:

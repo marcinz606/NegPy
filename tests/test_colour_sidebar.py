@@ -83,3 +83,53 @@ def test_temperature_lock_is_per_region(qapp):
     sidebar.temp_lock_btn.setChecked(True)
     key, _ = controller.session.repo.save_global_setting.call_args.args
     assert key == "wb_temp_lock_highlight"
+
+
+def test_cast_removal_is_c41_only(qapp):
+    """The slider is hidden outside C-41 because the render ignores it there — the solve
+    needs the shadow and neutral-axis refs, and both meters are gated to C-41."""
+    controller, sidebar = _sidebar()
+    cfg = controller.state.config
+
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode="C41"))
+    sidebar.sync_ui()
+    assert not sidebar.cast_removal_slider.isHidden()
+
+    for mode in ("E-6", "B&W"):
+        cfg = controller.state.config
+        controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=mode))
+        sidebar.sync_ui()
+        assert sidebar.cast_removal_slider.isHidden(), mode
+
+
+def test_cast_removal_hidden_exactly_where_the_render_ignores_it(qapp):
+    """Pins the two halves together: hiding it anywhere the render still honours it would
+    strand a live setting, and leaving it visible where the render ignores it is the dead
+    control this fixes. Asserted against the render, not a repeated mode list."""
+    import numpy as np
+
+    from negpy.domain.models import WorkspaceConfig
+    from negpy.services.rendering.engine import DarkroomEngine
+
+    controller, sidebar = _sidebar()
+    rng = np.random.default_rng(4)
+    grad = np.linspace(0.05, 0.9, 48, dtype=np.float32)
+    img = np.stack([np.repeat(grad[None, :], 48, 0)] * 3, -1) * np.array([1.0, 0.9, 0.78], np.float32)
+    img = np.ascontiguousarray(img + rng.uniform(0, 0.01, (48, 48, 3)).astype(np.float32))
+
+    for mode, normalize in (("C41", True), ("E-6", True), ("E-6", False), ("B&W", True)):
+        s = WorkspaceConfig()
+        base = replace(s, process=replace(s.process, process_mode=mode, e6_normalize=normalize))
+        renders = [
+            DarkroomEngine().process(
+                img, replace(base, exposure=replace(base.exposure, cast_removal_strength=v)), f"cast_{mode}_{normalize}_{v}"
+            )
+            for v in (0.0, 1.0)
+        ]
+        render_honours_it = not np.allclose(renders[0], renders[1])
+
+        cfg = controller.state.config
+        controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=mode, e6_normalize=normalize))
+        sidebar.sync_ui()
+        visible = not sidebar.cast_removal_slider.isHidden()
+        assert visible == render_honours_it, f"{mode} normalize={normalize}"

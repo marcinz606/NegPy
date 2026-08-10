@@ -1,47 +1,54 @@
-import unittest
-from unittest.mock import patch, MagicMock
-from negpy.kernel.system.version import check_for_updates
 import json
+import unittest
+from unittest.mock import MagicMock, patch
+
+from negpy.kernel.system.version import fetch_latest_release, is_newer, parse_version
 
 
-class TestVersionCheck(unittest.TestCase):
-    @patch("negpy.kernel.system.version.get_app_version")
+def _response(payload: dict, status: int = 200) -> MagicMock:
+    response = MagicMock()
+    response.status = status
+    response.read.return_value = json.dumps(payload).encode()
+    response.__enter__.return_value = response
+    return response
+
+
+class TestVersionParsing(unittest.TestCase):
+    def test_parse_version_keeps_numeric_parts(self):
+        self.assertEqual(parse_version("0.9.5"), [0, 9, 5])
+        self.assertEqual(parse_version("v0.9.5"), [9, 5])  # the caller strips the "v"
+
+    def test_a_later_release_is_newer(self):
+        self.assertTrue(is_newer("0.9.5", "0.9.0"))
+        self.assertTrue(is_newer("0.10.0", "0.9.9"))
+
+    def test_the_same_or_older_release_is_not_newer(self):
+        self.assertFalse(is_newer("0.9.5", "0.9.5"))
+        self.assertFalse(is_newer("0.9.0", "0.9.5"))
+
+    def test_an_unusable_version_is_never_newer(self):
+        self.assertFalse(is_newer("", "0.9.0"))
+        self.assertFalse(is_newer("0.9.5", "unknown"))
+
+
+class TestFetchLatestRelease(unittest.TestCase):
     @patch("urllib.request.urlopen")
-    def test_check_for_updates_available(self, mock_urlopen, mock_get_version):
-        mock_get_version.return_value = "0.9.0"
+    def test_returns_the_payload(self, mock_urlopen):
+        mock_urlopen.return_value = _response({"tag_name": "v0.9.5"})
 
-        # Mock GitHub response
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.read.return_value = json.dumps({"tag_name": "v0.9.5"}).encode()
-        mock_response.__enter__.return_value = mock_response
-        mock_urlopen.return_value = mock_response
+        self.assertEqual(fetch_latest_release(), {"tag_name": "v0.9.5"})
 
-        new_ver = check_for_updates()
-        self.assertEqual(new_ver, "0.9.5")
-
-    @patch("negpy.kernel.system.version.get_app_version")
     @patch("urllib.request.urlopen")
-    def test_check_for_updates_latest(self, mock_urlopen, mock_get_version):
-        mock_get_version.return_value = "0.9.5"
+    def test_a_non_200_reads_as_no_release(self, mock_urlopen):
+        mock_urlopen.return_value = _response({"tag_name": "v0.9.5"}, status=404)
 
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.read.return_value = json.dumps({"tag_name": "v0.9.5"}).encode()
-        mock_response.__enter__.return_value = mock_response
-        mock_urlopen.return_value = mock_response
+        self.assertIsNone(fetch_latest_release())
 
-        new_ver = check_for_updates()
-        self.assertIsNone(new_ver)
-
-    @patch("negpy.kernel.system.version.get_app_version")
     @patch("urllib.request.urlopen")
-    def test_check_for_updates_error(self, mock_urlopen, mock_get_version):
-        mock_get_version.return_value = "0.9.0"
+    def test_a_network_error_reads_as_no_release(self, mock_urlopen):
         mock_urlopen.side_effect = Exception("Network error")
 
-        new_ver = check_for_updates()
-        self.assertIsNone(new_ver)
+        self.assertIsNone(fetch_latest_release())
 
 
 if __name__ == "__main__":

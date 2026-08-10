@@ -89,19 +89,39 @@ class RetouchSidebar(BaseSidebar):
         self.heals_subheader = section_subheader("MANUAL HEAL · 0")
         self.layout.addWidget(self.heals_subheader)
         tools_row = QHBoxLayout()
-        self.pick_dust_btn = self._tool_toggle("fa5s.eye-dropper", "Heal Tool", "Paint over dust to heal it")
+        self.pick_dust_btn = self._tool_toggle(
+            "fa5s.eye-dropper",
+            "Heal Tool",
+            "Paint over dust to heal it. The brush is a search area — only the marks inside it are repaired, clean grain is left alone",
+        )
         self.pick_scratch_btn = self._tool_toggle(
             "fa5s.pen-nib",
             "Scratch Tool",
             "Heal a scratch or hair: click points along it, double-click or Enter to finish, Esc cancels. "
             "Backspace deletes the last entered point; right-click an existing scratch overlay to delete it",
         )
+        self.pick_line_btn = self._tool_toggle(
+            "fa5s.grip-lines",
+            "Transport Line",
+            "Remove a transport scratch: click once on it and the whole line is traced and repaired. "
+            "For the long straight marks the film picks up running through a camera or lab — too faint "
+            "along any single pixel for the brush to find",
+        )
         tools_row.addWidget(self.pick_dust_btn)
         tools_row.addWidget(self.pick_scratch_btn)
+        tools_row.addWidget(self.pick_line_btn)
         self.layout.addLayout(tools_row)
 
         self.manual_size_slider = CompactSlider("Brush Size", 2.0, 16.0, float(conf.manual_dust_size), step=1.0, precision=1, unit=" px")
+        self.manual_size_slider.setToolTip("Diameter of the manual brush, matching the on-screen cursor")
         self.layout.addWidget(self.manual_size_slider)
+
+        self.line_threshold_slider = CompactSlider("Line Sensitivity", 0.05, 0.95, float(conf.scratch_threshold))
+        self.line_threshold_slider.setToolTip(
+            "How readily a scratch is followed. Lower catches fainter lines and repairs a wider band; "
+            "raise it if the line is picking up film either side"
+        )
+        self.layout.addWidget(self.line_threshold_slider)
 
         actions_row = QHBoxLayout()
         self.undo_btn = QPushButton(" Undo Last")
@@ -130,8 +150,12 @@ class RetouchSidebar(BaseSidebar):
         )
         self.pick_dust_btn.toggled.connect(self._on_pick_toggled)
         self.pick_scratch_btn.toggled.connect(self._on_scratch_toggled)
+        self.pick_line_btn.toggled.connect(self._on_line_toggled)
         self.manual_size_slider.valueChanged.connect(
             lambda v: self.update_config_section("retouch", render=False, persist=True, manual_dust_size=int(v))
+        )
+        self.line_threshold_slider.valueChanged.connect(
+            lambda v: self.update_config_section("retouch", readback_metrics=False, scratch_threshold=float(v))
         )
         self.undo_btn.clicked.connect(self.controller.undo_last_retouch)
         self.clear_btn.clicked.connect(self.controller.clear_retouch)
@@ -165,6 +189,12 @@ class RetouchSidebar(BaseSidebar):
         self.controller.set_active_tool(ToolMode.SCRATCH_PICK if checked else ToolMode.NONE)
         self.manual_size_slider.setVisible(checked or self.pick_dust_btn.isChecked())
 
+    def _on_line_toggled(self, checked: bool) -> None:
+        # Sensitivity stands in for brush size here: the band is grown from the scratch, so
+        # what the user tunes is how readily it is followed, not how wide to paint.
+        self.controller.set_active_tool(ToolMode.SCRATCH_LINE if checked else ToolMode.NONE)
+        self.line_threshold_slider.setVisible(checked)
+
     def _set_ir_controls_enabled(self, enabled: bool) -> None:
         for w, tip in self._ir_tooltips.items():
             w.setEnabled(enabled)
@@ -180,9 +210,12 @@ class RetouchSidebar(BaseSidebar):
             self.manual_size_slider.setValue(float(conf.manual_dust_size))
             self.pick_dust_btn.setChecked(self.state.active_tool == ToolMode.DUST_PICK)
             self.pick_scratch_btn.setChecked(self.state.active_tool == ToolMode.SCRATCH_PICK)
+            self.pick_line_btn.setChecked(self.state.active_tool == ToolMode.SCRATCH_LINE)
             self.manual_size_slider.setVisible(self.state.active_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK))
+            self.line_threshold_slider.setValue(float(conf.scratch_threshold))
+            self.line_threshold_slider.setVisible(self.state.active_tool == ToolMode.SCRATCH_LINE)
 
-            num_heals = len(conf.manual_dust_spots) + len(conf.manual_heal_strokes)
+            num_heals = len(conf.manual_dust_spots) + len(conf.manual_heal_strokes) + len(conf.scratch_lines)
             self.heals_subheader.setText(f"MANUAL HEAL · {num_heals}")
 
             has_heals = num_heals > 0
@@ -211,6 +244,8 @@ class RetouchSidebar(BaseSidebar):
             self.manual_size_slider,
             self.pick_dust_btn,
             self.pick_scratch_btn,
+            self.pick_line_btn,
+            self.line_threshold_slider,
             self.ir_dust_btn,
             self.ir_threshold_slider,
             self.ir_method_combo,

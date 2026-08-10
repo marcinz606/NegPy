@@ -396,6 +396,32 @@ class ToneSidebar(BaseSidebar):
             self.paper_combo.setCurrentIndex(paper_idx if paper_idx >= 0 else 0)
             self.paper_combo.setVisible(mode != ProcessMode.E6)
 
+            # Transparency transfer (E-6, Normalize off): the render starts from the
+            # capture instead of printing it, so the paper model and the automatic
+            # grading that decides a look have nothing to act on. Density/Grade/Toe/
+            # Shoulder stay — they drive the transfer curve (see features/exposure/transfer.py).
+            from negpy.features.exposure.transfer import is_transparency_transfer
+
+            transfer = is_transparency_transfer(mode, self.state.config.process.e6_normalize, conf.render_intent)
+            # Shadows/Highlights Density stay live on the transfer path — the curve
+            # implements Zone Density with the print's own weights, and they are the only
+            # controls there that open shadows without moving the whole scale. Split
+            # Grade does not: it rotates contrast about the same centres, which the
+            # transfer curve has no per-zone slope to rotate.
+            for w in (
+                self.auto_density_btn,
+                self.auto_grade_btn,
+                self.paper_dmin_btn,
+                self.paper_black_btn,
+                self.midtone_gamma_slider,
+                self.shadow_grade_slider,
+                self.highlight_grade_slider,
+                self.dye_separation_slider,
+                self.dye_separation_trim_slider,
+                self.separation_damping_slider,
+            ):
+                w.setVisible(not transfer)
+
             # Per-layer trims are meaningless on a single-emulsion B&W paper.
             is_bw = mode == ProcessMode.BW
             if is_bw and self._channel_index() != 0:
@@ -412,9 +438,9 @@ class ToneSidebar(BaseSidebar):
             self.toe_w_trim_slider.setVisible(not global_mode)
             self.sh_w_slider.setVisible(global_mode)
             self.sh_w_trim_slider.setVisible(not global_mode)
-            self.dye_separation_slider.setVisible(global_mode and not is_bw)
-            self.dye_separation_trim_slider.setVisible(not global_mode and not is_bw)
-            self.separation_damping_slider.setVisible(global_mode and not is_bw)
+            self.dye_separation_slider.setVisible(global_mode and not is_bw and not transfer)
+            self.dye_separation_trim_slider.setVisible(not global_mode and not is_bw and not transfer)
+            self.separation_damping_slider.setVisible(global_mode and not is_bw and not transfer)
             self.toe_slider.label.setText("Toe" + suffix)
             self.sh_slider.label.setText("Shoulder" + suffix)
             self.midtone_gamma_slider.label.setText("Snap" + suffix)

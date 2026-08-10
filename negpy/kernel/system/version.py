@@ -2,7 +2,12 @@ import os
 import sys
 import json
 import urllib.request
-from typing import Optional
+from typing import Any, Optional
+
+GITHUB_REPO = "marcinz606/NegPy"
+LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+RELEASES_PAGE = f"https://github.com/{GITHUB_REPO}/releases"
+USER_AGENT = "NegPy-Updater"
 
 
 def get_app_version() -> str:
@@ -32,42 +37,31 @@ def get_app_version() -> str:
         return "unknown"
 
 
-def check_for_updates() -> Optional[str]:
-    """
-    Checks if there is new version available in github and if it is return it's version, else return none.
-    """
-    current_version = get_app_version()
-    if current_version == "unknown":
+def parse_version(v_str: str) -> list[int]:
+    """The numeric parts of a version string, for ordered comparison."""
+    try:
+        return [int(x) for x in v_str.split(".") if x.isdigit()]
+    except Exception:
+        return []
+
+
+def fetch_latest_release(timeout: float = 5.0) -> Optional[dict[str, Any]]:
+    """The GitHub payload for the newest release, or None if it cannot be read."""
+    try:
+        req = urllib.request.Request(LATEST_RELEASE_API, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            if response.status != 200:
+                return None
+            payload = json.loads(response.read().decode())
+    except Exception:
         return None
 
-    url = "https://api.github.com/repos/marcinz606/NegPy/releases/latest"
+    return payload if isinstance(payload, dict) else None
 
-    try:
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": "NegPy-Updater"},
-        )
-        with urllib.request.urlopen(req, timeout=3) as response:
-            if response.status == 200:
-                data = json.loads(response.read().decode())
-                latest_tag = data.get("tag_name", "").lstrip("v")
 
-                if not latest_tag:
-                    return None
-
-                def parse_version(v_str: str) -> list[int]:
-                    try:
-                        return [int(x) for x in v_str.split(".") if x.isdigit()]
-                    except Exception:
-                        return []
-
-                current_parts = parse_version(current_version)
-                latest_parts = parse_version(latest_tag)
-
-                if latest_parts > current_parts:
-                    return str(latest_tag)
-
-    except Exception:
-        pass
-
-    return None
+def is_newer(candidate: str, current: str) -> bool:
+    """True when `candidate` names a release later than `current`."""
+    candidate_parts = parse_version(candidate)
+    if not candidate_parts or current == "unknown":
+        return False
+    return candidate_parts > parse_version(current)

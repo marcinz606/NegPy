@@ -176,7 +176,7 @@ class TestMeasureAnchor(unittest.TestCase):
 class TestAutoTogglesAcrossModes(unittest.TestCase):
     """The toggles must render valid output in C41, B&W and E6 (CPU path)."""
 
-    def _render(self, mode, exposure):
+    def _render(self, mode, exposure, normalize=True):
         from dataclasses import replace
 
         from negpy.domain.models import WorkspaceConfig
@@ -186,11 +186,13 @@ class TestAutoTogglesAcrossModes(unittest.TestCase):
         mode_enum = {"C41": ProcessMode.C41, "BW": ProcessMode.BW, "E6": ProcessMode.E6}[mode]
         settings = replace(
             WorkspaceConfig(),
-            process=replace(ProcessConfig(), process_mode=mode_enum),
+            # E-6 defaults Normalize off, which is the transfer path — pinned on here so
+            # this stays a test of the print path in all three modes.
+            process=replace(ProcessConfig(), process_mode=mode_enum, e6_normalize=normalize),
             exposure=exposure,
         )
         img = np.random.default_rng(7).uniform(0.02, 0.9, (48, 48, 3)).astype(np.float32)
-        return DarkroomEngine().process(img, settings, f"mode_{mode}")
+        return DarkroomEngine().process(img, settings, f"mode_{mode}_{normalize}")
 
     def test_valid_and_active_in_each_mode(self):
         for mode in ("C41", "BW", "E6"):
@@ -201,6 +203,13 @@ class TestAutoTogglesAcrossModes(unittest.TestCase):
             self.assertLessEqual(float(auto.max()), 1.0, mode)
             # The toggles must actually change the render.
             self.assertFalse(np.allclose(base, auto), mode)
+
+    def test_inert_on_the_transparency_transfer(self):
+        """The complement: with Normalize off there is no metered stretch to grade against,
+        so both toggles must be no-ops — which is why the sidebar hides them there."""
+        base = self._render("E6", ExposureConfig(auto_exposure=False, auto_normalize_contrast=False), normalize=False)
+        auto = self._render("E6", ExposureConfig(auto_exposure=True, auto_normalize_contrast=True), normalize=False)
+        self.assertTrue(np.allclose(base, auto))
 
 
 class TestAnchorPivotRoundTrip(unittest.TestCase):

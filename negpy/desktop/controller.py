@@ -75,11 +75,12 @@ from negpy.features.geometry.logic import apply_fine_rotation, detect_closest_as
 from negpy.features.geometry.models import FINE_ROTATION_LIMIT, AutocropMode
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig
+from negpy.features.exposure.transfer import is_transparency_transfer
 from negpy.features.process.models import ProcessConfig, ProcessMode, invalidate_local_bounds, scan_setup_values
 from negpy.services.assets.thumbnails import asset_thumbnail_key
 from negpy.kernel.system.paths import get_resource_path
-from negpy.features.retouch.logic import downsample_ir, fallback_source_offset, select_source_offset
-from negpy.features.retouch.models import HEAL_SIZE_REF, RetouchConfig
+from negpy.features.retouch.logic import downsample_ir, trace_scratch
+from negpy.features.retouch.models import RetouchConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
@@ -1416,7 +1417,16 @@ class AppController(QObject):
                 self.session.asset_model.refresh()
                 return
 
-    def _on_preview_loaded(self, file_path: str, raw: Any, dims: Any, source_cs: str, ir_preview: Any, detected_mode: str) -> None:
+    def _on_preview_loaded(
+        self,
+        file_path: str,
+        raw: Any,
+        dims: Any,
+        source_cs: str,
+        ir_preview: Any,
+        detected_mode: str,
+        cam_matrix: Any = None,
+    ) -> None:
         for f in self.state.uploaded_files:
             if f["path"] == file_path and f.pop("decode_failed", None) is not None:
                 self.session.asset_model.refresh()
@@ -1431,6 +1441,7 @@ class AppController(QObject):
         if ir_preview is not None:
             ir_preview, _ = self._split_active_half(ir_preview, None)
         self.state.preview_raw = raw
+        self.state.preview_cam_xyz, self.state.preview_camera_wb = cam_matrix or (None, None)
         self.state.preview_proxy = _interactive_proxy(raw)
         self.state.preview_ir = ir_preview
         self.state.preview_ir_proxy = _interactive_ir_proxy(ir_preview, self.state.preview_proxy)
@@ -1518,6 +1529,8 @@ class AppController(QObject):
             self._handle_wb_pick(nx, ny)
         elif self.state.active_tool == ToolMode.DUST_PICK:
             self._handle_dust_pick(nx, ny)
+        elif self.state.active_tool == ToolMode.SCRATCH_LINE:
+            self._handle_scratch_line_pick(nx, ny)
         elif self.state.active_tool == ToolMode.ZONE_PLACE:
             self._handle_zone_pin(nx, ny)
 
@@ -1885,6 +1898,8 @@ class AppController(QObject):
                 grid=grid,
                 gpu_enabled=self.state.gpu_enabled,
                 ir_buffer=self.state.preview_ir,
+                cam_xyz=self.state.preview_cam_xyz,
+                camera_wb=self.state.preview_camera_wb,
             )
         )
 
@@ -2333,7 +2348,7 @@ class AppController(QObject):
         from negpy.desktop.view.confirm import confirm_clear_heals
 
         conf = self.state.config.retouch
-        count = len(conf.manual_dust_spots) + len(conf.manual_heal_strokes)
+        count = len(conf.manual_dust_spots) + len(conf.manual_heal_strokes) + len(conf.scratch_lines)
         if count == 0:
             return
         # Wiping every heal is not step-recoverable like single-heal undo — confirm.
@@ -2342,7 +2357,7 @@ class AppController(QObject):
         self.session.update_config(
             replace(
                 self.state.config,
-                retouch=replace(self.state.config.retouch, manual_dust_spots=[], manual_heal_strokes=[]),
+                retouch=replace(self.state.config.retouch, manual_dust_spots=[], manual_heal_strokes=[], scratch_lines=[]),
             ),
             persist=True,
         )
@@ -2353,16 +2368,19 @@ class AppController(QObject):
         user pick off a bad patch directly instead of unwinding newer heals first."""
         strokes = list(self.state.config.retouch.manual_heal_strokes)
         spots = list(self.state.config.retouch.manual_dust_spots)
+        lines = list(self.state.config.retouch.scratch_lines)
         if kind == "stroke" and 0 <= index < len(strokes):
             strokes.pop(index)
         elif kind == "spot" and 0 <= index < len(spots):
             spots.pop(index)
+        elif kind == "line" and 0 <= index < len(lines):
+            lines.pop(index)
         else:
             return
         self.session.update_config(
             replace(
                 self.state.config,
-                retouch=replace(self.state.config.retouch, manual_dust_spots=spots, manual_heal_strokes=strokes),
+                retouch=replace(self.state.config.retouch, manual_dust_spots=spots, manual_heal_strokes=strokes, scratch_lines=lines),
             ),
             persist=True,
         )
@@ -2374,7 +2392,10 @@ class AppController(QObject):
         """
         strokes = list(self.state.config.retouch.manual_heal_strokes)
         spots = list(self.state.config.retouch.manual_dust_spots)
-        if strokes:
+        lines = list(self.state.config.retouch.scratch_lines)
+        if lines:
+            lines.pop()
+        elif strokes:
             strokes.pop()
         elif spots:
             spots.pop()
@@ -2383,7 +2404,7 @@ class AppController(QObject):
         self.session.update_config(
             replace(
                 self.state.config,
-                retouch=replace(self.state.config.retouch, manual_dust_spots=spots, manual_heal_strokes=strokes),
+                retouch=replace(self.state.config.retouch, manual_dust_spots=spots, manual_heal_strokes=strokes, scratch_lines=lines),
             ),
             persist=True,
         )
@@ -2397,6 +2418,32 @@ class AppController(QObject):
         rx, ry = CoordinateMapping.map_click_to_raw(nx, ny, uv_grid)
         self._commit_heal_stroke([(rx, ry)])
 
+    def _handle_scratch_line_pick(self, nx: float, ny: float) -> None:
+        """One click near a transport scratch: trace the whole line and commit it.
+
+        Traced on the source-frame preview, so the stored line is in raw coordinates and the
+        render re-measures the scratch at its own resolution. A click that finds nothing says
+        so rather than committing a line that would repair nothing.
+        """
+        with self.state.metrics_lock:
+            uv_grid = self.state.last_metrics.get("uv_grid")
+        preview = self.state.preview_raw
+        if uv_grid is None or preview is None:
+            return
+        rx, ry = CoordinateMapping.map_click_to_raw(nx, ny, uv_grid)
+        line = trace_scratch(preview, rx, ry, self.state.config.retouch.scratch_threshold)
+        if line is None:
+            self.status_message_requested.emit("No scratch found there — click directly on the line", 3000)
+            return
+        self.session.update_config(
+            replace(
+                self.state.config,
+                retouch=replace(self.state.config.retouch, scratch_lines=list(self.state.config.retouch.scratch_lines) + [line]),
+            ),
+            persist=True,
+        )
+        self.request_render()
+
     def handle_heal_stroke_completed(self, viewport_pts: list) -> None:
         """Commits a scratch-tool polyline (viewport-normalized points)."""
         with self.state.metrics_lock:
@@ -2409,20 +2456,11 @@ class AppController(QObject):
     def _commit_heal_stroke(self, raw_pts: list) -> None:
         conf = self.state.config.retouch
         size = float(conf.manual_dust_size)
-        index = len(conf.manual_heal_strokes)
-
-        # Score the clone source on the source-frame preview. Brush size is a
-        # diameter at HEAL_SIZE_REF scale (same convention as the pipeline
-        # radius and the overlay cursor).
-        offset = (0.0, 0.0)
-        preview = self.state.preview_raw
-        if preview is not None:
-            scale = max(preview.shape[:2]) / float(HEAL_SIZE_REF)
-            offset = select_source_offset(preview, raw_pts, 0.5 * size * scale, index)
-        else:
-            offset = fallback_source_offset(index, size, (self.state.original_res[1], self.state.original_res[0]))
-
-        stroke = ([[rx, ry] for rx, ry in raw_pts], size, float(offset[0]), float(offset[1]))
+        # Brush size is a diameter at HEAL_SIZE_REF scale (same convention as the
+        # pipeline radius and the overlay cursor). The trailing zeroes are the retired
+        # clone-source offset: repairs are content-aware now, but the stroke keeps its
+        # four-element shape so stored edits load unchanged.
+        stroke = ([[rx, ry] for rx, ry in raw_pts], size, 0.0, 0.0)
         self.session.update_config(
             replace(
                 self.state.config,
@@ -3157,13 +3195,20 @@ class AppController(QObject):
         profile for the selected export color space. None means no proof (Same as Source)."""
         return self.state.icc_output_path or ColorSpaceRegistry.get_icc_path(self.state.config.export.export_color_space)
 
-    def effective_input_icc(self, process: Optional[ProcessConfig] = None) -> Optional[str]:
+    def effective_input_icc(self, process: Optional[ProcessConfig] = None, render_intent: Optional[str] = None) -> Optional[str]:
         """Source profile for color management: an explicit Input ICC wins; else the
-        bundled RGBScan profile when Narrowband Scan is on; else None."""
+        bundled RGBScan profile when Narrowband Scan is on; else None.
+
+        The transparency transfer suppresses the implicit RGBScan profile: it has already
+        converted the buffer to the working space through the camera matrix, so applying an
+        input characterisation on top of that is a second, competing transform. An explicit
+        Input ICC still wins — that is a deliberate user choice about their own source.
+        """
         p = process if process is not None else self.state.config.process
         if self.state.icc_input_path:
             return self.state.icc_input_path
-        if p.narrowband_scan:
+        intent = render_intent if render_intent is not None else self.state.config.exposure.render_intent
+        if p.narrowband_scan and not is_transparency_transfer(p.process_mode, p.e6_normalize, intent):
             return get_resource_path("icc/RGBScan.icc")
         return None
 
@@ -3201,7 +3246,7 @@ class AppController(QObject):
         """True when the preview should soft-proof: the toggle is on and an input or
         output profile is available, or Narrowband Scan supplies an implicit input
         profile. Off → preview is the edit on the monitor."""
-        if self.state.config.process.narrowband_scan:
+        if self.effective_input_icc() and self.state.config.process.narrowband_scan:
             return True
         return self.state.soft_proof_enabled and bool(self.state.icc_input_path or self.effective_output_icc())
 
@@ -3311,6 +3356,8 @@ class AppController(QObject):
             interactive=interactive,
             # Mirrors should_update_thumb, minus its pending-task check.
             wants_thumbnail=(not interactive and not ephemeral and config_override is None and self.state.config is not self._thumb_config),
+            cam_xyz=self.state.preview_cam_xyz,
+            camera_wb=self.state.preview_camera_wb,
         )
 
         if self._is_rendering:
@@ -3503,7 +3550,7 @@ class AppController(QObject):
         tasks = []
         for preset in presets:
             task_params, export_settings = resolve_preset_export(preset, params)
-            export_settings.icc_input_path = self.effective_input_icc(task_params.process)
+            export_settings.icc_input_path = self.effective_input_icc(task_params.process, task_params.exposure.render_intent)
             tasks.append(
                 ExportTask(
                     file_info=file_info,
@@ -3746,7 +3793,7 @@ class AppController(QObject):
 
             final_export = replace(
                 params.export,
-                icc_input_path=self.effective_input_icc(params.process),
+                icc_input_path=self.effective_input_icc(params.process, params.exposure.render_intent),
                 icc_output_path=icc_output,
             )
 

@@ -37,7 +37,12 @@ class ProcessConfig:
     # cast removal), defaulting to the robust base_color_clip neutral.
     luma_range_clip: float = 0.0
     color_range_clip: float = float(EXPOSURE_CONSTANTS["base_color_clip"])
-    e6_normalize: bool = True
+    # Off by default: Normalize meters a per-frame stretch, which was added to rescue
+    # expired slides and is the wrong opening render for a slide that was exposed
+    # deliberately. A slide's density runs to Dmax but only its top ~1.5 decades carry
+    # picture, so stretching the measured range crushes the picture into the top of the
+    # print curve. Off renders the capture instead; turn it on for faded film.
+    e6_normalize: bool = False
     # Roll-wide baseline applied independently per axis: luma (span) and colour (cast).
     use_luma_average: bool = False
     use_colour_average: bool = False
@@ -67,6 +72,11 @@ class ProcessConfig:
     crosstalk_strength: float = 0.0
     crosstalk_matrix: Optional[tuple] = None
     crosstalk_profile: str = "Generic C41"
+    # Film process the selected crosstalk profile was derived for. Baked at selection so
+    # the render can gate on it without touching the disk (matrices are baked too). A
+    # profile only unmixes film it describes: the dye set differs between C-41 and E-6,
+    # so a mismatch resolves to identity rather than mixing the wrong correction in.
+    crosstalk_process: str = ProcessMode.C41
 
     # Sensor (CFA) crosstalk unmix on the LINEAR capture, before inversion —
     # a per-setup property calibrated from three bare-light R/G/B exposures

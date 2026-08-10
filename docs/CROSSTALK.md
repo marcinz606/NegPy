@@ -6,6 +6,34 @@ own — calibrated for your film *and your scanning setup* — without touching 
 
 ---
 
+## Which film a matrix is for
+
+A matrix describes one dye set, and C-41 and E-6 do not share one. Each profile therefore
+declares its film process:
+
+```toml
+process = "E-6"    # or "C41" (the default when the key is absent)
+```
+
+The dropdown only offers matrices for the film you are processing, and the render gates on
+the same value, so a mismatched profile resolves to identity rather than mixing the wrong
+correction in. Every profile written before this key existed is a colour negative stock,
+which is why the default is `C41`.
+
+No E-6 matrix ships with NegPy today, so on slides the Matrix dropdown starts empty and it
+and the Strength slider are disabled. The editor button stays live: open it, press **+** for
+a new matrix, and it is created for the process you are working in. The editor's **Process**
+control sets that value on any profile you save, so a matrix built for a slide rig is one you
+can then select. (Crosstalk is hidden outright only in B&W, which has one emulsion and so
+nothing to unmix.)
+
+> **Reversal film reads differently.** On a negative the dyes' unwanted absorptions are an
+> error to remove before inversion, so unmixing moves the render *toward* the scene. A
+> transparency **is** the finished image — what you see on a lightbox already includes those
+> absorptions — so unmixing moves it *away* from the slide's own appearance and toward the
+> dye-amount image behind it. On E-6 treat Crosstalk as a colour-separation control, not a
+> fidelity correction, and leave Strength at 0 when the goal is to match the slide.
+
 ## What it does
 
 A color negative's three dye layers are not spectrally pure: the cyan, magenta and

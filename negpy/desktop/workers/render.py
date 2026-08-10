@@ -50,6 +50,10 @@ class RenderTask:
     interactive: bool = False
     # Only the controller knows whether the filmstrip is already current for this config.
     wants_thumbnail: bool = False
+    # Decoder XYZ->camera matrix for this source; only the transparency transfer reads it.
+    cam_xyz: Optional[list] = None
+    # As-shot WB multipliers, needed only when the buffer was decoded without WB.
+    camera_wb: Optional[list] = None
 
 
 @dataclass(frozen=True)
@@ -66,6 +70,10 @@ class TestStripTask:
     grid: tuple
     gpu_enabled: bool = True
     ir_buffer: Optional[np.ndarray] = None
+    # Decoder XYZ->camera matrix for this source; only the transparency transfer reads it.
+    cam_xyz: Optional[list] = None
+    # As-shot WB multipliers, needed only when the buffer was decoded without WB.
+    camera_wb: Optional[list] = None
 
 
 @dataclass(frozen=True)
@@ -216,6 +224,8 @@ class RenderWorker(QObject):
                 readback_metrics=task.readback_metrics,
                 ir_buffer=task.ir_buffer,
                 crop_preview_full=task.crop_preview_full,
+                cam_xyz=task.cam_xyz,
+                camera_wb=task.camera_wb,
             )
 
             # CPU renders have no in-shader histogram; bin the float output here.
@@ -272,6 +282,8 @@ class RenderWorker(QObject):
                     readback_metrics=False,
                     ir_buffer=task.ir_buffer,
                     wants_uv_grid=False,
+                    cam_xyz=task.cam_xyz,
+                    camera_wb=task.camera_wb,
                 )
                 if isinstance(result, GPUTexture):
                     result = result.readback()
@@ -555,8 +567,8 @@ class PreviewLoadWorker(QObject):
     Keeps the UI thread free during slow I/O and demosaicing.
     """
 
-    # (file_path, raw, dims, source_cs, ir_preview, detected_mode)
-    finished = pyqtSignal(str, object, object, str, object, str)
+    # (file_path, raw, dims, source_cs, ir_preview, detected_mode, (cam_xyz, camera_wb))
+    finished = pyqtSignal(str, object, object, str, object, str, object)
     splash = pyqtSignal(str, object, object)  # (file_path, buffer, dims) — first paint
     error = pyqtSignal(str)
     # (file_path, message) — error carries no path, so badge attribution needs this
@@ -614,7 +626,9 @@ class PreviewLoadWorker(QObject):
                     (time.perf_counter() - t0) * 1000,
                     task.file_path,
                 )
-                self.finished.emit(task.file_path, raw, dims, source_cs, ir_preview, detected_mode)
+                self.finished.emit(
+                    task.file_path, raw, dims, source_cs, ir_preview, detected_mode, (metadata.get("cam_xyz"), metadata.get("camera_wb"))
+                )
                 return
             if task.green_path and task.blue_path:
                 # RGB-scan triplet: assemble the frame from the three exposures.
@@ -637,7 +651,9 @@ class PreviewLoadWorker(QObject):
                     (time.perf_counter() - t0) * 1000,
                     task.file_path,
                 )
-                self.finished.emit(task.file_path, raw, dims, source_cs, ir_preview, detected_mode)
+                self.finished.emit(
+                    task.file_path, raw, dims, source_cs, ir_preview, detected_mode, (metadata.get("cam_xyz"), metadata.get("camera_wb"))
+                )
                 return
             if task.use_splash and not task.full_resolution:
                 # Open the file once; get splash + linear in a single pass.
@@ -671,7 +687,9 @@ class PreviewLoadWorker(QObject):
                 (time.perf_counter() - t0) * 1000,
                 task.file_path,
             )
-            self.finished.emit(task.file_path, raw, dims, source_cs, ir_preview, detected_mode)
+            self.finished.emit(
+                task.file_path, raw, dims, source_cs, ir_preview, detected_mode, (metadata.get("cam_xyz"), metadata.get("camera_wb"))
+            )
         except Exception as e:
             logger.exception(f"Asset load failed: {task.file_path}")
             self.error.emit(str(e))

@@ -38,6 +38,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "auto_crop": ShortcutEntry("Shift+A", "Toggle autocrop", "Geometry"),
     "pick_dust": ShortcutEntry("Shift+D", "Toggle heal tool", "Tools"),
     "pick_scratch": ShortcutEntry("Shift+S", "Toggle scratch tool", "Tools"),
+    "pick_scratch_line": ShortcutEntry("Shift+K", "Toggle transport-scratch line tool", "Tools"),
     "local_draw": ShortcutEntry("Shift+B", "Toggle dodge & burn mask draw", "Tools"),
     "local_oval": ShortcutEntry("", "Toggle dodge & burn oval mask draw", "Tools"),
     "local_gradient": ShortcutEntry("", "Toggle dodge & burn card-edge mask draw", "Tools"),
@@ -166,6 +167,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "redo": ShortcutEntry("Ctrl+Y", "Redo", "Actions"),
     "show_shortcuts": ShortcutEntry("?", "Show shortcuts", "Help"),
     "show_analysis_help": ShortcutEntry("", "Analysis panel guide", "Help"),
+    "check_for_updates": ShortcutEntry("", "Check for updates", "Help"),
 }
 
 _CURRENT_BINDINGS: dict[str, str] = {}

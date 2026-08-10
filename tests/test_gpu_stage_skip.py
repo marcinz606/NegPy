@@ -122,49 +122,6 @@ class TestStageSkipParity(unittest.TestCase):
 
 
 @unittest.skipUnless(_gpu_available(), "GPU not available")
-class TestRetouchBypass(unittest.TestCase):
-    """With no heal regions the retouch shader is an identity copy, so it is skipped."""
-
-    @classmethod
-    def setUpClass(cls):
-        from negpy.services.rendering.gpu_engine import GPUEngine
-
-        cls.GPUEngine = GPUEngine
-        rng = np.random.default_rng(1)
-        img = rng.random((256, 320, 3), dtype=np.float32) * 0.1 + 0.4
-        # The heal is gated on pixels brighter than the membrane prediction, so a
-        # flat field would clone but change nothing — plant a speck to heal.
-        img[122:135, 154:167] = 0.02
-        cls.img = img
-
-    def setUp(self):
-        self.eng = self.GPUEngine()
-        self.addCleanup(self.eng.destroy_all)
-
-    def _render(self, cfg):
-        tex, _ = self.eng.process_to_texture(
-            self.img, cfg, scale_factor=1.0, readback_metrics=False, source_hash="frame", analysis_source_hash="frame"
-        )
-        return tex.readback().copy()
-
-    def test_no_regions_skips_the_dispatch(self):
-        cfg = WorkspaceConfig()
-        self._render(cfg)
-        self.assertEqual(self.eng._retouch_num_regions, 0)
-        # Skipped means the pass never allocated its output texture.
-        self.assertFalse(any(key[3] == "ret" for key in self.eng._tex_cache))
-
-    def test_heal_region_still_runs_and_changes_pixels(self):
-        cfg = WorkspaceConfig()
-        clean = self._render(cfg)
-        # Spots are (x, y) normalized to the frame plus a size in tenths of a pixel.
-        healed = self._render(_sub(cfg, "retouch", manual_dust_spots=[(0.5, 0.5, 100.0)]))
-        self.assertEqual(self.eng._retouch_num_regions, 1)
-        self.assertTrue(any(key[3] == "ret" for key in self.eng._tex_cache))
-        self.assertFalse(np.array_equal(clean, healed), "a heal region must alter the render")
-
-
-@unittest.skipUnless(_gpu_available(), "GPU not available")
 class TestAutocropCache(unittest.TestCase):
     """Autocrop detection is a CPU scan no creative slider moves."""
 

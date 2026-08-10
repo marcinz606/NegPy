@@ -28,6 +28,13 @@ class PipelineContext:
     # Only the interactive preview needs the click->raw uv_grid; at export res it
     # costs ~0.5GB of temporaries and is discarded.
     wants_uv_grid: bool = True
+    # The decoder's XYZ->camera matrix (libraw rgb_xyz_matrix), nested lists. Only the
+    # transparency transfer reads it; None means the source carries no camera matrix
+    # (scanner TIFF, JPEG) and is treated as already in the working space.
+    cam_xyz: Optional[list] = None
+    # As-shot WB multipliers, folded into the camera matrix when the buffer was decoded
+    # without white balance (Linear RAW). None when WB was applied at decode.
+    camera_wb: Optional[list] = None
 
 
 class IImageSource(Protocol):

@@ -41,7 +41,7 @@ Both side panels can be narrowed to give the canvas more room. As the controls p
 
 ## 2. Film strip (left panel)
 
-The header shows the NegPy logo and version (and an update link when a new release is out); the chevron at its top-right folds the branding away to give the frames more room, and NegPy remembers that too. Below it: the toolbar, the search box, and then two collapsible sections — **Library** (the folders your scans live in) and **Film Strip** (the frames you have open). Click either heading to fold it away; the one still open takes the whole panel, and a folded one keeps just its heading. NegPy remembers which were open.
+The header shows the NegPy logo and version. When a newer release is out, a green **⬇ Update Available** line appears under it — click it to read what changed and let NegPy install it ([§15](#15-updating-negpy)). The chevron at the header's top-right folds the branding away to give the frames more room, and NegPy remembers that too. Below it: the toolbar, the search box, and then two collapsible sections — **Library** (the folders your scans live in) and **Film Strip** (the frames you have open). Click either heading to fold it away; the one still open takes the whole panel, and a folded one keeps just its heading. NegPy remembers which were open.
 
 ### Your library
 
@@ -218,9 +218,10 @@ Everything here corrects the *capture*, not the look: three different things sit
 
 This block greys out unless **Linear RAW** is on, since profiles are calibrated against neutral white balance and the as-shot gains would misapply the matrix. Your selection is remembered either way. It is also skipped for RGB-triplet assets, which never had the leak. Because it changes what the analysis reads, **re-run Batch Analysis** after changing it.
 
-**Crosstalk** (hidden in B&W), a channel unmix applied to the raw negative densities before inversion. The film's dyes each absorb outside their own band, but they are not the only cause: your light's spectrum and your sensor's colour filters mix the channels too, and in the density domain all three arrive as the same kind of error. So treat the matrix as *your whole scanning setup*, not just the film — a profile that works beautifully on one rig may be wrong on another with the same stock.
+**Crosstalk** (hidden in B&W), a channel unmix applied to the raw densities before inversion. The dropdown only lists matrices for the film you are processing — a C-41 matrix does not describe E-6's dye set — and a mismatched stored profile resolves to no correction rather than the wrong one. The film's dyes each absorb outside their own band, but they are not the only cause: your light's spectrum and your sensor's colour filters mix the channels too, and in the density domain all three arrive as the same kind of error. So treat the matrix as *your whole scanning setup*, not just the film — a profile that works beautifully on one rig may be wrong on another with the same stock.
 
-*   **Matrix**: the profile to apply, grouped in the dropdown by where its numbers came from (measured, tuned on a rig, or from spec sheets). *Generic C41* is the built-in; drop custom `.toml` matrices in `<Documents>/NegPy/crosstalk/` (see [CROSSTALK.md](CROSSTALK.md)). The slider button opens a matrix editor, where a **Type** control records that provenance for your own profiles.
+*   **Matrix**: the profile to apply, grouped in the dropdown by where its numbers came from (measured, tuned on a rig, or from spec sheets). *Generic C41* is the built-in; drop custom `.toml` matrices in `<Documents>/NegPy/crosstalk/` (see [CROSSTALK.md](CROSSTALK.md)). The slider button opens a matrix editor, where a **Type** control records that provenance and a **Process** control says which film the numbers describe — that is what decides where the profile appears and whether it applies, so a matrix you build for slides needs it set to E-6. Anything created with **+** is already set to the process you are working in.
+    When the current film process has no matrices at all, the dropdown and **Strength** are disabled and a hint says so, but the editor button stays live — it is the way to build the first one.
 *   **Strength** (0.0 to 1.0): how much of the unmix to apply, for richer and cleaner colour separation. Because it changes what the analysis reads, **re-run Batch Analysis** after changing it.
 
 > **The bundled film matrices are derived from published spec sheets, not measured** — which is why they are all marked *(approx)*. They describe the film's **dyes alone**, so they are only the whole story where your capture reads each dye cleanly: a **true RGB scan** (a Coolscan-style mono sensor lit one band at a time) or a **calibrated trichrome rig** (see *Trichrome Calibration* above). With a broadband light and a Bayer sensor, the capture adds mixing of its own that a dyes-only matrix does not describe — it may still help, but treat the number as a starting point rather than a correction for your setup.
@@ -261,11 +262,28 @@ Applying it sets the defaults for newly loaded files, updates the open frame, an
 
 *   **Luma Range Clip** (-100 to 100): how aggressively the tonal range (black/white-point span) is set. Neutral already applies a small robust clip. Positive tightens it, which is good for dense or fogged negatives where a few stray pixels would push the bounds to extremes. Negative pushes the bounds *outward* for lifted blacks / unclipped highlights.
 *   **Colour Clip** (-100 to 100): the per-channel colour-balance clip (orange-mask removal), independent of the tonal range. Positive tightens channel balance; negative samples nearer the extremes.
-*   **Global / R / G / B** selector → **White Point** / **Black Point** (-0.25 to 0.25): manual offsets on top of the auto-detected bounds. Positive white point brightens; positive black point lifts blacks. In R/G/B mode these become per-layer trims: per-dye-layer film-base (Dmin) and Dmax corrections, i.e. scanner-style per-channel levels. Hidden in B&W.
+*   **Global / R / G / B** selector → **White Point** / **Black Point** (-0.25 to 0.25): manual offsets on top of the auto-detected bounds. Positive white point brightens; positive black point lifts blacks. In R/G/B mode these become per-layer trims: per-dye-layer film-base (Dmin) and Dmax corrections, i.e. scanner-style per-channel levels. The selector is hidden in B&W, where per-layer trims are meaningless, and on E-6 with Normalize off, where the sliders it scopes are hidden with the rest of the normalization tuning.
 
 **Crosstalk**, **Hue Trim** and the sensor unmix all live in **Calibration** (§4.2) — they correct the capture rather than the negative-to-positive conversion.
 
-**Normalize** (E-6 only): auto-stretches a slide's histogram to fill the dynamic range. Useful for faded/expired slides.
+> **No E-6 matrix ships with NegPy.** On slides the Matrix dropdown therefore starts empty, and it and Strength are disabled until a matrix exists — but the editor button stays live, so you can build your own (press **+**, and it is created for the process you are in). A `.toml` marked `process = "E-6"` dropped into your crosstalk folder works too. Be aware it means something different there: on a negative the dyes' unwanted absorptions are an error to remove before inversion, so unmixing moves the render *toward* the scene, but a transparency **is** the finished image — what you see on a lightbox already includes those absorptions — so unmixing moves it *away* from the slide's own look. On E-6 treat it as a colour-separation control, not a fidelity correction. **Hue Trim** is unaffected by any of this: it corrects the light source, so it applies to slides exactly as it does to negatives.
+
+**Normalize** (E-6 only): the switch between two ways of rendering a slide.
+
+*   **On**: auto-stretches the histogram to fill the dynamic range, metered per frame, and prints it through the paper model like a negative. This is a **rescue tool for faded or expired slides** — that is what it was added for. Where the dyes have lost their range, metering it back per frame is exactly right, and because the stretch is metered, two exposures of the same slide converge on a similar render.
+
+    On a slide that was exposed as intended, expect it to look washed out and desaturated, and that is not a bug in the sense of a miscalculation: a slide's density runs all the way to Dmax but only its top ~1.5 decades carry picture, so a stretch measured across the whole range squeezes the picture into the top of the print curve, where the shoulder compresses tone and colour together. Reach for it when the slide needs rescuing, not as a starting point.
+*   **Off** (default): renders the slide **as captured**. The camera's own colour matrix is applied and the tonal window is fixed to the decoder's white level rather than measured from the frame, so a slide opens looking the way it does in Photoshop, Preview, Affinity or Darktable — and a bracketed set stays a bracket, with each exposure rendering at its own brightness. This is the mode to use when you exposed the slide the way you wanted it and only need to adjust from there.
+
+    With Normalize off the paper simulation has nothing to act on, so the print-specific controls are hidden (paper profile, Paper White/Black, Auto Density, Auto Grade, split grade, Dye Separation) along with the normalization tuning above, which only shapes a *measured* stretch. What stays is a plain transfer curve, neutral at its defaults: **Print Density** (exposure), **ISO-R Grade** (contrast), **Toe** / **Shoulder** and their **Width** sliders (shadow and highlight roll-off), **Shadows Density** / **Highlights Density** (§4.4), the per-layer R/G/B trims, and white balance. Lab, Toning and Finish work as usual.
+
+    Coming from Lightroom's basic panel, the map is: **Exposure** → Print Density (inverted — lower is brighter), **Contrast** → ISO-R Grade (inverted — 180 is softest), **Shadows** → Shadows Density, **Highlights** → Highlights Density, with Toe and Shoulder shaping how each end rolls off. Note the Density sliders take the darkroom sign: *positive adds density*, so negative Shadows Density is what opens the shadows. **Whites** and **Blacks** have no equivalent here — the tonal window is fixed by design, which is what makes the render faithful to the capture.
+
+    A source with no camera matrix (a scanner TIFF, a JPEG) is already in the working space and passes straight through.
+
+    **Linear RAW** and **Narrowband** are hidden here, because neither applies to an as-captured render and both are made inert rather than merely hidden (they are sticky settings, so leaving them live but invisible would be a trap). Linear RAW decodes without the as-shot white balance, which the camera matrix assumes is present — the multipliers are folded back in, so the render is identical either way. Narrowband's bundled input profile is suppressed, since the camera matrix has already reached the working space and a second input characterisation would compete with it. An explicit Input ICC in Export still applies.
+
+    Narrowband capture is not recommended for this mode in any case: reproducing a slide's appearance is a colorimetric problem, and narrowband illumination samples the spectrum at three isolated wavelengths, so the inter-band overlap the eye integrates is never measured (the same reason narrowband scans render oversaturated and hue-rotated). Its real payoffs — defeating the orange mask, clean dye separation ahead of a high-gain inversion — belong to negatives, and a transparency has neither. Both toggles keep working normally for C-41, B&W and E-6 with Normalize on.
 
 <!-- panel:roll -->
 ### 4.4 Roll Analysis: a consistent look across the roll
@@ -336,7 +354,9 @@ Colour timing, like the dichroic filters on an enlarger head. A **Global / Shado
 *   **Reset** (undo-arrow icon): return the selected region's temperature and CMY to neutral.
 *   **Temperature**: a warm↔cool lever driving the region's magenta/yellow pair (cyan stays put, as in a real darkroom).
 *   **Cyan / Magenta / Yellow** (-1 to 1): the three filtration axes, Cyan↔Red, Magenta↔Green and Yellow↔Blue.
-*   **Cast Removal** (0.0 to 1.0): neutralizes the residual colour cast a negative leaves in the print, balancing each layer so greys stay neutral from deep shadows through highlights (C-41). Applied strength scales with how many clean near-neutrals the frame has. Default ~0.5; 0 turns it off.
+*   **Cast Removal** (0.0 to 1.0, **C-41 only**): neutralizes the residual colour cast a negative leaves in the print, balancing each layer so greys stay neutral from deep shadows through highlights. Applied strength scales with how many clean near-neutrals the frame has. Default ~0.5; 0 turns it off.
+
+    Hidden in E-6 and B&W, because the render ignores it there. What it defeats is the **orange mask** — a cast the manufacturer built into the film, not part of the picture. A slide has no mask and its cast *is* the photograph, so solving for a neutral axis would strip out the light you shot in; B&W has one emulsion and no channels to balance. For a slide's colour use **Temperature** and the CMY sliders above, or **Hue Trim** (§4.2) if an unusual scanning light has rotated the hues.
 *   **Ring-around** (target icon, or `Shift+F`): prints the frame as a 5×5 mosaic stepping 2cc at a time out to ±4cc on the magenta and yellow axes, so the direction of a colour cast is visible instead of guessed. Each patch is a real render of the part of the frame it covers; click one to keep its filtration. The ladder is absolute and centred on neutral, so a ring printed off one frame compares to the next. `Escape` or a second press clears it, and any edit drops it. See **Rotating a proof** below.
 
 <!-- panel:tone -->
@@ -359,6 +379,8 @@ The paper's response. A **Global / R / G / B** selector at the top scopes most c
 *   **Print Density** (0.0 to 2.0): overall brightness, simulating enlarger exposure time. Lower = brighter, higher = denser.
 *   **ISO-R Grade** (50 to 180): contrast, as a paper ISO-R value. R110 ≈ classic grade 2; **lower R = harder** (more contrast), higher = softer. In R/G/B mode a **Grade** trim rotates one layer's slope about the midtone.
 *   **Shadows Density** (±0.9 ΔD) / **Highlights Density** (±0.5 ΔD): brighten or darken just the shadow or highlight zone, without reshaping the curve. Bounded by paper black/white so a burn can't exceed the print's limits. The ranges differ because density is logarithmic: the same ΔD reads far smaller near paper black than near paper white.
+
+    These two also work on E-6 with **Normalize off**, on the same tones (the centres are mapped by position on each curve's own scale, not by raw density), and they are the only mid-sparing controls there — Grade and Toe both drag the whole scale with them. On a slide, Shadows Density alone lifted the quarter-tone from 0.15 to 0.23 with the highlights unmoved (0.946 to 0.947); getting a comparable lift out of Grade and Toe together also dragged the midtones and cost the highlights.
 *   **Shadows Grade** / **Highlights Grade** (split grade, ±50 ISO-R): rotate contrast locally in the deep shadows or highlights, the digital equivalent of split-grade printing.
 *   **Dye Separation** (0.5 to 1.5, hidden in B&W): saturation in density space. It pushes the print's three dye densities apart *before* the positive is decoded, in the same matrix the paper's own dye crosstalk uses. So it responds to the paper profile you picked, and it eases off automatically where the curve is already compressed at toe and shoulder, instead of forcing colour into tones that have none left to give. Below 1.0 pulls the dyes together instead, toward neutral. 1.0 = off. (Contrast **Chroma** in the Colour tab, which scales colour evenly after decode.)
 *   **Separation Damping** (0 to 1, hidden in B&W): decides *where* the Dye Separation push lands, rather than adding a push of its own. At 0 every colour gets the same treatment. Turn it up and muted colour keeps the full push while colour that is already saturated gets the opposite, so a hard push puts colour into the tones that had none instead of driving the strongest colours until they flatten into a slab. Below 1.0 separation it mirrors: pastels go grey while the vivid colours survive. **Dead at Dye Separation 1.0**, where the slider greys out, because it has no look of its own. This is not the same as backing Dye Separation off: a lower value takes colour from *everything*, including the tones that had little to start with, where turning damping up takes it only from the colours that already have plenty.
@@ -458,9 +480,9 @@ Colour the print itself rather than the scene: chemical toners that convert the 
 <!-- panel:retouch -->
 ### 8.1 Retouch: dust, hairs, scratches
 
-Spotting, the way it was done with a brush on the finished print. There are three ways to find the marks, by local contrast, by the scanner's IR channel, or by hand, and they stack.
+Spotting, the way it was done with a brush on the finished print. There are three ways to find the marks, by local contrast, by the scanner's IR channel, or by hand, and they stack. However a mark is found, it is repaired the same way: the film under it is rebuilt from the clean film around it, with the frame's own grain transplanted back, and anything too wide for that goes to a fill that follows the structure through.
 
-An **Overlay** button cycles the detection overlay (Off → Marked → IR) so you can see what's being caught.
+An **Overlay** button cycles the detection overlay (Off → Marked → IR) so you can see what's being caught: green for what Optical Removal found, magenta for IR and for defects sent to the structure-following fill.
 
 **Optical Removal** finds specks on the visible scan by local contrast, with no IR needed:
 
@@ -476,10 +498,20 @@ An **Overlay** button cycles the detection overlay (Off → Marked → IR) so yo
 
 **Manual Heal** (header shows the current spot count):
 
-*   **Heal Tool**: click dust spots in the preview to paint them out one at a time.
+The brush marks a *search area*, not a stamp: only the pixels that actually stand out from the film around them are rewritten, so you can paint generously over a speck and the clean grain inside the brush is left exactly as it was. Marks are caught in both directions — dust, which prints light, and scratches, which print dark. If the brush finds nothing wrong, it does nothing.
+
+*   **Heal Tool**: click dust spots in the preview to paint them out one at a time, or drag to paint over a run of them.
 *   **Scratch Tool**: click points along a scratch or hair, double-click/Enter to finish; Esc cancels, Backspace removes the last point. Right-click an overlay to delete it.
-*   **Brush Size** (2 to 16 px): radius of the manual brush (shown while a manual tool is active).
-*   **Undo Last** / **Clear All**: remove the most recent or all manual heals (auto-detected dust is unaffected).
+*   **Transport Line**: for the long straight marks film picks up running through a camera or lab — the ones that cross the whole frame, usually in the same place on every shot of the roll. **Click once anywhere on the scratch** and the whole line is traced and repaired; there is nothing to paint or drag.
+
+    These are the marks the brush is worst at, and not for want of care: spread along its length, a transport scratch is far too faint to pick out from film grain at any single point. The line tool reads the evidence along the whole scratch at once, which is what makes it visible at all. It follows the scratch's own angle (film is rarely square to the sensor), widens the repair to match the scratch, and covers only the stretches where the scratch is actually present, so one that fades in and out is left alone where it fades. If a click finds nothing, it says so rather than touching the frame — click directly on the line.
+
+    Hovering shows a **guide**: the line that would be traced and the band it would repair, before you commit to it. Committed lines stay drawn the same way, so you can see what each one covers; right-click one to delete it.
+
+*   **Line Sensitivity** (0.05 to 0.95, shown while the Transport Line tool is active): how readily a scratch is followed. Lower catches fainter lines and repairs a wider band; raise it if a line starts picking up film either side. It applies to lines already placed as well as new ones, so you can trace first and tune after.
+
+*   **Brush Size** (2 to 16 px): diameter of the manual brush, matching the on-screen cursor (shown while a heal or scratch tool is active).
+*   **Undo Last** / **Clear All**: remove the most recent or all manual heals and traced lines (auto-detected dust is unaffected). Right-click a line to delete just that one.
 
 <!-- panel:finish -->
 ### 8.2 Finishing: vignette, carrier, border
@@ -663,6 +695,28 @@ If NegPy crashes on launch or has rendering glitches, you can force backend sett
 *   **Black/blank preview on Windows** → `backend = "dx12"` or `qt_rhi_backend = "software"`.
 *   **Wayland rendering issues** → `qt_platform = "xcb"` to force X11.
 *   **GPU out-of-memory during export** → `max_texture_size = 4096`.
+
+---
+
+## 15. Updating NegPy
+
+NegPy asks GitHub for the newest release once at startup. If there is one, a green **⬇ Update Available: vX.Y.Z** line appears under the logo in the left panel. Click it to open the update window: the release notes, the download size, and one button.
+
+**Install Update** downloads the build that matches how *this* copy was installed, then closes NegPy, installs it over the old version, and reopens on the new one. You do not download, uninstall or reinstall anything by hand. Nothing is replaced until NegPy has exited, so a failed download or a refused permission prompt leaves your working install exactly as it was.
+
+What happens per platform:
+
+| Install | What NegPy fetches | How it installs |
+|---------|--------------------|-----------------|
+| **Windows** | the `-Setup.exe` installer | Runs it silently over your existing install — Windows asks for administrator approval first, because the app lives in Program Files. Approve it *before* NegPy closes. |
+| **macOS** | the `.dmg` for your chip (Apple silicon or Intel) | Mounts the image and replaces the `NegPy.app` bundle where it currently sits, then reopens it. |
+| **Linux** | the `.AppImage` | Replaces the AppImage file you launched, keeps it executable, and relaunches it. |
+
+Your edits, presets, settings and library are untouched: they live in `Documents/NegPy` and the local database, not in the installation folder.
+
+**When the button says "Open Releases Page" instead**, NegPy cannot swap itself and sends you to GitHub. That is the case when you run from a source checkout, when the release has no build for your platform, or when the app was moved somewhere it no longer matches its installer's layout. The same happens if the folder holding the app is not writable by you (an AppImage in a system directory, or an app bundle in a `/Applications` you do not own) — NegPy says so rather than failing halfway.
+
+You can ask for the check again at any time with the **Check for updates** action (unbound by default — give it a key in the shortcut editor).
 
 ---
 

@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.sidebar.tone import _CH_COLORS, _CH_LABEL, _CH_SUFFIX
-from negpy.desktop.view.styles.templates import EditedDot, field_label
+from negpy.desktop.view.styles.templates import EditedDot, field_label, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
@@ -184,7 +184,19 @@ class ProcessSidebar(BaseSidebar):
         self.normalize_e6_btn.setCheckable(True)
         self.normalize_e6_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary))
         self.normalize_e6_btn.setChecked(conf.e6_normalize)
-        self.normalize_e6_btn.setToolTip("Automatically stretch the histogram to full dynamic range")
+        self.normalize_e6_btn.setToolTip(
+            wrap_tooltip(
+                "Normalize: stretch the histogram to the full dynamic range, metered per frame, "
+                "and print it through the paper model. This is a rescue tool for <b>faded or "
+                "expired slides</b>, where the dyes have lost their range and a per-frame stretch "
+                "puts it back. On a slide that was exposed as intended it stretches a range that is "
+                "mostly not picture, which reads washed out.<br><br>"
+                "Off (the default) renders the slide as the capture — the camera's own colour matrix "
+                "and a fixed exposure window — so it opens looking like it does in any raw converter, "
+                "and a bracketed set stays a bracketed set. Print controls give way to a plain "
+                "transfer curve (Density, Grade, Toe, Shoulder)."
+            )
+        )
         self.layout.addWidget(self.normalize_e6_btn)
 
         self.layout.addStretch()
@@ -324,12 +336,20 @@ class ProcessSidebar(BaseSidebar):
             self.luma_range_clip_slider.setValue(_luma_range_value_to_slider(conf.luma_range_clip))
             self.color_range_clip_slider.setValue(_color_value_to_slider(conf.color_range_clip))
 
-            # Per-layer WP/BP trims are meaningless on single-emulsion B&W.
+            # Transparency transfer: the stretch is a fixed window anchored to the decoder's
+            # white level, so nothing that tunes a measured stretch has anything to act on.
+            from negpy.features.exposure.transfer import is_transparency_transfer
+
+            transfer = is_transparency_transfer(conf.process_mode, conf.e6_normalize)
+
+            # Per-layer WP/BP trims are meaningless on single-emulsion B&W, and the
+            # selector goes with the sliders it scopes when those are hidden below.
             is_bw_sel = conf.process_mode == ProcessMode.BW
-            if is_bw_sel and self._channel_index() != 0:
+            hide_channels = is_bw_sel or transfer
+            if hide_channels and self._channel_index() != 0:
                 self.ch_global_btn.setChecked(True)
             for w in (self.ch_global_btn, self.ch_r_btn, self.ch_g_btn, self.ch_b_btn):
-                w.setVisible(not is_bw_sel)
+                w.setVisible(not hide_channels)
 
             idx = self._channel_index()
             suffix = _CH_LABEL[idx]
@@ -358,6 +378,24 @@ class ProcessSidebar(BaseSidebar):
             self.analysis_region_btn.setChecked(self.state.active_tool == ToolMode.ANALYSIS_DRAW)
             self.analysis_region_btn.edited_dot.set_active(has_region)
             self.clear_analysis_region_btn.setEnabled(has_region)
+
+            for w in (
+                self.analysis_buffer_slider,
+                self.analysis_region_btn,
+                self.clear_analysis_region_btn,
+                self.luma_range_clip_slider,
+                self.color_range_clip_slider,
+                self.lock_bounds_btn,
+                self.white_point_slider,
+                self.black_point_slider,
+                # Both are inert here rather than merely inapplicable: Linear RAW is folded
+                # back out via the camera matrix, and the Narrowband input profile is
+                # suppressed. Hiding a *live* sticky setting would strand the user.
+                self.linear_raw_btn,
+                self.narrowband_scan_btn,
+                self.scan_setup_btn,
+            ):
+                w.setVisible(not transfer)
 
             locked = conf.lock_bounds
             # Each clip slider is disabled when its axis rides the roll baseline; the

@@ -88,7 +88,7 @@ def test_overlay_stays_centred_on_its_parent(overlay, host):
 
 @pytest.fixture
 def controller(tmp_path, monkeypatch):
-    monkeypatch.setattr("negpy.desktop.view.sidebar.session_panel.check_for_updates", lambda: None)
+    monkeypatch.setattr("negpy.desktop.view.widgets.update_dialog.find_update", lambda *a, **k: None)
     repo = StorageRepository(str(tmp_path / "edits.db"), str(tmp_path / "settings.db"))
     repo.initialize()
     ctrl = MagicMock()

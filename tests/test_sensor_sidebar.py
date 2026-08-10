@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import QApplication
 from negpy.desktop.view.sidebar.sensor import SensorSidebar
 from negpy.domain.models import WorkspaceConfig
 from negpy.kernel.system.config import APP_CONFIG
+from negpy.services.assets.crosstalk import CrosstalkProfiles
 from negpy.services.assets.sensor import SensorProfiles
 
 if not QApplication.instance():
@@ -71,6 +72,57 @@ def test_hint_shows_even_without_a_baked_profile():
     # Otherwise the controls would be greyed with nothing explaining why.
     w = _sidebar(linear_raw=False, profile=SensorProfiles.NONE_NAME, sensor_matrix=None)
     assert not w.linear_raw_hint.isHidden()
+
+
+def _empty_crosstalk_gallery(tmp_path, monkeypatch):
+    """No bundled matrices at all, so 'this process has none' is the fixture, not the repo."""
+    monkeypatch.setattr(APP_CONFIG, "crosstalk_dir", str(tmp_path / "ct"))
+    monkeypatch.setattr("negpy.services.assets.crosstalk.get_resource_path", lambda _: str(tmp_path / "_none"))
+
+
+def test_crosstalk_stays_reachable_with_no_matrices_for_the_process(tmp_path, monkeypatch):
+    """The editor is the only way to build one, so hiding the section would leave no route in.
+    The empty dropdown and its Strength slider are disabled instead."""
+    _empty_crosstalk_gallery(tmp_path, monkeypatch)
+    w = _sidebar()
+    cfg = w.state.config
+    w.state.config = replace(cfg, process=replace(cfg.process, process_mode="E-6"))
+    w.sync_ui()
+
+    assert not w.crosstalk_header.isHidden()
+    assert not w.manage_crosstalk_btn.isHidden()
+    assert w.manage_crosstalk_btn.isEnabled()
+    assert not w.crosstalk_combo.isEnabled()
+    assert not w.crosstalk_strength_slider.isEnabled()
+    assert not w.crosstalk_hint.isHidden()
+
+
+def test_crosstalk_controls_go_live_once_a_matrix_exists(tmp_path, monkeypatch):
+    _empty_crosstalk_gallery(tmp_path, monkeypatch)
+    CrosstalkProfiles.save("My Slide Rig", [1.0, -0.05, 0.0, 0.0, 1.0, 0.0, 0.0, -0.05, 1.0], process="E-6")
+
+    w = _sidebar()
+    cfg = w.state.config
+    w.state.config = replace(cfg, process=replace(cfg.process, process_mode="E-6"))
+    w.sync_ui()
+
+    assert w.crosstalk_combo.isEnabled()
+    assert w.crosstalk_strength_slider.isEnabled()
+    assert w.crosstalk_hint.isHidden()
+    assert "My Slide Rig" in w._crosstalk_names()
+
+
+def test_crosstalk_hidden_on_bw(tmp_path, monkeypatch):
+    """One emulsion, nothing to unmix — no editor route needed either."""
+    _empty_crosstalk_gallery(tmp_path, monkeypatch)
+    w = _sidebar()
+    cfg = w.state.config
+    w.state.config = replace(cfg, process=replace(cfg.process, process_mode="B&W"))
+    w.sync_ui()
+
+    for widget in (w.crosstalk_header, w.crosstalk_combo, w.manage_crosstalk_btn, w.crosstalk_strength_slider):
+        assert widget.isHidden()
+    assert w.crosstalk_hint.isHidden()
 
 
 def test_gate_is_display_only_and_survives_a_round_trip(monkeypatch):
