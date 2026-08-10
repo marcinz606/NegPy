@@ -297,6 +297,13 @@ This is not a pipeline stage. Every repair is baked into the **linear source bef
 
     Sparse defects — painted strokes and detected specks alike — are repaired in a padded crop each, rather than filtering the whole frame to rebuild a dozen pixels. The support ladder still comes from the whole frame, so a crop repairs exactly as the full buffer would.
 
+*   **Transport scratches (the line tool)**:
+    The mark a roll picks up rubbing against one point of a transport path: nearly straight, a few px wide, running the length of the film. It is a different detection problem from every defect above, because spread along its length it is *far too faint to see at any one pixel* — measured on a real scan, a 10% scratch reads $1.3\sigma$ per pixel against a manual-heal seed bar of 8, and only $15.8\sigma$ once the evidence along the line is integrated (gain $\times$6–14 over the range 4–30%). That is why a brush is unreliable on these and a line tool is not.
+
+    A click gives a starting point; the rest is measured. The frame is band-passed *across* the scratch (film grain is finer, image structure broader) and normalized by a **local** noise scale — a global one lets one busy corner set the bar and buries a faint scratch running through smooth sky. The line's own **slope** is then fitted rather than assumed: film is rarely square to the sensor, and over a 5000 px frame even $0.4°$ drifts 35 px, which would smear the ridge across dozens of rows and lose exactly the integration this depends on. The fit is pulled toward the click, or it snaps to whatever ridge is strongest nearby instead of the one under the cursor.
+
+    **Extent is measured, not assumed.** A transport scratch fades in and out, so the stretch actually repaired is where the ridge is present over a run of the line; elsewhere the frame is untouched. The result is a mask at the scratch's own width, which takes the same skirt pad and the same shared fill as everything else, with the original-floor rule off (a scratch may need darkening). Auto-detection is deliberately *not* offered: on a real frame the strongest full-length ridge was a horizon, not a scratch, and separating the two reliably needs cross-frame recurrence — a roll-wide pass this per-frame tool does not do.
+
 *   **Resolution Independence**:
     Retouching coordinates and sizes are scaled relative to the full-resolution RAW data, so edits made on the preview land in the same place in the high-resolution export. Strokes are stored in raw-frame coordinates and the repair runs before geometry, so rotations, flips and distortion correction need no mapping at all.
 

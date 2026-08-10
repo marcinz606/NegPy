@@ -1148,7 +1148,7 @@ class CanvasOverlay(QWidget):
     def _draw_placed_heals(self, painter: QPainter) -> None:
         """Thin outlines of committed heals (strokes + legacy spots) while a retouch tool is active."""
         conf = self.state.config.retouch
-        if not (conf.manual_heal_strokes or conf.manual_dust_spots):
+        if not (conf.manual_heal_strokes or conf.manual_dust_spots or conf.scratch_lines):
             return
         with self.state.metrics_lock:
             uv_grid = self.state.last_metrics.get("uv_grid")
@@ -1182,6 +1182,10 @@ class CanvasOverlay(QWidget):
             center = self._raw_to_screen(rx, ry, uv_grid)
             radius = max(2.0, self._brush_screen_radius(size))
             painter.drawEllipse(center, radius, radius)
+
+        # Traced transport scratches: the line is the whole extent it repairs.
+        for nx0, ny0, nx1, ny1, _width in conf.scratch_lines:
+            painter.drawLine(self._raw_to_screen(nx0, ny0, uv_grid), self._raw_to_screen(nx1, ny1, uv_grid))
 
     def _draw_dust_overlay(self, painter: QPainter) -> None:
         """Display-only visualization of the auto/IR dust-detection set. Modes:
@@ -2374,7 +2378,7 @@ class CanvasOverlay(QWidget):
         (plus a small slop so thin strokes stay clickable).
         """
         conf = self.state.config.retouch
-        if not (conf.manual_heal_strokes or conf.manual_dust_spots):
+        if not (conf.manual_heal_strokes or conf.manual_dust_spots or conf.scratch_lines):
             return None
         with self.state.metrics_lock:
             uv_grid = self.state.last_metrics.get("uv_grid")
@@ -2397,6 +2401,13 @@ class CanvasOverlay(QWidget):
             d = math.hypot(pos.x() - center.x(), pos.y() - center.y())
             if d <= radius and d < best_dist:
                 best = ("spot", i)
+                best_dist = d
+        for i, (nx0, ny0, nx1, ny1, _width) in enumerate(conf.scratch_lines):
+            a = self._raw_to_screen(nx0, ny0, uv_grid)
+            b = self._raw_to_screen(nx1, ny1, uv_grid)
+            d = _distance_to_polyline(pos, [a, b])
+            if d <= slop and d < best_dist:
+                best = ("line", i)
                 best_dist = d
         return best
 

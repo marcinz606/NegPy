@@ -38,6 +38,7 @@ from negpy.features.retouch.logic import (
     ir_detect_cutoff,
     ir_detect_target,
     ir_ratio_and_gain,
+    lines_to_score,
     manual_bake_token,
     repair_components,
     route_wide_defects,
@@ -358,18 +359,24 @@ class ImageProcessor:
         return out
 
     def _manual_bake(self, img: np.ndarray, settings: WorkspaceConfig, source_key: str) -> Tuple[np.ndarray, Optional[np.ndarray]]:
-        """Painted heal/scratch strokes repaired into the linear source, by the same fill the
-        IR and luma paths use (mirrors _ir_bake; the GPU re-uploads source each frame, so the
-        bake reaches both engines parity-free). Strokes hold raw-frame coordinates, so this
-        runs before geometry and needs no mapping. Returns the buffer and the mask of defects
-        too wide for the fill, for the caller to inpaint."""
+        """Painted strokes and traced scratch lines repaired into the linear source, by the
+        same fill the IR and luma paths use (mirrors _ir_bake; the GPU re-uploads source each
+        frame, so the bake reaches both engines parity-free). Both hold raw-frame coordinates,
+        so this runs before geometry and needs no mapping. Returns the buffer and the mask of
+        defects too wide for the fill, for the caller to inpaint."""
         ret = settings.retouch
-        if self._is_flat(settings) or not (ret.manual_heal_strokes or ret.manual_dust_spots):
+        lines = getattr(ret, "scratch_lines", [])
+        if self._is_flat(settings) or not (ret.manual_heal_strokes or ret.manual_dust_spots or lines):
             return img, None
         key = (source_key, img.shape)
         if key == self._manual_key and self._manual_value is not None:
             return self._manual_value
-        score = strokes_to_score(img, ret.manual_heal_strokes, ret.manual_dust_spots)
+        # Both are hand-placed repairs on the same buffer, so they share one pass: whichever
+        # calls a pixel more damaged wins, and the fill sees every hole at once.
+        parts = [
+            s for s in (strokes_to_score(img, ret.manual_heal_strokes, ret.manual_dust_spots), lines_to_score(img, lines)) if s is not None
+        ]
+        score = parts[0] if len(parts) == 1 else (np.minimum(*parts) if parts else None)
         if score is None:
             value: Tuple[np.ndarray, Optional[np.ndarray]] = (img, None)
         else:

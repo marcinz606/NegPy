@@ -23,6 +23,11 @@ class RetouchConfig:
     # the clone source. A single-point stroke is a spot. manual_dust_spots is the legacy
     # pre-stroke format.
     manual_heal_strokes: List[Tuple] = field(default_factory=list)
+    # Each line: (nx0, ny0, nx1, ny1, width) — a transport scratch, source-normalized
+    # endpoints plus a width at HEAL_SIZE_REF scale. Traced from one click; the extent it
+    # actually repairs is re-measured from the line's own evidence at render time, so a
+    # dashed scratch stays dashed and clean film under the line is left alone.
+    scratch_lines: List[Tuple] = field(default_factory=list)
     manual_dust_size: int = 6
     ir_dust_remove: bool = False
     # Which reconstruction runs (IR_METHODS). ir_attenuation is the NegPy method's alone —

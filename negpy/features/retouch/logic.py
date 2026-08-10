@@ -50,6 +50,38 @@ _MANUAL_WIN_FACTOR = 3.0
 # to a hard line.
 _MANUAL_RIM_PX = 1.5
 
+# Transport scratches (#788): the roll rubs on one point of the transport path, so the mark
+# runs the length of the film, nearly straight and only a few px wide. That length is the
+# whole point — a scratch this faint is invisible per pixel (measured: 1.3σ at 10% depth,
+# against a seed bar of 8) and only shows once the evidence along it is integrated, which is
+# why the brush cannot do this job and a line tool can. Gain measured at ×6–14.
+#
+# Cross-section band-pass: film grain is finer, image structure broader.
+_SCRATCH_FINE_PX = 1.2
+_SCRATCH_BROAD_PX = 9.0
+# The ridge response is normalized by a *local* noise scale. Global would let one busy corner
+# of the frame set the bar and bury a faint scratch running through smooth sky.
+_SCRATCH_NOISE_WIN = 151
+# Slope search, in rise per unit run. Real scans measure a few tenths of a degree; a scratch
+# is straight but the film is rarely square to the sensor. Over a 5000 px frame even 0.4°
+# drifts 35 px, so an axis-aligned collapse would smear the ridge away entirely.
+_SCRATCH_SLOPE_MAX = 0.02
+_SCRATCH_SLOPE_STEP = 0.00025
+# Rows searched either side of the click, and how hard the fit is pulled back toward it.
+# Without the pull the fit snaps to whatever ridge is strongest in the band — often not the
+# one under the cursor.
+_SCRATCH_SEARCH_ROWS = 30
+_SCRATCH_CLICK_PULL = 12.0
+# Along-line presence: |Z| above this counts as "the scratch is here", and it must hold over
+# this fraction of a window this wide for that stretch to be repaired. Transport scratches
+# fade in and out, so extent is measured rather than assumed to span the frame.
+_SCRATCH_ON_Z = 1.0
+_SCRATCH_RUN_WIN = 151
+_SCRATCH_RUN_FRAC = 0.35
+# A trace this weak is not a scratch — the click found clean film.
+_SCRATCH_MIN_EVIDENCE = 0.25
+_SCRATCH_DEFAULT_WIDTH = 3.0  # px at HEAL_SIZE_REF, the half-width of the repaired band
+
 # Detection follows the buffer it repairs, at most this far under it: the score is upsampled
 # onto that buffer and the fill supports scale with the same factor, so coarse detection writes
 # a fat mask and averages over a wide support. A defect straddling a tonal edge is then rebuilt
@@ -401,10 +433,137 @@ def strokes_to_score(
 def manual_bake_token(retouch) -> str:
     """Config identity of the painted heals, folded into source_hash so a new stroke
     invalidates the render (mirrors ``ir_bake_token``)."""
-    if not (retouch.manual_heal_strokes or retouch.manual_dust_spots):
+    lines = getattr(retouch, "scratch_lines", [])
+    if not (retouch.manual_heal_strokes or retouch.manual_dust_spots or lines):
         return ""
-    payload = repr((retouch.manual_heal_strokes, retouch.manual_dust_spots)).encode()
+    payload = repr((retouch.manual_heal_strokes, retouch.manual_dust_spots, lines)).encode()
     return "|heal" + hashlib.sha1(payload).hexdigest()[:12]
+
+
+def _scratch_ridge(img: ImageBuffer) -> np.ndarray:
+    """Cross-section ridge response of ``img``, in units of the *local* noise.
+
+    Band-passed across the scratch only (film grain is finer, image structure broader), then
+    divided by a local scale of that same response. Local, because a global scale lets one
+    busy corner of the frame set the bar and bury a faint scratch running through smooth sky.
+    """
+    dens = _density(img)
+    fine = cv2.GaussianBlur(dens, (1, 0), sigmaX=0, sigmaY=_SCRATCH_FINE_PX)
+    broad = cv2.GaussianBlur(dens, (1, 0), sigmaX=0, sigmaY=_SCRATCH_BROAD_PX)
+    ridge = fine - broad
+    win = (_SCRATCH_NOISE_WIN, _SCRATCH_NOISE_WIN)
+    # mean|x| is 0.8σ for gaussian noise; the ratio is what the bars above are quoted in.
+    scale = cv2.blur(np.abs(ridge), win) / 0.8
+    return ridge / np.maximum(scale, 1e-6)
+
+
+def _shear_rows(plane: np.ndarray, slope: float, about_x: float, width: int) -> np.ndarray:
+    """``plane`` sheared so a line of gradient ``slope`` through ``about_x`` becomes one row.
+
+    warpAffine applies M forward (source → destination) unless asked otherwise, so the matrix
+    carries -slope: a source point at ``y = row + slope·(x - about_x)`` has to land back on
+    ``row``.
+    """
+    m = np.float32([[1.0, 0.0, 0.0], [-slope, 1.0, slope * about_x]])
+    return cv2.warpAffine(plane, m, (width, plane.shape[0]), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+
+
+def trace_scratch(img: ImageBuffer, nx: float, ny: float) -> Optional[Tuple[float, float, float, float, float]]:
+    """One click near a transport scratch → ``(nx0, ny0, nx1, ny1, width)``, or None.
+
+    Fits the scratch's own slope rather than assuming it runs along an axis: film is rarely
+    square to the sensor, and over a 5000 px frame even 0.4° drifts 35 px, which would smear
+    the ridge across dozens of rows and lose exactly the integration this depends on. The fit
+    is pulled toward the click, or it snaps to whatever ridge is strongest nearby instead of
+    the one under the cursor.
+    """
+    h, w = img.shape[:2]
+    cx, cy = float(nx) * w, float(ny) * h
+    z = _scratch_ridge(img)
+    y0 = max(0, int(cy) - _SCRATCH_SEARCH_ROWS)
+    y1 = min(h, int(cy) + _SCRATCH_SEARCH_ROWS)
+    if y1 - y0 < 3:
+        return None
+    band = np.ascontiguousarray(z[y0:y1])
+    pull = np.exp(-0.5 * ((np.arange(y0, y1) - cy) / _SCRATCH_CLICK_PULL) ** 2)
+
+    best: Optional[Tuple[float, float, int, np.ndarray]] = None
+    for slope in np.arange(-_SCRATCH_SLOPE_MAX, _SCRATCH_SLOPE_MAX + 1e-9, _SCRATCH_SLOPE_STEP):
+        sheared = _shear_rows(band, float(slope), cx, w)
+        strength = np.abs(sheared.mean(axis=1)) * pull
+        k = int(np.argmax(strength))
+        if best is None or strength[k] > best[0]:
+            best = (float(strength[k]), float(slope), k, sheared[k])
+    if best is None or best[0] < _SCRATCH_MIN_EVIDENCE:
+        return None
+    _, slope, k, along = best
+
+    # Extent: a transport scratch fades in and out, so measure where it is actually present
+    # instead of assuming it spans the frame.
+    on = (along * np.sign(along.mean()) > _SCRATCH_ON_Z).astype(np.float32)
+    run = cv2.blur(on.reshape(1, -1), (_SCRATCH_RUN_WIN, 1)).ravel() >= _SCRATCH_RUN_FRAC
+    if not run.any():
+        return None
+    xs = np.flatnonzero(run)
+    x0, x1 = float(xs[0]), float(xs[-1])
+    row = y0 + k
+    return (x0 / w, (row + slope * (x0 - cx)) / h, x1 / w, (row + slope * (x1 - cx)) / h, _SCRATCH_DEFAULT_WIDTH)
+
+
+def lines_to_score(img: ImageBuffer, lines: List[Tuple]) -> Optional[np.ndarray]:
+    """Traced scratch lines → a defect score for the shared repair.
+
+    The line says where to look; presence along it is re-measured here, so the stretches that
+    carry no scratch are left alone and a dashed one stays dashed. Same contract as a painted
+    stroke — the geometry is a search area, the evidence decides.
+    """
+    if not lines:
+        return None
+    h, w = img.shape[:2]
+    z = _scratch_ridge(img)
+    scale = film_scale((h, w))
+    mask = np.zeros((h, w), dtype=np.uint8)
+    touched = False
+
+    for nx0, ny0, nx1, ny1, width in lines:
+        x0, x1 = float(nx0) * w, float(nx1) * w
+        y0, y1 = float(ny0) * h, float(ny1) * h
+        if abs(x1 - x0) < 1.0:
+            continue
+        slope = (y1 - y0) / (x1 - x0)
+        # Half the scratch's own width. The score holds the floor right across it and only
+        # ramps beyond — a band that ramps from its centre leaves the defect's own pixels
+        # carrying real weight in the average meant to replace them.
+        half_px = max(1.0, 0.5 * float(width) * scale)
+        sheared = _shear_rows(z, slope, x0, w)
+        row = int(round(y0))
+        if not 0 <= row < h:
+            continue
+        along = sheared[row]
+        sign = np.sign(along.mean()) or 1.0
+        on = (along * sign > _SCRATCH_ON_Z).astype(np.float32)
+        run = cv2.blur(on.reshape(1, -1), (_SCRATCH_RUN_WIN, 1)).ravel() >= _SCRATCH_RUN_FRAC
+        lo, hi = int(max(0, min(x0, x1))), int(min(w, max(x0, x1)) + 1)
+        keep = np.zeros(w, dtype=bool)
+        keep[lo:hi] = run[lo:hi]
+        if not keep.any():
+            continue
+
+        xs = np.flatnonzero(keep)
+        centres = y0 + slope * (xs - x0)
+        # Only the rows the band can reach — a line is a few px tall, the frame is thousands.
+        r0 = max(0, int(np.floor(centres.min() - half_px)) - 1)
+        r1 = min(h, int(np.ceil(centres.max() + half_px)) + 2)
+        if r1 <= r0:
+            continue
+        rows = np.arange(r0, r1, dtype=np.float32)[:, None]
+        band = np.abs(rows - centres[None, :]) <= half_px
+        # mask[:, xs] is fancy-indexed, so it is a copy — assign back, never write through it.
+        mask[r0:r1, xs] = np.maximum(mask[r0:r1, xs], band.astype(np.uint8))
+        touched = True
+
+    # One ramp for every line, the same skirt allowance the detector's regions get.
+    return _mask_to_score(mask, _DETECT_PAD_PX * scale) if touched and mask.any() else None
 
 
 def ir_detect_target(buffer_long_edge: int, preview_long_edge: int) -> int:

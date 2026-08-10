@@ -502,8 +502,12 @@ The brush marks a *search area*, not a stamp: only the pixels that actually stan
 
 *   **Heal Tool**: click dust spots in the preview to paint them out one at a time, or drag to paint over a run of them.
 *   **Scratch Tool**: click points along a scratch or hair, double-click/Enter to finish; Esc cancels, Backspace removes the last point. Right-click an overlay to delete it.
-*   **Brush Size** (2 to 16 px): diameter of the manual brush, matching the on-screen cursor (shown while a manual tool is active).
-*   **Undo Last** / **Clear All**: remove the most recent or all manual heals (auto-detected dust is unaffected).
+*   **Transport Line**: for the long straight marks film picks up running through a camera or lab — the ones that cross the whole frame, usually in the same place on every shot of the roll. **Click once anywhere on the scratch** and the whole line is traced and repaired; there is nothing to paint or drag.
+
+    These are the marks the brush is worst at, and not for want of care: spread along its length, a transport scratch is far too faint to pick out from film grain at any single point. The line tool reads the evidence along the whole scratch at once, which is what makes it visible at all. It follows the scratch's own angle (film is rarely square to the sensor) and repairs only the stretches where the scratch is actually present, so one that fades in and out is left alone where it fades. If a click finds nothing, it says so rather than touching the frame — click directly on the line.
+
+*   **Brush Size** (2 to 16 px): diameter of the manual brush, matching the on-screen cursor (shown while a heal or scratch tool is active).
+*   **Undo Last** / **Clear All**: remove the most recent or all manual heals and traced lines (auto-detected dust is unaffected). Right-click a line to delete just that one.
 
 <!-- panel:finish -->
 ### 8.2 Finishing: vignette, carrier, border

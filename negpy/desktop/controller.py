@@ -79,7 +79,7 @@ from negpy.features.exposure.transfer import is_transparency_transfer
 from negpy.features.process.models import ProcessConfig, ProcessMode, invalidate_local_bounds, scan_setup_values
 from negpy.services.assets.thumbnails import asset_thumbnail_key
 from negpy.kernel.system.paths import get_resource_path
-from negpy.features.retouch.logic import downsample_ir
+from negpy.features.retouch.logic import downsample_ir, trace_scratch
 from negpy.features.retouch.models import RetouchConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
@@ -1529,6 +1529,8 @@ class AppController(QObject):
             self._handle_wb_pick(nx, ny)
         elif self.state.active_tool == ToolMode.DUST_PICK:
             self._handle_dust_pick(nx, ny)
+        elif self.state.active_tool == ToolMode.SCRATCH_LINE:
+            self._handle_scratch_line_pick(nx, ny)
         elif self.state.active_tool == ToolMode.ZONE_PLACE:
             self._handle_zone_pin(nx, ny)
 
@@ -2346,7 +2348,7 @@ class AppController(QObject):
         from negpy.desktop.view.confirm import confirm_clear_heals
 
         conf = self.state.config.retouch
-        count = len(conf.manual_dust_spots) + len(conf.manual_heal_strokes)
+        count = len(conf.manual_dust_spots) + len(conf.manual_heal_strokes) + len(conf.scratch_lines)
         if count == 0:
             return
         # Wiping every heal is not step-recoverable like single-heal undo — confirm.
@@ -2355,7 +2357,7 @@ class AppController(QObject):
         self.session.update_config(
             replace(
                 self.state.config,
-                retouch=replace(self.state.config.retouch, manual_dust_spots=[], manual_heal_strokes=[]),
+                retouch=replace(self.state.config.retouch, manual_dust_spots=[], manual_heal_strokes=[], scratch_lines=[]),
             ),
             persist=True,
         )
@@ -2366,16 +2368,19 @@ class AppController(QObject):
         user pick off a bad patch directly instead of unwinding newer heals first."""
         strokes = list(self.state.config.retouch.manual_heal_strokes)
         spots = list(self.state.config.retouch.manual_dust_spots)
+        lines = list(self.state.config.retouch.scratch_lines)
         if kind == "stroke" and 0 <= index < len(strokes):
             strokes.pop(index)
         elif kind == "spot" and 0 <= index < len(spots):
             spots.pop(index)
+        elif kind == "line" and 0 <= index < len(lines):
+            lines.pop(index)
         else:
             return
         self.session.update_config(
             replace(
                 self.state.config,
-                retouch=replace(self.state.config.retouch, manual_dust_spots=spots, manual_heal_strokes=strokes),
+                retouch=replace(self.state.config.retouch, manual_dust_spots=spots, manual_heal_strokes=strokes, scratch_lines=lines),
             ),
             persist=True,
         )
@@ -2387,7 +2392,10 @@ class AppController(QObject):
         """
         strokes = list(self.state.config.retouch.manual_heal_strokes)
         spots = list(self.state.config.retouch.manual_dust_spots)
-        if strokes:
+        lines = list(self.state.config.retouch.scratch_lines)
+        if lines:
+            lines.pop()
+        elif strokes:
             strokes.pop()
         elif spots:
             spots.pop()
@@ -2396,7 +2404,7 @@ class AppController(QObject):
         self.session.update_config(
             replace(
                 self.state.config,
-                retouch=replace(self.state.config.retouch, manual_dust_spots=spots, manual_heal_strokes=strokes),
+                retouch=replace(self.state.config.retouch, manual_dust_spots=spots, manual_heal_strokes=strokes, scratch_lines=lines),
             ),
             persist=True,
         )
@@ -2409,6 +2417,32 @@ class AppController(QObject):
             return
         rx, ry = CoordinateMapping.map_click_to_raw(nx, ny, uv_grid)
         self._commit_heal_stroke([(rx, ry)])
+
+    def _handle_scratch_line_pick(self, nx: float, ny: float) -> None:
+        """One click near a transport scratch: trace the whole line and commit it.
+
+        Traced on the source-frame preview, so the stored line is in raw coordinates and the
+        render re-measures the scratch at its own resolution. A click that finds nothing says
+        so rather than committing a line that would repair nothing.
+        """
+        with self.state.metrics_lock:
+            uv_grid = self.state.last_metrics.get("uv_grid")
+        preview = self.state.preview_raw
+        if uv_grid is None or preview is None:
+            return
+        rx, ry = CoordinateMapping.map_click_to_raw(nx, ny, uv_grid)
+        line = trace_scratch(preview, rx, ry)
+        if line is None:
+            self.status_message_requested.emit("No scratch found there — click directly on the line", 3000)
+            return
+        self.session.update_config(
+            replace(
+                self.state.config,
+                retouch=replace(self.state.config.retouch, scratch_lines=list(self.state.config.retouch.scratch_lines) + [line]),
+            ),
+            persist=True,
+        )
+        self.request_render()
 
     def handle_heal_stroke_completed(self, viewport_pts: list) -> None:
         """Commits a scratch-tool polyline (viewport-normalized points)."""
