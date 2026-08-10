@@ -23,7 +23,7 @@ The right-hand tabs are arranged in the order you actually work, which mirrors t
 | **Setup** | cogs | Presets · Calibration · Process · Roll Analysis | Film type, capture-side colour corrections, negative→positive normalization, roll-wide baselines |
 | **Geometry** | crop | Geometry · Flat Field | Crop, straighten, lens/falloff correction |
 | **Exposure** | sun | Filtration · Tone · Dodge & Burn | White balance, print density/contrast/curve/saturation, local burns |
-| **Colour** | palette | Lab · Toning | Chroma, sharpening, effects, split/chemical toning |
+| **Colour** | palette | Lab · Lith · Toning | Chroma, sharpening, effects, lith development, split/chemical toning |
 | **Finish** | brush | Retouch · Finishing | Dust removal, vignette, border, carrier |
 | **Favourites** | star | Your chosen sliders | Quick access to the controls you use most |
 | **History** | clock | Work prints · Edit history | Keep named versions, step back through every change |
@@ -387,7 +387,7 @@ The paper's response. A **Global / R / G / B** selector at the top scopes most c
 
 **Paper Response**, the characteristic-curve shape:
 
-*   **Paper profile**: a bundled darkroom-paper profile (RA4 colour papers in C-41, tonal B&W papers in B&W). Re-shapes the curve as a baseline; Grade/Density/toe/shoulder still trim on top. *Neutral* reproduces the defaults.
+*   **Paper profile**: a bundled darkroom-paper profile (RA4 colour papers in C-41, tonal B&W papers in B&W). Re-shapes the curve as a baseline; Grade/Density/toe/shoulder still trim on top. *Neutral* reproduces the defaults. Each B&W paper also carries its own lith colour path, which the Lith panel picks up: Fomatone liths warm and colourful, while *Neutral* and Ilford Multigrade stay nearly colourless.
 *   **Paper White**: simulate paper base density, so whites print at ~0.93 instead of pure white, like a real print.
 *   **Paper Black**: show the paper's true (slightly milky) Dmax instead of compensating it to pure display black. Off (default) applies black-point compensation so the adapted eye reads black as black.
 *   **Snap** (-0.5 to 0.5): midtone gamma, steepening or flattening the S-curve around the reference tone while paper white/black stay put.
@@ -454,16 +454,30 @@ Mimics what a lab scanner (Frontier/Noritsu) does automatically. Colour controls
 *   **Glow** (0.0 to 1.0): lens bloom, where bright highlights scatter across all channels for a dreamy softness.
 *   **Halation** (0.0 to 1.0): the red glow of light scattering back through the film base. Highlights only, strongly red-dominant.
 
-<!-- panel:toning -->
-### 7.2 Toning
+<!-- panel:lith -->
+### 7.2 Lith
 
-Colour the print itself rather than the scene: chemical toners that convert the silver (B&W only), and a split tint that works in any mode.
+Lith printing is the darkroom process of massively over-exposing a lith-capable paper, developing it in a very dilute low-sulphite developer, then pulling it out part-way through. B&W only. You get creamy warm highlights and an abrupt drop into hard, sooty blacks, with very little in between.
+
+There is no colour control here. The paper chosen in the Exposure panel sets the whole path, from peach highlights through an olive transition to neutral blacks. *Neutral* and the Ilford papers lith almost colourlessly; Fomatone is the one that gives you the peach and the olive.
+
+*   **Lith Printing**: turn the process on. While it is on, Sepia, Iron Blue, Copper and Vanadium grey out in the Toning panel, since they do nothing distinctive on a lith print. Selenium and Gold stay live, and behave differently here (see 7.3).
+*   **Exposure** (0 to 5 stops, default 2): print over-exposure. Real lith printing runs on two to four stops more light than a normal print. More light means warmer, more colourful highlights and softer gradation.
+*   **Snatch Point** (0.0 to 1.0, default 0.55): how long the print stays in the developer before you pull it. Higher drops the point where the shadows go black further up the tonal scale: deeper, colder blacks and a wider band of undifferentiated shadow. Lower keeps the print high-key and warm, with weak blacks.
+*   **Abruptness** (0.0 to 1.0, default 0.6): how suddenly the shadows go black. High turns the transition into a step, so the next zone down blocks up with no separation left in it. Low leaves a gentle roll into the blacks. In the darkroom this is the hydroquinone-to-alkali ratio of the developer.
+
+---
+
+<!-- panel:toning -->
+### 7.3 Toning
+
+Colour the print itself rather than the scene: chemical toners that convert the silver (B&W only), and a split tint that works in any mode. Lith silver is much finer than normal print silver, so the toners bite harder and differently on a lith print. With Lith on, only Selenium and Gold stay enabled.
 
 **Chemical Toning** (B&W only), simulated as sequential toner baths, in the order shown, each strength 0.0 to 2.0:
 
-*   **Selenium**: deeper blacks, cool eggplant shadows.
+*   **Selenium**: deeper blacks, cool eggplant shadows. On a lith print it reaches much further down the scale, lifts Dmax hard and turns the green-black shadows magenta.
 *   **Sepia**: warm highlights first (partial strength gives split-sepia).
-*   **Gold**: cool blue-black on untoned silver; over sepia, shifts highlights orange-red.
+*   **Gold**: cool blue-black on untoned silver; over sepia, shifts highlights orange-red. On a lith print it works on every density evenly instead of the highlights first, and pushes the print towards blue-violet.
 *   **Iron Blue**: Prussian-blue shadows deepening to navy blacks.
 *   **Copper**: pink to brick-red shift, with the classic Dmax loss.
 *   **Vanadium**: greens the mids/highlights while deep shadows keep their black.

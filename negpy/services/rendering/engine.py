@@ -15,6 +15,8 @@ from negpy.features.exposure.processor import (
     PhotometricProcessor,
 )
 from negpy.features.process.hue import apply_hue_trim
+from negpy.features.exposure.papers import effective_paper_profile
+from negpy.features.lith.processor import LithProcessor
 from negpy.features.toning.processor import ToningProcessor
 from negpy.features.lab.logic import apply_clahe
 from negpy.features.lab.processor import PhotoLabProcessor
@@ -195,7 +197,10 @@ class DarkroomEngine:
 
             current_img, pipeline_changed = self._run_stage(current_img, settings.lab, "lab", run_lab, context, pipeline_changed)
 
-            current_img = ToningProcessor(settings.toning).process(current_img, context)
+            lith_paper = effective_paper_profile(settings.exposure.paper_profile, settings.process.process_mode)
+            current_img = LithProcessor(settings.lith, lith_paper).process(current_img, context)
+
+            current_img = ToningProcessor(settings.toning, settings.lith.lith_enabled).process(current_img, context)
 
         if not context.crop_preview_full:
             current_img = CropProcessor(settings.geometry).process(current_img, context)

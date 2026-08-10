@@ -74,6 +74,28 @@ TONING_CONSTANTS: Dict[str, Any] = {
     "van_gain": (1.12, 0.85, 1.03),
 }
 
+# Overrides applied when the print was lith-developed. Lith silver is fine,
+# high-surface-area, small-particle silver, which sits on the steep part of the
+# tone-vs-particle-size curve (Kong & Shore 2007) — the same bath moves it much
+# further than it moves normal filamentary silver. Only selenium and gold are
+# distinctive on lith; sepia, iron blue, copper and vanadium are inert or
+# redundant there and the sidebar disables them.
+LITH_TONING_CONSTANTS: Dict[str, Any] = {
+    # Reaches much further down the scale than on a normal print ("with very
+    # diluted toners the highlights are also reached"), and lifts Dmax hard —
+    # on some lith papers a short bold selenium is the only way to a real black.
+    "sel_d_ref": 1.2,
+    # Near-linear: the toner creeps into the midtones instead of hiding in Dmax.
+    "sel_power": 1.0,
+    # Green highest by a wide margin: the green-black lith shadow goes magenta
+    # (Moersch, 1+5 for 20 s). Mean well above 1 is the Dmax boost.
+    "sel_gain": (1.10, 1.24, 1.12),
+    # "In contrast to selenium toner, which reaches the highlights late, starting
+    # with the shadows, gold toner attacks all densities evenly" — so on lith the
+    # bleach-limited shape is replaced by a flat conversion (see gold_flat).
+    "gold_gain": (1.16, 1.06, 0.96),
+}
+
 
 @parallel_njit(cache=True, fastmath=True)
 def _apply_chemical_toning_jit(
@@ -103,23 +125,30 @@ def _apply_chemical_toning_jit(
     van_d_ref: float,
     van_power: float,
     van_gain: np.ndarray,
+    gold_flat: float,
 ) -> np.ndarray:
     """
     Silver-ledger chemical toning on linear reflectance. All baths compete for
     one metallic-silver reservoir: converted silver is locked to later toners
     (Rudman/Ilford — the archival selenium-then-sepia split, "no silver left"
     exhaustion). Each toner's susceptibility c is a pure function of the
-    ORIGINAL density D0 (grain property); sequence only decides who claims
+    ORIGINAL mean density D0 (grain property); sequence only decides who claims
     silver first via the remaining fraction a: f_i = a·c_i, a -= f_i. Final
-    density is the covering-power mix D_ch = D0·(a + Σ f_i·gain_i). Gold is
+    density is the covering-power mix D_ch = D0_ch·(a + Σ f_i·gain_i), per
+    channel, so a print that already carries colour keeps it. Gold is
     the one lock-out exception: it also plates the sulfide fraction (classic
     gold-over-sepia orange-red), with compounded covering power.
+
+    gold_flat drops gold's bleach-limited density weighting for a flat
+    conversion — how it behaves on a lith print, where it "attacks all densities
+    evenly" instead of starting in the highlights.
     """
     h, w, c = img.shape
     res = np.empty_like(img)
     eps = 1e-6
 
     for y in prange(h):
+        d3 = np.empty(3, dtype=np.float64)
         for x in range(w):
             d0 = 0.0
             for ch in range(3):
@@ -128,7 +157,8 @@ def _apply_chemical_toning_jit(
                     t = eps
                 elif t > 1.0:
                     t = 1.0
-                d0 -= np.log10(t)
+                d3[ch] = -np.log10(t)
+                d0 += d3[ch]
             d0 /= 3.0
 
             # Conversion caps at 1: all the remaining silver is toned
@@ -153,10 +183,13 @@ def _apply_chemical_toning_jit(
 
             c_au = 0.0
             if gold_strength > 0.0:
-                frac = d0 / gold_d_ref
-                if frac > 1.0:
-                    frac = 1.0
-                c_au = gold_strength * (1.0 - frac) ** gold_power
+                if gold_flat > 0.5:
+                    c_au = gold_strength
+                else:
+                    frac = d0 / gold_d_ref
+                    if frac > 1.0:
+                        frac = 1.0
+                    c_au = gold_strength * (1.0 - frac) ** gold_power
                 if c_au > 1.0:
                     c_au = 1.0
 
@@ -204,7 +237,12 @@ def _apply_chemical_toning_jit(
             a -= f_van
 
             for ch in range(3):
-                d = d0 * (
+                # Covering power rides each channel's OWN density, not the mean:
+                # the mean is the silver reservoir (above), but rebuilding the
+                # output from it would throw away any colour the print already
+                # had — which is exactly what a lith print hands this stage.
+                # Identical for a normal grey B&W print, where d3[ch] == d0.
+                d = d3[ch] * (
                     a
                     + f_sel * sel_gain[ch]
                     + f_sep * sep_gain[ch]
@@ -263,10 +301,14 @@ def apply_chemical_toning(
     blue_strength: float = 0.0,
     copper_strength: float = 0.0,
     vanadium_strength: float = 0.0,
+    lith_active: bool = False,
 ) -> ImageBuffer:
     """
     Selenium / sepia / gold / iron-blue / copper / vanadium-green toning of a
     linear-reflectance print (density domain).
+
+    lith_active swaps in LITH_TONING_CONSTANTS for selenium and gold, the two
+    baths that behave differently on lith silver.
     """
     if (
         selenium_strength == 0
@@ -278,7 +320,7 @@ def apply_chemical_toning(
     ):
         return img
 
-    c = TONING_CONSTANTS
+    c = {**TONING_CONSTANTS, **LITH_TONING_CONSTANTS} if lith_active else TONING_CONSTANTS
     return ensure_image(
         _apply_chemical_toning_jit(
             np.ascontiguousarray(img.astype(np.float32)),
@@ -307,5 +349,6 @@ def apply_chemical_toning(
             float(c["van_d_ref"]),
             float(c["van_power"]),
             np.array(c["van_gain"], dtype=np.float32),
+            1.0 if lith_active else 0.0,
         )
     )

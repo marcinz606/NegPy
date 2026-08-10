@@ -559,6 +559,7 @@ class ImageProcessor:
             or t.vanadium_strength != 0.0
             or t.shadow_tint_strength != 0.0
             or t.highlight_tint_strength != 0.0
+            or settings.lith.lith_enabled
         )
         is_bw = settings.process.process_mode == ProcessMode.BW and not is_toned
 

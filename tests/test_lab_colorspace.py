@@ -14,7 +14,7 @@ class TestWorkingSpaceLab(unittest.TestCase):
     """
     CIELAB conversions use the Adobe RGB (1998) working-space primaries (D65) and
     treat the buffer as linear. Mirrors the GPU rgb_to_lab/lab_to_rgb in
-    lab.wgsl / clahe_apply.wgsl / toning.wgsl.
+    lab.wgsl / clahe_apply.wgsl / toning.wgsl / lith.wgsl.
     """
 
     def test_round_trip_identity(self):

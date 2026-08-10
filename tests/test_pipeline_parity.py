@@ -22,6 +22,7 @@ from negpy.features.exposure.models import ExposureConfig
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask
 from negpy.features.retouch.models import RetouchConfig
+from negpy.features.lith.models import LithConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.process.models import ProcessConfig, ProcessMode
@@ -625,6 +626,85 @@ class TestToningParity:
         self._run_and_compare(s)
         diff = np.abs(self._gpu_result(s) - self._gpu_result(self._bw_settings()))
         assert float(diff.max()) > 1e-3
+
+
+class TestLithParity:
+    """CPU vs GPU parity for the lith (infectious development) shader."""
+
+    @classmethod
+    def setup_class(cls):
+        if not _gpu_available():
+            import pytest
+
+            pytest.skip("GPU not available — cannot run parity tests")
+        cls.cpu = DarkroomEngine()
+        cls.gpu = GPUEngine()
+        cls.img = _make_synthetic_image()
+
+    @classmethod
+    def teardown_class(cls):
+        if hasattr(cls, "gpu"):
+            cls.gpu.destroy_all()
+
+    def _settings(self, toning: ToningConfig | None = None, **lith_kwargs) -> WorkspaceConfig:
+        base = _make_base_settings()
+        return replace(
+            base,
+            process=replace(base.process, process_mode=ProcessMode.BW),
+            lith=LithConfig(**lith_kwargs),
+            toning=toning or ToningConfig(),
+        )
+
+    def _run_and_compare(self, settings: WorkspaceConfig) -> None:
+        h, w = self.img.shape[:2]
+        cpu_result = self.cpu.process(self.img, settings, "lith_parity")
+        gpu_tex, _ = self.gpu.process_to_texture(
+            self.img,
+            settings,
+            scale_factor=max(h, w) / 1024.0,
+            apply_layout=False,
+            readback_metrics=False,
+        )
+        gpu_result = self.gpu._readback_downsampled(gpu_tex)
+        assert cpu_result.shape == gpu_result.shape
+        _assert_mostly_close(cpu_result, gpu_result, atol=1.5e-1, rtol=1.5e-1, max_violation_frac=0.01)
+
+    def _gpu_result(self, settings: WorkspaceConfig):
+        h, w = self.img.shape[:2]
+        tex, _ = self.gpu.process_to_texture(
+            self.img,
+            settings,
+            scale_factor=max(h, w) / 1024.0,
+            apply_layout=False,
+            readback_metrics=False,
+        )
+        return self.gpu._readback_downsampled(tex)
+
+    def test_disabled(self):
+        self._run_and_compare(self._settings())
+
+    def test_enabled(self):
+        """The parity tolerance is wider than the stage's footprint, so also
+        assert the uniforms reach the shader at all."""
+        s = self._settings(lith_enabled=True)
+        self._run_and_compare(s)
+        assert float(np.abs(self._gpu_result(s) - self._gpu_result(self._settings())).max()) > 1e-3
+
+    def test_snatch_and_abruptness(self):
+        self._run_and_compare(self._settings(lith_enabled=True, lith_snatch=0.85, lith_abruptness=1.0))
+
+    def test_lith_selenium(self):
+        """Selenium switches to the lith constant set — parity must follow."""
+        s = self._settings(ToningConfig(selenium_strength=0.8), lith_enabled=True)
+        self._run_and_compare(s)
+        plain = self._settings(lith_enabled=True)
+        assert float(np.abs(self._gpu_result(s) - self._gpu_result(plain)).max()) > 1e-3
+
+    def test_lith_gold(self):
+        s = self._settings(ToningConfig(gold_strength=0.8), lith_enabled=True)
+        self._run_and_compare(s)
+        plain = self._settings(lith_enabled=True)
+        assert float(np.abs(self._gpu_result(s) - self._gpu_result(plain)).max()) > 1e-3
 
 
 class TestRetouchParity:

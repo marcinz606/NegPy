@@ -152,6 +152,14 @@ class ToningSidebar(BaseSidebar):
             self.blue_slider.setVisible(is_bw)
             self.copper_slider.setVisible(is_bw)
             self.vanadium_slider.setVisible(is_bw)
+
+            # Only selenium and gold do anything distinctive on a lith print.
+            # Disabled rather than hidden: the values stay live and come back
+            # when lith goes off.
+            # Tooltips stay put — apply_shortcut_tooltips owns some of these.
+            lith_on = is_bw and self.state.config.lith.lith_enabled
+            for w in (self.sepia_slider, self.blue_slider, self.copper_slider, self.vanadium_slider):
+                w.setEnabled(not lith_on)
         finally:
             self.block_signals(False)
 

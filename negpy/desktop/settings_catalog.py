@@ -146,6 +146,12 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("Glow", "lab", "glow_amount"),
         _row("Halation", "lab", "halation_strength"),
     )),
+    ("Lith", (
+        _row("Lith Printing", "lith", "lith_enabled"),
+        _row("Exposure", "lith", "lith_exposure"),
+        _row("Snatch Point", "lith", "lith_snatch"),
+        _row("Abruptness", "lith", "lith_abruptness"),
+    )),
     ("Toning", (
         _row("Selenium", "toning", "selenium_strength"),
         _row("Sepia", "toning", "sepia_strength"),

@@ -2,6 +2,7 @@ import unittest
 import cv2
 import numpy as np
 from negpy.features.toning.logic import (
+    TONING_CONSTANTS,
     apply_chemical_toning,
     apply_split_toning,
 )
@@ -449,3 +450,86 @@ class TestSplitToning(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLithToners:
+    """Selenium and gold swap in LITH_TONING_CONSTANTS on a lith print; the other
+    four baths are unchanged (the sidebar disables them there)."""
+
+    def _ramp(self):
+        ramp = np.linspace(0.001, 1.0, 128, dtype=np.float32)
+        return np.stack([ramp] * 3, axis=-1)[None, :, :]
+
+    def test_default_path_is_bit_identical(self):
+        img = self._ramp()
+        for kw in ({"selenium_strength": 0.7}, {"gold_strength": 0.7}, {"sepia_strength": 0.7, "blue_strength": 0.4}):
+            np.testing.assert_array_equal(
+                apply_chemical_toning(img, **kw),
+                apply_chemical_toning(img, lith_active=False, **kw),
+            )
+
+    def test_selenium_reaches_further_and_lifts_dmax(self):
+        img = self._ramp()
+        plain = apply_chemical_toning(img, selenium_strength=0.7)
+        lith = apply_chemical_toning(img, selenium_strength=0.7, lith_active=True)
+        d_plain = -np.log10(np.clip(plain[0].mean(-1), 1e-6, 1.0))
+        d_lith = -np.log10(np.clip(lith[0].mean(-1), 1e-6, 1.0))
+        assert d_lith.max() > d_plain.max(), "lith selenium raises Dmax"
+        mids = slice(48, 96)
+        assert np.abs(d_lith - d_plain)[mids].mean() > 1e-3, "and reaches the midtones"
+
+    def test_selenium_turns_lith_shadows_magenta(self):
+        img = self._ramp()
+        lith = apply_chemical_toning(img, selenium_strength=1.0, lith_active=True)[0]
+        shadows = lith[:16]
+        # Green density highest -> green channel darkest -> magenta cast.
+        assert shadows[:, 1].mean() < shadows[:, 0].mean()
+        assert shadows[:, 1].mean() < shadows[:, 2].mean()
+
+    def test_gold_converts_every_density_evenly_on_lith(self):
+        """Normally bleach-limited (highlights first); on lith it is flat."""
+        img = self._ramp()
+        base = -np.log10(np.clip(img[0].mean(-1), 1e-6, 1.0))
+        out = apply_chemical_toning(img, gold_strength=0.5, lith_active=True)[0]
+        delta = (-np.log10(np.clip(out.mean(-1), 1e-6, 1.0)) - base) / np.maximum(base, 1e-3)
+        lit = delta[base > 0.2]
+        assert float(lit.std()) < 0.02, "relative density gain should not track density"
+
+    def test_other_toners_are_untouched_by_the_flag(self):
+        img = self._ramp()
+        for kw in ({"sepia_strength": 0.8}, {"blue_strength": 0.8}, {"copper_strength": 0.8}, {"vanadium_strength": 0.8}):
+            np.testing.assert_array_equal(
+                apply_chemical_toning(img, **kw),
+                apply_chemical_toning(img, lith_active=True, **kw),
+            )
+
+
+class TestTonerPreservesPrintColour:
+    """The ledger's reservoir is the MEAN density, but the covering-power mix
+    rides each channel's own density — otherwise a toner would flatten colour the
+    print already carries (a lith print) and replace it with its own."""
+
+    def test_a_toner_keeps_the_prints_existing_warmth(self):
+        grey = np.full((1, 64, 3), 0.5, dtype=np.float32)
+        warm = grey * np.array([1.06, 1.0, 0.9], dtype=np.float32)
+
+        def warmth(img):
+            return float((img[..., 0] - img[..., 2]).mean())
+
+        assert warmth(apply_chemical_toning(warm, selenium_strength=0.05)) > 0.5 * warmth(warm)
+        assert warmth(apply_chemical_toning(warm, gold_strength=0.05)) > 0.5 * warmth(warm)
+        # A strong bath is allowed to dominate; a trace of one is not.
+        assert warmth(apply_chemical_toning(warm, selenium_strength=2.0)) < warmth(warm)
+
+    def test_grey_input_stays_on_the_closed_form(self):
+        """d3[ch] == d0 for a grey print, so the per-channel mix must reproduce
+        the mean-density behaviour exactly (test_single_toner_output_unchanged
+        pins the formula itself)."""
+        ramp = np.linspace(0.001, 1.0, 128, dtype=np.float32)
+        grey = np.stack([ramp] * 3, axis=-1)[None, :, :]
+        d0 = -np.log10(np.clip(ramp.astype(np.float64), 1e-6, 1.0))
+        c = np.minimum(0.7 * np.minimum(d0 / 2.0, 1.0) ** 1.5, 1.0)
+        out = apply_chemical_toning(grey, selenium_strength=0.7)
+        for ch, gain in enumerate(TONING_CONSTANTS["sel_gain"]):
+            expected = np.clip(10.0 ** -(d0 * (1.0 - c + c * gain)), 0.0, 1.0)
+            np.testing.assert_allclose(out[0, :, ch], expected, atol=1e-5)

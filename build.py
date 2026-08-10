@@ -74,6 +74,7 @@ params = [
     "--add-data=negpy/features/geometry/shaders:negpy/features/geometry/shaders",
     "--add-data=negpy/features/toning/shaders:negpy/features/toning/shaders",
     "--add-data=negpy/features/lab/shaders:negpy/features/lab/shaders",
+    "--add-data=negpy/features/lith/shaders:negpy/features/lith/shaders",
     "--add-data=negpy/features/finish/shaders:negpy/features/finish/shaders",
     "--add-data=negpy/desktop/view/styles:negpy/desktop/view/styles",
     "--add-data=icc:icc",

@@ -1604,6 +1604,13 @@ class AppController(QObject):
         self.state.printing_notes = (not self.state.printing_notes) if force is None else bool(force)
         self.printing_notes_changed.emit(self.state.printing_notes)
 
+    def toggle_lith(self, force: Optional[bool] = None) -> None:
+        """Lith development on/off. B&W only — the stage is a no-op in any other mode."""
+        cfg = self.state.config
+        on = (not cfg.lith.lith_enabled) if force is None else bool(force)
+        self.session.update_config(replace(cfg, lith=replace(cfg.lith, lith_enabled=on)), persist=True)
+        self.request_render()
+
     def request_printing_notes_export(self) -> None:
         """Save the marked-up work print as its own file. The annotated pixels live in the
         canvas, so the view answers the signal (the print itself is never touched)."""

@@ -114,7 +114,7 @@ With the helpers off, the conversion shows you your photography: exactly how the
 
 A **paper profile** (`paper_profile`, default *Neutral*) overrides the print *character*, the H&D curve shape, without touching contrast or exposure. Each profile sets the paper's $D_{max}/D_{min}$, toe/shoulder knee sharpness and height, and midtone gamma. Colour papers add a per-channel slope crossover (`channel_gamma`, the dye-layer divergence at the extremes), a paper-base tint (`base_tint_cmy`, an addition to the minimum-density floor that shows in highlights) and a **dye-coupling matrix** (`dye_matrix`, $D_{rgb} = M \cdot D_{dye}$ above base: the dyes' unwanted absorptions, row-normalized at use). Grade still owns contrast and the Density/toe/shoulder sliders still trim on top, and the *Neutral* profile reproduces the defaults exactly.
 
-Profiles are **mode-aware**: C-41 exposes the RA4 colour papers, B&W exposes the tonal-only B&W papers (paper tone is a Toning job, so B&W profiles carry no colour terms), and E-6 gets only *Neutral*. An incompatible stored value collapses to *Neutral* so it can never leak into a render. Bundled papers: **Neutral**; in *B&W*, Ilford Multigrade RC, Ilford Multigrade FB Classic, Foma Fomatone, Foma Fomabrom; in *RA4*, Kodak Endura Premier and Fujicolor Crystal Archive. Values are loosely mapped from datasheets (mainly $D_{max}$ is grounded; the knee/midtone tweaks are light character touches).
+Profiles are **mode-aware**: C-41 exposes the RA4 colour papers, B&W exposes the B&W papers (paper tone is a Toning job under normal development, so B&W profiles carry no RA4 colour terms — but they do carry `lith_path`, which the Lith stage reads), and E-6 gets only *Neutral*. An incompatible stored value collapses to *Neutral* so it can never leak into a render. Bundled papers: **Neutral**; in *B&W*, Ilford Multigrade RC, Ilford Multigrade FB Classic, Foma Fomatone, Foma Fomabrom; in *RA4*, Kodak Endura Premier and Fujicolor Crystal Archive. Values are loosely mapped from datasheets (mainly $D_{max}$ is grounded; the knee/midtone tweaks are light character touches).
 
 ### Dye Separation
 **Code**: `negpy.features.exposure.papers.resolve_saturation_matrix` / `compose_density_matrices`
@@ -372,7 +372,26 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
 
 ---
 
-## 7. Toning
+## 7. Lith
+**Code**: `negpy.features.lith`
+
+Optional alternative development (B&W mode only), sitting between Lab and Toning so the toners act on the lith print rather than the other way round. Off by default; when off the stage is skipped entirely on both engines rather than run as an identity pass.
+
+Lith development has **two phases** (Rudman's "New Rules", Moersch Lessons 1-6), and the model is built directly on them. A long low-gamma highlight branch is fixed by exposure alone; then infectious development fires and carries the shadows to Dmax almost vertically; past that, nothing separates at all (Moersch's "lith-band"). Working on the print density $D_0$ from the exposure stage, with the paper's own $D_{max}$:
+
+$$D_0' = D_0 + 0.301 E, \qquad D_h = f_{max}\left(1 - e^{-f_{rate} (D_0 + 0.301 E v) / f_{max}}\right)$$
+$$D = D_h + (D_{max} - D_h) \cdot \sigma\!\left(\frac{D_0' - K}{w}\right)$$
+
+*   **Exposure** $E$ in stops shifts the image up the exposure axis, which brings the knee forward. The highlight branch only takes a fraction $v$ of that shift (`foot_veil`), because paper white does not fog by a full quarter-stop of density at the practitioner-standard +2.
+*   **Snatch Point** sets the knee density $K = D_{max}(\text{knee\_lo} - \text{knee\_span}\cdot\text{snatch})$ — a development-time proxy. Later snatch drops the knee further up the tonal scale, widening the undifferentiated black band.
+*   **Abruptness** sets the knee width $w$. The name is Moersch's: "an almost abrupt blackening sets in". A hydroquinone-rich, low-sulphite bath (his Solution A end of the A:B ratio) reaches $w \approx 0.03$, where the next shadow zone goes black with no separation at all.
+*   **Colour** has no strength slider; the paper sets it. It is the paper's $(a^{\ast}, b^{\ast})$ path indexed on the *output* density fraction $u = D/D_{max}$ — four anchors at $u = 0.10/0.35/0.65/1.00$: peach, ochre, **olive**, neutral. Keep the olive knot: on a warmtone paper the transition between warm highlights and cold blacks really does go green. Applied in Lab with $L^{\ast}$ from the density itself, so the forward RGB→Lab transform is skipped (the frame is grey at this point). The physics: hue is a steep, non-monotonic function of silver particle size and inter-particle packing, neutral only in a narrow window (Kong & Shore, *J. Imaging Sci. Technol.* 51(3), 2007), and particle size tracks development stage, which tracks density. The path lives on `PaperProfile` (`lith_path`) — the paper is the one chosen in the Exposure panel, never duplicated here.
+
+Not modelled: semiquinone/bromide diffusion halos, pepper fog, snowballs and the other fault modes. Lith grain was built and then removed: the synthesised texture did not read as real grain.
+
+---
+
+## 8. Toning
 **Code**: `negpy.features.toning`
 
 *   **Chemical Toning** (B&W mode only): six bath simulations (**Selenium**, **Sepia**, **Gold**, **Iron Blue**, **Copper**, **Vanadium Green**) modelled as a **silver ledger** in density space (`TONING_CONSTANTS`). The pixel's original mean density $D_0$ is its metallic-silver reservoir. Each toner converts a fraction of it, and converted silver is locked away from later baths (Rudman/Ilford: the archival selenium-then-sepia split, and "no silver left" exhaustion).
@@ -381,7 +400,12 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
         *   *bleach-limited, highlights first*: Sepia, Gold, Vanadium $c = S \cdot (1 - D_0/D_{ref})^{p}$, so the thinnest silver converts first (split-sepia character comes from the exponent).
         Strength $> 1$ reads as a longer bath; conversion caps at 1 (all remaining silver toned).
     *   **The ledger**: the untoned fraction $a$ starts at 1; in bath order (selenium → sepia → gold → blue → copper → vanadium) each toner claims $f_i = a \cdot c_i$, $a \mathrel{-}= f_i$. **Gold is the one lock-out exception**: it also plates the *sulfide* (sepia) fraction, which is the classic gold-over-sepia orange-red shift, with compounded covering power.
-    *   **Covering power**: the final per-channel density is the mix $D_{ch} = D_0 \cdot \left(a + \sum_i f_i \cdot g_{i,ch}\right)$, decoded as $I_{out} = 10^{-D_{ch}}$, where each gain triplet $g_i$ carries the deposit's colour and density change: selenium all $\ge 1$ (the Dmax boost it's used for, eggplant shadow hue), sepia's sulfide lower covering power (lifts and warms), gold slight intensification (cool blue-black), Prussian blue net $> 1$ with G at exactly $1.00$ (what lets the classic sepia+blue *green* split emerge from the mix), copper net $< 1$ (the ferricyanide bleaches while it tones, giving brick red), vanadium R/B absorbed with slight density loss (green print, black blacks).
+    *   **Covering power**: the final density is the mix $D_{ch} = D_{0,ch} \cdot \left(a + \sum_i f_i \cdot g_{i,ch}\right)$, decoded as $I_{out} = 10^{-D_{ch}}$. Each channel uses its *own* input density, not the mean: the mean is the silver reservoir and sets susceptibility, but rebuilding the output from it would flatten away any colour the print already carries, which is what a lith print hands this stage. On a grey B&W print $D_{0,ch} = D_0$ and the two forms agree. Each gain triplet $g_i$ carries the deposit's colour and density change: selenium all $\ge 1$ (the Dmax boost it's used for, eggplant shadow hue), sepia's sulfide lower covering power (lifts and warms), gold slight intensification (cool blue-black), Prussian blue net $> 1$ with G at exactly $1.00$ (what lets the classic sepia+blue *green* split emerge from the mix), copper net $< 1$ (the ferricyanide bleaches while it tones, giving brick red), vanadium R/B absorbed with slight density loss (green print, black blacks).
+
+*   **On a lith print** (`LITH_TONING_CONSTANTS`, selected by the Lith stage being on): lith silver is fine, high-surface-area, small-particle silver sitting on the steep part of the tone-vs-particle-size curve, so the same bath moves it much further than it moves normal filamentary silver. Two baths change shape, and only those two are exposed in the UI while lith is on:
+    *   **Selenium** keeps its silver-proportional shape but drops $D_{ref}$ to $1.2$ and its exponent to $1.0$, so it reaches the midtones instead of hiding in Dmax, and its gain triplet goes strongly green-led — the green-black lith shadow turning magenta (Moersch, 1+5 for 20 s), with a mean well above 1 for the Dmax lift that some lith papers need to reach a real black at all.
+    *   **Gold** drops the bleach-limited weighting entirely for a flat $c = S$: "in contrast to selenium toner, which reaches the highlights late, starting with the shadows, gold toner attacks all densities evenly". Its gain goes blue-violet.
+    *   Sepia, iron blue, copper and vanadium are unchanged, and inert or redundant on lith — the sidebar disables them.
 
 *   **Split Toning** (all modes): Additive tint in LAB ($a^{\ast}b^{\ast}$) space, so luminance is preserved and with it grain and detail. Shadows and highlights are pushed toward independent hue angles. With $L$ the CIELAB lightness ($0$ to $100$):
     $$m_{shadow} = \text{clip}(1 - L/50,\ 0,\ 1), \qquad m_{highlight} = \text{clip}((L - 50)/50,\ 0,\ 1)$$
@@ -390,7 +414,7 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
 
 ---
 
-## 8. Finish
+## 9. Finish
 **Code**: `negpy.features.finish`
 
 Post-crop print finishing, in scene-linear before the output transform. Stage order: edge burn → filed carrier (the layout extras below run at compositing time).

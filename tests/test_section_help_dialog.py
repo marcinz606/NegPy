@@ -25,6 +25,7 @@ GUIDED_KEYS = (
     "tone",
     "local",
     "lab",
+    "lith",
     "toning",
     "retouch",
     "finish",
