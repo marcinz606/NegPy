@@ -383,11 +383,11 @@ $$D_0' = D_0 + 0.301 E, \qquad D_h = f_{max}\left(1 - e^{-f_{rate} (D_0 + 0.301 
 $$D = D_h + (D_{max} - D_h) \cdot \sigma\!\left(\frac{D_0' - K}{w}\right)$$
 
 *   **Exposure** $E$ in stops shifts the image up the exposure axis, which brings the knee forward. The highlight branch only takes a fraction $v$ of that shift (`foot_veil`), because paper white does not fog by a full quarter-stop of density at the practitioner-standard +2.
-*   **Snatch Point** sets the knee density $K = D_{max}(\text{knee\_lo} - \text{knee\_span}\cdot\text{snatch})$ — a development-time proxy. Later snatch drops the knee further up the tonal scale, widening the undifferentiated black band.
+*   **Snatch Point** sets the knee density $K = D_{max}(\text{knee}_{\text{lo}} - \text{knee}_{\text{span}}\cdot\text{snatch})$ — a development-time proxy. Later snatch drops the knee further up the tonal scale, widening the undifferentiated black band.
 *   **Abruptness** sets the knee width $w$. The name is Moersch's: "an almost abrupt blackening sets in". A hydroquinone-rich, low-sulphite bath (his Solution A end of the A:B ratio) reaches $w \approx 0.03$, where the next shadow zone goes black with no separation at all.
 *   **Colour** has no strength slider; the paper sets it. It is the paper's $(a^{\ast}, b^{\ast})$ path indexed on the *output* density fraction $u = D/D_{max}$ — four anchors at $u = 0.10/0.35/0.65/1.00$: peach, ochre, **olive**, neutral. Keep the olive knot: on a warmtone paper the transition between warm highlights and cold blacks really does go green. Applied in Lab with $L^{\ast}$ from the density itself, so the forward RGB→Lab transform is skipped (the frame is grey at this point). The physics: hue is a steep, non-monotonic function of silver particle size and inter-particle packing, neutral only in a narrow window (Kong & Shore, *J. Imaging Sci. Technol.* 51(3), 2007), and particle size tracks development stage, which tracks density. The path lives on `PaperProfile` (`lith_path`) — the paper is the one chosen in the Exposure panel, never duplicated here.
 
-Not modelled: semiquinone/bromide diffusion halos, pepper fog, snowballs and the other fault modes. Lith grain was built and then removed: the synthesised texture did not read as real grain.
+Not modelled: semiquinone/bromide diffusion halos, pepper fog, snowballs and the other fault modes.
 
 ---
 
