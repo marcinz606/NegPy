@@ -40,6 +40,7 @@ from negpy.infrastructure.loaders.rawpy_loader import (
     _find_linearraw_page,
     _is_dng,
     _peek_hdri_ir_page,
+    _peek_linear_dng_rgb,
     _peek_linearraw_4ch,
 )
 from negpy.kernel.image.logic import _to_uint16_jit, apply_exif_orientation, ensure_rgb, uint16_to_float32
@@ -549,29 +550,30 @@ def _decode_dng(
         ir = _apply_geometry(ir, orientation, geometry)
         return rgb, ir
 
-    # 3-channel LinearRaw (SilverFast HDRi): read directly via tifffile.
+    # 3-channel LinearRaw (SilverFast HDRi, and DNG 1.7 JPEG-XL from DxO
+    # PhotoLab/PureRAW and Lightroom Enhance): same tag-aware decode as the
+    # RawpyLoader import fallback, so BlackLevel/WhiteLevel/LinearizationTable
+    # get applied here too (see _peek_linear_dng_rgb). It returns [0,1]-clamped
+    # data or raises; wrap so callers still see ValueError, not a raw tifffile/
+    # imagecodecs/numpy exception, on failure.
     try:
-        with _tifffile.TiffFile(file_path) as tif:
-            page = _find_linearraw_page(tif, samples=3)
-            if page is None:
-                raise ValueError(f"No LinearRaw IFD found in {file_path}")
-            arr = page.asarray()
-    except ValueError:
-        raise
+        peeked_3ch = _peek_linear_dng_rgb(file_path)
     except Exception as e:
         raise ValueError(f"Failed to read LinearRaw data from {file_path}: {e}") from e
-
-    if arr.dtype == np.uint16:
-        scale = 1.0 / 65535.0
-    elif arr.dtype == np.uint8:
-        scale = 1.0 / 255.0
-    else:
-        scale = 1.0
-    rgb = np.clip(arr.astype(np.float32) * scale, 0.0, 1.0)
+    if peeked_3ch is None:
+        raise ValueError(f"No LinearRaw IFD found in {file_path}")
+    rgb, _wb_gains = peeked_3ch
     if expansion is not None and expansion > 1.0:
         rgb = np.clip(rgb * expansion, 0.0, 1.0)
 
     ir = _peek_hdri_ir_page(file_path)
+    if ir is not None and ir.shape[:2] != rgb.shape[:2]:
+        # DefaultCrop* trimmed rgb but the HDRi IR page is still full sensor
+        # size. Fail loudly instead of pairing misaligned planes on export.
+        raise ValueError(
+            f"LinearRaw RGB {rgb.shape[:2]} and IR plane {ir.shape[:2]} size "
+            f"mismatch in {file_path} (DefaultCrop* tag with an HDRi IR page?)"
+        )
     orientation = read_orientation(file_path)
     rgb = _apply_geometry(rgb, orientation, geometry)
     if ir is not None:
