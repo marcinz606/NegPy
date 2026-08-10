@@ -1194,44 +1194,13 @@ class CanvasOverlay(QWidget):
                 painter.drawImage(self._content_view_rect(), img)
             return
 
-        # Dim wash over the auto-corrected regions (IR division + inpainted hairs);
-        # core capsules draw on top.
-        for mask in self._corrected_masks():
-            wash = self._mask_wash_qimage(mask)
+        # Dim wash over every repaired region. No source emits capsules any more — they
+        # are all masks by the time they reach the render — so colour tells them apart:
+        # green for optically detected specks, magenta for IR and inpainted defects.
+        for mask, color in self._corrected_masks():
+            wash = self._mask_wash_qimage(mask, color)
             if wash is not None:
                 painter.drawImage(self._content_view_rect(), wash)
-
-        with self.state.metrics_lock:
-            luma = self.state.last_metrics.get("detected_dust_luma")
-            uv_grid = self.state.last_metrics.get("uv_grid")
-        if uv_grid is None:
-            return
-        # Green = auto-luma; an absent list (detection off) draws nothing. IR defects
-        # emit no capsules — the wash above is their overlay cue.
-        self._draw_detection_strokes(painter, luma, uv_grid, _DUST_MARK_LUMA)
-
-    def _draw_detection_strokes(self, painter: QPainter, strokes, uv_grid: np.ndarray, color: QColor) -> None:
-        """Neon outlines of detected dust strokes (mirrors _draw_placed_heals)."""
-        if not strokes:
-            return
-        pen = QPen(color, 1.0, Qt.PenStyle.SolidLine)
-        pen.setCosmetic(True)
-        for stroke in strokes:
-            points, size = stroke[0], stroke[1]
-            screen_pts = [self._raw_to_screen(px, py, uv_grid) for px, py in points]
-            radius = max(2.0, self._brush_screen_radius(size))
-            if len(screen_pts) == 1:
-                painter.setPen(pen)
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.drawEllipse(screen_pts[0], radius, radius)
-            else:
-                if len(screen_pts) >= 3:
-                    screen_pts = [QPointF(x, y) for x, y in smooth_polyline([(p.x(), p.y()) for p in screen_pts], closed=False)]
-                fill = QColor(color)
-                fill.setAlpha(90)
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(fill)
-                painter.drawPath(self._heal_region_path(screen_pts, radius))
 
     def _ir_layer_qimage(self) -> Optional[QImage]:
         """Geometry-aligned IR layer: preview_ir resampled through the render's
@@ -1261,27 +1230,29 @@ class CanvasOverlay(QWidget):
         self._ir_layer_cache = (key, img)
         return img
 
-    def _corrected_masks(self) -> List[np.ndarray]:
-        """Auto-corrected-region masks to wash: IR corrections (division + fill)
-        and inpainted defects — none emit capsules, the wash is their overlay cue."""
+    def _corrected_masks(self) -> List[Tuple[np.ndarray, QColor]]:
+        """Repaired-region masks to wash, with the colour that names their source."""
         with self.state.metrics_lock:
-            masks = []
+            masks: List[Tuple[np.ndarray, QColor]] = []
+            luma = self.state.last_metrics.get("detected_dust_mask")
+            if luma is not None:
+                masks.append((luma, _DUST_MARK_LUMA))
             corr = self.state.last_metrics.get("ir_corrected_mask")
             if corr is not None:
-                masks.append(corr)
+                masks.append((corr, _DUST_MARK_IR))
             hairs = self.state.last_metrics.get("hair_inpaint_masks")
             if hairs:
-                masks.extend(hairs)
+                masks.extend((h, _DUST_MARK_IR) for h in hairs)
         return masks
 
-    def _mask_wash_qimage(self, mask: np.ndarray) -> Optional[QImage]:
-        """Dim magenta wash over a detection-scale correction mask, remapped through
-        the render's uv_grid; cached per mask identity."""
+    def _mask_wash_qimage(self, mask: np.ndarray, color: QColor) -> Optional[QImage]:
+        """Dim wash over a detection-scale correction mask, remapped through the
+        render's uv_grid; cached per mask identity."""
         with self.state.metrics_lock:
             uv_grid = self.state.last_metrics.get("uv_grid")
         if uv_grid is None:
             return None
-        key = (id(uv_grid), id(mask))
+        key = (id(uv_grid), id(mask), color.rgb())
         hit = self._wash_cache.get(id(mask))
         if hit is not None and hit[0] == key:
             return hit[1]
@@ -1292,9 +1263,9 @@ class CanvasOverlay(QWidget):
         gh, gw = remapped.shape[:2]
         af = (remapped > 0.5).astype(np.float32) * (_IR_CORRECTED_ALPHA / 255.0)
         buf = np.empty((gh, gw, 4), dtype=np.uint8)
-        buf[..., 0] = (_DUST_MARK_IR.red() * af).astype(np.uint8)
-        buf[..., 1] = (_DUST_MARK_IR.green() * af).astype(np.uint8)
-        buf[..., 2] = (_DUST_MARK_IR.blue() * af).astype(np.uint8)
+        buf[..., 0] = (color.red() * af).astype(np.uint8)
+        buf[..., 1] = (color.green() * af).astype(np.uint8)
+        buf[..., 2] = (color.blue() * af).astype(np.uint8)
         buf[..., 3] = (af * 255.0).astype(np.uint8)
         img = QImage(buf.data, gw, gh, gw * 4, QImage.Format.Format_RGBA8888_Premultiplied).copy()
         if len(self._wash_cache) > 8:  # drop stale ids from prior frames

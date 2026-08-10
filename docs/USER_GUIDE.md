@@ -480,9 +480,9 @@ Colour the print itself rather than the scene: chemical toners that convert the 
 <!-- panel:retouch -->
 ### 8.1 Retouch: dust, hairs, scratches
 
-Spotting, the way it was done with a brush on the finished print. There are three ways to find the marks, by local contrast, by the scanner's IR channel, or by hand, and they stack.
+Spotting, the way it was done with a brush on the finished print. There are three ways to find the marks, by local contrast, by the scanner's IR channel, or by hand, and they stack. However a mark is found, it is repaired the same way: the film under it is rebuilt from the clean film around it, with the frame's own grain transplanted back, and anything too wide for that goes to a fill that follows the structure through.
 
-An **Overlay** button cycles the detection overlay (Off → Marked → IR) so you can see what's being caught.
+An **Overlay** button cycles the detection overlay (Off → Marked → IR) so you can see what's being caught: green for what Optical Removal found, magenta for IR and for defects sent to the structure-following fill.
 
 **Optical Removal** finds specks on the visible scan by local contrast, with no IR needed:
 
@@ -498,9 +498,11 @@ An **Overlay** button cycles the detection overlay (Off → Marked → IR) so yo
 
 **Manual Heal** (header shows the current spot count):
 
-*   **Heal Tool**: click dust spots in the preview to paint them out one at a time.
+The brush marks a *search area*, not a stamp: only the pixels that actually stand out from the film around them are rewritten, so you can paint generously over a speck and the clean grain inside the brush is left exactly as it was. Marks are caught in both directions — dust, which prints light, and scratches, which print dark. If the brush finds nothing wrong, it does nothing.
+
+*   **Heal Tool**: click dust spots in the preview to paint them out one at a time, or drag to paint over a run of them.
 *   **Scratch Tool**: click points along a scratch or hair, double-click/Enter to finish; Esc cancels, Backspace removes the last point. Right-click an overlay to delete it.
-*   **Brush Size** (2 to 16 px): radius of the manual brush (shown while a manual tool is active).
+*   **Brush Size** (2 to 16 px): diameter of the manual brush, matching the on-screen cursor (shown while a manual tool is active).
 *   **Undo Last** / **Clear All**: remove the most recent or all manual heals (auto-detected dust is unaffected).
 
 <!-- panel:finish -->

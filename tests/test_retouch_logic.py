@@ -4,19 +4,17 @@ import numpy as np
 
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.retouch.logic import (
-    _capsule_boundary,
-    _mask_to_strokes,
-    _pick_source_offsets,
     apply_hair_inpaint,
-    apply_ir_reconstruction,
-    apply_manual_heals,
-    build_heal_regions,
-    detect_luma_regions,
+    apply_score_repair,
+    compute_dust_stats,
+    detect_luma_score,
     hair_bake_token,
     ir_defect_score,
+    manual_bake_token,
     normalize_ir,
-    route_ir_defects,
-    select_source_offset,
+    repair_components,
+    route_wide_defects,
+    strokes_to_score,
 )
 from negpy.features.retouch.models import HEAL_SIZE_REF, RetouchConfig
 
@@ -26,300 +24,137 @@ def _size_at_ref(diameter_px, shape):
     return diameter_px * HEAL_SIZE_REF / max(shape)
 
 
-def _regions_for_spot(nx, ny, size_px, shape):
-    h, w = shape
-    size = _size_at_ref(size_px, shape)
-    return build_heal_regions([([[nx, ny]], size, 0.15, 0.0)], [], (h, w), 0, 0.0, False, False, 0.0, (w, h))
+def _grainy(h, w, level=0.5, sigma=0.01, seed=21):
+    rng = np.random.default_rng(seed)
+    return (np.full((h, w, 3), level) + rng.normal(0, sigma, (h, w, 3))).astype(np.float32)
 
 
-def test_polyline_stroke_is_smoothed():
-    """A >=3-waypoint scratch heals along a densified Catmull-Rom chain."""
-    h, w = 120, 160
-    pts = [[0.2, 0.2], [0.5, 0.35], [0.8, 0.2], [0.6, 0.6]]
-    reg_i, _reg_f, _pts = build_heal_regions([(pts, _size_at_ref(10.0, (h, w)), 0.1, 0.0)], [], (h, w), 0, 0.0, False, False, 0.0, (w, h))
-    chain_len = int(reg_i[0][1])
-    assert chain_len > len(pts), "polyline heal chain was not smoothed/densified"
+def _heal(img, points, diameter_px):
+    """Paint one stroke over ``img`` and repair it, the way the source bake does."""
+    size = _size_at_ref(diameter_px, img.shape[:2])
+    score = strokes_to_score(img, [(points, size, 0.0, 0.0)], [])
+    if score is None:
+        return img, None
+    return np.asarray(repair_components(img, score, floor=False)), score
 
 
-def test_two_point_stroke_not_densified():
-    """A straight 2-point stroke stays exactly 2 chain points (nothing to smooth)."""
-    h, w = 120, 160
-    pts = [[0.3, 0.3], [0.7, 0.6]]
-    reg_i, _reg_f, _pts = build_heal_regions([(pts, _size_at_ref(10.0, (h, w)), 0.1, 0.0)], [], (h, w), 0, 0.0, False, False, 0.0, (w, h))
-    assert int(reg_i[0][1]) == 2
+def test_brush_repairs_the_defect_and_leaves_clean_grain_alone():
+    """The brush marks a search area, not a stamp: a speck under a generous brush is
+    rebuilt, and the clean film around it inside the same brush is byte-identical."""
+    img = _grainy(100, 100)
+    img[49:52, 49:52] = 0.95
 
+    out, _ = _heal(img, [[0.5, 0.5]], 15.0)
 
-def test_manual_dust_removal_effect():
-    # Use grey background and white dust (inverted film scan scenario)
-    img = np.full((100, 100, 3), 0.5, dtype=np.float32)
-    img[48:53, 48:53] = 1.0
-
-    orig_mean = np.mean(img)
-
-    res = apply_manual_heals(img.copy(), *_regions_for_spot(0.5, 0.5, 10, (100, 100)))
-
-    res_mean = np.mean(res)
-    # The healing should make the white spot darker (closer to 0.5 background)
-    assert res_mean < orig_mean
-
-    spot_area = res[48:53, 48:53]
-    assert np.mean(spot_area) < 0.9
-
-
-def test_manual_dust_removal_no_regions_is_noop():
-    img = np.ones((100, 100, 3), dtype=np.float32)
-    empty = build_heal_regions([], [], (100, 100), 0, 0.0, False, False, 0.0, (100, 100))
-    res = apply_manual_heals(img.copy(), *empty)
-    assert np.array_equal(img, res)
-
-
-def test_detect_luma_regions_cloud_protection():
-    """Soft gradients in the source must NOT be detected as dust (the wide-window
-    texture penalty and z-score guard, ported to the density proxy)."""
-    y, x = np.mgrid[0:160, 0:160]
-    trans = 0.2 + 0.1 * np.sin(x / 10.0) * np.cos(y / 10.0)  # smooth transmission field
-    img = np.stack([trans] * 3, axis=-1).astype(np.float32)
-    assert detect_luma_regions(img, 0.66, 4)[0] == []
-
-
-def test_membrane_recovers_gradient():
-    """The MVC membrane clone must reconstruct a linear gradient under a speck —
-    diffusion-style fills can't; this is the quality bar for the new heal."""
-    h, w = 80, 120
-    grad = np.linspace(0.2, 0.6, w, dtype=np.float32)[None, :, None].repeat(h, axis=0)
-    img = np.repeat(grad, 3, axis=2)
-    clean = img.copy()
-    img[36:44, 56:64] = 0.95
-
-    regions = _regions_for_spot(60.0 / w, 40.0 / h, 16.0, (h, w))
-    out = apply_manual_heals(img, *regions)
-
-    err = np.abs(out[36:44, 56:64] - clean[36:44, 56:64]).mean()
-    assert err < 0.02
-
-
-def test_stroke_heals_scratch():
-    """A polyline stroke heals a diagonal scratch line."""
-    rng = np.random.default_rng(7)
-    h, w = 120, 160
-    grad = np.linspace(0.2, 0.6, w, dtype=np.float32)[None, :, None].repeat(h, axis=0)
-    img = (np.repeat(grad, 3, axis=2) + rng.normal(0, 0.01, (h, w, 3))).astype(np.float32)
-    clean = img.copy()
-    mask = np.zeros((h, w), bool)
-    for t in np.linspace(0, 1, 200):
-        x, y = int(30 + t * 90), int(30 + t * 50)
-        img[y : y + 2, x : x + 2] = 0.9
-        mask[y : y + 2, x : x + 2] = True
-
-    pts = [[30.0 / w, 30.0 / h], [75.0 / w, 55.0 / h], [120.0 / w, 80.0 / h]]
-    off = select_source_offset(img, pts, 5.0, 0)
-    regions = build_heal_regions([(pts, _size_at_ref(10.0, (h, w)), off[0], off[1])], [], (h, w), 0, 0.0, False, False, 0.0, (w, h))
-    out = apply_manual_heals(img, *regions)
-
-    err_before = np.abs(img[mask] - clean[mask]).mean()
-    err_after = np.abs(out[mask] - clean[mask]).mean()
-    assert err_after < err_before * 0.2
-
-
-def test_clone_source_dust_not_recloned():
-    """Dust sitting in the clone-source patch must not be copied into the heal —
-    the sample guard replaces bright outliers with their 3×3 luma-median pixel."""
-    rng = np.random.default_rng(11)
-    h, w = 100, 100
-    img = (np.full((h, w, 3), 0.5) + rng.normal(0, 0.01, (h, w, 3))).astype(np.float32)
-    img[47:53, 47:53] = 0.95  # defect being healed
-    img[49:51, 69:71] = 0.95  # dust inside the source patch (offset +20px)
-
-    strokes = [([[0.5, 0.5]], _size_at_ref(12.0, (h, w)), 20.0 / w, 0.0)]
-    regions = build_heal_regions(strokes, [], (h, w), 0, 0.0, False, False, 0.0, (w, h))
-    out = apply_manual_heals(img, *regions)
-
-    healed = out[44:56, 44:56]
-    assert healed.max() < 0.7, "dust from the source patch was recloned into the heal"
-
-
-def test_heal_gate_leaves_clean_pixels_untouched():
-    """The brush marks a search area: only bright dust inside it is replaced,
-    clean pixels within the brush stay byte-identical (modulo OETF round-trip)."""
-    rng = np.random.default_rng(21)
-    h, w = 100, 100
-    img = (np.full((h, w, 3), 0.5) + rng.normal(0, 0.01, (h, w, 3))).astype(np.float32)
-    img[49:52, 49:52] = 0.95  # small speck, large brush around it
-
-    strokes = [([[0.5, 0.5]], _size_at_ref(15.0, (h, w)), 25.0 / w, 0.0)]
-    regions = build_heal_regions(strokes, [], (h, w), 0, 0.0, False, False, 0.0, (w, h))
-    out = apply_manual_heals(img, *regions)
-
-    assert out[49:52, 49:52].max() < 0.7, "dust inside the brush was not healed"
-
-    yy, xx = np.mgrid[0:h, 0:w]
+    assert out[49:52, 49:52].max() < 0.7, "dust inside the brush was not repaired"
+    yy, xx = np.mgrid[0:100, 0:100]
     dist = np.hypot(xx - 50, yy - 50)
-    clean_in_brush = (dist < 13) & (dist > 4)
-    np.testing.assert_allclose(
-        out[clean_in_brush],
-        img[clean_in_brush],
-        atol=2e-3,
-        err_msg="clean pixels inside the brush were altered",
-    )
+    clean_in_brush = (dist < 7) & (dist > 5.5)  # outside the defect's own skirt pad
+    assert np.array_equal(out[clean_in_brush], img[clean_in_brush]), "clean grain inside the brush changed"
 
 
-def test_gate_zero_heals_dark_defects():
-    """gate=0 regions (5-tuple strokes: synthesized IR/dark-dust) clone
-    unconditionally — a DARK defect the bright-only gate vetoes is healed."""
-    rng = np.random.default_rng(13)
-    h, w = 100, 100
-    img = (np.full((h, w, 3), 0.5) + rng.normal(0, 0.01, (h, w, 3))).astype(np.float32)
-    img[48:53, 48:53] = 0.05  # dark defect
+def test_brush_repairs_a_dark_scratch():
+    """#791: a scratch has lost emulsion, so it reads *brighter* in transmittance than the
+    film around it. The old bright-only gate could never repair one — the two-sided gate
+    plus floor=False must."""
+    img = _grainy(100, 160)
+    for x in range(30, 130):
+        img[58:61, x] = 0.85  # a scratch running across the frame
 
-    size = _size_at_ref(12.0, (h, w))
-    gated = build_heal_regions([([[0.5, 0.5]], size, 20.0 / w, 0.0)], [], (h, w), 0, 0.0, False, False, 0.0, (w, h))
-    out_gated = apply_manual_heals(img, *gated)
-    assert out_gated[48:53, 48:53].mean() < 0.15, "bright-only gate must veto dark defects"
+    out, _ = _heal(img, [[30.0 / 160, 59.0 / 100], [80.0 / 160, 59.0 / 100], [129.0 / 160, 59.0 / 100]], 10.0)
 
-    ungated = build_heal_regions([([[0.5, 0.5]], size, 20.0 / w, 0.0, 0.0)], [], (h, w), 0, 0.0, False, False, 0.0, (w, h))
-    out = apply_manual_heals(img, *ungated)
-    assert out[48:53, 48:53].mean() > 0.4, "gate=0 region must clone over the dark defect"
+    err_before = float(np.abs(img[58:61, 30:130] - 0.5).mean())
+    err_after = float(np.abs(out[58:61, 30:130] - 0.5).mean())
+    assert err_after < err_before * 0.2, f"scratch not repaired ({err_before:.3f} -> {err_after:.3f})"
 
 
-def test_ungated_feather_is_wider():
-    """gate=0 (synthesized IR/auto) clones with a softer rim than gate=1: a speck
-    sitting near the rim is blended in more gently (the halo-softening fix). Placed
-    at d~10.4 in a radius-12 heal so both feather ramps (0.4·r vs 0.25·r) cover it."""
-    rng = np.random.default_rng(41)
-    h, w = 100, 100
-    img = (np.full((h, w, 3), 0.5) + rng.normal(0, 0.005, (h, w, 3))).astype(np.float32)
-    img[52:55, 59:62] = 0.95  # speck near the heal rim (boundary at r+2 stays clean)
-
-    size = _size_at_ref(24.0, (h, w))  # radius 12 px
-    gated = build_heal_regions([([[0.5, 0.5]], size, -30.0 / w, 0.0)], [], (h, w), 0, 0.0, False, False, 0.0, (w, h))
-    ungated = build_heal_regions([([[0.5, 0.5]], size, -30.0 / w, 0.0, 0.0)], [], (h, w), 0, 0.0, False, False, 0.0, (w, h))
-    out_g = apply_manual_heals(img.copy(), *gated)
-    out_u = apply_manual_heals(img.copy(), *ungated)
-
-    speck = (slice(52, 55), slice(59, 62))
-    dg = np.abs(out_g[speck] - img[speck]).mean()
-    du = np.abs(out_u[speck] - img[speck]).mean()
-    assert 0.0 < du < dg, f"ungated rim feather must be softer (gated {dg:.4f}, ungated {du:.4f})"
+def test_brush_on_clean_film_is_a_noop():
+    """Painting over film with nothing wrong with it must not smooth its grain away."""
+    img = _grainy(100, 100)
+    assert strokes_to_score(img, [([[0.5, 0.5]], _size_at_ref(15.0, (100, 100)), 0.0, 0.0)], []) is None
 
 
-def test_pick_source_offsets_rgb_prefers_colour_match():
-    """A per-channel guide rejects a source that matches in luma but not in colour —
-    the single-channel scorer was blind to a wrong-colour clone source."""
-    h = w = 120
-    mask = np.zeros((h, w), dtype=np.uint8)
-    mask[57:63, 77:83] = 1  # compact defect in the neutral-grey region (x~80)
-    guide = np.full((h, w, 3), 0.5, dtype=np.float32)
-    guide[:, :50] = (1.0, 0.35, 0.5)  # reddish patch, equal luma to grey but wrong colour
-    comps, _ = _mask_to_strokes(mask, 2.0, 8)
-    ox, oy = _pick_source_offsets(mask, comps, guide)[0]
-    sx, sy = int(np.clip(80 + ox, 0, w - 1)), int(np.clip(60 + oy, 0, h - 1))
-    assert guide[sy, sx, 0] < 0.7, "picker cloned from the wrong-colour (red) region"
+def test_faint_defect_still_repairs():
+    """A mark too weak for the absolute bar is rescaled against the stroke's own peak,
+    so the tool never silently does nothing where the user saw something."""
+    img = _grainy(100, 100, sigma=0.004)
+    img[49:52, 49:52] = 0.53  # ~1.5 sigma of density: under the absolute bar
+
+    out, score = _heal(img, [[0.5, 0.5]], 15.0)
+    assert score is not None, "a faint but real defect must still be found"
+    assert abs(float(out[49:52, 49:52].mean()) - 0.5) < abs(float(img[49:52, 49:52].mean()) - 0.5)
 
 
-def test_source_scoring_penalizes_dusty_patch():
-    """select_source_offset must prefer a clean patch over one with a speck inside
-    (rim-band SSD alone can't see interior dust)."""
-    rng = np.random.default_rng(5)
-    h, w = 120, 120
-    img = (np.full((h, w, 3), 0.5) + rng.normal(0, 0.005, (h, w, 3))).astype(np.float32)
-    img[56:64, 56:64] = 0.95  # defect at center
-    # Dust inside the +x candidate patch interior (ring candidate at 2.6r ≈ 10px)
-    img[59:61, 69:71] = 0.95
-
-    off = select_source_offset(img, [[0.5, 0.5]], 4.0, 0)
-    sx, sy = 60 + off[0] * w, 60 + off[1] * h
-    patch = img[int(sy) - 4 : int(sy) + 4, int(sx) - 4 : int(sx) + 4]
-    assert patch.max() < 0.7, "scoring picked a source patch containing dust"
-
-
-def test_source_scoring_penalizes_dark_detail_patch():
-    """Interior penalty must be symmetric: dark detail inside a candidate patch
-    (clean rim) would be cloned onto the plain background just like a speck."""
-    rng = np.random.default_rng(5)
-    h, w = 120, 120
-    img = (np.full((h, w, 3), 0.5) + rng.normal(0, 0.005, (h, w, 3))).astype(np.float32)
-    img[56:64, 56:64] = 0.95  # defect at center
-    img[59:61, 69:71] = 0.05  # dark detail inside the +x candidate patch interior
-
-    off = select_source_offset(img, [[0.5, 0.5]], 4.0, 0)
-    sx, sy = 60 + off[0] * w, 60 + off[1] * h
-    patch = img[int(sy) - 4 : int(sy) + 4, int(sx) - 4 : int(sx) + 4]
-    assert patch.min() > 0.3, "scoring picked a source patch containing dark detail"
-
-
-def test_capsule_boundary_is_closed_ordered_loop():
-    pts = np.array([[20.0, 20.0], [60.0, 40.0]], dtype=np.float64)
-    loop = _capsule_boundary(pts, 5.0, 32)
-    assert loop.shape[1] == 2
-    assert len(loop) >= 16
-    # Every sample sits on the capsule outline (distance ~radius from the chain).
-    from negpy.features.retouch.logic import _dist_to_chain
-
-    for bx, by in loop:
-        assert abs(_dist_to_chain(float(bx), float(by), pts) - 5.0) < 0.5
-    # Ordered loop: consecutive samples are close relative to the perimeter.
-    seg = np.diff(np.vstack([loop, loop[:1]]), axis=0)
-    step = np.hypot(seg[:, 0], seg[:, 1])
-    assert step.max() < 5.0 * step.mean()
-
-
-def test_select_source_offset_avoids_defect():
-    """Scoring must reject candidates whose band lands on a second defect."""
-    rng = np.random.default_rng(3)
-    h, w = 100, 100
-    img = (np.full((h, w, 3), 0.5) + rng.normal(0, 0.005, (h, w, 3))).astype(np.float32)
-    img[46:54, 46:54] = 0.95  # the defect being healed
-    img[46:54, 20:36] = 0.05  # strong anomaly left of it
-
-    off = select_source_offset(img, [[0.5, 0.5]], 4.0, 0)
-    sx, sy = 50 + off[0] * w, 50 + off[1] * h
-    val = img[int(np.clip(sy, 0, h - 1)), int(np.clip(sx, 0, w - 1))]
-    assert abs(float(val.mean()) - 0.5) < 0.1
-
-
-def test_legacy_spot_conversion():
-    size = _size_at_ref(8.0, (100, 100))
-    regions = build_heal_regions([], [(0.5, 0.5, size)], (100, 100), 0, 0.0, False, False, 0.0, (100, 100))
-    reg_i, reg_f, pts = regions
-    assert len(reg_i) == 1
-    assert reg_i[0, 1] == 1  # single-point chain
-    assert reg_i[0, 3] >= 16  # boundary loop present
-    assert reg_f[0, 0] == 4.0  # radius px = size/2 (brush size is a diameter)
-    assert np.hypot(reg_f[0, 1], reg_f[0, 2]) > 4.0  # fallback offset clears the spot
-
-
-def test_heal_footprint_stays_within_brush():
-    """Nothing outside the brush circle may change — the healed footprint must
-    not exceed the on-screen cursor. A bright strip crossing the brush is healed
-    only inside it."""
-    rng = np.random.default_rng(31)
-    h, w = 100, 100
-    img = (np.full((h, w, 3), 0.4) + rng.normal(0, 0.01, (h, w, 3))).astype(np.float32)
+def test_repair_footprint_stays_within_the_brush():
+    """Nothing outside the painted capsule may change — the repaired footprint must not
+    exceed the on-screen cursor."""
+    img = _grainy(100, 100, level=0.4, seed=31)
     img[48:52, :] = 0.95  # dust strip across the whole frame
 
-    strokes = [([[0.5, 0.5]], _size_at_ref(16.0, (h, w)), 0.0, 25.0 / h)]  # radius 8 in image px
-    regions = build_heal_regions(strokes, [], (h, w), 0, 0.0, False, False, 0.0, (w, h))
-    out = apply_manual_heals(img, *regions)
+    out, _ = _heal(img, [[0.5, 0.5]], 16.0)  # radius 8 px
 
     changed = np.abs(out.astype(np.float64) - img).max(axis=2) > 5e-3
     ys, xs = np.where(changed)
-    assert len(ys) > 0, "strip inside the brush was not healed"
+    assert len(ys) > 0, "strip inside the brush was not repaired"
     dist = np.hypot(xs + 0.5 - 50.0, ys + 0.5 - 50.0)
-    assert dist.max() <= 8.0, f"heal leaked {dist.max():.2f}px from center, brush radius is 8"
+    assert dist.max() <= 9.0, f"repair leaked {dist.max():.2f}px from centre, brush radius is 8"
     assert out[48:52, 80:].min() > 0.9, "strip outside the brush must stay untouched"
 
 
-def test_heal_radius_matches_cursor_fraction():
-    """Pipeline heal radius must equal the overlay cursor circle: the cursor
-    (overlay._brush_screen_radius) draws size/(2·HEAL_SIZE_REF) of the view;
-    the pipeline radius normalized by the render long edge is the same,
-    independent of the preview render resolution."""
-    size = 12.0
-    full_dims = (2400, 1600)
-    _, reg_f, _ = build_heal_regions([([[0.5, 0.5]], size, 0.1, 0.0)], [], (2000, 3000), 0, 0.0, False, False, 0.0, full_dims)
-    pipeline_fraction = reg_f[0, 0] / max(full_dims)
-    cursor_fraction = size / (2.0 * HEAL_SIZE_REF)
-    assert abs(pipeline_fraction - cursor_fraction) < 1e-9
+def test_stroke_radius_matches_cursor_fraction():
+    """The repaired footprint must equal the overlay cursor circle: the cursor
+    (overlay._brush_screen_radius) draws size/(2·HEAL_SIZE_REF) of the view, and the
+    same fraction must hold at any render resolution."""
+    size = 24.0
+    for h, w in ((300, 450), (600, 900)):
+        img = _grainy(h, w, seed=17)
+        img[h // 2 - 1 : h // 2 + 2, :] = 0.95  # a strip crossing the whole frame
+        score = strokes_to_score(img, [([[0.5, 0.5]], size, 0.0, 0.0)], [])
+        assert score is not None
+
+        _ys, xs = np.where(score < 1.0)
+        reach = float(np.abs(xs - w / 2.0).max())
+        expected = size / (2.0 * HEAL_SIZE_REF) * max(h, w)
+        assert abs(reach - expected) <= 2.0, f"{h}x{w}: footprint {reach:.2f}px, cursor {expected:.2f}px"
+
+
+def test_legacy_spots_repair():
+    """Pre-stroke (nx, ny, size) spots still repair — they are just a one-point stroke."""
+    img = _grainy(100, 100)
+    img[48:53, 48:53] = 0.95
+    score = strokes_to_score(img, [], [(0.5, 0.5, _size_at_ref(12.0, (100, 100)))])
+    assert score is not None
+    out = np.asarray(repair_components(img, score, floor=False))
+    assert out[48:53, 48:53].max() < 0.7
+
+
+def test_repair_components_matches_the_whole_frame_repair():
+    """Cropping per defect is an optimization, not a different result."""
+    img = _grainy(120, 120, seed=5)
+    img[58:62, 58:62] = 0.95
+    score = strokes_to_score(img, [([[0.5, 0.5]], _size_at_ref(14.0, (120, 120)), 0.0, 0.0)], [])
+    assert score is not None
+    cropped = np.asarray(repair_components(img, score, floor=False))
+    whole = np.asarray(apply_score_repair(img, score, floor=False))
+    np.testing.assert_allclose(cropped, whole, atol=2e-3)
+
+
+def test_repair_leaves_unscored_pixels_byte_identical():
+    img = _grainy(120, 120, seed=8)
+    img[58:62, 58:62] = 0.95
+    score = strokes_to_score(img, [([[0.5, 0.5]], _size_at_ref(14.0, (120, 120)), 0.0, 0.0)], [])
+    out = np.asarray(repair_components(img, score, floor=False))
+    untouched = np.repeat((score >= 1.0)[..., None], 3, axis=2)
+    assert np.array_equal(out[untouched], img[untouched])
+
+
+def test_manual_bake_token_tracks_the_strokes():
+    empty = RetouchConfig()
+    one = RetouchConfig(manual_heal_strokes=[([[0.3, 0.4]], 6.0, 0.0, 0.0)])
+    two = RetouchConfig(manual_heal_strokes=[([[0.3, 0.4]], 6.0, 0.0, 0.0), ([[0.6, 0.6]], 6.0, 0.0, 0.0)])
+    assert manual_bake_token(empty) == ""
+    assert manual_bake_token(one) != manual_bake_token(two)
+    assert manual_bake_token(one) == manual_bake_token(RetouchConfig(manual_heal_strokes=list(one.manual_heal_strokes)))
 
 
 def test_heal_strokes_serialization_roundtrip():
@@ -372,44 +207,32 @@ def _dusty_source(h=160, w=160, seed=42):
     return img
 
 
-def test_detect_luma_regions_finds_dark_speck():
+def test_detect_luma_score_finds_dark_speck():
     img = _dusty_source()
-    strokes, _ = detect_luma_regions(img, dust_threshold=0.66, dust_size=4)
-    assert len(strokes) >= 1
-    pts, size, sdx, sdy, gate = strokes[0]
-    assert abs(pts[0][0] - 81.5 / 160) < 0.03
-    assert abs(pts[0][1] - 81.5 / 160) < 0.03
-    assert gate == 1.0
-    # Radius covers the 3px speck plus pad: size/2 · (160/HEAL_SIZE_REF) ∈ [2, 8] px.
-    radius_px = size * 160 / (2.0 * HEAL_SIZE_REF)
-    assert 2.0 < radius_px < 8.0
+    score, hairs = detect_luma_score(img, dust_threshold=0.66, dust_size=4)
+    assert score is not None and hairs is None
+    assert score[80:83, 80:83].max() < 1.0, "the speck must be scored as a defect"
+    ys, xs = np.where(score < 1.0)
+    assert abs(float(xs.mean()) - 81.5) < 5.0 and abs(float(ys.mean()) - 81.5) < 5.0
 
 
-def test_detect_luma_regions_exposure_invariant():
-    """The density proxy is self-normalized: a 2-stop exposure shift must yield
-    the identical stroke set (no detection flicker while grading)."""
+def test_detect_luma_score_exposure_invariant():
+    """The density proxy is self-normalized: a 2-stop exposure shift must yield the
+    identical score (no detection flicker while grading)."""
     img = _dusty_source()
-    assert detect_luma_regions(img, 0.66, 4)[0] == detect_luma_regions(img * 4.0, 0.66, 4)[0]
+    np.testing.assert_array_equal(detect_luma_score(img, 0.66, 4)[0], detect_luma_score(img * 4.0, 0.66, 4)[0])
 
 
-def test_detect_luma_regions_strokes_are_plain_floats():
-    strokes, _ = detect_luma_regions(_dusty_source(), 0.66, 4)
-    json.dumps(strokes)  # numpy scalars would raise / hash repr-dependently
-    for pts, size, sdx, sdy, gate in strokes:
-        assert all(type(c) is float for p in pts for c in p)
-        assert all(type(v) is float for v in (size, sdx, sdy, gate))
-
-
-def test_detect_luma_regions_clean_frame_is_empty():
+def test_detect_luma_score_clean_frame_is_empty():
     rng = np.random.default_rng(9)
     img = (np.full((160, 160, 3), 0.18) * (1.0 + rng.normal(0, 0.02, (160, 160, 3)))).astype(np.float32)
-    assert detect_luma_regions(img, 0.66, 4)[0] == []
+    assert detect_luma_score(img, 0.66, 4)[0] is None
 
 
 def test_ir_long_scratch_is_healed_by_the_fill():
     """A long thin scratch stays with the score-weighted fill (every pixel sits within
     reach of clean film) and is actually rebuilt — the #563 'cloned blobs' came from
-    handing this class to a single-offset membrane clone."""
+    handing this class to a single-offset clone."""
     ir = np.full((200, 200), 0.9, dtype=np.float32)
     img = np.clip(np.random.default_rng(4).normal(0.5, 0.01, (200, 200, 3)), 0, 1).astype(np.float32)
     for t in range(80):
@@ -417,8 +240,8 @@ def test_ir_long_scratch_is_healed_by_the_fill():
         ir[y : y + 2, x : x + 2] = 0.1
         img[y : y + 2, x : x + 2] = 0.06
     score = ir_defect_score(normalize_ir(ir), 0.5)
-    assert route_ir_defects(score) is None, "thin: the fill's job, not the inpaint's"
-    out = np.asarray(apply_ir_reconstruction(img, score))
+    assert route_wide_defects(score) is None, "thin: the fill's job, not the inpaint's"
+    out = np.asarray(apply_score_repair(img, score))
     scratch = img[:, :, 0] < 0.1
     assert float(out[scratch].min()) > 0.35, "the scratch is rebuilt from its flanks"
 
@@ -428,54 +251,22 @@ def test_ir_mild_speck_stays_with_the_fill():
     components the fill's support can't see across."""
     ir = np.full((120, 120), 0.9, dtype=np.float32)
     ir[60:62, 55:66] = 0.1  # ~11px long, ~1px wide: well inside the fill's reach
-    assert route_ir_defects(ir_defect_score(normalize_ir(ir), 0.5)) is None
+    assert route_wide_defects(ir_defect_score(normalize_ir(ir), 0.5)) is None
 
 
-def test_pick_source_offsets_footprint_is_mask_free():
-    mask = np.zeros((200, 200), dtype=np.uint8)
-    mask[95:105, 95:105] = 1  # defect
-    mask[95:105, 115:135] = 1  # dirty area right of it
-    comps, _ = _mask_to_strokes(mask, 1.5, 8)
-    offsets = _pick_source_offsets(mask, comps, np.full((200, 200), 0.5, dtype=np.float32))
-    assert len(offsets) == len(comps) == 2
-    for (chain, radius, _area), (ox, oy) in zip(comps, offsets):
-        b = int(1.2 * radius)
-        for px, py in chain:
-            sx, sy = int(px + ox), int(py + oy)
-            assert mask[sy - b : sy + b + 1, sx - b : sx + b + 1].sum() == 0, "clone source overlaps a defect"
-
-
-def test_pick_source_offsets_avoids_detail():
-    """A mask-free patch full of dark detail must lose to a background-matched
-    one — cloning detail onto a plain background is the visible failure mode."""
-    mask = np.zeros((200, 200), dtype=np.uint8)
-    mask[98:103, 98:103] = 1  # compact defect in the flat region
-    guide = np.full((200, 200), 0.5, dtype=np.float32)
-    guide[:90, :] = 0.1  # dark textured band above; below stays flat and matched
-    guide[:90, ::2] = 0.3
-    comps, _ = _mask_to_strokes(mask, 4.0, 8)
-    ox, oy = _pick_source_offsets(mask, comps, guide)[0]
-    sy, sx = int(np.clip(100 + oy, 0, 199)), int(np.clip(100 + ox, 0, 199))
-    assert guide[sy, sx] > 0.35, "picker cloned from the dark detail band"
-
-
-def test_detected_regions_heal_end_to_end():
-    """detect → build_heal_regions → membrane heal removes the speck (ungated,
-    healing the source frame directly)."""
+def test_detected_specks_repair_end_to_end():
+    """detect → shared fill removes the speck, in the source frame the meters read."""
     img = _dusty_source()
-    strokes, _ = detect_luma_regions(img, 0.66, 4, gate=0.0)
-    assert strokes
-    regions = build_heal_regions(strokes, [], (160, 160), 0, 0.0, False, False, 0.0, (160, 160))
-    out = apply_manual_heals(img, *regions)
-    assert out[80:83, 80:83].mean() > 0.1, "speck not cloned over"
+    score, _ = detect_luma_score(img, 0.66, 4)
+    assert score is not None
+    out = np.asarray(repair_components(img, score))
+    assert out[80:83, 80:83].mean() > 0.1, "speck not rebuilt"
 
 
-def test_detect_luma_regions_precomputed_stats_equivalent():
-    from negpy.features.retouch.logic import compute_dust_stats
-
+def test_detect_luma_score_precomputed_stats_equivalent():
     img = _dusty_source()
     stats = compute_dust_stats(img, 4)
-    assert detect_luma_regions(img, 0.66, 4, stats=stats)[0] == detect_luma_regions(img, 0.66, 4)[0]
+    np.testing.assert_array_equal(detect_luma_score(img, 0.66, 4, stats=stats)[0], detect_luma_score(img, 0.66, 4)[0])
 
 
 def test_apply_hair_inpaint_removes_hair_and_preserves_rest():

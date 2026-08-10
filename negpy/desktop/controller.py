@@ -79,8 +79,8 @@ from negpy.features.exposure.transfer import is_transparency_transfer
 from negpy.features.process.models import ProcessConfig, ProcessMode, invalidate_local_bounds, scan_setup_values
 from negpy.services.assets.thumbnails import asset_thumbnail_key
 from negpy.kernel.system.paths import get_resource_path
-from negpy.features.retouch.logic import downsample_ir, fallback_source_offset, select_source_offset
-from negpy.features.retouch.models import HEAL_SIZE_REF, RetouchConfig
+from negpy.features.retouch.logic import downsample_ir
+from negpy.features.retouch.models import RetouchConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
@@ -2422,20 +2422,11 @@ class AppController(QObject):
     def _commit_heal_stroke(self, raw_pts: list) -> None:
         conf = self.state.config.retouch
         size = float(conf.manual_dust_size)
-        index = len(conf.manual_heal_strokes)
-
-        # Score the clone source on the source-frame preview. Brush size is a
-        # diameter at HEAL_SIZE_REF scale (same convention as the pipeline
-        # radius and the overlay cursor).
-        offset = (0.0, 0.0)
-        preview = self.state.preview_raw
-        if preview is not None:
-            scale = max(preview.shape[:2]) / float(HEAL_SIZE_REF)
-            offset = select_source_offset(preview, raw_pts, 0.5 * size * scale, index)
-        else:
-            offset = fallback_source_offset(index, size, (self.state.original_res[1], self.state.original_res[0]))
-
-        stroke = ([[rx, ry] for rx, ry in raw_pts], size, float(offset[0]), float(offset[1]))
+        # Brush size is a diameter at HEAL_SIZE_REF scale (same convention as the
+        # pipeline radius and the overlay cursor). The trailing zeroes are the retired
+        # clone-source offset: repairs are content-aware now, but the stroke keeps its
+        # four-element shape so stored edits load unchanged.
+        stroke = ([[rx, ry] for rx, ry in raw_pts], size, 0.0, 0.0)
         self.session.update_config(
             replace(
                 self.state.config,

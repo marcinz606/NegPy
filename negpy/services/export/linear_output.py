@@ -279,7 +279,7 @@ def _apply_ice(rgb: np.ndarray, ir: np.ndarray, retouch: RetouchConfig) -> np.nd
 
     from negpy.features.retouch.logic import (
         apply_ir_attenuation,
-        apply_ir_reconstruction,
+        apply_score_repair,
         downsample_ir,
         ir_defect_score,
         ir_detect_cutoff,
@@ -302,7 +302,7 @@ def _apply_ice(rgb: np.ndarray, ir: np.ndarray, retouch: RetouchConfig) -> np.nd
         return rgb
     score_det = ir_defect_score(ratio_det, ir_detect_cutoff(retouch.ir_threshold, retouch.ir_attenuation))
     out = apply_ir_attenuation(rgb, gain_det) if retouch.ir_attenuation else rgb
-    out = apply_ir_reconstruction(out, score_det)
+    out = apply_score_repair(out, score_det)
     return out
 
 

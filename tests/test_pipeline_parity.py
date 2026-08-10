@@ -628,7 +628,9 @@ class TestToningParity:
 
 
 class TestRetouchParity:
-    """CPU vs GPU parity for the dust-removal shader (detect-encoded, heal-linear)."""
+    """Defect repairs are baked into the source ahead of both engines now, so neither
+    reads RetouchConfig at all. Parity is structural — this pins that: an engine that
+    grew a retouch stage back would diverge from the other the moment it did."""
 
     @classmethod
     def setup_class(cls):
@@ -645,60 +647,25 @@ class TestRetouchParity:
         if hasattr(cls, "gpu"):
             cls.gpu.destroy_all()
 
-    def _run_and_compare(self, settings: WorkspaceConfig) -> None:
+    def _gpu(self, settings: WorkspaceConfig) -> np.ndarray:
         h, w = self.img.shape[:2]
-        scale = max(h, w) / 1024.0
-
-        cpu_result = self.cpu.process(self.img, settings, "parity_test")
-        gpu_tex, _ = self.gpu.process_to_texture(
-            self.img,
-            settings,
-            scale_factor=scale,
-            apply_layout=False,
-            readback_metrics=False,
+        tex, _ = self.gpu.process_to_texture(
+            self.img, settings, scale_factor=max(h, w) / 1024.0, apply_layout=False, readback_metrics=False
         )
-        gpu_result = self.gpu._readback_downsampled(gpu_tex)
+        return self.gpu._readback_downsampled(tex)
 
-        assert cpu_result.shape == gpu_result.shape, f"Shape mismatch: CPU {cpu_result.shape} vs GPU {gpu_result.shape}"
-        _assert_mostly_close(cpu_result, gpu_result, atol=1.5e-1, rtol=1.5e-1, max_violation_frac=0.01)
-
-    def test_no_dust(self):
-        self._run_and_compare(_make_base_settings())
-
-    def test_synthesized_auto_regions(self):
-        """Auto/IR dust rides injected 5-tuple strokes (ImageProcessor detection);
-        parity covers the shared membrane path including the per-region gate lane."""
-        s = replace(
-            _make_base_settings(),
+    def test_both_engines_are_inert_to_retouch_config(self):
+        base = _make_base_settings()
+        healed = replace(
+            base,
             retouch=RetouchConfig(
-                manual_heal_strokes=[
-                    ([[45.5 / 64.0, 30.5 / 64.0]], 80.0, 0.25, 0.0, 1.0),
-                    ([[0.3, 0.3], [40.5 / 64.0, 40.5 / 64.0]], 64.0, 0.0, 0.3, 0.0),
-                ]
+                dust_remove=True,
+                manual_dust_spots=[(45.5 / 64.0, 30.5 / 64.0, 80.0)],
+                manual_heal_strokes=[([[0.3, 0.3], [40.5 / 64.0, 40.5 / 64.0]], 64.0, 0.0, 0.3)],
             ),
         )
-        self._run_and_compare(s)
-
-    # Manual heal sizes below are large because the 64px test image renders at
-    # scale 0.0625 — radius_px = size * scale.
-
-    def test_manual_spot_stroke(self):
-        s = replace(
-            _make_base_settings(),
-            retouch=RetouchConfig(manual_heal_strokes=[([[45.5 / 64.0, 30.5 / 64.0]], 80.0, 0.25, 0.0)]),
-        )
-        self._run_and_compare(s)
-
-    def test_manual_polyline_stroke(self):
-        s = replace(
-            _make_base_settings(),
-            retouch=RetouchConfig(manual_heal_strokes=[([[0.3, 0.3], [40.5 / 64.0, 40.5 / 64.0], [0.85, 0.75]], 64.0, 0.0, 0.3)]),
-        )
-        self._run_and_compare(s)
-
-    def test_legacy_manual_spot(self):
-        s = replace(_make_base_settings(), retouch=RetouchConfig(manual_dust_spots=[(45.5 / 64.0, 30.5 / 64.0, 80.0)]))
-        self._run_and_compare(s)
+        np.testing.assert_array_equal(self.cpu.process(self.img, base, "a"), self.cpu.process(self.img, healed, "b"))
+        np.testing.assert_allclose(self._gpu(base), self._gpu(healed), atol=1e-6)
 
 
 class TestLocalParity:

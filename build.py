@@ -73,7 +73,6 @@ params = [
     "--add-data=negpy/features/exposure/shaders:negpy/features/exposure/shaders",
     "--add-data=negpy/features/geometry/shaders:negpy/features/geometry/shaders",
     "--add-data=negpy/features/toning/shaders:negpy/features/toning/shaders",
-    "--add-data=negpy/features/retouch/shaders:negpy/features/retouch/shaders",
     "--add-data=negpy/features/lab/shaders:negpy/features/lab/shaders",
     "--add-data=negpy/features/finish/shaders:negpy/features/finish/shaders",
     "--add-data=negpy/desktop/view/styles:negpy/desktop/view/styles",

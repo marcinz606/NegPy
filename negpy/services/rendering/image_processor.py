@@ -27,9 +27,10 @@ from negpy.features.flatfield.logic import apply_flatfield, flatfield_token
 from negpy.features.retouch.logic import (
     apply_hair_inpaint,
     apply_ir_attenuation,
-    apply_ir_reconstruction,
+    apply_score_repair,
     compute_dust_stats,
-    detect_luma_regions,
+    detect_luma_score,
+    film_scale,
     downsample_ir,
     hair_bake_token,
     ir_bake_token,
@@ -37,7 +38,10 @@ from negpy.features.retouch.logic import (
     ir_detect_cutoff,
     ir_detect_target,
     ir_ratio_and_gain,
-    route_ir_defects,
+    manual_bake_token,
+    repair_components,
+    route_wide_defects,
+    strokes_to_score,
 )
 from negpy.features.retouch import openice
 from negpy.features.retouch.models import IR_METHOD_OPENICE
@@ -175,6 +179,13 @@ class ImageProcessor:
         # like _hair so creative-slider drags reuse the baked buffer.
         self._ir_recon_key: Optional[tuple] = None
         self._ir_recon_value: Optional[tuple] = None
+        # Repaired source for detected specks and for painted strokes. Same keying as
+        # _hair: a creative-slider drag reuses the buffer, a new stroke invalidates it
+        # through the manual token in source_hash.
+        self._luma_key: Optional[tuple] = None
+        self._luma_value: Optional[np.ndarray] = None
+        self._manual_key: Optional[tuple] = None
+        self._manual_value: Optional[tuple] = None
         # The OpenICE method's whole result, on its own slot: the two IR methods share no
         # state, so whichever loses can be deleted without unpicking the other.
         self._ice_key: Optional[tuple] = None
@@ -216,7 +227,7 @@ class ImageProcessor:
         target = ir_detect_target(max(img.shape[:2]), APP_CONFIG.preview_render_size)
         # Key on the source shape — downsample_ir is deterministic in it, so this
         # discriminates the same as the detection shape but resolves before the
-        # downsample runs. _ir_bake and _augment_retouch both call this per render;
+        # downsample runs. _ir_bake and _detect_luma both call this per render;
         # keying on the result made the second call repay a full-res erode to build
         # a key it then hit.
         key = (source_key, ir_buffer.shape, target)
@@ -258,8 +269,8 @@ class ImageProcessor:
             self._slow_step("removing IR dust")
             score_det = ir_defect_score(ratio_det, ir_detect_cutoff(ret.ir_threshold, ret.ir_attenuation))
             out = apply_ir_attenuation(img, gain_det) if ret.ir_attenuation else img
-            out = apply_ir_reconstruction(out, score_det)
-            routed = route_ir_defects(score_det)
+            out = apply_score_repair(out, score_det)
+            routed = route_wide_defects(score_det)
             self._ir_recon_key = key
             self._ir_recon_value = (out, routed)
         return out, (ratio_det < 0.97), False, routed
@@ -298,21 +309,17 @@ class ImageProcessor:
         self._hair_value = out
         return out
 
-    def _augment_retouch(
+    def _detect_luma(
         self,
         settings: WorkspaceConfig,
         img: np.ndarray,
         source_key: str,
-    ) -> Tuple[WorkspaceConfig, Optional[Dict[str, list]], List[np.ndarray]]:
-        """Source-space luma dust detection → synthesized heal strokes on a
-        render-local config (auto flags cleared — the engines only see strokes).
-        The caller's config is untouched, so synthesized strokes never reach
-        sidecars, presets or the DB. Also returns the detected strokes for the
-        display overlay (None when detection is off) and the detection-scale hair
-        masks for inpaint. IR defects never become strokes — _ir_bake repairs them."""
+    ) -> Tuple[Optional[np.ndarray], List[np.ndarray]]:
+        """Source-space luma dust detection → ``(detection-scale score, hair masks)``.
+        IR defects never come through here — _ir_bake repairs those."""
         ret = settings.retouch
         if self._is_flat(settings) or not ret.dust_remove:
-            return settings, None, []
+            return None, []
 
         key = (
             source_key,
@@ -321,44 +328,66 @@ class ImageProcessor:
             settings.process.process_mode,
         )
         if key == self._retouch_detect_key and self._retouch_detect_value is not None:
-            detected, hair_masks = self._retouch_detect_value
-        else:
-            stats_key = (source_key, int(ret.dust_size))
-            if stats_key == self._dust_stats_key and self._dust_stats_value is not None:
-                stats = self._dust_stats_value
-            else:
-                stats = compute_dust_stats(_detection_downsample(img), ret.dust_size)
-                self._dust_stats_key = stats_key
-                self._dust_stats_value = stats
-            # Ungated: the detector already confirmed the defect, and the
-            # bright-only gate leaves half-healed fringe rings (halos) around
-            # soft-edged specks (also, E6 dust is dark — gate would veto it).
-            synth_luma, hair_luma = detect_luma_regions(
-                _detection_downsample(img), ret.dust_threshold, ret.dust_size, gate=0.0, stats=stats
-            )
-            detected = {"luma": synth_luma}
-            hair_masks = [hair_luma] if hair_luma is not None else []
-            self._retouch_detect_key = key
-            self._retouch_detect_value = (detected, hair_masks)
+            return self._retouch_detect_value
 
-        synth = list(detected["luma"])
-        budget = max(0, 512 - len(ret.manual_heal_strokes) - len(ret.manual_dust_spots))
-        if len(synth) > budget:
-            logger.warning("Retouch: healing %d of %d detected defects (region cap)", budget, len(synth))
-            synth = sorted(synth, key=lambda s: -s[1])[:budget]
-        return (
-            dc_replace(
-                settings,
-                retouch=dc_replace(
-                    ret,
-                    dust_remove=False,
-                    ir_dust_remove=False,
-                    manual_heal_strokes=synth + list(ret.manual_heal_strokes),
-                ),
-            ),
-            detected,
-            hair_masks,
-        )
+        stats_key = (source_key, int(ret.dust_size))
+        if stats_key == self._dust_stats_key and self._dust_stats_value is not None:
+            stats = self._dust_stats_value
+        else:
+            stats = compute_dust_stats(_detection_downsample(img), ret.dust_size)
+            self._dust_stats_key = stats_key
+            self._dust_stats_value = stats
+        score, hair_luma = detect_luma_score(_detection_downsample(img), ret.dust_threshold, ret.dust_size, stats=stats)
+        value = (score, [hair_luma] if hair_luma is not None else [])
+        self._retouch_detect_key = key
+        self._retouch_detect_value = value
+        return value
+
+    def _luma_bake(self, img: np.ndarray, score: Optional[np.ndarray], cache_key: str) -> np.ndarray:
+        """Detected specks repaired into the linear source, ahead of the meters (mirrors
+        _ir_bake). Cached per (source+detection params, resolution)."""
+        if score is None:
+            return img
+        ckey = (cache_key, img.shape)
+        if ckey == self._luma_key and self._luma_value is not None:
+            return self._luma_value
+        self._slow_step("repairing dust")
+        out = np.asarray(repair_components(img, score))
+        self._luma_key = ckey
+        self._luma_value = out
+        return out
+
+    def _manual_bake(self, img: np.ndarray, settings: WorkspaceConfig, source_key: str) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+        """Painted heal/scratch strokes repaired into the linear source, by the same fill the
+        IR and luma paths use (mirrors _ir_bake; the GPU re-uploads source each frame, so the
+        bake reaches both engines parity-free). Strokes hold raw-frame coordinates, so this
+        runs before geometry and needs no mapping. Returns the buffer and the mask of defects
+        too wide for the fill, for the caller to inpaint."""
+        ret = settings.retouch
+        if self._is_flat(settings) or not (ret.manual_heal_strokes or ret.manual_dust_spots):
+            return img, None
+        key = (source_key, img.shape)
+        if key == self._manual_key and self._manual_value is not None:
+            return self._manual_value
+        score = strokes_to_score(img, ret.manual_heal_strokes, ret.manual_dust_spots)
+        if score is None:
+            value: Tuple[np.ndarray, Optional[np.ndarray]] = (img, None)
+        else:
+            self._slow_step("repairing dust")
+            # floor=False: a scratch has lost emulsion and reads brighter than the film
+            # around it, so a painted repair must be free to darken as well as lighten.
+            # Film-footprint supports, not the buffer's own pixels: a painted score arrives at
+            # full buffer resolution, where the fill's fine rungs would be 3-9 px — grain scale,
+            # sitting entirely inside a defect that is 47 px wide at export. Their candidate is
+            # then the defect's own value and the repair only half-lands. The IR path never hits
+            # this because its score is measured coarse and carries the same factor here.
+            value = (
+                np.asarray(repair_components(img, score, floor=False, factor=film_scale(img.shape[:2]))),
+                route_wide_defects(score),
+            )
+        self._manual_key = key
+        self._manual_value = value
+        return value
 
     def run_pipeline(
         self,
@@ -425,6 +454,7 @@ class ImageProcessor:
             + linear_raw_token(settings.process)
             + sensor_token(settings.process)
             + ir_bake_token(settings.retouch, ir_buffer is not None)
+            + manual_bake_token(settings.retouch)
         )
 
         # Bake the IR correction before detection so meters/stats see the corrected buffer.
@@ -432,9 +462,12 @@ class ImageProcessor:
         img, ir_corrected_mask, ir_degenerate, ir_routed = self._ir_bake(img, ir_buffer, settings, base_hash)
 
         orig_ret = settings.retouch
-        settings, detected_dust, hair_masks = self._augment_retouch(settings, img, base_hash)
-        if ir_routed is not None:
-            hair_masks = hair_masks + [ir_routed]  # never mutate the cached list
+        detected_dust, hair_masks = self._detect_luma(settings, img, base_hash)
+        img = self._luma_bake(img, detected_dust, base_hash + hair_bake_token(orig_ret))
+        img, manual_routed = self._manual_bake(img, settings, base_hash)
+        extra = [m for m in (ir_routed, manual_routed) if m is not None]
+        if extra:
+            hair_masks = hair_masks + extra  # never mutate the cached list
         # Inpaint long/twisted hairs into the source (both engines see it — the token
         # invalidates the base stage when detection params change; empty otherwise).
         hair_token = hair_bake_token(orig_ret) if hair_masks else ""
@@ -456,10 +489,10 @@ class ImageProcessor:
         )
         if metrics:
             context.metrics.update(metrics)
-        # Display-overlay data: the detection set that would be healed, split by
-        # source. Absent when detection is off (so the overlay draws nothing).
+        # Display-overlay data: the detection-scale set that was repaired. Absent when
+        # detection is off (so the overlay draws nothing).
         if detected_dust is not None:
-            context.metrics["detected_dust_luma"] = detected_dust["luma"]
+            context.metrics["detected_dust_mask"] = detected_dust < 1.0
         # Overlay wash over the inpainted hairs (they emit no stroke capsules).
         if hair_masks:
             context.metrics["hair_inpaint_masks"] = hair_masks
@@ -650,7 +683,7 @@ class ImageProcessor:
         if ir_full is not None and ir_full.shape[:2] != f32_buffer.shape[:2]:
             # Defensive: no current IR carrier half-sizes (libraw ignores half_size on
             # stacked LinearRaw, NonStandardFileWrapper is excluded from fast decode), but a
-            # mismatched plane must be rescaled or CPU retouch silently skips it. Routed
+            # mismatched plane must be rescaled or the IR bake silently skips it. Routed
             # through downsample_ir, not INTER_AREA, so a sub-pixel hair keeps its dip.
             ih, iw = f32_buffer.shape[:2]
             ir_full = downsample_ir(ir_full, max(ih, iw), dims=(iw, ih))
@@ -721,12 +754,16 @@ class ImageProcessor:
                 + linear_raw_token(params.process)
                 + sensor_token(params.process)
                 + ir_bake_token(params.retouch, ir_full is not None)
+                + manual_bake_token(params.retouch)
             )
             f32_buffer, _, _, ir_routed = self._ir_bake(f32_buffer, ir_full, params, detect_key)
             orig_ret = params.retouch
-            params, _, hair_masks = self._augment_retouch(params, f32_buffer, detect_key)
-            if ir_routed is not None:
-                hair_masks = hair_masks + [ir_routed]
+            detected, hair_masks = self._detect_luma(params, f32_buffer, detect_key)
+            f32_buffer = self._luma_bake(f32_buffer, detected, detect_key + hair_bake_token(orig_ret))
+            f32_buffer, manual_routed = self._manual_bake(f32_buffer, params, detect_key)
+            extra = [m for m in (ir_routed, manual_routed) if m is not None]
+            if extra:
+                hair_masks = hair_masks + extra
             if hair_masks:
                 f32_buffer = self._hair_inpaint(f32_buffer, hair_masks, detect_key + hair_bake_token(orig_ret))
 
@@ -976,12 +1013,16 @@ class ImageProcessor:
                 + linear_raw_token(params.process)
                 + sensor_token(params.process)
                 + ir_bake_token(params.retouch, ir_full is not None)
+                + manual_bake_token(params.retouch)
             )
             f32_buffer, _, _, ir_routed = self._ir_bake(f32_buffer, ir_full, params, detect_key)
             orig_ret = params.retouch
-            params, _, hair_masks = self._augment_retouch(params, f32_buffer, detect_key)
-            if ir_routed is not None:
-                hair_masks = hair_masks + [ir_routed]
+            detected, hair_masks = self._detect_luma(params, f32_buffer, detect_key)
+            f32_buffer = self._luma_bake(f32_buffer, detected, detect_key + hair_bake_token(orig_ret))
+            f32_buffer, manual_routed = self._manual_bake(f32_buffer, params, detect_key)
+            extra = [m for m in (ir_routed, manual_routed) if m is not None]
+            if extra:
+                hair_masks = hair_masks + extra
             if hair_masks:
                 f32_buffer = self._hair_inpaint(f32_buffer, hair_masks, detect_key + hair_bake_token(orig_ret))
 

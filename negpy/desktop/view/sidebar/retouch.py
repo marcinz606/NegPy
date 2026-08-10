@@ -89,7 +89,11 @@ class RetouchSidebar(BaseSidebar):
         self.heals_subheader = section_subheader("MANUAL HEAL · 0")
         self.layout.addWidget(self.heals_subheader)
         tools_row = QHBoxLayout()
-        self.pick_dust_btn = self._tool_toggle("fa5s.eye-dropper", "Heal Tool", "Paint over dust to heal it")
+        self.pick_dust_btn = self._tool_toggle(
+            "fa5s.eye-dropper",
+            "Heal Tool",
+            "Paint over dust to heal it. The brush is a search area — only the marks inside it are repaired, clean grain is left alone",
+        )
         self.pick_scratch_btn = self._tool_toggle(
             "fa5s.pen-nib",
             "Scratch Tool",
@@ -101,6 +105,7 @@ class RetouchSidebar(BaseSidebar):
         self.layout.addLayout(tools_row)
 
         self.manual_size_slider = CompactSlider("Brush Size", 2.0, 16.0, float(conf.manual_dust_size), step=1.0, precision=1, unit=" px")
+        self.manual_size_slider.setToolTip("Diameter of the manual brush, matching the on-screen cursor")
         self.layout.addWidget(self.manual_size_slider)
 
         actions_row = QHBoxLayout()

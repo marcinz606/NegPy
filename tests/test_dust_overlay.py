@@ -17,16 +17,13 @@ def _speck_image():
     return img
 
 
-def test_augment_retouch_returns_luma_strokes():
+def test_detect_luma_returns_a_defect_score():
     service = ImageProcessor()
     cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=True, dust_threshold=0.5, dust_size=4))
-    settings, detected, _ = service._augment_retouch(cfg, _speck_image(), "s")
+    score, hairs = service._detect_luma(cfg, _speck_image(), "s")
 
-    assert detected is not None and set(detected) == {"luma"}
-    assert len(detected["luma"]) >= 1
-    # The merged strokes still reach the render-local config (auto flag cleared).
-    assert settings.retouch.dust_remove is False
-    assert len(settings.retouch.manual_heal_strokes) >= 1
+    assert score is not None and hairs == []
+    assert score[80:83, 80:83].max() < 1.0
 
 
 def test_ir_bake_repairs_defects_in_place():
@@ -45,16 +42,15 @@ def test_ir_bake_repairs_defects_in_place():
     assert corrected_mask is not None and corrected_mask[40, 40]
     assert float(np.asarray(baked)[40, 40].min()) > 0.4, "the speck is rebuilt in the bake"
 
-    _, detected, _ = service._augment_retouch(cfg, baked, "s")
-    assert detected is None, "IR-only config synthesizes no strokes"
+    detected, _ = service._detect_luma(cfg, baked, "s")
+    assert detected is None, "IR-only config detects nothing on the luma path"
 
 
-def test_augment_retouch_returns_none_when_detection_off():
+def test_detect_luma_returns_none_when_detection_off():
     service = ImageProcessor()
     cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=False, ir_dust_remove=False))
-    settings, detected, hair = service._augment_retouch(cfg, _speck_image(), "s")
+    detected, hair = service._detect_luma(cfg, _speck_image(), "s")
     assert detected is None and hair == []
-    assert settings is cfg  # untouched
 
 
 def test_run_pipeline_surfaces_detected_dust_to_metrics(monkeypatch):
@@ -63,12 +59,11 @@ def test_run_pipeline_surfaces_detected_dust_to_metrics(monkeypatch):
 
     cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=True, dust_threshold=0.5, dust_size=4))
     _, metrics = service.run_pipeline(_speck_image(), cfg, "h", render_size_ref=512, prefer_gpu=False, readback_metrics=False)
-    assert len(metrics["detected_dust_luma"]) >= 1
+    assert metrics["detected_dust_mask"].any()
 
     cfg_off = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=False))
     _, metrics_off = service.run_pipeline(_speck_image(), cfg_off, "h2", render_size_ref=512, prefer_gpu=False, readback_metrics=False)
-    assert "detected_dust_luma" not in metrics_off
-    assert "detected_dust_ir" not in metrics_off
+    assert "detected_dust_mask" not in metrics_off
 
 
 def _identity_uv(h, w):
@@ -111,3 +106,33 @@ def test_ir_layer_none_without_ir_or_uv():
     assert overlay._ir_layer_qimage() is None  # no preview_ir
     overlay.state.preview_ir = np.zeros((8, 8), np.float32)
     assert overlay._ir_layer_qimage() is None  # no uv_grid in metrics
+
+
+def test_repaired_masks_wash_in_their_source_colour():
+    """Every defect source arrives as a mask now, so colour is what tells them apart:
+    green for optically detected specks, magenta for IR and inpainted defects."""
+    from negpy.desktop.view.canvas.overlay import _DUST_MARK_IR, _DUST_MARK_LUMA
+
+    overlay = CanvasOverlay(AppState())
+    h, w = 12, 16
+    luma = np.zeros((h, w), np.uint8)
+    luma[4:6, 4:6] = 1
+    ir = np.zeros((h, w), np.uint8)
+    ir[8:10, 10:12] = 1
+    with overlay.state.metrics_lock:
+        overlay.state.last_metrics["uv_grid"] = _identity_uv(h, w)
+        overlay.state.last_metrics["detected_dust_mask"] = luma.astype(bool)
+        overlay.state.last_metrics["ir_corrected_mask"] = ir.astype(bool)
+
+    masks = overlay._corrected_masks()
+    assert [c.rgb() for _m, c in masks] == [_DUST_MARK_LUMA.rgb(), _DUST_MARK_IR.rgb()]
+
+    img = overlay._mask_wash_qimage(*masks[0])
+    assert img is not None
+    on, off = img.pixelColor(4, 4), img.pixelColor(0, 0)
+    assert on.alpha() > 0 and off.alpha() == 0, "wash must cover the mask and nothing else"
+    assert on.green() > on.red(), "optical detections wash green"
+
+    ir_img = overlay._mask_wash_qimage(*masks[1])
+    ir_on = ir_img.pixelColor(10, 8)
+    assert ir_on.alpha() > 0 and ir_on.red() > ir_on.green(), "IR corrections wash magenta"

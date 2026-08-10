@@ -126,55 +126,6 @@ class TestGPUEngine(unittest.TestCase):
     def _engine_buffers_count(self):
         return self.engine._buffers
 
-    def test_gpu_tiled_synthesized_region_applied(self):
-        """Auto/IR dust rides synthesized 5-tuple strokes (injected upstream);
-        the tiled path must apply them like any manual heal."""
-        from negpy.features.retouch.models import RetouchConfig
-        from dataclasses import replace
-
-        h, w = 128, 128
-        img = np.full((h, w, 3), 0.5, dtype=np.float32)
-        img[62:67, 62:67] = 0.95
-
-        synth = ([[0.5, 0.5]], 150.0, 0.15625, 0.0, 0.0)  # ungated, ~6px radius, +20px source
-        base = WorkspaceConfig()
-        with_region = replace(base, retouch=RetouchConfig(manual_heal_strokes=[synth]))
-
-        res_with, _ = self.engine._process_tiled(img, with_region, scale_factor=1.0)
-        res_without, _ = self.engine._process_tiled(img, base, scale_factor=1.0)
-
-        diff_max = float(np.abs(res_with - res_without).max())
-        self.assertGreater(diff_max, 0.05, "Tiled export ignored the synthesized heal region")
-
-    def test_gpu_tiled_manual_stroke_matches_untiled(self):
-        """A heal stroke crossing a tile boundary must render like the untiled path —
-        the dynamic tile halo has to cover the stroke radius + source offset."""
-        from negpy.features.retouch.models import RetouchConfig
-        from dataclasses import replace
-
-        h, w = 128, 2200  # spans the TILE_SIZE=2048 boundary
-        rng = np.random.default_rng(1)
-        img = (rng.random((h, w, 3), dtype=np.float32) * 0.05 + 0.45).astype(np.float32)
-        img[60:66, 1980:2120] = 0.95  # scratch across the boundary
-
-        stroke = ([[1980.0 / w, 63.0 / h], [2120.0 / w, 63.0 / h]], 8.0, 0.0, 0.3)
-        base = WorkspaceConfig()
-        settings = replace(
-            base,
-            retouch=RetouchConfig(manual_heal_strokes=[stroke]),
-            # Native output size so the tiled result is comparable 1:1 with the untiled texture.
-            export=replace(base.export, export_resolution_mode="original"),
-        )
-
-        res_tiled, _ = self.engine._process_tiled(img, settings, scale_factor=1.0)
-        tex, _ = self.engine.process_to_texture(img, settings, scale_factor=1.0, apply_layout=False)
-        res_direct = self.engine._readback_downsampled(tex)
-
-        self.assertEqual(res_tiled.shape, res_direct.shape)
-        band = np.s_[40:90, 1900:2200]
-        diff = float(np.abs(res_tiled[band] - res_direct[band]).max())
-        self.assertLess(diff, 0.05, "Tiled heal diverges from untiled across the tile boundary")
-
     def test_gpu_tiled_crosstalk_matches_untiled(self):
         """Tiled export metered bounds from the raw image, skipping the crosstalk
         unmix the untiled/preview path always applies — diverged when Separation > 0."""
@@ -261,41 +212,20 @@ class TestGPUEngine(unittest.TestCase):
         self.assertGreater(diff, 0.05, "Tiled export ignored freehand analysis_rect — output identical either way")
 
     def test_gpu_tiled_export_stale_auto_flags_are_inert(self):
-        """dust_remove/ir_dust_remove reaching the engine un-augmented (direct calls,
-        old sessions) must be inert no-ops, not crashes — detection lives upstream."""
+        """Every retouch field reaching the engine (direct calls, old sessions) must be an
+        inert no-op, not a crash — detection and repair both live upstream of it now."""
         from negpy.features.retouch.models import RetouchConfig
         from dataclasses import replace
 
         img = np.random.rand(96, 96, 3).astype(np.float32)
-        settings = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=True, ir_dust_remove=True))
+        settings = replace(
+            WorkspaceConfig(),
+            retouch=RetouchConfig(dust_remove=True, ir_dust_remove=True, manual_heal_strokes=[([[0.5, 0.5]], 60.0, 0.0, 0.0)]),
+        )
         settings_off = replace(WorkspaceConfig(), retouch=RetouchConfig())
         res, _ = self.engine._process_tiled(img, settings, scale_factor=1.0)
         res_off, _ = self.engine._process_tiled(img, settings_off, scale_factor=1.0)
         np.testing.assert_allclose(res, res_off, atol=1e-6)
-
-    def test_gpu_tiled_export_respects_geometry_for_synthesized_region(self):
-        """Synthesized strokes are source-normalized; the tiled path must map them
-        through the same geometry as the RGB tiles (rotated exports heal in place)."""
-        from negpy.features.retouch.models import RetouchConfig
-        from negpy.features.geometry.models import GeometryConfig
-        from dataclasses import replace
-
-        h, w = 96, 128
-        rng = np.random.default_rng(0)
-        img = rng.random((h, w, 3), dtype=np.float32) * 0.3 + 0.4
-        img[30:34, 30:34] = 0.95
-
-        synth = ([[32.0 / w, 32.0 / h]], 2.0 * 6.0 * 1600.0 / w, 0.15, 0.0, 0.0)
-        settings = replace(
-            WorkspaceConfig(),
-            retouch=RetouchConfig(manual_heal_strokes=[synth]),
-            geometry=GeometryConfig(rotation=1),
-        )
-        settings_off = replace(settings, retouch=RetouchConfig())
-
-        res_on, _ = self.engine._process_tiled(img, settings, scale_factor=1.0)
-        res_off, _ = self.engine._process_tiled(img, settings_off, scale_factor=1.0)
-        self.assertGreater(float(np.abs(res_on - res_off).max()), 0.05)
 
     def test_histogram_unaffected_by_border(self):
         """Border pixels must not skew the histogram — metrics are computed on content only."""
