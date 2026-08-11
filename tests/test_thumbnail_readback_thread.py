@@ -44,6 +44,8 @@ class TestControllerDoesNotReadBack(unittest.TestCase):
             display_transform_params=lambda splash=False: ("Adobe RGB", None, None),
             thumbnail_update_requested=MagicMock(),
         )
+        # Attributing a render to its own frame is the caller's first step.
+        stub._asset_for_render = lambda m: AppController._asset_for_render(stub, m)
         return AppController._update_thumbnail_from_state, stub
 
     def test_gpu_texture_is_not_read_back_on_the_ui_thread(self):

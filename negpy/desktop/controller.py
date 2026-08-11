@@ -4246,14 +4246,35 @@ class AppController(QObject):
         self.export_finished.emit(elapsed, self._export_failures)
         self._update_thumbnail_from_state()
 
+    def _asset_for_render(self, metrics: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """The asset a finished render belongs to — not whichever one is selected now.
+
+        A render carries the hash it was started for, and it can land after the user has
+        moved on: select a frame, start its render, click the next one before the decode
+        finishes. Keying those pixels by the current selection files one frame's picture
+        under another frame's thumbnail, which then shows the wrong image until that frame
+        is clicked and re-rendered. The render memo already guards this way.
+
+        Falls back to the selection when the render carries no hash, which is the
+        active_file_changing caller — there the outgoing file is still selected.
+        """
+        source_hash = metrics.get("source_hash")
+        files = self.state.uploaded_files
+        if source_hash:
+            for asset in files:
+                if asset.get("hash") == source_hash:
+                    return asset
+        idx = self.state.selected_file_idx
+        return files[idx] if 0 <= idx < len(files) else None
+
     def _update_thumbnail_from_state(self, persist: bool = True) -> None:
         if not self.state.current_file_path or not self.state.current_file_hash:
             return
-        idx = self.state.selected_file_idx
-        if not (0 <= idx < len(self.state.uploaded_files)):
-            return
         with self.state.metrics_lock:
             metrics = dict(self.state.last_metrics)
+        asset = self._asset_for_render(metrics)
+        if asset is None:
+            return
         buffer = metrics.get("base_positive")
 
         # The render worker supplies host pixels; reading back here would put a
@@ -4273,7 +4294,7 @@ class AppController(QObject):
         # instead of the uninverted source merge it would decode itself.
         self.thumbnail_update_requested.emit(
             ThumbnailUpdateTask(
-                file_hash=asset_thumbnail_key(self.state.uploaded_files[idx]),
+                file_hash=asset_thumbnail_key(asset),
                 buffer=buffer,
                 color_space=display_cs,
                 monitor_icc_bytes=monitor_bytes,
