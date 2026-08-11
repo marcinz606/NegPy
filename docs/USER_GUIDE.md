@@ -152,7 +152,9 @@ The merged frame inherits the **film process** of the exposures it came from, so
 
 It is **named after the first frame in filename order**, with an `-HDR` suffix — a bracket of `_DSC1715`…`_DSC1719` exports as `_DSC1715-HDR.jpg`. Not the reference frame, whose identity depends on picture content; and the suffix means a merge never writes over the export of the single frame it is named after.
 
-Merging is refused on frames that are already merged, stitched, or RGB-scan triplets: each of those is its own way of building one frame from several files, and combining them is not supported.
+**Merging is for transparencies.** The action appears on E-6 frames only. A colour negative holds about 5-6 stops between its base and its densest highlight and an ordinary black-and-white negative nearer 4 — both comfortably inside one capture, so a bracket buys nothing; a transparency runs to 10-12, which is what the merge exists for. On black-and-white the entry is shown but disabled, because reversal-processed monochrome (Scala, dr5, Fomapan R) really is a transparency and does have the range — it is simply not wired up yet.
+
+Merging is also refused on frames that are already merged, stitched, or RGB-scan triplets: each of those is its own way of building one frame from several files, and combining them is not supported.
 
 Narrow the panel and the toolbar buttons that no longer fit move into a **»** menu at its right edge, so the panel can be squeezed down to give the image more room without losing any tool.
 

@@ -56,6 +56,7 @@ from negpy.features.exposure.transfer import (
     zone_geometry,
 )
 from negpy.features.process.capture_color import camera_to_working_matrix
+from negpy.features.process.logic import effective_linear_raw
 from negpy.features.process.models import ProcessMode, per_channel_point_offsets
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUBuffer, GPUTexture
@@ -1223,7 +1224,9 @@ class GPUEngine:
         # (the shader only reads them on the transfer path).
         # Linear RAW decodes without white balance; fold the as-shot multipliers back
         # in so the render does not depend on which decode produced the buffer.
-        cam = camera_to_working_matrix(cam_xyz, camera_wb if settings.process.linear_raw else None)
+        cam = camera_to_working_matrix(
+            cam_xyz, camera_wb if effective_linear_raw(settings.process, settings.exposure.render_intent) else None
+        )
         if cam is None:
             cam = np.eye(3, dtype=np.float32)
 

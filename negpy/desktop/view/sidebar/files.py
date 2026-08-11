@@ -1076,7 +1076,7 @@ class FileBrowser(QWidget):
         if multi:
             menu.addSeparator()
             menu.addAction("Stitch selected frames").triggered.connect(lambda: self.controller.request_stitch_selected())
-            menu.addAction("Merge exposures (HDR)").triggered.connect(lambda: self.controller.request_hdr_merge_selected())
+            self._add_hdr_merge_action(menu, state)
         else:
             menu.addSeparator()
             menu.addAction("Edit RGB Triplet…").triggered.connect(self._on_edit_triplet)
@@ -1090,6 +1090,33 @@ class FileBrowser(QWidget):
         unload_label = "Unload Selected" if multi else "Unload"
         menu.addAction(unload_label).triggered.connect(self._on_remove_from_menu)
         return menu
+
+    def _add_hdr_merge_action(self, menu, state) -> None:
+        """Merging is for transparencies, so the action follows the film process.
+
+        A colour negative holds about 5-6 stops between base and Dmax, and an ordinary
+        black-and-white negative nearer 4 — both inside a single capture, so a bracket buys
+        nothing. A transparency runs to 10-12, which is what the merge exists for.
+
+        Hidden on C-41, disabled with a reason on B&W: reversal-processed monochrome
+        (Scala, dr5, Fomapan R) *is* a transparency and does have the range, it is simply
+        not wired yet, and a missing menu entry would leave nobody anything to ask about.
+        """
+        from negpy.features.process.models import ProcessMode
+
+        idx = state.selected_file_idx
+        assets = state.uploaded_files
+        mode = str(self.controller.state.config.process.process_mode)
+        if 0 <= idx < len(assets):
+            mode = str(assets[idx].get("process_mode") or mode)
+        if mode == ProcessMode.C41:
+            return
+        act = menu.addAction("Merge exposures (HDR)")
+        if mode == ProcessMode.BW:
+            act.setEnabled(False)
+            act.setToolTip("Merging is for transparencies; black-and-white reversal film is not supported yet")
+            return
+        act.triggered.connect(lambda: self.controller.request_hdr_merge_selected())
 
     def _add_hdr_anchor_menu(self, menu, asset: dict) -> None:
         """ "Render exposure": which frame of the bracket the merged result opens at.

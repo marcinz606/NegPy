@@ -13,6 +13,7 @@ from negpy.features.flatfield.logic import apply_flatfield
 from negpy.features.hdr.models import HdrConfig, hdr_active
 from negpy.features.geometry.batch_autocrop import detect_crop_candidate, resolve_roll_crops
 from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix
+from negpy.features.process.logic import effective_linear_raw
 from negpy.infrastructure.loaders.helpers import unsupported_raw_reason
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.stitch.models import StitchConfig, stitch_active
@@ -824,7 +825,7 @@ class BatchAutoCropWorker(QObject):
         config = frame.config
         rgbscan = config.rgbscan
         common = {
-            "use_camera_wb": not config.process.linear_raw,
+            "use_camera_wb": not effective_linear_raw(config.process, config.exposure.render_intent),
             "full_resolution": False,
             "file_hash": base_hash(file_info.get("hash")),  # halves share one decode
         }
@@ -996,7 +997,10 @@ class NormalizationWorker(QObject):
                     process_mode = params.process.process_mode if params else DEFAULT_WORKSPACE_CONFIG.process.process_mode
                     e6_normalize = params.process.e6_normalize if params else DEFAULT_WORKSPACE_CONFIG.process.e6_normalize
                     geometry = params.geometry if params else DEFAULT_WORKSPACE_CONFIG.geometry
-                    linear_raw = params.process.linear_raw if params else DEFAULT_WORKSPACE_CONFIG.process.linear_raw
+                    # effective_, not the stored flag: the transfer path decodes neutral whatever
+                    # the flag says, and the comment below is the reason this has to match it.
+                    _an = params if params else DEFAULT_WORKSPACE_CONFIG
+                    linear_raw = effective_linear_raw(_an.process, _an.exposure.render_intent)
 
                     # Use to_thread for blocking CPU/IO bound load and analysis.
                     # Decode with the SAME WB the render path uses (use_camera_wb =

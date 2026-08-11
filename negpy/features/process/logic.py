@@ -12,10 +12,42 @@ from negpy.features.exposure.normalization import get_analysis_crop
 from negpy.features.process.models import ProcessConfig, ProcessMode
 
 
-def linear_raw_token(process: ProcessConfig) -> str:
+def effective_linear_raw(process: ProcessConfig, render_intent: Optional[str] = None) -> bool:
+    """Whether the decode skips the camera's as-shot white balance.
+
+    True when the user asked for Linear RAW, and **always** on the transparency transfer
+    path. That render applies the camera's own matrix, which folds the as-shot multipliers
+    back in itself (`camera_to_working_matrix`), and the Process panel already documents
+    Linear RAW as inert there — but the decode was reading the stored flag regardless, so a
+    hidden, stale toggle silently decided whether white balance was applied.
+
+    Every site that decides `use_camera_wb` must ask this one question. The decode and the
+    matrix have to agree: apply white balance at both, or at neither. Splitting them tints
+    the render by the raw green-to-red ratio, which is roughly 2:1.
+
+    It matters most to a bracket. `use_camera_wb` applies each *file's* own multipliers, and
+    a camera left on auto white balance records different ones per frame — on a real
+    8-frame slide bracket the darkest frame's B/G came out 1.41 against ~1.8-2.1 for the
+    rest. Frames then sit on different scales, and the exposure ratios solved between them
+    absorb the difference: that bracket's shortest link solved to 0.75 EV instead of 1.00,
+    which prints as contour rings around a blown highlight.
+    """
+    from negpy.features.exposure.transfer import is_transparency_transfer
+
+    if process.linear_raw:
+        return True
+    return is_transparency_transfer(process.process_mode, process.e6_normalize, render_intent)
+
+
+def linear_raw_token(process: ProcessConfig, render_intent: Optional[str] = None) -> str:
     """Decode-mode identity, folded into the render source hash so the auto-meter
-    re-runs when Linear RAW toggles (the decode changes the source pixels)."""
-    return f"|lr:{int(process.linear_raw)}"
+    re-runs when Linear RAW toggles (the decode changes the source pixels).
+
+    Keyed on the *effective* value: the transfer path decodes without white balance
+    whatever the stored flag says, so keying on the flag alone would serve a buffer decoded
+    the other way.
+    """
+    return f"|lr:{int(effective_linear_raw(process, render_intent))}"
 
 
 # Tuned against real sample scans; see tests/test_process_detect.py.

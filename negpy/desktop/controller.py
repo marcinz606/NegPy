@@ -44,6 +44,7 @@ from negpy.desktop.workers.library import LibrarySearchTask, LibrarySearchWorker
 from negpy.desktop.workers.hdr import HdrTask, HdrWorker
 from negpy.desktop.workers.stitch import StitchTask, StitchWorker
 from negpy.features.hdr.models import hdr_frame_paths, hdr_hash, hdr_name, hdr_stem
+from negpy.features.process.logic import effective_linear_raw
 from negpy.features.stitch.models import stitch_hash, stitch_name
 from negpy.desktop.workers.capture_worker import (
     CalibrationRequest,
@@ -1393,7 +1394,7 @@ class AppController(QObject):
             PreviewLoadTask(
                 file_path=file_path,
                 workspace_color_space=self.state.workspace_color_space,
-                use_camera_wb=not self.state.config.process.linear_raw,
+                use_camera_wb=not effective_linear_raw(self.state.config.process, self.state.config.exposure.render_intent),
                 full_resolution=self.state.hq_preview,
                 # The half suffix distinguishes the two halves' preview caches now
                 # that the slice happens pre-downsample (each half is its own buffer).
@@ -1503,7 +1504,10 @@ class AppController(QObject):
                 # linear_raw, not the current file's. Otherwise the warm buffer lands under
                 # the wrong key and navigation re-decodes anyway.
                 saved = self.session.repo.load_file_settings(h) if h else None
-                linear_raw = saved.process.linear_raw if saved else False
+                # effective_, so the key matches what load_file will decode. A neighbour with no
+                # saved edit still resolves False here: its mode is not known without hydrating it,
+                # which is the same miss as before rather than a new one.
+                linear_raw = effective_linear_raw(saved.process, saved.exposure.render_intent) if saved else False
                 neighbour_half = self._half_slice_for_asset(path, h)
                 self.preview_load_requested.emit(
                     PreviewLoadTask(

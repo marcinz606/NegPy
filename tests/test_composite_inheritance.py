@@ -472,3 +472,49 @@ class TestStitchGetsTheSameTreatment(unittest.TestCase):
         self.assertTrue(cfg.stitch.stitch_enabled, "reset un-stitched the composite")
         self.assertEqual(cfg.stitch.stitch_paths, ("/x/right.nef",))
         self.assertEqual(cfg.process.process_mode, ProcessMode.E6)
+
+
+class TestMergeIsOfferedOnlyForTransparencies:
+    """A bracket buys nothing on a negative.
+
+    Colour negative holds ~5-6 stops between base and Dmax and an ordinary black-and-white
+    negative nearer 4, both inside one capture; a transparency runs to 10-12, which is what
+    the merge exists for. Hidden on C-41, disabled with a reason on B&W, because reversal
+    monochrome (Scala, dr5, Fomapan R) really is a transparency and is simply not wired up.
+    """
+
+    def _menu_labels(self, mode):
+        from unittest.mock import MagicMock
+
+        from negpy.desktop.view.sidebar.files import FileBrowser
+
+        browser = MagicMock()
+        state = MagicMock()
+        state.selected_file_idx = 0
+        state.uploaded_files = [{"path": "/x/a.nef", "process_mode": mode}]
+        menu = MagicMock()
+        actions = []
+
+        def add_action(label):
+            act = MagicMock()
+            act.label = label
+            actions.append(act)
+            return act
+
+        menu.addAction.side_effect = add_action
+        FileBrowser._add_hdr_merge_action(browser, menu, state)
+        return actions
+
+    def test_hidden_for_colour_negative(self):
+        assert self._menu_labels("C41") == []
+
+    def test_present_for_a_slide(self):
+        acts = self._menu_labels("E-6")
+        assert [a.label for a in acts] == ["Merge exposures (HDR)"]
+        acts[0].setEnabled.assert_not_called()
+
+    def test_disabled_with_a_reason_for_black_and_white(self):
+        acts = self._menu_labels("B&W")
+        assert [a.label for a in acts] == ["Merge exposures (HDR)"]
+        acts[0].setEnabled.assert_called_once_with(False)
+        assert "reversal" in acts[0].setToolTip.call_args.args[0]

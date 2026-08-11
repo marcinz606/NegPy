@@ -12,6 +12,7 @@ field served the previous buffer for a setting the user had just changed.
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.flatfield.logic import flatfield_token
 from negpy.features.hdr.models import hdr_token
+from negpy.features.process.logic import effective_linear_raw
 from negpy.features.rgbscan.logic import rgbscan_token
 from negpy.features.stitch.models import stitch_token
 
@@ -20,7 +21,7 @@ def source_token(config: WorkspaceConfig) -> str:
     """What the decode reads, folded into one string."""
     parts = [
         # Decides use_camera_wb, so it changes the decoded numbers themselves.
-        f"|lr{int(config.process.linear_raw)}",
+        f"|lr{int(effective_linear_raw(config.process, config.exposure.render_intent))}",
         rgbscan_token(config.rgbscan),
         stitch_token(config.stitch),
         hdr_token(config.hdr),
