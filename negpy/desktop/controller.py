@@ -4489,13 +4489,18 @@ class AppController(QObject):
         active_file_changing caller — there the outgoing file is still selected.
         """
         source_hash = metrics.get("source_hash")
-        files = self.state.uploaded_files
-        if source_hash:
-            for asset in files:
-                if asset.get("hash") == source_hash:
-                    return asset
-        idx = self.state.selected_file_idx
-        return files[idx] if 0 <= idx < len(files) else None
+        if not source_hash:
+            return None
+        for asset in self.state.uploaded_files:
+            if asset.get("hash") == source_hash:
+                return asset
+        # No fallback to the selected frame. This runs on file switch, on save and after an
+        # export as well as from the render itself, so last_metrics can hold a render whose
+        # frame has since left the list — a different folder was opened, or a merge swapped
+        # frames for a composite. Guessing files that buffer under whatever is selected now,
+        # and persists it, so one frame wears another's picture until it is rendered again.
+        # A skipped refresh costs nothing; the next render of that frame writes it.
+        return None
 
     def _update_thumbnail_from_state(self, persist: bool = True) -> None:
         if not self.state.current_file_path or not self.state.current_file_hash:

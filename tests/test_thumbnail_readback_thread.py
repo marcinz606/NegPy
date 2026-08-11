@@ -50,7 +50,7 @@ class TestControllerDoesNotReadBack(unittest.TestCase):
 
     def test_gpu_texture_is_not_read_back_on_the_ui_thread(self):
         tex = _FakeTexture(np.zeros((8, 8, 4), dtype=np.float32))
-        fn, stub = self._controller_stub({"base_positive": tex})
+        fn, stub = self._controller_stub({"base_positive": tex, "source_hash": "h1"})
         with patch("negpy.desktop.controller.GPUTexture", _FakeTexture):
             fn(stub)
         self.assertEqual(tex.readbacks, 0, "the UI thread must not read back the render texture")
@@ -59,7 +59,7 @@ class TestControllerDoesNotReadBack(unittest.TestCase):
     def test_uses_the_host_copy_the_worker_attached(self):
         tex = _FakeTexture(np.zeros((8, 8, 4), dtype=np.float32))
         host = np.full((8, 8, 3), 0.25, dtype=np.float32)
-        fn, stub = self._controller_stub({"base_positive": tex, "thumbnail_source": host})
+        fn, stub = self._controller_stub({"base_positive": tex, "thumbnail_source": host, "source_hash": "h1"})
         with patch("negpy.desktop.controller.GPUTexture", _FakeTexture):
             fn(stub)
         self.assertEqual(tex.readbacks, 0)

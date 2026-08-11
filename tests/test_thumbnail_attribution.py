@@ -57,15 +57,19 @@ class Attribution(unittest.TestCase):
 
         self.assertEqual(_emitted_key(controller), asset_thumbnail_key(B))
 
-    def test_without_a_source_hash_it_falls_back_to_the_selection(self):
-        """The active_file_changing caller snapshots the outgoing frame, which is still
-        the selected one, so the selection is the right answer there."""
+    def test_without_a_source_hash_nothing_is_written(self):
+        """Originally this fell back to the selection, on the grounds that the
+        active_file_changing caller snapshots the outgoing frame, which is still selected.
+        That cannot tell "outgoing frame still selected" from "a different folder is open
+        now", and the second case files one frame's picture under another's — found on
+        disk, correlating 0.10 with its own file. The render worker always sets
+        source_hash, so refusing here costs nothing real."""
         metrics = {"base_positive": np.zeros((4, 4, 3), np.float32)}
         controller = _controller(selected_idx=0, metrics=metrics)
 
         AppController._update_thumbnail_from_state(controller)
 
-        self.assertEqual(_emitted_key(controller), asset_thumbnail_key(A))
+        controller.thumbnail_update_requested.emit.assert_not_called()
 
     def test_a_render_of_an_unloaded_frame_updates_nothing(self):
         """Its asset is gone from the session — better to skip than to key by the

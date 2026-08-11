@@ -260,7 +260,7 @@ class TestAppController(unittest.TestCase):
         state.config = dc_replace(
             state.config, rgbscan=RgbScanConfig(enabled=True, green_path="/tmp/_DSC1317.NEF", blue_path="/tmp/_DSC1318.NEF")
         )
-        state.last_metrics = {"base_positive": np.zeros((2, 2, 3), dtype=np.float32)}
+        state.last_metrics = {"base_positive": np.zeros((2, 2, 3), dtype=np.float32), "source_hash": "h1"}
 
         captured = {}
         self.controller.thumbnail_update_requested.connect(lambda task: captured.setdefault("task", task))
@@ -1957,7 +1957,7 @@ class TestDisplayTransformParams(unittest.TestCase):
         state.selected_file_idx = 0
         state.current_file_path = "/tmp/frame.cr2"
         state.current_file_hash = "hash-1"
-        state.last_metrics = {"base_positive": np.zeros((4, 4, 3), dtype=np.float32)}
+        state.last_metrics = {"base_positive": np.zeros((4, 4, 3), dtype=np.float32), "source_hash": "hash-1"}
 
         emitted = []
         # Drop the real worker connection first: emitting would otherwise hand the
