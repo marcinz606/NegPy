@@ -482,8 +482,8 @@ While Cyanotype is selected, every chemical toner greys out in the Toning panel 
 *   **Sensitiser** (Classic or New, default Classic): *Classic (Herschel)* is the original ammonium ferric citrate mix. It loses a lot of its pigment in the wash, so it tops out at a fairly light blue and keeps a strong green stain in the highlights. *New (Ware)* is the ferric oxalate formula: it holds far more pigment through the wash, so it goes much deeper and cleaner.
 *   **Exposure** (-2 to 4 stops, default 0): time under the UV source. More light drives more of the scale into blue; less leaves the print pale and high-key.
 *   **Exposure Scale** (0.8 to 2.8 log D, default 1.4): the negative density range the sensitiser can print — the contrast control. Ware measures about 1.0 to 1.2 for the traditional formula against 2.4 for the new one, and his Simple Cyanotype comes in variants at 1.8, 2.3 and 2.7. A short scale gives a contrastier print that clips both ends.
-*   **Bleach** (0.0 to 1.0, default 0): washing soda. Strips Prussian blue out of the print, highlights first. Take it far enough and only the deepest shadows keep any pigment.
-*   **Tannin** (0.0 to 1.0, default 0): tea, coffee or tannic acid. Re-develops the bleached iron as a brown iron tannate, which covers more than the pigment it replaced, so the print goes browner and a little deeper. Bleach first for a full brown; use Tannin alone for a split blue-brown.
+*   **Bleach** (0.0 to 0.5, default 0): washing soda. Strips Prussian blue out of the print, highlights first. Take it far enough and only the deepest shadows keep any pigment.
+*   **Tannin** (0.0 to 0.5, default 0): tea, coffee or tannic acid. Re-develops the bleached iron as a brown iron tannate, which covers more than the pigment it replaced, so the print goes browner and a little deeper. Bleach first for a full brown; use Tannin alone for a split blue-brown.
 
 ---
 
