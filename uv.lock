@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.13"
 
 [[package]]
@@ -384,7 +384,7 @@ dev = [
     { name = "ruff", specifier = "==0.14.10" },
     { name = "ty", specifier = ">=0.0.26" },
 ]
-pieusb = [{ name = "pieusb", specifier = ">=0.3.2" }]
+pieusb = [{ name = "pieusb", specifier = ">=0.3.7" }]
 scanner = [{ name = "python-sane", specifier = ">=2.9" }]
 
 [[package]]
@@ -499,16 +499,16 @@ wheels = [
 
 [[package]]
 name = "pieusb"
-version = "0.3.2"
+version = "0.3.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "libusb-package" },
     { name = "numpy" },
     { name = "pyusb" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d5/1e/70da3b080b141201deabf3353716ea4c8e645444248d230bbcc1127066f3/pieusb-0.3.2.tar.gz", hash = "sha256:aa71bc9b04cb28537e8881086fae35e6fad070621e261d1a59c10a985257ab0d", size = 60581, upload-time = "2026-08-03T12:37:46.188Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1a/67/dd6caa659bb2a35014c80cd3f6e53c185721732c8a650e0c3bbc034decef/pieusb-0.3.7.tar.gz", hash = "sha256:d32eb76eb8ec8259b1941e35baa93639668d068627888ae90f7c0f08954cb879", size = 81048, upload-time = "2026-08-11T20:36:32.328Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/15/c0/7196dee7f3337595b37f45a2788c69681d98fd39e12aef07a4aaf3810e24/pieusb-0.3.2-py3-none-any.whl", hash = "sha256:74c1fba821177e69d8900a3a67379bd597cbb98b7368955f494863f632012511", size = 49761, upload-time = "2026-08-03T12:37:45.106Z" },
+    { url = "https://files.pythonhosted.org/packages/dd/46/8ae130175f50a753b2b013ea62edf009fc0717ee084883a0cfc60fadaa11/pieusb-0.3.7-py3-none-any.whl", hash = "sha256:4c0a0501406dedc7d36d37b1373cc7ec43250c4cc46d7f3688f01ae0cdbf36ca", size = 46272, upload-time = "2026-08-11T20:36:31.149Z" },
 ]
 
 [[package]]
