@@ -49,13 +49,22 @@ def _filter_qt_messages(mode, context, message: str) -> None:
 
 class _AppStyle(QProxyStyle):
     """Fusion with a longer tooltip hover delay — the default 700 ms pops tooltips
-    the moment the cursor crosses a toolbar, which reads as noise."""
+    the moment the cursor crosses a toolbar, which reads as noise — and no mnemonic
+    underlines on macOS, where they mark a key that does nothing."""
 
     _TOOLTIP_WAKEUP_MS = 1400
 
     def styleHint(self, hint, option=None, widget=None, returnData=None):
         if hint == QStyle.StyleHint.SH_ToolTip_WakeUpDelay:
             return self._TOOLTIP_WAKEUP_MS
+        if hint == QStyle.StyleHint.SH_UnderlineShortcut and sys.platform == "darwin":
+            # Qt's own standard-button text carries the mnemonic ("&Yes"), but macOS has
+            # no mnemonic convention, so QKeySequence::mnemonic() returns empty there and
+            # nothing is ever bound. The native style answers this hint false and draws no
+            # underline; Fusion, which we force for the dark theme, answers true. The
+            # result is an underlined Y on a button no key press can reach. Windows and
+            # Linux keep theirs, where Alt+letter does work.
+            return 0
         return super().styleHint(hint, option, widget, returnData)
 
 
