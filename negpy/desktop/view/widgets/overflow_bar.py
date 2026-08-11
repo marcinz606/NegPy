@@ -61,13 +61,26 @@ class OverflowBar(QWidget):
         self._pinned_item = self._button_items[button_index] if button_index >= 0 else -1
         self._relayout()
 
+    @staticmethod
+    def _item_width(widget) -> int:
+        """The width the item will actually occupy.
+
+        Not `sizeHint().width()` alone: a hint is only a preference, `setFixedWidth` does
+        not change it, and a bare QFrame has no hint at all and reports -1. Measuring by
+        the hint therefore over-reserves for anything constrained -- the toolbar's 1 px
+        separators report their frame's natural width -- while `setGeometry` clamps the
+        widget back to its real size, which both leaves a gap and overflows the bar
+        sooner than it needs to.
+        """
+        return min(max(widget.sizeHint().width(), widget.minimumWidth()), widget.maximumWidth())
+
     def minimumSizeHint(self) -> QSize:
         return QSize(self._min_item + self.OVERFLOW_W, self._height)
 
     def sizeHint(self) -> QSize:
         if self._tile:
             return QSize(max(1, len(self._items)) * self._min_item, self._height)
-        widths = [w.sizeHint().width() for w, _ in self._items]
+        widths = [self._item_width(w) for w, _ in self._items]
         return QSize(sum(widths) + self._spacing * max(0, len(widths) - 1), self._height)
 
     def resizeEvent(self, event) -> None:
@@ -84,21 +97,31 @@ class OverflowBar(QWidget):
                 return list(range(fits - 1)) + [self._pinned_item]
             return list(range(fits))
 
-        widths = [w.sizeHint().width() for w, _ in self._items]
+        widths = [self._item_width(w) for w, _ in self._items]
         if sum(widths) + self._spacing * max(0, count - 1) <= avail:
             return list(range(count))
-        budget = avail - self.OVERFLOW_W
-        visible: list[int] = []
-        used = 0
-        for i, width in enumerate(widths):
-            step = width + (self._spacing if visible else 0)
-            if used + step > budget:
-                break
-            used += step
-            visible.append(i)
-        while visible and self._items[visible[-1]][1] is None:
-            visible.pop()
-        return visible
+
+        def fit(budget: int) -> list[int]:
+            visible: list[int] = []
+            used = 0
+            for i, width in enumerate(widths):
+                step = width + (self._spacing if visible else 0)
+                if used + step > budget:
+                    break
+                used += step
+                visible.append(i)
+            # A trailing separator is a divider with nothing after it to divide.
+            while visible and self._items[visible[-1]][1] is None:
+                visible.pop()
+            return visible
+
+        # Try the full width first. Only labelled items reach the menu, so if nothing but
+        # separators spills there is no chevron to show — and reserving room for one would
+        # push a button out and *create* the chevron it was making room for.
+        full = fit(avail)
+        if all(self._items[i][1] is None for i in range(count) if i not in full):
+            return full
+        return fit(avail - self.OVERFLOW_W)
 
     def _relayout(self) -> None:
         if not self._items:
@@ -118,7 +141,7 @@ class OverflowBar(QWidget):
         else:
             x = 0
             for i in visible:
-                width = self._items[i][0].sizeHint().width()
+                width = self._item_width(self._items[i][0])
                 self._items[i][0].setGeometry(x, 0, width, self._height)
                 x += width + self._spacing
 
