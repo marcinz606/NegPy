@@ -273,6 +273,12 @@ This block greys out unless **Linear RAW** is on, since profiles are calibrated 
 
 The foundation of every edit: film type, how the scan is decoded, and how the negative is normalized into a positive.
 
+*   **Multi-core CPU Rendering** (canvas toolbar → **»** menu, beside **GPU Acceleration**): spreads the CPU rendering kernels across your cores. It takes effect immediately — nothing recompiles and there is no restart.
+
+    Be realistic about the gain. The kernels themselves run **5-8x** faster, but a merge is dominated by decoding the RAW files, which this does not touch: on a 6-frame 24 MP bracket, decoding is about 6.6 s of a roughly 9 s merge, so the whole operation comes down by **around 10%**. Ordinary editing changes less again, because the GPU already carries the pipeline. The gain is largest wherever the CPU is doing the work — merges, exports, and any machine without a usable GPU.
+
+    On Windows and Linux this is **on**. On macOS it is **off**, pending more evidence: the underlying threading layer terminates the process outright if two threads enter it at once, and while NegPy serialises every such call behind a lock, that has been proven on one Mac rather than on the range of them. If you turn it on and the app ever closes without warning, NegPy notices on the next launch and offers to turn it back off — that is the failure to expect, and it is recoverable. Setting `cpu_parallel` under `[performance]` in `override.toml` still wins over the menu, for a machine that cannot start.
+
 *   **Scanning setup** (bulb button): a two-question wizard, *how do you scan?* then *what light source?*, that sets Linear RAW and Narrowband for you. It runs once after the first-launch tour; the button reopens it whenever your rig changes.
 *   **Linear RAW**: (default off) decodes with neutral multipliers for completely raw data. When toggled off decodes RAW with the camera's as-shot white balance. Toggling reloads the file. Let the **Scanning setup** wizard pick it, or try both and pick which yields better results for your setup.
 *   **Narrowband**: corrects the oversaturation typical of narrowband (RGB-LED trichrome) scans using a bundled input profile. Leave off for ordinary broadband scans. An explicit Input ICC in Export overrides it.

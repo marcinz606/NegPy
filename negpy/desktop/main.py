@@ -18,7 +18,7 @@ from negpy.kernel.system.config import APP_CONFIG, BASE_USER_DIR
 from negpy.kernel.system.logging import get_logger, setup_logging
 from negpy.kernel.system.override import apply as apply_override
 from negpy.kernel.system.override import load_or_create as load_override
-from negpy.kernel.system.parallel import configure_cpu_parallel
+from negpy.kernel.system.parallel import configure_cpu_parallel, parallel_enabled, resolve_cpu_parallel, set_parallel_enabled
 from negpy.kernel.system.paths import get_resource_path
 
 logger = get_logger(__name__)
@@ -114,6 +114,33 @@ def _bootstrap_environment() -> None:
     GearProfiles.ensure_user_dir()
 
 
+def _offer_to_disable_cpu_parallel(repo, parent) -> None:
+    """The previous run had multi-core kernels on and did not exit cleanly. Say so.
+
+    Numba's workqueue threading layer terminates the process on concurrent entry, with no
+    Python exception to catch and nothing written to the log, so the app cannot report the
+    crash as it happens — only notice afterwards that the last run never finished. Without
+    this the setting is un-diagnosable: a user turns it on, hits an abort weeks later, and
+    reports a crash nobody can connect to it.
+    """
+    from PyQt6.QtWidgets import QMessageBox
+
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Icon.Warning)
+    box.setWindowTitle("NegPy closed unexpectedly")
+    box.setText("The last session ended unexpectedly with multi-core CPU rendering turned on.")
+    box.setInformativeText(
+        "That setting is the most likely cause. Turning it off costs some speed on merges "
+        "and exports, and is the safe setting.\n\nTurn multi-core CPU rendering off?"
+    )
+    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+    box.setDefaultButton(QMessageBox.StandardButton.Yes)
+    if box.exec() == QMessageBox.StandardButton.Yes:
+        repo.save_global_setting("cpu_parallel", False)
+        set_parallel_enabled(False)
+        logger.warning("CPU parallel kernels disabled after an unclean shutdown")
+
+
 def main() -> None:
     """
     Desktop entry point.
@@ -131,8 +158,6 @@ def main() -> None:
         os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
 
         apply_override(override_cfg, APP_CONFIG)
-        # Multi-core Numba kernels: platform default (off on macOS) unless overridden.
-        configure_cpu_parallel(APP_CONFIG.cpu_parallel)
 
         _bootstrap_environment()
 
@@ -140,6 +165,18 @@ def main() -> None:
         # UI scale can be applied via QT_SCALE_FACTOR, which Qt only reads at startup.
         repo = StorageRepository(APP_CONFIG.edits_db_path, APP_CONFIG.settings_db_path)
         repo.initialize()
+
+        # Multi-core Numba kernels: override.toml, then the saved setting, then the
+        # platform default (off on macOS). Read before the flags below are overwritten.
+        prev_clean_exit = bool(repo.get_global_setting("clean_shutdown", True))
+        prev_run_parallel = bool(repo.get_global_setting("cpu_parallel_active", False))
+        stored_parallel = repo.get_global_setting("cpu_parallel", None)
+        configure_cpu_parallel(resolve_cpu_parallel(APP_CONFIG.cpu_parallel, None if stored_parallel is None else bool(stored_parallel)))
+        # Numba's workqueue layer aborts the process outright on concurrent entry — no
+        # exception, no dialog, nothing in the log. A marker is the only way an abort can
+        # be attributed to this setting afterwards rather than reported as a mystery.
+        repo.save_global_setting("clean_shutdown", False)
+        repo.save_global_setting("cpu_parallel_active", parallel_enabled())
 
         # Resolve flat-field gains by profile id from the on-disk store (keeps the
         # numpy logic layer free of any storage dependency), then migrate any legacy
@@ -175,10 +212,13 @@ def main() -> None:
         controller = AppController(session_manager)
 
         window = MainWindow(controller)
+        if prev_clean_exit is False and prev_run_parallel:
+            _offer_to_disable_cpu_parallel(repo, window)
         window.show()
 
         exit_code = app.exec()
         controller.cleanup()
+        repo.save_global_setting("clean_shutdown", True)
         sys.exit(exit_code)
     except Exception as e:
         if getattr(sys, "frozen", False):
