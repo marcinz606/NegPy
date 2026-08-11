@@ -3641,7 +3641,17 @@ class AppController(QObject):
             if not is_linear_output_supported(file_path):
                 self.set_status("Linear Output is not supported for this file type", 4000)
                 return
-            files = [{"path": file_path, "name": os.path.basename(file_path), "hash": self.state.current_file_hash}]
+            # Reuse the asset dict from uploaded_files so RGB-scan triplet (green_path/
+            # blue_path) and stitch fields reach _batch_params_for — a bare {path, name,
+            # hash} dict makes resolve_asset_rgbscan/resolve_asset_stitch reset those
+            # configs, silently exporting only the primary narrowband exposure.
+            file_info = next(
+                (f for f in self.state.uploaded_files if f.get("hash") == self.state.current_file_hash),
+                None,
+            )
+            if file_info is None:
+                file_info = {"path": file_path, "name": os.path.basename(file_path), "hash": self.state.current_file_hash}
+            files = [file_info]
 
         supported = [f for f in files if is_linear_output_supported(f["path"])]
         if not supported:
@@ -3919,11 +3929,20 @@ class AppController(QObject):
         if not self.state.current_file_path:
             return
 
-        file_info = {
-            "name": os.path.basename(self.state.current_file_path),
-            "path": self.state.current_file_path,
-            "hash": self.state.current_file_hash,
-        }
+        # Reuse the asset dict from uploaded_files so RGB-scan triplet (green_path/
+        # blue_path) and stitch fields reach _batch_params_for — a bare {path, name,
+        # hash} dict makes resolve_asset_rgbscan/resolve_asset_stitch reset those
+        # configs, silently preset-exporting only the primary un-merged exposure.
+        file_info = next(
+            (f for f in self.state.uploaded_files if f.get("hash") == self.state.current_file_hash),
+            None,
+        )
+        if file_info is None:
+            file_info = {
+                "name": os.path.basename(self.state.current_file_path),
+                "path": self.state.current_file_path,
+                "hash": self.state.current_file_hash,
+            }
         self._dispatch_preset_export([file_info])
 
     def request_preset_export_selected(self) -> None:
