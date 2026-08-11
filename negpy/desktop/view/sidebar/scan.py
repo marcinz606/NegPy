@@ -245,6 +245,7 @@ class ScanSidebar(QWidget):
         self.pattern_edit.setText(self._settings.filename_pattern)
         self.autofocus_check.setChecked(self._settings.autofocus)
         self.ae_check.setChecked(self._settings.auto_exposure)
+        self.exposure_slider.setEnabled(not self._settings.auto_exposure)
 
     def _connect_signals(self) -> None:
         self.refresh_btn.clicked.connect(self._on_refresh)
