@@ -41,6 +41,8 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import _source_effective_bounds
 from negpy.desktop.view.confirm import confirm_unload
+from negpy.features.hdr.logic import anchor_choices
+from negpy.features.hdr.models import hdr_frame_paths
 from negpy.desktop.view.widgets.overflow_bar import OverflowBar
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog, open_paste_dialog
@@ -1074,16 +1076,54 @@ class FileBrowser(QWidget):
         if multi:
             menu.addSeparator()
             menu.addAction("Stitch selected frames").triggered.connect(lambda: self.controller.request_stitch_selected())
+            menu.addAction("Merge exposures (HDR)").triggered.connect(lambda: self.controller.request_hdr_merge_selected())
         else:
             menu.addSeparator()
             menu.addAction("Edit RGB Triplet…").triggered.connect(self._on_edit_triplet)
             active = state.uploaded_files[state.selected_file_idx] if 0 <= state.selected_file_idx < len(state.uploaded_files) else {}
             if active.get("stitch_paths"):
                 menu.addAction("Unstitch").triggered.connect(lambda: self.controller.request_unstitch())
+            if active.get("hdr_paths"):
+                self._add_hdr_anchor_menu(menu, active)
+                menu.addAction("Unmerge exposures").triggered.connect(lambda: self.controller.request_unmerge_hdr())
         menu.addSeparator()
         unload_label = "Unload Selected" if multi else "Unload"
         menu.addAction(unload_label).triggered.connect(self._on_remove_from_menu)
         return menu
+
+    def _add_hdr_anchor_menu(self, menu, asset: dict) -> None:
+        """ "Render exposure": which frame of the bracket the merged result opens at.
+
+        The merge is computed in the *reference* frame's units — the longest exposure that
+        does not clip — but that is a radiometric choice, and which exposure looks right is
+        the photographer's. See `hdr.logic.output_scale`.
+
+        Only exposures the render can actually sit at are offered (`anchor_choices`); a
+        frame longer than the reference clamps back to it and would be an entry that
+        provably cannot change the picture.
+        """
+        paths = hdr_frame_paths(asset)
+        ratios = [float(r) for r in (asset.get("hdr_ratios") or ())]
+        if len(paths) != len(ratios):
+            return
+        choices = anchor_choices(paths, ratios)
+        if len(choices) < 2:
+            return  # only the reference is reachable: every entry would be the same picture
+        current = str(asset.get("hdr_anchor", "") or "")
+        sub = menu.addMenu("Render exposure")
+        auto = sub.addAction("Bracket middle (auto)")
+        auto.setCheckable(True)
+        auto.setChecked(not current)
+        auto.triggered.connect(lambda: self.controller.set_hdr_anchor(""))
+        sub.addSeparator()
+        for path, stops in choices:
+            label = f"{os.path.basename(path)}   {stops:+.1f} EV"
+            if stops == 0.0:
+                label += "  (as captured)"
+            act = sub.addAction(label)
+            act.setCheckable(True)
+            act.setChecked(path == current)
+            act.triggered.connect(lambda _=False, p=path: self.controller.set_hdr_anchor(p))
 
     def _on_edit_triplet(self) -> None:
         idx = self.session.state.selected_file_idx

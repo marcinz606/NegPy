@@ -89,6 +89,8 @@ class ShortcutManager:
             "prev_file": controller.session.prev_file,
             "next_file": controller.session.next_file,
             "toggle_keep": lambda: controller.session.toggle_mark("keeper"),
+            "hdr_merge": controller.request_hdr_merge_selected,
+            "hdr_unmerge": controller.request_unmerge_hdr,
             "toggle_reject": lambda: controller.session.toggle_mark("excluded"),
             "toggle_compare": controller.toggle_compare,
             "rotate_ccw": lambda: toolbar.rotate(1),

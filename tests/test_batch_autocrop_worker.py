@@ -44,24 +44,22 @@ class _PreviewService:
     def load_linear_preview_rgb(
         self,
         red_path,
-        green_path,
-        blue_path,
+        rgbscan,
         color_space,
         use_camera_wb,
         full_resolution,
         file_hash,
-        align,
     ):
         self.rgb_calls.append(
             {
                 "red_path": red_path,
-                "green_path": green_path,
-                "blue_path": blue_path,
+                "green_path": rgbscan.green_path,
+                "blue_path": rgbscan.blue_path,
                 "color_space": color_space,
                 "use_camera_wb": use_camera_wb,
                 "full_resolution": full_resolution,
                 "file_hash": file_hash,
-                "align": align,
+                "align": rgbscan.align,
             }
         )
         raw = np.full((8, 12, 3), 0.25, dtype=np.float32)

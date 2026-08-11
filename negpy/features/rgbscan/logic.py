@@ -1,10 +1,10 @@
-import os
 from dataclasses import dataclass
 from typing import Callable, List, Sequence, Tuple
 
 import cv2
 import numpy as np
 
+from negpy.domain.tokens import composite_token
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 
 # Channel indices, matching the demosaiced RGB axis order.
@@ -71,7 +71,7 @@ def group_triplets(items: Sequence[Tuple[str, int]]) -> List[Triplet]:
     return triplets
 
 
-def _estimate_shift(ref_gray: np.ndarray, mov_gray: np.ndarray) -> Tuple[float, float]:
+def estimate_shift(ref_gray: np.ndarray, mov_gray: np.ndarray) -> Tuple[float, float]:
     """Sub-pixel translation of ``mov_gray`` relative to ``ref_gray`` (phase correlation)."""
     h, w = ref_gray.shape[:2]
     scale = 1.0
@@ -91,7 +91,7 @@ def _estimate_shift(ref_gray: np.ndarray, mov_gray: np.ndarray) -> Tuple[float, 
 def _align_to(ref_gray: np.ndarray, mov: np.ndarray, mov_ch: int, max_shift: float) -> np.ndarray:
     """Shift ``mov`` so its scene content lines up with ``ref_gray``. No-op if the
     estimate is implausibly large (correlation failed)."""
-    dx, dy = _estimate_shift(ref_gray, mov[..., mov_ch])
+    dx, dy = estimate_shift(ref_gray, mov[..., mov_ch])
     if max(abs(dx), abs(dy)) > max_shift:
         return mov
     h, w = mov.shape[:2]
@@ -134,9 +134,4 @@ def rgbscan_token(config: RgbScanConfig) -> str:
     """Identity of the active triplet, folded into the render source hash. Empty when inactive."""
     if not is_rgb_triplet(config):
         return ""
-    try:
-        g_mtime = os.path.getmtime(config.green_path)
-        b_mtime = os.path.getmtime(config.blue_path)
-    except OSError:
-        return ""
-    return f"|rgb:{config.green_path}:{g_mtime}:{config.blue_path}:{b_mtime}:a{int(config.align)}"
+    return composite_token("rgb", config, (config.green_path, config.blue_path))

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 from negpy.services.rendering.preview_cache import PreviewBufferCache, PreviewCacheKey
+from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.services.rendering.preview_manager import PreviewManager
 from negpy.desktop.workers.render import PreviewLoadTask, PreviewLoadWorker
 
@@ -159,13 +160,47 @@ def test_rgb_preview_cache_invalidates_when_companion_content_changes(tmp_path) 
         return np.full((4, 4, 3), value, dtype=np.float32), (4, 4), {}
 
     pm.load_linear_preview = MagicMock(side_effect=decode)
-    args = (*map(str, paths), "Adobe RGB")
+    rgbscan = RgbScanConfig(enabled=True, green_path=str(paths[1]), blue_path=str(paths[2]), align=False)
+    args = (str(paths[0]), rgbscan, "Adobe RGB")
 
-    pm.load_linear_preview_rgb(*args, file_hash="same-red-hash", align=False)
-    pm.load_linear_preview_rgb(*args, file_hash="same-red-hash", align=False)
+    pm.load_linear_preview_rgb(*args, file_hash="same-red-hash")
+    pm.load_linear_preview_rgb(*args, file_hash="same-red-hash")
     assert pm.load_linear_preview.call_count == 3  # unchanged triplet reuses the merge
 
     paths[1].write_bytes(b"new-green-content")
-    pm.load_linear_preview_rgb(*args, file_hash="same-red-hash", align=False)
+    pm.load_linear_preview_rgb(*args, file_hash="same-red-hash")
 
     assert pm.load_linear_preview.call_count == 6
+
+
+def test_hdr_preview_resamples_a_rounding_difference_but_rejects_a_different_aspect(tmp_path) -> None:
+    """Preview sizing rounds per file, so a pixel or two between bracket frames is
+    ordinary. A different aspect is not — resizing a rotated or differently cropped frame
+    onto the reference would merge it as if it lined up, and the full-res path raises."""
+    from negpy.features.hdr.models import HdrConfig
+
+    paths = [tmp_path / name for name in ("a.dng", "b.dng")]
+    for path in paths:
+        path.write_bytes(b"x")
+    hdr = HdrConfig(hdr_enabled=True, hdr_paths=(str(paths[1]),), hdr_ratios=(1.0, 2.0), hdr_align=False)
+
+    def _manager(sibling_shape):
+        pm = PreviewManager()
+        shapes = {str(paths[0]): (40, 60, 3), str(paths[1]): sibling_shape}
+
+        def decode(path, *_args, **_kwargs):
+            shape = shapes[path]
+            return np.full(shape, 0.4, dtype=np.float32), shape[:2], {}
+
+        pm.load_linear_preview = MagicMock(side_effect=decode)
+        return pm
+
+    merged, _, _ = _manager((41, 61, 3)).load_linear_preview_hdr(str(paths[0]), hdr, "Adobe RGB")
+    assert np.asarray(merged).shape[:2] == (40, 60)
+
+    try:
+        _manager((60, 40, 3)).load_linear_preview_hdr(str(paths[0]), hdr, "Adobe RGB")
+    except ValueError as e:
+        assert "differ in shape" in str(e)
+    else:
+        raise AssertionError("a transposed frame was silently squashed onto the reference")

@@ -262,10 +262,9 @@ class ProcessSidebar(BaseSidebar):
                 **invalidate_local_bounds(self.state.config.process),
             ),
         )
-        # render=False: don't analyse bounds on stale (pre-reload) raw data
-        self.controller.session.update_config(new_config, persist=True, render=False)
-        if self.state.current_file_path:
-            self.controller.load_file(self.state.current_file_path)
+        # linear_raw switches use_camera_wb, so it is a source change: apply_config
+        # re-decodes, and suppresses the bounds analysis over the stale buffer.
+        self.controller.apply_config(new_config, persist=True)
 
     def _on_narrowband_scan_toggled(self, checked: bool) -> None:
         self.update_config_section("process", narrowband_scan=checked, persist=True, render=True)

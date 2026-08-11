@@ -413,7 +413,7 @@ def test_apply_stitch_replaces_parts_with_composite():
         "stitch_canvas": (120, 80),
         "stitch_sizes": ((80, 80), (80, 80)),
     }
-    session.apply_stitch([1, 2], composite)
+    session.apply_composite([1, 2], composite)
     files = session.state.uploaded_files
     assert [f["path"] for f in files] == ["/other", "/a"]
     assert files[1]["hash"] == "digest#stitch"
@@ -686,7 +686,7 @@ def test_on_stitch_registered_stores_per_part_triplets():
         "sizes": ((80, 80), (80, 80)),
     }
     AppController._on_stitch_registered(c, payload)
-    composite = c.session.apply_stitch.call_args.args[1]
+    composite = c.session.apply_composite.call_args.args[1]
     assert composite["stitch_triplets"] == (("/a_g.raf", "/a_b.raf"), ("/b_g.raf", "/b_b.raf"))
     assert composite["stitch_align"] is True
     assert composite["green_path"] == "/a_g.raf" and composite["blue_path"] == "/a_b.raf"

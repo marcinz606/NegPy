@@ -16,6 +16,7 @@ from negpy.features.toning.models import ToningConfig
 from negpy.features.finish.models import FinishConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.rgbscan.models import RgbScanConfig
+from negpy.features.hdr.models import HdrConfig
 from negpy.features.stitch.models import StitchConfig
 from negpy.features.metadata.models import MetadataConfig
 from negpy.domain.migrations import migrate_export_fmt, migrate_flat_config
@@ -369,6 +370,7 @@ class WorkspaceConfig:
     flatfield: FlatFieldConfig = field(default_factory=FlatFieldConfig)
     rgbscan: RgbScanConfig = field(default_factory=RgbScanConfig)
     stitch: StitchConfig = field(default_factory=StitchConfig)
+    hdr: HdrConfig = field(default_factory=HdrConfig)
     geometry: GeometryConfig = field(default_factory=GeometryConfig)
     lab: LabConfig = field(default_factory=LabConfig)
     local: LocalAdjustmentsConfig = field(default_factory=LocalAdjustmentsConfig)
@@ -389,6 +391,7 @@ class WorkspaceConfig:
         res.update(asdict(self.flatfield))
         res.update(asdict(self.rgbscan))
         res.update(asdict(self.stitch))
+        res.update(asdict(self.hdr))
         res.update(asdict(self.geometry))
         res.update(asdict(self.lab))
         res["local_masks"] = asdict(self.local)
@@ -416,6 +419,7 @@ class WorkspaceConfig:
             FlatFieldConfig,
             RgbScanConfig,
             StitchConfig,
+            HdrConfig,
             GeometryConfig,
             LabConfig,
             RetouchConfig,
@@ -473,12 +477,23 @@ class WorkspaceConfig:
                 stitch_align=bool(d.get("stitch_align", True)),
             )
 
+        def _build_hdr(d: Dict[str, Any]) -> HdrConfig:
+            # Tuples, for the same reason _build_stitch coerces: JSON gives back lists.
+            return HdrConfig(
+                hdr_enabled=bool(d.get("hdr_enabled", False)),
+                hdr_paths=tuple(str(p) for p in d.get("hdr_paths", ())),
+                hdr_ratios=tuple(float(r) for r in d.get("hdr_ratios", ())),
+                hdr_align=bool(d.get("hdr_align", True)),
+                hdr_anchor=str(d.get("hdr_anchor", "") or ""),
+            )
+
         return cls(
             process=ProcessConfig(**filter_keys(ProcessConfig, data)),
             exposure=ExposureConfig(**filter_keys(ExposureConfig, data)),
             flatfield=FlatFieldConfig(**filter_keys(FlatFieldConfig, data)),
             rgbscan=RgbScanConfig(**filter_keys(RgbScanConfig, data)),
             stitch=_build_stitch(filter_keys(StitchConfig, data)),
+            hdr=_build_hdr(filter_keys(HdrConfig, data)),
             geometry=GeometryConfig(**filter_keys(GeometryConfig, data)),
             lab=LabConfig(**filter_keys(LabConfig, data)),
             local=_build_local(local_data),

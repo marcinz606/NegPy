@@ -2051,3 +2051,46 @@ class TestNoritsuRaw:
         pakon_48m = next(s for s in PakonLoader.PAKON_SPECS if s["size"] == 48000000)
         assert abs(collision_size - pakon_48m["size"]) < 1024
         assert 1777 < 3000  # well below any real scan width
+
+
+class TestHdrDecodeIsFormatAgnostic:
+    """A bracket must merge whatever the source format.
+
+    The HDR branch used to sit inside the camera-RAW arm of `_decode_linear`, after every
+    per-format branch that returns. A bracket of TIFF or LinearRaw DNG scans therefore
+    exported as its unmerged reference frame — the canvas showed the merge, the file did
+    not, and nothing reported it.
+    """
+
+    def _bracket(self, tmp_path: str):
+        from negpy.features.hdr.models import HdrConfig
+
+        # The left half is black on the reference and just above it on the 4x frame: the
+        # shadow detail only the longer exposure recorded, which is the whole point of the
+        # merge and the one thing a passthrough cannot produce. The right half is exactly
+        # proportional, so it alone would not tell a merge from an unmerged decode.
+        ref = np.zeros((8, 8, 3), dtype=np.uint16)
+        ref[:, 4:] = 4000
+        long_ = np.full((8, 8, 3), 400, dtype=np.uint16)
+        long_[:, 4:] = 16000
+        paths = []
+        for name, data in (("ref.tif", ref), ("long.tif", long_)):
+            path = os.path.join(str(tmp_path), name)
+            tifffile.imwrite(path, data)
+            paths.append(path)
+        return paths, HdrConfig(hdr_enabled=True, hdr_paths=(paths[1],), hdr_ratios=(1.0, 4.0), hdr_align=False)
+
+    def test_a_tiff_bracket_decodes_merged(self, tmp_path: str) -> None:
+        from negpy.services.export.linear_output import _decode_linear
+
+        paths, hdr = self._bracket(tmp_path)
+        unmerged, _, _, _ = _decode_linear(paths[0])
+        merged, ir, _, _ = _decode_linear(paths[0], hdr=hdr)
+
+        assert merged.shape == unmerged.shape
+        assert ir is None
+        assert float(unmerged[:, :4].max()) == 0.0
+        # Inverse-variance weighting (weight ~ ratio^2) puts the long frame 16:1 ahead
+        # there, so the shadow arrives at ~15/16 of its converted level.
+        assert float(merged[:, :4].min()) > 0.9 * (400.0 / 65535.0) / 4.0, "the bracket decoded unmerged"
+        assert float(merged.max()) <= 1.0

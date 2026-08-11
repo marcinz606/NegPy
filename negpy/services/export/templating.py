@@ -110,6 +110,7 @@ def render_export_filename(
     border_size: float = 0.0,
     half: int = 0,
     metadata: Optional[MetadataConfig] = None,
+    composite: str = "",
 ) -> str:
     """
     Renders the export filename using Jinja2 templates.
@@ -127,11 +128,18 @@ def render_export_filename(
     - camera / camera_make / camera_model, lens / lens_make / lens_model / focal_length
     - film / film_iso / film_manufacturer / film_color_type / film_format
     - developer / push_pull / scanning / exposure
+
+    ``composite`` suffixes the original name (e.g. "HDR"), so a merged frame does not
+    write over the export of the source file it is named after.
     """
     original_name = os.path.splitext(os.path.basename(original_path))[0]
     if half:
         # halves share the source file — suffix so outputs don't collide
         original_name = f"{original_name}_{half}"
+    if composite:
+        # A composite is built from source files that can also be exported on their own,
+        # so it needs its own name for the same reason a half does.
+        original_name = f"{original_name}-{composite}"
 
     # Null-byte placeholder protects original_name from the cleanup regex.
     # Null bytes cannot appear in filesystem paths, so collision is impossible.

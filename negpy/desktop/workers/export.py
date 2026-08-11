@@ -10,6 +10,7 @@ from negpy.features.metadata.writer import embed_metadata, preserve_source_metad
 from negpy.features.metadata.models import MetadataConfig
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE, ColorSpaceRegistry
 from negpy.services.rendering.image_processor import ImageProcessor
+from negpy.features.hdr.models import hdr_frame_paths
 from negpy.services.export.templating import render_export_filename
 from negpy.services.export.contact_sheet import ContactSheetService
 
@@ -75,12 +76,16 @@ def resolve_export_naming(task: ExportTask) -> tuple[str, str, str]:
     both conflict detection and the actual write, so they can never disagree."""
     out_dir = resolve_export_dir(task)
     ext = _EXT.get(task.export_settings.export_fmt, "jpg")
+    frames = hdr_frame_paths(task.file_info)
     filename = render_export_filename(
-        task.file_info["path"],
+        # A merge is named after its alphabetically first frame, not the reference frame
+        # its path points at — the reference is chosen from picture content.
+        min(frames, key=lambda p: os.path.basename(p).lower()) if frames else task.file_info["path"],
         task.export_settings,
         border_size=task.params.finish.border_size,
         half=int(task.file_info.get("half") or 0),
         metadata=task.metadata_config,
+        composite="HDR" if frames else "",
     )
     return out_dir, filename, ext
 

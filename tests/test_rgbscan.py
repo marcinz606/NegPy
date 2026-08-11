@@ -8,7 +8,7 @@ from negpy.domain.models import WorkspaceConfig
 import cv2
 
 from negpy.features.rgbscan.logic import (
-    _estimate_shift,
+    estimate_shift,
     assemble_rgb,
     classify_channel,
     group_triplets,
@@ -64,7 +64,7 @@ def test_estimate_shift_recovers_subpixel_translation():
     ref = _texture()
     dx, dy = 2.5, -1.25
     mov = _shift(ref, dx, dy)
-    est_dx, est_dy = _estimate_shift(ref, mov)
+    est_dx, est_dy = estimate_shift(ref, mov)
     assert abs(est_dx - dx) < 0.3
     assert abs(est_dy - dy) < 0.3
 

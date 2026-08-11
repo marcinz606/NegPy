@@ -21,6 +21,10 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "next_file": ShortcutEntry("Right", "Next file", "Navigation"),
     "toggle_keep": ShortcutEntry("K", "Mark frame as keeper", "Triage"),
     "toggle_reject": ShortcutEntry("Shift+X", "Reject frame (skipped by batch export)", "Triage"),
+    # No default key: nothing obvious is free, and an invented binding that collides makes
+    # Qt fire activatedAmbiguously and kills both actions.
+    "hdr_merge": ShortcutEntry("", "Merge selected exposures into one HDR frame", "Triage"),
+    "hdr_unmerge": ShortcutEntry("", "Unmerge an HDR frame back into its exposures", "Triage"),
     "toggle_compare": ShortcutEntry("\\", "Before/after (auto baseline)", "Tools"),
     "rotate_cw": ShortcutEntry("]", "Rotate 90° CW", "Geometry"),
     "rotate_ccw": ShortcutEntry("[", "Rotate 90° CCW", "Geometry"),

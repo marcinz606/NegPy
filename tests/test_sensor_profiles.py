@@ -145,13 +145,13 @@ def test_sidebar_profile_change_bakes_matrix_and_clears_bounds(qapp, tmp_path):
     )
     sidebar._on_sensor_profile_changed("Rig")
 
-    cfg = controller.session.update_config.call_args.args[0]
+    cfg = controller.apply_config.call_args.args[0]
     assert cfg.process.sensor_profile == "Rig"
     assert cfg.process.sensor_matrix == tuple(matrix)
     assert cfg.process.local_floors == (0.0, 0.0, 0.0)
 
     sidebar._on_sensor_profile_changed("None")
-    cfg = controller.session.update_config.call_args.args[0]
+    cfg = controller.apply_config.call_args.args[0]
     assert cfg.process.sensor_matrix is None
 
 

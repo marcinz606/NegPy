@@ -599,7 +599,7 @@ def _align_ir_to_rgb(rgb: np.ndarray, ir: np.ndarray) -> np.ndarray:
     ix, iy = int(round(dx)), int(round(dy))
     if ix == 0 and iy == 0:
         return ir
-    # out(x, y) = ir(x + ix, y + iy), edge-replicated — matches _estimate_shift's
+    # out(x, y) = ir(x + ix, y + iy), edge-replicated — matches estimate_shift's
     # convention (mov ≈ ref shifted by (dx, dy)) with zero interpolation.
     x_idx = np.clip(np.arange(w) + ix, 0, w - 1)
     y_idx = np.clip(np.arange(h) + iy, 0, h - 1)

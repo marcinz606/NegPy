@@ -116,6 +116,42 @@ If one negative was captured in overlapping pieces (a copy stand at higher magni
 
 This works on RGB-scan frames too: turn on **RGB Scan** first so each piece is already assembled from its own R/G/B triplet, then stitch the assembled frames. Each part keeps its own three exposures — nothing is shared between parts.
 
+#### Merging bracketed exposures (HDR)
+
+A slide's density runs deeper than one camera exposure can record. Expose for the highlights and the darkest parts of the frame sit in sensor noise; expose for those and the bright parts blow. Bracket the capture instead — several shots of the same slide a stop apart — then select them and right-click → **Merge exposures (HDR)**. They collapse into one frame named *a +4 (HDR)* that carries the whole range. Right-click → **Unmerge exposures** puts the originals back; their own edits are untouched.
+
+Nothing needs to be set up beforehand. NegPy measures the exposures from the images themselves rather than trusting shutter tags (several supported scanner formats have none), works out how many stops apart they are, and registers them to each other in case the camera shifted between frames. The result is saved with the session, so re-opening a merged frame costs nothing.
+
+**How it lands.** Two separate choices, and it helps to keep them apart. The merge is *computed* in the units of the longest exposure that doesn't clip — the best reference radiometrically, since every other frame converts into it and nothing can exceed white. Which exposure the picture then *opens at* is a different question, and not one the software can answer: a slide's own brightest point is denser than clear film, so the longest unclipped capture is brighter than the shot you metered, and rendering there pushes the highlights into the top of the transfer curve where it has least gradient left. That looks like lost highlight detail, because it is.
+
+So nominate the frame yourself. Right-click a merged frame → **Render exposure** and pick the shot that looks the way you intended; the merge opens exactly there, and the other frames contribute only range and cleanliness. The list shows each frame in stops from the reference, the reference itself marked *(as captured)*.
+
+Only the reference and any **shorter** exposures are listed. The merge can never open brighter than the reference — that is the frame defining white, and going past it would only blow the highlights — so a longer frame would render identically and is not offered. The longer frames are in the bracket to buy shadows, not to be rendered at. If a bracket has nothing below its reference there is no choice to make, and the menu does not appear.
+
+Left on **Bracket middle (auto)** it falls back to the middle exposure of the bracket, which is a reasonable guess only when you bracketed evenly either side of the metered shot — bracket *upward* from it and every frame sits at or above the reference, so the middle lands on the reference and the setting does nothing.
+
+**Include the shot that already looks right**, and at least one darker than it. It is tempting to bracket only upward, since frames *longer* than the reference are what buy the shadows. Don't: the menu can only offer frames you actually shot, so the darkest render you can ask for is the darkest exposure in the bracket. Across eleven real brackets the reference landed **1 to 3 stops above the metered frame** and was never the metered frame itself — so *(as captured)* is not the exposure you took, and the one you want is usually a stop or two below it.
+
+Measured on a five-frame bracket a stop apart, signal-to-noise in the deepest shadows went from 3.0 on the frame you would otherwise have used to **12.3** merged — about two stops — with the midtones unchanged. The gain is entirely where a transparency is hardest to scan.
+
+**A merge opens with its shadows already lifted**, by an amount derived from the range the bracket recovered — you will see **Shadows Density** sitting off zero. That is deliberate. If your metered frame did not clip, the merge did not add *range*, it added *precision*: the tones were all recorded, just with very few levels on top of noise (a slide's density-2.9 region gets about 72 of 65535). Precision is invisible at the same tone — cleaner noise looks like the same picture — so a merge left neutral renders indistinguishable from the frame it was metered on, which is not what you merged for. The lift is measured, not a look: it goes only as far as the recovered precision affords, so the opened shadows are still quieter than the single frame's were. Drag **Shadows Density** to zero for the render that is faithful to the metered frame; that choice is saved like any other edit. **Reset Settings** brings the seeded starting point back, along with the merge itself and the inherited film process.
+
+Bracket **both ways**, for two different reasons.
+
+**Upward, for range.** Longer exposures are what reach the deep shadows, and they set the reference. Metered, +1, +2, and +3 if the shadows are deep.
+
+**Downward, for choice.** Shorter exposures add almost nothing to the *pixels* — dropping every one of them from eleven real brackets changed more than 1% of the picture on 0.00–0.04% of its area, once 0.6%, because the reference already holds the highlights by construction. That is not their job. Their job is to appear in the **Render exposure** menu, and a merge is only as adjustable as the frames you gave it. On the brackets here that stopped at the metered shot the menu offered two entries and the preferred render was the bottom one — no room left to go darker. The ones that went two stops below it offered four and five, down to −3 and −4 EV.
+
+Metered −2 through +3 costs six frames and leaves the decision to you at the end. If you must economise, economise upward, not downward: an extra long frame buys shadow noise you may not notice, an extra short frame buys a choice you cannot make later.
+
+Shorter frames do carry one thing outright — a **blown specular**, the sliver of water highlight or sun disc above the reference's white. On three of the eleven that was a mean 0.03 difference across the near-white 0.1% of the frame.
+
+The merged frame inherits the **film process** of the exposures it came from, so a bracket of slides opens in E-6 rather than reverting to whatever mode you last set by hand. Stitched composites do the same.
+
+It is **named after the first frame in filename order**, with an `-HDR` suffix — a bracket of `_DSC1715`…`_DSC1719` exports as `_DSC1715-HDR.jpg`. Not the reference frame, whose identity depends on picture content; and the suffix means a merge never writes over the export of the single frame it is named after.
+
+Merging is refused on frames that are already merged, stitched, or RGB-scan triplets: each of those is its own way of building one frame from several files, and combining them is not supported.
+
 Narrow the panel and the toolbar buttons that no longer fit move into a **»** menu at its right edge, so the panel can be squeezed down to give the image more room without losing any tool.
 
 ### Triage (culling the roll)

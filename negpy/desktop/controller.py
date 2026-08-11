@@ -1,5 +1,7 @@
+import math
 import os
 import time
+from collections import Counter
 from dataclasses import dataclass, fields, replace
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -11,7 +13,14 @@ from PyQt6.QtWidgets import QCheckBox, QMessageBox
 
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.render_memo import RenderMemo
-from negpy.desktop.session import AppState, DesktopSessionManager, ToolMode, resolve_asset_rgbscan, resolve_asset_stitch
+from negpy.desktop.session import (
+    AppState,
+    DesktopSessionManager,
+    ToolMode,
+    resolve_asset_hdr,
+    resolve_asset_rgbscan,
+    resolve_asset_stitch,
+)
 from negpy.desktop.workers.export import ExportTask, ExportWorker, find_export_conflicts
 from negpy.desktop.workers.render import (
     AssetDiscoveryTask,
@@ -32,7 +41,9 @@ from negpy.desktop.workers.render import (
 )
 from negpy.desktop.workers.scan_worker import BatchRequest, RollPreviewRequest, ScanRequest, ScanWorker
 from negpy.desktop.workers.library import LibrarySearchTask, LibrarySearchWorker
+from negpy.desktop.workers.hdr import HdrTask, HdrWorker
 from negpy.desktop.workers.stitch import StitchTask, StitchWorker
+from negpy.features.hdr.models import hdr_frame_paths, hdr_hash, hdr_name, hdr_stem
 from negpy.features.stitch.models import stitch_hash, stitch_name
 from negpy.desktop.workers.capture_worker import (
     CalibrationRequest,
@@ -90,6 +101,7 @@ from negpy.infrastructure.storage.local_asset_store import LocalAssetStore
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.logging import get_logger
 from negpy.services.rendering.preview_manager import PreviewManager
+from negpy.services.rendering.source_identity import source_token
 from negpy.services.view.coordinate_mapping import CoordinateMapping
 
 logger = get_logger(__name__)
@@ -193,6 +205,7 @@ class _DiscoveryRequest:
     rgb_scan: bool
     half_frame: bool
     restore_stitches: Optional[dict] = None
+    restore_hdr: Optional[dict] = None
     half_frame_profile: Optional[dict] = None  # {crop_rect, split_x, gutter_thickness}
 
 
@@ -266,6 +279,7 @@ class AppController(QObject):
     library_search_finished = pyqtSignal(int)  # frames found (0 = nothing matched)
     library_cleared = pyqtSignal()  # roots forgotten elsewhere — the panel must re-read them
     stitch_requested = pyqtSignal(object)
+    hdr_requested = pyqtSignal(object)
     thumbnail_requested = pyqtSignal(list)
     thumbnail_update_requested = pyqtSignal(ThumbnailUpdateTask)
     tool_sync_requested = pyqtSignal()
@@ -379,6 +393,8 @@ class AppController(QObject):
         # Shares the export thread: the batch lane serializes them anyway.
         self.stitch_worker = StitchWorker()
         self.stitch_worker.moveToThread(self.export_thread)
+        self.hdr_worker = HdrWorker()
+        self.hdr_worker.moveToThread(self.export_thread)
         self.export_thread.start()
 
         self.thumb_thread = QThread()
@@ -586,6 +602,12 @@ class AppController(QObject):
         self.stitch_worker.registered.connect(self._on_stitch_registered)
         self.stitch_worker.cancelled.connect(self._on_stitch_cancelled)
         self.stitch_worker.error.connect(self._on_stitch_error)
+
+        self.hdr_requested.connect(self.hdr_worker.run)
+        self.hdr_worker.progress.connect(self._on_batch_progress)
+        self.hdr_worker.solved.connect(self._on_hdr_solved)
+        self.hdr_worker.cancelled.connect(self._on_hdr_cancelled)
+        self.hdr_worker.error.connect(self._on_hdr_error)
 
         self.thumbnail_requested.connect(self.thumb_worker.generate)
         self.thumb_worker.progress.connect(self._on_thumbnail_progress)
@@ -806,6 +828,8 @@ class AppController(QObject):
             self.batch_autocrop_worker.cancel(self._autocrop_batch_token)
         elif self._active_batch == "stitch":
             self.stitch_worker.cancel()
+        elif self._active_batch == "hdr":
+            self.hdr_worker.cancel()
 
     def saved_session_paths(self) -> List[str]:
         """Returns last session's file paths that still exist on disk."""
@@ -821,7 +845,8 @@ class AppController(QObject):
         self._pending_scanned_file = active if active in paths else paths[0]
         triplets = self.session.repo.get_global_setting("session_triplets", {}) or {}
         stitches = self.session.repo.get_global_setting("session_stitches", {}) or {}
-        self.request_asset_discovery(paths, auto_open=True, restore_triplets=triplets, restore_stitches=stitches)
+        merges = self.session.repo.get_global_setting("session_hdr_merges", {}) or {}
+        self.request_asset_discovery(paths, auto_open=True, restore_triplets=triplets, restore_stitches=stitches, restore_hdr=merges)
 
     def request_asset_discovery(
         self,
@@ -831,6 +856,7 @@ class AppController(QObject):
         replace_existing: bool = False,
         reselect_path: Optional[str] = None,
         restore_stitches: Optional[dict] = None,
+        restore_hdr: Optional[dict] = None,
     ) -> None:
         """
         Starts asynchronous discovery of supported assets.
@@ -849,6 +875,7 @@ class AppController(QObject):
             rgb_scan=bool(self.session.repo.get_global_setting("rgbscan_mode", False)),
             half_frame=bool(self.session.repo.get_global_setting("half_frame_mode", False)),
             restore_stitches=restore_stitches,
+            restore_hdr=restore_hdr,
             half_frame_profile=self.half_frame_profile(),
         )
         if self._discovery_running:
@@ -883,6 +910,7 @@ class AppController(QObject):
             restore_triplets=request.restore_triplets,
             half_frame=request.half_frame,
             restore_stitches=request.restore_stitches,
+            restore_hdr=request.restore_hdr,
             half_frame_profile=request.half_frame_profile,
         )
         self.asset_discovery_requested.emit(task)
@@ -1357,6 +1385,7 @@ class AppController(QObject):
 
         rgbscan = self.state.config.rgbscan
         stitch = self.state.config.stitch
+        hdr = self.state.config.hdr
         flatfield = self.state.config.flatfield
         half_info = self._active_half()
         self.preview_load_requested.emit(
@@ -1376,15 +1405,12 @@ class AppController(QObject):
                     if pending_import is not None
                     else force_detect or (self.state.autodetect_enabled and self.state.current_file_is_new)
                 ),
-                green_path=rgbscan.green_path if rgbscan.enabled else "",
-                blue_path=rgbscan.blue_path if rgbscan.enabled else "",
-                align=rgbscan.align,
-                stitch_paths=stitch.stitch_paths if stitch.stitch_enabled else (),
-                stitch_transforms=stitch.stitch_transforms if stitch.stitch_enabled else (),
-                stitch_canvas=stitch.stitch_canvas,
-                stitch_sizes=stitch.stitch_sizes,
-                stitch_triplets=stitch.stitch_triplets if stitch.stitch_enabled else (),
-                stitch_align=stitch.stitch_align,
+                # Whole, not flattened: the worker gates on the same predicates the decode
+                # paths use (is_rgb_triplet / stitch_active / hdr_active), so a disabled
+                # section needs no blanking here.
+                rgbscan=rgbscan,
+                stitch=stitch,
+                hdr=hdr,
                 flatfield_profile_id=flatfield.profile_id if (stitch.stitch_enabled and flatfield.apply) else "",
                 half_slice=half_info,
             )
@@ -2164,7 +2190,7 @@ class AppController(QObject):
     def _config_for_autocrop_asset(self, asset: dict) -> WorkspaceConfig:
         """Resolve per-asset settings, including unsaved edits on the active frame."""
         if asset.get("hash") == self.state.current_file_hash:
-            return resolve_asset_stitch(resolve_asset_rgbscan(self.state.config, asset), asset)
+            return resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(self.state.config, asset), asset), asset)
         return self.session.config_for_asset(asset)
 
     def request_batch_auto_crop(self) -> None:
@@ -3040,13 +3066,16 @@ class AppController(QObject):
             "stitch_sizes": payload["sizes"],
             "stitch_triplets": triplets,
             "stitch_align": bool(files[0].get("align", True)),
+            # Same inheritance as a merge: a composite's fresh hash would otherwise take
+            # the stale sticky mode rather than the parts' own.
+            "process_mode": self._composite_process_mode(files),
         }
         if all(triplets[0]):
             # Thumbnail decode and the sensor-unmix skip read the primary's pair from here.
             composite.update(green_path=triplets[0][0], blue_path=triplets[0][1], align=composite["stitch_align"])
         wanted = set(part_paths)
         indices = [i for i, f in enumerate(self.state.uploaded_files) if f["path"] in wanted]
-        self.session.apply_stitch(indices, composite)
+        self.session.apply_composite(indices, composite)
         self.set_status(f"Stitched {len(files)} frames", 4000)
         # The composite bypasses asset discovery, so nothing else queues its thumbnail.
         self.generate_missing_thumbnails()
@@ -3083,6 +3112,160 @@ class AppController(QObject):
         self.session.asset_model.refresh()
         self._pending_scanned_file = paths[0]
         self.request_asset_discovery(paths, restore_triplets=triplets or None)
+
+    def _composite_process_mode(self, files: list) -> str:
+        """The film process a composite should inherit from its source frames.
+
+        The most common mode among them, ties going to the first (the reference frame /
+        primary part). Majority rather than just the primary's: a bracket's extreme
+        exposures can autodetect differently — the frame that blows 46% of its area is
+        not a reliable vote — while the frames of one physical slide always agree in fact.
+        """
+        modes = [str(self.session.config_for_asset(f).process.process_mode) for f in files]
+        if not modes:
+            return str(self.state.config.process.process_mode)
+        counts = Counter(modes)
+        top = max(counts.values())
+        return next(m for m in modes if counts[m] == top)
+
+    # ── HDR (bracketed-exposure merge) ─────────────────────────────────
+
+    def request_hdr_merge_selected(self) -> None:
+        """Solve the selected frames into one merged bracket asset."""
+        if self._batch_busy("HDR merge"):
+            return
+        files = [self.state.uploaded_files[i] for i in sorted(set(self.state.selected_indices)) if 0 <= i < len(self.state.uploaded_files)]
+        by_path = {f["path"]: f for f in files}  # half-frame assets share a path
+        ordered = sorted(by_path.values(), key=lambda f: os.path.basename(f["path"]).lower())
+        if len(ordered) < 2:
+            self.set_status("Select two or more exposures of the same frame to merge", 4000)
+            return
+        if any(f.get("hdr_paths") for f in ordered):
+            self.set_status("Merging an already-merged frame is not supported", 4000)
+            return
+        # Both are multi-file source assembly and an asset carries one primary path; the
+        # composition order is definable but is not wired, so refuse rather than guess.
+        if any(f.get("stitch_paths") for f in ordered):
+            self.set_status("HDR merge of a stitched frame is not supported", 4000)
+            return
+        if any(f.get("green_path") for f in ordered):
+            self.set_status("HDR merge of an RGB-scan triplet is not supported", 4000)
+            return
+        # Halves share a path, so by_path already dropped one of each pair; merging them
+        # would silently produce a whole-frame composite. Half-frame assets are left whole
+        # by every other assembly (see _expand_half_frames) for the same reason.
+        if any(f.get("half") for f in ordered):
+            self.set_status("HDR merge of a half-frame asset is not supported", 4000)
+            return
+        if self._begin_batch("hdr", "Merging exposures", abortable=True) is None:
+            return
+        self.hdr_requested.emit(
+            HdrTask(
+                files=tuple(dict(f) for f in ordered),
+                params_by_path={f["path"]: self._batch_params_for(f) for f in ordered},
+            )
+        )
+
+    def _on_hdr_solved(self, payload: dict) -> None:
+        self._end_batch("hdr")
+        files = payload["files"]
+        reference = payload["reference"]
+        # The reference frame becomes the composite's primary: it is the asset's own path
+        # everywhere downstream, and the merge expresses radiance in its units.
+        ordered = [files[reference], *[f for i, f in enumerate(files) if i != reference]]
+        ratios = payload["ratios"]
+        ordered_ratios = (ratios[reference], *[r for i, r in enumerate(ratios) if i != reference])
+        frame_paths = [f["path"] for f in ordered]
+        composite = {
+            "name": hdr_name(frame_paths),
+            "path": frame_paths[0],
+            "hash": hdr_hash([f["hash"] for f in ordered]),
+            "hdr_paths": tuple(frame_paths[1:]),
+            "hdr_ratios": tuple(float(r) for r in ordered_ratios),
+            "hdr_align": True,
+            "hdr_anchor": "",  # bracket middle until the user nominates an exposure
+            "process_mode": self._composite_process_mode(ordered),
+        }
+        wanted = set(frame_paths)
+        indices = [i for i, f in enumerate(self.state.uploaded_files) if f["path"] in wanted]
+        self.session.apply_composite(indices, composite)
+        stops = math.log2(max(ratios) / min(ratios)) if min(ratios) > 0 else 0.0
+        self.set_status(f"Merged {len(files)} exposures spanning {stops:.1f} stops", 4000)
+        # The composite bypasses asset discovery, so nothing else queues its thumbnail.
+        self.generate_missing_thumbnails()
+
+    def _on_hdr_cancelled(self) -> None:
+        self._on_batch_cancelled("hdr")
+
+    def _on_hdr_error(self, message: str) -> None:
+        self._end_batch("hdr")
+        self.set_status(message, 6000)
+
+    def apply_config(self, config: WorkspaceConfig, persist: bool = False, readback_metrics: bool = True) -> None:
+        """Adopt `config` and repaint by whichever route the change actually needs.
+
+        A change to a *source* input — a bracket, a triplet, a stitch, Linear RAW — cannot
+        be honoured by re-running the pipeline: assembly happens while the source is
+        decoded, so the buffer the pipeline starts from is already the wrong one. Compare
+        `source_token` and re-decode when it moves.
+
+        The alternative is every such control remembering to reload for itself, which is
+        how the HDR render exposure shipped writing a value that never reached the canvas.
+        """
+        needs_decode = source_token(config) != source_token(self.state.config)
+        # render=False on the decode branch: state_changed would analyse bounds against
+        # the stale pre-reload buffer.
+        self.session.update_config(config, persist=persist, render=not needs_decode)
+        if needs_decode and self.state.current_file_path:
+            self.load_file(self.state.current_file_path, preserve_zoom=True)
+        else:
+            self.request_render(readback_metrics=readback_metrics)
+
+    def set_hdr_anchor(self, path: str) -> None:
+        """Render the active merge at `path`'s exposure ("" = the bracket's middle).
+
+        Which frame looks right is intent, not a measurement: the exposure *reference* is
+        the longest frame that does not clip, which on a slide is brighter than the capture
+        the photographer metered — a slide's own brightest point is denser than clear film.
+        Stored on the asset, like the rest of the bracket, so it survives re-hydration.
+        """
+        idx = self.state.selected_file_idx
+        if not (0 <= idx < len(self.state.uploaded_files)):
+            return
+        asset = self.state.uploaded_files[idx]
+        if not asset.get("hdr_paths") or str(asset.get("hdr_anchor", "") or "") == path:
+            return
+        asset["hdr_anchor"] = path
+        # The asset dict is authoritative for the bracket, and only the manifest carries it
+        # across a restart; nothing else persists between here and quitting.
+        self.session.persist_session()
+        cfg = self.state.config
+        self.set_status(f"Rendering the merge as {os.path.basename(path)}" if path else "Rendering the merge at the bracket middle", 4000)
+        # apply_config re-decodes: the bracket is merged while the source is decoded, so
+        # the scale lives in the buffer the pipeline starts from, and a render alone
+        # would re-run the pipeline over the already-merged buffer and change nothing.
+        self.apply_config(replace(cfg, hdr=replace(cfg.hdr, hdr_anchor=path)))
+
+    def request_unmerge_hdr(self) -> None:
+        """Dissolve the active merged frame back into its exposures.
+
+        Frame edits restore from the DB by content hash; the composite's edits stay keyed
+        under its HDR hash for a future re-merge of the same bracket."""
+        idx = self.state.selected_file_idx
+        if not (0 <= idx < len(self.state.uploaded_files)):
+            return
+        asset = self.state.uploaded_files[idx]
+        frames = asset.get("hdr_paths")
+        if not frames:
+            return
+        paths = [asset["path"], *frames]
+        self.state.uploaded_files.pop(idx)
+        key = asset_thumbnail_key(asset)
+        self.session.state.thumbnails.pop(key, None)
+        self.session.state.rendered_thumbnails.discard(key)
+        self.session.asset_model.refresh()
+        self._pending_scanned_file = paths[0]
+        self.request_asset_discovery(paths)
 
     def _select_file_by_path(self, path: str) -> bool:
         """Find a file by path in uploaded_files and select it."""
@@ -3543,7 +3726,7 @@ class AppController(QObject):
                     ),
                 )
 
-        return resolve_asset_stitch(resolve_asset_rgbscan(params, f), f)
+        return resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(params, f), f), f)
 
     def _tasks_for_file(
         self,
@@ -3665,7 +3848,10 @@ class AppController(QObject):
         for f in supported:
             params = self._batch_params_for(f)
             stitch = params.stitch if params.stitch.stitch_enabled else None
-            stem = os.path.splitext(os.path.basename(f["path"]))[0]
+            frames = hdr_frame_paths(f)
+            # Same naming rule as a normal export: the bracket's first frame, suffixed so
+            # the merge does not write over that frame's own linear output.
+            stem = f"{hdr_stem(frames)}-HDR" if frames else os.path.splitext(os.path.basename(f["path"]))[0]
             out_path = os.path.join(export_path, f"{stem}_linear.{out_ext}")
             counter = 2
             while os.path.exists(out_path):
@@ -3679,6 +3865,7 @@ class AppController(QObject):
                     expansion=expansion,
                     rgbscan=params.rgbscan,
                     stitch=stitch,
+                    hdr=params.hdr,
                     flatfield=params.flatfield,
                     process=params.process,
                     apply_wb=self.state.linear_apply_wb,
@@ -4011,7 +4198,9 @@ class AppController(QObject):
         written = 0
         for f in files:
             half = int(f.get("half") or 0)
-            params = load_or_promote(repo, f["hash"], f["path"], half=half) or self.session.config_for_asset(f)
+            params = load_or_promote(
+                repo, f["hash"], f["path"], half=half, composite=bool(f.get("hdr_paths") or f.get("stitch_paths"))
+            ) or self.session.config_for_asset(f)
             try:
                 write_sidecar(f["path"], params, half=half)
                 written += 1

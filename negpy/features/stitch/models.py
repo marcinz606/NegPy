@@ -3,6 +3,8 @@ import os
 from dataclasses import dataclass
 from typing import Sequence
 
+from negpy.domain.tokens import composite_token
+
 
 @dataclass(frozen=True)
 class StitchConfig:
@@ -27,27 +29,17 @@ def stitch_has_triplets(config: StitchConfig) -> bool:
     return any(green and blue for green, blue in config.stitch_triplets)
 
 
+def stitch_active(config: StitchConfig) -> bool:
+    """The predicate the decode paths use to decide to assemble a composite."""
+    return bool(config.stitch_enabled and config.stitch_paths)
+
+
 def stitch_token(config: StitchConfig) -> str:
     """Identity of the active stitch, folded into the render source hash. Empty when inactive."""
-    if not config.stitch_enabled or not config.stitch_paths:
+    if not stitch_active(config):
         return ""
-    parts = []
-    for path in config.stitch_paths:
-        try:
-            parts.append(f"{path}:{os.path.getmtime(path)}")
-        except OSError:
-            return ""
-    for green, blue in config.stitch_triplets:
-        for path in (green, blue):
-            if not path:
-                continue
-            try:
-                parts.append(f"{path}:{os.path.getmtime(path)}")
-            except OSError:
-                return ""
-    geometry = repr((config.stitch_transforms, config.stitch_canvas, config.stitch_sizes))
-    digest = hashlib.sha256(geometry.encode()).hexdigest()[:12]
-    return f"|stitch:{':'.join(parts)}:{digest}:a{int(config.stitch_align)}"
+    triplets = [path for pair in config.stitch_triplets for path in pair]
+    return composite_token("stitch", config, [*config.stitch_paths, *triplets])
 
 
 def stitch_name(part_paths: Sequence[str]) -> str:

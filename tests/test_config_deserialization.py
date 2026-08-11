@@ -330,9 +330,14 @@ class TestConfigDeserialization(unittest.TestCase):
         self.assertEqual(reloaded.stitch.stitch_sizes, ((2000, 3000), (2100, 3000)))
         hash(reloaded.stitch)  # must not raise
 
-    def test_stitch_keys_do_not_warn(self):
-        """Regression: StitchConfig was missing from the known-keys set, so every
-        load of a stitched edit warned 'Dropping unknown config keys: [stitch_*]'."""
+    def test_no_sub_config_is_missing_from_the_known_keys_set(self):
+        """`from_flat_dict` validates incoming keys against a hand-maintained
+        `config_classes` list. A sub-config added to WorkspaceConfig but not to that list
+        has every one of its keys dropped on load — a warning, then silent data loss.
+
+        Round-tripping the default config is enough to catch it, because `to_dict` emits
+        every sub-config's keys whatever their values. StitchConfig was missing once, and
+        HdrConfig was missing when it was added; both showed up here."""
         with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):
             WorkspaceConfig.from_flat_dict(WorkspaceConfig().to_dict())
 

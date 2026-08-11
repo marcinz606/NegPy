@@ -44,7 +44,7 @@ def test_temperature_writes_selected_region_fields(qapp):
 
     sidebar._on_temp_changed(4500.0)
 
-    call = controller.session.update_config.call_args
+    call = controller.apply_config.call_args
     assert call is not None
     new_exposure = call.args[0].exposure
     assert new_exposure.highlight_magenta != 0.0 or new_exposure.highlight_yellow != 0.0
@@ -62,7 +62,7 @@ def test_region_reset_zeroes_selected_region_only(qapp):
 
     sidebar._on_region_reset()
 
-    new_exposure = controller.session.update_config.call_args.args[0].exposure
+    new_exposure = controller.apply_config.call_args.args[0].exposure
     assert new_exposure.shadow_cyan == 0.0
     assert new_exposure.shadow_magenta == 0.0
     assert new_exposure.shadow_yellow == 0.0

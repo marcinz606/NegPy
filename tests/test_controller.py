@@ -1347,7 +1347,7 @@ class TestSessionRestore(unittest.TestCase):
             self.controller.restore_session()
             self.assertEqual(self.controller._pending_scanned_file, b.name)
             self.controller.request_asset_discovery.assert_called_once_with(
-                [a.name, b.name], auto_open=True, restore_triplets={}, restore_stitches={}
+                [a.name, b.name], auto_open=True, restore_triplets={}, restore_stitches={}, restore_hdr={}
             )
 
     def test_restore_session_no_saved_files_is_noop(self):

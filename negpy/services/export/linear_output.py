@@ -26,6 +26,8 @@ from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.process.models import ProcessConfig
 from negpy.features.process.sensor import apply_sensor_correction
+from negpy.features.hdr.logic import merge_bracket
+from negpy.features.hdr.models import HdrConfig, hdr_active
 from negpy.features.rgbscan.logic import merge_rgb_triplet
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.stitch.logic import stitch_composite
@@ -313,6 +315,7 @@ def _decode_linear(
     expansion: Optional[float] = None,
     rgbscan: Optional[RgbScanConfig] = None,
     stitch: Optional[StitchConfig] = None,
+    hdr: Optional[HdrConfig] = None,
     flatfield: Optional[FlatFieldConfig] = None,
     process: Optional[ProcessConfig] = None,
     apply_wb: bool = False,
@@ -326,6 +329,18 @@ def _decode_linear(
         if apply_wb and wb is not None:
             rgb = _apply_white_balance(rgb, wb)
         return rgb, ir, wb, meta
+    # Ahead of every per-format branch below: each of those returns, so a bracket of
+    # anything but plain camera RAW would otherwise export as its unmerged reference
+    # frame — the canvas merged, the file did not, and nothing said so.
+    if hdr is not None and hdr_active(hdr):
+        rgb, wb, meta = _decode_hdr(file_path, hdr, geometry, expansion=expansion, gamma_key=gamma_key)
+        if apply_flatfield and flatfield is not None:
+            rgb = _apply_flatfield_correction(rgb, flatfield)
+        if apply_sensor and process is not None and process.sensor_matrix is not None:
+            rgb = apply_sensor_correction(rgb, process.sensor_matrix)
+        if apply_wb and wb is not None:
+            rgb = _apply_white_balance(rgb, wb)
+        return rgb, None, wb, meta
     if PakonLoader.can_handle(file_path):
         rgb, ir = _decode_pakon(file_path, geometry, expansion=expansion)
         meta = _SourceMeta(make="Pakon", model=_pakon_spec_desc(file_path))
@@ -619,6 +634,43 @@ def _decode_camera_raw(file_path: str, geometry: Optional[GeometryConfig] = None
     if geometry is not None:
         f32 = _apply_user_geometry(f32, geometry)
     return f32, None, wb, meta
+
+
+def _decode_hdr(
+    file_path: str,
+    hdr: HdrConfig,
+    geometry: Optional[GeometryConfig] = None,
+    expansion: Optional[float] = None,
+    gamma_key: str = "linear",
+) -> tuple[np.ndarray, Optional[_CameraWB], _SourceMeta]:
+    """Decode a bracket and merge it into one buffer, in the reference frame's units.
+
+    file_path is the reference, and every frame goes back through `_decode_linear` so a
+    bracket decodes exactly as its frames do on their own — whatever the format. Source
+    corrections are left to the caller: they belong after the merge, since the decode pins
+    the white level the merge's thresholds key on.
+
+    Geometry is applied once, to the merged result, so registration is not fighting a
+    per-frame rotation. Frames are pulled one at a time by merge_bracket — a full-res
+    bracket held all at once is several GB.
+    """
+
+    reference_f32, _, wb, meta = _decode_linear(file_path, expansion=expansion, gamma_key=gamma_key)
+
+    def _decode(path: str) -> np.ndarray:
+        # The reference is already decoded; only the siblings are pulled, one at a time.
+        return reference_f32 if path == file_path else _decode_linear(path, expansion=expansion, gamma_key=gamma_key)[0]
+
+    file_meta = _read_source_meta_tiff(file_path)
+    merged_meta = _SourceMeta(
+        make=file_meta.make or meta.make,
+        model=file_meta.model or meta.model,
+        datetime=file_meta.datetime or meta.datetime,
+    )
+    f32 = merge_bracket(_decode, file_path, hdr.hdr_paths, hdr.hdr_ratios, align=hdr.hdr_align, anchor_path=hdr.hdr_anchor)
+    if geometry is not None:
+        f32 = _apply_user_geometry(f32, geometry)
+    return f32, wb, merged_meta
 
 
 def _decode_camera_raw_triplet(
@@ -974,6 +1026,7 @@ def export_linear_output(
     expansion: Optional[float] = None,
     rgbscan: Optional[RgbScanConfig] = None,
     stitch: Optional[StitchConfig] = None,
+    hdr: Optional[HdrConfig] = None,
     flatfield: Optional[FlatFieldConfig] = None,
     process: Optional[ProcessConfig] = None,
     apply_wb: bool = False,
@@ -1002,6 +1055,7 @@ def export_linear_output(
         expansion=expansion,
         rgbscan=rgbscan,
         stitch=stitch,
+        hdr=hdr,
         flatfield=flatfield,
         process=process,
         apply_wb=apply_wb,

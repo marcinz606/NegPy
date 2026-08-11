@@ -49,6 +49,8 @@ from negpy.features.retouch.models import IR_METHOD_OPENICE
 from negpy.features.rgbscan.logic import merge_rgb_triplet, rgbscan_token
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.stitch.logic import stitch_composite
+from negpy.features.hdr.logic import merge_bracket
+from negpy.features.hdr.models import hdr_active, hdr_token
 from negpy.features.stitch.models import stitch_has_triplets, stitch_token
 from negpy.domain.interfaces import PipelineContext
 from negpy.services.rendering.engine import DarkroomEngine
@@ -436,6 +438,7 @@ class ImageProcessor:
             sensor_token(settings.process),
             rgbscan_token(settings.rgbscan),
             stitch_token(settings.stitch),
+            hdr_token(settings.hdr),
         )
         if self._precorrect_key == precorrect_key and self._precorrect_value is not None:
             img = self._precorrect_value
@@ -463,6 +466,7 @@ class ImageProcessor:
             + flatfield_token(settings.flatfield)
             + rgbscan_token(settings.rgbscan)
             + stitch_token(settings.stitch)
+            + hdr_token(settings.hdr)
             + linear_raw_token(settings.process)
             + sensor_token(settings.process)
             + ir_bake_token(settings.retouch, ir_buffer is not None)
@@ -631,6 +635,7 @@ class ImageProcessor:
             params.process.linear_raw,
             rgbscan_token(params.rgbscan),
             stitch_token(params.stitch),
+            hdr_token(params.hdr),
             flatfield_token(params.flatfield),
             sensor_token(params.process),
             fast_decode,
@@ -666,7 +671,10 @@ class ImageProcessor:
         """
         linear_raw = params.process.linear_raw
         rgbcfg = params.rgbscan
-        is_triplet = is_rgb_triplet(rgbcfg)
+        # A bracket wins over a triplet: the two are refused together in the UI, and the
+        # export decode branches in this order — an asset that somehow carries both must
+        # not assemble differently on the two paths.
+        is_triplet = is_rgb_triplet(rgbcfg) and not hdr_active(params.hdr)
 
         rgb, metadata = self._decode_sensor_rgb(file_path, linear_raw, fast=fast_decode)
         # No embedded profile (scanner-raw linear, sensor-native RAW) → the buffer is
@@ -691,7 +699,25 @@ class ImageProcessor:
 
             rgb = merge_rgb_triplet(_decode, file_path, rgbcfg.green_path, rgbcfg.blue_path, align=rgbcfg.align)
 
-        f32_buffer = uint16_to_float32(rgb)
+        if hdr_active(params.hdr):
+            # Merged straight to float32: the recovered detail sits below the reference
+            # exposure's quantization step, so a uint16 round-trip would discard it.
+            # Before flat-field and the sensor unmix, both of which are applied below —
+            # the decode pins the white level (adjust_maximum_thr=0.0), so saturation is
+            # exactly 1.0 and the merge's exclusion threshold means what it says. A gain
+            # map applied first moves that point and skews the weights.
+            f32_buffer = merge_bracket(
+                # fast_decode must ride along: a half-size primary against full-size
+                # siblings is a shape mismatch, not a slow merge.
+                lambda p: rgb if p == file_path else self._decode_sensor_rgb(p, linear_raw, fast=fast_decode)[0],
+                file_path,
+                params.hdr.hdr_paths,
+                params.hdr.hdr_ratios,
+                align=params.hdr.hdr_align,
+                anchor_path=params.hdr.hdr_anchor,
+            )
+        else:
+            f32_buffer = uint16_to_float32(rgb)
 
         if ir_full is not None and ir_full.shape[:2] != f32_buffer.shape[:2]:
             # Defensive: no current IR carrier half-sizes (libraw ignores half_size on
@@ -764,6 +790,7 @@ class ImageProcessor:
                 + flatfield_token(params.flatfield)
                 + rgbscan_token(params.rgbscan)
                 + stitch_token(params.stitch)
+                + hdr_token(params.hdr)
                 + linear_raw_token(params.process)
                 + sensor_token(params.process)
                 + ir_bake_token(params.retouch, ir_full is not None)
@@ -1023,6 +1050,7 @@ class ImageProcessor:
                 + flatfield_token(params.flatfield)
                 + rgbscan_token(params.rgbscan)
                 + stitch_token(params.stitch)
+                + hdr_token(params.hdr)
                 + linear_raw_token(params.process)
                 + sensor_token(params.process)
                 + ir_bake_token(params.retouch, ir_full is not None)
