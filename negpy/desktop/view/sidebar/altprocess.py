@@ -124,12 +124,12 @@ class AltProcessSidebar(BaseSidebar):
             "and his Simple Cyanotype ships as three variants at 1.8, 2.3 and 2.7. "
             "Short scale means a contrastier print that clips both ends of a normal negative"
         )
-        self.cyano_bleach_slider = CompactSlider("Bleach", 0.0, 1.0, conf.cyano_bleach)
+        self.cyano_bleach_slider = CompactSlider("Bleach", 0.0, 0.5, conf.cyano_bleach)
         self.cyano_bleach_slider.setToolTip(
             "Washing soda. Strips Prussian blue out of the print, highlights first — take it far "
             "enough and only the deepest shadows keep any pigment"
         )
-        self.cyano_tannin_slider = CompactSlider("Tannin", 0.0, 1.0, conf.cyano_tannin)
+        self.cyano_tannin_slider = CompactSlider("Tannin", 0.0, 0.5, conf.cyano_tannin)
         self.cyano_tannin_slider.setToolTip(
             "Tea, coffee or tannic acid. Re-develops the bleached iron as a brown iron tannate that "
             "covers more than the pigment it replaced, so the print goes browner and a little deeper. "
