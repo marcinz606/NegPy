@@ -20,8 +20,10 @@ from typing import Callable, List, Optional, Sequence, Tuple
 
 import cv2
 import numpy as np
+from numba import prange  # type: ignore
 
 from negpy.features.rgbscan.logic import estimate_shift
+from negpy.kernel.system.parallel import parallel_njit
 
 #: A sample at or above this is saturated and carries no information.
 SATURATION = 0.995
@@ -33,6 +35,11 @@ ROLLOFF_START = 0.90
 MAX_REFERENCE_CLIPPING = 0.001
 #: Samples below this are noise in both frames of a pair and would bias a ratio fit.
 RATIO_FLOOR = 0.02
+#: Pixel budget for the measurements that only read a distribution — the level percentile
+#: and the ratio median. Moves the solved ratios by <0.1%, below one 16-bit step in the
+#: merge. The clipped fraction is not subsampled: it picks the reference against a hard
+#: threshold, and a different reference is a different white.
+MEASURE_PIXELS = 1_500_000
 
 
 @dataclass(frozen=True)
@@ -53,6 +60,40 @@ def to_float(frame: np.ndarray) -> np.ndarray:
     return out[..., :3] if out.ndim == 3 and out.shape[2] > 3 else out
 
 
+def subsample(frame: np.ndarray) -> np.ndarray:
+    """Strided view of about MEASURE_PIXELS pixels; the frame itself when it is smaller.
+
+    A stride, not a resize: averaging neighbours would blend back in the very samples
+    these measurements exclude — saturated ones, noise-floor ones.
+    """
+    step = int(np.sqrt(frame.shape[0] * frame.shape[1] / MEASURE_PIXELS))
+    return frame[::step, ::step] if step > 1 else frame
+
+
+@parallel_njit(cache=True, fastmath=True)
+def _count_clipped_rows(values: np.ndarray, out: np.ndarray) -> None:
+    """Saturated-pixel count per row. Per row rather than one total: numba's parfor pass
+    cannot analyse a reduction whose addend is itself computed by a loop."""
+    height, width, channels = values.shape
+    for y in prange(height):
+        n = 0
+        for x in range(width):
+            hit = 0
+            for c in range(channels):
+                if values[y, x, c] >= SATURATION:
+                    hit = 1
+            n += hit
+        out[y] = n
+
+
+def clipped_fraction(values: np.ndarray) -> float:
+    """Fraction of pixels saturated in any channel. Whole frame, no subsample — see
+    MEASURE_PIXELS."""
+    rows = np.empty(values.shape[0], dtype=np.int64)
+    _count_clipped_rows(values, rows)
+    return float(rows.sum()) / float(values.shape[0] * values.shape[1])
+
+
 def measure_exposure(frame: np.ndarray) -> Tuple[float, float]:
     """(level, clipped fraction) for one decoded frame.
 
@@ -64,8 +105,7 @@ def measure_exposure(frame: np.ndarray) -> Tuple[float, float]:
     so level alone cannot order the long end of a bracket. Use `exposure_order_key`.
     """
     f = to_float(frame)
-    clipped = float((f >= SATURATION).any(axis=2).mean())
-    return float(np.percentile(f, 99.0)), clipped
+    return float(np.percentile(subsample(f), 99.0)), float(clipped_fraction(f))
 
 
 def exposure_order_key(level: float, clipped: float) -> Tuple[float, float]:
@@ -113,11 +153,13 @@ def pair_ratio(short: np.ndarray, long_: np.ndarray) -> Optional[float]:
     carrying no exposure tags, and measured transmitted light beats a nominal shutter
     speed regardless. The median of per-sample ratios, over samples that are above the
     noise floor in the short frame and unsaturated in the long one — robust to the dust,
-    clipping and per-channel differences a least-squares fit would chase.
+    clipping and per-channel differences a least-squares fit would chase. Taken on a
+    subsample: a median needs a distribution, not every pixel.
     """
     s, lo = to_float(short), to_float(long_)
     if s.shape != lo.shape:
         raise ValueError(f"bracket frames differ in shape: {s.shape}, {lo.shape}")
+    s, lo = subsample(s), subsample(lo)
     valid = (s >= RATIO_FLOOR) & (lo < SATURATION)
     if int(valid.sum()) < 1000:
         return None
@@ -256,8 +298,10 @@ def seed_shadow_density(ratios: Sequence[float], anchor: Optional[float] = None)
     return -min(SEED_SHADOW_PER_STOP * stops, SEED_SHADOW_LIMIT)
 
 
-def _sample_weight(values: np.ndarray, ratio: float) -> np.ndarray:
-    """Per-sample confidence: inverse variance, rolled off toward saturation.
+@parallel_njit(cache=True, fastmath=True)
+def _accumulate(num: np.ndarray, den: np.ndarray, values: np.ndarray, ratio: float) -> None:
+    """Add one frame to the weighted sums, in reference units. One fused pass: the numpy
+    form cost more than the RAW decode it follows, mostly in full-size temporaries.
 
     Weight is the **square** of the exposure ratio. Converting a sample to reference units
     divides by the ratio, which divides its noise by the ratio too, so a frame's variance
@@ -266,13 +310,26 @@ def _sample_weight(values: np.ndarray, ratio: float) -> np.ndarray:
     by the ratio itself lets a short exposure's amplified quantization noise back in, and
     measurably makes the deep shadows *worse* than not merging at all.
 
-    The roll-off is per channel — one channel can clip while the others still carry signal
-    — and is gradual so the frame a pixel is drawn from changes smoothly. A hard switch
-    prints as banding across a gradient.
+    The roll-off toward saturation is per channel — one channel can clip while the others
+    still carry signal — and is gradual so the frame a pixel is drawn from changes
+    smoothly. A hard switch prints as banding across a gradient.
     """
-    span = np.float32(SATURATION - ROLLOFF_START)
-    rolloff = np.clip((np.float32(SATURATION) - values) / span, 0.0, 1.0)
-    return (np.float32(ratio) ** 2 * rolloff).astype(np.float32)
+    inv_span = np.float32(1.0) / np.float32(SATURATION - ROLLOFF_START)
+    weight = np.float32(ratio) ** 2
+    scale = np.float32(max(ratio, 1e-9))
+    height, width, channels = values.shape
+    for y in prange(height):
+        for x in range(width):
+            for c in range(channels):
+                v = values[y, x, c]
+                rolloff = (np.float32(SATURATION) - v) * inv_span
+                if rolloff < np.float32(0.0):
+                    rolloff = np.float32(0.0)
+                elif rolloff > np.float32(1.0):
+                    rolloff = np.float32(1.0)
+                w = weight * rolloff
+                num[y, x, c] += w * (v / scale)
+                den[y, x, c] += w
 
 
 def merge_providers(
@@ -308,10 +365,7 @@ def merge_providers(
             raise ValueError(f"bracket frames differ in shape: {f.shape}, {ref.shape}")
         if align and i != reference:
             f = _align(ref_gray, f, max_shift)
-        w = _sample_weight(f, float(ratio))
-        num += w * (f / np.float32(max(float(ratio), 1e-9)))
-        den += w
-        del w
+        _accumulate(num, den, f, float(ratio))
         if i != reference:
             del f
 

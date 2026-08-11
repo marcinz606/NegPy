@@ -17,11 +17,13 @@ from negpy.features.hdr.logic import (
     anchor_choices,
     anchor_ratio,
     choose_reference,
+    clipped_fraction,
     exposure_order_key,
     merge_frames,
     output_scale,
     pair_ratio,
     seed_shadow_density,
+    subsample,
     to_float,
     shadow_reach_stops,
     probe_exposures,
@@ -280,6 +282,32 @@ class TestRatioSolving(unittest.TestCase):
         # Nothing clipped: level still orders, and every clipped frame sorts above.
         self.assertLess(key(0.40, 0.0), key(0.88, 0.0))
         self.assertLess(key(0.99, 0.0), key(1.0, 0.001))
+
+
+class TestMeasurementSampling(unittest.TestCase):
+    """The level percentile and the ratio median read a subsample; the clipped fraction
+    does not, because it picks the reference against a hard threshold."""
+
+    def test_clipped_fraction_matches_the_whole_frame(self):
+        f = to_float(_expose(_scene(), 4.0))
+        self.assertEqual(clipped_fraction(f), float((f >= SATURATION).any(axis=2).mean()))
+
+    def test_subsample_leaves_a_frame_under_budget_alone(self):
+        small = np.zeros((1000, 1000, 1), dtype=np.uint8)
+        self.assertIs(subsample(small), small)
+        # Over budget: strided, and still a view of the original.
+        big = np.zeros((3000, 3000, 1), dtype=np.uint8)
+        self.assertLessEqual(subsample(big).shape[0] * subsample(big).shape[1], big.shape[0] * big.shape[1] // 4)
+        self.assertIs(subsample(big).base, big)
+
+    def test_ratios_survive_the_subsample(self):
+        """A frame big enough to actually be strided must still solve to the true stop."""
+        scene = _scene(2600, 2600)
+        short, long_ = _expose(scene, 0.25), _expose(scene, 0.5)
+        self.assertLess(subsample(short).shape[0], short.shape[0])
+        r = pair_ratio(short, long_)
+        self.assertIsNotNone(r)
+        self.assertAlmostEqual(r, 2.0, delta=0.05)
 
 
 class TestMergeQuality(unittest.TestCase):
