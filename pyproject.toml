@@ -55,6 +55,9 @@ camera = [
     # Camera Scanning tab with them — are macOS and Linux only.
     "gphoto2>=2.5 ; sys_platform != 'win32'",
 ]
+coolscan-roll = [
+    "coolscanpy>=0.1.2",
+]
 
 [project.urls]
 Homepage = "https://github.com/marcinz606/NegPy"
