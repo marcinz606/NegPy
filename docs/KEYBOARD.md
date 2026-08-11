@@ -34,6 +34,7 @@ Numpad keys can be bound separately from the number row (e.g. `Num+9` vs `9`). N
 | `Shift + C` | Toggle Manual Crop Tool |
 | `Shift + D` | Toggle Dust Spot Picker |
 | `Shift + S` | Toggle Scratch Tool |
+| `Shift + K` | Toggle Transport Line tool |
 | `Shift + B` | Toggle Dodge & Burn Mask Draw |
 | `Shift + R` | Toggle Analysis Region Draw |
 | `Shift + T` | Print the density × grade test strip |

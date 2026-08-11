@@ -20,7 +20,7 @@ from negpy.desktop.view.slider_targets import slider_widget_map
 def _context_undo(controller) -> None:
     """Ctrl+Z targets what the user is working on: while a heal/scratch tool is
     active it removes the last placed heal; otherwise it's the normal edit undo."""
-    if controller.session.state.active_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK):
+    if controller.session.state.active_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK, ToolMode.SCRATCH_LINE):
         controller.undo_last_retouch()
     else:
         controller.session.undo()
@@ -105,6 +105,7 @@ class ShortcutManager:
             "auto_crop": lambda: controls.geometry_sidebar.reset_crop_btn.toggle(),
             "pick_dust": lambda: _toggle_tool_button(self.window, "finish", controls.retouch_sidebar.pick_dust_btn),
             "pick_scratch": lambda: _toggle_tool_button(self.window, "finish", controls.retouch_sidebar.pick_scratch_btn),
+            "pick_scratch_line": lambda: _toggle_tool_button(self.window, "finish", controls.retouch_sidebar.pick_line_btn),
             "local_draw": lambda: _toggle_tool_button(self.window, "tone", controls.local_sidebar.draw_btn),
             "local_oval": lambda: _toggle_tool_button(self.window, "tone", controls.local_sidebar.oval_btn),
             "local_gradient": lambda: _toggle_tool_button(self.window, "tone", controls.local_sidebar.gradient_btn),
@@ -114,6 +115,7 @@ class ShortcutManager:
             "toggle_test_strip": controller.toggle_test_strip,
             "toggle_ring_around": controller.toggle_ring_around,
             "toggle_grain_focuser": controller.toggle_grain_focuser,
+            "toggle_lith": controller.toggle_lith,
             "toggle_printing_notes": controller.toggle_printing_notes,
             "cancel_tool": lambda: _context_cancel(controller, self.window),
             "show_library": self.window.session_panel.show_library,

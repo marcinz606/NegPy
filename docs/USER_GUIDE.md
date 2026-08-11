@@ -23,7 +23,7 @@ The right-hand tabs are arranged in the order you actually work, which mirrors t
 | **Setup** | cogs | Presets · Calibration · Process · Roll Analysis | Film type, capture-side colour corrections, negative→positive normalization, roll-wide baselines |
 | **Geometry** | crop | Geometry · Flat Field | Crop, straighten, lens/falloff correction |
 | **Exposure** | sun | Filtration · Tone · Dodge & Burn | White balance, print density/contrast/curve/saturation, local burns |
-| **Colour** | palette | Lab · Toning | Chroma, sharpening, effects, split/chemical toning |
+| **Colour** | palette | Lab · Lith · Toning | Chroma, sharpening, effects, lith development, split/chemical toning |
 | **Finish** | brush | Retouch · Finishing | Dust removal, vignette, border, carrier |
 | **Favourites** | star | Your chosen sliders | Quick access to the controls you use most |
 | **History** | clock | Work prints · Edit history | Keep named versions, step back through every change |
@@ -387,7 +387,7 @@ The paper's response. A **Global / R / G / B** selector at the top scopes most c
 
 **Paper Response**, the characteristic-curve shape:
 
-*   **Paper profile**: a bundled darkroom-paper profile (RA4 colour papers in C-41, tonal B&W papers in B&W). Re-shapes the curve as a baseline; Grade/Density/toe/shoulder still trim on top. *Neutral* reproduces the defaults.
+*   **Paper profile**: a bundled darkroom-paper profile (RA4 colour papers in C-41, tonal B&W papers in B&W). Re-shapes the curve as a baseline; Grade/Density/toe/shoulder still trim on top. *Neutral* reproduces the defaults. Each B&W paper also carries its own lith colour path, which the Lith panel picks up: Fomatone liths warm and colourful, while *Neutral* and Ilford Multigrade stay nearly colourless.
 *   **Paper White**: simulate paper base density, so whites print at ~0.93 instead of pure white, like a real print.
 *   **Paper Black**: show the paper's true (slightly milky) Dmax instead of compensating it to pure display black. Off (default) applies black-point compensation so the adapted eye reads black as black.
 *   **Snap** (-0.5 to 0.5): midtone gamma, steepening or flattening the S-curve around the reference tone while paper white/black stay put.
@@ -454,16 +454,30 @@ Mimics what a lab scanner (Frontier/Noritsu) does automatically. Colour controls
 *   **Glow** (0.0 to 1.0): lens bloom, where bright highlights scatter across all channels for a dreamy softness.
 *   **Halation** (0.0 to 1.0): the red glow of light scattering back through the film base. Highlights only, strongly red-dominant.
 
-<!-- panel:toning -->
-### 7.2 Toning
+<!-- panel:lith -->
+### 7.2 Lith
 
-Colour the print itself rather than the scene: chemical toners that convert the silver (B&W only), and a split tint that works in any mode.
+Lith printing is the darkroom process of massively over-exposing a lith-capable paper, developing it in a very dilute low-sulphite developer, then pulling it out part-way through. B&W only. You get creamy warm highlights and an abrupt drop into hard, sooty blacks, with very little in between.
+
+There is no colour control here. The paper chosen in the Exposure panel sets the whole path, from peach highlights through an olive transition to neutral blacks. *Neutral* and the Ilford papers lith almost colourlessly; Fomatone is the one that gives you the peach and the olive.
+
+*   **Lith Printing**: turn the process on. While it is on, Sepia, Iron Blue, Copper and Vanadium grey out in the Toning panel, since they do nothing distinctive on a lith print. Selenium and Gold stay live, and behave differently here (see 7.3).
+*   **Exposure** (0 to 5 stops, default 2): print over-exposure. Real lith printing runs on two to four stops more light than a normal print. More light means warmer, more colourful highlights and softer gradation.
+*   **Snatch Point** (0.0 to 1.0, default 0.55): how long the print stays in the developer before you pull it. Higher drops the point where the shadows go black further up the tonal scale: deeper, colder blacks and a wider band of undifferentiated shadow. Lower keeps the print high-key and warm, with weak blacks.
+*   **Abruptness** (0.0 to 1.0, default 0.6): how suddenly the shadows go black. High turns the transition into a step, so the next zone down blocks up with no separation left in it. Low leaves a gentle roll into the blacks. In the darkroom this is the hydroquinone-to-alkali ratio of the developer.
+
+---
+
+<!-- panel:toning -->
+### 7.3 Toning
+
+Colour the print itself rather than the scene: chemical toners that convert the silver (B&W only), and a split tint that works in any mode. Lith silver is much finer than normal print silver, so the toners bite harder and differently on a lith print. With Lith on, only Selenium and Gold stay enabled.
 
 **Chemical Toning** (B&W only), simulated as sequential toner baths, in the order shown, each strength 0.0 to 2.0:
 
-*   **Selenium**: deeper blacks, cool eggplant shadows.
+*   **Selenium**: deeper blacks, cool eggplant shadows. On a lith print it reaches much further down the scale, lifts Dmax hard and turns the green-black shadows magenta.
 *   **Sepia**: warm highlights first (partial strength gives split-sepia).
-*   **Gold**: cool blue-black on untoned silver; over sepia, shifts highlights orange-red.
+*   **Gold**: cool blue-black on untoned silver; over sepia, shifts highlights orange-red. On a lith print it works on every density evenly instead of the highlights first, and pushes the print towards blue-violet.
 *   **Iron Blue**: Prussian-blue shadows deepening to navy blacks.
 *   **Copper**: pink to brick-red shift, with the classic Dmax loss.
 *   **Vanadium**: greens the mids/highlights while deep shadows keep their black.
@@ -480,9 +494,9 @@ Colour the print itself rather than the scene: chemical toners that convert the 
 <!-- panel:retouch -->
 ### 8.1 Retouch: dust, hairs, scratches
 
-Spotting, the way it was done with a brush on the finished print. There are three ways to find the marks, by local contrast, by the scanner's IR channel, or by hand, and they stack.
+Spotting, the way it was done with a brush on the finished print. There are three ways to find the marks, by local contrast, by the scanner's IR channel, or by hand, and they stack. However a mark is found, it is repaired the same way: the film under it is rebuilt from the clean film around it, with the frame's own grain transplanted back, and anything too wide for that goes to a fill that follows the structure through.
 
-An **Overlay** button cycles the detection overlay (Off → Marked → IR) so you can see what's being caught.
+An **Overlay** button cycles the detection overlay (Off → Marked → IR) so you can see what's being caught: green for what Optical Removal found, magenta for IR and for defects sent to the structure-following fill.
 
 **Optical Removal** finds specks on the visible scan by local contrast, with no IR needed:
 
@@ -498,10 +512,20 @@ An **Overlay** button cycles the detection overlay (Off → Marked → IR) so yo
 
 **Manual Heal** (header shows the current spot count):
 
-*   **Heal Tool**: click dust spots in the preview to paint them out one at a time.
+The brush marks a *search area*, not a stamp: only the pixels that actually stand out from the film around them are rewritten, so you can paint generously over a speck and the clean grain inside the brush is left exactly as it was. Marks are caught in both directions — dust, which prints light, and scratches, which print dark. If the brush finds nothing wrong, it does nothing.
+
+*   **Heal Tool**: click dust spots in the preview to paint them out one at a time, or drag to paint over a run of them.
 *   **Scratch Tool**: click points along a scratch or hair, double-click/Enter to finish; Esc cancels, Backspace removes the last point. Right-click an overlay to delete it.
-*   **Brush Size** (2 to 16 px): radius of the manual brush (shown while a manual tool is active).
-*   **Undo Last** / **Clear All**: remove the most recent or all manual heals (auto-detected dust is unaffected).
+*   **Transport Line**: for the long straight marks film picks up running through a camera or lab — the ones that cross the whole frame, usually in the same place on every shot of the roll. **Click once anywhere on the scratch** and the whole line is traced and repaired; there is nothing to paint or drag.
+
+    These are the marks the brush is worst at, and not for want of care: spread along its length, a transport scratch is far too faint to pick out from film grain at any single point. The line tool reads the evidence along the whole scratch at once, which is what makes it visible at all. It follows the scratch's own angle (film is rarely square to the sensor), widens the repair to match the scratch, and covers only the stretches where the scratch is actually present, so one that fades in and out is left alone where it fades. If a click finds nothing, it says so rather than touching the frame — click directly on the line.
+
+    Hovering shows a **guide**: the line that would be traced and the band it would repair, before you commit to it. Committed lines stay drawn the same way, so you can see what each one covers; right-click one to delete it.
+
+*   **Line Sensitivity** (0.05 to 0.95, shown while the Transport Line tool is active): how readily a scratch is followed. Lower catches fainter lines and repairs a wider band; raise it if a line starts picking up film either side. It applies to lines already placed as well as new ones, so you can trace first and tune after.
+
+*   **Brush Size** (2 to 16 px): diameter of the manual brush, matching the on-screen cursor (shown while a heal or scratch tool is active).
+*   **Undo Last** / **Clear All**: remove the most recent or all manual heals and traced lines (auto-detected dust is unaffected). Right-click a line to delete just that one.
 
 <!-- panel:finish -->
 ### 8.2 Finishing: vignette, carrier, border

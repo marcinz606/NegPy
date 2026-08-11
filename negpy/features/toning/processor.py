@@ -6,8 +6,9 @@ from negpy.features.process.models import ProcessMode
 
 
 class ToningProcessor:
-    def __init__(self, config: ToningConfig):
+    def __init__(self, config: ToningConfig, lith_active: bool = False):
         self.config = config
+        self.lith_active = lith_active
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         img = image
@@ -21,6 +22,7 @@ class ToningProcessor:
                 blue_strength=self.config.blue_strength,
                 copper_strength=self.config.copper_strength,
                 vanadium_strength=self.config.vanadium_strength,
+                lith_active=self.lith_active,
             )
 
         img = apply_split_toning(

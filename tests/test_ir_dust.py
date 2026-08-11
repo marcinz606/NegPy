@@ -20,10 +20,9 @@ from negpy.features.retouch.logic import (
     _IR_WRITE_LO,
     _fit_refraction_gammas,
     _ir_normalize_ratio,
-    _mask_to_strokes,
     apply_hair_inpaint,
     apply_ir_attenuation,
-    apply_ir_reconstruction,
+    apply_score_repair,
     downsample_ir,
     ir_bake_token,
     ir_defect_score,
@@ -31,7 +30,8 @@ from negpy.features.retouch.logic import (
     ir_detect_target,
     ir_ratio_and_gain,
     normalize_ir,
-    route_ir_defects,
+    route_wide_defects,
+    split_hairs,
 )
 from negpy.features.retouch.models import RetouchConfig
 from negpy.infrastructure.loaders.factory import LoaderFactory
@@ -85,7 +85,7 @@ def test_ir_reconstruction_heals_defect_end_to_end():
 
     score = ir_defect_score(normalize_ir(ir), 0.5)
     assert abs(float(score[40, 40]) - _IR_SCORE_FLOOR) < 1e-6
-    out = np.asarray(apply_ir_reconstruction(img, score))
+    out = np.asarray(apply_score_repair(img, score))
     assert float(out[40, 40].min()) > 0.4, "the speck is rebuilt to the surround level"
     assert (_lowpass(out) >= _lowpass(img) - 1e-4).all(), "a repair may only lighten"
 
@@ -114,7 +114,7 @@ def test_repair_is_not_biased_brighter_than_the_film_it_replaces():
     3% on the real hair in samples/ir — enough for a healed hair to read as a dark line."""
     img, ir = _repaired_hair_frame()
     score = ir_defect_score(normalize_ir(ir), ir_detect_cutoff(0.66, True))
-    core, surround = _core_and_surround(np.asarray(apply_ir_reconstruction(img, score)))
+    core, surround = _core_and_surround(np.asarray(apply_score_repair(img, score)))
     assert float((core / surround).max()) < 1.015, f"repair sits brighter than its film: {core / surround}"
 
 
@@ -123,7 +123,7 @@ def test_repair_keeps_the_grain_of_the_film_around_it():
     film's detail back into it: 88% of the surrounding amplitude on this hairline."""
     img, ir = _repaired_hair_frame()
     score = ir_defect_score(normalize_ir(ir), ir_detect_cutoff(0.66, True))
-    out = np.asarray(apply_ir_reconstruction(img, score))
+    out = np.asarray(apply_score_repair(img, score))
     detail = out[:, :, 1] - cv2.GaussianBlur(out[:, :, 1], (0, 0), 1.5)
     inside = float(detail[50:110, 79:81].std())
     outside = float(np.concatenate([detail[50:110, 60:70].ravel(), detail[50:110, 90:100].ravel()]).std())
@@ -155,7 +155,7 @@ def _bake(img: np.ndarray, ir: np.ndarray, preview_long_edge: int) -> np.ndarray
     ratio, gain, degenerate, _ = ir_ratio_and_gain(ir_det, img_det)
     assert not degenerate
     score = ir_defect_score(ratio, ir_detect_cutoff(0.66, True))
-    return np.asarray(apply_ir_reconstruction(apply_ir_attenuation(img, gain), score))
+    return np.asarray(apply_score_repair(apply_ir_attenuation(img, gain), score))
 
 
 def test_ir_repair_does_not_overshoot_across_a_tonal_edge():
@@ -193,8 +193,8 @@ def test_ir_reconstruction_is_identity_on_clean_film():
     ir = np.full((40, 40), 0.9, dtype=np.float32)
     img = np.clip(np.random.default_rng(2).normal(0.5, 0.1, (40, 40, 3)), 0, 1).astype(np.float32)
     score = ir_defect_score(normalize_ir(ir), 0.5)
-    assert np.array_equal(np.asarray(apply_ir_reconstruction(img, score)), img)
-    assert route_ir_defects(score) is None
+    assert np.array_equal(np.asarray(apply_score_repair(img, score)), img)
+    assert route_wide_defects(score) is None
 
 
 def test_ir_detect_cutoff_mapping_and_direction():
@@ -236,7 +236,7 @@ def test_ir_reconstruction_survives_dusty_frames():
 
     score = ir_defect_score(normalize_ir(ir), ir_detect_cutoff(0.66, True))
     assert float((score <= _IR_SCORE_FLOOR + 1e-6).mean()) > 0.04, "fixture really is a dusty frame"
-    out = np.asarray(apply_ir_reconstruction(img, score))
+    out = np.asarray(apply_score_repair(img, score))
     for y, x in centers:
         assert float(out[y + 1, x + 1].min()) > 0.35, f"speck at {(y, x)} left unhealed"
 
@@ -835,7 +835,7 @@ def test_ir_fill_leaves_clean_pixels_byte_identical():
     ir[58:62, 58:62] = 0.1
 
     score = ir_defect_score(normalize_ir(ir), ir_detect_cutoff(0.66, True))
-    out = np.asarray(apply_ir_reconstruction(img, score))
+    out = np.asarray(apply_score_repair(img, score))
     untouched = score >= _IR_WRITE_HI
     assert untouched.sum() > 0.9 * untouched.size
     assert np.array_equal(out[untouched], np.asarray(img)[untouched])
@@ -855,7 +855,7 @@ def test_ir_fill_follows_an_edge_through_the_defect():
     ir[38:42, 36:44] = 0.1
 
     score = ir_defect_score(normalize_ir(ir), ir_detect_cutoff(0.66, True))
-    out = np.asarray(apply_ir_reconstruction(img, score))
+    out = np.asarray(apply_score_repair(img, score))
     assert float(out[40, 37].max()) < 0.45, "left of the edge rebuilds toward the dark tone"
     assert float(out[40, 43].min()) > 0.45, "right of the edge toward the light tone"
 
@@ -871,9 +871,9 @@ def test_ir_reconstruction_wysiwyg_across_scales():
     ir[48:52, 48:52] = 0.1
     score = ir_defect_score(normalize_ir(ir), ir_detect_cutoff(0.66, True))
 
-    out_det = np.asarray(apply_ir_reconstruction(img_det, score))
+    out_det = np.asarray(apply_score_repair(img_det, score))
     img_full = cv2.resize(img_det, (wd * 3, hd * 3), interpolation=cv2.INTER_NEAREST)
-    out_full = np.asarray(apply_ir_reconstruction(img_full, score))
+    out_full = np.asarray(apply_score_repair(img_full, score))
     down = cv2.resize(out_full, (wd, hd), interpolation=cv2.INTER_AREA)
     speck = np.zeros((hd, wd), dtype=bool)
     speck[46:54, 46:54] = True
@@ -888,10 +888,10 @@ def test_route_ir_defects_by_interior_radius_and_budget():
     score = np.ones((200, 200), dtype=np.float32)
     score[10:12, 10:12] = _IR_SCORE_FLOOR  # 4 px speck: the fill's job
     score[100:103, 20:180] = _IR_SCORE_FLOOR  # 480 px hair — big, but thin: fill's job too
-    assert route_ir_defects(score) is None
+    assert route_wide_defects(score) is None
 
     score[40:52, 40:52] = _IR_SCORE_FLOOR  # 12×12 blob: radius 6, past the fill's reach
-    routed = route_ir_defects(score)
+    routed = route_wide_defects(score)
     assert routed is not None
     assert routed[46, 46] == 1 and routed[39, 46] == 1, "routed, dilated past the skirt"
     assert routed[10, 10] == 0, "the small speck stays with the fill"
@@ -899,7 +899,7 @@ def test_route_ir_defects_by_interior_radius_and_budget():
 
     score = np.ones((200, 200), dtype=np.float32)
     score[40:70, 40:74] = _IR_SCORE_FLOOR  # ~2.5% of the frame once dilated
-    assert route_ir_defects(score) is None, "over budget: inpaint skipped, fill still runs"
+    assert route_wide_defects(score) is None, "over budget: inpaint skipped, fill still runs"
 
 
 def test_gamma_fit_falls_back_when_the_band_is_too_small():
@@ -951,22 +951,22 @@ def _curled_hair_mask(size: int = 120) -> np.ndarray:
 
 def test_twisted_hair_routes_to_inpaint():
     """The reported bug: a hair that curls scores PCA aspect < 3 and used to fall through
-    to a compact membrane disc. Thinness is twist-invariant, so it routes to the inpaint."""
+    to the compact fill. Thinness is twist-invariant, so it routes to the inpaint."""
     m = _curled_hair_mask()
-    comps, hair = _mask_to_strokes(m, 3.0, 512)
+    compact, hair = split_hairs(m)
     assert hair is not None, "curled hair must reach the inpaint mask"
     assert int(hair.sum()) == int(m.sum()), "the whole hair, not part of it"
-    assert not comps, "and it must not also become membrane strokes"
+    assert not compact.any(), "and it must not also go to the fill"
 
 
-def test_round_speck_stays_a_membrane_stroke():
+def test_round_speck_stays_with_the_fill():
     """The other side of the same rule: a compact speck of comparable area must not be
     dragged into the inpaint by the thinness test."""
     m = np.zeros((120, 120), dtype=np.uint8)
     cv2.circle(m, (60, 60), 18, 1, -1)  # area ~1000, same order as the hair above
-    comps, hair = _mask_to_strokes(m, 3.0, 512)
+    compact, hair = split_hairs(m)
     assert hair is None
-    assert len(comps) == 1
+    assert int(compact.sum()) == int(m.sum())
 
 
 def test_downsample_ir_preserves_a_subpixel_hair():

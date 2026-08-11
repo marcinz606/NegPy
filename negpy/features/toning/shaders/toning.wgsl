@@ -13,6 +13,7 @@ struct ToningUniforms {
     blue_strength: f32,
     copper_strength: f32,
     vanadium_strength: f32,
+    lith_active: u32,          // 1 when the print was lith-developed
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -84,8 +85,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     var color = textureLoad(input_tex, coords_in, 0).rgb;
 
-    // 1. Process Mode (B&W)
-    if (params.is_bw == 1u) {
+    // 1. Process Mode (B&W). Redundant with the exposure pass, which already
+    // collapsed to luma — except under lith, where the lith pass has since put
+    // real colour on the print and collapsing would throw it away.
+    if (params.is_bw == 1u && params.lith_active == 0u) {
         let luma = dot(color, vec3<f32>(0.2126, 0.7152, 0.0722));
         color = vec3<f32>(luma);
     }
@@ -98,9 +101,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // exception: it also plates the sulfide fraction with compounded covering
     // power (classic gold-over-sepia orange-red).
     if (params.is_bw == 1u && (params.selenium_strength > 0.0 || params.sepia_strength > 0.0 || params.gold_strength > 0.0 || params.blue_strength > 0.0 || params.copper_strength > 0.0 || params.vanadium_strength > 0.0)) {
-        let sel_gain = vec3<f32>(1.04, 1.10, 1.02);
+        // Lith silver is fine, small-particle silver on the steep part of the
+        // tone-vs-grain-size curve, so selenium and gold move it much further —
+        // mirrors LITH_TONING_CONSTANTS. The other four baths are unchanged
+        // (and the sidebar disables them under lith).
+        let lith = params.lith_active == 1u;
+        let sel_gain = select(vec3<f32>(1.04, 1.10, 1.02), vec3<f32>(1.10, 1.24, 1.12), lith);
         let sep_gain = vec3<f32>(0.82, 0.94, 1.12);
-        let gold_gain = vec3<f32>(1.08, 1.03, 1.00);
+        let gold_gain = select(vec3<f32>(1.08, 1.03, 1.00), vec3<f32>(1.16, 1.06, 0.96), lith);
         let gold_sepia_gain = vec3<f32>(0.80, 0.95, 1.20);
         let blue_gain = vec3<f32>(1.30, 1.00, 0.80);
         let copper_gain = vec3<f32>(0.72, 0.94, 1.18);
@@ -108,9 +116,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let d3 = -log(clamp(color, vec3<f32>(1e-6), vec3<f32>(1.0))) / log(10.0);
         let d0 = (d3.x + d3.y + d3.z) / 3.0;
         // Conversion caps at 1: all the remaining silver is toned (slider > 1 = longer bath).
-        let c_sel = min(params.selenium_strength * pow(min(d0 / 2.0, 1.0), 1.5), 1.0);
+        let sel_d_ref = select(2.0, 1.2, lith);
+        let sel_power = select(1.5, 1.0, lith);
+        let c_sel = min(params.selenium_strength * pow(min(d0 / sel_d_ref, 1.0), sel_power), 1.0);
         let c_sep = min(params.sepia_strength * pow(1.0 - min(d0 / 1.8, 1.0), 2.0), 1.0);
-        let c_au = min(params.gold_strength * pow(1.0 - min(d0 / 1.6, 1.0), 1.5), 1.0);
+        // On lith, gold "attacks all densities evenly" — the bleach-limited
+        // shape is replaced by a flat conversion.
+        let au_shape = select(pow(1.0 - min(d0 / 1.6, 1.0), 1.5), 1.0, lith);
+        let c_au = min(params.gold_strength * au_shape, 1.0);
         let c_blue = min(params.blue_strength * pow(min(d0 / 0.9, 1.0), 0.85), 1.0);
         let c_cu = min(params.copper_strength * pow(min(d0 / 0.9, 1.0), 0.6), 1.0);
         let c_van = min(params.vanadium_strength * pow(1.0 - min(d0 / 1.8, 1.0), 1.2), 1.0);
@@ -131,7 +144,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let f_van = a * c_van;
         a -= f_van;
 
-        let d = d0 * (vec3<f32>(a)
+        // d3, not d0: see _apply_chemical_toning_jit. Rebuilding from the mean
+        // would discard colour the print already carries.
+        let d = d3 * (vec3<f32>(a)
             + f_sel * sel_gain
             + f_sep * sep_gain
             + f_au * gold_gain

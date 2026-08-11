@@ -41,6 +41,7 @@ from negpy.features.geometry.logic import (
 )
 from negpy.features.lab.logic import gaussian_kernel_1d, rl_iterations
 from negpy.features.lab.models import SharpenMethod
+from negpy.features.lith.logic import LITH_CONSTANTS
 from negpy.features.local.logic import compute_local_maps
 from negpy.features.exposure.transfer import (
     TRANSFER_CONSTANTS,
@@ -54,8 +55,6 @@ from negpy.features.exposure.transfer import (
 )
 from negpy.features.process.capture_color import camera_to_working_matrix
 from negpy.features.process.models import ProcessMode, per_channel_point_offsets
-from negpy.features.retouch.logic import build_heal_regions
-from negpy.features.retouch.models import HEAL_SIZE_REF
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUBuffer, GPUTexture
 from negpy.infrastructure.gpu.shader_loader import ShaderLoader
@@ -207,7 +206,6 @@ class GPUEngine:
             "clahe_hist": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "clahe_hist.wgsl")),
             "clahe_cdf": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "clahe_cdf.wgsl")),
             "clahe_apply": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "clahe_apply.wgsl")),
-            "retouch": get_resource_path(os.path.join("negpy", "features", "retouch", "shaders", "retouch.wgsl")),
             "lab_sharpen_h": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "lab_sharpen_h.wgsl")),
             "lab_sharpen_v": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "lab_sharpen_v.wgsl")),
             "rl_init": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "rl_init.wgsl")),
@@ -215,6 +213,7 @@ class GPUEngine:
             "rl_div_v": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "rl_div_v.wgsl")),
             "rl_mult_v": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "rl_mult_v.wgsl")),
             "lab": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "lab.wgsl")),
+            "lith": get_resource_path(os.path.join("negpy", "features", "lith", "shaders", "lith.wgsl")),
             "toning": get_resource_path(os.path.join("negpy", "features", "toning", "shaders", "toning.wgsl")),
             "finish": get_resource_path(os.path.join("negpy", "features", "finish", "shaders", "finish.wgsl")),
             "metrics": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "metrics.wgsl")),
@@ -232,8 +231,8 @@ class GPUEngine:
             "exposure",
             "transfer",
             "clahe_u",
-            "retouch_u",
             "lab",
+            "lith",
             "toning",
             "finish",
             "layout",
@@ -247,8 +246,8 @@ class GPUEngine:
             "exposure": 304,
             "transfer": 144,
             "clahe_u": 32,
-            "retouch_u": 16,
             "lab": 96,
+            "lith": 64,
             "toning": 64,
             "finish": 60,
             "layout": 48,
@@ -269,10 +268,6 @@ class GPUEngine:
         # No config field carries render_size_ref, so a size-only change would
         # otherwise resume past the layout pass.
         self._last_render_size_ref: Optional[float] = None
-        self._retouch_num_regions = 0
-        # Region build+upload cache — retouch re-dispatches on every exposure
-        # frame, and rebuilds aren't free at hundreds of synthesized regions.
-        self._retouch_regions_key: Optional[tuple] = None
         # (radius, scale_factor) of the sharpen taps currently in sharpen_k.
         self._sharpen_kernel_key: Optional[tuple] = None
 
@@ -330,10 +325,10 @@ class GPUEngine:
             return 1
         if last.lab.clahe_strength != settings.lab.clahe_strength:
             return 2
-        if last.retouch != settings.retouch:
-            return 3
         if last.lab != settings.lab:
             return 4
+        if last.lith != settings.lith:
+            return 5
         if last.toning != settings.toning:
             return 6
         if last.finish != settings.finish:
@@ -396,8 +391,7 @@ class GPUEngine:
         """Initializes hardware pipelines and persistent buffers."""
         if self._pipelines or not self.gpu.device:
             return
-        # Buffers are recreated below — force the next region/kernel upload.
-        self._retouch_regions_key = None
+        # Buffers are recreated below — force the next kernel upload.
         self._sharpen_kernel_key = None
         t0 = time.perf_counter()
         device = self.gpu.device
@@ -423,9 +417,6 @@ class GPUEngine:
         )
         # Sharpen blur taps (gaussian_kernel_1d): 1024 f32 covers radius ≤ 511.
         self._buffers["sharpen_k"] = GPUBuffer(4096, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
-        # 512 heal regions × 32 B, and 32K polyline/boundary points × 8 B.
-        self._buffers["retouch_s"] = GPUBuffer(16384, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
-        self._buffers["retouch_p"] = GPUBuffer(262144, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
         # Filed-carrier jitter profiles are a fixed table — upload once.
         self._buffers["carrier_s"] = GPUBuffer(carrier_profiles().nbytes, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
         self._buffers["carrier_s"].upload(np.ascontiguousarray(carrier_profiles().ravel(), dtype=np.float32))
@@ -688,15 +679,6 @@ class GPUEngine:
 
         pw, ph, cw, ch, ox, oy, _ = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
 
-        # Regions before uniforms: the uniform block reads the uploaded region count.
-        self._update_retouch_storage(
-            settings.retouch,
-            (h, w),
-            settings.geometry,
-            global_offset,
-            actual_full_dims,
-            distortion_k1=k1_eff,
-        )
         self._upload_unified_uniforms(
             settings,
             bounds,
@@ -910,33 +892,6 @@ class GPUEngine:
         else:
             prev_tex = tex_expo
 
-        # With no regions the shader is an identity copy, but its per-thread MVC arrays
-        # spill to scratch whichever branch a pixel takes, so pass the buffer through.
-        if self._retouch_num_regions > 0:
-            tex_ret = self._get_intermediate_texture(
-                w_rot,
-                h_rot,
-                wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING,
-                "ret",
-            )
-            if start_stage <= 3:
-                self._dispatch_pass(
-                    enc,
-                    "retouch",
-                    [
-                        (0, prev_tex.view),
-                        (1, tex_ret.view),
-                        (2, self._get_uniform_binding("retouch_u")),
-                        (3, self._buffers["retouch_s"]),
-                        (4, self._buffers["retouch_p"]),
-                    ],
-                    w_rot,
-                    h_rot,
-                )
-            tex_healed = tex_ret
-        else:
-            tex_healed = prev_tex
-
         if start_stage <= 4:
             # Sharpen state (USM blur, or RL deconvolution) feeds the lab pass; a
             # 1x1 dummy keeps binding 3 valid when sharpening is off.
@@ -947,7 +902,7 @@ class GPUEngine:
                 # div_v, blur_h, mult_v). Final estimate lands back in rl_a.
                 tex_rl_a = self._get_intermediate_texture(w_rot, h_rot, usage, "rl_a")
                 tex_rl_b = self._get_intermediate_texture(w_rot, h_rot, usage, "rl_b")
-                self._dispatch_pass(enc, "rl_init", [(0, tex_healed.view), (1, tex_rl_a.view)], w_rot, h_rot)
+                self._dispatch_pass(enc, "rl_init", [(0, prev_tex.view), (1, tex_rl_a.view)], w_rot, h_rot)
                 sk = self._buffers["sharpen_k"]
                 for _ in range(rl_iterations(settings.lab.sharpen_radius)):
                     self._dispatch_pass(enc, "rl_blur_h", [(0, tex_rl_a.view), (1, tex_rl_b.view), (2, lab_u), (3, sk)], w_rot, h_rot)
@@ -962,7 +917,7 @@ class GPUEngine:
                     enc,
                     "lab_sharpen_h",
                     [
-                        (0, tex_healed.view),
+                        (0, prev_tex.view),
                         (1, tex_sharpen_h.view),
                         (2, lab_u),
                         (3, self._buffers["sharpen_k"]),
@@ -988,7 +943,7 @@ class GPUEngine:
                 enc,
                 "lab",
                 [
-                    (0, tex_healed.view),
+                    (0, prev_tex.view),
                     (1, tex_lab.view),
                     (2, lab_u),
                     (3, tex_sharpen_v.view),
@@ -998,6 +953,29 @@ class GPUEngine:
             )
 
         tex_pre_toning = tex_lab
+
+        # --- Lith (infectious development) ---
+        # No pass at all when off; toning then reads tex_lab directly.
+        if settings.lith.lith_enabled and settings.process.process_mode == ProcessMode.BW:
+            tex_lith = self._get_intermediate_texture(
+                w_rot,
+                h_rot,
+                wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_SRC,
+                "lith",
+            )
+            if start_stage <= 5:
+                self._dispatch_pass(
+                    enc,
+                    "lith",
+                    [
+                        (0, tex_lab.view),
+                        (1, tex_lith.view),
+                        (2, self._get_uniform_binding("lith")),
+                    ],
+                    w_rot,
+                    h_rot,
+                )
+            tex_pre_toning = tex_lith
 
         if start_stage <= 6:
             self._dispatch_pass(
@@ -1489,14 +1467,6 @@ class GPUEngine:
             + b"\x00" * 8
         )
 
-        r_u_data = struct.pack(
-            "IIii",
-            self._retouch_num_regions,
-            0,
-            offset[0],
-            offset[1],
-        )
-
         lab = settings.lab
         # Sharpen taps are computed once in Python (gaussian_kernel_1d — the same
         # array the CPU convolves with) and uploaded to sharpen_k; the shaders only
@@ -1529,6 +1499,27 @@ class GPUEngine:
         )
 
         is_bw = 1 if settings.process.process_mode == ProcessMode.BW else 0
+
+        lith = settings.lith
+        lc = LITH_CONSTANTS
+        lith_dmax = float(pc["d_max"])
+        lith_over = 0.301 * float(lith.lith_exposure)
+        li_data = (
+            struct.pack("ffff", *[float(p[0]) for p in paper.lith_path])
+            + struct.pack("ffff", *[float(p[1]) for p in paper.lith_path])
+            + struct.pack(
+                "ffff",
+                lith_over,
+                lith_over * float(lc["foot_veil"]),
+                lith_dmax * (lc["knee_lo"] - lc["knee_span"] * float(lith.lith_snatch)),
+                max(lc["abrupt_lo"] - lc["abrupt_span"] * float(lith.lith_abruptness), 0.01),
+            )
+            # 12 bytes of tail padding: two vec4s force a 16-byte struct align, so
+            # WGSL rounds LithUniforms up to 64 and the binding size must match.
+            + struct.pack("f", lith_dmax)
+            + b"\x00" * 12
+        )
+
         t_data = (
             struct.pack(
                 "ffff",
@@ -1552,10 +1543,11 @@ class GPUEngine:
                 float(settings.toning.highlight_tint_strength),
             )
             + struct.pack(
-                "fff",
+                "fffI",
                 float(settings.toning.blue_strength),
                 float(settings.toning.copper_strength),
                 float(settings.toning.vanadium_strength),
+                1 if lith.lith_enabled and is_bw else 0,
             )
         )
 
@@ -1603,65 +1595,13 @@ class GPUEngine:
 
         full_buffer = bytearray()
         for name, d in zip(
-            self._uniform_names, [g_data, n_data, e_data, tr_data, c_data, r_u_data, l_data, t_data, f_data, y_data, dh_data]
+            self._uniform_names, [g_data, n_data, e_data, tr_data, c_data, l_data, li_data, t_data, f_data, y_data, dh_data]
         ):
             full_buffer += d + b"\x00" * (self._slot_bytes(name) - len(d))
 
         if not self.gpu.device:
             raise RuntimeError("GPU device lost")
         self.gpu.device.queue.write_buffer(self._buffers["unified_u"].buffer, 0, full_buffer)
-
-    def _update_retouch_storage(
-        self,
-        conf: Any,
-        orig_shape: Tuple[int, int],
-        geom: Any,
-        offset: Tuple[int, int],
-        full_dims: Tuple[int, int],
-        distortion_k1: float = 0.0,
-    ) -> None:
-        """Uploads heal regions (capsule chains + boundary loops) to GPU storage."""
-        key = (conf.manual_heal_strokes, conf.manual_dust_spots, orig_shape, geom, full_dims, distortion_k1)
-        if key == self._retouch_regions_key:
-            return
-        self._retouch_regions_key = key
-        self._retouch_num_regions = 0
-        if not (conf.manual_heal_strokes or conf.manual_dust_spots):
-            return
-
-        reg_i, reg_f, pts = build_heal_regions(
-            conf.manual_heal_strokes,
-            conf.manual_dust_spots,
-            orig_shape,
-            geom.rotation,
-            geom.fine_rotation,
-            geom.flip_horizontal,
-            geom.flip_vertical,
-            distortion_k1,
-            full_dims,
-        )
-        n_entries = len(conf.manual_heal_strokes) + len(conf.manual_dust_spots)
-        if len(reg_i) < n_entries:
-            logger.warning("Retouch storage full: %d of %d heals uploaded", len(reg_i), n_entries)
-        if len(reg_i) == 0:
-            return
-
-        reg_data = bytearray()
-        for k in range(len(reg_i)):
-            reg_data += struct.pack(
-                "IIIIffff",
-                int(reg_i[k, 0]),
-                int(reg_i[k, 1]),
-                int(reg_i[k, 2]),
-                int(reg_i[k, 3]),
-                float(reg_f[k, 0]),
-                float(reg_f[k, 3]),
-                float(reg_f[k, 1]),
-                float(reg_f[k, 2]),
-            )
-        self._buffers["retouch_s"].upload(np.frombuffer(reg_data, dtype=np.uint8))
-        self._buffers["retouch_p"].upload(np.ascontiguousarray(pts, dtype=np.float32))
-        self._retouch_num_regions = len(reg_i)
 
     def _calculate_layout_dims(
         self, settings: WorkspaceConfig, cw: int, ch: int, size_ref: Optional[float]
@@ -2060,20 +2000,9 @@ class GPUEngine:
         paper_w, paper_h, content_w, content_h, off_x, off_y, _ = self._calculate_layout_dims(settings, crop_w, crop_h, None)
         full_source_res = np.zeros((crop_h, crop_w, 3), dtype=np.float32)
 
-        # Heal regions sample up to the membrane ring (radius + 2px·scale) plus
-        # |source offset| beyond a pixel, so the halo must grow with them or
-        # tile-edge heals read clamped garbage.
+        # Defect repairs are baked into the source before the engine, so no stage here
+        # samples beyond its own pixel for them and the halo owes them nothing.
         halo = TILE_HALO
-        ret = settings.retouch
-        ref_scale = max(w_rot, h_rot) / HEAL_SIZE_REF
-        rim_px = int(np.ceil(2.0 * ref_scale))
-        for stroke in ret.manual_heal_strokes:
-            size, sdx, sdy = stroke[1], stroke[2], stroke[3]
-            off_px = float(np.hypot(sdx * w_rot, sdy * h_rot))
-            halo = max(halo, int(np.ceil(size * ref_scale * 0.5 + off_px)) + rim_px + 2)
-        for _x, _y, size in ret.manual_dust_spots:
-            # Legacy spots get a golden-angle fallback offset of 2.6·size px.
-            halo = max(halo, int(np.ceil(size * (ref_scale * 0.5 + 2.6))) + rim_px + 2)
         # The sharpen blur reads ±kernel-radius px, which outgrows TILE_HALO at
         # large radii — without this, tile seams show in the USM band.
         # RL's influence spreads with iterations but decays geometrically; 6× the

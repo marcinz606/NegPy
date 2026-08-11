@@ -28,6 +28,7 @@ class ToolMode(Enum):
     CROP_MANUAL = auto()
     DUST_PICK = auto()
     SCRATCH_PICK = auto()
+    SCRATCH_LINE = auto()
     LOCAL_DRAW = auto()
     LOCAL_OVAL = auto()
     LOCAL_GRADIENT = auto()
@@ -1240,12 +1241,14 @@ class DesktopSessionManager(QObject):
         from negpy.features.local.models import LocalAdjustmentsConfig
         from negpy.features.process.models import ProcessConfig
         from negpy.features.retouch.models import RetouchConfig
+        from negpy.features.lith.models import LithConfig
         from negpy.features.toning.models import ToningConfig
 
         defaults = {
             "exposure": ExposureConfig(),
             "lab": LabConfig(),
             "local": LocalAdjustmentsConfig(),
+            "lith": LithConfig(),
             "toning": ToningConfig(),
             "geometry": GeometryConfig(),
             "process": ProcessConfig(),

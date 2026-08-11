@@ -80,6 +80,7 @@ class ThemeConfig:
             "exposure": True,
             "geometry": True,
             "lab": True,
+            "lith": False,
             "toning": False,
             "retouch": True,
             "icc": False,

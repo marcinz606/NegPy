@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions / general discussion
+    url: https://github.com/marcinz606/NegPy/discussions
+    about: For questions, setup help, or general discussion, please use Discussions instead of an issue.

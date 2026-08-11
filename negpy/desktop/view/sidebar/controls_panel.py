@@ -13,6 +13,7 @@ from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog, ha
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.exposure.models import ExposureConfig
 from negpy.features.lab.models import LabConfig
+from negpy.features.lith.models import LithConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.process.models import ProcessConfig
@@ -28,6 +29,7 @@ from negpy.desktop.view.sidebar.colour import ColourSidebar
 from negpy.desktop.view.sidebar.tone import ToneSidebar
 from negpy.desktop.view.sidebar.geometry import GeometrySidebar
 from negpy.desktop.view.sidebar.lab import LabSidebar
+from negpy.desktop.view.sidebar.lith import LithSidebar
 from negpy.desktop.view.sidebar.toning import ToningSidebar
 from negpy.desktop.view.sidebar.retouch import RetouchSidebar
 from negpy.desktop.view.sidebar.local import LocalSidebar
@@ -99,6 +101,7 @@ _TONE_FIELDS = (
 _DEFAULT_EXPOSURE = ExposureConfig()
 _DEFAULT_LAB = LabConfig()
 _DEFAULT_TONING = ToningConfig()
+_DEFAULT_LITH = LithConfig()
 _DEFAULT_GEOMETRY = GeometryConfig()
 _DEFAULT_PROCESS = ProcessConfig()
 _DEFAULT_FINISH = FinishConfig()
@@ -202,6 +205,14 @@ class ControlsPanel(QWidget):
             icon=qta.icon("fa5s.flask", color=icon_color),
         )
 
+        self.lith_sidebar = LithSidebar(self.controller)
+        self.lith_section = self._make_section(
+            "Lith",
+            "lith",
+            self.lith_sidebar,
+            icon=qta.icon("fa5s.fire", color=icon_color),
+        )
+
         self.toning_sidebar = ToningSidebar(self.controller)
         self.toning_section = self._make_section(
             "Toning",
@@ -257,7 +268,13 @@ class ControlsPanel(QWidget):
                 [self.colour_section, self.tone_section, self.local_section],
                 ["colour_section", "tone_section", "local_section"],
             ),
-            ("color", "fa5s.flask", "Lab & Toning", [self.lab_section, self.toning_section], ["lab_section", "toning_section"]),
+            (
+                "color",
+                "fa5s.flask",
+                "Lab & Toning",
+                [self.lab_section, self.lith_section, self.toning_section],
+                ["lab_section", "lith_section", "toning_section"],
+            ),
             (
                 "finish",
                 "fa5s.brush",
@@ -328,6 +345,7 @@ class ControlsPanel(QWidget):
         self.colour_section.reset_requested.connect(lambda: self._reset_exposure_fields(_COLOUR_FIELDS))
         self.tone_section.reset_requested.connect(lambda: self._reset_exposure_fields(_TONE_FIELDS))
         self.lab_section.reset_requested.connect(lambda: self.controller.session.reset_section("lab"))
+        self.lith_section.reset_requested.connect(lambda: self.controller.session.reset_section("lith"))
         self.toning_section.reset_requested.connect(lambda: self.controller.session.reset_section("toning"))
         self.geometry_section.reset_requested.connect(lambda: self.controller.session.reset_section("geometry"))
         self.process_section.reset_requested.connect(lambda: self.controller.session.reset_section("process"))
@@ -702,6 +720,7 @@ class ControlsPanel(QWidget):
         self.tone_sidebar.sync_ui()
         self.geometry_sidebar.sync_ui()
         self.lab_sidebar.sync_ui()
+        self.lith_sidebar.sync_ui()
         self.toning_sidebar.sync_ui()
         self.retouch_sidebar.sync_ui()
         self.local_sidebar.sync_ui()
@@ -734,6 +753,7 @@ class ControlsPanel(QWidget):
         cfg = self.controller.state.config
         _exp = _DEFAULT_EXPOSURE
         _lab = _DEFAULT_LAB
+        _lit = _DEFAULT_LITH
         _ton = _DEFAULT_TONING
         _geo = _DEFAULT_GEOMETRY
         _proc = _DEFAULT_PROCESS
@@ -751,6 +771,16 @@ class ControlsPanel(QWidget):
                 lab.chroma_denoise != _lab.chroma_denoise,
                 lab.glow_amount != _lab.glow_amount,
                 lab.halation_strength != _lab.halation_strength,
+            ]
+        )
+
+        lit = cfg.lith
+        lith_count = sum(
+            [
+                lit.lith_enabled != _lit.lith_enabled,
+                lit.lith_exposure != _lit.lith_exposure,
+                lit.lith_snatch != _lit.lith_snatch,
+                lit.lith_abruptness != _lit.lith_abruptness,
             ]
         )
 
@@ -840,6 +870,7 @@ class ControlsPanel(QWidget):
         self.colour_section.set_modified(colour_count)
         self.tone_section.set_modified(tone_count)
         self.lab_section.set_modified(lab_count)
+        self.lith_section.set_modified(lith_count)
         self.toning_section.set_modified(toning_count)
         self.geometry_section.set_modified(geometry_count)
         self.process_section.set_modified(process_count)
