@@ -19,6 +19,7 @@ from negpy.domain.models import (
     ExportResolutionMode,
     ColorSpace,
 )
+from negpy.features.altprocess.models import AltProcess
 from negpy.features.process.models import ProcessMode
 from negpy.features.process.logic import linear_raw_token
 from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix, sensor_token
@@ -559,7 +560,7 @@ class ImageProcessor:
             or t.vanadium_strength != 0.0
             or t.shadow_tint_strength != 0.0
             or t.highlight_tint_strength != 0.0
-            or settings.lith.lith_enabled
+            or settings.altproc.alt_process != AltProcess.NONE
         )
         is_bw = settings.process.process_mode == ProcessMode.BW and not is_toned
 

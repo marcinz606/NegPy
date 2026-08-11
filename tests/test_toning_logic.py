@@ -533,3 +533,46 @@ class TestTonerPreservesPrintColour:
         for ch, gain in enumerate(TONING_CONSTANTS["sel_gain"]):
             expected = np.clip(10.0 ** -(d0 * (1.0 - c + c * gain)), 0.0, 1.0)
             np.testing.assert_allclose(out[0, :, ch], expected, atol=1e-5)
+
+
+class TestCyanotypeToners:
+    """A cyanotype holds no silver, so the processor never reaches the six baths."""
+
+    def _run(self, alt_process, **toner_kwargs):
+        from negpy.domain.interfaces import PipelineContext
+        from negpy.features.process.models import ProcessMode
+        from negpy.features.toning.models import ToningConfig
+        from negpy.features.toning.processor import ToningProcessor
+
+        ramp = np.linspace(0.001, 1.0, 128, dtype=np.float32)
+        img = np.stack([ramp] * 3, axis=-1)[None, :, :]
+        ctx = PipelineContext(original_size=img.shape[:2], scale_factor=1.0, process_mode=ProcessMode.BW)
+        return ToningProcessor(ToningConfig(**toner_kwargs), alt_process).process(img, ctx)
+
+    def test_every_bath_is_inert_on_a_cyanotype(self):
+        from negpy.features.altprocess.models import AltProcess
+
+        plain = self._run(AltProcess.CYANOTYPE)
+        for kw in (
+            {"selenium_strength": 1.0},
+            {"sepia_strength": 1.0},
+            {"gold_strength": 1.0},
+            {"blue_strength": 1.0},
+            {"copper_strength": 1.0},
+            {"vanadium_strength": 1.0},
+        ):
+            np.testing.assert_array_equal(self._run(AltProcess.CYANOTYPE, **kw), plain)
+
+    def test_the_same_bath_still_bites_without_a_cyanotype(self):
+        from negpy.features.altprocess.models import AltProcess
+
+        plain = self._run(AltProcess.NONE)
+        toned = self._run(AltProcess.NONE, selenium_strength=1.0)
+        assert float(np.abs(toned - plain).max()) > 1e-3
+
+    def test_split_toning_still_applies(self):
+        from negpy.features.altprocess.models import AltProcess
+
+        plain = self._run(AltProcess.CYANOTYPE)
+        split = self._run(AltProcess.CYANOTYPE, shadow_tint_hue=0.5, shadow_tint_strength=1.0)
+        assert float(np.abs(split - plain).max()) > 1e-3

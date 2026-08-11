@@ -39,7 +39,7 @@ Migrations that rewrite *rows* rather than a config payload need a repository, s
 
 ### Pipeline
 
-- **CPU**: `DarkroomEngine.process()` (`negpy/services/rendering/engine.py`) — base (geometry + normalization) → exposure (incl. dodge/burn) → clahe → lab → lith → toning → crop → finish. The first four stages are cached per config-hash via `_run_stage()`; the rest run unconditionally. Lith is B&W-only and off by default — when off, both engines skip it rather than run an identity pass.
+- **CPU**: `DarkroomEngine.process()` (`negpy/services/rendering/engine.py`) — base (geometry + normalization) → exposure (incl. dodge/burn) → clahe → lab → alt process → toning → crop → finish. The first four stages are cached per config-hash via `_run_stage()`; the rest run unconditionally. The alt-process stage (lith or cyanotype, never both) is B&W-only and off by default — when off, both engines skip it rather than run an identity pass.
 - **GPU**: `GPUEngine` (`negpy/services/rendering/gpu_engine.py`) — same logical stages as WGSL compute shaders from `negpy/features/<name>/shaders/`, with its own config-diff change detection.
 - **Orchestration**: `ImageProcessor` (`image_processor.py`) tries GPU first, falls back to CPU; export always runs full-res. `PipelineContext` carries `scale_factor`, `process_mode`, `active_roi`, and a `metrics` dict between stages.
 - **Source bakes** run before either engine, on the linear source: flat-field, sensor unmix, and every defect repair (IR, detected specks, painted heal strokes). Both engines re-upload that source per frame, so a bake reaches them parity-free and needs no shader. Each bake folds a token into `source_hash` to invalidate the engine cache.
@@ -55,6 +55,10 @@ Every feature lives in `negpy/features/<name>/`:
 - `logic.py` — pure functions on numpy arrays
 - `processor.py` — thin wrapper with `process(img, context) -> ImageBuffer`
 - `shaders/<name>.wgsl` — optional GPU compute shader
+
+One exception: `features/altprocess/` holds only `models.py`. Lith and cyanotype share the
+Alternative Processes panel and one `AltProcessConfig`, because they are mutually exclusive;
+their logic and shaders stay in `features/lith/` and `features/cyanotype/`.
 
 ### Desktop (MVC)
 

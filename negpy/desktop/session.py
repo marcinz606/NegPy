@@ -1241,14 +1241,14 @@ class DesktopSessionManager(QObject):
         from negpy.features.local.models import LocalAdjustmentsConfig
         from negpy.features.process.models import ProcessConfig
         from negpy.features.retouch.models import RetouchConfig
-        from negpy.features.lith.models import LithConfig
+        from negpy.features.altprocess.models import AltProcessConfig
         from negpy.features.toning.models import ToningConfig
 
         defaults = {
             "exposure": ExposureConfig(),
             "lab": LabConfig(),
             "local": LocalAdjustmentsConfig(),
-            "lith": LithConfig(),
+            "altproc": AltProcessConfig(),
             "toning": ToningConfig(),
             "geometry": GeometryConfig(),
             "process": ProcessConfig(),

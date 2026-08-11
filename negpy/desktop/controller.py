@@ -69,6 +69,7 @@ from negpy.features.exposure.logic import (
     calculate_wb_shifts,
     calculate_wb_shifts_from_log,
 )
+from negpy.features.altprocess.models import AltProcess
 from negpy.features.exposure.models import ExposureConfig
 from negpy.features.finish.models import FinishConfig
 from negpy.features.geometry.logic import apply_fine_rotation, detect_closest_aspect_ratio, enforce_roi_aspect_ratio
@@ -1604,12 +1605,20 @@ class AppController(QObject):
         self.state.printing_notes = (not self.state.printing_notes) if force is None else bool(force)
         self.printing_notes_changed.emit(self.state.printing_notes)
 
-    def toggle_lith(self, force: Optional[bool] = None) -> None:
-        """Lith development on/off. B&W only — the stage is a no-op in any other mode."""
+    def _set_alt_process(self, target: AltProcess, force: Optional[bool] = None) -> None:
+        """B&W only — the stage is a no-op in any other mode. The two processes are
+        mutually exclusive, so selecting one clears the other."""
         cfg = self.state.config
-        on = (not cfg.lith.lith_enabled) if force is None else bool(force)
-        self.session.update_config(replace(cfg, lith=replace(cfg.lith, lith_enabled=on)), persist=True)
+        on = (cfg.altproc.alt_process != target) if force is None else bool(force)
+        mode = target if on else AltProcess.NONE
+        self.session.update_config(replace(cfg, altproc=replace(cfg.altproc, alt_process=mode)), persist=True)
         self.request_render()
+
+    def toggle_lith(self, force: Optional[bool] = None) -> None:
+        self._set_alt_process(AltProcess.LITH, force)
+
+    def toggle_cyanotype(self, force: Optional[bool] = None) -> None:
+        self._set_alt_process(AltProcess.CYANOTYPE, force)
 
     def request_printing_notes_export(self) -> None:
         """Save the marked-up work print as its own file. The annotated pixels live in the

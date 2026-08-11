@@ -61,6 +61,9 @@ DROPPED_KEYS: frozenset[str] = frozenset(
         # jpegxl TIFF compression tag, so it never shipped past this branch — TIFF
         # is zlib-only again and lossless JXL stays a standalone format.
         "tiff_compression",
+        # Lith's on/off bool became one alt_process enum shared with Cyanotype
+        # (see migrate_flat_config, which reads it before this pop).
+        "lith_enabled",
     }
 )
 
@@ -160,6 +163,11 @@ def migrate_flat_config(data: Dict[str, Any]) -> Dict[str, Any]:
         data["lens_model"] = str(data.pop("lens_override", "")).strip()
     else:
         data.pop("lens_override", None)
+
+    # Lith and Cyanotype are mutually exclusive, so the panel keeps one enum
+    # instead of a bool each. The three lith_* sliders kept their names.
+    if "lith_enabled" in data and "alt_process" not in data:
+        data["alt_process"] = "lith" if data["lith_enabled"] else "none"
 
     if "export_fmt" in data:
         data["export_fmt"] = migrate_export_fmt(str(data["export_fmt"]))

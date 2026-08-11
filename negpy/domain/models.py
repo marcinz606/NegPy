@@ -11,7 +11,7 @@ from negpy.features.geometry.models import GeometryConfig
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskShape
 from negpy.features.retouch.models import RetouchConfig
-from negpy.features.lith.models import LithConfig
+from negpy.features.altprocess.models import AltProcessConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.features.finish.models import FinishConfig
 from negpy.features.flatfield.models import FlatFieldConfig
@@ -373,7 +373,7 @@ class WorkspaceConfig:
     lab: LabConfig = field(default_factory=LabConfig)
     local: LocalAdjustmentsConfig = field(default_factory=LocalAdjustmentsConfig)
     retouch: RetouchConfig = field(default_factory=RetouchConfig)
-    lith: LithConfig = field(default_factory=LithConfig)
+    altproc: AltProcessConfig = field(default_factory=AltProcessConfig)
     toning: ToningConfig = field(default_factory=ToningConfig)
     finish: FinishConfig = field(default_factory=FinishConfig)
     metadata: MetadataConfig = field(default_factory=MetadataConfig)
@@ -393,7 +393,7 @@ class WorkspaceConfig:
         res.update(asdict(self.lab))
         res["local_masks"] = asdict(self.local)
         res.update(asdict(self.retouch))
-        res.update(asdict(self.lith))
+        res.update(asdict(self.altproc))
         res.update(asdict(self.toning))
         res.update(asdict(self.finish))
         res.update(asdict(self.metadata))
@@ -419,7 +419,7 @@ class WorkspaceConfig:
             GeometryConfig,
             LabConfig,
             RetouchConfig,
-            LithConfig,
+            AltProcessConfig,
             ToningConfig,
             FinishConfig,
             MetadataConfig,
@@ -483,7 +483,7 @@ class WorkspaceConfig:
             lab=LabConfig(**filter_keys(LabConfig, data)),
             local=_build_local(local_data),
             retouch=RetouchConfig(**filter_keys(RetouchConfig, data)),
-            lith=LithConfig(**filter_keys(LithConfig, data)),
+            altproc=AltProcessConfig(**filter_keys(AltProcessConfig, data)),
             toning=ToningConfig(**filter_keys(ToningConfig, data)),
             finish=FinishConfig(**filter_keys(FinishConfig, data)),
             metadata=MetadataConfig(**filter_keys(MetadataConfig, data)),

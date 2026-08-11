@@ -41,6 +41,8 @@ from negpy.features.geometry.logic import (
 )
 from negpy.features.lab.logic import gaussian_kernel_1d, rl_iterations
 from negpy.features.lab.models import SharpenMethod
+from negpy.features.altprocess.models import AltProcess
+from negpy.features.cyanotype.logic import CYANOTYPE_CONSTANTS, sensitizer_constants
 from negpy.features.lith.logic import LITH_CONSTANTS
 from negpy.features.local.logic import compute_local_maps
 from negpy.features.exposure.transfer import (
@@ -65,6 +67,9 @@ from negpy.services.export.print import PrintService
 from negpy.services.view.coordinate_mapping import CoordinateMapping
 
 logger = get_logger(__name__)
+
+# Mirrors ToningUniforms.alt_mode in toning.wgsl.
+_ALT_MODE = {AltProcess.NONE: 0, AltProcess.LITH: 1, AltProcess.CYANOTYPE: 2}
 
 # Hardware constants
 UNIFORM_ALIGNMENT_DEFAULT = 256
@@ -214,6 +219,7 @@ class GPUEngine:
             "rl_mult_v": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "rl_mult_v.wgsl")),
             "lab": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "lab.wgsl")),
             "lith": get_resource_path(os.path.join("negpy", "features", "lith", "shaders", "lith.wgsl")),
+            "cyanotype": get_resource_path(os.path.join("negpy", "features", "cyanotype", "shaders", "cyanotype.wgsl")),
             "toning": get_resource_path(os.path.join("negpy", "features", "toning", "shaders", "toning.wgsl")),
             "finish": get_resource_path(os.path.join("negpy", "features", "finish", "shaders", "finish.wgsl")),
             "metrics": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "metrics.wgsl")),
@@ -233,6 +239,7 @@ class GPUEngine:
             "clahe_u",
             "lab",
             "lith",
+            "cyanotype",
             "toning",
             "finish",
             "layout",
@@ -248,6 +255,7 @@ class GPUEngine:
             "clahe_u": 32,
             "lab": 96,
             "lith": 64,
+            "cyanotype": 64,
             "toning": 64,
             "finish": 60,
             "layout": 48,
@@ -327,7 +335,7 @@ class GPUEngine:
             return 2
         if last.lab != settings.lab:
             return 4
-        if last.lith != settings.lith:
+        if last.altproc != settings.altproc:
             return 5
         if last.toning != settings.toning:
             return 6
@@ -954,28 +962,31 @@ class GPUEngine:
 
         tex_pre_toning = tex_lab
 
-        # --- Lith (infectious development) ---
-        # No pass at all when off; toning then reads tex_lab directly.
-        if settings.lith.lith_enabled and settings.process.process_mode == ProcessMode.BW:
-            tex_lith = self._get_intermediate_texture(
+        # --- Alternative processes (lith / cyanotype) ---
+        # Mutually exclusive, and no pass at all when neither is picked; toning
+        # then reads tex_lab directly.
+        alt = settings.altproc.alt_process
+        if alt != AltProcess.NONE and settings.process.process_mode == ProcessMode.BW:
+            shader = "lith" if alt == AltProcess.LITH else "cyanotype"
+            tex_alt = self._get_intermediate_texture(
                 w_rot,
                 h_rot,
                 wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_SRC,
-                "lith",
+                shader,
             )
             if start_stage <= 5:
                 self._dispatch_pass(
                     enc,
-                    "lith",
+                    shader,
                     [
                         (0, tex_lab.view),
-                        (1, tex_lith.view),
-                        (2, self._get_uniform_binding("lith")),
+                        (1, tex_alt.view),
+                        (2, self._get_uniform_binding(shader)),
                     ],
                     w_rot,
                     h_rot,
                 )
-            tex_pre_toning = tex_lith
+            tex_pre_toning = tex_alt
 
         if start_stage <= 6:
             self._dispatch_pass(
@@ -1500,10 +1511,10 @@ class GPUEngine:
 
         is_bw = 1 if settings.process.process_mode == ProcessMode.BW else 0
 
-        lith = settings.lith
+        altproc = settings.altproc
         lc = LITH_CONSTANTS
         lith_dmax = float(pc["d_max"])
-        lith_over = 0.301 * float(lith.lith_exposure)
+        lith_over = 0.301 * float(altproc.lith_exposure)
         li_data = (
             struct.pack("ffff", *[float(p[0]) for p in paper.lith_path])
             + struct.pack("ffff", *[float(p[1]) for p in paper.lith_path])
@@ -1511,13 +1522,36 @@ class GPUEngine:
                 "ffff",
                 lith_over,
                 lith_over * float(lc["foot_veil"]),
-                lith_dmax * (lc["knee_lo"] - lc["knee_span"] * float(lith.lith_snatch)),
-                max(lc["abrupt_lo"] - lc["abrupt_span"] * float(lith.lith_abruptness), 0.01),
+                lith_dmax * (lc["knee_lo"] - lc["knee_span"] * float(altproc.lith_snatch)),
+                max(lc["abrupt_lo"] - lc["abrupt_span"] * float(altproc.lith_abruptness), 0.01),
             )
             # 12 bytes of tail padding: two vec4s force a 16-byte struct align, so
             # WGSL rounds LithUniforms up to 64 and the binding size must match.
             + struct.pack("f", lith_dmax)
             + b"\x00" * 12
+        )
+
+        cs = sensitizer_constants(altproc.cyano_sensitizer)
+        cc = CYANOTYPE_CONSTANTS
+        cy_data = (
+            struct.pack("ffff", *[float(p[0]) for p in cs["path"]])
+            + struct.pack("ffff", *[float(p[1]) for p in cs["path"]])
+            + struct.pack(
+                "ffff",
+                0.301 * float(altproc.cyano_exposure),
+                max(float(altproc.cyano_scale), 0.1),
+                float(altproc.cyano_bleach),
+                float(altproc.cyano_tannin),
+            )
+            # 4 bytes of tail padding, as for lith: the leading vec4s round
+            # CyanoUniforms up to 64 and the binding size must match.
+            + struct.pack(
+                "fff",
+                float(cs["d_max"]),
+                float(cc["brown_dir"][0]),
+                float(cc["brown_dir"][1]),
+            )
+            + b"\x00" * 4
         )
 
         t_data = (
@@ -1547,7 +1581,7 @@ class GPUEngine:
                 float(settings.toning.blue_strength),
                 float(settings.toning.copper_strength),
                 float(settings.toning.vanadium_strength),
-                1 if lith.lith_enabled and is_bw else 0,
+                _ALT_MODE.get(altproc.alt_process, 0) if is_bw else 0,
             )
         )
 
@@ -1595,7 +1629,7 @@ class GPUEngine:
 
         full_buffer = bytearray()
         for name, d in zip(
-            self._uniform_names, [g_data, n_data, e_data, tr_data, c_data, l_data, li_data, t_data, f_data, y_data, dh_data]
+            self._uniform_names, [g_data, n_data, e_data, tr_data, c_data, l_data, li_data, cy_data, t_data, f_data, y_data, dh_data]
         ):
             full_buffer += d + b"\x00" * (self._slot_bytes(name) - len(d))
 

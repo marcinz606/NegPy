@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import QHBoxLayout
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.widgets.sliders import CompactSlider, HueSlider
+from negpy.features.altprocess.models import AltProcess
 from negpy.features.process.models import ProcessMode
 
 
@@ -153,13 +154,16 @@ class ToningSidebar(BaseSidebar):
             self.copper_slider.setVisible(is_bw)
             self.vanadium_slider.setVisible(is_bw)
 
-            # Only selenium and gold do anything distinctive on a lith print.
-            # Disabled rather than hidden: the values stay live and come back
-            # when lith goes off.
+            # Only selenium and gold do anything distinctive on a lith print, and
+            # a cyanotype holds no silver for any bath to react with. Disabled
+            # rather than hidden: the values stay live and come back afterwards.
             # Tooltips stay put — apply_shortcut_tooltips owns some of these.
-            lith_on = is_bw and self.state.config.lith.lith_enabled
+            alt = self.state.config.altproc.alt_process if is_bw else AltProcess.NONE
+            cyano_on = alt == AltProcess.CYANOTYPE
             for w in (self.sepia_slider, self.blue_slider, self.copper_slider, self.vanadium_slider):
-                w.setEnabled(not lith_on)
+                w.setEnabled(alt == AltProcess.NONE)
+            for w in (self.selenium_slider, self.gold_slider):
+                w.setEnabled(not cyano_on)
         finally:
             self.block_signals(False)
 

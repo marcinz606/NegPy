@@ -22,7 +22,7 @@ from negpy.features.exposure.models import ExposureConfig
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask
 from negpy.features.retouch.models import RetouchConfig
-from negpy.features.lith.models import LithConfig
+from negpy.features.altprocess.models import AltProcess, AltProcessConfig, Sensitizer
 from negpy.features.toning.models import ToningConfig
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.process.models import ProcessConfig, ProcessMode
@@ -628,8 +628,8 @@ class TestToningParity:
         assert float(diff.max()) > 1e-3
 
 
-class TestLithParity:
-    """CPU vs GPU parity for the lith (infectious development) shader."""
+class _AltProcessParity:
+    """Shared harness for the alternative-process shaders (lith, cyanotype)."""
 
     @classmethod
     def setup_class(cls):
@@ -646,18 +646,18 @@ class TestLithParity:
         if hasattr(cls, "gpu"):
             cls.gpu.destroy_all()
 
-    def _settings(self, toning: ToningConfig | None = None, **lith_kwargs) -> WorkspaceConfig:
+    def _settings(self, toning: ToningConfig | None = None, **alt_kwargs) -> WorkspaceConfig:
         base = _make_base_settings()
         return replace(
             base,
             process=replace(base.process, process_mode=ProcessMode.BW),
-            lith=LithConfig(**lith_kwargs),
+            altproc=AltProcessConfig(**alt_kwargs),
             toning=toning or ToningConfig(),
         )
 
     def _run_and_compare(self, settings: WorkspaceConfig) -> None:
         h, w = self.img.shape[:2]
-        cpu_result = self.cpu.process(self.img, settings, "lith_parity")
+        cpu_result = self.cpu.process(self.img, settings, "altproc_parity")
         gpu_tex, _ = self.gpu.process_to_texture(
             self.img,
             settings,
@@ -680,31 +680,69 @@ class TestLithParity:
         )
         return self.gpu._readback_downsampled(tex)
 
+    def _assert_did_something(self, settings: WorkspaceConfig, against: WorkspaceConfig) -> None:
+        """The parity tolerance is wider than a stage's footprint, so a dead uniform
+        binding would pass parity trivially. Pin that the pass changed the pixels."""
+        assert float(np.abs(self._gpu_result(settings) - self._gpu_result(against)).max()) > 1e-3
+
+
+class TestNoAltProcessParity(_AltProcessParity):
     def test_disabled(self):
         self._run_and_compare(self._settings())
 
+
+class TestLithParity(_AltProcessParity):
+    """CPU vs GPU parity for the lith (infectious development) shader."""
+
     def test_enabled(self):
-        """The parity tolerance is wider than the stage's footprint, so also
-        assert the uniforms reach the shader at all."""
-        s = self._settings(lith_enabled=True)
+        s = self._settings(alt_process=AltProcess.LITH)
         self._run_and_compare(s)
-        assert float(np.abs(self._gpu_result(s) - self._gpu_result(self._settings())).max()) > 1e-3
+        self._assert_did_something(s, self._settings())
 
     def test_snatch_and_abruptness(self):
-        self._run_and_compare(self._settings(lith_enabled=True, lith_snatch=0.85, lith_abruptness=1.0))
+        self._run_and_compare(self._settings(alt_process=AltProcess.LITH, lith_snatch=0.85, lith_abruptness=1.0))
 
     def test_lith_selenium(self):
         """Selenium switches to the lith constant set — parity must follow."""
-        s = self._settings(ToningConfig(selenium_strength=0.8), lith_enabled=True)
+        s = self._settings(ToningConfig(selenium_strength=0.8), alt_process=AltProcess.LITH)
         self._run_and_compare(s)
-        plain = self._settings(lith_enabled=True)
-        assert float(np.abs(self._gpu_result(s) - self._gpu_result(plain)).max()) > 1e-3
+        self._assert_did_something(s, self._settings(alt_process=AltProcess.LITH))
 
     def test_lith_gold(self):
-        s = self._settings(ToningConfig(gold_strength=0.8), lith_enabled=True)
+        s = self._settings(ToningConfig(gold_strength=0.8), alt_process=AltProcess.LITH)
         self._run_and_compare(s)
-        plain = self._settings(lith_enabled=True)
-        assert float(np.abs(self._gpu_result(s) - self._gpu_result(plain)).max()) > 1e-3
+        self._assert_did_something(s, self._settings(alt_process=AltProcess.LITH))
+
+
+class TestCyanotypeParity(_AltProcessParity):
+    """CPU vs GPU parity for the cyanotype shader."""
+
+    def test_enabled(self):
+        s = self._settings(alt_process=AltProcess.CYANOTYPE)
+        self._run_and_compare(s)
+        self._assert_did_something(s, self._settings())
+
+    def test_sensitizer(self):
+        s = self._settings(alt_process=AltProcess.CYANOTYPE, cyano_sensitizer=Sensitizer.NEW)
+        self._run_and_compare(s)
+        self._assert_did_something(s, self._settings(alt_process=AltProcess.CYANOTYPE))
+
+    def test_exposure_and_scale(self):
+        s = self._settings(alt_process=AltProcess.CYANOTYPE, cyano_exposure=1.5, cyano_scale=2.4)
+        self._run_and_compare(s)
+        self._assert_did_something(s, self._settings(alt_process=AltProcess.CYANOTYPE))
+
+    def test_bleach_and_tannin(self):
+        s = self._settings(alt_process=AltProcess.CYANOTYPE, cyano_bleach=0.5, cyano_tannin=0.8)
+        self._run_and_compare(s)
+        self._assert_did_something(s, self._settings(alt_process=AltProcess.CYANOTYPE))
+
+    def test_chemical_toners_are_inert(self):
+        """No silver in a cyanotype — the six baths must be skipped on both engines."""
+        toned = self._settings(ToningConfig(selenium_strength=1.0, gold_strength=1.0), alt_process=AltProcess.CYANOTYPE)
+        self._run_and_compare(toned)
+        plain = self._settings(alt_process=AltProcess.CYANOTYPE)
+        assert float(np.abs(self._gpu_result(toned) - self._gpu_result(plain)).max()) < 1e-5
 
 
 class TestRetouchParity:

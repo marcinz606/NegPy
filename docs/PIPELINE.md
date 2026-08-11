@@ -372,10 +372,12 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
 
 ---
 
-## 7. Lith
-**Code**: `negpy.features.lith`
+## 7. Alternative Processes
+**Code**: `negpy.features.lith`, `negpy.features.cyanotype`; config `negpy.features.altprocess`
 
-Optional alternative development (B&W mode only), sitting between Lab and Toning so the toners act on the lith print rather than the other way round. Off by default; when off the stage is skipped entirely on both engines rather than run as an identity pass.
+One optional non-enlarging process (B&W mode only), sitting between Lab and Toning so the toners act on the alternative print rather than the other way round. Lith and cyanotype are mutually exclusive — the panel holds a single `alt_process` enum, not a flag each — and default to neither; with neither picked the stage is skipped entirely on both engines rather than run as an identity pass.
+
+### 7.1 Lith
 
 Lith development has **two phases** (Rudman's "New Rules", Moersch Lessons 1-6), and the model is built directly on them. A long low-gamma highlight branch is fixed by exposure alone; then infectious development fires and carries the shadows to Dmax almost vertically; past that, nothing separates at all (Moersch's "lith-band"). Working on the print density $D_0$ from the exposure stage, with the paper's own $D_{max}$:
 
@@ -388,6 +390,26 @@ $$D = D_h + (D_{max} - D_h) \cdot \sigma\!\left(\frac{D_0' - K}{w}\right)$$
 *   **Colour** has no strength slider; the paper sets it. It is the paper's $(a^{\ast}, b^{\ast})$ path indexed on the *output* density fraction $u = D/D_{max}$ — four anchors at $u = 0.10/0.35/0.65/1.00$: peach, ochre, **olive**, neutral. Keep the olive knot: on a warmtone paper the transition between warm highlights and cold blacks really does go green. Applied in Lab with $L^{\ast}$ from the density itself, so the forward RGB→Lab transform is skipped (the frame is grey at this point). The physics: hue is a steep, non-monotonic function of silver particle size and inter-particle packing, neutral only in a narrow window (Kong & Shore, *J. Imaging Sci. Technol.* 51(3), 2007), and particle size tracks development stage, which tracks density. The path lives on `PaperProfile` (`lith_path`) — the paper is the one chosen in the Exposure panel, never duplicated here.
 
 Not modelled: semiquinone/bromide diffusion halos, pepper fog, snowballs and the other fault modes.
+
+### 7.2 Cyanotype
+
+An iron process, not a silver one: the paper is brushed with a ferric salt, contact-printed under UV, and washed. There is no development stage to time, so the print is fixed by how much light got through the negative and by how long a density range the sensitiser can hold. That range is the contrast control — Ware measures ~1.0 to 1.2 for the traditional Herschel formula against ~2.4 for his own, and his Simple Cyanotype ships as three variants at 1.8 / 2.3 / 2.7. Within that range the midtones compress, which is exactly what a cyanotype digital-negative correction curve exists to undo, so the mid gamma is modelled below one.
+
+On the print density $D_0$ from the exposure stage, with exposure $E$ in stops and exposure scale $S$ in log D:
+
+$$t = \mathrm{clamp}\!\left(\frac{D_0 + 0.301 E}{S},\ 0,\ 1\right), \qquad v = 2t - 1$$
+$$u_0 = (1-m)\,t + \tfrac{m}{2}\left(1 + v\,|v|\right)$$
+$$u_b = u_0\left(1 - B\left(1 - \beta u_0\right)\right), \qquad u = u_b + T\left(r\,u_0 - u_b\right)$$
+$$D = D_{max}\,(1 + T g)\,u$$
+
+*   **Exposure** $E$ shifts the whole image along the exposure axis: more UV drives more of the scale into blue.
+*   **Exposure Scale** $S$ is the negative density range the sensitiser prints, and so the contrast. A short scale clips both ends of a normally-graded negative.
+*   The reverse-S term is the midtone compression, weighted $m = 0.45$. It is written $v|v|$ rather than a power so both engines evaluate it identically, and it is blended against the straight line so the slope at the centre is $1-m$ rather than zero — a perfectly flat midtone would posterize a gradient.
+*   **Bleach** $B$ is washing soda: it strips pigment highlights-first, leaving the deepest shadow a floor fraction $\beta = 0.15$ of its density at full strength. **Tannin** $T$ re-develops the bleached iron as an iron tannate that sits slightly past where the blue was ($r = 1.05$) and covers more than the pigment it replaced ($g = 0.15$).
+*   **Colour** is Prussian blue, whose absorption peaks around 700nm — most of the density is in red, so a cyanotype never goes black, it goes blue. Same construction as lith: an $(a^{\ast}, b^{\ast})$ path indexed on $u$, four anchors at $u = 0.00/0.15/0.55/1.00$ running rag white, **green highlight stain**, mid blue, Prussian blue, with $L^{\ast}$ taken from the density itself. The green knot is not decoration — Ware describes it on both formulas as the residual yellow sensitiser colour-mixing with the blue. Tannin mixes the path toward an iron-tannate direction scaled by $u$, so a partial bleach leaves a split blue-brown. **Sensitiser** picks $D_{max}$ and the path: Classic (Herschel) 0.95 and greener, New (Ware) 1.40 and deeper, matching Ware's densitometry (red-channel Dmax 0.55-1.05 for the classic sensitisers, ~1.5 for a good modern print).
+*   A cyanotype holds no silver, so the six chemical toners are skipped entirely while it is selected. Split toning is a dye stain and still applies.
+
+Not modelled: **solarisation**, though it is real and dramatic — the reversed shadows are a wet-print state that regains its density on drying, as Prussian white oxidises back to Prussian blue, so the finished print does not carry it. Also not modelled: bronzing (a surface sheen, not a colour), and paper texture.
 
 ---
 

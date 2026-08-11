@@ -13,7 +13,7 @@ struct ToningUniforms {
     blue_strength: f32,
     copper_strength: f32,
     vanadium_strength: f32,
-    lith_active: u32,          // 1 when the print was lith-developed
+    alt_mode: u32,             // 0 none, 1 lith, 2 cyanotype
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -86,26 +86,28 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     var color = textureLoad(input_tex, coords_in, 0).rgb;
 
     // 1. Process Mode (B&W). Redundant with the exposure pass, which already
-    // collapsed to luma — except under lith, where the lith pass has since put
-    // real colour on the print and collapsing would throw it away.
-    if (params.is_bw == 1u && params.lith_active == 0u) {
+    // collapsed to luma — except under an alternative process, where the lith or
+    // cyanotype pass has since put real colour on the print and collapsing would
+    // throw it away.
+    if (params.is_bw == 1u && params.alt_mode == 0u) {
         let luma = dot(color, vec3<f32>(0.2126, 0.7152, 0.0722));
         color = vec3<f32>(luma);
     }
 
-    // 2. Chemical Toning (Selenium/Sepia/Gold/Blue/Copper/Vanadium) — B&W only,
+    // 2. Chemical Toning (Selenium/Sepia/Gold/Blue/Copper/Vanadium) — B&W only
+    // and never on a cyanotype, which holds no silver for the baths to react with:
     // silver-ledger model mirroring _apply_chemical_toning_jit / TONING_CONSTANTS:
     // all baths compete for one metallic-silver reservoir. Susceptibility c_i is
     // a pure function of the ORIGINAL density d0; bath order only decides who
     // claims silver first (f_i = a*c_i, a -= f_i). Gold is the lock-out
     // exception: it also plates the sulfide fraction with compounded covering
     // power (classic gold-over-sepia orange-red).
-    if (params.is_bw == 1u && (params.selenium_strength > 0.0 || params.sepia_strength > 0.0 || params.gold_strength > 0.0 || params.blue_strength > 0.0 || params.copper_strength > 0.0 || params.vanadium_strength > 0.0)) {
+    if (params.is_bw == 1u && params.alt_mode != 2u && (params.selenium_strength > 0.0 || params.sepia_strength > 0.0 || params.gold_strength > 0.0 || params.blue_strength > 0.0 || params.copper_strength > 0.0 || params.vanadium_strength > 0.0)) {
         // Lith silver is fine, small-particle silver on the steep part of the
         // tone-vs-grain-size curve, so selenium and gold move it much further —
         // mirrors LITH_TONING_CONSTANTS. The other four baths are unchanged
         // (and the sidebar disables them under lith).
-        let lith = params.lith_active == 1u;
+        let lith = params.alt_mode == 1u;
         let sel_gain = select(vec3<f32>(1.04, 1.10, 1.02), vec3<f32>(1.10, 1.24, 1.12), lith);
         let sep_gain = vec3<f32>(0.82, 0.94, 1.12);
         let gold_gain = select(vec3<f32>(1.08, 1.03, 1.00), vec3<f32>(1.16, 1.06, 0.96), lith);

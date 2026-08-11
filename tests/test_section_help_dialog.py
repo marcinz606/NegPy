@@ -25,7 +25,7 @@ GUIDED_KEYS = (
     "tone",
     "local",
     "lab",
-    "lith",
+    "altproc",
     "toning",
     "retouch",
     "finish",

@@ -1,13 +1,13 @@
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.types import ImageBuffer
+from negpy.features.altprocess.models import AltProcess, AltProcessConfig
 from negpy.features.exposure.papers import PaperProfile, effective_constants
 from negpy.features.lith.logic import apply_lith
-from negpy.features.lith.models import LithConfig
 from negpy.features.process.models import ProcessMode
 
 
 class LithProcessor:
-    def __init__(self, config: LithConfig, paper: PaperProfile):
+    def __init__(self, config: AltProcessConfig, paper: PaperProfile):
         self.config = config
         self.paper = paper
 
@@ -19,7 +19,7 @@ class LithProcessor:
             image,
             self.paper.lith_path,
             float(effective_constants(self.paper)["d_max"]),
-            enabled=self.config.lith_enabled,
+            enabled=self.config.alt_process == AltProcess.LITH,
             exposure=self.config.lith_exposure,
             snatch=self.config.lith_snatch,
             abruptness=self.config.lith_abruptness,

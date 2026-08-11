@@ -13,6 +13,7 @@ from dataclasses import replace
 import numpy as np
 
 from negpy.domain.models import WorkspaceConfig
+from negpy.features.altprocess.models import AltProcess
 from negpy.features.process.models import ProcessMode
 from negpy.infrastructure.gpu.device import GPUDevice
 
@@ -71,6 +72,7 @@ class TestStageSkipParity(unittest.TestCase):
     def test_every_stage_boundary_is_bit_identical(self):
         base = WorkspaceConfig()
         lit = _sub(base, "exposure", density=0.35)
+        bw = _sub(lit, "process", process_mode=ProcessMode.BW)
         for label, cfg in (
             ("baseline", base),
             ("exposure.density", lit),
@@ -82,9 +84,12 @@ class TestStageSkipParity(unittest.TestCase):
             ("lab.saturation", _sub(lit, "lab", saturation=1.4)),
             ("retouch spot added", _sub(lit, "retouch", manual_dust_spots=[(0.5, 0.5, 100.0)])),
             ("retouch cleared", _sub(lit, "retouch", manual_dust_spots=[])),
-            ("lith on", _sub(lit, "lith", lith_enabled=True)),
-            ("lith.snatch", _sub(lit, "lith", lith_enabled=True, lith_snatch=0.8)),
-            ("lith off", lit),
+            ("altproc bw", bw),
+            ("lith on", _sub(bw, "altproc", alt_process=AltProcess.LITH)),
+            ("lith.snatch", _sub(bw, "altproc", alt_process=AltProcess.LITH, lith_snatch=0.8)),
+            ("cyanotype on", _sub(bw, "altproc", alt_process=AltProcess.CYANOTYPE)),
+            ("cyanotype.scale", _sub(bw, "altproc", alt_process=AltProcess.CYANOTYPE, cyano_scale=2.4)),
+            ("altproc off", bw),
             ("toning.sepia", _sub(lit, "toning", sepia_strength=0.4)),
             ("finish.border", _sub(lit, "finish", border_size=4.0)),
             ("geometry.rotation", _sub(lit, "geometry", rotation=1)),
