@@ -12,7 +12,8 @@ def test_image_service_buffer_to_pil_8bit() -> None:
     img = service.buffer_to_pil(buffer, settings, bit_depth=8)
     assert img.mode == "RGB"
     assert img.size == (1, 1)
-    assert img.getpixel((0, 0)) == (0, 127, 255)
+    # 0.5 -> 128: the quantiser rounds now rather than truncating.
+    assert img.getpixel((0, 0)) == (0, 128, 255)
 
 
 def test_image_service_buffer_to_pil_16bit_bw() -> None:

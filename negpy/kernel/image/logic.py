@@ -27,7 +27,11 @@ def _get_luminance_jit(img: np.ndarray) -> np.ndarray:
 @njit(cache=True, fastmath=True)
 def _to_uint16_jit(img: np.ndarray) -> np.ndarray:
     """
-    Scale to uint16 (clips & handles NaNs).
+    Scale to uint16 (rounds to nearest, clips & handles NaNs).
+
+    The +0.5 rounds. A bare cast truncates toward zero, which biases every sample down by
+    half a level and doubles the quantisation error: the error distribution runs [-1, 0]
+    instead of [-0.5, +0.5]. The luma kernels below have always rounded; these did not.
     """
     res = np.empty_like(img, dtype=np.uint16)
     img_flat = img.reshape(-1)
@@ -38,7 +42,7 @@ def _to_uint16_jit(img: np.ndarray) -> np.ndarray:
         if np.isnan(val):
             v = 0.0
         else:
-            v = val * 65535.0
+            v = val * 65535.0 + 0.5
 
         if v < 0.0:
             v = 0.0
@@ -52,7 +56,7 @@ def _to_uint16_jit(img: np.ndarray) -> np.ndarray:
 @njit(cache=True, fastmath=True)
 def _to_uint8_jit(img: np.ndarray) -> np.ndarray:
     """
-    Scale to uint8 (clips & handles NaNs).
+    Scale to uint8 (rounds to nearest, clips & handles NaNs). See _to_uint16_jit.
     """
     res = np.empty_like(img, dtype=np.uint8)
     img_flat = img.reshape(-1)
@@ -63,7 +67,7 @@ def _to_uint8_jit(img: np.ndarray) -> np.ndarray:
         if np.isnan(val):
             v = 0.0
         else:
-            v = val * 255.0
+            v = val * 255.0 + 0.5
 
         if v < 0.0:
             v = 0.0

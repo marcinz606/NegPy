@@ -18,7 +18,8 @@ def test_float_to_uint8() -> None:
     res = float_to_uint8(img)
     assert res.dtype == np.uint8
     assert res[0, 0] == 0
-    assert res[0, 1] == 127
+    # 0.5 * 255 = 127.5, which rounds to 128. This asserted 127 while the kernel truncated.
+    assert res[0, 1] == 128
     assert res[0, 2] == 255
     assert res[1, 0] == 255  # Clamped
     assert res[1, 1] == 0  # Clamped
@@ -29,7 +30,8 @@ def test_float_to_uint16() -> None:
     res = float_to_uint16(img)
     assert res.dtype == np.uint16
     assert res[0, 0] == 0
-    assert res[0, 1] == 32767
+    # 0.5 * 65535 = 32767.5 -> 32768 rounded; 32767 was the truncated value.
+    assert res[0, 1] == 32768
     assert res[0, 2] == 65535
 
 

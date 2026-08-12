@@ -6,7 +6,7 @@ from negpy.domain.models import ExportConfig, AspectRatio, ExportResolutionMode
 from negpy.features.finish.models import FinishConfig
 from negpy.features.toning.logic import apply_chemical_toning, apply_split_toning
 from negpy.features.toning.models import ToningConfig
-from negpy.kernel.image.logic import working_oetf_decode
+from negpy.kernel.image.logic import float_to_uint8, working_oetf_decode
 
 
 class PrintService:
@@ -42,7 +42,9 @@ class PrintService:
         result_np, content_rect = PrintService.apply_layout(
             img_np, config, border_size=border_size_cm, border_color=border_color_hex, finish=finish
         )
-        result_uint8 = (np.clip(result_np, 0, 1) * 255).astype(np.uint8)
+        # The shared quantiser, not a bare cast: it rounds, clips and handles NaN, and a
+        # second implementation here is how this path came to truncate while the rest rounded.
+        result_uint8 = float_to_uint8(result_np)
         return Image.fromarray(result_uint8), content_rect
 
     @staticmethod
