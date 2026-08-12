@@ -1,5 +1,6 @@
 import math
 
+import numpy as np
 import qtawesome as qta
 from PyQt6.QtWidgets import (
     QButtonGroup,
@@ -16,6 +17,7 @@ from negpy.desktop.view.styles.templates import EditedDot, section_subheader, wr
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+from negpy.features.hdr.logic import output_scale
 from negpy.features.hdr.models import ANCHOR_EV_UNSET
 from negpy.features.process.models import ProcessMode, invalidate_local_bounds
 
@@ -372,9 +374,16 @@ class ProcessSidebar(BaseSidebar):
             merged = bool(self.state.config.hdr.hdr_enabled and self.state.config.hdr.hdr_paths)
             self.render_ev_slider.setVisible(merged and transfer)
             if merged:
-                ev = float(self.state.config.hdr.hdr_anchor_ev)
+                hdr = self.state.config.hdr
+                ev = float(hdr.hdr_anchor_ev)
+                if ev >= ANCHOR_EV_UNSET:
+                    # Unset means the bracket's middle exposure, which is only 0 EV when it
+                    # clamps there. Showing a bare 0.00 would misreport where the picture
+                    # actually sits on any bracket spread either side of the reference.
+                    scale = output_scale([float(r) for r in hdr.hdr_ratios])
+                    ev = float(np.log2(scale)) if scale > 0 else 0.0
                 self.render_ev_slider.blockSignals(True)
-                self.render_ev_slider.setValue(ev if ev < ANCHOR_EV_UNSET else 0.0)
+                self.render_ev_slider.setValue(ev)
                 self.render_ev_slider.blockSignals(False)
             self.normalize_e6_btn.setChecked(conf.e6_normalize)
 
