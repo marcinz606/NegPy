@@ -35,6 +35,7 @@ def _stub(memo, **overrides):
         _thumb_config=object(),
         _render_memo=memo,
         _last_render_identity=None,
+        _spared_texture=None,
         _gpu_fallback_notified=True,
         state=SimpleNamespace(
             config=object(),
@@ -146,3 +147,40 @@ class TestRetentionRefusesUnsafeFiling(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSparingSurvivesBackToBackReloads(unittest.TestCase):
+    """Dragging the render exposure reloads faster than renders complete.
+
+    `load_file` pops base_positive, so the second reload finds nothing to spare while the
+    canvas is still showing the texture spared on the first. Reporting nothing there tells
+    the canvas to let go — and a merge suppresses its own splash, so it then paints nothing
+    at all. Measured before the fix: 13 of 24 samples blank mid-drag with HQ preview on.
+    """
+
+    def test_the_spared_texture_is_offered_again_when_metrics_are_empty(self):
+        memo = RenderMemo(SimpleNamespace(preview_cache_max_full_res_entries=2))
+        tex = _FakeTexture()
+        stub = _stub(memo)
+        _finish(stub, tex, memo_key="k")
+        self.assertIs(_retain(stub), tex)
+
+        # what load_file does on the way out, before the next reload asks again
+        stub.state.last_metrics.pop("base_positive", None)
+        self.assertIs(_retain(stub), tex, "the canvas is still showing it — keep sparing it")
+
+    def test_it_is_dropped_once_nothing_is_displayed(self):
+        memo = RenderMemo(SimpleNamespace(preview_cache_max_full_res_entries=2))
+        stub = _stub(memo)
+        stub._spared_texture = None
+        stub.state.last_metrics.pop("base_positive", None)
+        self.assertIsNone(_retain(stub), "nothing on screen, nothing to spare")
+
+    def test_a_new_render_replaces_what_is_spared(self):
+        memo = RenderMemo(SimpleNamespace(preview_cache_max_full_res_entries=2))
+        first, second = _FakeTexture(), _FakeTexture()
+        stub = _stub(memo)
+        _finish(stub, first, memo_key="k")
+        self.assertIs(_retain(stub), first)
+        _finish(stub, second, memo_key="k2")
+        self.assertIs(_retain(stub), second, "the newer frame is what the canvas shows now")

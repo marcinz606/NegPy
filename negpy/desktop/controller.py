@@ -479,6 +479,8 @@ class AppController(QObject):
         self._pending_cursor_nx: Optional[float] = None
         self._pending_cursor_ny: Optional[float] = None
         self._prefetch_gen = 0
+        #: The texture the canvas is displaying, kept alive across back-to-back reloads.
+        self._spared_texture: Optional[GPUTexture] = None
         self._preview_load_t0 = 0.0
         self._requested_file_path: str = ""
 
@@ -1306,16 +1308,26 @@ class AppController(QObject):
         return f"{kind}:{self._render_memo_key(replace(self.state.config, exposure=exposure))}"
 
     def _retain_displayed_texture(self) -> Optional[GPUTexture]:
-        """File the on-screen GPU render in the memo and return it for the cleanup to spare.
+        """Spare the on-screen GPU render from the cleanup, and file it in the memo if it can be.
 
-        Refused mid-render: that render paints into the same pooled texture, so the pixels
-        would stop matching the key they are filed under.
+        Two separate questions. Filing is refused mid-render: that render paints into the
+        same pooled texture, so the pixels would stop matching the key they are filed under.
+        Sparing is not — the canvas must go on showing what it has until a new render
+        replaces it, or a reload with no splash behind it paints nothing at all.
         """
         identity = self._last_render_identity
         self._last_render_identity = None
         texture = self.state.last_metrics.get("base_positive")
         if not isinstance(texture, GPUTexture):
+            # load_file pops base_positive, so a second reload arriving before a render has
+            # completed finds nothing here — while the canvas is still showing the texture
+            # spared on the previous pass. Spare that one again rather than reporting
+            # nothing, which would tell the canvas to let go of what it is displaying.
+            texture = self._spared_texture
+        if not isinstance(texture, GPUTexture):
+            self._spared_texture = None
             return None
+        self._spared_texture = texture
         # Sparing the texture and filing it in the memo are separate questions, and
         # conflating them is what blanks the canvas. Filing is refused mid-render: that
         # render paints into the same pooled texture, so the pixels would stop matching the
