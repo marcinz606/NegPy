@@ -461,7 +461,7 @@ class MainWindow(QMainWindow):
         self.controller.status_progress_requested.connect(self.canvas.hud.set_progress)
 
         self.progress_dialog = ProgressDialog(self)
-        self.controller.batch_started.connect(self.progress_dialog.start)
+        self.controller.batch_started.connect(self._on_batch_started)
         self.controller.batch_progress.connect(self.progress_dialog.set_progress)
         self.controller.batch_finished.connect(self.progress_dialog.finish)
         self.progress_dialog.abort_requested.connect(self.controller.abort_active_batch)
@@ -473,6 +473,14 @@ class MainWindow(QMainWindow):
 
     def _refresh_dashboard(self) -> None:
         self.toolbar.refresh_gpu_status()
+
+    def _on_batch_started(self, title: str, abortable: bool) -> None:
+        """Hot Folder polls every 2 s, so its per-frame import batches (the only
+        non-abortable ones) would pop the dialog on every capture. The HUD status
+        line still reports those; abortable batches always show the popup."""
+        if not abortable and self.session_panel.file_browser.hot_folder_btn.isChecked():
+            return
+        self.progress_dialog.start(title, abortable)
 
     def _save_printing_notes(self) -> None:
         """Write the marked-up work print. The annotated pixels are the canvas's own
