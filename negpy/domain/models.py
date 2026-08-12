@@ -418,6 +418,7 @@ class WorkspaceConfig:
                 hdr_ratios=tuple(float(r) for r in d.get("hdr_ratios", ())),
                 hdr_align=bool(d.get("hdr_align", True)),
                 hdr_anchor=str(d.get("hdr_anchor", "") or ""),
+                hdr_anchor_ev=float(d.get("hdr_anchor_ev", 1.0)),
             )
 
         return cls(

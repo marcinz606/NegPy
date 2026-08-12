@@ -22,6 +22,7 @@ import cv2
 import numpy as np
 from numba import prange  # type: ignore
 
+from negpy.features.hdr.models import ANCHOR_EV_UNSET, HdrConfig
 from negpy.features.rgbscan.logic import estimate_shift
 from negpy.kernel.system.parallel import parallel_njit
 
@@ -228,6 +229,22 @@ def output_scale(ratios: Sequence[float], anchor: Optional[float] = None) -> flo
     return float(min(np.exp(np.median(np.log(r))), 1.0))
 
 
+def resolve_anchor(paths: Sequence[str], ratios: Sequence[float], config: "HdrConfig") -> Optional[float]:
+    """The exposure a merge renders at, as a ratio, however the user asked for it.
+
+    Takes the whole config rather than the fields, so a way of asking added later reaches
+    every merge path at once. There are four of them — the render decode, the export decode,
+    the preview service and the seeded shadow lift — and they have to agree.
+
+    A value set in stops wins over a named frame: the slider is the finer control, and a
+    frame name is what the menu writes. None means the bracket's middle exposure.
+    """
+    ev = float(config.hdr_anchor_ev)
+    if ev < ANCHOR_EV_UNSET:
+        return float(2.0**ev)
+    return anchor_ratio(paths, ratios, config.hdr_anchor)
+
+
 def anchor_ratio(paths: Sequence[str], ratios: Sequence[float], anchor_path: str) -> Optional[float]:
     """Ratio of the frame the merge should render at, or None for the bracket middle.
 
@@ -404,21 +421,21 @@ def merge_frames(
     )
 
 
-def merge_bracket(
-    decode_fn: Callable[[str], np.ndarray],
-    reference_path: str,
-    other_paths: Sequence[str],
-    ratios: Sequence[float],
-    align: bool = True,
-    anchor_path: str = "",
-) -> np.ndarray:
-    """Decode a bracket via `decode_fn` and merge it. `ratios` is per frame in
-    (reference, *other_paths) order, as stored on HdrConfig. `anchor_path` names the frame
-    to render at; empty falls back to the bracket middle."""
-    paths = [reference_path, *other_paths]
+def merge_bracket(decode_fn: Callable[[str], np.ndarray], reference_path: str, config: HdrConfig) -> np.ndarray:
+    """Decode a bracket via `decode_fn` and merge it.
+
+    Takes the config whole rather than its fields: the ratios, the alignment and the render
+    exposure all come from it, and a field added later then reaches every caller without
+    touching one of them. `config.hdr_ratios` is per frame in (reference, *hdr_paths) order.
+    """
+    paths = [reference_path, *config.hdr_paths]
+    ratios = list(config.hdr_ratios)
     if len(ratios) != len(paths):
         raise ValueError(f"{len(paths)} frames but {len(ratios)} ratios")
-    anchor = anchor_ratio(paths, ratios, anchor_path)
     return merge_providers(  # type: ignore[misc]
-        [lambda p=p: decode_fn(p) for p in paths], ratios, reference=0, align=align, anchor=anchor
+        [lambda p=p: decode_fn(p) for p in paths],
+        ratios,
+        reference=0,
+        align=config.hdr_align,
+        anchor=resolve_anchor(paths, ratios, config),
     )

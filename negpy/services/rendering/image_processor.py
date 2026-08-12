@@ -728,10 +728,7 @@ class ImageProcessor:
                 # siblings is a shape mismatch, not a slow merge.
                 lambda p: rgb if p == file_path else self._decode_sensor_rgb(p, linear_raw, fast=fast_decode, wb_override=bracket_wb)[0],
                 file_path,
-                params.hdr.hdr_paths,
-                params.hdr.hdr_ratios,
-                align=params.hdr.hdr_align,
-                anchor_path=params.hdr.hdr_anchor,
+                params.hdr,
             )
         else:
             f32_buffer = uint16_to_float32(rgb)

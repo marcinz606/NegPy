@@ -667,7 +667,7 @@ def _decode_hdr(
         model=file_meta.model or meta.model,
         datetime=file_meta.datetime or meta.datetime,
     )
-    f32 = merge_bracket(_decode, file_path, hdr.hdr_paths, hdr.hdr_ratios, align=hdr.hdr_align, anchor_path=hdr.hdr_anchor)
+    f32 = merge_bracket(_decode, file_path, hdr)
     if geometry is not None:
         f32 = _apply_user_geometry(f32, geometry)
     return f32, wb, merged_meta

@@ -44,7 +44,7 @@ from negpy.desktop.workers.scan_worker import BatchRequest, PrescanRequest, Roll
 from negpy.desktop.workers.library import LibrarySearchTask, LibrarySearchWorker
 from negpy.desktop.workers.hdr import HdrTask, HdrWorker
 from negpy.desktop.workers.stitch import StitchTask, StitchWorker
-from negpy.features.hdr.models import hdr_frame_paths, hdr_hash, hdr_name, hdr_stem
+from negpy.features.hdr.models import ANCHOR_EV_UNSET, hdr_frame_paths, hdr_hash, hdr_name, hdr_stem
 from negpy.features.process.logic import effective_linear_raw
 from negpy.features.stitch.models import stitch_hash, stitch_name
 from negpy.desktop.workers.capture_worker import (
@@ -3218,6 +3218,7 @@ class AppController(QObject):
             "hdr_ratios": tuple(float(r) for r in ordered_ratios),
             "hdr_align": True,
             "hdr_anchor": "",  # bracket middle until the user nominates an exposure
+            "hdr_anchor_ev": ANCHOR_EV_UNSET,
             "process_mode": self._composite_process_mode(ordered),
         }
         wanted = set(frame_paths)
@@ -3270,6 +3271,7 @@ class AppController(QObject):
         if not asset.get("hdr_paths") or str(asset.get("hdr_anchor", "") or "") == path:
             return
         asset["hdr_anchor"] = path
+        asset["hdr_anchor_ev"] = ANCHOR_EV_UNSET  # a named frame supersedes a value
         # The asset dict is authoritative for the bracket, and only the manifest carries it
         # across a restart; nothing else persists between here and quitting.
         self.session.persist_session()
@@ -3278,7 +3280,33 @@ class AppController(QObject):
         # apply_config re-decodes: the bracket is merged while the source is decoded, so
         # the scale lives in the buffer the pipeline starts from, and a render alone
         # would re-run the pipeline over the already-merged buffer and change nothing.
-        self.apply_config(replace(cfg, hdr=replace(cfg.hdr, hdr_anchor=path)))
+        self.apply_config(replace(cfg, hdr=replace(cfg.hdr, hdr_anchor=path, hdr_anchor_ev=ANCHOR_EV_UNSET)))
+
+    def set_hdr_anchor_ev(self, ev: float, persist: bool = True) -> None:
+        """Render the active merge at `ev` stops below the reference, continuously.
+
+        The menu can only offer exposures the bracket contains, so the render is otherwise
+        quantised to the frames that happen to have been shot — and the one that looks right
+        is rarely one of them exactly. Setting a value takes precedence over a named frame;
+        `ANCHOR_EV_UNSET` hands it back to the menu.
+        """
+        idx = self.state.selected_file_idx
+        if not (0 <= idx < len(self.state.uploaded_files)):
+            return
+        asset = self.state.uploaded_files[idx]
+        if not asset.get("hdr_paths"):
+            return
+        asset["hdr_anchor_ev"] = float(ev)
+        if float(ev) < ANCHOR_EV_UNSET:
+            # A value and a frame are two answers to one question; keep only the live one so
+            # the menu's tick and the slider cannot disagree about what is rendering.
+            asset["hdr_anchor"] = ""
+        self.session.persist_session()
+        cfg = self.state.config
+        hdr = replace(cfg.hdr, hdr_anchor_ev=float(ev), hdr_anchor="" if float(ev) < ANCHOR_EV_UNSET else cfg.hdr.hdr_anchor)
+        # apply_config re-decodes: the scale is applied while the bracket is merged, so a
+        # re-render alone would run the pipeline over an already-scaled buffer.
+        self.apply_config(replace(cfg, hdr=hdr), persist=persist)
 
     def request_unmerge_hdr(self) -> None:
         """Dissolve the active merged frame back into its exposures.

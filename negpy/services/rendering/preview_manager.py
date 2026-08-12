@@ -25,7 +25,7 @@ from negpy.kernel.system.config import APP_CONFIG
 from negpy.features.flatfield.logic import apply_flatfield, flatfield_token
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.retouch.logic import downsample_ir
-from negpy.features.hdr.logic import anchor_ratio, merge_providers
+from negpy.features.hdr.logic import merge_providers, resolve_anchor
 from negpy.features.hdr.models import HdrConfig, hdr_token
 from negpy.features.rgbscan.logic import assemble_rgb, rgbscan_token
 from negpy.features.rgbscan.models import RgbScanConfig
@@ -470,7 +470,7 @@ class PreviewManager:
         and the phase-correlate align — the same contract as the triplet merge above.
         """
         other_paths, ratios, align = hdr.hdr_paths, hdr.hdr_ratios, hdr.hdr_align
-        anchor = anchor_ratio([reference_path, *other_paths], ratios, hdr.hdr_anchor)
+        anchor = resolve_anchor([reference_path, *other_paths], ratios, hdr)
         merged_key = None
         token = hdr_token(hdr)
         if file_hash and color_space is not None and token:

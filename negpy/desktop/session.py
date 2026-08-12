@@ -12,8 +12,8 @@ from negpy.desktop.view.canvas.crop_guides import CropGuide
 from negpy.domain.models import ExportPreset, WorkspaceConfig
 from negpy.features.exposure.models import apply_targets
 from negpy.features.rgbscan.models import RgbScanConfig
-from negpy.features.hdr.logic import anchor_ratio, seed_shadow_density
-from negpy.features.hdr.models import HdrConfig, hdr_frame_paths
+from negpy.features.hdr.logic import resolve_anchor, seed_shadow_density
+from negpy.features.hdr.models import ANCHOR_EV_UNSET, HdrConfig, hdr_frame_paths
 from negpy.features.stitch.models import StitchConfig
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.storage.repository import StorageRepository
@@ -470,7 +470,7 @@ def resolve_asset_hdr_seed(params: WorkspaceConfig, asset: dict) -> WorkspaceCon
     if not asset.get("hdr_paths") or not ratios:
         return params
     ratios = [float(r) for r in ratios]
-    seed = seed_shadow_density(ratios, anchor_ratio(hdr_frame_paths(asset), ratios, str(asset.get("hdr_anchor", "") or "")))
+    seed = seed_shadow_density(ratios, resolve_anchor(hdr_frame_paths(asset), ratios, resolve_asset_hdr(params, asset).hdr))
     if seed == 0.0:
         return params
     return replace(params, exposure=replace(params.exposure, shadow_density=seed))
@@ -491,6 +491,7 @@ def resolve_asset_hdr(params: WorkspaceConfig, asset: dict) -> WorkspaceConfig:
                 hdr_ratios=tuple(float(r) for r in asset.get("hdr_ratios") or ()),
                 hdr_align=bool(asset.get("hdr_align", True)),
                 hdr_anchor=str(asset.get("hdr_anchor", "") or ""),
+                hdr_anchor_ev=float(asset.get("hdr_anchor_ev", ANCHOR_EV_UNSET)),
             ),
         )
     return replace(params, hdr=HdrConfig())
@@ -1472,6 +1473,7 @@ class DesktopSessionManager(QObject):
                 "ratios": [float(r) for r in f.get("hdr_ratios") or ()],
                 "align": bool(f.get("hdr_align", True)),
                 "anchor": str(f.get("hdr_anchor", "") or ""),
+                "anchor_ev": float(f.get("hdr_anchor_ev", ANCHOR_EV_UNSET)),
                 "hash": f["hash"],
                 "process_mode": f.get("process_mode", ""),
             }

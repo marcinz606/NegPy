@@ -6,6 +6,10 @@ from typing import Sequence
 from negpy.domain.tokens import composite_token
 
 
+#: Sentinel for "the render exposure was not set as a value" — see HdrConfig.hdr_anchor_ev.
+ANCHOR_EV_UNSET = 1.0
+
+
 @dataclass(frozen=True)
 class HdrConfig:
     """Bracketed exposures of one frame, merged into a single linear source.
@@ -28,6 +32,14 @@ class HdrConfig:
     #: which exposure the picture opens at, and they are not the same choice — see
     #: `logic.output_scale`. Empty falls back to the bracket's middle exposure.
     hdr_anchor: str = ""
+    #: Render exposure in stops below the reference, when the user set it as a value rather
+    #: than by naming a frame. Takes precedence over `hdr_anchor`.
+    #:
+    #: Any value at or above ANCHOR_EV_UNSET means "not set": `output_scale` clamps the
+    #: scale to <= 1.0, so a positive EV renders identically to 0 and is unreachable as a
+    #: setting. That leaves the whole usable range (0 and below) free to mean what it says,
+    #: which a 0.0 sentinel would not — 0 EV is a real choice, distinct from the default.
+    hdr_anchor_ev: float = 1.0
 
 
 def hdr_active(config: HdrConfig) -> bool:

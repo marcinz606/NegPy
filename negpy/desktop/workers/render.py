@@ -638,6 +638,7 @@ class AssetDiscoveryWorker(QObject):
                         "hdr_ratios": tuple(float(r) for r in entry.get("ratios") or ()),
                         "hdr_align": bool(entry.get("align", True)),
                         "hdr_anchor": str(entry.get("anchor", "") or ""),
+                        "hdr_anchor_ev": float(entry.get("anchor_ev", 1.0)),
                     }
                 )
             else:
