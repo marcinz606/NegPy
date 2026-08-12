@@ -196,7 +196,12 @@ class ProcessSidebar(BaseSidebar):
                 "actually shot; this slider goes anywhere between them."
             )
         )
-        self.render_ev_slider.valueChanged.connect(lambda v: self.controller.set_hdr_anchor_ev(float(v)))
+        # valueCommitted, not valueChanged: this is the only slider in the app whose value
+        # changes the *source*, so each emission costs a full bracket re-decode rather than a
+        # re-render. valueChanged fires repeatedly through a drag, which queued several
+        # decodes that then raced — the picture could settle on a value the handle had
+        # already left. One decode per gesture instead.
+        self.render_ev_slider.valueCommitted.connect(lambda v: self.controller.set_hdr_anchor_ev(float(v)))
         self.render_ev_slider.setVisible(False)
 
         self.normalize_e6_btn = QPushButton(" Normalize")
