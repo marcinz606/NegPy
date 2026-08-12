@@ -264,8 +264,8 @@ def unsupported_raw_reason(file_path: str) -> Optional[str]:
                     f.seek(int(offset))
                     if _TICORAW_MARKER in f.read(64):
                         return (
-                            "This NEF uses Nikon High Efficiency (HE / HE*) compression, which NegPy cannot decode. "
-                            "Re-shoot in Lossless Compressed NEF, or convert the file to DNG with Adobe DNG Converter."
+                            "Nikon High Efficiency (HE) raw — NegPy cannot decode this format. "
+                            "Re-shoot as Lossless Compressed, or convert to DNG."
                         )
     except Exception:
         return None
