@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from negpy.kernel.system.text import plural
 from negpy.desktop.view.styles.templates import hint_label
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.process.sensor import build_sensor_matrix, measure_capture
@@ -148,7 +149,9 @@ class SensorCalibrationDialog(QDialog):
             f"<b>Saved “{name}”</b> — measured green↔blue leakage {gb * 100:.0f}% / {bg * 100:.0f}%.",
         ]
         if clipped:
-            lines.append(f"⚠ {'/'.join(clipped)} exposure(s) look clipped — reshoot dimmer for an accurate matrix.")
+            lines.append(
+                f"⚠ {'/'.join(clipped)} {plural(len(clipped), 'exposure')} {plural(len(clipped), 'looks', 'look')} clipped — reshoot dimmer for an accurate matrix."
+            )
         return "<br>".join(lines)
 
     def _show_result(self, text: str) -> None:

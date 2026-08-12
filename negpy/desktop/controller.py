@@ -11,6 +11,7 @@ from PyQt6.QtCore import Q_ARG, QMetaObject, QObject, Qt, QThread, QTimer, pyqtS
 from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import QCheckBox, QMessageBox
 
+from negpy.kernel.system.text import count_of, plural
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.render_memo import RenderMemo
 from negpy.desktop.session import (
@@ -2233,7 +2234,7 @@ class AppController(QObject):
             )
 
         if not frames:
-            self.set_status(f"Auto Crop All preserved {preflight_skipped} frame(s); nothing to analyze", 4000)
+            self.set_status(f"Auto Crop All preserved {count_of(preflight_skipped, 'frame')}; nothing to analyze", 4000)
             return
 
         token = self._begin_batch("autocrop", "Auto cropping roll", abortable=True)
@@ -2243,7 +2244,7 @@ class AppController(QObject):
         self._autocrop_dispatched = len(frames)
         self._autocrop_preflight_skipped = preflight_skipped
         self._autocrop_cancel_requested = False
-        self.set_status(f"Auto cropping {len(frames)} frame(s)...")
+        self.set_status(f"Auto cropping {count_of(len(frames), 'frame')}...")
         self.batch_autocrop_requested.emit(
             BatchAutoCropTask(
                 frames=frames,
@@ -2749,7 +2750,7 @@ class AppController(QObject):
         elif cropped < total:
             crop_status = f"Crop status: {cropped} of {total} files are cropped."
             crop_warning = (
-                f"Strongly recommended: crop the remaining {total - cropped} file(s) "
+                f"Strongly recommended: crop the remaining {count_of(total - cropped, 'file')} "
                 "before running Batch Analysis. Uncropped files rely on the Analysis "
                 "Buffer's small centered margin, which isn't enough to exclude sprocket "
                 "holes and empty space outside the actual frame — that unwanted region "
@@ -2762,7 +2763,9 @@ class AppController(QObject):
 
         sheet_note = ""
         if self.session.asset_model.sheet_filter != "all":
-            sheet_note = f"Note: the Sheet filter is on — only the {total} visible frame(s) are analyzed.\n\n"
+            sheet_note = (
+                f"Note: the Sheet filter is on — only the {count_of(total, 'visible frame')} {plural(total, 'is', 'are')} analyzed.\n\n"
+            )
 
         reply = QMessageBox.question(
             None,
@@ -3089,7 +3092,7 @@ class AppController(QObject):
         wanted = set(part_paths)
         indices = [i for i, f in enumerate(self.state.uploaded_files) if f["path"] in wanted]
         self.session.apply_composite(indices, composite)
-        self.set_status(f"Stitched {len(files)} frames", 4000)
+        self.set_status(f"Stitched {count_of(len(files), 'frame')}", 4000)
         # The composite bypasses asset discovery, so nothing else queues its thumbnail.
         self.generate_missing_thumbnails()
 
@@ -3861,7 +3864,7 @@ class AppController(QObject):
             self.set_status("No files support Linear Output", 4000)
             return
 
-        if len(supported) > 1 and not self._confirm_bulk_export(f"Linear-export {len(supported)} frames?"):
+        if len(supported) > 1 and not self._confirm_bulk_export(f"Linear-export {count_of(len(supported), 'frame')}?"):
             return
 
         exported = 0
@@ -3906,7 +3909,7 @@ class AppController(QObject):
                 self.set_status(f"Linear Output failed: {os.path.basename(f['path'])}: {e}", 4000)
 
         if exported:
-            self.set_status(f"Linear Output: exported {exported} file(s)", 4000)
+            self.set_status(f"Linear Output: exported {count_of(exported, 'file')}", 4000)
 
     def request_export(self) -> None:
         """Exports the current file using the settings currently shown in the Export panel."""
@@ -3992,7 +3995,7 @@ class AppController(QObject):
                 if not self.state.uploaded_files[i].get("excluded")
             ]
 
-        if len(files) > 1 and not self._confirm_bulk_export(f"Export {len(files)} frames?"):
+        if len(files) > 1 and not self._confirm_bulk_export(f"Export {count_of(len(files), 'frame')}?"):
             return
 
         if self.state.config.export.export_sidecars_enabled:
@@ -4119,9 +4122,9 @@ class AppController(QObject):
             n_frames = len(files)
             n_presets = len(presets)
             n_files = n_frames * n_presets
-            preset_word = "preset" if n_presets == 1 else "presets"
-            file_word = "file" if n_files == 1 else "files"
-            if not self._confirm_bulk_export(f"Export {n_frames} frames through {n_presets} {preset_word} ({n_files} {file_word})?"):
+            if not self._confirm_bulk_export(
+                f"Export {count_of(n_frames, 'frame')} through {count_of(n_presets, 'preset')} ({count_of(n_files, 'file')})?"
+            ):
                 return
 
         if self.state.config.export.export_sidecars_enabled:
@@ -4188,7 +4191,9 @@ class AppController(QObject):
         if not out_dir:
             return
 
-        if len(visible_files) > 1 and not self._confirm_bulk_export(f"Render a contact sheet from {len(visible_files)} frames?"):
+        if len(visible_files) > 1 and not self._confirm_bulk_export(
+            f"Render a contact sheet from {count_of(len(visible_files), 'frame')}?"
+        ):
             return
 
         tasks = []
@@ -4250,7 +4255,7 @@ class AppController(QObject):
         if not visible_files:
             return
         written = self._write_edit_sidecars(visible_files)
-        self.set_status(f"Wrote {written} edit sidecar(s)", 4000)
+        self.set_status(f"Wrote {count_of(written, 'edit sidecar')}", 4000)
 
     def _run_export_tasks(self, tasks: List[ExportTask]) -> None:
         # Reject unencodable format/colour-space pairings before anything else.
@@ -4332,7 +4337,7 @@ class AppController(QObject):
             box.setText(f"“{os.path.basename(conflicts[0])}” already exists in the export folder.")
         else:
             box.setWindowTitle("Files already exist")
-            box.setText(f"{n} files already exist in the export destination.")
+            box.setText(f"{count_of(n, 'file')} already {plural(n, 'exists', 'exist')} in the export destination.")
         box.setInformativeText(f"{names}\n\nOverwrite, save with a new name, or cancel?")
 
         remember_check = QCheckBox("Always overwrite without asking")

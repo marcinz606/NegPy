@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from negpy.kernel.system.text import count_of
 from negpy.desktop.view.styles.templates import hint_label
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice
@@ -560,7 +561,7 @@ class ScanSidebar(QWidget):
         if selected:
             frames_txt = ", ".join(str(f) for f in sorted(selected))
             n_windows = len(self._settings.frame_windows)
-            win_txt = f" · {n_windows} window(s)" if n_windows else ""
+            win_txt = f" · {count_of(n_windows, 'window')}" if n_windows else ""
             self.scan_window_status.setText(f"Frames {frames_txt}{win_txt}{offset_txt}")
             return
         device = self._current_device()
@@ -678,7 +679,7 @@ class ScanSidebar(QWidget):
         self.set_scanning(False)
         self.progress_bar.setVisible(False)
         if paths:
-            self.status_label.setText(f"Batch complete: {len(paths)} frame(s)")
+            self.status_label.setText(f"Batch complete: {count_of(len(paths), 'frame')}")
 
     @pyqtSlot()
     def _on_scan_cancelled(self) -> None:

@@ -7,6 +7,7 @@ from typing import Callable
 import cv2
 import numpy as np
 
+from negpy.kernel.system.text import count_of
 from negpy.infrastructure.scanners.base import (
     ScanMode,
     ScannerCapabilities,
@@ -799,7 +800,7 @@ class SaneBackend:
             return []
 
         raw_devices = self._sane.get_devices()
-        logger.info(f"SANE found {len(raw_devices)} raw device(s): {[r[0] for r in raw_devices]}")
+        logger.info(f"SANE found {count_of(len(raw_devices), 'raw device')}: {[r[0] for r in raw_devices]}")
         devices: list[ScannerDevice] = []
         for raw in raw_devices:
             held = self._session_holding(raw[0])

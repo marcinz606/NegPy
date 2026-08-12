@@ -38,6 +38,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from negpy.kernel.system.text import count_of
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import _source_effective_bounds
 from negpy.desktop.view.confirm import confirm_unload
@@ -1063,11 +1064,11 @@ class FileBrowser(QWidget):
         menu.addSeparator()
         targets = [i for i in (state.selected_indices or [state.selected_file_idx]) if 0 <= i < len(state.uploaded_files)]
         n = len(targets)
-        act_keep = menu.addAction(f"Keep {n} frames" if multi else "Keep")
+        act_keep = menu.addAction(f"Keep {count_of(n, 'frame')}" if multi else "Keep")
         act_keep.setCheckable(True)
         act_keep.setChecked(bool(targets) and all(state.uploaded_files[i].get("keeper") for i in targets))
         act_keep.triggered.connect(lambda: self.session.toggle_mark("keeper"))
-        act_reject = menu.addAction(f"Reject {n} frames" if multi else "Reject")
+        act_reject = menu.addAction(f"Reject {count_of(n, 'frame')}" if multi else "Reject")
         act_reject.setCheckable(True)
         act_reject.setChecked(bool(targets) and all(state.uploaded_files[i].get("excluded") for i in targets))
         act_reject.triggered.connect(lambda: self.session.toggle_mark("excluded"))

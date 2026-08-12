@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from negpy.kernel.system.text import count_of
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import ToolMode
 from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
@@ -209,7 +210,7 @@ class MainWindow(QMainWindow):
             reply = QMessageBox.question(
                 self,
                 "Restore Session",
-                f"Reopen your last session ({len(paths)} file(s))?",
+                f"Reopen your last session ({count_of(len(paths), 'file')})?",
             )
             if reply == QMessageBox.StandardButton.Yes:
                 self.controller.restore_session()
