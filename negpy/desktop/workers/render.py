@@ -13,6 +13,7 @@ from negpy.features.flatfield.logic import apply_flatfield
 from negpy.features.hdr.models import HdrConfig, hdr_active
 from negpy.features.geometry.batch_autocrop import detect_crop_candidate, resolve_roll_crops
 from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix
+from negpy.infrastructure.loaders.helpers import unsupported_raw_reason
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.stitch.models import StitchConfig, stitch_active
 from negpy.features.geometry.processor import GeometryProcessor
@@ -736,8 +737,13 @@ class PreviewLoadWorker(QObject):
             )
         except Exception as e:
             logger.exception(f"Asset load failed: {task.file_path}")
-            self.error.emit(str(e))
-            self.load_failed.emit(task.file_path, str(e))
+            # libraw reports "Unsupported file format or not RAW file" for a file whose
+            # tags it parsed perfectly and whose payload it cannot decode, which reads as
+            # "your NEF is broken". Ask why only once the decode has actually failed, so
+            # the check costs nothing on the files that work.
+            message = unsupported_raw_reason(task.file_path) or str(e)
+            self.error.emit(message)
+            self.load_failed.emit(task.file_path, message)
 
     def _detect_mode(self, task: PreviewLoadTask, raw) -> str:
         """Classify film process mode; re-decode no-WB since the C41 mask is hidden by camera WB."""

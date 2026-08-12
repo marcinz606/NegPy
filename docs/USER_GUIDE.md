@@ -72,6 +72,8 @@ NegPy reads the tree straight from disk and never creates, renames, moves or del
 
 ### Importing & managing files
 
+**A note on Nikon High Efficiency raw.** The Z 8 and Z 9 can record NEFs in **High Efficiency (HE)** or **HE\***, which use a licensed codec NegPy cannot decode. Such a file is still called `.NEF` and still carries the same TIFF compression tag as an ordinary lossless NEF, so nothing about it looks unusual until it fails to open — NegPy names the reason rather than reporting a generic unsupported-file error. Re-shoot in **Lossless Compressed** NEF, or convert with Adobe DNG Converter. Lossless NEFs from the same cameras open normally.
+
 Toolbar buttons, left to right:
 
 *   **Add files** / **Add folder**: load individual images or every image in a folder. Pick a folder that only holds *other* folders and NegPy reveals it in the Library section instead of reporting that it found nothing. Dropping a folder on the window does the same.
@@ -272,6 +274,12 @@ This block greys out unless **Linear RAW** is on, since profiles are calibrated 
 ### 4.3 Process: negative → positive
 
 The foundation of every edit: film type, how the scan is decoded, and how the negative is normalized into a positive.
+
+*   **Multi-core CPU Rendering** (canvas toolbar → **»** menu, beside **GPU Acceleration**): spreads the CPU rendering kernels across your cores. It takes effect immediately — nothing recompiles and there is no restart.
+
+    Be realistic about the gain. The kernels themselves run **5-8x** faster, but a merge is dominated by decoding the RAW files, which this does not touch: on a 6-frame 24 MP bracket, decoding is about 6.6 s of a roughly 9 s merge, so the whole operation comes down by **around 10%**. Ordinary editing changes less again, because the GPU already carries the pipeline. The gain is largest wherever the CPU is doing the work — merges, exports, and any machine without a usable GPU.
+
+    On Windows and Linux this is **on**. On macOS it is **off**, pending more evidence: the underlying threading layer terminates the process outright if two threads enter it at once, and while NegPy serialises every such call behind a lock, that has been proven on one Mac rather than on the range of them. If you turn it on and the app ever closes without warning, NegPy notices on the next launch and offers to turn it back off — that is the failure to expect, and it is recoverable. Setting `cpu_parallel` under `[performance]` in `override.toml` still wins over the menu, for a machine that cannot start.
 
 *   **Scanning setup** (bulb button): a two-question wizard, *how do you scan?* then *what light source?*, that sets Linear RAW and Narrowband for you. It runs once after the first-launch tour; the button reopens it whenever your rig changes.
 *   **Linear RAW**: (default off) decodes with neutral multipliers for completely raw data. When toggled off decodes RAW with the camera's as-shot white balance. Toggling reloads the file. Let the **Scanning setup** wizard pick it, or try both and pick which yields better results for your setup.
