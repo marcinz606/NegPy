@@ -1314,12 +1314,19 @@ class AppController(QObject):
         identity = self._last_render_identity
         self._last_render_identity = None
         texture = self.state.last_metrics.get("base_positive")
-        if identity is None or not isinstance(texture, GPUTexture):
+        if not isinstance(texture, GPUTexture):
             return None
-        if self._is_rendering or self._pending_render_task is not None:
-            return None
-        source_hash, memo_key, content_rect = identity
-        self._render_memo.store(source_hash, memo_key, {"base_positive": texture, "content_rect": content_rect})
+        # Sparing the texture and filing it in the memo are separate questions, and
+        # conflating them is what blanks the canvas. Filing is refused mid-render: that
+        # render paints into the same pooled texture, so the pixels would stop matching the
+        # key they are filed under. Sparing it is still right — the canvas goes on sampling
+        # what it is already showing until the new render replaces it, instead of being told
+        # to let go and painting nothing. A reload with no splash behind it (a merge
+        # suppresses its own, since the reference frame's JPEG would flash the unmerged
+        # exposure) has nothing else to show meanwhile.
+        if identity is not None and not self._is_rendering and self._pending_render_task is None:
+            source_hash, memo_key, content_rect = identity
+            self._render_memo.store(source_hash, memo_key, {"base_positive": texture, "content_rect": content_rect})
         return texture
 
     def _on_file_selected_load(self, file_path: str) -> None:

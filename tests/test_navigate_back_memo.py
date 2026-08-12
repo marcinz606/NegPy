@@ -83,7 +83,10 @@ class TestGpuRenderIsMemoized(unittest.TestCase):
         stub = _stub(memo)
         _finish(stub, _FakeTexture(), memo_key="")
         self.assertIsNone(stub._last_render_identity)
-        self.assertIsNone(_retain(stub))
+        # Spared from cleanup so the canvas keeps showing it, but not filed: nothing to
+        # file it under. Sparing and filing are separate questions.
+        self.assertIsNotNone(_retain(stub))
+        self.assertIsNone(memo.get("h1", ""))
 
     def test_a_late_render_of_the_outgoing_file_is_not_filed(self):
         memo = RenderMemo(SimpleNamespace(preview_cache_max_full_res_entries=2))
@@ -100,35 +103,45 @@ class TestGpuRenderIsMemoized(unittest.TestCase):
         self.assertIs(memo.get("h1", "k")["base_positive"], buf)
 
 
-class TestRetentionRefusesUnsafeTextures(unittest.TestCase):
-    """A render in flight paints into the same pooled texture, so its pixels would
-    stop matching the key they are filed under."""
+class TestRetentionRefusesUnsafeFiling(unittest.TestCase):
+    """A render in flight paints into the same pooled texture, so its pixels would stop
+    matching the key they are filed under — it must not be *filed*.
 
-    def test_refused_while_a_render_is_in_flight(self):
+    It is still *spared* from the cleanup. Those were one decision until the canvas was
+    seen to blank during a reload: refusing to spare tells the canvas to let go, and a
+    reload with no splash behind it (a merge suppresses its own) then shows nothing at all
+    until the new render lands.
+    """
+
+    def test_not_filed_while_a_render_is_in_flight(self):
         memo = RenderMemo(SimpleNamespace(preview_cache_max_full_res_entries=2))
         tex = _FakeTexture()
         stub = _stub(memo)
         _finish(stub, tex, memo_key="k")
         stub._is_rendering = True
-        self.assertIsNone(_retain(stub))
-        self.assertIsNone(memo.get("h1", "k"))
+        self.assertIs(_retain(stub), tex, "still spared, so the canvas keeps showing it")
+        self.assertIsNone(memo.get("h1", "k"), "but not filed: the pixels are being overwritten")
 
-    def test_refused_while_a_render_is_queued(self):
+    def test_not_filed_while_a_render_is_queued(self):
         memo = RenderMemo(SimpleNamespace(preview_cache_max_full_res_entries=2))
         tex = _FakeTexture()
         stub = _stub(memo)
         _finish(stub, tex, memo_key="k")
         stub._pending_render_task = object()
-        self.assertIsNone(_retain(stub))
+        self.assertIs(_retain(stub), tex)
+        self.assertIsNone(memo.get("h1", "k"))
 
     def test_the_identity_is_spent_once(self):
         # Two switches with no render between them: the second must not re-file the
-        # first frame's identity over whatever is on screen now.
+        # first frame's identity over whatever is on screen now. It may still spare it.
         memo = RenderMemo(SimpleNamespace(preview_cache_max_full_res_entries=2))
         stub = _stub(memo)
-        _finish(stub, _FakeTexture(), memo_key="k")
+        tex = _FakeTexture()
+        _finish(stub, tex, memo_key="k")
         self.assertIsNotNone(_retain(stub))
-        self.assertIsNone(_retain(stub))
+        memo._store.clear() if hasattr(memo, "_store") else None
+        self.assertIs(_retain(stub), tex, "spared again")
+        self.assertIsNone(stub._last_render_identity, "but the identity is gone, so nothing is re-filed")
 
 
 if __name__ == "__main__":
