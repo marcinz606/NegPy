@@ -176,13 +176,13 @@ Each corner of a thumbnail means one thing, so the marks never compete:
 | Bottom-right | check | keeper |
 | Bottom-right | cross, frame heavily dimmed | rejected |
 | Top-right | exclamation | the file failed to decode — click to retry |
-| Top-left | *see below* | the frame was built from more than one file |
+| Bottom-left | *see below* | the frame was built from more than one file |
 
-The top-left badge is grey, not red, because it reports what the frame *is* rather than something you marked. Its glyph says which kind:
+The bottom-left badge is grey, not red, because it reports what the frame *is* rather than something you marked. Its glyph says which kind:
 
 | Glyph | Frame |
 |---|---|
-| Two joined panes | a stitched composite ([§Stitching](#stitching-a-frame-from-several-shots)) |
+| Two overlapping panes | a stitched composite ([§Stitching](#stitching-a-frame-from-several-shots)) |
 | Three stacked bars | a merged bracket ([§Merging](#merging-bracketed-exposures-hdr)) |
 | Three red/green/blue dots | an RGB-scan triplet |
 | A split rectangle, one side filled | one half of a half-frame scan — the filled side is which half |

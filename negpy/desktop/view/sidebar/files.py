@@ -70,7 +70,7 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     image is shown full-brightness with a white frame while the others are dimmed; a
     dirty active file gets an accent line along the image's bottom edge. Triage marks
     are small bottom-right badges: check = keeper, cross + heavy dim = rejected; the
-    top-right badge is reserved for decode failures; the top-left badge says the frame
+    top-right badge is reserved for decode failures; the bottom-left badge says the frame
     was built from several files (stitch, HDR merge, RGB triplet, half-frame split)."""
 
     _MARGIN = 3
@@ -107,12 +107,12 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         painter.drawPoint(cx, cy + 4)
 
     def _draw_composite_badge(self, painter: QPainter, img_rect: QRect, kind: str, half: int) -> None:
-        """Top-left mark: this frame was assembled from more than one file.
+        """Bottom-left mark: this frame was assembled from more than one file.
 
         One glyph per kind, so a merge is told from a stitch without opening the menu.
         The chip carries a faint ring because a flat dark disc vanishes on a dense frame."""
         r = 9
-        cx, cy = img_rect.left() + r + 4, img_rect.top() + r + 4
+        cx, cy = img_rect.left() + r + 4, img_rect.bottom() - r - 4
         painter.setPen(QPen(self._COMPOSITE_RING, 1))
         painter.setBrush(self._COMPOSITE_CHIP)
         painter.drawEllipse(QRect(cx - r, cy - r, 2 * r, 2 * r))

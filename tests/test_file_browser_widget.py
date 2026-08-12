@@ -592,13 +592,13 @@ def _render(asset: dict) -> QImage:
 
 
 def _badge_corner(image: QImage) -> list:
-    """The 18px badge box at the top-left of the image outline. A 60x40 thumbnail in a
-    120px cell lands at (3, 22), so the chip spans roughly (7, 26)-(25, 44)."""
-    return [image.pixel(x, y) for y in range(24, 46) for x in range(5, 27)]
+    """The 18px badge box at the bottom-left of the image outline. A 60x40 thumbnail in
+    a 120px cell lands at (3, 22, 114, 76), so the chip spans roughly (7, 75)-(25, 93)."""
+    return [image.pixel(x, y) for y in range(73, 95) for x in range(5, 27)]
 
 
 @pytest.mark.parametrize("key", ["stitch", "hdr", "rgb", "half"])
-def test_composite_badge_is_painted_top_left(key, qapp):
+def test_composite_badge_is_painted_bottom_left(key, qapp):
     assets = _composite_assets()
     assert _badge_corner(_render(assets[key])) != _badge_corner(_render(assets["plain"]))
 
