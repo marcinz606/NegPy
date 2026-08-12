@@ -6,9 +6,22 @@ from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
 
 class ProcessMode(StrEnum):
-    C41 = "C41"
-    BW = "B&W"
-    E6 = "E-6"
+    C41 = "Color Negative"
+    BW = "B&W Negative"
+    E6 = "Transparency"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "ProcessMode":
+        """Legacy chemistry codes (the values before the rename), and anything stale.
+
+        An unrecognised mode has always rendered as colour negative — every branch in
+        the pipeline reads `if BW / elif E6 / else` — so a corrupt saved value stays
+        non-fatal here rather than raising on load.
+        """
+        return _LEGACY_MODES.get(str(value), cls.C41)
+
+
+_LEGACY_MODES = {"C41": ProcessMode.C41, "B&W": ProcessMode.BW, "E-6": ProcessMode.E6}
 
 
 # Built-in fallback crosstalk matrix (row-major 3x3) used when no profile is baked.
@@ -97,6 +110,9 @@ class ProcessConfig:
         """
         Ensure JSON-loaded lists are converted back to tuples.
         """
+        # Not a MIGRATIONS entry: the pre-rename mode names reach us from sticky settings
+        # and asset dicts too, not just a loaded flat config, so this runs on every build.
+        object.__setattr__(self, "process_mode", ProcessMode(self.process_mode))
         object.__setattr__(self, "locked_floors", tuple(self.locked_floors))
         object.__setattr__(self, "locked_ceils", tuple(self.locked_ceils))
         object.__setattr__(self, "local_floors", tuple(self.local_floors))

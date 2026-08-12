@@ -8,6 +8,7 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.logic import apply_characteristic_curve, compute_pivot, grade_to_slope
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.exposure.processor import PhotometricProcessor
+from negpy.features.process.models import ProcessMode
 
 
 def _density_at(x_ref, slope, pivot, d_min):
@@ -67,7 +68,7 @@ class TestEndToEndExposure(unittest.TestCase):
         # paper_black on (BPC off) pinned: BPC remaps the whole tone range around
         # paper Dmax and is orthogonal to the pivot invariant under test here.
         config = replace(WorkspaceConfig().exposure, paper_black=True)
-        ctx = PipelineContext(scale_factor=1.0, original_size=(8, 8), process_mode="C41")
+        ctx = PipelineContext(scale_factor=1.0, original_size=(8, 8), process_mode=ProcessMode.C41)
         ctx.metrics["norm_density_range"] = 1.3
 
         x_ref = EXPOSURE_CONSTANTS["assumed_anchor"]
@@ -86,7 +87,7 @@ class TestEndToEndExposure(unittest.TestCase):
         """Regression: film-toe-compressed shadows must still print near paper
         black — a symmetric L=d_max curve starved them at ~0.17 sRGB."""
         config = WorkspaceConfig().exposure
-        ctx = PipelineContext(scale_factor=1.0, original_size=(8, 8), process_mode="C41")
+        ctx = PipelineContext(scale_factor=1.0, original_size=(8, 8), process_mode=ProcessMode.C41)
         ctx.metrics["norm_density_range"] = 1.6
 
         img = np.full((8, 8, 3), 1.0, dtype=np.float32)  # deepest measured shadow

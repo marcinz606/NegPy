@@ -3,11 +3,17 @@ import os
 import uuid
 
 from dataclasses import dataclass, field, asdict, replace
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, TypeVar
 from enum import Enum, StrEnum
 from negpy.features.process.models import ProcessConfig
 from negpy.features.exposure.models import ExposureConfig, RenderIntent
-from negpy.features.geometry.models import GeometryConfig
+from negpy.features.geometry.models import (  # noqa: F401  (re-exported: the crop ratios were defined here before they moved beside GeometryConfig)
+    CROP_RATIO_CHOICES,
+    FILM_FORMAT_RATIOS,
+    AspectRatio,
+    GeometryConfig,
+    canonical_crop_ratio,
+)
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskShape
 from negpy.features.retouch.models import RetouchConfig
@@ -24,103 +30,6 @@ from negpy.kernel.system.logging import get_logger
 import negpy.kernel.system.paths as paths
 
 logger = get_logger("domain.models")
-
-
-class AspectRatio(StrEnum):
-    FREE = "Free"
-    ORIGINAL = "Original"
-    R_1_1 = "1:1"
-    R_3_2 = "3:2"
-    R_4_3 = "4:3"
-    R_5_4 = "5:4"
-    R_6_7 = "6:7"
-    R_7_5 = "7:5"
-    R_65_24 = "65:24"
-    R_16_9 = "16:9"
-    R_16_10 = "16:10"
-    R_8_5_11 = "8.5:11"
-    # Reciprocal (portrait) mirrors of the ratios above. Not offered in the crop
-    # tool's ratio picker (see CROP_RATIO_CHOICES) — the crop tool auto-orients
-    # a ratio to match the current drag/box (overlay._oriented_target_ratio,
-    # geometry.logic._resolve_ratio_dims), so showing both forms there would just
-    # duplicate the same shape twice. Kept as real members because (a) the export
-    # "Paper ratio" picker does NOT auto-orient — a portrait vs. landscape paper
-    # size are genuinely different choices there — and (b) "Detect closest aspect
-    # ratio" needs both forms to match a portrait-oriented film frame correctly.
-    R_2_3 = "2:3"
-    R_3_4 = "3:4"
-    R_4_5 = "4:5"
-    R_7_6 = "7:6"
-    R_5_7 = "5:7"
-    R_24_65 = "24:65"
-    R_9_16 = "9:16"
-    R_10_16 = "10:16"
-    R_11_8_5 = "11:8.5"
-
-
-# Ratios offered in the crop tool's ratio picker: one canonical entry per shape
-# (see the AspectRatio docstring above for why the reciprocal forms exist but
-# aren't listed here). FREE is included since it's the "no constraint" choice.
-CROP_RATIO_CHOICES: list[AspectRatio] = [
-    AspectRatio.FREE,
-    AspectRatio.R_1_1,
-    AspectRatio.R_3_2,
-    AspectRatio.R_4_3,
-    AspectRatio.R_5_4,
-    AspectRatio.R_6_7,
-    AspectRatio.R_7_5,
-    AspectRatio.R_65_24,
-    AspectRatio.R_16_9,
-    AspectRatio.R_16_10,
-    AspectRatio.R_8_5_11,
-]
-
-# Maps each reciprocal (portrait) AspectRatio to the canonical entry shown in
-# CROP_RATIO_CHOICES, so a value that only exists in its portrait form (e.g. from
-# "Detect closest aspect ratio" matching a portrait-oriented frame, or a ratio
-# saved before this consolidation) always resolves to something the ratio picker
-# can display.
-_PORTRAIT_TO_CANONICAL_CROP_RATIO: dict[str, str] = {
-    AspectRatio.R_2_3: AspectRatio.R_3_2,
-    AspectRatio.R_3_4: AspectRatio.R_4_3,
-    AspectRatio.R_4_5: AspectRatio.R_5_4,
-    AspectRatio.R_7_6: AspectRatio.R_6_7,
-    AspectRatio.R_5_7: AspectRatio.R_7_5,
-    AspectRatio.R_24_65: AspectRatio.R_65_24,
-    AspectRatio.R_9_16: AspectRatio.R_16_9,
-    AspectRatio.R_10_16: AspectRatio.R_16_10,
-    AspectRatio.R_11_8_5: AspectRatio.R_8_5_11,
-}
-
-
-def canonical_crop_ratio(ratio: str) -> str:
-    """Maps a ratio to the form shown in the crop tool's ratio picker. Portrait-
-    oriented AspectRatio values collapse to their landscape/canonical counterpart
-    (see _PORTRAIT_TO_CANONICAL_CROP_RATIO); "Free", "Original", and anything
-    already canonical pass through unchanged."""
-    return _PORTRAIT_TO_CANONICAL_CROP_RATIO.get(ratio, ratio)
-
-
-# Candidates for "Detect closest aspect ratio" (geometry.logic._closest_standard_ratio):
-# real film/scan formats only, both orientations. 7:5, 16:9, 16:10 and 8.5:11 are
-# print/screen *output* sizes, not scannable film formats, and sit close enough to
-# 3:2 (1.4, 1.778, 1.6) and 5:4 (0.773) in log-ratio space that ordinary contour-
-# detection noise on a real 3:2 or 5:4 frame tips the match onto one of them instead
-# — including them here regressed detection to reliably misclassify 35mm scans as
-# "7:5". Keep this set to formats a camera/scanner could actually produce.
-FILM_FORMAT_RATIOS: list[AspectRatio] = [
-    AspectRatio.R_1_1,
-    AspectRatio.R_3_2,
-    AspectRatio.R_2_3,
-    AspectRatio.R_4_3,
-    AspectRatio.R_3_4,
-    AspectRatio.R_5_4,
-    AspectRatio.R_4_5,
-    AspectRatio.R_6_7,
-    AspectRatio.R_7_6,
-    AspectRatio.R_65_24,
-    AspectRatio.R_24_65,
-]
 
 
 class ExportFormat(StrEnum):
@@ -141,6 +50,21 @@ class ExportResolutionMode(StrEnum):
     ORIGINAL = "original"
     PRINT = "print"
     TARGET_PX = "target_px"
+
+
+_EnumT = TypeVar("_EnumT", bound=Enum)
+
+
+def coerce_enum(enum_cls: type[_EnumT], value: Any, default: _EnumT) -> _EnumT:
+    """`enum_cls(value)`, falling back to `default` for a value no longer offered.
+
+    Saved presets and edits carry whatever the app wrote at the time, so a retired
+    or hand-edited value must degrade to the default instead of failing the load.
+    """
+    try:
+        return enum_cls(value)
+    except ValueError:
+        return default
 
 
 class ICCMode(Enum):
@@ -197,7 +121,7 @@ class ExportConfig:
     userDir: str = field(default_factory=paths.get_default_user_dir)
 
     export_path: str = field(default_factory=lambda: os.path.join(paths.get_default_user_dir(), "export"))
-    export_fmt: str = ExportFormat.JPEG
+    export_fmt: ExportFormat = ExportFormat.JPEG
     jpeg_quality: int = 90
     jxl_lossless: bool = True
     jxl_distance: float = 1.0  # libjxl distance; only used when jxl_lossless is False
@@ -209,13 +133,13 @@ class ExportConfig:
     paper_aspect_ratio: str = AspectRatio.ORIGINAL
     export_print_size: float = 30.0
     export_dpi: int = 300
-    export_resolution_mode: str = ExportResolutionMode.ORIGINAL.value
+    export_resolution_mode: ExportResolutionMode = ExportResolutionMode.ORIGINAL
     export_target_long_edge_px: int = 2000
     filename_pattern: str = "{{ original_name }}"
     # When True, exports silently overwrite existing files; when False, the export
     # prompts (Overwrite / Rename / Cancel) before clobbering anything.
     overwrite: bool = False
-    output_mode: str = ExportPresetOutputMode.ABSOLUTE
+    output_mode: ExportPresetOutputMode = ExportPresetOutputMode.ABSOLUTE
     output_subfolder: str = ""
     icc_input_path: Optional[str] = None
     icc_output_path: Optional[str] = None
@@ -240,7 +164,14 @@ class ExportConfig:
     export_sidecars_enabled: bool = False
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "export_fmt", migrate_export_fmt(self.export_fmt))
+        fmt = coerce_enum(ExportFormat, migrate_export_fmt(self.export_fmt), ExportFormat.JPEG)
+        object.__setattr__(self, "export_fmt", fmt)
+        object.__setattr__(
+            self,
+            "export_resolution_mode",
+            coerce_enum(ExportResolutionMode, self.export_resolution_mode, ExportResolutionMode.ORIGINAL),
+        )
+        object.__setattr__(self, "output_mode", coerce_enum(ExportPresetOutputMode, self.output_mode, ExportPresetOutputMode.ABSOLUTE))
 
 
 @dataclass
@@ -256,7 +187,7 @@ class ExportPreset:
     render_intent: str = RenderIntent.PRINT  # fixed at creation; not exposed in the preset editor form
 
     # Format
-    export_fmt: str = ExportFormat.JPEG
+    export_fmt: ExportFormat = ExportFormat.JPEG
     jpeg_quality: int = 90
     jxl_lossless: bool = True
     jxl_distance: float = 1.0
@@ -266,14 +197,14 @@ class ExportPreset:
     webp_method: int = 4
 
     # Sizing (same field names as ExportConfig for PrintService compatibility)
-    export_resolution_mode: str = ExportResolutionMode.ORIGINAL.value
+    export_resolution_mode: ExportResolutionMode = ExportResolutionMode.ORIGINAL
     paper_aspect_ratio: str = AspectRatio.ORIGINAL
     export_print_size: float = 30.0
     export_dpi: int = 300
     export_target_long_edge_px: int = 2000
 
     # Output destination
-    output_mode: str = ExportPresetOutputMode.SAME_AS_SOURCE
+    output_mode: ExportPresetOutputMode = ExportPresetOutputMode.SAME_AS_SOURCE
     output_subfolder: str = ""
     output_path: str = ""
     overwrite: bool = False
@@ -285,7 +216,9 @@ class ExportPreset:
     icc_output_path: Optional[str] = None
 
     def __post_init__(self) -> None:
-        self.export_fmt = migrate_export_fmt(self.export_fmt)
+        self.export_fmt = coerce_enum(ExportFormat, migrate_export_fmt(self.export_fmt), ExportFormat.JPEG)
+        self.export_resolution_mode = coerce_enum(ExportResolutionMode, self.export_resolution_mode, ExportResolutionMode.ORIGINAL)
+        self.output_mode = coerce_enum(ExportPresetOutputMode, self.output_mode, ExportPresetOutputMode.SAME_AS_SOURCE)
 
     def to_dict(self) -> Dict[str, Any]:
         return {

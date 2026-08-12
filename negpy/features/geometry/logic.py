@@ -5,9 +5,14 @@ from typing import List, NamedTuple, Optional, Tuple
 import cv2
 import numpy as np
 
-from negpy.domain.models import AspectRatio, FILM_FORMAT_RATIOS
 from negpy.domain.types import ROI, ImageBuffer
-from negpy.features.geometry.models import FINE_ROTATION_LIMIT, AutocropMode, GeometryConfig
+from negpy.features.geometry.models import (
+    FILM_FORMAT_RATIOS,
+    FINE_ROTATION_LIMIT,
+    AspectRatio,
+    AutocropMode,
+    GeometryConfig,
+)
 from negpy.kernel.image.logic import get_luminance
 from negpy.kernel.image.validation import ensure_image
 

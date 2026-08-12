@@ -25,19 +25,19 @@ class ToningSidebar(BaseSidebar):
         self.sepia_slider = CompactSlider("Sepia", 0.0, 2.0, conf.sepia_strength)
         self.gold_slider = CompactSlider("Gold", 0.0, 2.0, conf.gold_strength)
         self.gold_slider.setToolTip(
-            "Simulates gold toning — cool blue-black on untoned silver, slight Dmax boost; over sepia it shifts the highlights orange-red (B&W only)"
+            "Simulates gold toning — cool blue-black on untoned silver, slight Dmax boost; over sepia it shifts the highlights orange-red (B&W Negative only)"
         )
         self.blue_slider = CompactSlider("Iron Blue", 0.0, 2.0, conf.blue_strength)
         self.blue_slider.setToolTip(
-            "Simulates iron blue (Prussian blue) toning — blues the image shadows-first and intensifies: deeper navy blacks (B&W only)"
+            "Simulates iron blue (Prussian blue) toning — blues the image shadows-first and intensifies: deeper navy blacks (B&W Negative only)"
         )
         self.copper_slider = CompactSlider("Copper", 0.0, 2.0, conf.copper_strength)
         self.copper_slider.setToolTip(
-            "Simulates copper toning — pink to brick-red shift with the classic Dmax loss: blacks weaken as the bath bleaches (B&W only)"
+            "Simulates copper toning — pink to brick-red shift with the classic Dmax loss: blacks weaken as the bath bleaches (B&W Negative only)"
         )
         self.vanadium_slider = CompactSlider("Vanadium", 0.0, 2.0, conf.vanadium_strength)
         self.vanadium_slider.setToolTip(
-            "Simulates vanadium green toning — bleach-then-tone greens the mids and highlights while deep shadows keep their black silver (B&W only)"
+            "Simulates vanadium green toning — bleach-then-tone greens the mids and highlights while deep shadows keep their black silver (B&W Negative only)"
         )
         for left, right in (
             (self.selenium_slider, self.sepia_slider),

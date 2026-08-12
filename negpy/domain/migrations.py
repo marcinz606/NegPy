@@ -5,8 +5,10 @@ belongs here — add new ones to this module, not to ``from_flat_dict``.
 
 Not here: coercions that must run on *every* construction rather than only on load
 — ``ExposureConfig.__post_init__`` (legacy 0-5 paper grade → ISO R, cast_removal
-bool → strength) and the tuple-rehydrating ``__post_init__``s. String literals only
-(no ``domain.models`` import — that module imports this one).
+bool → strength), ``ProcessConfig.__post_init__`` (pre-rename process-mode names,
+which also arrive from sticky settings and asset dicts) and the tuple-rehydrating
+``__post_init__``s. String literals only (no ``domain.models`` import — that module
+imports this one).
 
 Also not here: migrations that rewrite *rows* rather than a config payload, since those
 need a repository and this module stays dependency-free. They live beside the feature

@@ -24,20 +24,23 @@ from negpy.desktop.view.styles.templates import dialog_pane_qss, hint_label, pan
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.process.models import DEFAULT_CROSSTALK_MATRIX, ProcessMode
-from negpy.services.assets.crosstalk import TYPE_MEASURED, TYPE_SPECSHEET, TYPE_TUNED, CrosstalkProfiles
+from negpy.services.assets.crosstalk import CrosstalkProfiles, CrosstalkType
 
 #: Selectable provenances, in dropdown group order. "Other" is not offered: it exists to
 #: keep a hand-written type loadable, not as something to choose.
+#: Plain str values, like _PROCESS_CHOICES below: combo item data round-trips through
+#: QVariant, which does not match an enum member against the equal string from disk.
 _TYPE_CHOICES: tuple[tuple[str, str], ...] = (
-    (TYPE_TUNED, "Tuned on a rig"),
-    (TYPE_MEASURED, "Measured"),
-    (TYPE_SPECSHEET, "From spec sheets (approx)"),
+    (str(CrosstalkType.TUNED), "Tuned on a rig"),
+    (str(CrosstalkType.MEASURED), "Measured"),
+    (str(CrosstalkType.SPECSHEET), "From spec sheets (approx)"),
 )
 
-#: Film processes a matrix can describe. B&W has one emulsion, so there is nothing to unmix.
+#: Film processes a matrix can describe. A B&W negative has one emulsion, so there is
+#: nothing to unmix.
 _PROCESS_CHOICES: tuple[tuple[str, str], ...] = (
-    (str(ProcessMode.C41), "C41 — colour negative"),
-    (str(ProcessMode.E6), "E-6 — slide / reversal"),
+    (str(ProcessMode.C41), "Color Negative (C-41)"),
+    (str(ProcessMode.E6), "Transparency (E-6)"),
 )
 
 
@@ -205,7 +208,7 @@ class CrosstalkEditorDialog(QDialog):
             "<table width='300'><tr><td>"
             "The film process these numbers describe. A matrix only reaches the render — and only "
             "appears in the sidebar's Matrix dropdown — while NegPy is in this mode.<br><br>"
-            "Dye sets do not carry across: a C41 matrix does not describe E-6's dyes, so applying "
+            "Dye sets do not carry across: a colour negative matrix does not describe a slide's dyes, so applying "
             "one to a slide corrects a leak that is not there. Note also that on a positive an unmix "
             "moves the render <i>away</i> from the slide's own colour — use it as a separation "
             "control, not for fidelity."
@@ -359,7 +362,7 @@ class CrosstalkEditorDialog(QDialog):
         return CrosstalkProfiles.list_profiles()
 
     def selected_type(self) -> str:
-        return self.type_combo.currentData() or TYPE_TUNED
+        return self.type_combo.currentData() or CrosstalkType.TUNED
 
     def selected_process(self) -> str:
         return self.process_combo.currentData() or str(ProcessMode.C41)
@@ -372,8 +375,8 @@ class CrosstalkEditorDialog(QDialog):
         """Select `value`, falling back to Tuned for a built-in or hand-written type.
 
         Not the first entry: saving must not relabel an unknown type as a spec-sheet claim."""
-        idx = self.type_combo.findData(value)
-        self.type_combo.setCurrentIndex(idx if idx >= 0 else self.type_combo.findData(TYPE_TUNED))
+        idx = self.type_combo.findData(str(value))
+        self.type_combo.setCurrentIndex(idx if idx >= 0 else self.type_combo.findData(str(CrosstalkType.TUNED)))
 
     def _set_grid(self, flat: List[float]) -> None:
         grid = flat_to_grid(flat)

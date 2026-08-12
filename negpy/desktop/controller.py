@@ -96,6 +96,7 @@ from negpy.kernel.system.paths import get_resource_path
 from negpy.features.retouch.logic import downsample_ir, trace_scratch
 from negpy.features.retouch.models import RetouchConfig
 from negpy.features.toning.models import ToningConfig
+from negpy.infrastructure.capture.settings import WhiteCaptureMode
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
 from negpy.infrastructure.gpu.device import GPUDevice
@@ -3370,9 +3371,9 @@ class AppController(QObject):
         self.session.repo.save_global_setting("rgbscan_mode", rgb and not white)
         capture_roll = getattr(req, "roll_name", "") if req is not None else ""
         capture_frame = getattr(req, "frame_number", None) if req is not None else None
-        if white:  # slides/B&W force a positive process
-            mode = (req.white_process_mode or "auto").lower()
-            target = {"e-6": ProcessMode.E6, "b&w": ProcessMode.BW}.get(mode)
+        if white:  # slides / B&W negatives force a positive process
+            mode = WhiteCaptureMode(req.white_process_mode)
+            target = {WhiteCaptureMode.E6: ProcessMode.E6, WhiteCaptureMode.BW: ProcessMode.BW}.get(mode)
             self._pending_capture_imports[_capture_import_key(paths[0])] = _PendingCaptureImport(
                 process_mode=target,
                 detect_mode=target is None,

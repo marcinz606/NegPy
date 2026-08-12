@@ -8,6 +8,7 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.logic import grade_to_slope
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.exposure.processor import NormalizationProcessor, PhotometricProcessor
+from negpy.features.process.models import ProcessMode
 
 
 class TestGradeToSlope(unittest.TestCase):
@@ -66,7 +67,7 @@ class TestDensityRangeMetric(unittest.TestCase):
         self.config = WorkspaceConfig()
 
     def _context(self):
-        return PipelineContext(scale_factor=1.0, original_size=(100, 100), process_mode="C41")
+        return PipelineContext(scale_factor=1.0, original_size=(100, 100), process_mode=ProcessMode.C41)
 
     def test_metric_set_on_local_bounds(self):
         process = replace(self.config.process, local_floors=(-2.0, -1.5, -1.0), local_ceils=(-0.1, -0.3, -0.5))
@@ -104,7 +105,7 @@ class TestCalibratedGradeOutput(unittest.TestCase):
         self.config = WorkspaceConfig(exposure=ExposureConfig(auto_normalize_contrast=False, auto_exposure=False))
 
     def _run(self, density_range):
-        ctx = PipelineContext(scale_factor=1.0, original_size=(100, 100), process_mode="C41")
+        ctx = PipelineContext(scale_factor=1.0, original_size=(100, 100), process_mode=ProcessMode.C41)
         if density_range is not None:
             ctx.metrics["norm_density_range"] = density_range
         img = np.full((8, 8, 3), 0.3, dtype=np.float32)

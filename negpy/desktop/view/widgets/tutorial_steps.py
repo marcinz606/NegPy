@@ -233,8 +233,8 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "The Process panel is the foundation of every edit: what kind of film this is, "
                 "how the RAW is decoded, and how the negative is normalized into a "
                 "positive.<br><br>"
-                "<b>Mode</b> picks the chemistry — <b>C41</b> (colour negative), <b>B&amp;W</b> "
-                "(panchromatic) or <b>E-6</b> (slide/reversal). It swaps the core conversion "
+                "<b>Mode</b> picks the chemistry — <b>Color Negative</b> (C-41), <b>B&amp;W Negative</b> "
+                "(panchromatic) or <b>Transparency</b> (slide/reversal). It swaps the core conversion "
                 "math and re-runs the pipeline from scratch, and the wand beside it "
                 "<b>auto-detects</b> the mode when a file loads.<br><br>"
                 "<b>Linear RAW</b> decodes with neutral multipliers, bypassing the camera's "
@@ -246,7 +246,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "Narrowband from the answer. It opens by itself once this tour is done.<br><br>"
                 "<b>Lock Bounds</b> freezes this frame's analysed bounds, so cropping or moving "
                 "a slider no longer re-meters it — lock in once the conversion looks right. In "
-                "E-6 mode a <b>Normalize</b> button appears at the bottom, stretching a faded "
+                "Transparency mode a <b>Normalize</b> button appears at the bottom, stretching a faded "
                 "or expired slide back to the full range."
             ),
             target=_mode,
@@ -271,7 +271,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "B</b> selector scopes them: Global moves both bounds together, while R, G and "
                 "B become per-dye-layer film-base (Dmin) and Dmax trims, like a scanner's "
                 "per-channel levels — the tool for a mask that reads slightly off in one "
-                "layer. Hidden in B&amp;W.<br><br>"
+                "layer. Hidden in B&amp;W Negative.<br><br>"
                 "The stretch is <b>unclamped</b>: tones outside the bounds survive and roll "
                 "off later in the print curve's toe and shoulder."
             ),
@@ -437,7 +437,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "the zone densities, the autos and the paper toggles are properties of the "
                 "print, not of one emulsion. A dot on a channel button marks a layer you've "
                 "already trimmed, so casts you fixed weeks ago stay findable. The whole "
-                "selector disappears in B&amp;W — one emulsion, one curve."
+                "selector disappears in B&amp;W Negative — one emulsion, one curve."
             ),
             target=_channel_selector,
             section_attr="tone_section",
@@ -482,8 +482,8 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "without touching contrast or exposure. Each profile carries its paper's "
                 "tone, per-channel gamma and base tint, mapped from Ilford / Kodak / Foma / "
                 "Fuji datasheets.<br><br>"
-                "Profiles are mode-aware (RA4 colour papers in C-41, tonal papers in B&W) and "
-                "sticky roll-wide; the dropdown steps aside entirely in E-6, where a slide is "
+                "Profiles are mode-aware (RA4 colour papers in Color Negative, tonal papers in B&W Negative) and "
+                "sticky roll-wide; the dropdown steps aside entirely in Transparency, where a slide is "
                 "the final image and no paper is involved. <b>Neutral</b> reproduces the "
                 "defaults exactly — Grade and Density still trim on top."
             ),
@@ -531,7 +531,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "hue angles with their own strength. It works in Lab space, so luminance — and "
                 "therefore grain and detail — is preserved exactly.<br><br>"
                 "<b>Selenium</b> and <b>Sepia</b> simulate classic chemical toners on the print's "
-                "silver density (B&W mode only): selenium converts the densest silver first — "
+                "silver density (B&W Negative mode only): selenium converts the densest silver first — "
                 "deeper blacks and cool eggplant shadows; sepia bleach-redevelops the thinnest "
                 "silver first — warm highlights that hold the shadows (partial strength gives the "
                 "classic split-sepia look).<br><br>"

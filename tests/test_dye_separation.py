@@ -18,6 +18,7 @@ from negpy.features.exposure.papers import (
     resolve_saturation_matrix,
 )
 from negpy.services.rendering.engine import DarkroomEngine
+from negpy.features.process.models import ProcessMode
 
 
 class TestResolveSaturationMatrix:
@@ -115,8 +116,8 @@ class TestDyeSeparationRender:
         assert not np.array_equal(global_only, with_trim)
 
     def test_bw_mode_is_inert(self):
-        bw_off = self._render({"process_mode": "B&W", "dye_separation": 1.0})
-        bw_on = self._render({"process_mode": "B&W", "dye_separation": 1.8})
+        bw_off = self._render({"process_mode": ProcessMode.BW, "dye_separation": 1.0})
+        bw_on = self._render({"process_mode": ProcessMode.BW, "dye_separation": 1.8})
         np.testing.assert_allclose(bw_off, bw_on, atol=1e-6)
 
 

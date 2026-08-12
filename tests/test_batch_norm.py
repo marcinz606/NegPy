@@ -5,12 +5,13 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.normalization import analyze_log_exposure_bounds
 from negpy.features.exposure.processor import NormalizationProcessor, PhotometricProcessor
 from negpy.domain.interfaces import PipelineContext
+from negpy.features.process.models import ProcessMode
 
 
 class TestBatchNormalization(unittest.TestCase):
     def setUp(self):
         self.config = WorkspaceConfig()
-        self.context = PipelineContext(scale_factor=1.0, original_size=(100, 100), process_mode="C41")
+        self.context = PipelineContext(scale_factor=1.0, original_size=(100, 100), process_mode=ProcessMode.C41)
 
     def test_normalization_processor_uses_locked_values(self):
         """
@@ -85,7 +86,7 @@ class TestBatchNormalization(unittest.TestCase):
 
     def test_e6_negates_trims(self):
         img = np.full((10, 10, 3), 10**-0.5, dtype=np.float32)
-        ctx_e6 = PipelineContext(scale_factor=1.0, original_size=(100, 100), process_mode="E-6")
+        ctx_e6 = PipelineContext(scale_factor=1.0, original_size=(100, 100), process_mode=ProcessMode.E6)
         p_neutral = replace(self._neutral_process(), e6_normalize=True)
         res_neutral = NormalizationProcessor(p_neutral).process(img, ctx_e6)
 

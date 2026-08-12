@@ -89,7 +89,7 @@ class ColourSidebar(BaseSidebar):
         self.cast_removal_slider.setToolTip(
             "Cast Removal: neutralizes the colour cast a negative leaves in the print — balances each "
             "colour layer so greys stay neutral from deep shadows through highlights. 0 = off, 1 = full."
-            "<br><br>C-41 only, and hidden elsewhere: it defeats the orange mask, a manufactured cast "
+            "<br><br>Color Negative only, and hidden elsewhere: it defeats the orange mask, a manufactured cast "
             "that is not part of the picture. A slide has no mask — its cast IS the photograph — so "
             "solving for a neutral axis there would remove the light you shot in. For a slide use "
             "Temperature and the CMY sliders, or Hue Trim for an odd light source."

@@ -1140,7 +1140,7 @@ class FileBrowser(QWidget):
         black-and-white negative nearer 4 — both inside a single capture, so a bracket buys
         nothing. A transparency runs to 10-12, which is what the merge exists for.
 
-        Hidden on C-41, disabled with a reason on B&W: reversal-processed monochrome
+        Hidden on Color Negative, disabled with a reason on B&W Negative: reversal-processed monochrome
         (Scala, dr5, Fomapan R) *is* a transparency and does have the range, it is simply
         not wired yet, and a missing menu entry would leave nobody anything to ask about.
         """
@@ -1148,9 +1148,11 @@ class FileBrowser(QWidget):
 
         idx = state.selected_file_idx
         assets = state.uploaded_files
-        mode = str(self.controller.state.config.process.process_mode)
+        mode = self.controller.state.config.process.process_mode
         if 0 <= idx < len(assets):
-            mode = str(assets[idx].get("process_mode") or mode)
+            # Coerced, not compared raw: a session blob written before the mode rename
+            # still carries the old names.
+            mode = ProcessMode(assets[idx].get("process_mode") or mode)
         if mode == ProcessMode.C41:
             return
         act = menu.addAction("Merge exposures (HDR)")

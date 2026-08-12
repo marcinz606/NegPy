@@ -34,7 +34,7 @@ It is built with **Python**, running natively on Linux, macOS, and Windows.
 *   **Film Physics**: Models the **H&D Characteristic Curve** in density space — an asymmetric toe-linear-shoulder response with independent softplus toe/shoulder knees and ISO-R paper grades — instead of a linear inversion.
 *   **Smart Auto Conversion**: Per-frame **Auto Density** and **Auto Grade** meter each negative for sensible brightness/contrast — usable out of the box, easy to fine-tune.
 *   **Darkroom Paper Profiles**: Per-paper curve shaping (tone, per-channel gamma, base tint) mapped from Ilford/Kodak/Foma/Fuji datasheets, selectable per roll.
-*   **Positive/Slide Support**: Dedicated **E-6 mode** with optional normalization to save expired or faded film.
+*   **Positive/Slide Support**: Dedicated **Transparency mode** with optional normalization to save expired or faded film.
 
 **Capture & Input**
 *   **Camera Scanning**: Capture negatives with a tethered camera straight into NegPy — a single RAW, or automated red/green/blue narrowband triplets driven by an RGB [Scanlight](https://github.com/jackw01/scanlight) that feed the RGB Scan merge. macOS/Linux, optional dependency. [Camera Scanning guide](docs/CAMERA_SCANNING.md)

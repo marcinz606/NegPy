@@ -19,7 +19,7 @@ from negpy.features.process.models import ProcessMode
 class TestProcessModeOverlay(unittest.TestCase):
     def test_overlays_the_composites_inherited_mode(self):
         cfg = WorkspaceConfig()  # process_mode defaults to C41
-        out = resolve_asset_process_mode(cfg, {"process_mode": "E-6"})
+        out = resolve_asset_process_mode(cfg, {"process_mode": ProcessMode.E6})
         self.assertEqual(out.process.process_mode, ProcessMode.E6)
 
     def test_absent_or_empty_leaves_the_config_alone(self):
@@ -31,7 +31,7 @@ class TestProcessModeOverlay(unittest.TestCase):
 class TestHydration(unittest.TestCase):
     """The bug is in the path select_file uses, so assert against that, not the helper."""
 
-    def _session(self, saved_config=None, sticky_mode="C41"):
+    def _session(self, saved_config=None, sticky_mode=ProcessMode.C41):
         from negpy.desktop.session import DesktopSessionManager
 
         session = DesktopSessionManager.__new__(DesktopSessionManager)
@@ -49,8 +49,14 @@ class TestHydration(unittest.TestCase):
 
     def test_merged_asset_inherits_e6_over_a_stale_sticky_c41(self):
         """The reported failure: five E-6 exposures merged, composite opened in C41."""
-        session = self._session(saved_config=None, sticky_mode="C41")
-        asset = {"hash": "merged#hdr", "path": "/x/a.nef", "process_mode": "E-6", "hdr_paths": ("/x/b.nef",), "hdr_ratios": (1.0, 0.5)}
+        session = self._session(saved_config=None, sticky_mode=ProcessMode.C41)
+        asset = {
+            "hash": "merged#hdr",
+            "path": "/x/a.nef",
+            "process_mode": ProcessMode.E6,
+            "hdr_paths": ("/x/b.nef",),
+            "hdr_ratios": (1.0, 0.5),
+        }
         config, is_new = session._hydrate_asset_config(asset)
         self.assertTrue(is_new)
         self.assertEqual(config.process.process_mode, ProcessMode.E6)
@@ -59,8 +65,8 @@ class TestHydration(unittest.TestCase):
         """Inheritance seeds a composite that has no edit of its own; once the user sets a
         mode on it, that must not be overwritten on every reopen."""
         saved = replace(WorkspaceConfig(), process=replace(WorkspaceConfig().process, process_mode=ProcessMode.BW))
-        session = self._session(saved_config=saved, sticky_mode="C41")
-        asset = {"hash": "merged#hdr", "path": "/x/a.nef", "process_mode": "E-6"}
+        session = self._session(saved_config=saved, sticky_mode=ProcessMode.C41)
+        asset = {"hash": "merged#hdr", "path": "/x/a.nef", "process_mode": ProcessMode.E6}
         config, is_new = session._hydrate_asset_config(asset)
         self.assertFalse(is_new)
         self.assertEqual(config.process.process_mode, ProcessMode.BW)
@@ -99,18 +105,18 @@ class TestModeVote(unittest.TestCase):
         return ctrl, [{"hash": f"h{i}"} for i in range(len(modes))]
 
     def test_unanimous(self):
-        ctrl, files = self._controller(["E-6"] * 5)
-        self.assertEqual(ctrl._composite_process_mode(files), "E-6")
+        ctrl, files = self._controller([ProcessMode.E6] * 5)
+        self.assertEqual(ctrl._composite_process_mode(files), ProcessMode.E6)
 
     def test_one_odd_frame_out_does_not_decide_it(self):
         """A bracket's extreme exposures can autodetect differently — the frame blowing
         46% of its area is not a reliable vote — so the majority decides."""
-        ctrl, files = self._controller(["C41", "E-6", "E-6", "E-6", "E-6"])
-        self.assertEqual(ctrl._composite_process_mode(files), "E-6")
+        ctrl, files = self._controller([ProcessMode.C41, ProcessMode.E6, ProcessMode.E6, ProcessMode.E6, ProcessMode.E6])
+        self.assertEqual(ctrl._composite_process_mode(files), ProcessMode.E6)
 
     def test_ties_go_to_the_reference_frame(self):
-        ctrl, files = self._controller(["E-6", "C41"])
-        self.assertEqual(ctrl._composite_process_mode(files), "E-6")
+        ctrl, files = self._controller([ProcessMode.E6, ProcessMode.C41])
+        self.assertEqual(ctrl._composite_process_mode(files), ProcessMode.E6)
 
 
 if __name__ == "__main__":
@@ -301,7 +307,7 @@ class TestResetSettingsOnAComposite(unittest.TestCase):
                 "hdr_paths": ("/x/b.nef", "/x/c.nef"),
                 "hdr_ratios": (1.0, 2.0, 4.0),
                 "hdr_align": True,
-                "process_mode": "E-6",
+                "process_mode": ProcessMode.E6,
             }
         ]
         s.update_config = MagicMock()
@@ -418,9 +424,9 @@ class TestStitchGetsTheSameTreatment(unittest.TestCase):
     would keep passing if the stitch arm of any of those conditions were dropped.
     """
 
-    _ASSET = {"hash": "c#stitch", "path": "/x/left.nef", "stitch_paths": ("/x/right.nef",), "process_mode": "E-6"}
+    _ASSET = {"hash": "c#stitch", "path": "/x/left.nef", "stitch_paths": ("/x/right.nef",), "process_mode": ProcessMode.E6}
 
-    def _session(self, saved_config=None, sticky_mode="C41"):
+    def _session(self, saved_config=None, sticky_mode=ProcessMode.C41):
         from negpy.desktop.session import DesktopSessionManager
 
         session = DesktopSessionManager.__new__(DesktopSessionManager)
@@ -444,7 +450,7 @@ class TestStitchGetsTheSameTreatment(unittest.TestCase):
         self.assertTrue(self.seen.get("composite"))
 
     def test_a_stitch_inherits_its_parts_film_process(self):
-        config, is_new = self._session(sticky_mode="C41")._hydrate_asset_config(self._ASSET)
+        config, is_new = self._session(sticky_mode=ProcessMode.C41)._hydrate_asset_config(self._ASSET)
         self.assertTrue(is_new)
         self.assertEqual(config.process.process_mode, ProcessMode.E6)
 
@@ -506,15 +512,15 @@ class TestMergeIsOfferedOnlyForTransparencies:
         return actions
 
     def test_hidden_for_colour_negative(self):
-        assert self._menu_labels("C41") == []
+        assert self._menu_labels(ProcessMode.C41) == []
 
     def test_present_for_a_slide(self):
-        acts = self._menu_labels("E-6")
+        acts = self._menu_labels(ProcessMode.E6)
         assert [a.label for a in acts] == ["Merge exposures (HDR)"]
         acts[0].setEnabled.assert_not_called()
 
     def test_disabled_with_a_reason_for_black_and_white(self):
-        acts = self._menu_labels("B&W")
+        acts = self._menu_labels(ProcessMode.BW)
         assert [a.label for a in acts] == ["Merge exposures (HDR)"]
         acts[0].setEnabled.assert_called_once_with(False)
         assert "reversal" in acts[0].setToolTip.call_args.args[0]

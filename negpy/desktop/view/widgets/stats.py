@@ -39,7 +39,7 @@ class DensitometerRow(QWidget):
         "Spot densitometer — hover the image to read the pixel: per-channel density above film base "
         "(ΔD, relative to this scan's normalization, not absolute), the displayed tone's reflection "
         "print density, and its print zone (0 = paper black, V = 18% mid-gray, X = paper white). "
-        "In B&W mode the ΔD channels read the pre-conversion colour record."
+        "In B&W Negative mode the ΔD channels read the pre-conversion colour record."
     )
 
     def __init__(self, parent=None):

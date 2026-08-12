@@ -8,6 +8,7 @@ from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.logic import CharacteristicCurve, apply_characteristic_curve
 from negpy.features.exposure.processor import PhotometricProcessor
+from negpy.features.process.models import ProcessMode
 
 
 def _ramp_image(n: int = 256) -> np.ndarray:
@@ -89,7 +90,7 @@ class TestToeShoulderSmoothness(unittest.TestCase):
 class TestBWLuminanceBeforeCurve(unittest.TestCase):
     def test_bw_output_channels_identical(self):
         config = replace(WorkspaceConfig().exposure, toe=0.5, shoulder=0.3)
-        ctx = PipelineContext(scale_factor=1.0, original_size=(8, 8), process_mode="B&W")
+        ctx = PipelineContext(scale_factor=1.0, original_size=(8, 8), process_mode=ProcessMode.BW)
         rng = np.random.default_rng(0)
         img = rng.uniform(0.0, 1.0, (8, 8, 3)).astype(np.float32)
 

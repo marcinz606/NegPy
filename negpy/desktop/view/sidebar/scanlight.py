@@ -35,7 +35,7 @@ from negpy.desktop.view.sidebar.live_view_window import LiveViewWindow, SettingS
 from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.capture.gphoto import default_settings_path
-from negpy.infrastructure.capture.settings import ScanlightSettings
+from negpy.infrastructure.capture.settings import ScanlightSettings, WhiteCaptureMode
 from negpy.services.capture.calibration import REFERENCE_LEVELS, SHUTTER_CANDIDATES, normalize_start_point, shutter_seconds, usable_ladder
 from negpy.services.capture.presets import PresetStore, ScanlightPreset, framing_levels
 
@@ -61,10 +61,10 @@ _EXPOSURE_WARNINGS = {
 }
 
 # Built-in white-light preset (no calibration needed): name → process mode.
-# Selecting it switches the panel to a single white-light exposure. B&W and slide/E-6
+# Selecting it switches the panel to a single white-light exposure. B&W and slide film
 # share the *same* light (plain white), so they're one preset; which process to run is
-# left to NegPy's autodetect ("auto") — the user can still force it in NegPy if needed.
-_BUILTIN_WHITE_PRESETS = {"White Light (B&W or Slide Film)": "auto"}
+# left to NegPy's autodetect — the user can still force it in NegPy if needed.
+_BUILTIN_WHITE_PRESETS = {"White Light (B&W or Slide Film)": WhiteCaptureMode.AUTO}
 
 # A dropdown sentinel (not a real preset name — user names are stripped, so a NUL can't collide):
 # picking it unlocks the sliders + exposure steppers to build a preset by hand, then Save bakes it.

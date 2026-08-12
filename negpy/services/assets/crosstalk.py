@@ -1,5 +1,6 @@
 import os
 import tomllib
+from enum import StrEnum
 from typing import List, Optional
 
 from negpy.kernel.system.config import APP_CONFIG
@@ -9,20 +10,25 @@ from negpy.services.assets.naming import escape_toml_string, slugify
 # Renamed from "Default"
 DEFAULT_NAME = "Generic C41"
 
-# A profile's `type` records where its numbers came from. Free-form on disk; anything
-# outside this set groups under "Other" rather than disappearing.
-TYPE_SPECSHEET = "specsheet-based"  # read off published spectral dye-density curves
-TYPE_MEASURED = "measured"  # fitted against real scans of a known reference
-TYPE_TUNED = "tuned"  # dialled in by eye on a rig; what the editor saves
-TYPE_BUILTIN = "built-in"
+
+class CrosstalkType(StrEnum):
+    """Where a profile's numbers came from. Free-form on disk: a `type` outside this
+    set groups under OTHER rather than disappearing, so reads stay plain strings."""
+
+    SPECSHEET = "specsheet-based"  # read off published spectral dye-density curves
+    MEASURED = "measured"  # fitted against real scans of a known reference
+    TUNED = "tuned"  # dialled in by eye on a rig; what the editor saves
+    BUILTIN = "built-in"
+    OTHER = ""  # catch-all bucket, never written to a file
+
 
 #: Dropdown group order and headings; the trailing entry is the catch-all.
-GROUP_ORDER: tuple[tuple[str, str], ...] = (
-    (TYPE_BUILTIN, "Built-in"),
-    (TYPE_MEASURED, "Measured"),
-    (TYPE_TUNED, "Tuned on a rig"),
-    (TYPE_SPECSHEET, "From spec sheets (approx)"),
-    ("", "Other"),
+GROUP_ORDER: tuple[tuple[CrosstalkType, str], ...] = (
+    (CrosstalkType.BUILTIN, "Built-in"),
+    (CrosstalkType.MEASURED, "Measured"),
+    (CrosstalkType.TUNED, "Tuned on a rig"),
+    (CrosstalkType.SPECSHEET, "From spec sheets (approx)"),
+    (CrosstalkType.OTHER, "Other"),
 )
 
 
@@ -129,8 +135,9 @@ class CrosstalkProfiles:
     def _scan_processes() -> dict:
         """display-name -> film process the matrix describes; bundled wins, like _scan.
 
-        Absent `process` means C-41: every profile that predates the key is a colour
-        negative stock, so that is the honest default rather than a guess."""
+        Absent `process` means colour negative: every profile that predates the key is a
+        colour negative stock, so that is the honest default rather than a guess. Values are
+        coerced through ProcessMode, so a file written with the pre-rename names still matches."""
         from negpy.features.process.models import ProcessMode
 
         out: dict = {}
@@ -148,7 +155,7 @@ class CrosstalkProfiles:
                 raw_name = data.get("name")
                 name = raw_name.strip() if isinstance(raw_name, str) and raw_name.strip() else fname[:-5]
                 value = data.get("process")
-                out[name] = str(value).strip() if isinstance(value, str) and value.strip() else str(ProcessMode.C41)
+                out[name] = str(ProcessMode(value.strip() if isinstance(value, str) else ""))
         out[DEFAULT_NAME] = str(ProcessMode.C41)
         return out
 
@@ -178,18 +185,18 @@ class CrosstalkProfiles:
         from negpy.features.process.models import ProcessMode
 
         if process_mode is None or str(process_mode) == str(ProcessMode.C41):
-            buckets[TYPE_BUILTIN].append(DEFAULT_NAME)
+            buckets[CrosstalkType.BUILTIN].append(DEFAULT_NAME)
         for name in sorted(types):
-            bucket = types[name] if types[name] in known else ""
+            bucket = types[name] if types[name] in known else CrosstalkType.OTHER
             buckets[bucket].append(name)
         return [(heading, buckets[t]) for t, heading in GROUP_ORDER if buckets[t]]
 
     @staticmethod
     def get_type(name: str) -> str:
-        """A profile's type, or TYPE_BUILTIN for the built-in / "" when unknown."""
+        """A profile's type, or BUILTIN for the built-in / "" when unknown."""
         if name == DEFAULT_NAME:
-            return TYPE_BUILTIN
-        return CrosstalkProfiles._scan_types().get(name, "")
+            return CrosstalkType.BUILTIN
+        return CrosstalkProfiles._scan_types().get(name, CrosstalkType.OTHER)
 
     @staticmethod
     def list_profiles() -> List[str]:
@@ -217,7 +224,7 @@ class CrosstalkProfiles:
         return os.path.join(APP_CONFIG.crosstalk_dir, f"{slugify(name, 'crosstalk')}.toml")
 
     @staticmethod
-    def save(name: str, matrix: List[float], profile_type: str = TYPE_TUNED, process: Optional[str] = None) -> str:
+    def save(name: str, matrix: List[float], profile_type: str = CrosstalkType.TUNED, process: Optional[str] = None) -> str:
         """Write a user profile TOML (row-major 3×3) and return its path.
 
         Defaults to `tuned` so editor saves are not grouped with the spec-sheet estimates.
@@ -230,7 +237,7 @@ class CrosstalkProfiles:
         content = (
             f'name = "{escape_toml_string(name)}"\n'
             f'type = "{escape_toml_string(profile_type)}"\n'
-            f'process = "{escape_toml_string(str(process or ProcessMode.C41))}"\n'
+            f'process = "{escape_toml_string(str(ProcessMode(process or ProcessMode.C41)))}"\n'
             f"matrix = [\n{rows}\n]\n"
         )
         path = CrosstalkProfiles.path_for_name(name)

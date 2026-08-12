@@ -8,6 +8,7 @@ from negpy.domain.models import WorkspaceConfig, GeometryConfig, RetouchConfig, 
 from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG
+from negpy.features.process.models import ProcessMode
 
 _ROWS = {r.label: r for r in all_rows()}
 
@@ -28,7 +29,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             if key == "last_export_config":
                 return {}
             if key == "process_mode":
-                return "C41"
+                return ProcessMode.C41
             return default
 
         self.mock_repo.get_global_setting.side_effect = mock_get_global
@@ -68,14 +69,14 @@ class TestDesktopSessionSync(unittest.TestCase):
         saved = replace(
             defaults,
             exposure=replace(defaults.exposure, density=1.7),
-            process=replace(defaults.process, process_mode="E-6"),
+            process=replace(defaults.process, process_mode=ProcessMode.E6),
             geometry=replace(defaults.geometry, autocrop_ratio="4:3"),
         )
         sticky = {
             "last_export_config": {"jpeg_quality": 73},
             "last_protect_original_metadata": True,
             # Workflow defaults must not overwrite an edited/saved asset.
-            "last_process_mode": "C41",
+            "last_process_mode": ProcessMode.C41,
             "last_aspect_ratio": "1:1",
         }
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
@@ -87,7 +88,7 @@ class TestDesktopSessionSync(unittest.TestCase):
 
         hydrate.assert_called_once_with(self.mock_repo, "saved-hash", "/roll/saved.dng", half=0, composite=False)
         self.assertEqual(config.exposure.density, 1.7)
-        self.assertEqual(config.process.process_mode, "E-6")
+        self.assertEqual(config.process.process_mode, ProcessMode.E6)
         self.assertEqual(config.geometry.autocrop_ratio, "4:3")
         self.assertEqual(config.export.jpeg_quality, 73)
         self.assertTrue(config.metadata.protect_original_metadata)
@@ -103,7 +104,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.session.state.config = active
         sticky = {
             "last_export_config": {},
-            "last_process_mode": "E-6",
+            "last_process_mode": ProcessMode.E6,
             "last_aspect_ratio": "1:1",
             "last_autocrop_offset": 7,
             "last_auto_exposure": True,
@@ -119,7 +120,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertEqual(config.lab.saturation, defaults.lab.saturation)
         self.assertTrue(config.exposure.auto_exposure)
         self.assertTrue(config.process.narrowband_scan)
-        self.assertEqual(config.process.process_mode, "E-6")
+        self.assertEqual(config.process.process_mode, ProcessMode.E6)
         self.assertEqual(config.geometry.autocrop_ratio, "1:1")
         self.assertEqual(config.geometry.autocrop_offset, 7)
         self.assertIs(self.session.state.config, active)
@@ -419,7 +420,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             exposure=replace(WorkspaceConfig().exposure, density=1.5),
             geometry=GeometryConfig(rotation=1, fine_rotation=5.5, manual_crop_rect=(0, 0, 1, 1)),
             retouch=RetouchConfig(dust_remove=True, manual_dust_spots=[(0.1, 0.1, 5)]),
-            process=ProcessConfig(process_mode="E-6", e6_normalize=True),
+            process=ProcessConfig(process_mode=ProcessMode.E6, e6_normalize=True),
         )
         self.session.state.selected_file_idx = 0
         self.session.state.current_file_hash = "hash1"
@@ -429,7 +430,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             exposure=replace(WorkspaceConfig().exposure, density=0.0),
             geometry=GeometryConfig(rotation=0, fine_rotation=0.0, manual_crop_rect=None),
             retouch=RetouchConfig(dust_remove=False, manual_dust_spots=[]),
-            process=ProcessConfig(process_mode="C41", e6_normalize=False),
+            process=ProcessConfig(process_mode=ProcessMode.C41, e6_normalize=False),
         )
         self.mock_repo.load_file_settings.return_value = target_config
 
@@ -441,7 +442,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         saved_config = args[1]
 
         self.assertEqual(saved_config.exposure.density, 1.5)
-        self.assertEqual(saved_config.process.process_mode, "E-6")
+        self.assertEqual(saved_config.process.process_mode, ProcessMode.E6)
 
         # Geometry not selected → entirely preserved from target
         self.assertEqual(saved_config.geometry.rotation, 0)
@@ -456,7 +457,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             exposure=replace(WorkspaceConfig().exposure, density=1.5),
             geometry=GeometryConfig(rotation=1, fine_rotation=5.5, manual_crop_rect=(0.1, 0.1, 0.9, 0.9)),
             retouch=RetouchConfig(dust_remove=True, manual_dust_spots=[(0.1, 0.1, 5)]),
-            process=ProcessConfig(process_mode="E-6", e6_normalize=True),
+            process=ProcessConfig(process_mode=ProcessMode.E6, e6_normalize=True),
         )
         self.session.state.selected_file_idx = 0
         self.session.state.current_file_hash = "hash1"
@@ -466,7 +467,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             exposure=replace(WorkspaceConfig().exposure, density=0.0),
             geometry=GeometryConfig(rotation=0, fine_rotation=0.0, manual_crop_rect=None),
             retouch=RetouchConfig(dust_remove=False, manual_dust_spots=[(0.5, 0.5, 3)]),
-            process=ProcessConfig(process_mode="C41", e6_normalize=False),
+            process=ProcessConfig(process_mode=ProcessMode.C41, e6_normalize=False),
         )
         self.mock_repo.load_file_settings.return_value = target_config
 
@@ -532,7 +533,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         doesn't silently reset its scan/process-mode to dataclass defaults."""
         sticky = {
             "last_export_config": {},
-            "last_process_mode": "E-6",
+            "last_process_mode": ProcessMode.E6,
             "last_narrowband_scan": True,
         }
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
@@ -551,7 +552,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertEqual(saved.exposure.density, 1.5)  # the one synced field
         # Sticky workflow settings survive because the base was config_for_asset, not defaults.
         self.assertTrue(saved.process.narrowband_scan)
-        self.assertEqual(saved.process.process_mode, "E-6")
+        self.assertEqual(saved.process.process_mode, ProcessMode.E6)
 
     def test_sync_selected_settings_empty_is_noop(self):
         self.session.state.selected_file_idx = 0

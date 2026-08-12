@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 from negpy.desktop.session import AppState
 from negpy.desktop.view.sidebar.process import ProcessSidebar
+from negpy.features.process.models import ProcessMode
 
 
 def _sidebar():
@@ -54,7 +55,7 @@ def test_channel_selector_hidden_in_bw(qapp):
     sidebar.ch_r_btn.setChecked(True)
 
     cfg = controller.state.config
-    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode="B&W"))
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.BW))
     sidebar.sync_ui()
     for w in (sidebar.ch_global_btn, sidebar.ch_r_btn, sidebar.ch_g_btn, sidebar.ch_b_btn):
         assert w.isHidden()
@@ -68,7 +69,7 @@ def test_channel_selector_hidden_on_the_transparency_transfer(qapp):
     controller, sidebar = _sidebar()
 
     cfg = controller.state.config
-    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode="E-6", e6_normalize=True))
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=True))
     sidebar.sync_ui()
     assert not sidebar.ch_r_btn.isHidden()
     sidebar.ch_r_btn.setChecked(True)

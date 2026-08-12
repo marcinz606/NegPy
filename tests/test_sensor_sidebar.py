@@ -18,6 +18,7 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.services.assets.crosstalk import CrosstalkProfiles
 from negpy.services.assets.sensor import SensorProfiles
+from negpy.features.process.models import ProcessMode
 
 if not QApplication.instance():
     _app = QApplication(sys.argv)
@@ -86,7 +87,7 @@ def test_crosstalk_stays_reachable_with_no_matrices_for_the_process(tmp_path, mo
     _empty_crosstalk_gallery(tmp_path, monkeypatch)
     w = _sidebar()
     cfg = w.state.config
-    w.state.config = replace(cfg, process=replace(cfg.process, process_mode="E-6"))
+    w.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6))
     w.sync_ui()
 
     assert not w.crosstalk_header.isHidden()
@@ -99,11 +100,11 @@ def test_crosstalk_stays_reachable_with_no_matrices_for_the_process(tmp_path, mo
 
 def test_crosstalk_controls_go_live_once_a_matrix_exists(tmp_path, monkeypatch):
     _empty_crosstalk_gallery(tmp_path, monkeypatch)
-    CrosstalkProfiles.save("My Slide Rig", [1.0, -0.05, 0.0, 0.0, 1.0, 0.0, 0.0, -0.05, 1.0], process="E-6")
+    CrosstalkProfiles.save("My Slide Rig", [1.0, -0.05, 0.0, 0.0, 1.0, 0.0, 0.0, -0.05, 1.0], process=ProcessMode.E6)
 
     w = _sidebar()
     cfg = w.state.config
-    w.state.config = replace(cfg, process=replace(cfg.process, process_mode="E-6"))
+    w.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6))
     w.sync_ui()
 
     assert w.crosstalk_combo.isEnabled()
@@ -117,7 +118,7 @@ def test_crosstalk_hidden_on_bw(tmp_path, monkeypatch):
     _empty_crosstalk_gallery(tmp_path, monkeypatch)
     w = _sidebar()
     cfg = w.state.config
-    w.state.config = replace(cfg, process=replace(cfg.process, process_mode="B&W"))
+    w.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.BW))
     w.sync_ui()
 
     for widget in (w.crosstalk_header, w.crosstalk_combo, w.manage_crosstalk_btn, w.crosstalk_strength_slider):

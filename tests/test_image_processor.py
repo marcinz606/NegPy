@@ -1,6 +1,7 @@
 import numpy as np
 from negpy.services.rendering.image_processor import ImageProcessor
 from negpy.domain.models import WorkspaceConfig
+from negpy.features.process.models import ProcessMode
 
 
 def test_image_service_buffer_to_pil_8bit() -> None:
@@ -17,7 +18,7 @@ def test_image_service_buffer_to_pil_8bit() -> None:
 def test_image_service_buffer_to_pil_16bit_bw() -> None:
     service = ImageProcessor()
     buffer = np.array([[0.0, 1.0]], dtype=np.float32)  # Single channel (grayscale)
-    settings = WorkspaceConfig.from_flat_dict({"process_mode": "B&W"})
+    settings = WorkspaceConfig.from_flat_dict({"process_mode": ProcessMode.BW})
 
     img = service.buffer_to_pil(buffer, settings, bit_depth=16)
     # PIL uses 'I;16' for 16-bit single channel
@@ -29,7 +30,7 @@ def test_image_service_bw_conversion() -> None:
     service = ImageProcessor()
     # 3-channel input but B&W mode
     buffer = np.zeros((10, 10, 3), dtype=np.float32)
-    settings = WorkspaceConfig.from_flat_dict({"process_mode": "B&W"})
+    settings = WorkspaceConfig.from_flat_dict({"process_mode": ProcessMode.BW})
 
     img = service.buffer_to_pil(buffer, settings, bit_depth=8)
     assert img.mode == "L"
@@ -45,7 +46,7 @@ def test_image_service_bw_toned_keeps_color() -> None:
 
     service = ImageProcessor()
     buffer = np.full((4, 4, 3), 0.5, dtype=np.float32)
-    bw = WorkspaceConfig.from_flat_dict({"process_mode": "B&W"})
+    bw = WorkspaceConfig.from_flat_dict({"process_mode": ProcessMode.BW})
 
     for kw in (
         {"blue_strength": 1.0},

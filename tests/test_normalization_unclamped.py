@@ -6,12 +6,13 @@ import numpy as np
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.processor import NormalizationProcessor
+from negpy.features.process.models import ProcessMode
 
 
 class TestNormalizationUnclamped(unittest.TestCase):
     def setUp(self):
         self.config = WorkspaceConfig()
-        self.context = PipelineContext(scale_factor=1.0, original_size=(100, 100), process_mode="C41")
+        self.context = PipelineContext(scale_factor=1.0, original_size=(100, 100), process_mode=ProcessMode.C41)
 
     def test_unclamped_out_of_bounds(self):
         """
