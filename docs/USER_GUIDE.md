@@ -72,6 +72,8 @@ NegPy reads the tree straight from disk and never creates, renames, moves or del
 
 ### Importing & managing files
 
+**A note on Nikon High Efficiency raw.** The Z 8 and Z 9 can record NEFs in **High Efficiency (HE)** or **HE\***, which use a licensed codec NegPy cannot decode. Such a file is still called `.NEF` and still carries the same TIFF compression tag as an ordinary lossless NEF, so nothing about it looks unusual until it fails to open — NegPy names the reason rather than reporting a generic unsupported-file error. Re-shoot in **Lossless Compressed** NEF, or convert with Adobe DNG Converter. Lossless NEFs from the same cameras open normally.
+
 Toolbar buttons, left to right:
 
 *   **Add files** / **Add folder**: load individual images or every image in a folder. Pick a folder that only holds *other* folders and NegPy reveals it in the Library section instead of reporting that it found nothing. Dropping a folder on the window does the same.
