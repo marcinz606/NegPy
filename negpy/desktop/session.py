@@ -18,6 +18,7 @@ from negpy.features.stitch.models import StitchConfig
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG
+from negpy.kernel.system.text import count_of
 from negpy.services.assets.flatfield import FlatFieldProfiles
 from negpy.services.assets.search import facts_for, match, parse_query
 from negpy.services.assets.sidecar import load_or_promote
@@ -239,6 +240,38 @@ def _asset_mtime(asset: Dict[str, Any]) -> float:
         return 0.0
 
 
+def composite_kind(asset: Dict[str, Any]) -> str:
+    """Which multi-file construction an asset is: stitch, hdr, rgb, half, or "" for a
+    plain frame.
+
+    Order is load-bearing: a stitch of triplets also carries the primary part's
+    green/blue pair (``controller._on_stitch_registered``), so it must be tested first.
+    """
+    if asset.get("stitch_paths"):
+        return "stitch"
+    if asset.get("hdr_paths"):
+        return "hdr"
+    if asset.get("green_path") and asset.get("blue_path"):
+        return "rgb"
+    if asset.get("half"):
+        return "half"
+    return ""
+
+
+def composite_summary(asset: Dict[str, Any]) -> str:
+    """One tooltip line naming what a frame is built from. Empty for a plain frame."""
+    kind = composite_kind(asset)
+    if kind == "stitch":
+        return f"Stitched composite of {count_of(len(asset['stitch_paths']) + 1, 'frame')}"
+    if kind == "hdr":
+        return f"HDR merge of {count_of(len(hdr_frame_paths(asset)), 'exposure')}"
+    if kind == "rgb":
+        return "RGB-scan triplet"
+    if kind == "half":
+        return f"Half-frame split ({int(asset['half'])} of 2)"
+    return ""
+
+
 class AssetListModel(QAbstractListModel):
     """
     Model for the uploaded files list with thumbnail support.
@@ -374,7 +407,8 @@ class AssetListModel(QAbstractListModel):
             failed = file_info.get("decode_failed")
             if failed:
                 return f"{file_info['path']}\nFailed to load: {failed}\nClick to retry."
-            return file_info["path"]
+            summary = composite_summary(file_info)
+            return f"{file_info['path']}\n{summary}" if summary else file_info["path"]
 
         if role == Qt.ItemDataRole.UserRole:
             return file_info

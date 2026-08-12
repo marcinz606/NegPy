@@ -79,8 +79,8 @@ Toolbar buttons, left to right:
 *   **Add files** / **Add folder**: load individual images or every image in a folder. Pick a folder that only holds *other* folders and NegPy reveals it in the Library section instead of reporting that it found nothing. Dropping a folder on the window does the same.
 *   **Clear all**: unload everything (or, when several frames are selected, unload just those).
 *   **Hot Folder**: watches the current folder and auto-loads new files as they appear, handy when a scanner or tethering app drops files into a directory. While it is on, the "Working…" import popup stays hidden so each new frame does not raise a window; the status line over the canvas still reports the import.
-*   **RGB Scan**: treats the folder as red/green/blue exposure triplets and assembles each frame from three shots (for narrowband trichrome scanning). Right-click a frame → **Edit RGB Triplet…** to assign the three files by hand.
-*   **Half Frame**: splits each scan into two frames (for half-frame cameras), edited and metered separately. When enabled, a rectangle editor opens on the current scan: drag the green box to crop (everything outside is discarded), drag the orange line to set the split, and use the **Cut thickness** slider to discard a band centered on the split (the physical black separator between the two exposures). The setting is saved and applied to every half-frame split from then on, regardless of how the scans were acquired (SANE scanner, camera copy-stand, or folder import). The **Adjust Half Frame** toolbutton (next to Half Frame) re-opens the editor on the current scan to fine-tune. Auto-detection of the gutter still seeds the initial split position.
+*   **RGB Scan**: treats the folder as red/green/blue exposure triplets and assembles each frame from three shots (for narrowband trichrome scanning). Right-click a frame → **Edit RGB Triplet…** to assign the three files by hand. An assembled frame carries the three-dot badge described under [Triage](#triage-culling-the-roll).
+*   **Half Frame**: splits each scan into two frames (for half-frame cameras), edited and metered separately, each carrying a badge that shows which half it is. When enabled, a rectangle editor opens on the current scan: drag the green box to crop (everything outside is discarded), drag the orange line to set the split, and use the **Cut thickness** slider to discard a band centered on the split (the physical black separator between the two exposures). The setting is saved and applied to every half-frame split from then on, regardless of how the scans were acquired (SANE scanner, camera copy-stand, or folder import). The **Adjust Half Frame** toolbutton (next to Half Frame) re-opens the editor on the current scan to fine-tune. Auto-detection of the gutter still seeds the initial split position.
 *   **Apply (clone)**: copy the current frame's settings to selected frames or the whole roll. You choose which aspects in a dialog (crop and rotation are always per-image).
 *   **Sheet filter** (funnel): show *All frames*, *Keepers only*, or *Hide rejected*.
 *   **Sort**: by Name or Date, ascending or descending.
@@ -114,13 +114,13 @@ Right-clicking **empty space** in the film strip offers **Add files**, **Add fol
 
 #### Stitching a frame from several shots
 
-If one negative was captured in overlapping pieces (a copy stand at higher magnification than the frame), select the pieces and right-click → **Stitch selected frames**. NegPy finds the overlap, matches brightness across the seam and replaces the parts with a single wide composite named *a+b (Stitch)*. The parts' own edits stay on file, so right-click → **Unstitch** puts them back untouched. The registration is saved with the session and replayed on the next launch, so re-opening a composite costs nothing.
+If one negative was captured in overlapping pieces (a copy stand at higher magnification than the frame), select the pieces and right-click → **Stitch selected frames**. NegPy finds the overlap, matches brightness across the seam and replaces the parts with a single wide composite named *a+b (Stitch)*, badged on the sheet so you can tell it from a plain frame. The parts' own edits stay on file, so right-click → **Unstitch** puts them back untouched. The registration is saved with the session and replayed on the next launch, so re-opening a composite costs nothing.
 
 This works on RGB-scan frames too: turn on **RGB Scan** first so each piece is already assembled from its own R/G/B triplet, then stitch the assembled frames. Each part keeps its own three exposures — nothing is shared between parts.
 
 #### Merging bracketed exposures (HDR)
 
-A slide's density runs deeper than one camera exposure can record. Expose for the highlights and the darkest parts of the frame sit in sensor noise; expose for those and the bright parts blow. Bracket the capture instead — several shots of the same slide a stop apart — then select them and right-click → **Merge exposures (HDR)**. They collapse into one frame named *a +4 (HDR)* that carries the whole range. Right-click → **Unmerge exposures** puts the originals back; their own edits are untouched.
+A slide's density runs deeper than one camera exposure can record. Expose for the highlights and the darkest parts of the frame sit in sensor noise; expose for those and the bright parts blow. Bracket the capture instead — several shots of the same slide a stop apart — then select them and right-click → **Merge exposures (HDR)**. They collapse into one frame named *a +4 (HDR)* that carries the whole range, badged on the sheet so a merge is never mistaken for a single capture. Right-click → **Unmerge exposures** puts the originals back; their own edits are untouched.
 
 Nothing needs to be set up beforehand. NegPy measures the exposures from the images themselves rather than trusting shutter tags (several supported scanner formats have none), works out how many stops apart they are, and registers them to each other in case the camera shifted between frames. The result is saved with the session, so re-opening a merged frame costs nothing.
 
@@ -166,6 +166,28 @@ Right-click a thumbnail (or use keyboard shortcuts) to mark frames while you rev
 *   **Reject**: a cross badge dims the frame. Rejected frames stay on the sheet but are skipped by batch exports and sidecar writes. **The file on disk is never touched.**
 
 Marks apply to a multi-selection and persist across sessions. A badge in the top-right corner instead flags a frame that failed to decode.
+
+#### Reading the badges
+
+Each corner of a thumbnail means one thing, so the marks never compete:
+
+| Corner | Badge | Means |
+|---|---|---|
+| Bottom-right | check | keeper |
+| Bottom-right | cross, frame heavily dimmed | rejected |
+| Top-right | exclamation | the file failed to decode — click to retry |
+| Top-left | *see below* | the frame was built from more than one file |
+
+The top-left badge is grey, not red, because it reports what the frame *is* rather than something you marked. Its glyph says which kind:
+
+| Glyph | Frame |
+|---|---|
+| Two joined panes | a stitched composite ([§Stitching](#stitching-a-frame-from-several-shots)) |
+| Three stacked bars | a merged bracket ([§Merging](#merging-bracketed-exposures-hdr)) |
+| Three red/green/blue dots | an RGB-scan triplet |
+| A split rectangle, one side filled | one half of a half-frame scan — the filled side is which half |
+
+Hover any thumbnail and the tooltip says the same thing in words, with the frame count: *HDR merge of 5 exposures*, *Stitched composite of 3 frames*.
 
 The right-click menu also offers **Copy/Paste Settings** (with or without normalization bounds), **Reset Settings**, **Apply settings…**, and per-frame export.
 

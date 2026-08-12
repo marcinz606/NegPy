@@ -40,7 +40,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.kernel.system.text import count_of
 from negpy.desktop.controller import AppController
-from negpy.desktop.session import _source_effective_bounds
+from negpy.desktop.session import _source_effective_bounds, composite_kind
 from negpy.desktop.view.confirm import confirm_unload
 from negpy.features.hdr.logic import anchor_choices
 from negpy.features.hdr.models import hdr_frame_paths
@@ -70,11 +70,17 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     image is shown full-brightness with a white frame while the others are dimmed; a
     dirty active file gets an accent line along the image's bottom edge. Triage marks
     are small bottom-right badges: check = keeper, cross + heavy dim = rejected; the
-    top-right badge is reserved for decode failures."""
+    top-right badge is reserved for decode failures; the top-left badge says the frame
+    was built from several files (stitch, HDR merge, RGB triplet, half-frame split)."""
 
     _MARGIN = 3
     _RADIUS = 4  # = button border-radius (modern_dark.qss)
     _MARK = QColor(183, 28, 28, 150)  # THEME.accent_primary at ~60% alpha
+    # Neutral, not the triage red: red already means "you marked this" and "this failed".
+    # What a frame is built from is a fact about the asset, not a state the user set.
+    _COMPOSITE_CHIP = QColor(20, 20, 20, 190)
+    _COMPOSITE_RING = QColor(255, 255, 255, 90)
+    _COMPOSITE_GLYPH = QColor(255, 255, 255, 235)
 
     def _draw_mark_badge(self, painter: QPainter, img_rect: QRect, check: bool) -> None:
         r = 9
@@ -100,9 +106,40 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         painter.drawLine(cx, cy - 4, cx, cy + 1)
         painter.drawPoint(cx, cy + 4)
 
+    def _draw_composite_badge(self, painter: QPainter, img_rect: QRect, kind: str, half: int) -> None:
+        """Top-left mark: this frame was assembled from more than one file.
+
+        One glyph per kind, so a merge is told from a stitch without opening the menu.
+        The chip carries a faint ring because a flat dark disc vanishes on a dense frame."""
+        r = 9
+        cx, cy = img_rect.left() + r + 4, img_rect.top() + r + 4
+        painter.setPen(QPen(self._COMPOSITE_RING, 1))
+        painter.setBrush(self._COMPOSITE_CHIP)
+        painter.drawEllipse(QRect(cx - r, cy - r, 2 * r, 2 * r))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(self._COMPOSITE_GLYPH, 1.5))
+        if kind == "stitch":  # two overlapping panes — a divided box reads as the half glyph
+            painter.drawRect(QRect(cx - 6, cy - 5, 8, 7))
+            front = QRect(cx - 2, cy - 2, 8, 7)
+            painter.fillRect(front, self._COMPOSITE_CHIP)
+            painter.drawRect(front)
+        elif kind == "hdr":  # a bracket: stacked exposures
+            for dy, width in ((-3, 11), (0, 8), (3, 5)):
+                painter.drawLine(cx - 5, cy + dy, cx - 5 + width, cy + dy)
+        elif kind == "rgb":  # the three narrowband exposures
+            painter.setPen(Qt.PenStyle.NoPen)
+            for dx, colour in ((-4, THEME.channel_red), (0, THEME.channel_green), (4, THEME.channel_blue)):
+                painter.setBrush(QColor(colour))
+                painter.drawEllipse(QRect(cx + dx - 2, cy - 2, 4, 4))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+        elif kind == "half":  # a split frame, this asset's own half filled
+            painter.drawRect(QRect(cx - 6, cy - 4, 12, 8))
+            painter.fillRect(QRect(cx - 5 if half == 1 else cx + 1, cy - 3, 5, 7), self._COMPOSITE_GLYPH)
+
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
         file_info = index.data(Qt.ItemDataRole.UserRole) or {}
         failed = bool(file_info.get("decode_failed"))
+        kind = composite_kind(file_info)
 
         icon = index.data(Qt.ItemDataRole.DecorationRole)
         if icon is None or icon.isNull():
@@ -114,6 +151,8 @@ class _ThumbnailDelegate(QStyledItemDelegate):
                 painter.setBrush(QColor(20, 20, 20))
                 painter.drawRoundedRect(area, self._RADIUS, self._RADIUS)
                 self._draw_failed_badge(painter, area)
+                if kind:
+                    self._draw_composite_badge(painter, area, kind, int(file_info.get("half") or 0))
                 painter.restore()
             return
         base = icon.pixmap(QSize(4096, 4096))  # largest available pixmap (~120px)
@@ -152,6 +191,8 @@ class _ThumbnailDelegate(QStyledItemDelegate):
             self._draw_mark_badge(painter, img_rect, check=False)
         elif keeper:
             self._draw_mark_badge(painter, img_rect, check=True)
+        if kind:
+            self._draw_composite_badge(painter, img_rect, kind, int(file_info.get("half") or 0))
         painter.setClipping(False)
 
         if selected:
