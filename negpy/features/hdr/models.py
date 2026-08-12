@@ -1,6 +1,6 @@
 import hashlib
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Sequence
 
 from negpy.domain.tokens import composite_token
@@ -45,6 +45,20 @@ class HdrConfig:
 def hdr_active(config: HdrConfig) -> bool:
     """The predicate the decode paths use to decide to merge a bracket."""
     return bool(config.hdr_enabled and config.hdr_paths)
+
+
+def hdr_merge_token(config: HdrConfig) -> str:
+    """Identity of the *merge itself*, excluding the exposure it renders at.
+
+    The merge costs seconds; the render exposure is one multiply on its result. Keyed apart
+    so dragging the exposure re-uses the merged buffer instead of decoding the bracket
+    again. `hdr_token` still carries the exposure, because a buffer that has been scaled is
+    a different buffer.
+    """
+    if not hdr_active(config):
+        return ""
+    neutral = replace(config, hdr_anchor="", hdr_anchor_ev=ANCHOR_EV_UNSET)
+    return composite_token("hdrmerge", neutral, config.hdr_paths)
 
 
 def hdr_token(config: HdrConfig) -> str:

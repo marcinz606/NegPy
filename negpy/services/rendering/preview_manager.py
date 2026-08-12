@@ -25,8 +25,8 @@ from negpy.kernel.system.config import APP_CONFIG
 from negpy.features.flatfield.logic import apply_flatfield, flatfield_token
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.retouch.logic import downsample_ir
-from negpy.features.hdr.logic import merge_providers, resolve_anchor
-from negpy.features.hdr.models import HdrConfig, hdr_token
+from negpy.features.hdr.logic import apply_render_exposure, merge_providers, resolve_anchor
+from negpy.features.hdr.models import HdrConfig, hdr_merge_token
 from negpy.features.rgbscan.logic import assemble_rgb, rgbscan_token
 from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.features.stitch.logic import stitch_composite
@@ -472,7 +472,7 @@ class PreviewManager:
         other_paths, ratios, align = hdr.hdr_paths, hdr.hdr_ratios, hdr.hdr_align
         anchor = resolve_anchor([reference_path, *other_paths], ratios, hdr)
         merged_key = None
-        token = hdr_token(hdr)
+        token = hdr_merge_token(hdr)
         if file_hash and color_space is not None and token:
             merged_key = PreviewCacheKey(
                 # The token covers every field of HdrConfig, so a field added later cannot
@@ -484,7 +484,12 @@ class PreviewManager:
             )
             hit = self._cache.get(merged_key)
             if hit is not None:
-                return hit  # cache hit — caller must not mutate this buffer
+                # The cached buffer is the *unscaled* merge, so the exposure is applied on
+                # the way out. That is the whole point of the split: changing it costs this
+                # multiply rather than another decode of the bracket.
+                raw_c, dims_c, meta_c = hit
+                scaled = apply_render_exposure(np.asarray(raw_c, dtype=np.float32), list(ratios), anchor)
+                return ensure_image(scaled), dims_c, meta_c
 
         ref_out, dims, meta = self.load_linear_preview(reference_path, color_space, use_camera_wb, full_resolution, file_hash)
         ref = np.asarray(ref_out, dtype=np.float32)
@@ -505,12 +510,12 @@ class PreviewManager:
             return arr
 
         providers = [lambda: ref, *[lambda p=p: _load(p) for p in other_paths]]
-        merged = merge_providers(providers, list(ratios), reference=0, align=align, anchor=anchor)
-        out = ensure_image(merged)
+        merged = merge_providers(providers, list(ratios), reference=0, align=align)
         if merged_key is not None:
-            # Freshly assembled buffer — cache and caller alias it (read-only contract).
-            self._cache.put(merged_key, out, dims, dict(meta))
-        return out, dims, meta
+            # Cache it unscaled: the exposure is applied below and can then change without
+            # costing another merge.
+            self._cache.put(merged_key, ensure_image(merged), dims, dict(meta))
+        return ensure_image(apply_render_exposure(merged, list(ratios), anchor)), dims, meta
 
     def load_linear_preview_stitch(
         self,

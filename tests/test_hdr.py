@@ -15,6 +15,8 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.features.hdr.logic import (
     SATURATION,
     anchor_choices,
+    merge_providers,
+    apply_render_exposure,
     anchor_ratio,
     choose_reference,
     clipped_fraction,
@@ -157,31 +159,35 @@ class TestReferenceChoice(unittest.TestCase):
         # ...and the excluded ones would not have.
         self.assertEqual({output_scale(ratios, anchor=r) for r in (2.0, 4.0)}, {1.0})
 
-    def test_every_merge_entry_point_forwards_the_anchor(self):
-        """The preview service merges via `merge_providers` directly rather than through
-        `merge_bracket`, and was missed when the anchor was added: the menu moved a value
-        that never reached the picture, so on-canvas nothing changed at all.
+    def test_every_merge_entry_point_applies_the_render_exposure(self):
+        """`merge_providers` now returns the merge *unscaled*, so its exposure is a separate
+        call. A caller that forgets it renders at the wrong exposure and unclipped.
 
-        `merge_bracket` no longer needs guarding this way — it takes the whole HdrConfig, so
-        the anchor travels with it and cannot be dropped at a call site. That is asserted
-        separately below. `merge_providers` still takes the anchor loose, so it still can be.
+        The invariant used to be "pass the anchor"; the preview service was the one that
+        missed it, and the menu moved a value that never reached the canvas. Splitting the
+        scale out to make dragging cheap re-opens exactly that hole, so the guard follows.
         """
         import ast
         import pathlib
 
         root = pathlib.Path(__file__).resolve().parent.parent / "negpy"
-        missing = []
+        offenders = []
         for path in root.rglob("*.py"):
             if path.parts[-2:] == ("hdr", "logic.py"):
                 continue  # the definitions themselves
-            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-                if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
-                    continue
-                if node.func.id != "merge_providers":
-                    continue
-                if not any(kw.arg == "anchor" for kw in node.keywords):
-                    missing.append(f"{path.relative_to(root)}:{node.lineno}")
-        self.assertEqual(missing, [], "merge_providers call sites that drop the render exposure: " + "; ".join(missing))
+            src = path.read_text(encoding="utf-8")
+            calls = {node.func.id for node in ast.walk(ast.parse(src)) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
+            if "merge_providers" in calls and "apply_render_exposure" not in calls:
+                offenders.append(str(path.relative_to(root)))
+        self.assertEqual(offenders, [], "merged without applying the render exposure: " + "; ".join(offenders))
+
+    def test_the_unscaled_merge_keeps_headroom_above_white(self):
+        """Clipping in the merge would discard what the shorter frames recorded above the
+        reference's white — before the exposure that might bring it back into range."""
+        frames = [_expose(_scene(32, 32), g) for g in (1.0, 0.25)]
+        merged = merge_providers([lambda f=f: f for f in frames], [1.0, 0.25], reference=0, align=False)
+        self.assertGreater(float(merged.max()), 1.0)
+        self.assertLessEqual(float(apply_render_exposure(merged, [1.0, 0.25], 1.0).max()), 1.0)
 
     def test_merge_bracket_takes_the_whole_config(self):
         """Loose fields are how a call site comes to drop one. Passing the config means a

@@ -354,16 +354,24 @@ def merge_providers(
     ratios: Sequence[float],
     reference: int = 0,
     align: bool = True,
-    anchor: Optional[float] = None,
 ) -> np.ndarray:
-    """Merge a bracket into one float32 image in the reference frame's units.
+    """Merge a bracket into one float32 image in the reference frame's units, **unscaled**.
+
+    The render exposure is deliberately *not* applied here. It is a single multiply, while
+    this is seconds of decoding and accumulation, so keeping them apart lets the expensive
+    part be cached once and re-used while the exposure is dragged. `apply_render_exposure`
+    is the other half; every caller needs both.
+
+    Values above 1.0 survive: they are radiance the shorter frames recorded above the
+    reference's white, and clipping here would throw it away before the exposure that might
+    have brought it back into range.
 
     Frames arrive as callables and are pulled one at a time: a full-res bracket is several
     GB, and only the reference plus the two accumulators need to stay resident.
 
-    Returns [0, 1] float32, not uint16: the recovered detail sits below the shortest
-    exposure's quantization step, so rounding back to 16 bits would discard exactly what
-    the merge was for. `anchor` decides which exposure it renders at (see `output_scale`).
+    float32 rather than uint16: the recovered detail sits below the shortest exposure's
+    quantization step, so rounding back to 16 bits would discard exactly what the merge
+    was for.
     """
     if len(providers) != len(ratios):
         raise ValueError(f"{len(providers)} frames but {len(ratios)} ratios")
@@ -392,7 +400,17 @@ def merge_providers(
     if empty.any():
         num[empty] = ref[empty]
         den[empty] = 1.0
-    return np.clip((num / den) * np.float32(output_scale(ratios, anchor)), 0.0, 1.0).astype(np.float32)
+    return np.ascontiguousarray(num / den, dtype=np.float32)
+
+
+def apply_render_exposure(merged: np.ndarray, ratios: Sequence[float], anchor: Optional[float] = None) -> np.ndarray:
+    """Scale an unscaled merge to the exposure it renders at, and clip to [0, 1].
+
+    Split from the merge because it is cheap and the merge is not: one full-res multiply
+    against seconds of decode. That is what lets the render exposure be dragged.
+    """
+    scale = np.float32(output_scale(ratios, anchor))
+    return np.clip(merged * scale, 0.0, 1.0).astype(np.float32)
 
 
 def _align(ref_gray: np.ndarray, mov: np.ndarray, max_shift: float) -> np.ndarray:
@@ -416,9 +434,8 @@ def merge_frames(
 ) -> np.ndarray:
     """merge_providers over already-decoded frames. For callers holding the whole bracket
     (tests, ratio solving); the decode paths use merge_bracket so frames stay lazy."""
-    return merge_providers(  # type: ignore[misc]
-        [lambda f=f: f for f in frames], ratios, reference=reference, align=align, anchor=anchor
-    )
+    merged = merge_providers([lambda f=f: f for f in frames], ratios, reference=reference, align=align)  # type: ignore[misc]
+    return apply_render_exposure(merged, ratios, anchor)
 
 
 def merge_bracket(decode_fn: Callable[[str], np.ndarray], reference_path: str, config: HdrConfig) -> np.ndarray:
@@ -432,10 +449,7 @@ def merge_bracket(decode_fn: Callable[[str], np.ndarray], reference_path: str, c
     ratios = list(config.hdr_ratios)
     if len(ratios) != len(paths):
         raise ValueError(f"{len(paths)} frames but {len(ratios)} ratios")
-    return merge_providers(  # type: ignore[misc]
-        [lambda p=p: decode_fn(p) for p in paths],
-        ratios,
-        reference=0,
-        align=config.hdr_align,
-        anchor=resolve_anchor(paths, ratios, config),
+    merged = merge_providers(  # type: ignore[misc]
+        [lambda p=p: decode_fn(p) for p in paths], ratios, reference=0, align=config.hdr_align
     )
+    return apply_render_exposure(merged, ratios, resolve_anchor(paths, ratios, config))
