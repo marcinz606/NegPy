@@ -3703,15 +3703,16 @@ class AppController(QObject):
         if not export_path:
             return
 
-        export_conf = replace(
-            self.state.config.export,
-            export_path=export_path,
-            icc_input_path=self.effective_input_icc(),
-            icc_output_path=self.state.icc_output_path,
-        )
         params = self.state.config
         if self.state.flat_output:
             params = flat_master_config(params)
+        export_conf = replace(
+            self.state.config.export,
+            export_path=export_path,
+            icc_input_path=self.effective_input_icc(params.process, params.exposure.render_intent),
+            icc_output_path=self.state.icc_output_path,
+        )
+        if self.state.flat_output:
             export_conf = flat_export_config(export_conf)
         source_exif = self.state.source_exif.get(self.state.current_file_hash or "")
 
@@ -3791,6 +3792,9 @@ class AppController(QObject):
             # size/format the panel never shows (#750).
             params = replace(self._batch_params_for(f), export=current_export)
 
+            if flat:
+                params = flat_master_config(params)
+
             final_export = replace(
                 params.export,
                 icc_input_path=self.effective_input_icc(params.process, params.exposure.render_intent),
@@ -3798,7 +3802,6 @@ class AppController(QObject):
             )
 
             if flat:
-                params = flat_master_config(params)
                 final_export = flat_export_config(final_export)
 
             bounds_override = None

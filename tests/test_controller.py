@@ -418,6 +418,37 @@ class TestAppController(unittest.TestCase):
         state.icc_input_path = "/custom.icc"
         self.assertEqual(self.controller.effective_input_icc(), "/custom.icc")
 
+    def test_flat_export_keeps_narrowband_profile_despite_print_intent_transfer(self):
+        """The Print-intent view can be a transparency transfer (E-6, Normalize off,
+        the default) that suppresses the implicit Narrowband ICC — but a Flat export
+        of the same frame carries RenderIntent.FLAT, which is never a transfer
+        (transfer.py's is_transparency_transfer), so Narrowband must still apply.
+        Regression: request_export used to resolve the ICC from the pre-flatten
+        (Print) render_intent, silently dropping the profile from flat masters."""
+        from negpy.features.process.models import ProcessMode
+
+        state = self.controller.state
+        state.current_file_path = "/tmp/shot.dng"
+        state.current_file_hash = "h1"
+        state.flat_output = True
+        state.config = replace(
+            state.config,
+            process=replace(state.config.process, narrowband_scan=True, process_mode=ProcessMode.E6, e6_normalize=False),
+            export=replace(state.config.export, output_mode=ExportPresetOutputMode.SAME_AS_SOURCE, export_path="/tmp"),
+        )
+        # Confirms the Print-intent view really is suppressed by the transfer.
+        self.assertIsNone(self.controller.effective_input_icc())
+
+        self.controller._run_export_tasks = MagicMock()
+        self.controller.request_export()
+
+        self.controller._run_export_tasks.assert_called_once()
+        (tasks,), _ = self.controller._run_export_tasks.call_args
+        self.assertTrue(
+            tasks[0].export_settings.icc_input_path.endswith(os.path.join("icc", "RGBScan.icc")),
+            "flat export dropped the implicit Narrowband profile",
+        )
+
     def test_proof_active_with_narrowband_scan(self):
         """Narrowband Scan forces proofing on even with the soft-proof toggle off."""
         state = self.controller.state
