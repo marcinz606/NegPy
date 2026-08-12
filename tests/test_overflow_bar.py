@@ -133,13 +133,21 @@ def test_menu_mirrors_toggle_state(qapp, toolbar):
 
 
 def test_overflow_button_stays_hidden_when_only_a_separator_would_spill(qapp):
+    """A separator's own footprint must never spuriously force the overflow reservation once
+    real content already fits — separators are decorative and, per the trailing-drop rule
+    (test_a_trailing_separator_is_dropped_rather_than_left_dangling), never count as spilled
+    content. _visible_items/_relayout measure widgets by sizeHint(), not setFixedWidth() (which
+    only clamps min/max), so avail must be derived from the real sizeHints; the separator needs
+    a real frame shape too — a bare QFrame's sizeHint is invalid (-1, -1) — matching the VLine
+    frames the app actually uses (files.py:_create_separator)."""
     bar = OverflowBar(height=28, spacing=0)
     btn = QToolButton()
-    btn.setFixedWidth(24)
     bar.add_button(btn, "Only")
     sep = QFrame()
+    sep.setFrameShape(QFrame.Shape.VLine)
+    sep.setFrameShadow(QFrame.Shadow.Plain)
     sep.setFixedWidth(1)
     bar.add_separator(sep)
     bar.show()
-    _resize(qapp, bar, 24)
+    _resize(qapp, bar, btn.sizeHint().width() + sep.sizeHint().width())
     assert not bar.overflow_btn.isVisible()
