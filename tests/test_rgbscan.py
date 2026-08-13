@@ -173,7 +173,7 @@ def test_preview_merge_pulls_green_blue_from_their_files():
 
     pm = PreviewManager()
     r, g, b = (os.path.join("samples", f) for f in _SAMPLES)
-    merged, _, _ = pm.load_linear_preview_rgb(r, g, b, "Adobe RGB", use_camera_wb=True)
+    merged, _, _ = pm.load_linear_preview_rgb(r, RgbScanConfig(enabled=True, green_path=g, blue_path=b), "Adobe RGB", use_camera_wb=True)
     red_only, _, _ = pm.load_linear_preview(r, "Adobe RGB", use_camera_wb=True)
     # Red-only has near-zero G/B (narrowband); the merge fills them from the other shots.
     assert merged[..., 1].mean() > red_only[..., 1].mean() * 3

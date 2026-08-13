@@ -3,6 +3,7 @@ import pytest
 
 import cv2
 
+from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.features.stitch.logic import (
     StitchError,
     build_proxy,
@@ -749,7 +750,11 @@ def test_stitch_real_rgb_triplet_samples():
 
     pm = PreviewManager()
     merged = [
-        np.asarray(pm.load_linear_preview_rgb(r, g, b, "Adobe RGB", use_camera_wb=False)[0], dtype=np.float32) for r, g, b in (part0, part1)
+        np.asarray(
+            pm.load_linear_preview_rgb(r, RgbScanConfig(enabled=True, green_path=g, blue_path=b), "Adobe RGB", use_camera_wb=False)[0],
+            dtype=np.float32,
+        )
+        for r, g, b in (part0, part1)
     ]
     transforms, (cw, ch) = register_parts(merged)
     h, w = merged[0].shape[:2]
