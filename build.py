@@ -311,6 +311,22 @@ def package_windows():
         raise
 
 
+def codesign_macos_app():
+    """Force a fresh, consistent ad-hoc signature over the whole .app.
+
+    PyInstaller's own signing pass does not reliably reach every binary it moves or
+    rewrites under --collect-all (e.g. imagecodecs' bundled liblcms2.2.dylib, whose
+    install name PyInstaller rewrites from @loader_path/.dylibs to @rpath — see the
+    CMS-codec-unavailable fallback in image_processor.py). The app is not notarized,
+    and Apple Silicon's code-signing enforcement is stricter than Intel's about
+    loading such binaries at runtime, so a `--deep` ad-hoc re-sign after PyInstaller
+    finishes costs nothing and removes inconsistent per-binary signing as a variable.
+    """
+    app_path = os.path.join("dist", f"{APP_NAME}.app")
+    print(f"Re-signing {app_path} (ad-hoc, deep)...")
+    subprocess.run(["codesign", "--force", "--deep", "-s", "-", app_path], check=True)
+
+
 def package_macos():
     """Package the built application into a DMG with Applications symlink."""
     print(f"Packaging for macOS (DMG) version {VERSION}...")
@@ -377,6 +393,7 @@ def build():
     elif is_windows:
         package_windows()
     elif is_macos:
+        codesign_macos_app()
         package_macos()
 
 
