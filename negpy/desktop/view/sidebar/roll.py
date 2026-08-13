@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
 )
 
+from negpy.desktop.view.confirm import confirm_delete_named
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.styles.theme import THEME
@@ -149,7 +150,12 @@ class RollAnalysisSidebar(BaseSidebar):
         Removes selected roll from DB.
         """
         name = self.roll_combo.currentText()
-        if name:
+        if name and confirm_delete_named(
+            self,
+            "Roll",
+            name,
+            informative="The frames keep their current look; only the saved roll baseline goes.",
+        ):
             self.controller.session.repo.delete_normalization_roll(name)
             self._refresh_rolls()
 

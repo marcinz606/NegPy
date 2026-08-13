@@ -22,7 +22,7 @@ from negpy.desktop.session import (
     resolve_asset_rgbscan,
     resolve_asset_stitch,
 )
-from negpy.desktop.workers.export import ExportTask, ExportWorker, find_export_conflicts
+from negpy.desktop.workers.export import ExportTask, ExportWorker, LinearOutputTask, find_export_conflicts
 from negpy.desktop.workers.render import (
     AssetDiscoveryTask,
     AssetDiscoveryWorker,
@@ -3835,7 +3835,10 @@ class AppController(QObject):
 
     def request_linear_output_export(self, files: list[dict] | None = None) -> None:
         """Export decoded linear buffers as untagged 16-bit TIFFs to the export folder."""
-        from negpy.services.export.linear_output import export_linear_output, is_linear_output_supported
+        from negpy.services.export.linear_output import is_linear_output_supported
+
+        if self._batch_busy("export"):
+            return
 
         export_path = self._ensure_valid_export_path()
         if not export_path:
@@ -3868,10 +3871,26 @@ class AppController(QObject):
         if len(supported) > 1 and not self._confirm_bulk_export(f"Linear-export {count_of(len(supported), 'frame')}?"):
             return
 
-        exported = 0
+        tasks = self._linear_output_tasks(supported, export_path)
+
+        self._export_start_time = time.time()
+        self._export_failures = 0
+        if self._begin_batch("export", "Exporting Linear Output", abortable=True) is None:
+            return
+        QMetaObject.invokeMethod(
+            self.export_worker,
+            "run_linear_output",
+            Qt.ConnectionType.QueuedConnection,
+            Q_ARG(list, tasks),
+        )
+
+    def _linear_output_tasks(self, supported: list[dict], export_path: str) -> list[LinearOutputTask]:
+        """Resolve each frame's config and destination on the UI thread; the worker only writes."""
         expansion = self.state.linear_expansion
         linear_fmt = self.state.linear_format
         out_ext = "jxl" if linear_fmt == "jxl" else "tiff"
+        taken: set[str] = set()
+        tasks = []
         for f in supported:
             params = self._batch_params_for(f)
             stitch = params.stitch if params.stitch.stitch_enabled else None
@@ -3881,36 +3900,36 @@ class AppController(QObject):
             stem = f"{hdr_stem(frames)}-HDR" if frames else os.path.splitext(os.path.basename(f["path"]))[0]
             out_path = os.path.join(export_path, f"{stem}_linear.{out_ext}")
             counter = 2
-            while os.path.exists(out_path):
+            # `taken` as well as the disk: the whole batch is named up front now, before
+            # the worker has written any of it, so same-stem frames would collide.
+            while out_path in taken or os.path.exists(out_path):
                 out_path = os.path.join(export_path, f"{stem}_linear_{counter}.{out_ext}")
                 counter += 1
-            try:
-                export_linear_output(
-                    f["path"],
-                    out_path,
-                    geometry=params.geometry,
-                    expansion=expansion,
-                    rgbscan=params.rgbscan,
-                    stitch=stitch,
-                    hdr=params.hdr,
-                    flatfield=params.flatfield,
-                    process=params.process,
-                    apply_wb=self.state.linear_apply_wb,
-                    apply_flatfield=self.state.linear_apply_flatfield,
-                    apply_sensor=self.state.linear_apply_sensor,
-                    apply_ice=self.state.linear_apply_ice,
-                    retouch=params.retouch,
-                    gamma_key=self.state.linear_gamma_key,
-                    output_format=linear_fmt,
-                    jxl_effort=self.state.linear_jxl_effort,
+            taken.add(out_path)
+            tasks.append(
+                LinearOutputTask(
+                    file_info=f,
+                    out_path=out_path,
+                    options={
+                        "geometry": params.geometry,
+                        "expansion": expansion,
+                        "rgbscan": params.rgbscan,
+                        "stitch": stitch,
+                        "hdr": params.hdr,
+                        "flatfield": params.flatfield,
+                        "process": params.process,
+                        "apply_wb": self.state.linear_apply_wb,
+                        "apply_flatfield": self.state.linear_apply_flatfield,
+                        "apply_sensor": self.state.linear_apply_sensor,
+                        "apply_ice": self.state.linear_apply_ice,
+                        "retouch": params.retouch,
+                        "gamma_key": self.state.linear_gamma_key,
+                        "output_format": linear_fmt,
+                        "jxl_effort": self.state.linear_jxl_effort,
+                    },
                 )
-                exported += 1
-            except Exception as e:
-                logger.warning("Linear output failed for %s: %s", f.get("name"), e)
-                self.set_status(f"Linear Output failed: {os.path.basename(f['path'])}: {e}", 4000)
-
-        if exported:
-            self.set_status(f"Linear Output: exported {count_of(exported, 'file')}", 4000)
+            )
+        return tasks
 
     def request_export(self) -> None:
         """Exports the current file using the settings currently shown in the Export panel."""
@@ -4230,10 +4249,13 @@ class AppController(QObject):
             Q_ARG(str, cs.contact_sheet_label_color),
         )
 
-    def _write_edit_sidecars(self, files: list[dict]) -> int:
-        """Write a .negpy edit sidecar next to each source (each frame's own saved edits). Returns count written."""
+    def _write_edit_sidecars(self, files: list[dict]) -> tuple[int, int]:
+        """Write a .negpy edit sidecar next to each source (each frame's own saved edits).
+        Returns (written, failed) — a caller that reports only the written count turns a
+        read-only source folder into a silent success."""
         repo = self.session.repo
         written = 0
+        failed = 0
         for f in files:
             half = int(f.get("half") or 0)
             params = load_or_promote(
@@ -4243,8 +4265,9 @@ class AppController(QObject):
                 write_sidecar(f["path"], params, half=half)
                 written += 1
             except Exception as exc:
+                failed += 1
                 logger.warning("Sidecar write failed for %s: %s", f.get("path"), exc)
-        return written
+        return written, failed
 
     def export_edit_sidecars(self) -> None:
         """Explicit batch sidecar export for all visible files (ignores the on-export toggle)."""
@@ -4255,8 +4278,9 @@ class AppController(QObject):
         ]
         if not visible_files:
             return
-        written = self._write_edit_sidecars(visible_files)
-        self.set_status(f"Wrote {count_of(written, 'edit sidecar')}", 4000)
+        written, failed = self._write_edit_sidecars(visible_files)
+        suffix = f" — {failed} failed" if failed else ""
+        self.set_status(f"Wrote {count_of(written, 'edit sidecar')}{suffix}", 6000 if failed else 4000)
 
     def _run_export_tasks(self, tasks: List[ExportTask]) -> None:
         # Reject unencodable format/colour-space pairings before anything else.

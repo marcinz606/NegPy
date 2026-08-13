@@ -1077,25 +1077,28 @@ class TestThumbnailKeying(unittest.TestCase):
     def test_same_named_files_in_two_folders_keep_distinct_thumbnails(self):
         from PyQt6.QtCore import Qt
 
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
         state = AppState()
         state.uploaded_files = [
             {"name": "IMG_0042.tif", "path": "/a/IMG_0042.tif", "hash": "h1"},
             {"name": "IMG_0042.tif", "path": "/b/IMG_0042.tif", "hash": "h2"},
         ]
-        state.thumbnails = {"h1": "thumb-a", "h2": "thumb-b"}
+        state.thumbnails = {asset_thumbnail_key(f): f"thumb-{i}" for i, f in enumerate(state.uploaded_files)}
         model = AssetListModel(state)
 
         first = model.data(model.index(0, 0), Qt.ItemDataRole.DecorationRole)
         second = model.data(model.index(1, 0), Qt.ItemDataRole.DecorationRole)
-        self.assertEqual({first, second}, {"thumb-a", "thumb-b"})
+        self.assertEqual({first, second}, {"thumb-0", "thumb-1"})
 
     def test_triplet_key_is_namespaced_away_from_its_red_exposure(self):
         from negpy.services.assets.thumbnails import asset_thumbnail_key
 
         red = {"name": "a.nef", "path": "/a.nef", "hash": "h1"}
         triplet = {**red, "name": "a (RGB)", "green_path": "/g.nef", "blue_path": "/b.nef"}
-        self.assertEqual(asset_thumbnail_key(red), "h1")
-        self.assertEqual(asset_thumbnail_key(triplet), "h1-rgb")
+        self.assertTrue(asset_thumbnail_key(red).startswith("h1"))
+        self.assertNotEqual(asset_thumbnail_key(triplet), asset_thumbnail_key(red))
+        self.assertIn("-rgb", asset_thumbnail_key(triplet))
 
     def test_unloading_one_frame_keeps_its_twins_thumbnail(self):
         repo = MagicMock(spec=StorageRepository)
@@ -1109,13 +1112,16 @@ class TestThumbnailKeying(unittest.TestCase):
             {"name": "IMG_0042.tif", "path": "/a/IMG_0042.tif", "hash": "h1"},
             {"name": "IMG_0042.tif", "path": "/b/IMG_0042.tif", "hash": "h2"},
         ]
-        session.state.thumbnails = {"h1": "thumb-a", "h2": "thumb-b"}
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
+        keys = [asset_thumbnail_key(f) for f in session.state.uploaded_files]
+        session.state.thumbnails = {keys[0]: "thumb-a", keys[1]: "thumb-b"}
         session.state.selected_file_idx = 0
         session.state.selected_indices = [0]
 
         session.remove_current_file()
 
-        self.assertEqual(session.state.thumbnails, {"h2": "thumb-b"})
+        self.assertEqual(session.state.thumbnails, {keys[1]: "thumb-b"})
 
 
 class TestSearchFacts(unittest.TestCase):

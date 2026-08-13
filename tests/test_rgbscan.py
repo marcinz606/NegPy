@@ -237,8 +237,9 @@ def test_thumbnail_cache_key_namespaces_triplets():
     """Batch and rendered paths must derive the same triplet key so they share a cache slot."""
     from negpy.services.assets.thumbnails import thumbnail_cache_key
 
-    assert thumbnail_cache_key("h", False) == "h"
-    assert thumbnail_cache_key("h", True) == "h-rgb"
+    assert thumbnail_cache_key("h", False).startswith("h")
+    assert thumbnail_cache_key("h", True) != thumbnail_cache_key("h", False)
+    assert "-rgb" in thumbnail_cache_key("h", True)
 
 
 def test_thumbnail_decode_routes_triplet_to_merge(monkeypatch):
@@ -272,10 +273,11 @@ def test_thumbnail_worker_namespaces_triplet_cache(monkeypatch):
 
     store = Store()
     thumbnails.get_thumbnail_worker("r", "hash", store, 0, 0.5, "g", "b")
-    assert "hash-rgb" in saved and "hash" not in saved
+    triplet_key = thumbnails.thumbnail_cache_key("hash", True)
+    assert triplet_key in saved and thumbnails.thumbnail_cache_key("hash", False) not in saved
 
     thumbnails.get_thumbnail_worker("r2", "hash2", store)
-    assert "hash2" in saved
+    assert thumbnails.thumbnail_cache_key("hash2", False) in saved
 
 
 def test_triplet_ignores_stale_plain_hash_cache(monkeypatch):
@@ -284,9 +286,9 @@ def test_triplet_ignores_stale_plain_hash_cache(monkeypatch):
 
     from negpy.services.assets import thumbnails
 
-    stale = Image.new("RGB", (4, 4))
-    merged = Image.new("RGB", (4, 4))
-    saved: dict = {"hash": stale}
+    stale = Image.new("RGB", (4, 4), (255, 0, 0))
+    merged = Image.new("RGB", (4, 4), (0, 255, 0))
+    saved: dict = {thumbnails.thumbnail_cache_key("hash", False): stale}
 
     class Store:
         def get_thumbnail(self, key):
@@ -298,6 +300,7 @@ def test_triplet_ignores_stale_plain_hash_cache(monkeypatch):
     monkeypatch.setattr(thumbnails, "decode_source_image", lambda *a, **k: merged)
     monkeypatch.setattr(thumbnails, "prepare_thumbnail", lambda i, ts: i)
 
+    # The worker inverts the decoded negative, so identity is not the check — provenance is.
     out = thumbnails.get_thumbnail_worker("r", "hash", Store(), 0, 0.5, "g", "b")
-    assert out is merged
-    assert saved["hash-rgb"] is merged
+    assert out is not stale
+    assert saved[thumbnails.thumbnail_cache_key("hash", True)] is out

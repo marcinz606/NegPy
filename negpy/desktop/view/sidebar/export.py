@@ -4,6 +4,7 @@ import qtawesome as qta
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QActionGroup
 from PyQt6.QtWidgets import (
+    QApplication,
     QButtonGroup,
     QCheckBox,
     QComboBox,
@@ -108,7 +109,16 @@ class ExportSidebar(BaseSidebar):
         self.cs_template_combo.currentTextChanged.connect(self._on_contact_sheet_template_changed)
 
         self.sidecars_enabled_btn.toggled.connect(lambda _: self.update_timer.start())
-        self.export_sidecars_btn.clicked.connect(self.controller.export_edit_sidecars)
+        self.export_sidecars_btn.clicked.connect(self._on_export_sidecars)
+
+    def _on_export_sidecars(self) -> None:
+        """One DB read plus one small write per visible frame, on the GUI thread — short,
+        but long enough on a full roll to look frozen without a cursor."""
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            self.controller.export_edit_sidecars()
+        finally:
+            QApplication.restoreOverrideCursor()
 
     # --- Presets -------------------------------------------------------------
 

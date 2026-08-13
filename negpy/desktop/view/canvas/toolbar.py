@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.keyboard_shortcuts import _context_undo
 from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog
+from negpy.desktop.view.widgets.sliders import apply_slider_value_visibility
 from negpy.kernel.system.parallel import parallel_enabled, set_parallel_enabled
 from negpy.desktop.view.shortcut_registry import key_for, tooltip_with_shortcut
 from negpy.desktop.view.styles.theme import THEME
@@ -345,6 +346,12 @@ class ActionToolbar(QWidget):
         self._ov_sticky_zoom_action.setToolTip(
             tooltip_with_shortcut("Keep the current zoom level when switching images, instead of resetting to fit", "toggle_sticky_zoom")
         )
+        self._ov_slider_values_action = overflow_menu.addAction("Show Slider Values")
+        self._ov_slider_values_action.setCheckable(True)
+        self._ov_slider_values_action.setChecked(bool(self.session.repo.get_global_setting("show_slider_values", default=False)))
+        self._ov_slider_values_action.setToolTip(
+            tooltip_with_shortcut("Keep every slider's value box open, instead of revealing it on hover", "toggle_slider_values")
+        )
         overflow_menu.addSeparator()
 
         db_action = overflow_menu.addAction(qta.icon("fa5s.database", color=icon_color), "Manage Database…", self._show_database_dialog)
@@ -503,6 +510,7 @@ class ActionToolbar(QWidget):
         self._ov_redo_action.triggered.connect(self.session.redo)
         self._ov_immersive_action.triggered.connect(self._on_immersive_toggled)
         self._ov_sticky_zoom_action.triggered.connect(self._on_sticky_zoom_toggled)
+        self._ov_slider_values_action.triggered.connect(self._on_slider_values_toggled)
 
     def _on_overflow_unload(self) -> None:
         from negpy.desktop.view.confirm import confirm_unload
@@ -514,6 +522,10 @@ class ActionToolbar(QWidget):
 
     def _on_immersive_toggled(self, checked: bool) -> None:
         self.session.set_immersive_canvas(checked)
+
+    def _on_slider_values_toggled(self, checked: bool) -> None:
+        self.session.repo.save_global_setting("show_slider_values", bool(checked))
+        apply_slider_value_visibility(self.window(), bool(checked))
 
     def _on_sticky_zoom_toggled(self, checked: bool) -> None:
         self.session.set_sticky_zoom(checked)

@@ -38,6 +38,16 @@ class ExportTask:
     working_color_space: str = WORKING_COLOR_SPACE
 
 
+@dataclass(frozen=True)
+class LinearOutputTask:
+    """One frame's linear-output job. ``options`` is the keyword payload for
+    export_linear_output, resolved on the UI thread where the config lives."""
+
+    file_info: dict
+    out_path: str
+    options: dict
+
+
 def _same_decode_source(a: ExportTask, b: ExportTask) -> bool:
     """True when the decoded f32 source cache is reusable for the next task
     (mirrors the _load_source_f32 cache key; the key still verifies on read)."""
@@ -201,6 +211,32 @@ class ExportWorker(QObject):
                     release_source_cache=nxt is None or not _same_decode_source(task, nxt),
                     collect=False,
                 )
+
+            self.finished.emit()
+        except Exception as e:
+            self.error.emit(str(e))
+        finally:
+            gc.collect()
+
+    @pyqtSlot(list)
+    def run_linear_output(self, tasks: List[LinearOutputTask]) -> None:
+        """Writes each frame's decoded linear buffer. Own slot rather than a branch in
+        run_batch: linear output bypasses the render pipeline and the export settings."""
+        from negpy.services.export.linear_output import export_linear_output
+
+        self._cancel.clear()
+        total = len(tasks)
+        try:
+            for i, task in enumerate(tasks):
+                if self._cancel.is_set():
+                    self.cancelled.emit()
+                    return
+                name = os.path.splitext(task.file_info["name"])[0]
+                self.progress.emit(i + 1, total, name)
+                try:
+                    export_linear_output(task.file_info["path"], task.out_path, **task.options)
+                except Exception as e:
+                    self.error.emit(f"Linear Output failed for {name}: {e}")
 
             self.finished.emit()
         except Exception as e:

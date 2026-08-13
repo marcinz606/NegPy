@@ -13,7 +13,7 @@ from negpy.desktop.view.shortcut_registry import (
     set_current_bindings,
     slider_step_for,
 )
-from negpy.desktop.view.slider_shortcut_groups import SLIDER_GROUP_BY_ACTION, SLIDER_GROUPS, sign_for_action
+from negpy.desktop.view.slider_shortcut_groups import SLIDER_GROUP_BY_ACTION, SLIDER_GROUPS, SliderShortcutGroup, sign_for_action
 from negpy.desktop.view.slider_targets import slider_widget_map
 
 
@@ -75,9 +75,21 @@ class ShortcutManager:
 
         def _adjust() -> None:
             step = slider_step_for(group.id, self.slider_steps)
-            getter().adjust_by(step * sign_for_action(action_id))
+            slider = getter()
+            slider.adjust_by(step * sign_for_action(action_id))
+            self._announce(slider, group)
 
         return _adjust
+
+    def _announce(self, slider: object, group: SliderShortcutGroup) -> None:
+        """Report the new value in the HUD. Nothing else does: the slider may sit on a
+        hidden tab, and its value box only appears under the pointer."""
+        label = getattr(slider, "label", None)
+        name = label.text() if label is not None else group.label.replace(" ↑/↓", "")
+        spin = getattr(slider, "spin", None)
+        # The spin box already carries this slider's decimals and unit suffix.
+        value = spin.text().strip() if spin is not None else f"{slider.value():.2f}"
+        self.window.controller.set_status(f"{name} {value}", 1500)
 
     def _build_actions(self) -> dict[str, Callable[[], None]]:
         controller = self.window.controller
@@ -128,6 +140,7 @@ class ShortcutManager:
             "toggle_library_tree": self.window.session_panel.toggle_library_tree,
             "toggle_immersive_canvas": lambda: controller.session.set_immersive_canvas(not controller.session.state.immersive_canvas),
             "toggle_sticky_zoom": lambda: controller.session.set_sticky_zoom(not controller.session.state.sticky_zoom),
+            "toggle_slider_values": lambda: toolbar._ov_slider_values_action.trigger(),
             "toggle_left_panel": self.window.toggle_session_dock,
             "toggle_right_panel": self.window.toggle_controls_dock,
             "reset_panel_layout": self.window.reset_panel_layout,

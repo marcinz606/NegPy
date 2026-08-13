@@ -4,7 +4,7 @@ from PIL import Image
 import rawpy
 from negpy.kernel.system.config import APP_CONFIG
 import numpy as np
-from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb, prepare_thumbnail
+from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb, float_to_uint8, prepare_thumbnail, srgb_to_linear, uint8_to_float32
 from negpy.infrastructure.loaders.factory import loader_factory
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.kernel.system.logging import get_logger
@@ -69,8 +69,12 @@ def thumbnail_cache_key(file_hash: str, is_triplet: bool) -> str:
     A triplet caches under a distinct key so (a) a red-only thumbnail cached before
     merge support can't shadow the corrected one, and (b) the batch (source) path and
     the rendered-positive path agree on where the triplet's thumbnail lives — the
-    rendered positive is what makes the filmstrip match the canvas."""
-    return f"{file_hash}-rgb" if is_triplet else file_hash
+    rendered positive is what makes the filmstrip match the canvas.
+
+    The version suffix retires caches written before the batch path inverted negatives;
+    without it an existing library keeps serving its stored negatives forever."""
+    base = f"{file_hash}-rgb" if is_triplet else file_hash
+    return f"{base}-v2"
 
 
 def _fast_demosaic(raw: Any) -> np.ndarray:
@@ -148,6 +152,39 @@ def decode_source_image(file_path: str, green_path: str = "", blue_path: str = "
         return img
 
 
+def preview_positive(img: Image.Image) -> Image.Image:
+    """Invert a negative preview so the filmstrip reads as photographs before a frame
+    has ever been opened.
+
+    Deliberately not the pipeline: per-channel log-density bounds over an 8-bit preview,
+    with no config to key on. It is a placeholder that get_rendered_thumbnail supersedes
+    the moment the frame renders, so drift from the engine costs nothing.
+    """
+    from negpy.features.process.logic import detect_process_mode
+    from negpy.features.process.models import ProcessMode
+
+    arr = np.asarray(img.convert("RGB"), dtype=np.uint8)
+    linear = srgb_to_linear(uint8_to_float32(arr))
+    if detect_process_mode(linear) is ProcessMode.E6:
+        return img
+
+    # A lone narrowband exposure carries its picture in one channel; the other two hold
+    # only near-black noise, which the log below would stretch into a solid colour cast.
+    # Borrowing the channel that has the signal renders it as the monochrome it is.
+    peaks = np.percentile(linear, 99.0, axis=(0, 1))
+    strongest = int(np.argmax(peaks))
+    empty = peaks < peaks[strongest] * 0.05
+    if empty.any():
+        linear = linear.copy()
+        linear[:, :, empty] = linear[:, :, strongest : strongest + 1]
+
+    density = -np.log10(np.clip(linear, 1e-4, None))
+    lo = np.percentile(density, 1.0, axis=(0, 1))
+    hi = np.percentile(density, 99.0, axis=(0, 1))
+    positive = (density - lo) / np.maximum(hi - lo, 1e-6)
+    return Image.fromarray(float_to_uint8(np.clip(positive, 0.0, 1.0)))
+
+
 def get_thumbnail_worker(
     file_path: str,
     file_hash: str,
@@ -179,7 +216,7 @@ def get_thumbnail_worker(
 
             img = Image.fromarray(slice_half(np.asarray(img), half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness))
 
-        square_img: Image.Image = prepare_thumbnail(img, ts)
+        square_img: Image.Image = prepare_thumbnail(preview_positive(img), ts)
 
         if asset_store:
             asset_store.save_thumbnail(cache_key, square_img)

@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
 )
 
+from negpy.desktop.view.confirm import confirm_delete_named
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.styles.theme import THEME
@@ -117,7 +118,12 @@ class FlatFieldSidebar(BaseSidebar):
 
     def _on_delete(self) -> None:
         profile_id = self.profile_combo.currentData()
-        if profile_id:
+        if profile_id and confirm_delete_named(
+            self,
+            "Flat-Field Profile",
+            self.profile_combo.currentText(),
+            informative="Every frame using it loses its correction; the baked gain map cannot be recovered.",
+        ):
             self.controller.delete_flatfield_profile(profile_id)
             self._refresh_profiles()
             self.sync_ui()

@@ -2,6 +2,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import QInputDialog, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton
 
+from negpy.desktop.view.confirm import confirm_delete_named
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader
@@ -115,7 +116,13 @@ class HistoryPanel(BaseSidebar):
             self.controller.export_work_print(name)
         elif chosen is rename_action:
             new_name, ok = QInputDialog.getText(self, "Rename work print", "Name:", text=name)
-            if ok:
+            if ok and new_name.strip():
                 self.controller.session.rename_work_print(name, new_name.strip())
         elif chosen is delete_action:
-            self.controller.session.delete_work_print(name)
+            if confirm_delete_named(
+                self,
+                "Work Print",
+                name,
+                informative="Work prints are never pruned by later edits — this is the only way one goes away.",
+            ):
+                self.controller.session.delete_work_print(name)

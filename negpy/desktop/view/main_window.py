@@ -30,6 +30,7 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.loading_overlay import LoadingOverlay
 from negpy.desktop.view.widgets.pinnable_dock import PinnableDockWidget
 from negpy.desktop.view.widgets.progress_dialog import ProgressDialog
+from negpy.desktop.view.widgets.sliders import apply_slider_value_visibility
 from negpy.domain.models import AspectRatio
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.kernel.image.logic import float_to_uint8
@@ -152,6 +153,9 @@ class MainWindow(QMainWindow):
         self._connect_signals()
         self.shortcut_manager = setup_keyboard_shortcuts(self)
         self._update_title()
+
+        if self.controller.session.repo.get_global_setting("show_slider_values", default=False):
+            apply_slider_value_visibility(self, True)
 
         from negpy.desktop.view.widgets.tutorial_overlay import TutorialOverlay
 

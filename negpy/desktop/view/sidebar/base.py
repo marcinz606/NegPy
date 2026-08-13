@@ -9,6 +9,22 @@ from negpy.desktop.view.styles.templates import EditedDot, default_button_height
 from negpy.desktop.view.styles.theme import THEME
 
 
+def install_wheel_guards(widget: QWidget) -> None:
+    """Scroll must not change a combo's value unless it has focus — otherwise scrolling
+    a panel silently edits every combo the pointer crosses. Module-level so panels that
+    are not BaseSidebar subclasses (ScanSidebar) can share it."""
+    for combo in widget.findChildren(QComboBox):
+        combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        def _wheel(c, event) -> None:
+            if c.hasFocus():
+                QComboBox.wheelEvent(c, event)
+            else:
+                event.ignore()
+
+        combo.wheelEvent = types.MethodType(_wheel, combo)
+
+
 class BaseSidebar(QWidget):
     """
     Base class for all sidebar panels.
@@ -29,16 +45,7 @@ class BaseSidebar(QWidget):
         self._install_wheel_guards()
 
     def _install_wheel_guards(self) -> None:
-        for combo in self.findChildren(QComboBox):
-            combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-
-            def _wheel(c, event) -> None:
-                if c.hasFocus():
-                    QComboBox.wheelEvent(c, event)
-                else:
-                    event.ignore()
-
-            combo.wheelEvent = types.MethodType(_wheel, combo)
+        install_wheel_guards(self)
 
     def _init_layout(self) -> None:
         """Sets up the default QVBoxLayout."""

@@ -18,6 +18,7 @@ from negpy.features.toning.models import ToningConfig
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.process.models import ProcessConfig
 from negpy.features.finish.models import FinishConfig
+from negpy.features.flatfield.models import FlatFieldConfig
 
 # Sidebar Components
 from negpy.desktop.view.sidebar.presets import PresetsSidebar
@@ -105,6 +106,7 @@ _DEFAULT_ALTPROC = AltProcessConfig()
 _DEFAULT_GEOMETRY = GeometryConfig()
 _DEFAULT_PROCESS = ProcessConfig()
 _DEFAULT_FINISH = FinishConfig()
+_DEFAULT_FLATFIELD = FlatFieldConfig()
 
 
 class ControlsPanel(QWidget):
@@ -840,6 +842,27 @@ class ControlsPanel(QWidget):
             ]
         )
 
+        # Calibration's four fields live on ProcessConfig but belong to their own section,
+        # so they are counted here and left out of process_count above.
+        sensor_count = sum(
+            [
+                proc.sensor_profile != _proc.sensor_profile,
+                proc.crosstalk_profile != _proc.crosstalk_profile,
+                proc.crosstalk_strength != _proc.crosstalk_strength,
+                proc.hue_trim != _proc.hue_trim,
+            ]
+        )
+
+        ff = cfg.flatfield
+        _ff = _DEFAULT_FLATFIELD
+        flatfield_count = sum(
+            [
+                ff.apply != _ff.apply,
+                ff.profile_id != _ff.profile_id,
+                ff.k1 != _ff.k1,
+            ]
+        )
+
         ret = cfg.retouch
         # Heal-tool clicks and scratch polylines both commit into manual_heal_strokes
         # (manual_dust_spots is the legacy list), so count them or the Finish tab's
@@ -880,6 +903,9 @@ class ControlsPanel(QWidget):
         self.geometry_section.set_modified(geometry_count)
         self.process_section.set_modified(process_count)
         self.retouch_section.set_modified(retouch_count)
+        # Presets and the two Scan sections stay out: they own no WorkspaceConfig fields.
+        self.sensor_section.set_modified(sensor_count)
+        self.flatfield_section.set_modified(flatfield_count)
         self.local_section.set_modified(len(cfg.local.masks))
         self.finish_section.set_modified(finish_count)
         self.roll_section.set_modified(roll_count)

@@ -4,6 +4,8 @@ Summary of available keyboard shortcuts in NegPy.
 
 All shortcuts, including slider adjustments, can be changed in-app from the `?` shortcut overlay via `Customize`. Slider shortcuts are shown as merged rows (e.g. **Density ↑/↓**) with a customizable **Step** column — defaults match the built-in keyboard increments below.
 
+A slider shortcut reports its new value in the canvas HUD, so you can keep a control on a hidden tab and still read what you just set.
+
 Numpad keys can be bound separately from the number row (e.g. `Num+9` vs `9`). Num Lock must be on for numpad digits to register.
 
 ## Navigation

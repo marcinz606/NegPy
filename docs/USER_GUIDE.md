@@ -11,7 +11,7 @@ This guide is for new users. It explains what each control does, when you'd reac
 ### Screen layout
 
 *   **Left, the film strip**: your loaded frames as a contact sheet, plus import, sorting, and triage tools.
-*   **Centre, the canvas**: the live preview of the current frame. Most tools (crop, white-balance picker, heal brush, dodge/burn masks) are used by clicking directly on it. Scroll/pinch to zoom and drag to pan; a floating toolbar along the bottom holds Fit/1:1 zoom plus undo/redo, rotate/flip and more, moving overflow items into an **⋯** menu when the window narrows — that menu also has **Immersive Canvas** (image fills the canvas and the toolbar overlaps it; turn off to reserve space so it never occludes the image). Right-click the image for **Reset View** and **Sticky Zoom** (keeps the current zoom level when you switch to another frame, instead of resetting to fit), alongside the picker tools and copy/paste settings. With nothing loaded it shows **Load some scans to get started** — click it for **Add files** / **Add folder**.
+*   **Centre, the canvas**: the live preview of the current frame. Most tools (crop, white-balance picker, heal brush, dodge/burn masks) are used by clicking directly on it. Scroll/pinch to zoom and drag to pan; a floating toolbar along the bottom holds Fit/1:1 zoom plus undo/redo, rotate/flip and more, moving overflow items into an **⋯** menu when the window narrows — that menu also has **Immersive Canvas** (image fills the canvas and the toolbar overlaps it; turn off to reserve space so it never occludes the image) and **Show Slider Values** (keeps every slider's value box open instead of revealing it under the pointer — turn it on if you work by the numbers). Right-click the image for **Reset View** and **Sticky Zoom** (keeps the current zoom level when you switch to another frame, instead of resetting to fit), alongside the picker tools and copy/paste settings. With nothing loaded it shows **Load some scans to get started** — click it for **Add files** / **Add folder**.
 *   **Right, the controls**: a pinned **Analysis** readout at the top, and below it an icon tab bar. Each icon opens a *workflow page* holding one or more collapsible panels.
 
 ### The workflow (and the order things happen)
@@ -159,6 +159,8 @@ Merging is also refused on frames that are already merged, stitched, or RGB-scan
 Narrow the panel and the toolbar buttons that no longer fit move into a **»** menu at its right edge, so the panel can be squeezed down to give the image more room without losing any tool.
 
 ### Triage (culling the roll)
+
+Thumbnails are positives from the start. A frame you have not opened yet is inverted straight from its preview — a quick per-channel job, not the full pipeline — so the sheet reads as photographs while you cull rather than as a strip of orange negatives. Open a frame and its thumbnail is replaced by the real render, matching the canvas exactly. Transparencies are left alone, being positives already.
 
 Right-click a thumbnail (or use keyboard shortcuts) to mark frames while you review the sheet:
 
@@ -366,7 +368,7 @@ Meter the whole roll once and share the baseline, so frames from the same film m
 
 *   **Roll dropdown** + **Load**: apply a saved roll's bounds and balance.
 *   **Save**: store the current Batch Analysis as a named roll (useful when you shoot the same stock repeatedly).
-*   **Delete**: remove the selected roll.
+*   **Delete**: remove the selected roll (asks first). The frames keep their current look; only the saved baseline goes.
 
 ---
 
@@ -403,7 +405,7 @@ Where the frame gets its final shape: what's inside the print, and whether it si
 Corrects uneven illumination (vignetting/falloff) from your copy-stand or scanner light, using a reference shot of the bare light source.
 
 *   **Flatfield Correction**: apply the active reference to this image (enabled once a profile exists).
-*   **Reference Profile** dropdown + **Add…** / **Delete**: pick a reference image and save it as a named profile. **Add…** reads the reference once and bakes its correction into the profile, so the original reference file can then be moved, renamed or deleted without affecting your edits — the profile is self-contained (stored in NegPy's own `flatfield` folder, like sensor and crosstalk profiles).
+*   **Reference Profile** dropdown + **Add…** / **Delete**: pick a reference image and save it as a named profile. **Add…** reads the reference once and bakes its correction into the profile, so the original reference file can then be moved, renamed or deleted without affecting your edits — the profile is self-contained (stored in NegPy's own `flatfield` folder, like sensor and crosstalk profiles). **Delete** asks first: the baked gain map cannot be recovered, and every frame using the profile loses its correction.
 *   **Distortion** (-0.25 to 0.25): radial lens-distortion correction for the rig, saved with the profile. Use the film rebate as a straight-edge reference.
 
 ---
@@ -669,7 +671,7 @@ A **work print** is a named version of this frame — the darkroom habit of keep
 
 *   **Save work print** (**Ctrl+Shift+S**) keeps the current edit under a name; NegPy offers *Work print 1*, *Work print 2* and so on. Saving over an existing name asks first.
 *   **Click** one to make it live. That counts as an edit, so **Ctrl+Z** puts back what was on screen before — you cannot lose your place by looking at an old version.
-*   **Right-click** → **Export this version…**, **Rename…** or **Delete**.
+*   **Right-click** → **Export this version…**, **Rename…** or **Delete**. Delete asks first, and a rename to an empty name is ignored.
 
 Work prints differ from history steps in the way that matters: they are **never pruned and never thrown away by a later edit**. The undo history keeps the last 100 steps and drops the branch above you when you edit after stepping back; a work print survives both. The list only appears once you've saved one.
 
@@ -704,6 +706,8 @@ A scrollable list of every edit step (last 100 kept), newest on top; the current
     *   **Apply ICE dust removal** (visible when an IR channel is available): applies IR-based dust and scratch correction to the linear output before writing. Off by default.
     *   **Corrections** (camera RAW only): three optional toggles that bake corrections into the linear output before writing. All default to off (raw dump philosophy). **Apply white balance** multiplies by the as-shot WB gains. **Apply flatfield** applies the flatfield gain correction. **Apply sensor correction** applies the sensor crosstalk unmixing matrix. For stitch composites, flatfield and sensor correction are always applied per-part regardless of these toggles (required for clean seams).
 
+    Linear Output runs in the background like any other batch: the progress popup shows which frame is being written, **Abort** stops it after the current one, and the finish message counts any frames that failed.
+
     The output file is always written clean — no ICC profiles, no EXIF color space tags, and no XMP color metadata from the source are carried through. For **TIFF**, raw pixels plus device metadata (Make, Model, DateTime) from the source file, and a description recording the source format, expansion, white balance, and any corrections applied (including ICE). **JPEG XL carries none of that metadata at all** — no description, no device info, no record of whether ICE ran — only the pixels and the forced colour tag noted above (which also isn't from the source; the format just can't leave it unset).
 
 ### Export button
@@ -722,7 +726,7 @@ The primary **Export** action. Its chevron menu picks the scope: current frame (
 ### Collapsible sections
 
 *   **Presets**: a checklist of export presets (each a saved Format/Size/Colour/**Destination**/filename recipe). **Manage** edits them; **Export Presets** renders the frame(s) with every enabled preset at once — each preset uses **its own** destination, not the sidebar Destination above.
-*   **Sidecars**: **Save on export** writes a `.negpy` edit sidecar next to each source on every export; **Export sidecars** writes them for all visible frames now. (Edits always stay in the database too; sidecars are optional archival copies.)
+*   **Sidecars**: **Save on export** writes a `.negpy` edit sidecar next to each source on every export; **Export sidecars** writes them for all visible frames now, and reports how many failed if a source folder is read-only. (Edits always stay in the database too; sidecars are optional archival copies.)
 *   **Contact Sheet**: render all visible frames into a single sheet. Choose a **Template** or set **Cell / Gap / Margin / Max tiles** by hand, pick an output **Path**, and **Export contact sheet**.
 *   **Preview** (affects the on-screen preview only, never the file):
     *   **Soft proof** (on by default): simulate the export colour space and Output profile so what you see matches what you'll get. Turn off only to preview at full gamut.

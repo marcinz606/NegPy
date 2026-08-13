@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.kernel.system.text import count_of
+from negpy.desktop.view.sidebar.base import install_wheel_guards
 from negpy.desktop.view.styles.templates import hint_label
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice
@@ -36,6 +37,7 @@ class ScanSidebar(QWidget):
         self._devices_loaded = False
         self._init_ui()
         self._connect_signals()
+        install_wheel_guards(self)
 
     # ── settings persistence ──────────────────────────────────────────
 

@@ -323,6 +323,7 @@ class CompactSlider(BaseSlider):
         if unit:
             self.spin.setSuffix(unit)
 
+        self._value_pinned = False
         self._spin_full_width = 60 if unit else 50
         self.spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
         self.spin.setMinimumWidth(0)
@@ -353,12 +354,18 @@ class CompactSlider(BaseSlider):
         super().setToolTip(text)
         self.label.setToolTip(self.toolTip())
 
+    def set_value_pinned(self, pinned: bool) -> None:
+        """Keep the value box open at rest. Off by default — hover reveals it — but a
+        panel of hidden numbers is unreadable if you work by the numbers."""
+        self._value_pinned = pinned
+        self.spin.setMaximumWidth(self._spin_full_width if pinned else 0)
+
     def enterEvent(self, event) -> None:
         self.spin.setMaximumWidth(self._spin_full_width)
         super().enterEvent(event)
 
     def leaveEvent(self, event) -> None:
-        if not self.spin.hasFocus():
+        if not (self._value_pinned or self.spin.hasFocus()):
             self.spin.setMaximumWidth(0)
         super().leaveEvent(event)
 
@@ -715,3 +722,10 @@ class RangeSlider(QWidget):
         self.setRange(0.0, 1.0)
         self.rangeChanged.emit(0.0, 1.0)
         self.rangeCommitted.emit(0.0, 1.0)
+
+
+def apply_slider_value_visibility(root: QWidget, pinned: bool) -> None:
+    """Pin or unpin every CompactSlider under a widget tree, so the preference reaches
+    panels built long before it was toggled."""
+    for slider in root.findChildren(CompactSlider):
+        slider.set_value_pinned(pinned)
