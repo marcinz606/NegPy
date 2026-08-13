@@ -135,8 +135,8 @@ class CrosstalkProfiles:
     def _scan_processes() -> dict:
         """display-name -> film process the matrix describes; bundled wins, like _scan.
 
-        Absent `process` means colour negative: every profile that predates the key is a
-        colour negative stock, so that is the honest default rather than a guess. Values are
+        Absent `process` means color negative: every profile that predates the key is a
+        color negative stock, so that is the honest default rather than a guess. Values are
         coerced through ProcessMode, so a file written with the pre-rename names still matches."""
         from negpy.features.process.models import ProcessMode
 

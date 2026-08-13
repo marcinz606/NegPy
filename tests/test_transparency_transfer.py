@@ -35,7 +35,7 @@ from negpy.features.process.capture_color import apply_camera_matrix, camera_to_
 from negpy.features.process.models import ProcessConfig, ProcessMode
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 
-# A real camera's XYZ->cam matrix (Nikon Z6/Z7-class), so the colour maths is exercised
+# A real camera's XYZ->cam matrix (Nikon Z6/Z7-class), so the color maths is exercised
 # against a non-identity transform rather than a contrived one.
 CAM_XYZ = [
     [0.6988, -0.1384, -0.0714],
@@ -154,7 +154,7 @@ class TestIdentityAtDefaults(unittest.TestCase):
         rel = np.abs(out - expected) / np.maximum(expected, 1e-6)
         self.assertLess(float(rel.max()), 1e-4)
 
-    def test_out_of_gamut_colours_clamp_instead_of_producing_nan(self):
+    def test_out_of_gamut_colors_clamp_instead_of_producing_nan(self):
         """The matrix can send a saturated capture negative; the log stage must floor it."""
         rng = np.random.default_rng(3)
         img = (rng.random((16, 16, 3)) * 0.45 + 0.005).astype(np.float32)
@@ -602,7 +602,7 @@ if __name__ == "__main__":
 
 
 class TestCrosstalkIsModeAware(unittest.TestCase):
-    """A crosstalk matrix describes one dye set. Every bundled profile is a colour
+    """A crosstalk matrix describes one dye set. Every bundled profile is a color
     negative stock, so without a mode gate a slide silently gets a negative's
     correction — and the render disagrees with a UI that already hides it for B&W."""
 

@@ -222,7 +222,7 @@ def test_solve_never_exceeds_pwm_max_safe_on_the_dimmest_channel():
 class FakeLight:
     def __init__(self):
         self.last = (0, 0, 0)
-        self.history = []  # every colour ever lit — lets tests prove an abort never reached G/B
+        self.history = []  # every color ever lit — lets tests prove an abort never reached G/B
 
     def set_color(self, r=0, g=0, b=0, w=0, save=False):
         self.last = (r, g, b)

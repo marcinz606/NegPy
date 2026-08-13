@@ -154,7 +154,7 @@ class TestGpuCurveParity(unittest.TestCase):
         """Separation Damping's per-pixel k is written twice -- the CPU kernel and
         WGSL -- so the two can drift, and it moves the sat matrix out of the
         dye_mix slot on both paths. Both directions: above 1.0 the damping lifts
-        muted colour and pulls vivid colour down, below 1.0 the reverse."""
+        muted color and pulls vivid color down, below 1.0 the reverse."""
         from negpy.services.rendering.image_processor import ImageProcessor
 
         processor = ImageProcessor()
@@ -165,7 +165,7 @@ class TestGpuCurveParity(unittest.TestCase):
         h, w = 64, 64
         # The shared fixture is near-neutral (channels x1.0/0.95/0.9), so the
         # damping barely engages on it and parity would pass vacuously. Sweep
-        # chroma down the frame instead: neutral at the top, strongly coloured at
+        # chroma down the frame instead: neutral at the top, strongly colored at
         # the bottom, which is the axis this operator keys off.
         grad = np.linspace(0.05, 0.9, w, dtype=np.float32)
         luma = np.repeat(grad[None, :], h, axis=0)

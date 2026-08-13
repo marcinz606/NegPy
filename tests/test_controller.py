@@ -175,14 +175,14 @@ class TestAppController(unittest.TestCase):
         state = self.mock_session_manager.state
         state.config = replace(
             state.config,
-            process=replace(state.config.process, use_luma_average=True, use_colour_average=True, roll_name="PORTRA-04"),
+            process=replace(state.config.process, use_luma_average=True, use_color_average=True, roll_name="PORTRA-04"),
         )
 
         self.controller.clear_roll_baseline()
 
         cfg = self.mock_session_manager.update_config.call_args.args[0]
         self.assertFalse(cfg.process.use_luma_average)
-        self.assertFalse(cfg.process.use_colour_average)
+        self.assertFalse(cfg.process.use_color_average)
         self.assertIsNone(cfg.process.roll_name)
 
     def test_thumbnail_miss_marks_file_unreadable(self):
@@ -562,7 +562,7 @@ class TestAppController(unittest.TestCase):
     def test_set_crop_ratio_preserves_metering_bounds(self):
         """A ratio change is a pure reframe and must not re-meter. Clearing the
         per-file bounds makes the next render re-analyze over the new (smaller) ROI,
-        which lands on different per-channel floors/ceils — a visible colour cast
+        which lands on different per-channel floors/ceils — a visible color cast
         shift on the canvas from an operation that only changed the frame."""
         import numpy as np
 

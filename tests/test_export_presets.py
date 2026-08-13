@@ -385,7 +385,7 @@ def test_encode_jpeg_rgb(proc):
 
 
 def _off_axis_buffer(h: int = 8, w: int = 12) -> np.ndarray:
-    """RGB buffer that spans off-axis colours so the 3D LUT's interpolation
+    """RGB buffer that spans off-axis colors so the 3D LUT's interpolation
     is exercised beyond the neutral (R=G=B) diagonal."""
     rng = np.random.default_rng(42)
     buf = rng.uniform(0.2, 0.8, size=(h, w, 3)).astype(np.float32)

@@ -76,7 +76,7 @@ def test_strong_cast_recovered_by_correction_pass():
 
 
 def test_saturated_content_still_rejected():
-    # A mid band made ONLY of strongly coloured content (beyond the first-pass cap)
+    # A mid band made ONLY of strongly colored content (beyond the first-pass cap)
     # must not fabricate an axis by "correcting" the content to grey. Blue-tinted
     # so the low luma weight keeps the content inside the mid band.
     v = _val_img()

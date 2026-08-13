@@ -166,7 +166,7 @@ class ToneSidebar(BaseSidebar):
 
         self.paper_combo = QComboBox()
         self.paper_combo.setToolTip(
-            "Darkroom paper profile — re-shapes the H&D curve (and colour, on RA4) to a classic "
+            "Darkroom paper profile — re-shapes the H&D curve (and color, on RA4) to a classic "
             "stock as a baseline; Grade / Density / toe / shoulder still trim on top."
         )
         self._populate_paper_combo(self.state.config.process.process_mode)

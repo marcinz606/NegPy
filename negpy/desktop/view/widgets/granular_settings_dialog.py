@@ -44,7 +44,7 @@ class GranularSettingsDialog(QDialog):
         self._checks: list[tuple[QCheckBox, SettingRow, bool, QWidget]] = []
         self._sections: list[tuple[QWidget, int]] = []
         self._bounds_luma: QCheckBox | None = None
-        self._bounds_colour: QCheckBox | None = None
+        self._bounds_color: QCheckBox | None = None
         self._name_edit: QLineEdit | None = None
         if show_current:
             self._scope = "current"
@@ -190,8 +190,8 @@ class GranularSettingsDialog(QDialog):
         col = QVBoxLayout(body)
         col.setContentsMargins(0, 0, 0, 0)
         self._bounds_luma = QCheckBox("Tonal span")
-        self._bounds_colour = QCheckBox("Colour balance")
-        for box in (self._bounds_luma, self._bounds_colour):
+        self._bounds_color = QCheckBox("Color balance")
+        for box in (self._bounds_luma, self._bounds_color):
             box.stateChanged.connect(self._update_apply_enabled)
             col.addWidget(box)
         return body
@@ -209,7 +209,7 @@ class GranularSettingsDialog(QDialog):
 
     def _all_boxes(self) -> list[QCheckBox]:
         boxes = [box for box, _row, _edited, _line in self._checks]
-        boxes += [b for b in (self._bounds_luma, self._bounds_colour) if b is not None]
+        boxes += [b for b in (self._bounds_luma, self._bounds_color) if b is not None]
         return boxes
 
     def _apply_visibility(self) -> None:
@@ -229,7 +229,7 @@ class GranularSettingsDialog(QDialog):
         for box, _row, edited, _line in self._checks:
             if edited or show_all:
                 box.setChecked(checked)
-        for box in (self._bounds_luma, self._bounds_colour):
+        for box in (self._bounds_luma, self._bounds_color):
             if box is not None:
                 box.setChecked(checked)
 
@@ -260,7 +260,7 @@ class GranularSettingsDialog(QDialog):
     def bounds_flags(self) -> tuple[bool, bool]:
         return (
             self._bounds_luma is not None and self._bounds_luma.isChecked(),
-            self._bounds_colour is not None and self._bounds_colour.isChecked(),
+            self._bounds_color is not None and self._bounds_color.isChecked(),
         )
 
     def scope(self) -> str:

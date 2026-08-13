@@ -236,13 +236,13 @@ class TestCarrier(unittest.TestCase):
 
         self.assertGreater(corner_paper(round_), corner_paper(square) * 1.05)
 
-    def test_flare_colour_vs_bw(self) -> None:
+    def test_flare_color_vs_bw(self) -> None:
         img = self._image()
         plain = apply_carrier(img, width_px=8.0, rough=0.4)
-        colour = apply_carrier(img, width_px=8.0, rough=0.4, flare=1.0)
+        color = apply_carrier(img, width_px=8.0, rough=0.4, flare=1.0)
         mono = apply_carrier(img, width_px=8.0, rough=0.4, flare=1.0, bw=True)
         black = self._rebate_mask(plain)
-        self.assertGreater(float(np.abs(np.diff(colour[black], axis=-1)).max()), 1e-3)
+        self.assertGreater(float(np.abs(np.diff(color[black], axis=-1)).max()), 1e-3)
         self.assertEqual(float(np.abs(np.diff(mono[black], axis=-1)).max()), 0.0)
 
     def test_flare_deterministic(self) -> None:
@@ -271,7 +271,7 @@ class TestCarrier(unittest.TestCase):
         detached = int((np.count_nonzero(breaks == 1, axis=0) > 1).sum())
         self.assertGreater(detached, 0)
 
-    def test_paper_margin_takes_the_mat_colour(self) -> None:
+    def test_paper_margin_takes_the_mat_color(self) -> None:
         img = np.full((300, 400, 3), 0.5, dtype=np.float32)
         res = apply_carrier(img, width_px=16.0, rough=0.0, paper=(0.2, 0.4, 0.6))
         np.testing.assert_allclose(res[0, 200], [0.2, 0.4, 0.6], atol=1e-6)

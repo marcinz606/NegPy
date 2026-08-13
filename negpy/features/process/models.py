@@ -14,7 +14,7 @@ class ProcessMode(StrEnum):
     def _missing_(cls, value: object) -> "ProcessMode":
         """Legacy chemistry codes (the values before the rename), and anything stale.
 
-        An unrecognised mode has always rendered as colour negative — every branch in
+        An unrecognised mode has always rendered as color negative — every branch in
         the pipeline reads `if BW / elif E6 / else` — so a corrupt saved value stays
         non-fatal here rather than raising on load.
         """
@@ -46,7 +46,7 @@ class ProcessConfig:
     # None falls back to the analysis_buffer slider.
     analysis_rect: Optional[tuple] = None
     # Two independent normalization clip axes: luma drives black/white-point span
-    # (dynamic range), colour is the per-channel-balance clip percentile (orange-mask
+    # (dynamic range), color is the per-channel-balance clip percentile (orange-mask
     # cast removal), defaulting to the robust base_color_clip neutral.
     luma_range_clip: float = 0.0
     color_range_clip: float = float(EXPOSURE_CONSTANTS["base_color_clip"])
@@ -56,9 +56,9 @@ class ProcessConfig:
     # picture, so stretching the measured range crushes the picture into the top of the
     # print curve. Off renders the capture instead; turn it on for faded film.
     e6_normalize: bool = False
-    # Roll-wide baseline applied independently per axis: luma (span) and colour (cast).
+    # Roll-wide baseline applied independently per axis: luma (span) and color (cast).
     use_luma_average: bool = False
-    use_colour_average: bool = False
+    use_color_average: bool = False
     locked_floors: tuple[float, float, float] = (0.0, 0.0, 0.0)
     locked_ceils: tuple[float, float, float] = (0.0, 0.0, 0.0)
     local_floors: tuple[float, float, float] = (0.0, 0.0, 0.0)

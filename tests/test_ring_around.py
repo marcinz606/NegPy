@@ -1,4 +1,4 @@
-"""Colour ring-around ladder: absolute filtration, 2cc steps out to ±4cc either way of
+"""Color ring-around ladder: absolute filtration, 2cc steps out to ±4cc either way of
 neutral on the magenta and yellow axes.
 
 Absolute like the strip's ladders, which is what makes the mosaic invariant to the filtration
@@ -79,7 +79,7 @@ def test_the_accent_follows_the_filtration_in_force():
     assert ring_nearest_cell(0.9, -0.9) == (_ROWS - 1, 0)
 
 
-def test_overrides_touch_only_the_two_colour_head_fields():
+def test_overrides_touch_only_the_two_color_head_fields():
     """A replace() built from these must not be able to disturb density, grade or cyan."""
     overrides = ring_overrides()
     assert len(overrides) == _ROWS * _COLS

@@ -57,8 +57,8 @@ def separation_damping_gain(k: float, damping: float, chroma: float, ref_spread:
     """
     One pixel's effective dye-separation k: the frame-wide k tapered by the
     pixel's own chroma. h = (ref - c)/(ref + c) runs from 1 at grey to -1 at
-    extreme separation, so at damping 1 muted colour takes the full k, the
-    reference spread is left at exactly 1.0 and vivid colour gets 1/k — the
+    extreme separation, so at damping 1 muted color takes the full k, the
+    reference spread is left at exactly 1.0 and vivid color gets 1/k — the
     sign of the change differs between the two populations, which is what a
     frame-wide matrix cannot do. Monotone in chroma for k < e**2; the clamp
     bounds the k -> 0 corner (weakly monotone, so no rank swap).
@@ -281,7 +281,7 @@ class CharacteristicCurve:
     Asymmetric H&D print curve (toe-linear-shoulder) in density space — the NumPy
     mirror of _apply_print_curve_kernel, used by the curve chart so the displayed
     curve matches the render. Returns density (pre-transmittance/encode). Neutral
-    (no regional CMY colour), since the chart shows the achromatic transfer; the
+    (no regional CMY color), since the chart shows the achromatic transfer; the
     achromatic zone density offsets (shadow/highlight ΔD) are included.
     """
 
@@ -973,7 +973,7 @@ def per_channel_curve_params(
     """
     c = effective_constants(paper)
     # Per-channel slope multipliers (paper dye-layer contrast crossover). The
-    # pivot is re-solved per channel so neutrals stay neutral and colour diverges
+    # pivot is re-solved per channel so neutrals stay neutral and color diverges
     # only away from the midtone.
     cg = paper.channel_gamma if paper is not None else (1.0, 1.0, 1.0)
     if grade_trims != (0.0, 0.0, 0.0):

@@ -27,8 +27,8 @@ KEY_RENAMES: Dict[str, str] = {
     # ExposureConfig.__post_init__). Preserve a user's saved on/off.
     "auto_shadow_neutral": "cast_removal_strength",
     "cast_removal": "cast_removal_strength",
-    # D-Range Clip split into independent luma + colour range clips; the old single
-    # slider maps to the luma axis (colour defaults to its aggressive baseline).
+    # D-Range Clip split into independent luma + color range clips; the old single
+    # slider maps to the luma axis (color defaults to its aggressive baseline).
     "drange_clip": "luma_range_clip",
     # The frame-wide density-domain control (ex "Print Saturation") absorbed the
     # per-pixel one beside it and took over its name (see the pop in migrate_flat_config).
@@ -36,6 +36,7 @@ KEY_RENAMES: Dict[str, str] = {
     "density_saturation_trim_red": "dye_separation_trim_red",
     "density_saturation_trim_green": "dye_separation_trim_green",
     "density_saturation_trim_blue": "dye_separation_trim_blue",
+    "use_colour_average": "use_color_average",
 }
 
 # Fields removed from the config over time. Every edit saved before the removal
@@ -104,11 +105,11 @@ def migrate_flat_config(data: Dict[str, Any]) -> Dict[str, Any]:
     if "true_black" in data:
         data["paper_black"] = not bool(data.pop("true_black"))
 
-    # Single roll-average toggle split into independent luma + colour axes.
+    # Single roll-average toggle split into independent luma + color axes.
     if "use_roll_average" in data:
         legacy = bool(data.pop("use_roll_average"))
         data.setdefault("use_luma_average", legacy)
-        data.setdefault("use_colour_average", legacy)
+        data.setdefault("use_color_average", legacy)
 
     # Lab "Separation" moved to the capture side (ProcessConfig crosstalk):
     # the 1.0–2.0 slider maps to strength 0–1. crosstalk_matrix/crosstalk_profile

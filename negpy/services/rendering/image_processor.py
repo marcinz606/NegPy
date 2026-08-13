@@ -937,7 +937,7 @@ class ImageProcessor:
                     "Use sRGB, P3 D65, Rec 2020, or Greyscale, or pick another format."
                 )
             photometric, primaries, transfer = tag
-            # 16-bit, colour-managed to target; ICC discarded (libjxl tags enumeratively).
+            # 16-bit, color-managed to target; ICC discarded (libjxl tags enumeratively).
             if is_greyscale:
                 img_int = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=16)
                 img_out, _icc = self._apply_color_management_u16_greyscale(img_int, working_color_space, color_space, icc_output, icc_input)
@@ -958,7 +958,7 @@ class ImageProcessor:
             return bytes(bits), "jxl"
         elif fmt == ExportFormat.WEBP:
             # 8-bit only (WebP has no higher bit depth). Lossy or lossless via a
-            # flag; PIL embeds the ICC profile for any colour space.
+            # flag; PIL embeds the ICC profile for any color space.
             if is_greyscale:
                 # apply_color_management can't transform an L image with the RGB
                 # working profile (lcms refuses the transform, leaving the file
@@ -1237,7 +1237,7 @@ class ImageProcessor:
         output_icc_path: Optional[str],
         input_icc_path: Optional[str] = None,
     ) -> Tuple[Image.Image, Optional[bytes]]:
-        """Greyscale buffer -> colour-managed 8-bit L image for JPEG/WebP.
+        """Greyscale buffer -> color-managed 8-bit L image for JPEG/WebP.
 
         Runs the 16-bit grey re-encode first so the 8-bit result carries the same
         TRC (and profile bytes) as the greyscale TIFF/PNG of the same edit.

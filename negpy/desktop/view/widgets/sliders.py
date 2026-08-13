@@ -538,7 +538,7 @@ class HueSlider(CompactSlider):
 
 
 def _kelvin_handle_color(kelvin: float) -> QColor:
-    """Blackbody colour (Tanner Helland approximation), softened to the same
+    """Blackbody color (Tanner Helland approximation), softened to the same
     saturation/brightness as the HueSlider handles."""
     t = kelvin / 100.0
     r = 255.0 if t <= 66 else 329.698727446 * (t - 60) ** -0.1332047592
@@ -554,7 +554,7 @@ class KelvinSlider(CompactSlider):
     """
     Kelvin readout with mired-linear travel: slider ints are mired*10, so warm
     (low K) sits on the right and equal drag distance = equal perceived shift.
-    The handle tints to the blackbody colour of the current temperature.
+    The handle tints to the blackbody color of the current temperature.
     """
 
     def __init__(self, label: str, parent=None):

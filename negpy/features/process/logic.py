@@ -99,8 +99,8 @@ def detect_process_mode(raw: Optional[ImageBuffer]) -> ProcessMode:
 
     r, g, b = img[:, :, 0], img[:, :, 1], img[:, :, 2]
 
-    # B&W: channels stay near-perfectly correlated even with a colour tint;
-    # real colour (C41/E-6) has varied hues and lower correlation.
+    # B&W: channels stay near-perfectly correlated even with a color tint;
+    # real color (C41/E-6) has varied hues and lower correlation.
     min_corr = min(_corr(r, g), _corr(g, b), _corr(r, b))
     if min_corr > _BW_CORR_THRESHOLD:
         return ProcessMode.BW
@@ -120,7 +120,7 @@ def detect_process_mode(raw: Optional[ImageBuffer]) -> ProcessMode:
         return ProcessMode.C41
 
     # Purple mask (e.g. Harman Phoenix): R≈B with G suppressed.
-    # Check at p98 (clearest film areas) where the base colour is most visible.
+    # Check at p98 (clearest film areas) where the base color is most visible.
     if _has_purple_mask(r_p98, g_p98, b_p98):
         return ProcessMode.C41
 

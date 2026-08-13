@@ -23,8 +23,8 @@ class AltProcessConfig:
     are mutually exclusive — you cannot lith-develop a cyanotype — so the state
     is one enum rather than two booleans that could both be set.
 
-    Lith takes its colour from the Exposure panel's paper profile; cyanotype is
-    on rag paper and takes its colour from the sensitiser.
+    Lith takes its color from the Exposure panel's paper profile; cyanotype is
+    on rag paper and takes its color from the sensitiser.
     """
 
     alt_process: AltProcess = AltProcess.NONE

@@ -77,7 +77,7 @@ class TestTonalCurve:
         assert spans[1] < spans[0]
 
 
-class TestColour:
+class TestColor:
     def _lab(self, d0, paper=FOMATONE):
         out = apply_lith(_ramp(d0), paper.lith_path, D_MAX, enabled=True, exposure=2.0)
         return rgb_to_lab_working(out)[0]
@@ -101,7 +101,7 @@ class TestColour:
         for key in ("foma_fomatone", "foma_fomabrom", "ilford_mg_rc"):
             lab = self._lab(d0, paper=resolve_paper(key))
             chroma[key] = float(np.hypot(lab[:, 1], lab[:, 2]).mean())
-        # Ilford Multigrade resists lith; Fomatone is the colourful one.
+        # Ilford Multigrade resists lith; Fomatone is the colorful one.
         assert chroma["ilford_mg_rc"] < chroma["foma_fomabrom"] < chroma["foma_fomatone"]
 
     def test_every_bw_profile_declares_a_lith_path(self):

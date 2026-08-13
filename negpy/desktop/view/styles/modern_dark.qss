@@ -363,7 +363,7 @@ QWidget#collapsible_content_body {
 }
 
 /* Hint labels (templates.hint_label): small informational text under controls.
-   Colours: #555555 = text_muted, #C79A3A = warning amber, #D32F2F = channel_red. */
+   Colors: #555555 = text_muted, #C79A3A = warning amber, #D32F2F = channel_red. */
 QLabel[hint="muted"] {
     color: #555555;
     font-size: 11px;
@@ -466,7 +466,7 @@ QPushButton#right_tab_btn:checked {
 }
 
 /* Collapsible section header (see widgets/collapsible.py). [overlay="true"] =
-   header stacked over a preview widget (Tone/Colour histogram strip). */
+   header stacked over a preview widget (Tone/Color histogram strip). */
 QPushButton#collapsible_header {
     text-align: left;
     background-color: #161616;

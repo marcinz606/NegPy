@@ -237,7 +237,7 @@ class ExportSettingsForm(QWidget):
     # --- COLOR ---------------------------------------------------------------
 
     def _build_color(self, root: QVBoxLayout) -> None:
-        root.addWidget(section_subheader("COLOUR"))
+        root.addWidget(section_subheader("COLOR"))
 
         # Drop bundled profiles already backed by a color-space enum so the ICC
         # lists don't duplicate the color-space selector.
@@ -257,7 +257,7 @@ class ExportSettingsForm(QWidget):
         root.addLayout(input_row)
 
         cs_row = QHBoxLayout()
-        cs_row.addWidget(self._row_label("Colour space"))
+        cs_row.addWidget(self._row_label("Color space"))
         self.color_space_combo = QComboBox()
         self.color_space_combo.addItems(EXPORT_COLOR_SPACES)
         constrain_combo(self.color_space_combo)
@@ -361,7 +361,7 @@ class ExportSettingsForm(QWidget):
         self._on_changed()
 
     def _apply_jxl_constraints(self) -> None:
-        """For JXL, grey out colour spaces it can't tag and disable the output ICC
+        """For JXL, grey out color spaces it can't tag and disable the output ICC
         override (a custom profile would land pixels in an un-enumerable space while
         we still tag enumeratively — a silent mistag)."""
         is_jxl = self.fmt_combo.currentData() == ExportFormat.JXL
@@ -393,7 +393,7 @@ class ExportSettingsForm(QWidget):
         self._on_changed()
 
     def is_export_blocked(self) -> bool:
-        """True when the current JXL + colour space pairing can't be tagged."""
+        """True when the current JXL + color space pairing can't be tagged."""
         if self._flat_mode:
             return False
         return export_blocked(self.fmt_combo.currentData(), self.color_space_combo.currentText())

@@ -143,7 +143,7 @@ class TestFlatRollConsistency(unittest.TestCase):
         proc = replace(
             base.process,
             use_luma_average=locked,
-            use_colour_average=locked,
+            use_color_average=locked,
             locked_floors=(-2.0, -2.0, -2.0) if locked else (0.0, 0.0, 0.0),
             locked_ceils=(-0.1, -0.1, -0.1) if locked else (0.0, 0.0, 0.0),
         )

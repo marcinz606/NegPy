@@ -17,4 +17,4 @@ class FinishConfig:
     border_size: float = 0.0  # [0.0, 10.0] cm
     border_color: str = "#ffffff"  # hex color
     border_bottom_weight: float = 1.0  # [1.0, 2.0] bottom border × top (window-mat weighting)
-    border_match_paper: bool = False  # derive mat colour from toned paper white
+    border_match_paper: bool = False  # derive mat color from toned paper white

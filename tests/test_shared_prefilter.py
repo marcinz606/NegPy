@@ -19,7 +19,7 @@ from negpy.features.process.models import ProcessMode
 
 
 def _scene(h: int = 900, w: int = 1200) -> np.ndarray:
-    """Coloured linear-space negative with per-channel structure and some outliers."""
+    """Colored linear-space negative with per-channel structure and some outliers."""
     rng = np.random.default_rng(11)
     base = np.linspace(0.02, 0.6, h, dtype=np.float32)[:, None]
     img = np.stack(

@@ -16,7 +16,7 @@ class AltProcessSidebar(BaseSidebar):
     """
     Alternative printing processes. One at a time — a print is either lith-developed
     or a cyanotype, never both. Lith's paper comes from the Exposure panel; the
-    cyanotype is on rag paper and takes its colour from the sensitiser.
+    cyanotype is on rag paper and takes its color from the sensitiser.
     """
 
     def _init_ui(self) -> None:
@@ -34,7 +34,7 @@ class AltProcessSidebar(BaseSidebar):
                 "Lith",
                 "Develop the print in dilute lith developer: creamy warm highlights and a "
                 "near-vertical drop into hard, sooty blacks.\n"
-                "The colour — peach highlights through an olive transition to neutral blacks — "
+                "The color — peach highlights through an olive transition to neutral blacks — "
                 "comes from the paper chosen in Exposure.\n"
                 "Only Selenium and Gold do anything distinctive on a lith print, so the other toners "
                 "are disabled while this is on",
@@ -72,7 +72,7 @@ class AltProcessSidebar(BaseSidebar):
         self.exposure_slider = CompactSlider("Exposure", 0.0, 5.0, conf.lith_exposure, step=0.1, unit=" stops")
         self.exposure_slider.setToolTip(
             "Print over-exposure. Lith printing runs on two to four stops more light than a normal print: "
-            "more light gives warmer, more colourful highlights and softer gradation"
+            "more light gives warmer, more colorful highlights and softer gradation"
         )
         self.snatch_slider = CompactSlider("Snatch Point", 0.0, 1.0, conf.lith_snatch)
         self.snatch_slider.setToolTip(

@@ -61,7 +61,7 @@ def raw_channel_clip_fraction(path: str, channel_index: int, roi, saturation_mar
 
     A demosaiced channel can read below saturation while its source photosites are already at
     the sensor ceiling — interpolation averages a clipped site with clean neighbours and hides
-    it. Metering the raw sites (before demosaic/colour) catches that, which matters for ETTR
+    it. Metering the raw sites (before demosaic/color) catches that, which matters for ETTR
     where the base is deliberately exposed near the ceiling. `roi` is any object with a
     `.pixels(w, h)` method (duck-typed to avoid an infra→services import). channel_index: R=0,
     G=1, B=2. Returns 0.0 if the channel/white level can't be resolved."""

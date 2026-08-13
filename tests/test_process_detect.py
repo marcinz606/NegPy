@@ -11,13 +11,13 @@ def _bw_scan() -> np.ndarray:
 
 
 def _tinted_bw_scan() -> np.ndarray:
-    """Monochrome with a colour tint: a single grey scaled per channel."""
+    """Monochrome with a color tint: a single grey scaled per channel."""
     gray = np.linspace(0.1, 0.9, 128 * 128, dtype=np.float32).reshape(128, 128)
     return np.stack([gray * 0.8, gray * 0.95, gray * 1.0], axis=-1)
 
 
 def _c41_scan() -> np.ndarray:
-    """Strong orange mask (red >> blue) over a colour scene (decorrelated channels)."""
+    """Strong orange mask (red >> blue) over a color scene (decorrelated channels)."""
     rng = np.random.default_rng(0)
     r = np.clip(0.6 + rng.uniform(-0.15, 0.15, (128, 128)), 0, 1).astype(np.float32)
     g = np.clip(0.4 + rng.uniform(-0.15, 0.15, (128, 128)), 0, 1).astype(np.float32)

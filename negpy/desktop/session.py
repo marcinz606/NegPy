@@ -53,7 +53,7 @@ class AppState:
     workspace_color_space: str = WORKING_COLOR_SPACE
     is_processing: bool = False
     active_tool: ToolMode = ToolMode.NONE
-    # Colour page region (0 Global, 1 Shadows, 2 Highlights): scopes the WB
+    # Color page region (0 Global, 1 Shadows, 2 Highlights): scopes the WB
     # picker so a pick writes the selected region's CMY fields.
     wb_pick_region: int = 0
     uploaded_files: List[Dict[str, Any]] = field(default_factory=list)
@@ -153,7 +153,7 @@ class AppState:
     test_strip_mosaic: Optional[Any] = None
     test_strip_mosaics: Optional[tuple] = None
     test_strip_content_rect: Optional[tuple] = None
-    # Which proof owns the canvas: "tone" (density × grade) or "colour" (M/Y ring-around).
+    # Which proof owns the canvas: "tone" (density × grade) or "color" (M/Y ring-around).
     # One slot, so every path that drops a proof drops both kinds.
     test_strip_kind: str = "tone"
     # Quarter-turns CCW the ladder is turned by. Shared by both kinds and kept across clear and
@@ -426,7 +426,7 @@ def _source_effective_bounds(process) -> Optional[tuple]:
     Roll baseline when the source is on one, else its per-frame meter. Returns
     None when the source was never analysed (all-zero) — nothing to broadcast.
     """
-    if process.is_locked_initialized and (process.use_luma_average or process.use_colour_average):
+    if process.is_locked_initialized and (process.use_luma_average or process.use_color_average):
         return process.locked_floors, process.locked_ceils
     if process.is_local_initialized:
         return process.local_floors, process.local_ceils
@@ -1082,19 +1082,19 @@ class DesktopSessionManager(QObject):
         Apply the active frame's chosen settings to other frames. Returns the count changed.
 
         rows:         SettingRows (from the granular picker) to copy from the source.
-        bounds_flags: (luma, colour) roll-baseline axes to broadcast; these need the
+        bounds_flags: (luma, color) roll-baseline axes to broadcast; these need the
                       source's rendered bounds, not a config field.
         scope:        "selection" (the multi-selected frames) or "roll" (all loaded frames).
         """
         rows = list(rows)
-        luma, colour = bounds_flags
-        if self.state.selected_file_idx == -1 or not (rows or luma or colour):
+        luma, color = bounds_flags
+        if self.state.selected_file_idx == -1 or not (rows or luma or color):
             return 0
 
         source_config = self.state.config
 
         src_bounds = None
-        if luma or colour:
+        if luma or color:
             src_bounds = _source_effective_bounds(source_config.process)
             if src_bounds is None:
                 self.settings_synced.emit("Render the source frame before syncing bounds")
@@ -1115,15 +1115,15 @@ class DesktopSessionManager(QObject):
                 changes: dict = {"locked_floors": floors, "locked_ceils": ceils}
                 if luma:
                     changes["use_luma_average"] = True
-                if colour:
-                    changes["use_colour_average"] = True
+                if color:
+                    changes["use_color_average"] = True
                 synced = replace(synced, process=replace(synced.process, **changes))
             self.push_external_history(target_hash, target_config, synced)
             self.repo.save_file_settings(target_hash, synced, file_path=target_path)
             count += 1
 
         if count:
-            n = len(rows) + int(luma) + int(colour)
+            n = len(rows) + int(luma) + int(color)
             noun = "setting" if n == 1 else "settings"
             if scope == "roll":
                 msg = f"{n} {noun} synced to whole roll ({count} frames)"

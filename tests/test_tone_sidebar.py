@@ -181,6 +181,6 @@ def test_channel_selector_hidden_in_bw(qapp):
     # Forced back to the Global page.
     assert sidebar._channel_index() == 0
     assert not sidebar.grade_slider.isHidden()
-    # Dye Separation is a colour control: gone on a single-emulsion B&W paper.
+    # Dye Separation is a color control: gone on a single-emulsion B&W paper.
     assert sidebar.dye_separation_slider.isHidden()
     assert sidebar.dye_separation_trim_slider.isHidden()

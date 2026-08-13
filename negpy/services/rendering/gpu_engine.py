@@ -586,8 +586,8 @@ class GPUEngine:
             and settings.process.process_mode == ProcessMode.C41
         )
         _roll_luma = settings.process.use_luma_average and settings.process.is_locked_initialized
-        _roll_colour = settings.process.use_colour_average and settings.process.is_locked_initialized
-        needs_bounds_analysis = not (bounds_override or (_roll_luma and _roll_colour) or settings.process.is_local_initialized)
+        _roll_color = settings.process.use_color_average and settings.process.is_locked_initialized
+        needs_bounds_analysis = not (bounds_override or (_roll_luma and _roll_color) or settings.process.is_local_initialized)
         # Measure the anchor for the render when Auto Density is on, and for the
         # Analysis-panel stats on every preview (readback) regardless of toggle —
         # it's only *used* in the render when auto_exposure (see uniforms).

@@ -315,7 +315,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         sticky = {
             "last_export_config": {},
             "last_use_luma_average": True,
-            "last_use_colour_average": True,
+            "last_use_color_average": True,
             "last_locked_floors": [0.1, 0.2, 0.3],
             "last_locked_ceils": [1.1, 1.2, 1.3],
             "last_roll_name": "roll-A",
@@ -323,7 +323,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
         config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
         self.assertFalse(config.process.use_luma_average)
-        self.assertFalse(config.process.use_colour_average)
+        self.assertFalse(config.process.use_color_average)
         self.assertFalse(config.process.is_locked_initialized)
         self.assertIsNone(config.process.roll_name)
 
@@ -337,7 +337,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             process=replace(
                 base.process,
                 use_luma_average=True,
-                use_colour_average=True,
+                use_color_average=True,
                 locked_floors=(0.1, 0.2, 0.3),
                 locked_ceils=(1.1, 1.2, 1.3),
                 roll_name="roll-A",
@@ -345,7 +345,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         )
         self.session.update_config(loaded, persist=True)
         saved = self.mock_repo.save_global_settings.call_args.args[0]
-        for key in ("last_use_luma_average", "last_use_colour_average", "last_locked_floors", "last_locked_ceils", "last_roll_name"):
+        for key in ("last_use_luma_average", "last_use_color_average", "last_locked_floors", "last_locked_ceils", "last_roll_name"):
             self.assertNotIn(key, saved)
 
     def test_saved_file_keeps_its_own_roll_baseline(self):
@@ -354,7 +354,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             process=replace(
                 WorkspaceConfig().process,
                 use_luma_average=True,
-                use_colour_average=True,
+                use_color_average=True,
                 locked_floors=(0.1, 0.2, 0.3),
                 locked_ceils=(1.1, 1.2, 1.3),
             )

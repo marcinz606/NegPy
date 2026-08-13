@@ -31,7 +31,7 @@ class _FakeGPUWidget:
 
 
 class _FakeCanvas(QWidget):
-    """Stands in for ImageCanvas: owns the background colour and the GPU widget."""
+    """Stands in for ImageCanvas: owns the background color and the GPU widget."""
 
     def __init__(self, gpu):
         super().__init__()

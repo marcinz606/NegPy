@@ -30,7 +30,7 @@ It is built with **Python**, running natively on Linux, macOS, and Windows.
 ## Features
 
 **Conversion & Film Science**
-*   **No Camera Profiles**: No camera profiles, no border colour-picking. Math neutralizes the orange mask from channel sensitometry.
+*   **No Camera Profiles**: No camera profiles, no border color-picking. Math neutralizes the orange mask from channel sensitometry.
 *   **Film Physics**: Models the **H&D Characteristic Curve** in density space — an asymmetric toe-linear-shoulder response with independent softplus toe/shoulder knees and ISO-R paper grades — instead of a linear inversion.
 *   **Smart Auto Conversion**: Per-frame **Auto Density** and **Auto Grade** meter each negative for sensible brightness/contrast — usable out of the box, easy to fine-tune.
 *   **Darkroom Paper Profiles**: Per-paper curve shaping (tone, per-channel gamma, base tint) mapped from Ilford/Kodak/Foma/Fuji datasheets, selectable per roll.
@@ -39,7 +39,7 @@ It is built with **Python**, running natively on Linux, macOS, and Windows.
 **Capture & Input**
 *   **Camera Scanning**: Capture negatives with a tethered camera straight into NegPy — a single RAW, or automated red/green/blue narrowband triplets driven by an RGB [Scanlight](https://github.com/jackw01/scanlight) that feed the RGB Scan merge. macOS/Linux, optional dependency. [Camera Scanning guide](docs/CAMERA_SCANNING.md)
 *   **Scanner Support**: Direct control of SANE-compatible film scanners — Plusteks, Nikon Coolscans and others
-*   **RGB Scan (Trichromatic Capture)**: Merge three narrowband red/green/blue exposures of one negative into a single low-noise colour scan, with automatic sub-pixel alignment to kill fringing.
+*   **RGB Scan (Trichromatic Capture)**: Merge three narrowband red/green/blue exposures of one negative into a single low-noise color scan, with automatic sub-pixel alignment to kill fringing.
 *   **Flat-Field Correction**: Correct illumination falloff / vignetting from your light source or scanner via a reference scan of the bare light. Named profiles, toggle per image.
 *   **File Support**: Standard RAWs/TIFFs plus specialized formats like Kodak Pakon scanner raw files.
 
@@ -49,8 +49,8 @@ It is built with **Python**, running natively on Linux, macOS, and Windows.
 *   **Batch Normalization**: Bounds analysis across all loaded files, averaged and applied to the roll.
 *   **GPU Acceleration**: Real-time processing and export rendering via Vulkan/Metal.
 
-**Colour & Output**
-*   **Colour Management**: Full ICC workflow — auto monitor-profile detection (Linux/macOS/Windows), soft proofing including paper/printer profiles, per-image input/output profiles.
+**Color & Output**
+*   **Color Management**: Full ICC workflow — auto monitor-profile detection (Linux/macOS/Windows), soft proofing including paper/printer profiles, per-image input/output profiles.
 *   **Print Ready**: Export built for printing — border controls, ICC soft-proofing, [dynamic filename templating](docs/TEMPLATING.md), **export presets** (save + one-click), and **contact sheets**. Formats: JPEG, TIFF, PNG, WebP, JPEG XL.
 *   **Flat / Digital-Intermediate Export**: Flat, neutral, wide-gamut **16-bit TIFF** master for Lightroom/Darktable/Photoshop, mapping camera RAWs to ProPhoto via the camera's own matrix.
 

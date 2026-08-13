@@ -90,7 +90,7 @@ SLIDER_GROUPS: tuple[SliderShortcutGroup, ...] = (
     _g("fine_rot", "Fine rotation ↑/↓", "fine_rot_inc", "fine_rot_dec", 0.01, "Geometry", step_suffix="°"),
     _g("analysis_buffer", "Analysis buffer ↑/↓", "analysis_buffer_inc", "analysis_buffer_dec", 0.01, "Process"),
     _g("luma_range_clip", "Luma range clip ↑/↓", "luma_range_clip_inc", "luma_range_clip_dec", 1.0, "Process", step_decimals=0),
-    _g("color_range_clip", "Colour range clip ↑/↓", "color_range_clip_inc", "color_range_clip_dec", 1.0, "Process", step_decimals=0),
+    _g("color_range_clip", "Color range clip ↑/↓", "color_range_clip_inc", "color_range_clip_dec", 1.0, "Process", step_decimals=0),
     _g("white_point", "White point ↑/↓", "white_point_inc", "white_point_dec", 0.01, "Process"),
     _g("black_point", "Black point ↑/↓", "black_point_inc", "black_point_dec", 0.01, "Process"),
     _g("separation", "Crosstalk ↑/↓", "separation_inc", "separation_dec", 0.01, "Process"),

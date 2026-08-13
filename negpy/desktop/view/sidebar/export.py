@@ -282,11 +282,11 @@ class ExportSidebar(BaseSidebar):
         content_layout.addWidget(self.cs_show_labels_checkbox)
 
         colors_row = QHBoxLayout()
-        colors_label = field_label("Colours")
+        colors_label = field_label("Colors")
         colors_label.setFixedWidth(90)
         colors_row.addWidget(colors_label)
         self.cs_colors_btn = QPushButton(" Choose…")
-        self.cs_colors_btn.setToolTip("Background and label colours")
+        self.cs_colors_btn.setToolTip("Background and label colors")
         self._update_cs_colors_btn_tooltip()
         self.cs_colors_btn.clicked.connect(self._on_cs_colors_clicked)
         colors_row.addWidget(self.cs_colors_btn, 1)
@@ -352,7 +352,7 @@ class ExportSidebar(BaseSidebar):
                 return
             bg, label = dlg.colors()
         except Exception as exc:
-            QMessageBox.critical(self, "Contact Sheet Colours", f"Could not open colour picker:\n{exc}")
+            QMessageBox.critical(self, "Contact Sheet Colors", f"Could not open color picker:\n{exc}")
             return
         self._cs_background_color = bg
         self._cs_label_color = label
@@ -556,7 +556,7 @@ class ExportSidebar(BaseSidebar):
         self.intent_print_btn = QPushButton("Print")
         self.intent_flat_btn = QPushButton("Flat")
         self.intent_flat_btn.setToolTip(
-            "Export a flat, neutral, low-contrast master that keeps maximum tonal and colour "
+            "Export a flat, neutral, low-contrast master that keeps maximum tonal and color "
             "information for editing in Lightroom, Darktable or Photoshop. Skips the creative "
             "print look (auto density/grade, cast removal, lab effects, toning, vignette) and "
             "writes a wide-gamut, high-bit-depth file. Your in-app preview is unaffected."
@@ -757,7 +757,7 @@ class ExportSidebar(BaseSidebar):
         on = self.intent_flat_btn.isChecked()
         proc = self.state.config.process
         # Flat-master roll consistency needs both axes baselined across the roll.
-        locked = proc.use_luma_average and proc.use_colour_average and proc.is_locked_initialized
+        locked = proc.use_luma_average and proc.use_color_average and proc.is_locked_initialized
         show = on and not locked
         self.flat_roll_warning.setVisible(show)
         self.flat_bake_btn.setVisible(show)
@@ -1303,8 +1303,8 @@ class ExportSidebar(BaseSidebar):
         self.proof_mismatch_label.setVisible(mismatch)
 
     def _refresh_export_enabled(self) -> None:
-        """Disable the Export action when the current format/colour-space pairing
-        can't be encoded (JPEG XL only tags a subset of colour spaces)."""
+        """Disable the Export action when the current format/color-space pairing
+        can't be encoded (JPEG XL only tags a subset of color spaces)."""
         linear_on = self.state.linear_output
         if linear_on:
             from negpy.services.export.linear_output import is_linear_output_supported

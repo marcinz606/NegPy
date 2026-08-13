@@ -53,13 +53,13 @@ def _badge_anchor(poly: QPolygonF) -> QPointF:
     return poly.first()
 
 
-def _hatch(painter: QPainter, poly: QPolygonF, colour: QColor, scale: float) -> None:
+def _hatch(painter: QPainter, poly: QPolygonF, color: QColor, scale: float) -> None:
     path = QPainterPath()
     path.addPolygon(poly)
     rect = poly.boundingRect()
     painter.save()
     painter.setClipPath(path)
-    pen = QPen(colour, max(1.0, scale))
+    pen = QPen(color, max(1.0, scale))
     pen.setCosmetic(scale <= 1.0)
     painter.setPen(pen)
     spacing = _HATCH_SPACING_PX * scale
@@ -70,7 +70,7 @@ def _hatch(painter: QPainter, poly: QPolygonF, colour: QColor, scale: float) -> 
     painter.restore()
 
 
-def _draw_badge(painter: QPainter, pos: QPointF, text: str, colour: QColor, scale: float) -> None:
+def _draw_badge(painter: QPainter, pos: QPointF, text: str, color: QColor, scale: float) -> None:
     font = notes_font(scale)
     metrics = QFontMetricsF(font)
     pad = 5.0 * scale
@@ -82,7 +82,7 @@ def _draw_badge(painter: QPainter, pos: QPointF, text: str, colour: QColor, scal
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(_BADGE_BG)
     painter.drawRoundedRect(rect, 3.0 * scale, 3.0 * scale)
-    painter.setPen(colour)
+    painter.setPen(color)
     painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, text)
     painter.restore()
 
@@ -93,19 +93,19 @@ def paint_map(painter: QPainter, polys: Sequence[Poly], scale: float = 1.0) -> N
         if len(pts) < 3:
             continue
         poly = QPolygonF(pts)
-        colour = _BURN if note.is_burn else _DODGE
+        color = _BURN if note.is_burn else _DODGE
         if note.is_burn:
-            _hatch(painter, poly, colour, scale)
+            _hatch(painter, poly, color, scale)
 
         painter.save()
-        pen = QPen(colour, max(1.8, 1.8 * scale))
+        pen = QPen(color, max(1.8, 1.8 * scale))
         pen.setCosmetic(scale <= 1.0)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPolygon(poly)
         painter.restore()
 
-        _draw_badge(painter, _badge_anchor(poly), note.badge, colour, scale)
+        _draw_badge(painter, _badge_anchor(poly), note.badge, color, scale)
 
 
 def card_size(lines: Sequence[str], scale: float = 1.0) -> Tuple[float, float]:

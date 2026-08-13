@@ -571,7 +571,7 @@ class MainWindow(QMainWindow):
                     logger.error(f"Border preview failure: {e}")
 
         # Shared with the filmstrip thumbnail so the same frame can't render two
-        # different colours in the two places (see display_transform_params).
+        # different colors in the two places (see display_transform_params).
         display_cs, monitor_bytes, proof = self.controller.display_transform_params(splash=bool(metrics.get("splash")))
         self.canvas.update_buffer(buffer, display_cs, content_rect=content_rect, monitor_icc_bytes=monitor_bytes, proof=proof)
 
@@ -634,7 +634,7 @@ class MainWindow(QMainWindow):
         self.canvas.set_tool_mode(mode)
 
         # We access buttons through the controls panel
-        self.controls_panel.colour_sidebar.pick_wb_btn.setChecked(mode == ToolMode.WB_PICK)
+        self.controls_panel.color_sidebar.pick_wb_btn.setChecked(mode == ToolMode.WB_PICK)
         self.controls_panel.geometry_sidebar.manual_crop_btn.setChecked(mode == ToolMode.CROP_MANUAL)
         self.controls_panel.retouch_sidebar.pick_dust_btn.setChecked(mode == ToolMode.DUST_PICK)
 

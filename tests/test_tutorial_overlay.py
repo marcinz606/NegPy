@@ -15,7 +15,7 @@ _VALID_SECTION_ATTRS = {
     "process_section",
     "sensor_section",
     "roll_section",
-    "colour_section",
+    "color_section",
     "tone_section",
     "lab_section",
     "toning_section",

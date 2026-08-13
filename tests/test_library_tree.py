@@ -220,7 +220,7 @@ def test_primary_root_skips_a_folder_that_is_gone(qapp, tmp_path, tree_dirs):
     assert widget.primary_root() == str(tree_dirs)
 
 
-def test_selection_uses_the_accent_colour(widget):
+def test_selection_uses_the_accent_color(widget):
     assert THEME.accent_primary in widget.tree.styleSheet()
 
 

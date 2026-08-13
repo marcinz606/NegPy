@@ -114,9 +114,9 @@ class TestDisplayTransform(unittest.TestCase):
         out = apply_display_transform(grey, WORKING_COLOR_SPACE)
         np.testing.assert_array_equal(out, grey)
 
-    def test_colour_managed_defaults_use_working_space(self):
-        """Colour-space params must default to the working space, not a hardcoded
-        'sRGB' that silently skips colour management on the float32 path (cf. #518)."""
+    def test_color_managed_defaults_use_working_space(self):
+        """Color-space params must default to the working space, not a hardcoded
+        'sRGB' that silently skips color management on the float32 path (cf. #518)."""
         import inspect
 
         from negpy.desktop.converters import ImageConverter

@@ -128,8 +128,8 @@ class _ThumbnailDelegate(QStyledItemDelegate):
                 painter.drawLine(cx - 5, cy + dy, cx - 5 + width, cy + dy)
         elif kind == "rgb":  # the three narrowband exposures
             painter.setPen(Qt.PenStyle.NoPen)
-            for dx, colour in ((-4, THEME.channel_red), (0, THEME.channel_green), (4, THEME.channel_blue)):
-                painter.setBrush(QColor(colour))
+            for dx, color in ((-4, THEME.channel_red), (0, THEME.channel_green), (4, THEME.channel_blue)):
+                painter.setBrush(QColor(color))
                 painter.drawEllipse(QRect(cx + dx - 2, cy - 2, 4, 4))
             painter.setBrush(Qt.BrushStyle.NoBrush)
         elif kind == "half":  # a split frame, this asset's own half filled
@@ -1136,7 +1136,7 @@ class FileBrowser(QWidget):
     def _add_hdr_merge_action(self, menu, state) -> None:
         """Merging is for transparencies, so the action follows the film process.
 
-        A colour negative holds about 5-6 stops between base and Dmax, and an ordinary
+        A color negative holds about 5-6 stops between base and Dmax, and an ordinary
         black-and-white negative nearer 4 — both inside a single capture, so a bracket buys
         nothing. A transparency runs to 10-12, which is what the merge exists for.
 

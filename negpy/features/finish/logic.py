@@ -121,7 +121,7 @@ def apply_carrier(
     and the filed aperture, with a margin of unexposed paper outside it.
 
     rough ragges the aperture, corner rounds it. flare lerps both sides of the filed
-    edge toward the bevel's reflection (neutral when bw). paper is the bare-paper colour
+    edge toward the bevel's reflection (neutral when bw). paper is the bare-paper color
     in scene-linear, so the margin meets the mat with no seam.
     """
     if width_px <= 0.0:

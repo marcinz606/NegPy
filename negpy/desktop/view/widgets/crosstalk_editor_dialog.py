@@ -208,9 +208,9 @@ class CrosstalkEditorDialog(QDialog):
             "<table width='300'><tr><td>"
             "The film process these numbers describe. A matrix only reaches the render — and only "
             "appears in the sidebar's Matrix dropdown — while NegPy is in this mode.<br><br>"
-            "Dye sets do not carry across: a colour negative matrix does not describe a slide's dyes, so applying "
+            "Dye sets do not carry across: a color negative matrix does not describe a slide's dyes, so applying "
             "one to a slide corrects a leak that is not there. Note also that on a positive an unmix "
-            "moves the render <i>away</i> from the slide's own colour — use it as a separation "
+            "moves the render <i>away</i> from the slide's own color — use it as a separation "
             "control, not for fidelity."
             "</td></tr></table>"
         )
@@ -220,7 +220,7 @@ class CrosstalkEditorDialog(QDialog):
 
         info = QLabel(
             "<b>Spectral crosstalk unmix</b><br>"
-            "Film dyes leak a little density into the channels they shouldn't, muddying colour.<br>"
+            "Film dyes leak a little density into the channels they shouldn't, muddying color.<br>"
             "<br>"
             "• <b>IN</b> columns are the source channel; each row is the output channel it feeds.<br>"
             "• Each off-diagonal slider subtracts one channel's leak from another — e.g. column "
@@ -284,7 +284,7 @@ class CrosstalkEditorDialog(QDialog):
         grid = QGridLayout(container)
         grid.setSpacing(10)
         grid.setContentsMargins(2, 4, 2, 4)
-        # Axis-title (0) and colour-box (1) columns stay fixed; slider columns absorb resize.
+        # Axis-title (0) and color-box (1) columns stay fixed; slider columns absorb resize.
         grid.setColumnStretch(0, 0)
         grid.setColumnStretch(1, 0)
         for j in (2, 3, 4):

@@ -198,12 +198,12 @@ class TestConfigDeserialization(unittest.TestCase):
     def test_legacy_use_roll_average_true_splits_to_both_axes(self):
         config = WorkspaceConfig.from_flat_dict({"use_roll_average": True})
         self.assertTrue(config.process.use_luma_average)
-        self.assertTrue(config.process.use_colour_average)
+        self.assertTrue(config.process.use_color_average)
 
     def test_legacy_use_roll_average_false_splits_to_both_axes(self):
         config = WorkspaceConfig.from_flat_dict({"use_roll_average": False})
         self.assertFalse(config.process.use_luma_average)
-        self.assertFalse(config.process.use_colour_average)
+        self.assertFalse(config.process.use_color_average)
 
     def test_legacy_use_roll_average_does_not_warn(self):
         with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):
@@ -338,7 +338,7 @@ class TestConfigDeserialization(unittest.TestCase):
             self.assertEqual(config.process.process_mode, expected)
             self.assertIsInstance(config.process.process_mode, ProcessMode)
 
-    def test_unknown_process_mode_falls_back_to_colour_negative(self):
+    def test_unknown_process_mode_falls_back_to_color_negative(self):
         """A corrupt or hand-edited value renders as it always did, rather than failing the load."""
         self.assertEqual(WorkspaceConfig.from_flat_dict({"process_mode": "Kodachrome"}).process.process_mode, ProcessMode.C41)
 

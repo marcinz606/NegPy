@@ -30,7 +30,7 @@ def classify_channel(means: Sequence[float]) -> int:
 
 
 def probe_channel_means(path: str) -> Tuple[float, float, float]:
-    """Black-subtracted per-Bayer-colour means, without demosaicing (cheap classification probe)."""
+    """Black-subtracted per-Bayer-color means, without demosaicing (cheap classification probe)."""
     import rawpy
 
     with rawpy.imread(path) as raw:

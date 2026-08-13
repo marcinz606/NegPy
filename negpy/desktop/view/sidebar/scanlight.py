@@ -1421,7 +1421,7 @@ class ScanlightSidebar(QWidget):
         self.lv_window.set_status(text)
 
     def _set_conn_status(self, label, state, short: str, detail: str = "") -> None:
-        """Compact colour-coded dot: green=ok, red=fail, grey=unknown (detail in tooltip)."""
+        """Compact color-coded dot: green=ok, red=fail, grey=unknown (detail in tooltip)."""
         color = "#1D9E75" if state else ("#E24B4A" if state is False else "#888780")
         label.setText(f"● {short}")
         label.setStyleSheet(f"color: {color}; font-size: {THEME.font_size_small}px;")

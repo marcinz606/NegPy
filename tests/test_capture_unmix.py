@@ -55,7 +55,7 @@ def test_gray_film_stays_gray_under_unmix():
     np.testing.assert_allclose(base, unmixed, atol=0.03)
 
 
-def test_unmix_changes_coloured_content():
+def test_unmix_changes_colored_content():
     rng = np.random.default_rng(1)
     img = np.clip(rng.uniform(0.01, 0.9, (64, 64, 3)), 1e-5, 1.0).astype(np.float32)
     base = _normalize(img, ProcessConfig())

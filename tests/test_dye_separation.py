@@ -143,7 +143,7 @@ class TestSeparationDampingGain:
     def test_sign_of_the_change_differs_between_populations(self):
         """The whole point, and what #683 killed the previous attempt for: a
         frame-wide matrix scales every pixel's chroma the same way, so no setting
-        of it can lift muted colour while pulling vivid colour down. This must."""
+        of it can lift muted color while pulling vivid color down. This must."""
         muted = separation_damping_gain(1.4, 1.0, 0.05, self.REF)
         vivid = separation_damping_gain(1.4, 1.0, 3.0 * self.REF, self.REF)
         assert muted > 1.25

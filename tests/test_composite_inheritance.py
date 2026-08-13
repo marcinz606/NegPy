@@ -483,7 +483,7 @@ class TestStitchGetsTheSameTreatment(unittest.TestCase):
 class TestMergeIsOfferedOnlyForTransparencies:
     """A bracket buys nothing on a negative.
 
-    Colour negative holds ~5-6 stops between base and Dmax and an ordinary black-and-white
+    Color negative holds ~5-6 stops between base and Dmax and an ordinary black-and-white
     negative nearer 4, both inside one capture; a transparency runs to 10-12, which is what
     the merge exists for. Hidden on C-41, disabled with a reason on B&W, because reversal
     monochrome (Scala, dr5, Fomapan R) really is a transparency and is simply not wired up.
@@ -511,7 +511,7 @@ class TestMergeIsOfferedOnlyForTransparencies:
         FileBrowser._add_hdr_merge_action(browser, menu, state)
         return actions
 
-    def test_hidden_for_colour_negative(self):
+    def test_hidden_for_color_negative(self):
         assert self._menu_labels(ProcessMode.C41) == []
 
     def test_present_for_a_slide(self):

@@ -65,7 +65,7 @@ def apply_lith(
     the snatch point. Between them the print has no midtones to speak of — past
     the knee everything sits on the flat Dmax "lith band".
 
-    Colour is the paper's own (a*, b*) path, indexed on the *output* density
+    Color is the paper's own (a*, b*) path, indexed on the *output* density
     fraction: peach, ochre, olive, neutral. There is no strength control; the
     paper picked in the Exposure panel is the control. Small-particle silver is
     strongly chromatic and turns neutral only once the grains grow and pack

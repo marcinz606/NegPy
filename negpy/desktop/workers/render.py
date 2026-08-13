@@ -62,7 +62,7 @@ class RenderTask:
 
 @dataclass(frozen=True)
 class TestStripTask:
-    """Request to print a proof mosaic off one frame: the density × grade strip or the colour
+    """Request to print a proof mosaic off one frame: the density × grade strip or the color
     ring-around. `overrides` is one ExposureConfig field-override dict per patch, row-major
     over `grid`, unrotated — the worker assembles all four orientations."""
 
@@ -87,7 +87,7 @@ class ThumbnailUpdateTask:
     file_hash: str  # asset_thumbnail_key — the filmstrip and the disk cache share it
     buffer: np.ndarray
     # Display-transform inputs, from AppController.display_transform_params — must be
-    # the same triple the canvas used for this buffer or the thumbnail's colour drifts.
+    # the same triple the canvas used for this buffer or the thumbnail's color drifts.
     color_space: str = WORKING_COLOR_SPACE
     monitor_icc_bytes: Optional[bytes] = None
     proof: Optional[tuple] = None
@@ -266,7 +266,7 @@ class RenderWorker(QObject):
 
         Runs on the render thread with the canvas's own ImageProcessor, so the patches are the
         pixels the canvas would show. Every field a proof overrides (density/grade, or the
-        colour head's magenta/yellow) is absent from the analysis cache key, so the per-frame
+        color head's magenta/yellow) is absent from the analysis cache key, so the per-frame
         metering is reused and only the exposure stage onward re-dispatches. Metrics are
         dropped: a proof must not disturb the writeback the real render owns.
         """

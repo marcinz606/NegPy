@@ -22,7 +22,7 @@ from negpy.features.process.models import ProcessMode, invalidate_local_bounds
 _LUMA_MARGIN_MIN = 1e-6
 _LUMA_MARGIN_MAX = 1.0
 
-# Colour Clip slider: the per-channel-balance sampling depth, log-interpolated
+# Color Clip slider: the per-channel-balance sampling depth, log-interpolated
 # around the neutral (pos 0 = base_color_clip) — the luma-band depth of the
 # same-pixel dense-end refs and the clip percentile of the thin-end/fallback
 # pass. The ends reach _COLOR_CLIP_MIN (gentlest, near-extreme bounds) and
@@ -140,7 +140,7 @@ class ProcessSidebar(BaseSidebar):
         )
         initial_color_slider_val = _color_value_to_slider(conf.color_range_clip)
         self.color_range_clip_slider = CompactSlider(
-            "Colour Clip", -100, 100, initial_color_slider_val, precision=1, step=1, has_neutral=True
+            "Color Clip", -100, 100, initial_color_slider_val, precision=1, step=1, has_neutral=True
         )
         clip_row.addWidget(self.luma_range_clip_slider)
         clip_row.addWidget(self.color_range_clip_slider)
@@ -191,7 +191,7 @@ class ProcessSidebar(BaseSidebar):
                 "expired slides</b>, where the dyes have lost their range and a per-frame stretch "
                 "puts it back. On a slide that was exposed as intended it stretches a range that is "
                 "mostly not picture, which reads washed out.<br><br>"
-                "Off (the default) renders the slide as the capture — the camera's own colour matrix "
+                "Off (the default) renders the slide as the capture — the camera's own color matrix "
                 "and a fixed exposure window — so it opens looking like it does in any raw converter, "
                 "and a bracketed set stays a bracketed set. Print controls give way to a plain "
                 "transfer curve (Density, Grade, Toe, Shoulder)."
@@ -400,11 +400,9 @@ class ProcessSidebar(BaseSidebar):
             # Each clip slider is disabled when its axis rides the roll baseline; the
             # analysis buffer only matters when at least one axis still analyzes locally,
             # and is overridden entirely by a freehand analysis region.
-            self.analysis_buffer_slider.setEnabled(
-                not locked and not has_region and not (conf.use_luma_average and conf.use_colour_average)
-            )
+            self.analysis_buffer_slider.setEnabled(not locked and not has_region and not (conf.use_luma_average and conf.use_color_average))
             self.luma_range_clip_slider.setEnabled(not locked and not conf.use_luma_average)
-            self.color_range_clip_slider.setEnabled(not locked and not conf.use_colour_average)
+            self.color_range_clip_slider.setEnabled(not locked and not conf.use_color_average)
             # Trims shift the same frozen bounds, so the selector locks with them.
             for w in (self.white_point_slider, self.black_point_slider, self.ch_global_btn, self.ch_r_btn, self.ch_g_btn, self.ch_b_btn):
                 w.setEnabled(not locked)

@@ -125,7 +125,7 @@ class RingAroundLifecycle(unittest.TestCase):
         task = self.strip_tasks[0]
         self.assertEqual(task.grid, RING_GRID)
         self.assertEqual(len(task.overrides), RING_GRID[0] * RING_GRID[1])
-        self.assertEqual(self.controller.state.test_strip_kind, "colour")
+        self.assertEqual(self.controller.state.test_strip_kind, "color")
         # Absolute ladder: the rungs don't depend on what is currently dialled in.
         self.assertEqual(tuple(task.overrides), tuple(ring_overrides()))
 
@@ -198,7 +198,7 @@ class RingAroundLifecycle(unittest.TestCase):
 
     def test_asking_for_the_other_kind_swaps_the_proof(self):
         self._print_ring()
-        self.assertEqual(self.controller.state.test_strip_kind, "colour")
+        self.assertEqual(self.controller.state.test_strip_kind, "color")
 
         self.controller.toggle_test_strip()
         self.assertEqual(self.controller.state.test_strip_kind, "tone")
@@ -206,7 +206,7 @@ class RingAroundLifecycle(unittest.TestCase):
 
         self.controller.on_strip_finished(self._mosaic(), (0, 0, 10, 10))
         self.controller.toggle_ring_around()
-        self.assertEqual(self.controller.state.test_strip_kind, "colour")
+        self.assertEqual(self.controller.state.test_strip_kind, "color")
         self.assertEqual(len(self.strip_tasks), 3)
 
     def test_toggling_the_same_kind_again_dismisses_it(self):

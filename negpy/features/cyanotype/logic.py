@@ -81,7 +81,7 @@ def apply_cyanotype(
     Simple Cyanotype ships as three variants at 1.8 / 2.3 / 2.7. Within it the
     midtones compress, so the mid gamma runs below one.
 
-    Colour is Prussian blue, which absorbs around 700nm and so carries most of its
+    Color is Prussian blue, which absorbs around 700nm and so carries most of its
     density in red: the print never goes black, it goes blue, and the highlights
     print green where the residual yellow sensitiser mixes into the blue. Bleach
     then tannin is the standard toning pair — washing soda strips the pigment

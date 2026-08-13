@@ -1,9 +1,9 @@
 """
-Capture colorimetry: the camera's own colour matrix.
+Capture colorimetry: the camera's own color matrix.
 
 RAW is decoded `output_color=raw` (sensor-native RGB), so a buffer arriving in the
 pipeline is in the camera's primaries, not the working space. The print path never
-needed the distinction — it derives colour from measured film density and a paper
+needed the distinction — it derives color from measured film density and a paper
 model — but a transparency transfer does: without this matrix a slide renders in
 sensor primaries and no raw converter agrees with it.
 
@@ -65,7 +65,7 @@ def camera_to_working_matrix(
         return None
 
     # Normalize the forward (working->cam) rows, then invert — dcraw's order. Doing it
-    # the other way round distorts every non-neutral colour; see the module docstring.
+    # the other way round distorts every non-neutral color; see the module docstring.
     forward = m @ _WORKING_TO_XYZ
     sums = forward.sum(axis=1, keepdims=True)
     if not np.all(np.isfinite(sums)) or np.any(np.abs(sums) < 1e-9):
@@ -88,7 +88,7 @@ def apply_camera_matrix(img: np.ndarray, matrix: Optional[np.ndarray]) -> np.nda
     """
     Camera primaries -> working space. A None matrix passes the buffer through.
 
-    Negatives are kept: they are real out-of-gamut colours, and clipping here
+    Negatives are kept: they are real out-of-gamut colors, and clipping here
     would bake a hue shift into the transfer before any tone curve sees it.
     """
     if matrix is None:

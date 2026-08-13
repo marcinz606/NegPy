@@ -158,7 +158,7 @@ class TestCanvasToolbarResponsive(unittest.TestCase):
     def test_ring_around_is_not_in_the_toolbar(self):
         tb = _make_toolbar()
         labels = [a.text() for a in tb.btn_overflow.menu().actions()]
-        self.assertNotIn("Colour Ring-Around", labels)
+        self.assertNotIn("Color Ring-Around", labels)
         self.assertFalse(hasattr(tb, "_ov_ring_action"))
 
     def test_overflow_menu_always_shows_full_action_set(self):

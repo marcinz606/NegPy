@@ -40,7 +40,7 @@ Numpad keys can be bound separately from the number row (e.g. `Num+9` vs `9`). N
 | `Shift + B` | Toggle Dodge & Burn Mask Draw |
 | `Shift + R` | Toggle Analysis Region Draw |
 | `Shift + T` | Print the density × grade test strip |
-| `Shift + F` | Print the colour ring-around (M/Y filtration) |
+| `Shift + F` | Print the color ring-around (M/Y filtration) |
 | `\|` | Peek flat scan (digital intermediate preview) |
 | `Esc` | First press clears in-progress points, second puts the tool down |
 

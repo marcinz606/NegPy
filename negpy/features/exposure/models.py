@@ -13,7 +13,7 @@ class RenderIntent(StrEnum):
             inversion is kept, but the creative print decisions (auto density/grade,
             cast removal, toe/shoulder) and the downstream creative
             stages (lab, local, toning, finish) are bypassed so maximal tonal and
-            colour information is preserved with gentle highlight/shadow roll-off.
+            color information is preserved with gentle highlight/shadow roll-off.
     """
 
     PRINT = "print"
@@ -119,7 +119,7 @@ class ExposureConfig:
 
 EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # Max absolute density offset applied by CMY white-balance sliders (slider ±1 → ±this density).
-    # ↑ widens colour-balance range per slider unit; ↓ narrows it.
+    # ↑ widens color-balance range per slider unit; ↓ narrows it.
     "cmy_max_density": 0.2,
     # Scales the density slider's effect on the exposure pivot.
     # ↑ density slider moves the midtone more aggressively; ↓ gentler response.
@@ -195,10 +195,10 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # Base percentile clip added to the luma-range histogram analysis (robust floor/ceil detection).
     # ↑ clips more histogram tails (tighter black/white points); ↓ uses fuller histogram range.
     "base_luma_clip": 0.01,
-    # Colour Clip neutral/default percentile: robust per-tail clip for per-channel
+    # Color Clip neutral/default percentile: robust per-tail clip for per-channel
     # balance (orange-mask cast removal), independent of luma range. The slider spans
     # log-interpolated percentiles around this neutral.
-    # Default neutral percentile for per-channel colour clip / cast-removal analysis.
+    # Default neutral percentile for per-channel color clip / cast-removal analysis.
     # ↑ more outlier-resistant balance detection; ↓ more relaxed (includes more extreme tones).
     "base_color_clip": 1.0,
     # Percentile used to sample per-channel shadow references for cast detection.
@@ -233,8 +233,8 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # and roll-off width of the confidence agreement term beyond it.
     "neutral_axis_agreement_deadzone": 0.10,
     "neutral_axis_agreement_scale": 0.20,
-    # Width (percentile points) of the luma-extreme band the same-pixel colour
-    # floor refs read; Colour Clip sets the band's depth.
+    # Width (percentile points) of the luma-extreme band the same-pixel color
+    # floor refs read; Color Clip sets the band's depth.
     "color_bounds_band_width": 4.0,
     # Clamp on each channel's deviation from green at any anchor (generous: refs are clean).
     "midtone_cast_max_offset": 0.2,

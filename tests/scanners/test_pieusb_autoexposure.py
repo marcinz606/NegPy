@@ -239,7 +239,7 @@ def test_metering_applies_one_uniform_factor_to_every_channel():
     scanner._meter_from_preview(0.0)
 
     gains = {scanner.params[f"gain_{s}"].value for s in ("r", "g", "b")}
-    assert len(gains) == 1, "per-channel gains would rebalance the colour"
+    assert len(gains) == 1, "per-channel gains would rebalance the color"
 
 
 def test_metering_a_gray_pass_only_touches_the_green_channel():
@@ -307,7 +307,7 @@ def test_relative_and_absolute_exposure_are_separate_options():
     # Both exist, with the two defaults SANE uses for the two commands.
     assert [table[f"exp_rel_{c}"].value for c in "rgb"] == [100, 100, 100]
     assert [table[f"exp_time_{c}"].value for c in "rgbi"] == [2937] * 4
-    # Relative exposure has no infrared entry: the C struct holds three colours.
+    # Relative exposure has no infrared entry: the C struct holds three colors.
     with pytest.raises(KeyError):
         table["exp_rel_i"]
 

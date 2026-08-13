@@ -36,14 +36,14 @@ from negpy.services.rendering.gpu_engine import GPUEngine
 
 
 def _make_synthetic_image(seed: int = 42) -> np.ndarray:
-    """64x64 synthetic image: diagonal gradient + colour patches."""
+    """64x64 synthetic image: diagonal gradient + color patches."""
     rng = np.random.default_rng(seed)
     img = np.zeros((64, 64, 3), dtype=np.float32)
     # Diagonal gradient (0.1 → 0.9)
     for y in range(64):
         for x in range(64):
             img[y, x] = 0.1 + 0.8 * ((x + y) / 126.0)
-    # Colour patches in corners
+    # Color patches in corners
     img[0:16, 0:16] = [0.9, 0.1, 0.1]  # red
     img[0:16, 48:64] = [0.1, 0.9, 0.1]  # green
     img[48:64, 0:16] = [0.1, 0.1, 0.9]  # blue
@@ -253,7 +253,7 @@ class TestExposureParity:
 
 
 class TestLabParity:
-    """CPU vs GPU parity for the lab colour/sharpening shader."""
+    """CPU vs GPU parity for the lab color/sharpening shader."""
 
     @classmethod
     def setup_class(cls):
@@ -305,7 +305,7 @@ class TestLabParity:
         check using the wrong RGB<->XYZ matrix direction) previously produced a
         CPU/GPU max diff of ~0.06 on deeply saturated content, invisible to this
         class's own much looser default tolerance (atol/rtol=1.5e-1). Uses a
-        strongly colour-biased synthetic frame (unlike _make_synthetic_image's
+        strongly color-biased synthetic frame (unlike _make_synthetic_image's
         gentler gradient) specifically to drive real pixels into the gamut-aware
         knee, not just the byte-exact identity/no-knee fast path."""
         rng = np.random.default_rng(5)
@@ -334,7 +334,7 @@ class TestLabParity:
         reaches, so this is the only cover for skin_weight/skin_chroma_rein's WGSL
         mirror. Two neutral patches anchor the per-channel normalization (which
         would otherwise flatten a uniform cast) so the six warm ones keep their
-        colour and land inside the mask: 75% of the frame at weight > 0.3. The
+        color and land inside the mask: 75% of the frame at weight > 0.3. The
         no-op assertion below is what keeps this a real cover -- protection has to
         move the CPU render by more than the parity tolerance it then checks."""
         h, w = 64, 64

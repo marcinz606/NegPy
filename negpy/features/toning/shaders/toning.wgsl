@@ -87,7 +87,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     // 1. Process Mode (B&W). Redundant with the exposure pass, which already
     // collapsed to luma — except under an alternative process, where the lith or
-    // cyanotype pass has since put real colour on the print and collapsing would
+    // cyanotype pass has since put real color on the print and collapsing would
     // throw it away.
     if (params.is_bw == 1u && params.alt_mode == 0u) {
         let luma = dot(color, vec3<f32>(0.2126, 0.7152, 0.0722));
@@ -147,7 +147,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         a -= f_van;
 
         // d3, not d0: see _apply_chemical_toning_jit. Rebuilding from the mean
-        // would discard colour the print already carries.
+        // would discard color the print already carries.
         let d = d3 * (vec3<f32>(a)
             + f_sel * sel_gain
             + f_sep * sep_gain

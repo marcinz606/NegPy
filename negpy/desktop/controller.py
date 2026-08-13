@@ -1287,7 +1287,7 @@ class AppController(QObject):
         Rotation is not in the key: an entry holds all four orientations.
         """
         exposure = self.state.config.exposure
-        if kind == "colour":
+        if kind == "color":
             exposure = replace(exposure, wb_magenta=0.0, wb_yellow=0.0)
         else:
             exposure = replace(exposure, density=1.0, grade=115.0)
@@ -1899,11 +1899,11 @@ class AppController(QObject):
         self.zone_pins_changed.emit()
 
     def toggle_ring_around(self, force: Optional[bool] = None) -> None:
-        """Print (or clear) the colour ring-around — the M/Y filtration proof."""
-        self.toggle_test_strip(force, kind="colour")
+        """Print (or clear) the color ring-around — the M/Y filtration proof."""
+        self.toggle_test_strip(force, kind="color")
 
     def toggle_test_strip(self, force: Optional[bool] = None, kind: str = "tone") -> None:
-        """Print (or clear) a proof mosaic: the density × grade strip, or the colour ring-around.
+        """Print (or clear) a proof mosaic: the density × grade strip, or the color ring-around.
         Entering dispatches one job, since these need pixels the canvas doesn't have.
 
         Both share the one proof slot, so asking for the other kind swaps it.
@@ -1917,9 +1917,9 @@ class AppController(QObject):
             return
 
         # Unrotated: one print yields every orientation, so rotating never re-renders.
-        grid = RING_GRID if kind == "colour" else STRIP_GRID
-        overrides = ring_overrides() if kind == "colour" else strip_overrides()
-        toast = "Printing the colour ring-around…" if kind == "colour" else "Printing test strip…"
+        grid = RING_GRID if kind == "color" else STRIP_GRID
+        overrides = ring_overrides() if kind == "color" else strip_overrides()
+        toast = "Printing the color ring-around…" if kind == "color" else "Printing test strip…"
 
         # Reprinting an unchanged proof is a pile of renders for pixels we already have.
         cached = self._strip_memo.get(self.state.current_file_hash or "", self._strip_memo_key(kind))
@@ -1990,7 +1990,7 @@ class AppController(QObject):
         self.state.test_strip_mosaic = mosaics[self.state.test_strip_rotation]
         self.state.test_strip_content_rect = content_rect
         self.test_strip_changed.emit(True)
-        label = "Ring-around" if self.state.test_strip_kind == "colour" else "Test strip"
+        label = "Ring-around" if self.state.test_strip_kind == "color" else "Test strip"
         self.status_message_requested.emit(f"{label} ready — click a patch to keep it", 4000)
 
     def rotate_test_strip(self, direction: int) -> bool:
@@ -2022,12 +2022,12 @@ class AppController(QObject):
         if not self.state.test_strip:
             return
         exposure = self.state.config.exposure
-        colour = self.state.test_strip_kind == "colour"
-        base_grid = RING_GRID if colour else STRIP_GRID
+        color = self.state.test_strip_kind == "color"
+        base_grid = RING_GRID if color else STRIP_GRID
         rotation = self.state.test_strip_rotation
-        cells = rotate_grid(ring_cells() if colour else strip_cells(), base_grid, rotation)
+        cells = rotate_grid(ring_cells() if color else strip_cells(), base_grid, rotation)
         _, _, first, second = cells[row * proof_grid(base_grid, rotation)[1] + col]
-        if colour:
+        if color:
             new_exposure = replace(exposure, wb_magenta=first, wb_yellow=second)
         else:
             new_exposure = replace(exposure, density=first, grade=second)
@@ -2112,7 +2112,7 @@ class AppController(QObject):
         _enforce_ratio_by_occupancy only ever shrink the box inside a footprint
         that already excludes the rebate, so the new ROI is a subset of the old
         one. Re-metering there can only drift the per-channel floors/ceils — i.e.
-        a visible colour shift from what is supposed to be a pure reframe."""
+        a visible color shift from what is supposed to be a pure reframe."""
         geom = self.state.config.geometry
         if ratio == geom.autocrop_ratio:
             return
@@ -2825,7 +2825,7 @@ class AppController(QObject):
             new_process = replace(
                 p.process,
                 use_luma_average=True,
-                use_colour_average=True,
+                use_color_average=True,
                 locked_floors=locked_floors,
                 locked_ceils=locked_ceils,
                 roll_name=None,
@@ -2840,7 +2840,7 @@ class AppController(QObject):
         new_process = replace(
             self.state.config.process,
             use_luma_average=True,
-            use_colour_average=True,
+            use_color_average=True,
             locked_floors=locked_floors,
             locked_ceils=locked_ceils,
             roll_name=None,
@@ -2876,7 +2876,7 @@ class AppController(QObject):
                 new_process = replace(
                     p.process,
                     use_luma_average=True,
-                    use_colour_average=True,
+                    use_color_average=True,
                     locked_floors=locked_floors,
                     locked_ceils=locked_ceils,
                     roll_name=name,
@@ -2889,7 +2889,7 @@ class AppController(QObject):
             new_process = replace(
                 self.state.config.process,
                 use_luma_average=True,
-                use_colour_average=True,
+                use_color_average=True,
                 locked_floors=locked_floors,
                 locked_ceils=locked_ceils,
                 roll_name=name,
@@ -2904,7 +2904,7 @@ class AppController(QObject):
         new_process = replace(
             self.state.config.process,
             use_luma_average=False,
-            use_colour_average=False,
+            use_color_average=False,
             roll_name=None,
             **invalidate_local_bounds(self.state.config.process),
         )
@@ -3425,7 +3425,7 @@ class AppController(QObject):
 
         Single source of truth for every consumer of a rendered buffer — the canvas
         shader, the CPU overlay and the filmstrip thumbnail must agree, or the same
-        frame shows two different colours. Renders arrive in the working space; a
+        frame shows two different colors. Renders arrive in the working space; a
         proof is *not* baked into them, it is folded into the display LUT here (see
         ``get_display_lut``), which is what lets a GPU texture go to the shader
         untouched. ``splash`` marks the embedded camera thumbnail, already sRGB.
@@ -4283,14 +4283,14 @@ class AppController(QObject):
         self.set_status(f"Wrote {count_of(written, 'edit sidecar')}{suffix}", 6000 if failed else 4000)
 
     def _run_export_tasks(self, tasks: List[ExportTask]) -> None:
-        # Reject unencodable format/colour-space pairings before anything else.
+        # Reject unencodable format/color-space pairings before anything else.
         blocked = [t for t in tasks if export_blocked(t.export_settings.export_fmt, t.export_settings.export_color_space)]
         if blocked:
             names = ", ".join(sorted({t.file_info.get("name", "?") for t in blocked})[:5])
             QMessageBox.warning(
                 None,
                 "Export",
-                f"JPEG XL can't tag the selected colour space ({names}).\n"
+                f"JPEG XL can't tag the selected color space ({names}).\n"
                 "Choose sRGB, P3 D65, Rec 2020 or Greyscale, or a different format.",
             )
             return
@@ -4480,7 +4480,7 @@ class AppController(QObject):
         # base stacks edits. Skip only when both axes ride the roll baseline.
         proc = self.state.config.process
         bounds = metrics.get("log_bounds_base") or metrics.get("log_bounds")
-        if bounds and not (proc.use_luma_average and proc.use_colour_average):
+        if bounds and not (proc.use_luma_average and proc.use_color_average):
             changes = {}
             if not proc.lock_bounds and (bounds.floors != proc.local_floors or bounds.ceils != proc.local_ceils):
                 changes["local_floors"] = bounds.floors
@@ -4576,7 +4576,7 @@ class AppController(QObject):
             return
 
         # Same transform the canvas used for this buffer, so the filmstrip and the
-        # canvas can't disagree about the frame's colour.
+        # canvas can't disagree about the frame's color.
         display_cs, monitor_bytes, proof = self.display_transform_params(splash=bool(metrics.get("splash")))
         # The asset's own key, so the batch (source) path re-serves this rendered positive
         # instead of the uninverted source merge it would decode itself.

@@ -2,7 +2,7 @@ from dataclasses import replace
 from unittest.mock import MagicMock
 
 from negpy.desktop.session import AppState
-from negpy.desktop.view.sidebar.colour import ColourSidebar
+from negpy.desktop.view.sidebar.color import ColorSidebar
 from negpy.features.exposure.logic import wb_to_kelvin
 from negpy.features.process.models import ProcessMode
 
@@ -11,7 +11,7 @@ def _sidebar():
     controller = MagicMock()
     controller.state = AppState()
     controller.session.repo.get_global_setting.return_value = None
-    return controller, ColourSidebar(controller)
+    return controller, ColorSidebar(controller)
 
 
 def test_region_selector_retargets_sliders_and_temperature(qapp):

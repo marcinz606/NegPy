@@ -17,7 +17,7 @@ process = "Transparency"    # or "Color Negative" (the default when the key is a
 
 The dropdown only offers matrices for the film you are processing, and the render gates on
 the same value, so a mismatched profile resolves to identity rather than mixing the wrong
-correction in. Every profile written before this key existed is a colour negative stock,
+correction in. Every profile written before this key existed is a color negative stock,
 which is why the default is `Color Negative`. Files written before the modes were renamed (`C41`, `B&W`, `E-6`) still load.
 
 No Transparency matrix ships with NegPy today, so on slides the Matrix dropdown starts empty and it
@@ -31,7 +31,7 @@ nothing to unmix.)
 > error to remove before inversion, so unmixing moves the render *toward* the scene. A
 > transparency **is** the finished image — what you see on a lightbox already includes those
 > absorptions — so unmixing moves it *away* from the slide's own appearance and toward the
-> dye-amount image behind it. In Transparency treat Crosstalk as a colour-separation control, not a
+> dye-amount image behind it. In Transparency treat Crosstalk as a color-separation control, not a
 > fidelity correction, and leave Strength at 0 when the goal is to match the slide.
 
 ## What it does
@@ -44,8 +44,8 @@ normalization and the print curve — the domain the matrices were derived in
 (secondary dye absorptions are linear in negative dye density).
 
 **The dyes are not the only cause.** Your light source's spectrum and your sensor's
-colour-filter passbands mix the channels as well: a broad or oddly-shaped light samples
-each dye away from its peak and picks up its neighbours, and a camera's colour filters
+color-filter passbands mix the channels as well: a broad or oddly-shaped light samples
+each dye away from its peak and picks up its neighbours, and a camera's color filters
 overlap. In the density domain all three causes arrive as the same kind of error — a
 linear mix — which is why one 3×3 can absorb them together, and why the same film can
 need different matrices on different rigs.
@@ -171,8 +171,8 @@ presets stay reproducible even if you later move or delete the file.
 You do not need spectral data or a spectrophotometer to get a better matrix than
 *Generic C41*, and you are the only person who can measure your own rig. Recommended loop:
 
-1. Pick a frame you know the real colours of — foliage, sky, a grey card, skin.
-2. Start on **Generic C41** and raise **Strength** until colours separate but before they go
+1. Pick a frame you know the real colors of — foliage, sky, a grey card, skin.
+2. Start on **Generic C41** and raise **Strength** until colors separate but before they go
    garish. For many rigs this alone is the whole win.
 3. Still wrong in a specific way? Open the matrix editor, **Make Editable Copy**, and nudge
    the off-diagonal term for the pair that is off (a green leaking into red reads as
@@ -180,9 +180,9 @@ You do not need spectral data or a spectrophotometer to get a better matrix than
 4. Save it named after the **combination**, e.g. `Gold 200 + Spectracolor`, not just the
    film. Re-run **Batch Analysis**, then check it on a second frame before trusting it.
 
-If hues are turned rather than muddied — every colour rotated the same way, neutrals
+If hues are turned rather than muddied — every color rotated the same way, neutrals
 fine — that is a light-spectrum problem and **Hue Trim** is the cheaper fix; a matrix
-will fight it. Muddy, low-separation colour is the crosstalk signature.
+will fight it. Muddy, low-separation color is the crosstalk signature.
 
 ### Editing matrices in the app
 

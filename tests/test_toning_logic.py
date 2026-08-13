@@ -120,7 +120,7 @@ class TestChemicalToning(unittest.TestCase):
         np.testing.assert_array_equal(res, img)
 
     def test_blue_deepens_shadows(self):
-        """Iron blue deposits ~3x colouring matter per unit silver — intensification.
+        """Iron blue deposits ~3x coloring matter per unit silver — intensification.
         The B channel alone lightens (that's the hue), so assert on luma."""
         dark = self._gray(0.05)
         res = apply_chemical_toning(dark, blue_strength=1.0)
@@ -156,8 +156,8 @@ class TestChemicalToning(unittest.TestCase):
         self.assertGreaterEqual(float(d_2), float(d_1))
 
     def test_blue_visible_in_midtones(self):
-        """A blue bath at normal strength colours the mids, not just the blacks
-        — regression: a Dmax-referenced d_ref pushed the colour into the deep
+        """A blue bath at normal strength colors the mids, not just the blacks
+        — regression: a Dmax-referenced d_ref pushed the color into the deep
         shadows only."""
         res = apply_chemical_toning(self._gray(0.5), blue_strength=1.0)
         self.assertGreater(float(res[0, 0, 2] - res[0, 0, 0]), 0.03)
@@ -504,9 +504,9 @@ class TestLithToners:
             )
 
 
-class TestTonerPreservesPrintColour:
+class TestTonerPreservesPrintColor:
     """The ledger's reservoir is the MEAN density, but the covering-power mix
-    rides each channel's own density — otherwise a toner would flatten colour the
+    rides each channel's own density — otherwise a toner would flatten color the
     print already carries (a lith print) and replace it with its own."""
 
     def test_a_toner_keeps_the_prints_existing_warmth(self):

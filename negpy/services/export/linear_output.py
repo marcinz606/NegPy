@@ -991,7 +991,7 @@ def _write_jxl(
 ) -> None:
     """Write a float32 buffer as a lossless 16-bit JPEG XL to *dest* (path or file-like).
 
-    JPEG XL has no legal "no color info" state (its all-default ColourEncoding still
+    JPEG XL has no legal "no color info" state (its all-default ColorEncoding still
     resolves to a concrete sRGB assertion, confirmed against both this binding and the
     reference cjxl CLI) — unlike the TIFF linear output, this can never be truly
     untagged. transfer=LINEAR is pinned explicitly since the data genuinely is linear
@@ -1041,7 +1041,7 @@ def export_linear_output(
     """Decode *file_path* and write a linear 16-bit file to *output_path*.
 
     *output_format*: ``"tiff"`` (default, zlib-compressed, genuinely untagged) or
-    ``"jxl"`` (lossless JPEG XL — always carries a concrete colour tag, see
+    ``"jxl"`` (lossless JPEG XL — always carries a concrete color tag, see
     ``_write_jxl``; not equivalent to the TIFF path's untagged output). *jxl_effort*:
     1–9 (higher = smaller file, slower encode), used only for ``"jxl"``. The IR
     sidecar (when present and not consumed by ICE) follows the same *output_format*

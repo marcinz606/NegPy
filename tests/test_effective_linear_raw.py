@@ -44,7 +44,7 @@ class TestEffectiveLinearRaw:
 
     def test_the_token_follows_the_effective_value(self):
         """Caches key on this. Keying on the stored flag would serve a buffer decoded the
-        other way round, which is invisible until the colours are wrong."""
+        other way round, which is invisible until the colors are wrong."""
         transfer = cfg(ProcessMode.E6, normalize=False, linear_raw=False)
         assert linear_raw_token(transfer) == linear_raw_token(cfg(ProcessMode.C41, linear_raw=True))
         assert linear_raw_token(transfer) != linear_raw_token(cfg(ProcessMode.C41, linear_raw=False))
@@ -71,7 +71,7 @@ class TestDecodeAndMatrixAgree:
     def test_batch_analysis_decodes_on_the_render_path_s_white_balance(self):
         """Its own comment is the requirement: the roll-average bounds are applied to the
         render-decoded image, so analysing in a different white balance shifts per-channel
-        floors and ceils and prints a colour cast. Missed on the first pass — the site read
+        floors and ceils and prints a color cast. Missed on the first pass — the site read
         the stored flag while the render path had moved to the helper."""
         import inspect
 

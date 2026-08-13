@@ -62,7 +62,7 @@ class TestTonalCurve:
         assert more.mean() > base.mean() + 0.05
 
 
-class TestColour:
+class TestColor:
     def test_shadows_are_blue_and_highlights_carry_the_green_stain(self):
         d0 = np.linspace(0.0, 2.0, 256, dtype=np.float32)
         lab = _lab(_cyano(_ramp(d0))[0])

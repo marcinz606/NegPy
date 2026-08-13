@@ -11,7 +11,7 @@ from negpy.services.assets.sensor import SensorProfiles
 
 class SensorSidebar(BaseSidebar):
     """
-    Capture-side colour corrections, one per cause and not interchangeable: the
+    Capture-side color corrections, one per cause and not interchangeable: the
     camera's cross-channel response (linear capture), the film's dye absorptions
     (negative density), and an odd light spectrum's hue rotation (the print).
     """
@@ -69,7 +69,7 @@ class SensorSidebar(BaseSidebar):
             "<table width='280'><tr><td>"
             "Channel unmix on the raw NEGATIVE densities, before analysis and inversion — the domain "
             "where every cause of channel mixing is linear. The film's dyes absorb outside their own "
-            "band, but so do your light's spectrum and your sensor's colour filters, and here they all "
+            "band, but so do your light's spectrum and your sensor's color filters, and here they all "
             "arrive as the same kind of error. So read a profile as <b>your whole scanning setup</b>, "
             "not just the stock.<br><br>"
             "<b>The bundled film matrices are read off published spec sheets, not measured</b> — they "
@@ -78,7 +78,7 @@ class SensorSidebar(BaseSidebar):
             "mono sensor lit one band at a time) or a calibrated trichrome rig. Under a broadband light "
             "and a Bayer sensor your capture adds its own mixing on top, and a dyes-only matrix will not "
             "describe it.<br><br>"
-            "So treat them as starting points and expect to tune: raise Strength until colours separate "
+            "So treat them as starting points and expect to tune: raise Strength until colors separate "
             "without going garish, and if a stock or a light gives you trouble, open the editor, nudge "
             "the six off-diagonal terms and save your own profile — name it after the combination "
             "('Gold 200 + Spectracolor'). A profile measured on your own rig beats any datasheet. "

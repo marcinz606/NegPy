@@ -8,7 +8,7 @@ from negpy.desktop.view.widgets.sliders import CompactSlider, KelvinSlider
 from negpy.features.exposure.logic import kelvin_to_wb, wb_to_kelvin
 
 
-class ColourSidebar(BaseSidebar):
+class ColorSidebar(BaseSidebar):
     """White balance (region CMY + Pick WB) and Cast Removal."""
 
     def _init_ui(self) -> None:
@@ -87,8 +87,8 @@ class ColourSidebar(BaseSidebar):
 
         self.cast_removal_slider = CompactSlider("Cast Removal", 0.0, 1.0, conf.cast_removal_strength)
         self.cast_removal_slider.setToolTip(
-            "Cast Removal: neutralizes the colour cast a negative leaves in the print — balances each "
-            "colour layer so greys stay neutral from deep shadows through highlights. 0 = off, 1 = full."
+            "Cast Removal: neutralizes the color cast a negative leaves in the print — balances each "
+            "color layer so greys stay neutral from deep shadows through highlights. 0 = off, 1 = full."
             "<br><br>Color Negative only, and hidden elsewhere: it defeats the orange mask, a manufactured cast "
             "that is not part of the picture. A slide has no mask — its cast IS the photograph — so "
             "solving for a neutral axis there would remove the light you shot in. For a slide use "
@@ -147,9 +147,9 @@ class ColourSidebar(BaseSidebar):
     @staticmethod
     def _ring_tooltip(printing: bool = False) -> str:
         if printing:
-            return "Printing the colour ring-around…"
+            return "Printing the color ring-around…"
         return tooltip_with_shortcut(
-            "Colour Ring-Around: print the frame as a 5×5 mosaic — the centre patch neutral, the "
+            "Color Ring-Around: print the frame as a 5×5 mosaic — the centre patch neutral, the "
             "ring stepping 2cc at a time out to ±4cc on the magenta and yellow axes. Click the patch "
             "that looks neutral to keep its filtration. The 90° rotate controls turn the ladder while "
             "it is up. With Cast Removal on the patches separate less, since it corrects toward "
@@ -159,7 +159,7 @@ class ColourSidebar(BaseSidebar):
 
     def _sync_ring_btn(self, _up: bool) -> None:
         # One shared slot, so the kind gates this or the tone strip lights this button too.
-        mine = self.state.test_strip_kind == "colour"
+        mine = self.state.test_strip_kind == "color"
         pending = self.state.test_strip_pending and mine
         self.ring_btn.setChecked((self.state.test_strip or self.state.test_strip_pending) and mine)
         self.ring_btn.setEnabled(not pending)

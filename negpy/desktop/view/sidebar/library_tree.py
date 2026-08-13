@@ -108,7 +108,7 @@ class LibraryTree(QWidget):
         )
         self.tree.itemExpanded.connect(self._on_expanded)
         self.tree.itemDoubleClicked.connect(self._on_double_clicked)
-        self.tree.itemSelectionChanged.connect(self._recolour_counts)
+        self.tree.itemSelectionChanged.connect(self._recolor_counts)
         self.tree.customContextMenuRequested.connect(self._show_context_menu)
         # Scoped shortcuts rather than an event filter: the filter object outliving (or
         # being collected before) the tree aborts Qt during teardown.
@@ -270,7 +270,7 @@ class LibraryTree(QWidget):
         parent.setSelected(True)
         self.tree.setCurrentItem(parent)
 
-    def _recolour_counts(self) -> None:
+    def _recolor_counts(self) -> None:
         # A per-item brush is out of a stylesheet's reach, so the count column has to be
         # repainted by hand or it stays grey on the accent red.
         self._each_top_level(lambda item: item.setForeground(1, QColor("#FFFFFF") if item.isSelected() else QColor(THEME.text_muted)))

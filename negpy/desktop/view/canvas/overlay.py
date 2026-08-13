@@ -16,7 +16,7 @@ from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.canvas.crop_guides import CropGuide, guide_shapes
 from negpy.desktop.view.canvas.printing_notes import notes_outline, notes_sheet, paint_card, paint_map
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.stats import PIN_COLOURS
+from negpy.desktop.view.widgets.stats import PIN_COLORS
 from negpy.features.exposure.analysis import (
     RING_GRID,
     STRIP_DENSITIES,
@@ -65,7 +65,7 @@ _SHAPE_FOR_TOOL = {
 }
 _LOCAL_TOOLS = (ToolMode.NONE, *_SHAPE_FOR_TOOL)
 
-# Dust-overlay marker colours: bright, distinct from the muted accent used by
+# Dust-overlay marker colors: bright, distinct from the muted accent used by
 # manual heals so detected auto vs IR spots are told apart at a glance.
 _DUST_MARK_LUMA = QColor(57, 255, 20)  # neon green — auto-luma detection
 _DUST_MARK_IR = QColor(255, 0, 255)  # neon magenta — IR detection
@@ -938,10 +938,10 @@ class CanvasOverlay(QWidget):
         painter.setFont(_overlay_label_font(painter))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         for i, (pin, p) in enumerate(zip(self.state.zone_pins, self._zone_pin_screen_points())):
-            colour = QColor(PIN_COLOURS[i]) if i < len(PIN_COLOURS) else QColor(255, 255, 255, 230)
+            color = QColor(PIN_COLORS[i]) if i < len(PIN_COLORS) else QColor(255, 255, 255, 230)
             radius = _PIN_RADIUS_PX + (2.0 if i == self._pin_drag_index else 0.0)
-            for pen_colour, width in ((shadow, 3.5), (colour, 1.5)):
-                pen = QPen(pen_colour, width)
+            for pen_color, width in ((shadow, 3.5), (color, 1.5)):
+                pen = QPen(pen_color, width)
                 pen.setCosmetic(True)
                 painter.setPen(pen)
                 painter.drawEllipse(p, radius, radius)
@@ -952,7 +952,7 @@ class CanvasOverlay(QWidget):
             align = Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
             painter.setPen(shadow)
             painter.drawText(tr.translated(1.0, 1.0), align, label)
-            painter.setPen(colour)
+            painter.setPen(color)
             painter.drawText(tr, align, label)
         painter.restore()
 
@@ -1048,7 +1048,7 @@ class CanvasOverlay(QWidget):
 
     def _strip_base_grid(self) -> Tuple[int, int]:
         """(rows, cols) of the proof's unrotated ladder."""
-        return RING_GRID if self.state.test_strip_kind == "colour" else STRIP_GRID
+        return RING_GRID if self.state.test_strip_kind == "color" else STRIP_GRID
 
     def _strip_grid(self) -> Tuple[int, int]:
         """(rows, cols) of the proof as it sits on the canvas, after its rotation."""
@@ -1103,7 +1103,7 @@ class CanvasOverlay(QWidget):
         settings. Click a patch to keep it.
 
         Unrotated, the tone strip's columns darken left to right and its rows soften top to
-        bottom, so the diagonals read light/dark and hard/soft; the colour ring-around centres
+        bottom, so the diagonals read light/dark and hard/soft; the color ring-around centres
         on neutral and steps out to ±4cc on the magenta and yellow axes, so the direction of a
         cast is visible instead of guessed. The 90° rotate controls turn either ladder while it
         is up, bringing the far rungs onto a different part of the frame.
@@ -1140,7 +1140,7 @@ class CanvasOverlay(QWidget):
         exposure = self.state.config.exposure
         base_grid = self._strip_base_grid()
         rotation = self.state.test_strip_rotation
-        if self.state.test_strip_kind == "colour":
+        if self.state.test_strip_kind == "color":
             # :+g so a fractional step prints as one rather than rounding away.
             pairs = [(f"Y {ring_cc(c):+g}", f"M {ring_cc(r):+g}") for r in range(base_grid[0]) for c in range(base_grid[1])]
             current = ring_nearest_cell(exposure.wb_magenta, exposure.wb_yellow)
@@ -1252,7 +1252,7 @@ class CanvasOverlay(QWidget):
             return
 
         # Dim wash over every repaired region. No source emits capsules any more — they
-        # are all masks by the time they reach the render — so colour tells them apart:
+        # are all masks by the time they reach the render — so color tells them apart:
         # green for optically detected specks, magenta for IR and inpainted defects.
         for mask, color in self._corrected_masks():
             wash = self._mask_wash_qimage(mask, color)
@@ -1288,7 +1288,7 @@ class CanvasOverlay(QWidget):
         return img
 
     def _corrected_masks(self) -> List[Tuple[np.ndarray, QColor]]:
-        """Repaired-region masks to wash, with the colour that names their source."""
+        """Repaired-region masks to wash, with the color that names their source."""
         with self.state.metrics_lock:
             masks: List[Tuple[np.ndarray, QColor]] = []
             luma = self.state.last_metrics.get("detected_dust_mask")
@@ -1794,7 +1794,7 @@ class CanvasOverlay(QWidget):
             painter.drawLine(QPointF(m.x() - 2.6, m.y()), QPointF(m.x() + 2.6, m.y()))
             painter.drawLine(QPointF(m.x(), m.y() - 2.6), QPointF(m.x(), m.y() + 2.6))
 
-        # White halo behind a solid coloured core so vertices read on any image.
+        # White halo behind a solid colored core so vertices read on any image.
         core = QColor(color)
         core.setAlpha(255)
         for p in ctrl_pts:

@@ -255,7 +255,7 @@ def apply_saturation(img: ImageBuffer, saturation: float, skin_protection: float
 
 
 # Chroma-similarity sigma for the denoise range term, in CIELAB a*/b* units. Taps
-# further than this in chroma are rejected, so a saturated object cannot bleed colour
+# further than this in chroma are rejected, so a saturated object cannot bleed color
 # past its own edge. Mirrored as a WGSL literal in lab.wgsl.
 CHROMA_DENOISE_SIGMA_R = 15.0
 
@@ -264,7 +264,7 @@ def apply_chroma_denoise(img: ImageBuffer, radius: float, scale_factor: float = 
     """
     Edge-aware smoothing of A and B in LAB space to reduce color noise. Weighting taps
     by chroma similarity as well as distance stops the isotropic blur this replaced from
-    blooming a saturated object's colour into its surroundings.
+    blooming a saturated object's color into its surroundings.
     """
     if radius <= 0:
         return img

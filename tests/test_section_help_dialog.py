@@ -21,7 +21,7 @@ GUIDED_KEYS = (
     "roll",
     "geometry",
     "flatfield",
-    "colour",
+    "color",
     "tone",
     "local",
     "lab",

@@ -45,11 +45,11 @@ TONING_CONSTANTS: Dict[str, Any] = {
     # ── Iron blue (silver -> ferric ferrocyanide, silver-proportional) ────────
     # Density at which conversion saturates (c = strength·(D/this)^power).
     # Kept well below Dmax: the hue effect scales with D·c, so a Dmax-referenced
-    # saturation would confine the colour to the deep shadows.
+    # saturation would confine the color to the deep shadows.
     "blue_d_ref": 0.9,
     # Slightly sub-linear so the blue reaches the mids while shadows still lead.
     "blue_power": 0.85,
-    # Prussian blue deposits more colouring matter than the silver it replaces:
+    # Prussian blue deposits more coloring matter than the silver it replaces:
     # net gain > 1 (intensification), red absorbed most -> blue hue. The pigment
     # is cyan-leaning (green passes almost as freely as blue) — G at 1.00 is
     # what lets the classic sepia+blue green split emerge from the mix.
@@ -135,7 +135,7 @@ def _apply_chemical_toning_jit(
     ORIGINAL mean density D0 (grain property); sequence only decides who claims
     silver first via the remaining fraction a: f_i = a·c_i, a -= f_i. Final
     density is the covering-power mix D_ch = D0_ch·(a + Σ f_i·gain_i), per
-    channel, so a print that already carries colour keeps it. Gold is
+    channel, so a print that already carries color keeps it. Gold is
     the one lock-out exception: it also plates the sulfide fraction (classic
     gold-over-sepia orange-red), with compounded covering power.
 
@@ -239,7 +239,7 @@ def _apply_chemical_toning_jit(
             for ch in range(3):
                 # Covering power rides each channel's OWN density, not the mean:
                 # the mean is the silver reservoir (above), but rebuilding the
-                # output from it would throw away any colour the print already
+                # output from it would throw away any color the print already
                 # had — which is exactly what a lith print hands this stage.
                 # Identical for a normal grey B&W print, where d3[ch] == d0.
                 d = d3[ch] * (

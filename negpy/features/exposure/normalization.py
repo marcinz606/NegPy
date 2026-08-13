@@ -184,7 +184,7 @@ def effective_crosstalk_matrix(process: "ProcessConfig", process_mode: Optional[
     film being processed, otherwise None.
 
     Mirrors effective_paper_profile. A crosstalk matrix describes a dye set's unwanted
-    absorptions, and C-41 and E-6 do not share one — every bundled profile is a colour
+    absorptions, and C-41 and E-6 do not share one — every bundled profile is a color
     negative stock, so without this gate a slide silently gets a negative's correction.
     Legacy configs carry no `crosstalk_process` and default to C-41, which is what every
     profile that predates the field actually is.
@@ -575,11 +575,11 @@ def _same_pixel_color_floor_refs(
     color_clip: float,
 ) -> Optional[Tuple[float, float, float]]:
     """
-    Dense-end (print-white) colour refs from one shared pixel set: the luma-extreme
+    Dense-end (print-white) color refs from one shared pixel set: the luma-extreme
     band's lowest-chroma subset, chroma measured base-anchored (offsets from the
     thin-end refs, per-channel span as provisional gamma, refined once from the
     band medians). Independent per-channel percentiles read a different scene
-    object per channel, so coloured highlight content masquerades as film cast;
+    object per channel, so colored highlight content masquerades as film cast;
     a shared chroma-gated set cannot. The thin end needs no such treatment —
     density on real film is bounded below by base, anchoring per-channel ceils.
     None when the band's neutral set is too small or too chromatic (caller falls
@@ -623,7 +623,7 @@ def _same_pixel_color_floor_refs(
 
     spans = np.array([luma_floors[ch] - base_refs[ch] for ch in range(3)], dtype=np.float64)
     first = _select(spans)
-    # Pass-1 loose cap: a homogeneous coloured cluster would otherwise be
+    # Pass-1 loose cap: a homogeneous colored cluster would otherwise be
     # self-normalized to zero chroma by pass 2 and read as neutral.
     if first is None or first[1] > float(c["neutral_axis_first_pass_cap"]):
         return None
@@ -657,12 +657,12 @@ def analyze_log_exposure_bounds(
           > 0  clips the histogram tails (added on top of the baseline clip).
           = 0  robust extremes (block-median prefilter + baseline clip).
           < 0  outward headroom: bounds pushed BEYOND the robust extremes by the margin.
-      - color_clip (colour): the absolute per-tail clip percentile for the per-channel
-        colour deviation (white balance / orange-mask cast). A tighter (larger) clip
+      - color_clip (color): the absolute per-tail clip percentile for the per-channel
+        color deviation (white balance / orange-mask cast). A tighter (larger) clip
         gives a more robust channel balance; a gentler (smaller) clip samples nearer
         the extremes. Default neutral is base_color_clip.
-    The luminance centre+span comes from the luma sampling, the per-channel colour
-    offsets from the colour sampling, so the cast clip is tunable without compressing
+    The luminance centre+span comes from the luma sampling, the per-channel color
+    offsets from the color sampling, so the cast clip is tunable without compressing
     highlights. Identical channels (mono) give zero deviation at any clip.
     """
     epsilon = 1e-6
@@ -696,7 +696,7 @@ def analyze_log_exposure_bounds_from_log(
 
     floors, ceils = _sample_log_bounds(img_log, percentile_clip, base_luma, process_mode, e6_normalize)
 
-    # Colour pass: per-channel deviations recombined onto the luma mean centre+span.
+    # Color pass: per-channel deviations recombined onto the luma mean centre+span.
     # Ceils (thin end, base-anchored) come from per-channel percentiles at color_clip;
     # floors (dense end, scene content) prefer the same-pixel chroma-gated band refs,
     # falling back to the percentile pass when the band holds no trustworthy neutrals
@@ -717,25 +717,25 @@ def analyze_log_exposure_bounds_from_log(
     )
 
 
-def mix_luma_colour_bounds(luma_src: LogNegativeBounds, colour_src: LogNegativeBounds) -> LogNegativeBounds:
+def mix_luma_color_bounds(luma_src: LogNegativeBounds, color_src: LogNegativeBounds) -> LogNegativeBounds:
     """
-    Luma-weighted centre+range from one bounds, per-channel colour cast from
-    another. Keeps the colour source's per-channel shape but shifts it so the
+    Luma-weighted centre+range from one bounds, per-channel color cast from
+    another. Keeps the color source's per-channel shape but shifts it so the
     result's luma-weighted centre and range (the brightness/anchor and the H&D
     slope drivers — see luminance_density_range) match the luma source. So
-    colour-average moves only the per-channel cast, never contrast/brightness.
-    Identity when luma_src is colour_src (mirrors analyze_log_exposure_bounds'
+    color-average moves only the per-channel cast, never contrast/brightness.
+    Identity when luma_src is color_src (mirrors analyze_log_exposure_bounds'
     recombination), which also keeps a persisted self-mix from stacking edits.
     """
-    if luma_src == colour_src:
+    if luma_src == color_src:
         return luma_src
     w = (LUMA_R, LUMA_G, LUMA_B)
     centre = lambda b: sum(w[c] * (b.floors[c] + b.ceils[c]) / 2.0 for c in range(3))  # noqa: E731
     rng = lambda b: sum(w[c] * (b.ceils[c] - b.floors[c]) for c in range(3))  # noqa: E731
-    dC = centre(luma_src) - centre(colour_src)
-    dR = rng(luma_src) - rng(colour_src)
+    dC = centre(luma_src) - centre(color_src)
+    dR = rng(luma_src) - rng(color_src)
     df, dc = dC - dR / 2.0, dC + dR / 2.0
-    cf, cc = colour_src.floors, colour_src.ceils
+    cf, cc = color_src.floors, color_src.ceils
     return LogNegativeBounds(
         (cf[0] + df, cf[1] + df, cf[2] + df),
         (cc[0] + dc, cc[1] + dc, cc[2] + dc),
@@ -751,17 +751,17 @@ def resolve_bounds_detailed(process, analyze_fn) -> tuple[LogNegativeBounds, Log
     """
     Returns (final, base): the final mixed bounds to render with, and the per-frame
     base (local/analyzed) to persist. Persist the base, not the mix — re-feeding a
-    mix as the next base stacks edits (mean-vs-median drift; colour-only roll).
-    Picks luma + colour from the roll baseline (locked) or the per-frame base, then
+    mix as the next base stacks edits (mean-vs-median drift; color-only roll).
+    Picks luma + color from the roll baseline (locked) or the per-frame base, then
     mixes. analyze_fn() supplies the base and is called only when actually needed.
     """
     roll_luma = process.use_luma_average and process.is_locked_initialized
-    roll_colour = process.use_colour_average and process.is_locked_initialized
+    roll_color = process.use_color_average and process.is_locked_initialized
     locked = LogNegativeBounds(process.locked_floors, process.locked_ceils)
-    if roll_luma and roll_colour:
+    if roll_luma and roll_color:
         return locked, locked
     base = LogNegativeBounds(process.local_floors, process.local_ceils) if process.is_local_initialized else analyze_fn()
-    final = mix_luma_colour_bounds(locked if roll_luma else base, locked if roll_colour else base)
+    final = mix_luma_color_bounds(locked if roll_luma else base, locked if roll_color else base)
     return final, base
 
 
@@ -771,7 +771,7 @@ def luma_source_bounds(process, base: LogNegativeBounds) -> LogNegativeBounds:
     baseline when luma-average is on, else the per-frame base. The anchor is a
     luma-weighted percentile and so reacts non-linearly to the per-channel cast;
     measuring it here, not on the final mix, keeps brightness independent of the
-    colour-average toggle (mix_luma_colour_bounds already pins centre+range).
+    color-average toggle (mix_luma_color_bounds already pins centre+range).
     """
     if process.use_luma_average and process.is_locked_initialized:
         return LogNegativeBounds(process.locked_floors, process.locked_ceils)

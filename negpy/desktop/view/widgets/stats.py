@@ -28,8 +28,8 @@ _TOOLTIPS = {
 _PROBE_EMPTY = "—"
 
 # One per zone-placement pin, in pin order; the canvas overlay draws its rings in these
-# same colours, so the sidebar row and the pin on the photo can be matched by eye.
-PIN_COLOURS = (THEME.accent_primary, "#FFFFFF", THEME.channel_blue)
+# same colors, so the sidebar row and the pin on the photo can be matched by eye.
+PIN_COLORS = (THEME.accent_primary, "#FFFFFF", THEME.channel_blue)
 
 
 class DensitometerRow(QWidget):
@@ -39,7 +39,7 @@ class DensitometerRow(QWidget):
         "Spot densitometer — hover the image to read the pixel: per-channel density above film base "
         "(ΔD, relative to this scan's normalization, not absolute), the displayed tone's reflection "
         "print density, and its print zone (0 = paper black, V = 18% mid-gray, X = paper white). "
-        "In B&W Negative mode the ΔD channels read the pre-conversion colour record."
+        "In B&W Negative mode the ΔD channels read the pre-conversion color record."
     )
 
     def __init__(self, parent=None):
@@ -97,7 +97,7 @@ class ZonePlacementRows(QWidget):
         self._lands: List[QLabel] = []
         self._steppers: List[Tuple[QToolButton, QToolButton]] = []
         self._removes: List[QToolButton] = []
-        for i, colour in enumerate(PIN_COLOURS):
+        for i, color in enumerate(PIN_COLORS):
             row = QWidget()
             grid = QGridLayout(row)
             grid.setContentsMargins(0, 0, 0, 0)
@@ -105,7 +105,7 @@ class ZonePlacementRows(QWidget):
             grid.setColumnStretch(1, 1)
             swatch = QLabel()
             swatch.setFixedSize(8, 8)
-            swatch.setStyleSheet(f"background: {colour}; border-radius: 4px;")
+            swatch.setStyleSheet(f"background: {color}; border-radius: 4px;")
             name = QLabel("")
             name.setStyleSheet(name_css)
             minus = QToolButton()

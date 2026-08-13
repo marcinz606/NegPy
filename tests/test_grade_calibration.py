@@ -82,7 +82,7 @@ class TestDensityRangeMetric(unittest.TestCase):
         process = replace(
             self.config.process,
             use_luma_average=True,
-            use_colour_average=True,
+            use_color_average=True,
             locked_floors=(-2.2, -2.2, -2.2),
             locked_ceils=(-0.2, -0.2, -0.2),
         )

@@ -183,7 +183,7 @@ def test_a_quarter_turn_moves_the_labels_with_the_patches() -> None:
 def _ring_overlay() -> CanvasOverlay:
     state = AppState()
     state.test_strip = True
-    state.test_strip_kind = "colour"
+    state.test_strip_kind = "color"
     state.test_strip_mosaic = np.zeros((90, 90, 3), dtype=np.float32)
     overlay = CanvasOverlay(state)
     overlay._view_rect = QRectF(0, 0, 90, 90)

@@ -485,7 +485,7 @@ def test_stitch_token_identity(tmp_path):
 
 
 def _triplet_tifs(tmp_path, tag, values, width=80, offset=0):
-    """Three constant-colour exposures; each carries its own channel at ``values``."""
+    """Three constant-color exposures; each carries its own channel at ``values``."""
     import tifffile
 
     paths = []

@@ -108,7 +108,7 @@ settings takes precedence while set.
 
 Single-shot scans under a narrowband RGB source can come out with hues that no slider
 fixes — yellows drifting orange is the classic sign. The cause is **sensor crosstalk**:
-the camera's colour-filter passbands overlap the source's bands (the green pixel sees
+the camera's color-filter passbands overlap the source's bands (the green pixel sees
 the blue LED and some red), so every channel carries a share of its neighbours. It is a
 fixed property of your sensor + light pair, independent of the film.
 
@@ -122,7 +122,7 @@ with a 3×3 matrix in the linear domain, before inversion. Profiles are TOML fil
 When *not* to use it: RGB-triplet (trichrome) scans are crosstalk-free by construction —
 each channel comes from its own single-light exposure — and NegPy skips the correction
 automatically for triplet assets. Dedicated film scanners (a Coolscan's mono CCD reads
-one LED at a time) have no sensor crosstalk either; their residual colour error is
+one LED at a time) have no sensor crosstalk either; their residual color error is
 film-dye crosstalk, which the density-domain **Crosstalk** matrix handles (see
 [CROSSTALK.md](CROSSTALK.md)).
 

@@ -47,7 +47,7 @@ class PrintService:
 
     @staticmethod
     def effective_paper_linear(finish: FinishConfig, toning: ToningConfig) -> Tuple[float, float, float]:
-        """Mat colour in scene-linear, for the filed carrier's paper margin: that margin is
+        """Mat color in scene-linear, for the filed carrier's paper margin: that margin is
         drawn in the finish stage, upstream of the output OETF, unlike the mat itself."""
         if finish.border_match_paper:
             return PrintService._toned_paper_white(toning)
@@ -79,7 +79,7 @@ class PrintService:
 
     @staticmethod
     def effective_border_color(finish: FinishConfig, toning: ToningConfig) -> str:
-        """Mat colour: the picked hex, or the toned paper white when matching."""
+        """Mat color: the picked hex, or the toned paper white when matching."""
         if not finish.border_match_paper:
             return finish.border_color
         white = np.full((1, 1, 3), 1.0, dtype=np.float32)

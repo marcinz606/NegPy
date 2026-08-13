@@ -2,12 +2,12 @@
 
 Only the E-6 as-captured path uses it (`NormalizationProcessor._process_transparency`, and
 the same rows uploaded to normalization.wgsl behind its `is_transfer` gate). The print path
-derives colour from measured film density, so C-41 and B&W never touch this.
+derives color from measured film density, so C-41 and B&W never touch this.
 
 The construction follows dcraw's `cam_xyz_coeff`: normalize the *forward* working->cam rows,
 then invert. Normalizing the rows of the already-inverted matrix sends neutral to neutral
 just as well, which is why getting it backwards survived unnoticed — greys look right and
-only saturated colour is wrong.
+only saturated color is wrong.
 """
 
 import unittest
@@ -49,7 +49,7 @@ class Construction(unittest.TestCase):
         m = np.asarray(camera_to_working_matrix(D3300), dtype=np.float64)
         np.testing.assert_allclose(m @ np.ones(3), np.ones(3), atol=1e-5)
 
-    def test_saturated_colour_is_where_the_orders_diverge(self):
+    def test_saturated_color_is_where_the_orders_diverge(self):
         """The error grows with distance from neutral. On a saturated red it was a factor
         of two on both R/G and B/G, which renders as a magenta cast."""
         good = np.asarray(camera_to_working_matrix(D3300), dtype=np.float64)

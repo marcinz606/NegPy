@@ -24,7 +24,7 @@ class TestBatchNormalization(unittest.TestCase):
         new_process = replace(
             self.config.process,
             use_luma_average=True,
-            use_colour_average=True,
+            use_color_average=True,
             locked_floors=locked_floors,
             locked_ceils=locked_ceils,
         )

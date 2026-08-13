@@ -34,7 +34,7 @@ def test_jxl_color_mapping_is_the_verified_table():
 
 def test_jxl_rgb_lossless_roundtrip_is_exact(proc):
     """Lossless JXL RGB export decodes back to the exact 16-bit samples. Working
-    space == target sRGB makes colour management a no-op, isolating the codec."""
+    space == target sRGB makes color management a no-op, isolating the codec."""
     buf = np.random.default_rng(0).random((16, 24, 3), dtype=np.float32)
     settings = ExportConfig(export_fmt=ExportFormat.JXL, jxl_lossless=True)
 

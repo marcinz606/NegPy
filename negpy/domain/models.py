@@ -84,13 +84,13 @@ class ColorSpace(Enum):
     GREYSCALE = "Greyscale"
 
 
-# Colour spaces offered for export. ACES and XYZ are rawpy *decode* spaces with no
+# Color spaces offered for export. ACES and XYZ are rawpy *decode* spaces with no
 # bundled ICC profile — an export targeting them can be neither converted nor tagged
 # (the encoder falls back to the working space), so they're excluded here.
 EXPORT_COLOR_SPACES: list[str] = [cs.value for cs in ColorSpace if cs not in (ColorSpace.ACES, ColorSpace.XYZ)]
 
 
-# Colour spaces JPEG XL can tag (mirror _JXL_COLOR in image_processor). Same as
+# Color spaces JPEG XL can tag (mirror _JXL_COLOR in image_processor). Same as
 # Source is deliberately excluded: it resolves per-file at export time (usually to
 # the Adobe RGB working space for scans/raws with no embedded profile), and Adobe
 # RGB isn't JXL-taggable — so allowing it here would pass this upfront check and
@@ -107,8 +107,8 @@ JXL_TAGGABLE_SPACES = frozenset(
 
 
 def export_blocked(fmt: str, color_space: str) -> bool:
-    """True when the format + colour-space pairing can't be encoded (JPEG XL
-    only tags a subset of colour spaces)."""
+    """True when the format + color-space pairing can't be encoded (JPEG XL
+    only tags a subset of color spaces)."""
     return fmt == ExportFormat.JXL and color_space not in JXL_TAGGABLE_SPACES
 
 
@@ -491,7 +491,7 @@ def flat_export_config(export: ExportConfig | ExportPreset) -> Any:
     returns the same type it was given.
 
     Delivers 16-bit lossless in TIFF (default) or JXL (if the user chose it
-    and the colour space is JXL-taggable). Resolution defaults to full
+    and the color space is JXL-taggable). Resolution defaults to full
     original size; if the user explicitly chose Print or Pixels sizing in the
     export panel, those settings are honoured so flat masters can be
     downscaled when requested.

@@ -1,6 +1,6 @@
 """Splash (ephemeral) renders must not share an engine cache identity with the real
 linear render of the same file — otherwise the embedded-JPEG analysis leaks into (and
-gets persisted from) the linear render, leaving a wrong colour cast."""
+gets persisted from) the linear render, leaving a wrong color cast."""
 
 import unittest
 from unittest.mock import patch

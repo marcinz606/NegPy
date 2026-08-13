@@ -129,7 +129,7 @@ class DarkroomEngine:
             settings.process.luma_range_clip,
             settings.process.color_range_clip,
             settings.process.use_luma_average,
-            settings.process.use_colour_average,
+            settings.process.use_color_average,
             settings.process.is_local_initialized,
             settings.process.is_locked_initialized,
             settings.process.locked_floors,

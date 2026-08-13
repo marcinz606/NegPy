@@ -205,7 +205,7 @@ def camera_xyz_matrix(raw: Any) -> Optional[list]:
         return None
     if m.ndim != 2 or m.shape[0] < 3 or m.shape[1] != 3 or not np.all(np.isfinite(m[:3])):
         return None
-    # All-zero is libraw's "no colour data" sentinel, not a valid transform.
+    # All-zero is libraw's "no color data" sentinel, not a valid transform.
     if float(np.abs(m[:3]).max()) < 1e-12:
         return None
     return [[float(v) for v in row] for row in m[:3]]
