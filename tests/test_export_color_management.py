@@ -85,6 +85,40 @@ class TestExportColorManagement(unittest.TestCase):
         np.testing.assert_array_equal(out, img_u16)
         self.assertIsNotNone(icc)  # target profile still embedded
 
+    def test_cms_codec_unavailable_falls_back_to_lut_transform(self):
+        """Some imagecodecs builds ship without the cms codec compiled in (observed on
+        an unnotarized macOS arm64 build), surfacing as ImportError only once the
+        codec is actually invoked. The 16-bit RGB export path must still colour-manage
+        via the LUT transform rather than silently ship unmanaged pixels."""
+        from unittest.mock import patch
+
+        import imagecodecs
+
+        img_u16 = (np.array([[[0.50, 0.40, 0.30]]], dtype=np.float32) * 65535.0 + 0.5).astype(np.uint16)
+
+        # Force imagecodecs' lazy module __getattr__ to materialize cms_transform as a
+        # real attribute first — patching it while still lazy makes mock's teardown
+        # (hasattr/getattr on the module) re-enter that same __getattr__ and recurse.
+        imagecodecs.cms_transform  # noqa: B018
+
+        with patch(
+            "negpy.services.rendering.image_processor.imagecodecs.cms_transform",
+            side_effect=ImportError("could not import name 'cms_transform' from 'imagecodecs'"),
+        ):
+            out_fallback, icc = self.proc._apply_color_management_u16(img_u16, WORKING_COLOR_SPACE, ColorSpace.SRGB.value, None, None)
+
+        # Same LUT resolution the fallback uses (PROOF_LUT_SIZE), so this checks the
+        # fallback wiring itself rather than the LUT's own approximation error.
+        from negpy.services.rendering.image_processor import PROOF_LUT_SIZE
+
+        out_direct, _ = self.proc._apply_color_management_u16_rgb(
+            img_u16, WORKING_COLOR_SPACE, ColorSpace.SRGB.value, None, None, lut_size=PROOF_LUT_SIZE
+        )
+
+        self.assertIsNotNone(icc)
+        self.assertFalse(np.array_equal(out_fallback, img_u16), "fallback must still colour-manage, not pass the source through untouched")
+        np.testing.assert_allclose(out_fallback.astype(np.float32), out_direct.astype(np.float32), atol=2.0)
+
 
 class TestDisplayTransform(unittest.TestCase):
     def test_srgb_working_is_identity(self):
