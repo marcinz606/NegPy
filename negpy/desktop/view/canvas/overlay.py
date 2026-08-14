@@ -1952,10 +1952,19 @@ class CanvasOverlay(QWidget):
                 return
 
         coords = self._map_to_image_coords(event.position())
-        if coords:
+        if coords is not None:
             self.clicked.emit(*coords)
-            if self._tool_mode == ToolMode.CROP_MANUAL:
-                self._start_crop_drag(event.position())
+
+        # Not gated on coords: the crop rect lives in view-rect space, so its handles
+        # sit on the frame edge — and outside the content rect entirely once a print
+        # border insets it. _update_crop_hover_cursor hit-tests them by distance and
+        # offers the resize, so a press within the same grab radius has to take it.
+        if self._tool_mode == ToolMode.CROP_MANUAL and self._view_rect.adjusted(
+            -_CROP_HANDLE_PX, -_CROP_HANDLE_PX, _CROP_HANDLE_PX, _CROP_HANDLE_PX
+        ).contains(event.position()):
+            self._start_crop_drag(event.position())
+
+        if coords is not None or self._crop_drag_mode is not None:
             self.update()
 
     def _zone_pin_screen_points(self) -> List[QPointF]:
