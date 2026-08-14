@@ -1,7 +1,8 @@
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
-from typing import Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
@@ -309,6 +310,9 @@ class RenderWorker(QObject):
             self.error.emit(str(e))
 
 
+_THUMB_CHUNK = 8
+
+
 class ThumbnailWorker(QObject):
     """
     Asynchronous thumbnail generation worker.
@@ -316,6 +320,9 @@ class ThumbnailWorker(QObject):
 
     progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(dict)
+    # Chunks of the running batch, so a large folder fills its filmstrip as it goes
+    # instead of staying blank until the last file lands.
+    partial = pyqtSignal(dict)
     # Rendered positives use their own signal so the batch's bulk overwrite can't
     # clobber a frame that already rendered on the canvas.
     rendered_finished = pyqtSignal(dict)
@@ -340,11 +347,25 @@ class ThumbnailWorker(QObject):
             async def _progress_callback(current: int, name: str):
                 self.progress.emit(current, total, name)
 
+            # Chunked, not per-file: every emit costs the model a full relayout.
+            pending: dict = {}
+
+            def _ready_callback(key: str, thumb) -> None:
+                pending[key] = thumb
+                if len(pending) >= _THUMB_CHUNK:
+                    self.partial.emit(dict(pending))
+                    pending.clear()
+
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
                 new_thumbs = loop.run_until_complete(
-                    thumb_service.generate_batch_thumbnails(files, self._store, progress_callback=_progress_callback)
+                    thumb_service.generate_batch_thumbnails(
+                        files,
+                        self._store,
+                        progress_callback=_progress_callback,
+                        ready_callback=_ready_callback,
+                    )
                 )
             finally:
                 loop.close()
@@ -376,6 +397,21 @@ class ThumbnailWorker(QObject):
             logger.error(f"Thumbnail update failure: {e}")
 
 
+def _safe_call(fn: Callable[[str], Any], path: str) -> Any:
+    """``fn(path)`` or None — a bad file is skipped, the pass keeps going."""
+    try:
+        return fn(path)
+    except Exception as e:
+        logger.error(f"Skipping invalid file {path}: {e}")
+        return None
+
+
+# Seek-bound: each hash costs 18 seeks, so cpu_count() concurrent readers thrash a spinning disk.
+_HASH_WORKERS = min(8, APP_CONFIG.max_workers)
+# Real decodes; halved for memory headroom, as NormalizationWorker does.
+_DECODE_WORKERS = max(1, APP_CONFIG.max_workers // 2)
+
+
 class AssetDiscoveryWorker(QObject):
     """
     Background worker for file system crawling and hashing.
@@ -384,6 +420,35 @@ class AssetDiscoveryWorker(QObject):
     progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(list)
     error = pyqtSignal(str)
+
+    def _map_files(
+        self,
+        paths: list[str],
+        fn: Callable[[str], Any],
+        label: Callable[[str], str],
+        workers: int,
+    ) -> list[Any]:
+        """Run an expensive per-file pass in parallel, results in input order.
+
+        Order is load-bearing: it becomes the filmstrip order. Progress counts
+        completions, so it advances out of order — which is what a bar wants.
+        """
+        total = len(paths)
+        if total < 2 or workers < 2:
+            out = []
+            for i, path in enumerate(paths):
+                self.progress.emit(i + 1, total, label(path))
+                out.append(_safe_call(fn, path))
+            return out
+
+        results: list[Any] = [None] * total
+        with ThreadPoolExecutor(max_workers=min(workers, total)) as ex:
+            futures = {ex.submit(_safe_call, fn, path): i for i, path in enumerate(paths)}
+            for done, fut in enumerate(as_completed(futures), 1):
+                i = futures[fut]
+                results[i] = fut.result()
+                self.progress.emit(done, total, label(paths[i]))
+        return results
 
     @pyqtSlot(AssetDiscoveryTask)
     def process(self, task: AssetDiscoveryTask) -> None:
@@ -413,22 +478,24 @@ class AssetDiscoveryWorker(QObject):
         # IR companions ride along with their main TIFF; they are never assets of their own.
         discovered_paths = [p for p in discovered_paths if not is_ir_sidecar_path(p)]
 
-        total = len(discovered_paths)
         valid_assets = []
+        digests = self._map_files(discovered_paths, file_hashes, os.path.basename, _HASH_WORKERS)
 
-        for i, path in enumerate(discovered_paths):
-            name = os.path.basename(path)
-            self.progress.emit(i + 1, total, name)
-
-            try:
-                f_hash, legacy = file_hashes(path)
-                if not f_hash.startswith("err_"):
-                    # Stamped once here so sorting and date search never stat per row.
-                    valid_assets.append(
-                        {"name": name, "path": path, "hash": f_hash, "legacy_hash": legacy, "mtime": os.path.getmtime(path)}
-                    )
-            except Exception as e:
-                logger.error(f"Skipping invalid file {path}: {e}")
+        for path, digest in zip(discovered_paths, digests):
+            if digest is None:
+                continue
+            f_hash, legacy = digest
+            if not f_hash.startswith("err_"):
+                # Stamped once here so sorting and date search never stat per row.
+                valid_assets.append(
+                    {
+                        "name": os.path.basename(path),
+                        "path": path,
+                        "hash": f_hash,
+                        "legacy_hash": legacy,
+                        "mtime": os.path.getmtime(path),
+                    }
+                )
 
         blank_ambiguous_legacy_hashes(valid_assets)
 
@@ -457,18 +524,30 @@ class AssetDiscoveryWorker(QObject):
         from the half-frame rectangle editor), it overrides the auto-detected split
         and adds the crop rect + gutter to every expanded half.
         """
+        import os
+
         from negpy.services.assets.half_frame import detect_split_x_for_file, half_hash, half_name
 
+        def _splittable(a: dict) -> bool:
+            return not (a.get("green_path") or a.get("stitch_paths") or a.get("hdr_paths"))
+
+        if profile is None:
+            paths = [a["path"] for a in assets if _splittable(a)]
+            detected = self._map_files(paths, detect_split_x_for_file, lambda p: f"Split {os.path.basename(p)}", _DECODE_WORKERS)
+            splits = dict(zip(paths, detected))
+        else:
+            splits = {}
+
         out = []
-        for i, a in enumerate(assets):
-            if a.get("green_path") or a.get("stitch_paths") or a.get("hdr_paths"):
+        for a in assets:
+            if not _splittable(a):
                 out.append(a)
                 continue
-            self.progress.emit(i + 1, len(assets), f"Split {a['name']}")
             if profile is not None:
                 split_x = float(profile.get("split_x") or 0.5)
             else:
-                split_x = detect_split_x_for_file(a["path"])
+                detected_x = splits.get(a["path"])
+                split_x = 0.5 if detected_x is None else float(detected_x)
             legacy = a.get("legacy_hash")
             for half in (1, 2):
                 entry = {
@@ -575,13 +654,8 @@ class AssetDiscoveryWorker(QObject):
         by_path = {a["path"]: a for a in assets}
         ordered = sorted(by_path, key=lambda p: os.path.basename(p).lower())
 
-        items = []
-        for i, p in enumerate(ordered):
-            self.progress.emit(i + 1, len(ordered), f"RGB {os.path.basename(p)}")
-            try:
-                items.append((p, classify_channel(probe_channel_means(p))))
-            except Exception as e:
-                logger.error(f"RGB-scan classification failed for {p}: {e}")
+        means = self._map_files(ordered, probe_channel_means, lambda p: f"RGB {os.path.basename(p)}", _DECODE_WORKERS)
+        items = [(p, classify_channel(m)) for p, m in zip(ordered, means) if m is not None]
 
         result = []
         grouped = set()

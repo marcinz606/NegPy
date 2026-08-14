@@ -16,9 +16,13 @@ async def generate_batch_thumbnails(
     files: List[Dict[str, str]],
     asset_store: Any,
     progress_callback: Optional[Any] = None,
+    ready_callback: Optional[Any] = None,
 ) -> Dict[str, Image.Image]:
     """
     Parallel thumbnail generation with progress reporting.
+
+    ``ready_callback(key, thumb)`` fires per file so the filmstrip can fill in as the
+    batch runs, instead of waiting for the returned map.
     """
 
     semaphore = asyncio.Semaphore(APP_CONFIG.max_workers)
@@ -45,7 +49,10 @@ async def generate_batch_thumbnails(
                     await progress_callback(completed, f_info["name"])
                 else:
                     progress_callback(completed, f_info["name"])
-            return asset_thumbnail_key(f_info), thumb
+            key = asset_thumbnail_key(f_info)
+            if ready_callback and isinstance(thumb, Image.Image):
+                ready_callback(key, thumb)
+            return key, thumb
 
     tasks = [_worker(f) for f in files]
     results = await asyncio.gather(*tasks)

@@ -616,6 +616,7 @@ class AppController(QObject):
         self.thumbnail_requested.connect(self.thumb_worker.generate)
         self.thumb_worker.progress.connect(self._on_thumbnail_progress)
         self.thumbnail_update_requested.connect(self.thumb_worker.update_rendered)
+        self.thumb_worker.partial.connect(self._apply_thumbnails)
         self.thumb_worker.finished.connect(self._on_thumbnails_finished)
         self.thumb_worker.rendered_finished.connect(self._on_rendered_thumbnail)
         self.thumb_worker.error.connect(self._on_render_error)
@@ -730,14 +731,19 @@ class AppController(QObject):
         u8_arr = np.array(pil_img.convert("RGB"))
         self.state.thumbnails[key] = QIcon(QPixmap.fromImage(ImageConverter.to_qimage(u8_arr)))
 
-    def _on_thumbnails_finished(self, new_thumbs: Dict[str, Any]) -> None:
-        self.status_progress_requested.emit(0, 0)
-        self._end_batch("thumbnails")
+    def _apply_thumbnails(self, new_thumbs: Dict[str, Any]) -> None:
+        """Commit a batch (or a chunk of a running one) to the filmstrip."""
         for key, pil_img in new_thumbs.items():
             # A frame that already rendered on the canvas has the correct (inverted)
             # thumbnail; don't let this batch overwrite it with the source-decode placeholder.
             if pil_img and key not in self.state.rendered_thumbnails:
                 self._set_thumbnail(key, pil_img)
+        self.session.asset_model.refresh()
+
+    def _on_thumbnails_finished(self, new_thumbs: Dict[str, Any]) -> None:
+        self.status_progress_requested.emit(0, 0)
+        self._end_batch("thumbnails")
+        self._apply_thumbnails(new_thumbs)
 
         requested = getattr(self, "_thumb_requested", [])
         self._thumb_requested = []
