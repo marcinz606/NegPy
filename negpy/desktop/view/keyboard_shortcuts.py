@@ -15,6 +15,7 @@ from negpy.desktop.view.shortcut_registry import (
 )
 from negpy.desktop.view.slider_shortcut_groups import SLIDER_GROUP_BY_ACTION, SLIDER_GROUPS, SliderShortcutGroup, sign_for_action
 from negpy.desktop.view.slider_targets import slider_widget_map
+from negpy.desktop.view.widgets.collapsible import hidden_by_gating
 
 
 def _context_undo(controller) -> None:
@@ -54,6 +55,11 @@ def _toggle_tool_button(window, tab_key: str, button) -> None:
     button.toggle()
 
 
+def _slider_name(slider: object, group: SliderShortcutGroup) -> str:
+    label = getattr(slider, "label", None)
+    return label.text() if label is not None else group.label.replace(" ↑/↓", "")
+
+
 def _show_shortcuts(window) -> None:
     from negpy.desktop.view.widgets.shortcuts_overlay import ShortcutsOverlay
 
@@ -74,8 +80,13 @@ class ShortcutManager:
         group = SLIDER_GROUP_BY_ACTION[action_id]
 
         def _adjust() -> None:
-            step = slider_step_for(group.id, self.slider_steps)
             slider = getter()
+            # A window-wide QShortcut fires from any tab, so the gating the mouse gets for
+            # free on a disabled or mode-hidden control has to be applied here by hand.
+            if not slider.isEnabled() or hidden_by_gating(slider):
+                self.window.controller.set_status(f"{_slider_name(slider, group)} not available", 1500)
+                return
+            step = slider_step_for(group.id, self.slider_steps)
             slider.adjust_by(step * sign_for_action(action_id))
             self._announce(slider, group)
 
@@ -84,8 +95,7 @@ class ShortcutManager:
     def _announce(self, slider: object, group: SliderShortcutGroup) -> None:
         """Report the new value in the HUD. Nothing else does: the slider may sit on a
         hidden tab, and its value box only appears under the pointer."""
-        label = getattr(slider, "label", None)
-        name = label.text() if label is not None else group.label.replace(" ↑/↓", "")
+        name = _slider_name(slider, group)
         spin = getattr(slider, "spin", None)
         # The spin box already carries this slider's decimals and unit suffix.
         value = spin.text().strip() if spin is not None else f"{slider.value():.2f}"

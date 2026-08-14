@@ -6,6 +6,8 @@ All shortcuts, including slider adjustments, can be changed in-app from the `?` 
 
 A slider shortcut reports its new value in the canvas HUD, so you can keep a control on a hidden tab and still read what you just set.
 
+A control the current mode or a lock has retired — greyed out, or hidden along with its panel, such as Temperature on a B&W frame — does not move by keyboard either: the shortcut changes nothing and the HUD names the control instead of a value. Being on another tab, in a collapsed section or behind a closed panel does not count; those still work.
+
 Numpad keys can be bound separately from the number row (e.g. `Num+9` vs `9`). Num Lock must be on for numpad digits to register.
 
 ## Navigation
