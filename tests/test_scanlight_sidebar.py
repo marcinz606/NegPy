@@ -1335,6 +1335,7 @@ def test_legacy_white_process_mode_names_still_load():
     assert ScanlightSettings(white_process_mode="B&W").white_process_mode is WhiteCaptureMode.BW
     assert ScanlightSettings(white_process_mode="nonsense").white_process_mode is WhiteCaptureMode.AUTO
 
+
 def _settings_json(tmp_path, monkeypatch, *, writable=True, options=("1/60", "1/30", "1/8")):
     import json
 

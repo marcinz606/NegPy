@@ -425,3 +425,62 @@ def test_clip_fraction_counts_saturated_pixels():
     plane = np.zeros((100, 100))
     plane.reshape(-1)[:100] = 65500.0  # 1 % at/above saturation
     assert clip_fraction(plane, Roi(0, 0, 1, 1)) == pytest.approx(0.01, abs=1e-4)
+
+
+# Real ladder as published by a Nikon D600 (issue #768): decimal seconds with the unit attached.
+_D600 = tuple(
+    f"{v}s"
+    for v in (
+        "0.0040",
+        "0.0050",
+        "0.0062",
+        "0.0080",
+        "0.0100",
+        "0.0125",
+        "0.0166",
+        "0.0200",
+        "0.0250",
+        "0.0333",
+        "0.0400",
+        "0.0500",
+        "0.0666",
+        "0.0769",
+        "0.1000",
+        "0.1250",
+        "0.1666",
+        "0.2000",
+        "0.2500",
+        "0.3333",
+        "0.4000",
+        "0.5000",
+        "0.6250",
+        "0.7692",
+        "1.0000",
+        "1.3000",
+        "1.6000",
+        "2.0000",
+    )
+) + ("Bulb",)
+
+
+def test_shutter_labels_may_carry_their_unit():
+    """Nikon spells its ladder '0.4000s'. Every label failing to parse emptied the body's ladder,
+    the fallback then wrote a Sony-spelled '0.4', and the D600 silently ignored it (issue #768)."""
+    assert shutter_seconds("0.4000s") == pytest.approx(0.4)
+    assert shutter_seconds("0.0666s") == pytest.approx(0.0666)
+    assert shutter_seconds("2 sec") == pytest.approx(2.0)
+    assert shutter_seconds("0.4") == pytest.approx(0.4)  # unchanged for bodies that omit it
+    with pytest.raises(ValueError):
+        shutter_seconds("Bulb")  # still dropped, not silently parsed
+
+
+def test_a_nikon_ladder_survives_and_keeps_its_own_labels():
+    ladder = usable_ladder(_D600)
+    assert len(ladder) == len(_D600) - 1  # only "Bulb" is dropped
+    assert _ladder_stops(ladder) == pytest.approx(1 / 3)  # third-stops, read off the body
+    assert true_seconds("0.3333s", ladder) == pytest.approx(2 ** (-5 / 3), rel=0.01)
+
+    # The start point must come from the body's own vocabulary — writing "0.4" onto a D600 is
+    # exactly the bug: accepted by libgphoto2, ignored by the camera, "did not settle".
+    _, shutter = normalize_start_point("100", "f/8", candidates=_D600)
+    assert shutter in ladder and shutter.endswith("s")

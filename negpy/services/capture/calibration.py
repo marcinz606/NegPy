@@ -145,7 +145,10 @@ def shutter_seconds(label: str) -> float:
     number is multiplied into the physics (k, the level solve, shutter_at_least's ≥-comparison)
     must use `true_seconds` instead.
     """
-    label = label.strip()
+    # Nikon publishes decimal seconds with the unit attached ("0.4000s", "0.0666s"); a D600's
+    # whole ladder parsed as junk, left the body with no usable speeds, and the fallback then
+    # wrote a Sony-spelled "0.4" the camera silently ignored (issue #768).
+    label = re.sub(r"(?i)\s*(?:sec(?:onds?)?|s)$", "", label.strip()).strip()
     if "/" in label:
         num, den = label.split("/", 1)
         denominator = float(den)
