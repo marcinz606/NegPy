@@ -385,7 +385,7 @@ Where the frame gets its final shape: what's inside the print, and whether it si
 
 **Crop:**
 
-*   **Ratio**: target aspect ratio: `Free`, `1:1`, `3:2`, `4:3`, `5:4`, `6:7`, `7:5`, `65:24`, `16:9`, `16:10`, `11:8.5`. One entry per shape, since the crop tool auto-orients to portrait or landscape as you drag, so there's no separate portrait entry.
+*   **Ratio** (default `Free`): target aspect ratio: `Free`, `1:1`, `3:2`, `4:3`, `5:4`, `6:7`, `7:5`, `65:24`, `16:9`, `16:10`, `11:8.5`. One entry per shape, since the crop tool auto-orients to portrait or landscape as you drag, so there's no separate portrait entry. On `Free` the crop tool is unconstrained and auto-crop takes the ratio from the film format it detects — 6x6, 645, 6x7 and 35mm each keep their own shape. Pick a ratio to force every frame to it instead.
 *   **Detect** (crosshairs): snap the ratio to the closest standard.
 *   **Crop** tool: draw a crop rectangle on the canvas. **Reset** clears it and turns auto-crop off.
 *   **Guide**: overlay a composition guide while cropping: *Thirds*, *Phi Grid*, *Diagonals*, *Golden Triangles*, *Golden Spiral*, *Armature*, *Diagonal Method*, *Grid* or *Off*. The redo button rotates guides that have orientations (the spiral has 8, the triangles 2).

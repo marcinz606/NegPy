@@ -120,7 +120,11 @@ class GeometryConfig:
     auto_crop_enabled: bool = False
 
     autocrop_offset: int = 0
-    autocrop_ratio: AspectRatio = AspectRatio.R_3_2
+    # Free, not 3:2: autocrop reads the film format off the frame it detected (see
+    # geometry.logic.get_autocrop_coords), so the default fits 6x6, 645 and 6x7 as well as
+    # 35mm. A fixed 3:2 default center-cropped every other format down to a third of the
+    # picture. Any explicit ratio still overrides.
+    autocrop_ratio: AspectRatio = AspectRatio.FREE
     autocrop_mode: AutocropMode = AutocropMode.IMAGE
     # Fraction of the detected rebate to cut: 0.0 stops at the film edge, 1.0 lands on
     # the image edge, above 1.0 bites into the picture. Image mode only.
