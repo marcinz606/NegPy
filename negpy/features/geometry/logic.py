@@ -891,8 +891,13 @@ def _film_surround_is_plausible(lum: np.ndarray, roi: ROI) -> bool:
     if out.size < 0.005 * lum.size:
         return True  # box covers nearly the whole scan; no surround evidence either way
     out_med = float(np.median(out))
+    out_high = float(np.percentile(out, 90))
     box_med = float(np.median(lum[y1:y2, x1:x2]))
-    bed_like = out_med >= 0.85  # lum is anchored so the light bed sits near 1.0
+    # Near-clipping, not merely bright. On a thin negative the picture itself clears 0.85,
+    # so a median alone accepts a blown region as bed and cuts the frame down to whatever
+    # is darker beside it. The bed is the light source: it sits at the top of the
+    # histogram, where _detection_luma's anchor puts it, and a highlight does not.
+    bed_like = out_med >= 0.85 and out_high >= 0.98
     holder_like = out_med <= 0.30 and out_med <= box_med - 0.15
     return bed_like or holder_like
 

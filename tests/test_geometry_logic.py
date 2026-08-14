@@ -1442,6 +1442,20 @@ def test_edge_walk_reads_a_wide_scanner_rebate_the_same_as_the_ring():
     assert _refine_roi_to_image(box, (0, 400, 0, 600))[0] == (8, 392, 12, 588)
 
 
+def test_film_surround_must_be_near_clipping_to_read_as_bed():
+    from negpy.features.geometry.logic import _film_surround_is_plausible
+
+    # A blown region on a thin negative clears the brightness bar but not the histogram
+    # top, where the light bed sits. Accepting it cropped a frame to a third of itself.
+    lum = np.full((400, 600), 0.90, dtype=np.float32)
+    lum[120:300, 200:420] = 0.45
+
+    assert not _film_surround_is_plausible(lum, (120, 300, 200, 420))
+
+    lum[:, :] = np.where(lum > 0.5, 1.0, lum)  # the same box, now sitting on real bed
+    assert _film_surround_is_plausible(lum, (120, 300, 200, 420))
+
+
 def test_rebate_trim_scales_the_inset_between_film_edge_and_image_edge():
     film_roi, refined = (0, 400, 0, 600), (8, 392, 12, 588)
 
