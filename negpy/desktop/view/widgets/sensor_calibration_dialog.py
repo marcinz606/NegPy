@@ -2,7 +2,7 @@
 
 Red-only / green-only / blue-only captures (no film in the holder, same light
 and camera settings as scanning) measure the sensor's response to each band;
-the inverted mix is saved as a named sensor profile the Process panel selects.
+the inverted mix is saved as a named sensor profile the Calibration panel selects.
 """
 
 import numpy as np

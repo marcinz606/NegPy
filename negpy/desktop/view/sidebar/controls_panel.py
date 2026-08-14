@@ -153,7 +153,7 @@ class ControlsPanel(QWidget):
 
         self.process_sidebar = ProcessSidebar(self.controller)
         self.process_section = self._make_section(
-            "Process",
+            "Normalization",
             "process",
             self.process_sidebar,
             icon=qta.icon("fa5s.cogs", color=icon_color),
@@ -252,8 +252,8 @@ class ControlsPanel(QWidget):
             (
                 "setup",
                 "fa5s.cogs",
-                "Setup — Presets, Calibration, Process, Roll Analysis",
-                [self.presets_section, self.sensor_section, self.process_section, self.roll_section],
+                "Setup — Calibration, Normalization, Roll Analysis, Presets",
+                [self.sensor_section, self.process_section, self.roll_section, self.presets_section],
                 ["sensor_section", "process_section", "roll_section"],
             ),
             (
@@ -292,6 +292,10 @@ class ControlsPanel(QWidget):
             page_layout = QVBoxLayout(page)
             page_layout.setContentsMargins(0, 0, 0, 0)
             page_layout.setSpacing(8)
+            if key == "setup":
+                # Film mode rides above the collapsibles — it is the first choice of every
+                # edit, and this is what reparents the bar out of ProcessSidebar.
+                page_layout.addWidget(self.process_sidebar.mode_bar)
             for section in sections:
                 page_layout.addWidget(section)
             page_layout.addStretch(1)

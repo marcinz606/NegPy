@@ -81,12 +81,16 @@ class BaseSidebar(QWidget):
         btn.setChecked(checked)
         return btn
 
-    def _icon_action(self, icon_name: str, tooltip: str, width: int = 36) -> QPushButton:
-        """Icon-only one-shot action button, sized to sit flush beside toggles."""
+    def _icon_action(self, icon_name: str, tooltip: str, width: int | None = 36) -> QPushButton:
+        """Icon-only one-shot action button, sized to sit flush beside toggles.
+
+        width=None leaves it stretchable, for rows that size their buttons by layout stretch.
+        """
         btn = QPushButton()
         btn.setIcon(qta.icon(icon_name, color=THEME.text_primary, color_disabled=THEME.text_muted))
         btn.setStyleSheet("QPushButton {padding: 6px;}")
-        btn.setFixedWidth(width)
+        if width is not None:
+            btn.setFixedWidth(width)
         btn.setFixedHeight(default_button_height())
         btn.setToolTip(wrap_tooltip(tooltip))
         return btn

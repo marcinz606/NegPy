@@ -261,19 +261,29 @@ The four numeric rows at the bottom. Each one has the same explanation on hover,
 
 ## 4. Setup tab
 
-<!-- panel:presets -->
-### 4.1 Presets
-
-Save and recall a complete edit (the full workspace) by name.
-
-*   **Preset dropdown** + **Load**: apply a saved preset to the current image.
-*   **Name field** + **Save**: store the current settings as a new preset.
-*   **Trash**: delete the selected preset.
+**Film mode** sits above the panels, because it is the first choice of every edit: **Color** (C-41 color negative), **B&W** (panchromatic negative) or **Slide** (transparency/reversal, E-6 and friends). Each swaps the core conversion math and re-runs the pipeline from scratch. The wand button beside them **auto-detects** the mode when a file loads.
 
 <!-- panel:sensor -->
-### 4.2 Calibration: what your rig does to the colors
+### 4.1 Calibration: what your rig does to the colors
 
 Everything here corrects the *capture*, not the look: three different things sit between the scene and your file — the camera's color filters, the film's dyes, and the light source — and each gets its own control. They are not interchangeable, and none substitutes for another.
+
+**Capture**, how the file is decoded before any of that:
+
+*   **Scanning setup** (bulb button): a two-question wizard, *how do you scan?* then *what light source?*, that sets Linear RAW and Narrowband for you. It runs once after the first-launch tour; the button reopens it whenever your rig changes.
+*   **Linear RAW**: (default off) decodes with neutral multipliers for completely raw data. When toggled off decodes RAW with the camera's as-shot white balance. Toggling reloads the file. Let the **Scanning setup** wizard pick it, or try both and pick which yields better results for your setup.
+*   **Narrowband**: corrects the oversaturation typical of narrowband (RGB-LED trichrome) scans using a bundled input profile. Leave off for ordinary broadband scans. An explicit Input ICC in Export overrides it.
+
+What the wizard sets, by rig:
+
+| Capture | Light source | Linear RAW | Narrowband |
+| --- | --- | --- | --- |
+| Digital camera | White light (lightbox, CRI LED panel) | off | off |
+| Digital camera | Narrowband RGB (Scanlight, RGB LED) | on | on |
+| Film scanner | White light (Plustek, Epson, most flatbeds) | on | off |
+| Film scanner | Narrowband RGB (Nikon Coolscan, Kodak Pakon) | on | on |
+
+Applying it sets the defaults for newly loaded files, updates the open frame, and rewrites every already-edited frame in the session (undoable per frame with Ctrl+Z).
 
 **Trichrome Calibration**, for **single-shot narrowband** (RGB-LED trichrome) camera scans. The camera's color filters overlap the light's bands, so a pure red exposure leaks a little into green and blue. That leak is a fixed property of your sensor and light together and has nothing to do with the film, so it is corrected on the linear capture before inversion.
 
@@ -294,12 +304,12 @@ This block greys out unless **Linear RAW** is on, since profiles are calibrated 
 
 **Light source:**
 
-*   **Hue Trim** (-30° to 30°, default 0): rotates every hue by a fixed angle to undo the rotation an unusual scanning light imposes. Narrowband LED and odd-phosphor panels sample the dyes away from where the film expects, which turns *every* color by roughly the same angle — yellows reading orange, greens going olive — while leaving neutrals alone. That is why white balance cannot fix it: the error is a rotation, not a cast, so there is no grey to correct. Judge it on a subject you know the color of (foliage, a clear blue sky, skin) and leave it at 0 for an ordinary broadband light. The setting is **sticky**: a light source is a property of your rig, so it carries to the next file until you change it. Neutrals are untouched, so it never disturbs the color-balance clip in **Process**.
+*   **Hue Trim** (-30° to 30°, default 0): rotates every hue by a fixed angle to undo the rotation an unusual scanning light imposes. Narrowband LED and odd-phosphor panels sample the dyes away from where the film expects, which turns *every* color by roughly the same angle — yellows reading orange, greens going olive — while leaving neutrals alone. That is why white balance cannot fix it: the error is a rotation, not a cast, so there is no grey to correct. Judge it on a subject you know the color of (foliage, a clear blue sky, skin) and leave it at 0 for an ordinary broadband light. The setting is **sticky**: a light source is a property of your rig, so it carries to the next file until you change it. Neutrals are untouched, so it never disturbs the color-balance clip in **Normalization**.
 
 <!-- panel:process -->
-### 4.3 Process: negative → positive
+### 4.2 Normalization: negative → positive
 
-The foundation of every edit: film type, how the scan is decoded, and how the negative is normalized into a positive.
+How the negative is measured and normalized into a positive. The film mode that decides *which* conversion runs sits above the panels (§4), and how the scan is decoded lives in **Calibration** (§4.1).
 
 *   **Multi-core CPU Rendering** (canvas toolbar → **»** menu, beside **GPU Acceleration**): spreads the CPU rendering kernels across your cores. It takes effect immediately — nothing recompiles and there is no restart.
 
@@ -307,26 +317,11 @@ The foundation of every edit: film type, how the scan is decoded, and how the ne
 
     On Windows and Linux this is **on**. On macOS it is **off**, pending more evidence: the underlying threading layer terminates the process outright if two threads enter it at once, and while NegPy serialises every such call behind a lock, that has been proven on one Mac rather than on the range of them. If you turn it on and the app ever closes without warning, NegPy notices on the next launch and offers to turn it back off — that is the failure to expect, and it is recoverable. Setting `cpu_parallel` under `[performance]` in `override.toml` still wins over the menu, for a machine that cannot start.
 
-*   **Scanning setup** (bulb button): a two-question wizard, *how do you scan?* then *what light source?*, that sets Linear RAW and Narrowband for you. It runs once after the first-launch tour; the button reopens it whenever your rig changes.
-*   **Linear RAW**: (default off) decodes with neutral multipliers for completely raw data. When toggled off decodes RAW with the camera's as-shot white balance. Toggling reloads the file. Let the **Scanning setup** wizard pick it, or try both and pick which yields better results for your setup.
-*   **Narrowband**: corrects the oversaturation typical of narrowband (RGB-LED trichrome) scans using a bundled input profile. Leave off for ordinary broadband scans. An explicit Input ICC in Export overrides it.
-*   **Lock Bounds**: freezes the analyzed normalization bounds for this frame, so cropping or moving sliders no longer re-analyzes it. Lock in once you're happy with the bounds.
-*   **Mode**: `Color Negative` (C-41), `B&W Negative` (panchromatic), or `Transparency` (slide/reversal, E-6 and friends). Changes the core conversion math and re-runs the pipeline from scratch. The wand button beside it **auto-detects** the mode when a file loads.
-What the wizard sets, by rig:
-
-| Capture | Light source | Linear RAW | Narrowband |
-| --- | --- | --- | --- |
-| Digital camera | White light (lightbox, CRI LED panel) | off | off |
-| Digital camera | Narrowband RGB (Scanlight, RGB LED) | on | on |
-| Film scanner | White light (Plustek, Epson, most flatbeds) | on | off |
-| Film scanner | Narrowband RGB (Nikon Coolscan, Kodak Pakon) | on | on |
-
-Applying it sets the defaults for newly loaded files, updates the open frame, and rewrites every already-edited frame in the session (undoable per frame with Ctrl+Z).
-
-**Analysis window**, where NegPy measures the black/white points:
+**Analysis window**, where NegPy measures the black/white points. The slider takes half the row, the three buttons the other half:
 
 *   **Analysis Buffer** (0.0 to 0.25): insets the measurement window from the frame edge so film rebate, sprocket holes, and scanner borders don't skew detection. Raise on scans with wide borders.
 *   **Analysis Region** (square-draw tool): draw a freehand region on the canvas to meter *exactly* that area (overrides the buffer). Double-click inside to confirm; the ✕ button clears it.
+*   **Lock Bounds** (padlock): freezes the analyzed normalization bounds for this frame, so cropping or moving sliders no longer re-analyzes it. Lock in once you're happy with the bounds.
 
 **Normalization tuning:**
 
@@ -334,7 +329,7 @@ Applying it sets the defaults for newly loaded files, updates the open frame, an
 *   **Color Clip** (-100 to 100): the per-channel color-balance clip (orange-mask removal), independent of the tonal range. Positive tightens channel balance; negative samples nearer the extremes.
 *   **Global / R / G / B** selector → **White Point** / **Black Point** (-0.25 to 0.25): manual offsets on top of the auto-detected bounds. Positive white point brightens; positive black point lifts blacks. In R/G/B mode these become per-layer trims: per-dye-layer film-base (Dmin) and Dmax corrections, i.e. scanner-style per-channel levels. The selector is hidden in B&W Negative, where per-layer trims are meaningless, and in Transparency with Normalize off, where the sliders it scopes are hidden with the rest of the normalization tuning.
 
-**Crosstalk**, **Hue Trim** and the sensor unmix all live in **Calibration** (§4.2) — they correct the capture rather than the negative-to-positive conversion.
+**Crosstalk**, **Hue Trim** and the sensor unmix all live in **Calibration** (§4.1) — they correct the capture rather than the negative-to-positive conversion.
 
 > **No Transparency matrix ships with NegPy.** On slides the Matrix dropdown therefore starts empty, and it and Strength are disabled until a matrix exists — but the editor button stays live, so you can build your own (press **+**, and it is created for the process you are in). A `.toml` marked `process = "Transparency"` dropped into your crosstalk folder works too (the pre-rename `process = "E-6"` still loads). Be aware it means something different there: on a negative the dyes' unwanted absorptions are an error to remove before inversion, so unmixing moves the render *toward* the scene, but a transparency **is** the finished image — what you see on a lightbox already includes those absorptions — so unmixing moves it *away* from the slide's own look. In Transparency treat it as a color-separation control, not a fidelity correction. **Hue Trim** is unaffected by any of this: it corrects the light source, so it applies to slides exactly as it does to negatives.
 
@@ -345,18 +340,18 @@ Applying it sets the defaults for newly loaded files, updates the open frame, an
     On a slide that was exposed as intended, expect it to look washed out and desaturated, and that is not a bug in the sense of a miscalculation: a slide's density runs all the way to Dmax but only its top ~1.5 decades carry picture, so a stretch measured across the whole range squeezes the picture into the top of the print curve, where the shoulder compresses tone and color together. Reach for it when the slide needs rescuing, not as a starting point.
 *   **Off** (default): renders the slide **as captured**. The camera's own color matrix is applied and the tonal window is fixed to the decoder's white level rather than measured from the frame, so a slide opens looking the way it does in Photoshop, Preview, Affinity or Darktable — and a bracketed set stays a bracket, with each exposure rendering at its own brightness. This is the mode to use when you exposed the slide the way you wanted it and only need to adjust from there.
 
-    With Normalize off the paper simulation has nothing to act on, so the print-specific controls are hidden (paper profile, Paper White/Black, Auto Density, Auto Grade, split grade, Dye Separation) along with the normalization tuning above, which only shapes a *measured* stretch. What stays is a plain transfer curve, neutral at its defaults: **Print Density** (exposure), **ISO-R Grade** (contrast), **Toe** / **Shoulder** and their **Width** sliders (shadow and highlight roll-off), **Shadows Density** / **Highlights Density** (§4.4), the per-layer R/G/B trims, and white balance. Lab, Toning and Finish work as usual.
+    With Normalize off the paper simulation has nothing to act on, so the print-specific controls are hidden (paper profile, Paper White/Black, Auto Density, Auto Grade, split grade, Dye Separation) along with the normalization tuning above, which only shapes a *measured* stretch. What stays is a plain transfer curve, neutral at its defaults: **Print Density** (exposure), **ISO-R Grade** (contrast), **Toe** / **Shoulder** and their **Width** sliders (shadow and highlight roll-off), **Shadows Density** / **Highlights Density** (§6.2), the per-layer R/G/B trims, and white balance. Lab, Toning and Finish work as usual.
 
     Coming from Lightroom's basic panel, the map is: **Exposure** → Print Density (inverted — lower is brighter), **Contrast** → ISO-R Grade (inverted — 180 is softest), **Shadows** → Shadows Density, **Highlights** → Highlights Density, with Toe and Shoulder shaping how each end rolls off. Note the Density sliders take the darkroom sign: *positive adds density*, so negative Shadows Density is what opens the shadows. **Whites** and **Blacks** have no equivalent here — the tonal window is fixed by design, which is what makes the render faithful to the capture.
 
     A source with no camera matrix (a scanner TIFF, a JPEG) is already in the working space and passes straight through.
 
-    **Linear RAW** and **Narrowband** are hidden here, because neither applies to an as-captured render and both are made inert rather than merely hidden (they are sticky settings, so leaving them live but invisible would be a trap). Linear RAW decodes without the as-shot white balance, which the camera matrix assumes is present — the multipliers are folded back in, so the render is identical either way. Narrowband's bundled input profile is suppressed, since the camera matrix has already reached the working space and a second input characterisation would compete with it. An explicit Input ICC in Export still applies.
+    **Linear RAW** and **Narrowband** are hidden in **Calibration** here, because neither applies to an as-captured render and both are made inert rather than merely hidden (they are sticky settings, so leaving them live but invisible would be a trap). Linear RAW decodes without the as-shot white balance, which the camera matrix assumes is present — the multipliers are folded back in, so the render is identical either way. Narrowband's bundled input profile is suppressed, since the camera matrix has already reached the working space and a second input characterisation would compete with it. An explicit Input ICC in Export still applies.
 
     Narrowband capture is not recommended for this mode in any case: reproducing a slide's appearance is a colorimetric problem, and narrowband illumination samples the spectrum at three isolated wavelengths, so the inter-band overlap the eye integrates is never measured (the same reason narrowband scans render oversaturated and hue-rotated). Its real payoffs — defeating the orange mask, clean dye separation ahead of a high-gain inversion — belong to negatives, and a transparency has neither. Both toggles keep working normally for Color Negative, B&W Negative and Transparency with Normalize on.
 
 <!-- panel:roll -->
-### 4.4 Roll Analysis: a consistent look across the roll
+### 4.3 Roll Analysis: a consistent look across the roll
 
 Meter the whole roll once and share the baseline, so frames from the same film match.
 
@@ -369,6 +364,15 @@ Meter the whole roll once and share the baseline, so frames from the same film m
 *   **Roll dropdown** + **Load**: apply a saved roll's bounds and balance.
 *   **Save**: store the current Batch Analysis as a named roll (useful when you shoot the same stock repeatedly).
 *   **Delete**: remove the selected roll (asks first). The frames keep their current look; only the saved baseline goes.
+
+<!-- panel:presets -->
+### 4.4 Presets
+
+Save and recall a complete edit (the full workspace) by name.
+
+*   **Preset dropdown** + **Load**: apply a saved preset to the current image.
+*   **Name field** + **Save**: store the current settings as a new preset.
+*   **Trash**: delete the selected preset.
 
 ---
 
@@ -426,7 +430,7 @@ Color timing, like the dichroic filters on an enlarger head. A **Global / Shadow
 *   **Cyan / Magenta / Yellow** (-1 to 1): the three filtration axes, Cyan↔Red, Magenta↔Green and Yellow↔Blue.
 *   **Cast Removal** (0.0 to 1.0, **Color Negative only**): neutralizes the residual color cast a negative leaves in the print, balancing each layer so greys stay neutral from deep shadows through highlights. Applied strength scales with how many clean near-neutrals the frame has. Default ~0.5; 0 turns it off.
 
-    Hidden in Transparency and B&W Negative, because the render ignores it there. What it defeats is the **orange mask** — a cast the manufacturer built into the film, not part of the picture. A slide has no mask and its cast *is* the photograph, so solving for a neutral axis would strip out the light you shot in; a B&W negative has one emulsion and no channels to balance. For a slide's color use **Temperature** and the CMY sliders above, or **Hue Trim** (§4.2) if an unusual scanning light has rotated the hues.
+    Hidden in Transparency and B&W Negative, because the render ignores it there. What it defeats is the **orange mask** — a cast the manufacturer built into the film, not part of the picture. A slide has no mask and its cast *is* the photograph, so solving for a neutral axis would strip out the light you shot in; a B&W negative has one emulsion and no channels to balance. For a slide's color use **Temperature** and the CMY sliders above, or **Hue Trim** (§4.1) if an unusual scanning light has rotated the hues.
 *   **Ring-around** (target icon, or `Shift+F`): prints the frame as a 5×5 mosaic stepping 2cc at a time out to ±4cc on the magenta and yellow axes, so the direction of a color cast is visible instead of guessed. Each patch is a real render of the part of the frame it covers; click one to keep its filtration. The ladder is absolute and centred on neutral, so a ring printed off one frame compares to the next. `Escape` or a second press clears it, and any edit drops it. See **Rotating a proof** below.
 
 <!-- panel:tone -->
@@ -827,7 +831,7 @@ You can ask for the check again at any time with the **Check for updates** actio
 
 ## Additional Info
 
-*   **GPU acceleration**: NegPy uses your GPU for near-instant previews and responsive sliders. The Process panel's analysis (bounds, white/black point, normalize) runs on the CPU. There is no global GPU switch in the UI, so force the CPU pipeline via `override.toml` if you suspect a driver issue.
+*   **GPU acceleration**: NegPy uses your GPU for near-instant previews and responsive sliders. The Normalization panel's analysis (bounds, white/black point, normalize) runs on the CPU. There is no global GPU switch in the UI, so force the CPU pipeline via `override.toml` if you suspect a driver issue.
 *   **Database**: all edits live in a local SQLite database keyed by file hash, so you can move or rename files without losing your work. Optional `.negpy` sidecars mirror edits next to your sources.
 *   **Saving edits**: edits are written to the database on export, when you switch frames, or when you save explicitly. Closing the app mid-edit without any of those loses unsaved changes.
 *   **Keyboard shortcuts**: [KEYBOARD.md](KEYBOARD.md)

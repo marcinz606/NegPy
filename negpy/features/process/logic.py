@@ -17,7 +17,7 @@ def effective_linear_raw(process: ProcessConfig, render_intent: Optional[str] = 
 
     True when the user asked for Linear RAW, and **always** on the transparency transfer
     path. That render applies the camera's own matrix, which folds the as-shot multipliers
-    back in itself (`camera_to_working_matrix`), and the Process panel already documents
+    back in itself (`camera_to_working_matrix`), and the Calibration panel already documents
     Linear RAW as inert there — but the decode was reading the stored flag regardless, so a
     hidden, stale toggle silently decided whether white balance was applied.
 

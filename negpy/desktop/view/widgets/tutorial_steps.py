@@ -17,7 +17,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         return w.controls_panel.process_sidebar
 
     def _mode(w: "MainWindow") -> Optional[QWidget]:
-        return w.controls_panel.process_sidebar.mode_combo
+        return w.controls_panel.process_sidebar.mode_bar
 
     def _density(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.tone_sidebar.density_slider
@@ -92,7 +92,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         return w.right_panel.metadata_sidebar.manage_btn
 
     def _narrowband(w: "MainWindow") -> Optional[QWidget]:
-        return w.controls_panel.process_sidebar.narrowband_scan_btn
+        return w.controls_panel.sensor_sidebar.narrowband_scan_btn
 
     def _triage(w: "MainWindow") -> Optional[QWidget]:
         return w.session_panel.file_browser.sheet_btn
@@ -228,32 +228,30 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             section_attr="process_section",
         ),
         TutorialStep(
-            title="Process Panel — Mode & Decoding",
+            title="Film Mode & Decoding",
             body=(
-                "The Process panel is the foundation of every edit: what kind of film this is, "
-                "how the RAW is decoded, and how the negative is normalized into a "
-                "positive.<br><br>"
-                "<b>Mode</b> picks the chemistry — <b>Color Negative</b> (C-41), <b>B&amp;W Negative</b> "
-                "(panchromatic) or <b>Transparency</b> (slide/reversal). It swaps the core conversion "
-                "math and re-runs the pipeline from scratch, and the wand beside it "
-                "<b>auto-detects</b> the mode when a file loads.<br><br>"
-                "<b>Linear RAW</b> decodes with neutral multipliers, bypassing the camera's "
-                "as-shot white balance so the orange mask arrives untouched — toggling it "
-                "reloads the file. Off (the default) decodes with the as-shot balance instead, "
-                "which is what a camera scan under white light wants.<br><br>"
+                "The first choice of every edit sits above the panels: <b>what kind of film "
+                "this is</b>.<br><br>"
+                "The three buttons pick the chemistry — <b>Color</b> (C-41 negative), "
+                "<b>B&amp;W</b> (panchromatic negative) or <b>Slide</b> (transparency/reversal). "
+                "Each swaps the core conversion math and re-runs the pipeline from scratch, and "
+                "the wand beside them <b>auto-detects</b> the mode when a file loads.<br><br>"
+                "In <b>Calibration</b> below, <b>Linear RAW</b> decodes with neutral multipliers, "
+                "bypassing the camera's as-shot white balance so the orange mask arrives untouched "
+                "— toggling it reloads the file. Off (the default) decodes with the as-shot balance "
+                "instead, which is what a camera scan under white light wants.<br><br>"
                 "You don't have to guess: the <b>bulb</b> button asks two questions about your rig "
                 "— camera or scanner, white light or narrowband RGB — and sets Linear RAW and "
                 "Narrowband from the answer. It opens by itself once this tour is done.<br><br>"
-                "<b>Lock Bounds</b> freezes this frame's analysed bounds, so cropping or moving "
-                "a slider no longer re-meters it — lock in once the conversion looks right. In "
-                "Transparency mode a <b>Normalize</b> button appears at the bottom, stretching a faded "
-                "or expired slide back to the full range."
+                "In the <b>Normalization</b> panel, <b>Lock Bounds</b> freezes this frame's analysed "
+                "bounds, so cropping or moving a slider no longer re-meters it — lock in once the "
+                "conversion looks right. In Slide mode a <b>Normalize</b> button appears at the "
+                "bottom, stretching a faded or expired slide back to the full range."
             ),
             target=_mode,
-            section_attr="process_section",
         ),
         TutorialStep(
-            title="Process Panel — Bounds Analysis",
+            title="Normalization Panel — Bounds Analysis",
             body=(
                 "Film dyes follow Beer–Lambert absorption — density is logarithmic — so NegPy "
                 "converts the raw signal to log space and meters it there, on two independent "
@@ -293,7 +291,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "profile, that takes precedence and this toggle steps aside."
             ),
             target=_narrowband,
-            section_attr="process_section",
+            section_attr="sensor_section",
         ),
         TutorialStep(
             title="Crosstalk — Dye Unmixing",

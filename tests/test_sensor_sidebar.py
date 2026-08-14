@@ -148,3 +148,40 @@ def test_gate_is_display_only_and_survives_a_round_trip(monkeypatch):
     assert w.sensor_combo.isEnabled()
     assert w.linear_raw_hint.isHidden()
     assert writes == []
+
+
+def test_capture_row_tracks_config_and_hides_on_the_transparency_transfer():
+    """Linear RAW / Narrowband / Scanning setup live here, not in Normalization. They
+    are inert on the as-captured transparency render, so the whole block goes."""
+    w = _sidebar(linear_raw=True)
+    w.sync_ui()
+    assert w.linear_raw_btn.isChecked()
+    assert not w.narrowband_scan_btn.isChecked()
+    for widget in (w.capture_header, w.linear_raw_btn, w.narrowband_scan_btn, w.scan_setup_btn):
+        assert not widget.isHidden()
+
+    cfg = w.state.config
+    w.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=False))
+    w.sync_ui()
+    for widget in (w.capture_header, w.linear_raw_btn, w.narrowband_scan_btn, w.scan_setup_btn):
+        assert widget.isHidden()
+
+    # Normalize on is a metered stretch again, so both toggles apply.
+    cfg = w.state.config
+    w.state.config = replace(cfg, process=replace(cfg.process, e6_normalize=True))
+    w.sync_ui()
+    for widget in (w.capture_header, w.linear_raw_btn, w.narrowband_scan_btn, w.scan_setup_btn):
+        assert not widget.isHidden()
+
+
+def test_capture_toggles_reach_the_controller():
+    w = _sidebar(linear_raw=False)
+    w.sync_ui()
+
+    w.narrowband_scan_btn.setChecked(True)
+    (cfg,), _kw = w.controller.apply_config.call_args
+    assert cfg.process.narrowband_scan is True
+
+    w.linear_raw_btn.setChecked(True)
+    (cfg,), _kw = w.controller.apply_config.call_args
+    assert cfg.process.linear_raw is True
