@@ -1035,6 +1035,185 @@ def _roi_from_measured_border(lum: np.ndarray, film_roi: ROI) -> ROI | None:
     return roi
 
 
+# Camera-scan holder mask against a bed normalized to 1.0. Dense negative bottoms out
+# near 0.05, so the cut sits below that; the mask itself is not always this clean, which
+# is why the walk bridges rather than classifies every pixel.
+_EDGE_MASK_LEVEL = 0.03
+# Clear film base / bare bed. _detection_luma anchors P99.5 at 1.0, so the bed is a stable
+# landmark; picture only reaches here when the frame carries no base at all.
+_EDGE_BASE_LEVEL = 0.95
+# Gap the walk carries across, covering the mid-gray ramp between mask and base.
+_EDGE_BRIDGE = 8
+_EDGE_TRIM_CAP = 0.03
+_EDGE_CORE = 0.70
+_EDGE_QUANTILE = 80
+_EDGE_MIN_SUPPORT = 0.45
+# Borders that no absolute level finds, read against the picture on the same line: a
+# rebate on a thin negative sits above the picture but below the bed, because the frame's
+# own highlights set the P99.5 anchor; a holder edge sits below the picture but above the
+# mask cut, shading from near-black at one end of the side to mid-grey at the other. Both
+# must end in a step — that is what separates them from a large bright subject or a deep
+# shadow touching the frame edge, which taper.
+_EDGE_REBATE_MARGIN = 0.10
+# The dark side runs a wider margin: dense negative crowds the bottom of the range, so a
+# shadow sits nearer the picture median than a highlight does.
+_EDGE_SHADE_MARGIN = 0.16
+_EDGE_REBATE_STEP = 0.18
+_EDGE_REBATE_REF = 60
+
+_EDGE_ORIENT = {
+    "top": lambda box: box,
+    "bottom": lambda box: box[::-1],
+    "left": lambda box: box.T,
+    "right": lambda box: box.T[::-1],
+}
+
+
+def _edge_border_depth(box: np.ndarray, side: str, limit: int) -> int:
+    """
+    Depth of the non-image border on one side of a film box, in pixels.
+
+    Walks each line inward on its own and pools the depths. A camera scan puts two tiers
+    outside the picture, either of which may be absent: an opaque holder mask at the very
+    edge, then a clear film-base sliver. Neither is separable by level alone — the mask
+    overlaps dense negative around 0.05 and the ramp between the tiers sits squarely in
+    picture range — but the tiers are adjacent, so the walk carries across a short gap and
+    stops at the last border evidence instead of the first picture-like pixel.
+
+    Per line rather than per row because these frames are slightly tilted: one row crosses
+    both tiers and the picture at once, which smears every per-row statistic together.
+    """
+    lines = _EDGE_ORIENT[side](box)
+    n = lines.shape[1]
+    margin = int(round((1.0 - _EDGE_CORE) * 0.5 * n))
+    if n - 2 * margin >= 8:
+        lines = lines[:, margin : n - margin]
+    if lines.shape[0] < limit + 8 or lines.shape[1] < 8:
+        return 0
+
+    head = lines[: limit + 1]
+    # Picture level per line, taken past the deepest cut allowed so a thick border
+    # cannot raise its own reference and hide itself.
+    picture = np.median(lines[limit : limit + _EDGE_REBATE_REF], axis=0)
+
+    firm = (head < _EDGE_MASK_LEVEL) | (head > _EDGE_BASE_LEVEL)
+    # Tiers no absolute level reaches, read against the picture on the same line: a rebate
+    # brighter than the picture but under the bed, and a holder edge darker than the
+    # picture but over the mask cut. A holder edge shades along the side — near-black at
+    # one end, mid-grey at the other — so the absolute cut catches only the dark end and
+    # abstains on the rest of a border that runs the full side.
+    reference = picture[None, :]
+    border = firm | (head > reference + _EDGE_REBATE_MARGIN) | (head < reference - _EDGE_SHADE_MARGIN)
+
+    depth = np.zeros(head.shape[1], dtype=np.int32)
+    last = np.full(head.shape[1], -1, dtype=np.int32)
+    soft = np.zeros(head.shape[1], dtype=bool)
+    alive = np.ones(head.shape[1], dtype=bool)
+    # Tracked alongside: how deep the mask and bed alone reach. Firm evidence is its own
+    # proof, so wherever it runs the border runs, and the gradient below never has to
+    # arbitrate. It matters when the border stacks two firm tiers — mask outside, film
+    # base inside — because the outer boundary is the stronger step of the two, and a
+    # gradient asked to pick one picks that, leaving the base inside the frame.
+    firm_depth = np.zeros(head.shape[1], dtype=np.int32)
+    firm_last = np.full(head.shape[1], -1, dtype=np.int32)
+    firm_alive = np.ones(head.shape[1], dtype=bool)
+    for i in range(head.shape[0]):
+        # Evidence must chain back to the frame edge: the border tiers are the outermost
+        # things on the film, never something found well inside the picture.
+        alive &= (i - last) <= _EDGE_BRIDGE
+        firm_alive &= (i - firm_last) <= _EDGE_BRIDGE
+        if not alive.any() and not firm_alive.any():
+            break
+        hit = alive & border[i]
+        last = np.where(hit, i, last)
+        depth = np.where(hit, i + 1, depth)
+        soft = np.where(hit, ~firm[i], soft)
+
+        firm_hit = firm_alive & firm[i]
+        firm_last = np.where(firm_hit, i, firm_last)
+        firm_depth = np.where(firm_hit, i + 1, firm_depth)
+
+    # Where the walk ended on a relative test alone, the border edge is taken from the
+    # strongest gradient inside the run rather than from where the level test gave out.
+    # A level test only nominates candidates: with a bright picture on the line, "darker
+    # than the reference" stays true well into the picture's own shadows, and the run
+    # overruns the boundary and ends mid-ramp. The gradient is the boundary.
+    #
+    # That peak also has to be a real step. A border stops at the frame edge, which is a
+    # hard boundary; a large bright subject or a deep shadow running to the edge of the
+    # picture shades off, and reading that as a border would carve the frame down to
+    # whatever lies inside it. Magnitude, not sign: a rebate is brighter than the picture
+    # it ends against and a holder edge is darker. Mask and bed need no such proof —
+    # nothing else on the film reaches those levels.
+    span = np.abs(lines[3 : limit + 3] - lines[:limit])
+    reach = np.arange(span.shape[0])[:, None] < depth[None, :]
+    masked = np.where(reach, span, -1.0)
+    peak = masked.max(axis=0)
+    # The outermost span that all but matches the peak, not the peak itself: where the
+    # picture keeps rising past the boundary, a span straddling the step plus some picture
+    # outscores the step alone and drags the cut inward. Ties go outward, keeping picture.
+    peak_at = np.argmax(masked >= (0.9 * peak)[None, :], axis=0)
+    # span[j] compares j against j+3, so a step between j+2 and j+3 first peaks at j: the
+    # boundary is the far end of the winning span, not its middle.
+    resolved = np.clip(peak_at + 3, 0, limit)
+    depth = np.where(soft, np.where(peak >= _EDGE_REBATE_STEP, resolved, 0), depth)
+    depth = np.maximum(depth, firm_depth)
+
+    if float((depth > 0).mean()) < _EDGE_MIN_SUPPORT:
+        return 0  # a minority of lines: incidental highlights, not a border
+    return int(min(limit, np.percentile(depth, _EDGE_QUANTILE)))
+
+
+def measure_film_edges(lum: np.ndarray, film_roi: ROI) -> dict[str, float]:
+    """
+    Per-side holder-mask + film-base thickness inside a film box, as a fraction of that
+    side. 0.0 means the side carries no border of either tier.
+
+    Companion to measure_film_border, which reads a single bright tier through a ring 4%
+    of the box wide. A camera scan that fills the sensor compresses mask and base into a
+    few pixels, so that ring straddles both tiers plus the picture and abstains; this
+    walks the edge itself instead.
+    """
+    y1, y2, x1, x2 = film_roi
+    box = lum[y1:y2, x1:x2]
+    bh, bw = box.shape[:2]
+    if bh < 16 or bw < 16:
+        return {name: 0.0 for name in BORDER_SIDES}
+
+    ly = int(round(_EDGE_TRIM_CAP * bh))
+    lx = int(round(_EDGE_TRIM_CAP * bw))
+    return {
+        "top": _edge_border_depth(box, "top", ly) / bh,
+        "bottom": _edge_border_depth(box, "bottom", ly) / bh,
+        "left": _edge_border_depth(box, "left", lx) / bw,
+        "right": _edge_border_depth(box, "right", lx) / bw,
+    }
+
+
+def _trim_film_edges(lum: np.ndarray, film_roi: ROI) -> ROI:
+    """
+    Inset a film box past the holder mask and the film-base sliver on each side.
+
+    Sides are independent: a frame sitting off-centre in the holder shows a border on some
+    sides and none on others, so requiring an opposite pair (as _roi_from_measured_border
+    does) would leave the border on. The cap is what bounds the damage instead — picture
+    running to the frame edge is trimmed by at most _EDGE_TRIM_CAP of the side.
+    """
+    y1, y2, x1, x2 = film_roi
+    height, width = y2 - y1, x2 - x1
+    measured = measure_film_edges(lum, film_roi)
+
+    roi = (
+        y1 + round(measured["top"] * height),
+        y2 - round(measured["bottom"] * height),
+        x1 + round(measured["left"] * width),
+        x2 - round(measured["right"] * width),
+    )
+    if roi[1] - roi[0] < 0.5 * height or roi[3] - roi[2] < 0.5 * width:
+        return film_roi
+    return roi
+
+
 def _find_rebate_level(lum: np.ndarray, film_roi: ROI) -> Optional[Tuple[float, float]]:
     """
     Searches the four border strips inside the film box for a rebate plateau:
@@ -1234,13 +1413,21 @@ def _refine_film_roi_by_tiers(lum: np.ndarray, film_roi: ROI) -> Optional[Tuple[
 def _refine_roi_to_image(img: ImageBuffer, film_roi: ROI) -> Tuple[ROI, Optional[np.ndarray], Optional[np.ndarray]]:
     """
     Refines a film-extent ROI inward to the exposed image area (rebate excluded).
-    Tier-based refinement first, then the per-side border measurement, then Sobel.
+    Tier-based refinement first, then the per-side edge walk, then the per-side border
+    measurement, then Sobel.
     Returns (roi, row_occupancy | None, col_occupancy | None).
     """
     lum = _detection_luma(img)
     refined = _refine_film_roi_by_tiers(lum, film_roi)
     if refined is not None:
         return refined
+
+    # Ahead of the border measurement, which reads one bright tier through a ring 4% of
+    # the box wide: a camera scan that fills the sensor compresses mask and base into a
+    # few pixels, and that ring straddles both plus the picture and abstains.
+    walked = _trim_film_edges(lum, film_roi)
+    if walked != film_roi:
+        return walked, None, None
 
     measured = _roi_from_measured_border(lum, film_roi)
     if measured is not None:
@@ -1687,13 +1874,18 @@ def get_autocrop_coords(
 
     # Trim opaque holder/border stripes (lum ~ 0) the film detection left in — these
     # sit at the absolute frame edge and become a white band after inversion.
-    film_roi = _trim_opaque_border(_detection_luma(det), film_roi)
+    lum = _detection_luma(det)
+    film_roi = _trim_opaque_border(lum, film_roi)
 
     row_occ = col_occ = None
-    if mode == AutocropMode.FILM or not from_contours:
+    if mode == AutocropMode.FILM:
         roi = film_roi
-    else:
+    elif from_contours:
         roi, row_occ, col_occ = _refine_roi_to_image(det, film_roi)
+    else:
+        # The threshold fallback's box is too loose to refine inward, but the mask/base
+        # walk reads the edges themselves and does not need a well-found box.
+        roi = _trim_film_edges(lum, film_roi)
 
     roi = scale_roi_inset(film_roi, roi, rebate_trim)
     roi = _scale_roi(roi, det_scale, h, w)
