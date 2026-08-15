@@ -311,16 +311,45 @@ def package_windows():
         raise
 
 
-def codesign_macos_app():
-    """Force a fresh, consistent ad-hoc signature over the whole .app.
+def fix_lcms2_dylib_collision():
+    """Repoint the canonical liblcms2.2.dylib at imagecodecs' own copy.
 
-    PyInstaller's own signing pass does not reliably reach every binary it moves or
-    rewrites under --collect-all (e.g. imagecodecs' bundled liblcms2.2.dylib, whose
-    install name PyInstaller rewrites from @loader_path/.dylibs to @rpath — see the
-    CMS-codec-unavailable fallback in image_processor.py). The app is not notarized,
-    and Apple Silicon's code-signing enforcement is stricter than Intel's about
-    loading such binaries at runtime, so a `--deep` ad-hoc re-sign after PyInstaller
-    finishes costs nothing and removes inconsistent per-binary signing as a variable.
+    cv2, PIL, rawpy, and imagecodecs each vendor their own build of
+    liblcms2.2.dylib. PyInstaller collapses same-named dylibs collected under
+    --collect-all into one canonical Contents/Frameworks/liblcms2.2.dylib
+    (the others become @rpath references to it), with no guarantee it keeps
+    the copy a given consumer actually needs. imagecodecs' _cms.abi3.so
+    resolves @rpath/liblcms2.2.dylib to that canonical file; when it isn't
+    imagecodecs' own build, the picked copy can be missing symbols
+    imagecodecs needs (confirmed: cmsChannelsOfColorSpace absent from
+    rawpy's copy), and `from imagecodecs import cms_transform` fails —
+    masquerading as the "CMS codec unavailable" fallback in
+    image_processor.py, with the real dlopen error swallowed by
+    imagecodecs' lazy __getattr__. Not a code-signing issue — see
+    LIBLCMS2_DYLIB_COLLISION.md. Must run before codesign_macos_app() so the
+    corrected symlink is covered by the final signature.
+    """
+    frameworks = os.path.join("dist", f"{APP_NAME}.app", "Contents", "Frameworks")
+    canonical = os.path.join(frameworks, "liblcms2.2.dylib")
+    matches = glob.glob(os.path.join(frameworks, "imagecodecs", "*", "liblcms2.2.dylib"))
+    if not matches:
+        print("WARNING: imagecodecs' own liblcms2.2.dylib not found — skipping collision fix")
+        return
+    rel_target = os.path.relpath(matches[0], frameworks)
+    if os.path.islink(canonical) or os.path.exists(canonical):
+        os.remove(canonical)
+    os.symlink(rel_target, canonical)
+    print(f"Repointed {canonical} -> {rel_target} (imagecodecs' own liblcms2.2.dylib)")
+
+
+def codesign_macos_app():
+    """Apply a fresh, consistent ad-hoc signature over the whole .app.
+
+    PyInstaller's own signing pass does not reliably reach every binary it moves
+    or rewrites under --collect-all. Confirmed harmless, and confirmed NOT the
+    cause of the arm64 CMS-codec-unavailable fallback in image_processor.py
+    (see LIBLCMS2_DYLIB_COLLISION.md) — kept as a free, low-risk consistency
+    pass, not a fix for anything specific.
     """
     app_path = os.path.join("dist", f"{APP_NAME}.app")
     print(f"Re-signing {app_path} (ad-hoc, deep)...")
@@ -393,6 +422,7 @@ def build():
     elif is_windows:
         package_windows()
     elif is_macos:
+        fix_lcms2_dylib_collision()
         codesign_macos_app()
         package_macos()
 
