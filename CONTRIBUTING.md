@@ -21,7 +21,7 @@ Install [uv](https://docs.astral.sh/uv/getting-started/installation/) if you hav
 
 **Scanner support (optional):**
 
-- **SANE** (Linux/macOS) — Coolscans and other SANE film scanners:
+- **SANE** (Linux/macOS) — Coolscans and other SANE film scanners. Install the system library, then the `sane` group (`uv sync --group sane` or `pip install negpy[sane]`):
   - **Linux** (Debian/Ubuntu):
     ```bash
     sudo pacman -S sane  # arch

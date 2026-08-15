@@ -41,7 +41,7 @@ classifiers = [
 
 [project.optional-dependencies]
 plustek = ["pyopticfilm>=1.0"]
-scanner = ["python-sane>=2.9"]
+sane = ["python-sane>=2.9"]
 camera = ["gphoto2>=2.5 ; sys_platform != 'win32'"]
 
 [dependency-groups]
@@ -52,7 +52,7 @@ dev = [
     "ruff==0.14.10",
     "ty>=0.0.26",
 ]
-scanner = [
+sane = [
     "python-sane>=2.9",
 ]
 plustek = [

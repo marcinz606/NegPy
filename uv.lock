@@ -345,7 +345,7 @@ camera = [
 plustek = [
     { name = "pyopticfilm" },
 ]
-scanner = [
+sane = [
     { name = "python-sane" },
 ]
 
@@ -366,7 +366,7 @@ pieusb = [
 plustek = [
     { name = "pyopticfilm" },
 ]
-scanner = [
+sane = [
     { name = "python-sane" },
 ]
 
@@ -385,13 +385,13 @@ requires-dist = [
     { name = "pyqt6", specifier = "==6.11.0" },
     { name = "pyqt6-charts", specifier = "==6.11.0" },
     { name = "pyserial", specifier = ">=3.5" },
-    { name = "python-sane", marker = "extra == 'scanner'", specifier = ">=2.9" },
+    { name = "python-sane", marker = "extra == 'sane'", specifier = ">=2.9" },
     { name = "qtawesome", specifier = "==1.4.2" },
     { name = "rawpy", specifier = "==0.27.0" },
     { name = "tifffile", specifier = "==2026.6.1" },
     { name = "wgpu", specifier = "==0.31.1" },
 ]
-provides-extras = ["plustek", "scanner", "camera"]
+provides-extras = ["plustek", "sane", "camera"]
 
 [package.metadata.requires-dev]
 camera = [{ name = "gphoto2", marker = "sys_platform != 'win32'", specifier = ">=2.5" }]
@@ -404,7 +404,7 @@ dev = [
 ]
 pieusb = [{ name = "pieusb", specifier = ">=0.3.7" }]
 plustek = [{ name = "pyopticfilm", specifier = ">=1.0" }]
-scanner = [{ name = "python-sane", specifier = ">=2.9" }]
+sane = [{ name = "python-sane", specifier = ">=2.9" }]
 
 [[package]]
 name = "numba"

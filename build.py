@@ -56,7 +56,7 @@ params = [
     # Scanner support: bundle the python-sane C extension but NOT libsane.so.1.
     # libsane.so.1 must come from the host so SANE can find its backend plugins
     # in /usr/lib/sane/. See libs_to_remove in package_linux().
-    # Requires: uv sync --group scanner before building on Linux/macOS.
+    # Requires: uv sync --group sane before building on Linux/macOS.
     *([] if is_windows else ["--hidden-import=sane", "--hidden-import=_sane"]),
     # Camera scanning: see collect_gphoto2_plugins() — the plugin trees need their
     # directory layout preserved, which --collect-all does not do.
