@@ -9,6 +9,7 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.hdr.logic import ExposureStats, choose_reference, measure_exposure, solve_ratios
 from negpy.features.hdr.models import HdrConfig
+from negpy.features.process.logic import effective_linear_raw
 from negpy.services.rendering.image_processor import ImageProcessor
 
 
@@ -53,6 +54,19 @@ class HdrWorker(QObject):
         frames = []
         total = len(task.files) + 1
         try:
+            # Every frame decodes on the first frame's white balance, never its own — the
+            # same pin `merge_bracket` applies at render, which this path cannot inherit
+            # because it decodes one frame at a time with `hdr` cleared. Without it
+            # `use_camera_wb` reads each *file's* as-shot multipliers, and a camera left on
+            # auto records different ones per frame, so the solve would stand on a
+            # different footing from the render it feeds. How far that moves a ratio varies
+            # — `pair_ratio`'s median survives a shift confined to one channel — so the
+            # requirement is the shared footing, not any one bracket's error.
+            #
+            # Which frame supplies the pin does not matter, only that one frame does: a
+            # gain shared by every frame cancels in a ratio. The reference cannot supply
+            # it, not being known until these decodes have been measured.
+            bracket_wb = None
             for i, f in enumerate(task.files):
                 if self._cancel.is_set():
                     self.cancelled.emit()
@@ -63,7 +77,13 @@ class HdrWorker(QObject):
                 # what they say. A gain map applied first moves that point. The merge at
                 # decode time defers it for the same reason.
                 params = replace(task.params_by_path[f["path"]], flatfield=FlatFieldConfig(), hdr=HdrConfig())
-                f32, _, _ = self._processor._decode_oriented_f32(f["path"], params)
+                f32, _, _ = self._processor._decode_oriented_f32(f["path"], params, wb_override=bracket_wb)
+                if i == 0:
+                    # Same expression as merge_bracket's, so the solve and the render pin
+                    # alike: nothing to share on a neutral decode, which carries no as-shot
+                    # gains and leaves every later frame neutral too.
+                    neutral = effective_linear_raw(params.process, params.exposure.render_intent)
+                    bracket_wb = None if neutral else self._processor.camera_wb_for(f["path"])
                 frames.append(f32)
 
             shapes = {f.shape for f in frames}

@@ -672,12 +672,16 @@ class ImageProcessor:
         return result
 
     def _decode_oriented_f32(
-        self, file_path: str, params: WorkspaceConfig, fast_decode: bool = False
+        self, file_path: str, params: WorkspaceConfig, fast_decode: bool = False, wb_override: Optional[Sequence[float]] = None
     ) -> Tuple[np.ndarray, Optional[np.ndarray], str]:
         """Single-file decode tail: sensor RGB -> float32 -> EXIF orientation -> flatfield.
 
         Stitch registration is estimated on buffers produced here, so any decode
         the transforms are replayed against must come through here too.
+
+        `wb_override` decodes on another file's white balance. The bracket merge below
+        pins its own frames, but the *solve* reaches this method one frame at a time with
+        `hdr` cleared, so it cannot: it passes the pin in from outside.
         """
         linear_raw = effective_linear_raw(params.process, params.exposure.render_intent)
         rgbcfg = params.rgbscan
@@ -686,12 +690,12 @@ class ImageProcessor:
         # not assemble differently on the two paths.
         is_triplet = is_rgb_triplet(rgbcfg) and not hdr_active(params.hdr)
 
-        rgb, metadata = self._decode_sensor_rgb(file_path, linear_raw, fast=fast_decode)
+        rgb, metadata = self._decode_sensor_rgb(file_path, linear_raw, fast=fast_decode, wb_override=wb_override)
         # No embedded profile (scanner-raw linear, sensor-native RAW) → the buffer is
         # already in the working space, so "Same as Source" exports without converting.
         source_cs = str(metadata.get("color_space") or WORKING_COLOR_SPACE)
         # Memoized rather than returned: the 3-tuple return is unpacked positionally in
-        # several callers, and only the export render needs this.
+        # several callers, and only the export render and the bracket solve need this.
         self._cam_xyz_by_path[file_path] = (metadata.get("cam_xyz"), metadata.get("camera_wb"))
         ir_full = metadata.get("ir")
 
@@ -749,6 +753,14 @@ class ImageProcessor:
         if ir_full is not None:
             ir_full = apply_exif_orientation(ir_full, orientation)
         return f32_buffer, ir_full, source_cs
+
+    def camera_wb_for(self, file_path: str) -> Optional[Sequence[float]]:
+        """As-shot multipliers of a file this processor has already decoded, else None.
+
+        Read from the decode memo rather than re-opening the RAW. The bracket solve uses it
+        to put every frame on one file's white balance, the way `merge_bracket` does.
+        """
+        return self._cam_xyz_by_path.get(file_path, (None, None))[1]
 
     @staticmethod
     def _slice_half_source(

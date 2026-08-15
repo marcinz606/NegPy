@@ -96,7 +96,7 @@ def test_use_half_size_decode_rules(monkeypatch) -> None:
 
 
 def _fake_decode_recorder(calls):
-    def fake(file_path, linear_raw, fast=False):
+    def fake(file_path, linear_raw, fast=False, wb_override=None):
         calls.append(fast)
         return np.zeros((4, 4, 3), dtype=np.uint16), {"orientation": 1, "color_space": "sRGB"}
 
