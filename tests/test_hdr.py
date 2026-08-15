@@ -172,7 +172,7 @@ class TestReferenceChoice(unittest.TestCase):
         for path in root.rglob("*.py"):
             if path.parts[-2:] == ("hdr", "logic.py"):
                 continue  # the definitions themselves
-            for node in ast.walk(ast.parse(path.read_text())):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
                 if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
                     continue
                 if node.func.id not in callers:

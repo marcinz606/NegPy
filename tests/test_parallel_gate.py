@@ -27,7 +27,7 @@ class TestNothingBypassesTheGate:
         """`@njit(parallel=True)` outside parallel_njit is the bypass."""
         offenders = []
         for path in _python_files():
-            tree = ast.parse(path.read_text(), filename=str(path))
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):
                     continue
@@ -40,12 +40,14 @@ class TestNothingBypassesTheGate:
         """A file using prange but not parallel_njit is either a bypass or a kernel that
         silently degraded to a serial loop — both worth failing on."""
         offenders = [
-            str(p.relative_to(ROOT.parent)) for p in _python_files() if "prange" in (src := p.read_text()) and "parallel_njit" not in src
+            str(p.relative_to(ROOT.parent))
+            for p in _python_files()
+            if "prange" in (src := p.read_text(encoding="utf-8")) and "parallel_njit" not in src
         ]
         assert not offenders, "prange outside a parallel_njit kernel: " + ", ".join(offenders)
 
     def test_the_parallel_variant_is_never_called_directly(self):
-        offenders = [str(p.relative_to(ROOT.parent)) for p in _python_files() if ".parallel(" in p.read_text()]
+        offenders = [str(p.relative_to(ROOT.parent)) for p in _python_files() if ".parallel(" in p.read_text(encoding="utf-8")]
         assert not offenders, "call the dispatcher, not the parallel variant: " + ", ".join(offenders)
 
 

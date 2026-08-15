@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os.path
+
 import pytest
 
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
@@ -38,4 +40,4 @@ def test_watcher_skips_ir_sidecars(tmp_path) -> None:
 
     found = FolderWatchService.scan_for_new_files(str(tmp_path), set())
 
-    assert sorted(p.rsplit("/", 1)[-1] for p in found) == ["frame1.tif", "orphan_IR.tif"]
+    assert sorted(os.path.basename(p) for p in found) == ["frame1.tif", "orphan_IR.tif"]

@@ -59,7 +59,7 @@ def test_no_user_facing_string_still_says_s_in_brackets():
     for path in root.rglob("*.py"):
         if path.name == "text.py":
             continue  # the helper's own docstring quotes the pattern it replaces
-        tree = ast.parse(path.read_text())
+        tree = ast.parse(path.read_text(encoding="utf-8"))
         docstrings = set()
         for node in ast.walk(tree):
             if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
