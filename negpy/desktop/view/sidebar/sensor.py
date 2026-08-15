@@ -2,6 +2,7 @@ from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_label, hint_label, section_subheader, wrap_tooltip
+from negpy.desktop.view.widgets.file_dialogs import last_open_folder
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.process.models import ProcessMode, invalidate_local_bounds
 from negpy.features.process.sensor import unmix_block_reason
@@ -282,7 +283,7 @@ class SensorSidebar(BaseSidebar):
     def _open_sensor_calibration(self) -> None:
         from negpy.desktop.view.widgets.sensor_calibration_dialog import SensorCalibrationDialog
 
-        dlg = SensorCalibrationDialog(parent=self)
+        dlg = SensorCalibrationDialog(parent=self, start_dir=last_open_folder(self.controller.session.repo))
         dlg.profile_saved.connect(self._on_sensor_profile_saved)
         dlg.exec()
 

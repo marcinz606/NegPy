@@ -15,6 +15,7 @@ from negpy.desktop.view.confirm import confirm_delete_named
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.file_dialogs import last_open_folder, pick_start_dir
 from negpy.desktop.view.widgets.sliders import CompactSlider
 
 _NONE_LABEL = "— None —"
@@ -100,7 +101,8 @@ class FlatFieldSidebar(BaseSidebar):
         self.sync_ui()
 
     def _on_add(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Select flat-field reference", "", _FILE_FILTER)
+        start = pick_start_dir(last_open_folder(self.controller.session.repo))
+        path, _ = QFileDialog.getOpenFileName(self, "Select flat-field reference", start, _FILE_FILTER)
         if not path:
             return
         default_name = os.path.splitext(os.path.basename(path))[0]

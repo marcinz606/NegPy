@@ -51,6 +51,7 @@ from negpy.infrastructure.filesystem.watcher import FolderWatchService
 from negpy.infrastructure.loaders.helpers import get_supported_raw_wildcards
 from negpy.desktop.view.sidebar.library_tree import LibraryTree
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
+from negpy.desktop.view.widgets.file_dialogs import last_open_folder, pick_start_dir
 from negpy.services.assets.library import folder_counts
 
 
@@ -966,7 +967,7 @@ class FileBrowser(QWidget):
     def prompt_add_files(self) -> None:
         """Public entry point: also driven by the canvas empty state."""
         wildcards = get_supported_raw_wildcards()
-        start_dir = self.session.repo.get_global_setting("last_open_folder", "") or ""
+        start_dir = last_open_folder(self.session.repo)
         files, _ = QFileDialog.getOpenFileNames(
             self,
             "Select Images",
@@ -979,7 +980,7 @@ class FileBrowser(QWidget):
 
     def prompt_add_folder(self) -> None:
         """Public entry point: also driven by the canvas empty state."""
-        start_dir = self.session.repo.get_global_setting("last_open_folder", "") or ""
+        start_dir = last_open_folder(self.session.repo)
         folder = QFileDialog.getExistingDirectory(self, "Select Folder", start_dir)
         if folder:
             self.session.repo.save_global_setting("last_open_folder", os.path.dirname(folder))
@@ -1200,7 +1201,14 @@ class FileBrowser(QWidget):
         if not (0 <= idx < len(files)):
             return
         info = files[idx]
-        dlg = _RgbTripletDialog(self, info["path"], info.get("green_path", ""), info.get("blue_path", ""), info.get("align", True))
+        dlg = _RgbTripletDialog(
+            self,
+            info["path"],
+            info.get("green_path", ""),
+            info.get("blue_path", ""),
+            info.get("align", True),
+            start_dir=last_open_folder(self.session.repo),
+        )
         if dlg.exec():
             red, green, blue = dlg.paths()
             if red and green and blue:
@@ -1226,8 +1234,9 @@ class FileBrowser(QWidget):
 class _RgbTripletDialog(QDialog):
     """Manually assign the red/green/blue exposure files for one RGB-scan frame."""
 
-    def __init__(self, parent, red: str, green: str, blue: str, align: bool = True) -> None:
+    def __init__(self, parent, red: str, green: str, blue: str, align: bool = True, start_dir: str = "") -> None:
         super().__init__(parent)
+        self._start_dir = start_dir
         self.setWindowTitle("Edit RGB Triplet")
         layout = QVBoxLayout(self)
         self._edits: dict[str, QLineEdit] = {}
@@ -1253,7 +1262,10 @@ class _RgbTripletDialog(QDialog):
         layout.addWidget(buttons)
 
     def _browse(self, edit: QLineEdit) -> None:
-        start = os.path.dirname(edit.text()) if edit.text() else ""
+        # An empty row starts where its siblings are: the three exposures of a triplet
+        # are shot in one go and live together.
+        siblings = [self._edits[label].text() for label in ("Red", "Green", "Blue")]
+        start = pick_start_dir(edit.text(), *siblings, self._start_dir)
         path, _ = QFileDialog.getOpenFileName(self, "Select exposure", start, f"Supported Images ({get_supported_raw_wildcards()})")
         if path:
             edit.setText(path)

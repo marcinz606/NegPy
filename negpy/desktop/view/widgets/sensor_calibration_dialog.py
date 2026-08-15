@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.kernel.system.text import plural
 from negpy.desktop.view.styles.templates import hint_label
+from negpy.desktop.view.widgets.file_dialogs import pick_start_dir
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.process.sensor import build_sensor_matrix, measure_capture
 from negpy.infrastructure.loaders.helpers import get_supported_raw_wildcards
@@ -36,8 +37,9 @@ class SensorCalibrationDialog(QDialog):
 
     profile_saved = pyqtSignal(str)
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, start_dir: str = "") -> None:
         super().__init__(parent)
+        self._start_dir = start_dir
         self._paths = {"R": "", "G": "", "B": ""}
         self.setWindowTitle("Calibrate Sensor")
         self.resize(560, 320)
@@ -97,8 +99,11 @@ class SensorCalibrationDialog(QDialog):
         self._refresh()
 
     def _browse(self, band: str) -> None:
+        # The three bare-light exposures are shot in one go, so an empty band starts
+        # where the bands already picked are.
+        start = pick_start_dir(self._paths[band], *self._paths.values(), self._start_dir)
         path, _ = QFileDialog.getOpenFileName(
-            self, f"Select the {band} bare-light exposure", "", f"Supported Images ({get_supported_raw_wildcards()})"
+            self, f"Select the {band} bare-light exposure", start, f"Supported Images ({get_supported_raw_wildcards()})"
         )
         if path:
             self._paths[band] = path
