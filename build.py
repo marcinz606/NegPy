@@ -311,45 +311,66 @@ def package_windows():
         raise
 
 
+# Every .so/.dylib under Contents/Frameworks known to link liblcms2.2.dylib.
+# See LIBLCMS2_DYLIB_COLLISION.md for how this list and fix_lcms2_dylib_collision()
+# were derived and verified.
+_LCMS2_CONSUMER_GLOBS = [
+    "PIL/_imagingcms*.so",
+    "rawpy/libraw_r*.dylib",
+    "imagecodecs/_cms.abi3.so",
+    "imagecodecs/_jpeg2k.abi3.so",
+    "libjxl_cms*.dylib",
+    "cv2/*/libjxl_cms*.dylib",
+]
+
+
 def fix_lcms2_dylib_collision():
     """Repoint the canonical liblcms2.2.dylib at imagecodecs' own copy.
 
-    cv2, PIL, rawpy, and imagecodecs each vendor their own build of
-    liblcms2.2.dylib. PyInstaller collapses same-named dylibs collected under
-    --collect-all into one canonical Contents/Frameworks/liblcms2.2.dylib
-    (the others become @rpath references to it), with no guarantee it keeps
-    the copy a given consumer actually needs. imagecodecs' _cms.abi3.so
-    resolves @rpath/liblcms2.2.dylib to that canonical file; when it isn't
-    imagecodecs' own build, the picked copy can be missing symbols
-    imagecodecs needs (confirmed: cmsChannelsOfColorSpace absent from
-    rawpy's copy), and `from imagecodecs import cms_transform` fails —
-    masquerading as the "CMS codec unavailable" fallback in
-    image_processor.py, with the real dlopen error swallowed by
-    imagecodecs' lazy __getattr__. Not a code-signing issue — see
+    Raises if imagecodecs' own copy can't be found unambiguously, or if any
+    known consumer would be missing a symbol it needs from it — better a red
+    build than a silently shipped repeat of this bug. See
     LIBLCMS2_DYLIB_COLLISION.md. Must run before codesign_macos_app() so the
     corrected symlink is covered by the final signature.
     """
     frameworks = os.path.join("dist", f"{APP_NAME}.app", "Contents", "Frameworks")
     canonical = os.path.join(frameworks, "liblcms2.2.dylib")
     matches = glob.glob(os.path.join(frameworks, "imagecodecs", "*", "liblcms2.2.dylib"))
-    if not matches:
-        print("WARNING: imagecodecs' own liblcms2.2.dylib not found — skipping collision fix")
-        return
+    if len(matches) != 1:
+        raise RuntimeError(f"expected exactly one imagecodecs liblcms2.2.dylib under {frameworks}, found {matches}")
     rel_target = os.path.relpath(matches[0], frameworks)
     if os.path.islink(canonical) or os.path.exists(canonical):
         os.remove(canonical)
     os.symlink(rel_target, canonical)
     print(f"Repointed {canonical} -> {rel_target} (imagecodecs' own liblcms2.2.dylib)")
 
+    exports = _nm_symbols(matches[0], defined=True)
+    gaps = []
+    for pattern in _LCMS2_CONSUMER_GLOBS:
+        for consumer in glob.glob(os.path.join(frameworks, pattern)):
+            needed = {s for s in _nm_symbols(consumer, defined=False) if s.startswith("_cms")}
+            missing = needed - exports
+            if missing:
+                gaps.append((consumer, sorted(missing)))
+    if gaps:
+        detail = "\n".join(f"  {os.path.relpath(c, frameworks)}: missing {m}" for c, m in gaps)
+        raise RuntimeError(f"imagecodecs' liblcms2.2.dylib is missing symbols other consumers need:\n{detail}")
+
+
+def _nm_symbols(path: str, *, defined: bool) -> set[str]:
+    """Return a Mach-O file's defined-exported (-gU) or undefined (-u) symbol names."""
+    flag = "-gU" if defined else "-u"
+    out = subprocess.run(["nm", flag, path], capture_output=True, text=True, check=True).stdout
+    if defined:
+        return {line.split()[-1] for line in out.splitlines() if line.strip()}
+    return {line.strip() for line in out.splitlines() if line.strip()}
+
 
 def codesign_macos_app():
     """Apply a fresh, consistent ad-hoc signature over the whole .app.
 
-    PyInstaller's own signing pass does not reliably reach every binary it moves
-    or rewrites under --collect-all. Confirmed harmless, and confirmed NOT the
-    cause of the arm64 CMS-codec-unavailable fallback in image_processor.py
-    (see LIBLCMS2_DYLIB_COLLISION.md) — kept as a free, low-risk consistency
-    pass, not a fix for anything specific.
+    PyInstaller's own signing pass does not reliably reach every binary it
+    moves or rewrites under --collect-all.
     """
     app_path = os.path.join("dist", f"{APP_NAME}.app")
     print(f"Re-signing {app_path} (ad-hoc, deep)...")

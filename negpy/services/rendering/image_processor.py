@@ -1,5 +1,6 @@
 import os
 import io
+import ctypes
 import cv2
 import rawpy
 import tifffile
@@ -1226,12 +1227,11 @@ class ImageProcessor:
         (already a dependency for JXL) which evaluates lcms2 at full
         16-bit precision on numpy arrays directly.
 
-        Some imagecodecs builds ship without the optional cms codec compiled in
-        (seen on an unnotarized macOS arm64 build, where it loads on some machines
-        and not others — a Gatekeeper/code-signing difference, not this codebase).
-        That surfaces as ImportError only when the codec is actually invoked, so
-        fall back to the LUT-based transform rather than silently export unmanaged
-        pixels.
+        cms_transform's underlying dlopen can fail (see
+        LIBLCMS2_DYLIB_COLLISION.md for one real cause); imagecodecs' lazy
+        resolver only surfaces that as a generic ImportError, discarding the
+        real reason. Fall back to the LUT-based transform rather than
+        silently export unmanaged pixels.
         """
         has_custom = self._has_custom_icc(input_icc_path, output_icc_path)
         if not has_custom and working_color_space == color_space:
@@ -1255,6 +1255,7 @@ class ImageProcessor:
                     flags=0x2000,  # BLACKPOINTCOMPENSATION (matches PIL's value)
                 )
             except ImportError as e:
+                self._log_cms_codec_dlopen_error()
                 logger.warning(
                     f"imagecodecs CMS codec unavailable on this build ({e}); falling back to the LUT-based ICC transform for this export"
                 )
@@ -1271,6 +1272,21 @@ class ImageProcessor:
         except Exception as e:
             logger.error(f"CMS transformation failed: {e}")
             return img_u16, None
+
+    @staticmethod
+    def _log_cms_codec_dlopen_error() -> None:
+        """Log the real dlopen error behind a cms_transform ImportError, if any.
+
+        Best-effort diagnostic only, never raises: reproduces imagecodecs'
+        lazy import via ctypes.CDLL, which does not discard the OSError.
+        """
+        try:
+            codec_path = os.path.join(os.path.dirname(imagecodecs.__file__), "_cms.abi3.so")
+            ctypes.CDLL(codec_path)
+        except OSError as dlopen_error:
+            logger.warning(f"underlying dlopen error for imagecodecs' CMS codec: {dlopen_error}")
+        except Exception:
+            pass
 
     def apply_color_management(
         self,

@@ -70,12 +70,16 @@ This is why the symptom looked identical to a codec-unavailable /
 code-signing problem: the observable error text is the same regardless of
 cause.
 
-Nothing about this is arm64-specific in principle — it's a build-time
-dependency collision that could in theory resolve either way on any
-platform PyInstaller collects multiple vendored copies of the same dylib
-name for. It happened to resolve to the broken copy on this arm64 build and
-(per the original bug report) to a working copy on the Intel build, likely
-because the wheels involved vendor different lcms2 builds per architecture.
+Nothing about this is arm64-specific: downloaded the x86_64 wheels for all
+four packages (`uv pip install --target ... --python-platform
+x86_64-apple-darwin`, no Intel hardware needed — pure download/inspection)
+and checked symbol closure the same way. rawpy's x86_64 `liblcms2.2.dylib`
+is **also** missing `_cmsChannelsOfColorSpace`; PIL's and cv2's x86_64
+copies have it. The collision risk is identical on both architectures — the
+original report's "works on the Intel Mac Mini" was PyInstaller's arbitrary
+same-basename pick order happening not to choose rawpy's copy there, not
+architectural safety. The bug was always latent on Intel too, just never
+triggered.
 
 ## Fix
 
@@ -91,6 +95,71 @@ Verified on the M1 Pro used for this investigation:
 - `codesign --verify --deep --strict` on the rebuilt `.app` passes cleanly.
 - The canonical symlink now reads
   `liblcms2.2.dylib -> imagecodecs/__dot__dylibs/liblcms2.2.dylib`.
+- End-to-end: relaunched the rebuilt app, re-ran the original failing
+  export. `negpy.log` shows no fallback warning and no error — the real
+  lcms2 transform runs, not the LUT approximation.
+
+`fix_lcms2_dylib_collision()` also fails the build (`raise`, not a
+`print`+`return`) if imagecodecs' own copy can't be found unambiguously, or
+verifies — and fails the build on — the `_LCMS2_CONSUMER_GLOBS` symbol
+closure described below. A follow-up review pointed out the first version
+of this fix only warned and shipped anyway on a miss, which is the same
+silent-failure shape as the bug itself.
+
+## Did repointing the symlink break the other four consumers?
+
+The canonical symlink is shared — `cv2`, `PIL`, and `rawpy`'s own dylibs
+also resolve `@rpath/liblcms2.2.dylib` through it, and previously got
+rawpy's copy. Repointing it at imagecodecs' copy could in principle have
+fixed one consumer by breaking another, on the unverified assumption that
+imagecodecs' lcms2 build is a strict superset. Checked directly rather than
+assumed:
+
+- Found every `.so`/`.dylib` in the bundle that links `liblcms2.2.dylib`
+  (`otool -L`): `PIL/_imagingcms*.so`, `rawpy/libraw_r*.dylib`,
+  `imagecodecs/_cms.abi3.so`, `imagecodecs/_jpeg2k.abi3.so`,
+  `libjxl_cms*.dylib` (top-level and `cv2`'s copy).
+- For each, diffed its undefined `_cms*` symbols (`nm -u`) against the new
+  canonical's exports (`nm -gU`): **no gaps for any consumer.**
+- `LC_ID_DYLIB` compatibility versions: all four original copies, and every
+  consumer's recorded `LC_LOAD_DYLIB` requirement, declare compatibility
+  version `3.0.0` (only `current version` differs — lcms2 keeps its ABI
+  compatibility version fixed across releases). No `dyld` version-based
+  rejection risk independent of symbols.
+- Runtime `ctypes.CDLL()` on `PIL/_imagingcms*.so`, `rawpy/libraw_r.dylib`,
+  and `imagecodecs/_jpeg2k.abi3.so` post-fix: all load without error.
+
+This symbol-closure check is now permanent, in `fix_lcms2_dylib_collision()`
+itself (`_LCMS2_CONSUMER_GLOBS`), so a future imagecodecs/lcms2 version that
+*isn't* a superset fails the build instead of shipping a silently broken
+consumer.
+
+## Why the smoke test is scoped to lcms2, not every bundled dylib
+
+Considered a general post-build check — `ctypes.CDLL()` every `.so`/`.dylib`
+in the bundle, fail on any error — as a durable catch-all for this whole bug
+class (`libjpeg`/`libpng`/`libz`/`libtiff` are vendored by multiple of the
+same packages and carry the same theoretical risk). Prototyped it and found
+a real, pre-existing, unrelated failure:
+`numba/np/ufunc/omppool.cpython-313-darwin.so` fails to load —
+`Library not loaded: @rpath/libomp.dylib` — because PyInstaller doesn't
+bundle `libomp.dylib` at all (visible as a build-time warning independent of
+this investigation: "Library not found: could not resolve
+'@rpath/libomp.dylib'"). numba's own OpenMP-parallel pool is optional and
+presumably has a runtime fallback; this is not evidenced to affect NegPy.
+Also worth noting: this check must run via `uv run python` — the project's
+own venv interpreter, the exact one PyInstaller freezes — not a bare system
+`python3`, which false-positives on legitimate CPython extensions like
+numpy's `_multiarray_umath` (missing Python C-API symbols that only resolve
+against a matching `libpython`).
+
+A blanket check would have made this PR fail on that pre-existing,
+unrelated gap, which is out of scope here. Scoped the hardening to the
+`liblcms2.2.dylib` consumers this fix actually touches instead. The general
+version — enumerate every same-basename dylib collision with differing
+content hashes, symbol-closure-check every consumer, fail the build on any
+gap — is still worth building, and would have caught the `libomp.dylib` gap
+too, but as its own follow-up, not bundled into this fix.
 
 ## What's ruled out (the earlier, incorrect investigation)
 
@@ -132,17 +201,28 @@ so the dead end isn't re-walked:
   dylib collision at all — `imagecodecs`'s own copy is the only
   `liblcms2.2.dylib` involved, so there's nothing to resolve incorrectly.
 
-**Notarization is not required to fix this bug.** It may still be worth
-doing someday for the general Gatekeeper/quarantine download experience,
-but that's an unrelated, unevidenced motivation now — not a fix for
-anything diagnosed here. [Issue #1](https://github.com/thetalkingdrum/NegPy/issues/1),
+**Notarization is not required to fix this bug.** [Issue #1](https://github.com/thetalkingdrum/NegPy/issues/1),
 which tracked notarization as the fix, has been closed as not applicable.
+The unnotarized `.dmg` still triggers Gatekeeper's "unidentified developer"
+warning on download for end users, which is a real, separate, unfixed UX
+cost — tracked on its own as
+[issue #2](https://github.com/thetalkingdrum/NegPy/issues/2) so it doesn't
+get folded back into a future bug investigation the way it was here.
 
 ## Status
 
-Fixed on this branch. Worth a follow-up: check whether other same-named
-dylibs vendored by multiple bundled packages (e.g. `libjpeg`, `libpng`,
-`libz`, `libtiff` — several are shared across `cv2`, `PIL`, `rawpy`,
-`imagecodecs`, `tifffile`) have a similar risk of PyInstaller picking an
-incompatible copy. No evidence any of them are currently broken; this is a
-speculative risk, not a known bug, and untested — not fixed here.
+Fixed and hardened on this branch:
+- `fix_lcms2_dylib_collision()` repoints the canonical symlink, verifies
+  symbol closure for every known consumer, and raises (doesn't warn) on any
+  problem — including an ambiguous or missing imagecodecs copy.
+- `image_processor.py`'s `ImportError` handler now probes the codec path
+  with `ctypes.CDLL()` and logs the real `OSError` before falling back, so
+  a future regression in this area is diagnosable from `negpy.log` alone
+  instead of requiring a multi-day investigation like this one.
+
+Follow-up, not done here: generalize the symbol-closure check to every
+same-basename dylib collision in the bundle (not just liblcms2), which
+would also catch the pre-existing `libomp.dylib`/numba gap found while
+scoping this fix. `libjpeg`/`libpng`/`libz`/`libtiff` are vendored by
+multiple of the same packages and carry the same theoretical risk — no
+evidence any are currently broken, but untested.
