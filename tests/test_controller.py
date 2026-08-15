@@ -420,60 +420,62 @@ class TestAppController(unittest.TestCase):
         state.icc_input_path = "/custom.icc"
         self.assertEqual(self.controller.effective_input_icc(), "/custom.icc")
 
-    def test_narrowband_profile_suppressed_by_transparency_transfer(self):
-        """E-6 with Normalize off has already reached the working space via the camera
-        matrix, so the implicit RGBScan input profile would be a competing transform.
-        Narrowband is a sticky setting, so this must hold without the user touching it."""
+    def test_narrowband_profile_suppressed_by_any_transparency(self):
+        """The bundled profile describes narrowband capture of *negative* dyes, so it is
+        refused for a slide whatever Normalize says. Narrowband is a sticky setting, so
+        this must hold without the user touching it."""
         from negpy.features.process.models import ProcessMode
 
         state = self.controller.state
         state.config = replace(state.config, process=replace(state.config.process, narrowband_scan=True))
         self.assertIsNotNone(self.controller.effective_input_icc())
 
-        # E-6 with Normalize ON keeps it — that path is unchanged.
-        state.config = replace(state.config, process=replace(state.config.process, process_mode=ProcessMode.E6, e6_normalize=True))
-        self.assertIsNotNone(self.controller.effective_input_icc())
-
-        state.config = replace(state.config, process=replace(state.config.process, e6_normalize=False))
-        self.assertIsNone(self.controller.effective_input_icc())
-        # ...and the preview must not claim a proof it no longer applies.
-        state.soft_proof_enabled = False
-        self.assertFalse(self.controller.proof_active())
+        for normalize in (True, False):
+            state.config = replace(
+                state.config,
+                process=replace(state.config.process, process_mode=ProcessMode.E6, e6_normalize=normalize),
+            )
+            self.assertIsNone(self.controller.effective_input_icc(), f"e6_normalize={normalize}")
+            # ...and the preview must not claim a proof it no longer applies.
+            state.soft_proof_enabled = False
+            self.assertFalse(self.controller.proof_active(), f"e6_normalize={normalize}")
 
         # An explicit Input ICC is a deliberate choice about the source and still wins.
         state.icc_input_path = "/custom.icc"
         self.assertEqual(self.controller.effective_input_icc(), "/custom.icc")
 
-    def test_flat_export_keeps_narrowband_profile_despite_print_intent_transfer(self):
-        """The Print-intent view can be a transparency transfer (E-6, Normalize off,
-        the default) that suppresses the implicit Narrowband ICC — but a Flat export
-        of the same frame carries RenderIntent.FLAT, which is never a transfer
-        (transfer.py's is_transparency_transfer), so Narrowband must still apply.
-        Regression: request_export used to resolve the ICC from the pre-flatten
-        (Print) render_intent, silently dropping the profile from flat masters."""
-        from negpy.features.process.models import ProcessMode
-
+    def _export_icc_input(self, **process):
         state = self.controller.state
         state.current_file_path = "/tmp/shot.dng"
         state.current_file_hash = "h1"
         state.flat_output = True
         state.config = replace(
             state.config,
-            process=replace(state.config.process, narrowband_scan=True, process_mode=ProcessMode.E6, e6_normalize=False),
+            process=replace(state.config.process, **process),
             export=replace(state.config.export, output_mode=ExportPresetOutputMode.SAME_AS_SOURCE, export_path="/tmp"),
         )
-        # Confirms the Print-intent view really is suppressed by the transfer.
-        self.assertIsNone(self.controller.effective_input_icc())
-
         self.controller._run_export_tasks = MagicMock()
         self.controller.request_export()
-
         self.controller._run_export_tasks.assert_called_once()
         (tasks,), _ = self.controller._run_export_tasks.call_args
+        return tasks[0].export_settings.icc_input_path
+
+    def test_export_resolves_the_narrowband_profile_from_the_frames_own_process(self):
+        """Regression: request_export resolved the implicit ICC from the pre-flatten view
+        rather than the frame's settings, and silently dropped it from flat masters. The
+        answer must not depend on which view asked."""
+        path = self._export_icc_input(narrowband_scan=True)
         self.assertTrue(
-            tasks[0].export_settings.icc_input_path.endswith(os.path.join("icc", "RGBScan.icc")),
+            path is not None and path.endswith(os.path.join("icc", "RGBScan.icc")),
             "flat export dropped the implicit Narrowband profile",
         )
+
+    def test_a_flat_export_of_a_slide_still_refuses_the_narrowband_profile(self):
+        """A Flat render is not a transparency transfer, but the profile is refused for the
+        dye set, not for the render path — so flattening must not smuggle it back in."""
+        from negpy.features.process.models import ProcessMode
+
+        self.assertIsNone(self._export_icc_input(narrowband_scan=True, process_mode=ProcessMode.E6, e6_normalize=False))
 
     def test_proof_active_with_narrowband_scan(self):
         """Narrowband Scan forces proofing on even with the soft-proof toggle off."""

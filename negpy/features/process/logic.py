@@ -50,6 +50,23 @@ def linear_raw_token(process: ProcessConfig, render_intent: Optional[str] = None
     return f"|lr:{int(effective_linear_raw(process, render_intent))}"
 
 
+def narrowband_profile_active(process: ProcessConfig) -> bool:
+    """Whether the bundled RGBScan input profile applies.
+
+    Never to a transparency. The profile characterises narrowband capture of *negative*
+    dyes; E-6 is a different dye set, so on a slide it is a fixed 3x3 derived from the
+    wrong film — an approximate correction for dyes that are not there, which is worse
+    than none. Narrowband's real payoffs (defeating the orange mask, clean separation
+    ahead of a high-gain inversion) belong to negatives, and a slide has neither.
+
+    Single source of truth for the rule: the sidebar greys the toggle on it and
+    `effective_input_icc` suppresses the profile on it, so the two cannot drift. An
+    explicit Input ICC is a deliberate choice about the user's own source and still wins
+    — that decision is not made here.
+    """
+    return process.narrowband_scan and process.process_mode != ProcessMode.E6
+
+
 # Tuned against real sample scans; see tests/test_process_detect.py.
 _ANALYSIS_BUFFER = 0.12  # centre-crop ratio: drops film rebate / borders
 _MAX_ANALYSIS_DIM = 256  # downsample longest edge to this for speed

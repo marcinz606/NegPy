@@ -45,7 +45,7 @@ from negpy.desktop.workers.library import LibrarySearchTask, LibrarySearchWorker
 from negpy.desktop.workers.hdr import HdrTask, HdrWorker
 from negpy.desktop.workers.stitch import StitchTask, StitchWorker
 from negpy.features.hdr.models import hdr_frame_paths, hdr_hash, hdr_name, hdr_stem
-from negpy.features.process.logic import effective_linear_raw
+from negpy.features.process.logic import effective_linear_raw, narrowband_profile_active
 from negpy.features.stitch.models import stitch_hash, stitch_name
 from negpy.desktop.workers.capture_worker import (
     CalibrationRequest,
@@ -89,7 +89,6 @@ from negpy.features.geometry.logic import apply_fine_rotation, detect_closest_as
 from negpy.features.geometry.models import FINE_ROTATION_LIMIT, AutocropMode
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig
-from negpy.features.exposure.transfer import is_transparency_transfer
 from negpy.features.process.models import ProcessConfig, ProcessMode, invalidate_local_bounds, scan_setup_values
 from negpy.services.assets.thumbnails import asset_thumbnail_key
 from negpy.kernel.system.paths import get_resource_path
@@ -3429,20 +3428,18 @@ class AppController(QObject):
         profile for the selected export color space. None means no proof (Same as Source)."""
         return self.state.icc_output_path or ColorSpaceRegistry.get_icc_path(self.state.config.export.export_color_space)
 
-    def effective_input_icc(self, process: Optional[ProcessConfig] = None, render_intent: Optional[str] = None) -> Optional[str]:
+    def effective_input_icc(self, process: Optional[ProcessConfig] = None) -> Optional[str]:
         """Source profile for color management: an explicit Input ICC wins; else the
-        bundled RGBScan profile when Narrowband Scan is on; else None.
+        bundled RGBScan profile when Narrowband Scan applies; else None.
 
-        The transparency transfer suppresses the implicit RGBScan profile: it has already
-        converted the buffer to the working space through the camera matrix, so applying an
-        input characterisation on top of that is a second, competing transform. An explicit
-        Input ICC still wins — that is a deliberate user choice about their own source.
+        A transparency never takes the implicit profile — see narrowband_profile_active,
+        which owns that rule. An explicit Input ICC still wins there, being a deliberate
+        user choice about their own source.
         """
         p = process if process is not None else self.state.config.process
         if self.state.icc_input_path:
             return self.state.icc_input_path
-        intent = render_intent if render_intent is not None else self.state.config.exposure.render_intent
-        if p.narrowband_scan and not is_transparency_transfer(p.process_mode, p.e6_normalize, intent):
+        if narrowband_profile_active(p):
             return get_resource_path("icc/RGBScan.icc")
         return None
 
@@ -3468,7 +3465,7 @@ class AppController(QObject):
         soft-proof toggle is on; the output profile only applies with the toggle.
         """
         proofing = self.state.soft_proof_enabled
-        if not (proofing or self.state.config.process.narrowband_scan):
+        if not (proofing or narrowband_profile_active(self.state.config.process)):
             return None
         icc_input = self.effective_input_icc()
         icc_output = self.effective_output_icc() if proofing else None
@@ -3480,7 +3477,7 @@ class AppController(QObject):
         """True when the preview should soft-proof: the toggle is on and an input or
         output profile is available, or Narrowband Scan supplies an implicit input
         profile. Off → preview is the edit on the monitor."""
-        if self.effective_input_icc() and self.state.config.process.narrowband_scan:
+        if self.effective_input_icc() and narrowband_profile_active(self.state.config.process):
             return True
         return self.state.soft_proof_enabled and bool(self.state.icc_input_path or self.effective_output_icc())
 
@@ -3784,7 +3781,7 @@ class AppController(QObject):
         tasks = []
         for preset in presets:
             task_params, export_settings = resolve_preset_export(preset, params)
-            export_settings.icc_input_path = self.effective_input_icc(task_params.process, task_params.exposure.render_intent)
+            export_settings.icc_input_path = self.effective_input_icc(task_params.process)
             tasks.append(
                 ExportTask(
                     file_info=file_info,
@@ -3976,7 +3973,7 @@ class AppController(QObject):
         export_conf = replace(
             self.state.config.export,
             export_path=export_path,
-            icc_input_path=self.effective_input_icc(params.process, params.exposure.render_intent),
+            icc_input_path=self.effective_input_icc(params.process),
             icc_output_path=self.state.icc_output_path,
         )
         if self.state.flat_output:
@@ -4064,7 +4061,7 @@ class AppController(QObject):
 
             final_export = replace(
                 params.export,
-                icc_input_path=self.effective_input_icc(params.process, params.exposure.render_intent),
+                icc_input_path=self.effective_input_icc(params.process),
                 icc_output_path=icc_output,
             )
 

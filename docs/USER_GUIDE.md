@@ -272,7 +272,7 @@ Everything here corrects the *capture*, not the look: three different things sit
 
 *   **Scanning setup** (bulb button): a two-question wizard, *how do you scan?* then *what light source?*, that sets Linear RAW and Narrowband for you. It runs once after the first-launch tour; the button reopens it whenever your rig changes.
 *   **Linear RAW**: (default off) decodes with neutral multipliers for completely raw data. When toggled off decodes RAW with the camera's as-shot white balance. Toggling reloads the file. Let the **Scanning setup** wizard pick it, or try both and pick which yields better results for your setup.
-*   **Narrowband**: corrects the oversaturation typical of narrowband (RGB-LED trichrome) scans using a bundled input profile. Leave off for ordinary broadband scans. An explicit Input ICC in Export overrides it.
+*   **Narrowband**: corrects the oversaturation typical of narrowband (RGB-LED trichrome) scans using a bundled input profile. Leave off for ordinary broadband scans. An explicit Input ICC in Export overrides it. **Greyed out on Transparency** — see *Narrowband and slides* below.
 
 What the wizard sets, by rig:
 
@@ -290,7 +290,15 @@ Applying it sets the defaults for newly loaded files, updates the open frame, an
 *   **Profile**: the sensor matrix to apply. Custom `.toml` matrices live in `<Documents>/NegPy/sensor/`.
 *   **Calibrate** (vials icon): build a profile from three bare-light R/G/B exposures.
 
-This block greys out unless **Linear RAW** is on, since profiles are calibrated against neutral white balance and the as-shot gains would misapply the matrix. Your selection is remembered either way. It is also skipped for RGB-triplet assets, which never had the leak. Because it changes what the analysis reads, **re-run Batch Analysis** after changing it.
+This block greys out unless **Linear RAW** is on, since profiles are calibrated against neutral white balance and the as-shot gains would misapply the matrix. It also greys out on **Transparency**, for the reason below. Your selection is remembered either way, and applies again on a negative. It is also skipped for RGB-triplet assets, which never had the leak. Because it changes what the analysis reads, **re-run Batch Analysis** after changing it.
+
+#### Narrowband and slides
+
+**Narrowband and Trichrome Calibration do not apply to Transparency**, with or without Normalize. Both stay visible and greyed so you can see what your rig is set to, both keep their values, and both come back the moment the frame is a negative again.
+
+Narrowband is a way to scan negatives. Its payoffs — defeating the orange mask, separating the dyes cleanly before a high-gain inversion — are things a slide does not need, and the bundled profile describes narrowband capture of *negative* dyes, which a slide does not have. Applying it to a slide is a correction for film that is not in the holder. Trichrome Calibration goes with it: the matrix un-mixes a narrowband light against your sensor's filters, so it only means anything for a capture made under narrowband light, and there is no way to build one for a broadband capture.
+
+This matters because both are sticky, following your rig from frame to frame — so a profile set up for your negatives would otherwise arrive on a slide you never touched. If you do scan slides on a narrowband rig, reach for **Hue Trim** instead: it corrects the hue rotation an unusual light imposes, which is the part that can be corrected.
 
 **Crosstalk** (hidden in B&W Negative), a channel unmix applied to the raw densities before inversion. The dropdown only lists matrices for the film you are processing — a Color Negative matrix does not describe a Transparency's dye set — and a mismatched stored profile resolves to no correction rather than the wrong one. The film's dyes each absorb outside their own band, but they are not the only cause: your light's spectrum and your sensor's color filters mix the channels too, and in the density domain all three arrive as the same kind of error. So treat the matrix as *your whole scanning setup*, not just the film — a profile that works beautifully on one rig may be wrong on another with the same stock.
 
@@ -346,9 +354,9 @@ How the negative is measured and normalized into a positive. The film mode that 
 
     A source with no camera matrix (a scanner TIFF, a JPEG) is already in the working space and passes straight through.
 
-    **Linear RAW** and **Narrowband** are hidden in **Calibration** here, because neither applies to an as-captured render and both are made inert rather than merely hidden (they are sticky settings, so leaving them live but invisible would be a trap). Linear RAW decodes without the as-shot white balance, which the camera matrix assumes is present — the multipliers are folded back in, so the render is identical either way. Narrowband's bundled input profile is suppressed, since the camera matrix has already reached the working space and a second input characterisation would compete with it. An explicit Input ICC in Export still applies.
+    **Linear RAW** is greyed out in **Calibration** here, because it does not apply to an as-captured render: it decodes without the as-shot white balance, which the camera matrix assumes is present — the multipliers are folded back in, so the render is identical either way. It stays visible, since it is a sticky setting and a hidden one is a setting you cannot see the state of. With **Normalize** on it is live again, that render being a metered stretch rather than a transfer. An explicit Input ICC in Export always applies.
 
-    Narrowband capture is not recommended for this mode in any case: reproducing a slide's appearance is a colorimetric problem, and narrowband illumination samples the spectrum at three isolated wavelengths, so the inter-band overlap the eye integrates is never measured (the same reason narrowband scans render oversaturated and hue-rotated). Its real payoffs — defeating the orange mask, clean dye separation ahead of a high-gain inversion — belong to negatives, and a transparency has neither. Both toggles keep working normally for Color Negative, B&W Negative and Transparency with Normalize on.
+    **Narrowband** and **Trichrome Calibration** are greyed out for *any* transparency, Normalize or not — see [Narrowband and slides](#narrowband-and-slides). Reproducing a slide's appearance is a colorimetric problem, and narrowband illumination samples the spectrum at three isolated wavelengths, so the inter-band overlap the eye integrates is never measured (the same reason narrowband scans render oversaturated and hue-rotated). No input profile recovers what was never sampled, and the bundled one describes negative dyes besides.
 
 <!-- panel:roll -->
 ### 4.3 Roll Analysis: a consistent look across the roll

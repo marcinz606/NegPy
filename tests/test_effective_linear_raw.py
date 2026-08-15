@@ -12,7 +12,7 @@ import pytest
 
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.models import RenderIntent
-from negpy.features.process.logic import effective_linear_raw, linear_raw_token
+from negpy.features.process.logic import effective_linear_raw, linear_raw_token, narrowband_profile_active
 from negpy.features.process.models import ProcessConfig, ProcessMode
 
 
@@ -48,6 +48,28 @@ class TestEffectiveLinearRaw:
         transfer = cfg(ProcessMode.E6, normalize=False, linear_raw=False)
         assert linear_raw_token(transfer) == linear_raw_token(cfg(ProcessMode.C41, linear_raw=True))
         assert linear_raw_token(transfer) != linear_raw_token(cfg(ProcessMode.C41, linear_raw=False))
+
+
+class TestNarrowbandProfileActive:
+    """Narrowband is a property of the light, but its profile is a claim about the film.
+
+    RGBScan.icc characterises narrowband capture of *negative* dyes. On a slide it is a
+    fixed 3x3 derived from the wrong dye set, and narrowband sampling at three isolated
+    wavelengths never measures the spectral integration the eye performs, so no input
+    profile recovers it. Refused for E-6 rather than approximated.
+    """
+
+    @pytest.mark.parametrize("normalize", [True, False])
+    def test_a_slide_never_takes_the_profile(self, normalize):
+        """Normalize changes the render path, not the dye set."""
+        assert not narrowband_profile_active(replace(cfg(ProcessMode.E6, normalize=normalize), narrowband_scan=True))
+
+    @pytest.mark.parametrize("mode", [ProcessMode.C41, ProcessMode.BW])
+    def test_every_negative_keeps_it(self, mode):
+        assert narrowband_profile_active(replace(cfg(mode), narrowband_scan=True))
+
+    def test_the_toggle_still_has_to_be_on(self):
+        assert not narrowband_profile_active(cfg(ProcessMode.C41))
 
 
 class TestDecodeAndMatrixAgree:
