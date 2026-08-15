@@ -3,6 +3,7 @@ import pytest
 
 import cv2
 
+from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.features.stitch.logic import (
     StitchError,
     build_proxy,
@@ -413,7 +414,7 @@ def test_apply_stitch_replaces_parts_with_composite():
         "stitch_canvas": (120, 80),
         "stitch_sizes": ((80, 80), (80, 80)),
     }
-    session.apply_stitch([1, 2], composite)
+    session.apply_composite([1, 2], composite)
     files = session.state.uploaded_files
     assert [f["path"] for f in files] == ["/other", "/a"]
     assert files[1]["hash"] == "digest#stitch"
@@ -484,7 +485,7 @@ def test_stitch_token_identity(tmp_path):
 
 
 def _triplet_tifs(tmp_path, tag, values, width=80, offset=0):
-    """Three constant-colour exposures; each carries its own channel at ``values``."""
+    """Three constant-color exposures; each carries its own channel at ``values``."""
     import tifffile
 
     paths = []
@@ -686,7 +687,7 @@ def test_on_stitch_registered_stores_per_part_triplets():
         "sizes": ((80, 80), (80, 80)),
     }
     AppController._on_stitch_registered(c, payload)
-    composite = c.session.apply_stitch.call_args.args[1]
+    composite = c.session.apply_composite.call_args.args[1]
     assert composite["stitch_triplets"] == (("/a_g.raf", "/a_b.raf"), ("/b_g.raf", "/b_b.raf"))
     assert composite["stitch_align"] is True
     assert composite["green_path"] == "/a_g.raf" and composite["blue_path"] == "/a_b.raf"
@@ -749,7 +750,11 @@ def test_stitch_real_rgb_triplet_samples():
 
     pm = PreviewManager()
     merged = [
-        np.asarray(pm.load_linear_preview_rgb(r, g, b, "Adobe RGB", use_camera_wb=False)[0], dtype=np.float32) for r, g, b in (part0, part1)
+        np.asarray(
+            pm.load_linear_preview_rgb(r, RgbScanConfig(enabled=True, green_path=g, blue_path=b), "Adobe RGB", use_camera_wb=False)[0],
+            dtype=np.float32,
+        )
+        for r, g, b in (part0, part1)
     ]
     transforms, (cw, ch) = register_parts(merged)
     h, w = merged[0].shape[:2]

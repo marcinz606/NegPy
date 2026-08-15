@@ -6,6 +6,7 @@ import numpy as np
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.processor import NormalizationProcessor, PhotometricProcessor
+from negpy.features.process.models import ProcessMode
 
 
 _H = 1000
@@ -38,7 +39,7 @@ class TestCastRemoval(unittest.TestCase):
     solve) that neutralizes a negative's residual color cast across the range.
     """
 
-    def _render(self, img: np.ndarray, strength: float, mode: str = "C41") -> np.ndarray:
+    def _render(self, img: np.ndarray, strength: float, mode: str = ProcessMode.C41) -> np.ndarray:
         config = WorkspaceConfig()
         # No analysis border crop — the fixture's cast fade sits near the
         # extreme and must stay inside the analyzed region.

@@ -2,7 +2,7 @@ import json
 import logging
 import unittest
 from dataclasses import replace
-from negpy.domain.models import ExportConfig, ExportFormat, ExportPreset, ExportResolutionMode, WorkspaceConfig
+from negpy.domain.models import AspectRatio, ExportConfig, ExportFormat, ExportPreset, ExportResolutionMode, WorkspaceConfig
 from negpy.features.process.models import ProcessMode
 from negpy.kernel.caching.logic import calculate_config_hash
 
@@ -198,12 +198,12 @@ class TestConfigDeserialization(unittest.TestCase):
     def test_legacy_use_roll_average_true_splits_to_both_axes(self):
         config = WorkspaceConfig.from_flat_dict({"use_roll_average": True})
         self.assertTrue(config.process.use_luma_average)
-        self.assertTrue(config.process.use_colour_average)
+        self.assertTrue(config.process.use_color_average)
 
     def test_legacy_use_roll_average_false_splits_to_both_axes(self):
         config = WorkspaceConfig.from_flat_dict({"use_roll_average": False})
         self.assertFalse(config.process.use_luma_average)
-        self.assertFalse(config.process.use_colour_average)
+        self.assertFalse(config.process.use_color_average)
 
     def test_legacy_use_roll_average_does_not_warn(self):
         with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):
@@ -330,9 +330,32 @@ class TestConfigDeserialization(unittest.TestCase):
         self.assertEqual(reloaded.stitch.stitch_sizes, ((2000, 3000), (2100, 3000)))
         hash(reloaded.stitch)  # must not raise
 
-    def test_stitch_keys_do_not_warn(self):
-        """Regression: StitchConfig was missing from the known-keys set, so every
-        load of a stitched edit warned 'Dropping unknown config keys: [stitch_*]'."""
+    def test_legacy_process_mode_names_still_load(self):
+        """The modes were renamed (C41 -> Color Negative, B&W -> B&W Negative, E-6 ->
+        Transparency). Edits saved under the old names must open in the same mode."""
+        for legacy, expected in (("C41", ProcessMode.C41), ("B&W", ProcessMode.BW), ("E-6", ProcessMode.E6)):
+            config = WorkspaceConfig.from_flat_dict({"process_mode": legacy})
+            self.assertEqual(config.process.process_mode, expected)
+            self.assertIsInstance(config.process.process_mode, ProcessMode)
+
+    def test_unknown_process_mode_falls_back_to_color_negative(self):
+        """A corrupt or hand-edited value renders as it always did, rather than failing the load."""
+        self.assertEqual(WorkspaceConfig.from_flat_dict({"process_mode": "Kodachrome"}).process.process_mode, ProcessMode.C41)
+
+    def test_retired_enum_values_fall_back_to_their_default(self):
+        config = WorkspaceConfig.from_flat_dict({"export_fmt": "PSD", "export_resolution_mode": "contact_sheet", "autocrop_ratio": "13:17"})
+        self.assertEqual(config.export.export_fmt, ExportFormat.JPEG)
+        self.assertEqual(config.export.export_resolution_mode, ExportResolutionMode.ORIGINAL)
+        self.assertEqual(config.geometry.autocrop_ratio, AspectRatio.R_3_2)
+
+    def test_no_sub_config_is_missing_from_the_known_keys_set(self):
+        """`from_flat_dict` validates incoming keys against a hand-maintained
+        `config_classes` list. A sub-config added to WorkspaceConfig but not to that list
+        has every one of its keys dropped on load — a warning, then silent data loss.
+
+        Round-tripping the default config is enough to catch it, because `to_dict` emits
+        every sub-config's keys whatever their values. StitchConfig was missing once, and
+        HdrConfig was missing when it was added; both showed up here."""
         with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):
             WorkspaceConfig.from_flat_dict(WorkspaceConfig().to_dict())
 

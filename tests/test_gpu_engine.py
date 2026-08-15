@@ -173,7 +173,7 @@ class TestGPUEngine(unittest.TestCase):
                 locked_floors=(-1.0, -1.0, -1.0),
                 locked_ceils=(-0.2, -0.2, -0.2),
                 use_luma_average=True,
-                use_colour_average=True,
+                use_color_average=True,
             ),
             exposure=replace(
                 base.exposure,

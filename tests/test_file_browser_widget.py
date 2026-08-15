@@ -2,12 +2,12 @@ from dataclasses import replace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from PyQt6.QtCore import QPoint, QPointF, QPropertyAnimation, Qt
-from PyQt6.QtGui import QWheelEvent
-from PyQt6.QtWidgets import QAbstractItemView, QApplication, QDialog
+from PyQt6.QtCore import QPoint, QPointF, QPropertyAnimation, QRect, Qt
+from PyQt6.QtGui import QColor, QIcon, QImage, QPainter, QPixmap, QWheelEvent
+from PyQt6.QtWidgets import QAbstractItemView, QApplication, QDialog, QStyleOptionViewItem
 
-from negpy.desktop.session import DesktopSessionManager
-from negpy.desktop.view.sidebar.files import THUMB_CELL_MAX, THUMB_CELL_MIN, FileBrowser
+from negpy.desktop.session import DesktopSessionManager, composite_kind, composite_summary
+from negpy.desktop.view.sidebar.files import THUMB_CELL_MAX, THUMB_CELL_MIN, FileBrowser, _ThumbnailDelegate
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog
 from negpy.domain.models import WorkspaceConfig
@@ -524,3 +524,89 @@ def test_session_menu_clear_all_clears_every_frame(browser, session):
     with patch("negpy.desktop.view.sidebar.files.confirm_unload", return_value=True):
         browser._on_clear_all()
     session.clear_files.assert_called_once()
+
+
+# --- Composite badges -----------------------------------------------------
+
+
+def _composite_assets() -> dict:
+    return {
+        "plain": {"name": "a.cr2", "path": "/tmp/a.cr2", "hash": "h"},
+        "stitch": {"name": "a+b (Stitch)", "path": "/tmp/a.cr2", "hash": "h#stitch", "stitch_paths": ("/tmp/b.cr2",)},
+        "hdr": {"name": "a +2 (HDR)", "path": "/tmp/a.cr2", "hash": "h#hdr", "hdr_paths": ("/tmp/b.cr2", "/tmp/c.cr2")},
+        "rgb": {"name": "a.cr2", "path": "/tmp/a.cr2", "hash": "h", "green_path": "/tmp/g.cr2", "blue_path": "/tmp/b.cr2"},
+        "half": {"name": "a [2]", "path": "/tmp/a.cr2", "hash": "h#2", "half": 2},
+    }
+
+
+@pytest.mark.parametrize("key,kind", [("plain", ""), ("stitch", "stitch"), ("hdr", "hdr"), ("rgb", "rgb"), ("half", "half")])
+def test_composite_kind_reads_the_asset_dict(key, kind):
+    assert composite_kind(_composite_assets()[key]) == kind
+
+
+def test_stitch_of_triplets_reads_as_a_stitch():
+    """A stitch built from triplets carries the primary part's green/blue pair too, so
+    a green_path-first test would badge it as a triplet."""
+    asset = {**_composite_assets()["stitch"], "green_path": "/tmp/g.cr2", "blue_path": "/tmp/b.cr2"}
+    assert composite_kind(asset) == "stitch"
+
+
+def test_composite_summary_counts_every_source_frame():
+    assets = _composite_assets()
+    assert composite_summary(assets["stitch"]) == "Stitched composite of 2 frames"
+    assert composite_summary(assets["hdr"]) == "HDR merge of 3 exposures"
+    assert composite_summary(assets["rgb"]) == "RGB-scan triplet"
+    assert composite_summary(assets["half"]) == "Half-frame split (2 of 2)"
+    assert composite_summary(assets["plain"]) == ""
+
+
+def test_tooltip_names_what_the_frame_is_built_from(session):
+    session.state.uploaded_files = [_composite_assets()["hdr"], _composite_assets()["plain"]]
+    session.asset_model.refresh()
+    model = session.asset_model
+    tips = [model.data(model.index(row, 0), Qt.ItemDataRole.ToolTipRole) for row in range(model.rowCount())]
+    merged = [t for t in tips if "HDR merge" in t]
+    assert merged == ["/tmp/a.cr2\nHDR merge of 3 exposures"]
+    assert tips.count("/tmp/a.cr2") == 1  # the plain frame keeps the path alone
+
+
+def _render(asset: dict) -> QImage:
+    """Paint one delegate cell onto a pixmap. paint() reads only index.data(), so a
+    stub index is enough."""
+    thumb = QPixmap(60, 40)
+    thumb.fill(QColor("#808080"))
+    index = MagicMock()
+    index.data.side_effect = lambda role: {
+        Qt.ItemDataRole.UserRole: asset,
+        Qt.ItemDataRole.DecorationRole: QIcon(thumb),
+    }.get(role)
+
+    canvas = QPixmap(120, 120)
+    canvas.fill(QColor("#000000"))
+    option = QStyleOptionViewItem()
+    option.rect = QRect(0, 0, 120, 120)
+    painter = QPainter(canvas)
+    _ThumbnailDelegate().paint(painter, option, index)
+    painter.end()
+    return canvas.toImage()
+
+
+def _badge_corner(image: QImage) -> list:
+    """The 18px badge box at the bottom-left of the image outline. A 60x40 thumbnail in
+    a 120px cell lands at (3, 22, 114, 76), so the chip spans roughly (7, 75)-(25, 93)."""
+    return [image.pixel(x, y) for y in range(73, 95) for x in range(5, 27)]
+
+
+@pytest.mark.parametrize("key", ["stitch", "hdr", "rgb", "half"])
+def test_composite_badge_is_painted_bottom_left(key, qapp):
+    assets = _composite_assets()
+    assert _badge_corner(_render(assets[key])) != _badge_corner(_render(assets["plain"]))
+
+
+def test_each_composite_kind_draws_its_own_glyph(qapp):
+    """The point of per-kind glyphs: a merge must not look like a stitch."""
+    assets = _composite_assets()
+    corners = [_badge_corner(_render(assets[k])) for k in ("stitch", "hdr", "rgb", "half")]
+    for i, a in enumerate(corners):
+        for b in corners[i + 1 :]:
+            assert a != b

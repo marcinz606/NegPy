@@ -109,8 +109,8 @@ def test_ir_layer_none_without_ir_or_uv():
     assert overlay._ir_layer_qimage() is None  # no uv_grid in metrics
 
 
-def test_repaired_masks_wash_in_their_source_colour():
-    """Every defect source arrives as a mask now, so colour is what tells them apart:
+def test_repaired_masks_wash_in_their_source_color():
+    """Every defect source arrives as a mask now, so color is what tells them apart:
     green for optically detected specks, magenta for IR and inpainted defects."""
     from negpy.desktop.view.canvas.overlay import _DUST_MARK_IR, _DUST_MARK_LUMA
 

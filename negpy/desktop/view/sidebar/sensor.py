@@ -11,13 +11,40 @@ from negpy.services.assets.sensor import SensorProfiles
 
 class SensorSidebar(BaseSidebar):
     """
-    Capture-side colour corrections, one per cause and not interchangeable: the
+    Capture-side color corrections, one per cause and not interchangeable: the
     camera's cross-channel response (linear capture), the film's dye absorptions
     (negative density), and an odd light spectrum's hue rotation (the print).
     """
 
     def _init_ui(self) -> None:
         conf = self.state.config.process
+
+        self.capture_header = section_subheader("CAPTURE")
+        self.layout.addWidget(self.capture_header)
+
+        self.linear_raw_btn = self._small_toggle(
+            "fa5s.sliders-h",
+            "Linear RAW",
+            conf.linear_raw,
+            "Decode RAW with neutral multipliers (1,1,1,1) — bypasses as-shot camera white balance for a clean starting point",
+        )
+        self.narrowband_scan_btn = self._small_toggle(
+            "mdi6.led-strip-variant",
+            "Narrowband",
+            conf.narrowband_scan,
+            "Correct trichrome narrowband RGB scans oversaturation with the bundled input profile "
+            "An explicit Input ICC in Export settings overrides it",
+        )
+        self.scan_setup_btn = self._icon_action(
+            "mdi6.lightbulb-on-outline",
+            "Scanning setup — set Linear RAW and Narrowband from your camera/scanner and its light source",
+            width=28,
+        )
+        capture_row = QHBoxLayout()
+        capture_row.addWidget(self.linear_raw_btn, 1)
+        capture_row.addWidget(self.narrowband_scan_btn, 1)
+        capture_row.addWidget(self.scan_setup_btn)
+        self.layout.addLayout(capture_row)
 
         self.layout.addWidget(section_subheader("TRICHROME CALIBRATION"))
 
@@ -69,7 +96,7 @@ class SensorSidebar(BaseSidebar):
             "<table width='280'><tr><td>"
             "Channel unmix on the raw NEGATIVE densities, before analysis and inversion — the domain "
             "where every cause of channel mixing is linear. The film's dyes absorb outside their own "
-            "band, but so do your light's spectrum and your sensor's colour filters, and here they all "
+            "band, but so do your light's spectrum and your sensor's color filters, and here they all "
             "arrive as the same kind of error. So read a profile as <b>your whole scanning setup</b>, "
             "not just the stock.<br><br>"
             "<b>The bundled film matrices are read off published spec sheets, not measured</b> — they "
@@ -78,7 +105,7 @@ class SensorSidebar(BaseSidebar):
             "mono sensor lit one band at a time) or a calibrated trichrome rig. Under a broadband light "
             "and a Bayer sensor your capture adds its own mixing on top, and a dyes-only matrix will not "
             "describe it.<br><br>"
-            "So treat them as starting points and expect to tune: raise Strength until colours separate "
+            "So treat them as starting points and expect to tune: raise Strength until colors separate "
             "without going garish, and if a stock or a light gives you trouble, open the editor, nudge "
             "the six off-diagonal terms and save your own profile — name it after the combination "
             "('Gold 200 + Spectracolor'). A profile measured on your own rig beats any datasheet. "
@@ -175,6 +202,10 @@ class SensorSidebar(BaseSidebar):
         self.linear_raw_hint.setVisible(not available)
 
     def _connect_signals(self) -> None:
+        self.linear_raw_btn.toggled.connect(self._on_linear_raw_toggled)
+        self.narrowband_scan_btn.toggled.connect(self._on_narrowband_scan_toggled)
+        self.scan_setup_btn.clicked.connect(self._open_scan_setup)
+
         self.sensor_combo.currentTextChanged.connect(self._on_sensor_profile_changed)
         self.calibrate_sensor_btn.clicked.connect(self._open_sensor_calibration)
 
@@ -185,6 +216,31 @@ class SensorSidebar(BaseSidebar):
 
         self.hue_trim_slider.valueChanged.connect(lambda v: self._on_hue_trim_changed(v, persist=False))
         self.hue_trim_slider.valueCommitted.connect(lambda v: self._on_hue_trim_changed(v, persist=True))
+
+    def _on_linear_raw_toggled(self, checked: bool) -> None:
+        from dataclasses import replace
+
+        new_config = replace(
+            self.state.config,
+            process=replace(
+                self.state.config.process,
+                linear_raw=checked,
+                **invalidate_local_bounds(self.state.config.process),
+            ),
+        )
+        # linear_raw switches use_camera_wb, so it is a source change: apply_config
+        # re-decodes, and suppresses the bounds analysis over the stale buffer.
+        self.controller.apply_config(new_config, persist=True)
+
+    def _on_narrowband_scan_toggled(self, checked: bool) -> None:
+        self.update_config_section("process", narrowband_scan=checked, persist=True, render=True)
+
+    def _open_scan_setup(self) -> None:
+        from negpy.desktop.view.main_window import MainWindow
+
+        win = self.window()
+        if isinstance(win, MainWindow):
+            win.show_scan_setup()
 
     def _on_sensor_profile_changed(self, name: str) -> None:
         # Bake the matrix like crosstalk does; the per-frame bounds were analyzed
@@ -301,6 +357,17 @@ class SensorSidebar(BaseSidebar):
         conf = self.state.config.process
         self.block_signals(True)
         try:
+            self.linear_raw_btn.setChecked(conf.linear_raw)
+            self.narrowband_scan_btn.setChecked(conf.narrowband_scan)
+            # Both are inert on the transparency transfer rather than merely inapplicable:
+            # Linear RAW is folded back out via the camera matrix, and the Narrowband input
+            # profile is suppressed. Hiding a *live* sticky setting would strand the user.
+            from negpy.features.exposure.transfer import is_transparency_transfer
+
+            transfer = is_transparency_transfer(conf.process_mode, conf.e6_normalize)
+            for w in (self.capture_header, self.linear_raw_btn, self.narrowband_scan_btn, self.scan_setup_btn):
+                w.setVisible(not transfer)
+
             profiles = SensorProfiles.list_profiles()
             if profiles != [self.sensor_combo.itemText(i) for i in range(self.sensor_combo.count())]:
                 self.sensor_combo.clear()
@@ -332,5 +399,12 @@ class SensorSidebar(BaseSidebar):
             self.block_signals(False)
 
     def block_signals(self, blocked: bool) -> None:
-        for w in (self.sensor_combo, self.crosstalk_combo, self.crosstalk_strength_slider, self.hue_trim_slider):
+        for w in (
+            self.linear_raw_btn,
+            self.narrowband_scan_btn,
+            self.sensor_combo,
+            self.crosstalk_combo,
+            self.crosstalk_strength_slider,
+            self.hue_trim_slider,
+        ):
             w.blockSignals(blocked)

@@ -155,3 +155,18 @@ class CollapsibleSection(QWidget):
     def expand(self) -> None:
         if not self.toggle_button.isChecked():
             self.toggle_button.setChecked(True)
+
+
+def hidden_by_gating(widget: QWidget) -> bool:
+    """True when the mode or config retired *widget*, as opposed to it being off-screen.
+
+    Not isVisible(): a collapsed section, an off-screen tab and a closed dock all read as
+    invisible. Gating hides the widget, a block in its sidebar or the whole section, never
+    the section's content_area — the collapse flag — so the walk stops there.
+    """
+    section = widget.parentWidget()
+    while section is not None and not isinstance(section, CollapsibleSection):
+        section = section.parentWidget()
+    if section is None:
+        return False
+    return section.isHidden() or not widget.isVisibleTo(section.content_area)

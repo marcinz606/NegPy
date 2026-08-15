@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 from negpy.desktop.session import AppState
 from negpy.desktop.view.sidebar.process import ProcessSidebar
+from negpy.features.process.models import ProcessMode
 
 
 def _sidebar():
@@ -54,7 +55,7 @@ def test_channel_selector_hidden_in_bw(qapp):
     sidebar.ch_r_btn.setChecked(True)
 
     cfg = controller.state.config
-    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode="B&W"))
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.BW))
     sidebar.sync_ui()
     for w in (sidebar.ch_global_btn, sidebar.ch_r_btn, sidebar.ch_g_btn, sidebar.ch_b_btn):
         assert w.isHidden()
@@ -68,7 +69,7 @@ def test_channel_selector_hidden_on_the_transparency_transfer(qapp):
     controller, sidebar = _sidebar()
 
     cfg = controller.state.config
-    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode="E-6", e6_normalize=True))
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=True))
     sidebar.sync_ui()
     assert not sidebar.ch_r_btn.isHidden()
     sidebar.ch_r_btn.setChecked(True)
@@ -114,3 +115,29 @@ def test_analysis_region_dot_reflects_committed_region_not_just_tool_state(qapp)
     controller.state.config = replace(cfg, process=replace(cfg.process, analysis_rect=None))
     sidebar.sync_ui()
     assert not sidebar.analysis_region_btn.edited_dot.isVisibleTo(sidebar.analysis_region_btn)
+
+
+def test_mode_buttons_track_config_and_switch_mode(qapp):
+    controller, sidebar = _sidebar()
+    sidebar.sync_ui()
+
+    color_btn, bw_btn, slide_btn = sidebar.mode_btns
+    assert color_btn.isChecked()
+
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6))
+    sidebar.sync_ui()
+    assert slide_btn.isChecked()
+    assert not color_btn.isChecked() and not bw_btn.isChecked()
+
+    bw_btn.click()
+    (new_cfg,), _kw = controller.apply_config.call_args
+    assert new_cfg.process.process_mode == ProcessMode.BW
+
+
+def test_lock_bounds_sits_in_the_analysis_row_and_hides_on_the_transparency_transfer(qapp):
+    controller, sidebar = _sidebar()
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=False))
+    sidebar.sync_ui()
+    assert sidebar.lock_bounds_btn.isHidden()

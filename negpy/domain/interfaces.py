@@ -9,6 +9,7 @@ from typing import (
 from dataclasses import dataclass, field
 from negpy.domain.types import ImageBuffer, ROI, Dimensions
 from negpy.domain.models import WorkspaceConfig
+from negpy.features.process.models import ProcessMode
 
 
 @dataclass
@@ -19,7 +20,7 @@ class PipelineContext:
 
     original_size: Dimensions
     scale_factor: float
-    process_mode: str = "C41"
+    process_mode: ProcessMode = ProcessMode.C41
     active_roi: Optional[ROI] = None
     metrics: dict[str, Any] = field(default_factory=dict)
     # When set, the crop tool is active: the final crop slice and uv_grid are bypassed

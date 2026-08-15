@@ -1,3 +1,4 @@
+import os
 import qtawesome as qta
 from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QActionGroup
@@ -16,6 +17,8 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.keyboard_shortcuts import _context_undo
 from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog
+from negpy.desktop.view.widgets.sliders import apply_slider_value_visibility
+from negpy.kernel.system.parallel import parallel_enabled, set_parallel_enabled
 from negpy.desktop.view.shortcut_registry import key_for, tooltip_with_shortcut
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.gpu.device import GPUDevice
@@ -206,6 +209,15 @@ class ActionToolbar(QWidget):
         else:
             self._ov_gpu_action.setEnabled(False)
             self._ov_gpu_action.setChecked(False)
+
+        # Beside GPU Acceleration because it answers the same question — which processor
+        # does the work — and the two trade against each other: with the GPU carrying the
+        # pipeline, the CPU kernels are left with the source assembly, where an HDR solve
+        # is the one that takes seconds.
+        self._parallel_action = overflow_menu.addAction("Multi-core CPU Rendering")
+        self._parallel_action.setCheckable(True)
+        self._parallel_action.triggered.connect(self._on_cpu_parallel_toggled)
+        self.refresh_cpu_parallel_status()
         overflow_menu.addSeparator()
 
         # Canvas background — overflow-only (no toolbar swatches), exclusive
@@ -311,6 +323,7 @@ class ActionToolbar(QWidget):
             act.setChecked(abs(val - current_scale) < 0.001)
             self._ui_scale_group.addAction(act)
             act.triggered.connect(lambda _checked=False, v=val, p=pct: self._on_ui_scale_selected(v, p))
+
         overflow_menu.addSeparator()
 
         reset_key = key_for("reset_panel_layout")
@@ -332,6 +345,12 @@ class ActionToolbar(QWidget):
         self._ov_sticky_zoom_action.setChecked(self.session.state.sticky_zoom)
         self._ov_sticky_zoom_action.setToolTip(
             tooltip_with_shortcut("Keep the current zoom level when switching images, instead of resetting to fit", "toggle_sticky_zoom")
+        )
+        self._ov_slider_values_action = overflow_menu.addAction("Show Slider Values")
+        self._ov_slider_values_action.setCheckable(True)
+        self._ov_slider_values_action.setChecked(bool(self.session.repo.get_global_setting("show_slider_values", default=False)))
+        self._ov_slider_values_action.setToolTip(
+            tooltip_with_shortcut("Keep every slider's value box open, instead of revealing it on hover", "toggle_slider_values")
         )
         overflow_menu.addSeparator()
 
@@ -491,6 +510,7 @@ class ActionToolbar(QWidget):
         self._ov_redo_action.triggered.connect(self.session.redo)
         self._ov_immersive_action.triggered.connect(self._on_immersive_toggled)
         self._ov_sticky_zoom_action.triggered.connect(self._on_sticky_zoom_toggled)
+        self._ov_slider_values_action.triggered.connect(self._on_slider_values_toggled)
 
     def _on_overflow_unload(self) -> None:
         from negpy.desktop.view.confirm import confirm_unload
@@ -502,6 +522,10 @@ class ActionToolbar(QWidget):
 
     def _on_immersive_toggled(self, checked: bool) -> None:
         self.session.set_immersive_canvas(checked)
+
+    def _on_slider_values_toggled(self, checked: bool) -> None:
+        self.session.repo.save_global_setting("show_slider_values", bool(checked))
+        apply_slider_value_visibility(self.window(), bool(checked))
 
     def _on_sticky_zoom_toggled(self, checked: bool) -> None:
         self.session.set_sticky_zoom(checked)
@@ -532,6 +556,48 @@ class ActionToolbar(QWidget):
             action.setToolTip(f"GPU Acceleration: ON — {backend}\nClick to force the CPU pipeline.")
         else:
             action.setToolTip("GPU Acceleration: OFF — CPU pipeline\nClick to enable WebGPU for near-instant previews.")
+
+    def refresh_cpu_parallel_status(self) -> None:
+        """Reflect on/off in the icon, the way the GPU toggle does.
+
+        A checkable QAction that also carries an icon shows the icon in the indicator slot
+        instead of a tick, so the state has to live in the icon itself or the entry looks
+        identical either way.
+        """
+        enabled = parallel_enabled()
+        action = self._parallel_action
+
+        action.blockSignals(True)
+        action.setChecked(enabled)
+        action.blockSignals(False)
+
+        action.setIcon(qta.icon("fa5s.microchip", color=THEME.accent_primary if enabled else THEME.text_primary))
+        if enabled:
+            action.setToolTip(
+                f"Multi-core CPU Rendering: ON — {os.cpu_count() or '?'} cores\n"
+                "The rendering kernels run 5-8x faster, which is about 10% off a whole HDR\n"
+                "merge — the rest of that time is decoding the RAW files, which this does\n"
+                "not touch. Experimental: if the app closes without warning, turn it off."
+            )
+        else:
+            action.setToolTip(
+                "Multi-core CPU Rendering: OFF — one core\n"
+                "Click to spread the CPU rendering kernels across cores. They run 5-8x\n"
+                "faster, worth roughly 10% off a whole HDR merge — most of that time is\n"
+                "decoding the RAW files. Experimental on macOS."
+            )
+
+    def _on_cpu_parallel_toggled(self, checked: bool) -> None:
+        """Takes effect at once: every kernel is compiled both ways and dispatched per
+        call, so there is nothing to recompile and no restart to wait for."""
+        self.session.repo.save_global_setting("cpu_parallel", bool(checked))
+        set_parallel_enabled(bool(checked))
+        self.session.repo.save_global_setting("cpu_parallel_active", bool(checked))
+        self.refresh_cpu_parallel_status()
+        self.controller.set_status(
+            "Multi-core CPU rendering on — turn it off if the app closes unexpectedly" if checked else "Multi-core CPU rendering off",
+            5000,
+        )
 
     def _on_ui_scale_selected(self, value: float, pct: int) -> None:
         self.session.repo.save_global_setting("ui_scale", value)

@@ -41,6 +41,9 @@ from negpy.features.geometry.logic import (
 )
 from negpy.features.lab.logic import gaussian_kernel_1d, rl_iterations
 from negpy.features.lab.models import SharpenMethod
+from negpy.features.altprocess.models import AltProcess
+from negpy.features.cyanotype.logic import CYANOTYPE_CONSTANTS, sensitizer_constants
+from negpy.features.lith.logic import LITH_CONSTANTS
 from negpy.features.local.logic import compute_local_maps
 from negpy.features.exposure.transfer import (
     TRANSFER_CONSTANTS,
@@ -53,6 +56,7 @@ from negpy.features.exposure.transfer import (
     zone_geometry,
 )
 from negpy.features.process.capture_color import camera_to_working_matrix
+from negpy.features.process.logic import effective_linear_raw
 from negpy.features.process.models import ProcessMode, per_channel_point_offsets
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUBuffer, GPUTexture
@@ -64,6 +68,9 @@ from negpy.services.export.print import PrintService
 from negpy.services.view.coordinate_mapping import CoordinateMapping
 
 logger = get_logger(__name__)
+
+# Mirrors ToningUniforms.alt_mode in toning.wgsl.
+_ALT_MODE = {AltProcess.NONE: 0, AltProcess.LITH: 1, AltProcess.CYANOTYPE: 2}
 
 # Hardware constants
 UNIFORM_ALIGNMENT_DEFAULT = 256
@@ -212,6 +219,8 @@ class GPUEngine:
             "rl_div_v": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "rl_div_v.wgsl")),
             "rl_mult_v": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "rl_mult_v.wgsl")),
             "lab": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "lab.wgsl")),
+            "lith": get_resource_path(os.path.join("negpy", "features", "lith", "shaders", "lith.wgsl")),
+            "cyanotype": get_resource_path(os.path.join("negpy", "features", "cyanotype", "shaders", "cyanotype.wgsl")),
             "toning": get_resource_path(os.path.join("negpy", "features", "toning", "shaders", "toning.wgsl")),
             "finish": get_resource_path(os.path.join("negpy", "features", "finish", "shaders", "finish.wgsl")),
             "metrics": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "metrics.wgsl")),
@@ -230,6 +239,8 @@ class GPUEngine:
             "transfer",
             "clahe_u",
             "lab",
+            "lith",
+            "cyanotype",
             "toning",
             "finish",
             "layout",
@@ -244,6 +255,8 @@ class GPUEngine:
             "transfer": 144,
             "clahe_u": 32,
             "lab": 96,
+            "lith": 64,
+            "cyanotype": 64,
             "toning": 64,
             "finish": 60,
             "layout": 48,
@@ -323,6 +336,8 @@ class GPUEngine:
             return 2
         if last.lab != settings.lab:
             return 4
+        if last.altproc != settings.altproc:
+            return 5
         if last.toning != settings.toning:
             return 6
         if last.finish != settings.finish:
@@ -571,8 +586,8 @@ class GPUEngine:
             and settings.process.process_mode == ProcessMode.C41
         )
         _roll_luma = settings.process.use_luma_average and settings.process.is_locked_initialized
-        _roll_colour = settings.process.use_colour_average and settings.process.is_locked_initialized
-        needs_bounds_analysis = not (bounds_override or (_roll_luma and _roll_colour) or settings.process.is_local_initialized)
+        _roll_color = settings.process.use_color_average and settings.process.is_locked_initialized
+        needs_bounds_analysis = not (bounds_override or (_roll_luma and _roll_color) or settings.process.is_local_initialized)
         # Measure the anchor for the render when Auto Density is on, and for the
         # Analysis-panel stats on every preview (readback) regardless of toggle —
         # it's only *used* in the render when auto_exposure (see uniforms).
@@ -948,6 +963,32 @@ class GPUEngine:
 
         tex_pre_toning = tex_lab
 
+        # --- Alternative processes (lith / cyanotype) ---
+        # Mutually exclusive, and no pass at all when neither is picked; toning
+        # then reads tex_lab directly.
+        alt = settings.altproc.alt_process
+        if alt != AltProcess.NONE and settings.process.process_mode == ProcessMode.BW:
+            shader = "lith" if alt == AltProcess.LITH else "cyanotype"
+            tex_alt = self._get_intermediate_texture(
+                w_rot,
+                h_rot,
+                wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_SRC,
+                shader,
+            )
+            if start_stage <= 5:
+                self._dispatch_pass(
+                    enc,
+                    shader,
+                    [
+                        (0, tex_lab.view),
+                        (1, tex_alt.view),
+                        (2, self._get_uniform_binding(shader)),
+                    ],
+                    w_rot,
+                    h_rot,
+                )
+            tex_pre_toning = tex_alt
+
         if start_stage <= 6:
             self._dispatch_pass(
                 enc,
@@ -1183,7 +1224,9 @@ class GPUEngine:
         # (the shader only reads them on the transfer path).
         # Linear RAW decodes without white balance; fold the as-shot multipliers back
         # in so the render does not depend on which decode produced the buffer.
-        cam = camera_to_working_matrix(cam_xyz, camera_wb if settings.process.linear_raw else None)
+        cam = camera_to_working_matrix(
+            cam_xyz, camera_wb if effective_linear_raw(settings.process, settings.exposure.render_intent) else None
+        )
         if cam is None:
             cam = np.eye(3, dtype=np.float32)
 
@@ -1470,6 +1513,50 @@ class GPUEngine:
         )
 
         is_bw = 1 if settings.process.process_mode == ProcessMode.BW else 0
+
+        altproc = settings.altproc
+        lc = LITH_CONSTANTS
+        lith_dmax = float(pc["d_max"])
+        lith_over = 0.301 * float(altproc.lith_exposure)
+        li_data = (
+            struct.pack("ffff", *[float(p[0]) for p in paper.lith_path])
+            + struct.pack("ffff", *[float(p[1]) for p in paper.lith_path])
+            + struct.pack(
+                "ffff",
+                lith_over,
+                lith_over * float(lc["foot_veil"]),
+                lith_dmax * (lc["knee_lo"] - lc["knee_span"] * float(altproc.lith_snatch)),
+                max(lc["abrupt_lo"] - lc["abrupt_span"] * float(altproc.lith_abruptness), 0.01),
+            )
+            # 12 bytes of tail padding: two vec4s force a 16-byte struct align, so
+            # WGSL rounds LithUniforms up to 64 and the binding size must match.
+            + struct.pack("f", lith_dmax)
+            + b"\x00" * 12
+        )
+
+        cs = sensitizer_constants(altproc.cyano_sensitizer)
+        cc = CYANOTYPE_CONSTANTS
+        cy_data = (
+            struct.pack("ffff", *[float(p[0]) for p in cs["path"]])
+            + struct.pack("ffff", *[float(p[1]) for p in cs["path"]])
+            + struct.pack(
+                "ffff",
+                0.301 * float(altproc.cyano_exposure),
+                max(float(altproc.cyano_scale), 0.1),
+                float(altproc.cyano_bleach),
+                float(altproc.cyano_tannin),
+            )
+            # 4 bytes of tail padding, as for lith: the leading vec4s round
+            # CyanoUniforms up to 64 and the binding size must match.
+            + struct.pack(
+                "fff",
+                float(cs["d_max"]),
+                float(cc["brown_dir"][0]),
+                float(cc["brown_dir"][1]),
+            )
+            + b"\x00" * 4
+        )
+
         t_data = (
             struct.pack(
                 "ffff",
@@ -1493,10 +1580,11 @@ class GPUEngine:
                 float(settings.toning.highlight_tint_strength),
             )
             + struct.pack(
-                "fff",
+                "fffI",
                 float(settings.toning.blue_strength),
                 float(settings.toning.copper_strength),
                 float(settings.toning.vanadium_strength),
+                _ALT_MODE.get(altproc.alt_process, 0) if is_bw else 0,
             )
         )
 
@@ -1543,7 +1631,9 @@ class GPUEngine:
         dh_data = struct.pack("IIII", crop_offset[0], crop_offset[1], crop_w, crop_h)
 
         full_buffer = bytearray()
-        for name, d in zip(self._uniform_names, [g_data, n_data, e_data, tr_data, c_data, l_data, t_data, f_data, y_data, dh_data]):
+        for name, d in zip(
+            self._uniform_names, [g_data, n_data, e_data, tr_data, c_data, l_data, li_data, cy_data, t_data, f_data, y_data, dh_data]
+        ):
             full_buffer += d + b"\x00" * (self._slot_bytes(name) - len(d))
 
         if not self.gpu.device:

@@ -80,7 +80,7 @@ def test_white_slide_leaves_merge_off():
 
 
 def test_explicit_e6_applies_to_import_after_hydration_without_detection():
-    c = _run(["slide.ARW"], rgb_mode=True, white_mode=True, white_process_mode="E-6")
+    c = _run(["slide.ARW"], rgb_mode=True, white_mode=True, white_process_mode=ProcessMode.E6)
 
     # Capture completion must not mutate whichever asset happened to be open before import.
     assert c.state.config.process.process_mode == ProcessMode.C41
@@ -92,7 +92,7 @@ def test_explicit_e6_applies_to_import_after_hydration_without_detection():
 
 
 def test_explicit_bw_applies_to_import_after_hydration_without_detection():
-    c = _run(["mono.ARW"], rgb_mode=True, white_mode=True, white_process_mode="B&W")
+    c = _run(["mono.ARW"], rgb_mode=True, white_mode=True, white_process_mode=ProcessMode.BW)
 
     assert c.state.config.process.process_mode == ProcessMode.C41
 
@@ -112,7 +112,7 @@ def test_automatic_white_import_requests_detection_without_forcing_mode():
 
 
 def test_failed_discovery_discards_capture_intent():
-    c = _run(["missing.ARW"], rgb_mode=True, white_mode=True, white_process_mode="E-6")
+    c = _run(["missing.ARW"], rgb_mode=True, white_mode=True, white_process_mode=ProcessMode.E6)
     c._auto_open_after_discovery = False
     c._replace_after_discovery = False
     c._reselect_after_discovery = None
@@ -125,7 +125,7 @@ def test_failed_discovery_discards_capture_intent():
 
 
 def test_capture_intent_is_scoped_to_captured_primary_path():
-    c = _run(["slide.ARW"], rgb_mode=True, white_mode=True, white_process_mode="E-6")
+    c = _run(["slide.ARW"], rgb_mode=True, white_mode=True, white_process_mode=ProcessMode.E6)
 
     unrelated_task = _hydrate_and_load(c, "other.ARW", ProcessMode.BW, autodetect=True)
 

@@ -7,6 +7,7 @@ from negpy.desktop.view.slider_shortcut_groups import SLIDER_GROUPS
 from negpy.desktop.view.slider_targets import SLIDER_ATTRS, slider_widget_map
 from negpy.desktop.view.styles.templates import hint_label
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.collapsible import hidden_by_gating
 from negpy.desktop.view.widgets.favourites_dialog import FavouritesDialog
 from negpy.desktop.view.widgets.sliders import clone_slider
 
@@ -94,8 +95,7 @@ class FavouritesSidebar(BaseSidebar):
     def sync_ui(self) -> None:
         for clone, src in self._mirrors:
             clone.setValue(src.value())
-            # isHidden(), not isVisible(): the latter is False whenever the home section is
-            # collapsed or its tab is off-screen, which would blank every favourite. Only an
-            # explicit setVisible(False) — the B&W / E6 mode gating — should hide a mirror.
-            clone.setVisible(not src.isHidden())
+            # Only mode gating should hide a mirror; a collapsed section or an off-screen
+            # tab must not. B&W hides the whole Colour section, so isHidden() alone misses it.
+            clone.setVisible(not hidden_by_gating(src))
             clone.setEnabled(src.isEnabled())

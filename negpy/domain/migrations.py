@@ -5,8 +5,10 @@ belongs here — add new ones to this module, not to ``from_flat_dict``.
 
 Not here: coercions that must run on *every* construction rather than only on load
 — ``ExposureConfig.__post_init__`` (legacy 0-5 paper grade → ISO R, cast_removal
-bool → strength) and the tuple-rehydrating ``__post_init__``s. String literals only
-(no ``domain.models`` import — that module imports this one).
+bool → strength), ``ProcessConfig.__post_init__`` (pre-rename process-mode names,
+which also arrive from sticky settings and asset dicts) and the tuple-rehydrating
+``__post_init__``s. String literals only (no ``domain.models`` import — that module
+imports this one).
 
 Also not here: migrations that rewrite *rows* rather than a config payload, since those
 need a repository and this module stays dependency-free. They live beside the feature
@@ -25,8 +27,8 @@ KEY_RENAMES: Dict[str, str] = {
     # ExposureConfig.__post_init__). Preserve a user's saved on/off.
     "auto_shadow_neutral": "cast_removal_strength",
     "cast_removal": "cast_removal_strength",
-    # D-Range Clip split into independent luma + colour range clips; the old single
-    # slider maps to the luma axis (colour defaults to its aggressive baseline).
+    # D-Range Clip split into independent luma + color range clips; the old single
+    # slider maps to the luma axis (color defaults to its aggressive baseline).
     "drange_clip": "luma_range_clip",
     # The frame-wide density-domain control (ex "Print Saturation") absorbed the
     # per-pixel one beside it and took over its name (see the pop in migrate_flat_config).
@@ -34,6 +36,7 @@ KEY_RENAMES: Dict[str, str] = {
     "density_saturation_trim_red": "dye_separation_trim_red",
     "density_saturation_trim_green": "dye_separation_trim_green",
     "density_saturation_trim_blue": "dye_separation_trim_blue",
+    "use_colour_average": "use_color_average",
 }
 
 # Fields removed from the config over time. Every edit saved before the removal
@@ -61,6 +64,9 @@ DROPPED_KEYS: frozenset[str] = frozenset(
         # jpegxl TIFF compression tag, so it never shipped past this branch — TIFF
         # is zlib-only again and lossless JXL stays a standalone format.
         "tiff_compression",
+        # Lith's on/off bool became one alt_process enum shared with Cyanotype
+        # (see migrate_flat_config, which reads it before this pop).
+        "lith_enabled",
     }
 )
 
@@ -99,11 +105,11 @@ def migrate_flat_config(data: Dict[str, Any]) -> Dict[str, Any]:
     if "true_black" in data:
         data["paper_black"] = not bool(data.pop("true_black"))
 
-    # Single roll-average toggle split into independent luma + colour axes.
+    # Single roll-average toggle split into independent luma + color axes.
     if "use_roll_average" in data:
         legacy = bool(data.pop("use_roll_average"))
         data.setdefault("use_luma_average", legacy)
-        data.setdefault("use_colour_average", legacy)
+        data.setdefault("use_color_average", legacy)
 
     # Lab "Separation" moved to the capture side (ProcessConfig crosstalk):
     # the 1.0–2.0 slider maps to strength 0–1. crosstalk_matrix/crosstalk_profile
@@ -160,6 +166,11 @@ def migrate_flat_config(data: Dict[str, Any]) -> Dict[str, Any]:
         data["lens_model"] = str(data.pop("lens_override", "")).strip()
     else:
         data.pop("lens_override", None)
+
+    # Lith and Cyanotype are mutually exclusive, so the panel keeps one enum
+    # instead of a bool each. The three lith_* sliders kept their names.
+    if "lith_enabled" in data and "alt_process" not in data:
+        data["alt_process"] = "lith" if data["lith_enabled"] else "none"
 
     if "export_fmt" in data:
         data["export_fmt"] = migrate_export_fmt(str(data["export_fmt"]))

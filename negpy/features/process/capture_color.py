@@ -1,16 +1,22 @@
 """
-Capture colorimetry: the camera's own colour matrix.
+Capture colorimetry: the camera's own color matrix.
 
 RAW is decoded `output_color=raw` (sensor-native RGB), so a buffer arriving in the
 pipeline is in the camera's primaries, not the working space. The print path never
-needed the distinction — it derives colour from measured film density and a paper
+needed the distinction — it derives color from measured film density and a paper
 model — but a transparency transfer does: without this matrix a slide renders in
 sensor primaries and no raw converter agrees with it.
 
-The construction follows dcraw/libraw `cam_xyz_coeff`: invert the camera's
-XYZ->cam matrix against the working space's XYZ->RGB, then row-normalize so a
-neutral camera signal stays neutral (the white balance owns the grey point, not
-this matrix).
+The construction follows dcraw/libraw `cam_xyz_coeff`: build the *working->cam*
+matrix, row-normalize it so each camera channel answers 1 to a neutral, and only
+then invert. The white balance owns the grey point, not this matrix.
+
+The order matters, and reversing it is not a subtle error. Normalizing the rows of
+the already-inverted matrix also sends neutral to neutral -- so greys, and any
+near-neutral frame, look right either way -- but it is a different transform for
+everything else, and the error grows with saturation. Measured against libraw's own
+cam->sRGB on a saturated sunset it doubled both R/G and B/G, which renders as a
+magenta cast that reads like wildly excessive saturation.
 """
 
 from typing import Optional, Sequence
@@ -26,6 +32,7 @@ _XYZ_TO_WORKING = np.array(
     ],
     dtype=np.float64,
 )
+_WORKING_TO_XYZ = np.linalg.inv(_XYZ_TO_WORKING)
 
 
 def camera_to_working_matrix(
@@ -57,11 +64,15 @@ def camera_to_working_matrix(
     if not np.all(np.isfinite(m)) or abs(float(np.linalg.det(m))) < 1e-9:
         return None
 
-    out = _XYZ_TO_WORKING @ np.linalg.inv(m)
-    sums = out.sum(axis=1, keepdims=True)
+    # Normalize the forward (working->cam) rows, then invert — dcraw's order. Doing it
+    # the other way round distorts every non-neutral color; see the module docstring.
+    forward = m @ _WORKING_TO_XYZ
+    sums = forward.sum(axis=1, keepdims=True)
     if not np.all(np.isfinite(sums)) or np.any(np.abs(sums) < 1e-9):
         return None
-    out = out / sums
+    out = np.linalg.pinv(forward / sums)
+    if not np.all(np.isfinite(out)):
+        return None
 
     if camera_wb is not None:
         wb = np.asarray(camera_wb, dtype=np.float64).reshape(-1)[:3]
@@ -77,7 +88,7 @@ def apply_camera_matrix(img: np.ndarray, matrix: Optional[np.ndarray]) -> np.nda
     """
     Camera primaries -> working space. A None matrix passes the buffer through.
 
-    Negatives are kept: they are real out-of-gamut colours, and clipping here
+    Negatives are kept: they are real out-of-gamut colors, and clipping here
     would bake a hue shift into the transfer before any tone curve sees it.
     """
     if matrix is None:

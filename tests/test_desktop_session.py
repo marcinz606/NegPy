@@ -8,6 +8,7 @@ from negpy.domain.models import WorkspaceConfig, GeometryConfig, RetouchConfig, 
 from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG
+from negpy.features.process.models import ProcessMode
 
 _ROWS = {r.label: r for r in all_rows()}
 
@@ -28,7 +29,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             if key == "last_export_config":
                 return {}
             if key == "process_mode":
-                return "C41"
+                return ProcessMode.C41
             return default
 
         self.mock_repo.get_global_setting.side_effect = mock_get_global
@@ -68,14 +69,14 @@ class TestDesktopSessionSync(unittest.TestCase):
         saved = replace(
             defaults,
             exposure=replace(defaults.exposure, density=1.7),
-            process=replace(defaults.process, process_mode="E-6"),
+            process=replace(defaults.process, process_mode=ProcessMode.E6),
             geometry=replace(defaults.geometry, autocrop_ratio="4:3"),
         )
         sticky = {
             "last_export_config": {"jpeg_quality": 73},
             "last_protect_original_metadata": True,
             # Workflow defaults must not overwrite an edited/saved asset.
-            "last_process_mode": "C41",
+            "last_process_mode": ProcessMode.C41,
             "last_aspect_ratio": "1:1",
         }
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
@@ -85,9 +86,9 @@ class TestDesktopSessionSync(unittest.TestCase):
         with patch("negpy.desktop.session.load_or_promote", return_value=saved) as hydrate:
             config = self.session.config_for_asset(asset)
 
-        hydrate.assert_called_once_with(self.mock_repo, "saved-hash", "/roll/saved.dng", half=0)
+        hydrate.assert_called_once_with(self.mock_repo, "saved-hash", "/roll/saved.dng", half=0, composite=False)
         self.assertEqual(config.exposure.density, 1.7)
-        self.assertEqual(config.process.process_mode, "E-6")
+        self.assertEqual(config.process.process_mode, ProcessMode.E6)
         self.assertEqual(config.geometry.autocrop_ratio, "4:3")
         self.assertEqual(config.export.jpeg_quality, 73)
         self.assertTrue(config.metadata.protect_original_metadata)
@@ -103,7 +104,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.session.state.config = active
         sticky = {
             "last_export_config": {},
-            "last_process_mode": "E-6",
+            "last_process_mode": ProcessMode.E6,
             "last_aspect_ratio": "1:1",
             "last_autocrop_offset": 7,
             "last_auto_exposure": True,
@@ -119,7 +120,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertEqual(config.lab.saturation, defaults.lab.saturation)
         self.assertTrue(config.exposure.auto_exposure)
         self.assertTrue(config.process.narrowband_scan)
-        self.assertEqual(config.process.process_mode, "E-6")
+        self.assertEqual(config.process.process_mode, ProcessMode.E6)
         self.assertEqual(config.geometry.autocrop_ratio, "1:1")
         self.assertEqual(config.geometry.autocrop_offset, 7)
         self.assertIs(self.session.state.config, active)
@@ -314,7 +315,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         sticky = {
             "last_export_config": {},
             "last_use_luma_average": True,
-            "last_use_colour_average": True,
+            "last_use_color_average": True,
             "last_locked_floors": [0.1, 0.2, 0.3],
             "last_locked_ceils": [1.1, 1.2, 1.3],
             "last_roll_name": "roll-A",
@@ -322,7 +323,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
         config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
         self.assertFalse(config.process.use_luma_average)
-        self.assertFalse(config.process.use_colour_average)
+        self.assertFalse(config.process.use_color_average)
         self.assertFalse(config.process.is_locked_initialized)
         self.assertIsNone(config.process.roll_name)
 
@@ -336,7 +337,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             process=replace(
                 base.process,
                 use_luma_average=True,
-                use_colour_average=True,
+                use_color_average=True,
                 locked_floors=(0.1, 0.2, 0.3),
                 locked_ceils=(1.1, 1.2, 1.3),
                 roll_name="roll-A",
@@ -344,7 +345,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         )
         self.session.update_config(loaded, persist=True)
         saved = self.mock_repo.save_global_settings.call_args.args[0]
-        for key in ("last_use_luma_average", "last_use_colour_average", "last_locked_floors", "last_locked_ceils", "last_roll_name"):
+        for key in ("last_use_luma_average", "last_use_color_average", "last_locked_floors", "last_locked_ceils", "last_roll_name"):
             self.assertNotIn(key, saved)
 
     def test_saved_file_keeps_its_own_roll_baseline(self):
@@ -353,7 +354,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             process=replace(
                 WorkspaceConfig().process,
                 use_luma_average=True,
-                use_colour_average=True,
+                use_color_average=True,
                 locked_floors=(0.1, 0.2, 0.3),
                 locked_ceils=(1.1, 1.2, 1.3),
             )
@@ -419,7 +420,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             exposure=replace(WorkspaceConfig().exposure, density=1.5),
             geometry=GeometryConfig(rotation=1, fine_rotation=5.5, manual_crop_rect=(0, 0, 1, 1)),
             retouch=RetouchConfig(dust_remove=True, manual_dust_spots=[(0.1, 0.1, 5)]),
-            process=ProcessConfig(process_mode="E-6", e6_normalize=True),
+            process=ProcessConfig(process_mode=ProcessMode.E6, e6_normalize=True),
         )
         self.session.state.selected_file_idx = 0
         self.session.state.current_file_hash = "hash1"
@@ -429,7 +430,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             exposure=replace(WorkspaceConfig().exposure, density=0.0),
             geometry=GeometryConfig(rotation=0, fine_rotation=0.0, manual_crop_rect=None),
             retouch=RetouchConfig(dust_remove=False, manual_dust_spots=[]),
-            process=ProcessConfig(process_mode="C41", e6_normalize=False),
+            process=ProcessConfig(process_mode=ProcessMode.C41, e6_normalize=False),
         )
         self.mock_repo.load_file_settings.return_value = target_config
 
@@ -441,7 +442,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         saved_config = args[1]
 
         self.assertEqual(saved_config.exposure.density, 1.5)
-        self.assertEqual(saved_config.process.process_mode, "E-6")
+        self.assertEqual(saved_config.process.process_mode, ProcessMode.E6)
 
         # Geometry not selected → entirely preserved from target
         self.assertEqual(saved_config.geometry.rotation, 0)
@@ -456,7 +457,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             exposure=replace(WorkspaceConfig().exposure, density=1.5),
             geometry=GeometryConfig(rotation=1, fine_rotation=5.5, manual_crop_rect=(0.1, 0.1, 0.9, 0.9)),
             retouch=RetouchConfig(dust_remove=True, manual_dust_spots=[(0.1, 0.1, 5)]),
-            process=ProcessConfig(process_mode="E-6", e6_normalize=True),
+            process=ProcessConfig(process_mode=ProcessMode.E6, e6_normalize=True),
         )
         self.session.state.selected_file_idx = 0
         self.session.state.current_file_hash = "hash1"
@@ -466,7 +467,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             exposure=replace(WorkspaceConfig().exposure, density=0.0),
             geometry=GeometryConfig(rotation=0, fine_rotation=0.0, manual_crop_rect=None),
             retouch=RetouchConfig(dust_remove=False, manual_dust_spots=[(0.5, 0.5, 3)]),
-            process=ProcessConfig(process_mode="C41", e6_normalize=False),
+            process=ProcessConfig(process_mode=ProcessMode.C41, e6_normalize=False),
         )
         self.mock_repo.load_file_settings.return_value = target_config
 
@@ -532,7 +533,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         doesn't silently reset its scan/process-mode to dataclass defaults."""
         sticky = {
             "last_export_config": {},
-            "last_process_mode": "E-6",
+            "last_process_mode": ProcessMode.E6,
             "last_narrowband_scan": True,
         }
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
@@ -551,7 +552,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertEqual(saved.exposure.density, 1.5)  # the one synced field
         # Sticky workflow settings survive because the base was config_for_asset, not defaults.
         self.assertTrue(saved.process.narrowband_scan)
-        self.assertEqual(saved.process.process_mode, "E-6")
+        self.assertEqual(saved.process.process_mode, ProcessMode.E6)
 
     def test_sync_selected_settings_empty_is_noop(self):
         self.session.state.selected_file_idx = 0
@@ -1076,25 +1077,28 @@ class TestThumbnailKeying(unittest.TestCase):
     def test_same_named_files_in_two_folders_keep_distinct_thumbnails(self):
         from PyQt6.QtCore import Qt
 
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
         state = AppState()
         state.uploaded_files = [
             {"name": "IMG_0042.tif", "path": "/a/IMG_0042.tif", "hash": "h1"},
             {"name": "IMG_0042.tif", "path": "/b/IMG_0042.tif", "hash": "h2"},
         ]
-        state.thumbnails = {"h1": "thumb-a", "h2": "thumb-b"}
+        state.thumbnails = {asset_thumbnail_key(f): f"thumb-{i}" for i, f in enumerate(state.uploaded_files)}
         model = AssetListModel(state)
 
         first = model.data(model.index(0, 0), Qt.ItemDataRole.DecorationRole)
         second = model.data(model.index(1, 0), Qt.ItemDataRole.DecorationRole)
-        self.assertEqual({first, second}, {"thumb-a", "thumb-b"})
+        self.assertEqual({first, second}, {"thumb-0", "thumb-1"})
 
     def test_triplet_key_is_namespaced_away_from_its_red_exposure(self):
         from negpy.services.assets.thumbnails import asset_thumbnail_key
 
         red = {"name": "a.nef", "path": "/a.nef", "hash": "h1"}
         triplet = {**red, "name": "a (RGB)", "green_path": "/g.nef", "blue_path": "/b.nef"}
-        self.assertEqual(asset_thumbnail_key(red), "h1")
-        self.assertEqual(asset_thumbnail_key(triplet), "h1-rgb")
+        self.assertTrue(asset_thumbnail_key(red).startswith("h1"))
+        self.assertNotEqual(asset_thumbnail_key(triplet), asset_thumbnail_key(red))
+        self.assertIn("-rgb", asset_thumbnail_key(triplet))
 
     def test_unloading_one_frame_keeps_its_twins_thumbnail(self):
         repo = MagicMock(spec=StorageRepository)
@@ -1108,13 +1112,16 @@ class TestThumbnailKeying(unittest.TestCase):
             {"name": "IMG_0042.tif", "path": "/a/IMG_0042.tif", "hash": "h1"},
             {"name": "IMG_0042.tif", "path": "/b/IMG_0042.tif", "hash": "h2"},
         ]
-        session.state.thumbnails = {"h1": "thumb-a", "h2": "thumb-b"}
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
+        keys = [asset_thumbnail_key(f) for f in session.state.uploaded_files]
+        session.state.thumbnails = {keys[0]: "thumb-a", keys[1]: "thumb-b"}
         session.state.selected_file_idx = 0
         session.state.selected_indices = [0]
 
         session.remove_current_file()
 
-        self.assertEqual(session.state.thumbnails, {"h2": "thumb-b"})
+        self.assertEqual(session.state.thumbnails, {keys[1]: "thumb-b"})
 
 
 class TestSearchFacts(unittest.TestCase):

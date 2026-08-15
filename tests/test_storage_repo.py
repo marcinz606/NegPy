@@ -4,6 +4,7 @@ from dataclasses import replace
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.metadata.models import MetadataConfig
 from negpy.infrastructure.storage.repository import StorageRepository
+from negpy.features.process.models import ProcessMode
 
 
 def _repo(tmp_path):
@@ -27,7 +28,7 @@ def test_save_global_settings_batch_round_trip(tmp_path):
 def test_save_global_settings_matches_single_write_path(tmp_path):
     repo_batch = _repo(tmp_path / "batch")
     repo_single = _repo(tmp_path / "single")
-    values = {"mode": "C41", "clip": 0.01, "matrix": [[1, 0], [0, 1]], "flag": False}
+    values = {"mode": ProcessMode.C41, "clip": 0.01, "matrix": [[1, 0], [0, 1]], "flag": False}
 
     repo_batch.save_global_settings(values)
     for key, value in values.items():

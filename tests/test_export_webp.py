@@ -26,7 +26,7 @@ def _is_webp(bits: bytes) -> bool:
 
 def test_webp_lossless_roundtrip_is_exact(proc):
     """Lossless WebP decodes back to the exact 8-bit samples. Working space ==
-    target sRGB makes colour management a no-op, isolating the codec."""
+    target sRGB makes color management a no-op, isolating the codec."""
     buf = np.random.default_rng(0).random((16, 24, 3), dtype=np.float32)
     settings = ExportConfig(export_fmt=ExportFormat.WEBP, webp_lossless=True)
 

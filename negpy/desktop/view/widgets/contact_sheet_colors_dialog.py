@@ -275,7 +275,7 @@ class _TargetRow(QWidget):
 
 
 class _MiniSheetPreview(QWidget):
-    """Contact-sheet mock so both colours read in context."""
+    """Contact-sheet mock so both colors read in context."""
 
     _W = 280
     _H = 96
@@ -314,7 +314,7 @@ class _MiniSheetPreview(QWidget):
         font.setPixelSize(9)
         painter.setFont(font)
 
-        # Caption band tint mirrors the export: bg blended 15% toward label colour.
+        # Caption band tint mirrors the export: bg blended 15% toward label color.
         bg = QColor(self._bg)
         fg = QColor(self._fg)
         band = QColor(
@@ -348,7 +348,7 @@ class _MiniSheetPreview(QWidget):
 
 
 class ContactSheetColorsDialog(QDialog):
-    """Background + label colours — visual HSV picker, no typed values."""
+    """Background + label colors — visual HSV picker, no typed values."""
 
     def __init__(self, background: str, label_color: str, parent=None):
         super().__init__(parent)
@@ -357,7 +357,7 @@ class ContactSheetColorsDialog(QDialog):
         self._editing_background = True
         self._syncing = False
 
-        self.setWindowTitle("Contact Sheet Colours")
+        self.setWindowTitle("Contact Sheet Colors")
         self.setStyleSheet(f"QDialog {{ background: {THEME.bg_dark}; }}")
         self.setFixedWidth(328)
 

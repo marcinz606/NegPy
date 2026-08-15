@@ -64,7 +64,7 @@ def get_display_lut(
 
     ``proof`` is ``(input_icc_path, output_icc_path)`` when the preview soft-proofs;
     the LUT then carries source→output-proof→display in one hop. Every consumer of a
-    rendered buffer must take the same LUT, or one frame shows two colours.
+    rendered buffer must take the same LUT, or one frame shows two colors.
 
     ``working_color_space`` is the profile the camera-native pipeline numbers are
     *assumed* to be in (see `color_spaces.WORKING_COLOR_SPACE`), not a real working

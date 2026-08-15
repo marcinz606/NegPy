@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from negpy.kernel.system.text import plural
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.scan_window_label import ScanWindowLabel
@@ -394,12 +395,12 @@ class StripPreviewDialog(QDialog):
                 tile.label.set_coverage(self._tile_coverage(tile))
         if clamped:
             frames = ", ".join(str(f) for f in clamped)
-            self.status.setText(f"{_CLAMP_NOTICE} on frame(s) {frames} — reduce Offset or Drift.")
+            self.status.setText(f"{_CLAMP_NOTICE} on {plural(len(clamped), 'frame')} {frames} — reduce Offset or Drift.")
         elif cut:
             frames = ", ".join(str(f) for f, _ in cut)
             worst = max(loss for _, loss in cut)
             self.status.setText(
-                f"{_CUT_NOTICE} on frame(s) {frames} — up to {worst:.1f} mm of picture lost off the "
+                f"{_CUT_NOTICE} on {plural(len(cut), 'frame')} {frames} — up to {worst:.1f} mm of picture lost off the "
                 f"frame tail; reduce Offset, or re-feed the strip for a better registration."
             )
         elif self.status.text().startswith((_CLAMP_NOTICE, _CUT_NOTICE)):
@@ -470,7 +471,7 @@ class StripPreviewDialog(QDialog):
         self._set_previewing(False)
         if self._failed_frames:
             failed = ", ".join(str(f) for f in self._failed_frames)
-            self.status.setText(f"Preview done. Failed frame(s): {failed}")
+            self.status.setText(f"Preview done. Failed {plural(len(self._failed_frames), 'frame')}: {failed}")
         else:
             self.status.clear()
 

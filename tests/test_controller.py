@@ -163,9 +163,9 @@ class TestAppController(unittest.TestCase):
             patch("negpy.desktop.controller.load_or_promote", return_value=None),
             patch("negpy.desktop.controller.write_sidecar") as mock_write,
         ):
-            written = self.controller._write_edit_sidecars([frame])
+            written, failed = self.controller._write_edit_sidecars([frame])
 
-        self.assertEqual(written, 1)
+        self.assertEqual((written, failed), (1, 0))
         self.mock_session_manager.config_for_asset.assert_called_once_with(frame)
         params = mock_write.call_args.args[1]
         self.assertIs(params, hydrated)
@@ -175,18 +175,20 @@ class TestAppController(unittest.TestCase):
         state = self.mock_session_manager.state
         state.config = replace(
             state.config,
-            process=replace(state.config.process, use_luma_average=True, use_colour_average=True, roll_name="PORTRA-04"),
+            process=replace(state.config.process, use_luma_average=True, use_color_average=True, roll_name="PORTRA-04"),
         )
 
         self.controller.clear_roll_baseline()
 
         cfg = self.mock_session_manager.update_config.call_args.args[0]
         self.assertFalse(cfg.process.use_luma_average)
-        self.assertFalse(cfg.process.use_colour_average)
+        self.assertFalse(cfg.process.use_color_average)
         self.assertIsNone(cfg.process.roll_name)
 
     def test_thumbnail_miss_marks_file_unreadable(self):
         from PIL import Image
+
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
 
         self.mock_session_manager.asset_model = MagicMock()
         state = self.mock_session_manager.state
@@ -194,9 +196,10 @@ class TestAppController(unittest.TestCase):
             {"name": "bad.dng", "path": "/tmp/bad.dng", "hash": "h1"},
             {"name": "good.dng", "path": "/tmp/good.dng", "hash": "h2"},
         ]
-        self.controller._thumb_requested = ["h1", "h2"]
+        keys = [asset_thumbnail_key(f) for f in state.uploaded_files]
+        self.controller._thumb_requested = keys
 
-        self.controller._on_thumbnails_finished({"h2": Image.new("RGB", (4, 4))})
+        self.controller._on_thumbnails_finished({keys[1]: Image.new("RGB", (4, 4))})
 
         self.assertIn("decode_failed", state.uploaded_files[0])
         self.assertNotIn("decode_failed", state.uploaded_files[1])
@@ -260,13 +263,16 @@ class TestAppController(unittest.TestCase):
         state.config = dc_replace(
             state.config, rgbscan=RgbScanConfig(enabled=True, green_path="/tmp/_DSC1317.NEF", blue_path="/tmp/_DSC1318.NEF")
         )
-        state.last_metrics = {"base_positive": np.zeros((2, 2, 3), dtype=np.float32)}
+        state.last_metrics = {"base_positive": np.zeros((2, 2, 3), dtype=np.float32), "source_hash": "h1"}
 
         captured = {}
         self.controller.thumbnail_update_requested.connect(lambda task: captured.setdefault("task", task))
         self.controller._update_thumbnail_from_state(persist=False)
 
-        self.assertEqual(captured["task"].file_hash, "h1-rgb")
+        from negpy.services.assets.thumbnails import thumbnail_cache_key
+
+        self.assertEqual(captured["task"].file_hash, thumbnail_cache_key("h1", is_triplet=True))
+        self.assertNotEqual(captured["task"].file_hash, thumbnail_cache_key("h1", is_triplet=False))
 
     def test_capture_worker_cancelled_is_forwarded(self):
         cancelled = MagicMock()
@@ -556,7 +562,7 @@ class TestAppController(unittest.TestCase):
     def test_set_crop_ratio_preserves_metering_bounds(self):
         """A ratio change is a pure reframe and must not re-meter. Clearing the
         per-file bounds makes the next render re-analyze over the new (smaller) ROI,
-        which lands on different per-channel floors/ceils — a visible colour cast
+        which lands on different per-channel floors/ceils — a visible color cast
         shift on the canvas from an operation that only changed the frame."""
         import numpy as np
 
@@ -1073,6 +1079,147 @@ class TestBatchExportFiltering(unittest.TestCase):
             self.assertEqual(t.params.export.export_path, "/tmp/out")
 
 
+class TestLinearOutputExportCurrentFile(unittest.TestCase):
+    """Regression: exporting Linear Output for the *current* file (files=None) must
+    reuse its full asset dict, not a bare {path, name, hash} — otherwise
+    resolve_asset_rgbscan sees no green_path/blue_path and silently strips the RGB-scan
+    triplet, so only the primary (red) narrowband exposure gets exported."""
+
+    def setUp(self):
+        self.mock_session_manager = MagicMock(spec=DesktopSessionManager)
+        self.mock_session_manager.state = AppState()
+        self.mock_session_manager.repo = MagicMock()
+        self.mock_session_manager.repo.load_file_settings.return_value = None
+
+        self.mock_session_manager.state.uploaded_files = [
+            {
+                "name": "IMG_0001_R.cr2",
+                "path": "/tmp/IMG_0001_R.cr2",
+                "hash": "h1",
+                "green_path": "/tmp/IMG_0001_G.cr2",
+                "blue_path": "/tmp/IMG_0001_B.cr2",
+            }
+        ]
+        self.mock_session_manager.state.current_file_path = "/tmp/IMG_0001_R.cr2"
+        self.mock_session_manager.state.current_file_hash = "h1"
+
+        with (
+            patch("negpy.desktop.controller.RenderWorker") as mock_rw_class,
+            patch("negpy.desktop.controller.PreviewManager") as mock_pm_class,
+        ):
+            mock_rw_class.return_value = MagicMock()
+            mock_pm_class.return_value = MagicMock(spec=PreviewManager)
+            mock_pm_class.return_value.load_linear_preview.return_value = (None, (0, 0), {})
+            self.controller = AppController(self.mock_session_manager)
+
+        self.controller.state.current_file_path = "/tmp/IMG_0001_R.cr2"
+        self.controller.state.current_file_hash = "h1"
+        self.controller._ensure_valid_export_path = MagicMock(return_value="/tmp/out")
+
+    def tearDown(self):
+        import gc
+
+        for thread in [
+            self.controller.render_thread,
+            self.controller.export_thread,
+            self.controller.thumb_thread,
+            self.controller.norm_thread,
+            self.controller.discovery_thread,
+            self.controller.preview_load_thread,
+            self.controller.scan_thread,
+        ]:
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                thread.wait()
+        del self.controller
+        gc.collect()
+
+    def test_current_file_triplet_survives_linear_export(self):
+        # The write itself now runs in the export worker, so the triplet has to survive
+        # into the dispatched task rather than into a direct call.
+        files = [f for f in self.controller.state.uploaded_files]
+        tasks = self.controller._linear_output_tasks(files, "/tmp/out")
+
+        self.assertEqual(len(tasks), 1)
+        rgbscan = tasks[0].options["rgbscan"]
+        self.assertTrue(rgbscan.enabled)
+        self.assertEqual(rgbscan.green_path, "/tmp/IMG_0001_G.cr2")
+        self.assertEqual(rgbscan.blue_path, "/tmp/IMG_0001_B.cr2")
+
+
+class TestPresetExportCurrentFileTriplet(unittest.TestCase):
+    """Regression: request_preset_export() (the "Export Presets" button's current-file
+    scope) built a bare {path, name, hash} dict for every call, unconditionally — never
+    looking up uploaded_files at all. Same failure mode as the Linear Output current-file
+    bug: resolve_asset_rgbscan/resolve_asset_stitch see no green_path/blue_path and reset
+    the triplet, so a preset export of the current file silently used only the primary
+    (red) narrowband exposure instead of the merged RGB."""
+
+    def setUp(self):
+        self.mock_session_manager = MagicMock(spec=DesktopSessionManager)
+        self.mock_session_manager.state = AppState()
+        self.mock_session_manager.repo = MagicMock()
+        self.mock_session_manager.repo.load_file_settings.return_value = None
+
+        self.mock_session_manager.state.uploaded_files = [
+            {
+                "name": "IMG_0001_R.cr2",
+                "path": "/tmp/IMG_0001_R.cr2",
+                "hash": "h1",
+                "green_path": "/tmp/IMG_0001_G.cr2",
+                "blue_path": "/tmp/IMG_0001_B.cr2",
+            }
+        ]
+        self.mock_session_manager.state.current_file_path = "/tmp/IMG_0001_R.cr2"
+        self.mock_session_manager.state.current_file_hash = "h1"
+        self.mock_session_manager.state.export_presets = [
+            ExportPreset(name="JPEG", enabled=True, export_fmt=ExportFormat.JPEG),
+        ]
+
+        with (
+            patch("negpy.desktop.controller.RenderWorker") as mock_rw_class,
+            patch("negpy.desktop.controller.PreviewManager") as mock_pm_class,
+        ):
+            mock_rw_class.return_value = MagicMock()
+            mock_pm_class.return_value = MagicMock(spec=PreviewManager)
+            mock_pm_class.return_value.load_linear_preview.return_value = (None, (0, 0), {})
+            self.controller = AppController(self.mock_session_manager)
+
+        self.controller.state.current_file_path = "/tmp/IMG_0001_R.cr2"
+        self.controller.state.current_file_hash = "h1"
+        self.controller._validate_preset_paths = MagicMock(return_value=True)
+        self.controller._run_export_tasks = MagicMock()
+
+    def tearDown(self):
+        import gc
+
+        for thread in [
+            self.controller.render_thread,
+            self.controller.export_thread,
+            self.controller.thumb_thread,
+            self.controller.norm_thread,
+            self.controller.discovery_thread,
+            self.controller.preview_load_thread,
+            self.controller.scan_thread,
+        ]:
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                thread.wait()
+        del self.controller
+        gc.collect()
+
+    def test_current_file_triplet_survives_preset_export(self):
+        self.controller.request_preset_export()
+
+        self.controller._run_export_tasks.assert_called_once()
+        tasks = self.controller._run_export_tasks.call_args.args[0]
+        self.assertEqual(len(tasks), 1)
+        rgbscan = tasks[0].params.rgbscan
+        self.assertTrue(rgbscan.enabled)
+        self.assertEqual(rgbscan.green_path, "/tmp/IMG_0001_G.cr2")
+        self.assertEqual(rgbscan.blue_path, "/tmp/IMG_0001_B.cr2")
+
+
 class TestPresetBatchExport(unittest.TestCase):
     def setUp(self):
         self.mock_session_manager = MagicMock(spec=DesktopSessionManager)
@@ -1347,7 +1494,7 @@ class TestSessionRestore(unittest.TestCase):
             self.controller.restore_session()
             self.assertEqual(self.controller._pending_scanned_file, b.name)
             self.controller.request_asset_discovery.assert_called_once_with(
-                [a.name, b.name], auto_open=True, restore_triplets={}, restore_stitches={}
+                [a.name, b.name], auto_open=True, restore_triplets={}, restore_stitches={}, restore_hdr={}
             )
 
     def test_restore_session_no_saved_files_is_noop(self):
@@ -1957,7 +2104,7 @@ class TestDisplayTransformParams(unittest.TestCase):
         state.selected_file_idx = 0
         state.current_file_path = "/tmp/frame.cr2"
         state.current_file_hash = "hash-1"
-        state.last_metrics = {"base_positive": np.zeros((4, 4, 3), dtype=np.float32)}
+        state.last_metrics = {"base_positive": np.zeros((4, 4, 3), dtype=np.float32), "source_hash": "hash-1"}
 
         emitted = []
         # Drop the real worker connection first: emitting would otherwise hand the

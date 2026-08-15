@@ -11,7 +11,7 @@ struct FinishUniforms {
     carrier_flare: f32,      // 0 = off
     carrier_bw: f32,         // 1 = neutral flare (B&W process)
     carrier_corner: f32,     // aperture corner roundness
-    paper_r: f32,            // bare-paper colour, scene-linear (matches the mat)
+    paper_r: f32,            // bare-paper color, scene-linear (matches the mat)
     paper_g: f32,
     paper_b: f32,
 };

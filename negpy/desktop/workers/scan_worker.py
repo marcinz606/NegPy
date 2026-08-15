@@ -53,7 +53,7 @@ class ScanWorker(QObject):
     """Background worker for scanner operations. Mirrors RenderWorker pattern."""
 
     devices_ready = pyqtSignal(list)  # list[ScannerDevice]
-    progress = pyqtSignal(float)  # 0.0..1.0
+    progress = pyqtSignal(float, str)  # 0.0..1.0, phase name
     finished = pyqtSignal(str)  # output rgb file path
     frame_done = pyqtSignal(int, str)  # batch: frame number, rgb file path
     batch_finished = pyqtSignal(list)  # batch: all written rgb paths (also on stop/error)
@@ -128,7 +128,9 @@ class ScanWorker(QObject):
                     result = service.run_scan(
                         device_id=req.device_id,
                         params=req.params,
-                        progress=self.progress.emit,
+                        # A one-phase backend calls progress(fraction), which a
+                        # two-argument signal's emit rejects on its own.
+                        progress=lambda fraction, phase="Scanning": self.progress.emit(fraction, phase),
                         cancel=self._cancel_event,
                     )
                 except Exception as error:
@@ -204,8 +206,8 @@ class ScanWorker(QObject):
                 frame_params = dataclasses.replace(req.params, frame=frame, window=window, frame_offset_mm=offset)
                 base = index / total
 
-                def _progress(fraction: float, _base: float = base) -> None:
-                    self.progress.emit(_base + min(1.0, max(0.0, fraction)) / total)
+                def _progress(fraction: float, phase: str = "Scanning", _base: float = base) -> None:
+                    self.progress.emit(_base + min(1.0, max(0.0, fraction)) / total, phase)
 
                 try:
                     result = service.run_scan(req.device_id, frame_params, _progress, self._cancel_event)

@@ -13,8 +13,9 @@ from negpy.desktop.view.shortcut_registry import (
     set_current_bindings,
     slider_step_for,
 )
-from negpy.desktop.view.slider_shortcut_groups import SLIDER_GROUP_BY_ACTION, SLIDER_GROUPS, sign_for_action
+from negpy.desktop.view.slider_shortcut_groups import SLIDER_GROUP_BY_ACTION, SLIDER_GROUPS, SliderShortcutGroup, sign_for_action
 from negpy.desktop.view.slider_targets import slider_widget_map
+from negpy.desktop.view.widgets.collapsible import hidden_by_gating
 
 
 def _context_undo(controller) -> None:
@@ -54,6 +55,11 @@ def _toggle_tool_button(window, tab_key: str, button) -> None:
     button.toggle()
 
 
+def _slider_name(slider: object, group: SliderShortcutGroup) -> str:
+    label = getattr(slider, "label", None)
+    return label.text() if label is not None else group.label.replace(" ↑/↓", "")
+
+
 def _show_shortcuts(window) -> None:
     from negpy.desktop.view.widgets.shortcuts_overlay import ShortcutsOverlay
 
@@ -74,10 +80,26 @@ class ShortcutManager:
         group = SLIDER_GROUP_BY_ACTION[action_id]
 
         def _adjust() -> None:
+            slider = getter()
+            # A window-wide QShortcut fires from any tab, so the gating the mouse gets for
+            # free on a disabled or mode-hidden control has to be applied here by hand.
+            if not slider.isEnabled() or hidden_by_gating(slider):
+                self.window.controller.set_status(f"{_slider_name(slider, group)} not available", 1500)
+                return
             step = slider_step_for(group.id, self.slider_steps)
-            getter().adjust_by(step * sign_for_action(action_id))
+            slider.adjust_by(step * sign_for_action(action_id))
+            self._announce(slider, group)
 
         return _adjust
+
+    def _announce(self, slider: object, group: SliderShortcutGroup) -> None:
+        """Report the new value in the HUD. Nothing else does: the slider may sit on a
+        hidden tab, and its value box only appears under the pointer."""
+        name = _slider_name(slider, group)
+        spin = getattr(slider, "spin", None)
+        # The spin box already carries this slider's decimals and unit suffix.
+        value = spin.text().strip() if spin is not None else f"{slider.value():.2f}"
+        self.window.controller.set_status(f"{name} {value}", 1500)
 
     def _build_actions(self) -> dict[str, Callable[[], None]]:
         controller = self.window.controller
@@ -89,6 +111,8 @@ class ShortcutManager:
             "prev_file": controller.session.prev_file,
             "next_file": controller.session.next_file,
             "toggle_keep": lambda: controller.session.toggle_mark("keeper"),
+            "hdr_merge": controller.request_hdr_merge_selected,
+            "hdr_unmerge": controller.request_unmerge_hdr,
             "toggle_reject": lambda: controller.session.toggle_mark("excluded"),
             "toggle_compare": controller.toggle_compare,
             "rotate_ccw": lambda: toolbar.rotate(1),
@@ -96,8 +120,11 @@ class ShortcutManager:
             "flip_h": lambda: toolbar.flip("horizontal"),
             "flip_v": lambda: toolbar.flip("vertical"),
             "lock_bounds_toggle": lambda: controls.process_sidebar.lock_bounds_btn.toggle(),
-            "scan_setup": lambda: controls.process_sidebar.scan_setup_btn.click(),
-            "pick_wb": lambda: controls.colour_sidebar.pick_wb_btn.toggle(),
+            "scan_setup": lambda: controls.sensor_sidebar.scan_setup_btn.click(),
+            "mode_color_negative": lambda: controls.process_sidebar.mode_btns[0].click(),
+            "mode_bw_negative": lambda: controls.process_sidebar.mode_btns[1].click(),
+            "mode_transparency": lambda: controls.process_sidebar.mode_btns[2].click(),
+            "pick_wb": lambda: controls.color_sidebar.pick_wb_btn.toggle(),
             "manual_crop": lambda: controls.geometry_sidebar.manual_crop_btn.toggle(),
             "straighten": lambda: controls.geometry_sidebar.straighten_btn.toggle(),
             "crop_guide_next": lambda: controls.geometry_sidebar.cycle_guide(),
@@ -115,6 +142,8 @@ class ShortcutManager:
             "toggle_test_strip": controller.toggle_test_strip,
             "toggle_ring_around": controller.toggle_ring_around,
             "toggle_grain_focuser": controller.toggle_grain_focuser,
+            "toggle_lith": controller.toggle_lith,
+            "toggle_cyanotype": controller.toggle_cyanotype,
             "toggle_printing_notes": controller.toggle_printing_notes,
             "cancel_tool": lambda: _context_cancel(controller, self.window),
             "show_library": self.window.session_panel.show_library,
@@ -124,6 +153,7 @@ class ShortcutManager:
             "toggle_library_tree": self.window.session_panel.toggle_library_tree,
             "toggle_immersive_canvas": lambda: controller.session.set_immersive_canvas(not controller.session.state.immersive_canvas),
             "toggle_sticky_zoom": lambda: controller.session.set_sticky_zoom(not controller.session.state.sticky_zoom),
+            "toggle_slider_values": lambda: toolbar._ov_slider_values_action.trigger(),
             "toggle_left_panel": self.window.toggle_session_dock,
             "toggle_right_panel": self.window.toggle_controls_dock,
             "reset_panel_layout": self.window.reset_panel_layout,

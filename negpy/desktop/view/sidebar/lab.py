@@ -8,14 +8,14 @@ from negpy.features.process.models import ProcessMode
 
 class LabSidebar(BaseSidebar):
     """
-    Panel for colour, sharpening, and contrast. Spectral crosstalk lives in the
+    Panel for color, sharpening, and contrast. Spectral crosstalk lives in the
     Process sidebar (capture-side, negative-density domain).
     """
 
     def _init_ui(self) -> None:
         conf = self.state.config.lab
 
-        self.color_header = section_subheader("COLOUR")
+        self.color_header = section_subheader("COLOR")
         self.layout.addWidget(self.color_header)
 
         self.saturation_slider = CompactSlider("Chroma", 0.0, 2.0, conf.saturation, has_neutral=True)
@@ -150,7 +150,7 @@ class LabSidebar(BaseSidebar):
             self.glow_slider.setValue(conf.glow_amount)
             self.halation_slider.setValue(conf.halation_strength)
 
-            # COLOR is entirely colour controls — hide the header with them in B&W.
+            # COLOR is entirely color controls — hide the header with them in B&W.
             self.color_header.setVisible(not is_bw)
             self.saturation_slider.setVisible(not is_bw)
             self.skin_protection_slider.setVisible(not is_bw)

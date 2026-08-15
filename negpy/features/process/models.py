@@ -6,9 +6,22 @@ from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
 
 class ProcessMode(StrEnum):
-    C41 = "C41"
-    BW = "B&W"
-    E6 = "E-6"
+    C41 = "Color Negative"
+    BW = "B&W Negative"
+    E6 = "Transparency"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "ProcessMode":
+        """Legacy chemistry codes (the values before the rename), and anything stale.
+
+        An unrecognised mode has always rendered as color negative — every branch in
+        the pipeline reads `if BW / elif E6 / else` — so a corrupt saved value stays
+        non-fatal here rather than raising on load.
+        """
+        return _LEGACY_MODES.get(str(value), cls.C41)
+
+
+_LEGACY_MODES = {"C41": ProcessMode.C41, "B&W": ProcessMode.BW, "E-6": ProcessMode.E6}
 
 
 # Built-in fallback crosstalk matrix (row-major 3x3) used when no profile is baked.
@@ -33,7 +46,7 @@ class ProcessConfig:
     # None falls back to the analysis_buffer slider.
     analysis_rect: Optional[tuple] = None
     # Two independent normalization clip axes: luma drives black/white-point span
-    # (dynamic range), colour is the per-channel-balance clip percentile (orange-mask
+    # (dynamic range), color is the per-channel-balance clip percentile (orange-mask
     # cast removal), defaulting to the robust base_color_clip neutral.
     luma_range_clip: float = 0.0
     color_range_clip: float = float(EXPOSURE_CONSTANTS["base_color_clip"])
@@ -43,9 +56,9 @@ class ProcessConfig:
     # picture, so stretching the measured range crushes the picture into the top of the
     # print curve. Off renders the capture instead; turn it on for faded film.
     e6_normalize: bool = False
-    # Roll-wide baseline applied independently per axis: luma (span) and colour (cast).
+    # Roll-wide baseline applied independently per axis: luma (span) and color (cast).
     use_luma_average: bool = False
-    use_colour_average: bool = False
+    use_color_average: bool = False
     locked_floors: tuple[float, float, float] = (0.0, 0.0, 0.0)
     locked_ceils: tuple[float, float, float] = (0.0, 0.0, 0.0)
     local_floors: tuple[float, float, float] = (0.0, 0.0, 0.0)
@@ -97,6 +110,9 @@ class ProcessConfig:
         """
         Ensure JSON-loaded lists are converted back to tuples.
         """
+        # Not a MIGRATIONS entry: the pre-rename mode names reach us from sticky settings
+        # and asset dicts too, not just a loaded flat config, so this runs on every build.
+        object.__setattr__(self, "process_mode", ProcessMode(self.process_mode))
         object.__setattr__(self, "locked_floors", tuple(self.locked_floors))
         object.__setattr__(self, "locked_ceils", tuple(self.locked_ceils))
         object.__setattr__(self, "local_floors", tuple(self.local_floors))

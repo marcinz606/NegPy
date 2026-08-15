@@ -180,7 +180,7 @@ def ring_cells() -> List[Tuple[int, int, float, float]]:
 
 
 def ring_overrides() -> List[dict]:
-    """Per-patch ExposureConfig overrides. Only the two colour-head fields, so a replace()
+    """Per-patch ExposureConfig overrides. Only the two color-head fields, so a replace()
     built from these cannot disturb density, grade or cyan."""
     return [{"wb_magenta": m, "wb_yellow": y} for _, _, m, y in ring_cells()]
 

@@ -53,7 +53,7 @@ def test_full_snapshot_preset_applies():
 
 def test_preset_summary_lists_stored_settings():
     s = preset_summary({"density": 1.5, "wb_cyan": 0.2, "bogus": 1})
-    assert s == "Tone: Print Density\nColour: Cyan"
+    assert s == "Tone: Print Density\nColor: Cyan"
 
 
 def test_preset_summary_lists_a_deliberately_default_value():

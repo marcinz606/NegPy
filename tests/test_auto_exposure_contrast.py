@@ -16,10 +16,11 @@ from negpy.features.exposure.normalization import (
     measure_textural_range_from_log,
 )
 from negpy.features.exposure.processor import PhotometricProcessor
+from negpy.features.process.models import ProcessMode
 
 
 def _context(density_range):
-    ctx = PipelineContext(scale_factor=1.0, original_size=(100, 100), process_mode="C41")
+    ctx = PipelineContext(scale_factor=1.0, original_size=(100, 100), process_mode=ProcessMode.C41)
     ctx.metrics["norm_density_range"] = density_range
     return ctx
 
@@ -174,28 +175,27 @@ class TestMeasureAnchor(unittest.TestCase):
 
 
 class TestAutoTogglesAcrossModes(unittest.TestCase):
-    """The toggles must render valid output in C41, B&W and E6 (CPU path)."""
+    """The toggles must render valid output in every process mode (CPU path)."""
 
     def _render(self, mode, exposure, normalize=True):
         from dataclasses import replace
 
         from negpy.domain.models import WorkspaceConfig
-        from negpy.features.process.models import ProcessConfig, ProcessMode
+        from negpy.features.process.models import ProcessConfig
         from negpy.services.rendering.engine import DarkroomEngine
 
-        mode_enum = {"C41": ProcessMode.C41, "BW": ProcessMode.BW, "E6": ProcessMode.E6}[mode]
         settings = replace(
             WorkspaceConfig(),
-            # E-6 defaults Normalize off, which is the transfer path — pinned on here so
-            # this stays a test of the print path in all three modes.
-            process=replace(ProcessConfig(), process_mode=mode_enum, e6_normalize=normalize),
+            # Transparency defaults Normalize off, which is the transfer path — pinned on
+            # here so this stays a test of the print path in all three modes.
+            process=replace(ProcessConfig(), process_mode=mode, e6_normalize=normalize),
             exposure=exposure,
         )
         img = np.random.default_rng(7).uniform(0.02, 0.9, (48, 48, 3)).astype(np.float32)
         return DarkroomEngine().process(img, settings, f"mode_{mode}_{normalize}")
 
     def test_valid_and_active_in_each_mode(self):
-        for mode in ("C41", "BW", "E6"):
+        for mode in ProcessMode:
             base = self._render(mode, ExposureConfig(auto_exposure=False, auto_normalize_contrast=False))
             auto = self._render(mode, ExposureConfig(auto_exposure=True, auto_normalize_contrast=True))
             self.assertTrue(np.all(np.isfinite(auto)), mode)
@@ -207,8 +207,8 @@ class TestAutoTogglesAcrossModes(unittest.TestCase):
     def test_inert_on_the_transparency_transfer(self):
         """The complement: with Normalize off there is no metered stretch to grade against,
         so both toggles must be no-ops — which is why the sidebar hides them there."""
-        base = self._render("E6", ExposureConfig(auto_exposure=False, auto_normalize_contrast=False), normalize=False)
-        auto = self._render("E6", ExposureConfig(auto_exposure=True, auto_normalize_contrast=True), normalize=False)
+        base = self._render(ProcessMode.E6, ExposureConfig(auto_exposure=False, auto_normalize_contrast=False), normalize=False)
+        auto = self._render(ProcessMode.E6, ExposureConfig(auto_exposure=True, auto_normalize_contrast=True), normalize=False)
         self.assertTrue(np.allclose(base, auto))
 
 

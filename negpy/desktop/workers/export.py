@@ -10,6 +10,7 @@ from negpy.features.metadata.writer import embed_metadata, preserve_source_metad
 from negpy.features.metadata.models import MetadataConfig
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE, ColorSpaceRegistry
 from negpy.services.rendering.image_processor import ImageProcessor
+from negpy.features.hdr.models import hdr_frame_paths
 from negpy.services.export.templating import render_export_filename
 from negpy.services.export.contact_sheet import ContactSheetService
 
@@ -35,6 +36,16 @@ class ExportTask:
     source_exif: Optional[dict] = None
     metadata_config: Optional[MetadataConfig] = None
     working_color_space: str = WORKING_COLOR_SPACE
+
+
+@dataclass(frozen=True)
+class LinearOutputTask:
+    """One frame's linear-output job. ``options`` is the keyword payload for
+    export_linear_output, resolved on the UI thread where the config lives."""
+
+    file_info: dict
+    out_path: str
+    options: dict
 
 
 def _same_decode_source(a: ExportTask, b: ExportTask) -> bool:
@@ -75,12 +86,16 @@ def resolve_export_naming(task: ExportTask) -> tuple[str, str, str]:
     both conflict detection and the actual write, so they can never disagree."""
     out_dir = resolve_export_dir(task)
     ext = _EXT.get(task.export_settings.export_fmt, "jpg")
+    frames = hdr_frame_paths(task.file_info)
     filename = render_export_filename(
-        task.file_info["path"],
+        # A merge is named after its alphabetically first frame, not the reference frame
+        # its path points at — the reference is chosen from picture content.
+        min(frames, key=lambda p: os.path.basename(p).lower()) if frames else task.file_info["path"],
         task.export_settings,
         border_size=task.params.finish.border_size,
         half=int(task.file_info.get("half") or 0),
         metadata=task.metadata_config,
+        composite="HDR" if frames else "",
     )
     return out_dir, filename, ext
 
@@ -196,6 +211,32 @@ class ExportWorker(QObject):
                     release_source_cache=nxt is None or not _same_decode_source(task, nxt),
                     collect=False,
                 )
+
+            self.finished.emit()
+        except Exception as e:
+            self.error.emit(str(e))
+        finally:
+            gc.collect()
+
+    @pyqtSlot(list)
+    def run_linear_output(self, tasks: List[LinearOutputTask]) -> None:
+        """Writes each frame's decoded linear buffer. Own slot rather than a branch in
+        run_batch: linear output bypasses the render pipeline and the export settings."""
+        from negpy.services.export.linear_output import export_linear_output
+
+        self._cancel.clear()
+        total = len(tasks)
+        try:
+            for i, task in enumerate(tasks):
+                if self._cancel.is_set():
+                    self.cancelled.emit()
+                    return
+                name = os.path.splitext(task.file_info["name"])[0]
+                self.progress.emit(i + 1, total, name)
+                try:
+                    export_linear_output(task.file_info["path"], task.out_path, **task.options)
+                except Exception as e:
+                    self.error.emit(f"Linear Output failed for {name}: {e}")
 
             self.finished.emit()
         except Exception as e:

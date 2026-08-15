@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
 )
 
+from negpy.desktop.view.confirm import confirm_delete_named
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.styles.theme import THEME
@@ -25,7 +26,7 @@ class RollAnalysisSidebar(BaseSidebar):
         btns_row = QHBoxLayout()
         self.analyze_roll_btn = QPushButton(" Batch Analysis")
         self.analyze_roll_btn.setIcon(qta.icon("fa5s.search", color=THEME.text_primary))
-        self.analyze_roll_btn.setToolTip("Scan every loaded file and compute a roll-wide average density and colour balance baseline")
+        self.analyze_roll_btn.setToolTip("Scan every loaded file and compute a roll-wide average density and color balance baseline")
 
         btns_row.addWidget(self.analyze_roll_btn)
         self.layout.addLayout(btns_row)
@@ -35,18 +36,18 @@ class RollAnalysisSidebar(BaseSidebar):
             "mdi6.film",
             "Use Luma Average",
             conf.use_luma_average,
-            "Take the tonal-range (black/white-point) baseline from Batch Analysis; colour still re-derives per frame",
+            "Take the tonal-range (black/white-point) baseline from Batch Analysis; color still re-derives per frame",
         )
 
-        self.use_colour_avg_btn = self._small_toggle(
+        self.use_color_avg_btn = self._small_toggle(
             "mdi6.film",
-            "Use Colour Average",
-            conf.use_colour_average,
-            "Take the per-channel colour-balance baseline from Batch Analysis; luma range still re-derives per frame",
+            "Use Color Average",
+            conf.use_color_average,
+            "Take the per-channel color-balance baseline from Batch Analysis; luma range still re-derives per frame",
         )
 
         avg_row.addWidget(self.use_luma_avg_btn)
-        avg_row.addWidget(self.use_colour_avg_btn)
+        avg_row.addWidget(self.use_color_avg_btn)
         self.layout.addLayout(avg_row)
 
         self.layout.addWidget(section_subheader("ROLL"))
@@ -80,7 +81,7 @@ class RollAnalysisSidebar(BaseSidebar):
     def _connect_signals(self) -> None:
         self.analyze_roll_btn.clicked.connect(self.controller.request_batch_normalization)
         self.use_luma_avg_btn.toggled.connect(self._on_use_luma_average_toggled)
-        self.use_colour_avg_btn.toggled.connect(self._on_use_colour_average_toggled)
+        self.use_color_avg_btn.toggled.connect(self._on_use_color_average_toggled)
 
         self.load_roll_btn.clicked.connect(self._on_load_roll)
         self.save_roll_btn.clicked.connect(self._on_save_roll)
@@ -91,9 +92,9 @@ class RollAnalysisSidebar(BaseSidebar):
         """Toggle the roll-wide luma (tonal-range) baseline for this axis only."""
         self._toggle_roll_axis(use_luma_average=checked)
 
-    def _on_use_colour_average_toggled(self, checked: bool) -> None:
-        """Toggle the roll-wide colour-balance baseline for this axis only."""
-        self._toggle_roll_axis(use_colour_average=checked)
+    def _on_use_color_average_toggled(self, checked: bool) -> None:
+        """Toggle the roll-wide color-balance baseline for this axis only."""
+        self._toggle_roll_axis(use_color_average=checked)
 
     def _toggle_roll_axis(self, **axis: bool) -> None:
         """
@@ -149,7 +150,12 @@ class RollAnalysisSidebar(BaseSidebar):
         Removes selected roll from DB.
         """
         name = self.roll_combo.currentText()
-        if name:
+        if name and confirm_delete_named(
+            self,
+            "Roll",
+            name,
+            informative="The frames keep their current look; only the saved roll baseline goes.",
+        ):
             self.controller.session.repo.delete_normalization_roll(name)
             self._refresh_rolls()
 
@@ -158,7 +164,7 @@ class RollAnalysisSidebar(BaseSidebar):
         self.block_signals(True)
         try:
             self.use_luma_avg_btn.setChecked(conf.use_luma_average)
-            self.use_colour_avg_btn.setChecked(conf.use_colour_average)
+            self.use_color_avg_btn.setChecked(conf.use_color_average)
 
             self._refresh_rolls()
             if conf.roll_name:
@@ -173,7 +179,7 @@ class RollAnalysisSidebar(BaseSidebar):
         widgets = [
             self.analyze_roll_btn,
             self.use_luma_avg_btn,
-            self.use_colour_avg_btn,
+            self.use_color_avg_btn,
             self.roll_combo,
             self.load_roll_btn,
             self.save_roll_btn,

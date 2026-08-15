@@ -18,6 +18,7 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.services.assets.crosstalk import CrosstalkProfiles
 from negpy.services.assets.sensor import SensorProfiles
+from negpy.features.process.models import ProcessMode
 
 if not QApplication.instance():
     _app = QApplication(sys.argv)
@@ -86,7 +87,7 @@ def test_crosstalk_stays_reachable_with_no_matrices_for_the_process(tmp_path, mo
     _empty_crosstalk_gallery(tmp_path, monkeypatch)
     w = _sidebar()
     cfg = w.state.config
-    w.state.config = replace(cfg, process=replace(cfg.process, process_mode="E-6"))
+    w.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6))
     w.sync_ui()
 
     assert not w.crosstalk_header.isHidden()
@@ -99,11 +100,11 @@ def test_crosstalk_stays_reachable_with_no_matrices_for_the_process(tmp_path, mo
 
 def test_crosstalk_controls_go_live_once_a_matrix_exists(tmp_path, monkeypatch):
     _empty_crosstalk_gallery(tmp_path, monkeypatch)
-    CrosstalkProfiles.save("My Slide Rig", [1.0, -0.05, 0.0, 0.0, 1.0, 0.0, 0.0, -0.05, 1.0], process="E-6")
+    CrosstalkProfiles.save("My Slide Rig", [1.0, -0.05, 0.0, 0.0, 1.0, 0.0, 0.0, -0.05, 1.0], process=ProcessMode.E6)
 
     w = _sidebar()
     cfg = w.state.config
-    w.state.config = replace(cfg, process=replace(cfg.process, process_mode="E-6"))
+    w.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6))
     w.sync_ui()
 
     assert w.crosstalk_combo.isEnabled()
@@ -117,7 +118,7 @@ def test_crosstalk_hidden_on_bw(tmp_path, monkeypatch):
     _empty_crosstalk_gallery(tmp_path, monkeypatch)
     w = _sidebar()
     cfg = w.state.config
-    w.state.config = replace(cfg, process=replace(cfg.process, process_mode="B&W"))
+    w.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.BW))
     w.sync_ui()
 
     for widget in (w.crosstalk_header, w.crosstalk_combo, w.manage_crosstalk_btn, w.crosstalk_strength_slider):
@@ -147,3 +148,40 @@ def test_gate_is_display_only_and_survives_a_round_trip(monkeypatch):
     assert w.sensor_combo.isEnabled()
     assert w.linear_raw_hint.isHidden()
     assert writes == []
+
+
+def test_capture_row_tracks_config_and_hides_on_the_transparency_transfer():
+    """Linear RAW / Narrowband / Scanning setup live here, not in Normalization. They
+    are inert on the as-captured transparency render, so the whole block goes."""
+    w = _sidebar(linear_raw=True)
+    w.sync_ui()
+    assert w.linear_raw_btn.isChecked()
+    assert not w.narrowband_scan_btn.isChecked()
+    for widget in (w.capture_header, w.linear_raw_btn, w.narrowband_scan_btn, w.scan_setup_btn):
+        assert not widget.isHidden()
+
+    cfg = w.state.config
+    w.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=False))
+    w.sync_ui()
+    for widget in (w.capture_header, w.linear_raw_btn, w.narrowband_scan_btn, w.scan_setup_btn):
+        assert widget.isHidden()
+
+    # Normalize on is a metered stretch again, so both toggles apply.
+    cfg = w.state.config
+    w.state.config = replace(cfg, process=replace(cfg.process, e6_normalize=True))
+    w.sync_ui()
+    for widget in (w.capture_header, w.linear_raw_btn, w.narrowband_scan_btn, w.scan_setup_btn):
+        assert not widget.isHidden()
+
+
+def test_capture_toggles_reach_the_controller():
+    w = _sidebar(linear_raw=False)
+    w.sync_ui()
+
+    w.narrowband_scan_btn.setChecked(True)
+    (cfg,), _kw = w.controller.apply_config.call_args
+    assert cfg.process.narrowband_scan is True
+
+    w.linear_raw_btn.setChecked(True)
+    (cfg,), _kw = w.controller.apply_config.call_args
+    assert cfg.process.linear_raw is True

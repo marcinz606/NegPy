@@ -14,6 +14,9 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 
+from negpy.features.rgbscan.models import RgbScanConfig
+from negpy.features.process.models import ProcessMode
+
 
 def _task(use_camera_wb: bool):
     from negpy.desktop.workers.render import PreviewLoadTask
@@ -72,8 +75,7 @@ def test_rgb_import_with_detection_disabled_never_calls_classifier(qapp):
     worker.finished.connect(lambda *args: finished.append(args))
     task = PreviewLoadTask(
         file_path="r.ARW",
-        green_path="g.ARW",
-        blue_path="b.ARW",
+        rgbscan=RgbScanConfig(enabled=True, green_path="g.ARW", blue_path="b.ARW"),
         workspace_color_space="Adobe RGB",
         use_camera_wb=False,
         detect_mode=False,
@@ -103,8 +105,8 @@ def test_automatic_import_returns_classifier_result_from_public_process(qapp):
         detect_mode=True,
     )
 
-    with patch("negpy.features.process.logic.detect_process_mode", return_value="E-6") as dpm:
+    with patch("negpy.features.process.logic.detect_process_mode", return_value=ProcessMode.E6) as dpm:
         worker.process(task)
 
     dpm.assert_called_once_with(raw)
-    assert finished[0][5] == "E-6"
+    assert finished[0][5] == ProcessMode.E6

@@ -395,7 +395,7 @@ class TestSkinMask(unittest.TestCase):
         self.assertGreater(_skin_weight(27.0, *_lab(27.0, 22.0, 53.0)[0, 1:]), 0.9)
 
     def test_saturated_warm_objects_score_low(self) -> None:
-        """Sunset, terracotta, brick and autumn colour all sit inside the skin hue
+        """Sunset, terracotta, brick and autumn color all sit inside the skin hue
         band -- only the chroma window keeps them out. The loose window this
         replaced scored them 0.98 / 0.96 / 0.89 / 0.47, reining a sunset harder
         than a face; they now measure 0.04 / 0.18 / 0.25 / 0.00."""

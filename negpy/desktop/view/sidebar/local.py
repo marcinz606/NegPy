@@ -149,13 +149,13 @@ class LocalSidebar(BaseSidebar):
 
     def _build_mask_row(self, i: int, mask) -> _MaskRow:
         if mask.stops > 0:
-            kind, colour = "Burn", "#4A8FE8"
+            kind, color = "Burn", "#4A8FE8"
         elif mask.stops < 0:
-            kind, colour = "Dodge", "#E8C84A"
+            kind, color = "Dodge", "#E8C84A"
         else:
             # A mask that only changes grade is neither: it re-prints the area
             # at its own contrast without adding or holding back exposure.
-            kind, colour = "Grade", THEME.text_primary
+            kind, color = "Grade", THEME.text_primary
         row = _MaskRow()
         lay = QHBoxLayout(row)
         lay.setContentsMargins(6, 2, 4, 2)
@@ -167,10 +167,10 @@ class LocalSidebar(BaseSidebar):
         if mask.invert:
             values.append("inv")
         shape_icon = QLabel()
-        shape_icon.setPixmap(qta.icon(_SHAPE_ICONS[mask.shape], color=colour).pixmap(12, 12))
+        shape_icon.setPixmap(qta.icon(_SHAPE_ICONS[mask.shape], color=color).pixmap(12, 12))
         shape_icon.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         label = QLabel(f"{i + 1}.  {kind}   " + "  ".join(values))
-        label.setStyleSheet(f"color: {colour};")
+        label.setStyleSheet(f"color: {color};")
         label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
         visible = i not in self.state.local_hidden_masks

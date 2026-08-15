@@ -15,7 +15,7 @@ FRAMING_DIM_STOPS = 3
 
 
 def framing_levels(r: int, g: int, b: int, stops: int = FRAMING_DIM_STOPS) -> tuple[int, int, int]:
-    """The framing-light mix for a scan-level RGB recipe: the same colour, `stops` dimmer.
+    """The framing-light mix for a scan-level RGB recipe: the same color, `stops` dimmer.
 
     Dimming the light rather than speeding the shutter keeps the scan start free of the
     1-2 s a verified shutter write costs, and works on bodies whose shutter NegPy cannot

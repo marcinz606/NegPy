@@ -23,6 +23,7 @@ from negpy.infrastructure.capture.gphoto import (
 )
 from negpy.infrastructure.capture.protocol import describe_hardware, has_white_channel
 from negpy.infrastructure.capture.scanlight import Scanlight
+from negpy.infrastructure.capture.settings import WhiteCaptureMode
 from negpy.kernel.system.logging import get_logger
 from negpy.services.capture.calibration import REFERENCE_LEVELS, REFERENCE_SHUTTER, CalibrationExposureError, CalibrationService, Roi
 from negpy.services.capture.service import CaptureService, capture_single
@@ -42,7 +43,7 @@ class CaptureRequest:
     white_mode: bool = False
     w_level: int = 255
     shutter_w: str = ""
-    white_process_mode: str = "auto"  # "auto" | "E-6" | "B&W"
+    white_process_mode: WhiteCaptureMode = WhiteCaptureMode.AUTO
     is_retake: bool = False  # a retake overwrites an existing frame → keep its files on abort
     rgb_mode: bool = True  # True = Scanlight R/G/B triplet; False = one plain white-light shot (no Scanlight)
     iso: str = ""  # RGB preset's baked ISO/aperture — the triplet forces them; "" = leave as set

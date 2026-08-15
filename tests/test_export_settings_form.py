@@ -70,7 +70,7 @@ def test_jxl_supported_space_not_blocked(qapp):
     form.load(_values(export_fmt=ExportFormat.JXL, export_color_space=ColorSpace.REC2020.value))
     assert not form.is_export_blocked()
 
-    # Non-JXL formats are never blocked by colour space.
+    # Non-JXL formats are never blocked by color space.
     form.load(_values(export_fmt=ExportFormat.TIFF, export_color_space=ColorSpace.ADOBE_RGB.value))
     assert not form.is_export_blocked()
 

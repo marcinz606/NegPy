@@ -13,6 +13,7 @@ import pytest
 from PyQt6.QtWidgets import QApplication
 
 from negpy.desktop.view.sidebar.scanlight import ScanlightSidebar
+from negpy.infrastructure.capture.settings import ScanlightSettings, WhiteCaptureMode
 from negpy.services.capture.presets import ScanlightPreset
 
 if not QApplication.instance():
@@ -129,7 +130,7 @@ def test_builtin_white_preset_sets_white_mode():
     w.preset_combo.setCurrentIndex(idx)
     w._on_preset_selected(idx)
     assert w._settings.white_mode is True
-    assert w._settings.white_process_mode == "auto"  # B&W/slide merged → NegPy autodetects
+    assert w._settings.white_process_mode is WhiteCaptureMode.AUTO  # B&W/slide merged → NegPy autodetects
 
 
 def test_white_preset_does_not_inherit_the_rgb_shutter(tmp_path):
@@ -1325,3 +1326,11 @@ def test_calibrate_request_carries_the_iso_aperture_normalized_start_point(tmp_p
     assert req.start_shutter == "1/20"  # 1/5 scaled 2 stops faster for ISO 400
     assert req.start_levels == REFERENCE_LEVELS  # unchanged — same light for every body
     assert req.shutter_candidates == ("1/250", "1/20", "1/5")
+
+
+def test_legacy_white_process_mode_names_still_load():
+    """A `scanlight_settings` dict saved before the process-mode rename carries the old
+    names; they must resolve to a mode rather than silently reading as autodetect."""
+    assert ScanlightSettings(white_process_mode="E-6").white_process_mode is WhiteCaptureMode.E6
+    assert ScanlightSettings(white_process_mode="B&W").white_process_mode is WhiteCaptureMode.BW
+    assert ScanlightSettings(white_process_mode="nonsense").white_process_mode is WhiteCaptureMode.AUTO

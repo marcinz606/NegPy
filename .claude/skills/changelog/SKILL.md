@@ -53,7 +53,7 @@ review, not an automatic edit.
 - **One line per entry**, no explanatory paragraphs: `Prefix: **bold lead** — terse clause naming what was done.` Skip the failure-mode/root-cause narrative even on fixes. The long multi-sentence bullets in old sections are **not** the target.
 - Prefix each with `New:` / `Change:` / `Fix:` (use `Change/Fix:` if genuinely both). Group in that order.
 - **No PR/issue numbers** (`(#604)`) — user-facing notes, not a dev index.
-- British **"colour"** in prose (NegPy naming standard).
+- US **"color"** in prose, matching the UI labels (Color Negative, colour spellings were swept out in 0.50.0).
 - Plain, factual, non-salesy — it's an open-source project. No marketing framing, no dunking on other tools.
 - Credit code/idea contributors with a trailing `@handle`; **never** credit whoever merely requested or reported it.
 

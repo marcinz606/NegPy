@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QPushBut
 from negpy.desktop.view.sidebar.roi_image import RoiImageLabel
 from negpy.desktop.view.styles.theme import THEME
 
-#: Progress-bar chunk colour per triplet channel. The live view freezes during a triplet
+#: Progress-bar chunk color per triplet channel. The live view freezes during a triplet
 #: (the capture holds the camera without gaps now), so the bar carries the R→G→B switch
 #: the preview frames used to show. Muted tones, readable on the dark theme.
 _CHANNEL_COLORS = {"R": "#B5443C", "G": "#3F8F4A", "B": "#3C6FB5"}

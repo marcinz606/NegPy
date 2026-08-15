@@ -96,7 +96,7 @@ class TestPaperProfiles(unittest.TestCase):
             out = self._render(key)
             self.assertGreater(float(np.max(np.abs(out - default))), 1e-3, f"{key} did not change the curve")
 
-    def test_ra4_introduces_colour_divergence(self):
+    def test_ra4_introduces_color_divergence(self):
         # Per-channel gamma + tint must make a neutral ramp non-grey on RA4 papers.
         out = self._render("fuji_crystal")
         chan_spread = np.max(np.abs(out[..., 0] - out[..., 2]))

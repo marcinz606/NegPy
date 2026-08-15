@@ -3,6 +3,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
+
+from negpy.features.process.models import ProcessMode
+
+
+class WhiteCaptureMode(StrEnum):
+    """What a white-light capture is: a slide, a B&W negative, or left to autodetect."""
+
+    AUTO = "auto"
+    BW = ProcessMode.BW
+    E6 = ProcessMode.E6
+
+    @classmethod
+    def _missing_(cls, value: object) -> "WhiteCaptureMode":
+        """Pre-rename mode names in a saved `scanlight_settings` dict, and anything stale."""
+        legacy = {"e-6": cls.E6, "b&w": cls.BW}
+        return legacy.get(str(value).lower(), cls.AUTO)
 
 
 @dataclass(frozen=True)
@@ -25,10 +42,14 @@ class ScanlightSettings:
     shutter_w: str = ""
     iso: str = ""  # RGB preset's calibrated ISO/aperture, forced on the body at scan time
     aperture: str = ""  # "" for a manual-aperture lens (set by hand on the ring)
-    white_process_mode: str = "auto"
+    white_process_mode: WhiteCaptureMode = WhiteCaptureMode.AUTO
     roll_name: str = "Roll001"
     output_folder: str = ""
     port: str = ""  # Scanlight serial port ("" = autodetect); the camera needs no address
+
+    def __post_init__(self) -> None:
+        # A dict saved before the process-mode rename still carries the old names.
+        object.__setattr__(self, "white_process_mode", WhiteCaptureMode(self.white_process_mode))
 
     @classmethod
     def defaults(cls) -> "ScanlightSettings":

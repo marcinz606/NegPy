@@ -2,6 +2,7 @@ import os
 
 import pytest
 
+from negpy.features.process.models import ProcessMode
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.services.assets.crosstalk import CrosstalkProfiles
 
@@ -210,3 +211,18 @@ def test_saved_profiles_are_marked_tuned(tmp_path, monkeypatch):
     CrosstalkProfiles.save("Mine", [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0])
     assert CrosstalkProfiles.get_type("Mine") == "tuned"
     assert dict(CrosstalkProfiles.grouped_profiles())["Tuned on a rig"] == ["Mine"]
+
+
+def test_legacy_process_names_still_match_their_mode(tmp_path, monkeypatch):
+    """A matrix written before the mode rename declares `process = "E-6"`. It must still
+    reach the Transparency dropdown instead of matching no mode and disappearing."""
+    monkeypatch.setattr(APP_CONFIG, "crosstalk_dir", str(tmp_path))
+    _write(
+        os.path.join(tmp_path, "slide.toml"),
+        'name = "Old Slide"\nprocess = "E-6"\nmatrix = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]\n',
+    )
+
+    assert CrosstalkProfiles.get_process("Old Slide") == ProcessMode.E6
+    flat = [n for _h, names in CrosstalkProfiles.grouped_profiles(ProcessMode.E6) for n in names]
+    assert flat == ["Old Slide"]
+    assert CrosstalkProfiles.grouped_profiles(ProcessMode.C41) == [("Built-in", [CrosstalkProfiles.DEFAULT_NAME])]

@@ -9,12 +9,19 @@ def _make_sane() -> ScannerBackend:
     return SaneBackend()
 
 
+def _make_pieusb() -> ScannerBackend:
+    from negpy.infrastructure.scanners.pieusb_backend import PieusbBackend
+
+    return PieusbBackend()
+
+
 DEFAULT_BACKEND_ID = "sane"
 
 # id -> (display label, factory). Insertion order drives the sidebar dropdown.
 # Adding a backend is one entry here plus its implementation module.
 BACKENDS: dict[str, tuple[str, Callable[[], ScannerBackend]]] = {
     "sane": ("SANE", _make_sane),
+    "pieusb": ("PIEUSB", _make_pieusb),
 }
 
 

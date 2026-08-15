@@ -16,6 +16,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from negpy.kernel.system.text import count_of
+from negpy.desktop.view.sidebar.base import install_wheel_guards
 from negpy.desktop.view.styles.templates import hint_label
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice
@@ -35,6 +37,7 @@ class ScanSidebar(QWidget):
         self._devices_loaded = False
         self._init_ui()
         self._connect_signals()
+        install_wheel_guards(self)
 
     # ── settings persistence ──────────────────────────────────────────
 
@@ -245,6 +248,7 @@ class ScanSidebar(QWidget):
         self.pattern_edit.setText(self._settings.filename_pattern)
         self.autofocus_check.setChecked(self._settings.autofocus)
         self.ae_check.setChecked(self._settings.auto_exposure)
+        self.exposure_slider.setEnabled(not self._settings.auto_exposure)
 
     def _connect_signals(self) -> None:
         self.refresh_btn.clicked.connect(self._on_refresh)
@@ -260,7 +264,7 @@ class ScanSidebar(QWidget):
         self.depth_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
         self.ir_check.toggled.connect(lambda: self._update_settings_from_ui())
         self.autofocus_check.toggled.connect(lambda: self._update_settings_from_ui())
-        self.ae_check.toggled.connect(lambda: self._update_settings_from_ui())
+        self.ae_check.toggled.connect(lambda: self._on_ae_toggled())
         self.exposure_slider.valueChanged.connect(self._on_exposure_changed)
         self.frame_from_spin.valueChanged.connect(self._on_frame_from_changed)
         self.frame_to_spin.valueChanged.connect(self._on_frame_to_changed)
@@ -378,6 +382,8 @@ class ScanSidebar(QWidget):
         self.eject_btn.setVisible(caps.can_eject)
         self.eject_btn.setEnabled(caps.can_eject and not self._scanning)
         self.frame_label.setText(f"Frame: {caps.max_area_mm[0]:.0f} × {caps.max_area_mm[1]:.0f} mm")
+        self.autofocus_check.setChecked(caps.autofocus)
+        self.autofocus_check.setVisible(caps.autofocus)
 
         # If no film sources, show banner
         if not caps.sources:
@@ -491,6 +497,10 @@ class ScanSidebar(QWidget):
         self.frame_from_spin.blockSignals(False)
         self.frame_to_spin.blockSignals(False)
 
+    def _on_ae_toggled(self) -> None:
+        self.exposure_slider.setEnabled(not self.ae_check.isChecked())
+        self._update_settings_from_ui()
+
     def _on_exposure_changed(self, _value: int) -> None:
         self._update_exposure_value_label()
         self._update_settings_from_ui()
@@ -560,7 +570,7 @@ class ScanSidebar(QWidget):
         if selected:
             frames_txt = ", ".join(str(f) for f in sorted(selected))
             n_windows = len(self._settings.frame_windows)
-            win_txt = f" · {n_windows} window(s)" if n_windows else ""
+            win_txt = f" · {count_of(n_windows, 'window')}" if n_windows else ""
             self.scan_window_status.setText(f"Frames {frames_txt}{win_txt}{offset_txt}")
             return
         device = self._current_device()
@@ -658,9 +668,10 @@ class ScanSidebar(QWidget):
             self.set_scanning(False)
             self.status_label.setText(f"Scanner busy: {e}")
 
-    @pyqtSlot(float)
-    def _on_scan_progress(self, progress: float) -> None:
+    @pyqtSlot(float, str)
+    def _on_scan_progress(self, progress: float, phase_name: str = "Scanning") -> None:
         self.progress_bar.setVisible(True)
+        self.progress_bar.setFormat(f"{phase_name}… %p%")
         self.progress_bar.setValue(int(progress * 100))
 
     @pyqtSlot(str)
@@ -678,7 +689,7 @@ class ScanSidebar(QWidget):
         self.set_scanning(False)
         self.progress_bar.setVisible(False)
         if paths:
-            self.status_label.setText(f"Batch complete: {len(paths)} frame(s)")
+            self.status_label.setText(f"Batch complete: {count_of(len(paths), 'frame')}")
 
     @pyqtSlot()
     def _on_scan_cancelled(self) -> None:

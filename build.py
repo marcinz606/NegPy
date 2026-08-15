@@ -61,6 +61,14 @@ params = [
     # Camera scanning: see collect_gphoto2_plugins() — the plugin trees need their
     # directory layout preserved, which --collect-all does not do.
     *([] if is_windows else ["--collect-all=gphoto2"]),
+    # pieusb scanner support (all platforms; it is the only backend on Windows).
+    # libusb_package's own PyInstaller hook drops the bundled libusb at the bundle
+    # root, but get_library_path() resolves it with importlib_resources against the
+    # *package* directory — so without this it finds nothing and pyusb falls back to
+    # a system libusb that Windows does not have. --collect-all puts it where the
+    # lookup actually looks.
+    "--hidden-import=pieusb",
+    "--collect-all=libusb_package",
     # Exclude unused modules
     # Metadata
     "--copy-metadata=imageio",
@@ -74,6 +82,8 @@ params = [
     "--add-data=negpy/features/geometry/shaders:negpy/features/geometry/shaders",
     "--add-data=negpy/features/toning/shaders:negpy/features/toning/shaders",
     "--add-data=negpy/features/lab/shaders:negpy/features/lab/shaders",
+    "--add-data=negpy/features/lith/shaders:negpy/features/lith/shaders",
+    "--add-data=negpy/features/cyanotype/shaders:negpy/features/cyanotype/shaders",
     "--add-data=negpy/features/finish/shaders:negpy/features/finish/shaders",
     "--add-data=negpy/desktop/view/styles:negpy/desktop/view/styles",
     "--add-data=icc:icc",

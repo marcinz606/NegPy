@@ -29,6 +29,22 @@ def confirm_unload(parent, *, clear_all: bool = False, count: int = 1) -> bool:
     return box.exec() == QMessageBox.StandardButton.Yes
 
 
+def confirm_delete_named(parent, kind: str, name: str, *, informative: str = "") -> bool:
+    """Ask before deleting a named, user-created item — a work print, a roll, a
+    flat-field profile. None of them are undoable and none can be re-derived from the
+    frame, so each one is gated like Clear All. Enter confirms; Esc cancels.
+    """
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Icon.Question)
+    box.setWindowTitle(f"Delete {kind}")
+    box.setText(f"Delete the {kind.lower()} “{name}”?")
+    if informative:
+        box.setInformativeText(informative)
+    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
+    box.setDefaultButton(QMessageBox.StandardButton.Yes)
+    return box.exec() == QMessageBox.StandardButton.Yes
+
+
 def confirm_delete_mask(parent) -> bool:
     """Ask before deleting a single dodge/burn mask. Enter confirms; Esc cancels."""
     box = QMessageBox(parent)

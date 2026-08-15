@@ -17,7 +17,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         return w.controls_panel.process_sidebar
 
     def _mode(w: "MainWindow") -> Optional[QWidget]:
-        return w.controls_panel.process_sidebar.mode_combo
+        return w.controls_panel.process_sidebar.mode_bar
 
     def _density(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.tone_sidebar.density_slider
@@ -29,7 +29,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         return w.controls_panel.tone_sidebar.ch_global_btn
 
     def _region_btn(w: "MainWindow") -> Optional[QWidget]:
-        return w.controls_panel.colour_sidebar.region_global_btn
+        return w.controls_panel.color_sidebar.region_global_btn
 
     def _lab(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.lab_sidebar
@@ -77,7 +77,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         return w.controls_panel.roll_sidebar.analyze_roll_btn
 
     def _cast_removal(w: "MainWindow") -> Optional[QWidget]:
-        return w.controls_panel.colour_sidebar.cast_removal_slider
+        return w.controls_panel.color_sidebar.cast_removal_slider
 
     def _auto_targets(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.tone_sidebar.targets_btn
@@ -92,7 +92,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         return w.right_panel.metadata_sidebar.manage_btn
 
     def _narrowband(w: "MainWindow") -> Optional[QWidget]:
-        return w.controls_panel.process_sidebar.narrowband_scan_btn
+        return w.controls_panel.sensor_sidebar.narrowband_scan_btn
 
     def _triage(w: "MainWindow") -> Optional[QWidget]:
         return w.session_panel.file_browser.sheet_btn
@@ -133,10 +133,10 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             title="RGB Scan — Trichromatic Capture",
             body=(
                 "Shot a negative as three separate frames under red, green and blue light? "
-                "<b>RGB Scan</b> merges them into one clean, low-noise colour scan.<br><br>"
+                "<b>RGB Scan</b> merges them into one clean, low-noise color scan.<br><br>"
                 "Toggle the <b>RGB Scan</b> button in the Files toolbar — folders are grouped "
                 "into triplets automatically, and <b>Edit RGB Triplet…</b> (right-click a frame) "
-                "fixes the grouping. Frames are sub-pixel aligned to kill colour fringing, then "
+                "fixes the grouping. Frames are sub-pixel aligned to kill color fringing, then "
                 "run through the normal conversion."
             ),
             target=_rgbscan,
@@ -228,42 +228,40 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             section_attr="process_section",
         ),
         TutorialStep(
-            title="Process Panel — Mode & Decoding",
+            title="Film Mode & Decoding",
             body=(
-                "The Process panel is the foundation of every edit: what kind of film this is, "
-                "how the RAW is decoded, and how the negative is normalized into a "
-                "positive.<br><br>"
-                "<b>Mode</b> picks the chemistry — <b>C41</b> (colour negative), <b>B&amp;W</b> "
-                "(panchromatic) or <b>E-6</b> (slide/reversal). It swaps the core conversion "
-                "math and re-runs the pipeline from scratch, and the wand beside it "
-                "<b>auto-detects</b> the mode when a file loads.<br><br>"
-                "<b>Linear RAW</b> decodes with neutral multipliers, bypassing the camera's "
-                "as-shot white balance so the orange mask arrives untouched — toggling it "
-                "reloads the file. Off (the default) decodes with the as-shot balance instead, "
-                "which is what a camera scan under white light wants.<br><br>"
+                "The first choice of every edit sits above the panels: <b>what kind of film "
+                "this is</b>.<br><br>"
+                "The three buttons pick the chemistry — <b>Color</b> (C-41 negative), "
+                "<b>B&amp;W</b> (panchromatic negative) or <b>Slide</b> (transparency/reversal). "
+                "Each swaps the core conversion math and re-runs the pipeline from scratch, and "
+                "the wand beside them <b>auto-detects</b> the mode when a file loads.<br><br>"
+                "In <b>Calibration</b> below, <b>Linear RAW</b> decodes with neutral multipliers, "
+                "bypassing the camera's as-shot white balance so the orange mask arrives untouched "
+                "— toggling it reloads the file. Off (the default) decodes with the as-shot balance "
+                "instead, which is what a camera scan under white light wants.<br><br>"
                 "You don't have to guess: the <b>bulb</b> button asks two questions about your rig "
                 "— camera or scanner, white light or narrowband RGB — and sets Linear RAW and "
                 "Narrowband from the answer. It opens by itself once this tour is done.<br><br>"
-                "<b>Lock Bounds</b> freezes this frame's analysed bounds, so cropping or moving "
-                "a slider no longer re-meters it — lock in once the conversion looks right. In "
-                "E-6 mode a <b>Normalize</b> button appears at the bottom, stretching a faded "
-                "or expired slide back to the full range."
+                "In the <b>Normalization</b> panel, <b>Lock Bounds</b> freezes this frame's analysed "
+                "bounds, so cropping or moving a slider no longer re-meters it — lock in once the "
+                "conversion looks right. In Slide mode a <b>Normalize</b> button appears at the "
+                "bottom, stretching a faded or expired slide back to the full range."
             ),
             target=_mode,
-            section_attr="process_section",
         ),
         TutorialStep(
-            title="Process Panel — Bounds Analysis",
+            title="Normalization Panel — Bounds Analysis",
             body=(
                 "Film dyes follow Beer–Lambert absorption — density is logarithmic — so NegPy "
                 "converts the raw signal to log space and meters it there, on two independent "
                 "axes: a <b>luma</b> pass sets the black/white-point span, and a per-channel "
-                "<b>colour</b> pass <b>measures the orange mask from the actual negative</b> — "
+                "<b>color</b> pass <b>measures the orange mask from the actual negative</b> — "
                 "no hardcoded mask constants.<br><br>"
                 "<b>Luma Range Clip</b> tunes the tonal span: neutral already applies a small "
                 "robust clip, positive tightens it (good for dense or fogged negatives where a "
                 "few stray pixels drag the bounds to extremes), negative pushes them outward "
-                "for lifted blacks and unclipped highlights. <b>Colour Clip</b> does the same "
+                "for lifted blacks and unclipped highlights. <b>Color Clip</b> does the same "
                 "for the per-channel balance — the orange-mask removal — independently of the "
                 "tonal range.<br><br>"
                 "<b>White Point</b> / <b>Black Point</b> fine-tune the detected bounds without "
@@ -271,7 +269,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "B</b> selector scopes them: Global moves both bounds together, while R, G and "
                 "B become per-dye-layer film-base (Dmin) and Dmax trims, like a scanner's "
                 "per-channel levels — the tool for a mask that reads slightly off in one "
-                "layer. Hidden in B&amp;W.<br><br>"
+                "layer. Hidden in B&amp;W Negative.<br><br>"
                 "The stretch is <b>unclamped</b>: tones outside the bounds survive and roll "
                 "off later in the print curve's toe and shoulder."
             ),
@@ -293,13 +291,13 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "profile, that takes precedence and this toggle steps aside."
             ),
             target=_narrowband,
-            section_attr="process_section",
+            section_attr="sensor_section",
         ),
         TutorialStep(
             title="Crosstalk — Dye Unmixing",
             body=(
                 "Each film dye layer also absorbs outside its own band — <b>secondary "
-                "absorptions</b> that leak one channel into another and mute colour. These "
+                "absorptions</b> that leak one channel into another and mute color. These "
                 "are linear in negative dye density (Beer–Lambert), so NegPy unmixes them "
                 "with a per-stock matrix in log-density space, <b>before any analysis</b>.<br><br>"
                 "Pick a profile matching your film stock and blend it in with the "
@@ -315,7 +313,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             body=(
                 "One enlarger setting for the whole roll. <b>Batch Analysis</b> meters every "
                 "loaded frame and builds a roll-wide baseline; <b>Use Roll Average</b> then "
-                "locks frames to it, so exposure and colour don't jump from frame to "
+                "locks frames to it, so exposure and color don't jump from frame to "
                 "frame.<br><br>"
                 "Roll presets save and load the baseline for later sessions. A locked "
                 "baseline is also what keeps <b>Flat masters</b> consistent across a roll."
@@ -335,7 +333,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "negative density range over paper exposure range.<br><br>"
                 "<b>Dye Separation</b> pushes the print's three dye densities apart in the "
                 "same matrix the paper's own dye crosstalk uses — in density space, not a "
-                "post-hoc colour boost, so it stays in step with the curve and takes per-layer "
+                "post-hoc color boost, so it stays in step with the curve and takes per-layer "
                 "R/G/B trims for crossover. 1.0 is off.<br><br>"
                 "<b>Auto Density</b> and <b>Auto Grade</b> meter each frame for sensible "
                 "brightness and contrast out of the box — they correct only <i>partially</i>, "
@@ -399,7 +397,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "flattening the shadows, like a second enlarger exposure through a different "
                 "filter.<br><br>"
                 "Both trims spare the midtones and stay bounded by the paper's black and "
-                "white, and they scope per colour layer through the <b>Global / R / G / B</b> "
+                "white, and they scope per color layer through the <b>Global / R / G / B</b> "
                 "selector like the main Grade."
             ),
             target=_split_grade,
@@ -429,15 +427,15 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "<b>R</b>, <b>G</b> or <b>B</b>. Grade and the Widths swap to dedicated trim "
                 "sliders centred on zero — you're nudging that layer away from the shared "
                 "curve, not setting it from scratch.<br><br>"
-                "Colour filtration can only <i>shift</i> a layer's curve; trims change its "
+                "Color filtration can only <i>shift</i> a layer's curve; trims change its "
                 "<i>shape</i> — fixing crossover casts that differ between shadows, mids and "
-                "highlights, the correction a real colour darkroom never had. The H&D chart "
+                "highlights, the correction a real color darkroom never had. The H&D chart "
                 "draws the diverged per-layer curves live.<br><br>"
                 "What isn't per-layer greys out while a channel is selected: Print Density, "
                 "the zone densities, the autos and the paper toggles are properties of the "
                 "print, not of one emulsion. A dot on a channel button marks a layer you've "
                 "already trimmed, so casts you fixed weeks ago stay findable. The whole "
-                "selector disappears in B&amp;W — one emulsion, one curve."
+                "selector disappears in B&amp;W Negative — one emulsion, one curve."
             ),
             target=_channel_selector,
             section_attr="tone_section",
@@ -457,14 +455,14 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "calculated for you."
             ),
             target=_region_btn,
-            section_attr="colour_section",
+            section_attr="color_section",
         ),
         TutorialStep(
             title="Cast Removal — Neutral Greys End to End",
             body=(
-                "A negative's colour cast isn't constant: it varies with density, so a "
+                "A negative's color cast isn't constant: it varies with density, so a "
                 "midtone-only white balance leaves shadows and highlights drifting "
-                "off-colour.<br><br>"
+                "off-color.<br><br>"
                 "<b>Cast Removal</b> measures each channel's deep-shadow reference and gives "
                 "it its own slope, pivoting on the midtone — greys read neutral from deep "
                 "shadows through highlights, not just at one point.<br><br>"
@@ -473,7 +471,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "slider (default 0.5) trims on top; 0 turns it off."
             ),
             target=_cast_removal,
-            section_attr="colour_section",
+            section_attr="color_section",
         ),
         TutorialStep(
             title="Exposure — Paper Profiles",
@@ -482,8 +480,8 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "without touching contrast or exposure. Each profile carries its paper's "
                 "tone, per-channel gamma and base tint, mapped from Ilford / Kodak / Foma / "
                 "Fuji datasheets.<br><br>"
-                "Profiles are mode-aware (RA4 colour papers in C-41, tonal papers in B&W) and "
-                "sticky roll-wide; the dropdown steps aside entirely in E-6, where a slide is "
+                "Profiles are mode-aware (RA4 color papers in Color Negative, tonal papers in B&W Negative) and "
+                "sticky roll-wide; the dropdown steps aside entirely in Transparency, where a slide is "
                 "the final image and no paper is involved. <b>Neutral</b> reproduces the "
                 "defaults exactly — Grade and Density still trim on top."
             ),
@@ -507,15 +505,15 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         TutorialStep(
             title="Lab Panel — Film Aesthetics",
             body=(
-                "<b>Colour:</b> "
-                "<b>Separation</b> amplifies R/G/B channel differences for richer colour. "
-                "<b>Chroma</b> scales colour evenly across every tone — the flat, post-decode "
+                "<b>Color:</b> "
+                "<b>Separation</b> amplifies R/G/B channel differences for richer color. "
+                "<b>Chroma</b> scales color evenly across every tone — the flat, post-decode "
                 "counterpart to <b>Dye Separation</b> over in Tone, which works on the print's dye "
                 "densities instead. "
                 "<b>Denoise</b> smooths chroma noise in Lab space without touching luminance grain.<br><br>"
                 "<b>Detail:</b> "
                 "<b>CLAHE</b> applies local contrast enhancement that lifts midtone detail without blowing highlights. "
-                "<b>Sharpening</b> uses L-channel unsharp masking — no colour halos.<br><br>"
+                "<b>Sharpening</b> uses L-channel unsharp masking — no color halos.<br><br>"
                 "<b>Effects:</b> "
                 "<b>Glow</b> simulates lens bloom. "
                 "<b>Halation</b> mimics red scatter caused by light bouncing back through the film base — "
@@ -531,7 +529,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "hue angles with their own strength. It works in Lab space, so luminance — and "
                 "therefore grain and detail — is preserved exactly.<br><br>"
                 "<b>Selenium</b> and <b>Sepia</b> simulate classic chemical toners on the print's "
-                "silver density (B&W mode only): selenium converts the densest silver first — "
+                "silver density (B&W Negative mode only): selenium converts the densest silver first — "
                 "deeper blacks and cool eggplant shadows; sepia bleach-redevelops the thinnest "
                 "silver first — warm highlights that hold the shadows (partial strength gives the "
                 "classic split-sepia look).<br><br>"
@@ -549,7 +547,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "<b>Optical Removal</b> detects and removes small particles on the visible scan by "
                 "local contrast. Lower the threshold to be more aggressive.<br><br>"
                 "<b>IR Removal</b> works from the scanner's infrared channel, where dust blocks "
-                "light but the colour dyes don't — catching what the eye can't separate from "
+                "light but the color dyes don't — catching what the eye can't separate from "
                 "grain. Detection is ratio-normalized rather than a raw-IR threshold, so the "
                 "slider responds smoothly instead of flipping the whole frame at a cliff. "
                 "Semi-transparent specks are divided back out to recover the image hiding "
@@ -595,7 +593,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "edge the way a filed carrier actually looks.<br><br>"
                 "<b>Border</b> lays a mat around the print: <b>Width</b>, plus <b>Bottom "
                 "weight</b> for the window-mat proportion where the bottom margin runs deeper. "
-                "Pick its colour from the swatch, or turn on <b>Paper white</b> to tie the mat "
+                "Pick its color from the swatch, or turn on <b>Paper white</b> to tie the mat "
                 "to the toned paper white so it matches the print instead of fighting it."
             ),
             target=_edge_burn,
@@ -632,7 +630,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             body=(
                 "The <b>Export</b> tab (right panel, now active) is where you save your results.<br><br>"
                 "Choose a format (<b>JPEG</b>, high-bit-depth <b>TIFF</b>, PNG, WebP, JPEG XL), "
-                "pick a colour space, and set resolution or print size. The <b>ICC</b> section adds "
+                "pick a color space, and set resolution or print size. The <b>ICC</b> section adds "
                 "monitor-profile display and soft-proofing.<br><br>"
                 "The <b>Export</b> and <b>Export Presets</b> buttons are triggers; each button's "
                 "menu arrow picks what it exports (current frame, selected frames, or all visible "

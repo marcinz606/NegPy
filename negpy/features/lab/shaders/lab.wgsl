@@ -315,7 +315,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // taps (weighted exp(-r^2 * 2)) approximate a Gaussian of sigma = radius / 2, so
     // radius = 2 * chroma_denoise * scale_factor matches the CPU path's sigmaSpace of
     // (chroma_denoise * scale_factor). The range term rejects taps whose chroma differs
-    // from the centre — without it an isotropic blur bleeds a saturated object's colour
+    // from the centre — without it an isotropic blur bleeds a saturated object's color
     // outward as a halo. L1 chroma distance mirrors OpenCV's bilateralFilter so the two
     // paths stay in parity. Weights are normalised by their own sum (not BLOOM_GAUSS_SUM,
     // which still serves the fixed-weight glow/halation taps below).

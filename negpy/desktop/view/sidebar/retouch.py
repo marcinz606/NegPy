@@ -8,7 +8,7 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.features.retouch.models import IR_METHOD_NEGPY, IR_METHOD_OPENICE
 
 _IR_REMOVAL_TIP = (
-    "Use the scanner's infrared channel to remove dust and scratches (invisible to the colour dyes): faint "
+    "Use the scanner's infrared channel to remove dust and scratches (invisible to the color dyes): faint "
     "semi-transparent specks are divided back out to recover the image underneath, opaque cores and hairs are "
     "rebuilt from clean neighbouring film, and only defects too wide to see across are inpainted."
 )

@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from negpy.kernel.system.text import count_of
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import ToolMode
 from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
@@ -29,6 +30,7 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.loading_overlay import LoadingOverlay
 from negpy.desktop.view.widgets.pinnable_dock import PinnableDockWidget
 from negpy.desktop.view.widgets.progress_dialog import ProgressDialog
+from negpy.desktop.view.widgets.sliders import apply_slider_value_visibility
 from negpy.domain.models import AspectRatio
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.kernel.image.logic import float_to_uint8
@@ -152,6 +154,9 @@ class MainWindow(QMainWindow):
         self.shortcut_manager = setup_keyboard_shortcuts(self)
         self._update_title()
 
+        if self.controller.session.repo.get_global_setting("show_slider_values", default=False):
+            apply_slider_value_visibility(self, True)
+
         from negpy.desktop.view.widgets.tutorial_overlay import TutorialOverlay
 
         self.tutorial_overlay = TutorialOverlay(self)
@@ -209,7 +214,7 @@ class MainWindow(QMainWindow):
             reply = QMessageBox.question(
                 self,
                 "Restore Session",
-                f"Reopen your last session ({len(paths)} file(s))?",
+                f"Reopen your last session ({count_of(len(paths), 'file')})?",
             )
             if reply == QMessageBox.StandardButton.Yes:
                 self.controller.restore_session()
@@ -461,7 +466,7 @@ class MainWindow(QMainWindow):
         self.controller.status_progress_requested.connect(self.canvas.hud.set_progress)
 
         self.progress_dialog = ProgressDialog(self)
-        self.controller.batch_started.connect(self.progress_dialog.start)
+        self.controller.batch_started.connect(self._on_batch_started)
         self.controller.batch_progress.connect(self.progress_dialog.set_progress)
         self.controller.batch_finished.connect(self.progress_dialog.finish)
         self.progress_dialog.abort_requested.connect(self.controller.abort_active_batch)
@@ -473,6 +478,14 @@ class MainWindow(QMainWindow):
 
     def _refresh_dashboard(self) -> None:
         self.toolbar.refresh_gpu_status()
+
+    def _on_batch_started(self, title: str, abortable: bool) -> None:
+        """Hot Folder polls every 2 s, so its per-frame import batches (the only
+        non-abortable ones) would pop the dialog on every capture. The HUD status
+        line still reports those; abortable batches always show the popup."""
+        if not abortable and self.session_panel.file_browser.hot_folder_btn.isChecked():
+            return
+        self.progress_dialog.start(title, abortable)
 
     def _save_printing_notes(self) -> None:
         """Write the marked-up work print. The annotated pixels are the canvas's own
@@ -558,7 +571,7 @@ class MainWindow(QMainWindow):
                     logger.error(f"Border preview failure: {e}")
 
         # Shared with the filmstrip thumbnail so the same frame can't render two
-        # different colours in the two places (see display_transform_params).
+        # different colors in the two places (see display_transform_params).
         display_cs, monitor_bytes, proof = self.controller.display_transform_params(splash=bool(metrics.get("splash")))
         self.canvas.update_buffer(buffer, display_cs, content_rect=content_rect, monitor_icc_bytes=monitor_bytes, proof=proof)
 
@@ -621,7 +634,7 @@ class MainWindow(QMainWindow):
         self.canvas.set_tool_mode(mode)
 
         # We access buttons through the controls panel
-        self.controls_panel.colour_sidebar.pick_wb_btn.setChecked(mode == ToolMode.WB_PICK)
+        self.controls_panel.color_sidebar.pick_wb_btn.setChecked(mode == ToolMode.WB_PICK)
         self.controls_panel.geometry_sidebar.manual_crop_btn.setChecked(mode == ToolMode.CROP_MANUAL)
         self.controls_panel.retouch_sidebar.pick_dust_btn.setChecked(mode == ToolMode.DUST_PICK)
 

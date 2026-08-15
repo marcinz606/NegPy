@@ -9,10 +9,10 @@ from collections.abc import Callable
 from operator import attrgetter
 
 SLIDER_ATTRS: dict[str, str] = {
-    "cyan": "colour_sidebar.cyan_slider",
-    "magenta": "colour_sidebar.magenta_slider",
-    "yellow": "colour_sidebar.yellow_slider",
-    "temperature": "colour_sidebar.temp_slider",
+    "cyan": "color_sidebar.cyan_slider",
+    "magenta": "color_sidebar.magenta_slider",
+    "yellow": "color_sidebar.yellow_slider",
+    "temperature": "color_sidebar.temp_slider",
     "density": "tone_sidebar.density_slider",
     "grade": "tone_sidebar.grade_slider",
     "toe": "tone_sidebar.toe_slider",
@@ -43,6 +43,13 @@ SLIDER_ATTRS: dict[str, str] = {
     "threshold": "retouch_sidebar.threshold_slider",
     "auto_size": "retouch_sidebar.auto_size_slider",
     "manual_size": "retouch_sidebar.manual_size_slider",
+    "lith_exposure": "altproc_sidebar.exposure_slider",
+    "lith_snatch": "altproc_sidebar.snatch_slider",
+    "lith_abruptness": "altproc_sidebar.abruptness_slider",
+    "cyano_exposure": "altproc_sidebar.cyano_exposure_slider",
+    "cyano_scale": "altproc_sidebar.cyano_scale_slider",
+    "cyano_bleach": "altproc_sidebar.cyano_bleach_slider",
+    "cyano_tannin": "altproc_sidebar.cyano_tannin_slider",
     "selenium": "toning_sidebar.selenium_slider",
     "sepia": "toning_sidebar.sepia_slider",
     "shadow_hue": "toning_sidebar.shadow_hue_slider",

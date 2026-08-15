@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import QHBoxLayout
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.widgets.sliders import CompactSlider, HueSlider
+from negpy.features.altprocess.models import AltProcess
 from negpy.features.process.models import ProcessMode
 
 
@@ -24,19 +25,19 @@ class ToningSidebar(BaseSidebar):
         self.sepia_slider = CompactSlider("Sepia", 0.0, 2.0, conf.sepia_strength)
         self.gold_slider = CompactSlider("Gold", 0.0, 2.0, conf.gold_strength)
         self.gold_slider.setToolTip(
-            "Simulates gold toning — cool blue-black on untoned silver, slight Dmax boost; over sepia it shifts the highlights orange-red (B&W only)"
+            "Simulates gold toning — cool blue-black on untoned silver, slight Dmax boost; over sepia it shifts the highlights orange-red (B&W Negative only)"
         )
         self.blue_slider = CompactSlider("Iron Blue", 0.0, 2.0, conf.blue_strength)
         self.blue_slider.setToolTip(
-            "Simulates iron blue (Prussian blue) toning — blues the image shadows-first and intensifies: deeper navy blacks (B&W only)"
+            "Simulates iron blue (Prussian blue) toning — blues the image shadows-first and intensifies: deeper navy blacks (B&W Negative only)"
         )
         self.copper_slider = CompactSlider("Copper", 0.0, 2.0, conf.copper_strength)
         self.copper_slider.setToolTip(
-            "Simulates copper toning — pink to brick-red shift with the classic Dmax loss: blacks weaken as the bath bleaches (B&W only)"
+            "Simulates copper toning — pink to brick-red shift with the classic Dmax loss: blacks weaken as the bath bleaches (B&W Negative only)"
         )
         self.vanadium_slider = CompactSlider("Vanadium", 0.0, 2.0, conf.vanadium_strength)
         self.vanadium_slider.setToolTip(
-            "Simulates vanadium green toning — bleach-then-tone greens the mids and highlights while deep shadows keep their black silver (B&W only)"
+            "Simulates vanadium green toning — bleach-then-tone greens the mids and highlights while deep shadows keep their black silver (B&W Negative only)"
         )
         for left, right in (
             (self.selenium_slider, self.sepia_slider),
@@ -152,6 +153,17 @@ class ToningSidebar(BaseSidebar):
             self.blue_slider.setVisible(is_bw)
             self.copper_slider.setVisible(is_bw)
             self.vanadium_slider.setVisible(is_bw)
+
+            # Only selenium and gold do anything distinctive on a lith print, and
+            # a cyanotype holds no silver for any bath to react with. Disabled
+            # rather than hidden: the values stay live and come back afterwards.
+            # Tooltips stay put — apply_shortcut_tooltips owns some of these.
+            alt = self.state.config.altproc.alt_process if is_bw else AltProcess.NONE
+            cyano_on = alt == AltProcess.CYANOTYPE
+            for w in (self.sepia_slider, self.blue_slider, self.copper_slider, self.vanadium_slider):
+                w.setEnabled(alt == AltProcess.NONE)
+            for w in (self.selenium_slider, self.gold_slider):
+                w.setEnabled(not cyano_on)
         finally:
             self.block_signals(False)
 

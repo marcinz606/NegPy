@@ -2,15 +2,16 @@ from dataclasses import replace
 from unittest.mock import MagicMock
 
 from negpy.desktop.session import AppState
-from negpy.desktop.view.sidebar.colour import ColourSidebar
+from negpy.desktop.view.sidebar.color import ColorSidebar
 from negpy.features.exposure.logic import wb_to_kelvin
+from negpy.features.process.models import ProcessMode
 
 
 def _sidebar():
     controller = MagicMock()
     controller.state = AppState()
     controller.session.repo.get_global_setting.return_value = None
-    return controller, ColourSidebar(controller)
+    return controller, ColorSidebar(controller)
 
 
 def test_region_selector_retargets_sliders_and_temperature(qapp):
@@ -44,7 +45,7 @@ def test_temperature_writes_selected_region_fields(qapp):
 
     sidebar._on_temp_changed(4500.0)
 
-    call = controller.session.update_config.call_args
+    call = controller.apply_config.call_args
     assert call is not None
     new_exposure = call.args[0].exposure
     assert new_exposure.highlight_magenta != 0.0 or new_exposure.highlight_yellow != 0.0
@@ -62,7 +63,7 @@ def test_region_reset_zeroes_selected_region_only(qapp):
 
     sidebar._on_region_reset()
 
-    new_exposure = controller.session.update_config.call_args.args[0].exposure
+    new_exposure = controller.apply_config.call_args.args[0].exposure
     assert new_exposure.shadow_cyan == 0.0
     assert new_exposure.shadow_magenta == 0.0
     assert new_exposure.shadow_yellow == 0.0
@@ -91,11 +92,11 @@ def test_cast_removal_is_c41_only(qapp):
     controller, sidebar = _sidebar()
     cfg = controller.state.config
 
-    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode="C41"))
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.C41))
     sidebar.sync_ui()
     assert not sidebar.cast_removal_slider.isHidden()
 
-    for mode in ("E-6", "B&W"):
+    for mode in (ProcessMode.E6, ProcessMode.BW):
         cfg = controller.state.config
         controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=mode))
         sidebar.sync_ui()
@@ -117,7 +118,7 @@ def test_cast_removal_hidden_exactly_where_the_render_ignores_it(qapp):
     img = np.stack([np.repeat(grad[None, :], 48, 0)] * 3, -1) * np.array([1.0, 0.9, 0.78], np.float32)
     img = np.ascontiguousarray(img + rng.uniform(0, 0.01, (48, 48, 3)).astype(np.float32))
 
-    for mode, normalize in (("C41", True), ("E-6", True), ("E-6", False), ("B&W", True)):
+    for mode, normalize in ((ProcessMode.C41, True), (ProcessMode.E6, True), (ProcessMode.E6, False), (ProcessMode.BW, True)):
         s = WorkspaceConfig()
         base = replace(s, process=replace(s.process, process_mode=mode, e6_normalize=normalize))
         renders = [

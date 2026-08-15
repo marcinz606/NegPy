@@ -17,6 +17,7 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.logic import per_channel_curve_params
 from negpy.features.exposure.processor import NormalizationProcessor, PhotometricProcessor
 from negpy.kernel.image.logic import rgb_to_lab_working
+from negpy.features.process.models import ProcessMode
 
 _H, _W = 600, 400
 
@@ -42,7 +43,7 @@ def _negative(green_log: float | None = -0.22) -> np.ndarray:
     return (10.0**log).astype(np.float32)
 
 
-def _render(img: np.ndarray, cast_removal: bool, mode: str = "C41") -> np.ndarray:
+def _render(img: np.ndarray, cast_removal: bool, mode: str = ProcessMode.C41) -> np.ndarray:
     cfg = WorkspaceConfig()
     process = replace(cfg.process, analysis_buffer=0.0)
     ctx = PipelineContext(scale_factor=1.0, original_size=img.shape[:2], process_mode=mode)

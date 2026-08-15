@@ -12,10 +12,13 @@ from negpy.desktop.view.canvas.crop_guides import CropGuide
 from negpy.domain.models import ExportPreset, WorkspaceConfig
 from negpy.features.exposure.models import apply_targets
 from negpy.features.rgbscan.models import RgbScanConfig
+from negpy.features.hdr.logic import anchor_ratio, seed_shadow_density
+from negpy.features.hdr.models import HdrConfig, hdr_frame_paths
 from negpy.features.stitch.models import StitchConfig
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG
+from negpy.kernel.system.text import count_of
 from negpy.services.assets.flatfield import FlatFieldProfiles
 from negpy.services.assets.search import facts_for, match, parse_query
 from negpy.services.assets.sidecar import load_or_promote
@@ -50,7 +53,7 @@ class AppState:
     workspace_color_space: str = WORKING_COLOR_SPACE
     is_processing: bool = False
     active_tool: ToolMode = ToolMode.NONE
-    # Colour page region (0 Global, 1 Shadows, 2 Highlights): scopes the WB
+    # Color page region (0 Global, 1 Shadows, 2 Highlights): scopes the WB
     # picker so a pick writes the selected region's CMY fields.
     wb_pick_region: int = 0
     uploaded_files: List[Dict[str, Any]] = field(default_factory=list)
@@ -150,7 +153,7 @@ class AppState:
     test_strip_mosaic: Optional[Any] = None
     test_strip_mosaics: Optional[tuple] = None
     test_strip_content_rect: Optional[tuple] = None
-    # Which proof owns the canvas: "tone" (density × grade) or "colour" (M/Y ring-around).
+    # Which proof owns the canvas: "tone" (density × grade) or "color" (M/Y ring-around).
     # One slot, so every path that drops a proof drops both kinds.
     test_strip_kind: str = "tone"
     # Quarter-turns CCW the ladder is turned by. Shared by both kinds and kept across clear and
@@ -235,6 +238,38 @@ def _asset_mtime(asset: Dict[str, Any]) -> float:
         return os.path.getmtime(asset["path"])
     except OSError:
         return 0.0
+
+
+def composite_kind(asset: Dict[str, Any]) -> str:
+    """Which multi-file construction an asset is: stitch, hdr, rgb, half, or "" for a
+    plain frame.
+
+    Order is load-bearing: a stitch of triplets also carries the primary part's
+    green/blue pair (``controller._on_stitch_registered``), so it must be tested first.
+    """
+    if asset.get("stitch_paths"):
+        return "stitch"
+    if asset.get("hdr_paths"):
+        return "hdr"
+    if asset.get("green_path") and asset.get("blue_path"):
+        return "rgb"
+    if asset.get("half"):
+        return "half"
+    return ""
+
+
+def composite_summary(asset: Dict[str, Any]) -> str:
+    """One tooltip line naming what a frame is built from. Empty for a plain frame."""
+    kind = composite_kind(asset)
+    if kind == "stitch":
+        return f"Stitched composite of {count_of(len(asset['stitch_paths']) + 1, 'frame')}"
+    if kind == "hdr":
+        return f"HDR merge of {count_of(len(hdr_frame_paths(asset)), 'exposure')}"
+    if kind == "rgb":
+        return "RGB-scan triplet"
+    if kind == "half":
+        return f"Half-frame split ({int(asset['half'])} of 2)"
+    return ""
 
 
 class AssetListModel(QAbstractListModel):
@@ -372,7 +407,8 @@ class AssetListModel(QAbstractListModel):
             failed = file_info.get("decode_failed")
             if failed:
                 return f"{file_info['path']}\nFailed to load: {failed}\nClick to retry."
-            return file_info["path"]
+            summary = composite_summary(file_info)
+            return f"{file_info['path']}\n{summary}" if summary else file_info["path"]
 
         if role == Qt.ItemDataRole.UserRole:
             return file_info
@@ -390,7 +426,7 @@ def _source_effective_bounds(process) -> Optional[tuple]:
     Roll baseline when the source is on one, else its per-frame meter. Returns
     None when the source was never analysed (all-zero) — nothing to broadcast.
     """
-    if process.is_locked_initialized and (process.use_luma_average or process.use_colour_average):
+    if process.is_locked_initialized and (process.use_luma_average or process.use_color_average):
         return process.locked_floors, process.locked_ceils
     if process.is_local_initialized:
         return process.local_floors, process.local_ceils
@@ -406,6 +442,58 @@ def resolve_asset_rgbscan(params: WorkspaceConfig, asset: dict) -> WorkspaceConf
         align = bool(asset.get("align", params.rgbscan.align))
         return replace(params, rgbscan=RgbScanConfig(enabled=True, green_path=green, blue_path=blue, align=align))
     return replace(params, rgbscan=RgbScanConfig())
+
+
+def resolve_asset_process_mode(params: WorkspaceConfig, asset: dict) -> WorkspaceConfig:
+    """Overlay the film process a composite inherited from the frames it was built from.
+
+    A composite gets a fresh content hash, so it has no saved edit and would otherwise
+    take the *sticky* global mode — which is stale whenever the source frames got their
+    mode from autodetect rather than a manual switch. Merging five E-6 exposures and
+    landing in C41 is that path. Applied only when the composite has no saved edit of its
+    own, so changing the mode on it afterwards still wins.
+    """
+    mode = asset.get("process_mode")
+    if not mode:
+        return params
+    return replace(params, process=replace(params.process, process_mode=str(mode)))
+
+
+def resolve_asset_hdr_seed(params: WorkspaceConfig, asset: dict) -> WorkspaceConfig:
+    """Open a fresh merge with its recovered shadow range already dialled in.
+
+    Derived from the stored ratios, so nothing extra is persisted and it cannot drift from
+    the merge it describes. Applied only when the composite has no saved edit, so zeroing
+    the slider — which returns the render that is faithful to the metered frame — sticks.
+    """
+    ratios = asset.get("hdr_ratios")
+    if not asset.get("hdr_paths") or not ratios:
+        return params
+    ratios = [float(r) for r in ratios]
+    seed = seed_shadow_density(ratios, anchor_ratio(hdr_frame_paths(asset), ratios, str(asset.get("hdr_anchor", "") or "")))
+    if seed == 0.0:
+        return params
+    return replace(params, exposure=replace(params.exposure, shadow_density=seed))
+
+
+def resolve_asset_hdr(params: WorkspaceConfig, asset: dict) -> WorkspaceConfig:
+    """Overlay a merged frame's bracket (from the asset dict — the authoritative source)
+    onto its params. A non-HDR asset gets hdr reset so a plain frame never inherits a
+    leaked bracket. Session/JSON round-trips lists — coerce to tuples so the frozen config
+    stays hashable."""
+    paths = asset.get("hdr_paths")
+    if paths:
+        return replace(
+            params,
+            hdr=HdrConfig(
+                hdr_enabled=True,
+                hdr_paths=tuple(str(p) for p in paths),
+                hdr_ratios=tuple(float(r) for r in asset.get("hdr_ratios") or ()),
+                hdr_align=bool(asset.get("hdr_align", True)),
+                hdr_anchor=str(asset.get("hdr_anchor", "") or ""),
+            ),
+        )
+    return replace(params, hdr=HdrConfig())
 
 
 def resolve_asset_stitch(params: WorkspaceConfig, asset: dict) -> WorkspaceConfig:
@@ -881,15 +969,39 @@ class DesktopSessionManager(QObject):
             }
         )
 
+    @staticmethod
+    def _asset_defaults(config: WorkspaceConfig, asset: dict) -> WorkspaceConfig:
+        """Overlay everything an asset contributes that is not an edit: what the asset *is*.
+
+        Its film process if it is a composite (a fresh hash would otherwise take the stale
+        sticky mode), a merge's seeded shadow lift, and the triplet/stitch/bracket wiring —
+        which also *clears* those on a plain frame, so nothing leaks between assets.
+
+        Shared by hydration and by Reset Settings so the two cannot drift on what an asset
+        contributes. They still differ on the edit itself: a fresh open starts from the
+        sticky settings, a reset from bare defaults.
+        """
+        config = resolve_asset_process_mode(config, asset)
+        config = resolve_asset_hdr_seed(config, asset)
+        return resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(config, asset), asset), asset)
+
     def _hydrate_asset_config(self, asset: dict) -> tuple[WorkspaceConfig, bool]:
         """Build an asset's effective config and report whether it had saved edits."""
-        saved_config = load_or_promote(self.repo, asset["hash"], asset["path"], half=int(asset.get("half") or 0))
-        is_new = saved_config is None
+        saved_config = load_or_promote(
+            self.repo,
+            asset["hash"],
+            asset["path"],
+            half=int(asset.get("half") or 0),
+            composite=bool(asset.get("hdr_paths") or asset.get("stitch_paths")),
+        )
         if saved_config is not None:
+            # A saved edit keeps its own process mode and shadow lift — those are the
+            # user's now — so only the wiring overlays apply.
             config = self._apply_sticky_settings(saved_config, only_global=True)
-        else:
-            config = self._apply_sticky_settings(WorkspaceConfig(), only_global=False)
-        return resolve_asset_stitch(resolve_asset_rgbscan(config, asset), asset), is_new
+            return resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(config, asset), asset), asset), False
+        # Sticky settings include the global process mode, which a composite must not take
+        # over the mode of the frames it was built from — _asset_defaults applies after.
+        return self._asset_defaults(self._apply_sticky_settings(WorkspaceConfig(), only_global=False), asset), True
 
     def config_for_asset(self, asset: dict) -> WorkspaceConfig:
         """Return an asset's hydrated config without changing the active session state.
@@ -970,19 +1082,19 @@ class DesktopSessionManager(QObject):
         Apply the active frame's chosen settings to other frames. Returns the count changed.
 
         rows:         SettingRows (from the granular picker) to copy from the source.
-        bounds_flags: (luma, colour) roll-baseline axes to broadcast; these need the
+        bounds_flags: (luma, color) roll-baseline axes to broadcast; these need the
                       source's rendered bounds, not a config field.
         scope:        "selection" (the multi-selected frames) or "roll" (all loaded frames).
         """
         rows = list(rows)
-        luma, colour = bounds_flags
-        if self.state.selected_file_idx == -1 or not (rows or luma or colour):
+        luma, color = bounds_flags
+        if self.state.selected_file_idx == -1 or not (rows or luma or color):
             return 0
 
         source_config = self.state.config
 
         src_bounds = None
-        if luma or colour:
+        if luma or color:
             src_bounds = _source_effective_bounds(source_config.process)
             if src_bounds is None:
                 self.settings_synced.emit("Render the source frame before syncing bounds")
@@ -1003,15 +1115,15 @@ class DesktopSessionManager(QObject):
                 changes: dict = {"locked_floors": floors, "locked_ceils": ceils}
                 if luma:
                     changes["use_luma_average"] = True
-                if colour:
-                    changes["use_colour_average"] = True
+                if color:
+                    changes["use_color_average"] = True
                 synced = replace(synced, process=replace(synced.process, **changes))
             self.push_external_history(target_hash, target_config, synced)
             self.repo.save_file_settings(target_hash, synced, file_path=target_path)
             count += 1
 
         if count:
-            n = len(rows) + int(luma) + int(colour)
+            n = len(rows) + int(luma) + int(color)
             noun = "setting" if n == 1 else "settings"
             if scope == "roll":
                 msg = f"{n} {noun} synced to whole roll ({count} frames)"
@@ -1227,10 +1339,21 @@ class DesktopSessionManager(QObject):
 
     def reset_settings(self) -> None:
         """
-        Reverts current file to default configuration. Recorded as an ordinary
-        history step, so a reset is undoable like any other edit.
+        Reverts current file to defaults plus whatever the asset itself contributes.
+        Recorded as an ordinary history step, so a reset is undoable like any other edit.
+
+        Still bare defaults for the *edit*, unlike a fresh open, which starts from the
+        sticky settings — a reset is meant to clear those. What it must not clear is the
+        rest: an asset assembled from several files carries settings
+        that describe *what it is* rather than how it is edited — a composite's film
+        process and, for a merge, the shadow lift derived from the range it recovered, plus
+        the triplet/stitch/bracket wiring itself. Resetting to bare defaults dropped all of
+        that, which on a merge silently un-merged the render and lost the seeded starting
+        point with no way back to it.
         """
-        self.update_config(WorkspaceConfig(), persist=True)
+        idx = self.state.selected_file_idx
+        asset = self.state.uploaded_files[idx] if 0 <= idx < len(self.state.uploaded_files) else {}
+        self.update_config(self._asset_defaults(WorkspaceConfig(), asset), persist=True)
 
     def reset_section(self, section: str) -> None:
         """Reset a single feature section to its default config."""
@@ -1241,12 +1364,14 @@ class DesktopSessionManager(QObject):
         from negpy.features.local.models import LocalAdjustmentsConfig
         from negpy.features.process.models import ProcessConfig
         from negpy.features.retouch.models import RetouchConfig
+        from negpy.features.altprocess.models import AltProcessConfig
         from negpy.features.toning.models import ToningConfig
 
         defaults = {
             "exposure": ExposureConfig(),
             "lab": LabConfig(),
             "local": LocalAdjustmentsConfig(),
+            "altproc": AltProcessConfig(),
             "toning": ToningConfig(),
             "geometry": GeometryConfig(),
             "process": ProcessConfig(),
@@ -1299,6 +1424,15 @@ class DesktopSessionManager(QObject):
             {h: sorted(s) for h, s in self.state.local_hidden_masks_by_hash.items() if s},
         )
 
+    def persist_session(self) -> None:
+        """Write the open-file manifest now.
+
+        Normally implicit — opening, adding or dropping a file all persist. A setting
+        changed on an already-open composite has no such moment, and nothing saves the
+        manifest on quit, so it would be lost.
+        """
+        self._persist_session()
+
     def _persist_session(self) -> None:
         """Saves the open-file manifest (paths + active) for restore on next launch."""
         paths = [f["path"] for f in self.state.uploaded_files]
@@ -1323,11 +1457,28 @@ class DesktopSessionManager(QObject):
                 "triplets": [list(t) for t in f.get("stitch_triplets") or ()],
                 "align": bool(f.get("stitch_align", True)),
                 "hash": f["hash"],
+                "process_mode": f.get("process_mode", ""),
             }
             for f in self.state.uploaded_files
             if f.get("stitch_paths")
         }
         self.repo.save_global_setting("session_stitches", stitches)
+        # HDR merges keep their bracket + solved ratios here for the same reason: the
+        # reference path alone cannot regroup the bracket, and re-solving would decode
+        # every exposure again.
+        merges = {
+            f["path"]: {
+                "paths": list(f["hdr_paths"]),
+                "ratios": [float(r) for r in f.get("hdr_ratios") or ()],
+                "align": bool(f.get("hdr_align", True)),
+                "anchor": str(f.get("hdr_anchor", "") or ""),
+                "hash": f["hash"],
+                "process_mode": f.get("process_mode", ""),
+            }
+            for f in self.state.uploaded_files
+            if f.get("hdr_paths")
+        }
+        self.repo.save_global_setting("session_hdr_merges", merges)
 
     def add_files(self, file_paths: List[str], validated_info: Optional[List[Dict]] = None) -> None:
         """
@@ -1393,10 +1544,13 @@ class DesktopSessionManager(QObject):
         self.files_changed.emit()
         self._persist_session()
 
-    def apply_stitch(self, indices: List[int], composite: dict) -> None:
-        """Replace the part assets with their stitched composite (inserted at the first
-        part's position), then open it. Part edits stay in the DB under their content
-        hashes, so an unstitch restores them intact."""
+    def apply_composite(self, indices: List[int], composite: dict) -> None:
+        """Replace the source assets with the composite built from them (inserted at the
+        first source's position), then open it.
+
+        Stitch parts and HDR bracket frames both land here. Source edits stay in the DB
+        under their own content hashes, so an unstitch or unmerge restores them intact.
+        """
         valid = sorted({i for i in indices if 0 <= i < len(self.state.uploaded_files)})
         if not valid:
             return

@@ -1,7 +1,8 @@
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
-from typing import Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
@@ -10,9 +11,13 @@ from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.analysis import output_histogram, proof_grid, rotate_grid, strip_mosaic
 from negpy.features.flatfield.logic import apply_flatfield
+from negpy.features.hdr.models import HdrConfig, hdr_active
 from negpy.features.geometry.batch_autocrop import detect_crop_candidate, resolve_roll_crops
 from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix
-from negpy.features.rgbscan.models import is_rgb_triplet
+from negpy.features.process.logic import effective_linear_raw
+from negpy.infrastructure.loaders.helpers import unsupported_raw_reason
+from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
+from negpy.features.stitch.models import StitchConfig, stitch_active
 from negpy.features.geometry.processor import GeometryProcessor
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.gpu.resources import GPUTexture
@@ -58,7 +63,7 @@ class RenderTask:
 
 @dataclass(frozen=True)
 class TestStripTask:
-    """Request to print a proof mosaic off one frame: the density × grade strip or the colour
+    """Request to print a proof mosaic off one frame: the density × grade strip or the color
     ring-around. `overrides` is one ExposureConfig field-override dict per patch, row-major
     over `grid`, unrotated — the worker assembles all four orientations."""
 
@@ -83,7 +88,7 @@ class ThumbnailUpdateTask:
     file_hash: str  # asset_thumbnail_key — the filmstrip and the disk cache share it
     buffer: np.ndarray
     # Display-transform inputs, from AppController.display_transform_params — must be
-    # the same triple the canvas used for this buffer or the thumbnail's colour drifts.
+    # the same triple the canvas used for this buffer or the thumbnail's color drifts.
     color_space: str = WORKING_COLOR_SPACE
     monitor_icc_bytes: Optional[bytes] = None
     proof: Optional[tuple] = None
@@ -147,6 +152,7 @@ class AssetDiscoveryTask:
     restore_triplets: dict | None = None  # {red_path: [green, blue]} — rebuild known triplets (session restore).
     half_frame: bool = False  # Expand each file into two half-frame assets (left/right).
     restore_stitches: dict | None = None  # {primary_path: {paths, transforms, canvas, sizes, hash}} (session restore).
+    restore_hdr: dict | None = None  # {reference_path: {paths, ratios, align, hash}} (session restore).
     half_frame_profile: dict | None = None  # {crop_rect, split_x, gutter_thickness} override
 
 
@@ -162,15 +168,12 @@ class PreviewLoadTask:
     use_splash: bool = True
     for_cache_warm: bool = False
     detect_mode: bool = False  # run process-mode autodetect (new files only)
-    green_path: str = ""  # RGB-scan triplet: green/blue exposures merged with file_path (red).
-    blue_path: str = ""
-    align: bool = True  # sub-pixel registration of the triplet
-    stitch_paths: tuple[str, ...] = ()  # stitch composite: non-primary parts + stored registration
-    stitch_transforms: tuple[tuple[float, ...], ...] = ()
-    stitch_canvas: tuple[int, int] = (0, 0)
-    stitch_sizes: tuple[tuple[int, int], ...] = ()
-    stitch_triplets: tuple[tuple[str, str], ...] = ()  # per-part (green, blue) RGB-scan exposures
-    stitch_align: bool = True
+    # The assembly configs travel whole rather than flattened into loose fields. They are
+    # frozen and hashable, the worker rebuilt them from the pieces anyway, and a field
+    # added to one of them then needs no change here or at the call site.
+    rgbscan: RgbScanConfig = RgbScanConfig()  # triplet: green/blue exposures merged with file_path (red)
+    stitch: StitchConfig = StitchConfig()  # composite: non-primary parts + stored registration
+    hdr: HdrConfig = HdrConfig()  # bracket: the other exposures, merged with file_path (the reference)
     flatfield_profile_id: str = ""  # per-part flat-field profile for stitch previews
     half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None = (
         None  # (half, split_x, crop_rect, gutter_thickness)
@@ -264,7 +267,7 @@ class RenderWorker(QObject):
 
         Runs on the render thread with the canvas's own ImageProcessor, so the patches are the
         pixels the canvas would show. Every field a proof overrides (density/grade, or the
-        colour head's magenta/yellow) is absent from the analysis cache key, so the per-frame
+        color head's magenta/yellow) is absent from the analysis cache key, so the per-frame
         metering is reused and only the exposure stage onward re-dispatches. Metrics are
         dropped: a proof must not disturb the writeback the real render owns.
         """
@@ -307,6 +310,9 @@ class RenderWorker(QObject):
             self.error.emit(str(e))
 
 
+_THUMB_CHUNK = 8
+
+
 class ThumbnailWorker(QObject):
     """
     Asynchronous thumbnail generation worker.
@@ -314,6 +320,9 @@ class ThumbnailWorker(QObject):
 
     progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(dict)
+    # Chunks of the running batch, so a large folder fills its filmstrip as it goes
+    # instead of staying blank until the last file lands.
+    partial = pyqtSignal(dict)
     # Rendered positives use their own signal so the batch's bulk overwrite can't
     # clobber a frame that already rendered on the canvas.
     rendered_finished = pyqtSignal(dict)
@@ -338,11 +347,25 @@ class ThumbnailWorker(QObject):
             async def _progress_callback(current: int, name: str):
                 self.progress.emit(current, total, name)
 
+            # Chunked, not per-file: every emit costs the model a full relayout.
+            pending: dict = {}
+
+            def _ready_callback(key: str, thumb) -> None:
+                pending[key] = thumb
+                if len(pending) >= _THUMB_CHUNK:
+                    self.partial.emit(dict(pending))
+                    pending.clear()
+
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
                 new_thumbs = loop.run_until_complete(
-                    thumb_service.generate_batch_thumbnails(files, self._store, progress_callback=_progress_callback)
+                    thumb_service.generate_batch_thumbnails(
+                        files,
+                        self._store,
+                        progress_callback=_progress_callback,
+                        ready_callback=_ready_callback,
+                    )
                 )
             finally:
                 loop.close()
@@ -374,6 +397,21 @@ class ThumbnailWorker(QObject):
             logger.error(f"Thumbnail update failure: {e}")
 
 
+def _safe_call(fn: Callable[[str], Any], path: str) -> Any:
+    """``fn(path)`` or None — a bad file is skipped, the pass keeps going."""
+    try:
+        return fn(path)
+    except Exception as e:
+        logger.error(f"Skipping invalid file {path}: {e}")
+        return None
+
+
+# Seek-bound: each hash costs 18 seeks, so cpu_count() concurrent readers thrash a spinning disk.
+_HASH_WORKERS = min(8, APP_CONFIG.max_workers)
+# Real decodes; halved for memory headroom, as NormalizationWorker does.
+_DECODE_WORKERS = max(1, APP_CONFIG.max_workers // 2)
+
+
 class AssetDiscoveryWorker(QObject):
     """
     Background worker for file system crawling and hashing.
@@ -382,6 +420,35 @@ class AssetDiscoveryWorker(QObject):
     progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(list)
     error = pyqtSignal(str)
+
+    def _map_files(
+        self,
+        paths: list[str],
+        fn: Callable[[str], Any],
+        label: Callable[[str], str],
+        workers: int,
+    ) -> list[Any]:
+        """Run an expensive per-file pass in parallel, results in input order.
+
+        Order is load-bearing: it becomes the filmstrip order. Progress counts
+        completions, so it advances out of order — which is what a bar wants.
+        """
+        total = len(paths)
+        if total < 2 or workers < 2:
+            out = []
+            for i, path in enumerate(paths):
+                self.progress.emit(i + 1, total, label(path))
+                out.append(_safe_call(fn, path))
+            return out
+
+        results: list[Any] = [None] * total
+        with ThreadPoolExecutor(max_workers=min(workers, total)) as ex:
+            futures = {ex.submit(_safe_call, fn, path): i for i, path in enumerate(paths)}
+            for done, fut in enumerate(as_completed(futures), 1):
+                i = futures[fut]
+                results[i] = fut.result()
+                self.progress.emit(done, total, label(paths[i]))
+        return results
 
     @pyqtSlot(AssetDiscoveryTask)
     def process(self, task: AssetDiscoveryTask) -> None:
@@ -411,22 +478,24 @@ class AssetDiscoveryWorker(QObject):
         # IR companions ride along with their main TIFF; they are never assets of their own.
         discovered_paths = [p for p in discovered_paths if not is_ir_sidecar_path(p)]
 
-        total = len(discovered_paths)
         valid_assets = []
+        digests = self._map_files(discovered_paths, file_hashes, os.path.basename, _HASH_WORKERS)
 
-        for i, path in enumerate(discovered_paths):
-            name = os.path.basename(path)
-            self.progress.emit(i + 1, total, name)
-
-            try:
-                f_hash, legacy = file_hashes(path)
-                if not f_hash.startswith("err_"):
-                    # Stamped once here so sorting and date search never stat per row.
-                    valid_assets.append(
-                        {"name": name, "path": path, "hash": f_hash, "legacy_hash": legacy, "mtime": os.path.getmtime(path)}
-                    )
-            except Exception as e:
-                logger.error(f"Skipping invalid file {path}: {e}")
+        for path, digest in zip(discovered_paths, digests):
+            if digest is None:
+                continue
+            f_hash, legacy = digest
+            if not f_hash.startswith("err_"):
+                # Stamped once here so sorting and date search never stat per row.
+                valid_assets.append(
+                    {
+                        "name": os.path.basename(path),
+                        "path": path,
+                        "hash": f_hash,
+                        "legacy_hash": legacy,
+                        "mtime": os.path.getmtime(path),
+                    }
+                )
 
         blank_ambiguous_legacy_hashes(valid_assets)
 
@@ -438,6 +507,9 @@ class AssetDiscoveryWorker(QObject):
         if task.restore_stitches and valid_assets:
             valid_assets = self._attach_restored_stitches(valid_assets, task.restore_stitches)
 
+        if task.restore_hdr and valid_assets:
+            valid_assets = self._attach_restored_hdr(valid_assets, task.restore_hdr)
+
         if task.half_frame and valid_assets:
             valid_assets = self._expand_half_frames(valid_assets, profile=task.half_frame_profile)
 
@@ -445,24 +517,37 @@ class AssetDiscoveryWorker(QObject):
 
     def _expand_half_frames(self, assets: list, profile: dict | None = None) -> list:
         """Expand each file into two half-frame assets sharing the path, with
-        per-half hash/name identities. Triplet assets stay whole (unsupported combo).
+        per-half hash/name identities. Composite assets (triplet, stitch, HDR) stay
+        whole — an unsupported combination.
 
         When ``profile`` is set (a {crop_rect, split_x, gutter_thickness} dict saved
         from the half-frame rectangle editor), it overrides the auto-detected split
         and adds the crop rect + gutter to every expanded half.
         """
+        import os
+
         from negpy.services.assets.half_frame import detect_split_x_for_file, half_hash, half_name
 
+        def _splittable(a: dict) -> bool:
+            return not (a.get("green_path") or a.get("stitch_paths") or a.get("hdr_paths"))
+
+        if profile is None:
+            paths = [a["path"] for a in assets if _splittable(a)]
+            detected = self._map_files(paths, detect_split_x_for_file, lambda p: f"Split {os.path.basename(p)}", _DECODE_WORKERS)
+            splits = dict(zip(paths, detected))
+        else:
+            splits = {}
+
         out = []
-        for i, a in enumerate(assets):
-            if a.get("green_path") or a.get("stitch_paths"):
+        for a in assets:
+            if not _splittable(a):
                 out.append(a)
                 continue
-            self.progress.emit(i + 1, len(assets), f"Split {a['name']}")
             if profile is not None:
                 split_x = float(profile.get("split_x") or 0.5)
             else:
-                split_x = detect_split_x_for_file(a["path"])
+                detected_x = splits.get(a["path"])
+                split_x = 0.5 if detected_x is None else float(detected_x)
             legacy = a.get("legacy_hash")
             for half in (1, 2):
                 entry = {
@@ -523,6 +608,36 @@ class AssetDiscoveryWorker(QObject):
                         "stitch_sizes": tuple((int(s[0]), int(s[1])) for s in entry["sizes"]),
                         "stitch_triplets": tuple((str(t[0]), str(t[1])) for t in entry.get("triplets") or ()),
                         "stitch_align": bool(entry.get("align", True)),
+                        "process_mode": entry.get("process_mode", ""),
+                    }
+                )
+            else:
+                out.append(a)
+        return out
+
+    def _attach_restored_hdr(self, assets: list, merges: dict) -> list:
+        """Re-attach saved brackets to restored reference assets (no re-solve). A merge whose
+        exposures vanished from disk restores as a plain asset."""
+        import os
+
+        from negpy.features.hdr.models import hdr_name
+
+        out = []
+        for a in assets:
+            entry = merges.get(a["path"])
+            if entry and entry.get("paths") and all(os.path.exists(p) for p in entry["paths"]):
+                out.append(
+                    {
+                        **a,
+                        "name": hdr_name([a["path"], *entry["paths"]]),
+                        "hash": entry["hash"],
+                        # The composite hash is the bracket's — inheriting the reference
+                        # frame's legacy digest would rehome that frame's edit onto it.
+                        "legacy_hash": "",
+                        "hdr_paths": tuple(entry["paths"]),
+                        "hdr_ratios": tuple(float(r) for r in entry.get("ratios") or ()),
+                        "hdr_align": bool(entry.get("align", True)),
+                        "hdr_anchor": str(entry.get("anchor", "") or ""),
                     }
                 )
             else:
@@ -539,13 +654,8 @@ class AssetDiscoveryWorker(QObject):
         by_path = {a["path"]: a for a in assets}
         ordered = sorted(by_path, key=lambda p: os.path.basename(p).lower())
 
-        items = []
-        for i, p in enumerate(ordered):
-            self.progress.emit(i + 1, len(ordered), f"RGB {os.path.basename(p)}")
-            try:
-                items.append((p, classify_channel(probe_channel_means(p))))
-            except Exception as e:
-                logger.error(f"RGB-scan classification failed for {p}: {e}")
+        means = self._map_files(ordered, probe_channel_means, lambda p: f"RGB {os.path.basename(p)}", _DECODE_WORKERS)
+        items = [(p, classify_channel(m)) for p, m in zip(ordered, means) if m is not None]
 
         result = []
         grouped = set()
@@ -595,23 +705,12 @@ class PreviewLoadWorker(QObject):
             return
         t0 = time.perf_counter()
         try:
-            if task.stitch_paths:
+            if stitch_active(task.stitch):
                 # Stitch composite: replay the stored registration at preview scale.
                 # No splash — the primary's embedded JPEG would flash a half frame.
-                from negpy.features.stitch.models import StitchConfig
-
-                stitch_cfg = StitchConfig(
-                    stitch_enabled=True,
-                    stitch_paths=task.stitch_paths,
-                    stitch_transforms=task.stitch_transforms,
-                    stitch_canvas=task.stitch_canvas,
-                    stitch_sizes=task.stitch_sizes,
-                    stitch_triplets=task.stitch_triplets,
-                    stitch_align=task.stitch_align,
-                )
                 raw, dims, metadata = self._preview_service.load_linear_preview_stitch(
                     task.file_path,
-                    stitch_cfg,
+                    task.stitch,
                     task.workspace_color_space,
                     use_camera_wb=task.use_camera_wb,
                     full_resolution=task.full_resolution,
@@ -630,18 +729,39 @@ class PreviewLoadWorker(QObject):
                     task.file_path, raw, dims, source_cs, ir_preview, detected_mode, (metadata.get("cam_xyz"), metadata.get("camera_wb"))
                 )
                 return
-            if task.green_path and task.blue_path:
-                # RGB-scan triplet: assemble the frame from the three exposures.
-                # No splash — the red embedded JPEG would flash a red-cast preview.
-                raw, dims, metadata = self._preview_service.load_linear_preview_rgb(
+            if hdr_active(task.hdr):
+                # Bracketed capture: merge the exposures into one linear source. No splash —
+                # the reference frame's embedded JPEG would flash the unmerged exposure.
+                raw, dims, metadata = self._preview_service.load_linear_preview_hdr(
                     task.file_path,
-                    task.green_path,
-                    task.blue_path,
+                    task.hdr,
                     task.workspace_color_space,
                     use_camera_wb=task.use_camera_wb,
                     full_resolution=task.full_resolution,
                     file_hash=task.file_hash,
-                    align=task.align,
+                )
+                source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
+                ir_preview = metadata.get("ir_preview")
+                detected_mode = self._detect_mode(task, raw) if task.detect_mode else ""
+                logger.info(
+                    "load-timing preview_worker_total %.0fms (hdr load->buffer) %s",
+                    (time.perf_counter() - t0) * 1000,
+                    task.file_path,
+                )
+                self.finished.emit(
+                    task.file_path, raw, dims, source_cs, ir_preview, detected_mode, (metadata.get("cam_xyz"), metadata.get("camera_wb"))
+                )
+                return
+            if is_rgb_triplet(task.rgbscan):
+                # RGB-scan triplet: assemble the frame from the three exposures.
+                # No splash — the red embedded JPEG would flash a red-cast preview.
+                raw, dims, metadata = self._preview_service.load_linear_preview_rgb(
+                    task.file_path,
+                    task.rgbscan,
+                    task.workspace_color_space,
+                    use_camera_wb=task.use_camera_wb,
+                    full_resolution=task.full_resolution,
+                    file_hash=task.file_hash,
                 )
                 source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
                 ir_preview = metadata.get("ir_preview")
@@ -692,8 +812,13 @@ class PreviewLoadWorker(QObject):
             )
         except Exception as e:
             logger.exception(f"Asset load failed: {task.file_path}")
-            self.error.emit(str(e))
-            self.load_failed.emit(task.file_path, str(e))
+            # libraw reports "Unsupported file format or not RAW file" for a file whose
+            # tags it parsed perfectly and whose payload it cannot decode, which reads as
+            # "your NEF is broken". Ask why only once the decode has actually failed, so
+            # the check costs nothing on the files that work.
+            message = unsupported_raw_reason(task.file_path) or str(e)
+            self.error.emit(message)
+            self.load_failed.emit(task.file_path, message)
 
     def _detect_mode(self, task: PreviewLoadTask, raw) -> str:
         """Classify film process mode; re-decode no-WB since the C41 mask is hidden by camera WB."""
@@ -774,19 +899,15 @@ class BatchAutoCropWorker(QObject):
         config = frame.config
         rgbscan = config.rgbscan
         common = {
-            "use_camera_wb": not config.process.linear_raw,
+            "use_camera_wb": not effective_linear_raw(config.process, config.exposure.render_intent),
             "full_resolution": False,
             "file_hash": base_hash(file_info.get("hash")),  # halves share one decode
         }
-        if rgbscan.enabled and rgbscan.green_path and rgbscan.blue_path:
-            raw, _, _ = self._preview_service.load_linear_preview_rgb(
-                file_info["path"],
-                rgbscan.green_path,
-                rgbscan.blue_path,
-                workspace_color_space,
-                align=rgbscan.align,
-                **common,
-            )
+        hdr = config.hdr
+        if hdr.hdr_enabled and hdr.hdr_paths:
+            raw, _, _ = self._preview_service.load_linear_preview_hdr(file_info["path"], hdr, workspace_color_space, **common)
+        elif rgbscan.enabled and rgbscan.green_path and rgbscan.blue_path:
+            raw, _, _ = self._preview_service.load_linear_preview_rgb(file_info["path"], rgbscan, workspace_color_space, **common)
         else:
             raw, _, _ = self._preview_service.load_linear_preview(
                 file_info["path"],
@@ -950,7 +1071,10 @@ class NormalizationWorker(QObject):
                     process_mode = params.process.process_mode if params else DEFAULT_WORKSPACE_CONFIG.process.process_mode
                     e6_normalize = params.process.e6_normalize if params else DEFAULT_WORKSPACE_CONFIG.process.e6_normalize
                     geometry = params.geometry if params else DEFAULT_WORKSPACE_CONFIG.geometry
-                    linear_raw = params.process.linear_raw if params else DEFAULT_WORKSPACE_CONFIG.process.linear_raw
+                    # effective_, not the stored flag: the transfer path decodes neutral whatever
+                    # the flag says, and the comment below is the reason this has to match it.
+                    _an = params if params else DEFAULT_WORKSPACE_CONFIG
+                    linear_raw = effective_linear_raw(_an.process, _an.exposure.render_intent)
 
                     # Use to_thread for blocking CPU/IO bound load and analysis.
                     # Decode with the SAME WB the render path uses (use_camera_wb =

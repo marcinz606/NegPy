@@ -7,6 +7,7 @@ from typing import Callable
 import cv2
 import numpy as np
 
+from negpy.kernel.system.text import count_of
 from negpy.infrastructure.scanners.base import (
     ScanMode,
     ScannerCapabilities,
@@ -599,7 +600,7 @@ def _align_ir_to_rgb(rgb: np.ndarray, ir: np.ndarray) -> np.ndarray:
     ix, iy = int(round(dx)), int(round(dy))
     if ix == 0 and iy == 0:
         return ir
-    # out(x, y) = ir(x + ix, y + iy), edge-replicated — matches _estimate_shift's
+    # out(x, y) = ir(x + ix, y + iy), edge-replicated — matches estimate_shift's
     # convention (mov ≈ ref shifted by (dx, dy)) with zero interpolation.
     x_idx = np.clip(np.arange(w) + ix, 0, w - 1)
     y_idx = np.clip(np.arange(h) + iy, 0, h - 1)
@@ -726,10 +727,16 @@ class SaneSession:
     def scan(
         self,
         params: ScanParams,
-        progress: Callable[[float], None],
+        progress: Callable[..., None],
         cancel: threading.Event,
     ) -> ScanResult:
-        """Scan one frame on the held handle. Blocks until complete or cancelled."""
+        """Scan one frame on the held handle. Blocks until complete or cancelled.
+
+        `progress` is `...` rather than `[[float], None]` because SANE reports one
+        phase and so calls `progress(fraction)`, while ScannerSession declares the
+        `(fraction, phase)` form callers must accept; only `...` is assignable to
+        both. See ScannerBackend's progress obligation.
+        """
         if self.closed:
             raise RuntimeError(f"Scanner session for {self.device_id} is closed")
         return self._backend._scan_on_device(self._dev, self.device_id, params, progress, cancel)
@@ -799,7 +806,7 @@ class SaneBackend:
             return []
 
         raw_devices = self._sane.get_devices()
-        logger.info(f"SANE found {len(raw_devices)} raw device(s): {[r[0] for r in raw_devices]}")
+        logger.info(f"SANE found {count_of(len(raw_devices), 'raw device')}: {[r[0] for r in raw_devices]}")
         devices: list[ScannerDevice] = []
         for raw in raw_devices:
             held = self._session_holding(raw[0])
@@ -931,7 +938,7 @@ class SaneBackend:
         self,
         device_id: str,
         params: ScanParams,
-        progress: Callable[[float], None],
+        progress: Callable[..., None],
         cancel: threading.Event,
     ) -> ScanResult:
         """Execute a one-shot scan via SANE (open, scan, close). Blocks until complete or cancelled."""
@@ -962,7 +969,7 @@ class SaneBackend:
         dev,
         device_id: str,
         params: ScanParams,
-        progress: Callable[[float], None],
+        progress: Callable[..., None],
         cancel: threading.Event,
     ) -> ScanResult:
         """Scan one frame on an already-open handle. sane_cancel()s the frame when

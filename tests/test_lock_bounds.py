@@ -237,14 +237,14 @@ class TestRenderWritebackRespectsLock(unittest.TestCase):
     def tearDown(self):
         _teardown_controller(self.ctrl)
 
-    def _call_metrics(self, floors, ceils, lock_bounds, use_luma_average=False, use_colour_average=False):
+    def _call_metrics(self, floors, ceils, lock_bounds, use_luma_average=False, use_color_average=False):
         _set_process(
             self.ctrl,
             local_floors=(0.0, 0.0, 0.0),
             local_ceils=(0.0, 0.0, 0.0),
             lock_bounds=lock_bounds,
             use_luma_average=use_luma_average,
-            use_colour_average=use_colour_average,
+            use_color_average=use_color_average,
         )
         self.ctrl._on_metrics_updated({"log_bounds": FakeBounds(floors, ceils)})
 
@@ -268,7 +268,7 @@ class TestRenderWritebackRespectsLock(unittest.TestCase):
             local_ceils=(0.0, 0.0, 0.0),
             lock_bounds=False,
             use_luma_average=True,
-            use_colour_average=True,
+            use_color_average=True,
         )
         self.ctrl._on_metrics_updated({"log_bounds": FakeBounds((0.1, 0.1, 0.1), (0.9, 0.9, 0.9))})
         self.ctrl.session.update_config.assert_not_called()
@@ -281,7 +281,7 @@ class TestRenderWritebackRespectsLock(unittest.TestCase):
             local_ceils=(0.0, 0.0, 0.0),
             lock_bounds=False,
             use_luma_average=True,
-            use_colour_average=False,
+            use_color_average=False,
         )
         new_floors = (0.05, 0.06, 0.07)
         new_ceils = (0.91, 0.92, 0.93)
@@ -324,7 +324,7 @@ class TestRenderWritebackRespectsLock(unittest.TestCase):
 
     def test_writeback_persists_base_not_mixed(self):
         # Persist the per-frame base, never the final mix — persisting the mix and
-        # re-feeding it drifts (the colour-only-roll edit-stacking residual).
+        # re-feeding it drifts (the color-only-roll edit-stacking residual).
         _set_process(self.ctrl, local_floors=(0.0, 0.0, 0.0), local_ceils=(0.0, 0.0, 0.0), lock_bounds=False)
         base = ((0.05, 0.06, 0.07), (0.91, 0.92, 0.93))
         self.ctrl._on_metrics_updated(

@@ -261,7 +261,7 @@ def _in_gamut_lab(l_val: float, a: float, b: float, m: np.ndarray, white: np.nda
 # (C* ~12-40), not a gamut bound: sunset (~57), terracotta (~53) and brick
 # (~51) all sit inside the hue band. It cuts both ways -- skin above C* ~50
 # keeps only partial weight, and warm objects at skin's own chroma (wood, tan
-# leather, sand) are the same colour as skin. Neither is separable per-pixel.
+# leather, sand) are the same color as skin. Neither is separable per-pixel.
 _SKIN_HUE_CENTER_DEG = np.float32(52.0)
 _SKIN_HUE_WIDTH_DEG = np.float32(20.0)
 _SKIN_CHROMA_FULL = np.float32(35.0)

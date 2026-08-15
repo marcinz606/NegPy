@@ -16,7 +16,7 @@ import pytest
 from PyQt6.QtWidgets import QApplication
 
 from negpy.kernel.system.config import APP_CONFIG
-from negpy.services.assets.crosstalk import TYPE_MEASURED, TYPE_SPECSHEET, TYPE_TUNED, CrosstalkProfiles
+from negpy.services.assets.crosstalk import CrosstalkProfiles, CrosstalkType
 
 _IDENTITY = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
 
@@ -41,20 +41,20 @@ def _dialog(_app, select: str):
 
 
 def test_type_survives_a_save(_app, tmp_path):
-    CrosstalkProfiles.save("Mine", _IDENTITY, TYPE_TUNED)
+    CrosstalkProfiles.save("Mine", _IDENTITY, CrosstalkType.TUNED)
     dlg = _dialog(_app, "Mine")
 
-    dlg._set_type(TYPE_MEASURED)
+    dlg._set_type(CrosstalkType.MEASURED)
     dlg._on_save()
 
-    assert CrosstalkProfiles.get_type("Mine") == TYPE_MEASURED
+    assert CrosstalkProfiles.get_type("Mine") == CrosstalkType.MEASURED
     assert dict(CrosstalkProfiles.grouped_profiles())["Measured"] == ["Mine"]
 
 
 def test_selecting_a_profile_shows_its_type(_app):
-    CrosstalkProfiles.save("Sheet", _IDENTITY, TYPE_SPECSHEET)
+    CrosstalkProfiles.save("Sheet", _IDENTITY, CrosstalkType.SPECSHEET)
     dlg = _dialog(_app, "Sheet")
-    assert dlg.selected_type() == TYPE_SPECSHEET
+    assert dlg.selected_type() == CrosstalkType.SPECSHEET
 
 
 def test_unknown_type_falls_back_to_tuned_not_the_first_entry(_app, tmp_path):
@@ -64,15 +64,15 @@ def test_unknown_type_falls_back_to_tuned_not_the_first_entry(_app, tmp_path):
         f.write('name = "Odd"\ntype = "handed-down-by-owls"\nmatrix = [[1.0,0.0,0.0],[0.0,1.0,0.0],[0.0,0.0,1.0]]\n')
 
     dlg = _dialog(_app, "Odd")
-    assert dlg.selected_type() == TYPE_TUNED
+    assert dlg.selected_type() == CrosstalkType.TUNED
 
 
 def test_renaming_keeps_the_type(_app):
-    CrosstalkProfiles.save("Before", _IDENTITY, TYPE_MEASURED)
+    CrosstalkProfiles.save("Before", _IDENTITY, CrosstalkType.MEASURED)
     dlg = _dialog(_app, "Before")
 
     dlg.name_edit.setText("After")
     dlg._on_save()
 
-    assert CrosstalkProfiles.get_type("After") == TYPE_MEASURED
+    assert CrosstalkProfiles.get_type("After") == CrosstalkType.MEASURED
     assert "Before" not in CrosstalkProfiles.list_profiles()

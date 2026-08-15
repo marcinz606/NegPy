@@ -5,6 +5,7 @@ import numpy as np
 from negpy.domain.interfaces import PipelineContext
 from negpy.features.finish.models import FinishConfig
 from negpy.features.finish.processor import FinishProcessor
+from negpy.features.process.models import ProcessMode
 
 
 class TestFinishProcessor(unittest.TestCase):
@@ -12,7 +13,7 @@ class TestFinishProcessor(unittest.TestCase):
         return np.full((100, 100, 3), 0.5, dtype=np.float32)
 
     def _context(self) -> PipelineContext:
-        return PipelineContext(original_size=(100, 100), scale_factor=1.0, process_mode="C41")
+        return PipelineContext(original_size=(100, 100), scale_factor=1.0, process_mode=ProcessMode.C41)
 
     def test_noop_when_stops_zero(self) -> None:
         """Processor returns image unchanged when burn is 0 stops."""

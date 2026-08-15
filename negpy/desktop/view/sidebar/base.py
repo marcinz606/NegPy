@@ -9,6 +9,22 @@ from negpy.desktop.view.styles.templates import EditedDot, default_button_height
 from negpy.desktop.view.styles.theme import THEME
 
 
+def install_wheel_guards(widget: QWidget) -> None:
+    """Scroll must not change a combo's value unless it has focus — otherwise scrolling
+    a panel silently edits every combo the pointer crosses. Module-level so panels that
+    are not BaseSidebar subclasses (ScanSidebar) can share it."""
+    for combo in widget.findChildren(QComboBox):
+        combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        def _wheel(c, event) -> None:
+            if c.hasFocus():
+                QComboBox.wheelEvent(c, event)
+            else:
+                event.ignore()
+
+        combo.wheelEvent = types.MethodType(_wheel, combo)
+
+
 class BaseSidebar(QWidget):
     """
     Base class for all sidebar panels.
@@ -29,16 +45,7 @@ class BaseSidebar(QWidget):
         self._install_wheel_guards()
 
     def _install_wheel_guards(self) -> None:
-        for combo in self.findChildren(QComboBox):
-            combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-
-            def _wheel(c, event) -> None:
-                if c.hasFocus():
-                    QComboBox.wheelEvent(c, event)
-                else:
-                    event.ignore()
-
-            combo.wheelEvent = types.MethodType(_wheel, combo)
+        install_wheel_guards(self)
 
     def _init_layout(self) -> None:
         """Sets up the default QVBoxLayout."""
@@ -74,12 +81,16 @@ class BaseSidebar(QWidget):
         btn.setChecked(checked)
         return btn
 
-    def _icon_action(self, icon_name: str, tooltip: str, width: int = 36) -> QPushButton:
-        """Icon-only one-shot action button, sized to sit flush beside toggles."""
+    def _icon_action(self, icon_name: str, tooltip: str, width: int | None = 36) -> QPushButton:
+        """Icon-only one-shot action button, sized to sit flush beside toggles.
+
+        width=None leaves it stretchable, for rows that size their buttons by layout stretch.
+        """
         btn = QPushButton()
         btn.setIcon(qta.icon(icon_name, color=THEME.text_primary, color_disabled=THEME.text_muted))
         btn.setStyleSheet("QPushButton {padding: 6px;}")
-        btn.setFixedWidth(width)
+        if width is not None:
+            btn.setFixedWidth(width)
         btn.setFixedHeight(default_button_height())
         btn.setToolTip(wrap_tooltip(tooltip))
         return btn
@@ -119,10 +130,12 @@ class BaseSidebar(QWidget):
         # Replace the section in the main config object
         new_config = replace(self.state.config, **{section_name: new_section})
 
-        self.controller.session.update_config(new_config, persist=persist, render=render)
-
         if render:
-            self.controller.request_render(readback_metrics=readback_metrics)
+            # apply_config, not request_render: a change to a source input needs the source
+            # decoded again, and only it knows which changes those are.
+            self.controller.apply_config(new_config, persist=persist, readback_metrics=readback_metrics)
+        else:
+            self.controller.session.update_config(new_config, persist=persist, render=False)
 
     def update_config_root(
         self,
@@ -135,7 +148,7 @@ class BaseSidebar(QWidget):
         Updates fields on the root config object directly.
         """
         new_config = replace(self.state.config, **changes)
-        self.controller.session.update_config(new_config, persist=persist, render=render)
-
         if render:
-            self.controller.request_render(readback_metrics=readback_metrics)
+            self.controller.apply_config(new_config, persist=persist, readback_metrics=readback_metrics)
+        else:
+            self.controller.session.update_config(new_config, persist=persist, render=False)

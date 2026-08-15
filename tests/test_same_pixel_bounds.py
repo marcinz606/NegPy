@@ -1,6 +1,6 @@
-"""Same-pixel colour floor refs: the colour bounds pass must read the dense
+"""Same-pixel color floor refs: the color bounds pass must read the dense
 (highlight) endpoint from one shared, chroma-gated pixel set instead of
-independent per-channel percentiles — coloured highlight content (sunset sky,
+independent per-channel percentiles — colored highlight content (sunset sky,
 red car) is scene content, not film cast. The thin end stays percentile-based:
 nothing on real film is thinner than base, so per-channel ceils are physically
 anchored. When the dense end holds no trustworthy neutrals, the pass falls back
@@ -31,7 +31,7 @@ def _ramp() -> np.ndarray:
     return log
 
 
-def _old_colour_recombined(img_log: np.ndarray, mode: str = ProcessMode.C41, color_clip: float = 1.0):
+def _old_color_recombined(img_log: np.ndarray, mode: str = ProcessMode.C41, color_clip: float = 1.0):
     """The pre-change recombination (independent per-channel percentiles)."""
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
@@ -64,7 +64,7 @@ def test_colored_dense_content_no_longer_reads_as_cast():
     new_err = np.abs(_dev(bounds.floors) - truth).max()
     assert new_err < 0.02, f"same-pixel floors polluted (err={new_err:.3f})"
 
-    old_floors, _ = _old_colour_recombined(log)
+    old_floors, _ = _old_color_recombined(log)
     old_err = np.abs(_dev(old_floors) - truth).max()
     assert old_err > 0.10, "fixture must actually break the percentile pass"
 
@@ -73,13 +73,13 @@ def test_neutral_frame_matches_percentile_pass():
     # With neutral extremes both estimators must agree (no invented tint).
     log = _ramp()
     bounds = analyze_log_exposure_bounds_from_log(log, color_clip=1.0)
-    old_floors, _ = _old_colour_recombined(log)
+    old_floors, _ = _old_color_recombined(log)
     np.testing.assert_allclose(_dev(bounds.floors), _dev(old_floors), atol=5e-3)
 
 
 def test_no_neutral_dense_end_falls_back_bit_exact():
     # Dense end made ONLY of strongly split R/B content: the chroma cap rejects
-    # the band and the whole colour pass reproduces the percentile method.
+    # the band and the whole color pass reproduces the percentile method.
     log = _ramp()
     dense = slice(int(0.90 * _H), _H)
     log[dense, 0::2, 0] -= 0.65
@@ -88,7 +88,7 @@ def test_no_neutral_dense_end_falls_back_bit_exact():
     log[dense, 1::2, 2] -= 0.65
 
     bounds = analyze_log_exposure_bounds_from_log(log, color_clip=1.0)
-    old_floors, old_ceils = _old_colour_recombined(log)
+    old_floors, old_ceils = _old_color_recombined(log)
     np.testing.assert_allclose(bounds.floors, old_floors, atol=1e-9)
     np.testing.assert_allclose(bounds.ceils, old_ceils, atol=1e-9)
 
@@ -98,7 +98,7 @@ def test_e6_gated_to_percentile_pass():
     block = slice(0, int(0.08 * _W))
     log[:, block, 0] = _BASE[0] - 0.95
     bounds = analyze_log_exposure_bounds_from_log(log, process_mode=ProcessMode.E6, e6_normalize=True, color_clip=1.0)
-    old_floors, old_ceils = _old_colour_recombined(log, mode=ProcessMode.E6)
+    old_floors, old_ceils = _old_color_recombined(log, mode=ProcessMode.E6)
     np.testing.assert_allclose(bounds.floors, old_floors, atol=1e-9)
     np.testing.assert_allclose(bounds.ceils, old_ceils, atol=1e-9)
 
@@ -109,5 +109,5 @@ def test_thin_end_stays_percentile_based():
     block = slice(0, int(0.08 * _W))
     log[:, block, 0] = _BASE[0] - 0.95
     bounds = analyze_log_exposure_bounds_from_log(log, color_clip=1.0)
-    _, old_ceils = _old_colour_recombined(log)
+    _, old_ceils = _old_color_recombined(log)
     np.testing.assert_allclose(bounds.ceils, old_ceils, atol=1e-9)

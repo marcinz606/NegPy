@@ -897,8 +897,8 @@ class MiniHistogramWidget(QWidget):
 
 class MiniRGBHistogramWidget(QWidget):
     """
-    Per-channel counterpart to MiniHistogramWidget shown behind the Colour section header.
-    Overlays the R, G, B channels (~50% opacity) so a colour cast reads as the channels
+    Per-channel counterpart to MiniHistogramWidget shown behind the Color section header.
+    Overlays the R, G, B channels (~50% opacity) so a color cast reads as the channels
     pulling apart. Fed the same (4, 256) [R, G, B, L] buffer as the luma mini histogram.
     """
 
@@ -927,7 +927,7 @@ class MiniRGBHistogramWidget(QWidget):
         painter.setPen(Qt.PenStyle.NoPen)
         w = self.width()
         h = self.height()
-        colours = {"r": THEME.channel_red, "g": THEME.channel_green, "b": THEME.channel_blue}
+        colors = {"r": THEME.channel_red, "g": THEME.channel_green, "b": THEME.channel_blue}
         for key, data in self._channels.items():
             if not data:
                 continue
@@ -938,7 +938,7 @@ class MiniRGBHistogramWidget(QWidget):
                 path.lineTo(i * step, h - val * h)
             path.lineTo(w, h)
             path.closeSubpath()
-            c = QColor(colours[key])
+            c = QColor(colors[key])
             c.setAlpha(120)
             painter.setBrush(QBrush(c))
             painter.drawPath(path)

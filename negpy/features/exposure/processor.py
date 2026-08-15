@@ -47,6 +47,7 @@ from negpy.features.exposure.transfer import (
 from negpy.features.local.logic import compute_local_maps
 from negpy.features.local.models import LocalAdjustmentsConfig
 from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
+from negpy.features.process.logic import effective_linear_raw
 from negpy.features.process.models import ProcessConfig, ProcessMode, per_channel_point_offsets
 from negpy.kernel.image.logic import get_luminance
 
@@ -206,7 +207,7 @@ class NormalizationProcessor:
         # Linear RAW decodes without white balance, which the row-normalized camera matrix
         # assumes; folding the as-shot multipliers back in makes this render independent of
         # which decode produced the buffer, so the toggle cannot cast the image here.
-        matrix = camera_to_working_matrix(context.cam_xyz, context.camera_wb if self.config.linear_raw else None)
+        matrix = camera_to_working_matrix(context.cam_xyz, context.camera_wb if effective_linear_raw(self.config) else None)
         linear = apply_camera_matrix(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), matrix)
 
         img_log = np.log10(np.clip(linear, epsilon, None))

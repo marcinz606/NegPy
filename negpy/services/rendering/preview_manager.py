@@ -25,7 +25,10 @@ from negpy.kernel.system.config import APP_CONFIG
 from negpy.features.flatfield.logic import apply_flatfield, flatfield_token
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.retouch.logic import downsample_ir
-from negpy.features.rgbscan.logic import assemble_rgb
+from negpy.features.hdr.logic import anchor_ratio, merge_providers
+from negpy.features.hdr.models import HdrConfig, hdr_token
+from negpy.features.rgbscan.logic import assemble_rgb, rgbscan_token
+from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.features.stitch.logic import stitch_composite
 from negpy.features.stitch.models import StitchConfig, stitch_token
 from negpy.kernel.system.logging import get_logger
@@ -410,23 +413,21 @@ class PreviewManager:
     def load_linear_preview_rgb(
         self,
         red_path: str,
-        green_path: str,
-        blue_path: str,
+        rgbscan: RgbScanConfig,
         color_space: str | None = None,
         use_camera_wb: bool = False,
         full_resolution: bool = False,
         file_hash: str | None = None,
-        align: bool = True,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """Merge a narrowband R/G/B triplet into one linear preview: red channel from the
         red shot, green from green, blue from blue. The merged result is cached, so re-visiting
         a triplet skips the green/blue decode and the phase-correlate align."""
+        green_path, blue_path, align = rgbscan.green_path, rgbscan.blue_path, rgbscan.align
         merged_key = None
-        if file_hash and color_space is not None:
-            green_revision = _file_revision(green_path)
-            blue_revision = _file_revision(blue_path)
+        token = rgbscan_token(rgbscan)
+        if file_hash and color_space is not None and token:
             merged_key = PreviewCacheKey(
-                file_hash=f"rgb|{file_hash}|{green_revision}|{blue_revision}|{align}",
+                file_hash=f"rgb|{file_hash}|{token}",
                 use_camera_wb=use_camera_wb,
                 workspace_color_space=color_space,
                 full_resolution=full_resolution,
@@ -448,6 +449,63 @@ class PreviewManager:
             return arr
 
         merged = assemble_rgb(red, _match(green_out), _match(blue_out), align=align)
+        out = ensure_image(merged)
+        if merged_key is not None:
+            # Freshly assembled buffer — cache and caller alias it (read-only contract).
+            self._cache.put(merged_key, out, dims, dict(meta))
+        return out, dims, meta
+
+    def load_linear_preview_hdr(
+        self,
+        reference_path: str,
+        hdr: HdrConfig,
+        color_space: str | None = None,
+        use_camera_wb: bool = False,
+        full_resolution: bool = False,
+        file_hash: str | None = None,
+    ) -> Tuple[ImageBuffer, Dimensions, dict]:
+        """Merge a bracket into one linear preview, in the reference frame's exposure units.
+
+        The merged result is cached, so re-visiting a bracket skips every sibling decode
+        and the phase-correlate align — the same contract as the triplet merge above.
+        """
+        other_paths, ratios, align = hdr.hdr_paths, hdr.hdr_ratios, hdr.hdr_align
+        anchor = anchor_ratio([reference_path, *other_paths], ratios, hdr.hdr_anchor)
+        merged_key = None
+        token = hdr_token(hdr)
+        if file_hash and color_space is not None and token:
+            merged_key = PreviewCacheKey(
+                # The token covers every field of HdrConfig, so a field added later cannot
+                # be left out of the key and serve the previous buffer for a changed setting.
+                file_hash=f"hdr|{file_hash}|{token}",
+                use_camera_wb=use_camera_wb,
+                workspace_color_space=color_space,
+                full_resolution=full_resolution,
+            )
+            hit = self._cache.get(merged_key)
+            if hit is not None:
+                return hit  # cache hit — caller must not mutate this buffer
+
+        ref_out, dims, meta = self.load_linear_preview(reference_path, color_space, use_camera_wb, full_resolution, file_hash)
+        ref = np.asarray(ref_out, dtype=np.float32)
+
+        def _load(path: str) -> np.ndarray:
+            arr = np.asarray(self.load_linear_preview(path, color_space, use_camera_wb, full_resolution, None)[0], dtype=np.float32)
+            if arr.shape[:2] != ref.shape[:2]:
+                # Preview sizing rounds per file, so a pixel or two of difference between
+                # frames of one bracket is ordinary and resampling is right. A different
+                # *aspect* is not: a frame rotated or cropped differently would be squashed
+                # onto the reference and merged as if it lined up. The full-res path raises
+                # on any mismatch — do not let the preview quietly disagree with it.
+                # Aspects cross-multiplied, tolerance 2% relative; an orientation
+                # difference is a third off, so nothing borderline is at stake.
+                if abs(arr.shape[1] * ref.shape[0] - arr.shape[0] * ref.shape[1]) > 0.02 * ref.shape[1] * arr.shape[0]:
+                    raise ValueError(f"bracket frames differ in shape: {arr.shape}, {ref.shape}")
+                arr = cv2.resize(arr, (ref.shape[1], ref.shape[0]), interpolation=cv2.INTER_AREA)
+            return arr
+
+        providers = [lambda: ref, *[lambda p=p: _load(p) for p in other_paths]]
+        merged = merge_providers(providers, list(ratios), reference=0, align=align, anchor=anchor)
         out = ensure_image(merged)
         if merged_key is not None:
             # Freshly assembled buffer — cache and caller alias it (read-only contract).
@@ -492,9 +550,8 @@ class PreviewManager:
             green, blue = stitch.stitch_triplets[i] if i < len(stitch.stitch_triplets) else ("", "")
             # file_hash=None: the composite hash is not the parts' content hash.
             if green and blue:
-                out, _, part_meta = self.load_linear_preview_rgb(
-                    path, green, blue, color_space, use_camera_wb, full_resolution, None, align=stitch.stitch_align
-                )
+                part_rgb = RgbScanConfig(enabled=True, green_path=green, blue_path=blue, align=stitch.stitch_align)
+                out, _, part_meta = self.load_linear_preview_rgb(path, part_rgb, color_space, use_camera_wb, full_resolution, None)
             else:
                 out, _, part_meta = self.load_linear_preview(path, color_space, use_camera_wb, full_resolution, None)
             parts.append(apply_flatfield(np.asarray(out, dtype=np.float32), flatfield))

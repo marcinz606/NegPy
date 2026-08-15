@@ -178,7 +178,7 @@ def test_degenerate_guard_fires_when_the_ir_plane_mirrors_the_image():
     assert out is rgb
 
 
-def test_degenerate_guard_passes_ordinary_colour_film():
+def test_degenerate_guard_passes_ordinary_color_film():
     rgb, ir = _frame([(128, 128, 5, 0.2)])
     assert not oi.calibrate(rgb, ir, 0.66).degenerate
 

@@ -8,7 +8,7 @@ import numpy as np
 from dataclasses import replace as dc_replace
 from functools import lru_cache
 from PIL import Image, ImageCms
-from typing import Callable, Tuple, Optional, Any, Dict, List
+from typing import Callable, Tuple, Optional, Any, Dict, List, Sequence
 from negpy.kernel.system.logging import get_logger
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.domain.types import ImageBuffer
@@ -19,8 +19,9 @@ from negpy.domain.models import (
     ExportResolutionMode,
     ColorSpace,
 )
+from negpy.features.altprocess.models import AltProcess
 from negpy.features.process.models import ProcessMode
-from negpy.features.process.logic import linear_raw_token
+from negpy.features.process.logic import effective_linear_raw, linear_raw_token
 from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix, sensor_token
 from negpy.features.exposure.models import RenderIntent
 from negpy.features.flatfield.logic import apply_flatfield, flatfield_token
@@ -49,6 +50,8 @@ from negpy.features.retouch.models import IR_METHOD_OPENICE
 from negpy.features.rgbscan.logic import merge_rgb_triplet, rgbscan_token
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.stitch.logic import stitch_composite
+from negpy.features.hdr.logic import merge_bracket
+from negpy.features.hdr.models import hdr_active, hdr_token
 from negpy.features.stitch.models import stitch_has_triplets, stitch_token
 from negpy.domain.interfaces import PipelineContext
 from negpy.services.rendering.engine import DarkroomEngine
@@ -436,6 +439,7 @@ class ImageProcessor:
             sensor_token(settings.process),
             rgbscan_token(settings.rgbscan),
             stitch_token(settings.stitch),
+            hdr_token(settings.hdr),
         )
         if self._precorrect_key == precorrect_key and self._precorrect_value is not None:
             img = self._precorrect_value
@@ -463,7 +467,8 @@ class ImageProcessor:
             + flatfield_token(settings.flatfield)
             + rgbscan_token(settings.rgbscan)
             + stitch_token(settings.stitch)
-            + linear_raw_token(settings.process)
+            + hdr_token(settings.hdr)
+            + linear_raw_token(settings.process, settings.exposure.render_intent)
             + sensor_token(settings.process)
             + ir_bake_token(settings.retouch, ir_buffer is not None)
             + manual_bake_token(settings.retouch)
@@ -559,6 +564,7 @@ class ImageProcessor:
             or t.vanadium_strength != 0.0
             or t.shadow_tint_strength != 0.0
             or t.highlight_tint_strength != 0.0
+            or settings.altproc.alt_process != AltProcess.NONE
         )
         is_bw = settings.process.process_mode == ProcessMode.BW and not is_toned
 
@@ -574,23 +580,31 @@ class ImageProcessor:
             return Image.fromarray(float_to_uint8(buffer))
         raise ValueError(f"Unsupported bit depth: {bit_depth}")
 
-    def _decode_sensor_rgb(self, file_path: str, linear_raw: bool, fast: bool = False) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def _decode_sensor_rgb(
+        self, file_path: str, linear_raw: bool, fast: bool = False, wb_override: Optional[Sequence[float]] = None
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Decode one RAW to sensor-native (output_color=raw), linear uint16 RGB.
 
         `fast` allows a half-size decode (contact-sheet tiles); ignored where
         half_size would distort colors (see _use_half_size_decode).
+
+        `wb_override` decodes on someone else's white balance instead of this file's own.
+        Frames of one bracket must share a scale or the exposure ratios solved between them
+        absorb the difference, and `use_camera_wb` reads each *file's* as-shot multipliers —
+        which differ per frame on a camera left in auto white balance.
+
         Returns (rgb_uint16, loader_metadata).
         """
         ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=linear_raw)
         with ctx_mgr as raw:
             algo = get_best_demosaic_algorithm(raw)
-            user_wb = [1, 1, 1, 1] if linear_raw else None
+            user_wb = [1, 1, 1, 1] if linear_raw else (list(wb_override) if wb_override is not None else None)
             post_kw: Dict[str, Any] = {"half_size": True} if fast and _use_half_size_decode(raw, linear_raw) else {}
             rgb = raw.postprocess(
                 gamma=(1, 1),
                 no_auto_bright=True,
                 adjust_maximum_thr=0.0,  # fixed white level, never the frame's own max
-                use_camera_wb=not linear_raw,
+                use_camera_wb=not linear_raw and wb_override is None,
                 user_wb=user_wb,
                 output_bps=16,
                 output_color=rawpy.ColorSpace.raw,
@@ -627,9 +641,10 @@ class ImageProcessor:
         cache_key = (
             file_path,
             mtime,
-            params.process.linear_raw,
+            effective_linear_raw(params.process, params.exposure.render_intent),
             rgbscan_token(params.rgbscan),
             stitch_token(params.stitch),
+            hdr_token(params.hdr),
             flatfield_token(params.flatfield),
             sensor_token(params.process),
             fast_decode,
@@ -663,9 +678,12 @@ class ImageProcessor:
         Stitch registration is estimated on buffers produced here, so any decode
         the transforms are replayed against must come through here too.
         """
-        linear_raw = params.process.linear_raw
+        linear_raw = effective_linear_raw(params.process, params.exposure.render_intent)
         rgbcfg = params.rgbscan
-        is_triplet = is_rgb_triplet(rgbcfg)
+        # A bracket wins over a triplet: the two are refused together in the UI, and the
+        # export decode branches in this order — an asset that somehow carries both must
+        # not assemble differently on the two paths.
+        is_triplet = is_rgb_triplet(rgbcfg) and not hdr_active(params.hdr)
 
         rgb, metadata = self._decode_sensor_rgb(file_path, linear_raw, fast=fast_decode)
         # No embedded profile (scanner-raw linear, sensor-native RAW) → the buffer is
@@ -690,7 +708,32 @@ class ImageProcessor:
 
             rgb = merge_rgb_triplet(_decode, file_path, rgbcfg.green_path, rgbcfg.blue_path, align=rgbcfg.align)
 
-        f32_buffer = uint16_to_float32(rgb)
+        if hdr_active(params.hdr):
+            # Merged straight to float32: the recovered detail sits below the reference
+            # exposure's quantization step, so a uint16 round-trip would discard it.
+            # Before flat-field and the sensor unmix, both of which are applied below —
+            # the decode pins the white level (adjust_maximum_thr=0.0), so saturation is
+            # exactly 1.0 and the merge's exclusion threshold means what it says. A gain
+            # map applied first moves that point and skews the weights.
+            #
+            # Every frame decodes on the reference's white balance, never its own. The
+            # transfer path already decodes neutral (effective_linear_raw), so this is
+            # normally moot -- but it is pinned here rather than left to that, because a
+            # bracket whose frames sit on different white balances solves wrong ratios and
+            # says nothing about it.
+            bracket_wb = None if linear_raw else metadata.get("camera_wb")
+            f32_buffer = merge_bracket(
+                # fast_decode must ride along: a half-size primary against full-size
+                # siblings is a shape mismatch, not a slow merge.
+                lambda p: rgb if p == file_path else self._decode_sensor_rgb(p, linear_raw, fast=fast_decode, wb_override=bracket_wb)[0],
+                file_path,
+                params.hdr.hdr_paths,
+                params.hdr.hdr_ratios,
+                align=params.hdr.hdr_align,
+                anchor_path=params.hdr.hdr_anchor,
+            )
+        else:
+            f32_buffer = uint16_to_float32(rgb)
 
         if ir_full is not None and ir_full.shape[:2] != f32_buffer.shape[:2]:
             # Defensive: no current IR carrier half-sizes (libraw ignores half_size on
@@ -763,7 +806,8 @@ class ImageProcessor:
                 + flatfield_token(params.flatfield)
                 + rgbscan_token(params.rgbscan)
                 + stitch_token(params.stitch)
-                + linear_raw_token(params.process)
+                + hdr_token(params.hdr)
+                + linear_raw_token(params.process, params.exposure.render_intent)
                 + sensor_token(params.process)
                 + ir_bake_token(params.retouch, ir_full is not None)
                 + manual_bake_token(params.retouch)
@@ -893,7 +937,7 @@ class ImageProcessor:
                     "Use sRGB, P3 D65, Rec 2020, or Greyscale, or pick another format."
                 )
             photometric, primaries, transfer = tag
-            # 16-bit, colour-managed to target; ICC discarded (libjxl tags enumeratively).
+            # 16-bit, color-managed to target; ICC discarded (libjxl tags enumeratively).
             if is_greyscale:
                 img_int = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=16)
                 img_out, _icc = self._apply_color_management_u16_greyscale(img_int, working_color_space, color_space, icc_output, icc_input)
@@ -914,7 +958,7 @@ class ImageProcessor:
             return bytes(bits), "jxl"
         elif fmt == ExportFormat.WEBP:
             # 8-bit only (WebP has no higher bit depth). Lossy or lossless via a
-            # flag; PIL embeds the ICC profile for any colour space.
+            # flag; PIL embeds the ICC profile for any color space.
             if is_greyscale:
                 # apply_color_management can't transform an L image with the RGB
                 # working profile (lcms refuses the transform, leaving the file
@@ -1022,7 +1066,8 @@ class ImageProcessor:
                 + flatfield_token(params.flatfield)
                 + rgbscan_token(params.rgbscan)
                 + stitch_token(params.stitch)
-                + linear_raw_token(params.process)
+                + hdr_token(params.hdr)
+                + linear_raw_token(params.process, params.exposure.render_intent)
                 + sensor_token(params.process)
                 + ir_bake_token(params.retouch, ir_full is not None)
                 + manual_bake_token(params.retouch)
@@ -1192,7 +1237,7 @@ class ImageProcessor:
         output_icc_path: Optional[str],
         input_icc_path: Optional[str] = None,
     ) -> Tuple[Image.Image, Optional[bytes]]:
-        """Greyscale buffer -> colour-managed 8-bit L image for JPEG/WebP.
+        """Greyscale buffer -> color-managed 8-bit L image for JPEG/WebP.
 
         Runs the 16-bit grey re-encode first so the 8-bit result carries the same
         TRC (and profile bytes) as the greyscale TIFF/PNG of the same edit.

@@ -52,6 +52,18 @@ def set_parallel_enabled(enabled: bool) -> None:
     _parallel_enabled = bool(enabled)
 
 
+def resolve_cpu_parallel(file_override: Optional[bool], stored: Optional[bool]) -> Optional[bool]:
+    """Which answer wins: override.toml, then the saved setting, then the platform default.
+
+    None at every level means "platform default", so an installation that has never touched
+    the setting keeps whatever its platform does today — on for Windows and Linux, off for
+    macOS. Surfacing the control must not silently re-decide it for anyone.
+    """
+    if file_override is not None:
+        return file_override
+    return stored
+
+
 def configure_cpu_parallel(override: Optional[bool]) -> None:
     """Apply the startup policy: explicit override wins, else the platform default."""
     set_parallel_enabled(default_cpu_parallel() if override is None else override)

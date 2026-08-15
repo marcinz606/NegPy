@@ -112,10 +112,10 @@ def test_the_flag_off_draws_nothing():
     assert not _paint(_loupe_overlay(on=False)).called
 
 
-@pytest.mark.parametrize("kind", ["tone", "colour"])
+@pytest.mark.parametrize("kind", ["tone", "color"])
 def test_either_proof_suppresses_it(kind):
     """A proof mosaic is a different image than _qimage, so magnifying it there would show
-    pixels that are not on screen. Both the tone strip and the colour ring do this."""
+    pixels that are not on screen. Both the tone strip and the color ring do this."""
     overlay = _loupe_overlay()
     overlay.state.test_strip = True
     overlay.state.test_strip_kind = kind

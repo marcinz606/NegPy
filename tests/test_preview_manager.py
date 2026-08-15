@@ -192,7 +192,7 @@ def test_load_linear_preview_decodes_in_raw_colorspace() -> None:
     """Preview must decode in rawpy ColorSpace.raw — the pipeline assumes raw-space linear input.
 
     Guards against decoding into a display space (e.g. Adobe), which silently shifts
-    colour and breaks normalization / process-mode detection.
+    color and breaks normalization / process-mode detection.
     """
     rgb_u16 = np.zeros((32, 24, 3), dtype=np.uint16)
     raw = MagicMock()

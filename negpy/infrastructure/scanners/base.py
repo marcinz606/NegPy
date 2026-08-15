@@ -28,6 +28,7 @@ class ScannerCapabilities:
     supported_depths: tuple[int, ...]
     sources: tuple[ScanMode, ...]
     max_area_mm: tuple[float, float]  # (width, height)
+    autofocus: bool = True
     auto_exposure: bool = False
     adapter_frame_capacity: int | None = None  # transport capacity bound, not an exposure count
     adapter_frame_control: bool = False
@@ -56,7 +57,7 @@ class ScannerSession(Protocol):
     def scan(
         self,
         params: ScanParams,
-        progress: Callable[[float], None],
+        progress: Callable[[float, str], None],
         cancel: threading.Event,
     ) -> ScanResult: ...
     def eject(self) -> bool: ...
@@ -74,6 +75,11 @@ class ScannerBackend(Protocol):
       scanner with no selectable source must still populate it or it never appears.
     - `scan` raises `TransientScanError` for retryable transport failures and a plain
       exception for everything else — that choice is the backend's alone.
+    - `scan` reports progress as `progress(fraction)`, or `progress(fraction, phase)`
+      when it has more than one phase to distinguish. The fraction is relative to
+      the phase, not the scan, so a backend reporting several rewinds to 0.0 at each
+      one and the label is what makes that legible. A caller supplying `progress`
+      must therefore accept the phase as optional, defaulting it to "Scanning".
     - `eject` returns False for a device with no eject action; it raises only when a
       present eject genuinely fails.
     - The constructor raises `ScannerUnavailable` when the driver is missing, with an
@@ -89,7 +95,7 @@ class ScannerBackend(Protocol):
         self,
         device_id: str,
         params: ScanParams,
-        progress: Callable[[float], None],
+        progress: Callable[[float, str], None],
         cancel: threading.Event,
     ) -> ScanResult: ...
     def open_session(self, device_id: str) -> ScannerSession: ...

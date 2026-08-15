@@ -42,7 +42,7 @@ class FinishSidebar(BaseSidebar):
         self.carrier_flare_slider = CompactSlider("Flare", 0.0, 1.0, conf.carrier_flare)
         self.carrier_flare_slider.setToolTip(
             "Light reflected off the bared metal of the filed bevel: a glow that lifts the black just inside "
-            "the filed edge and stains the paper just outside it. Coloured on colour film, neutral in B&W. 0 = off"
+            "the filed edge and stains the paper just outside it. Colored on color film, neutral in B&W. 0 = off"
         )
         self.carrier_corner_slider = CompactSlider("Corners", 0.0, 1.0, conf.carrier_corner)
         self.carrier_corner_slider.setToolTip("How far the filed aperture's corners round off — no file cuts a sharp inside corner")
@@ -63,11 +63,11 @@ class FinishSidebar(BaseSidebar):
         row3 = QHBoxLayout()
         self.color_btn = QPushButton()
         self.color_btn.setFixedHeight(default_button_height())
-        self.color_btn.setToolTip("Click to pick a border colour")
+        self.color_btn.setToolTip("Click to pick a border color")
         self._update_color_btn(conf.border_color)
 
         self.match_paper_btn = self._small_toggle(
-            "fa5s.file", "Paper white", conf.border_match_paper, "Tint the mat with the toned paper white instead of the picked colour"
+            "fa5s.file", "Paper white", conf.border_match_paper, "Tint the mat with the toned paper white instead of the picked color"
         )
         row3.addWidget(self.color_btn, 1)
         row3.addWidget(self.match_paper_btn, 1)

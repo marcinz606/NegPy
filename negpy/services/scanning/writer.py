@@ -128,13 +128,13 @@ def _encode_dng(full_array: np.ndarray, extratags: list) -> bytes:
 
     RGB is written with the RGB photometric so tifffile emits a clean 3 *color*
     samples with no ExtraSamples (matching pidng); the PhotometricInterpretation
-    tag is then patched to LinearRaw (34892), which DNG requires. Marking colour
+    tag is then patched to LinearRaw (34892), which DNG requires. Marking color
     planes as ExtraSamples instead makes some raw processors treat the file as a
     1-channel sensor + aux planes and mis-demosaic it.
 
     The IR (4-sample) case keeps the LINEAR_RAW photometric with the extra planes
     declared as extra samples — there the 4th plane genuinely is infrared, and
-    tifffile has no clean 4-colour-sample form.
+    tifffile has no clean 4-color-sample form.
     """
     buf = io.BytesIO()
     if full_array.shape[-1] == 3:

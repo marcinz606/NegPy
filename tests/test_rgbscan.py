@@ -8,7 +8,7 @@ from negpy.domain.models import WorkspaceConfig
 import cv2
 
 from negpy.features.rgbscan.logic import (
-    _estimate_shift,
+    estimate_shift,
     assemble_rgb,
     classify_channel,
     group_triplets,
@@ -64,7 +64,7 @@ def test_estimate_shift_recovers_subpixel_translation():
     ref = _texture()
     dx, dy = 2.5, -1.25
     mov = _shift(ref, dx, dy)
-    est_dx, est_dy = _estimate_shift(ref, mov)
+    est_dx, est_dy = estimate_shift(ref, mov)
     assert abs(est_dx - dx) < 0.3
     assert abs(est_dy - dy) < 0.3
 
@@ -173,7 +173,7 @@ def test_preview_merge_pulls_green_blue_from_their_files():
 
     pm = PreviewManager()
     r, g, b = (os.path.join("samples", f) for f in _SAMPLES)
-    merged, _, _ = pm.load_linear_preview_rgb(r, g, b, "Adobe RGB", use_camera_wb=True)
+    merged, _, _ = pm.load_linear_preview_rgb(r, RgbScanConfig(enabled=True, green_path=g, blue_path=b), "Adobe RGB", use_camera_wb=True)
     red_only, _, _ = pm.load_linear_preview(r, "Adobe RGB", use_camera_wb=True)
     # Red-only has near-zero G/B (narrowband); the merge fills them from the other shots.
     assert merged[..., 1].mean() > red_only[..., 1].mean() * 3
@@ -237,8 +237,9 @@ def test_thumbnail_cache_key_namespaces_triplets():
     """Batch and rendered paths must derive the same triplet key so they share a cache slot."""
     from negpy.services.assets.thumbnails import thumbnail_cache_key
 
-    assert thumbnail_cache_key("h", False) == "h"
-    assert thumbnail_cache_key("h", True) == "h-rgb"
+    assert thumbnail_cache_key("h", False).startswith("h")
+    assert thumbnail_cache_key("h", True) != thumbnail_cache_key("h", False)
+    assert "-rgb" in thumbnail_cache_key("h", True)
 
 
 def test_thumbnail_decode_routes_triplet_to_merge(monkeypatch):
@@ -272,10 +273,11 @@ def test_thumbnail_worker_namespaces_triplet_cache(monkeypatch):
 
     store = Store()
     thumbnails.get_thumbnail_worker("r", "hash", store, 0, 0.5, "g", "b")
-    assert "hash-rgb" in saved and "hash" not in saved
+    triplet_key = thumbnails.thumbnail_cache_key("hash", True)
+    assert triplet_key in saved and thumbnails.thumbnail_cache_key("hash", False) not in saved
 
     thumbnails.get_thumbnail_worker("r2", "hash2", store)
-    assert "hash2" in saved
+    assert thumbnails.thumbnail_cache_key("hash2", False) in saved
 
 
 def test_triplet_ignores_stale_plain_hash_cache(monkeypatch):
@@ -284,9 +286,9 @@ def test_triplet_ignores_stale_plain_hash_cache(monkeypatch):
 
     from negpy.services.assets import thumbnails
 
-    stale = Image.new("RGB", (4, 4))
-    merged = Image.new("RGB", (4, 4))
-    saved: dict = {"hash": stale}
+    stale = Image.new("RGB", (4, 4), (255, 0, 0))
+    merged = Image.new("RGB", (4, 4), (0, 255, 0))
+    saved: dict = {thumbnails.thumbnail_cache_key("hash", False): stale}
 
     class Store:
         def get_thumbnail(self, key):
@@ -298,6 +300,7 @@ def test_triplet_ignores_stale_plain_hash_cache(monkeypatch):
     monkeypatch.setattr(thumbnails, "decode_source_image", lambda *a, **k: merged)
     monkeypatch.setattr(thumbnails, "prepare_thumbnail", lambda i, ts: i)
 
+    # The worker inverts the decoded negative, so identity is not the check — provenance is.
     out = thumbnails.get_thumbnail_worker("r", "hash", Store(), 0, 0.5, "g", "b")
-    assert out is merged
-    assert saved["hash-rgb"] is merged
+    assert out is not stale
+    assert saved[thumbnails.thumbnail_cache_key("hash", True)] is out

@@ -100,7 +100,7 @@ class TestDyeCoupling(unittest.TestCase):
         plain = np.asarray(_curve(_ramp()))
         np.testing.assert_allclose(dyed, plain, atol=1e-5)
 
-    def test_coloured_input_coupled(self):
+    def test_colored_input_coupled(self):
         x = np.linspace(0.0, 1.0, 32, dtype=np.float32)
         img = np.stack([x, np.flip(x), np.full_like(x, 0.5)], axis=-1)[None, :, :]
         dyed = np.asarray(_curve(img, paper=PaperProfile(label="d", dye_matrix=self._M)))

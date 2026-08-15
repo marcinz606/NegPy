@@ -38,9 +38,12 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from negpy.kernel.system.text import count_of
 from negpy.desktop.controller import AppController
-from negpy.desktop.session import _source_effective_bounds
+from negpy.desktop.session import _source_effective_bounds, composite_kind
 from negpy.desktop.view.confirm import confirm_unload
+from negpy.features.hdr.logic import anchor_choices
+from negpy.features.hdr.models import hdr_frame_paths
 from negpy.desktop.view.widgets.overflow_bar import OverflowBar
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog, open_paste_dialog
@@ -67,11 +70,17 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     image is shown full-brightness with a white frame while the others are dimmed; a
     dirty active file gets an accent line along the image's bottom edge. Triage marks
     are small bottom-right badges: check = keeper, cross + heavy dim = rejected; the
-    top-right badge is reserved for decode failures."""
+    top-right badge is reserved for decode failures; the bottom-left badge says the frame
+    was built from several files (stitch, HDR merge, RGB triplet, half-frame split)."""
 
     _MARGIN = 3
     _RADIUS = 4  # = button border-radius (modern_dark.qss)
     _MARK = QColor(183, 28, 28, 150)  # THEME.accent_primary at ~60% alpha
+    # Neutral, not the triage red: red already means "you marked this" and "this failed".
+    # What a frame is built from is a fact about the asset, not a state the user set.
+    _COMPOSITE_CHIP = QColor(20, 20, 20, 190)
+    _COMPOSITE_RING = QColor(255, 255, 255, 90)
+    _COMPOSITE_GLYPH = QColor(255, 255, 255, 235)
 
     def _draw_mark_badge(self, painter: QPainter, img_rect: QRect, check: bool) -> None:
         r = 9
@@ -97,9 +106,40 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         painter.drawLine(cx, cy - 4, cx, cy + 1)
         painter.drawPoint(cx, cy + 4)
 
+    def _draw_composite_badge(self, painter: QPainter, img_rect: QRect, kind: str, half: int) -> None:
+        """Bottom-left mark: this frame was assembled from more than one file.
+
+        One glyph per kind, so a merge is told from a stitch without opening the menu.
+        The chip carries a faint ring because a flat dark disc vanishes on a dense frame."""
+        r = 9
+        cx, cy = img_rect.left() + r + 4, img_rect.bottom() - r - 4
+        painter.setPen(QPen(self._COMPOSITE_RING, 1))
+        painter.setBrush(self._COMPOSITE_CHIP)
+        painter.drawEllipse(QRect(cx - r, cy - r, 2 * r, 2 * r))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(self._COMPOSITE_GLYPH, 1.5))
+        if kind == "stitch":  # two overlapping panes — a divided box reads as the half glyph
+            painter.drawRect(QRect(cx - 6, cy - 5, 8, 7))
+            front = QRect(cx - 2, cy - 2, 8, 7)
+            painter.fillRect(front, self._COMPOSITE_CHIP)
+            painter.drawRect(front)
+        elif kind == "hdr":  # a bracket: stacked exposures
+            for dy, width in ((-3, 11), (0, 8), (3, 5)):
+                painter.drawLine(cx - 5, cy + dy, cx - 5 + width, cy + dy)
+        elif kind == "rgb":  # the three narrowband exposures
+            painter.setPen(Qt.PenStyle.NoPen)
+            for dx, color in ((-4, THEME.channel_red), (0, THEME.channel_green), (4, THEME.channel_blue)):
+                painter.setBrush(QColor(color))
+                painter.drawEllipse(QRect(cx + dx - 2, cy - 2, 4, 4))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+        elif kind == "half":  # a split frame, this asset's own half filled
+            painter.drawRect(QRect(cx - 6, cy - 4, 12, 8))
+            painter.fillRect(QRect(cx - 5 if half == 1 else cx + 1, cy - 3, 5, 7), self._COMPOSITE_GLYPH)
+
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
         file_info = index.data(Qt.ItemDataRole.UserRole) or {}
         failed = bool(file_info.get("decode_failed"))
+        kind = composite_kind(file_info)
 
         icon = index.data(Qt.ItemDataRole.DecorationRole)
         if icon is None or icon.isNull():
@@ -111,6 +151,8 @@ class _ThumbnailDelegate(QStyledItemDelegate):
                 painter.setBrush(QColor(20, 20, 20))
                 painter.drawRoundedRect(area, self._RADIUS, self._RADIUS)
                 self._draw_failed_badge(painter, area)
+                if kind:
+                    self._draw_composite_badge(painter, area, kind, int(file_info.get("half") or 0))
                 painter.restore()
             return
         base = icon.pixmap(QSize(4096, 4096))  # largest available pixmap (~120px)
@@ -149,6 +191,8 @@ class _ThumbnailDelegate(QStyledItemDelegate):
             self._draw_mark_badge(painter, img_rect, check=False)
         elif keeper:
             self._draw_mark_badge(painter, img_rect, check=True)
+        if kind:
+            self._draw_composite_badge(painter, img_rect, kind, int(file_info.get("half") or 0))
         painter.setClipping(False)
 
         if selected:
@@ -1061,11 +1105,11 @@ class FileBrowser(QWidget):
         menu.addSeparator()
         targets = [i for i in (state.selected_indices or [state.selected_file_idx]) if 0 <= i < len(state.uploaded_files)]
         n = len(targets)
-        act_keep = menu.addAction(f"Keep {n} frames" if multi else "Keep")
+        act_keep = menu.addAction(f"Keep {count_of(n, 'frame')}" if multi else "Keep")
         act_keep.setCheckable(True)
         act_keep.setChecked(bool(targets) and all(state.uploaded_files[i].get("keeper") for i in targets))
         act_keep.triggered.connect(lambda: self.session.toggle_mark("keeper"))
-        act_reject = menu.addAction(f"Reject {n} frames" if multi else "Reject")
+        act_reject = menu.addAction(f"Reject {count_of(n, 'frame')}" if multi else "Reject")
         act_reject.setCheckable(True)
         act_reject.setChecked(bool(targets) and all(state.uploaded_files[i].get("excluded") for i in targets))
         act_reject.triggered.connect(lambda: self.session.toggle_mark("excluded"))
@@ -1074,16 +1118,83 @@ class FileBrowser(QWidget):
         if multi:
             menu.addSeparator()
             menu.addAction("Stitch selected frames").triggered.connect(lambda: self.controller.request_stitch_selected())
+            self._add_hdr_merge_action(menu, state)
         else:
             menu.addSeparator()
             menu.addAction("Edit RGB Triplet…").triggered.connect(self._on_edit_triplet)
             active = state.uploaded_files[state.selected_file_idx] if 0 <= state.selected_file_idx < len(state.uploaded_files) else {}
             if active.get("stitch_paths"):
                 menu.addAction("Unstitch").triggered.connect(lambda: self.controller.request_unstitch())
+            if active.get("hdr_paths"):
+                self._add_hdr_anchor_menu(menu, active)
+                menu.addAction("Unmerge exposures").triggered.connect(lambda: self.controller.request_unmerge_hdr())
         menu.addSeparator()
         unload_label = "Unload Selected" if multi else "Unload"
         menu.addAction(unload_label).triggered.connect(self._on_remove_from_menu)
         return menu
+
+    def _add_hdr_merge_action(self, menu, state) -> None:
+        """Merging is for transparencies, so the action follows the film process.
+
+        A color negative holds about 5-6 stops between base and Dmax, and an ordinary
+        black-and-white negative nearer 4 — both inside a single capture, so a bracket buys
+        nothing. A transparency runs to 10-12, which is what the merge exists for.
+
+        Hidden on Color Negative, disabled with a reason on B&W Negative: reversal-processed monochrome
+        (Scala, dr5, Fomapan R) *is* a transparency and does have the range, it is simply
+        not wired yet, and a missing menu entry would leave nobody anything to ask about.
+        """
+        from negpy.features.process.models import ProcessMode
+
+        idx = state.selected_file_idx
+        assets = state.uploaded_files
+        mode = self.controller.state.config.process.process_mode
+        if 0 <= idx < len(assets):
+            # Coerced, not compared raw: a session blob written before the mode rename
+            # still carries the old names.
+            mode = ProcessMode(assets[idx].get("process_mode") or mode)
+        if mode == ProcessMode.C41:
+            return
+        act = menu.addAction("Merge exposures (HDR)")
+        if mode == ProcessMode.BW:
+            act.setEnabled(False)
+            act.setToolTip("Merging is for transparencies; black-and-white reversal film is not supported yet")
+            return
+        act.triggered.connect(lambda: self.controller.request_hdr_merge_selected())
+
+    def _add_hdr_anchor_menu(self, menu, asset: dict) -> None:
+        """ "Render exposure": which frame of the bracket the merged result opens at.
+
+        The merge is computed in the *reference* frame's units — the longest exposure that
+        does not clip — but that is a radiometric choice, and which exposure looks right is
+        the photographer's. See `hdr.logic.output_scale`.
+
+        Only exposures the render can actually sit at are offered (`anchor_choices`); a
+        frame longer than the reference clamps back to it and would be an entry that
+        provably cannot change the picture.
+        """
+        paths = hdr_frame_paths(asset)
+        ratios = [float(r) for r in (asset.get("hdr_ratios") or ())]
+        if len(paths) != len(ratios):
+            return
+        choices = anchor_choices(paths, ratios)
+        if len(choices) < 2:
+            return  # only the reference is reachable: every entry would be the same picture
+        current = str(asset.get("hdr_anchor", "") or "")
+        sub = menu.addMenu("Render exposure")
+        auto = sub.addAction("Bracket middle (auto)")
+        auto.setCheckable(True)
+        auto.setChecked(not current)
+        auto.triggered.connect(lambda: self.controller.set_hdr_anchor(""))
+        sub.addSeparator()
+        for path, stops in choices:
+            label = f"{os.path.basename(path)}   {stops:+.1f} EV"
+            if stops == 0.0:
+                label += "  (as captured)"
+            act = sub.addAction(label)
+            act.setCheckable(True)
+            act.setChecked(path == current)
+            act.triggered.connect(lambda _=False, p=path: self.controller.set_hdr_anchor(p))
 
     def _on_edit_triplet(self) -> None:
         idx = self.session.state.selected_file_idx

@@ -19,6 +19,7 @@ from negpy.features.exposure.logic import (
     per_channel_curve_params,
 )
 from negpy.features.exposure.processor import NormalizationProcessor, PhotometricProcessor
+from negpy.features.process.models import ProcessMode
 
 _H, _W = 600, 400
 
@@ -39,7 +40,7 @@ def _metrics_and_config():
     cfg = WorkspaceConfig()
     process = replace(cfg.process, analysis_buffer=0.0)
     exposure = replace(cfg.exposure, cast_removal_strength=0.8)
-    ctx = PipelineContext(scale_factor=1.0, original_size=(_H, _W), process_mode="C41")
+    ctx = PipelineContext(scale_factor=1.0, original_size=(_H, _W), process_mode=ProcessMode.C41)
     norm = NormalizationProcessor(process).process(_curved_negative(), ctx)
     PhotometricProcessor(exposure).process(norm, ctx)
     return ctx.metrics, exposure
@@ -48,7 +49,7 @@ def _metrics_and_config():
 def test_chart_wiring_matches_render():
     metrics, config = _metrics_and_config()
     # The shared resolver the chart and the step wedge both call — so this pins all of them.
-    slopes, pivots, curvs = curve_params_from_metrics(config, "C41", metrics)
+    slopes, pivots, curvs = curve_params_from_metrics(config, ProcessMode.C41, metrics)
 
     np.testing.assert_allclose(slopes, metrics["print_slopes"], atol=1e-12)
     assert max(abs(c) for c in curvs) > 1e-6  # curved fixture engages the quadratic

@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 from negpy.desktop.session import AppState
 from negpy.desktop.view.sidebar.tone import ToneSidebar
+from negpy.features.process.models import ProcessMode
 
 
 def _combo_items(combo):
@@ -173,13 +174,13 @@ def test_channel_selector_hidden_in_bw(qapp):
     sidebar.ch_r_btn.setChecked(True)
 
     cfg = controller.state.config
-    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode="B&W"))
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.BW))
     sidebar.sync_ui()
     for w in (sidebar.ch_global_btn, sidebar.ch_r_btn, sidebar.ch_g_btn, sidebar.ch_b_btn):
         assert w.isHidden()
     # Forced back to the Global page.
     assert sidebar._channel_index() == 0
     assert not sidebar.grade_slider.isHidden()
-    # Dye Separation is a colour control: gone on a single-emulsion B&W paper.
+    # Dye Separation is a color control: gone on a single-emulsion B&W paper.
     assert sidebar.dye_separation_slider.isHidden()
     assert sidebar.dye_separation_trim_slider.isHidden()

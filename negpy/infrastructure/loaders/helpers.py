@@ -1,3 +1,4 @@
+import os
 import io
 from types import SimpleNamespace
 from typing import Any, Optional, Tuple
@@ -204,7 +205,7 @@ def camera_xyz_matrix(raw: Any) -> Optional[list]:
         return None
     if m.ndim != 2 or m.shape[0] < 3 or m.shape[1] != 3 or not np.all(np.isfinite(m[:3])):
         return None
-    # All-zero is libraw's "no colour data" sentinel, not a valid transform.
+    # All-zero is libraw's "no color data" sentinel, not a valid transform.
     if float(np.abs(m[:3]).max()) < 1e-12:
         return None
     return [[float(v) for v in row] for row in m[:3]]
@@ -226,6 +227,49 @@ def camera_wb_multipliers(raw: Any) -> Optional[list]:
     if len(wb) != 3 or not all(np.isfinite(wb)) or min(wb) <= 0.0:
         return None
     return wb
+
+
+#: Nikon's High Efficiency (HE / HE*) raw on the Z 8 / Z 9 is intoPIX TicoRAW carrying a
+#: plain-text vendor marker at the head of the strip. The TIFF tag still reads 34713
+#: ("Nikon NEF Compressed"), the same value a lossless NEF uses, so tags cannot tell them
+#: apart -- only the payload can.
+_TICORAW_MARKER = b"INTOPIX"
+_NEF_COMPRESSED = 34713
+
+
+def unsupported_raw_reason(file_path: str) -> Optional[str]:
+    """Why libraw cannot decode this raw, in words a photographer can act on.
+
+    None when nothing recognised is wrong -- the caller then reports libraw's own error,
+    which is right for a genuinely corrupt or unknown file. This exists because the useful
+    cases are indistinguishable from corruption by their tags: a High Efficiency NEF parses
+    perfectly, reports full sensor dimensions, and only fails when the payload is unpacked.
+    """
+    if os.path.splitext(file_path)[1].lower() != ".nef":
+        return None
+    try:
+        import tifffile
+
+        with tifffile.TiffFile(file_path) as tif:
+            for sub in tif.pages[0].pages or []:
+                tags = getattr(sub, "tags", None)
+                compression = tags.get("Compression") if tags else None
+                if compression is None or int(compression.value) != _NEF_COMPRESSED:
+                    continue
+                offsets = tags.get("StripOffsets")
+                if offsets is None:
+                    continue
+                offset = offsets.value[0] if isinstance(offsets.value, (tuple, list)) else int(offsets.value)
+                with open(file_path, "rb") as f:
+                    f.seek(int(offset))
+                    if _TICORAW_MARKER in f.read(64):
+                        return (
+                            "Nikon High Efficiency (HE) raw — NegPy cannot decode this format. "
+                            "Re-shoot as Lossless Compressed, or convert to DNG."
+                        )
+    except Exception:
+        return None
+    return None
 
 
 def get_supported_raw_wildcards() -> str:

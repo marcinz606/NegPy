@@ -2,10 +2,12 @@
 Darkroom paper profiles — per-paper overrides of the H&D print character.
 
 A profile overrides a few EXPOSURE_CONSTANTS keys (the paper's characteristic
-curve) plus optional colour terms. It only sets the curve *shape*; Grade still
+curve) plus optional color terms. It only sets the curve *shape*; Grade still
 owns contrast and Density/toe/shoulder still trim on top. The default profile
-reproduces EXPOSURE_CONSTANTS exactly. B&W profiles are tonal only (the B&W path
-collapses to luminance, so colour terms are inert — paper tone is a Toning job).
+reproduces EXPOSURE_CONSTANTS exactly. B&W profiles are tonal only under normal
+development (the B&W path collapses to luminance, so the RA4 color terms are
+inert — paper tone is a Toning job). The exception is Lith: `lith_path` is the paper's
+infectious-development color and the only color term a B&W profile acts on.
 
 Values were loosely mapped by Claude from published datasheets (Ilford, Kodak
 Endura, Foma, Fuji), not a precise calibration. Mainly d_max is grounded; the
@@ -31,6 +33,16 @@ DyeMatrix = Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[
 
 _IDENTITY_DYE: DyeMatrix = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
 
+# Lith hue path: four (a*, b*) anchors at the density fractions in
+# LITH_CONSTANTS["path_u"] (0.10 / 0.35 / 0.65 / 1.00) — peach, ochre, olive,
+# neutral. The olive knot is not decorative: the green transition between warm
+# highlights and cold blacks is the signature of a lith print on warmtone paper.
+LithPath = Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float], Tuple[float, float]]
+
+# The default belongs to the *Neutral* profile, so it stays restrained — a hint
+# of warmth, not a look. Pick a warmtone paper to get the color.
+_DEFAULT_LITH_PATH: LithPath = ((4.0, 8.0), (2.0, 8.0), (-1.0, 4.0), (0.0, 0.0))
+
 # Paper-character keys a profile overrides in the effective constants dict.
 _TONAL_KEYS = (
     "d_max",
@@ -48,12 +60,13 @@ _TONAL_KEYS = (
 class PaperProfile:
     """
     One paper's print character. Tonal fields default to the current
-    EXPOSURE_CONSTANTS values; colour fields are identity (neutral).
+    EXPOSURE_CONSTANTS values; color fields are identity (neutral).
 
     channel_gamma — per-channel (R, G, B) slope multipliers (dye-layer contrast
     crossover). base_tint_cmy — per-channel (C, M, Y) additions to the minimum
     density floor (base tint, shows in highlights). dye_matrix — dye coupling
     D_rgb = M · D_dye above base (unwanted absorptions), row-normalized at use.
+    lith_path — the paper's lith color path, read by the Lith stage.
     kind drives dropdown grouping.
     """
 
@@ -70,6 +83,7 @@ class PaperProfile:
     channel_gamma: Tuple[float, float, float] = (1.0, 1.0, 1.0)
     base_tint_cmy: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     dye_matrix: DyeMatrix = _IDENTITY_DYE
+    lith_path: LithPath = _DEFAULT_LITH_PATH
 
 
 PAPER_PROFILES: Dict[str, PaperProfile] = {
@@ -82,6 +96,9 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
         d_max=2.10,
         d_min=0.04,
         paper_midtone_gamma=0.15,
+        # Multigrade resists lith — Rudman's lithability test reads an
+        # incorporated accelerator, which short-circuits the semiquinone
+        # cascade. The restrained default path is right for it.
     ),
     "ilford_fb_classic": PaperProfile(
         label="Ilford Multigrade FB Classic",
@@ -100,6 +117,9 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
         d_min=0.05,
         toe_sharpness_base=3.5,
         paper_midtone_gamma=0.10,
+        # The canonical lith paper: reddish-yellow highlights through an olive
+        # transition to green-black shadows (Moersch's per-paper tables).
+        lith_path=((14.0, 22.0), (7.0, 26.0), (-8.0, 14.0), (-2.0, 2.0)),
     ),
     "foma_fomabrom": PaperProfile(
         label="Foma Fomabrom Variant",
@@ -108,8 +128,10 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
         d_max=2.0,
         d_min=0.04,
         paper_midtone_gamma=0.15,
+        # Yellowish highlights to greenish black, less colorful than Fomatone.
+        lith_path=((6.0, 18.0), (2.0, 18.0), (-9.0, 10.0), (-2.0, 1.0)),
     ),
-    # ── RA4 colour ───────────────────────────────────────────────────────────
+    # ── RA4 color ───────────────────────────────────────────────────────────
     "kodak_endura": PaperProfile(
         label="Kodak Endura Premier",
         kind="ra4",

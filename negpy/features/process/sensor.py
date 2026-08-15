@@ -1,6 +1,6 @@
 """Sensor (CFA) crosstalk calibration for single-shot narrowband scans.
 
-The camera's colour-filter passbands overlap the narrowband source's bands, so a
+The camera's color-filter passbands overlap the narrowband source's bands, so a
 pure red/green/blue exposure leaks into the other channels — a fixed property of
 the sensor+light pair, independent of film. Calibrated once from three bare-light
 exposures and corrected with a 3x3 unmix in the LINEAR domain, before the
