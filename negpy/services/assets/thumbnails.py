@@ -42,6 +42,7 @@ async def generate_batch_thumbnails(
                 f_info.get("blue_path") or "",
                 tuple(f_info["crop_rect"]) if f_info.get("crop_rect") else None,
                 float(f_info.get("gutter_thickness") or 0.0),
+                str(f_info.get("process_mode") or ""),
             )
             completed += 1
             if progress_callback:
@@ -79,9 +80,11 @@ def thumbnail_cache_key(file_hash: str, is_triplet: bool) -> str:
     rendered positive is what makes the filmstrip match the canvas.
 
     The version suffix retires caches written before the batch path inverted negatives;
-    without it an existing library keeps serving its stored negatives forever."""
+    without it an existing library keeps serving its stored negatives forever. v3 retires
+    the ones written before the batch path read the frame's saved film process, which is
+    where a slide got cached as an inverted negative."""
     base = f"{file_hash}-rgb" if is_triplet else file_hash
-    return f"{base}-v2"
+    return f"{base}-v3"
 
 
 def _fast_demosaic(raw: Any) -> np.ndarray:
@@ -159,9 +162,15 @@ def decode_source_image(file_path: str, green_path: str = "", blue_path: str = "
         return img
 
 
-def preview_positive(img: Image.Image) -> Image.Image:
+def preview_positive(img: Image.Image, process_mode: str = "") -> Image.Image:
     """Invert a negative preview so the filmstrip reads as photographs before a frame
     has ever been opened.
+
+    ``process_mode`` is the frame's *stored* film process; it decides outright, and the
+    heuristic runs only when nothing has decided yet. Detection here reads an 8-bit
+    preview — for a slide that is an already-positive embedded JPEG, and warm content
+    trips the orange-mask test into calling it a negative, which is how a transparency
+    reached the filmstrip inverted while the canvas rendered it right.
 
     Deliberately not the pipeline: per-channel log-density bounds over an 8-bit preview,
     with no config to key on. It is a placeholder that get_rendered_thumbnail supersedes
@@ -172,7 +181,9 @@ def preview_positive(img: Image.Image) -> Image.Image:
 
     arr = np.asarray(img.convert("RGB"), dtype=np.uint8)
     linear = srgb_to_linear(uint8_to_float32(arr))
-    if detect_process_mode(linear) is ProcessMode.E6:
+    # ProcessMode("") would resolve to C41 via _missing_, so an unknown mode must not reach it.
+    mode = ProcessMode(process_mode) if process_mode else detect_process_mode(linear)
+    if mode is ProcessMode.E6:
         return img
 
     # A lone narrowband exposure carries its picture in one channel; the other two hold
@@ -202,6 +213,7 @@ def get_thumbnail_worker(
     blue_path: str = "",
     crop_rect: Optional[tuple[float, float, float, float]] = None,
     gutter_thickness: float = 0.0,
+    process_mode: str = "",
 ) -> Optional[Image.Image]:
     """
     Checks cache -> extracts/renders -> resize.
@@ -223,7 +235,7 @@ def get_thumbnail_worker(
 
             img = Image.fromarray(slice_half(np.asarray(img), half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness))
 
-        square_img: Image.Image = prepare_thumbnail(preview_positive(img), ts)
+        square_img: Image.Image = prepare_thumbnail(preview_positive(img, process_mode), ts)
 
         if asset_store:
             asset_store.save_thumbnail(cache_key, square_img)

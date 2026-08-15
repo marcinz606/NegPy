@@ -717,7 +717,11 @@ class AppController(QObject):
                 return
             self._thumb_requested = [asset_thumbnail_key(f) for f in missing]
             self.set_status("GENERATING THUMBNAILS...")
-            self.thumbnail_requested.emit(missing)
+            # Copies, carrying each frame's stored film process: the source decode cannot
+            # tell a slide from a negative reliably, and inverting one that is already a
+            # positive is what put negatives in the filmstrip. Copies because these dicts
+            # cross to a worker thread, and uploaded_files must not grow a stale mode.
+            self.thumbnail_requested.emit([{**f, "process_mode": self.session.stored_process_mode(f)} for f in missing])
 
     def clear_thumbnail_cache(self) -> None:
         """Drops cached thumbnails on disk and in memory, then regenerates loaded ones."""

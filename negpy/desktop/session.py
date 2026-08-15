@@ -1013,6 +1013,27 @@ class DesktopSessionManager(QObject):
         config, _ = self._hydrate_asset_config(asset)
         return config
 
+    def stored_process_mode(self, asset: dict) -> str:
+        """The film process already decided for an asset, or "" when nothing has decided.
+
+        A composite's inherited mode, else a saved edit's. Deliberately not the sticky
+        global: that is a guess about the next file, and a caller asking this question
+        wants to know whether an answer exists, not to be handed the last roll's default.
+
+        Cheaper than config_for_asset on purpose — the filmstrip asks it once per frame of
+        a roll, and a full hydration would read every sticky global that many times.
+        """
+        if asset.get("process_mode"):
+            return str(asset["process_mode"])
+        saved = load_or_promote(
+            self.repo,
+            asset["hash"],
+            asset["path"],
+            half=int(asset.get("half") or 0),
+            composite=bool(asset.get("hdr_paths") or asset.get("stitch_paths")),
+        )
+        return str(saved.process.process_mode) if saved is not None else ""
+
     def select_file(self, index: int, selection_override: Optional[List[int]] = None) -> None:
         """
         Changes active file and hydrates state from repository.

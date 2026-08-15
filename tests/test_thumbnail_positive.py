@@ -58,6 +58,37 @@ class TestPreviewPositive(unittest.TestCase):
 
         self.assertTrue(np.array_equal(np.asarray(result), arr))
 
+    def test_stored_transparency_beats_the_heuristic(self):
+        """The reported bug: a warm slide reads as an orange mask, so detection called it a
+        negative and the filmstrip inverted it while the canvas rendered it right."""
+        warm = np.zeros((64, 64, 3), dtype=np.uint8)
+        warm[:, :] = (200, 120, 50)
+        warm[:32, :] = (90, 50, 20)
+        slide = Image.fromarray(warm)
+
+        self.assertFalse(np.array_equal(np.asarray(preview_positive(slide)), warm))
+        self.assertTrue(np.array_equal(np.asarray(preview_positive(slide, "Transparency")), warm))
+
+    def test_stored_negative_is_inverted_without_detection(self):
+        """A stored mode decides outright, so a negative the heuristic would have read as a
+        slide is still inverted."""
+        rng = np.random.default_rng(3)
+        arr = rng.integers(0, 256, (64, 64, 3), dtype=np.uint8)
+
+        result = preview_positive(Image.fromarray(arr), "Color Negative")
+
+        self.assertFalse(np.array_equal(np.asarray(result), arr))
+
+    def test_unknown_mode_falls_back_to_detection(self):
+        """An empty mode must not resolve to C41 through ProcessMode._missing_ — a frame
+        nothing has decided yet still gets the heuristic."""
+        self.assertTrue(
+            np.array_equal(
+                np.asarray(preview_positive(_orange_mask_negative(), "")),
+                np.asarray(preview_positive(_orange_mask_negative())),
+            )
+        )
+
     def test_cache_key_retires_stored_negatives(self):
         """A library scanned before this change must not keep serving its negatives."""
         self.assertNotEqual(thumbnail_cache_key("abc", False), "abc")
