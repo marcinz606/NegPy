@@ -18,7 +18,9 @@ def get_resource_path(relative_path: str) -> str:
         # Root is 3 levels up
         base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-    return os.path.join(base_path, relative_path)
+    # Callers pass forward-slash relatives ("icc/RGBScan.icc"); normpath keeps
+    # the result in the platform's own separators instead of a mixed form.
+    return os.path.normpath(os.path.join(base_path, relative_path))
 
 
 def _usable_user_dir(base: Path) -> Optional[str]:

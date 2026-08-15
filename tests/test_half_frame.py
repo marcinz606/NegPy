@@ -1,5 +1,7 @@
 """Half-frame mode: split detection, slicing, identities, and per-half plumbing."""
 
+import os
+
 import numpy as np
 import pytest
 from unittest.mock import MagicMock
@@ -98,8 +100,8 @@ class TestIdentities:
         assert half_name("IMG420.tif", 2) == "IMG420.tif [2]"
 
     def test_sidecar_path(self):
-        assert sidecar_path_for("/a/roll.tif") == "/a/roll.negpy"
-        assert sidecar_path_for("/a/roll.tif", 1) == "/a/roll.1.negpy"
+        assert sidecar_path_for("/a/roll.tif") == os.path.join("/a", "roll.negpy")
+        assert sidecar_path_for("/a/roll.tif", 1) == os.path.join("/a", "roll.1.negpy")
 
     def test_export_filename_suffix(self):
         plain = render_export_filename("/x/IMG420.tif", ExportConfig())

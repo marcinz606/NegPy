@@ -217,7 +217,7 @@ def _wait_and_run_sh(pid: int, body: str) -> str:
 
 def appimage_script(downloaded: Path, target: Path, pid: int) -> str:
     """Replace the running AppImage with the downloaded one and start it."""
-    new, old = shlex.quote(str(downloaded)), shlex.quote(str(target))
+    new, old = shlex.quote(downloaded.as_posix()), shlex.quote(target.as_posix())
     return _wait_and_run_sh(
         pid,
         f'set -e\nchmod +x {new}\nmv -f {new} {old}\nrm -f "$0"\nexec {old}\n',
@@ -234,16 +234,16 @@ def macos_script(dmg: Path, bundle: Path, pid: int, mountpoint: Path, stage: Pat
     return _wait_and_run_sh(
         pid,
         f"""set -e
-mkdir -p {q(str(mountpoint))}
-hdiutil attach {q(str(dmg))} -nobrowse -readonly -mountpoint {q(str(mountpoint))}
-rm -rf {q(str(stage))}
-ditto {q(str(mountpoint / bundle.name))} {q(str(stage))}
-hdiutil detach {q(str(mountpoint))} -quiet || true
-rm -rf {q(str(bundle))}
-mv {q(str(stage))} {q(str(bundle))}
-xattr -dr com.apple.quarantine {q(str(bundle))} 2>/dev/null || true
-rm -f {q(str(dmg))} "$0"
-open {q(str(bundle))}
+mkdir -p {q(mountpoint.as_posix())}
+hdiutil attach {q(dmg.as_posix())} -nobrowse -readonly -mountpoint {q(mountpoint.as_posix())}
+rm -rf {q(stage.as_posix())}
+ditto {q((mountpoint / bundle.name).as_posix())} {q(stage.as_posix())}
+hdiutil detach {q(mountpoint.as_posix())} -quiet || true
+rm -rf {q(bundle.as_posix())}
+mv {q(stage.as_posix())} {q(bundle.as_posix())}
+xattr -dr com.apple.quarantine {q(bundle.as_posix())} 2>/dev/null || true
+rm -f {q(dmg.as_posix())} "$0"
+open {q(bundle.as_posix())}
 """,
     )
 
