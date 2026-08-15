@@ -159,6 +159,38 @@ def test_near_flat_noise_profile_abstains_even_with_a_valid_template() -> None:
     assert "near-flat" not in _resolved_by_key([*_trusted_roll(), weak])
 
 
+def test_a_frame_with_no_film_box_still_reports_its_border(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Holders the film detector cannot read at all contributed no border samples, so a
+    # roll made of them never reached the five-sample minimum and no frame was inset --
+    # the whole roll kept its border. Reading the edges needs the frame, not a box.
+    monkeypatch.setattr(
+        batch_autocrop,
+        "detect_film_bounds_with_confidence",
+        lambda _image: SimpleNamespace(
+            roi=None,
+            correction_angle=0.0,
+            confidence=0.0,
+            supported_sides=frozenset(),
+            supported_corners=frozenset(),
+            evidence_sources=(),
+            geometry_score=0.0,
+            vertical_edge_contrast=0.0,
+            vertical_edge_profile=np.zeros(600, dtype=np.float32),
+        ),
+    )
+    image = np.full((400, 600, 3), 0.30, dtype=np.float32)
+    image[:12, :, :] = 0.0  # opaque holder stripe along the top
+
+    evidence = detect_crop_candidate("no-box", image)
+
+    assert evidence.roi is None
+    assert evidence.reason == "no_consensus"
+    assert len(evidence.border) == len(batch_autocrop.BORDER_SIDES)
+    assert evidence.border[0] > 0.0
+
+
 def test_post_deskew_abstention_does_not_inherit_initial_confidence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -315,14 +347,33 @@ def test_roll_border_excludes_abstaining_sides_rather_than_counting_them_as_zero
 
     border, samples = _roll_border(evidence)
 
-    assert border[0] == pytest.approx(0.01)
-    assert samples == 5  # limited by the side that abstained
+    assert border[0] == pytest.approx(0.01)  # the 5 frames that measured it, not 6 with a zero
+    assert samples == 6
 
 
 def test_roll_border_requires_a_minimum_sample_count() -> None:
     evidence = [_evidence(f"f{index}", border=(0.01, 0.02, 0.015, 0.012)) for index in range(4)]
 
     assert _roll_border(evidence) == ((), 4)
+
+
+def test_roll_border_gates_each_side_on_its_own_sample_count() -> None:
+    # One thinly measured side used to discard the other three, leaving the whole roll
+    # untrimmed. Seen on a roll where only 3 frames read the right edge.
+    evidence = [_evidence(f"f{index}", border=(0.01, 0.02, 0.015, _NAN)) for index in range(5)]
+    evidence.extend(_evidence(f"r{index}", border=(0.01, 0.02, 0.015, 0.012)) for index in range(3))
+
+    border, _ = _roll_border(evidence)
+
+    assert border[:3] == pytest.approx((0.01, 0.02, 0.015))
+    assert np.isnan(border[3])
+
+
+def test_a_side_no_one_measured_trims_nothing() -> None:
+    resolved = _resolve_border((_NAN, 0.02, 0.015, 0.012), (_NAN, 0.02, 0.015, 0.012))
+
+    assert resolved[0] == 0.0
+    assert resolved[1] == pytest.approx(0.02)
 
 
 def test_frame_border_wins_over_the_roll_median() -> None:
@@ -412,9 +463,12 @@ def test_top_edge_slope_abstains_on_a_flat_band_rather_than_reporting_zero() -> 
     assert _top_edge_slope(np.ones((400, 600), dtype=np.float32), (100, 300, 50, 550)) is None
 
 
-def test_detect_candidate_folds_the_edge_fit_into_the_consensus_angle(
+def test_detect_candidate_takes_the_edge_fit_as_the_whole_angle(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # The fit reads the film's own top edge on the unrotated frame, so it returns the whole
+    # angle rather than a residual on the contour's. Adding the two double-counted the
+    # tilt; this box really is 0.3 off, and 0.3 is the answer whatever the contour guessed.
     profile = np.zeros(600, dtype=np.float32)
     detection = SimpleNamespace(
         roi=(100, 300, 50, 550),
@@ -435,7 +489,36 @@ def test_detect_candidate_folds_the_edge_fit_into_the_consensus_angle(
     evidence = detect_crop_candidate("fitted", np.repeat(_tilted_film_box(-0.3)[:, :, None], 3, axis=2))
 
     assert evidence.angle_confident is True
-    assert evidence.correction_angle == pytest.approx(0.5, abs=0.05)  # 0.2 consensus + 0.3 measured
+    assert evidence.correction_angle == pytest.approx(0.3, abs=0.05)  # the tilt the box actually has
+
+
+def test_detect_candidate_keeps_the_contour_angle_when_the_fit_disagrees(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Agreement is what confirms the angle. Past _MAX_EDGE_FIT_DELTA one of the two is
+    # reading something that is not the film edge, so the fit is not adopted and nothing
+    # is called confirmed -- the roll gets its usual say over an unconfirmed angle.
+    profile = np.zeros(600, dtype=np.float32)
+    detection = SimpleNamespace(
+        roi=(100, 300, 50, 550),
+        correction_angle=2.0,
+        confidence=0.9,
+        supported_sides=frozenset({"top", "right", "bottom", "left"}),
+        supported_corners=frozenset({"top_left"}),
+        evidence_sources=("adaptive-dark",),
+        geometry_score=0.9,
+        vertical_edge_contrast=0.8,
+        vertical_edge_profile=profile,
+    )
+    monkeypatch.setattr(batch_autocrop, "detect_film_bounds_with_confidence", lambda _image: detection)
+    monkeypatch.setattr(batch_autocrop, "apply_fine_rotation", lambda image, _angle: image)
+    monkeypatch.setattr(batch_autocrop, "_trim_opaque_border", lambda _lum, roi: roi)
+    monkeypatch.setattr(batch_autocrop, "measure_film_border", lambda *_a, **_k: dict.fromkeys(batch_autocrop.BORDER_SIDES, 0.0))
+
+    evidence = detect_crop_candidate("mismatched", np.repeat(_tilted_film_box(-0.3)[:, :, None], 3, axis=2))
+
+    assert evidence.angle_confident is False
+    assert evidence.correction_angle == pytest.approx(2.0)
 
 
 def test_fitted_angle_survives_a_mediocre_box_score() -> None:
@@ -455,6 +538,43 @@ def test_fitted_angle_still_yields_when_it_diverges_beyond_tolerance() -> None:
     divergent = _evidence("divergent", correction_angle=5.0, confidence=0.4, angle_confident=True)
 
     assert _resolved_by_key([*_trusted_roll(), divergent])["divergent"].correction_angle == pytest.approx(1.0)
+
+
+def test_edge_pair_at_the_roll_width_resolves_through_a_busy_picture() -> None:
+    # Peak strength is measured against the frame's own edges, so a picture full of
+    # verticals -- a storefront, railings, a car -- lifts the bar over the film edge that
+    # is plainly there, and the frame used to be dropped with no crop at all. Both peaks
+    # land where the roll puts them and span the width it expects; that agreement carries.
+    profile = np.full(101, 0.05, dtype=np.float32)
+    profile[28:73] = np.linspace(0.55, 0.85, 45, dtype=np.float32)  # the picture's own verticals
+    profile[10] = 0.30  # the film edges, plainly there and far weaker than the picture
+    profile[90] = 0.30
+    busy = _evidence(
+        "busy",
+        roi=None,
+        correction_angle=0.0,
+        confidence=0.0,
+        supported_sides=frozenset(),
+        geometry_score=0.0,
+        vertical_edge_profile=profile,
+        reason="no_consensus",
+    )
+
+    resolved = _resolved_by_key([*_trusted_roll(), busy])
+
+    assert "busy" in resolved
+    x1, _, x2, _ = resolved["busy"].manual_crop_rect
+    assert x2 - x1 == pytest.approx(0.8, abs=0.02)
+
+
+def test_a_confirmed_fit_outranks_a_tight_roll_consensus() -> None:
+    # Tilt is not a roll property: frames sit in the holder however they were put there.
+    # A roll agreeing to a tenth of a degree still cannot overrule an angle the fit
+    # measured on this frame's own top edge -- rotating it to the consensus leaves the
+    # film edges skewed inside the crop, which is where the border comes back in.
+    odd = _evidence("odd", correction_angle=1.9, confidence=0.8, angle_confident=True)
+
+    assert _resolved_by_key([*_trusted_roll(), odd])["odd"].correction_angle == pytest.approx(1.9)
 
 
 def test_roll_angle_comes_from_the_fitted_frames_once_enough_carry_one() -> None:

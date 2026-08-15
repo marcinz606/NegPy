@@ -4,7 +4,7 @@ from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_label, hint_label, section_subheader, wrap_tooltip
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.process.models import ProcessMode, invalidate_local_bounds
-from negpy.features.process.sensor import sensor_unmix_available
+from negpy.features.process.sensor import unmix_block_reason
 from negpy.services.assets.crosstalk import CrosstalkProfiles
 from negpy.services.assets.sensor import SensorProfiles
 
@@ -32,8 +32,9 @@ class SensorSidebar(BaseSidebar):
             "mdi6.led-strip-variant",
             "Narrowband",
             conf.narrowband_scan,
-            "Correct trichrome narrowband RGB scans oversaturation with the bundled input profile "
-            "An explicit Input ICC in Export settings overrides it",
+            "Correct trichrome narrowband RGB scans oversaturation with the bundled input profile. "
+            "An explicit Input ICC in Export settings overrides it. Not applied to transparencies: "
+            "the profile describes narrowband capture of negative dyes",
         )
         self.scan_setup_btn = self._icon_action(
             "mdi6.lightbulb-on-outline",
@@ -45,6 +46,13 @@ class SensorSidebar(BaseSidebar):
         capture_row.addWidget(self.narrowband_scan_btn, 1)
         capture_row.addWidget(self.scan_setup_btn)
         self.layout.addLayout(capture_row)
+
+        # Greyed rather than hidden: these are sticky settings, so a hidden one is a
+        # setting the user cannot see the state of. Hiding them is what let a rig's
+        # narrowband pair follow a frame into Transparency unnoticed.
+        self.capture_hint = hint_label("")
+        self.capture_hint.setVisible(False)  # text and tooltip are set per film process in sync_ui
+        self.layout.addWidget(self.capture_hint)
 
         self.layout.addWidget(section_subheader("TRICHROME CALIBRATION"))
 
@@ -58,7 +66,8 @@ class SensorSidebar(BaseSidebar):
             "cross-channel response in the LINEAR capture, before inversion — a fixed property of "
             "your sensor + light, independent of film. Calibrate it from three bare-light R/G/B "
             "exposures; custom .toml matrices live in the NegPy/sensor folder. Skipped automatically "
-            "for RGB-triplet assets and when Linear RAW is off. Re-run Batch Analysis after changing this."
+            "for RGB-triplet assets, when Linear RAW is off, and on transparencies — which are not "
+            "scanned with narrowband light. Re-run Batch Analysis after changing this."
             "</td></tr></table>"
         )
         self.calibrate_sensor_btn = self._icon_action("fa5s.vials", "Calibrate the sensor from three bare-light R/G/B exposures", width=32)
@@ -69,17 +78,9 @@ class SensorSidebar(BaseSidebar):
 
         # Muted, not warning: this is the normal state for anyone not using Linear
         # RAW, so it explains the greyed controls rather than flagging a problem.
-        self.linear_raw_hint = hint_label("Requires Linear RAW.")
-        # Disabled widgets don't receive the hover that raises a tooltip, so the
-        # detail hangs off this label rather than the combo it describes.
-        self.linear_raw_hint.setToolTip(
-            wrap_tooltip(
-                "Sensor profiles are calibrated against neutral white balance. With Linear RAW "
-                "off, RAW decodes carry the camera's as-shot gains instead, which would misapply "
-                "the matrix — so it is skipped. Your selection is remembered."
-            )
-        )
-        self.layout.addWidget(self.linear_raw_hint)
+        # Text and tooltip are set per reason in _apply_gate.
+        self.sensor_hint = hint_label("Requires Linear RAW.")
+        self.layout.addWidget(self.sensor_hint)
 
         self.crosstalk_header = section_subheader("CROSSTALK")
         self.layout.addWidget(self.crosstalk_header)
@@ -188,18 +189,42 @@ class SensorSidebar(BaseSidebar):
             if model.item(i) is None or model.item(i).isEnabled()
         ]
 
+    # Disabled widgets don't receive the hover that raises a tooltip, so the detail hangs
+    # off the hint label rather than the combo it describes.
+    _SENSOR_BLOCKED = {
+        "linear_raw": (
+            "Requires Linear RAW.",
+            "Sensor profiles are calibrated against neutral white balance. With Linear RAW "
+            "off, RAW decodes carry the camera's as-shot gains instead, which would misapply "
+            "the matrix — so it is skipped. Your selection is remembered.",
+        ),
+        "transparency": (
+            "Not applied to a transparency.",
+            "The unmix corrects a narrowband light and your sensor's filters against each other, "
+            "so it only means anything for a capture made under narrowband light — and narrowband "
+            "is not used for slides. A profile carried over from your negative rig would correct "
+            "for a light this frame was not shot under. Your selection is remembered, and applies "
+            "again on a negative.",
+        ),
+    }
+
     def _apply_gate(self, conf) -> None:
-        """Grey the sensor unmix and show "None" while it cannot be applied.
+        """Grey the sensor unmix and show "None" while it cannot be applied, saying why.
 
         Display-only: conf.sensor_profile is left alone, so the selection comes back intact
-        after a Linear RAW round-trip. Crosstalk and Hue Trim do not depend on the decode
-        basis, so they stay enabled.
+        after a Linear RAW or film-process round-trip. Crosstalk and Hue Trim depend on
+        neither the decode basis nor the light, so they stay enabled.
         """
-        available = sensor_unmix_available(conf)
+        reason = unmix_block_reason(conf)
+        available = not reason
         self.sensor_combo.setCurrentText(conf.sensor_profile if available else SensorProfiles.NONE_NAME)
         self.sensor_combo.setEnabled(available)
         self.calibrate_sensor_btn.setEnabled(available)
-        self.linear_raw_hint.setVisible(not available)
+        self.sensor_hint.setVisible(bool(reason))
+        if reason:
+            text, tip = self._SENSOR_BLOCKED[reason]
+            self.sensor_hint.setText(text)
+            self.sensor_hint.setToolTip(wrap_tooltip(tip))
 
     def _connect_signals(self) -> None:
         self.linear_raw_btn.toggled.connect(self._on_linear_raw_toggled)
@@ -359,14 +384,38 @@ class SensorSidebar(BaseSidebar):
         try:
             self.linear_raw_btn.setChecked(conf.linear_raw)
             self.narrowband_scan_btn.setChecked(conf.narrowband_scan)
-            # Both are inert on the transparency transfer rather than merely inapplicable:
-            # Linear RAW is folded back out via the camera matrix, and the Narrowband input
-            # profile is suppressed. Hiding a *live* sticky setting would strand the user.
+            # Two different reasons, so two different gates. Narrowband is refused for any
+            # transparency: the bundled profile describes narrowband capture of negative
+            # dyes. Linear RAW is only inert on the *transfer*, where the camera matrix
+            # folds the as-shot multipliers back in — with Normalize on it still decides
+            # the decode, so it stays live there.
             from negpy.features.exposure.transfer import is_transparency_transfer
 
+            e6 = conf.process_mode == ProcessMode.E6
             transfer = is_transparency_transfer(conf.process_mode, conf.e6_normalize)
-            for w in (self.capture_header, self.linear_raw_btn, self.narrowband_scan_btn, self.scan_setup_btn):
-                w.setVisible(not transfer)
+            self.narrowband_scan_btn.setEnabled(not e6)
+            self.linear_raw_btn.setEnabled(not transfer)
+            self.scan_setup_btn.setEnabled(not e6)
+            self.capture_hint.setVisible(e6)
+            if e6:
+                self.capture_hint.setText(
+                    "Narrowband is not used for slides." if not transfer else "Not applied to an as-captured transparency."
+                )
+                self.capture_hint.setToolTip(
+                    wrap_tooltip(
+                        "Narrowband's bundled input profile describes narrowband capture of *negative* "
+                        "dyes, and a slide has a different dye set, so on a transparency it would correct "
+                        "for film that is not there. Its real payoffs — defeating the orange mask, clean "
+                        "separation before a high-gain inversion — belong to negatives."
+                        + (
+                            " Linear RAW is inert here too: the camera matrix folds the as-shot multipliers "
+                            "back in, so the render is the same either way."
+                            if transfer
+                            else " Linear RAW still applies, and stays live."
+                        )
+                        + " Both settings are remembered, and apply again on a negative."
+                    )
+                )
 
             profiles = SensorProfiles.list_profiles()
             if profiles != [self.sensor_combo.itemText(i) for i in range(self.sensor_combo.count())]:

@@ -3,7 +3,7 @@ import os
 import time
 from collections import Counter
 from dataclasses import dataclass, fields, replace
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import cv2
 import numpy as np
@@ -45,7 +45,7 @@ from negpy.desktop.workers.library import LibrarySearchTask, LibrarySearchWorker
 from negpy.desktop.workers.hdr import HdrTask, HdrWorker
 from negpy.desktop.workers.stitch import StitchTask, StitchWorker
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, hdr_frame_paths, hdr_hash, hdr_name, hdr_stem
-from negpy.features.process.logic import effective_linear_raw
+from negpy.features.process.logic import effective_linear_raw, narrowband_profile_active
 from negpy.features.stitch.models import stitch_hash, stitch_name
 from negpy.desktop.workers.capture_worker import (
     CalibrationRequest,
@@ -66,7 +66,7 @@ from negpy.domain.models import (
     preset_from_export_config,
     resolve_preset_export,
 )
-from negpy.services.assets.half_frame import half_hash
+from negpy.services.assets.half_frame import base_hash, half_hash, half_of
 from negpy.services.assets.sidecar import load_or_promote, write_sidecar
 from negpy.features.exposure.analysis import (
     RING_GRID,
@@ -89,7 +89,6 @@ from negpy.features.geometry.logic import apply_fine_rotation, detect_closest_as
 from negpy.features.geometry.models import FINE_ROTATION_LIMIT, AutocropMode
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig
-from negpy.features.exposure.transfer import is_transparency_transfer
 from negpy.features.process.models import ProcessConfig, ProcessMode, invalidate_local_bounds, scan_setup_values
 from negpy.services.assets.thumbnails import asset_thumbnail_key
 from negpy.kernel.system.paths import get_resource_path
@@ -719,7 +718,11 @@ class AppController(QObject):
                 return
             self._thumb_requested = [asset_thumbnail_key(f) for f in missing]
             self.set_status("GENERATING THUMBNAILS...")
-            self.thumbnail_requested.emit(missing)
+            # Copies, carrying each frame's stored film process: the source decode cannot
+            # tell a slide from a negative reliably, and inverting one that is already a
+            # positive is what put negatives in the filmstrip. Copies because these dicts
+            # cross to a worker thread, and uploaded_files must not grow a stale mode.
+            self.thumbnail_requested.emit([{**f, "process_mode": self.session.stored_process_mode(f)} for f in missing])
 
     def clear_thumbnail_cache(self) -> None:
         """Drops cached thumbnails on disk and in memory, then regenerates loaded ones."""
@@ -735,27 +738,38 @@ class AppController(QObject):
         self.status_progress_requested.emit(current, total)
         self.batch_progress.emit(current, total, name)
 
-    def _set_thumbnail(self, key: str, pil_img: Any) -> None:
-        u8_arr = np.array(pil_img.convert("RGB"))
+    def _set_thumbnail(self, key: str, pil_img: Any) -> bool:
+        """False when the image will not decode. PIL decodes lazily, so a truncated
+        file raises here — on the UI thread — not in the worker that supplied it."""
+        try:
+            u8_arr = np.array(pil_img.convert("RGB"))
+        except Exception as e:
+            logger.warning(f"Unreadable thumbnail for {key}: {e}")
+            return False
         self.state.thumbnails[key] = QIcon(QPixmap.fromImage(ImageConverter.to_qimage(u8_arr)))
+        return True
 
-    def _apply_thumbnails(self, new_thumbs: Dict[str, Any]) -> None:
-        """Commit a batch (or a chunk of a running one) to the filmstrip."""
+    def _apply_thumbnails(self, new_thumbs: Dict[str, Any]) -> Set[str]:
+        """Commit a batch (or a chunk of a running one) to the filmstrip. Returns the
+        keys whose image would not decode."""
+        broken = set()
         for key, pil_img in new_thumbs.items():
             # A frame that already rendered on the canvas has the correct (inverted)
             # thumbnail; don't let this batch overwrite it with the source-decode placeholder.
             if pil_img and key not in self.state.rendered_thumbnails:
-                self._set_thumbnail(key, pil_img)
+                if not self._set_thumbnail(key, pil_img):
+                    broken.add(key)
         self.session.asset_model.refresh()
+        return broken
 
     def _on_thumbnails_finished(self, new_thumbs: Dict[str, Any]) -> None:
         self.status_progress_requested.emit(0, 0)
         self._end_batch("thumbnails")
-        self._apply_thumbnails(new_thumbs)
+        broken = self._apply_thumbnails(new_thumbs)
 
         requested = getattr(self, "_thumb_requested", [])
         self._thumb_requested = []
-        failed = {k for k in requested if not new_thumbs.get(k)}
+        failed = {k for k in requested if not new_thumbs.get(k)} | broken
         for f in self.state.uploaded_files:
             key = asset_thumbnail_key(f)
             if key in failed:
@@ -767,8 +781,7 @@ class AppController(QObject):
     def _on_rendered_thumbnail(self, new_thumbs: Dict[str, Any]) -> None:
         """A canvas render produced a thumbnail — it supersedes any batch placeholder."""
         for key, pil_img in new_thumbs.items():
-            if pil_img:
-                self._set_thumbnail(key, pil_img)
+            if pil_img and self._set_thumbnail(key, pil_img):
                 self.state.rendered_thumbnails.add(key)
         self.session.asset_model.refresh()
 
@@ -3466,20 +3479,18 @@ class AppController(QObject):
         profile for the selected export color space. None means no proof (Same as Source)."""
         return self.state.icc_output_path or ColorSpaceRegistry.get_icc_path(self.state.config.export.export_color_space)
 
-    def effective_input_icc(self, process: Optional[ProcessConfig] = None, render_intent: Optional[str] = None) -> Optional[str]:
+    def effective_input_icc(self, process: Optional[ProcessConfig] = None) -> Optional[str]:
         """Source profile for color management: an explicit Input ICC wins; else the
-        bundled RGBScan profile when Narrowband Scan is on; else None.
+        bundled RGBScan profile when Narrowband Scan applies; else None.
 
-        The transparency transfer suppresses the implicit RGBScan profile: it has already
-        converted the buffer to the working space through the camera matrix, so applying an
-        input characterisation on top of that is a second, competing transform. An explicit
-        Input ICC still wins — that is a deliberate user choice about their own source.
+        A transparency never takes the implicit profile — see narrowband_profile_active,
+        which owns that rule. An explicit Input ICC still wins there, being a deliberate
+        user choice about their own source.
         """
         p = process if process is not None else self.state.config.process
         if self.state.icc_input_path:
             return self.state.icc_input_path
-        intent = render_intent if render_intent is not None else self.state.config.exposure.render_intent
-        if p.narrowband_scan and not is_transparency_transfer(p.process_mode, p.e6_normalize, intent):
+        if narrowband_profile_active(p):
             return get_resource_path("icc/RGBScan.icc")
         return None
 
@@ -3505,7 +3516,7 @@ class AppController(QObject):
         soft-proof toggle is on; the output profile only applies with the toggle.
         """
         proofing = self.state.soft_proof_enabled
-        if not (proofing or self.state.config.process.narrowband_scan):
+        if not (proofing or narrowband_profile_active(self.state.config.process)):
             return None
         icc_input = self.effective_input_icc()
         icc_output = self.effective_output_icc() if proofing else None
@@ -3517,7 +3528,7 @@ class AppController(QObject):
         """True when the preview should soft-proof: the toggle is on and an input or
         output profile is available, or Narrowband Scan supplies an implicit input
         profile. Off → preview is the edit on the monitor."""
-        if self.effective_input_icc() and self.state.config.process.narrowband_scan:
+        if self.effective_input_icc() and narrowband_profile_active(self.state.config.process):
             return True
         return self.state.soft_proof_enabled and bool(self.state.icc_input_path or self.effective_output_icc())
 
@@ -3787,9 +3798,9 @@ class AppController(QObject):
         # if one half was calibrated and the other wasn't (still at default), both need
         # the same correction during export.
         base = f.get("hash", "")
-        if "#" in base:
-            half_val = int(base.split("#")[-1])
-            sibling_hash = half_hash(base.rsplit("#", 1)[0], 3 - half_val)
+        half_val = half_of(base)
+        if half_val is not None:
+            sibling_hash = half_hash(base_hash(base) or base, 3 - half_val)
             sibling_params = self.session.repo.load_file_settings(sibling_hash)
             session_ct = self.state.config.process.crosstalk_strength
             params_ct = params.process.crosstalk_strength
@@ -3821,7 +3832,7 @@ class AppController(QObject):
         tasks = []
         for preset in presets:
             task_params, export_settings = resolve_preset_export(preset, params)
-            export_settings.icc_input_path = self.effective_input_icc(task_params.process, task_params.exposure.render_intent)
+            export_settings.icc_input_path = self.effective_input_icc(task_params.process)
             tasks.append(
                 ExportTask(
                     file_info=file_info,
@@ -4013,7 +4024,7 @@ class AppController(QObject):
         export_conf = replace(
             self.state.config.export,
             export_path=export_path,
-            icc_input_path=self.effective_input_icc(params.process, params.exposure.render_intent),
+            icc_input_path=self.effective_input_icc(params.process),
             icc_output_path=self.state.icc_output_path,
         )
         if self.state.flat_output:
@@ -4101,7 +4112,7 @@ class AppController(QObject):
 
             final_export = replace(
                 params.export,
-                icc_input_path=self.effective_input_icc(params.process, params.exposure.render_intent),
+                icc_input_path=self.effective_input_icc(params.process),
                 icc_output_path=icc_output,
             )
 

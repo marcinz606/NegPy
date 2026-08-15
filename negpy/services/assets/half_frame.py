@@ -22,6 +22,16 @@ def half_hash(file_hash: str, half: int) -> str:
     return f"{file_hash}{_SEP}{half}"
 
 
+def half_of(file_hash: Optional[str]) -> Optional[int]:
+    """The half index of a ``#``-suffixed hash, or None when it is not a half.
+
+    Composite hashes (``#stitch``, ``#hdr``) share the separator by design, so the
+    suffix — not its presence — decides.
+    """
+    _, sep, suffix = (file_hash or "").rpartition(_SEP)
+    return int(suffix) if sep and suffix.isdigit() else None
+
+
 def base_hash(file_hash: Optional[str]) -> Optional[str]:
     """The unsuffixed file hash — the decode-cache identity shared by both halves."""
     return file_hash.split(_SEP, 1)[0] if file_hash else file_hash

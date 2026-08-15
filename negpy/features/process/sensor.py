@@ -13,7 +13,7 @@ import numpy as np
 
 from negpy.domain.types import ImageBuffer
 from negpy.features.exposure.normalization import get_analysis_crop
-from negpy.features.process.models import ProcessConfig
+from negpy.features.process.models import ProcessConfig, ProcessMode
 
 _EPS = 1e-4
 
@@ -57,19 +57,34 @@ def apply_sensor_correction(img: ImageBuffer, matrix: Optional[tuple]) -> ImageB
     return np.clip(out, 0.0, None)
 
 
-def sensor_unmix_available(process: ProcessConfig) -> bool:
-    """Whether the decode basis can carry the unmix at all.
+def unmix_block_reason(process: ProcessConfig) -> str:
+    """Why the unmix cannot apply — "transparency", "linear_raw", or "" when it can.
 
-    Matrices are always calibrated from neutral-WB decodes (the dialog forces
-    use_camera_wb=False). With Linear RAW off, a RAW buffer instead carries the
-    camera's as-shot per-channel gains, and a diagonal gain does not commute with
-    the non-diagonal unmix — the leftover term is sign-flipped, so the correction
-    overcorrects rather than degrading gracefully.
+    A **transparency** is refused outright. The matrix is only meaningful for a capture
+    made under narrowband light, and narrowband is not supported for slides: no profile
+    can be built for a broadband capture, so a matrix on a slide is either inapplicable
+    or inherited from a sticky rig setting that no longer describes the render. It stays
+    baked in the config either way, so switching the frame back to a negative restores it.
 
-    Single source of truth: the sidebar greys the panel on this, the pipeline
-    skips on effective_sensor_matrix below, so the two cannot disagree.
+    **Linear RAW** off is the other block. Matrices are always calibrated from neutral-WB
+    decodes (the dialog forces use_camera_wb=False); a RAW buffer then carries the camera's
+    as-shot per-channel gains, and a diagonal gain does not commute with the non-diagonal
+    unmix — the leftover term is sign-flipped, so the correction overcorrects rather than
+    degrading gracefully.
+
+    Single source of truth: the sidebar greys the panel on this and names the reason, the
+    pipeline skips on effective_sensor_matrix below, so the two cannot disagree.
     """
-    return process.linear_raw
+    if process.process_mode == ProcessMode.E6:
+        return "transparency"
+    if not process.linear_raw:
+        return "linear_raw"
+    return ""
+
+
+def sensor_unmix_available(process: ProcessConfig) -> bool:
+    """Whether the unmix can apply at all; see unmix_block_reason for why not."""
+    return not unmix_block_reason(process)
 
 
 def effective_sensor_matrix(process: ProcessConfig) -> Optional[tuple]:

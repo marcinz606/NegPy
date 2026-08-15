@@ -101,7 +101,7 @@ jobs:
         # Everything except SANE, which has no Windows build. `--all-groups` rather
         # than the default groups alone, or pieusb / plustek ship uninstalled and
         # the Scan tab has no working backend on Windows.
-        run: uv sync --all-groups --no-group scanner
+        run: uv sync --all-groups --no-group sane
 
       - name: Set Version
         shell: bash

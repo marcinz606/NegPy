@@ -1,8 +1,10 @@
-"""The sensor sidebar builds, and greys itself out when the unmix can't apply.
+"""The sensor sidebar builds, and greys itself out when a control can't apply.
 
-A baked matrix is inert while Linear RAW is off (effective_sensor_matrix returns
-None there), so the panel shows "None" and disables its controls rather than
-leaving a profile that looks selected but does nothing.
+A baked matrix is inert while Linear RAW is off, and on any transparency (see
+unmix_block_reason), so the panel shows "None" and disables its controls rather than
+leaving a profile that looks selected but does nothing. The capture toggles grey out the
+same way instead of hiding: a hidden sticky setting is one whose state the user cannot
+see, which is how a negative rig's narrowband pair followed a frame into Transparency.
 """
 
 import os
@@ -47,7 +49,7 @@ def _sidebar(linear_raw=True, profile=_NAME, sensor_matrix=_MATRIX):
 
 def test_sidebar_builds_with_all_controls():
     w = _sidebar()
-    for attr in ("sensor_combo", "calibrate_sensor_btn", "linear_raw_hint"):
+    for attr in ("sensor_combo", "calibrate_sensor_btn", "sensor_hint", "capture_hint"):
         assert hasattr(w, attr), attr
 
 
@@ -58,7 +60,7 @@ def test_profile_is_live_with_linear_raw_on():
     assert w.calibrate_sensor_btn.isEnabled()
     # isHidden, not isVisible: the sidebar is never shown here, which would report
     # every child as invisible regardless of its own setVisible state.
-    assert w.linear_raw_hint.isHidden()
+    assert w.sensor_hint.isHidden()
 
 
 def test_panel_greys_out_with_linear_raw_off():
@@ -66,13 +68,13 @@ def test_panel_greys_out_with_linear_raw_off():
     assert w.sensor_combo.currentText() == SensorProfiles.NONE_NAME
     assert not w.sensor_combo.isEnabled()
     assert not w.calibrate_sensor_btn.isEnabled()
-    assert not w.linear_raw_hint.isHidden()
+    assert not w.sensor_hint.isHidden()
 
 
 def test_hint_shows_even_without_a_baked_profile():
     # Otherwise the controls would be greyed with nothing explaining why.
     w = _sidebar(linear_raw=False, profile=SensorProfiles.NONE_NAME, sensor_matrix=None)
-    assert not w.linear_raw_hint.isHidden()
+    assert not w.sensor_hint.isHidden()
 
 
 def _empty_crosstalk_gallery(tmp_path, monkeypatch):
@@ -146,32 +148,70 @@ def test_gate_is_display_only_and_survives_a_round_trip(monkeypatch):
     w.sync_ui()
     assert w.sensor_combo.currentText() == _NAME
     assert w.sensor_combo.isEnabled()
-    assert w.linear_raw_hint.isHidden()
+    assert w.sensor_hint.isHidden()
     assert writes == []
 
 
-def test_capture_row_tracks_config_and_hides_on_the_transparency_transfer():
-    """Linear RAW / Narrowband / Scanning setup live here, not in Normalization. They
-    are inert on the as-captured transparency render, so the whole block goes."""
+def _to_mode(w, **process):
+    cfg = w.state.config
+    w.state.config = replace(cfg, process=replace(cfg.process, **process))
+    w.sync_ui()
+
+
+def test_capture_row_stays_visible_and_greys_out_per_reason():
+    """Hiding these is what let a rig's narrowband pair follow a frame into Transparency
+    without the user being able to see it. They stay visible and grey out instead."""
     w = _sidebar(linear_raw=True)
     w.sync_ui()
     assert w.linear_raw_btn.isChecked()
-    assert not w.narrowband_scan_btn.isChecked()
     for widget in (w.capture_header, w.linear_raw_btn, w.narrowband_scan_btn, w.scan_setup_btn):
         assert not widget.isHidden()
+        assert widget.isEnabled()
+    assert w.capture_hint.isHidden()
 
-    cfg = w.state.config
-    w.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=False))
-    w.sync_ui()
-    for widget in (w.capture_header, w.linear_raw_btn, w.narrowband_scan_btn, w.scan_setup_btn):
-        assert widget.isHidden()
-
-    # Normalize on is a metered stretch again, so both toggles apply.
-    cfg = w.state.config
-    w.state.config = replace(cfg, process=replace(cfg.process, e6_normalize=True))
-    w.sync_ui()
+    # Transparency transfer: Narrowband refused for the film, Linear RAW inert here.
+    _to_mode(w, process_mode=ProcessMode.E6, e6_normalize=False)
     for widget in (w.capture_header, w.linear_raw_btn, w.narrowband_scan_btn, w.scan_setup_btn):
         assert not widget.isHidden()
+    assert not w.narrowband_scan_btn.isEnabled()
+    assert not w.linear_raw_btn.isEnabled()
+    assert not w.capture_hint.isHidden()
+
+    # Normalize on meters a stretch again, so Linear RAW decides the decode once more —
+    # but Narrowband is refused for the dye set, which Normalize does not change.
+    _to_mode(w, e6_normalize=True)
+    assert w.linear_raw_btn.isEnabled()
+    assert not w.narrowband_scan_btn.isEnabled()
+    assert not w.capture_hint.isHidden()
+
+    _to_mode(w, process_mode=ProcessMode.C41)
+    assert w.narrowband_scan_btn.isEnabled()
+    assert w.linear_raw_btn.isEnabled()
+    assert w.capture_hint.isHidden()
+
+
+def test_unmix_is_refused_on_a_transparency_whatever_linear_raw_says():
+    """A sticky profile from a negative rig must not stay live when the frame is a slide."""
+    w = _sidebar(linear_raw=True)
+    _to_mode(w, process_mode=ProcessMode.E6, e6_normalize=True)
+
+    assert w.sensor_combo.currentText() == SensorProfiles.NONE_NAME
+    assert not w.sensor_combo.isEnabled()
+    assert not w.calibrate_sensor_btn.isEnabled()
+    assert not w.sensor_hint.isHidden()
+    assert "transparency" in w.sensor_hint.text().lower()
+
+
+def test_the_profile_comes_back_on_a_negative():
+    """Greying is display-only, so the selection survives a film-process round trip."""
+    w = _sidebar(linear_raw=True)
+    _to_mode(w, process_mode=ProcessMode.E6)
+    assert w.state.config.process.sensor_profile == _NAME
+
+    _to_mode(w, process_mode=ProcessMode.C41)
+    assert w.sensor_combo.currentText() == _NAME
+    assert w.sensor_combo.isEnabled()
+    assert w.sensor_hint.isHidden()
 
 
 def test_capture_toggles_reach_the_controller():

@@ -126,9 +126,9 @@ def _infer_film_scanner(opt, device_id: str) -> bool:
 
 def _resolve_install_hint() -> str:
     if sys.platform == "darwin":
-        return "Install: brew install sane-backends && uv sync"
+        return "Install: brew install sane-backends && uv sync --group sane"
     if sys.platform.startswith("linux"):
-        return "Install: sudo apt install libsane-dev && uv sync"
+        return "Install: sudo apt install libsane-dev && uv sync --group sane"
     return "Scanner support is not available on this platform."
 
 
