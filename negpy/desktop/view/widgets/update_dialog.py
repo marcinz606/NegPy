@@ -57,7 +57,7 @@ class UpdateCheckWorker(QThread):
 
 # Every network thread this module starts, kept here for its whole life. A QThread
 # destroyed while it still runs takes the process down with it, and a stalled socket
-# outlives the panel or dialog that asked for it — so neither owns one.
+# outlives the panel or dialog that asked for it, so neither owns one.
 _RUNNING: list[QThread] = []
 _QUIT_HOOKED = False
 
@@ -265,8 +265,8 @@ class UpdateDialog(QDialog):
         self.later_button.setText("Close")
 
     def reject(self) -> None:
-        # The worker outlives this window (see `_own`), so closing need not block on
-        # a socket read: it stops at the next chunk and drops the part file.
+        # The worker outlives this window (see `_own`), so closing need not block on a socket
+        # read. It stops at the next chunk and drops the part file.
         if self._worker is not None and self._worker.isRunning():
             self._worker.cancel()
         super().reject()

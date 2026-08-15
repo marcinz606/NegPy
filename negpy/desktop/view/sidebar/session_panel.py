@@ -61,8 +61,8 @@ class SessionPanel(QWidget):
         self.file_browser.library_section.setVisible(bool(self.controller.library_roots()))
 
     def _connect_signals(self) -> None:
-        # The tree navigates, the film strip loads: browsing folders is free and stays
-        # with the tree, while the prompt and the frames belong to the strip.
+        # The tree navigates and the film strip loads: browsing folders is free and stays with the
+        # tree, while the prompt and the frames belong to the strip.
         self.library_tree.folders_activated.connect(self.file_browser.load_folders)
         self.library_tree.folders_appended.connect(lambda paths: self.file_browser.load_folders(paths, add_to_session=True))
         self.library_tree.roots_changed.connect(self._on_roots_changed)
@@ -91,8 +91,8 @@ class SessionPanel(QWidget):
         self.library_tree.select_parent()
 
     def _on_roots_changed(self) -> None:
-        # Folders moved or a root was added — the cached walk describes a tree that
-        # no longer exists.
+        # Folders moved or a root was added, so the cached walk describes a tree that no longer
+        # exists.
         self.library_tree.reload()
         self.controller.invalidate_library_walk()
         if self.controller.library_roots():

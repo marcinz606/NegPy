@@ -75,7 +75,7 @@ class ScannerService:
         self,
         device_id: str,
         params: ScanParams,
-        progress: Callable[[float], None],
+        progress: Callable[[float, str], None],
         cancel: threading.Event,
         *,
         retry_delay: float = _SCAN_IO_RETRY_DELAY_S,

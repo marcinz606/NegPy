@@ -41,9 +41,7 @@ class ExportPresetsDialog(QDialog):
         if self._presets:
             self._select_row(0)
 
-    # ------------------------------------------------------------------
     # UI setup
-    # ------------------------------------------------------------------
 
     def _init_ui(self) -> None:
         root = QHBoxLayout(self)
@@ -155,9 +153,7 @@ class ExportPresetsDialog(QDialog):
 
         fl.addWidget(self._form_container)
 
-    # ------------------------------------------------------------------
     # List management
-    # ------------------------------------------------------------------
 
     def _rebuild_list(self) -> None:
         self.preset_list.blockSignals(True)
@@ -195,9 +191,7 @@ class ExportPresetsDialog(QDialog):
                 return
         self._select_row(row)
 
-    # ------------------------------------------------------------------
     # Form population and change handling
-    # ------------------------------------------------------------------
 
     def _populate_form(self, preset: ExportPreset) -> None:
         self._updating_form = True
@@ -260,9 +254,7 @@ class ExportPresetsDialog(QDialog):
         preset.icc_input_path = vals["icc_input_path"]
         preset.icc_output_path = vals["icc_output_path"]
 
-    # ------------------------------------------------------------------
     # Preset actions
-    # ------------------------------------------------------------------
 
     def _show_add_menu(self) -> None:
         menu = QMenu(self)
@@ -334,9 +326,7 @@ class ExportPresetsDialog(QDialog):
         self._select_row(idx + 1)
         self._emit_changed()
 
-    # ------------------------------------------------------------------
     # Helpers
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _copy_preset(p: ExportPreset) -> ExportPreset:

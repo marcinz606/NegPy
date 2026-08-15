@@ -252,7 +252,7 @@ def test_applying_spawns_the_script_detached_and_touches_nothing_yet(monkeypatch
     apply_update(downloaded, _info())
 
     assert spawned["kw"]["start_new_session"] is True
-    assert Path(spawned["cmd"][1]).read_text().count(str(frozen_appimage)) >= 1
+    assert Path(spawned["cmd"][1]).read_text().count(frozen_appimage.as_posix()) >= 1
     assert frozen_appimage.read_bytes() == b"old"  # the running copy survives until it exits
 
 

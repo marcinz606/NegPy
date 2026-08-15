@@ -35,15 +35,14 @@ def linear_demosaic(path: str, half_size: bool = False) -> np.ndarray:
         rgb = raw.postprocess(
             gamma=(1, 1),
             no_auto_bright=True,
-            # Scale against the camera's white level ONLY — never the frame's own brightest pixel.
-            # LibRaw's default (adjust_maximum_thr=0.75) silently switches the scaling reference to
-            # the image maximum once that exceeds 75 % of the white level, so each frame is
-            # normalised by its own content. That makes the decode non-linear in exposure: rig data
-            # showed the metered base pinned at ~34400 across LED levels 128-160 (the scaling grew
-            # exactly as fast as the light), which reads as an LED/shutter defect and is neither.
-            # 0.0 disables the substitution, making the demosaiced scale a fixed multiple of the raw
-            # counts — which is what a meter measuring absolute light requires, and what
-            # CLIP_CEILING assumes.
+            # Scale against the camera's white level ONLY, never the frame's own brightest pixel.
+            # LibRaw's default (adjust_maximum_thr=0.75) switches the scaling reference to the image
+            # maximum once that exceeds 75 % of the white level, so each frame is normalised by its
+            # own content. That makes the decode non-linear in exposure: rig data showed the metered
+            # base pinned across a range of LED levels, because the scaling grew exactly as fast as
+            # the light, which reads as an LED or shutter defect and is neither. 0.0 disables the
+            # substitution and makes the demosaiced scale a fixed multiple of the raw counts, which is
+            # what a meter measuring absolute light requires and what CLIP_CEILING assumes.
             adjust_maximum_thr=0.0,
             use_camera_wb=False,
             user_wb=[1, 1, 1, 1],
@@ -70,11 +69,11 @@ def raw_channel_clip_fraction(path: str, channel_index: int, roi, saturation_mar
     with rawpy.imread(path) as raw:
         img = raw.raw_image_visible
         colors = raw.raw_colors_visible
-        # No white level → no raw refinement (the demosaiced clip guard still runs). Never guess
-        # img.max() instead: that is an image-dependent reference (the adjust_maximum_thr failure
-        # class), and on a uniform base the guess sits inside the noise — the quieter the sensor,
-        # the more photosites land within `saturation_margin` of their own maximum, reading as
-        # heavy clipping on a frame that clips nowhere (measured: ~0.9 % at σ=8 DN, ~40 % at σ=4).
+        # No white level means no raw refinement, though the demosaiced clip guard still runs.
+        # Never guess img.max() instead: that is an image-dependent reference, the same failure
+        # class as adjust_maximum_thr, and on a uniform base the guess sits inside the noise. The
+        # quieter the sensor, the more photosites land within `saturation_margin` of their own
+        # maximum and read as heavy clipping on a frame that clips nowhere.
         white = int(raw.white_level or 0)
         if white <= 0:
             return 0.0

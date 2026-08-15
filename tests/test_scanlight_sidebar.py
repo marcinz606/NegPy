@@ -1334,3 +1334,40 @@ def test_legacy_white_process_mode_names_still_load():
     assert ScanlightSettings(white_process_mode="E-6").white_process_mode is WhiteCaptureMode.E6
     assert ScanlightSettings(white_process_mode="B&W").white_process_mode is WhiteCaptureMode.BW
     assert ScanlightSettings(white_process_mode="nonsense").white_process_mode is WhiteCaptureMode.AUTO
+
+
+def _settings_json(tmp_path, monkeypatch, *, writable=True, options=("1/60", "1/30", "1/8")):
+    import json
+
+    from negpy.desktop.view.sidebar import scanlight as mod
+
+    path = tmp_path / "lv.json"
+    payload = {"shutter": {"cur": 0, "writable": writable, "options": [{"label": lbl, "raw": i} for i, lbl in enumerate(options)]}}
+    path.write_text(json.dumps(payload))
+    monkeypatch.setattr(mod, "default_settings_path", lambda: str(path))
+    return path
+
+
+def test_shutter_ladder_ignores_a_body_that_reports_it_read_only(tmp_path, monkeypatch):
+    """Issue #768: a body that reports the shutter read-only swallows every write silently, and
+    solving against speeds it cannot set is what produced "camera rejected it or it did not settle"."""
+    w = _sidebar()
+    _settings_json(tmp_path, monkeypatch, writable=True)
+    assert w._available_shutters() == ("1/60", "1/30", "1/8")
+
+    _settings_json(tmp_path, monkeypatch, writable=False)
+    assert w._available_shutters() == ()
+
+
+def test_calibration_refuses_rather_than_writing_a_foreign_shutter_label(tmp_path, monkeypatch):
+    """With no ladder from the body, the only labels available are the built-in ones — spelled in
+    one vendor's vocabulary. Say what is wrong instead of writing them onto someone else's camera."""
+    w = _sidebar()
+    _settings_json(tmp_path, monkeypatch, writable=False)
+    w.calib_window.image._roi = (0.4, 0.4, 0.2, 0.2)
+
+    w._on_calibrate_new_preset("Portra 400")
+
+    assert not w.controller.start_calibration.called
+    assert "settable shutter speeds" in w.calib_window.status.text()
+    assert not w._calibrating_preset  # the run never started

@@ -14,8 +14,8 @@ class ToningProcessor:
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         img = image
 
-        # A cyanotype holds no silver, so none of the six baths have anything to
-        # react with. Split toning is a dye stain and still applies.
+        # A cyanotype holds no silver, so none of the six baths have anything to react with.
+        # Split toning is a dye stain and still applies.
         if context.process_mode == ProcessMode.BW and self.alt_process != AltProcess.CYANOTYPE:
             img = apply_chemical_toning(
                 img,

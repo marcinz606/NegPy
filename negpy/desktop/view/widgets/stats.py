@@ -27,8 +27,8 @@ _TOOLTIPS = {
 
 _PROBE_EMPTY = "—"
 
-# One per zone-placement pin, in pin order; the canvas overlay draws its rings in these
-# same colors, so the sidebar row and the pin on the photo can be matched by eye.
+# One per zone-placement pin, in pin order. The canvas overlay draws its rings in these
+# same colors, so the sidebar row and the pin on the photo match by eye.
 PIN_COLORS = (THEME.accent_primary, "#FFFFFF", THEME.channel_blue)
 
 

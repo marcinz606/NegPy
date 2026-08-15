@@ -145,9 +145,9 @@ def _apply_print_curve_kernel(
     res = np.empty_like(img)
     eps = 1e-6
 
-    # Roll-off sharpness from width (larger width = gentler); slider sets height.
-    # toe -> shadow (upper / paper-black) bound; shoulder -> highlight (lower /
-    # paper-white) bound. a_toe_base/a_sh_base carry the shadow/highlight sharpness.
+    # Roll-off sharpness from the width, so a larger width is gentler; the slider sets the
+    # height. toe = shadow (upper, paper-black) bound, shoulder = highlight (lower,
+    # paper-white) bound. a_toe_base/a_sh_base carry the sharpness.
     a_hl = np.empty(3, dtype=np.float64)
     a_sh = np.empty(3, dtype=np.float64)
     d_min_eff = np.empty(3, dtype=np.float64)
@@ -161,8 +161,8 @@ def _apply_print_curve_kernel(
             d_max_base = d_max - t_ch * toe_height
             a_sh[ch] = a_sh_w
         else:
-            # Negative toe: tighten the shadow roll-off (sharper knee) rather than
-            # extending d_max_eff beyond paper black (perceptually near-zero effect).
+            # Negative toe tightens the shadow roll-off instead of extending d_max_eff past
+            # paper black, which has almost no visible effect.
             d_max_base = d_max
             a_sh[ch] = a_sh_w * (1.0 - t_ch * 4.0)
         dmn = d_min_rgb[ch] + shoulder[ch] * sh_height
@@ -173,9 +173,9 @@ def _apply_print_curve_kernel(
             dmx = dmn + 0.1
         d_min_eff[ch] = dmn
         d_max_eff[ch] = dmx
-        # BPC references the physical d_max (not d_max_eff) so toe lifts survive;
-        # negative toe raises the clip point — the bound reaches d_max only
-        # asymptotically, so exact 0 needs the clip inside the shadow range.
+        # BPC references the physical d_max, not d_max_eff, so toe lifts survive. A negative
+        # toe raises the clip point: the bound reaches d_max only asymptotically, so an exact
+        # 0 needs the clip inside the shadow range.
         db = d_max
         if t_ch < 0.0:
             db = d_max + t_ch * toe_height
@@ -190,8 +190,8 @@ def _apply_print_curve_kernel(
         or highlight_grade[2] != 0.0
     )
 
-    # Rows are independent, so parallelise over y. `dens` is allocated per row so
-    # each worker thread has its own scratch (no cross-iteration sharing).
+    # Rows are independent, so parallelise over y. `dens` is allocated per row, so each
+    # worker thread has its own scratch.
     for y in prange(h):
         dens = np.empty(3, dtype=np.float64)
         for x in range(w):
@@ -202,15 +202,14 @@ def _apply_print_curve_kernel(
                 val = img[y, x, ch] + cmy_offsets[ch]
                 if use_ev:
                     val = val + ev_map[y, x] * ev_scale[ch]
-                # Quadratic per-channel core (curvature 0 -> the original straight line).
-                # gfac is the local grade: a slope rotation about this channel's pivot,
-                # so the region's own midtone holds. Curvature (the cast-removal
-                # quadratic) stays global.
+                # Quadratic per-channel core; curvature 0 gives the original straight line.
+                # gfac is the local grade, a slope rotation about this channel's pivot, so the
+                # region's own midtone holds. The cast-removal curvature stays global.
                 v = slopes[ch] * gfac * (val - pivots[ch]) + curvatures[ch] * val * val
 
-                # Variable-gamma paper S-curve: extra local gamma at the midtone
-                # centre (v_star), easing to zero toward toe/shoulder. Centred on
-                # v_star so the reference tone is preserved.
+                # Variable-gamma paper S-curve: extra local gamma at the midtone centre
+                # (v_star), easing to zero toward the toe and shoulder. Centred on v_star, so
+                # the reference tone is preserved.
                 if midtone_gamma[ch] != 0.0:
                     v = v + midtone_gamma[ch] * gamma_width * np.tanh((v - v_star) / gamma_width)
 
@@ -219,9 +218,9 @@ def _apply_print_curve_kernel(
                 w_hi = 1.0 - w_sh
                 v = v + shadow_cmy[ch] * w_sh + highlight_cmy[ch] * w_hi
 
-                # Split Grade: local contrast rotation about the zone centers,
-                # mid-sparing. Must run as its own block before Zone Density
-                # (sequential stays monotone; shared weights do not).
+                # Split Grade: a mid-sparing local contrast rotation about the zone centres.
+                # Must run as its own block before Zone Density, because sequential stays
+                # monotone and shared weights do not.
                 if use_split:
                     w_gsh = _fast_sigmoid(zone_k * (v - zone_sh_center))
                     w_ghi = 1.0 - _fast_sigmoid(zone_k * (v - zone_hi_center))
@@ -249,10 +248,10 @@ def _apply_print_curve_kernel(
                 dens[2] = d_min_rgb[2] + dye_mix[2, 0] * e0 + dye_mix[2, 1] * e1 + dye_mix[2, 2] * e2
 
             if use_sep_damping:
-                # Chroma-selective dye separation, in place of the frame-wide
-                # saturation matrix (which then carries the paper's coupling
-                # only, preserving compose_density_matrices' separation-outermost
-                # order). Chroma mirrors _rms_chroma in normalization.py.
+                # Chroma-selective dye separation, in place of the frame-wide saturation
+                # matrix, which then carries the paper's coupling only and keeps
+                # compose_density_matrices' separation-outermost order. Chroma mirrors
+                # _rms_chroma in normalization.py.
                 s0 = dens[0] - d_min_rgb[0]
                 s1 = dens[1] - d_min_rgb[1]
                 s2 = dens[2] - d_min_rgb[2]
@@ -320,14 +319,14 @@ class CharacteristicCurve:
         self.shadow_grade_delta = float(shadow_grade_delta)
         self.highlight_grade_delta = float(highlight_grade_delta)
         self.d_max = float(c["d_max"])
-        # BPC reference mirrors the kernel prologue (achromatic: d_min for the tint).
+        # The BPC reference mirrors the kernel prologue: achromatic, d_min for the tint.
         self.bpc = bool(bpc)
         db = self.d_max
         if toe * ts < 0.0:
             db = self.d_max + toe * ts * float(c["toe_height"])
         self.bpc_black = 10.0**-db
         wr = float(c["toeshoulder_width_ref"])
-        # toe -> shadow (upper) bound; shoulder -> highlight (lower) bound.
+        # toe = the shadow (upper) bound, shoulder = the highlight (lower) bound.
         self.a_hl = float(c["shoulder_sharpness_base"]) * wr / max(shoulder_width, 1e-6)
         a_sh_base = float(c["toe_sharpness_base"]) * wr / max(toe_width, 1e-6)
         self.d_min_eff = max(0.0, self.d_min + shoulder * ts * float(c["shoulder_height"]))
@@ -972,13 +971,13 @@ def per_channel_curve_params(
     shadow tie. Off / no refs (E6/B&W): one shared linear curve.
     """
     c = effective_constants(paper)
-    # Per-channel slope multipliers (paper dye-layer contrast crossover). The
-    # pivot is re-solved per channel so neutrals stay neutral and color diverges
-    # only away from the midtone.
+    # Per-channel slope multipliers for the paper dye-layer contrast crossover. The pivot is
+    # re-solved per channel, so neutrals stay neutral and color diverges only away from the
+    # midtone.
     cg = paper.channel_gamma if paper is not None else (1.0, 1.0, 1.0)
     if grade_trims != (0.0, 0.0, 0.0):
-        # Per-layer ISO-R trims fold in as user channel_gammas; the pivot
-        # re-solve keeps the anchor neutral.
+        # Per-layer ISO-R trims fold in as user channel_gammas, and the pivot re-solve keeps
+        # the anchor neutral.
         cg = (
             cg[0] * _grade_trim_mult(grade, grade_trims[0], c),
             cg[1] * _grade_trim_mult(grade, grade_trims[1], c),
@@ -992,8 +991,9 @@ def per_channel_curve_params(
     epsilon = 1e-6
 
     if strength > 0.0 and neutral_axis_norm is not None:
-        # Line through the green-matched midtone+shadow, plus a highlight-driven curvature
-        # (when present) so highlights don't extrapolate past neutral. Clamped monotonic.
+        # A line through the green-matched midtone and shadow, plus a highlight-driven
+        # curvature when present, so highlights do not extrapolate past neutral. Clamped
+        # monotonic.
         mid_norm, sh_norm, hl_norm = neutral_axis_norm
         limit = float(c["midtone_cast_max_offset"])
         curv_lim = float(c["neutral_axis_curv_max_ratio"])
@@ -1026,7 +1026,8 @@ def per_channel_curve_params(
                     curv = 0.0
                 curv = min(max(curv, -curv_lim * slope_g), curv_lim * slope_g)
 
-            # Re-pin midtone+shadow with this curvature (mid exact via pivot, like the 2-pt solve).
+            # Re-pin midtone and shadow with this curvature. The mid is exact through the
+            # pivot, like the two-point solve.
             du = u_m - u_s
             slope_ch = slope_g if abs(du) < epsilon else ((t_m - t_s) - curv * (u_m * u_m - u_s * u_s)) / du
             slope_ch = min(max(slope_ch * cg[ch], slope_min), slope_max)
@@ -1038,8 +1039,8 @@ def per_channel_curve_params(
         return (slopes[0], slopes[1], slopes[2]), (pivots[0], pivots[1], pivots[2]), (curvs[0], curvs[1], curvs[2])
 
     if strength > 0.0 and shadow_refs_norm is not None:
-        # Fallback one-point tie: slope-tilt each channel so its shadow ref lands on
-        # green's, with the luma anchor pinning the midtone (used when no neutral axis).
+        # Fallback one-point tie, used when there is no neutral axis: slope-tilt each channel
+        # so its shadow ref lands on green's, with the luma anchor pinning the midtone.
         anchor_val = float(c["assumed_anchor"]) if anchor is None else float(anchor)
         limit = float(c["cast_removal_max_offset"])
         r_green = float(shadow_refs_norm[1])
@@ -1061,7 +1062,7 @@ def per_channel_curve_params(
             pivots.append(compute_pivot(slope_ch, density, d_min=d_min, anchor=anchor, paper=paper))
         return (slopes[0], slopes[1], slopes[2]), (pivots[0], pivots[1], pivots[2]), (0.0, 0.0, 0.0)
 
-    # Base curve: Cast Removal off, or on with no measured refs (E6/B&W/no neutrals).
+    # Base curve: Cast Removal off, or on with no measured refs (E6, B&W, no neutrals).
     s0 = min(max(base_slope * cg[0], slope_min), slope_max)
     s1 = min(max(base_slope * cg[1], slope_min), slope_max)
     s2 = min(max(base_slope * cg[2], slope_min), slope_max)
@@ -1128,10 +1129,10 @@ def density_to_cmy(density: float, log_range: float = 1.0) -> float:
 
 TEMP_REF_KELVIN = 5500.0
 TEMP_MIN_KELVIN, TEMP_MAX_KELVIN = 3000.0, 12000.0
-# Slider units per mired, red-anchored (wb_cyan stays 0): Wien slopes
-# c2*log10(e)*(1/lambda - 1/lambda_R) at ~460/550/690 nm, over a nominal
-# effective print gamma (~4) and cmy_max_density (0.2) — so the Kelvin
-# readout is nominal, not colorimetric. Calibration knobs: retune by eye.
+# Slider units per mired, red-anchored so wb_cyan stays 0: Wien slopes
+# c2*log10(e)*(1/lambda - 1/lambda_R) at roughly 460/550/690 nm, over a nominal effective
+# print gamma and cmy_max_density. The Kelvin readout is therefore nominal, not
+# colorimetric. Calibration knobs: retune by eye.
 _TEMP_K_MAGENTA = 0.0029
 _TEMP_K_YELLOW = 0.0057
 

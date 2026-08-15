@@ -54,8 +54,8 @@ def _exposure_row(metered_anchor: Optional[float], norm_density_range: Optional[
     if metered_anchor is None or not norm_density_range:
         return StatRow("Exposure", _EMPTY)
     dev = float(metered_anchor) - float(EXPOSURE_CONSTANTS["assumed_anchor"])
-    # Express the midtone offset as stops, scaling the normalized deviation by the
-    # negative's density range. Positive = brighter (high-key). Approximate.
+    # Express the midtone offset as stops, scaling the normalized deviation by the negative's
+    # density range. Positive is brighter (high-key). Approximate.
     ev = dev * float(norm_density_range) / _LOG10_2
     return StatRow("Exposure", f"{ev:+.1f} EV")
 

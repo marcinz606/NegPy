@@ -118,7 +118,7 @@ def test_refresh_devices_re_enumerates(name: str, make_backend: _Factory) -> Non
 
 def test_scan_returns_a_well_formed_result(name: str, make_backend: _Factory) -> None:
     backend, device_id = make_backend()
-    result = backend.scan(device_id, _PARAMS, lambda _: None, threading.Event())
+    result = backend.scan(device_id, _PARAMS, lambda *_: None, threading.Event())
 
     assert isinstance(result, ScanResult)
     assert result.rgb.ndim == 3 and result.rgb.shape[2] == 3
@@ -132,14 +132,19 @@ def test_scan_honours_a_pre_set_cancel(name: str, make_backend: _Factory) -> Non
     cancel.set()
 
     with pytest.raises(Exception, match="[Cc]ancel"):
-        backend.scan(device_id, _PARAMS, lambda _: None, cancel)
+        backend.scan(device_id, _PARAMS, lambda *_: None, cancel)
 
 
 def test_progress_stays_within_the_unit_range(name: str, make_backend: _Factory) -> None:
     backend, device_id = make_backend(progress_steps=4)
     seen: list[float] = []
 
-    backend.scan(device_id, _PARAMS, seen.append, threading.Event())
+    backend.scan(
+        device_id,
+        _PARAMS,
+        lambda fraction, phase="Scanning": seen.append(fraction),
+        threading.Event(),
+    )
 
     assert seen, f"{name}: expected progress during the read"
     assert all(0.0 <= v <= 1.0 for v in seen), seen
@@ -150,14 +155,14 @@ def test_transport_glitches_are_typed_transient(name: str, make_backend: _Factor
     backend, device_id = make_backend(scan_error=RuntimeError("Error during device I/O"))
 
     with pytest.raises(TransientScanError):
-        backend.scan(device_id, _PARAMS, lambda _: None, threading.Event())
+        backend.scan(device_id, _PARAMS, lambda *_: None, threading.Event())
 
 
 def test_real_errors_are_not_transient(name: str, make_backend: _Factory) -> None:
     backend, device_id = make_backend(scan_error=RuntimeError("Could not set frame=3"))
 
     with pytest.raises(Exception) as excinfo:
-        backend.scan(device_id, _PARAMS, lambda _: None, threading.Event())
+        backend.scan(device_id, _PARAMS, lambda *_: None, threading.Event())
     assert not isinstance(excinfo.value, TransientScanError)
 
 
@@ -187,7 +192,7 @@ def test_open_session_yields_a_session_shaped_object(name: str, make_backend: _F
 def test_session_scans_on_the_held_handle(name: str, make_backend: _Factory) -> None:
     backend, device_id = make_backend()
     with backend.open_session(device_id) as session:
-        result = session.scan(_PARAMS, lambda _: None, threading.Event())
+        result = session.scan(_PARAMS, lambda *_: None, threading.Event())
     assert isinstance(result, ScanResult)
 
 

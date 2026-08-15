@@ -39,6 +39,11 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Image Processing"
 ]
 
+[project.optional-dependencies]
+plustek = ["pyopticfilm>=1.0"]
+sane = ["python-sane>=2.9"]
+camera = ["gphoto2>=2.5 ; sys_platform != 'win32'"]
+
 [dependency-groups]
 dev = [
     "pyinstaller>=6.18.0",
@@ -47,8 +52,11 @@ dev = [
     "ruff==0.14.10",
     "ty>=0.0.26",
 ]
-scanner = [
+sane = [
     "python-sane>=2.9",
+]
+plustek = [
+    "pyopticfilm>=1.0",
 ]
 camera = [
     # Tethered camera scanning. libgphoto2 has no Windows build, so the wheels — and the
@@ -69,8 +77,8 @@ Issues = "https://github.com/marcinz606/NegPy/issues"
 requires = ["setuptools~=80.10.2"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["negpy"]
+[tool.setuptools.packages.find]
+include = ["negpy*"]
 
 [tool.setuptools.dynamic]
 version = { file = "VERSION" }

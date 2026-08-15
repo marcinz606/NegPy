@@ -88,8 +88,8 @@ def resolve_export_naming(task: ExportTask) -> tuple[str, str, str]:
     ext = _EXT.get(task.export_settings.export_fmt, "jpg")
     frames = hdr_frame_paths(task.file_info)
     filename = render_export_filename(
-        # A merge is named after its alphabetically first frame, not the reference frame
-        # its path points at — the reference is chosen from picture content.
+        # A merge is named after its alphabetically first frame, not the reference frame its path
+        # points at, because the reference is chosen from picture content.
         min(frames, key=lambda p: os.path.basename(p).lower()) if frames else task.file_info["path"],
         task.export_settings,
         border_size=task.params.finish.border_size,
@@ -161,14 +161,14 @@ class ExportWorker(QObject):
                 )
 
                 if not bits:
-                    # process_export returns (None, error) on failure; surface it
-                    # rather than silently skipping the file.
+                    # process_export returns (None, error) on failure. Surface it rather than skipping the
+                    # file silently.
                     self.error.emit(status)
                     continue
 
                 if bits:
-                    # Skipped for JXL (embed_metadata corrupts the .jxl stream) and
-                    # WebP (embed_metadata has no WebP branch).
+                    # Skipped for JXL, where embed_metadata corrupts the stream, and for WebP, where
+                    # embed_metadata has no branch.
                     if task.metadata_config is not None and task.export_settings.export_fmt not in (
                         ExportFormat.JXL,
                         ExportFormat.WEBP,
@@ -204,8 +204,8 @@ class ExportWorker(QObject):
                         self.error.emit(str(write_err))
                         continue
 
-                # VRAM evacuated per file; decoded source kept for a same-file next
-                # task (multi-format presets), gc deferred to once per batch.
+                # VRAM is evacuated per file. The decoded source is kept for a same-file next task, as
+                # with multi-format presets, and gc is deferred to once per batch.
                 nxt = tasks[i + 1] if i + 1 < len(tasks) else None
                 self._processor.cleanup(
                     release_source_cache=nxt is None or not _same_decode_source(task, nxt),
@@ -288,8 +288,8 @@ class ExportWorker(QObject):
                     tiles.append(tile)
                     labels.append(task.file_info["name"])
                 else:
-                    # A dropped tile silently shrinks the sheet; report it so the
-                    # run doesn't look like a clean success with frames missing.
+                    # A dropped tile silently shrinks the sheet, so report it or the run looks like a clean
+                    # success with frames missing.
                     self.error.emit(f"{name}: could not be rendered for the contact sheet")
 
             sheets = ContactSheetService.build_sheets(

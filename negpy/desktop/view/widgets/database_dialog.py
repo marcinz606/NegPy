@@ -15,8 +15,8 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.view.styles.theme import THEME
 
-# (stat key, display label). Order = display order; a separator sits between the
-# per-image group and the reusable-tooling group.
+# (stat key, display label). The order is the display order, and a separator sits between
+# the per-image group and the reusable-tooling group.
 _EDIT_ROWS = (
     ("file_settings", "Saved edits (images)"),
     ("edit_history", "Undo-history steps"),
@@ -128,8 +128,8 @@ class DatabaseDialog(QDialog):
         return row
 
     def _add_separator(self, grid_row: int) -> None:
-        # A plain QFrame HLine draws from the palette and barely shows on the dark
-        # background; a 1px background-filled frame renders reliably.
+        # A plain QFrame HLine draws from the palette and barely shows on the dark background. A
+        # 1px background-filled frame renders reliably.
         line = QFrame()
         line.setFixedHeight(1)
         line.setStyleSheet(f"background: {THEME.border_color};")

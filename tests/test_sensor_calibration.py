@@ -10,7 +10,9 @@ from negpy.features.process.sensor import (
     effective_sensor_matrix,
     measure_capture,
     sensor_token,
+    unmix_block_reason,
 )
+from negpy.features.process.models import ProcessMode
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.kernel.system.config import APP_CONFIG
 
@@ -87,6 +89,35 @@ def test_effective_matrix_needs_linear_raw():
     assert effective_sensor_matrix(off) is None
     # The token must agree, or the render cache would key two identical renders apart.
     assert sensor_token(off) == ""
+
+
+def test_a_transparency_refuses_the_unmix():
+    """The matrix only means anything for a capture made under narrowband light, and
+    narrowband is not used for slides. A profile is sticky, so it follows a negative rig's
+    settings onto a slide unasked — which is the bug: it corrected for a light the frame
+    was never shot under, and the panel that would have shown it was hidden."""
+    matrix = (1.0, -0.1, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+    on = replace(WorkspaceConfig().process, sensor_matrix=matrix, linear_raw=True)
+    assert effective_sensor_matrix(on) == matrix
+
+    for normalize in (True, False):
+        slide = replace(on, process_mode=ProcessMode.E6, e6_normalize=normalize)
+        assert effective_sensor_matrix(slide) is None, f"e6_normalize={normalize}"
+        assert unmix_block_reason(slide) == "transparency"
+        # The token must agree, or the render cache would key two identical renders apart.
+        assert sensor_token(slide) == ""
+
+    # Baked, not cleared: switching the frame back to a negative restores the selection.
+    assert effective_sensor_matrix(replace(on, process_mode=ProcessMode.C41)) == matrix
+
+
+def test_the_block_reason_names_the_nearer_cause():
+    """Both blocks can hold at once; the panel shows one hint, and a slide is the reason
+    the user cannot act on — turning Linear RAW on would not bring the unmix back."""
+    both = replace(WorkspaceConfig().process, linear_raw=False, process_mode=ProcessMode.E6)
+    assert unmix_block_reason(both) == "transparency"
+    assert unmix_block_reason(replace(both, process_mode=ProcessMode.C41)) == "linear_raw"
+    assert unmix_block_reason(replace(both, process_mode=ProcessMode.C41, linear_raw=True)) == ""
 
 
 def test_camera_wb_basis_breaks_the_unmix():

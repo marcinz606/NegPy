@@ -4,8 +4,8 @@ from PyQt6.QtWidgets import QGridLayout, QLabel, QProgressBar, QWidget
 from negpy.desktop.view.styles.theme import THEME
 
 _DEFAULT_TOAST_MS = 2500
-#: Toast wrapping bounds. The ratio keeps a long message clear of the corner pills; the
-#: floor stops it collapsing to a sliver on a narrow canvas.
+#: Toast wrapping bounds. The ratio keeps a long message clear of the corner pills, and
+#: the floor stops it collapsing to a sliver on a narrow canvas.
 _TOAST_WIDTH_RATIO = 0.55
 _TOAST_MIN_WIDTH = 320
 #: Horizontal padding in _TOAST_QSS, so a one-line measurement matches the rendered pill.
@@ -16,9 +16,9 @@ _PILL_QSS = (
     "background-color: rgba(0, 0, 0, 140); border-radius: 4px; padding: 2px 8px;"
 )
 
-# Status toast ("rendering...", "galleries updated"): unlike the passive corner
-# pills, it announces app activity — bigger type, near-white on a solid dark
-# plate with an outline so it reads against any canvas brightness.
+# Status toast ("rendering...", "galleries updated"). Unlike the passive corner pills it
+# announces app activity, so it uses bigger type, near-white on a solid dark plate with
+# an outline, and reads against any canvas brightness.
 _TOAST_QSS = (
     f"color: {THEME.text_primary}; font-size: {THEME.font_size_lg}px; font-weight: 600; "
     "background-color: rgba(10, 10, 10, 225); border: 1px solid rgba(255, 255, 255, 55); "
@@ -52,8 +52,8 @@ class CanvasHud(QWidget):
             lbl.setStyleSheet(_PILL_QSS)
             lbl.hide()
         self.toast.setStyleSheet(_TOAST_QSS)
-        # Wraps rather than running off the canvas: a message that has to explain itself —
-        # why a file will not open, and what to do about it — does not fit one line.
+        # Wraps rather than running off the canvas: a message that has to explain itself, why a
+        # file will not open and what to do about it, does not fit one line.
         self.toast.setWordWrap(True)
         self.toast.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.toast.hide()
@@ -84,8 +84,8 @@ class CanvasHud(QWidget):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self.progress.setGeometry(0, 0, self.width(), 3)
-        # A cap, not a width: wordWrap only wraps at the widget's width, and without a
-        # bound the label simply grows to the canvas. Short toasts still size to content.
+        # A cap, not a width: wordWrap only wraps at the widget's width, and without a bound the
+        # label grows to the canvas. Short toasts still size to content.
         self.toast.setMaximumWidth(max(_TOAST_MIN_WIDTH, int(self.width() * _TOAST_WIDTH_RATIO)))
 
     @staticmethod
@@ -106,10 +106,10 @@ class CanvasHud(QWidget):
             self._toast_timer.stop()
             self.toast.hide()
             return
-        # Cap here as well as on resize: a toast can be posted before the HUD has ever been
-        # resized. And set the minimum too — a wrapping QLabel's sizeHint aims for a squarish
-        # block, so a long message folds into five narrow lines rather than using the width
-        # it is allowed. Short toasts keep their natural width.
+        # Cap here as well as on resize, because a toast can be posted before the HUD has ever
+        # been resized. Set the minimum too: a wrapping QLabel's sizeHint aims for a squarish
+        # block, so a long message folds into narrow lines rather than using the width it is
+        # allowed. Short toasts keep their natural width.
         cap = max(_TOAST_MIN_WIDTH, int(self.width() * _TOAST_WIDTH_RATIO))
         one_line = self.toast.fontMetrics().horizontalAdvance(text) + _TOAST_PADDING
         self.toast.setMaximumWidth(cap)

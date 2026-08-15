@@ -81,8 +81,8 @@ class ShortcutManager:
 
         def _adjust() -> None:
             slider = getter()
-            # A window-wide QShortcut fires from any tab, so the gating the mouse gets for
-            # free on a disabled or mode-hidden control has to be applied here by hand.
+            # A window-wide QShortcut fires from any tab, so the gating a mouse gets for free on a
+            # disabled or mode-hidden control has to be applied here by hand.
             if not slider.isEnabled() or hidden_by_gating(slider):
                 self.window.controller.set_status(f"{_slider_name(slider, group)} not available", 1500)
                 return
@@ -121,6 +121,7 @@ class ShortcutManager:
             "flip_v": lambda: toolbar.flip("vertical"),
             "lock_bounds_toggle": lambda: controls.process_sidebar.lock_bounds_btn.toggle(),
             "scan_setup": lambda: controls.sensor_sidebar.scan_setup_btn.click(),
+            "scan_prescan": (lambda: right.scan_sidebar.prescan_btn.click() if getattr(right, "scan_sidebar", None) is not None else None),
             "mode_color_negative": lambda: controls.process_sidebar.mode_btns[0].click(),
             "mode_bw_negative": lambda: controls.process_sidebar.mode_btns[1].click(),
             "mode_transparency": lambda: controls.process_sidebar.mode_btns[2].click(),

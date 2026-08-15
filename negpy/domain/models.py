@@ -22,7 +22,7 @@ from negpy.features.toning.models import ToningConfig
 from negpy.features.finish.models import FinishConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.rgbscan.models import RgbScanConfig
-from negpy.features.hdr.models import HdrConfig
+from negpy.features.hdr.models import HdrConfig, hdr_active
 from negpy.features.stitch.models import StitchConfig
 from negpy.features.metadata.models import MetadataConfig
 from negpy.domain.migrations import migrate_export_fmt, migrate_flat_config
@@ -84,18 +84,17 @@ class ColorSpace(Enum):
     GREYSCALE = "Greyscale"
 
 
-# Color spaces offered for export. ACES and XYZ are rawpy *decode* spaces with no
-# bundled ICC profile — an export targeting them can be neither converted nor tagged
-# (the encoder falls back to the working space), so they're excluded here.
+# Color spaces offered for export. ACES and XYZ are rawpy *decode* spaces with no bundled
+# ICC profile, so an export targeting them can be neither converted nor tagged and the
+# encoder falls back to the working space. Excluded here.
 EXPORT_COLOR_SPACES: list[str] = [cs.value for cs in ColorSpace if cs not in (ColorSpace.ACES, ColorSpace.XYZ)]
 
 
-# Color spaces JPEG XL can tag (mirror _JXL_COLOR in image_processor). Same as
-# Source is deliberately excluded: it resolves per-file at export time (usually to
-# the Adobe RGB working space for scans/raws with no embedded profile), and Adobe
-# RGB isn't JXL-taggable — so allowing it here would pass this upfront check and
-# still hard-fail deep in the encoder. Blocking it here forces an explicit,
-# taggable choice instead.
+# Color spaces JPEG XL can tag (mirrors _JXL_COLOR in image_processor). Same as Source is
+# deliberately excluded: it resolves per file at export time, usually to the Adobe RGB
+# working space, and Adobe RGB is not JXL-taggable, so allowing it would pass this
+# upfront check and still hard-fail deep in the encoder. Blocking it forces an explicit,
+# taggable choice.
 JXL_TAGGABLE_SPACES = frozenset(
     {
         ColorSpace.SRGB.value,
@@ -136,8 +135,8 @@ class ExportConfig:
     export_resolution_mode: ExportResolutionMode = ExportResolutionMode.ORIGINAL
     export_target_long_edge_px: int = 2000
     filename_pattern: str = "{{ original_name }}"
-    # When True, exports silently overwrite existing files; when False, the export
-    # prompts (Overwrite / Rename / Cancel) before clobbering anything.
+    # When True, exports overwrite existing files silently. When False, the export prompts
+    # (Overwrite / Rename / Cancel) before clobbering anything.
     overwrite: bool = False
     output_mode: ExportPresetOutputMode = ExportPresetOutputMode.ABSOLUTE
     output_subfolder: str = ""
@@ -314,6 +313,27 @@ class WorkspaceConfig:
     metadata: MetadataConfig = field(default_factory=MetadataConfig)
     export: ExportConfig = field(default_factory=ExportConfig)
 
+    def __post_init__(self) -> None:
+        """A merged bracket never carries the Normalize stretch.
+
+        The two decide the same thing and the merge loses. Normalize meters the buffer and
+        stretches the measured range to full, which divides the render exposure's scale
+        straight back out — moving the anchor then changes nothing at all below the point
+        where its specular stops clipping. They do not want each other either: Normalize
+        rescues faded film, fading *compresses* density range, and a frame whose range
+        collapsed is not one that needed a bracket.
+
+        Held here rather than at the render, because e6_normalize is read from
+        `is_transparency_transfer` down through both engines and the sidebars, and a rule
+        applied at some of those is the hidden-but-live trap the Calibration panel already
+        learned. Inert everywhere, from one place.
+
+        Not a migration: this must hold however the config was built — a merge created now,
+        a composite loaded from the DB, a `replace` that turns an ordinary frame into one.
+        """
+        if hdr_active(self.hdr) and self.process.e6_normalize:
+            object.__setattr__(self, "process", replace(self.process, e6_normalize=False))
+
     def to_dict(self) -> Dict[str, Any]:
         """
         Flattens for serialization.
@@ -378,11 +398,10 @@ class WorkspaceConfig:
             masks = []
             for m in d.get("masks", []):
                 verts = tuple(tuple(v) for v in m.get("vertices", []))
-                # A mask's exposure was brightness-signed (`strength`, positive =
-                # dodge) before it became exposure-signed stops (positive = burn) —
-                # the same flip vignette_strength -> vignette_stops made. Nested in
-                # local_masks, so it can't live in MIGRATIONS' flat rewrites; keyed
-                # on the legacy name, which only a pre-flip save carries.
+                # A mask's exposure was brightness-signed (`strength`, positive = dodge) before it became
+                # exposure-signed stops (positive = burn), the same flip vignette_strength made. Nested
+                # in local_masks, so it cannot live in MIGRATIONS' flat rewrites. Keyed on the legacy
+                # name, which only a pre-flip save carries.
                 stops = -float(m["strength"]) if "strength" in m else float(m.get("stops", 0.0))
                 masks.append(
                     LocalMask(
@@ -397,8 +416,8 @@ class WorkspaceConfig:
             return LocalAdjustmentsConfig(masks=tuple(masks))
 
         def _build_stitch(d: Dict[str, Any]) -> StitchConfig:
-            # JSON round-trips tuples as lists; coerce back or the frozen config
-            # loses hashability/equality (breaks config-diff caching).
+            # JSON round-trips tuples as lists, so coerce back or the frozen config loses hashability
+            # and equality, which breaks config-diff caching.
             canvas = d.get("stitch_canvas", (0, 0))
             return StitchConfig(
                 stitch_enabled=bool(d.get("stitch_enabled", False)),
@@ -418,6 +437,7 @@ class WorkspaceConfig:
                 hdr_ratios=tuple(float(r) for r in d.get("hdr_ratios", ())),
                 hdr_align=bool(d.get("hdr_align", True)),
                 hdr_anchor=str(d.get("hdr_anchor", "") or ""),
+                hdr_anchor_ev=float(d.get("hdr_anchor_ev", 1.0)),
             )
 
         return cls(

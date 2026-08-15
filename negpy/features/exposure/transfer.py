@@ -40,35 +40,34 @@ from negpy.kernel.image.validation import ensure_image
 
 #: Log-density window the fixed-bounds normalization maps to [0, 1]. The floor is the
 #: decoder's white level (density 0), so the mapping is anchored to the capture, not to
-#: frame content — that is what keeps a bracketed set rendering as a bracketed set.
+#: frame content. That is what keeps a bracketed set rendering as a bracketed set.
 TRANSFER_DENSITY_RANGE = 3.0
 
 TRANSFER_CONSTANTS = {
     # Reference grade (ISO R) that means "no contrast change". MUST equal the grade the app
-    # ships in DEFAULT_WORKSPACE_CONFIG (written there as the legacy 2.5, which
-    # ExposureConfig.__post_init__ migrates to 150 - 20*2.5) or the transfer stops being
-    # identity at defaults. Mirrored rather than imported to keep this module dependency-free;
+    # ships in DEFAULT_WORKSPACE_CONFIG, written there as the legacy 2.5 that
+    # ExposureConfig.__post_init__ migrates, or the transfer stops being identity at
+    # defaults. Mirrored rather than imported to keep this module dependency-free;
     # test_transparency_transfer.py asserts the two agree.
     "transfer_grade_ref": 100.0,
     # Stops of exposure per unit of the density slider (higher density = darker).
     "transfer_density_stops": 2.0,
     # Contrast pivot as a density: mid-grey at ~18% of the white level.
     "transfer_contrast_pivot": 0.75,
-    # Knees, in density, where the roll-offs start biting. Toe works down from the
-    # shadow end, shoulder up from the highlight end.
+    # Knees, in density, where the roll-offs start biting. The toe works down from the shadow
+    # end and the shoulder up from the highlight end.
     "transfer_toe_knee": 1.6,
     "transfer_shoulder_knee": 0.35,
-    # Baseline exposure, in stops, applied before the display rendering below. The
-    # decode anchors the signal to the SENSOR WHITE LEVEL (no_auto_bright, and
-    # adjust_maximum_thr=0), so a frame exposed below clipping arrives correspondingly
-    # dark; every consumer raw converter instead opens from a baseline. 0.7 EV is
-    # darktable's shipped default exposure for raw files — a published, camera-agnostic
-    # figure rather than one fitted to any rig. Fixed, never metered: metering is what
-    # would make a bracketed set converge again.
+    # Baseline exposure, in stops, applied before the display rendering below. The decode
+    # anchors the signal to the SENSOR WHITE LEVEL (no_auto_bright, adjust_maximum_thr=0), so
+    # a frame exposed below clipping arrives correspondingly dark, while every consumer raw
+    # converter opens from a baseline instead. 0.7 EV is darktable's shipped default for raw
+    # files, a published camera-agnostic figure rather than one fitted to any rig. Fixed,
+    # never metered: metering would make a bracketed set converge again.
     "transfer_baseline_ev": 0.7,
-    # Softness of both knees, in density, at the reference width. Larger blends over a
-    # wider tonal span. The Toe/Shoulder Width sliders scale this about their own default,
-    # so the reference must equal ExposureConfig.toe_width / shoulder_width.
+    # Softness of both knees, in density, at the reference width. Larger blends over a wider
+    # tonal span. The Toe and Shoulder Width sliders scale this about their own default, so
+    # the reference must equal ExposureConfig.toe_width / shoulder_width.
     "transfer_knee_width": 0.45,
     "transfer_width_ref": 2.5,
 }
@@ -227,17 +226,17 @@ def apply_transfer_curve(
         d = n[:, :, ch] * np.float32(density_range)
 
         if exposure_offset != 0.0 or cmy_offsets[ch] != 0.0:
-            # cmy_offsets arrive in normalized space (filtration_offsets divides by the
-            # channel's stretch range), so they scale back up by the same range.
+            # cmy_offsets arrive in normalized space, because filtration_offsets divides by the
+            # channel's stretch range, so they scale back up by the same range.
             d = d - np.float32(exposure_offset) + np.float32(cmy_offsets[ch] * density_range)
 
         if contrast != 1.0:
             d = np.float32(pivot) + (d - np.float32(pivot)) * np.float32(contrast)
 
-        # Zone Density: mid-sparing brightness offsets, the print path's own kernel and
-        # weights (logic.py, "Zone Density (ΔD)"). Positive adds density, so it darkens —
-        # the Density convention, the opposite sign to a Lightroom Shadows slider. Runs
-        # after contrast and before the knees, as it does on the print.
+        # Zone Density: mid-sparing brightness offsets, using the print path's own kernel and
+        # weights (logic.py, "Zone Density (ΔD)"). Positive adds density, so it darkens: the
+        # Density convention, the opposite sign to a Lightroom Shadows slider. Runs after
+        # contrast and before the knees, as it does on the print.
         if shadow_density != 0.0 or highlight_density != 0.0:
             sh_c, hi_c, k = zone_geometry()
             w_sh = _sigmoid(np.float32(k) * (d - np.float32(sh_c)))
@@ -245,8 +244,8 @@ def apply_transfer_curve(
             w_hi = np.float32(1.0) - _sigmoid(np.float32(k) * (d - np.float32(hi_c)))
             d = d + np.float32(shadow_density) * w_sh + np.float32(highlight_density) * w_hi
 
-        # Shadows sit at high density, highlights at low, so the toe compresses above
-        # its knee and the shoulder below its own.
+        # Shadows sit at high density and highlights at low, so the toe compresses above its knee
+        # and the shoulder below its own.
         if toe[ch] != 0.0:
             d = d - np.float32(toe[ch]) * _softplus(d - np.float32(toe_knee), tw3[ch])
         if shoulder[ch] != 0.0:
@@ -254,7 +253,7 @@ def apply_transfer_curve(
 
         out[:, :, ch] = np.power(np.float32(10.0), -d, dtype=np.float32)
 
-    # Baseline + display rendering last, so the controls above shape the scene and this
+    # Baseline and display rendering last, so the controls above shape the scene and this
     # only decides how the scene is shown.
     gain = np.float32(2.0 ** float(c["transfer_baseline_ev"]))
     return ensure_image(display_rendering(out * gain))

@@ -116,8 +116,8 @@ class OverflowBar(QWidget):
             return visible
 
         # Try the full width first. Only labelled items reach the menu, so if nothing but
-        # separators spills there is no chevron to show — and reserving room for one would
-        # push a button out and *create* the chevron it was making room for.
+        # separators spills there is no chevron to show, and reserving room for one would push a
+        # button out and *create* the chevron it was making room for.
         full = fit(avail)
         if all(self._items[i][1] is None for i in range(count) if i not in full):
             return full

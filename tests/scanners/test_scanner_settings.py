@@ -16,8 +16,10 @@ def test_scan_window_json_roundtrip_yields_tuple():
     assert isinstance(restored.scan_window, tuple)
 
 
-def test_backend_default_is_sane():
-    assert ScannerSettings.defaults().backend == "sane"
+def test_backend_default_matches_registry():
+    from negpy.infrastructure.scanners.registry import DEFAULT_BACKEND_ID
+
+    assert ScannerSettings.defaults().backend == DEFAULT_BACKEND_ID
 
 
 def test_backend_survives_json_roundtrip():

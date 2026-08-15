@@ -59,8 +59,8 @@ class FavouritesSidebar(BaseSidebar):
         self._rebuild()
 
     def _connect_signals(self) -> None:
-        # Not controller.config_updated: sidebar syncing is debounced 150ms and this signal
-        # fires at the end of it, so the originals already hold the fresh values.
+        # Not controller.config_updated: sidebar syncing is debounced and this signal fires at the
+        # end of it, so the originals already hold the fresh values.
         self.controls.modified_synced.connect(self.sync_ui)
 
     def _choices(self) -> list[tuple[str, str, str]]:
@@ -95,7 +95,7 @@ class FavouritesSidebar(BaseSidebar):
     def sync_ui(self) -> None:
         for clone, src in self._mirrors:
             clone.setValue(src.value())
-            # Only mode gating should hide a mirror; a collapsed section or an off-screen
-            # tab must not. B&W hides the whole Colour section, so isHidden() alone misses it.
+            # Only mode gating should hide a mirror. A collapsed section or an off-screen tab must
+            # not. B&W hides the whole Colour section, so isHidden() alone misses it.
             clone.setVisible(not hidden_by_gating(src))
             clone.setEnabled(src.isEnabled())

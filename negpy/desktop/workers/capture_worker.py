@@ -63,8 +63,8 @@ class CalibrationRequest:
     settle_s: float = 0.4
     target_fraction: float = 0.9
     shutter_candidates: tuple[str, ...] = ()  # this body's writable shutter ladder (from the live-view JSON)
-    # Phase-1 start point, already normalized to the live ISO/aperture by the sidebar. Defaults keep
-    # the fixed reference (ISO 100 / f8) when the caller doesn't supply one.
+    # Phase-1 start point, already normalized to the live ISO/aperture by the sidebar. The
+    # defaults keep the fixed reference (ISO 100 / f8) when the caller supplies none.
     start_levels: tuple[int, int, int] = REFERENCE_LEVELS
     start_shutter: str = REFERENCE_SHUTTER
 
@@ -82,8 +82,8 @@ class CaptureWorker(QObject):
     light_set = pyqtSignal(int, int, int, int)  # r, g, b, w actually applied
     progress = pyqtSignal(float)  # 0.0..1.0
     channel = pyqtSignal(str)  # "R"/"G"/"B" as each triplet channel starts
-    #: One set_camera_setting call ran to completion — verified, rejected, or skipped without a
-    #: session. Always fires, so the sidebar's pending-write gate on Scan can never stick.
+    #: One set_camera_setting call ran to completion: verified, rejected, or skipped without a
+    #: session. Always fires, so the sidebar's pending-write gate on Scan cannot stick.
     camera_setting_applied = pyqtSignal(str)
     finished = pyqtSignal(list)  # [red_path, green_path, blue_path]
     cancelled = pyqtSignal()
@@ -93,7 +93,7 @@ class CaptureWorker(QObject):
     #: This body advertises no CAPTURE_PREVIEW, so no stream was started (issue #621). Carries
     #: the operator-facing reason; scanning itself is unaffected.
     live_view_unsupported = pyqtSignal(str)
-    #: The preview thread died after its retries and the session was dropped (issue #617) —
+    #: The preview thread died after its retries and the session was dropped (issue #617). It
     #: carries the last gphoto error, so the UI can stop the spinner and offer a retry.
     live_view_failed = pyqtSignal(str)
     calibration_progress = pyqtSignal(float, str)
@@ -107,9 +107,9 @@ class CaptureWorker(QObject):
         self._light: Optional[Scanlight] = None
         self._light_port = ""
         self._cancel = threading.Event()
-        # One libgphoto2 session serves live view, settings and stills alike — the body
-        # allows a single PTP claim, and GphotoCamera serialises the three internally.
-        # Held open across frames; closed on error and at shutdown.
+        # One libgphoto2 session serves live view, settings and stills: the body allows a
+        # single PTP claim, and GphotoCamera serialises the three internally. Held open across
+        # frames, closed on error and at shutdown.
         self._camera: Optional[GphotoCamera] = None
         self._model = ""
         # True after an open failed because another program holds the USB claim; drives the
@@ -136,18 +136,18 @@ class CaptureWorker(QObject):
             self._camera = GphotoCamera(
                 on_preview_died=self.live_view_failed.emit,
                 # A stream that fails on a body that still answers is the "no preview" state,
-                # not a dead camera — same UI as a body that never advertised one.
+                # not a dead camera. Same UI as a body that never advertised one.
                 on_preview_unusable=self.live_view_unsupported.emit,
             )
         if not self._camera.is_open():
             try:
                 self._camera.open()
             except CameraClaimedError:
-                # Another program holds the USB claim (macOS: Preview/Photos/Image Capture).
-                # On the False→True transition, flip the dot NOW — the next timer poll is up
-                # to 3 s away, and "Scan did nothing" against a green dot is exactly the
-                # confusion this state exists for. Only on the transition: the poll's own
-                # re-probe lands here too, and an unconditional push would recurse.
+                # Another program holds the USB claim (on macOS: Preview, Photos, Image
+                # Capture). Flip the dot on the False-to-True transition immediately: the next
+                # timer poll is seconds away, and "Scan did nothing" against a green dot is the
+                # confusion this state exists for. Only on the transition, because the poll's own
+                # re-probe lands here too and an unconditional push would recurse.
                 first = not self._claimed_elsewhere
                 self._claimed_elsewhere = True
                 if first:
@@ -158,10 +158,10 @@ class CaptureWorker(QObject):
                 raise
             self._claimed_elsewhere = False
             self._model = self._camera.model
-            # Cached so the poll can keep reporting them after this session is closed again —
-            # the identify probe opens and closes immediately, and the UI gates on the result.
-            # Optional: the `Camera` protocol does not require it, and a backend that cannot
-            # report abilities must leave the UI ungated rather than break the session.
+            # Cached so the poll keeps reporting them after this session is closed again: the
+            # identify probe opens and closes immediately, and the UI gates on the result.
+            # Optional, because the `Camera` protocol does not require it: a backend that
+            # cannot report abilities must leave the UI ungated instead of breaking the session.
             self._caps = getattr(self._camera, "capabilities", None)
         return self._camera
 
@@ -180,9 +180,9 @@ class CaptureWorker(QObject):
     # ----- light -----
 
     def _ensure_light(self, port: str) -> Scanlight:
-        # Reuse the held connection only while it's the same port AND still alive — a Scanlight
-        # that was unplugged leaves a dead handle; without the health check we'd keep reusing it
-        # and never re-detect the device after it's plugged back in.
+        # Reuse the held connection only while it is the same port and still alive. An
+        # unplugged Scanlight leaves a dead handle, and without the health check we would reuse
+        # it and never re-detect the device after it is plugged back in.
         if self._light is not None and self._light_port == port and self._light.is_connected():
             return self._light
         if self._light is not None:
@@ -204,9 +204,8 @@ class CaptureWorker(QObject):
         except Exception as e:
             msg = str(e)
             logger.warning("set_light failed: %s", msg)
-            # A missing Scanlight is a persistent condition already shown by the Light LED
-            # (red, "Scanlight: not connected") — don't push it into the shared status line,
-            # where it would linger and go stale (e.g. "camera-only" after the camera drops).
+            # A missing Scanlight is a persistent condition the Light LED already shows, so keep
+            # it out of the shared status line, where it would linger and go stale.
             if not ("auto-discover" in msg or "No serial ports" in msg):
                 self.error.emit(f"Scanlight: {e}")
 
@@ -219,15 +218,15 @@ class CaptureWorker(QObject):
         try:
             if not self._holds_camera():
                 self.status.emit("Connecting to camera…")
-            # The same session that streams live view takes the shot: no reconnect, and
-            # the preview simply pauses for the ~2 s the body needs.
+            # The same session that streams live view takes the shot: no reconnect, and the
+            # preview pauses for the second or two the body needs.
             camera = self._acquire_camera()
             logger.info("run_capture setup %.0f ms", (time.perf_counter() - _t0) * 1000)
 
             if not req.rgb_mode:
-                # Normal white-light scanning (no Scanlight): one plain camera shot, imported as
-                # an ordinary single RAW — no LED control, no triplet. The operator's own light
-                # stays on; the shutter is whatever the live-view steppers set.
+                # Normal white-light scanning, with no Scanlight: one plain camera shot imported
+                # as an ordinary single RAW, with no LED control and no triplet. The operator's
+                # own light stays on, and the shutter is whatever the live-view steppers set.
                 self.status.emit("Capturing…")
                 path = capture_single(
                     camera,
@@ -286,7 +285,7 @@ class CaptureWorker(QObject):
             self._cleanup_partial_frame(req)  # keep the folder a clean multiple of 3 for NegPy's grouper
             if self._cancel.is_set():
                 # Deliberate cancellation is not a camera failure. The staged capture was
-                # discarded before promotion, so preserve the healthy live-view/PTP session.
+                # discarded before promotion, so keep the healthy live-view session.
                 self.cancelled.emit()
                 return
             self._close_camera()  # discard a possibly-broken held session
@@ -344,52 +343,51 @@ class CaptureWorker(QObject):
             "light_detail": "not connected",
             "light_has_white": True,
             "usb_claimed_elsewhere": False,
-            # Advertised abilities of the last body we opened. Optimistic until a session has
-            # actually been opened — never grey a control out on a body we haven't inspected.
+            # Advertised abilities of the last body opened. Optimistic until a session has been
+            # opened: never grey a control out on an uninspected body.
             "camera_preview": True,
             "camera_config": True,
         }
         try:
-            # Always ask the bus, never our own handle: unplugging the camera leaves the
-            # handle behind, and it would keep reporting "connected" forever. Enumerating
-            # does not claim the device, so this is safe even mid-stream.
+            # Always ask the bus, never our own handle: unplugging the camera leaves the handle
+            # behind and it reports "connected" forever. Enumerating does not claim the device,
+            # so this is safe even mid-stream.
             found = list_cameras()
             if found:
                 identify = not self._model and not self._identify_attempted
                 if (self._claimed_elsewhere or identify) and not self._holds_camera():
-                    # One probe open (open → read → close immediately), for two jobs — safe in
-                    # both states because we hold no session ourselves:
+                    # One probe open (open, read, close), for two jobs. Safe in both states
+                    # because we hold no session ourselves:
                     # * First sight of a body: read its real model name. libgphoto2's database
-                    #   labels post-database bodies "USB PTP Class Camera" (the a7C II is not
-                    #   in it, #431); only the device knows its name. Tried ONCE per bus
-                    #   appearance — a body that fails to open for other reasons must not be
-                    #   hammered every tick. This also detects a foreign claim proactively,
-                    #   before the user's first live-view/scan attempt.
+                    #   labels newer bodies "USB PTP Class Camera" (#431), and only the device
+                    #   knows its name. Tried ONCE per bus appearance, so a body that fails to
+                    #   open for other reasons is not hammered every tick. This also detects a
+                    #   foreign claim before the user's first live-view or scan attempt.
                     # * Claimed verdict standing: retry until the other app lets go. Only an
-                    #   open can clear the verdict, and Scan/Calibrate are gated while it
-                    #   stands — without this the dot stayed red after Preview closed.
+                    #   open can clear the verdict, and Scan and Calibrate are gated while it
+                    #   stands, so without this the dot stayed red after Preview closed.
                     self._identify_attempted = True
                     try:
                         self._acquire_camera()
                         self._close_camera()
                     except Exception:
                         pass  # verdict already updated by _acquire_camera's except paths
-                # A body on the bus that refused our last open (another app holds the claim)
-                # is not usable — surface that instead of a healthy "connected" dot.
+                # A body on the bus that refused our last open, because another app holds the
+                # claim, is not usable. Surface that instead of a healthy "connected" dot.
                 status["usb_ok"], status["usb_model"] = True, self._model or found[0]["model"]
                 status["usb_claimed_elsewhere"] = self._claimed_elsewhere
                 if self._caps is not None:
                     status["camera_preview"], status["camera_config"] = self._caps.preview, self._caps.config
             elif self._claimed_elsewhere:
                 # A claimed body routinely DROPS OFF gphoto's enumeration while the other app
-                # holds it (macOS's daemons answer the bus in our stead) — that flapping is
-                # part of the claimed state, not an unplug. Clearing the verdict here made the
-                # dot snap back to green within one poll tick of the failed open (rig find).
+                # holds it, because macOS's daemons answer the bus in our stead. That flapping
+                # is part of the claimed state, not an unplug: clearing the verdict here made
+                # the dot snap back to green one poll tick after the failed open.
                 status["usb_ok"], status["usb_claimed_elsewhere"] = True, True
                 status["usb_model"] = self._model or "USB PTP Class Camera"
             else:
-                # A genuinely absent body (no claim verdict standing): forget its name and
-                # allow a fresh identify — the next body to appear may be a different one.
+                # A genuinely absent body, with no claim verdict standing: forget its name and
+                # allow a fresh identify, since the next body to appear may be a different one.
                 self._model = ""
                 self._identify_attempted = False
                 self._caps = None  # the next body may be a different one
@@ -417,8 +415,8 @@ class CaptureWorker(QObject):
             camera.start()  # a no-op when the preview thread is already up
             self.live_view_started.emit(camera.jpeg_path)
         except LiveViewUnsupported as e:
-            # Not a failure: the body scans fine, it just has no preview to show. Reported on
-            # its own signal so the scan window opens without a stream instead of erroring.
+            # Not a failure: the body scans fine, it only has no preview to show. Reported on
+            # its own signal, so the scan window opens without a stream instead of erroring.
             logger.info("live view unavailable: %s", e)
             self.live_view_unsupported.emit(str(e))
         except Exception as e:
@@ -497,14 +495,14 @@ class CaptureWorker(QObject):
             if not self._holds_camera():
                 self.status.emit("Connecting to camera…")
             camera = self._acquire_camera()  # the same session live view streams on
-            # Half-res decode: calibration only meters a uniform base patch, so it's ~4× faster
-            # (the raw-Bayer clip check stays full-res, and the actual scans still decode full-res).
+            # Half-res decode: calibration only meters a uniform base patch, so it is much
+            # faster. The raw-Bayer clip check stays full-res, and the scans still decode
+            # full-res.
             service = CalibrationService(light, camera, lambda p: linear_demosaic(p, half_size=True), settle_s=req.settle_s)
-            # Calibration fires several throwaway RAWs. Keep them outside the user's roll:
-            # the camera replaces `.raw` with its own suffix, so deleting one guessed filename
-            # is insufficient and used to leave `_negpy_calibration.ARW` behind (or overwrite a
-            # user-owned file with that name). The directory boundary cleans every suffix and
-            # every success/error/cancel path.
+            # Calibration fires several throwaway RAWs. Keep them outside the user's roll: the
+            # camera replaces `.raw` with its own suffix, so deleting one guessed filename left
+            # files behind and could overwrite a user file of that name. A directory boundary
+            # cleans every suffix on every success, error and cancel path.
             with tempfile.TemporaryDirectory(prefix="negpy-calibration-") as scratch_dir:
                 scratch = os.path.join(scratch_dir, "capture.raw")
                 result = service.calibrate(
@@ -519,9 +517,9 @@ class CaptureWorker(QObject):
                 )
             self.calibration_finished.emit(result)
         except CalibrationExposureError as e:
-            # An expected outcome (the target is unreachable at these aperture/hardware limits),
-            # not a broken session: keep the camera claim — the user adjusts the aperture and
-            # retries immediately, and a reconnect would cost ~4 s for nothing.
+            # An expected outcome, not a broken session: the target is unreachable at these
+            # aperture and hardware limits. Keep the camera claim, since the user adjusts the
+            # aperture and retries at once and a reconnect would cost seconds for nothing.
             logger.info("calibration aborted: %s", e)
             self.calibration_exposure.emit(e.status)
         except Exception as e:

@@ -4,9 +4,9 @@ from negpy.kernel.image.validation import ensure_image
 
 # Fixed seed: one filed carrier per darkroom, identical every frame and on both paths.
 _CARRIER_SEED = 1898
-# All CARRIER_* below are fractions of the rebate width and mirrored as WGSL literals
-# in finish.wgsl. The picture-side boundary is the camera's film gate (machine-cut, so
-# JITTER * INNER_ROUGH only, no slider); the paper-side one is the hand-filed aperture.
+# All CARRIER_* below are fractions of the rebate width and mirrored as WGSL literals in
+# finish.wgsl. The picture-side boundary is the camera's film gate, machine-cut, so it
+# gets JITTER * INNER_ROUGH and no slider. The paper-side one is the hand-filed aperture.
 CARRIER_SAMPLES = 2048
 CARRIER_JITTER = 0.24
 CARRIER_INNER_ROUGH = 0.2
@@ -21,9 +21,9 @@ CARRIER_FLARE_SPILL = 0.7
 CARRIER_FLARE_GAIN = 0.55
 CARRIER_FLARE_BASE = 0.35
 CARRIER_FLARE_HUE = 1.0
-# A 1-D profile is a height field, so it cannot overhang or shed a fleck; the 2-D field
+# A 1-D profile is a height field, so it cannot overhang or shed a fleck. The 2-D field
 # displacing the distance field is what makes the edge read as torn metal. Hash noise
-# rather than a library because WGSL has to reproduce it bit for bit.
+# rather than a library, because WGSL has to reproduce it bit for bit.
 CARRIER_NOISE_SEED = 0x51ED270B
 CARRIER_NOISE_CELL = 1.5
 CARRIER_NOISE_OCTAVES = 4
@@ -192,8 +192,8 @@ def apply_carrier(
     alphas = [(sl, orient, *edge_alphas(e, idx, count, gx, gy)) for e, idx, count, sl, orient, gx, gy in edges]
 
     out = img.copy()
-    # Sequential mixes compose to out*A_in*A_out + paper*(1 - A_out) whatever the order,
-    # so corners land on the value the shader computes from the products.
+    # Sequential mixes compose to out*A_in*A_out + paper*(1 - A_out) whatever the order, so
+    # corners land on the value the shader computes from the products.
     for sl, orient, a_in, *_ in alphas:
         out[sl] *= orient(a_in)[..., None]
     for sl, orient, _, a_out, *_ in alphas:
@@ -202,8 +202,8 @@ def apply_carrier(
         out[sl] += (1.0 - a) * paper_rgb
 
     if flare > 0.0:
-        # Lerp, not add: glows on the black, stains the paper. Order-dependent, unlike
-        # the mixes above — the shader must walk the edges in this same order.
+        # Lerp, not add: it glows on the black and stains the paper. Order-dependent, unlike the
+        # mixes above, so the shader must walk the edges in this same order.
         for (sl, orient, a_in, _, outer, n2), (e, idx, *_) in zip(alphas, edges):
             amp, lift = edge_flare(e, idx, a_in, outer, n2)
             out[sl] *= 1.0 - orient(amp)

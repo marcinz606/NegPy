@@ -76,8 +76,8 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("White Trim", "process", "white_point_trim_red", "white_point_trim_green", "white_point_trim_blue", channels="RGB"),
         _row("Black Point", "process", "black_point_offset"),
         _row("Black Trim", "process", "black_point_trim_red", "black_point_trim_green", "black_point_trim_blue", channels="RGB"),
-        # Strength + profile + baked matrix copy atomically: strength alone would
-        # leave the target on a stale/None matrix.
+        # Strength, profile and the baked matrix copy atomically: strength alone would leave the
+        # target on a stale or None matrix.
         _row("Crosstalk", "process", "crosstalk_strength", "crosstalk_profile", "crosstalk_matrix", fmt=lambda v: _fmt_scalar(v[0])),
         _row("Trichrome Calibration", "process", "sensor_profile", "sensor_matrix", fmt=lambda v: _fmt_scalar(v[0])),
         # Absent from _BOUNDS_INPUT_FIELDS: it acts after inversion, so it never feeds the meters.
@@ -238,12 +238,11 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
 
 _DEFAULT = WorkspaceConfig()
 
-# Fields that decide how a frame is metered. Pasting one must drop the target's
-# cached per-frame bounds, or resolve_bounds_detailed keeps short-circuiting on
-# them and the new value never reaches the render. Mirrors what every sidebar
-# handler for these already does. Excluded on purpose: autocrop_ratio (see
-# AppController.set_crop_ratio), rotation, and the white/black points — those
-# apply after the bounds rather than feeding them.
+# Fields that decide how a frame is metered. Pasting one must drop the target's cached
+# per-frame bounds, or resolve_bounds_detailed keeps short-circuiting on them and the new
+# value never reaches the render. Mirrors what every sidebar handler for these already
+# does. Excluded on purpose: autocrop_ratio (see AppController.set_crop_ratio), rotation,
+# and the white and black points, which apply after the bounds rather than feeding them.
 _BOUNDS_INPUT_FIELDS = frozenset(
     {
         "process_mode",

@@ -237,7 +237,7 @@ def test_output_dir_subfolder_of_source():
         output_subfolder="TIFF",
     )
     source = "/photos/roll/IMG_001.RAF"
-    assert _resolve_output_dir(p, source) == "/photos/roll/TIFF"
+    assert _resolve_output_dir(p, source) == os.path.join("/photos/roll", "TIFF")
 
 
 def test_output_dir_subfolder_empty_falls_back_to_source():

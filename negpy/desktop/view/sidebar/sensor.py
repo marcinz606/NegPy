@@ -4,7 +4,7 @@ from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_label, hint_label, section_subheader, wrap_tooltip
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.process.models import ProcessMode, invalidate_local_bounds
-from negpy.features.process.sensor import sensor_unmix_available
+from negpy.features.process.sensor import unmix_block_reason
 from negpy.services.assets.crosstalk import CrosstalkProfiles
 from negpy.services.assets.sensor import SensorProfiles
 
@@ -32,8 +32,9 @@ class SensorSidebar(BaseSidebar):
             "mdi6.led-strip-variant",
             "Narrowband",
             conf.narrowband_scan,
-            "Correct trichrome narrowband RGB scans oversaturation with the bundled input profile "
-            "An explicit Input ICC in Export settings overrides it",
+            "Correct trichrome narrowband RGB scans oversaturation with the bundled input profile. "
+            "An explicit Input ICC in Export settings overrides it. Not applied to transparencies: "
+            "the profile describes narrowband capture of negative dyes",
         )
         self.scan_setup_btn = self._icon_action(
             "mdi6.lightbulb-on-outline",
@@ -45,6 +46,13 @@ class SensorSidebar(BaseSidebar):
         capture_row.addWidget(self.narrowband_scan_btn, 1)
         capture_row.addWidget(self.scan_setup_btn)
         self.layout.addLayout(capture_row)
+
+        # Greyed rather than hidden: these are sticky settings, so a hidden one is a setting the
+        # user cannot see the state of. Hiding them is what let a rig's narrowband pair follow a
+        # frame into Transparency unnoticed.
+        self.capture_hint = hint_label("")
+        self.capture_hint.setVisible(False)  # text and tooltip are set per film process in sync_ui
+        self.layout.addWidget(self.capture_hint)
 
         self.layout.addWidget(section_subheader("TRICHROME CALIBRATION"))
 
@@ -58,7 +66,8 @@ class SensorSidebar(BaseSidebar):
             "cross-channel response in the LINEAR capture, before inversion — a fixed property of "
             "your sensor + light, independent of film. Calibrate it from three bare-light R/G/B "
             "exposures; custom .toml matrices live in the NegPy/sensor folder. Skipped automatically "
-            "for RGB-triplet assets and when Linear RAW is off. Re-run Batch Analysis after changing this."
+            "for RGB-triplet assets, when Linear RAW is off, and on transparencies — which are not "
+            "scanned with narrowband light. Re-run Batch Analysis after changing this."
             "</td></tr></table>"
         )
         self.calibrate_sensor_btn = self._icon_action("fa5s.vials", "Calibrate the sensor from three bare-light R/G/B exposures", width=32)
@@ -67,19 +76,11 @@ class SensorSidebar(BaseSidebar):
         row.addWidget(self.calibrate_sensor_btn)
         self.layout.addLayout(row)
 
-        # Muted, not warning: this is the normal state for anyone not using Linear
-        # RAW, so it explains the greyed controls rather than flagging a problem.
-        self.linear_raw_hint = hint_label("Requires Linear RAW.")
-        # Disabled widgets don't receive the hover that raises a tooltip, so the
-        # detail hangs off this label rather than the combo it describes.
-        self.linear_raw_hint.setToolTip(
-            wrap_tooltip(
-                "Sensor profiles are calibrated against neutral white balance. With Linear RAW "
-                "off, RAW decodes carry the camera's as-shot gains instead, which would misapply "
-                "the matrix — so it is skipped. Your selection is remembered."
-            )
-        )
-        self.layout.addWidget(self.linear_raw_hint)
+        # Muted, not warning: this is the normal state for anyone not using Linear RAW, so it
+        # explains the greyed controls rather than flagging a problem. Text and tooltip are set
+        # per reason in _apply_gate.
+        self.sensor_hint = hint_label("Requires Linear RAW.")
+        self.layout.addWidget(self.sensor_hint)
 
         self.crosstalk_header = section_subheader("CROSSTALK")
         self.layout.addWidget(self.crosstalk_header)
@@ -89,9 +90,8 @@ class SensorSidebar(BaseSidebar):
         self.crosstalk_combo = QComboBox()
         self._fill_crosstalk_combo()
         self.crosstalk_combo.setCurrentText(conf.crosstalk_profile)
-        # Wrap the long tooltip in a fixed-width table so Qt word-wraps it to the
-        # panel width instead of rendering one line that runs off the screen (plain
-        # text tooltips are not auto-wrapped — only rich text is).
+        # Wrap the long tooltip in a fixed-width table, so Qt word-wraps it to the panel width
+        # instead of rendering one line that runs off the screen. Qt auto-wraps rich text only.
         self.crosstalk_combo.setToolTip(
             "<table width='280'><tr><td>"
             "Channel unmix on the raw NEGATIVE densities, before analysis and inversion — the domain "
@@ -121,8 +121,8 @@ class SensorSidebar(BaseSidebar):
         matrix_row.addWidget(self.manage_crosstalk_btn)
         self.layout.addLayout(matrix_row)
 
-        # Shown when the film process has no matrices yet. Muted, not a warning: it is the
-        # normal state for any process NegPy ships nothing for.
+        # Shown when the film process has no matrices yet. Muted, not a warning: it is the normal
+        # state for any process NegPy ships nothing for.
         self.crosstalk_hint = hint_label("No matrices for this film process — build one in the editor.")
         self.crosstalk_hint.setToolTip(
             wrap_tooltip(
@@ -188,18 +188,42 @@ class SensorSidebar(BaseSidebar):
             if model.item(i) is None or model.item(i).isEnabled()
         ]
 
+    # Disabled widgets do not receive the hover that raises a tooltip, so the detail hangs off
+    # the hint label rather than the combo it describes.
+    _SENSOR_BLOCKED = {
+        "linear_raw": (
+            "Requires Linear RAW.",
+            "Sensor profiles are calibrated against neutral white balance. With Linear RAW "
+            "off, RAW decodes carry the camera's as-shot gains instead, which would misapply "
+            "the matrix — so it is skipped. Your selection is remembered.",
+        ),
+        "transparency": (
+            "Not applied to a transparency.",
+            "The unmix corrects a narrowband light and your sensor's filters against each other, "
+            "so it only means anything for a capture made under narrowband light — and narrowband "
+            "is not used for slides. A profile carried over from your negative rig would correct "
+            "for a light this frame was not shot under. Your selection is remembered, and applies "
+            "again on a negative.",
+        ),
+    }
+
     def _apply_gate(self, conf) -> None:
-        """Grey the sensor unmix and show "None" while it cannot be applied.
+        """Grey the sensor unmix and show "None" while it cannot be applied, saying why.
 
         Display-only: conf.sensor_profile is left alone, so the selection comes back intact
-        after a Linear RAW round-trip. Crosstalk and Hue Trim do not depend on the decode
-        basis, so they stay enabled.
+        after a Linear RAW or film-process round-trip. Crosstalk and Hue Trim depend on
+        neither the decode basis nor the light, so they stay enabled.
         """
-        available = sensor_unmix_available(conf)
+        reason = unmix_block_reason(conf)
+        available = not reason
         self.sensor_combo.setCurrentText(conf.sensor_profile if available else SensorProfiles.NONE_NAME)
         self.sensor_combo.setEnabled(available)
         self.calibrate_sensor_btn.setEnabled(available)
-        self.linear_raw_hint.setVisible(not available)
+        self.sensor_hint.setVisible(bool(reason))
+        if reason:
+            text, tip = self._SENSOR_BLOCKED[reason]
+            self.sensor_hint.setText(text)
+            self.sensor_hint.setToolTip(wrap_tooltip(tip))
 
     def _connect_signals(self) -> None:
         self.linear_raw_btn.toggled.connect(self._on_linear_raw_toggled)
@@ -228,8 +252,8 @@ class SensorSidebar(BaseSidebar):
                 **invalidate_local_bounds(self.state.config.process),
             ),
         )
-        # linear_raw switches use_camera_wb, so it is a source change: apply_config
-        # re-decodes, and suppresses the bounds analysis over the stale buffer.
+        # linear_raw switches use_camera_wb, so it is a source change: apply_config re-decodes and
+        # suppresses the bounds analysis over the stale buffer.
         self.controller.apply_config(new_config, persist=True)
 
     def _on_narrowband_scan_toggled(self, checked: bool) -> None:
@@ -243,8 +267,8 @@ class SensorSidebar(BaseSidebar):
             win.show_scan_setup()
 
     def _on_sensor_profile_changed(self, name: str) -> None:
-        # Bake the matrix like crosstalk does; the per-frame bounds were analyzed
-        # under the previous mix, so clear them.
+        # Bake the matrix like crosstalk does. The per-frame bounds were analyzed under the
+        # previous mix, so clear them.
         matrix = SensorProfiles.get_matrix(name)
         self.update_config_section(
             "process",
@@ -267,10 +291,10 @@ class SensorSidebar(BaseSidebar):
         self.sync_ui()  # rebuild the combo (now includes the new profile) and select it
 
     def _on_crosstalk_profile_changed(self, name: str) -> None:
-        # Bake the matrix into the config so saved edits stay reproducible if the
-        # profile file is later moved/deleted. The persisted per-frame bounds were
-        # analyzed under the previous matrix — clear them so the stretch re-derives
-        # from the unmixed data (otherwise the mask redistribution leaks through).
+        # Bake the matrix into the config, so saved edits stay reproducible if the profile file is
+        # later moved or deleted. The persisted per-frame bounds were analyzed under the previous
+        # matrix, so clear them and the stretch re-derives from the unmixed data. Otherwise the
+        # mask redistribution leaks through.
         matrix = CrosstalkProfiles.get_matrix(name)
         self.update_config_section(
             "process",
@@ -305,8 +329,8 @@ class SensorSidebar(BaseSidebar):
         dlg.show()
 
     def _on_crosstalk_preview(self, matrix: object, strength: float, process: str) -> None:
-        # The process rides along: the render gates the unmix on it, so a preview without
-        # it shows nothing whenever the edited profile is for another film.
+        # The process rides along: the render gates the unmix on it, so a preview without it shows
+        # nothing whenever the edited profile is for another film.
         self.update_config_section(
             "process",
             persist=False,
@@ -359,14 +383,38 @@ class SensorSidebar(BaseSidebar):
         try:
             self.linear_raw_btn.setChecked(conf.linear_raw)
             self.narrowband_scan_btn.setChecked(conf.narrowband_scan)
-            # Both are inert on the transparency transfer rather than merely inapplicable:
-            # Linear RAW is folded back out via the camera matrix, and the Narrowband input
-            # profile is suppressed. Hiding a *live* sticky setting would strand the user.
+            # Two different reasons, so two different gates. Narrowband is refused for any
+            # transparency, because the bundled profile describes narrowband capture of negative
+            # dyes. Linear RAW is inert only on the *transfer*, where the camera matrix folds the
+            # as-shot multipliers back in. With Normalize on it still decides the decode, so it
+            # stays live there.
             from negpy.features.exposure.transfer import is_transparency_transfer
 
+            e6 = conf.process_mode == ProcessMode.E6
             transfer = is_transparency_transfer(conf.process_mode, conf.e6_normalize)
-            for w in (self.capture_header, self.linear_raw_btn, self.narrowband_scan_btn, self.scan_setup_btn):
-                w.setVisible(not transfer)
+            self.narrowband_scan_btn.setEnabled(not e6)
+            self.linear_raw_btn.setEnabled(not transfer)
+            self.scan_setup_btn.setEnabled(not e6)
+            self.capture_hint.setVisible(e6)
+            if e6:
+                self.capture_hint.setText(
+                    "Narrowband is not used for slides." if not transfer else "Not applied to an as-captured transparency."
+                )
+                self.capture_hint.setToolTip(
+                    wrap_tooltip(
+                        "Narrowband's bundled input profile describes narrowband capture of *negative* "
+                        "dyes, and a slide has a different dye set, so on a transparency it would correct "
+                        "for film that is not there. Its real payoffs — defeating the orange mask, clean "
+                        "separation before a high-gain inversion — belong to negatives."
+                        + (
+                            " Linear RAW is inert here too: the camera matrix folds the as-shot multipliers "
+                            "back in, so the render is the same either way."
+                            if transfer
+                            else " Linear RAW still applies, and stays live."
+                        )
+                        + " Both settings are remembered, and apply again on a negative."
+                    )
+                )
 
             profiles = SensorProfiles.list_profiles()
             if profiles != [self.sensor_combo.itemText(i) for i in range(self.sensor_combo.count())]:
@@ -381,10 +429,10 @@ class SensorSidebar(BaseSidebar):
                 self._fill_crosstalk_combo(conf.process_mode)
             self.crosstalk_combo.setCurrentText(conf.crosstalk_profile)
             self.crosstalk_strength_slider.setValue(conf.crosstalk_strength)
-            # Nothing to unmix on one B&W emulsion. Every other process keeps the section
-            # even with no matrices of its own — the editor is the only way to make one, so
-            # hiding it would leave no route in. The empty dropdown and the Strength slider
-            # it feeds are disabled instead, and a hint says why.
+            # Nothing to unmix on one B&W emulsion. Every other process keeps the section even with
+            # no matrices of its own, because the editor is the only way to make one and hiding it
+            # would leave no route in. The empty dropdown and the Strength slider it feeds are
+            # disabled instead, and a hint says why.
             is_bw = conf.process_mode == ProcessMode.BW
             has_profiles = bool(CrosstalkProfiles.grouped_profiles(conf.process_mode))
             for w in (self.crosstalk_header, self.crosstalk_label, self.crosstalk_combo, self.manage_crosstalk_btn):

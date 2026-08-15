@@ -30,6 +30,12 @@ class ScannerCapabilities:
     max_area_mm: tuple[float, float]  # (width, height)
     autofocus: bool = True
     auto_exposure: bool = False
+    autofocus: bool = False
+    #: Low-DPI full-window preview then interactive crop (Plustek SE).
+    prescan: bool = False
+    prescan_dpi: int = 0
+    prescan_mirror_x: bool = False
+    prescan_default_crop: tuple[float, float, float, float] | None = None
     adapter_frame_capacity: int | None = None  # transport capacity bound, not an exposure count
     adapter_frame_control: bool = False
     can_eject: bool = False

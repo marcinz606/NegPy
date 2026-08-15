@@ -7,8 +7,7 @@ from dataclasses import dataclass
 # Float32 (0.0-1.0) [Height, Width, Channels]
 ImageBuffer: TypeAlias = npt.NDArray[np.float32]
 
-# Geometry
-# (y1, y2, x1, x2)
+# Geometry: (y1, y2, x1, x2)
 ROI: TypeAlias = Tuple[int, int, int, int]
 # (Height, Width)
 Dimensions: TypeAlias = Tuple[int, int]
@@ -45,18 +44,18 @@ class AppConfig:
     override_toml_path: str = ""
     max_texture_size: int | None = None
     force_hq_preview: bool | None = None
-    # Multi-core Numba kernels on the CPU pipeline: None = platform default
-    # (on everywhere except macOS), True/False = explicit override.toml choice.
+    # Multi-core Numba kernels on the CPU pipeline. None = the platform default, on
+    # everywhere except macOS. True/False = an explicit override.toml choice.
     cpu_parallel: bool | None = None
     # Preview buffer LRU (decoded float preview before render pipeline)
     preview_cache_max_entries: int = 8
     preview_cache_max_bytes: int = 1_200_000_000
-    # Full-resolution (HQ) entries are hundreds of MB each, so they get their own
-    # slot budget inside the LRU: enough to make navigating back to the previous
-    # frame instant, without letting HQ buffers push every small preview out.
+    # Full-resolution (HQ) entries are hundreds of MB each, so they get their own slot budget
+    # inside the LRU: enough to make navigating back to the previous frame instant, without
+    # letting HQ buffers push every small preview out.
     preview_cache_max_full_res_entries: int = 2
-    # Rendered frames kept for instant navigate-back. ~27 MB of VRAM each at
-    # preview_render_size=1600; HQ frames stay on the full-res budget above.
+    # Rendered frames kept for instant navigate-back, tens of MB of VRAM each at
+    # preview_render_size=1600. HQ frames stay on the full-res budget above.
     render_memo_max_entries: int = 8
     # Canvas zoom (1.0 = 100%)
     canvas_zoom_min: float = 0.25

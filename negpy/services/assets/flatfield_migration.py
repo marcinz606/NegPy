@@ -59,8 +59,8 @@ def migrate_legacy_flatfield_profiles(repo) -> None:
                 for name, path, k1 in legacy:
                     new_id = FlatFieldProfiles.create(str(name), str(path or ""), float(k1 or 0.0))
                     if new_id is None:
-                        # Reference file gone — nothing to bake; the correction was already
-                        # broken. Leave name/path unmapped so edits fall back to inactive.
+                        # The reference file is gone, so there is nothing to bake and the correction was already
+                        # broken. Leave the name and path unmapped, so edits fall back to inactive.
                         logger.warning("Flat-field migration: could not bake profile %r (reference missing)", name)
                         continue
                     name_to_id[str(name)] = new_id

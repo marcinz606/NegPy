@@ -21,8 +21,8 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "next_file": ShortcutEntry("Right", "Next file", "Navigation"),
     "toggle_keep": ShortcutEntry("K", "Mark frame as keeper", "Triage"),
     "toggle_reject": ShortcutEntry("Shift+X", "Reject frame (skipped by batch export)", "Triage"),
-    # No default key: nothing obvious is free, and an invented binding that collides makes
-    # Qt fire activatedAmbiguously and kills both actions.
+    # No default key: nothing obvious is free, and an invented binding that collides makes Qt
+    # fire activatedAmbiguously and kills both actions.
     "hdr_merge": ShortcutEntry("", "Merge selected exposures into one HDR frame", "Triage"),
     "hdr_unmerge": ShortcutEntry("", "Unmerge an HDR frame back into its exposures", "Triage"),
     "toggle_compare": ShortcutEntry("\\", "Before/after (auto baseline)", "Tools"),
@@ -90,6 +90,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "separation_damping_inc": ShortcutEntry("", "Separation Damping up", "Exposure"),
     "lock_bounds_toggle": ShortcutEntry("Alt+Q", "Toggle bounds lock", "Process"),
     "scan_setup": ShortcutEntry("", "Scanning setup wizard", "Process"),
+    "scan_prescan": ShortcutEntry("", "Prescan and set crop (Plustek)", "Process"),
     "mode_color_negative": ShortcutEntry("", "Mode: Color Negative", "Process"),
     "mode_bw_negative": ShortcutEntry("", "Mode: B&W Negative", "Process"),
     "mode_transparency": ShortcutEntry("", "Mode: Transparency", "Process"),
@@ -103,6 +104,8 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "white_point_inc": ShortcutEntry("Alt+P", "White point up", "Process"),
     "black_point_dec": ShortcutEntry("Alt+Shift+O", "Black point down", "Process"),
     "black_point_inc": ShortcutEntry("Alt+O", "Black point up", "Process"),
+    "render_ev_dec": ShortcutEntry("", "Render exposure down", "Process"),
+    "render_ev_inc": ShortcutEntry("", "Render exposure up", "Process"),
     "separation_dec": ShortcutEntry("Alt+Shift+1", "Crosstalk down", "Process"),
     "separation_inc": ShortcutEntry("Alt+1", "Crosstalk up", "Process"),
     "chroma_denoise_dec": ShortcutEntry("Alt+Shift+2", "Denoise down", "Lab"),
@@ -328,14 +331,14 @@ def tooltip_with_shortcut(text: str, action_ids: str | Iterable[str] | None = No
     keys = [key_for(action_id, bindings) for action_id in ids if action_id in REGISTRY and key_for(action_id, bindings)]
     if not keys:
         return text
-    # Each key is a bordered table cell so it reads like a physical keycap: a thin,
-    # lighter-than-background border boxing the label. Qt's rich-text engine ignores
-    # `border` on inline <span> elements (background/padding render, the outline does
-    # not) but honours it on table cells, so the chips must be <td>s, not spans.
+    # Each key is a bordered table cell, so it reads like a physical keycap: a thin,
+    # lighter-than-background border boxing the label. Qt's rich-text engine ignores `border`
+    # on inline <span> elements, where background and padding render but the outline does not,
+    # and honours it on table cells, so the chips must be <td>s.
     cells = [
         f'<td style="border:1px solid #5A5A5A;background:#242424;color:#C8C8C8;padding:1px 6px;font-size:10px;">{key}</td>' for key in keys
     ]
-    # The " & " separator sits in its own borderless cell so it doesn't inherit a
-    # keycap outline. The whole row is right-aligned on its own line below the text.
+    # The " & " separator sits in its own borderless cell, so it does not inherit a keycap
+    # outline. The whole row is right-aligned on its own line below the text.
     row = "<td>&nbsp;&amp;&nbsp;</td>".join(cells)
     return f'{text}<table align="right" cellspacing="0" cellpadding="0"><tr>{row}</tr></table>'

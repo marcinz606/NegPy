@@ -118,9 +118,7 @@ brew install libgphoto2
 1. Run the installer (ignore the warnings)
 2. Start the app and click through the warnings.
 
-Scanner and camera scanning are **not available on Windows**. Both rely on Unix-first free-software libraries - SANE for scanners, libgphoto2 for cameras, that just don't build there. It's not really their fault: the open source world spent decades writing generic, vendor-neutral drivers for hundreds of devices, while Windows stuck with closed per-vendor blobs and never grew an equivalent. So the free, open stack NegPy leans on has nowhere to stand on Windows.
-
-Good news: you can install Linux on pretty much any Windows machine. 🐧
+**Scanner support (Plustek OpticFilm 8200i SE)** uses the optional `pyopticfilm` driver (`uv sync --group plustek` or `pip install negpy[plustek]`). Bind the scanner to WinUSB with [Zadig](https://zadig.akeo.ie/) (replace the vendor/SilverFast driver for `07b3:1825`). Windows release builds bundle pyopticfilm, PyUSB, and libusb. See [docs/PLUSTEK_WINDOWS.md](docs/PLUSTEK_WINDOWS.md). Only the 8200i SE is scan-ready today. Camera scanning is still unavailable on Windows (libgphoto2 has no Windows build).
 
 ---
 

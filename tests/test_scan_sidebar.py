@@ -15,10 +15,10 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import sys
-
 from dataclasses import replace
 from types import SimpleNamespace
 
+import pytest
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtWidgets import QApplication
 
@@ -37,6 +37,7 @@ FULL_CAPS = ScannerCapabilities(
     sources=(ScanMode.NEGATIVE,),
     max_area_mm=(36.0, 24.0),
     auto_exposure=True,
+    autofocus=True,
     adapter_frame_capacity=40,
     adapter_frame_control=True,
     can_eject=True,
@@ -51,21 +52,41 @@ LS50_CAPS = ScannerCapabilities(
     sources=(ScanMode.NEGATIVE,),
     max_area_mm=(25.0571, 37.83965),
     auto_exposure=True,
+    autofocus=True,
     adapter_frame_capacity=6,
     adapter_frame_control=True,
     can_eject=True,
 )
 LS50_DEVICE = ScannerDevice(id="coolscan3:usb:libusb:001:050", vendor="Nikon", model="LS-50 ED", capabilities=LS50_CAPS)
 
-# A plain Plustek film scanner: none of the Coolscan-only controls apply.
+# A plain Plustek film scanner without Prescan (locked-out / non-SE model).
 MINIMAL_CAPS = ScannerCapabilities(
     ir_channel=False,
     supported_dpi=(1200, 2400),
-    supported_depths=(8, 16),
+    supported_depths=(16,),
     sources=(ScanMode.NEGATIVE,),
     max_area_mm=(36.0, 24.0),
 )
 MINIMAL_DEVICE = ScannerDevice(id="plustek:libusb:001:008", vendor="Plustek", model="OpticFilm", capabilities=MINIMAL_CAPS)
+
+# OpticFilm 8200i SE: Prescan + IR, single depth, no roll feeder.
+SE_CAPS = ScannerCapabilities(
+    ir_channel=True,
+    supported_dpi=(1200, 1800, 3600),
+    supported_depths=(16,),
+    sources=(ScanMode.TRANSPARENCY,),
+    max_area_mm=(36.33, 25.0),
+    prescan=True,
+    prescan_dpi=1200,
+    prescan_mirror_x=True,
+    prescan_default_crop=(0.0, 0.35, 1.0, 0.65),
+)
+SE_DEVICE = ScannerDevice(
+    id="plustek:usb:07b3:1825:002:006",
+    vendor="PLUSTEK",
+    model="OpticFilm 8200i SE",
+    capabilities=SE_CAPS,
+)
 
 
 class _FakeRepo:
@@ -138,16 +159,23 @@ def test_no_device_disables_controls() -> None:
     assert sidebar.scan_btn.isEnabled() is False
     assert sidebar.eject_btn.isVisibleTo(sidebar) is False
     assert sidebar.frame_range_widget.isVisibleTo(sidebar) is False
+    assert sidebar.ae_check.isVisibleTo(sidebar) is False
+    assert sidebar.autofocus_check.isVisibleTo(sidebar) is False
+    assert sidebar.depth_combo.isVisibleTo(sidebar) is False
+    assert sidebar.depth_label.isVisibleTo(sidebar) is False
 
 
 def test_full_capability_device_enables_coolscan_controls() -> None:
     sidebar, _ = _sidebar(FULL_DEVICE)
     assert sidebar.ir_check.isEnabled() is True
-    assert sidebar.ae_check.isEnabled() is True
+    assert sidebar.ae_check.isVisibleTo(sidebar) is True
+    assert sidebar.autofocus_check.isVisibleTo(sidebar) is True
     assert sidebar.eject_btn.isVisibleTo(sidebar) is True
     assert sidebar.frame_range_widget.isVisibleTo(sidebar) is True
     assert sidebar.frame_from_spin.maximum() == 40
     assert sidebar.frame_to_spin.maximum() == 40
+    assert sidebar.depth_combo.isVisibleTo(sidebar) is True
+    assert sidebar.depth_label.isVisibleTo(sidebar) is True
 
 
 def test_minimal_device_hides_coolscan_controls() -> None:
@@ -155,16 +183,39 @@ def test_minimal_device_hides_coolscan_controls() -> None:
     # controls and still scans.
     sidebar, _ = _sidebar(MINIMAL_DEVICE)
     assert sidebar.ir_check.isEnabled() is False
-    assert sidebar.ae_check.isEnabled() is False
+    assert sidebar.ae_check.isVisibleTo(sidebar) is False
+    assert sidebar.autofocus_check.isVisibleTo(sidebar) is False
     assert sidebar.eject_btn.isVisibleTo(sidebar) is False
     assert sidebar.frame_range_widget.isVisibleTo(sidebar) is False
+    assert sidebar.depth_combo.isVisibleTo(sidebar) is False
+    assert sidebar.depth_label.isVisibleTo(sidebar) is False
+    assert sidebar.depth_combo.currentData() == 16
+    assert sidebar.prescan_widget.isVisibleTo(sidebar) is False
     assert sidebar.scan_btn.isEnabled() is True
+
+
+def test_se_device_shows_prescan() -> None:
+    sidebar, _ = _sidebar(SE_DEVICE)
+    assert sidebar.prescan_widget.isVisibleTo(sidebar) is True
+    assert sidebar.prescan_label.isVisibleTo(sidebar) is True
+    assert sidebar.ir_check.isEnabled() is True
+    assert sidebar.frame_range_widget.isVisibleTo(sidebar) is False
+
+
+def test_scan_params_include_prescan_crop() -> None:
+    sidebar, controller = _sidebar(SE_DEVICE, settings={"scan_window": (0.1, 0.2, 0.9, 0.8)})
+    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar._on_scan()
+    kind, req = controller.started[0]
+    assert kind == "scan"
+    assert req.params.window == (0.1, 0.2, 0.9, 0.8)
 
 
 def test_14_bit_device_defaults_to_14_not_8() -> None:
     sidebar, _ = _sidebar(LS50_DEVICE)
     # Saved default depth 16 is not offered on an (8, 14) scanner; the combo must
     # land on the deepest supported, never silently on index 0 = 8-bit.
+    assert sidebar.depth_combo.isVisibleTo(sidebar) is True
     assert sidebar.depth_combo.currentData() == 14
 
 
@@ -245,17 +296,41 @@ def test_ui_edit_preserves_dialog_selection() -> None:
 
 
 def test_backend_combo_lists_registry_default() -> None:
+    from negpy.infrastructure.scanners.registry import DEFAULT_BACKEND_ID
+
     sidebar, _ = _sidebar()
-    assert sidebar.backend_combo.findData("sane") >= 0
-    assert sidebar._current_backend_id() == "sane"
+    assert sidebar.backend_combo.findData("plustek") >= 0
+    assert sidebar._current_backend_id() == DEFAULT_BACKEND_ID
 
 
 def test_request_devices_routes_the_backend() -> None:
+    from negpy.infrastructure.scanners.registry import DEFAULT_BACKEND_ID
+
     sidebar, controller = _sidebar()
     controller.device_requests = 0
     sidebar._request_devices()
-    assert controller.backend_requests[-1] == "sane"
+    assert controller.backend_requests[-1] == DEFAULT_BACKEND_ID
     assert controller.device_requests == 1
+
+
+def test_load_settings_coerces_unavailable_backend(monkeypatch) -> None:
+    """A saved Unix-only backend must not stick on Windows."""
+    import sys
+
+    if sys.platform != "win32":
+        pytest.skip("Windows-only coercion")
+
+    from negpy.infrastructure.scanners.registry import DEFAULT_BACKEND_ID
+    from negpy.infrastructure.scanners.settings import ScannerSettings
+
+    sidebar, controller = _sidebar()
+    controller.session.repo.save_global_setting(
+        "scanner_settings",
+        {"backend": "sane", "dpi": 1800, "depth": 16},
+    )
+    loaded = sidebar._load_settings()
+    assert loaded.backend == DEFAULT_BACKEND_ID
+    assert isinstance(loaded, ScannerSettings)
 
 
 def test_backend_change_persists_and_re_enumerates(monkeypatch) -> None:
@@ -315,3 +390,53 @@ def test_ae_flag_flows_into_scan_params() -> None:
     _kind, req = controller.started[0]
     assert req.params.auto_exposure is True
     assert req.params.autofocus is True
+
+
+def test_unsupported_ae_af_forced_off_in_scan_params() -> None:
+    sidebar, controller = _sidebar(MINIMAL_DEVICE)
+    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.ae_check.setChecked(True)
+    sidebar.autofocus_check.setChecked(True)
+
+    sidebar._on_scan()
+
+    _kind, req = controller.started[0]
+    assert req.params.auto_exposure is False
+    assert req.params.autofocus is False
+
+
+def test_scan_error_resets_ui_and_shows_status(monkeypatch) -> None:
+    sidebar, _ = _sidebar(SE_DEVICE)
+    sidebar.set_scanning(True)
+    sidebar.progress_bar.setVisible(True)
+    popped: list[tuple[str, str]] = []
+
+    def _fake_warning(parent, title, text, *args, **kwargs):
+        del parent, args, kwargs
+        popped.append((title, text))
+        return 0
+
+    monkeypatch.setattr("negpy.desktop.view.sidebar.scan.QMessageBox.warning", _fake_warning)
+    sidebar._on_scan_error("USB I/O failed")
+
+    assert sidebar._scanning is False
+    assert sidebar.progress_bar.isVisible() is False
+    assert "Error: USB I/O failed" in sidebar.status_label.text()
+    assert popped == []
+
+
+def test_lockout_scan_error_shows_message_box(monkeypatch) -> None:
+    sidebar, _ = _sidebar(SE_DEVICE)
+    popped: list[tuple[str, str]] = []
+
+    def _fake_warning(parent, title, text, *args, **kwargs):
+        del parent, args, kwargs
+        popped.append((title, text))
+        return 0
+
+    monkeypatch.setattr("negpy.desktop.view.sidebar.scan.QMessageBox.warning", _fake_warning)
+    msg = "OpticFilm 8100 (GL845) cannot scan with pyOpticfilm in this release — only OpticFilm 8200i SE is validated."
+    sidebar._on_scan_error(msg)
+
+    assert f"Error: {msg}" in sidebar.status_label.text()
+    assert popped == [("Scan failed", msg)]

@@ -110,7 +110,7 @@ class SensorCalibrationDialog(QDialog):
         self.compute_btn.setEnabled(all(self._paths.values()) and bool(name) and not SensorProfiles.is_bundled(name))
 
     def _decode(self, path: str) -> np.ndarray:
-        # Sensor-native linear decode (neutral WB), same as the flat-field reference —
+        # Sensor-native linear decode with neutral WB, the same as the flat-field reference. The
         # per-capture exposure scale cancels in build_sensor_matrix's normalization.
         from negpy.services.rendering.preview_manager import PreviewManager
 

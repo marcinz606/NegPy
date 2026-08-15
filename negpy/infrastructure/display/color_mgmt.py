@@ -75,8 +75,8 @@ def get_display_lut(
     profile). Used by both the CPU (`ImageConverter.to_qimage`) and GPU display paths.
     """
     if proof is not None:
-        # Deferred: image_processor owns the proof's branch selection and imports this
-        # module itself.
+        # Deferred: image_processor owns the proof's branch selection and imports this module
+        # itself.
         from negpy.services.rendering.image_processor import ImageProcessor
 
         return ImageProcessor.soft_proof_lut(working_color_space, proof[0], proof[1], dst_bytes)

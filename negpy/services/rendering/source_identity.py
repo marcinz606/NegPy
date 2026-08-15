@@ -27,9 +27,9 @@ def source_token(config: WorkspaceConfig) -> str:
         hdr_token(config.hdr),
     ]
     if config.stitch.stitch_enabled:
-        # Stitch is the only assembly that flat-fields during the decode (per part, before
-        # the warp — a canvas-wide gain map would stretch across the seam). Everywhere else
-        # flat-field is a render stage, and including it here would force a needless
-        # re-decode every time the profile is switched.
+        # Stitch is the only assembly that flat-fields during the decode, per part and before the
+        # warp, because a canvas-wide gain map would stretch across the seam. Everywhere else
+        # flat-field is a render stage, and including it here would force a needless re-decode
+        # every time the profile is switched.
         parts.append(flatfield_token(config.flatfield))
     return "".join(parts)

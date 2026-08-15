@@ -9,90 +9,80 @@ from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.system.parallel import parallel_njit
 
 TONING_CONSTANTS: Dict[str, Any] = {
-    # ── Selenium (silver -> silver selenide, densest silver first) ───────────
-    # Density at which selenium conversion saturates (c = strength·(D/this)^power).
-    # ↑ conversion spreads to lighter tones more slowly; ↓ shadows convert sooner.
+    # Selenium (silver -> silver selenide, densest silver first).
+    # Density at which conversion saturates: c = strength*(D/this)^power.
     "sel_d_ref": 2.0,
     # Exponent shaping the density-proportional conversion.
-    # ↑ conversion concentrates deeper in the shadows; ↓ creeps into midtones.
     "sel_power": 1.5,
-    # Per-channel density multipliers of converted silver: all ≥1 deepens blacks
-    # (the Dmax boost selenium is used for); green highest -> eggplant shadow hue.
+    # Per-channel density multipliers of converted silver. All above 1, so blacks
+    # deepen; green highest gives the eggplant shadow hue.
     "sel_gain": (1.04, 1.10, 1.02),
-    # ── Sepia (bleach–redevelop to sulfide, thinnest silver first) ────────────
-    # Density above which bleach no longer reaches (c = strength·(1 − D/this)^power).
-    # ↑ toning creeps into deeper shadows; ↓ holds toning to the highlights.
+    # Sepia (bleach and redevelop to sulfide, thinnest silver first).
+    # Density above which the bleach no longer reaches: c = strength*(1 - D/this)^power.
     "sep_d_bleach": 1.8,
-    # Exponent shaping the highlight-first conversion falloff.
-    # ↑ tighter split-sepia (highlights only); ↓ more even toning.
+    # Exponent shaping the highlight-first falloff.
     "sep_power": 2.0,
-    # Per-channel density multipliers of converted silver: red < 1 (sulfide's
-    # lower covering power lifts/warms), blue > 1 -> yellow-brown hue.
+    # Per-channel multipliers of converted silver: red below 1, because sulfide has
+    # lower covering power, and blue above 1, giving the yellow-brown hue.
     "sep_gain": (0.82, 0.94, 1.12),
-    # ── Gold (colloidal gold plates onto silver, finest grain first) ──────────
-    # Density above which gold no longer deposits (c = strength·(1 − D/this)^power).
-    # ↑ toning creeps into deeper shadows; ↓ holds toning to the highlights.
+    # Gold (colloidal gold plates onto silver, finest grain first).
+    # Density above which gold no longer deposits: c = strength*(1 - D/this)^power.
     "gold_d_ref": 1.6,
-    # Exponent shaping the highlight-first falloff; gentler than sepia's, so
-    # gold creeps further into the midtones.
+    # Exponent shaping the highlight-first falloff, gentler than sepia's, so gold
+    # creeps further into the midtones.
     "gold_power": 1.5,
-    # Per-channel density multipliers on plain silver: all ≥1 (slight
-    # intensification), red highest -> cool blue-black hue.
+    # Per-channel multipliers on plain silver: a slight intensification, red highest
+    # for the cool blue-black hue.
     "gold_gain": (1.08, 1.03, 1.00),
-    # Per-channel multipliers where gold plates silver *sulfide* (sepia-toned):
-    # the classic gold-over-sepia orange-red shift, redder than sulfide alone.
+    # Per-channel multipliers where gold plates silver *sulfide*: the gold-over-sepia
+    # orange-red shift, redder than sulfide alone.
     "gold_sepia_gain": (0.80, 0.95, 1.20),
-    # ── Iron blue (silver -> ferric ferrocyanide, silver-proportional) ────────
-    # Density at which conversion saturates (c = strength·(D/this)^power).
-    # Kept well below Dmax: the hue effect scales with D·c, so a Dmax-referenced
-    # saturation would confine the color to the deep shadows.
+    # Iron blue (silver -> ferric ferrocyanide, silver-proportional).
+    # Density at which conversion saturates: c = strength*(D/this)^power. Kept well
+    # below Dmax: the hue effect scales with D*c, so a Dmax reference would confine
+    # the color to the deep shadows.
     "blue_d_ref": 0.9,
-    # Slightly sub-linear so the blue reaches the mids while shadows still lead.
+    # Slightly sub-linear, so the blue reaches the mids while shadows still lead.
     "blue_power": 0.85,
-    # Prussian blue deposits more coloring matter than the silver it replaces:
-    # net gain > 1 (intensification), red absorbed most -> blue hue. The pigment
-    # is cyan-leaning (green passes almost as freely as blue) — G at 1.00 is
-    # what lets the classic sepia+blue green split emerge from the mix.
+    # Prussian blue deposits more coloring matter than the silver it replaces, so the
+    # net gain is above 1 and red is absorbed most. The pigment is cyan-leaning, and
+    # G at 1.00 is what lets the sepia+blue green split emerge.
     "blue_gain": (1.30, 1.00, 0.80),
-    # ── Copper (silver -> copper ferrocyanide, in-bath bleach) ────────────────
-    # Density at which conversion saturates (c = strength·(D/this)^power); low
-    # for the same mid-tone visibility reason as blue_d_ref.
+    # Copper (silver -> copper ferrocyanide, in-bath bleach).
+    # Density at which conversion saturates, low for the same mid-tone visibility
+    # reason as blue_d_ref.
     "copper_d_ref": 0.9,
-    # Sub-linear exponent: conversion reaches mids/highlights early (broad tone).
+    # Sub-linear exponent, so conversion reaches mids and highlights early.
     "copper_power": 0.6,
-    # Net gain < 1: the ferricyanide bleaches while it tones (Dmax loss),
-    # red lifted most -> pink/brick-red hue.
+    # Net gain below 1: the ferricyanide bleaches while it tones. Red lifted most
+    # gives the pink/brick-red hue.
     "copper_gain": (0.72, 0.94, 1.18),
-    # ── Vanadium green (bleach-then-tone, thinnest silver first) ──────────────
-    # Density above which the bleach no longer reaches (c = strength·(1 − D/this)^power).
+    # Vanadium green (bleach then tone, thinnest silver first).
+    # Density above which the bleach no longer reaches.
     "van_d_ref": 1.8,
-    # Gentler falloff than sepia's 2.0 — the green creeps into the mids while
-    # deep shadows keep their black silver (green print, black blacks).
+    # Gentler falloff than sepia's, so the green creeps into the mids while deep
+    # shadows keep their black silver.
     "van_power": 1.2,
-    # Vanadium yellow + Prussian blue deposit reads green: R and B absorbed,
-    # G spared; luma-weighted net < 1 (slight density loss).
+    # Vanadium yellow plus Prussian blue reads green: R and B absorbed, G spared.
+    # Luma-weighted net below 1, so density drops a little.
     "van_gain": (1.12, 0.85, 1.03),
 }
 
-# Overrides applied when the print was lith-developed. Lith silver is fine,
-# high-surface-area, small-particle silver, which sits on the steep part of the
-# tone-vs-particle-size curve (Kong & Shore 2007) — the same bath moves it much
-# further than it moves normal filamentary silver. Only selenium and gold are
-# distinctive on lith; sepia, iron blue, copper and vanadium are inert or
-# redundant there and the sidebar disables them.
+# Overrides for a lith-developed print. Lith silver is fine, small-particle silver on
+# the steep part of the tone-vs-particle-size curve (Kong & Shore 2007), so the same
+# bath moves it much further than normal filamentary silver. Only selenium and gold are
+# distinctive on lith, and the sidebar disables the rest.
 LITH_TONING_CONSTANTS: Dict[str, Any] = {
-    # Reaches much further down the scale than on a normal print ("with very
-    # diluted toners the highlights are also reached"), and lifts Dmax hard —
-    # on some lith papers a short bold selenium is the only way to a real black.
+    # Reaches much further down the scale than on a normal print and lifts Dmax hard.
+    # On some lith papers a short bold selenium is the only way to a real black.
     "sel_d_ref": 1.2,
     # Near-linear: the toner creeps into the midtones instead of hiding in Dmax.
     "sel_power": 1.0,
     # Green highest by a wide margin: the green-black lith shadow goes magenta
-    # (Moersch, 1+5 for 20 s). Mean well above 1 is the Dmax boost.
+    # (Moersch, 1+5 for 20 s). The mean above 1 is the Dmax boost.
     "sel_gain": (1.10, 1.24, 1.12),
-    # "In contrast to selenium toner, which reaches the highlights late, starting
-    # with the shadows, gold toner attacks all densities evenly" — so on lith the
-    # bleach-limited shape is replaced by a flat conversion (see gold_flat).
+    # Gold attacks all densities evenly, unlike selenium, so on lith the bleach-limited
+    # shape is replaced by a flat conversion (see gold_flat).
     "gold_gain": (1.16, 1.06, 0.96),
 }
 
@@ -237,11 +227,10 @@ def _apply_chemical_toning_jit(
             a -= f_van
 
             for ch in range(3):
-                # Covering power rides each channel's OWN density, not the mean:
-                # the mean is the silver reservoir (above), but rebuilding the
-                # output from it would throw away any color the print already
-                # had — which is exactly what a lith print hands this stage.
-                # Identical for a normal grey B&W print, where d3[ch] == d0.
+                # Covering power rides each channel's OWN density, not the mean. The
+                # mean is the silver reservoir above, but rebuilding the output from it
+                # would throw away the color a lith print hands this stage. Identical
+                # for a normal grey B&W print, where d3[ch] == d0.
                 d = d3[ch] * (
                     a
                     + f_sel * sel_gain[ch]

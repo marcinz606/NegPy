@@ -2,7 +2,11 @@ import cv2
 import numpy as np
 import pytest
 from negpy.features.geometry.logic import (
+    AUTOCROP_DETECT_RES,
+    BORDER_SIDES,
     _closest_standard_ratio,
+    _detection_luma,
+    _normalize_detection_input,
     _refine_roi_to_image,
     _roi_from_measured_border,
     detect_closest_aspect_ratio,
@@ -10,6 +14,7 @@ from negpy.features.geometry.logic import (
     get_manual_crop_coords,
     get_manual_rect_coords,
     measure_film_border,
+    measure_film_edges,
     scale_roi_inset,
 )
 from negpy.features.geometry.processor import CropProcessor, GeometryProcessor
@@ -530,6 +535,20 @@ def test_detect_closest_aspect_ratio_square():
     assert ratio == "1:1"
 
 
+def test_closest_ratio_keeps_a_square_frame_on_a_3_2_sensor():
+    # A 6x6 frame photographed on a 3:2 camera. The image-dimension sanity check used to
+    # overrule every format rounder than the sensor, so the one shape this frame is not
+    # -- 3:2 -- is exactly what it returned, and autocrop threw away a third of the picture.
+    assert _closest_standard_ratio((0, 1000, 0, 1000), (1069, 1600)) == "1:1"
+    assert _closest_standard_ratio((0, 1000, 0, 1010), (1069, 1600)) == "1:1"
+
+
+def test_closest_ratio_still_overrules_a_box_longer_than_its_image():
+    # What the sanity check is for: a detection that ran along the frame reads 2.7:1 on a
+    # genuine 3:2 scan. A stretched box is longer than the image holding it, never rounder.
+    assert _closest_standard_ratio((0, 400, 0, 1080), (1069, 1600)) == "3:2"
+
+
 def test_detect_closest_aspect_ratio_fallback_on_flat_image():
     img = np.ones((120, 200, 3), dtype=np.float32) * 0.5
     ratio = detect_closest_aspect_ratio(img, fallback="3:2")
@@ -659,6 +678,19 @@ def _three_tier_negative_at(long_edge: int) -> np.ndarray:
     img[round(h * 80 / 480) : round(h * 400 / 480), round(w * 100 / 720) : round(w * 620 / 720)] = 0.78
     img[round(h * 105 / 480) : round(h * 375 / 480), round(w * 135 / 720) : round(w * 585 / 720)] = 0.25
     return img
+
+
+def test_autocrop_default_ratio_keeps_a_square_frame_square():
+    # A 6x6 frame on a 3:2 camera. Autocrop reads the format off the frame it found, so
+    # the shipped default must not be a fixed 3:2 -- that center-cropped every format
+    # other than 35mm down to a fraction of the picture.
+    img = np.full((480, 720, 3), 1.0, dtype=np.float32)
+    img[60:420, 180:540] = 0.78  # square film strip incl. rebate
+    img[85:395, 205:515] = 0.25  # square exposed frame
+
+    y1, y2, x1, x2 = get_autocrop_coords(img, offset_px=0, scale_factor=1.0, target_ratio_str=GeometryConfig().autocrop_ratio)
+
+    assert (x2 - x1) / (y2 - y1) == pytest.approx(1.0, abs=0.05)
 
 
 def test_autocrop_film_mode_keeps_rebate():
@@ -880,10 +912,18 @@ def test_autocrop_image_mode_full_bleed_frame_keeps_film_box():
     texture = 0.30 + 0.20 * np.sin(xx / 13.0) * np.cos(yy / 19.0)
     img[80:400, 100:620] = np.repeat(texture[80:400, 100:620, None], 3, axis=2)
 
+    # The property under test, stated directly: a textured edge with no border on it is
+    # not a border. The picture here swings 0.10-0.50, so it crosses any relative level
+    # test; what refuses it is the gradient gate, since a sine that gentle never steps.
+    lum = _detection_luma(_normalize_detection_input(img, AUTOCROP_DETECT_RES)[0])
+    assert measure_film_edges(lum, (80, 400, 100, 620)) == dict.fromkeys(BORDER_SIDES, 0.0)
+
     y1, y2, x1, x2 = get_autocrop_coords(img, offset_px=0, scale_factor=1.0, target_ratio_str="Free", mode="image")
 
-    # Film box is 80:400, 100:620 — crop must cover (almost) all of it.
-    assert (y2 - y1) * (x2 - x1) >= 0.90 * 320 * 520
+    # Film box is 80:400, 100:620 — crop must cover (almost) all of it. The shortfall is
+    # the "Free" ratio squaring off a 1.63 film area, plus the few px of bed the contour
+    # box runs wide and the walk then takes back; neither is a carve into the picture.
+    assert (y2 - y1) * (x2 - x1) >= 0.85 * 320 * 520
     assert y1 >= 60 and y2 <= 420 and x1 >= 80 and x2 <= 640  # and stay near the film
 
 
@@ -1252,6 +1292,229 @@ def test_measured_border_caps_a_side_against_its_opposite():
 
     assert roi[0] == 8  # capped at 2 x 4px, not the measured 20px
     assert roi[1] == 396
+
+
+def _camera_scan_box(mask=4, base=3, shape=(400, 600), image=0.35, sides=BORDER_SIDES):
+    """A camera scan filling the sensor: opaque holder mask, then a clear film-base
+    sliver, then the picture. Both tiers are a few pixels wide, which is what the
+    4%-wide ring in measure_film_border cannot resolve."""
+    box = np.full(shape, image, dtype=np.float32)
+    strip = np.concatenate(
+        [
+            np.zeros(mask, np.float32),
+            np.linspace(0.02, 1.0, 3, dtype=np.float32),  # the mid-gray ramp between tiers
+            np.full(base, 1.0, np.float32),
+        ]
+    )
+    k = strip.size
+    if "top" in sides:
+        box[:k, :] = strip[:, None]
+    if "bottom" in sides:
+        box[-k:, :] = strip[::-1, None]
+    if "left" in sides:
+        box[:, :k] = strip[None, :]
+    if "right" in sides:
+        box[:, -k:] = strip[None, ::-1]
+    return box
+
+
+def test_edge_walk_removes_both_the_holder_mask_and_the_film_base():
+    # 4px mask + 3px ramp + 3px base = 10px per side, none of which is picture.
+    measured = measure_film_edges(_camera_scan_box(), (0, 400, 0, 600))
+
+    assert measured["top"] == pytest.approx(10 / 400)
+    assert measured["bottom"] == pytest.approx(10 / 400)
+    assert measured["left"] == pytest.approx(10 / 600)
+    assert measured["right"] == pytest.approx(10 / 600)
+
+
+def test_edge_walk_trims_only_the_sides_that_carry_a_border():
+    # A frame sitting off-centre in the holder shows a border on some sides and none on
+    # others, so sides are independent -- requiring an opposite pair would leave it on.
+    box = _camera_scan_box(sides=("top", "left"))
+
+    measured = measure_film_edges(box, (0, 400, 0, 600))
+
+    assert measured["top"] == pytest.approx(10 / 400)
+    assert measured["left"] == pytest.approx(10 / 600)
+    assert measured["bottom"] == 0.0
+    assert measured["right"] == 0.0
+
+
+def test_edge_walk_keeps_a_bright_picture_edge():
+    # Thin negative: the picture runs to the frame edge at 0.88, well above the picture
+    # elsewhere but below bed. Trimming it costs real frame, so nothing may move.
+    box = np.full((400, 600), 0.35, dtype=np.float32)
+    box[:, :60] = 0.88
+
+    measured = measure_film_edges(box, (0, 400, 0, 600))
+
+    assert measured["left"] == 0.0
+
+
+def test_edge_walk_abstains_on_a_border_covering_a_minority_of_its_side():
+    # A tilted frame can put base into one corner only. Cutting the whole side back to
+    # clear a wedge costs picture along the rest of it, so the side abstains and the
+    # wedge survives -- deskewing first (the batch path) is what actually fixes this.
+    box = np.full((400, 600), 0.35, dtype=np.float32)
+    box[:80, :6] = 1.0
+
+    measured = measure_film_edges(box, (0, 400, 0, 600))
+
+    assert measured["left"] == 0.0
+
+
+def test_edge_walk_is_capped_when_picture_runs_to_the_edge():
+    # Nothing distinguishes a frame that is bright to its own edge, so the cap is what
+    # bounds the loss: 3% of the side, never the 50% a runaway walk would take. The deeper
+    # walk cannot rescue it either -- reaching its whole allowance is itself the proof
+    # that no boundary was found inside it.
+    box = np.full((400, 600), 1.0, dtype=np.float32)
+    box[:, 300:] = 0.35
+
+    measured = measure_film_edges(box, (0, 400, 0, 600))
+
+    assert measured["left"] == pytest.approx(0.03)
+
+
+def test_edge_walk_finds_a_rebate_below_bed_level():
+    # A thin negative puts its own highlights at the normalization anchor, leaving the
+    # rebate underneath it. No absolute level finds this; the picture on the same line does.
+    box = np.full((400, 600), 0.30, dtype=np.float32)
+    box[:10, :] = 0.72  # rebate: above the picture, nowhere near bed
+
+    measured = measure_film_edges(box, (0, 400, 0, 600))
+
+    assert measured["top"] == pytest.approx(10 / 400)
+    assert measured["bottom"] == 0.0
+
+
+def test_edge_walk_reaches_a_rebate_sitting_behind_the_holder_mask():
+    # A misaligned holder puts a wide opaque mask outside the rebate, so the bright band
+    # is not adjacent to the frame edge. Reading it as a run from the edge finds a dark
+    # pixel at index 0 and reports nothing, leaving half the border in the frame.
+    box = np.full((400, 600), 0.12, dtype=np.float32)
+    box[:, :16] = np.concatenate(
+        [
+            np.full(6, 0.02, dtype=np.float32),  # holder mask
+            np.linspace(0.10, 0.80, 4, dtype=np.float32),  # its soft edge
+            np.full(6, 0.90, dtype=np.float32),  # rebate: below bed, above the picture
+        ]
+    )[None, :]
+
+    assert measure_film_edges(box, (0, 400, 0, 600))["left"] == pytest.approx(16 / 600)
+
+
+def test_edge_walk_clears_a_film_base_stacked_inside_a_holder_mask():
+    # Two firm tiers: mask outside, clear base inside. Their boundary is the stronger step
+    # of the two -- near-black against clear base beats clear base against picture -- so a
+    # gradient asked to pick one picks that, and the base stays in the frame as a bright
+    # sliver. Firm evidence proves itself, so the walk trusts how far it reaches.
+    box = np.full((400, 600), 0.36, dtype=np.float32)
+    box[:, :16] = np.concatenate(
+        [
+            np.full(3, 0.02, dtype=np.float32),  # holder mask
+            np.linspace(0.08, 0.90, 5, dtype=np.float32),  # its soft edge
+            np.full(8, 0.98, dtype=np.float32),  # film base, well above bed level
+        ]
+    )[None, :]
+
+    assert measure_film_edges(box, (0, 400, 0, 600))["left"] == pytest.approx(16 / 600)
+
+
+def test_edge_walk_finds_a_holder_edge_darker_than_the_picture():
+    # A holder edge shades along the side -- near-black at one end, mid-grey at the other
+    # -- so the absolute mask cut catches only the dark end and abstains on the rest of a
+    # border that runs the full side. Read against the picture on the line, it is whole.
+    box = np.full((400, 600), 0.62, dtype=np.float32)
+    strip = np.linspace(0.02, 0.22, 400, dtype=np.float32)  # dark at the top, grey at the bottom
+    box[:, :18] = strip[:, None]
+
+    assert measure_film_edges(box, (0, 400, 0, 600))["left"] == pytest.approx(18 / 600)
+
+
+def test_edge_walk_takes_the_border_edge_from_the_gradient_not_the_level():
+    # With a bright picture on the line, "darker than the reference" stays true well into
+    # the picture's own shadows, so the run overshoots and ends mid-ramp. The boundary is
+    # the step, and the cut has to land on it rather than where the level test gave out.
+    box = np.full((400, 600), 0.30, dtype=np.float32)
+    box[:, 12:] = np.linspace(0.30, 0.95, 588, dtype=np.float32)[None, :]  # picture ramps up
+    box[:, :12] = 0.04  # the border
+
+    assert measure_film_edges(box, (0, 400, 0, 600))["left"] == pytest.approx(12 / 600)
+
+
+def test_edge_walk_keeps_a_bright_subject_that_tapers_into_the_picture():
+    # The counter-case to the one above, and the reason the run must end in a step: a
+    # large bright subject at the frame edge is also above the picture beside it, but it
+    # shades off rather than stopping. Reading it as rebate carves the frame away.
+    box = np.full((400, 600), 0.30, dtype=np.float32)
+    box[:, :80] = np.linspace(0.88, 0.30, 80, dtype=np.float32)[None, :]
+
+    assert measure_film_edges(box, (0, 400, 0, 600))["left"] == 0.0
+
+
+def test_edge_walk_reaches_a_border_thicker_than_the_trusted_cap():
+    # A holder leaving a wide margin, a sprocket rail or the neighbouring frame all run
+    # several times _EDGE_TRIM_CAP. Stopping at the cap leaves a band the eye reads as an
+    # uncropped edge, so a border that proves itself may go to _EDGE_DEEP_CAP.
+    box = np.full((400, 600), 0.30, dtype=np.float32)
+    box[:, :52] = 0.62  # 8.7% of the side: nearly three times the trusted cap
+
+    assert measure_film_edges(box, (0, 400, 0, 600))["left"] == pytest.approx(52 / 600)
+
+
+def test_edge_walk_refuses_a_deep_reading_whose_edge_is_not_straight():
+    # Past the trusted cap a wrong answer costs real picture, so the deeper reading has to
+    # look like a film edge: a cut line. Subject content passing the level tests resolves
+    # to a boundary that follows the subject instead, and is refused.
+    box = np.full((400, 600), 0.30, dtype=np.float32)
+    edge = 20 + (28 * np.sin(np.arange(400) / 9.0)).astype(int)  # ragged, not a cut line
+    for row, depth in enumerate(edge):
+        box[row, : max(1, depth)] = 0.62
+
+    assert measure_film_edges(box, (0, 400, 0, 600))["left"] <= 0.03
+
+
+def test_edge_walk_refuses_a_deep_reading_whose_outer_pixels_are_not_one_material():
+    # Mask, bed and film base each hold their level along the whole side. A picture
+    # running to the frame edge does not, and that is what separates the two once the
+    # walk is allowed to reach a depth worth real picture.
+    box = np.full((400, 600), 0.30, dtype=np.float32)
+    box[:, :52] = (0.30 + 0.32 * np.sin(np.arange(400) / 11.0))[:, None]
+
+    assert measure_film_edges(box, (0, 400, 0, 600))["left"] <= 0.03
+
+
+def test_edge_walk_route_insets_a_camera_scan_the_other_routes_cannot_read():
+    roi, row_occ, col_occ = _refine_roi_to_image(_camera_scan_box(), (0, 400, 0, 600))
+
+    assert roi == (10, 390, 10, 590)
+    assert row_occ is None and col_occ is None
+
+
+def test_edge_walk_reads_a_wide_scanner_rebate_the_same_as_the_ring():
+    # A rebate below bed level is found by the relative test rather than the absolute
+    # one, so the walk now covers the scanner case too. The two must agree: whichever
+    # route _refine_roi_to_image happens to take, the frame lands in the same place.
+    box = _film_box()
+
+    assert measure_film_edges(box, (0, 400, 0, 600)) == pytest.approx(measure_film_border(box, (0, 400, 0, 600)))
+    assert _refine_roi_to_image(box, (0, 400, 0, 600))[0] == (8, 392, 12, 588)
+
+
+def test_film_surround_must_be_near_clipping_to_read_as_bed():
+    from negpy.features.geometry.logic import _film_surround_is_plausible
+
+    # A blown region on a thin negative clears the brightness bar but not the histogram
+    # top, where the light bed sits. Accepting it cropped a frame to a third of itself.
+    lum = np.full((400, 600), 0.90, dtype=np.float32)
+    lum[120:300, 200:420] = 0.45
+
+    assert not _film_surround_is_plausible(lum, (120, 300, 200, 420))
+
+    lum[:, :] = np.where(lum > 0.5, 1.0, lum)  # the same box, now sitting on real bed
+    assert _film_surround_is_plausible(lum, (120, 300, 200, 420))
 
 
 def test_rebate_trim_scales_the_inset_between_film_edge_and_image_edge():

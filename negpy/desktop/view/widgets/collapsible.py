@@ -45,8 +45,8 @@ class CollapsibleSection(QWidget):
         self.toggle_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.toggle_button.setFixedHeight(36)
 
-        # Styled by the QPushButton#collapsible_header rules in modern_dark.qss;
-        # overlay="true" = header stacked over a preview widget (translucent bg).
+        # Styled by the QPushButton#collapsible_header rules in modern_dark.qss. overlay="true"
+        # means the header is stacked over a preview widget, on a translucent background.
         self.toggle_button.setObjectName("collapsible_header")
         self.toggle_button.setProperty("overlay", "true" if background_widget else "false")
 
@@ -69,8 +69,8 @@ class CollapsibleSection(QWidget):
 
         self.info_btn: Optional[QPushButton] = None
         if info:
-            # Nested in the header button, like reset_btn: it eats its own clicks, so
-            # opening the help doesn't also collapse the section.
+            # Nested in the header button, like reset_btn: it eats its own clicks, so opening the help
+            # does not also collapse the section.
             self.info_btn = QPushButton()
             self.info_btn.setIcon(qta.icon("fa5s.info-circle", color=THEME.text_muted))
             self.info_btn.setFixedSize(20, 20)
@@ -122,9 +122,9 @@ class CollapsibleSection(QWidget):
         self.toggle_button.toggled.connect(self._on_toggle)
 
     def set_content(self, widget: QWidget) -> None:
-        # Plain QWidget content gets painted #0D0D0D by the global `QWidget {}`
-        # QSS rule, covering the #121212 card frame (custom subclasses aren't
-        # auto-painted). The objectName rule forces it transparent either way.
+        # Plain QWidget content is painted #0D0D0D by the global `QWidget {}` QSS rule, covering
+        # the #121212 card frame, since custom subclasses are not auto-painted. The objectName
+        # rule forces it transparent either way.
         widget.setObjectName("collapsible_content_body")
         self.content_layout.addWidget(widget)
 

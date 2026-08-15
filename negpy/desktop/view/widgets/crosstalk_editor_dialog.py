@@ -276,8 +276,8 @@ class CrosstalkEditorDialog(QDialog):
         root.addWidget(splitter)
 
     def _build_matrix_grid(self) -> QWidget:
-        # Diagonal is pinned by row-normalization, so only off-diagonal terms are
-        # sliders; self._cells is 3×3 with None on the diagonal.
+        # Row-normalization pins the diagonal, so only the off-diagonal terms are sliders.
+        # self._cells is 3x3 with None on the diagonal.
         self._cells: List[List[Optional[CompactSlider]]] = []
         self._diag = [1.0, 1.0, 1.0]
         container = _MatrixGridWidget(self._cells)
@@ -458,8 +458,8 @@ class CrosstalkEditorDialog(QDialog):
             name = f"New Matrix {i}"
             i += 1
         identity = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
-        # For the process being worked in — a new matrix the user cannot then select
-        # is the whole reason this key is here.
+        # For the process being worked in: a new matrix the user cannot then select is the whole
+        # reason this key is here.
         CrosstalkProfiles.save(name, identity, process=self._default_process)
         self.profiles_changed.emit()
         self._reload_list(select=name)
@@ -468,8 +468,8 @@ class CrosstalkEditorDialog(QDialog):
         if self._selected_name is None:
             return
         new_name = unique_copy_name(self._selected_name, self._all_names())
-        # Takes the `tuned` default rather than inheriting a datasheet provenance claim.
-        # The process IS inherited: it says which dye set the numbers describe.
+        # Takes the `tuned` default rather than inheriting a datasheet provenance claim. The
+        # process IS inherited, because it says which dye set the numbers describe.
         CrosstalkProfiles.save(new_name, self.working_matrix(), process=self.selected_process())
         self.profiles_changed.emit()
         self._reload_list(select=new_name)

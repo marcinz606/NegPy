@@ -172,8 +172,8 @@ class RetouchSidebar(BaseSidebar):
         )
 
     def _on_overlay_clicked(self) -> None:
-        # cycle_dust_overlay emits dust_overlay_changed (repaints the canvas) but
-        # not config_updated, so the sidebar never re-syncs — update the label here.
+        # cycle_dust_overlay emits dust_overlay_changed, which repaints the canvas, but not
+        # config_updated, so the sidebar never re-syncs. Update the label here.
         self.controller.cycle_dust_overlay()
         self._sync_overlay_label()
 
@@ -190,8 +190,8 @@ class RetouchSidebar(BaseSidebar):
         self.manual_size_slider.setVisible(checked or self.pick_dust_btn.isChecked())
 
     def _on_line_toggled(self, checked: bool) -> None:
-        # Sensitivity stands in for brush size here: the band is grown from the scratch, so
-        # what the user tunes is how readily it is followed, not how wide to paint.
+        # Sensitivity stands in for brush size here: the band is grown from the scratch, so what
+        # the user tunes is how readily it is followed, not how wide to paint.
         self.controller.set_active_tool(ToolMode.SCRATCH_LINE if checked else ToolMode.NONE)
         self.line_threshold_slider.setVisible(checked)
 
@@ -222,8 +222,8 @@ class RetouchSidebar(BaseSidebar):
             self.undo_btn.setEnabled(has_heals)
             self.clear_btn.setEnabled(has_heals)
 
-            # Show unchecked on non-IR files: the config value is inert without an IR
-            # plane, and a checked-but-greyed button reads as stuck-on.
+            # Show unchecked on non-IR files: the config value is inert without an IR plane, and a
+            # checked but greyed button reads as stuck on.
             self.ir_dust_btn.setChecked(conf.ir_dust_remove and self.state.has_ir)
             self.ir_threshold_slider.setValue(float(conf.ir_threshold))
             method = conf.ir_method if conf.ir_method in _IR_METHOD_KEYS else IR_METHOD_NEGPY

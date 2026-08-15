@@ -35,15 +35,15 @@ class RollPreview:
 
     slot: int
     rgb: np.ndarray | None = None
-    # Set instead of rgb when this slot alone failed. The strip continues — one bad
-    # frame mid-roll must not cost the user the other 39.
+    # Set instead of rgb when this slot alone failed. The strip continues: one bad frame
+    # mid-roll must not cost the user the rest.
     error: str | None = None
-    # Effective feed-axis offset the preview was taken at, as a fraction of one frame
-    # pitch, after the transport's own clamping. The raster covers [offset, 1.0] of the
-    # frame, so the viewer places it there rather than stretching it over the whole tile.
+    # Effective feed-axis offset the preview was taken at, as a fraction of one frame pitch,
+    # after the transport's own clamping. The raster covers [offset, 1.0] of the frame, so
+    # the viewer places it there rather than stretching it over the whole tile.
     offset: float = 0.0
-    # The transport inferred this slot's boundary rather than measuring it; the user
-    # must confirm before it can be scanned. Always False on a per-frame transport.
+    # The transport inferred this slot's boundary rather than measuring it, so the user must
+    # confirm before it can be scanned. Always False on a per-frame transport.
     needs_approval: bool = False
     warnings: tuple[str, ...] = ()
 
@@ -56,11 +56,11 @@ class RollSession(Protocol):
 
     slot_count: int
     # Legal `set_offset` bounds as a fraction of one frame pitch. A transport that
-    # re-addresses its traversal table can go negative; one that offsets within a
-    # frame cannot (the scan blacks out at the boundary — verified on an LS-50).
+    # re-addresses its traversal table can go negative; one that offsets within a frame
+    # cannot, because the scan blacks out at the boundary, as verified on an LS-50.
     offset_range: tuple[float, float]
-    # False when previewing costs a whole-strip traversal, so per-slot preview
-    # buttons are pointless and the UI should offer Preview all only.
+    # False when previewing costs a whole-strip traversal, so per-slot preview buttons are
+    # pointless and the UI offers Preview all only.
     supports_single_slot_preview: bool
 
     def preview(self, slots: Iterable[int], *, cancel: threading.Event) -> Iterator[RollPreview]:

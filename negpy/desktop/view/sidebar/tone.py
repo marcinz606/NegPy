@@ -137,8 +137,8 @@ class ToneSidebar(BaseSidebar):
         split_grade_row.addWidget(self.highlight_grade_slider)
         self.layout.addLayout(split_grade_row)
 
-        # Density-domain saturation: composed into the same dye_mix slot as the
-        # paper's real dye crosstalk, rather than a post-hoc Lab-space a*/b*
+        # Density-domain saturation, composed into the same dye_mix slot as the paper's real dye
+        # crosstalk, rather than a post-hoc Lab-space a*/b*
         self.dye_separation_slider = CompactSlider("Dye Separation", 0.5, 1.5, conf.dye_separation, has_neutral=True)
         self.dye_separation_trim_slider = CompactSlider("Dye Separation", -0.4, 0.4, 0.0, has_neutral=True)
         self.dye_separation_trim_slider.setToolTip(
@@ -146,8 +146,8 @@ class ToneSidebar(BaseSidebar):
             "channel's density separation independently. Neutrals stay flat at any trim value."
         )
         self.dye_separation_trim_slider.setVisible(False)
-        # Redistributes the slider above by each pixel's own chroma; inert at 1.0
-        # separation, so it is disabled there rather than reading as broken.
+        # Redistributes the slider above by each pixel's own chroma. Inert at 1.0 separation, so
+        # it is disabled there rather than reading as broken.
         self.separation_damping_slider = CompactSlider("Separation Damping", 0.0, 1.0, conf.separation_damping)
         dye_sep_row = QHBoxLayout()
         dye_sep_row.addWidget(self.dye_separation_slider)
@@ -302,8 +302,8 @@ class ToneSidebar(BaseSidebar):
 
     def _connect_signals(self) -> None:
         self.paper_combo.currentIndexChanged.connect(self._on_paper_changed)
-        # The strip is session state, not config, and any render drops it — so the button
-        # has to follow the controller rather than sync_ui.
+        # The strip is session state, not config, and any render drops it, so the button has to
+        # follow the controller rather than sync_ui.
         self.controller.test_strip_changed.connect(self._sync_test_strip_btn)
         self.ch_btn_group.idToggled.connect(lambda _id, checked: self.sync_ui() if checked else None)
 
@@ -396,18 +396,17 @@ class ToneSidebar(BaseSidebar):
             self.paper_combo.setCurrentIndex(paper_idx if paper_idx >= 0 else 0)
             self.paper_combo.setVisible(mode != ProcessMode.E6)
 
-            # Transparency transfer (E-6, Normalize off): the render starts from the
-            # capture instead of printing it, so the paper model and the automatic
-            # grading that decides a look have nothing to act on. Density/Grade/Toe/
-            # Shoulder stay — they drive the transfer curve (see features/exposure/transfer.py).
+            # Transparency transfer (E-6, Normalize off): the render starts from the capture instead
+            # of printing it, so the paper model and the automatic grading that decides a look have
+            # nothing to act on. Density, Grade, Toe and Shoulder stay, because they drive the
+            # transfer curve (see features/exposure/transfer.py).
             from negpy.features.exposure.transfer import is_transparency_transfer
 
             transfer = is_transparency_transfer(mode, self.state.config.process.e6_normalize, conf.render_intent)
-            # Shadows/Highlights Density stay live on the transfer path — the curve
-            # implements Zone Density with the print's own weights, and they are the only
-            # controls there that open shadows without moving the whole scale. Split
-            # Grade does not: it rotates contrast about the same centres, which the
-            # transfer curve has no per-zone slope to rotate.
+            # Shadows and Highlights Density stay live on the transfer path: the curve implements
+            # Zone Density with the print's own weights, and they are the only controls there that
+            # open shadows without moving the whole scale. Split Grade does not, because it rotates
+            # contrast about the same centres and the transfer curve has no per-zone slope to rotate.
             for w in (
                 self.auto_density_btn,
                 self.auto_grade_btn,
@@ -481,9 +480,8 @@ class ToneSidebar(BaseSidebar):
             self.highlight_density_slider.setValue(conf.highlight_density)
             self.dye_separation_slider.setValue(conf.dye_separation)
             self.separation_damping_slider.setValue(conf.separation_damping)
-            # It redistributes Dye Separation's push and does nothing on its own,
-            # so at 1.0 separation it is dead — say so instead of letting it be
-            # dragged for no result.
+            # It redistributes Dye Separation's push and does nothing on its own, so at 1.0
+            # separation it is dead. Say so instead of letting it be dragged for no result.
             self.separation_damping_slider.setEnabled(conf.dye_separation != 1.0)
 
             self.paper_dmin_btn.setChecked(conf.paper_dmin)

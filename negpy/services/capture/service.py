@@ -28,8 +28,8 @@ from negpy.kernel.system.logging import get_logger
 logger = get_logger(__name__)
 
 #: Placeholder suffix on the path handed to `Camera.capture`. The camera replaces it with
-#: its own — `.ARW`, `.CR3`, `.NEF` — and returns where the file actually landed, so this
-#: is only ever a stem separator.
+#: its own (.ARW, .CR3, .NEF) and returns where the file actually landed, so this is only
+#: ever a stem separator.
 _RAW_SUFFIX = ".raw"
 
 ProgressCb = Callable[[float], None]
@@ -206,8 +206,8 @@ class CaptureService:
                 out_path = self._camera.capture(stem + _RAW_SUFFIX, shutter=shutter, iso=settings.iso, aperture=settings.aperture)
                 self._verify_size(out_path, settings)
                 staged_paths[ch] = out_path
-                # Per-channel timing so the scan-speed bottleneck (settle vs. shutter+RAW download)
-                # is visible in the log: settle is a fixed wait, capture+download is transport-bound.
+                # Per-channel timing, so the scan-speed bottleneck is visible in the log: settle is a
+                # fixed wait, while capture and download are transport-bound.
                 logger.info(
                     "channel %s: settle %.0f ms, capture+download %.0f ms → %s",
                     ch.letter,

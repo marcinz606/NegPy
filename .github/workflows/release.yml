@@ -99,9 +99,9 @@ jobs:
       - name: Install Dependencies (Windows)
         if: matrix.os == 'windows-latest'
         # Everything except SANE, which has no Windows build. `--all-groups` rather
-        # than the default groups alone, or the pieusb backend ships uninstalled and
-        # the Scan tab has no working backend at all on Windows.
-        run: uv sync --all-groups --no-group scanner
+        # than the default groups alone, or pieusb / plustek ship uninstalled and
+        # the Scan tab has no working backend on Windows.
+        run: uv sync --all-groups --no-group sane
 
       - name: Set Version
         shell: bash

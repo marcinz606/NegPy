@@ -35,18 +35,18 @@ from negpy.infrastructure.scanners.roll import effective_pitch_mm
 
 _CLAMP_NOTICE = "Offset held at the frame pitch"
 _CUT_NOTICE = "Offset cuts into the frame"
-# 135 full frame. Delivery ends one pitch past the frame start, so offset beyond
+# 135 full frame. Delivery ends one pitch past the frame start, so an offset beyond
 # (pitch - frame) discards that much picture off the frame tail.
 _FRAME_LEN_MM = 36.0
 _PREVIEW_FALLBACK_DPI = 500  # only when the device reports no DPI list at all
 _TILE_H = 140  # constant tile height; width follows the device aspect
 _TILES_PER_ROW = 6  # one SA-21 strip per row; roll adapters (up to 40 frames) wrap below
 
-# The LS-50 raster is portrait (feed axis vertical); rotate each preview -90° so the
-# frame reads landscape. QTransform().rotate(-90) maps a scan point (fx, fy) →
-# display (fy, 1 - fx) — pinned against Qt — so crop rects round-trip exactly and the
-# feed-axis start lands on the display's LEFT edge: tiles 1..N laid left-to-right read
-# continuously, like the physical strip (+90 mirrors the feed axis within each tile).
+# The LS-50 raster is portrait, with the feed axis vertical, so rotate each preview -90°
+# and the frame reads landscape. QTransform().rotate(-90) maps a scan point (fx, fy) to
+# display (fy, 1 - fx), pinned against Qt, so crop rects round-trip exactly and the
+# feed-axis start lands on the display's LEFT edge. Tiles 1..N laid left to right then
+# read continuously, like the physical strip. +90 mirrors the feed axis within each tile.
 _DISPLAY_ROTATION_DEG = -90
 
 
@@ -252,8 +252,8 @@ class StripPreviewDialog(QDialog):
         btns.addWidget(self.scan_btn)
         layout.addLayout(btns)
 
-        # Connect after ok_btn exists — setChecked during tile build must not fire
-        # the enable-check before the button is there.
+        # Connect after ok_btn exists: setChecked during the tile build must not fire the
+        # enable-check before the button is there.
         for tile in self._tiles.values():
             tile.checkbox.toggled.connect(self._update_ok_enabled)
         self.offset_slider.valueChanged.connect(self._on_offset_changed)
@@ -373,12 +373,11 @@ class StripPreviewDialog(QDialog):
         clamped: list[int] = []
         cut: list[tuple[int, float]] = []
         for tile in self._tiles.values():
-            # The band is the absolute effective offset, from the RIGHT: film past
-            # the frame boundary the transport cannot deliver at this offset (the
-            # scan blacks out one pitch past every frame start — LS-50 measured).
-            # A frame floored at 0 by negative drift pins the line at the edge so
-            # the slider visibly acts. Stale rasters re-place per _tile_coverage,
-            # so content slides live while the band stays at the raster end.
+            # The band is the absolute effective offset, from the RIGHT: film past the frame boundary
+            # that the transport cannot deliver at this offset, because the scan blacks out one pitch
+            # past every frame start. A frame floored at 0 by negative drift pins the line at the edge
+            # so the slider visibly acts. Stale rasters re-place per _tile_coverage, so content slides
+            # live while the band stays at the raster end.
             indicators: list[tuple[float, str]] = []
             if pitch:
                 raw = self._raw_offset_for_frame(tile.frame)
@@ -426,8 +425,8 @@ class StripPreviewDialog(QDialog):
             device=self._device,
             slots=slots,
             dpi=self._preview_dpi(),
-            # Raw, not clamped: the session holds the transport's own limits and
-            # reports back the offset it actually reached.
+            # Raw, not clamped: the session holds the transport's own limits and reports back the
+            # offset it actually reached.
             offsets={f: (self._raw_offset_for_frame(f) / pitch if pitch else 0.0) for f in slots},
         )
         try:
@@ -447,8 +446,8 @@ class StripPreviewDialog(QDialog):
         if tile is None:
             return
         if preview.error is not None:
-            # One frame glitched (the backend already retried it); the rest of the
-            # strip is still coming.
+            # One frame glitched, and the backend already retried it. The rest of the strip is still
+            # coming.
             self._failed_frames.append(preview.slot)
             self.status.setText(f"Frame {preview.slot} failed — continuing…")
             return
@@ -459,9 +458,9 @@ class StripPreviewDialog(QDialog):
             self.status.setText(f"Could not display frame {preview.slot}: {e}")
             return
         tile.previewed_offset = preview.offset
-        # Anchor the tile to the next scan: a current raster sits flush left and ends
-        # at the blackout boundary, so tile fractions are exactly the window fractions
-        # the batch applies to an offset scan.
+        # Anchor the tile to the next scan: a current raster sits flush left and ends at the
+        # blackout boundary, so tile fractions are exactly the window fractions the batch
+        # applies to an offset scan.
         tile.label.set_frame(pixmap, self._tile_coverage(tile))
         self._refresh_offset_indicators()
 

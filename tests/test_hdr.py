@@ -15,12 +15,16 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.features.hdr.logic import (
     SATURATION,
     anchor_choices,
+    merge_providers,
+    apply_render_exposure,
     anchor_ratio,
     choose_reference,
     clipped_fraction,
     exposure_order_key,
+    merge_bracket,
     merge_frames,
     output_scale,
+    resolve_anchor,
     pair_ratio,
     seed_shadow_density,
     subsample,
@@ -155,31 +159,43 @@ class TestReferenceChoice(unittest.TestCase):
         # ...and the excluded ones would not have.
         self.assertEqual({output_scale(ratios, anchor=r) for r in (2.0, 4.0)}, {1.0})
 
-    def test_every_merge_entry_point_forwards_the_anchor(self):
-        """There are three of them — the export path, the full-res decode, and the preview
-        service, which merges via `merge_providers` directly rather than through
-        `merge_bracket`. The preview one was missed when the anchor was added, so the menu
-        moved a value that never reached the picture: on-canvas, nothing changed at all.
+    def test_every_merge_entry_point_applies_the_render_exposure(self):
+        """`merge_providers` now returns the merge *unscaled*, so its exposure is a separate
+        call. A caller that forgets it renders at the wrong exposure and unclipped.
 
-        Guards the wiring rather than the arithmetic, because the arithmetic was right.
+        The invariant used to be "pass the anchor"; the preview service was the one that
+        missed it, and the menu moved a value that never reached the canvas. Splitting the
+        scale out to make dragging cheap re-opens exactly that hole, so the guard follows.
         """
         import ast
         import pathlib
 
         root = pathlib.Path(__file__).resolve().parent.parent / "negpy"
-        callers = {"merge_providers", "merge_bracket"}
-        missing = []
+        offenders = []
         for path in root.rglob("*.py"):
             if path.parts[-2:] == ("hdr", "logic.py"):
                 continue  # the definitions themselves
-            for node in ast.walk(ast.parse(path.read_text())):
-                if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
-                    continue
-                if node.func.id not in callers:
-                    continue
-                if not any(kw.arg in ("anchor", "anchor_path") for kw in node.keywords):
-                    missing.append(f"{path.relative_to(root)}:{node.lineno} {node.func.id}()")
-        self.assertEqual(missing, [], "merge call sites that drop the render exposure: " + "; ".join(missing))
+            src = path.read_text(encoding="utf-8")
+            calls = {node.func.id for node in ast.walk(ast.parse(src)) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
+            if "merge_providers" in calls and "apply_render_exposure" not in calls:
+                offenders.append(str(path.relative_to(root)))
+        self.assertEqual(offenders, [], "merged without applying the render exposure: " + "; ".join(offenders))
+
+    def test_the_unscaled_merge_keeps_headroom_above_white(self):
+        """Clipping in the merge would discard what the shorter frames recorded above the
+        reference's white — before the exposure that might bring it back into range."""
+        frames = [_expose(_scene(32, 32), g) for g in (1.0, 0.25)]
+        merged = merge_providers([lambda f=f: f for f in frames], [1.0, 0.25], reference=0, align=False)
+        self.assertGreater(float(merged.max()), 1.0)
+        self.assertLessEqual(float(apply_render_exposure(merged, [1.0, 0.25], 1.0).max()), 1.0)
+
+    def test_merge_bracket_takes_the_whole_config(self):
+        """Loose fields are how a call site comes to drop one. Passing the config means a
+        field added later — the render exposure was one — reaches every path at once."""
+        import inspect
+
+        params = list(inspect.signature(merge_bracket).parameters)
+        self.assertEqual(params, ["decode_fn", "reference_path", "config"])
 
     def test_setting_the_anchor_reloads_the_source(self):
         """The bracket is merged while the *source* is decoded, so the render exposure is
@@ -500,3 +516,58 @@ class TestSeedIsOnlyAStartingPoint(unittest.TestCase):
         b = merge_frames(frames, ratios, reference=0, align=False)
         np.testing.assert_array_equal(a, b)
         self.assertLess(seed_shadow_density(ratios), 0.0)  # this bracket does earn a lift
+
+
+class TestContinuousRenderExposure(unittest.TestCase):
+    """The render exposure can be set to a value, not only to a frame that was shot.
+
+    `anchor_choices` can only offer exposures the bracket contains, so the render was
+    quantised to whatever was captured — and on a bracket a stop apart, the exposure that
+    looks right is rarely one of them exactly.
+    """
+
+    PATHS = ("a.nef", "b.nef", "c.nef")
+    RATIOS = (1.0, 0.5, 0.25)
+
+    def _cfg(self, **kw):
+        return HdrConfig(hdr_enabled=True, hdr_paths=self.PATHS[1:], hdr_ratios=self.RATIOS, **kw)
+
+    def test_unset_falls_through_to_the_bracket_middle(self):
+        self.assertIsNone(resolve_anchor(self.PATHS, self.RATIOS, self._cfg()))
+
+    def test_a_named_frame_still_works(self):
+        self.assertAlmostEqual(resolve_anchor(self.PATHS, self.RATIOS, self._cfg(hdr_anchor="b.nef")), 0.5)
+
+    def test_a_value_reaches_an_exposure_no_frame_provides(self):
+        """The whole point: -1.5 EV sits between two frames a stop apart."""
+        got = resolve_anchor(self.PATHS, self.RATIOS, self._cfg(hdr_anchor_ev=-1.5))
+        self.assertAlmostEqual(got, 2.0**-1.5)
+        self.assertNotIn(round(got, 6), [round(r, 6) for r in self.RATIOS])
+
+    def test_a_value_beats_a_named_frame(self):
+        """Two answers to one question; the finer control wins, and the controller clears
+        the other so the menu tick and the slider cannot disagree."""
+        got = resolve_anchor(self.PATHS, self.RATIOS, self._cfg(hdr_anchor="b.nef", hdr_anchor_ev=-2.0))
+        self.assertAlmostEqual(got, 0.25)
+
+    def test_zero_ev_is_a_real_setting_not_the_default(self):
+        """0 EV renders at the reference, which is distinct from the bracket middle — so 0.0
+        cannot be the 'unset' sentinel."""
+        self.assertAlmostEqual(resolve_anchor(self.PATHS, self.RATIOS, self._cfg(hdr_anchor_ev=0.0)), 1.0)
+        self.assertIsNone(resolve_anchor(self.PATHS, self.RATIOS, self._cfg()))
+
+    def test_the_scale_never_exceeds_the_reference(self):
+        """output_scale clamps, so a positive EV is unreachable — which is what frees values
+        above zero to act as the sentinel."""
+        self.assertEqual(output_scale(self.RATIOS, 4.0), 1.0)
+
+    def test_it_survives_a_config_round_trip(self):
+        cfg = replace(WorkspaceConfig(), hdr=self._cfg(hdr_anchor_ev=-1.25))
+        back = WorkspaceConfig.from_flat_dict(cfg.to_dict())
+        self.assertAlmostEqual(back.hdr.hdr_anchor_ev, -1.25)
+
+    def test_a_finer_setting_actually_changes_the_pixels(self):
+        frames = [_expose(_scene(64, 64), g) for g in (1.0, 0.5, 0.25)]
+        at_frame = merge_frames(frames, self.RATIOS, reference=0, align=False, anchor=0.5)
+        between = merge_frames(frames, self.RATIOS, reference=0, align=False, anchor=2.0**-1.5)
+        self.assertGreater(float(np.abs(at_frame - between).max()), 0.01)

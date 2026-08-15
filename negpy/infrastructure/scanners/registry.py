@@ -1,6 +1,8 @@
+import sys
+from pathlib import Path
 from typing import Callable
 
-from negpy.infrastructure.scanners.base import ScannerBackend
+from negpy.infrastructure.scanners.base import ScannerBackend, ScannerUnavailable
 
 
 def _make_sane() -> ScannerBackend:
@@ -9,20 +11,41 @@ def _make_sane() -> ScannerBackend:
     return SaneBackend()
 
 
+def _make_plustek() -> ScannerBackend:
+    try:
+        from negpy.infrastructure.scanners.plustek_backend import PlustekBackend
+    except ImportError as exc:
+        raise ScannerUnavailable(
+            "Plustek USB backend failed to import. Install with: uv sync --group plustek. "
+            "On Windows, bind WinUSB with Zadig for OpticFilm 8200i SE (07b3:1825) — "
+            "see docs/PLUSTEK_WINDOWS.md."
+        ) from exc
+
+    from negpy.kernel.system.paths import get_default_user_dir
+
+    calib_cache = Path(get_default_user_dir()) / "plustek_calib"
+    return PlustekBackend(calib_cache=calib_cache)
+
+
 def _make_pieusb() -> ScannerBackend:
     from negpy.infrastructure.scanners.pieusb_backend import PieusbBackend
 
     return PieusbBackend()
 
 
-DEFAULT_BACKEND_ID = "sane"
+DEFAULT_BACKEND_ID = "plustek" if sys.platform == "win32" else "sane"
 
-# id -> (display label, factory). Insertion order drives the sidebar dropdown.
-# Adding a backend is one entry here plus its implementation module.
+# id -> (display label, factory). Insertion order drives the sidebar dropdown. SANE is
+# Unix-only (python-sane); Windows ships Plustek USB and PIEUSB.
 BACKENDS: dict[str, tuple[str, Callable[[], ScannerBackend]]] = {
-    "sane": ("SANE", _make_sane),
+    "plustek": ("pyOpticfilm (Plustek)", _make_plustek),
     "pieusb": ("PIEUSB", _make_pieusb),
 }
+if sys.platform != "win32":
+    BACKENDS = {
+        "sane": ("SANE", _make_sane),
+        **BACKENDS,
+    }
 
 
 def backend_choices() -> list[tuple[str, str]]:

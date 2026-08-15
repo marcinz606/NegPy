@@ -320,8 +320,8 @@ class MetadataSidebar(BaseSidebar):
             readback_metrics=False,
             description_fields=self._description_fields,
         )
-        # Sticky is only updated here — not on every metadata save — so the last
-        # Description… confirm wins for unset frames on the roll.
+        # Sticky is updated only here, not on every metadata save, so the last Description confirm
+        # wins for unset frames on the roll.
         self.controller.session.repo.save_global_setting(
             "last_description_fields",
             list(self._description_fields),

@@ -31,13 +31,13 @@ class GPUTexture:
         self.texture = gpu.device.create_texture(size=(width, height, 1), format=format, usage=usage)
         self.view = self.texture.create_view()
 
-        # Persistent staging buffers — allocated lazily, reused across calls
+        # Persistent staging buffers, allocated lazily and reused across calls
         self._readback_staging = None  # full-texture readback
         self._region_staging = None  # sub-region readback
         self._region_staging_size: int = 0  # allocated size of _region_staging
-        # Serializes readback vs. destroy: the UI thread probes textures (densitometer,
-        # pixel readout) while the render worker may destroy them (engine cleanup on file
-        # switch). Destroying a mapped staging buffer panics in wgpu-native — uncatchable.
+        # Serializes readback against destroy: the UI thread probes textures (densitometer, pixel
+        # readout) while the render worker may destroy them on file switch. Destroying a mapped
+        # staging buffer panics in wgpu-native, and that panic is uncatchable.
         self._lock = threading.Lock()
 
     def upload(self, data: np.ndarray) -> None:

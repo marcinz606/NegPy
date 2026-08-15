@@ -40,21 +40,17 @@ class ProcessConfig:
     # (applied at preview soft-proof / export; an explicit Input ICC overrides it).
     narrowband_scan: bool = False
     analysis_buffer: float = 0.05
-    # Optional freehand analysis region, normalized in the transformed (display) image —
-    # the same space as the manual crop rect. When set it defines the exact area the
-    # black/white-point meters read (the centered analysis_buffer inset is bypassed);
-    # None falls back to the analysis_buffer slider.
+    # Optional freehand analysis region, normalized in the transformed (display)
+    # image, the same space as the manual crop rect. When set it is the exact area the
+    # black/white-point meters read. None falls back to the analysis_buffer slider.
     analysis_rect: Optional[tuple] = None
-    # Two independent normalization clip axes: luma drives black/white-point span
-    # (dynamic range), color is the per-channel-balance clip percentile (orange-mask
-    # cast removal), defaulting to the robust base_color_clip neutral.
+    # Two normalization clip axes: luma sets the black/white-point span, color sets
+    # the per-channel balance clip (orange-mask cast removal).
     luma_range_clip: float = 0.0
     color_range_clip: float = float(EXPOSURE_CONSTANTS["base_color_clip"])
-    # Off by default: Normalize meters a per-frame stretch, which was added to rescue
-    # expired slides and is the wrong opening render for a slide that was exposed
-    # deliberately. A slide's density runs to Dmax but only its top ~1.5 decades carry
-    # picture, so stretching the measured range crushes the picture into the top of the
-    # print curve. Off renders the capture instead; turn it on for faded film.
+    # Off by default. A slide's density runs to Dmax but only its top decades carry
+    # picture, so a per-frame stretch crushes the picture into the top of the print
+    # curve. Off renders the capture as shot; turn it on for faded film.
     e6_normalize: bool = False
     # Roll-wide baseline applied independently per axis: luma (span) and color (cast).
     use_luma_average: bool = False
@@ -66,8 +62,7 @@ class ProcessConfig:
 
     white_point_offset: float = 0.0
     black_point_offset: float = 0.0
-    # Per-layer trims on top of the global white/black point (per-dye-layer
-    # film-base / Dmax correction — scanner-style per-channel levels).
+    # Per-layer trims on the global white/black point: scanner-style per-channel levels.
     white_point_trim_red: float = 0.0
     white_point_trim_green: float = 0.0
     white_point_trim_blue: float = 0.0
@@ -75,26 +70,22 @@ class ProcessConfig:
     black_point_trim_green: float = 0.0
     black_point_trim_blue: float = 0.0
 
-    # Spectral crosstalk (dye unmix), applied to the raw NEGATIVE densities
-    # before bounds analysis and the stretch — the physically correct domain
-    # (Beer–Lambert: secondary dye absorptions are linear in negative dye
-    # density, and the bundled matrices were derived from negative spectral
-    # dye-density curves). Matrix is 9 floats (row-major), baked from a
-    # crosstalk profile. Replaces the old Lab-stage positive-domain op; legacy
-    # `color_separation` is migrated in WorkspaceConfig.from_flat_dict.
+    # Spectral crosstalk (dye unmix) on the raw NEGATIVE densities, before bounds
+    # analysis and the stretch. That is the correct domain: by Beer-Lambert the
+    # secondary dye absorptions are linear in negative dye density. Matrix is 9
+    # floats row-major, baked from a crosstalk profile. Legacy `color_separation`
+    # is migrated in WorkspaceConfig.from_flat_dict.
     crosstalk_strength: float = 0.0
     crosstalk_matrix: Optional[tuple] = None
     crosstalk_profile: str = "Generic C41"
-    # Film process the selected crosstalk profile was derived for. Baked at selection so
-    # the render can gate on it without touching the disk (matrices are baked too). A
-    # profile only unmixes film it describes: the dye set differs between C-41 and E-6,
-    # so a mismatch resolves to identity rather than mixing the wrong correction in.
+    # Film process the crosstalk profile was derived for, baked at selection so the
+    # render can gate on it without disk access. The dye set differs between C-41 and
+    # E-6, so a mismatch resolves to identity instead of mixing in the wrong matrix.
     crosstalk_process: str = ProcessMode.C41
 
-    # Sensor (CFA) crosstalk unmix on the LINEAR capture, before inversion —
-    # a per-setup property calibrated from three bare-light R/G/B exposures
-    # (features/process/sensor.py). 9 floats row-major, baked from a sensor
-    # profile; None = off (no built-in default).
+    # Sensor (CFA) crosstalk unmix on the LINEAR capture, before inversion. A
+    # per-setup property calibrated from three bare-light R/G/B exposures
+    # (features/process/sensor.py). 9 floats row-major; None = off.
     sensor_matrix: Optional[tuple] = None
     sensor_profile: str = "None"
 
@@ -110,8 +101,8 @@ class ProcessConfig:
         """
         Ensure JSON-loaded lists are converted back to tuples.
         """
-        # Not a MIGRATIONS entry: the pre-rename mode names reach us from sticky settings
-        # and asset dicts too, not just a loaded flat config, so this runs on every build.
+        # Not a MIGRATIONS entry: the old mode names also reach us from sticky settings
+        # and asset dicts, not only a loaded flat config, so this runs on every build.
         object.__setattr__(self, "process_mode", ProcessMode(self.process_mode))
         object.__setattr__(self, "locked_floors", tuple(self.locked_floors))
         object.__setattr__(self, "locked_ceils", tuple(self.locked_ceils))

@@ -43,11 +43,9 @@ class ImageConverter:
 
         h, w = u8_buffer.shape[:2]
 
-        # 3. Create QImage
-        # RGB888 is standard for our 3-channel processed output
+        # 3. Create the QImage. RGB888 is standard for our 3-channel processed output.
         qimg = QImage(u8_buffer.data, w, h, w * 3, QImage.Format.Format_RGB888)
 
-        # CRITICAL: QImage from data does NOT own the memory.
-        # We MUST return a deep copy so that if the numpy buffer is cleared,
-        # the QImage remains valid. This fixes the "harsh noise" bug.
+        # A QImage built from data does NOT own the memory, so return a deep copy. Otherwise
+        # clearing the numpy buffer leaves the QImage reading freed memory.
         return qimg.copy()

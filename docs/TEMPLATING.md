@@ -19,8 +19,8 @@ NegPy uses **Jinja2** for dynamic file naming in both the **Export** and **Scan*
 | `{{ target_px }}` | Target long-edge size in pixels (Empty unless Pixels mode). | `2048px` |
 | `{{ border }}` | Inserts "border" if width > 0, else empty. | `border` |
 | `{{ date }}` | Current date in YYYYMMDD format. | `20260125` |
-| `{{ roll }}` | Scanlight capture roll name (Metadata → Roll), or parsed from a `{roll}_Frame{NNN}` stem. Not the Roll Analysis normalization name. | `Roll001` |
-| `{{ frame }}` | Capture frame number (integer), or parsed from the stem; unset (`none`) if unknown. Prefer `{{ frame\|pad(3) }}` or `{{ frame_padded }}` for zero-padding — `"%03d" % frame` only works when frame is set (otherwise the whole pattern falls back to `original_name`). | `12` |
+| `{{ roll }}` | Scanlight capture roll name (Metadata → Roll), or parsed from a `{roll}_Frame{NNN}` stem. This is not the Roll Analysis normalization name. | `Roll001` |
+| `{{ frame }}` | Capture frame number (integer), or parsed from the stem. Unset (`none`) if unknown. Use `{{ frame\|pad(3) }}` or `{{ frame_padded }}` to zero-pad. `"%03d" % frame` works only when frame is set; if it is not, the whole pattern falls back to `original_name`. | `12` |
 | `{{ frame_padded }}` | Zero-padded frame (`012`), or empty if unknown. Same as `{{ frame\|pad(3) }}`. | `012` |
 | `{{ camera }}` | Camera make + model. | `Mamiya 7` |
 | `{{ camera_make }}` / `{{ camera_model }}` | Camera make / model separately. | `Mamiya`, `7` |
@@ -37,7 +37,7 @@ NegPy uses **Jinja2** for dynamic file naming in both the **Export** and **Scan*
 | `{{ scanning }}` | Scanning method note. | `DSLR copy-stand` |
 | `{{ exposure }}` | Exposure override text from Metadata. | `1/125s f/2.8` |
 
-Gear and process values come from the **Metadata** panel (or each file’s saved metadata in a batch). Empty fields render as empty strings so surrounding separators collapse cleanly. Path-unsafe characters in metadata values are stripped.
+Gear and process values come from the **Metadata** panel, or from each file's saved metadata in a batch. An empty field renders as an empty string, so the separators around it collapse. NegPy strips path-unsafe characters from metadata values.
 
 ### Examples
 
@@ -73,17 +73,18 @@ To zero-pad the sequence number use Python's `%` format operator: `{{ "%03d" % s
 
 ### Auto-increment
 
-The sequence starts at `1` for each scan session and increments automatically until a filename that does not yet exist on disk is found. Existing files are **never overwritten**.
+The sequence starts at `1` for each scan session. It increments until the filename does not yet exist on disk. NegPy **never overwrites** an existing file.
 
 ---
 
-## Filename Cleanup
+## Filename cleanup
 
 Both sidebars apply the same separator cleanup to the rendered template:
-*   Spaces, dashes, and underscores between variables are collapsed into a **single underscore** (`_`).
-*   Leading or trailing separators are removed.
-*   If a variable is empty (like `{{ border }}` when no border is set), surrounding separators are cleaned up automatically.
-*   `{{ original_name }}` (export only) is always inserted verbatim — dashes, spaces, and underscores in the original filename are preserved exactly.
+
+*   Spaces, dashes and underscores between variables collapse into a **single underscore** (`_`).
+*   Leading and trailing separators are removed.
+*   When a variable is empty (`{{ border }}` with no border set), the separators around it are cleaned up.
+*   `{{ original_name }}` (export only) is inserted verbatim. Dashes, spaces and underscores in the original filename are kept exactly.
 
 **Example:**
 Pattern: `{{ original_name }} - {{ border }} - final`

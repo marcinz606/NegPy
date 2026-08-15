@@ -8,15 +8,15 @@ import numpy as np
 
 from negpy.kernel.image.logic import get_luminance, working_oetf_encode
 
-# Mirrored by the chart's x-range (PhotometricCurveWidget._X_MIN/_X_MAX) and
-# the WGSL literals in shaders/density_hist.wgsl — keep in lock step.
+# Mirrored by the chart's x-range (PhotometricCurveWidget._X_MIN/_X_MAX) and the WGSL
+# literals in shaders/density_hist.wgsl. Keep them in lock step.
 DENSITY_HIST_BINS = 120
 DENSITY_HIST_RANGE = (-0.1, 1.1)
 
 # Mirrors metrics.wgsl / HISTOGRAM_BINS in gpu_engine.py.
 OUTPUT_HIST_BINS = 256
 
-# Full-res exports run through the same normalization stage — cap the cost.
+# Full-res exports run through the same normalization stage, so cap the cost.
 _MAX_HIST_SAMPLES = 2_000_000
 
 
@@ -46,8 +46,8 @@ def output_clip_fractions(bins: np.ndarray) -> Tuple[float, float]:
     return float((bins[:3, 0] / totals).max()), float((bins[:3, -1] / totals).max())
 
 
-# Zone ruler is piecewise-linear in encoded space (0 = black, V = 18% gray,
-# X = white) — stops-per-zone can't reach the top zones on a print.
+# The zone ruler is piecewise-linear in encoded space (0 = black, V = 18% gray,
+# X = white), because stops-per-zone cannot reach the top zones on a print.
 ZONE_COUNT = 10
 ZONE_MID_REFLECTANCE = 0.18
 ZONE_EMPTY = 0.005
@@ -138,7 +138,7 @@ def zone_region_labels(zones: np.ndarray) -> List[Tuple[int, int, int]]:
 
 
 # Absolute ladders, centred on the defaults and inside the sliders' travel (density 0-2,
-# grade R50-R180). Named strip_* not test_strip_*: pytest collects any test_-prefixed
+# grade R50-R180). Named strip_*, not test_strip_*: pytest collects any test_-prefixed
 # callable a test module imports.
 STRIP_DENSITIES = (0.4, 0.7, 1.0, 1.3, 1.6)
 STRIP_GRADES = (75.0, 95.0, 115.0, 135.0, 155.0)
@@ -146,10 +146,10 @@ STRIP_GRADES = (75.0, 95.0, 115.0, 135.0, 155.0)
 
 STRIP_GRID = (len(STRIP_GRADES), len(STRIP_DENSITIES))  # (rows, cols)
 
-# Ring-around rungs: absolute filtration centred on neutral, like the strip's ladders, so a
-# ring printed off one frame is comparable to the next and the mosaic is invariant to the
-# filtration in force. 1.0 slider = 20cc (see filtration_offsets), so the step is 2cc and the
-# outer rung 4cc. Calibration knobs.
+# Ring-around rungs: absolute filtration centred on neutral, like the strip's ladders, so
+# a ring printed off one frame is comparable to the next and the mosaic is invariant to
+# the filtration in force. 1.0 slider = 20cc (see filtration_offsets), so the step is 2cc
+# and the outer rung 4cc. Calibration knobs.
 RING_CC_STEP = 0.1
 RING_CC_PER_UNIT = 20.0
 RING_GRID = (5, 5)
@@ -271,10 +271,10 @@ def rotated_cell(base: Tuple[int, int], grid: Tuple[int, int], rotation: int) ->
     return divmod(pos, proof_grid(grid, rotation)[1])
 
 
-# Stouffer T2115: 21 steps 0.15 D apart — 20 intervals, 3.00 D total, which is exactly the
-# val domain's [0,1] on a scan whose density range is 3.0. Geometry is absolute like the test
-# strip's ladders, so two frames' wedges compare; the physical truth rides in the labels,
-# which report this scan's own density per step.
+# Stouffer T2115: 21 steps 0.15 D apart, so 20 intervals and 3.00 D total, which is
+# exactly the val domain's [0,1] on a scan whose density range is 3.0. The geometry is
+# absolute like the test strip's ladders, so two frames' wedges compare. The physical
+# truth rides in the labels, which report this scan's own density per step.
 WEDGE_STEPS = 21
 WEDGE_STEP_DENSITY = 0.15
 WEDGE_SEPARATION = 0.004  # encoded delta below which neighbouring patches read as one tone

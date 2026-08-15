@@ -65,8 +65,8 @@ _SHAPE_FOR_TOOL = {
 }
 _LOCAL_TOOLS = (ToolMode.NONE, *_SHAPE_FOR_TOOL)
 
-# Dust-overlay marker colors: bright, distinct from the muted accent used by
-# manual heals so detected auto vs IR spots are told apart at a glance.
+# Dust-overlay marker colors: bright, and distinct from the muted accent of manual heals, so
+# auto-detected and IR spots are told apart at a glance.
 _DUST_MARK_LUMA = QColor(57, 255, 20)  # neon green — auto-luma detection
 _DUST_MARK_IR = QColor(255, 0, 255)  # neon magenta — IR detection
 _IR_CORRECTED_ALPHA = 55  # dim magenta wash over IR-division-corrected regions
@@ -86,9 +86,9 @@ _PIN_RADIUS_PX = 7.0  # zone-placement pin ring
 _PIN_GRAB_PX = 16.0  # grab radius, wider than the drawn ring
 
 _LOUPE_RADIUS_PX = 128.0
-# Device px per buffer px inside the glass. At fit-zoom on a 1600 px buffer the canvas
-# already shows ~0.75 device px per buffer px, so a literal 1:1 loupe would magnify ~1.3x —
-# visually pointless. 2x always out-magnifies the canvas below 200% zoom.
+# Device px per buffer px inside the glass. At fit-zoom the canvas already shows most of a
+# device px per buffer px, so a literal 1:1 loupe barely magnifies. 2x always out-magnifies
+# the canvas below 200% zoom.
 _LOUPE_MAG = 2.0
 _LOUPE_BADGE_H = 22.0
 
@@ -256,16 +256,16 @@ class CanvasOverlay(QWidget):
         self._local_mask_screen_ctrl: List[List[QPointF]] = []
         self._mask_img_cache: Dict[tuple, QImage] = {}
 
-        # Geometry-aligned IR layer raster, cached by (uv_grid, preview_ir)
-        # identity so it rebuilds only when the render or source changes.
+        # Geometry-aligned IR layer raster, cached by (uv_grid, preview_ir) identity so it
+        # rebuilds only when the render or source changes.
         self._ir_layer_cache: Optional[Tuple[tuple, QImage]] = None
         # Same, for the auto-corrected-region magenta wash (ir_corrected_mask +
         # inpainted hair masks), keyed per mask object identity.
         self._wash_cache: Dict[int, Tuple[tuple, QImage]] = {}
 
         # The rendered frame as NumPy, for the instruments that measure pixels (zone grid,
-        # grain loupe, notes sheet). The GPU path hands over a texture instead, read back
-        # only when one of those asks — a per-frame readback would undo the point of it.
+        # grain loupe, notes sheet). The GPU path hands over a texture instead, read back only
+        # when one of those asks: a per-frame readback would undo the point of it.
         self._display_buffer: Optional[np.ndarray] = None
         self._gpu_texture: Optional[Any] = None
         self._host_qimage_cache: Optional[Tuple[tuple, QImage]] = None
@@ -312,7 +312,7 @@ class CanvasOverlay(QWidget):
         self._rotation_grid_timer.timeout.connect(self._hide_rotation_grid)
 
         # Guide for the line tool. A trace is a slope search over the whole frame, too heavy
-        # for every mouse-move, so it runs on a debounce and the last result is painted.
+        # per mouse-move, so it runs on a debounce and the last result is painted.
         self._line_hover: Optional[tuple] = None
         self._line_hover_pos: Optional[QPointF] = None
         self._line_hover_timer = QTimer(self)
@@ -321,11 +321,11 @@ class CanvasOverlay(QWidget):
 
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        # Widget-context shortcuts (Enter finish, Backspace take-back) need focus to
-        # fire; clicking the canvas to draw grants it. No widget-scope Esc here — a
-        # second Esc binding is ambiguous against the window-scope cancel_tool one
-        # (only activatedAmbiguously fires) and the key goes dead mid-draw; that
-        # handler owns the Esc ladder via cancel_in_progress().
+        # Widget-context shortcuts (Enter finish, Backspace take-back) need focus, which
+        # clicking the canvas to draw grants. No widget-scope Esc here: a second Esc binding is
+        # ambiguous against the window-scope cancel_tool one, so only activatedAmbiguously
+        # fires and the key goes dead mid-draw. That handler owns the Esc ladder through
+        # cancel_in_progress().
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
 
         # Enter finishes an in-progress scratch/lasso polyline or confirms the
@@ -593,9 +593,9 @@ class CanvasOverlay(QWidget):
             if not gpu_live:
                 painter.fillRect(event.rect(), parent_bg)
             elif gpu.presents_to_screen():
-                # Only a native surface underneath is revealed by the hole. Under a
-                # bitmap present the frame is in this very backing store, and the
-                # fill wipes it (issue: white canvas on macOS, black on Windows).
+                # The hole reveals only a native surface underneath. Under a bitmap present the
+                # frame is in this backing store and the fill wipes it (white canvas on macOS,
+                # black on Windows).
                 painter.fillRect(event.rect(), Qt.GlobalColor.transparent)
             painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
 
@@ -686,8 +686,8 @@ class CanvasOverlay(QWidget):
         if self.state.zone_pins and content_aligned and not self.state.test_strip:
             self._draw_zone_pins(painter)
 
-        # Not over the compare baseline: that render has no masks applied, so a map
-        # drawn on it would mark burns the picture underneath hasn't had.
+        # Not over the compare baseline: that render has no masks applied, so a map drawn on
+        # it marks burns the picture underneath has not had.
         if (
             self.state.printing_notes
             and content_aligned
@@ -699,16 +699,15 @@ class CanvasOverlay(QWidget):
         if self._rotation_grid_visible:
             self._draw_rotation_grid(painter, visible_rect)
 
-        # Keyed off the painted frame, not state.compare_mode: the toggle flips before
-        # its render lands, so the flag would badge the *edit* as BEFORE on slow renders.
+        # Keyed off the painted frame, not state.compare_mode. The toggle flips before its
+        # render lands, so the flag would badge the *edit* as BEFORE on slow renders.
         if self.state.last_metrics.get("compare", False):
             self._draw_compare_badge(painter, visible_rect)
 
-        # Last: the glass sits over everything else, and claims no content rect, so it stays out
-        # of the exclusion ladder above. It is suppressed wherever something else has replaced
-        # the frame with a *different* QImage than the one `_qimage` holds — the test strip's
-        # mosaic and the raw IR layer — because magnifying `_qimage` there would show pixels
-        # that are not on screen.
+        # Last: the glass sits over everything else and claims no content rect, so it stays out
+        # of the exclusion ladder above. It is suppressed wherever something else replaced the
+        # frame with a *different* QImage than `_qimage` holds (the test strip's mosaic, the raw
+        # IR layer), because magnifying `_qimage` there would show pixels that are not on screen.
         if self.state.grain_focuser and not self.state.test_strip and self.state.dust_overlay_mode != "ir":
             self._draw_grain_loupe(painter)
 
@@ -924,7 +923,7 @@ class CanvasOverlay(QWidget):
             if not widget_rect.intersects(cell):
                 continue
             label = zone_roman(float(zone))
-            # Drop shadow first — white numerals vanish against a blown highlight.
+            # Drop shadow first, or white numerals vanish against a blown highlight.
             painter.setPen(shadow)
             painter.drawText(cell.translated(1.0, 1.0), Qt.AlignmentFlag.AlignCenter, label)
             painter.setPen(_ZONE_CLIP_COLOR if zone in (0, 10) else label_white)
@@ -945,7 +944,7 @@ class CanvasOverlay(QWidget):
                 pen.setCosmetic(True)
                 painter.setPen(pen)
                 painter.drawEllipse(p, radius, radius)
-                # Centre dot: the ring alone leaves the exact probed pixel to guesswork.
+                # Centre dot: the ring alone leaves the probed pixel to guesswork.
                 painter.drawEllipse(p, width * 0.25, width * 0.25)
             label = zone_pin_caption(i, pin)
             tr = QRectF(p.x() + radius + 4.0, p.y() - 11.0, 140.0, 22.0)
@@ -992,8 +991,8 @@ class CanvasOverlay(QWidget):
         clip = QPainterPath()
         clip.addEllipse(dest)
         painter.setClipPath(clip)
-        # Nearest neighbour on purpose: running out of data must look like running out of
-        # data. Smoothing would invent grain that isn't in the scan.
+        # Nearest neighbour on purpose: running out of data must look like it. Smoothing would
+        # invent grain that is not in the scan.
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
         painter.drawImage(dest, img, src)
         painter.restore()
@@ -1026,8 +1025,8 @@ class CanvasOverlay(QWidget):
         self._strip_hover = None
         if self.state.test_strip:
             # A proof's controls are all single-key and a focused sidebar spin box eats those as
-            # text. Printing from the sidebar button strands focus in one: it disables itself
-            # mid-print, handing focus to the next widget in the chain.
+            # text. Printing from the sidebar button strands focus in one, because it disables
+            # itself mid-print and hands focus to the next widget in the chain.
             self.setFocus()
         else:
             self._strip_cache = None
@@ -1122,9 +1121,9 @@ class CanvasOverlay(QWidget):
         patches = self._strip_patch_rects(rect)
         rows, cols = self._strip_grid()
 
-        # No grid: the patches are meant to be read as one print, the way a real test
-        # strip is. Only the patch under the cursor gets an outline, so it's obvious what
-        # a click would take. The current settings are marked on their labels instead.
+        # No grid: the patches read as one print, the way a real test strip does. Only the patch
+        # under the cursor gets an outline, so a click's target is obvious. The current settings
+        # are marked on their labels instead.
         painter.setBrush(Qt.BrushStyle.NoBrush)
         for row, col, cell in patches:
             if (row, col) != self._strip_hover:
@@ -1147,8 +1146,8 @@ class CanvasOverlay(QWidget):
         else:
             pairs = [(f"D {d:.1f}", f"R {g:.0f}") for g in STRIP_GRADES for d in STRIP_DENSITIES]
             current = strip_nearest_cell(exposure.density, exposure.grade)
-        # An odd quarter-turn transposes which ladder runs along which axis, so each patch carries
-        # both labels and the axis picks one.
+        # An odd quarter-turn transposes which ladder runs along which axis, so each patch
+        # carries both labels and the axis picks one.
         placed = rotate_grid(pairs, base_grid, rotation)
         axis = rotation % 2
         self._draw_strip_labels(
@@ -1183,7 +1182,7 @@ class CanvasOverlay(QWidget):
             else:
                 if len(screen_pts) >= 3:
                     screen_pts = [QPointF(x, y) for x, y in smooth_polyline([(p.x(), p.y()) for p in screen_pts], closed=False)]
-                # Masked area only — no centerline, no outline.
+                # Masked area only, with no centerline and no outline.
                 fill = QColor(THEME.accent_primary)
                 fill.setAlpha(40)
                 painter.setPen(Qt.PenStyle.NoPen)
@@ -1251,9 +1250,9 @@ class CanvasOverlay(QWidget):
                 painter.drawImage(self._content_view_rect(), img)
             return
 
-        # Dim wash over every repaired region. No source emits capsules any more — they
-        # are all masks by the time they reach the render — so color tells them apart:
-        # green for optically detected specks, magenta for IR and inpainted defects.
+        # Dim wash over every repaired region. No source emits capsules any more, since they are
+        # all masks by the time they reach the render, so color tells them apart: green for
+        # optically detected specks, magenta for IR and inpainted defects.
         for mask, color in self._corrected_masks():
             wash = self._mask_wash_qimage(mask, color)
             if wash is not None:
@@ -1447,7 +1446,7 @@ class CanvasOverlay(QWidget):
         if corners is not None and QPolygonF(list(corners.values())).containsPoint(pos, Qt.FillRule.OddEvenFill):
             self.setCursor(Qt.CursorShape.OpenHandCursor)
             return
-        # Outside the box: a fresh rectangle would be drawn — keep the crosshair.
+        # Outside the box a fresh rectangle would be drawn, so keep the crosshair.
         if self._view_rect.contains(pos):
             self.setCursor(Qt.CursorShape.CrossCursor)
         else:
@@ -1505,9 +1504,8 @@ class CanvasOverlay(QWidget):
                 dx = abs(dy) * target_ratio * (1 if dx >= 0 else -1)
             else:
                 dy = abs(dx) / target_ratio * (1 if dy >= 0 else -1)
-            # Enforce the minimum size by scaling dx/dy up together so the
-            # locked ratio survives even on the tiny first move of a drag
-            # (clamping each axis independently here would distort the ratio).
+            # Enforce the minimum size by scaling dx/dy up together, so the locked ratio survives
+            # the first tiny move of a drag. Clamping each axis alone would distort the ratio.
             scale = max(_CROP_MIN_SCREEN_PX / max(abs(dx), 1e-6), _CROP_MIN_SCREEN_PX / max(abs(dy), 1e-6), 1.0)
             dx *= scale
             dy *= scale
@@ -1603,8 +1601,8 @@ class CanvasOverlay(QWidget):
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawRoundedRect(badge, 4, 4)
             painter.setPen(QColor(THEME.accent_primary))
-            # Badge shows the display convention (positive = clockwise on screen),
-            # matching the Fine Rotation slider; _rotate_current is stored-convention.
+            # The badge shows the display convention (positive = clockwise on screen), like the
+            # Fine Rotation slider. _rotate_current uses the stored convention.
             painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, f"{-self._rotate_current:+.2f}°")
 
     def _analysis_rect_screen(self) -> Optional[QRectF]:
@@ -1673,8 +1671,8 @@ class CanvasOverlay(QWidget):
             if not drag_this:
                 sigma_screen = mask.feather * min(self._view_rect.width(), self._view_rect.height())
                 pad = 3.0 * sigma_screen + 2.0
-                # A gradient has no boundary, and an inverted mask applies outside its
-                # own. Rasterise both on the full frame, not on a padded bounding box.
+                # A gradient has no boundary, and an inverted mask applies outside its own.
+                # Rasterise both on the full frame, not on a padded bounding box.
                 if mask.shape == MaskShape.GRADIENT or mask.invert:
                     box = self._content_view_rect()
                     x0, y0, bw, bh = box.x(), box.y(), box.width(), box.height()
@@ -1866,8 +1864,8 @@ class CanvasOverlay(QWidget):
         return (screen_pos.x() - rect.x()) / rect.width(), (screen_pos.y() - rect.y()) / rect.height()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
-        # While the strip is up the canvas is a picker: a click keeps a patch, and no
-        # tool (or pan) gets the event.
+        # While the strip is up the canvas is a picker: a click keeps a patch, and no tool or
+        # pan gets the event.
         if event.button() == Qt.MouseButton.LeftButton and self.state.test_strip:
             coords = self._map_to_image_coords(event.position())
             if coords is not None:
@@ -1893,8 +1891,8 @@ class CanvasOverlay(QWidget):
             event.accept()
             return
 
-        # Tool placements are left-click only: right-click must fall through to the
-        # context menu without dropping a lasso vertex, scratch point, or heal.
+        # Tool placements are left-click only: right-click falls through to the context menu
+        # without dropping a lasso vertex, scratch point or heal.
         if event.button() != Qt.MouseButton.LeftButton:
             super().mousePressEvent(event)
             return
@@ -1917,8 +1915,8 @@ class CanvasOverlay(QWidget):
             return
 
         if self._tool_mode == ToolMode.DUST_PICK:
-            # Heal commits on release: a plain click heals the spot, a drag paints a
-            # continuous stroke healed as one region (one undo step, one render).
+            # Heal commits on release: a plain click heals the spot, and a drag paints a
+            # continuous stroke healed as one region, so one undo step and one render.
             if self._content_view_rect().contains(event.position()):
                 self._heal_drag_pts = [event.position()]
                 self.update()
@@ -1941,8 +1939,8 @@ class CanvasOverlay(QWidget):
             event.accept()
             return
 
-        # A placed pin is a handle: grabbing one drags it, so only a press on bare
-        # frame drops a new pin.
+        # A placed pin is a handle, so grabbing one drags it and only a press on bare frame
+        # drops a new pin.
         if self._tool_mode == ToolMode.ZONE_PLACE:
             hit = self._hit_zone_pin(event.position())
             if hit is not None:
@@ -1955,10 +1953,10 @@ class CanvasOverlay(QWidget):
         if coords is not None:
             self.clicked.emit(*coords)
 
-        # Not gated on coords: the crop rect lives in view-rect space, so its handles
-        # sit on the frame edge — and outside the content rect entirely once a print
-        # border insets it. _update_crop_hover_cursor hit-tests them by distance and
-        # offers the resize, so a press within the same grab radius has to take it.
+        # Not gated on coords. The crop rect lives in view-rect space, so its handles sit on the
+        # frame edge, and outside the content rect entirely once a print border insets it.
+        # _update_crop_hover_cursor hit-tests them by distance and offers the resize, so a press
+        # within the same grab radius must take it.
         if self._tool_mode == ToolMode.CROP_MANUAL and self._view_rect.adjusted(
             -_CROP_HANDLE_PX, -_CROP_HANDLE_PX, _CROP_HANDLE_PX, _CROP_HANDLE_PX
         ).contains(event.position()):
@@ -2013,8 +2011,8 @@ class CanvasOverlay(QWidget):
         if self._view_rect.isEmpty():
             return
 
-        # Rotation handles live outside the crop box, so they can't collide with
-        # the corner/move hit areas — but test them first anyway.
+        # Rotation handles live outside the crop box, so they cannot collide with the corner and
+        # move hit areas. Test them first anyway.
         if self._hit_test_rotation_handle(pos) and self._crop_rect_norm is not None:
             x1, y1, x2, y2 = self._crop_rect_norm
             self._crop_drag_mode = "rotate"
@@ -2041,8 +2039,8 @@ class CanvasOverlay(QWidget):
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             return
 
-        # Clicked outside the existing rect: draw a fresh one from scratch (disarmed
-        # until slop travel when a rect already exists).
+        # Clicked outside the existing rect: draw a fresh one, disarmed until slop travel when a
+        # rect already exists.
         px = np.clip(pos.x(), self._view_rect.left(), self._view_rect.right())
         py = np.clip(pos.y(), self._view_rect.top(), self._view_rect.bottom())
         self._crop_drag_mode = "draw"
@@ -2066,9 +2064,9 @@ class CanvasOverlay(QWidget):
                 self.update()
             self.setCursor(Qt.CursorShape.PointingHandCursor if hover is not None else Qt.CursorShape.ArrowCursor)
 
-        # Placement tools carry special cursors (blank brush, pen nib, WB picker) that
-        # read as broken over the empty canvas around the image — fall back to the
-        # normal arrow there and restore the tool cursor over the image itself.
+        # Placement tools carry special cursors (blank brush, pen nib, WB picker) that read as
+        # broken over the empty canvas around the image. Fall back to the normal arrow there and
+        # restore the tool cursor over the image.
         if self._tool_mode in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK, ToolMode.WB_PICK):
             if coords is None:
                 self.setCursor(Qt.CursorShape.ArrowCursor)
@@ -2106,8 +2104,8 @@ class CanvasOverlay(QWidget):
             event.accept()
             return
 
-        # Mask handles are not held inside the frame: a card edge that burns a full
-        # corner at an angle has its line outside the picture.
+        # Mask handles are not held inside the frame: a card edge burning a full corner at an
+        # angle has its line outside the picture.
         if self._local_drag_vertex is not None and self._local_edit_verts is not None and not self._view_rect.isEmpty():
             pos = event.position()
             if self._local_drag_anchor is not None:
@@ -2126,9 +2124,9 @@ class CanvasOverlay(QWidget):
             event.accept()
             return
 
-        # Painting a heal stroke: accumulate the drag path (spaced by half the brush
-        # radius so long drags stay a sane number of capsule segments), clamped to
-        # the image so the stroke can't run off into the border.
+        # Painting a heal stroke: accumulate the drag path, spaced by half the brush radius so
+        # long drags stay a reasonable number of capsule segments, and clamped to the image so
+        # the stroke cannot run off into the border.
         if self._tool_mode == ToolMode.DUST_PICK and self._heal_drag_pts and event.buttons() & Qt.MouseButton.LeftButton:
             rect = self._content_view_rect()
             pos = QPointF(
@@ -2142,8 +2140,8 @@ class CanvasOverlay(QWidget):
             event.accept()
             return
 
-        # Hovering the crop tool (no drag in progress): reflect the action under the
-        # cursor — rotate handle, corner resize, interior move, or draw — right away.
+        # Hovering the crop tool with no drag in progress: show the action under the cursor
+        # (rotate handle, corner resize, interior move, draw) right away.
         if self._tool_mode == ToolMode.CROP_MANUAL and self._crop_drag_mode is None:
             self._update_crop_hover_cursor(event.position())
 
@@ -2197,8 +2195,8 @@ class CanvasOverlay(QWidget):
 
         if self._crop_drag_mode == "move" and self._crop_press_norm is not None and self._crop_orig_rect is not None:
             curr_norm = self._screen_to_norm(event.position())
-            # Normalized coords track the cursor 1:1, so a plain drag moves the crop
-            # exactly with the mouse; Shift halves it for fine placement.
+            # Normalized coords track the cursor 1:1, so a plain drag moves the crop with the
+            # mouse. Shift halves it for fine placement.
             fine = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
             sensitivity = 0.5 if fine else 1.0
             dx = (curr_norm[0] - self._crop_press_norm[0]) * sensitivity
@@ -2398,8 +2396,8 @@ class CanvasOverlay(QWidget):
             self._finish_scratch()
             event.accept()
             return
-        # Double-clicking inside the crop box confirms the crop and closes the tool, so
-        # the user never has to leave the canvas to press the Crop button again.
+        # Double-clicking inside the crop box confirms the crop and closes the tool, so the user
+        # never leaves the canvas to press the Crop button again.
         if self._tool_mode == ToolMode.CROP_MANUAL:
             corners = self._crop_corner_screen_points()
             if corners is not None and QPolygonF(list(corners.values())).containsPoint(event.position(), Qt.FillRule.OddEvenFill):
@@ -2486,7 +2484,7 @@ class CanvasOverlay(QWidget):
     def _finish_scratch(self) -> None:
         pts = self._scratch_pts
         self._scratch_pts = []
-        # The double-click lands as an extra press at the previous point — drop near-duplicates.
+        # The double-click lands as an extra press at the previous point, so drop near-duplicates.
         deduped: List[QPointF] = []
         for pt in pts:
             if not deduped or (pt - deduped[-1]).manhattanLength() > 2.0:
@@ -2562,7 +2560,7 @@ class CanvasOverlay(QWidget):
             self._straighten_p1 = None
             self._straighten_p2 = None
             dx, dy = p2.x() - p1.x(), p2.y() - p1.y()
-            # Ignore accidental clicks — a reference line needs some length.
+            # Ignore accidental clicks: a reference line needs some length.
             if math.hypot(dx, dy) >= 8.0:
                 self.straighten_completed.emit(straighten_delta_degrees(dx, dy))
             self.update()
@@ -2629,9 +2627,9 @@ class CanvasOverlay(QWidget):
     def leaveEvent(self, event) -> None:
         self.cursor_left.emit()
         # Park the cursor outside the view. Every cursor-following overlay (crosshair, brush
-        # ring, loupe) reads _mouse_pos in paint, so leaving it stale left them drawn at the
-        # last position — visible whenever the cursor exits over the floating toolbar, which
-        # sits inside the image rect.
+        # ring, loupe) reads _mouse_pos in paint, so a stale value leaves them drawn at the last
+        # position. That shows whenever the cursor exits over the floating toolbar, which sits
+        # inside the image rect.
         self._mouse_pos = QPointF(-1.0, -1.0)
         self.update()
         super().leaveEvent(event)

@@ -158,7 +158,7 @@ def _apply_lut_f32_jit(img: np.ndarray, lut: np.ndarray) -> np.ndarray:
 
 def apply_lut_f32(img: np.ndarray, lut: np.ndarray) -> np.ndarray:
     """Trilinearly interpolate `lut` onto a float32 RGB image in [0, 1]."""
-    # no-op (no copy) when input is already contiguous f32 — hot display path
+    # No copy when the input is already contiguous f32, on the hot display path
     img_c = np.ascontiguousarray(img, dtype=np.float32)
     lut_c = np.ascontiguousarray(lut, dtype=np.float32)
     return _apply_lut_f32_jit(img_c, lut_c)

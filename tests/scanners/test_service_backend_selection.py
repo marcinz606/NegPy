@@ -1,3 +1,4 @@
+from negpy.infrastructure.scanners.registry import DEFAULT_BACKEND_ID
 from negpy.services.scanning.service import ScannerService
 
 
@@ -34,4 +35,4 @@ def test_default_backend_id_used_when_none(monkeypatch):
     monkeypatch.setattr("negpy.infrastructure.scanners.registry.create_backend", _create)
 
     ScannerService()._get_backend()
-    assert seen == ["sane"]
+    assert seen == [DEFAULT_BACKEND_ID]

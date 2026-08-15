@@ -10,7 +10,8 @@ from dataclasses import asdict, dataclass
 
 
 #: Framing runs all three channels at once against a single-channel scan exposure, so the
-#: live view blows out at full levels (issue #573). 3 stops ≈ the 3× light plus headroom.
+#: live view blows out at full levels (issue #573). 3 stops covers the 3x light plus
+#: headroom.
 FRAMING_DIM_STOPS = 3
 
 

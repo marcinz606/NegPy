@@ -18,6 +18,7 @@ _VALID_SECTION_ATTRS = {
     "color_section",
     "tone_section",
     "lab_section",
+    "altproc_section",
     "toning_section",
     "retouch_section",
     "local_section",

@@ -1,5 +1,7 @@
 """Half-frame mode: split detection, slicing, identities, and per-half plumbing."""
 
+import os
+
 import numpy as np
 import pytest
 from unittest.mock import MagicMock
@@ -94,12 +96,25 @@ class TestIdentities:
         assert base_hash("abc") == "abc"
         assert base_hash(None) is None
 
+    def test_half_of_reads_only_a_numeric_suffix(self):
+        from negpy.features.hdr.models import hdr_hash
+        from negpy.features.stitch.models import stitch_hash
+        from negpy.services.assets.half_frame import half_of
+
+        assert half_of("abc#1") == 1
+        assert half_of("abc#2") == 2
+        assert half_of("abc") is None
+        assert half_of(None) is None
+        # A composite shares the separator by design, so only the suffix can decide.
+        assert half_of(hdr_hash(["a", "b"])) is None
+        assert half_of(stitch_hash(["a", "b"])) is None
+
     def test_half_name(self):
         assert half_name("IMG420.tif", 2) == "IMG420.tif [2]"
 
     def test_sidecar_path(self):
-        assert sidecar_path_for("/a/roll.tif") == "/a/roll.negpy"
-        assert sidecar_path_for("/a/roll.tif", 1) == "/a/roll.1.negpy"
+        assert sidecar_path_for("/a/roll.tif") == os.path.join("/a", "roll.negpy")
+        assert sidecar_path_for("/a/roll.tif", 1) == os.path.join("/a", "roll.1.negpy")
 
     def test_export_filename_suffix(self):
         plain = render_export_filename("/x/IMG420.tif", ExportConfig())

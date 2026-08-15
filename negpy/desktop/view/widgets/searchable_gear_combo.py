@@ -269,9 +269,9 @@ class SearchableGearCombo(QWidget):
                 Qt.Key.Key_Return,
                 Qt.Key.Key_Enter,
             ):
-                # Commit the highlighted/first match ourselves. When the completer
-                # popup is showing it will emit ``activated`` first (and consume the
-                # key), so this only runs when the popup is not intercepting.
+                # Commit the highlighted or first match ourselves. When the completer popup is showing it
+                # emits ``activated`` first and consumes the key, so this runs only when the popup is not
+                # intercepting.
                 self._commit_on_return()
                 return True
         return super().eventFilter(watched, event)

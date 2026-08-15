@@ -78,9 +78,9 @@ TILE_SIZE = 2048
 TILE_HALO = 32
 TILING_THRESHOLD_PX = 12_000_000
 HISTOGRAM_BINS = 256
-# Metrics buffer layout in u32 words: RGBL histogram (metrics.wgsl), then the
-# density histogram (density_hist.wgsl). 256 B-aligned offsets, mirrored as
-# WGSL array lengths — append-only.
+# Metrics buffer layout in u32 words: RGBL histogram (metrics.wgsl), then the density
+# histogram (density_hist.wgsl). 256 B-aligned offsets, mirrored as WGSL array lengths.
+# Append-only.
 _METRICS_HIST_WORDS = HISTOGRAM_BINS * 4
 _METRICS_DENSITY_BASE = 1024
 METRICS_BUFFER_SIZE = 1152 * 4
@@ -246,8 +246,8 @@ class GPUEngine:
             "layout",
             "density_hist",
         ]
-        # Packed byte size per stage. A stage may exceed the 256B dynamic-offset
-        # alignment (exposure, 304B) — it then occupies multiple aligned slots.
+        # Packed byte size per stage. A stage that exceeds the 256B dynamic-offset
+        # alignment (exposure, 304B) occupies multiple aligned slots.
         self._uniform_sizes = {
             "geometry": 32,
             "normalization": 160,
@@ -266,8 +266,8 @@ class GPUEngine:
         self._current_source_hash: Optional[str] = None
         # Once-per-source guard so the analysis timing log fires on load, not every slider.
         self._analysis_timing_hash: Optional[str] = None
-        # (key, bounds, shadow_refs, metered_anchor, textural_range, neutral_axis) — per-source
-        # meter cache so creative-slider previews don't re-run the analysis (see _analysis_*).
+        # (key, bounds, shadow_refs, metered_anchor, textural_range, neutral_axis): the
+        # per-source meter cache, so creative-slider previews skip the analysis.
         self._analysis_cache: Optional[tuple] = None
         # (analysis_key, per-channel clipped fractions) for the scan-exposure warning.
         self._clip_cache: Optional[tuple] = None
@@ -280,19 +280,19 @@ class GPUEngine:
         # (radius, scale_factor) of the sharpen taps currently in sharpen_k.
         self._sharpen_kernel_key: Optional[tuple] = None
 
-        # Bind groups reference resources, not contents, so they survive across frames;
-        # cache and reuse (cleared in cleanup()). Saves ~28 wgpu calls per frame.
+        # Bind groups reference resources, not contents, so they survive across frames.
+        # Cache and reuse them (cleared in cleanup()): about 28 fewer wgpu calls per frame.
         self._bind_group_cache: Dict[Tuple, Any] = {}
         self._bind_layout_cache: Dict[str, Any] = {}
 
-        # Persistent staging buffers — avoid create_buffer() on every readback
+        # Persistent staging buffers, so no create_buffer() per readback
         self._metrics_staging: Optional[Any] = None
-        # (prb, height, buffer) — reused when image size/rotation is unchanged
+        # (prb, height, buffer): reused when image size and rotation are unchanged
         self._downsample_staging: Optional[Tuple[int, int, Any]] = None
 
-        # (key, grid) — pure function of geometry, reused across settled frames
+        # (key, grid): a pure function of geometry, reused across settled frames
         self._uv_grid_cache: Optional[Tuple[Tuple, np.ndarray]] = None
-        # (key, roi) — autocrop detection, likewise geometry-only
+        # (key, roi): autocrop detection, likewise geometry-only
         self._autocrop_cache: Optional[Tuple[Tuple, Tuple[int, int, int, int]]] = None
         # Identity of the dodge/burn EV map currently sitting in the local_ev texture.
         self._local_ev_key: Optional[Tuple] = None
@@ -326,8 +326,8 @@ class GPUEngine:
             return 0
         if last.process != settings.process or last.exposure != settings.exposure:
             return 1
-        # Retuned Auto Density/Grade targets live in EXPOSURE_CONSTANTS, invisible to
-        # the config diff, but they reshape the print curve in the exposure pass.
+        # Retuned Auto Density/Grade targets live in EXPOSURE_CONSTANTS, invisible to the
+        # config diff, but they reshape the print curve in the exposure pass.
         if self._last_targets_rev != exposure_models.TARGETS_REVISION:
             return 1
         if last.local != settings.local:
@@ -400,7 +400,7 @@ class GPUEngine:
         """Initializes hardware pipelines and persistent buffers."""
         if self._pipelines or not self.gpu.device:
             return
-        # Buffers are recreated below — force the next kernel upload.
+        # Buffers are recreated below, so force the next kernel upload.
         self._sharpen_kernel_key = None
         t0 = time.perf_counter()
         device = self.gpu.device
@@ -424,9 +424,9 @@ class GPUEngine:
             65536,
             wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_SRC | wgpu.BufferUsage.COPY_DST,
         )
-        # Sharpen blur taps (gaussian_kernel_1d): 1024 f32 covers radius ≤ 511.
+        # Sharpen blur taps (gaussian_kernel_1d): 1024 f32 covers radius <= 511.
         self._buffers["sharpen_k"] = GPUBuffer(4096, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
-        # Filed-carrier jitter profiles are a fixed table — upload once.
+        # Filed-carrier jitter profiles are a fixed table, so upload once.
         self._buffers["carrier_s"] = GPUBuffer(carrier_profiles().nbytes, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
         self._buffers["carrier_s"].upload(np.ascontiguousarray(carrier_profiles().ravel(), dtype=np.float32))
         self._buffers["metrics"] = GPUBuffer(
@@ -589,8 +589,8 @@ class GPUEngine:
         _roll_color = settings.process.use_color_average and settings.process.is_locked_initialized
         needs_bounds_analysis = not (bounds_override or (_roll_luma and _roll_color) or settings.process.is_local_initialized)
         # Measure the anchor for the render when Auto Density is on, and for the
-        # Analysis-panel stats on every preview (readback) regardless of toggle —
-        # it's only *used* in the render when auto_exposure (see uniforms).
+        # Analysis-panel stats on every preview whatever the toggle says. The render only
+        # *uses* it when auto_exposure is on (see uniforms).
         needs_anchor = metered_anchor_override is None and not tiling_mode and (settings.exposure.auto_exposure or readback_metrics)
         needs_textural = textural_range_override is None and not tiling_mode and settings.exposure.auto_normalize_contrast
 
@@ -606,8 +606,8 @@ class GPUEngine:
                 analysis_source = np.fliplr(analysis_source)
             if settings.geometry.flip_vertical:
                 analysis_source = np.flipud(analysis_source)
-            # A freehand analysis_rect overrides the crop ROI + centered buffer (mirrors
-            # the CPU path); tiled export uses explicit overrides so it stays on the ROI.
+            # A freehand analysis_rect overrides the crop ROI and centered buffer, like the
+            # CPU path. Tiled export uses explicit overrides, so it stays on the ROI.
             base_roi = roi if not tiling_mode else None
             analysis_roi, an_buffer = resolve_analysis_region(
                 analysis_source.shape,
@@ -742,8 +742,8 @@ class GPUEngine:
             wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING,
             "lab",
         )
-        # Dodge/burn EV map feeds the exposure pass; a zero-initialized 1x1 dummy
-        # keeps the bind group valid when no masks are active (ev_scale.w gates it).
+        # The dodge/burn EV map feeds the exposure pass. A zero-initialized 1x1 dummy keeps
+        # the bind group valid when no masks are active (ev_scale.w gates it).
         if settings.local.masks:
             tex_local_ev = self._get_intermediate_texture(
                 w_rot,
@@ -823,8 +823,8 @@ class GPUEngine:
                         )
                     from negpy.features.exposure.logic import local_grade_factor_map
 
-                    # r = dodge/burn EV, g = local grade slope factor, b unused. One
-                    # texture, so the local-grade map costs no bind slot.
+                    # r = dodge/burn EV, g = local grade slope factor, b unused. One texture,
+                    # so the local-grade map costs no bind slot.
                     tex_local_ev.upload(
                         np.dstack(
                             [
@@ -834,11 +834,11 @@ class GPUEngine:
                             ]
                         )
                     )
-                    # A tiled export passes a per-tile slice — not reusable next frame.
+                    # A tiled export passes a per-tile slice, which is not reusable.
                     self._local_ev_key = None if tiled_maps else ev_key
             if is_transparency_transfer(settings.process.process_mode, settings.process.e6_normalize):
                 # The transfer curve takes no dodge/burn map: local EV is a print-exposure
-                # input, and the print is exactly what this path replaces.
+                # input, and this path replaces the print.
                 self._dispatch_pass(
                     enc,
                     "transfer",
@@ -902,13 +902,13 @@ class GPUEngine:
             prev_tex = tex_expo
 
         if start_stage <= 4:
-            # Sharpen state (USM blur, or RL deconvolution) feeds the lab pass; a
-            # 1x1 dummy keeps binding 3 valid when sharpening is off.
+            # Sharpen state (USM blur, or RL deconvolution) feeds the lab pass. A 1x1 dummy
+            # keeps binding 3 valid when sharpening is off.
             usage = wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING
             lab_u = self._get_uniform_binding("lab")
             if settings.lab.sharpen > 0 and settings.lab.sharpen_method == SharpenMethod.RL:
-                # Iterative RL: ping-pong two textures through init + N × (blur_h,
-                # div_v, blur_h, mult_v). Final estimate lands back in rl_a.
+                # Iterative RL: ping-pong two textures through init + N x (blur_h, div_v,
+                # blur_h, mult_v). The final estimate lands back in rl_a.
                 tex_rl_a = self._get_intermediate_texture(w_rot, h_rot, usage, "rl_a")
                 tex_rl_b = self._get_intermediate_texture(w_rot, h_rot, usage, "rl_b")
                 self._dispatch_pass(enc, "rl_init", [(0, prev_tex.view), (1, tex_rl_a.view)], w_rot, h_rot)
@@ -964,8 +964,8 @@ class GPUEngine:
         tex_pre_toning = tex_lab
 
         # --- Alternative processes (lith / cyanotype) ---
-        # Mutually exclusive, and no pass at all when neither is picked; toning
-        # then reads tex_lab directly.
+        # Mutually exclusive, and no pass at all when neither is picked. Toning then reads
+        # tex_lab directly.
         alt = settings.altproc.alt_process
         if alt != AltProcess.NONE and settings.process.process_mode == ProcessMode.BW:
             shader = "lith" if alt == AltProcess.LITH else "cyanotype"
@@ -1061,7 +1061,7 @@ class GPUEngine:
                 crop_w,
                 crop_h,
             )
-            # Density histogram slice sits past the RGBL bins — one shared readback.
+            # The density histogram slice sits past the RGBL bins, so one shared readback.
             self._dispatch_pass(
                 enc,
                 "density_hist",
@@ -1081,8 +1081,8 @@ class GPUEngine:
                 crop_h,
             )
 
-        # Output transform: scene-linear -> display-encoded, so every consumer
-        # (readback, display LUT) reads encoded data.
+        # Output transform: scene-linear to display-encoded, so every consumer reads
+        # encoded data.
         tex_output = self._get_intermediate_texture(
             tex_final.width,
             tex_final.height,
@@ -1202,28 +1202,28 @@ class GPUEngine:
         elif settings.process.process_mode == ProcessMode.E6:
             mode_val = 2
 
-        # Per-channel WP/BP (global + layer trims, E6-signed) mirror the CPU path.
-        # Baked into the packed floors/ceils so the shader's scalar wp/bp offsets
-        # (kept at 0.0 for layout) need no per-channel lanes.
+        # Per-channel WP/BP (global + layer trims, E6-signed) mirror the CPU path. Baked
+        # into the packed floors/ceils, so the shader's scalar wp/bp offsets, kept at 0.0
+        # for layout, need no per-channel lanes.
         wp3, bp3 = per_channel_point_offsets(settings.process, mode_val == 2)
         adj_floors = (f[0] + wp3[0], f[1] + wp3[1], f[2] + wp3[2])
         adj_ceils = (c[0] + bp3[0], c[1] + bp3[1], c[2] + bp3[2])
 
-        # Transparency transfer: the fixed window, with no WP/BP trims — mirrors
+        # Transparency transfer: the fixed window, with no WP/BP trims. Mirrors
         # NormalizationProcessor._process_transparency, whose identity they would break.
         if is_transparency_transfer(settings.process.process_mode, settings.process.e6_normalize):
             t_floors, t_ceils = transfer_bounds()
             adj_floors, adj_ceils = t_floors, t_ceils
 
-        # Capture-side dye-unmix rows, resolved once per frame by the caller
-        # (shared with NormalizationProcessor); identity when off.
+        # Capture-side dye-unmix rows, resolved once per frame by the caller and shared
+        # with NormalizationProcessor. Identity when off.
         if unmix is None:
             unmix = np.eye(3)
 
-        # Working-space-from-camera rows; identity when the source carries no matrix
-        # (the shader only reads them on the transfer path).
-        # Linear RAW decodes without white balance; fold the as-shot multipliers back
-        # in so the render does not depend on which decode produced the buffer.
+        # Working-space-from-camera rows, identity when the source carries no matrix. The
+        # shader reads them only on the transfer path.
+        # Linear RAW decodes without white balance, so fold the as-shot multipliers back in
+        # and the render stops depending on which decode produced the buffer.
         cam = camera_to_working_matrix(
             cam_xyz, camera_wb if effective_linear_raw(settings.process, settings.exposure.render_intent) else None
         )
@@ -1312,12 +1312,12 @@ class GPUEngine:
         paper = effective_paper_profile(exp.paper_profile, settings.process.process_mode)
         pc = effective_constants(paper)  # tonal overrides; non-paper keys == EXPOSURE_CONSTANTS
         d_min = paper.d_min if exp.paper_dmin else 0.0
-        # metered_anchor may be measured for stats even when auto_exposure is off;
-        # only let it move the render when the toggle is on.
+        # metered_anchor may be measured for stats even when auto_exposure is off, so let
+        # it move the render only when the toggle is on.
         render_anchor = metered_anchor if exp.auto_exposure else None
         lum_range = luminance_density_range(bounds)
-        # adj_floors/adj_ceils (packed above) are the final bounds the shader
-        # normalizes with; shared by the Cast Removal shadow refs (CPU mirror).
+        # adj_floors/adj_ceils (packed above) are the final bounds the shader normalizes
+        # with, shared by the Cast Removal shadow refs.
         strength, shadow_refs_norm, neutral_axis_norm = cast_solve_inputs(
             LogNegativeBounds(adj_floors, adj_ceils),
             shadow_refs,
@@ -1347,8 +1347,8 @@ class GPUEngine:
             shadow_trims=(exp.shadow_grade_trim_red, exp.shadow_grade_trim_green, exp.shadow_grade_trim_blue),
             highlight_trims=(exp.highlight_grade_trim_red, exp.highlight_grade_trim_green, exp.highlight_grade_trim_blue),
         )
-        # Per-channel effective toe/shoulder, pre-scaled; the uniform block is
-        # full at 256B so these ride the vec4 w-lanes.
+        # Per-channel effective toe/shoulder, pre-scaled. The uniform block is full at
+        # 256B, so these ride the vec4 w-lanes.
         _ts_k = float(EXPOSURE_CONSTANTS["toe_shoulder_strength"])
         _toe3, _sh3 = per_channel_toe_shoulder(
             _toe_eff,
@@ -1376,9 +1376,8 @@ class GPUEngine:
         )
         dmin_rgb = paper_dmin_rgb(d_min, paper)
         dye = resolve_dye_matrix(paper)
-        # Density-space Dye Separation, composed into the same dye_mix slot
-        # as the paper's real crosstalk. Mirrors the CPU path
-        # (apply_characteristic_curve) exactly — see negpy/features/exposure/logic.py.
+        # Density-space Dye Separation, composed into the same dye_mix slot as the paper's
+        # real crosstalk. Mirrors apply_characteristic_curve exactly.
         if settings.process.process_mode == ProcessMode.BW:
             sat_k3 = (1.0, 1.0, 1.0)
             sep_damping = 0.0
@@ -1388,16 +1387,16 @@ class GPUEngine:
                 exp.dye_separation,
                 (exp.dye_separation_trim_red, exp.dye_separation_trim_green, exp.dye_separation_trim_blue),
             )
-            # Separation Damping makes k per-pixel, so it leaves the matrix slot
-            # to the paper's coupling and runs in the shader instead.
+            # Separation Damping makes k per-pixel, so it leaves the matrix slot to the
+            # paper's coupling and runs in the shader instead.
             sep_damping = float(exp.separation_damping) if sat_k3 != (1.0, 1.0, 1.0) else 0.0
             sat = None if sep_damping > 0.0 else resolve_saturation_matrix(sat_k3)
         composed = compose_density_matrices(dye, sat)
         dye = composed  # use_dye_mix (below) and dye_rows both key off this
         dye_rows = np.eye(3) if dye is None else dye
 
-        # The w-lanes carry per-channel toe (first three vec4s) and shoulder
-        # (next three) — see the toe3/sh3 reads in exposure.wgsl.
+        # The w-lanes carry per-channel toe (first three vec4s) and shoulder (next three).
+        # See the toe3/sh3 reads in exposure.wgsl.
         e_data = (
             struct.pack("ffff", pivots[0], pivots[1], pivots[2], _toe3[0])
             + struct.pack("ffff", slopes[0], slopes[1], slopes[2], _toe3[1])
@@ -1426,8 +1425,8 @@ class GPUEngine:
                 _tw3[1],
                 _tw3[2],
                 _sw3[0],
-                # Zone Density ΔD shadow offset in the ex-d_min slot; the
-                # highlight offset rides d_min_rgb.w.
+                # Zone Density ΔD shadow offset in the ex-d_min slot; the highlight offset
+                # rides d_min_rgb.w.
                 exp.shadow_density,
                 pc["d_max"],
                 pc["toe_sharpness_base"],
@@ -1438,18 +1437,17 @@ class GPUEngine:
                 pc["shoulder_height"],
                 pc["anchor_target_density"],
                 _sw3[1],
-                # Separation Damping's per-layer k, red (ex-surround_gamma slot);
-                # green/blue ride the split_sh/split_hi w-lanes.
+                # Separation Damping's per-layer k, red (ex-surround_gamma slot). Green and
+                # blue ride the split_sh/split_hi w-lanes.
                 sat_k3[0],
                 mode_val,
                 _reference_linear_value(d_min, paper),
                 _sw3[2],
                 float(pc["paper_gamma_width"]),
                 1 if dye is not None else 0,
-                # BPC flag (former pad). Per-channel toe/shoulder/Snap ride the
-                # vec4 w-lanes, widths the ex-scalar slots, Zone Density ΔD the
-                # ex-d_min slot + d_min_rgb.w, Split Grade the split_sh/split_hi
-                # rows past 256B (exposure spans two UBO slots).
+                # BPC flag (former pad). Per-channel toe/shoulder/Snap ride the vec4
+                # w-lanes, widths the ex-scalar slots, Zone Density ΔD the ex-d_min slot
+                # and d_min_rgb.w, Split Grade the split_sh/split_hi rows past 256B.
                 1.0 if not exp.paper_black else 0.0,
             )
             + struct.pack("ffff", dmin_rgb[0], dmin_rgb[1], dmin_rgb[2], exp.highlight_density)
@@ -1459,11 +1457,11 @@ class GPUEngine:
             + struct.pack("ffff", dye_rows[2, 0], dye_rows[2, 1], dye_rows[2, 2], _mg3[2])
             # Dodge/burn EV-stop size per channel (local_ev_scale); w = enable flag.
             + struct.pack("ffff", *local_ev_scale(LogNegativeBounds(adj_floors, adj_ceils)), 1.0 if settings.local.masks else 0.0)
-            # Split Grade per-channel zone contrast gains (split_grade_deltas);
-            # the w-lanes carry Separation Damping's green/blue k.
+            # Split Grade per-channel zone contrast gains (split_grade_deltas). The w-lanes
+            # carry Separation Damping's green and blue k.
             + struct.pack("ffff", _sg3[0], _sg3[1], _sg3[2], sat_k3[1])
             + struct.pack("ffff", _hg3[0], _hg3[1], _hg3[2], sat_k3[2])
-            # Hue Trim, radians (x; yzw pad); the shader rotates before its encode.
+            # Hue Trim in radians (x; yzw pad). The shader rotates before its encode.
             + struct.pack("ffff", math.radians(float(settings.process.hue_trim)), 0.0, 0.0, 0.0)
         )
 
@@ -1482,9 +1480,9 @@ class GPUEngine:
         )
 
         lab = settings.lab
-        # Sharpen taps are computed once in Python (gaussian_kernel_1d — the same
-        # array the CPU convolves with) and uploaded to sharpen_k; the shaders only
-        # need the half-width. Derived from the array itself so support matches.
+        # Sharpen taps are computed once in Python by gaussian_kernel_1d, the same array
+        # the CPU convolves with, and uploaded to sharpen_k. The shaders need only the
+        # half-width, derived from the array itself so the support matches.
         sharpen_radius_px = 0
         if lab.sharpen > 0:
             kernel = gaussian_kernel_1d(lab.sharpen_radius)
@@ -1502,7 +1500,7 @@ class GPUEngine:
                 float(lab.glow_amount),
                 float(lab.halation_strength),
                 # Chroma-denoise scales its blur radius by the preview downsample ratio,
-                # mirroring the CPU path (radius * scale_factor).
+                # like the CPU path (radius * scale_factor).
                 float(scale_factor),
                 float(sharpen_radius_px),
                 float(lab.sharpen_masking),
@@ -1647,8 +1645,8 @@ class GPUEngine:
         Returns (paper_w, paper_h, content_w, content_h, off_x, off_y, dpi)."""
         mode = settings.export.export_resolution_mode
 
-        # Preview path: size_ref is the desired paper long-edge; derive virtual DPI
-        # from it + print_size_cm so border scales sensibly. Forces non-ORIGINAL math.
+        # Preview path: size_ref is the desired paper long edge. Derive virtual DPI from it
+        # and print_size_cm so the border scales sensibly. Forces non-ORIGINAL math.
         if size_ref:
             dpi = int((size_ref * 2.54) / max(0.1, settings.export.export_print_size))
             paper_long_px = int(size_ref)
@@ -1918,11 +1916,11 @@ class GPUEngine:
         if k1_eff != 0.0:
             img_rot = apply_radial_distortion(img_rot, k1_eff)
 
-        # Rasterise the dodge/burn EV map once at full post-geometry resolution;
-        # tiles slice it directly (same pattern as IR above).
-        # ponytail: mask vertices are distortion-mapped (centres land right), but the
-        # feathered falloff isn't re-warped — negligible unless a mask sits at the frame
-        # edge under strong k1. Rasterise on a warped grid if that combo ever matters.
+        # Rasterise the dodge/burn EV map once at full post-geometry resolution; tiles
+        # slice it directly, like IR above.
+        # ponytail: mask vertices are distortion-mapped so centres land right, but the
+        # feathered falloff is not re-warped. Negligible unless a mask sits at the frame
+        # edge under strong k1. Rasterise on a warped grid if that combination matters.
         local_maps_rot: Optional[np.ndarray] = None
         if settings.local.masks:
             h_rot_full, w_rot_full = img_rot.shape[:2]
@@ -1992,8 +1990,8 @@ class GPUEngine:
                 analysis_small = _downsample_for_analysis(img_rot, APP_CONFIG.preview_render_size)
             return analysis_small
 
-        # Unmixed like the non-tiled path, lazily (skipped when bounds are locked and
-        # no auto refs/anchor/textural need it).
+        # Unmixed like the non-tiled path, lazily: skipped when bounds are locked and no
+        # auto refs, anchor or textural range need it.
         unmix_m = effective_crosstalk_matrix(settings.process, settings.process.process_mode)
         prefiltered_cache: Optional[np.ndarray] = None
 
@@ -2040,17 +2038,16 @@ class GPUEngine:
         # Defect repairs are baked into the source before the engine, so no stage here
         # samples beyond its own pixel for them and the halo owes them nothing.
         halo = TILE_HALO
-        # The sharpen blur reads ±kernel-radius px, which outgrows TILE_HALO at
-        # large radii — without this, tile seams show in the USM band.
-        # RL's influence spreads with iterations but decays geometrically; 6× the
-        # kernel radius covers it in practice (widen if seams appear at extreme
-        # radius). Capped by the 512 ceiling below.
+        # The sharpen blur reads ±kernel-radius px, which outgrows TILE_HALO at large
+        # radii and shows tile seams in the USM band. RL's influence spreads with the
+        # iterations but decays geometrically, so 6x the kernel radius covers it. Capped
+        # by the 512 ceiling below.
         if settings.lab.sharpen > 0:
             k_radius = len(gaussian_kernel_1d(settings.lab.sharpen_radius)) // 2
             mult = 6 if settings.lab.sharpen_method == SharpenMethod.RL else 1
             halo = max(halo, k_radius * mult)
         # Glow/halation taps reach up to their radius (max(., . * scale_factor) in
-        # lab.wgsl); without this the bloom seams at tile edges on big exports.
+        # lab.wgsl). Without this the bloom seams at tile edges on big exports.
         if settings.lab.glow_amount > 0.0:
             halo = max(halo, int(np.ceil(max(3.0, 15.0 * scale_factor))))
         if settings.lab.halation_strength > 0.0:
@@ -2115,12 +2112,12 @@ class GPUEngine:
             if tex is not retain:
                 tex.destroy()
         self._tex_cache.clear()
-        # Bind groups reference the destroyed views — drop them.
+        # Bind groups reference the destroyed views, so drop them.
         self._bind_group_cache.clear()
         self._bind_layout_cache.clear()
         self._uv_grid_cache = None
-        # The stage textures a resume would paint onto are gone (local_ev included),
-        # so the next frame must re-upload and start from stage 0.
+        # The stage textures a resume would paint onto are gone, local_ev included, so the
+        # next frame must re-upload and start from stage 0.
         self._current_source_hash = None
         self._last_settings = None
         self._local_ev_key = None

@@ -204,6 +204,26 @@ class TestAppController(unittest.TestCase):
         self.assertIn("decode_failed", state.uploaded_files[0])
         self.assertNotIn("decode_failed", state.uploaded_files[1])
 
+    def test_a_thumbnail_that_cannot_decode_badges_its_frame(self):
+        """A PIL image decodes lazily, so a truncated cache entry raises on the UI
+        thread, inside a Qt slot, where an exception ends the process."""
+        from PIL import Image
+
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
+        self.mock_session_manager.asset_model = MagicMock()
+        state = self.mock_session_manager.state
+        state.uploaded_files = [{"name": "cut.dng", "path": "/tmp/cut.dng", "hash": "h1"}]
+        key = asset_thumbnail_key(state.uploaded_files[0])
+        self.controller._thumb_requested = [key]
+
+        broken = MagicMock(spec=Image.Image)
+        broken.convert.side_effect = OSError("broken data stream when reading image file")
+        self.controller._on_thumbnails_finished({key: broken})
+
+        self.assertNotIn(key, state.thumbnails)
+        self.assertIn("decode_failed", state.uploaded_files[0])
+
     def test_render_thumbnail_update_does_not_badge_other_frames(self):
         from PIL import Image
 
@@ -400,29 +420,62 @@ class TestAppController(unittest.TestCase):
         state.icc_input_path = "/custom.icc"
         self.assertEqual(self.controller.effective_input_icc(), "/custom.icc")
 
-    def test_narrowband_profile_suppressed_by_transparency_transfer(self):
-        """E-6 with Normalize off has already reached the working space via the camera
-        matrix, so the implicit RGBScan input profile would be a competing transform.
-        Narrowband is a sticky setting, so this must hold without the user touching it."""
+    def test_narrowband_profile_suppressed_by_any_transparency(self):
+        """The bundled profile describes narrowband capture of *negative* dyes, so it is
+        refused for a slide whatever Normalize says. Narrowband is a sticky setting, so
+        this must hold without the user touching it."""
         from negpy.features.process.models import ProcessMode
 
         state = self.controller.state
         state.config = replace(state.config, process=replace(state.config.process, narrowband_scan=True))
         self.assertIsNotNone(self.controller.effective_input_icc())
 
-        # E-6 with Normalize ON keeps it — that path is unchanged.
-        state.config = replace(state.config, process=replace(state.config.process, process_mode=ProcessMode.E6, e6_normalize=True))
-        self.assertIsNotNone(self.controller.effective_input_icc())
-
-        state.config = replace(state.config, process=replace(state.config.process, e6_normalize=False))
-        self.assertIsNone(self.controller.effective_input_icc())
-        # ...and the preview must not claim a proof it no longer applies.
-        state.soft_proof_enabled = False
-        self.assertFalse(self.controller.proof_active())
+        for normalize in (True, False):
+            state.config = replace(
+                state.config,
+                process=replace(state.config.process, process_mode=ProcessMode.E6, e6_normalize=normalize),
+            )
+            self.assertIsNone(self.controller.effective_input_icc(), f"e6_normalize={normalize}")
+            # ...and the preview must not claim a proof it no longer applies.
+            state.soft_proof_enabled = False
+            self.assertFalse(self.controller.proof_active(), f"e6_normalize={normalize}")
 
         # An explicit Input ICC is a deliberate choice about the source and still wins.
         state.icc_input_path = "/custom.icc"
         self.assertEqual(self.controller.effective_input_icc(), "/custom.icc")
+
+    def _export_icc_input(self, **process):
+        state = self.controller.state
+        state.current_file_path = "/tmp/shot.dng"
+        state.current_file_hash = "h1"
+        state.flat_output = True
+        state.config = replace(
+            state.config,
+            process=replace(state.config.process, **process),
+            export=replace(state.config.export, output_mode=ExportPresetOutputMode.SAME_AS_SOURCE, export_path="/tmp"),
+        )
+        self.controller._run_export_tasks = MagicMock()
+        self.controller.request_export()
+        self.controller._run_export_tasks.assert_called_once()
+        (tasks,), _ = self.controller._run_export_tasks.call_args
+        return tasks[0].export_settings.icc_input_path
+
+    def test_export_resolves_the_narrowband_profile_from_the_frames_own_process(self):
+        """Regression: request_export resolved the implicit ICC from the pre-flatten view
+        rather than the frame's settings, and silently dropped it from flat masters. The
+        answer must not depend on which view asked."""
+        path = self._export_icc_input(narrowband_scan=True)
+        self.assertTrue(
+            path is not None and path.endswith(os.path.join("icc", "RGBScan.icc")),
+            "flat export dropped the implicit Narrowband profile",
+        )
+
+    def test_a_flat_export_of_a_slide_still_refuses_the_narrowband_profile(self):
+        """A Flat render is not a transparency transfer, but the profile is refused for the
+        dye set, not for the render path — so flattening must not smuggle it back in."""
+        from negpy.features.process.models import ProcessMode
+
+        self.assertIsNone(self._export_icc_input(narrowband_scan=True, process_mode=ProcessMode.E6, e6_normalize=False))
 
     def test_proof_active_with_narrowband_scan(self):
         """Narrowband Scan forces proofing on even with the soft-proof toggle off."""
@@ -1077,6 +1130,23 @@ class TestBatchExportFiltering(unittest.TestCase):
                 self.assertEqual(getattr(t.export_settings, field), getattr(session_export, field), field)
             # export_path is validated by _ensure_valid_export_path (mocked to /tmp/out)
             self.assertEqual(t.params.export.export_path, "/tmp/out")
+
+    def test_composite_frames_export_beside_a_half_frame(self):
+        """An HDR or stitched composite hash ends in "#hdr"/"#stitch". The sibling
+        lookup read that suffix as a half index, and int("hdr") stopped the batch
+        before any frame was written."""
+        from negpy.features.hdr.models import hdr_hash
+        from negpy.features.stitch.models import stitch_hash
+
+        self.mock_session_manager.state.uploaded_files = [
+            {"name": "bracket", "path": "/tmp/_DSC1722.NEF", "hash": hdr_hash(["h1", "h2"])},
+            {"name": "panorama", "path": "/tmp/_DSC1730.NEF", "hash": stitch_hash(["h3", "h4"])},
+            {"name": "left half", "path": "/tmp/scan.tif", "hash": "h5#1"},
+        ]
+        self.visible_indices = [0, 1, 2]
+        self.controller.request_batch_export()
+        tasks = self._captured_tasks()
+        self.assertEqual([t.file_info["name"] for t in tasks], ["bracket", "panorama", "left half"])
 
 
 class TestLinearOutputExportCurrentFile(unittest.TestCase):

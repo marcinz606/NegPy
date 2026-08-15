@@ -134,15 +134,15 @@ def render_export_filename(
     """
     original_name = os.path.splitext(os.path.basename(original_path))[0]
     if half:
-        # halves share the source file — suffix so outputs don't collide
+        # halves share the source file, so suffix them or the outputs collide
         original_name = f"{original_name}_{half}"
     if composite:
-        # A composite is built from source files that can also be exported on their own,
-        # so it needs its own name for the same reason a half does.
+        # A composite is built from source files that can also be exported on their own, so it
+        # needs its own name for the same reason a half does.
         original_name = f"{original_name}-{composite}"
 
-    # Null-byte placeholder protects original_name from the cleanup regex.
-    # Null bytes cannot appear in filesystem paths, so collision is impossible.
+    # A null-byte placeholder protects original_name from the cleanup regex. Null bytes
+    # cannot appear in filesystem paths, so a collision is impossible.
     _PLACEHOLDER = "\x00ORIG\x00"
 
     mode = export_settings.export_resolution_mode
@@ -170,11 +170,11 @@ def render_export_filename(
         template = env.from_string(export_settings.filename_pattern)
         rendered = template.render(**context)
 
-        # Clean up structural separators (spaces/dashes/underscores in the template
-        # skeleton). original_name is still a placeholder here, so it's untouched.
+        # Clean up the structural separators (spaces, dashes, underscores in the template
+        # skeleton). original_name is still a placeholder here, so it is untouched.
         rendered = re.sub(r"[ _-]+", "_", rendered).strip("_")
 
-        # Restore original_name verbatim — dashes, spaces, and underscores intact.
+        # Restore original_name verbatim, with dashes, spaces and underscores intact.
         rendered = rendered.replace(_PLACEHOLDER, original_name)
 
         if not rendered:

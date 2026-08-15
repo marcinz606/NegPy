@@ -23,15 +23,15 @@ class PipelineContext:
     process_mode: ProcessMode = ProcessMode.C41
     active_roi: Optional[ROI] = None
     metrics: dict[str, Any] = field(default_factory=dict)
-    # When set, the crop tool is active: the final crop slice and uv_grid are bypassed
-    # so the full uncropped frame is shown, while active_roi still scopes tone analysis.
+    # When set, the crop tool is active: the final crop slice and uv_grid are bypassed so the
+    # full uncropped frame is shown, while active_roi still scopes tone analysis.
     crop_preview_full: bool = False
-    # Only the interactive preview needs the click->raw uv_grid; at export res it
-    # costs ~0.5GB of temporaries and is discarded.
+    # Only the interactive preview needs the click-to-raw uv_grid. At export resolution it
+    # costs hundreds of MB of temporaries and is discarded.
     wants_uv_grid: bool = True
-    # The decoder's XYZ->camera matrix (libraw rgb_xyz_matrix), nested lists. Only the
-    # transparency transfer reads it; None means the source carries no camera matrix
-    # (scanner TIFF, JPEG) and is treated as already in the working space.
+    # The decoder's XYZ-to-camera matrix (libraw rgb_xyz_matrix), as nested lists. Only the
+    # transparency transfer reads it. None means the source carries no camera matrix (scanner
+    # TIFF, JPEG) and is treated as already in the working space.
     cam_xyz: Optional[list] = None
     # As-shot WB multipliers, folded into the camera matrix when the buffer was decoded
     # without white balance (Linear RAW). None when WB was applied at decode.

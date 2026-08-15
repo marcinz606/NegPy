@@ -43,8 +43,8 @@ class PhotometricCurveWidget(QWidget):
         # Per-channel (color, points) traces; empty unless Cast Removal diverges the channels.
         self._channel_curves: list[tuple[QColor, list[tuple[float, float]]]] = []
         self._pivot_pt: tuple[float, float] | None = None
-        # Val-domain bins; DENSITY_HIST_RANGE mirrors _X_MIN/_X_MAX, so bin i
-        # maps to plt_x = 1 - val_center(i).
+        # Val-domain bins. DENSITY_HIST_RANGE mirrors _X_MIN/_X_MAX, so bin i maps to
+        # plt_x = 1 - val_center(i).
         self._density_bins: np.ndarray | None = None
         self._output_counts: np.ndarray | None = None  # (4, 256) [R, G, B, L]
         self._log_scale: bool = False
@@ -184,15 +184,15 @@ class PhotometricCurveWidget(QWidget):
         paper = effective_paper_profile(params.paper_profile, process_mode)
         d_min = paper.d_min if params.paper_dmin else 0.0
 
-        # Slope/pivot come from the render path (session panel); fall back to
-        # the same helpers with no metrics when called without them.
+        # Slope and pivot come from the render path (session panel). Fall back to the same
+        # helpers with no metrics when called without them.
         if slope is None:
             slope = grade_to_slope(params.grade, None)
         if pivot is None:
             pivot = compute_pivot(slope, params.density, d_min=d_min, paper=paper)
 
-        # Grade-coupled knees — same helper as the render path, so the plotted
-        # curve matches the engine at hard grades. Flat has no print knees.
+        # Grade-coupled knees, from the same helper as the render path, so the plotted curve
+        # matches the engine at hard grades. Flat has no print knees.
         toe_eff, shoulder_eff = (params.toe, params.shoulder) if flat else grade_coupled_shape(slope, params.toe, params.shoulder)
         split_sh_trims = (params.shadow_grade_trim_red, params.shadow_grade_trim_green, params.shadow_grade_trim_blue)
         split_hi_trims = (params.highlight_grade_trim_red, params.highlight_grade_trim_green, params.highlight_grade_trim_blue)
@@ -215,8 +215,8 @@ class PhotometricCurveWidget(QWidget):
             curv_ch: float = 0.0,
         ) -> list[tuple[float, float]]:
             if flat:
-                # True log master: code value linear in the log signal (1 - val),
-                # emitted directly with no 10^-D/sRGB. s=gain, p=lift.
+                # True log master: the code value is linear in the log signal (1 - val) and emitted
+                # directly, with no 10^-D and no sRGB. s = gain, p = lift.
                 yv = np.clip(p + s * (1.0 - x_log_exp), 0.0, 1.0)
                 return list(zip(plt_x.tolist(), yv.tolist()))
             curve = print_curve(
@@ -235,11 +235,11 @@ class PhotometricCurveWidget(QWidget):
             )
             return list(zip(plt_x.tolist(), print_curve_output(curve, x_log_exp).tolist()))
 
-        # Base (white) reference curve — also the fill/pivot/zone geometry.
+        # Base (white) reference curve, and also the fill, pivot and zone geometry.
         self._curve_pts = _curve_points(slope, pivot)
 
-        # Per-channel traces when Cast Removal / grade trims diverge the channels
-        # or the knee trims split toe/shoulder; else one white curve.
+        # Per-channel traces when Cast Removal or grade trims diverge the channels, or the knee
+        # trims split toe and shoulder. Otherwise one white curve.
         self._channel_curves = []
         if slopes is not None and pivots is not None:
             knee_trims = (
@@ -283,8 +283,8 @@ class PhotometricCurveWidget(QWidget):
                     for ch in range(3)
                 ]
 
-        # Zone shading: toe rolls the shadows (input above the pivot), shoulder
-        # rolls the highlights (input below the pivot); smaller width = sharper split.
+        # Zone shading: the toe rolls the shadows (input above the pivot) and the shoulder rolls
+        # the highlights (input below it). A smaller width is a sharper split.
         epsilon = 1e-6
         self._toe_mask = _expit((x_log_exp - pivot) * (10.0 / max(params.toe_width, epsilon))).tolist()
         self._shoulder_mask = _expit((pivot - x_log_exp) * (10.0 / max(params.shoulder_width, epsilon))).tolist()
@@ -316,8 +316,8 @@ class PhotometricCurveWidget(QWidget):
         painter.setPen(QPen(QColor("#262626"), 1))
         painter.drawRect(self.rect().adjusted(0, 0, -1, -1))
 
-        # Grid at 0.25 intervals; includes 0 and 1 so the axis padding reads as
-        # margin and a curve flat at zero visibly lands on the baseline.
+        # Grid at 0.25 intervals, including 0 and 1, so the axis padding reads as margin and a
+        # curve flat at zero visibly lands on the baseline.
         painter.setPen(QPen(QColor("#1A1A1A"), 1))
         for i in range(0, 5):
             gx = int(self._wx(i * 0.25, w))
@@ -344,13 +344,13 @@ class PhotometricCurveWidget(QWidget):
         for px, py in self._curve_pts[1:]:
             curve_path.lineTo(self._wx(px, w), self._wy(py, h))
 
-        # P4: Toe zone shading (warm amber — right side, dense silver = shadows)
+        # P4: toe zone shading. Warm amber, right side, dense silver = shadows
         self._draw_zone_shading(painter, w, h, self._toe_mask, self._toe_strength, QColor(255, 140, 50))
 
-        # P4: Shoulder zone shading (cool blue — left side, thin silver = highlights)
+        # P4: shoulder zone shading. Cool blue, left side, thin silver = highlights
         self._draw_zone_shading(painter, w, h, self._shoulder_mask, self._shoulder_strength, QColor(60, 130, 255))
 
-        # Glow the dragged slider's zone (fixed strength — reads even at zero/negative values)
+        # Glow the dragged slider's zone at fixed strength, so it reads at zero and negative values
         if self._active_param in ("toe", "toe_width"):
             self._draw_zone_shading(painter, w, h, self._toe_mask, 0.5, QColor(255, 140, 50))
         elif self._active_param in ("shoulder", "shoulder_width"):
@@ -370,7 +370,7 @@ class PhotometricCurveWidget(QWidget):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawPath(fill_path)
 
-        # P5: Zone tick marks along the bottom (Adams Zone I–IX)
+        # P5: zone tick marks along the bottom (Adams Zone I to IX)
         painter.setPen(QPen(QColor("#3A3A3A"), 1))
         for i in range(1, 10):
             zx = int(self._wx(i * 0.1, w))
@@ -409,7 +409,7 @@ class PhotometricCurveWidget(QWidget):
             wpx = self._wx(self._pivot_pt[0], w)
             wpy = self._wy(self._pivot_pt[1], h)
 
-            # Grade/Density act about the pivot — brighten its crosshair while dragged.
+            # Grade and Density act about the pivot, so brighten its crosshair while dragged.
             cross_alpha = 110 if self._active_param in ("grade", "density") else 45
             painter.setPen(QPen(QColor(200, 200, 200, cross_alpha), 1, Qt.PenStyle.DotLine))
             painter.drawLine(int(wpx), 0, int(wpx), h)
@@ -725,8 +725,8 @@ class StepWedgeWidget(QWidget):
     density in this scan's own D units.
     """
 
-    # Label every tenth step, so a sidebar-width strip still gets an axis: at ~300 px the
-    # 21 patches are ~14 px each, far too narrow to label individually.
+    # Label every tenth step, so a sidebar-width strip still gets an axis. At sidebar width
+    # the 21 patches are far too narrow to label individually.
     _LABEL_EVERY = 10
     _LABEL_MIN_PX = 34.0  # width per label below which they collide
 
@@ -805,10 +805,10 @@ class StepWedgeWidget(QWidget):
             for i in labelled:
                 text = f"{i * self._step_d:.2f}"
                 x0, x1 = bounds[i]
-                # A label is wider than its own patch and drawText clips to the rect it is
-                # given, so widen the box past the patch (labels sit 5 apart and can't
-                # collide). The two end labels align to the strip edge the way an axis does —
-                # sliding their box inward instead would centre them over the wrong step.
+                # A label is wider than its own patch and drawText clips to the rect it is given, so
+                # widen the box past the patch. Labels sit 5 apart and cannot collide. The two end
+                # labels align to the strip edge the way an axis does: sliding their box inward instead
+                # would centre them over the wrong step.
                 box = QRect(x0 - (x1 - x0), 0, 3 * (x1 - x0), h)
                 flags = Qt.AlignmentFlag.AlignVCenter
                 if i == 0:

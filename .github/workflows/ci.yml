@@ -30,9 +30,9 @@ jobs:
           sudo apt-get install -y libegl1 libxkbcommon-x11-0 libdbus-1-3 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xfixes0 x11-utils libgl1
 
       - name: Install Dependencies
-        # pieusb is pure Python plus a bundled libusb, so it installs without any
-        # system package — without it the pieusb backend tests importorskip away.
-        run: uv sync --group dev --group pieusb
+        # pieusb / plustek are pure Python (+ bundled libusb where needed); without
+        # them those backend tests importorskip away.
+        run: uv sync --group dev --group plustek --group pieusb
 
       - name: Run Linting (Ruff)
         run: uv run ruff check .

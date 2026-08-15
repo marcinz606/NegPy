@@ -142,7 +142,7 @@ class GearLibraryDialog(QDialog):
 
         root.addWidget(mid)
 
-        # Form — single layout; rows are shown/hidden per category (never removeRow).
+        # Form: a single layout, with rows shown and hidden per category, never removeRow.
         right = QWidget()
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(16, 16, 16, 16)

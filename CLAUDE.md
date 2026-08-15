@@ -6,6 +6,8 @@ Guidance for Claude Code in this repository.
 
 > **Keep the user docs current, in the same change.** `docs/USER_GUIDE.md` covers every panel and control; it is also **rendered in-app** — each panel's ⓘ opens the section marked `<!-- panel:<key> -->` — so a stale doc is a stale in-app guide. Any control added, renamed, retired or given a new range/default belongs there. `docs/PIPELINE.md` covers what each stage does to the pixels: update it when stage order, the math, a mirrored constant or a default changes. Retiring a control means deleting its prose, not leaving it to rot.
 
+> **Leave `docs/CHANGELOG.md` alone unless asked.** It is written per release, not per change. Do not add, edit or move an entry unless the user asks for it.
+
 ## Commands
 
 ```bash

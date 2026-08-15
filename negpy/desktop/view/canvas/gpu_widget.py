@@ -39,9 +39,9 @@ class GPUCanvasWidget(QWidget):
         self.image_size: Tuple[int, int] = (1, 1)
         self.format: str = ""
 
-        # Working-space → display-profile LUT (3D texture + linear sampler).
-        # Re-uploaded when the monitor profile changes (e.g. window moved to another
-        # screen). None monitor bytes = sRGB display (legacy behaviour).
+        # Working-space to display-profile LUT (3D texture plus linear sampler). Re-uploaded when
+        # the monitor profile changes, for example when the window moves to another screen. None
+        # monitor bytes means an sRGB display.
         self.lut_view: Optional[Any] = None
         self.lut_sampler: Optional[Any] = None
         self._monitor_icc_bytes: Optional[bytes] = None
@@ -415,7 +415,7 @@ class GPUCanvasWidget(QWidget):
         try:
             current_tex = self.context.get_current_texture()
         except (RuntimeError, wgpu.GPUError) as exc:
-            # Swapchain unavailable during resize — skip frame
+            # Swapchain unavailable during resize, so skip the frame
             logger.debug("swapchain unavailable during resize: %s", exc)
             return
 

@@ -87,9 +87,9 @@ def _peek_linear_dng_rgb(file_path: str) -> Optional[Tuple[np.ndarray, Optional[
             def tag(name: str) -> Optional[Any]:
                 return main.tags.get(name) or page0.tags.get(name)
 
-            # Resolved to plain values here, while the file is still open — TiffTag.value
-            # is lazily read from the file handle and tifffile only warns (reopening the
-            # path) rather than erroring if that happens after this `with` exits.
+            # Resolved to plain values here, while the file is still open. TiffTag.value is read
+            # lazily from the file handle, and tifffile only warns, reopening the path, rather than
+            # erroring if that happens after this `with` exits.
             lin_tag = tag("LinearizationTable")
             lin_table = np.asarray(lin_tag.value, dtype=np.float64) if lin_tag is not None else None
             black = _tag_floats(tag("BlackLevel"))
@@ -179,9 +179,9 @@ def _peek_hdri_ir_page(file_path: str) -> Optional[np.ndarray]:
             if main is None:
                 return None
             main_h, main_w = int(main.shape[0]), int(main.shape[1])
-            # Top-level pages are where SilverFast puts it; SubIFDs are searched too for
-            # tools that nest it. The main page carries 3 samples, so a 2-D dims match
-            # cannot select the image itself.
+            # Top-level pages are where SilverFast puts it, and SubIFDs are searched too for tools
+            # that nest it. The main page carries 3 samples, so a 2-D dims match cannot select the
+            # image itself.
             candidates = [*tif.pages, *(tif.pages[0].pages or [])]
             return find_ir_plane(candidates, main_h, main_w)
     except Exception as e:

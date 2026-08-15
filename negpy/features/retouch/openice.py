@@ -26,10 +26,10 @@ _M = 65535.0
 _K = _M / (16.0 * math.log(2.0))
 
 # [γ, a_hi1, a_lo1, a_hi2, a_lo2, a_hi3, a_lo3] per channel, openICE kind 8 (LS-5000).
-# γ converts an IR deficit to added visible density; a_* scale the IR contrast a detail
-# band must beat to count as picture. ≈1 because a defect is neutral, which is why these
-# transfer between scanners where the level constants below do not. Kinds 7/9 differ only
-# here (openICE pipeline.md Appendix B); not exposed, this set covers both.
+# γ converts an IR deficit to added visible density, and a_* scale the IR contrast a detail
+# band must beat to count as picture. Near 1 because a defect is neutral, which is why these
+# transfer between scanners where the level constants below do not. Kinds 7 and 9 differ
+# only here, and this set covers both.
 _COEF = np.array(
     [
         [1.10, 1.21, 1.09, 1.17, 1.08, 1.04, 0.96],
@@ -39,7 +39,7 @@ _COEF = np.array(
     dtype=np.float32,
 )
 _STAGE_GAIN = 1.25  # ICE Normal. Fine (1.0, no output floor) rewrites the whole frame.
-# ICE's gate bias θ (kind 8). Cancels inside the weight, so it only keeps the gate
+# ICE's gate bias θ (kind 8). It cancels inside the weight, so it only keeps the gate
 # numerically equal to the reference for the pyrdiff harness.
 _GATE_BIAS = 1.0
 _WEIGHT_FLOOR = 0.02
@@ -50,11 +50,11 @@ _ICE_RAMP = float(_M - _K * math.log1p(math.floor(0.85 * _M)))  # ICE's fixed ra
 # --- the scanner bridge -------------------------------------------------------------
 # ICE's level constants are absolute, tuned to a Coolscan under Nikon Scan, and do not
 # transfer: on a SilverFast LS-9000 scan every pixel clears its clear-film gate and dust
-# never reaches its ramp. Measured per frame instead, in σ of the gate distribution.
-# Anchored on σ, not on observed dip depth — σ is a property of the scanner, dip depth of
-# how dirty this frame is, and a clean frame would collapse the ramp onto its own noise.
-# ICE's fixed 960.4 measures 11.2σ on that LS-9000 and 5.6σ on a 4800 dpi flatbed, which
-# is the range the slider spans.
+# never reaches its ramp. Measure per frame instead, in σ of the gate distribution. Anchored
+# on σ, not on the observed dip depth: σ is a property of the scanner and dip depth only of
+# how dirty this frame is, so a clean frame would collapse the ramp onto its own noise.
+# ICE's fixed constant measures about 11σ on one scanner and 6σ on another, which is the
+# range the slider spans.
 _RAMP_SIGMA_LO = 2.0
 _RAMP_SIGMA_HI = 11.0
 # Without a σ-scaled margin, half of a noisy clean frame lands on the ramp and mottles.
@@ -62,19 +62,18 @@ _MARGIN_SIGMA = 2.5
 _RAMP_MIN = 180.0  # ≈3% light loss; a quantized plane can measure σ ≈ 0
 _RAMP_MAX = 4100.0  # ≈50%
 _CLEAR_SIGMA = 3.0  # calibration sees only pixels this close to the median
-# ICE's Cfg_DustFloor is the absolute D(0.065·M). Carried over as the transmittance
-# fraction it encodes, measured against this frame's clear-film reference — the same
-# substitution the gate and ramp above need, for the same reason. Anchoring it to σ
-# instead put it ~10x shallower, which fires the give-up trigger on ordinary deep dust
-# and routes it away from the reconstruction that should have repaired it.
+# ICE's Cfg_DustFloor is the absolute D(0.065*M). Carried over as the transmittance fraction
+# it encodes, measured against this frame's clear-film reference: the same substitution the
+# gate and ramp above need. Anchoring it to σ instead put it far shallower, which fires the
+# give-up trigger on ordinary deep dust and routes it away from the reconstruction.
 _DUST_FLOOR_TRANSMITTANCE = 0.065
 _DUST_FLOOR_DROP = float(_K * math.log(1.0 / _DUST_FLOOR_TRANSMITTANCE))
 _DEAD_FLOOR = 0.05  # below this the beam is blocked outright: holder, not film
 # |pearson(gate, green density)| above this: the IR mirrors the picture (B&W, Kodachrome).
 # Dust is uncorrelated with the image; a silver image is not.
 _DEGENERATE_CORR = 0.7
-# ICE calibrates on a ~281 px prescan. Kept: at detection scale the per-tile dye deviations
-# shrink and the δIR/δR slope goes to noise.
+# ICE calibrates on a small prescan, which is kept: at detection scale the per-tile dye
+# deviations shrink and the δIR/δR slope goes to noise.
 _CALIB_WIDTH = 281
 _CALIB_MIN_PIXELS = 4096
 _CALIB_ROWS = 256  # whole rows, at working resolution — striding would break the 3-tap min
@@ -84,9 +83,9 @@ _HALO = 8  # pyramid reach (4) + the band-range cross (1); bands overlap by this
 # --- §8 dither ----------------------------------------------------------------------
 # ICE's synthetic grain. Not optional decoration: the ℓ=3 band restores real grain from the
 # pixel itself, and a pixel fully covered by dust has none left, so without this the repair
-# comes back glassy against the film around it (issue #732). Amplitudes and band anchors are
-# ICE's own and do transfer — unlike the level constants above, they scale with the density
-# of the pixel being written, not with the scanner's absolute IR level.
+# comes back glassy against the film around it (issue #732). The amplitudes and band anchors
+# are ICE's own and do transfer, because unlike the level constants above they scale with the
+# density of the pixel being written, not with the scanner's absolute IR level.
 _DITHER_AMP = np.array([0.015, 0.015, 0.025], dtype=np.float32)  # Cfg_DitherAmt{R,G,B}
 _DITHER_LO = float(_K * math.log1p(math.floor(0.01 * _M)))
 _DITHER_HI = float(_K * math.log1p(math.floor(0.99 * _M)))
@@ -110,8 +109,8 @@ def _octagon(radius: int, limit: int) -> np.ndarray:
     return k / float(k.sum())
 
 
-# The four normalized-convolution scales. Unit-weight octagons at 9×9 (69 cells) and
-# 5×5 (21), a 1-2-1 binomial tent at 3×3 (16); level 3 is the pixel itself.
+# The four normalized-convolution scales. Unit-weight octagons at 9x9 (69 cells) and 5x5
+# (21), a 1-2-1 binomial tent at 3x3 (16). Level 3 is the pixel itself.
 _K9 = _octagon(4, 6)
 _K5 = _octagon(2, 3)
 _K3 = np.outer([1.0, 2.0, 1.0], [1.0, 2.0, 1.0]).astype(np.float32) / 16.0
@@ -195,8 +194,8 @@ def calibrate(rgb: np.ndarray, ir: np.ndarray, threshold: float) -> IceCalibrati
     ir, rgb = full_ir, full_rgb
     if w > _CALIB_WIDTH:
         dims = (_CALIB_WIDTH, max(1, round(h * _CALIB_WIDTH / w)))
-        # Area mean, not the min-preserving detection downsample: the calibration wants
-        # dust averaged away, so its clear-film statistics describe film.
+        # Area mean, not the min-preserving detection downsample: the calibration wants dust
+        # averaged away, so its clear-film statistics describe film.
         ir = cv2.resize(full_ir, dims, interpolation=cv2.INTER_AREA)
         rgb = cv2.resize(full_rgb, dims, interpolation=cv2.INTER_AREA)
 
@@ -267,9 +266,9 @@ def _gate_and_weight(d_rgb: np.ndarray, d_ir: np.ndarray, live: np.ndarray, cal:
     maps that to 1 = intact, floor = fully occluded.
     """
     gate = ((d_ir - cal.crosstalk * d_rgb[:, :, 0]) / (1.0 - cal.crosstalk) - _GATE_BIAS).astype(np.float32)
-    # Lifting the holder to clear-film level, not just forcing its weight, keeps it out of
-    # the give-up trigger (a strip margin would swallow the whole inpaint budget) and out
-    # of the pyramid at the frame edge.
+    # Lifting the holder to clear-film level, instead of only forcing its weight, keeps it out
+    # of the give-up trigger, where a strip margin would swallow the whole inpaint budget, and
+    # out of the pyramid at the frame edge.
     gate[~live] = cal.ir_ref
     w = 1.0 - (cal.ir_ref + cal.margin - _min3(gate)) / cal.ramp
     w = np.clip(w, _WEIGHT_FLOOR, 1.0).astype(np.float32)
@@ -299,8 +298,8 @@ def _giveup_trigger(gate: np.ndarray, floor: float) -> np.ndarray:
     defect continues past the window, so there is no intact film to rebuild from.
     """
     below = (gate < floor).astype(np.uint8)
-    # Eroding by a 9-long line = "all nine below". Replicate, or the frame edge reads as an
-    # all-dust probe (openICE edge-replicates its gate history for this).
+    # Eroding by a 9-long line means "all nine below". Replicate, or the frame edge reads as
+    # an all-dust probe. openICE edge-replicates its gate history for this.
     col = cv2.erode(below, np.ones((9, 1), np.uint8), borderType=cv2.BORDER_REPLICATE)
     row = cv2.erode(below, np.ones((1, 9), np.uint8), borderType=cv2.BORDER_REPLICATE)
     hit = _shift(col, 0, 4) | _shift(col, 0, -4) | _shift(row, 4, 0) | _shift(row, -4, 0)
@@ -345,7 +344,7 @@ def _reconstruct_tile(d_rgb: np.ndarray, gate: np.ndarray, w: np.ndarray, cal: I
         neg = ((hi < 0.0) & (lo < 0.0))[..., None]
         hi_t = np.where(neg, a_lo, a_hi) * hi[..., None]
         lo_t = np.where(neg, a_hi, a_lo) * lo[..., None]
-        # Dead zone: detail within the IR contrast is dust, detail beyond it is picture.
+        # Dead zone: detail within the IR contrast is dust, and detail beyond it is picture.
         resid = np.where(detail > hi_t, detail - hi_t, np.where(detail < lo_t, detail - lo_t, 0.0))
         acc += resid * band_conf[b][..., None]
     return acc
@@ -411,19 +410,18 @@ def reconstruct(img: np.ndarray, ir: np.ndarray, cal: IceCalibration) -> Tuple[n
         gate, w = _gate_and_weight(d_rgb, density(ir_t), ir_t >= _DEAD_FLOOR, cal)
         hopeless = _giveup_trigger(gate, cal.dust_floor)
         acc = _reconstruct_tile(d_rgb, gate, w, cal)
-        # Already clean, wider than the window, or a non-positive reconstruction. Tested on
-        # the bare accumulator: ICE's positivity guard runs before the dither is added.
+        # Already clean, wider than the window, or a non-positive reconstruction. Tested on the
+        # bare accumulator, because ICE's positivity guard runs before the dither is added.
         keep = (w >= 1.0) | hopeless | (acc <= 0.0).any(axis=-1)
         acc = acc + _dither(acc, a)
         # "Only fill, never darken": a defect steals light, so a repair may only lighten.
-        # Written at full strength wherever w < 1, as ICE does (max(L3, acc + dither)). A
-        # confidence ramp here looks like cheap insurance against mottling and is not: dust
-        # sits at the weight floor only once it is deep, so the ramp cost shallow specks most of their
-        # repair (measured on samples/scans: 81% of the lift at a 15-25% dip).
+        # Written at full strength wherever w < 1, as ICE does. A confidence ramp here looks
+        # like cheap insurance against mottling and is not: dust sits at the weight floor only
+        # once it is deep, so the ramp costs shallow specks most of their repair.
         lift = np.where(keep[..., None], 0.0, np.maximum(acc - d_rgb, 0.0))
         s, e = y0 - a, y1 - a
-        # Verbatim where nothing was lifted: D/D⁻¹ is not bit-exact in float32, and an
-        # untouched pixel must come out byte-identical.
+        # Verbatim where nothing was lifted: the density round-trip is not bit-exact in
+        # float32, and an untouched pixel must come out byte-identical.
         touched = lift[s:e] > 0.0
         out[y0:y1] = np.where(touched, density_inv(d_rgb[s:e] + lift[s:e]), src[y0:y1])
         trigger[y0:y1] = hopeless[s:e]
@@ -433,9 +431,9 @@ def reconstruct(img: np.ndarray, ir: np.ndarray, cal: IceCalibration) -> Tuple[n
 
 _ROUTE_DILATE = 2
 _ROUTE_BUDGET = 0.02  # fraction of the frame
-# No single defect covers this much. The film rebate does: above the dead floor on some
-# scanners, it arrives as one component of 1.2% of a flatbed frame (two full-height strips
-# down both edges) and blows the budget, taking the real dust with it.
+# No single defect covers this much. The film rebate does: on some scanners it sits above the
+# dead floor and arrives as one component covering both frame edges, which blows the budget
+# and takes the real dust with it.
 _ROUTE_MAX_COMPONENT = 0.002
 
 

@@ -96,7 +96,7 @@ class DarkroomEngine:
         if settings.geometry.manual_crop_rect:
             logger.debug(f"Engine process with manual_crop_rect: {settings.geometry.manual_crop_rect}")
 
-        # Folded into the base stage like fine_rotation (not source_hash) so the slider
+        # Folded into the base stage like fine_rotation, not into source_hash, so the slider
         # re-renders without re-decoding the RAW.
         distortion_k1 = settings.flatfield.k1 if settings.flatfield.apply else 0.0
 
@@ -104,11 +104,11 @@ class DarkroomEngine:
             img_in = GeometryProcessor(settings.geometry, distortion_k1).process(img_in, ctx)
             return NormalizationProcessor(settings.process).process(img_in, ctx)
 
-        # While the crop tool shows the full uncropped frame, the crop-selection
-        # fields (manual_crop_rect, auto_crop_*) only feed context.active_roi, which
-        # is itself unused for output in that mode (CropProcessor and uv_grid ROI
-        # slicing are both bypassed) - keying on them would force a full base/
-        # exposure/clahe/lab/local recompute on every crop-rect drag step.
+        # While the crop tool shows the full uncropped frame, the crop-selection fields
+        # (manual_crop_rect, auto_crop_*) only feed context.active_roi, which is itself unused
+        # for output in that mode, since CropProcessor and uv_grid ROI slicing are both bypassed.
+        # Keying on them would force a full base, exposure, clahe, lab and local recompute on
+        # every crop-rect drag step.
         geometry_key = (
             (
                 settings.geometry.rotation,
@@ -149,17 +149,17 @@ class DarkroomEngine:
             settings.process.crosstalk_process,
             settings.process.lock_bounds,
             distortion_k1,
-            # Auto Density metering reads retuned targets from EXPOSURE_CONSTANTS,
-            # which no config hash sees; the revision keys them in. Re-running base
-            # sets pipeline_changed, so the exposure stage follows.
+            # Auto Density metering reads retuned targets from EXPOSURE_CONSTANTS, which no config
+            # hash sees, so the revision keys them in. Re-running base sets pipeline_changed, so the
+            # exposure stage follows.
             exposure_models.TARGETS_REVISION,
         )
         current_img, pipeline_changed = self._run_stage(current_img, base_key, "base", run_base, context, pipeline_changed)
 
         def run_exposure(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
             img_out = PhotometricProcessor(settings.exposure, settings.local, settings.process).process(img_in, ctx)
-            # Rides this stage: it needs the print, and its own stage would re-run everything
-            # behind it on a drag. Stays inside the flat intent below (capture fix, not a look).
+            # Rides this stage: it needs the print, and its own stage would re-run everything behind
+            # it on a drag. Stays inside the flat intent below, being a capture fix, not a look.
             return apply_hue_trim(img_out, settings.process.hue_trim)
 
         # Dodge/burn masks are print-exposure inputs, so they key this stage.
@@ -172,9 +172,9 @@ class DarkroomEngine:
             pipeline_changed,
         )
 
-        # Flat (digital-intermediate) master: keep only geometry + mask-neutralized
-        # inversion, then crop. All creative stages (lab, local, toning,
-        # finish) are bypassed so the export holds maximal editing latitude.
+        # Flat (digital-intermediate) master: keep only geometry and the mask-neutralized
+        # inversion, then crop. The creative stages (lab, local, toning, finish) are bypassed, so
+        # the export holds maximal editing latitude.
         flat_intent = settings.exposure.render_intent == RenderIntent.FLAT
 
         if not flat_intent:
@@ -182,8 +182,8 @@ class DarkroomEngine:
             def run_clahe(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
                 return apply_clahe(img_in, settings.lab.clahe_strength)
 
-            # Keyed on the bare float: the full settings.lab would wrongly invalidate
-            # this stage (and lab behind it) on saturation/sharpen edits.
+            # Keyed on the bare float: the full settings.lab would wrongly invalidate this stage, and
+            # lab behind it, on saturation and sharpen edits.
             current_img, pipeline_changed = self._run_stage(
                 current_img,
                 settings.lab.clahe_strength,

@@ -285,6 +285,29 @@ class TestAutoExposureCapability:
         assert caps.auto_exposure is False
 
 
+class TestAutofocusCapability:
+    def test_caps_from_options_wires_autofocus(self) -> None:
+        caps = _caps_from_options(
+            {
+                "frame": FakeOption(constraint=(1, 40, 1)),
+                "autofocus": FakeOption(),
+            },
+            "coolscan3:usb:libusb:001:007",
+        )
+        assert caps.autofocus is True
+
+    def test_caps_from_options_defaults_autofocus_false(self) -> None:
+        caps = _caps_from_options(
+            {
+                "source": FakeOption(constraint=["Negative", "Positive", "Transparency"]),
+                "resolution": FakeOption(constraint=[300, 600, 1200, 2400, 3600]),
+                "depth": FakeOption(constraint=[8, 16]),
+            },
+            "plustek:libusb:001:008",
+        )
+        assert caps.autofocus is False
+
+
 class TestSplitRgbi:
     def test_splits_four_channels(self) -> None:
         arr = np.arange(2 * 3 * 4, dtype=np.uint16).reshape(2, 3, 4)

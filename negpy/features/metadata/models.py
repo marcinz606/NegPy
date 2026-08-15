@@ -97,13 +97,13 @@ class MetadataConfig:
     capture_roll: str = ""
     capture_frame: Optional[int] = None
 
-    # When True, export copies source EXIF/XMP unchanged — NegPy writes no metadata.
+    # When True, export copies the source EXIF and XMP unchanged and NegPy writes no metadata.
     protect_original_metadata: bool = False
 
     exposure_override: str = ""  # free-text e.g. "1/125s f/2.8 ISO 400"; empty = use source EXIF
 
-    # EXIF ImageDescription field set. None = inherit sticky roll choice on open;
-    # an explicit tuple (from Description…) is per-frame and not overwritten by sticky.
+    # EXIF ImageDescription field set. None inherits the sticky roll choice on open. An
+    # explicit tuple is per-frame and is not overwritten by sticky.
     description_fields: Optional[tuple[str, ...]] = None
 
     def __post_init__(self) -> None:

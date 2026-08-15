@@ -1,7 +1,7 @@
 """Tests for ScanParams dataclass and ScanMode validation."""
 
 import pytest
-from negpy.infrastructure.scanners.params import ScanMode, ScanParams
+from negpy.infrastructure.scanners.params import ScanMode, ScanParams, clamp_scan_area, crop_to_scan_window
 from negpy.infrastructure.scanners.base import ScannerCapabilities
 
 
@@ -67,3 +67,18 @@ class TestCapabilityFiltering:
         )
         assert 3600 in caps.supported_dpi
         assert 75 not in caps.supported_dpi
+
+
+class TestPrescanGeometry:
+    def test_clamp_scan_area_enforces_positive_extent(self) -> None:
+        assert clamp_scan_area((0.5, 0.5, 0.5, 0.5)) == (0.5, 0.5, 0.501, 0.501)
+
+    def test_crop_to_scan_window_mirror_x_is_self_inverse(self) -> None:
+        crop = (0.1, 0.2, 0.9, 0.8)
+        ta = crop_to_scan_window(crop, mirror_x=True)
+        back = crop_to_scan_window(ta, mirror_x=True)
+        assert all(abs(a - b) < 1e-9 for a, b in zip(back, clamp_scan_area(crop), strict=True))
+
+    def test_crop_to_scan_window_no_mirror_is_identity(self) -> None:
+        crop = (0.1, 0.2, 0.9, 0.8)
+        assert crop_to_scan_window(crop, mirror_x=False) == clamp_scan_area(crop)

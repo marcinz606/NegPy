@@ -862,10 +862,10 @@ def test_capture_target_left_alone_when_the_body_offers_no_memory_option(caplog)
 
 
 def test_setting_a_value_the_body_rejects_warns_instead_of_raising(cam, fake, caplog):
-    """A shutter label from the built-in fallback ladder may not exist on this body. The
+    """A value the body offers but refuses at write time (mode-locked dial, busy body). The
     scan should degrade to the current exposure, not die."""
     fake.reject_writes = True
-    assert cam._set_verified("iso", "999") is False
+    assert cam._set_verified("iso", "200") is False  # "200" IS on this body's list
     assert "could not set iso" in caplog.text
 
 
@@ -876,3 +876,15 @@ def test_pin_locale_overrides_a_preset_language(monkeypatch):
     monkeypatch.setenv("LANGUAGE", "de_DE:de")
     _pin_locale()
     assert os.environ["LANGUAGE"] == "C"
+
+
+def test_a_value_the_body_never_published_is_refused_not_written(cam, fake, caplog):
+    """Issue #768: a Nikon D600 was handed '0.4' from the built-in (Sony-spelled) ladder.
+    libgphoto2 takes the string, the camera ignores it, and the only symptom is a read-back that
+    never settles. Refuse up front and name what the body does offer."""
+    with caplog.at_level(logging.WARNING):
+        assert cam._set_verified("shutterspeed", "0.4") is False
+
+    assert fake.writes == []  # nothing was sent to the body
+    message = caplog.text
+    assert "does not offer" in message and "1/5" in message  # the body's real choices are named

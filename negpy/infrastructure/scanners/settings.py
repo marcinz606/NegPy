@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from negpy.infrastructure.scanners.registry import DEFAULT_BACKEND_ID
+
 Rect = tuple[float, float, float, float]
 
 
@@ -8,14 +10,15 @@ class ScannerSettings:
     """Persisted scanner preferences, stored as JSON blob."""
 
     last_device_id: str = ""
-    backend: str = "sane"  # mirrors registry.DEFAULT_BACKEND_ID; keep in sync
+    backend: str = DEFAULT_BACKEND_ID
+
     dpi: int = 3600
     depth: int = 16
     capture_ir: bool = False
     autofocus: bool = True
     auto_exposure: bool = False
-    # Hardware scan exposure time in microseconds (SANE `scan-exposure-time`).
-    # None = scanner default. Only meaningful when the device exposes the option.
+    # Hardware scan exposure time in microseconds (SANE `scan-exposure-time`). None is the
+    # scanner default. Only meaningful when the device exposes the option.
     exposure_time_us: int | None = None
     frame_from: int = 1
     frame_to: int = 1
@@ -24,12 +27,12 @@ class ScannerSettings:
     filename_pattern: str = '{{ date }}_{{ "%03d" % seq }}'
     scan_window: Rect | None = None
     frame_offset_mm: float = 0.0
-    # Feed-axis drift (mm/frame): frame N gets frame_offset_mm + (N-1) * modifier,
-    # floored at 0. Corrects progressive frame-gap drift along a strip.
+    # Feed-axis drift (mm/frame): frame N gets frame_offset_mm + (N-1) * modifier, floored at
+    # 0. Corrects progressive frame-gap drift along a strip.
     frame_offset_modifier_mm: float = 0.0
-    # Per-frame crop windows (absent key = full frame) and the strip-dialog frame
-    # selection. ponytail: dict field means ScannerSettings is unhashable; nothing
-    # hashes it — switch to a sorted tuple of pairs if that ever changes.
+    # Per-frame crop windows (an absent key means the full frame) and the strip-dialog frame
+    # selection. ponytail: a dict field makes ScannerSettings unhashable. Nothing hashes it;
+    # switch to a sorted tuple of pairs if that ever changes.
     frame_windows: dict[int, Rect] = field(default_factory=dict)
     selected_frames: tuple[int, ...] = ()
 

@@ -8,36 +8,34 @@ from negpy.kernel.image.logic import _LAB_EPS, _LAB_KAPPA, lab_to_rgb_working
 from negpy.kernel.image.validation import ensure_image
 
 CYANOTYPE_CONSTANTS: Dict[str, Any] = {
-    # ── Transfer ──────────────────────────────────────────────────────────────
-    # Weight of the reverse-S mixed against a straight line. Cyanotype compresses
-    # the midtones — the whole reason a cyanotype digital-negative curve exists is
-    # to expand them again — so the mid gamma has to sit below 1. At 0.45 the
-    # slope at the centre is 0.55; the straight-line half is what stops the
-    # centre from going perfectly flat and posterizing a gradient.
+    # Transfer.
+    # Weight of the reverse-S mixed against a straight line. Cyanotype compresses the
+    # midtones, which is the whole reason a cyanotype digital-negative curve exists, so the
+    # mid gamma must sit below 1. The straight-line half is what stops the centre from going
+    # perfectly flat and posterizing a gradient.
     "mid_compress": 0.45,
-    # ── Toning ────────────────────────────────────────────────────────────────
-    # Washing soda strips Prussian blue highlights-first; at full strength the
-    # deepest shadow keeps this fraction of its density and everything above it
-    # clears to paper.
+    # Toning.
+    # Washing soda strips Prussian blue highlights-first. At full strength the deepest shadow
+    # keeps this fraction of its density and everything above it clears to paper.
     "bleach_floor": 0.15,
-    # Tannin re-develops the bleached iron as iron tannate, slightly past where
-    # the blue was, and the tannate covers more than the pigment it replaced.
+    # Tannin re-develops the bleached iron as iron tannate, slightly past where the blue was,
+    # and the tannate covers more than the pigment it replaced.
     "tannin_restore": 1.05,
     "tannin_dmax_gain": 0.15,
-    # (a*, b*) of iron tannate at full density; scaled by the density fraction so
-    # the highlights stay a pale stain rather than jumping to full brown.
+    # (a*, b*) of iron tannate at full density, scaled by the density fraction so the
+    # highlights stay a pale stain rather than jumping to full brown.
     "brown_dir": (9.0, 20.0),
-    # ── Hue path ──────────────────────────────────────────────────────────────
-    # Density fractions u = D/d_max of the four (a*, b*) anchors: rag paper,
-    # the green highlight stain (Prussian blue mixed with the residual yellow
-    # sensitiser — Ware describes it on both formulas), mid blue, Prussian blue.
+    # Hue path.
+    # Density fractions u = D/d_max of the four (a*, b*) anchors: rag paper, the green
+    # highlight stain (Prussian blue mixed with the residual yellow sensitiser, which Ware
+    # describes on both formulas), mid blue, Prussian blue.
     "path_u": (0.00, 0.15, 0.55, 1.00),
 }
 
-# Per-sensitiser Dmax and hue path. Ware's densitometry puts classic (Herschel)
-# Dmax at 0.55-1.05 on the red channel — Prussian blue's absorption peak, ~700nm
-# — against ~1.5 for a good modern print, and the new (Ware) process holds far
-# more pigment through the wash, so it goes deeper and cleaner.
+# Per-sensitiser Dmax and hue path. Ware's densitometry puts classic (Herschel) Dmax well
+# below a good modern print on the red channel, Prussian blue's absorption peak, and the
+# new (Ware) process holds far more pigment through the wash, so it goes deeper and
+# cleaner.
 SENSITIZERS: Dict[str, Dict[str, Any]] = {
     Sensitizer.CLASSIC: {
         "d_max": 0.95,

@@ -23,7 +23,7 @@ from typing import Optional, Sequence
 
 import numpy as np
 
-# Adobe RGB (1998) D65 — the working space (see infrastructure.display.color_spaces).
+# Adobe RGB (1998) D65, the working space (see infrastructure.display.color_spaces).
 _XYZ_TO_WORKING = np.array(
     [
         [2.0413690, -0.5649464, -0.3446944],
@@ -64,8 +64,8 @@ def camera_to_working_matrix(
     if not np.all(np.isfinite(m)) or abs(float(np.linalg.det(m))) < 1e-9:
         return None
 
-    # Normalize the forward (working->cam) rows, then invert — dcraw's order. Doing it
-    # the other way round distorts every non-neutral color; see the module docstring.
+    # Normalize the forward (working to cam) rows, then invert, which is dcraw's order. The
+    # other way round distorts every non-neutral color; see the module docstring.
     forward = m @ _WORKING_TO_XYZ
     sums = forward.sum(axis=1, keepdims=True)
     if not np.all(np.isfinite(sums)) or np.any(np.abs(sums) < 1e-9):
@@ -77,8 +77,8 @@ def camera_to_working_matrix(
     if camera_wb is not None:
         wb = np.asarray(camera_wb, dtype=np.float64).reshape(-1)[:3]
         if wb.shape[0] == 3 and np.all(np.isfinite(wb)) and float(wb.min()) > 0.0 and float(wb[1]) > 0.0:
-            # Normalized to green, matching libraw's own scaling reference, so only the
-            # channel ratios are applied and overall exposure is untouched.
+            # Normalized to green, matching libraw's own scaling reference, so only the channel
+            # ratios are applied and overall exposure is untouched.
             out = out @ np.diag(wb / wb[1])
 
     return np.ascontiguousarray(out, dtype=np.float32)

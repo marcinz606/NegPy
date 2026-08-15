@@ -37,8 +37,8 @@ class _NoScrollSlider(QSlider):
             event.ignore()
 
     def _value_from_x(self, x: float) -> int:
-        # Mirrors paintEvent's handle mapping (handle_w=12) so click-to-position
-        # and the default-marker tick agree. Any y within the widget maps here.
+        # Mirrors paintEvent's handle mapping (handle_w=12), so click-to-position and the
+        # default-marker tick agree. Any y within the widget maps here.
         handle_w = 12
         usable = max(1, self.width() - handle_w)
         pos = max(0.0, min(1.0, (x - handle_w / 2) / usable))
@@ -54,9 +54,8 @@ class _NoScrollSlider(QSlider):
                 self.sliderReleased.emit()
                 event.accept()
                 return
-            # Jump the handle under the cursor (ignoring y), then let Qt grab it
-            # so the drag continues from there. Shift keeps the handle put for a
-            # relative fine-drag from wherever it already is.
+            # Jump the handle under the cursor, ignoring y, then let Qt grab it so the drag continues
+            # from there. Shift keeps the handle put for a relative fine-drag from where it is.
             if not mods & Qt.KeyboardModifier.ShiftModifier:
                 self.setValue(self._value_from_x(event.position().x()))
             self._drag_anchor_px = event.position().x()
@@ -153,7 +152,7 @@ class BaseSlider(QWidget):
         self.spin.setRange(min_val, max_val)
         self.spin.setValue(default_val)
 
-        # Trailing debounce — see _schedule_emit for why it stays trailing.
+        # Trailing debounce. See _schedule_emit for why it stays trailing.
         self.timer = QTimer()
         self.timer.setSingleShot(True)
         self.timer.setInterval(_EMIT_INTERVAL_MS)
@@ -183,8 +182,8 @@ class BaseSlider(QWidget):
             self._last_committed_value = current_val
             self.valueCommitted.emit(current_val)
         elif pending:
-            # Dragged away and back: no commit fires, so that trailing frame is the
-            # only thing that would put the preview back on the committed value.
+            # Dragged away and back: no commit fires, so that trailing frame is the only thing that
+            # would put the preview back on the committed value.
             self._emit_value()
 
     def _to_int(self, value: float) -> int:
@@ -298,10 +297,9 @@ class CompactSlider(BaseSlider):
         self._label_color = color if color else THEME.text_secondary
 
         layout = QVBoxLayout(self)
-        # Bias the row's dead space below the groove so the near-miss grab band
-        # (see _GRAB_PAD) has room underneath: drop the header<->slider gap and
-        # move it below the slider. Net row height is unchanged; the groove sits
-        # ~2px closer to its label than the default.
+        # Bias the row's dead space below the groove, so the near-miss grab band (see _GRAB_PAD)
+        # has room underneath. Drop the header-to-slider gap and move it below the slider. The
+        # net row height is unchanged, and the groove sits slightly closer to its label.
         layout.setContentsMargins(2, 2, 2, 4)
         layout.setSpacing(0)
 
@@ -369,10 +367,10 @@ class CompactSlider(BaseSlider):
             self.spin.setMaximumWidth(0)
         super().leaveEvent(event)
 
-    # Extra clickable px above/below the thin slider so a near-miss on the
-    # handle still grabs it. The slider widget's own rect is only ~handle-tall,
-    # so clicks land here on the container's padding and get forwarded as a
-    # real grab-drag — no layout/height change to the visible row.
+    # Extra clickable px above and below the thin slider, so a near-miss on the handle still
+    # grabs it. The slider widget's own rect is only as tall as the handle, so these clicks
+    # land on the container's padding and are forwarded as a real grab-drag, with no layout
+    # or height change to the visible row.
     _GRAB_PAD = 8
 
     def _band_hit(self, pos) -> bool:
@@ -671,7 +669,7 @@ class RangeSlider(QWidget):
         painter.setPen(QPen(QColor(THEME.accent_primary), 4))
         painter.drawLine(x1, y, x2, y)
 
-        # Draw Handles — filled with accent + 1px dark stroke ring for visibility
+        # Draw the handles: filled with the accent, plus a 1px dark stroke ring for visibility
         r = self._handle_r
         for cx in (x1, x2):
             painter.setBrush(QColor(THEME.accent_primary))

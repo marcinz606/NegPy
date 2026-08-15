@@ -22,6 +22,7 @@ import cv2
 import numpy as np
 from numba import prange  # type: ignore
 
+from negpy.features.hdr.models import ANCHOR_EV_UNSET, HdrConfig
 from negpy.features.rgbscan.logic import estimate_shift
 from negpy.kernel.system.parallel import parallel_njit
 
@@ -31,14 +32,14 @@ SATURATION = 0.995
 #: changes gradually. A hard switch prints as banding across a smooth gradient.
 ROLLOFF_START = 0.90
 #: A frame with more than this fraction of saturated pixels cannot be the exposure
-#: reference — its own white level is no longer a measurement of anything.
+#: reference: its own white level is no longer a measurement of anything.
 MAX_REFERENCE_CLIPPING = 0.001
 #: Samples below this are noise in both frames of a pair and would bias a ratio fit.
 RATIO_FLOOR = 0.02
-#: Pixel budget for the measurements that only read a distribution — the level percentile
-#: and the ratio median. Moves the solved ratios by <0.1%, below one 16-bit step in the
-#: merge. The clipped fraction is not subsampled: it picks the reference against a hard
-#: threshold, and a different reference is a different white.
+#: Pixel budget for the measurements that only read a distribution: the level percentile
+#: and the ratio median. It moves the solved ratios by far less than one 16-bit step in
+#: the merge. The clipped fraction is not subsampled, because it picks the reference
+#: against a hard threshold and a different reference is a different white.
 MEASURE_PIXELS = 1_500_000
 
 
@@ -54,9 +55,8 @@ class ExposureStats:
 def to_float(frame: np.ndarray) -> np.ndarray:
     """uint16 decode -> float32 [0, 1], RGB only. Already-float input keeps its buffer."""
     out = frame if frame.dtype == np.float32 else frame.astype(np.float32) / np.float32(65535.0)
-    # A carrier channel (IR, alpha) has no place in a radiometric merge, and dropping it
-    # from only one of the two input dtypes would make the shape checks below dtype-
-    # dependent.
+    # A carrier channel (IR, alpha) has no place in a radiometric merge, and dropping it from
+    # only one of the two input dtypes would make the shape checks below dtype-dependent.
     return out[..., :3] if out.ndim == 3 and out.shape[2] > 3 else out
 
 
@@ -228,6 +228,22 @@ def output_scale(ratios: Sequence[float], anchor: Optional[float] = None) -> flo
     return float(min(np.exp(np.median(np.log(r))), 1.0))
 
 
+def resolve_anchor(paths: Sequence[str], ratios: Sequence[float], config: "HdrConfig") -> Optional[float]:
+    """The exposure a merge renders at, as a ratio, however the user asked for it.
+
+    Takes the whole config rather than the fields, so a way of asking added later reaches
+    every merge path at once. There are four of them — the render decode, the export decode,
+    the preview service and the seeded shadow lift — and they have to agree.
+
+    A value set in stops wins over a named frame: the slider is the finer control, and a
+    frame name is what the menu writes. None means the bracket's middle exposure.
+    """
+    ev = float(config.hdr_anchor_ev)
+    if ev < ANCHOR_EV_UNSET:
+        return float(2.0**ev)
+    return anchor_ratio(paths, ratios, config.hdr_anchor)
+
+
 def anchor_ratio(paths: Sequence[str], ratios: Sequence[float], anchor_path: str) -> Optional[float]:
     """Ratio of the frame the merge should render at, or None for the bracket middle.
 
@@ -245,9 +261,9 @@ def anchor_ratio(paths: Sequence[str], ratios: Sequence[float], anchor_path: str
 #: Shadows Density seeded per stop of recovered shadow reach, and its cap. Calibrated by
 #: measuring rendered noise: a merge is only worth anything if you open the shadows far
 #: enough to see the precision it bought, and the honest budget is the noise the single
-#: metered frame already had. On two real brackets (~2 stops of reach) the merged render
-#: stayed below that budget out to -0.6 and crossed it by -0.8 — hence 0.30/stop. The cap
-#: is conservative: a wider bracket has more budget, but that is untested here.
+#: metered frame already had. On real brackets the merged render stayed inside that budget
+#: for most of the reach and crossed it soon after. The cap is conservative: a wider
+#: bracket has more budget, but that is untested here.
 SEED_SHADOW_PER_STOP = 0.30
 SEED_SHADOW_LIMIT = 0.70
 
@@ -337,16 +353,24 @@ def merge_providers(
     ratios: Sequence[float],
     reference: int = 0,
     align: bool = True,
-    anchor: Optional[float] = None,
 ) -> np.ndarray:
-    """Merge a bracket into one float32 image in the reference frame's units.
+    """Merge a bracket into one float32 image in the reference frame's units, **unscaled**.
+
+    The render exposure is deliberately *not* applied here. It is a single multiply, while
+    this is seconds of decoding and accumulation, so keeping them apart lets the expensive
+    part be cached once and re-used while the exposure is dragged. `apply_render_exposure`
+    is the other half; every caller needs both.
+
+    Values above 1.0 survive: they are radiance the shorter frames recorded above the
+    reference's white, and clipping here would throw it away before the exposure that might
+    have brought it back into range.
 
     Frames arrive as callables and are pulled one at a time: a full-res bracket is several
     GB, and only the reference plus the two accumulators need to stay resident.
 
-    Returns [0, 1] float32, not uint16: the recovered detail sits below the shortest
-    exposure's quantization step, so rounding back to 16 bits would discard exactly what
-    the merge was for. `anchor` decides which exposure it renders at (see `output_scale`).
+    float32 rather than uint16: the recovered detail sits below the shortest exposure's
+    quantization step, so rounding back to 16 bits would discard exactly what the merge
+    was for.
     """
     if len(providers) != len(ratios):
         raise ValueError(f"{len(providers)} frames but {len(ratios)} ratios")
@@ -370,12 +394,22 @@ def merge_providers(
             del f
 
     # Every frame saturated in a channel leaves no measurement there. It is a genuine
-    # highlight, so take the reference's own (clipped) value rather than a hole.
+    # highlight, so take the reference's own clipped value rather than a hole.
     empty = den <= 0.0
     if empty.any():
         num[empty] = ref[empty]
         den[empty] = 1.0
-    return np.clip((num / den) * np.float32(output_scale(ratios, anchor)), 0.0, 1.0).astype(np.float32)
+    return np.ascontiguousarray(num / den, dtype=np.float32)
+
+
+def apply_render_exposure(merged: np.ndarray, ratios: Sequence[float], anchor: Optional[float] = None) -> np.ndarray:
+    """Scale an unscaled merge to the exposure it renders at, and clip to [0, 1].
+
+    Split from the merge because it is cheap and the merge is not: one full-res multiply
+    against seconds of decode. That is what lets the render exposure be dragged.
+    """
+    scale = np.float32(output_scale(ratios, anchor))
+    return np.clip(merged * scale, 0.0, 1.0).astype(np.float32)
 
 
 def _align(ref_gray: np.ndarray, mov: np.ndarray, max_shift: float) -> np.ndarray:
@@ -399,26 +433,22 @@ def merge_frames(
 ) -> np.ndarray:
     """merge_providers over already-decoded frames. For callers holding the whole bracket
     (tests, ratio solving); the decode paths use merge_bracket so frames stay lazy."""
-    return merge_providers(  # type: ignore[misc]
-        [lambda f=f: f for f in frames], ratios, reference=reference, align=align, anchor=anchor
-    )
+    merged = merge_providers([lambda f=f: f for f in frames], ratios, reference=reference, align=align)  # type: ignore[misc]
+    return apply_render_exposure(merged, ratios, anchor)
 
 
-def merge_bracket(
-    decode_fn: Callable[[str], np.ndarray],
-    reference_path: str,
-    other_paths: Sequence[str],
-    ratios: Sequence[float],
-    align: bool = True,
-    anchor_path: str = "",
-) -> np.ndarray:
-    """Decode a bracket via `decode_fn` and merge it. `ratios` is per frame in
-    (reference, *other_paths) order, as stored on HdrConfig. `anchor_path` names the frame
-    to render at; empty falls back to the bracket middle."""
-    paths = [reference_path, *other_paths]
+def merge_bracket(decode_fn: Callable[[str], np.ndarray], reference_path: str, config: HdrConfig) -> np.ndarray:
+    """Decode a bracket via `decode_fn` and merge it.
+
+    Takes the config whole rather than its fields: the ratios, the alignment and the render
+    exposure all come from it, and a field added later then reaches every caller without
+    touching one of them. `config.hdr_ratios` is per frame in (reference, *hdr_paths) order.
+    """
+    paths = [reference_path, *config.hdr_paths]
+    ratios = list(config.hdr_ratios)
     if len(ratios) != len(paths):
         raise ValueError(f"{len(paths)} frames but {len(ratios)} ratios")
-    anchor = anchor_ratio(paths, ratios, anchor_path)
-    return merge_providers(  # type: ignore[misc]
-        [lambda p=p: decode_fn(p) for p in paths], ratios, reference=0, align=align, anchor=anchor
+    merged = merge_providers(  # type: ignore[misc]
+        [lambda p=p: decode_fn(p) for p in paths], ratios, reference=0, align=config.hdr_align
     )
+    return apply_render_exposure(merged, ratios, resolve_anchor(paths, ratios, config))

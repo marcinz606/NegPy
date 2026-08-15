@@ -131,8 +131,8 @@ class BaseSidebar(QWidget):
         new_config = replace(self.state.config, **{section_name: new_section})
 
         if render:
-            # apply_config, not request_render: a change to a source input needs the source
-            # decoded again, and only it knows which changes those are.
+            # apply_config, not request_render: a change to a source input needs the source decoded
+            # again, and only it knows which changes those are.
             self.controller.apply_config(new_config, persist=persist, readback_metrics=readback_metrics)
         else:
             self.controller.session.update_config(new_config, persist=persist, render=False)

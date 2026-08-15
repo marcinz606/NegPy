@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from negpy.desktop.power_assertion import acquire_unattended_power_assertion
-from negpy.infrastructure.scanners.base import ScannerDevice
+from negpy.infrastructure.scanners.base import ScannerDevice, ScannerUnavailable
 from negpy.infrastructure.scanners.params import ScanParams
 from negpy.services.scanning.service import ScannerService
 from negpy.kernel.system.logging import get_logger
@@ -34,6 +34,14 @@ class RollPreviewRequest:
 
 
 @dataclass(frozen=True)
+class PrescanRequest:
+    """One low-DPI full-window colour preview for crop setup (no file write)."""
+
+    device_id: str
+    prescan_dpi: int
+
+
+@dataclass(frozen=True)
 class BatchRequest:
     """Scan an explicit set of frames, one SANE session each, frame-numbered output."""
 
@@ -44,8 +52,8 @@ class BatchRequest:
     output_format: str
     frames: tuple[int, ...]
     frame_windows: dict[int, tuple[float, float, float, float]] = field(default_factory=dict)
-    # Feed-axis drift (mm/frame): frame N scans at
-    # frame_offset_mm + (N-1) * modifier, floored at 0.
+    # Feed-axis drift (mm/frame): frame N scans at frame_offset_mm + (N-1) * modifier,
+    # floored at 0.
     frame_offset_modifier_mm: float = 0.0
 
 
@@ -63,6 +71,8 @@ class ScanWorker(QObject):
     eject_error = pyqtSignal(str)
     roll_preview_ready = pyqtSignal(object)  # roll preview: one RollPreview per slot
     roll_preview_finished = pyqtSignal()  # the whole strip is done (also after a failed slot)
+    prescan_ready = pyqtSignal(object)  # ScanResult RGB preview (no file written)
+    prescan_error = pyqtSignal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -96,11 +106,15 @@ class ScanWorker(QObject):
             service = self._ensure_service()
             devices = service.refresh_devices()
             self.devices_ready.emit(devices)
+        except ScannerUnavailable as e:
+            logger.warning("Device listing unavailable: %s", e)
+            self.devices_ready.emit([])
+            self.error.emit(str(e))
         except Exception as e:
             logger.exception("Device listing failed")
-            # Empty list first: the sidebar's devices_ready handler overwrites the
-            # status label, so emitting it last would clobber the failure message
-            # (which carries the backend's install hint).
+            # Empty list first: the sidebar's devices_ready handler overwrites the status label, so
+            # emitting it last would clobber the failure message, which carries the backend's
+            # install hint.
             self.devices_ready.emit([])
             self.error.emit(str(e))
 
@@ -108,10 +122,10 @@ class ScanWorker(QObject):
     def run_scan(self, req: ScanRequest) -> None:
         """Execute a scan and emit exactly one terminal outcome."""
 
-        # AppController prepares a queued request synchronously on the GUI
-        # thread.  Do not clear its Event here: Stop may have arrived after the
-        # request was queued but before this slot began running.  Direct legacy
-        # callers that skip prepare_scan() still receive a fresh Event.
+        # AppController prepares a queued request synchronously on the GUI thread. Do not clear
+        # its Event here: Stop may have arrived after the request was queued but before this slot
+        # began running. Direct legacy callers that skip prepare_scan() still receive a fresh
+        # Event.
         with self._state_lock:
             if not self._request_prepared:
                 self._cancel_event.clear()
@@ -128,8 +142,8 @@ class ScanWorker(QObject):
                     result = service.run_scan(
                         device_id=req.device_id,
                         params=req.params,
-                        # A one-phase backend calls progress(fraction), which a
-                        # two-argument signal's emit rejects on its own.
+                        # A one-phase backend calls progress(fraction), which a two-argument signal's emit
+                        # rejects on its own.
                         progress=lambda fraction, phase="Scanning": self.progress.emit(fraction, phase),
                         cancel=self._cancel_event,
                     )
@@ -143,9 +157,8 @@ class ScanWorker(QObject):
                     if self._cancel_event.is_set():
                         outcome = ("cancelled", None)
                     else:
-                        # Acquisition is complete now.  Cancellation cannot abort
-                        # an in-progress file write, and it must never disguise a
-                        # disk or encoder failure as a cleanly stopped scan.
+                        # Acquisition is complete now. Cancellation cannot abort an in-progress file write, and
+                        # it must never disguise a disk or encoder failure as a cleanly stopped scan.
                         try:
                             path = service.write_result(
                                 result=result,
@@ -250,8 +263,8 @@ class ScanWorker(QObject):
         elif kind == "error":
             self.error.emit(payload or "Unknown scan error")
         elif kind == "finished":
-            # Return the strip so it need not wait for the feeder's auto-park.
-            # Capability-gated no-op on devices without an eject option.
+            # Return the strip, so it need not wait for the feeder's auto-park. A capability-gated
+            # no-op on devices without an eject option.
             self.eject(req.device_id)
 
     @pyqtSlot(RollPreviewRequest)
@@ -298,6 +311,58 @@ class ScanWorker(QObject):
             self.error.emit(payload or "Unknown scan error")
         else:
             self.roll_preview_finished.emit()
+
+    @pyqtSlot(PrescanRequest)
+    def run_prescan(self, req: PrescanRequest) -> None:
+        """Full-window colour preview at prescan_dpi; emit RGB without writing a file."""
+        if req.prescan_dpi <= 0:
+            self.prescan_error.emit("Device does not support Prescan")
+            return
+
+        with self._state_lock:
+            if not self._request_prepared:
+                self._cancel_event.clear()
+            self._request_prepared = False
+            self._scanning = True
+
+        outcome: tuple[str, object | None] = ("finished", None)
+        try:
+            if self._cancel_event.is_set():
+                outcome = ("cancelled", None)
+            else:
+                service = self._ensure_service()
+                params = ScanParams(
+                    dpi=req.prescan_dpi,
+                    depth=16,
+                    capture_ir=False,
+                    autofocus=False,
+                    auto_exposure=False,
+                    window=None,
+                )
+                result = service.run_scan(
+                    req.device_id,
+                    params,
+                    self.progress.emit,
+                    self._cancel_event,
+                )
+                if self._cancel_event.is_set():
+                    outcome = ("cancelled", None)
+                else:
+                    outcome = ("finished", result)
+        except Exception as error:
+            logger.exception("Prescan failed")
+            outcome = ("cancelled", None) if self._cancel_event.is_set() else ("error", str(error))
+        finally:
+            with self._state_lock:
+                self._scanning = False
+
+        kind, payload = outcome
+        if kind == "cancelled":
+            self.cancelled.emit()
+        elif kind == "error":
+            self.prescan_error.emit(str(payload or "Unknown prescan error"))
+        else:
+            self.prescan_ready.emit(payload)
 
     def prepare_scan(self) -> None:
         """Arm one queued scan without losing a Stop pressed before it starts."""

@@ -115,8 +115,8 @@ class ContactSheetService:
 
         caption_h = _caption_height(cell_px)
         band_rgb = tuple(int(round(0.85 * b + 0.15 * f)) for b, f in zip(bg, fg))
-        # Each photo + caption is a card, vertically centered in its slot so the
-        # caption always hugs its own image rather than floating in the cell.
+        # Each photo and caption is a card, vertically centered in its slot, so the caption always
+        # hugs its own image rather than floating in the cell.
         captions: list[tuple[int, int, int, str]] = []  # (band_x, band_y, band_w, text)
 
         for idx, tile in enumerate(tiles):

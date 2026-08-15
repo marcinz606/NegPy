@@ -1,3 +1,4 @@
+import functools
 import glob
 import os
 import platform
@@ -56,12 +57,12 @@ params = [
     # Scanner support: bundle the python-sane C extension but NOT libsane.so.1.
     # libsane.so.1 must come from the host so SANE can find its backend plugins
     # in /usr/lib/sane/. See libs_to_remove in package_linux().
-    # Requires: uv sync --group scanner before building on Linux/macOS.
+    # Requires: uv sync --group sane before building on Linux/macOS.
     *([] if is_windows else ["--hidden-import=sane", "--hidden-import=_sane"]),
     # Camera scanning: see collect_gphoto2_plugins() — the plugin trees need their
     # directory layout preserved, which --collect-all does not do.
     *([] if is_windows else ["--collect-all=gphoto2"]),
-    # pieusb scanner support (all platforms; it is the only backend on Windows).
+    # pieusb scanner support (all platforms).
     # libusb_package's own PyInstaller hook drops the bundled libusb at the bundle
     # root, but get_library_path() resolves it with importlib_resources against the
     # *package* directory — so without this it finds nothing and pyusb falls back to
@@ -69,6 +70,20 @@ params = [
     # lookup actually looks.
     "--hidden-import=pieusb",
     "--collect-all=libusb_package",
+    # Plustek / pyopticfilm: ship PyUSB + bundled libusb on Windows only.
+    # Linux/macOS use host libusb via PyUSB (same stack SANE needs).
+    *(
+        [
+            "--hidden-import=usb",
+            "--hidden-import=usb.core",
+            "--hidden-import=usb.backend.libusb1",
+            "--hidden-import=pyopticfilm",
+            "--collect-all=usb",
+            "--collect-all=pyopticfilm",
+        ]
+        if is_windows
+        else []
+    ),
     # Exclude unused modules
     # Metadata
     "--copy-metadata=imageio",
@@ -321,6 +336,140 @@ def package_windows():
         raise
 
 
+# Every .so/.dylib under Contents/Frameworks known to link liblcms2.2.dylib.
+# See LIBLCMS2_DYLIB_COLLISION.md for how this list and fix_lcms2_dylib_collision()
+# were derived and verified.
+_LCMS2_CONSUMER_GLOBS = [
+    "PIL/_imagingcms*.so",
+    "rawpy/libraw_r*.dylib",
+    "imagecodecs/_cms.abi3.so",
+    "imagecodecs/_jpeg2k.abi3.so",
+    "libjxl_cms*.dylib",
+    "cv2/*/libjxl_cms*.dylib",
+]
+
+
+def fix_lcms2_dylib_collision():
+    """Repoint the canonical liblcms2.2.dylib at imagecodecs' own copy.
+
+    Raises if imagecodecs' own copy can't be found unambiguously, or if any
+    known consumer would be missing a symbol it needs from it — better a red
+    build than a silently shipped repeat of this bug. See
+    LIBLCMS2_DYLIB_COLLISION.md. Must run before codesign_macos_app() so the
+    corrected symlink is covered by the final signature.
+    """
+    frameworks = os.path.join("dist", f"{APP_NAME}.app", "Contents", "Frameworks")
+    canonical = os.path.join(frameworks, "liblcms2.2.dylib")
+    matches = glob.glob(os.path.join(frameworks, "imagecodecs", "*", "liblcms2.2.dylib"))
+    if len(matches) != 1:
+        raise RuntimeError(f"expected exactly one imagecodecs liblcms2.2.dylib under {frameworks}, found {matches}")
+    rel_target = os.path.relpath(matches[0], frameworks)
+    if os.path.islink(canonical) or os.path.exists(canonical):
+        os.remove(canonical)
+    os.symlink(rel_target, canonical)
+    print(f"Repointed {canonical} -> {rel_target} (imagecodecs' own liblcms2.2.dylib)")
+
+    exports = _nm_symbols(matches[0], defined=True)
+    gaps = []
+    for pattern in _LCMS2_CONSUMER_GLOBS:
+        for consumer in glob.glob(os.path.join(frameworks, pattern)):
+            needed = {s for s in _nm_symbols(consumer, defined=False) if s.startswith("_cms")}
+            missing = needed - exports
+            if missing:
+                gaps.append((consumer, sorted(missing)))
+    if gaps:
+        detail = "\n".join(f"  {os.path.relpath(c, frameworks)}: missing {m}" for c, m in gaps)
+        raise RuntimeError(f"imagecodecs' liblcms2.2.dylib is missing symbols other consumers need:\n{detail}")
+
+
+@functools.lru_cache(maxsize=None)
+def _nm_symbols(path: str, *, defined: bool) -> frozenset[str]:
+    """Return a Mach-O file's defined-exported (-gU) or undefined (-u) symbol names."""
+    flag = "-gU" if defined else "-u"
+    out = subprocess.run(["nm", flag, path], capture_output=True, text=True, check=True).stdout
+    if defined:
+        return frozenset(line.split()[-1] for line in out.splitlines() if line.strip())
+    return frozenset(line.strip() for line in out.splitlines() if line.strip())
+
+
+@functools.lru_cache(maxsize=None)
+def _dylib_load_basenames(path: str) -> frozenset[str]:
+    """Basenames a Mach-O file references via LC_LOAD_DYLIB (its real, linked-in dependencies)."""
+    out = subprocess.run(["otool", "-L", path], capture_output=True, text=True, check=True).stdout
+    return frozenset(os.path.basename(line.split()[0]) for line in out.splitlines()[1:] if line.strip())
+
+
+def check_bundled_dylib_collisions():
+    """Verify every same-basename dylib PyInstaller collapsed to one canonical
+    copy still satisfies every real consumer's symbols.
+
+    Generalizes fix_lcms2_dylib_collision() to the whole bundle: cv2, PIL,
+    rawpy and imagecodecs each vendor their own copies of common libraries
+    (libjpeg, libpng, libtiff, ...) under identical filenames, and PyInstaller
+    keeps only one arbitrary pick as the canonical @rpath target for all of
+    them -- the exact bug class in LIBLCMS2_DYLIB_COLLISION.md, which this
+    scans for instead of relying on a curated list of known-risky basenames
+    (that fix's own consumer glob missed a real libjpeg collision on first
+    pass -- see the doc). Raises rather than warns, so a future dependency
+    bump that silently drops a symbol fails the build instead of shipping
+    broken silently.
+
+    Does not check libraries PyInstaller fails to bundle at all (e.g. numba's
+    optional libomp.dylib) -- that is a different failure mode (absence, not
+    a collision) with no evidence of user impact; see LIBLCMS2_DYLIB_COLLISION.md.
+    """
+    frameworks = os.path.join("dist", f"{APP_NAME}.app", "Contents", "Frameworks")
+    all_files = [
+        os.path.join(dirpath, name)
+        for dirpath, _, filenames in os.walk(frameworks)
+        for name in filenames
+        if name.endswith((".dylib", ".so"))
+    ]
+    by_basename: dict[str, list[str]] = {}
+    for path in all_files:
+        if not os.path.islink(path):
+            by_basename.setdefault(os.path.basename(path), []).append(path)
+
+    gaps = []
+    for basename, copies in by_basename.items():
+        canonical = os.path.join(frameworks, basename)
+        if not os.path.islink(canonical):
+            continue  # no top-level collapse for this basename -- nothing collided
+        canonical_real = os.path.realpath(canonical)
+        distinct = {p for p in copies if os.path.realpath(p) != canonical_real}
+        if not distinct:
+            continue  # every copy is byte-identical -- an arbitrary pick can't lose symbols
+        exports = _nm_symbols(canonical_real, defined=True)
+        provided_anywhere: set[str] = set(exports)
+        for p in distinct:
+            provided_anywhere |= _nm_symbols(p, defined=True)
+
+        for consumer in all_files:
+            if os.path.islink(consumer) or os.path.realpath(consumer) == canonical_real or consumer in distinct:
+                continue
+            if basename not in _dylib_load_basenames(consumer):
+                continue
+            needed = _nm_symbols(consumer, defined=False) & provided_anywhere
+            missing = needed - exports
+            if missing:
+                gaps.append((consumer, basename, sorted(missing)))
+
+    if gaps:
+        detail = "\n".join(f"  {os.path.relpath(c, frameworks)} needs {b}: missing {m}" for c, b, m in gaps)
+        raise RuntimeError(f"a bundled dylib collision leaves a consumer missing symbols:\n{detail}")
+
+
+def codesign_macos_app():
+    """Apply a fresh, consistent ad-hoc signature over the whole .app.
+
+    PyInstaller's own signing pass does not reliably reach every binary it
+    moves or rewrites under --collect-all.
+    """
+    app_path = os.path.join("dist", f"{APP_NAME}.app")
+    print(f"Re-signing {app_path} (ad-hoc, deep)...")
+    subprocess.run(["codesign", "--force", "--deep", "-s", "-", app_path], check=True)
+
+
 def package_macos():
     """Package the built application into a DMG with Applications symlink."""
     print(f"Packaging for macOS (DMG) version {VERSION}...")
@@ -387,6 +536,9 @@ def build():
     elif is_windows:
         package_windows()
     elif is_macos:
+        fix_lcms2_dylib_collision()
+        check_bundled_dylib_collisions()
+        codesign_macos_app()
         package_macos()
 
 
