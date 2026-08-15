@@ -7,6 +7,7 @@ that lets a GPU texture be retained out of the engine's pool instead.
 """
 
 import unittest
+from functools import partial
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -48,6 +49,9 @@ def _stub(memo, **overrides):
         set_status=MagicMock(),
         render_requested=MagicMock(),
     )
+    # Real, not mocked: the frame guard and the queue drain are part of what is pinned here.
+    stub._renders_another_frame = partial(AppController._renders_another_frame, stub)
+    stub._dispatch_pending_render = partial(AppController._dispatch_pending_render, stub)
     for key, value in overrides.items():
         setattr(stub, key, value)
     return stub

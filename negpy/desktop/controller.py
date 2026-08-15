@@ -1398,6 +1398,10 @@ class AppController(QObject):
                 self.state.last_metrics["content_rect"] = memo.get("content_rect")
                 self.state.last_metrics["splash"] = False
                 self.state.last_metrics["compare"] = False
+                # These pixels are this frame's own last render. Leaving the outgoing
+                # frame's hash next to them would file them under it on the next
+                # thumbnail refresh, which reads whatever last_metrics holds.
+                self.state.last_metrics["source_hash"] = target_hash
             self.image_updated.emit()
 
         self.state.preview_raw = None
@@ -4461,9 +4465,26 @@ class AppController(QObject):
             self._busy_toast = False
             self.set_status("")
 
+    def _renders_another_frame(self, metrics: Dict[str, Any]) -> bool:
+        """True when a render belongs to a frame that is no longer selected.
+
+        A render carries the hash it was dispatched for, and nothing cancels one that is
+        already in flight — click the next frame mid-render and it still lands. Its pixels
+        and its measurements describe the frame the user has left, so they must not reach
+        the canvas or ``last_metrics``. A task dispatched before the file had a hash
+        carries the same ``"preview"`` placeholder ``request_render`` gives it.
+        """
+        src = metrics.get("source_hash")
+        return src is not None and src != (self.state.current_file_hash or "preview")
+
     def _on_render_finished(self, _result: Any, metrics: Dict[str, Any]) -> None:
         self._is_rendering = False
         self._clear_busy_toast()
+
+        # The queue still drains — only the frame this render produced is unusable.
+        if self._renders_another_frame(metrics):
+            self._dispatch_pending_render()
+            return
 
         if self._first_render_t0 is not None and not metrics.get("ephemeral"):
             logger.info(
@@ -4516,6 +4537,10 @@ class AppController(QObject):
             # persist=False: refresh in-memory only; disk JPEG written on switch/save/export.
             self._update_thumbnail_from_state(persist=False)
 
+        self._dispatch_pending_render()
+
+    def _dispatch_pending_render(self) -> None:
+        """Start the render queued while the last one was running, if any."""
         if self._pending_render_task:
             task = self._pending_render_task
             self._pending_render_task = None
@@ -4526,15 +4551,22 @@ class AppController(QObject):
         """
         Handles late-arriving metrics and persists analysis results.
         """
+        # A render of a frame the user has left measured that frame, not this one:
+        # merging it corrupts the histogram, densitometer and UV grid until the next
+        # render replaces every key it touched.
+        if self._renders_another_frame(metrics):
+            return
+
         with self.state.metrics_lock:
             self.state.last_metrics.update(metrics)
         if "ir_degenerate" in metrics:
             self.state.ir_degenerate = bool(metrics["ir_degenerate"])
         self.metrics_available.emit(metrics)
 
-        # Do not persist bounds from a splash render, or from a render of another file
-        # arriving late after a fast switch: they are not this frame's bounds. Nor from a
-        # mid-gesture frame, which measured the proxy rather than the real buffer.
+        # Do not persist bounds from a splash render, or from a frame with no identity of
+        # its own: they are not this frame's bounds. Nor from a mid-gesture frame, which
+        # measured the proxy rather than the real buffer. A render of another file was
+        # already dropped above.
         if metrics.get("ephemeral") or metrics.get("interactive"):
             return
         src = metrics.get("source_hash")
@@ -4578,11 +4610,7 @@ class AppController(QObject):
         self.set_status(f"Failed to load file: {message}", 5000)
         self.load_failed.emit()
 
-        if self._pending_render_task:
-            task = self._pending_render_task
-            self._pending_render_task = None
-            self._is_rendering = True
-            self.render_requested.emit(task)
+        self._dispatch_pending_render()
 
     def _on_export_task_error(self, _message: str) -> None:
         self._export_failures += 1

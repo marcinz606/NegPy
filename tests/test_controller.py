@@ -396,6 +396,105 @@ class TestAppController(unittest.TestCase):
         self.controller._on_render_finished(None, {"ephemeral": True})
         self.controller._update_thumbnail_from_state.assert_not_called()
 
+    def test_render_of_a_frame_the_user_left_is_dropped(self):
+        """Switching files mid-render leaves that render in flight. When it lands it must
+        not repaint the canvas nor overwrite the new frame's metrics."""
+        import numpy as np
+
+        state = self.controller.state
+        state.current_file_path = "/tmp/B.NEF"
+        state.current_file_hash = "hB"
+        current = np.full((2, 2, 3), 0.5, dtype=np.float32)
+        state.last_metrics = {"base_positive": current, "source_hash": "hB", "log_bounds": (0.1, 0.9)}
+
+        repaints = []
+        self.controller.image_updated.connect(lambda: repaints.append(1))
+        self.controller._update_thumbnail_from_state = MagicMock()
+
+        stale = {"base_positive": np.zeros((2, 2, 3), dtype=np.float32), "source_hash": "hA", "log_bounds": (0.4, 0.4)}
+        self.controller._on_render_finished(None, stale)
+        self.controller._on_metrics_updated(stale)
+
+        self.assertEqual(repaints, [])
+        self.assertIs(state.last_metrics["base_positive"], current)
+        self.assertEqual(state.last_metrics["log_bounds"], (0.1, 0.9))
+        self.controller._update_thumbnail_from_state.assert_not_called()
+
+        # The queue still drains — a stale frame must not wedge the render loop.
+        self.assertFalse(self.controller._is_rendering)
+
+    def test_render_of_the_current_frame_still_lands(self):
+        """The guard keys on the frame, not on staleness in general: the selected frame's
+        render — and an unhashed preview's, which carries the 'preview' placeholder —
+        repaint as before."""
+        import numpy as np
+
+        state = self.controller.state
+        state.current_file_path = "/tmp/B.NEF"
+        state.current_file_hash = "hB"
+
+        repaints = []
+        self.controller.image_updated.connect(lambda: repaints.append(1))
+        self.controller._update_thumbnail_from_state = MagicMock()
+
+        self.controller._on_render_finished(None, {"base_positive": np.zeros((2, 2, 3), np.float32), "source_hash": "hB"})
+        self.assertEqual(len(repaints), 1)
+
+        state.current_file_hash = None
+        self.controller._on_render_finished(None, {"base_positive": np.zeros((2, 2, 3), np.float32), "source_hash": "preview"})
+        self.assertEqual(len(repaints), 2)
+
+        # A render with no identity at all (older callers) is not treated as stale.
+        self.controller._on_render_finished(None, {})
+        self.assertEqual(len(repaints), 3)
+
+    def test_navigate_back_paint_carries_its_own_frames_identity(self):
+        """The memo fast path paints the incoming frame's last render. Leaving the
+        outgoing frame's hash beside those pixels files them under it on the next
+        thumbnail refresh."""
+        import numpy as np
+
+        state = self.controller.state
+        state.uploaded_files = [
+            {"name": "a.dng", "path": "/tmp/a.dng", "hash": "hA"},
+            {"name": "b.dng", "path": "/tmp/b.dng", "hash": "hB"},
+        ]
+        state.current_file_path = "/tmp/a.dng"
+        state.current_file_hash = "hA"
+        state.last_metrics = {"source_hash": "hA"}
+
+        cached = np.zeros((2, 2, 3), dtype=np.float32)
+        self.controller._render_memo.store("hB", self.controller._render_memo_key(), {"base_positive": cached, "content_rect": None})
+
+        self.controller.load_file("/tmp/b.dng")
+
+        self.assertIs(state.last_metrics["base_positive"], cached)
+        self.assertEqual(state.last_metrics["source_hash"], "hB")
+
+    def test_pending_render_is_dispatched_after_a_dropped_frame(self):
+        """A render queued behind the stale one must still be started."""
+        import numpy as np
+
+        from negpy.desktop.workers.render import RenderTask
+
+        state = self.controller.state
+        state.current_file_hash = "hB"
+        queued = RenderTask(
+            buffer=np.zeros((1, 1, 3), np.float32),
+            config=WorkspaceConfig(),
+            source_hash="hB",
+            preview_size=1.0,
+        )
+        self.controller._pending_render_task = queued
+
+        dispatched = []
+        self.controller.render_requested.connect(dispatched.append)
+        self.controller._on_render_finished(None, {"source_hash": "hA"})
+
+        self.assertEqual(dispatched, [queued])
+        self.assertIsNone(self.controller._pending_render_task)
+        self.assertTrue(self.controller._is_rendering)
+
     def test_proof_active_gated_by_toggle(self):
         """proof_active() is False unless the soft-proof toggle is on, even with an
         export color space set (which always resolves an output profile)."""
