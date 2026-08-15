@@ -104,6 +104,8 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "white_point_inc": ShortcutEntry("Alt+P", "White point up", "Process"),
     "black_point_dec": ShortcutEntry("Alt+Shift+O", "Black point down", "Process"),
     "black_point_inc": ShortcutEntry("Alt+O", "Black point up", "Process"),
+    "render_ev_dec": ShortcutEntry("", "Render exposure down", "Process"),
+    "render_ev_inc": ShortcutEntry("", "Render exposure up", "Process"),
     "separation_dec": ShortcutEntry("Alt+Shift+1", "Crosstalk down", "Process"),
     "separation_inc": ShortcutEntry("Alt+1", "Crosstalk up", "Process"),
     "chroma_denoise_dec": ShortcutEntry("Alt+Shift+2", "Denoise down", "Lab"),
