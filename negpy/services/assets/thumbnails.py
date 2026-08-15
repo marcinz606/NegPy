@@ -186,8 +186,8 @@ def preview_positive(img: Image.Image, process_mode: str = "") -> Image.Image:
     if mode is ProcessMode.E6:
         return img
 
-    # A lone narrowband exposure carries its picture in one channel; the other two hold
-    # only near-black noise, which the log below would stretch into a solid color cast.
+    # A lone narrowband exposure carries its picture in one channel, and the other two hold
+    # only near-black noise that the log below would stretch into a solid color cast.
     # Borrowing the channel that has the signal renders it as the monochrome it is.
     peaks = np.percentile(linear, 99.0, axis=(0, 1))
     strongest = int(np.argmax(peaks))

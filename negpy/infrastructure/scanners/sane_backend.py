@@ -41,21 +41,19 @@ CANONICAL_DPI_STOPS = (75, 150, 300, 600, 1200, 2400, 3600, 4800, 6400, 7200, 96
 # Their presence-only capability behavior predates Coolscan support.
 _IR_OPTION_NAMES = ("ir", "preview_ir")
 
-# coolscan3's exact boolean option carries IR inline as a fourth sample while
-# still reporting SANE_FRAME_RGB. Other Nikon backends use the same spelling
-# with different semantics, so it must stay backend-scoped.
+# coolscan3's exact boolean option carries IR inline as a fourth sample while still
+# reporting SANE_FRAME_RGB. Other Nikon backends spell it the same way with different
+# semantics, so it must stay backend-scoped.
 _COOLSCAN3_IR_OPTION_NAME = "infrared"
 
 # Vendor eject/unload action option (SANE_TYPE_BUTTON on the coolscan3 backend).
-# Presence-only, like _find_ir_option — a device without it has no eject.
+# Presence-only, like _find_ir_option: a device without it has no eject.
 _EJECT_OPTION_NAMES = ("eject",)
 
-# python-sane 2.9.2 cannot activate a SANE_TYPE_BUTTON — setattr raises "Buttons
-# don't have values", set_option raises "...can't be set", set_auto_option raises
-# "Invalid argument" (all verified on an LS-50). So eject is pressed by shelling
-# out to `scanimage --eject`, which performs the C-level sane_control_option
-# SET_VALUE. scanimage then runs a spurious sane_start that exits non-zero with
-# "out of documents"; the eject has already fired, so that exit is expected.
+# python-sane 2.9.2 cannot activate a SANE_TYPE_BUTTON: every setter raises, verified
+# on an LS-50. So eject shells out to `scanimage --eject`, which performs the C-level
+# sane_control_option SET_VALUE. scanimage then runs a spurious sane_start that exits
+# non-zero with "out of documents". The eject has already fired, so that exit is expected.
 _EJECT_TIMEOUT_S = 30.0
 _EJECT_BENIGN_STDERR_MARKERS = ("out of documents", "no documents", "no more documents")
 
@@ -67,9 +65,9 @@ _SANE_UNIT_MM = 3
 _PIEUSB_PREFIX = "pieusb:"
 _COOLSCAN3_PREFIX = "coolscan3:"
 
-# Stable SANE status strings for transport glitches worth one retry (a Coolscan's
-# USB link occasionally hiccups mid-strip). A real error — bad option, missing
-# frame — carries a different message and must fail fast.
+# Stable SANE status strings for transport glitches worth one retry, such as a USB
+# hiccup mid-strip. A real error (bad option, missing frame) carries a different
+# message and must fail fast.
 _TRANSIENT_IO_MARKERS = ("error during device i/o", "device busy")
 
 
@@ -172,7 +170,7 @@ def _detect_depths(opt) -> tuple[int, ...]:
     constraint = opt["depth"].constraint
     if not isinstance(constraint, list):
         return (8, 16)
-    # Drop lineart (1-bit) — useless for film and clutters the UI.
+    # Drop lineart (1-bit): useless for film, and it clutters the UI.
     depths = tuple(sorted(int(d) for d in constraint if int(d) >= 8))
     return depths or (8, 16)
 
@@ -194,8 +192,8 @@ def _detect_explicit_sources(opt) -> tuple[ScanMode, ...]:
 
 
 def _detect_max_area(opt) -> tuple[float, float]:
-    # opt keys are py_names (hyphens → underscores). constraint is a
-    # (min, max, step) range. Pixel maxima are inclusive coordinates.
+    # opt keys are py_names (hyphens become underscores). constraint is a (min, max, step)
+    # range. Pixel maxima are inclusive coordinates.
     def _upper_and_unit(name: str) -> tuple[float, int | None]:
         if name not in opt:
             return (-1.0, None)
@@ -527,8 +525,8 @@ def _caps_from_options(opt, device_id: str = "") -> ScannerCapabilities:
     """Build ScannerCapabilities from a SANE option map. Pure — no `sane` import."""
     sources = _detect_explicit_sources(opt)
     if not sources and _infer_film_scanner(opt, device_id):
-        # Dedicated film scanner with no `source` option (e.g. pieusb). `sources` is only a
-        # detection/UI gate — never applied to the device — so populate it to unblock scanning.
+        # Dedicated film scanner with no `source` option (pieusb). `sources` is only a detection
+        # and UI gate, never applied to the device, so populate it to unblock scanning.
         sources = (ScanMode.NEGATIVE, ScanMode.POSITIVE, ScanMode.TRANSPARENCY)
     return ScannerCapabilities(
         ir_channel=_detect_ir(opt, device_id),
@@ -551,8 +549,8 @@ def _split_rgbi(arr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return arr[:, :, :3], arr[:, :, 3]
 
 
-# Downsample width for the phase-correlation probe: cheap and denoises the FFT peak
-# (mirrors negpy.features.rgbscan.logic._EST_WIDTH's same tradeoff).
+# Downsample width for the phase-correlation probe: cheap, and it denoises the FFT peak.
+# Mirrors the same tradeoff in negpy.features.rgbscan.logic._EST_WIDTH.
 _IR_ALIGN_PROBE_WIDTH = 1024
 # Correlation-failure guard: past this the estimate is noise, not a real carriage offset.
 _IR_ALIGN_MAX_SHIFT_FRAC = 0.02
@@ -601,8 +599,8 @@ def _align_ir_to_rgb(rgb: np.ndarray, ir: np.ndarray) -> np.ndarray:
     ix, iy = int(round(dx)), int(round(dy))
     if ix == 0 and iy == 0:
         return ir
-    # out(x, y) = ir(x + ix, y + iy), edge-replicated — matches estimate_shift's
-    # convention (mov ≈ ref shifted by (dx, dy)) with zero interpolation.
+    # out(x, y) = ir(x + ix, y + iy), edge-replicated. Matches estimate_shift's convention
+    # with zero interpolation.
     x_idx = np.clip(np.arange(w) + ix, 0, w - 1)
     y_idx = np.clip(np.arange(h) + iy, 0, h - 1)
     return ir[y_idx][:, x_idx]
@@ -661,9 +659,9 @@ def _reinterpret_channels(arr: np.ndarray, width: int, lines: int) -> np.ndarray
     missing = expected - total
     if missing in (width, 2 * width):
         flat = arr.reshape(-1)
-        # Every sample through the penultimate row is present. Reshape only that
-        # complete prefix as a zero-copy view; padding a full 188 MB RGBI frame
-        # merely to discard its incomplete last row can double peak RAM.
+        # Every sample through the penultimate row is present. Reshape only that complete prefix
+        # as a zero-copy view: padding a full RGBI frame merely to discard its incomplete last
+        # row can double peak RAM.
         complete = (lines - 1) * width * 4
         return flat[:complete].reshape(lines - 1, width, 4)
     if total % (width * lines):
@@ -812,7 +810,7 @@ class SaneBackend:
         for raw in raw_devices:
             held = self._session_holding(raw[0])
             if held is not None:
-                # Single-open hardware — probing would open the held device.
+                # Single-open hardware: probing would open the held device.
                 if held.device is not None:
                     devices.append(held.device)
                 else:
@@ -981,15 +979,15 @@ class SaneBackend:
             if params.capture_ir and ir_strategy is None:
                 raise RuntimeError("IR capture requested but the device exposes no usable infrared mechanism")
 
-            # Not every backend has a `mode` option (coolscan3 exposes none) —
-            # only touch options the device has.
+            # Not every backend has a `mode` option, and coolscan3 exposes none, so touch only the
+            # options the device has.
             if hasattr(dev, "opt") and "mode" in dev.opt:
                 dev.mode = "RGBI" if (ir_strategy == "rgbi" or ir_strategy == "rgbi-hw3") else "Color"
             dev.depth = params.depth
             dev.resolution = params.dpi
 
-            # Validate the complete requested option set before applying any of
-            # it, so a missing option never leaves the feeder half-positioned.
+            # Validate the complete requested option set before applying any of it, so a missing
+            # option never leaves the feeder half-positioned.
             option_map = dev.opt if hasattr(dev, "opt") else {}
             ir_opt = _find_coolscan3_ir_option(option_map, device_id) if ir_strategy == "option" else None
             required_options: list[tuple[str, str]] = []
@@ -1004,8 +1002,8 @@ class SaneBackend:
             for option_name, absent_message in required_options:
                 _require_writable_option(option_map, option_name, absent_message)
 
-            # Position the film before autofocus, auto-exposure, or scan start.
-            # The scan blacks out at the frame boundary — below 0 is unreachable.
+            # Position the film before autofocus, auto-exposure or scan start. The scan blacks out
+            # at the frame boundary, so below 0 is unreachable.
             offset_mm = clamp_frame_offset_mm(params.frame_offset_mm, _feed_pitch_mm(option_map))
             if params.frame is not None:
                 try:
@@ -1015,8 +1013,8 @@ class SaneBackend:
 
             _apply_frame_offset(dev, offset_mm)
 
-            # Autofocus where the device supports it (the LS-5000 powers up at
-            # an uncalibrated focus position — unfocused otherwise).
+            # Autofocus where the device supports it. The LS-5000 powers up at an uncalibrated
+            # focus position and is unfocused otherwise.
             if params.autofocus and hasattr(dev, "opt") and "autofocus" in dev.opt:
                 try:
                     dev.autofocus = True
@@ -1030,9 +1028,9 @@ class SaneBackend:
                 except Exception as e:
                     raise RuntimeError(f"Could not enable auto-exposure: {e}") from e
 
-            # Manual scan exposure time (SANE `scan-exposure-time`). Applied only
-            # when the device exposes the option; a device without it ignores the
-            # request silently so a saved setting never breaks a different scanner.
+            # Manual scan exposure time (SANE `scan-exposure-time`), applied only when the device
+            # exposes the option. A device without it ignores the request silently, so a saved
+            # setting never breaks a different scanner.
             if params.exposure_time_us is not None:
                 _et_name = _find_scan_exposure_time_option(option_map)
                 if _et_name is not None:
@@ -1041,9 +1039,9 @@ class SaneBackend:
                     except Exception as e:
                         raise RuntimeError(f"Could not set scan-exposure-time={params.exposure_time_us}: {e}") from e
 
-            # Inline IR via a boolean option (coolscan3 `infrared`): the 4th
-            # sample rides in the same frame, no mode/source change. IR was
-            # explicitly requested — fail loud rather than silently drop it.
+            # Inline IR through a boolean option (coolscan3 `infrared`): the 4th sample rides in the
+            # same frame, with no mode or source change. IR was explicitly requested, so fail loud
+            # rather than drop it.
             if ir_strategy == "option":
                 if ir_opt is None:
                     raise RuntimeError("IR option strategy selected but the device's IR option is unavailable")
@@ -1055,7 +1053,7 @@ class SaneBackend:
             if device_id.startswith(_PIEUSB_PREFIX):
                 self._set_pieusb_flags(dev, params.capture_ir)
 
-            # offset + extent must stay within one pitch — the overrun comes back black.
+            # offset + extent must stay within one pitch, or the overrun comes back black.
             window = params.window
             extent_cap = _frame_extent_cap(option_map, offset_mm)
             if extent_cap is not None:
@@ -1082,8 +1080,8 @@ class SaneBackend:
             ir_array = None
             ir_valid_mask: np.ndarray | None = None
 
-            # Frame geometry truth, for channel reinterpretation below
-            # (python-sane assumes 3 samples/pixel; see _reinterpret_channels).
+            # Frame geometry truth, for the channel reinterpretation below. python-sane assumes 3
+            # samples per pixel; see _reinterpret_channels.
             try:
                 frame_format, last_frame, (px_per_line, n_lines), returned_depth, bytes_per_line = dev.get_parameters()
             except Exception:
@@ -1104,16 +1102,16 @@ class SaneBackend:
                     context=f"Inline infrared frame for strategy {ir_strategy!r}",
                 )
 
-            # Read RGB frame. Use arr_snap() (numpy path) — snap() goes via PIL
-            # which is 8-bit only and silently truncates 16-bit RGB buffers.
+            # Read the RGB frame with arr_snap(), the numpy path. snap() goes through PIL, which is
+            # 8-bit only and truncates 16-bit RGB buffers.
             try:
                 rgb_array = dev.arr_snap(progress=_snap_progress_callback(progress))
             except Exception as e:
                 dev.cancel()
                 raise _as_scan_error(e, f"RGB scan failed: {e}") from e
 
-            # Inline-IR frames carry infrared as the 4th channel — recover the
-            # true shape (python-sane misreads 4-sample frames) and split it off.
+            # Inline-IR frames carry infrared as the 4th channel. Recover the true shape, which
+            # python-sane misreads on 4-sample frames, and split it off.
             if ir_strategy == "option" or ir_strategy == "rgbi-hw3":
                 rgb_array = _reinterpret_channels(rgb_array, px_per_line, n_lines)
                 if rgb_array.ndim == 3 and rgb_array.shape[2] == 4:
@@ -1136,9 +1134,9 @@ class SaneBackend:
                 dev.cancel()
                 raise RuntimeError("Scan cancelled")
 
-            # Legacy IR: separate scan via an IR source string (Plustek). Its own
-            # full pass, so it reports its own 0->1 — matches the RGB pass above
-            # rather than sharing one bar, and needs no ir_strategy conditionality.
+            # Legacy IR: a separate scan through an IR source string (Plustek). It is its own full
+            # pass, so it reports its own 0 to 1 like the RGB pass above and needs no ir_strategy
+            # conditionality.
             if ir_strategy == "source":
                 try:
                     old_source = dev.source
@@ -1271,9 +1269,9 @@ class SaneBackend:
             return "rgbi-hw3"
         if _mode_has_rgbi(opt):
             return "rgbi"
-        # Inline-boolean IR is a coolscan3 contract (4th sample in the same
-        # frame). coolscan2 exposes the same option name but delivers IR as a
-        # separate later frame — do not claim it here.
+        # Inline-boolean IR is a coolscan3 contract: the 4th sample in the same frame. coolscan2
+        # exposes the same option name but delivers IR as a separate later frame, so do not
+        # claim it here.
         if backend_id.startswith(_COOLSCAN3_PREFIX) and _find_coolscan3_ir_option(opt, device_id) is not None:
             return "option"
         if SaneBackend._get_ir_source(dev):

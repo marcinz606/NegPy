@@ -21,8 +21,8 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# Inset for the floating bottom toolbar so the pill is not flush against / clipped
-# by the canvas edge on tight laptop layouts.
+# Inset for the floating bottom toolbar, so the pill is not flush against the canvas edge
+# or clipped by it on tight laptop layouts.
 _TOOLBAR_INSET = THEME.space_xl
 
 
@@ -61,8 +61,8 @@ def _cursor_for_tool(mode: ToolMode) -> QCursor | Qt.CursorShape:
         if _scratch_pen_cursor is None:
             import qtawesome as qta
 
-            # Rotated 90°: the glyph's nib swings from bottom-left to top-left,
-            # tail to lower-right — reads like a normal pointer, tip up-left.
+            # Rotated 90°: the glyph's nib swings from bottom-left to top-left and the tail to
+            # lower-right, so it reads like a normal pointer with the tip up-left.
             pix = qta.icon("fa5s.pen-nib", color="white", rotated=90).pixmap(18, 18)
             _scratch_pen_cursor = QCursor(pix, 2, 2)
         return _scratch_pen_cursor
@@ -189,8 +189,8 @@ class ImageCanvas(QWidget):
     def set_floating_toolbar(self, toolbar: QWidget) -> None:
         """Adopts the action toolbar as a floating pill anchored to the canvas bottom."""
         toolbar.setParent(self)
-        # The canvas carries tool cursors (blank heal brush, pen nib, WB picker);
-        # the toolbar must not inherit them — buttons want the normal arrow.
+        # The canvas carries tool cursors (blank heal brush, pen nib, WB picker) and the toolbar
+        # must not inherit them, because buttons want the normal arrow.
         toolbar.setCursor(Qt.CursorShape.ArrowCursor)
         toolbar.show()
         self._floating_toolbar = toolbar
@@ -291,8 +291,8 @@ class ImageCanvas(QWidget):
             self.set_zoom(1.0)
             return
         zmin = APP_CONFIG.canvas_zoom_min
-        # Allow above the normal wheel max so true 100% stays reachable for images much
-        # larger than the viewport (where 1 / fit_scale exceeds canvas_zoom_max).
+        # Allow above the normal wheel max, so a true 100% stays reachable for images much larger
+        # than the viewport, where 1 / fit_scale exceeds canvas_zoom_max.
         self.zoom_level = max(zmin, (percent / 100.0) / fs)
         if self.zoom_level <= 1.0:
             self.pan_offset = QPointF(0, 0)
@@ -594,8 +594,8 @@ class ImageCanvas(QWidget):
             self.overlay.show()
             self.overlay.raise_()
         self._raise_floating_widgets()
-        # The image resolution can change between renders (e.g. toggling HQ), which
-        # shifts the fit scale, so refresh the true-zoom % readout for the new buffer.
+        # The image resolution can change between renders, for example on toggling HQ, which
+        # shifts the fit scale. Refresh the true-zoom readout for the new buffer.
         self.zoom_changed.emit(self.zoom_level)
 
     def update_overlay(self, filename: str, res: str, colorspace: str, extra: str, edits: int = 0) -> None:
@@ -606,8 +606,8 @@ class ImageCanvas(QWidget):
             event.ignore()
             return
 
-        # While a heal tool is live, the menu serves that tool — the general
-        # settings menu would be noise mid-retouch.
+        # While a heal tool is live the menu serves that tool: the general settings menu would
+        # be noise mid-retouch.
         if self.state.active_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK):
             self._exec_retouch_menu(event)
             return

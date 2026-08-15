@@ -50,9 +50,9 @@ class CalibrationWindow(QDialog):
         self.image.setCursor(Qt.CursorShape.CrossCursor)  # crosshair cursor to place it precisely
         layout.addWidget(self.image, 1)
 
-        # ── ISO + aperture (populated from the stream's settings JSON, like the live view) ──
-        # The calibration meters the base at THESE settings and ties the preset to them, so set the
-        # ones you'll scan with. The shutter isn't here: the calibration solves it.
+        # ISO and aperture, populated from the stream's settings JSON like the live view.
+        # The calibration meters the base at THESE settings and ties the preset to them, so set
+        # the ones you will scan with. The shutter is not here: the calibration solves it.
         settings_row = QHBoxLayout()
         self.iso_stepper = SettingStepper()
         self.aperture_stepper = SettingStepper()
@@ -114,8 +114,8 @@ class CalibrationWindow(QDialog):
         self.set_inputs_locked(False)  # a fresh window always starts editable
         self.name_edit.setText(default_name)
         self.image.clear_roi()
-        # Blank the previous session's frame before showing, so reopening goes straight to black +
-        # the buffering spinner instead of briefly flashing the stale image.
+        # Blank the previous session's frame before showing, so reopening goes straight to black
+        # and the buffering spinner instead of flashing the stale image.
         self.image.clear_frame()
         self.image.set_loading(True)
         self.progress.setVisible(False)

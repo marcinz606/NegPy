@@ -109,8 +109,8 @@ def srgb_to_linear(img: np.ndarray) -> np.ndarray:
     return np.where(img <= 0.04045, img / 12.92, ((img + 0.055) / 1.055) ** 2.4).astype(np.float32)
 
 
-# Working-space output transform: Adobe RGB (1998) TRC — a pure 563/256 power with no
-# linear segment. Applied at the pipeline boundary; composes with the Adobe RGB ICC.
+# Working-space output transform: the Adobe RGB (1998) TRC, a pure 563/256 power with no
+# linear segment. Applied at the pipeline boundary, and it composes with the Adobe RGB ICC.
 # Mirrored in WGSL oetf_encode/oetf_decode.
 _WORKING_GAMMA = 563.0 / 256.0  # 2.19921875
 
@@ -155,8 +155,8 @@ def working_oetf_decode(img: np.ndarray) -> np.ndarray:
     return _oetf_decode_flat(flat, np.float32(_WORKING_GAMMA)).reshape(img.shape)
 
 
-# CIELAB in the working space (Adobe RGB 1998, D65): Adobe RGB primaries.
-# Mirrors the WGSL rgb_to_lab; OpenCV's float Lab scale (L 0-100).
+# CIELAB in the working space (Adobe RGB 1998, D65), on Adobe RGB primaries. Mirrors the
+# WGSL rgb_to_lab, on OpenCV's float Lab scale (L 0-100).
 _WORKING_TO_XYZ = np.array(
     [
         [0.5767309, 0.1855540, 0.1881852],
@@ -251,17 +251,14 @@ def _in_gamut_lab(l_val: float, a: float, b: float, m: np.ndarray, white: np.nda
     return r >= -tol and r <= one + tol and g >= -tol and g <= one + tol and bl >= -tol and bl <= one + tol
 
 
-# Skin-tone mask for skin_chroma_rein. Axis-aligned reduction of the CIELAB
-# skin locus: hue is the axis that stays put across the whole tonal range
-# (literature places skin at 40-65deg; a rendered portrait frame here measured
-# median ~52deg, p10-p90 ~41-73deg), chroma is bounded, lightness is free apart
-# from the two ends where the hue angle turns to noise.
+# Skin-tone mask for skin_chroma_rein: an axis-aligned reduction of the CIELAB skin locus.
+# Hue is the axis that stays put across the whole tonal range, chroma is bounded, and
+# lightness is free apart from the two ends where the hue angle turns to noise.
 #
-# The chroma window is the discriminator and it is the measured skin locus
-# (C* ~12-40), not a gamut bound: sunset (~57), terracotta (~53) and brick
-# (~51) all sit inside the hue band. It cuts both ways -- skin above C* ~50
-# keeps only partial weight, and warm objects at skin's own chroma (wood, tan
-# leather, sand) are the same color as skin. Neither is separable per-pixel.
+# The chroma window is the discriminator, and it is the measured skin locus, not a gamut
+# bound: sunset, terracotta and brick all sit inside the hue band. It cuts both ways. Skin
+# above the window keeps only partial weight, and warm objects at skin's own chroma (wood,
+# tan leather, sand) are the same color as skin. Neither is separable per pixel.
 _SKIN_HUE_CENTER_DEG = np.float32(52.0)
 _SKIN_HUE_WIDTH_DEG = np.float32(20.0)
 _SKIN_CHROMA_FULL = np.float32(35.0)
@@ -269,11 +266,10 @@ _SKIN_CHROMA_ZERO = np.float32(60.0)
 _SKIN_L_LO = np.float32(15.0)
 _SKIN_L_HI = np.float32(95.0)
 
-# Chroma ceiling the rein pulls toward: _SKIN_CEIL_AT_FULL / strength, so the
-# ceiling runs off past any reachable chroma as strength approaches 0 and the
-# control fades out continuously. A lerp to some finite "off" ceiling instead
-# would step discontinuously the moment the slider left 0. The knee starts at a
-# fraction of the ceiling so ordinary skin below it passes through untouched.
+# Chroma ceiling the rein pulls toward: _SKIN_CEIL_AT_FULL / strength, so the ceiling runs
+# past any reachable chroma as strength approaches 0 and the control fades out continuously.
+# A lerp to a finite "off" ceiling would step the moment the slider left 0. The knee starts
+# at a fraction of the ceiling, so ordinary skin below it passes through untouched.
 _SKIN_CEIL_AT_FULL = np.float32(22.0)
 _SKIN_KNEE_START_FRAC = np.float32(0.6)
 
@@ -297,7 +293,7 @@ def _skin_weight(l_val: float, a: float, b: float) -> float:
         return 0.0
     hue_deg = np.degrees(np.arctan2(b, a))
     dist = hue_deg - _SKIN_HUE_CENTER_DEG
-    # Wrap to [-180, 180] so e.g. 179 vs -179 reads as 2deg apart, not 358.
+    # Wrap to [-180, 180], so 179 against -179 reads as 2 degrees apart, not 358.
     dist = dist - np.float32(360.0) * np.round(dist / np.float32(360.0))
     x = dist / _SKIN_HUE_WIDTH_DEG
     w_hue = np.exp(np.float32(-0.5) * x * x)
@@ -386,17 +382,15 @@ def _gamut_aware_chroma_scale_kernel(
         a = lab[i, 1]
         b = lab[i, 2]
         if saturation <= one:
-            # Desaturation never overshoots the gamut -- moving toward the
-            # achromatic axis can't push a channel further out of range.
+            # Desaturation never overshoots the gamut: moving toward the achromatic axis
+            # cannot push a channel further out of range.
             eff = saturation
         else:
             if _in_gamut_lab(l_val, a * saturation, b * saturation, m, white, eps, kappa, c):
-                # Full push already lands in gamut -- use it directly. Without this,
-                # bisecting only within [1, saturation] always converges lo toward
-                # saturation itself (an artifact of that being the search's own
-                # upper bound, not a real constraint), and the knee formula below
-                # then misreads "the boundary is right at the edge of what I asked
-                # for" and throttles pixels that were never going to clip at all.
+                # The full push already lands in gamut, so use it directly. Without this,
+                # bisecting within [1, saturation] converges lo toward saturation itself, which
+                # is the search's own upper bound and not a real constraint, and the knee
+                # formula below then throttles pixels that were never going to clip.
                 eff = saturation
             else:
                 lo = one
@@ -617,8 +611,8 @@ def file_hashes(file_path: str) -> tuple[str, str]:
                 tail = f.read(_HEAD_TAIL)
                 hasher.update(tail)
                 legacy.update(tail)
-                # Chunks overlap once the interior is under 4 MiB, which just makes
-                # coverage contiguous; the read count stays bounded either way.
+                # Chunks overlap once the interior is under 4 MiB, which only makes coverage
+                # contiguous. The read count stays bounded either way.
                 step = (file_size - 2 * _HEAD_TAIL) // _INTERIOR_CHUNKS
                 for i in range(_INTERIOR_CHUNKS):
                     f.seek(_HEAD_TAIL + i * step)
@@ -644,7 +638,7 @@ def prepare_thumbnail(img: Any, size: int) -> Any:
     """
     from PIL import Image
 
-    # Copy to avoid mutating original
+    # Copy, so the original is not mutated
     img_copy = img.copy()
     img_copy.thumbnail((size, size), Image.Resampling.LANCZOS)
 

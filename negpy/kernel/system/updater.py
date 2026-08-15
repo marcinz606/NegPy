@@ -266,9 +266,9 @@ def nsis_script(setup: Path, install_dir: Path, exe: Path, pid: int) -> str:
     )
 
 
-# Holds each swap script's Popen — and with it the write end of the pipe the script
-# waits on — open for the rest of this process's life. Dropping it would close the
-# pipe early and start the swap under the running app.
+# Holds each swap script's Popen, and with it the write end of the pipe the script waits
+# on, open for the rest of this process's life. Dropping it would close the pipe early
+# and start the swap under the running app.
 _SPAWNED: list[subprocess.Popen] = []
 
 

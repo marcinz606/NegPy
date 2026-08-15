@@ -68,7 +68,7 @@ def identify_color_space_from_icc(icc_bytes: Optional[bytes]) -> Optional[str]:
         logger.warning(f"Could not parse embedded ICC profile: {e}")
         return None
 
-    # Order matters — more specific matches first.
+    # Order matters: more specific matches first.
     if "prophoto" in desc:
         return ColorSpace.PROPHOTO.value
     if "rec. 2020" in desc or "rec2020" in desc or "bt.2020" in desc:
@@ -98,10 +98,9 @@ class NonStandardFileWrapper:
         self.data = data
         # If set, `sizes` reports this (h, w) for full image; else derived from `data` shape.
         self._full_output_hw: Optional[Tuple[int, int]] = full_output_hw
-        # As-shot (R, G, B) white balance gains, applied by postprocess() when the caller
-        # asks for camera WB. None means the source has no WB to offer (e.g. NegPy's own
-        # scanner DNGs, always neutral) — postprocess() then leaves the data untouched,
-        # same as it always has for those.
+        # As-shot (R, G, B) white balance gains, applied by postprocess() when the caller asks
+        # for camera WB. None means the source has no WB to offer, as with NegPy's own scanner
+        # DNGs, which are always neutral. postprocess() then leaves the data untouched.
         self.wb_gains: Optional[Tuple[float, float, float]] = wb_gains
 
     @property
@@ -134,7 +133,7 @@ class NonStandardFileWrapper:
             data = np.clip(data, 0.0, 1.0)
 
         if gamma is None or tuple(gamma) != (1, 1):
-            # LibRaw's default BT.709 display gamma — else linear thumbnails go near-black.
+            # LibRaw's default BT.709 display gamma, or linear thumbnails go near-black.
             data = np.where(data < 0.018, data * 4.5, 1.099 * np.power(np.maximum(data, 0.0), 1.0 / 2.222) - 0.099)
 
         if bps == 16:
@@ -165,16 +164,15 @@ def get_best_demosaic_algorithm(raw: Any, for_preview: bool = False) -> Any:
             cfa_block_size = raw.raw_pattern.shape[0]
 
             if cfa_block_size == 6:
-                # 6x6 block means it's a Fujifilm X-Trans sensor.
-                # LINEAR is ~4.6x faster than DHT; artifacts are invisible at preview scale.
-                # VNG was used previously, but it produces dot/maze artifacts on X-Trans's
-                # 6x6 pattern in high-contrast regions (see #272). DHT was added to dcraw/
-                # LibRaw specifically to handle X-Trans correctly and is also LGPL-clean.
+                # A 6x6 block means a Fujifilm X-Trans sensor. LINEAR is much faster than DHT and its
+                # artifacts are invisible at preview scale. VNG was used before, but it produces dot and
+                # maze artifacts on X-Trans's 6x6 pattern in high-contrast regions (see #272). DHT was
+                # added to dcraw and LibRaw specifically to handle X-Trans, and is also LGPL-clean.
                 selected_algo = rawpy.DemosaicAlgorithm.LINEAR if for_preview else rawpy.DemosaicAlgorithm.DHT
 
             elif cfa_block_size == 2:
-                # 2x2 block means it's a standard Bayer sensor (Canon, Nikon, Sony, etc.)
-                # PPG is ~60% faster than AHD with negligible quality difference at preview scale.
+                # A 2x2 block means a standard Bayer sensor. PPG is faster than AHD with negligible
+                # quality difference at preview scale.
                 selected_algo = rawpy.DemosaicAlgorithm.PPG if for_preview else rawpy.DemosaicAlgorithm.AHD
 
     except (AttributeError, ValueError) as e:
@@ -229,10 +227,10 @@ def camera_wb_multipliers(raw: Any) -> Optional[list]:
     return wb
 
 
-#: Nikon's High Efficiency (HE / HE*) raw on the Z 8 / Z 9 is intoPIX TicoRAW carrying a
+#: Nikon's High Efficiency (HE / HE*) raw on the Z 8 and Z 9 is intoPIX TicoRAW carrying a
 #: plain-text vendor marker at the head of the strip. The TIFF tag still reads 34713
-#: ("Nikon NEF Compressed"), the same value a lossless NEF uses, so tags cannot tell them
-#: apart -- only the payload can.
+#: ("Nikon NEF Compressed"), the same value a lossless NEF uses, so only the payload can
+#: tell them apart.
 _TICORAW_MARKER = b"INTOPIX"
 _NEF_COMPRESSED = 34713
 

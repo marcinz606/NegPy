@@ -11,15 +11,15 @@ from negpy.features.flatfield.models import FlatFieldConfig
 _GAIN_MIN = 0.25
 _GAIN_MAX = 4.0
 
-# Falloff is low-frequency: compute the gain on a small copy (upscaled at apply time)
-# so the blur kernel stays tiny.
+# Falloff is low-frequency, so compute the gain on a small copy, upscaled at apply time,
+# and the blur kernel stays tiny.
 _GAIN_WORK_SIZE = 256
 
-# Resolved gains keyed by profile id: (gain map, content token). A cached ``None``
-# marks a known-missing profile so a broken reference doesn't re-hit the store every
-# render. Populated lazily through the injected provider — the desktop app wires it
-# to the on-disk profile store (services/assets/flatfield.py) at startup; tests may
-# seed this map directly.
+# Resolved gains keyed by profile id: (gain map, content token). A cached ``None`` marks a
+# known-missing profile, so a broken reference does not re-hit the store every render.
+# Populated lazily through the injected provider: the desktop app wires it to the on-disk
+# profile store (services/assets/flatfield.py) at startup, and tests may seed this map
+# directly.
 GainEntry = Tuple[np.ndarray, str]
 _GAIN_CACHE: Dict[str, Optional[GainEntry]] = {}
 _gain_provider: Optional[Callable[[str], Optional[GainEntry]]] = None

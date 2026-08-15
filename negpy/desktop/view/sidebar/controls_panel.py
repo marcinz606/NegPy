@@ -36,8 +36,9 @@ from negpy.desktop.view.sidebar.retouch import RetouchSidebar
 from negpy.desktop.view.sidebar.local import LocalSidebar
 from negpy.desktop.view.sidebar.finish import FinishSidebar
 
-# Exposure field partitions — the Filtration and Tone sections split ExposureConfig; used for both
-# per-section modified counts and scoped resets. render_intent is in neither (flat-master output).
+# Exposure field partitions: the Filtration and Tone sections split ExposureConfig, for
+# both per-section modified counts and scoped resets. render_intent is in neither, since
+# it is flat-master output.
 _COLOR_FIELDS = (
     "wb_cyan",
     "wb_magenta",
@@ -98,7 +99,7 @@ _TONE_FIELDS = (
     "separation_damping",
 )
 
-# Constant frozen-dataclass defaults — build once, not per resync.
+# Constant frozen-dataclass defaults, built once rather than per resync.
 _DEFAULT_EXPOSURE = ExposureConfig()
 _DEFAULT_LAB = LabConfig()
 _DEFAULT_TONING = ToningConfig()
@@ -161,8 +162,8 @@ class ControlsPanel(QWidget):
 
         self.sensor_sidebar = SensorSidebar(self.controller)
         self.sensor_section = self._make_section(
-            # Bare name: it holds the crosstalk matrix and Hue Trim as well as the sensor
-            # unmix. The persisted "sensor" section key stays.
+            # Bare name: it holds the crosstalk matrix and Hue Trim as well as the sensor unmix. The
+            # persisted "sensor" section key stays.
             "Calibration",
             "sensor",
             self.sensor_sidebar,
@@ -179,8 +180,8 @@ class ControlsPanel(QWidget):
 
         self.color_sidebar = ColorSidebar(self.controller)
         self.color_histogram = MiniRGBHistogramWidget()
-        # "Filtration", not "Color" — that names the Lab & Toning tab; the persisted
-        # "color" section key stays.
+        # "Filtration", not "Color", which names the Lab & Toning tab. The persisted "color"
+        # section key stays.
         self.color_section = self._make_section(
             "Filtration",
             "color",
@@ -293,8 +294,8 @@ class ControlsPanel(QWidget):
             page_layout.setContentsMargins(0, 0, 0, 0)
             page_layout.setSpacing(8)
             if key == "setup":
-                # Film mode rides above the collapsibles — it is the first choice of every
-                # edit, and this is what reparents the bar out of ProcessSidebar.
+                # Film mode rides above the collapsibles, since it is the first choice of every edit, and
+                # this is what reparents the bar out of ProcessSidebar.
                 page_layout.addWidget(self.process_sidebar.mode_bar)
             for section in sections:
                 page_layout.addWidget(section)
@@ -332,9 +333,9 @@ class ControlsPanel(QWidget):
 
         section.expanded_changed.connect(lambda checked, k=key: repo.save_global_setting(f"section_expanded_{k}", checked))
         if section.info_btn:
-            # Parent the dialog to the section, not to self: ControlsPanel is never added to a
-            # layout (only its pages are), so as a dialog parent it centres the guide on a
-            # phantom 0,0 window instead of the main window.
+            # Parent the dialog to the section, not to self: ControlsPanel is never added to a layout,
+            # only its pages are, so as a dialog parent it centres the guide on a phantom 0,0 window
+            # instead of the main window.
             section.info_requested.connect(lambda k=key, t=title, s=section: SectionHelpDialog(k, t, s).exec())
         return section
 
@@ -345,7 +346,7 @@ class ControlsPanel(QWidget):
         self._sync_debounce.timeout.connect(self._sync_all_sidebars)
         self.controller.config_updated.connect(self._sync_debounce.start)
         self.controller.tool_sync_requested.connect(self._sync_tool_buttons)
-        # Histogram only changes on render completion — refresh there, not on every resync.
+        # The histogram only changes on render completion, so refresh there, not on every resync.
         self.controller.image_updated.connect(self._update_histogram)
 
         self.color_section.reset_requested.connect(lambda: self._reset_exposure_fields(_COLOR_FIELDS))
@@ -846,8 +847,8 @@ class ControlsPanel(QWidget):
             ]
         )
 
-        # Calibration's four fields live on ProcessConfig but belong to their own section,
-        # so they are counted here and left out of process_count above.
+        # Calibration's four fields live on ProcessConfig but belong to their own section, so they
+        # are counted here and left out of process_count above.
         sensor_count = sum(
             [
                 proc.sensor_profile != _proc.sensor_profile,
@@ -868,9 +869,9 @@ class ControlsPanel(QWidget):
         )
 
         ret = cfg.retouch
-        # Heal-tool clicks and scratch polylines both commit into manual_heal_strokes
-        # (manual_dust_spots is the legacy list), so count them or the Finish tab's
-        # edited dot never lights for healed images.
+        # Heal-tool clicks and scratch polylines both commit into manual_heal_strokes, where
+        # manual_dust_spots is the legacy list, so count them or the Finish tab's edited dot
+        # never lights for healed images.
         retouch_count = int(ret.dust_remove) + len(ret.manual_dust_spots) + len(ret.manual_heal_strokes)
 
         _fin = _DEFAULT_FINISH
@@ -920,8 +921,8 @@ class ControlsPanel(QWidget):
         self.geometry_sidebar.sync_ui()
         self.local_sidebar.sync_ui()
         self.process_sidebar.sync_ui()
-        # Retouch hosts two tool toggles (heal + scratch); without this sync,
-        # activating one left the other highlighted as if both were live. The
-        # color sidebar's WB picker had the same latent stale-check bug.
+        # Retouch hosts two tool toggles, heal and scratch. Without this sync, activating one
+        # left the other highlighted as if both were live. The color sidebar's WB picker had the
+        # same latent stale-check bug.
         self.retouch_sidebar.sync_ui()
         self.color_sidebar.sync_ui()

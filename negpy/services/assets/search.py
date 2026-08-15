@@ -36,7 +36,7 @@ def parse_query(text: str) -> list[Term]:
     try:
         tokens = shlex.split(text)
     except ValueError:
-        # Half-typed quote — the box is live, so fall back rather than reject.
+        # Half-typed quote: the box is live, so fall back rather than reject.
         tokens = text.split()
     return [t for t in (_term(tok) for tok in tokens) if t is not None]
 
@@ -89,8 +89,8 @@ def _compare_numeric(term: Term, fact: Any) -> bool:
 def _compare_text(term: Term, fact: str) -> bool:
     if term.op == ":":
         return term.value in fact
-    # Ordered comparison on a prefix: ISO dates sort lexicographically, so
-    # `date:>=2024-03` works without parsing either side into a date.
+    # Ordered comparison on a prefix. ISO dates sort lexicographically, so `date:>=2024-03`
+    # works without parsing either side into a date.
     return _apply_op(term.op, fact[: len(term.value)], term.value)
 
 

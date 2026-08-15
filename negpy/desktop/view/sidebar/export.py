@@ -53,10 +53,9 @@ class ExportSidebar(BaseSidebar):
         self.update_timer.setInterval(500)
         self.update_timer.timeout.connect(self._persist_all_export_settings)
 
-        # Task-flow order: the Print/Flat decision reframes the whole form, so it
-        # comes first with the primary Export action right under it; the form
-        # follows; occasional tools (presets, contact sheet, preview) sit
-        # collapsed at the bottom.
+        # Task-flow order: the Print/Flat decision reframes the whole form, so it comes first with
+        # the primary Export action right under it. The form follows, and the occasional tools
+        # (presets, contact sheet, preview) sit collapsed at the bottom.
         self._add_flat_master_section()
         self._add_export_section()
 
@@ -130,8 +129,8 @@ class ExportSidebar(BaseSidebar):
         content_layout.setSpacing(6)
 
         self._presets_container = QWidget()
-        # Border-only grouping — a filled box reads as a darker plate behind the
-        # buttons against the section card.
+        # Border-only grouping: a filled box reads as a darker plate behind the buttons against
+        # the section card.
         self._presets_container.setStyleSheet(f"border: 1px solid {THEME.border_primary}; background: transparent;")
         self._presets_inner = QVBoxLayout(self._presets_container)
         self._presets_inner.setContentsMargins(4, 4, 4, 4)
@@ -488,7 +487,7 @@ class ExportSidebar(BaseSidebar):
             return
         ContactSheetTemplates.delete(name)
         self._refresh_contact_sheet_templates()
-        # Fall back to Default explicitly — the refresh keeps signals blocked.
+        # Fall back to Default explicitly, because the refresh keeps signals blocked.
         self.cs_template_combo.blockSignals(True)
         self.cs_template_combo.setCurrentText(ContactSheetTemplates.DEFAULT_NAME)
         self.cs_template_combo.blockSignals(False)
@@ -542,8 +541,8 @@ class ExportSidebar(BaseSidebar):
         """Output-intent override: Print (default) or Flat digital intermediate."""
         self.layout.addWidget(section_subheader("OUTPUT INTENT"))
 
-        # Contain the whole intent block (toggle + format + peek/bake + hints) so
-        # it reads as one unit. objectName-scoped so the border doesn't cascade.
+        # Contain the whole intent block (toggle, format, peek/bake, hints) so it reads as one
+        # unit. objectName-scoped, so the border does not cascade.
         container = QWidget()
         container.setObjectName("flat_intent_box")
         container.setStyleSheet(f"#flat_intent_box {{ border: 1px solid {THEME.border_primary}; background: transparent; }}")
@@ -606,9 +605,9 @@ class ExportSidebar(BaseSidebar):
         )
         box.addWidget(self.flat_hint_label)
 
-        # Roll-consistency nudge: a flat master is only identical across frames
-        # once the roll shares one normalization baseline (locked bounds). Until
-        # then, per-frame auto bounds make each frame's tones drift.
+        # Roll-consistency nudge: a flat master is identical across frames only once the roll
+        # shares one normalization baseline (locked bounds). Until then, per-frame auto bounds
+        # make each frame's tones drift.
         self.flat_roll_warning = hint_label("For consistent masters across a roll, lock one baseline for every frame.", kind="warning")
         box.addWidget(self.flat_roll_warning)
 
@@ -931,16 +930,16 @@ class ExportSidebar(BaseSidebar):
     # --- Preview (soft proof + monitor profile, preview only) ----------------
 
     def _add_preview_section(self) -> None:
-        # Preview-only controls (no effect on export). Collapsed by default and
-        # parked below the export action so it doesn't split the form from Export.
+        # Preview-only controls, with no effect on export. Collapsed by default and parked below
+        # the export action, so it does not split the form from Export.
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(6)
 
-        # Soft proof: on by default so the preview is true to export. When off,
-        # Output/Input ICC and the export color space affect export only, not
-        # the preview — i.e. exported colors may differ from what's shown.
+        # Soft proof, on by default so the preview is true to the export. When off, the Output and
+        # Input ICC and the export color space affect the export only, so exported colors may
+        # differ from what is shown.
         self.soft_proof_checkbox = QCheckBox("Soft proof (preview matches export)")
         self.soft_proof_checkbox.setChecked(self.state.soft_proof_enabled)
         self.soft_proof_checkbox.setToolTip(
@@ -976,8 +975,8 @@ class ExportSidebar(BaseSidebar):
         content_layout.addWidget(self.display_detected_label)
         self._refresh_display_info()
 
-        # Warns when the preview won't reflect the export's gamut clamp (soft
-        # proof off + export space narrower than the working space).
+        # Warns when the preview will not reflect the export's gamut clamp: soft proof off, and
+        # an export space narrower than the working space.
         self.proof_mismatch_label = hint_label("Soft proof is off — preview won't show the export's color clipping", kind="warning")
         content_layout.addWidget(self.proof_mismatch_label)
         self._refresh_proof_mismatch_warning()
@@ -1032,8 +1031,8 @@ class ExportSidebar(BaseSidebar):
 
     # --- Batch ---------------------------------------------------------------
 
-    # Sticky scopes: the chevron menu picks what a split button does; only the
-    # button itself triggers an export. key -> (menu label, button label, tooltip)
+    # Sticky scopes: the chevron menu picks what a split button does, and only the button
+    # itself triggers an export. key -> (menu label, button label, tooltip)
     _EXPORT_SCOPES = {
         "current": (
             "Export current frame",
@@ -1052,8 +1051,8 @@ class ExportSidebar(BaseSidebar):
         ),
     }
 
-    # The two "all visible" scopes (current vs saved per-frame settings) collapsed
-    # into one when per-frame export settings were retired.
+    # The two "all visible" scopes, current against saved per-frame settings, collapsed into
+    # one when per-frame export settings were retired.
     _RETIRED_EXPORT_SCOPES = {"all_current": "all", "all_saved": "all"}
 
     _PRESET_SCOPES = {

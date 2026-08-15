@@ -79,8 +79,8 @@ class FlatFieldSidebar(BaseSidebar):
         self.sync_ui()
 
     def _refresh_profiles(self) -> None:
-        # Preserve the caller's block state: unblocking here would let sync_ui's
-        # setCurrentIndex re-fire _on_profile_selected and loop into update_config.
+        # Preserve the caller's block state: unblocking here would let sync_ui's setCurrentIndex
+        # re-fire _on_profile_selected and loop into update_config.
         from negpy.services.assets.flatfield import FlatFieldProfiles
 
         prev = self.profile_combo.signalsBlocked()
@@ -106,8 +106,8 @@ class FlatFieldSidebar(BaseSidebar):
         default_name = os.path.splitext(os.path.basename(path))[0]
         name, ok = QInputDialog.getText(self, "Save Flat-Field Profile", "Profile name:", text=default_name)
         if ok and name:
-            # save_flatfield_profile decodes the reference RAW to bake the gain — a
-            # brief blocking beat on the GUI thread, so show a wait cursor.
+            # save_flatfield_profile decodes the reference RAW to bake the gain, a brief blocking beat
+            # on the GUI thread, so show a wait cursor.
             QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
             try:
                 self.controller.save_flatfield_profile(name, path)

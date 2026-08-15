@@ -232,8 +232,8 @@ class PrintService:
                     target_h = max_content_h
                     target_w = int(target_h * img_aspect)
 
-            # OpenCV gives INTER_LANCZOS4 no prefilter on a shrink, so it degrades to
-            # bilinear and aliases; INTER_AREA is the only area-correct downscale here.
+            # OpenCV gives INTER_LANCZOS4 no prefilter on a shrink, so it degrades to bilinear and
+            # aliases. INTER_AREA is the only area-correct downscale here.
             shrinking = target_w < img_w or target_h < img_h
             img_scaled = cv2.resize(
                 img,

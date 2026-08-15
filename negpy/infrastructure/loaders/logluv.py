@@ -1,12 +1,12 @@
-# LogLuv32/24 decoder — SGI LogLuv (Greg Ward) to CIE XYZ to linear sRGB.
+# LogLuv32/24 decoder: SGI LogLuv (Greg Ward) to CIE XYZ to linear sRGB.
 #
 # Ported from flexcolor-tool (MIT License):
 #   Copyright (c) 2026 flexcolor-tool contributors
 #   https://github.com/rohanpandula/flexcolor-tool
 #
-# The decode math mirrors libtiff's tif_luv.c reference implementation.
-# Constants (UVSCALE, U_NEU, V_NEU, uv_row table) are from the published
-# LogLuv spec and libtiff's uvcode.h (Greg Ward, v1.0).
+# The decode math mirrors libtiff's tif_luv.c reference implementation. The constants
+# (UVSCALE, U_NEU, V_NEU, uv_row table) are from the published LogLuv spec and libtiff's
+# uvcode.h (Greg Ward, v1.0).
 
 from typing import Tuple
 
@@ -301,7 +301,7 @@ def logluv24_to_xyz(packed: np.ndarray) -> np.ndarray:
     return out
 
 
-# XYZ → linear sRGB (Rec.709/sRGB primaries, D65) — libtiff XYZtoRGB24 matrix
+# XYZ to linear sRGB (Rec.709/sRGB primaries, D65): libtiff's XYZtoRGB24 matrix
 _XYZ_TO_LRGB = np.array(
     [[2.690, -1.276, -0.414], [-1.022, 1.978, 0.044], [0.061, -0.224, 1.163]],
     dtype=np.float64,

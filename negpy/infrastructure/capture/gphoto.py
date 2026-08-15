@@ -45,14 +45,13 @@ from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
 
-#: libgphoto2 property names behind the settings the scan window exposes, in the order
-#: they are tried. `iso` and `shutterspeed` are the same everywhere (libgphoto2 normalises
-#: them onto the generic PTP properties), but the aperture is not: the generic name is
-#: `f-number` (Sony, Panasonic), while Canon, Nikon, Fujifilm, Olympus and Sigma expose
-#: `aperture`. No body offers both.
+#: libgphoto2 property names behind the settings the scan window exposes, in the order they
+#: are tried. `iso` and `shutterspeed` are the same everywhere, but the aperture is not: the
+#: generic name is `f-number` (Sony, Panasonic) while Canon, Nikon, Fujifilm, Olympus and
+#: Sigma expose `aperture`. No body offers both.
 #:
-#: There is deliberately no white balance here: NegPy decodes with a fixed neutral WB
-#: (`use_camera_wb=False`), so the camera's setting only tints the preview, never a scan.
+#: There is no white balance here: NegPy decodes with a fixed neutral WB, so the camera's
+#: setting only tints the preview, never a scan.
 _PROPERTIES: dict[str, tuple[str, ...]] = {
     "iso": ("iso",),
     "shutter": ("shutterspeed",),
@@ -77,12 +76,11 @@ class _Magnifier:
     packed: bool = False
 
 
-#: Tried in order; the first whose ratio property exists wins. Most bodies have none, and
-#: that is normal — the feature disables itself rather than failing.
-#: Canon and Nikon keep the target point in a second property (`eoszoomposition`,
-#: `liveviewzoomarea`) whose coordinate space is unknown here, so those bodies magnify
-#: wherever they already look — the centre, unless something moved it. Fujifilm's
-#: `zoompos` is the *lens* zoom and read-only; Olympus and Panasonic expose nothing.
+#: Tried in order: the first whose ratio property exists wins. Most bodies have none, which
+#: is normal, and the feature disables itself instead of failing.
+#: Canon and Nikon keep the target point in a second property whose coordinate space is
+#: unknown here, so those bodies magnify wherever they already look. Fujifilm's `zoompos` is
+#: the *lens* zoom and read-only, and Olympus and Panasonic expose nothing.
 _MAGNIFIERS = (
     _Magnifier(ratio="focusmagnifier", skip_first_step=True, packed=True),  # PTP_VENDOR_SONY
     _Magnifier(ratio="eoszoom"),  # PTP_VENDOR_CANON
@@ -90,23 +88,23 @@ _MAGNIFIERS = (
 )
 
 #: Where the camera should put the file it just took. Tethered capture wants it in memory,
-#: not on a card — Canon and Nikon default to the card, and fail outright without one.
+#: not on a card: Canon and Nikon default to the card and fail outright without one.
 _CAPTURE_TARGET = "capturetarget"
 
-#: The body reports the magnifier position on a 640x480 grid, clamps it so the magnified
-#: box stays inside the frame, and treats (0, 0) as "switch off" — so keep x/y away from
-#: the edges rather than trusting the clamp.
+#: The body reports the magnifier position on a 640x480 grid, clamps it so the magnified box
+#: stays inside the frame, and treats (0, 0) as "switch off". Keep x/y away from the edges
+#: instead of trusting the clamp.
 _GRID_W, _GRID_H = 640, 480
 _GRID_MARGIN = 8
 
 #: A property write is asynchronous; poll this long for the body to report it back.
 _WRITE_SETTLE_S = 3.0
-#: The magnifier itself takes ~1-2 s to engage — the same wait covers it.
+#: The magnifier takes a second or two to engage, which the same wait covers.
 _EVENT_DRAIN_S = 1.0
 #: The quiet window that ends an event drain. Fujifilm bodies deliver post-shot events with
-#: pauses well past 50 ms, and events left unread block their next operation camera-side —
-#: cutting the drain at the first quiet 50 ms is how the X-T5's live view died after every
-#: still (issue #658). So the window is per-body: patient on Fujifilm, snappy elsewhere.
+#: long pauses, and events left unread block their next operation camera-side. Cutting the
+#: drain at the first short quiet window is how the X-T5's live view died after every still
+#: (issue #658), so the window is per-body: patient on Fujifilm, snappy elsewhere.
 _DRAIN_SILENCE_MS = 50
 _FUJI_DRAIN_SILENCE_MS = 300
 _FUJI_DRAIN_BUDGET_S = 2.0
@@ -117,14 +115,14 @@ _SETTINGS_INTERVAL_S = 2.0
 #: is normal; three in a row means the camera was unplugged, powered off, or taken away.
 _MAX_PREVIEW_FAILURES = 3
 
-# General NegPy imports also accept JPEG/TIFF, but camera scanning promises a linear RAW
-# source. A body left in JPEG mode can easily produce an 8+ MB file that passes the size
-# guard while permanently discarding highlight/color information.
+# General NegPy imports also accept JPEG and TIFF, but camera scanning promises a linear RAW
+# source. A body left in JPEG mode can produce a large file that passes the size guard while
+# permanently discarding highlight and color information.
 _CAMERA_RAW_EXTENSIONS = frozenset(SUPPORTED_RAW_EXTENSIONS - SUPPORTED_JPEG_EXTENSIONS - SUPPORTED_TIFF_EXTENSIONS)
 
 
-#: The catch-all entry unlisted PTP bodies fall back to. It claims every operation, which is
-#: why "not in the database" must never by itself be reported as unsupported.
+#: The catch-all entry unlisted PTP bodies fall back to. It claims every operation, so "not
+#: in the database" must never be reported as unsupported on its own.
 _GENERIC_DRIVER = "USB PTP Class Camera"
 
 
@@ -268,37 +266,37 @@ class GphotoCamera:
         self._gp = gp_module or _gp()
         self._jpeg_path = jpeg_path or default_jpeg_path()
         self._settings_path = settings_path or default_settings_path()
-        # Called (from the preview thread) when the stream dies after retries — NOT on a
-        # normal stop(). Without it a body that stops answering (issue #617: GFX50S II
-        # times out with [-110]) leaves the UI spinning on "loading live view" forever.
+        # Called from the preview thread when the stream dies after retries, never on a normal
+        # stop(). Without it a body that stops answering (issue #617) leaves the UI spinning on
+        # "loading live view" forever.
         self._on_preview_died = on_preview_died
-        # Called instead of the above when the stream fails but the body still answers: the
-        # session stays open and scanning continues, only the preview is given up on.
+        # Called instead of the above when the stream fails but the body still answers. The
+        # session stays open and scanning continues; only the preview is given up.
         self._on_preview_unusable = on_preview_unusable
         self._camera: Any = None
         self._model = ""
-        # Cleared when the body stops answering — unplugging it leaves the handle behind,
-        # and a stale handle reports itself open forever.
+        # Cleared when the body stops answering. Unplugging it leaves the handle behind, and a
+        # stale handle reports itself open forever.
         self._alive = False
         self._lock = threading.RLock()
         self._preview: Optional[threading.Thread] = None
         self._stop = threading.Event()
-        # Raised while a still is in flight, so the preview thread doesn't queue another
-        # ~40 ms frame grab ahead of the next channel of a triplet.
+        # Raised while a still is in flight, so the preview thread does not queue another frame
+        # grab ahead of the next channel of a triplet.
         self._busy = threading.Event()
         # The post-shot event drain of the last successful still (see _finish_shot_async).
         self._post_shot: Optional[threading.Thread] = None
-        # Raised by a completed still, consumed by the preview loop before its next frame.
-        # A flag rather than the loop watching `_busy`: a capture can begin and end between
-        # two poll ticks, and a missed drain is what blocks the next preview on Fujifilm.
+        # Raised by a completed still, consumed by the preview loop before its next frame. A
+        # flag rather than the loop watching `_busy`: a capture can begin and end between two
+        # poll ticks, and a missed drain blocks the next preview on Fujifilm.
         self._drain_owed = threading.Event()
         self._reset_body_state()
 
     def _reset_body_state(self) -> None:
         """Forget controls whose names and semantics belong to one camera body."""
         self._capabilities = CameraCapabilities(driver_model="")
-        # Set once a stream has failed on a body that is otherwise fine, so nothing restarts
-        # it: retrying is what walks a Fujifilm off the USB bus entirely (issue #658).
+        # Set once a stream has failed on a body that is otherwise fine, so nothing restarts it.
+        # Retrying walks a Fujifilm off the USB bus entirely (issue #658).
         self._preview_broken = False
         self._drain_silence_ms = _DRAIN_SILENCE_MS
         self._drain_budget_s = _EVENT_DRAIN_S
@@ -333,11 +331,11 @@ class GphotoCamera:
         try:
             camera.init()
         except self._gp.GPhoto2Error as exc:
-            # A camera sits on the bus but won't open: on macOS the ImageCapture daemons
-            # hand it to Preview, Photos or Image Capture the moment one of them is open,
-            # and only one program may claim it. Raise the claim case typed (-53,
-            # GP_ERROR_IO_USB_CLAIM) so the connection poll can pin an "in use by another
-            # app" state on the camera dot — enumeration alone cannot see this.
+            # A camera sits on the bus but will not open. On macOS the ImageCapture daemons
+            # hand it to Preview, Photos or Image Capture as soon as one of them is open, and
+            # only one program may claim it. Raise the claim case typed (-53,
+            # GP_ERROR_IO_USB_CLAIM) so the connection poll can pin an "in use by another app"
+            # state on the camera dot, which enumeration alone cannot see.
             message = f"could not open the camera: {exc}. Close Preview, Photos and Image Capture, then retry."
             if getattr(exc, "code", None) == -53:
                 raise CameraClaimedError(message) from exc
@@ -430,7 +428,7 @@ class GphotoCamera:
                 # Writing a label the body never published is how a Sony-flavoured fallback
                 # ladder reached a Nikon: libgphoto2 takes the string, the camera ignores it,
                 # and the only symptom is a read-back that never settles (issue #768). Name
-                # what it does offer — that is the answer to "why", and it costs one log line.
+                # what the body does offer instead, at the cost of one log line.
                 logger.warning(
                     "gphoto2: %s does not offer %r; this body publishes %d values (%s%s)",
                     name,
@@ -443,8 +441,8 @@ class GphotoCamera:
             widget.set_value(value)
             camera.set_single_config(name, widget)
         except self._gp.GPhoto2Error as exc:
-            # A value this body does not offer, e.g. a shutter label from the fallback
-            # ladder. Report it; a scan degrades to the current exposure rather than dying.
+            # A value this body does not offer, for example a shutter label from the fallback
+            # ladder. Report it: a scan degrades to the current exposure instead of dying.
             logger.warning("gphoto2: could not set %s to %r: %s", name, value, exc)
             return False
 
@@ -473,8 +471,8 @@ class GphotoCamera:
             try:
                 widget = camera.get_single_config(_CAPTURE_TARGET)
             except self._gp.GPhoto2Error:
-                # Absence is normal (the X-T5 has no capture-target setting at all), but say
-                # so — the silent skip cost a diagnosis round in issue #658.
+                # Absence is normal, since the X-T5 has no capture-target setting at all, but
+                # say so: the silent skip cost a diagnosis round in issue #658.
                 logger.info("gphoto2: this body has no capture-target setting; leaving it alone")
                 return
             for choice in _choices(self._gp, widget):
@@ -547,17 +545,17 @@ class GphotoCamera:
                 options = [{"label": label, "raw": i} for i, label in enumerate(choices)]
                 cur = choices.index(current) if current in choices else -1
                 if key == "iso":
-                    # A scan wants a fixed, single-shot ISO. Sony also lists "Auto ISO" and the low
-                    # "50/64/80 Multi Frame Noise Reduction" pseudo-ISOs, which put the body in a
-                    # mode the scan can't use — keep only the plain numeric ISOs (each keeps its
-                    # original raw index).
+                    # A scan wants a fixed, single-shot ISO. Sony also lists "Auto ISO" and the
+                    # Multi Frame Noise Reduction pseudo-ISOs, which put the body in a mode the
+                    # scan cannot use, so keep only the plain numeric ISOs. Each keeps its
+                    # original raw index.
                     fixed = [o for o in options if o["label"].isdigit()]
                     if fixed:
                         options = fixed
                         if cur not in {o["raw"] for o in fixed}:
-                            # The body is on Auto/MFNR. Rather than have the stepper fake a fixed
-                            # value, switch the body to its lowest real ISO (fire-and-forget; the
-                            # next 2 s settings read confirms it) and report that.
+                            # The body is on Auto or MFNR. Instead of faking a fixed value in the
+                            # stepper, switch the body to its lowest real ISO and report that.
+                            # Fire-and-forget: the next settings read confirms it.
                             lowest = min(fixed, key=lambda o: int(o["label"]))
                             try:
                                 widget.set_value(choices[lowest["raw"]])
@@ -690,8 +688,8 @@ class GphotoCamera:
                     if name is None or not self._set_verified(name, shutter):
                         raise GphotoError(f"could not set shutter to {shutter!r}: camera rejected it or it did not settle")
                 for prop, value in (("iso", iso), ("aperture", aperture)):
-                    # Not fatal like the shutter: a warning + the current setting beats aborting a
-                    # scan (the preset's value should be settable — it was set at calibration).
+                    # Not fatal like the shutter: a warning plus the current setting beats
+                    # aborting a scan, and the preset's value was settable at calibration.
                     if value:
                         name = self._property(prop)
                         if name is None or not self._set_verified(name, value):
@@ -709,16 +707,15 @@ class GphotoCamera:
                     t_download = time.perf_counter()
                     try:
                         # Delete the downloaded shot from the body. On a self-recycling RAM
-                        # target (Sony sdram) this is redundant at worst, but a body without
-                        # a capture target keeps every tethered object: the X-T5 holds ~1 GB,
-                        # then refuses capture #13 outright with a bare [-1] (issue #658 —
-                        # both reporter sessions died at exactly the 13th shot).
+                        # target this is redundant at worst, but a body without a capture target
+                        # keeps every tethered object until it refuses to capture at all
+                        # (issue #658).
                         camera.file_delete(path.folder, path.name)
                     except self._gp.GPhoto2Error as exc:
                         logger.debug("gphoto2: could not delete %s off the camera: %s", path.name, exc)
                 except BaseException:
                     # A failed shot drains inline, still under the lock: the error must leave a
-                    # clean queue behind before the preview or a retry can touch the session.
+                    # clean queue behind before the preview or a retry touches the session.
                     self._drain_events()
                     raise
         except self._gp.GPhoto2Error as exc:
@@ -784,18 +781,18 @@ class GphotoCamera:
             return
         self.open()
         if self._preview_broken:
-            # A stream already failed on this body while it kept answering. Restarting it is
-            # what turns one bad preview into a reconnect loop, so refuse until the session is
-            # closed (a reconnect or power cycle clears the flag via _reset_body_state).
+            # A stream already failed on this body while it kept answering. Restarting it turns
+            # one bad preview into a reconnect loop, so refuse until the session is closed. A
+            # reconnect or power cycle clears the flag through _reset_body_state.
             raise LiveViewUnsupported(self._live_view_refusal())
         if not self._capabilities.preview:
-            # Refuse rather than let _preview_loop find out: the body rejects capture_preview
-            # at the device level, and that refusal wedges the PTP session until the camera is
-            # power-cycled (issue #621, Sony a6000). Retrying only deepens the wedge, so this
-            # must be caught before the first call, not after three.
-            # Publish the settings once on the way out: the preview loop is normally what does
-            # it, and without them the scan window's ISO/shutter/aperture steppers stay empty
-            # and the preset's exposure could not be resolved to this body's choice indices.
+            # Refuse instead of letting _preview_loop find out. The body rejects
+            # capture_preview at the device level, and that refusal wedges the PTP session
+            # until the camera is power-cycled (issue #621). Retrying deepens the wedge, so
+            # catch it before the first call.
+            # Publish the settings once on the way out, which is normally the preview loop's
+            # job. Without them the scan window's steppers stay empty and the preset's exposure
+            # cannot resolve to this body's choice indices.
             self._publish_settings()
             raise LiveViewUnsupported(self._live_view_refusal())
         self._stop.clear()
@@ -811,8 +808,8 @@ class GphotoCamera:
         genuinely cannot preview — and it still scans.
         """
         if self._preview_broken:
-            # Advertised the capability, then failed to deliver it — the Fujifilm case. Say so
-            # plainly rather than blaming the connection, and make clear scanning is unaffected.
+            # The body advertised the capability, then failed to deliver it. Say so plainly
+            # instead of blaming the connection, and make clear that scanning still works.
             return (
                 f"{self._model or 'this camera'} accepted the connection but its live view does not work "
                 "(a known gap in libgphoto2's Fujifilm support). Scanning still works, just without a preview."
@@ -836,11 +833,11 @@ class GphotoCamera:
     def _preview_loop(self) -> None:
         next_settings = 0.0
         failures = 0
-        # Drain after a still, never before one: Fujifilm queues post-shot events past the
+        # Drain after a still, never before one. Fujifilm queues post-shot events past the
         # overlapped drain's quiet window, and events left unread block capture_preview
-        # (issue #658). Draining with nothing pending is not merely wasteful — on a freshly
-        # opened Canon EOS, wait_for_event segfaults the process (issue #745), which no
-        # `except` can catch. `_drain_owed` is raised only by a completed still.
+        # (issue #658). Draining with nothing pending is worse than wasteful: on a freshly
+        # opened Canon EOS, wait_for_event segfaults the process (issue #745) and no `except`
+        # can catch it. `_drain_owed` is raised only by a completed still.
         saw_capture = False
         while not self._stop.is_set():
             if self._busy.is_set():  # stand aside for a capture rather than race it for the lock
@@ -867,12 +864,11 @@ class GphotoCamera:
                     self._drain_owed.set()  # unread events can block a retry, but only a capture leaves any
                 logger.warning("gphoto2 live view (%d/%d): %s", failures, _MAX_PREVIEW_FAILURES, exc)
                 if failures >= _MAX_PREVIEW_FAILURES:
-                    # Repeated failures used to mean one thing — the body is gone — and the whole
-                    # session was dropped. On Fujifilm bodies that verdict is wrong: capture_preview
-                    # returns [-1] forever while the camera happily keeps shooting 85 MB frames
-                    # (issue #658). Tearing the session down there kills a working scan, and the
-                    # reopen-and-retry cycle that follows walks the body off the USB bus entirely.
-                    # So ask the camera before deciding.
+                    # Repeated failures used to mean the body was gone, and the whole session was
+                    # dropped. On Fujifilm bodies that verdict is wrong: capture_preview returns
+                    # [-1] forever while the camera keeps shooting fine (issue #658). Tearing the
+                    # session down kills a working scan, and the reopen-and-retry cycle walks the
+                    # body off the USB bus. Ask the camera before deciding.
                     if self._camera_answers():
                         logger.warning("gphoto2: live view failed but the camera still answers — continuing without a preview")
                         self._preview_broken = True

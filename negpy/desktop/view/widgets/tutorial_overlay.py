@@ -136,9 +136,7 @@ class TutorialOverlay(QWidget):
             f"QPushButton:hover {{ background: {hover}; }}"
         )
 
-    # ------------------------------------------------------------------
     # Public API
-    # ------------------------------------------------------------------
 
     def start(self, steps: list[TutorialStep]) -> None:
         self._steps = steps
@@ -157,9 +155,7 @@ class TutorialOverlay(QWidget):
         self.hide()
         self.finished.emit(False)
 
-    # ------------------------------------------------------------------
     # Navigation
-    # ------------------------------------------------------------------
 
     def _next(self) -> None:
         if self._idx >= len(self._steps) - 1:
@@ -216,9 +212,7 @@ class TutorialOverlay(QWidget):
         self._position_popup(target)
         self.update()
 
-    # ------------------------------------------------------------------
     # Layout helpers
-    # ------------------------------------------------------------------
 
     def _target_rect(self, target: Optional[QWidget]) -> Optional[QRectF]:
         if target is None or not target.isVisible():
@@ -252,9 +246,7 @@ class TutorialOverlay(QWidget):
 
         self._popup.setGeometry(x, y, pw, ph)
 
-    # ------------------------------------------------------------------
     # Section state
-    # ------------------------------------------------------------------
 
     def _restore_sections(self) -> None:
         for attr, was_expanded in self._expanded.items():
@@ -269,9 +261,7 @@ class TutorialOverlay(QWidget):
         else:
             self.setGeometry(self._win.rect())
 
-    # ------------------------------------------------------------------
     # Qt overrides
-    # ------------------------------------------------------------------
 
     def paintEvent(self, a0) -> None:  # type: ignore[override]
         painter = QPainter(self)

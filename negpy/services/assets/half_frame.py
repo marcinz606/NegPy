@@ -141,8 +141,8 @@ def detect_split_x(buf: np.ndarray) -> float:
     while i1 < w - 1 and dev[i1 + 1] >= thr:
         i1 += 1
     center = (i0 + i1) // 2
-    # A gutter is extremal against BOTH sides; a step edge (up one side, down the
-    # other) is in-scene — reject it.
+    # A gutter is extremal against BOTH sides. A step edge, up one side and down the other,
+    # is in-scene, so reject it.
     delta = max(3, int(w * 0.05))
     d1 = float(sm[center] - sm[max(0, center - delta)])
     d2 = float(sm[center] - sm[min(w - 1, center + delta)])

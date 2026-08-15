@@ -55,7 +55,7 @@ from negpy.services.assets.library import folder_counts
 
 
 _UNBOUNDED_HEIGHT = 16777215  # QWIDGETSIZE_MAX — Qt's "no maximum"
-# With both sections open the panel splits 40/60: the tree is for finding a roll, the
+# With both sections open the panel splits 40/60: the tree is for finding a roll and the
 # sheet is where the work happens, so the frames get the larger half.
 _LIBRARY_SHARE, _FRAMES_SHARE = 2, 3
 
@@ -211,17 +211,15 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         painter.restore()
 
 
-# Thumbnail size preference (px), as set by the filmstrip's size slider. The default is
-# chosen so one column fills the session sidebar at a typical narrow width (~240px viewport),
-# where a single full-width frame is the most legible use of it. Dropping toward
-# THUMB_CELL_MIN fits a second column at that same width. (The panel can now be dragged
-# narrower still — the toolbar overflows — and the grid simply keeps one column.)
+# Thumbnail size preference (px), as set by the filmstrip's size slider. The default fills
+# one column of the session sidebar at a typical narrow width, where a single full-width
+# frame is the most legible use of it. Dropping toward THUMB_CELL_MIN fits a second column
+# at that width. A narrower panel overflows the toolbar and the grid keeps one column.
 #
-# The maximum is the default: the slider only shrinks frames. Anything larger just
-# holds a widened sidebar at one column — cells fill the panel, so a 500px-wide
-# sidebar became a single ~500px cell, and since cells are square a 3:2 frame in one
-# leaves ~165px of empty space above and below. Splitting into two columns is both
-# denser and larger-in-practice, so there is nothing above the default worth offering.
+# The maximum is the default: the slider only shrinks frames. Anything larger holds a
+# widened sidebar at one column, and since cells are square a 3:2 frame leaves a wide band
+# of empty space above and below. Two columns are both denser and larger in practice, so
+# there is nothing above the default worth offering.
 THUMB_CELL_MIN = 100
 THUMB_CELL_DEFAULT = 220
 THUMB_CELL_MAX = THUMB_CELL_DEFAULT
@@ -245,8 +243,8 @@ class ThumbnailGridView(QListView):
     """
 
     SPACING = 2
-    # One notch scrolls one row of thumbnails. Qt's default (ScrollPerItem, three
-    # "lines" a notch) advanced 4-5 frames at a time in a single-column panel.
+    # One notch scrolls one row of thumbnails. Qt's default, three "lines" a notch, advanced
+    # several frames at a time in a single-column panel.
     WHEEL_ROWS_PER_NOTCH = 1.0
     SCROLL_ANIM_MS = 160
 
@@ -254,14 +252,14 @@ class ThumbnailGridView(QListView):
         super().__init__(parent)
         self._last_cell = -1
         self._target_cell = self._clamp_target(target_cell)
-        # Reserve the vertical scrollbar permanently so the viewport width is stable —
-        # otherwise scaling toggles the scrollbar, which changes the width and flips the
-        # column count back, causing flicker.
+        # Reserve the vertical scrollbar permanently so the viewport width is stable. Otherwise
+        # scaling toggles the scrollbar, which changes the width, flips the column count back
+        # and flickers.
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setSpacing(self.SPACING)
-        # Per-pixel is what makes a partial-row offset representable at all; under
-        # ScrollPerItem the view snaps to whole rows and no easing is possible.
+        # Per-pixel is what makes a partial-row offset representable at all. Under ScrollPerItem
+        # the view snaps to whole rows and no easing is possible.
         self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self._scroll_anim = QPropertyAnimation(self.verticalScrollBar(), b"value", self)
         self._scroll_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
@@ -298,8 +296,8 @@ class ThumbnailGridView(QListView):
         self._last_cell = cell
         self.setGridSize(QSize(cell + self.SPACING, cell + self.SPACING))
         self.setIconSize(QSize(cell, cell))
-        # ScrollPerPixel leaves singleStep at 1px, which makes the scrollbar arrows
-        # and arrow keys crawl; a quarter row is a usable step.
+        # ScrollPerPixel leaves singleStep at 1px, which makes the scrollbar arrows and arrow
+        # keys crawl. A quarter row is a usable step.
         self.verticalScrollBar().setSingleStep(max(1, (cell + self.SPACING) // 4))
 
     def _relayout(self) -> None:
@@ -328,8 +326,8 @@ class ThumbnailGridView(QListView):
             super().wheelEvent(event)
             return
 
-        # Accumulate onto the in-flight target so a fast spin covers the whole
-        # distance instead of restarting from wherever the easing had reached.
+        # Accumulate onto the in-flight target, so a fast spin covers the whole distance instead
+        # of restarting from wherever the easing had reached.
         running = self._scroll_anim.state() == QPropertyAnimation.State.Running
         base = self._scroll_target if running else bar.value()
         target = int(round(base - notches * self.WHEEL_ROWS_PER_NOTCH * self._row_step()))
@@ -541,16 +539,16 @@ class FileBrowser(QWidget):
             qta.icon("fa5s.search", color=THEME.text_secondary),
             QLineEdit.ActionPosition.LeadingPosition,
         )
-        # The elastic item in this row: its natural minimum is what now keeps the panel from
-        # narrowing further, and the other two here are fixed-width by design.
+        # The elastic item in this row. Its natural minimum is what keeps the panel from narrowing
+        # further, and the other two here are fixed-width by design.
         self.search_input.setMinimumWidth(40)
         self.regex_btn = QPushButton(".*")
         self.regex_btn.setCheckable(True)
         self.regex_btn.setFixedWidth(36)
         self.regex_btn.setToolTip("Regex mode")
 
-        # Same query text, wider net: the box above filters what is loaded, this runs
-        # it against every library folder and opens what it finds.
+        # Same query text, wider net: the box above filters what is loaded, and this runs it
+        # against every library folder and opens what it finds.
         self.library_search_btn = QToolButton()
         self.library_search_btn.setIcon(qta.icon("mdi.folder-search-outline", color=THEME.text_primary))
         self.library_search_btn.setFixedSize(28, 28)
@@ -561,8 +559,8 @@ class FileBrowser(QWidget):
         search_row.addWidget(self.regex_btn)
         search_row.addWidget(self.library_search_btn)
 
-        # Thumbnail size lives here rather than the toolbar row above, to keep that row's
-        # overflow menu to file actions.
+        # Thumbnail size lives here rather than the toolbar row above, to keep that row's overflow
+        # menu to file actions.
         saved_cell = self.session.repo.get_global_setting("thumbnail_cell_size") or THUMB_CELL_DEFAULT
         self.thumb_size_slider = QSlider(Qt.Orientation.Horizontal)
         self.thumb_size_slider.setRange(THUMB_CELL_MIN, THUMB_CELL_MAX)
@@ -570,8 +568,8 @@ class FileBrowser(QWidget):
         self.thumb_size_slider.setFixedWidth(72)
         self.thumb_size_slider.setToolTip("Thumbnail size — smaller fits more columns in the panel")
         search_row.addWidget(self.thumb_size_slider)
-        # Above both sections: one box that filters the frames and searches the library,
-        # so it belongs to neither and stays reachable when either is folded away.
+        # Above both sections: one box that filters the frames and searches the library, so it
+        # belongs to neither and stays reachable when either is folded away.
         layout.addLayout(search_row)
 
         self.tally_label = QLabel("")
@@ -600,12 +598,12 @@ class FileBrowser(QWidget):
 
         layout.addWidget(self.library_section)
         layout.addWidget(self.frames_section)
-        # Absorbs the surplus when every section is collapsed — otherwise Qt spreads it
-        # into the gaps between the rows above. Stretch 0 leaves an open section its share.
+        # Absorbs the surplus when every section is collapsed, or Qt spreads it into the gaps
+        # between the rows above. Stretch 0 leaves an open section its share.
         layout.addStretch(0)
         self._rebalance_sections()
 
-        # Applied after list_view exists — the filter prunes selection against the view.
+        # Applied after list_view exists: the filter prunes the selection against the view.
         saved_sheet = self.session.repo.get_global_setting("sheet_filter") or "all"
         self._apply_sheet_filter(str(saved_sheet), save=False)
 
@@ -646,20 +644,20 @@ class FileBrowser(QWidget):
         self.half_frame_btn.toggled.connect(self._on_half_frame_toggled)
         self.session.state_changed.connect(self.sync_ui)
         self.session.files_changed.connect(self._on_files_changed)
-        # Unloading the last frame leaves nothing to show — fall back to the library
-        # rather than an empty panel. Never prompts: the user asked to unload, not to load.
+        # Unloading the last frame leaves nothing to show, so fall back to the library rather
+        # than an empty panel. Never prompts: the user asked to unload, not to load.
         self.session.session_emptied.connect(lambda: self.library_requested.emit(False))
         self.search_input.textChanged.connect(lambda _: self.filter_timer.start())
         self.search_input.returnPressed.connect(self.search_library)
         self.regex_btn.toggled.connect(lambda _: self.filter_timer.start())
         self.library_search_btn.clicked.connect(self.search_library)
-        # Relayout live while dragging, but only write the setting on release —
-        # a drag crosses dozens of values and each save is a DB round-trip.
+        # Relayout live while dragging, but write the setting only on release: a drag crosses
+        # dozens of values and each save is a DB round-trip.
         self.thumb_size_slider.valueChanged.connect(self.list_view.set_target_cell)
         self.thumb_size_slider.sliderReleased.connect(self._save_thumb_size)
 
-        # Delete key unloads the selected frame(s) — scoped to the thumbnail list so it
-        # doesn't fire while typing in the filter box or editing elsewhere.
+        # Delete unloads the selected frames, scoped to the thumbnail list so it does not fire
+        # while typing in the filter box or editing elsewhere.
         del_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Delete), self.list_view)
         del_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
         del_shortcut.activated.connect(self._on_delete_key)
@@ -730,8 +728,8 @@ class FileBrowser(QWidget):
         self.session.repo.save_global_setting("thumbnail_cell_size", self.thumb_size_slider.value())
 
     def _on_files_changed(self) -> None:
-        # A mark toggle can hide the active frame under a Sheet filter — pruning then
-        # auto-advances the selection to the next visible frame (reject → move on).
+        # A mark toggle can hide the active frame under a Sheet filter. Pruning then auto-advances
+        # the selection to the next visible frame.
         if self.session.asset_model.sheet_filter != "all":
             self._prune_selection_to_visible()
         self.sync_ui()
@@ -915,8 +913,8 @@ class FileBrowser(QWidget):
     def _on_half_frame_toggled(self, checked: bool) -> None:
         self._update_half_frame_style(checked)
         if checked and self.session.state.uploaded_files:
-            # Offer the rectangle editor on the current frame; the saved profile
-            # is applied to every half-frame split from then on.
+            # Offer the rectangle editor on the current frame. The saved profile applies to every
+            # half-frame split from then on.
             current = self.session.state.current_file_path
             path = None
             if current:
@@ -1012,7 +1010,7 @@ class FileBrowser(QWidget):
             self.session.select_file(actual)
 
     def _on_item_clicked(self, index) -> None:
-        # Plain single click sets the active frame instantly. Ctrl/Shift clicks build a
+        # A plain single click sets the active frame instantly. Ctrl and Shift clicks build a
         # multi-selection for batch actions and are left to the selectionChanged handler.
         if QApplication.keyboardModifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier):
             return
@@ -1024,17 +1022,17 @@ class FileBrowser(QWidget):
     def _show_context_menu(self, pos) -> None:
         index = self.list_view.indexAt(pos)
         if not index.isValid():
-            # Empty space carries the session-level tools, so they stay reachable
-            # without travelling back to the toolbar at the top of the panel — and
-            # are discoverable at all when the session is empty.
+            # Empty space carries the session-level tools, so they stay reachable without travelling
+            # back to the toolbar at the top of the panel, and are discoverable at all when the
+            # session is empty.
             self._build_session_menu().exec(self.list_view.viewport().mapToGlobal(pos))
             return
         actual = self.session.asset_model.display_to_actual(index.row())
         if actual < 0:
             return
 
-        # Right-clicking outside the current selection re-selects just that file;
-        # within a multi-selection, keep the selection and make the clicked file active.
+        # Right-clicking outside the current selection re-selects just that file. Within a
+        # multi-selection, keep the selection and make the clicked file active.
         state = self.session.state
         if actual not in state.selected_indices:
             self.session.select_file(actual)
@@ -1054,8 +1052,8 @@ class FileBrowser(QWidget):
         src = state.selected_file_idx
         if src == -1:
             return
-        # "Whole roll" means the visible (filtered) frames, not every loaded file —
-        # a filename filter is a non-destructive view, so hidden files aren't counted.
+        # "Whole roll" means the visible (filtered) frames, not every loaded file: a filename
+        # filter is a non-destructive view, so hidden files are not counted.
         visible = self.session.asset_model.visible_actual_indices()
         sel_targets = len([i for i in set(state.selected_indices) if i != src and i in visible])
         roll_targets = len([i for i in visible if i != src])
@@ -1150,8 +1148,8 @@ class FileBrowser(QWidget):
         assets = state.uploaded_files
         mode = self.controller.state.config.process.process_mode
         if 0 <= idx < len(assets):
-            # Coerced, not compared raw: a session blob written before the mode rename
-            # still carries the old names.
+            # Coerced, not compared raw: a session blob written before the mode rename still carries
+            # the old names.
             mode = ProcessMode(assets[idx].get("process_mode") or mode)
         if mode == ProcessMode.C41:
             return

@@ -35,8 +35,8 @@ def _make_pieusb() -> ScannerBackend:
 
 DEFAULT_BACKEND_ID = "plustek" if sys.platform == "win32" else "sane"
 
-# id -> (display label, factory). Insertion order drives the sidebar dropdown.
-# SANE is Unix-only (python-sane); Windows ships Plustek USB and PIEUSB.
+# id -> (display label, factory). Insertion order drives the sidebar dropdown. SANE is
+# Unix-only (python-sane); Windows ships Plustek USB and PIEUSB.
 BACKENDS: dict[str, tuple[str, Callable[[], ScannerBackend]]] = {
     "plustek": ("pyOpticfilm (Plustek)", _make_plustek),
     "pieusb": ("PIEUSB", _make_pieusb),

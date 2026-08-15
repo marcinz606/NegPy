@@ -79,16 +79,15 @@ from negpy.services.export.print import PrintService
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry, WORKING_COLOR_SPACE
 from negpy.infrastructure.display.icc_lut import DEFAULT_LUT_SIZE, apply_icc_u16_rgb
 
-# Preview soft-proof LUT grid. Finer than the display LUT because the proof clips at
-# the output gamut boundary, and interpolating across that kink is where the error is.
+# Preview soft-proof LUT grid. Finer than the display LUT because the proof clips at the
+# output gamut boundary, and interpolating across that kink is where the error is.
 PROOF_LUT_SIZE = 65
 
 logger = get_logger(__name__)
 
-# (photometric, primaries, transfer) for JXL's enumerated color encoding (D65 white
-# only, no ICC). Other spaces must hard-fail. Transfers verified against the bundled
-# icc/*.icc: Rec 2020 uses the Rec.709/BT.2020 OETF (BT709, not sRGB) and
-# GrayGamma2.2.icc holds the sRGB TRC despite its name (SRGB, not gamma 2.2).
+# (photometric, primaries, transfer) for JXL's enumerated color encoding (D65 white only,
+# no ICC). Other spaces must hard-fail. Transfers verified against the bundled icc/*.icc:
+# Rec 2020 uses the BT.2020 OETF, and GrayGamma2.2.icc holds the sRGB TRC despite its name.
 _JXL_COLOR = {
     ColorSpace.SRGB.value: ("RGB", "SRGB", "SRGB"),
     ColorSpace.P3_D65.value: ("RGB", "P3", "SRGB"),
@@ -151,8 +150,8 @@ class ImageProcessor:
         self.engine_cpu = DarkroomEngine()
         self.engine_gpu: Optional[GPUEngine] = None
 
-        # Last decoded full-res source (decode+flatfield) — skips re-decode on repeat export.
-        # One entry only (full-res buffers are large); treated read-only downstream.
+        # Last decoded full-res source (decode+flatfield), so a repeat export skips the
+        # decode. One entry only, since full-res buffers are large. Read-only downstream.
         self._source_cache_key: Optional[tuple] = None
         self._source_cache_value: Optional[Tuple[np.ndarray, Optional[np.ndarray], str]] = None
         # Decoder XYZ->camera matrix per source path, filled during decode. Small and
@@ -164,16 +163,15 @@ class ImageProcessor:
         self._precorrect_key: Optional[tuple] = None
         self._precorrect_value: Optional[np.ndarray] = None
 
-        # Source-space dust detection cache. Geometry deliberately excluded from
-        # the key (strokes are source-normalized); resolution excluded so an
-        # export reuses the exact preview-detected regions.
+        # Source-space dust detection cache. Geometry is out of the key because strokes are
+        # source-normalized, and resolution is out so an export reuses the preview regions.
         self._retouch_detect_key: Optional[tuple] = None
         self._retouch_detect_value: Optional[tuple] = None
-        # Threshold-independent stat maps — survive threshold-slider drags.
+        # Threshold-independent stat maps: they survive threshold-slider drags.
         self._dust_stats_key: Optional[tuple] = None
         self._dust_stats_value: Optional[tuple] = None
-        # IR ratio + gain map at detection scale, keyed on source only (survives
-        # threshold drags); shared by the attenuation bake and IR detection.
+        # IR ratio + gain map at detection scale, keyed on source only so it survives
+        # threshold drags. Shared by the attenuation bake and IR detection.
         self._ir_gain_key: Optional[tuple] = None
         self._ir_gain_value: Optional[tuple] = None
         # Inpainted source for hairs, keyed on (source+detection params, buffer res)
@@ -191,13 +189,13 @@ class ImageProcessor:
         self._luma_value: Optional[np.ndarray] = None
         self._manual_key: Optional[tuple] = None
         self._manual_value: Optional[tuple] = None
-        # The OpenICE method's whole result, on its own slot: the two IR methods share no
+        # The OpenICE method's whole result, on its own slot. The two IR methods share no
         # state, so whichever loses can be deleted without unpicking the other.
         self._ice_key: Optional[tuple] = None
         self._ice_value: Optional[tuple] = None
 
         # Called with a label when a slow uncached step starts, for a UI busy cue. Set by
-        # RenderWorker; the caller runs on the render thread, so keep it to a signal emit.
+        # RenderWorker. The caller runs on the render thread, so keep it to a signal emit.
         self.on_slow_step: Optional[Callable[[str], None]] = None
 
         if APP_CONFIG.use_gpu:
@@ -226,20 +224,19 @@ class ImageProcessor:
 
     def _ir_ratio_gain(self, ir_buffer: np.ndarray, img: np.ndarray, source_key: str) -> tuple:
         """Cached (ratio_det, gain_det, degenerate, gammas) at detection scale."""
-        # Detection follows the buffer it will repair (capped): the score is upsampled onto
+        # Detection follows the buffer it will repair (capped). The score is upsampled onto
         # that buffer, so a coarse detection writes a fat mask and averages over a wide
-        # support — see _IR_MAX_UPSAMPLE.
+        # support. See _IR_MAX_UPSAMPLE.
         target = ir_detect_target(max(img.shape[:2]), APP_CONFIG.preview_render_size)
-        # Key on the source shape — downsample_ir is deterministic in it, so this
-        # discriminates the same as the detection shape but resolves before the
-        # downsample runs. _ir_bake and _detect_luma both call this per render;
-        # keying on the result made the second call repay a full-res erode to build
-        # a key it then hit.
+        # Key on the source shape: downsample_ir is deterministic in it, so this
+        # discriminates like the detection shape but resolves before the downsample runs.
+        # Keying on the result made the second caller repay a full-res erode to build a
+        # key it then hit.
         key = (source_key, ir_buffer.shape, target)
         if key == self._ir_gain_key and self._ir_gain_value is not None:
             return self._ir_gain_value
-        # Min-preserving (not _downsample_to_long_edge) — INTER_AREA averages a sub-pixel
-        # hair's dip away. No-op on the preview path, where preview_ir already arrives
+        # Min-preserving, not _downsample_to_long_edge: INTER_AREA averages a sub-pixel
+        # hair's dip away. A no-op on the preview path, where preview_ir already arrives
         # min-pooled at this scale.
         ir_det = downsample_ir(np.ascontiguousarray(ir_buffer, dtype=np.float32), target)
         val = ir_ratio_and_gain(ir_det, _downsample_to_long_edge(img, target))
@@ -392,11 +389,10 @@ class ImageProcessor:
             self._slow_step("repairing dust")
             # floor=False: a scratch has lost emulsion and reads brighter than the film
             # around it, so a painted repair must be free to darken as well as lighten.
-            # Film-footprint supports, not the buffer's own pixels: a painted score arrives at
-            # full buffer resolution, where the fill's fine rungs would be 3-9 px — grain scale,
-            # sitting entirely inside a defect that is 47 px wide at export. Their candidate is
-            # then the defect's own value and the repair only half-lands. The IR path never hits
-            # this because its score is measured coarse and carries the same factor here.
+            # Film-footprint supports, not the buffer's own pixels: a painted score arrives
+            # at full buffer resolution, where the fill's fine rungs sit at grain scale,
+            # entirely inside the defect. Their candidate is then the defect's own value and
+            # the repair only half-lands. The IR path measures its score coarse instead.
             value = (
                 np.asarray(repair_components(img, score, floor=False, factor=film_scale(img.shape[:2]))),
                 route_wide_defects(score, budget=None),
@@ -426,12 +422,11 @@ class ImageProcessor:
 
         ``skip_flatfield``: the export CPU fallbacks pass an already-flat-fielded buffer.
         """
-        # Flat-field is a source pre-correction (before geometry/crop); folding its token
-        # into source_hash invalidates the engine cache when it changes. Stitch buffers
-        # arrive per-part flat-fielded (both decode paths) — correcting the composite
-        # canvas as one frame would stretch the gain map across the seam.
-        # Shape is in the key: HQ re-decodes the same file larger under an unchanged
-        # source_hash.
+        # Flat-field is a source pre-correction, before geometry and crop. Folding its token
+        # into source_hash invalidates the engine cache when it changes. Stitch buffers arrive
+        # per-part flat-fielded, because correcting the composite canvas as one frame would
+        # stretch the gain map across the seam. Shape is in the key: HQ re-decodes the same
+        # file larger under an unchanged source_hash.
         precorrect_key = (
             source_hash,
             img.shape,
@@ -449,7 +444,7 @@ class ImageProcessor:
             if not skip_flatfield and not settings.stitch.stitch_enabled:
                 img = apply_flatfield(img, settings.flatfield)
             # Sensor unmix is a source pre-correction like flat-field. skip_flatfield buffers
-            # come from _load_source_f32, which already applied it; triplet composites take
+            # come from _load_source_f32, which already applied it. Triplet composites take
             # each channel from its own single-band exposure, so unmixing them would inject
             # crosstalk that was never captured.
             if not skip_flatfield and not is_rgb_triplet(settings.rgbscan) and not stitch_has_triplets(settings.stitch):
@@ -459,10 +454,9 @@ class ImageProcessor:
                 self._precorrect_key = precorrect_key
                 self._precorrect_value = img
         h_orig, w_cols = img.shape[:2]
-        # Fold the buffer resolution into source_hash: toggling HQ re-decodes the same
-        # file at full resolution with unchanged settings, so without this the engine
-        # cache reports "nothing changed" and returns the stale low-res render instead
-        # of re-rendering the new full-res buffer.
+        # Fold the buffer resolution into source_hash: toggling HQ re-decodes the same file
+        # at full resolution with unchanged settings, so without this the engine cache
+        # reports "nothing changed" and returns the stale low-res render.
         base_hash = (
             source_hash
             + flatfield_token(settings.flatfield)
@@ -486,8 +480,8 @@ class ImageProcessor:
         extra = [m for m in (ir_routed, manual_routed) if m is not None]
         if extra:
             hair_masks = hair_masks + extra  # never mutate the cached list
-        # Inpaint long/twisted hairs into the source (both engines see it — the token
-        # invalidates the base stage when detection params change; empty otherwise).
+        # Inpaint long/twisted hairs into the source, where both engines see it. The token
+        # invalidates the base stage when detection params change.
         hair_token = hair_bake_token(orig_ret) if hair_masks else ""
         if hair_masks:
             img = self._hair_inpaint(img, hair_masks, base_hash + hair_token)
@@ -508,22 +502,22 @@ class ImageProcessor:
         if metrics:
             context.metrics.update(metrics)
         # Display-overlay data: the detection-scale set that was repaired. Absent when
-        # detection is off (so the overlay draws nothing).
+        # detection is off, so the overlay draws nothing.
         if detected_dust is not None:
             context.metrics["detected_dust_mask"] = detected_dust < 1.0
         # Overlay wash over the inpainted hairs (they emit no stroke capsules).
         if hair_masks:
             context.metrics["hair_inpaint_masks"] = hair_masks
-        # Overlay data for the IR-corrected regions (division + fill) + the B&W/Kodachrome guard.
+        # Overlay data for the IR-corrected regions, plus the B&W/Kodachrome guard.
         if want_ir:
             context.metrics["ir_degenerate"] = ir_degenerate
             if ir_corrected_mask is not None:
                 context.metrics["ir_corrected_mask"] = ir_corrected_mask
 
         if self._is_flat(settings) or crop_preview_full:
-            # The crop tool's "show full uncropped frame" preview only needs a single
-            # CPU render per settings change (dragging only moves an overlay rect), so
-            # we sidestep the GPU engine's ROI-fused compute dispatch entirely here.
+            # The crop tool's "show full uncropped frame" preview needs one CPU render per
+            # settings change, since dragging only moves an overlay rect. Sidestep the GPU
+            # engine's ROI-fused compute dispatch here.
             prefer_gpu = False
 
         if prefer_gpu and self.engine_gpu:
@@ -554,8 +548,8 @@ class ImageProcessor:
             raise ValueError("Direct GPU textures cannot be converted to PIL without readback.")
 
         t = settings.toning
-        # Any toner or split tint makes a B&W print chromatic — collapsing to a
-        # single luma plane here would silently discard the toning.
+        # Any toner or split tint makes a B&W print chromatic, so collapsing to a single
+        # luma plane here would discard the toning.
         is_toned = (
             t.selenium_strength != 0.0
             or t.sepia_strength != 0.0
@@ -614,8 +608,8 @@ class ImageProcessor:
                 **post_kw,
             )
             rgb = ensure_rgb(rgb)
-            # Sensor-native decode leaves the buffer in camera primaries; the transparency
-            # transfer needs the matrix to reach the working space (see capture_color).
+            # Sensor-native decode leaves the buffer in camera primaries, and the
+            # transparency transfer needs the matrix to reach the working space.
             metadata["cam_xyz"] = camera_xyz_matrix(raw)
             metadata["camera_wb"] = camera_wb_multipliers(raw)
         return rgb, metadata
@@ -685,23 +679,23 @@ class ImageProcessor:
         """
         linear_raw = effective_linear_raw(params.process, params.exposure.render_intent)
         rgbcfg = params.rgbscan
-        # A bracket wins over a triplet: the two are refused together in the UI, and the
-        # export decode branches in this order — an asset that somehow carries both must
-        # not assemble differently on the two paths.
+        # A bracket wins over a triplet. The UI refuses the two together, and the export
+        # decode branches in this order, so an asset carrying both must not assemble
+        # differently on the two paths.
         is_triplet = is_rgb_triplet(rgbcfg) and not hdr_active(params.hdr)
 
         rgb, metadata = self._decode_sensor_rgb(file_path, linear_raw, fast=fast_decode, wb_override=wb_override)
-        # No embedded profile (scanner-raw linear, sensor-native RAW) → the buffer is
+        # No embedded profile (scanner-raw linear, sensor-native RAW) means the buffer is
         # already in the working space, so "Same as Source" exports without converting.
         source_cs = str(metadata.get("color_space") or WORKING_COLOR_SPACE)
-        # Memoized rather than returned: the 3-tuple return is unpacked positionally in
-        # several callers, and only the export render and the bracket solve need this.
+        # Memoized rather than returned: several callers unpack the 3-tuple positionally,
+        # and only the export render and the bracket solve need this.
         self._cam_xyz_by_path[file_path] = (metadata.get("cam_xyz"), metadata.get("camera_wb"))
         ir_full = metadata.get("ir")
 
         if is_triplet:
-            # Assemble one frame from the R/G/B exposures; the primary (red) file is
-            # already decoded above, so reuse it and decode only green/blue.
+            # Assemble one frame from the R/G/B exposures. The primary (red) file is already
+            # decoded above, so reuse it and decode only green and blue.
             for label, path in (("green", rgbcfg.green_path), ("blue", rgbcfg.blue_path)):
                 if not os.path.exists(path):
                     raise FileNotFoundError(f"RGB-scan {label} exposure not found: {path}")
@@ -715,21 +709,20 @@ class ImageProcessor:
 
         if hdr_active(params.hdr):
             # Merged straight to float32: the recovered detail sits below the reference
-            # exposure's quantization step, so a uint16 round-trip would discard it.
-            # Before flat-field and the sensor unmix, both of which are applied below —
-            # the decode pins the white level (adjust_maximum_thr=0.0), so saturation is
-            # exactly 1.0 and the merge's exclusion threshold means what it says. A gain
-            # map applied first moves that point and skews the weights.
+            # exposure's quantization step, so a uint16 round-trip would discard it. This
+            # runs before flat-field and the sensor unmix, both applied below. The decode
+            # pins the white level (adjust_maximum_thr=0.0), so saturation is exactly 1.0
+            # and the merge's exclusion threshold means what it says. A gain map applied
+            # first moves that point and skews the weights.
             #
             # Every frame decodes on the reference's white balance, never its own. The
-            # transfer path already decodes neutral (effective_linear_raw), so this is
-            # normally moot -- but it is pinned here rather than left to that, because a
-            # bracket whose frames sit on different white balances solves wrong ratios and
-            # says nothing about it.
+            # transfer path already decodes neutral, but it is pinned here anyway, because
+            # a bracket whose frames sit on different white balances solves wrong ratios
+            # and reports nothing.
             bracket_wb = None if linear_raw else metadata.get("camera_wb")
             f32_buffer = merge_bracket(
                 # fast_decode must ride along: a half-size primary against full-size
-                # siblings is a shape mismatch, not a slow merge.
+                # siblings is a shape mismatch, not just a slow merge.
                 lambda p: rgb if p == file_path else self._decode_sensor_rgb(p, linear_raw, fast=fast_decode, wb_override=bracket_wb)[0],
                 file_path,
                 params.hdr,
@@ -738,10 +731,9 @@ class ImageProcessor:
             f32_buffer = uint16_to_float32(rgb)
 
         if ir_full is not None and ir_full.shape[:2] != f32_buffer.shape[:2]:
-            # Defensive: no current IR carrier half-sizes (libraw ignores half_size on
-            # stacked LinearRaw, NonStandardFileWrapper is excluded from fast decode), but a
-            # mismatched plane must be rescaled or the IR bake silently skips it. Routed
-            # through downsample_ir, not INTER_AREA, so a sub-pixel hair keeps its dip.
+            # Defensive: no current IR carrier half-sizes, but a mismatched plane must be
+            # rescaled or the IR bake skips it. Routed through downsample_ir, not
+            # INTER_AREA, so a sub-pixel hair keeps its dip.
             ih, iw = f32_buffer.shape[:2]
             ir_full = downsample_ir(ir_full, max(ih, iw), dims=(iw, ih))
 
@@ -888,10 +880,10 @@ class ImageProcessor:
         icc_input = export_settings.icc_input_path
         icc_output = export_settings.icc_output_path
 
-        # A target with no ICC profile (ACES/XYZ, or a stale custom name) can be
-        # neither converted to nor tagged — the file would silently carry untagged
-        # working-space pixels. Export the working space itself, correctly tagged,
-        # instead. An output override supplies its own destination, so it exempts.
+        # A target with no ICC profile (ACES/XYZ, or a stale custom name) can be neither
+        # converted to nor tagged, so the file would carry untagged working-space pixels.
+        # Export the working space itself, tagged. An output override is exempt: it
+        # supplies its own destination.
         if ColorSpaceRegistry.get_icc_path(color_space) is None and not (icc_output and os.path.exists(icc_output)):
             logger.warning(f"No ICC profile available for '{color_space}'; exporting as {working_color_space} instead")
             color_space = working_color_space
@@ -927,8 +919,8 @@ class ImageProcessor:
                 )
                 pil_img = Image.fromarray(img_out)
             else:
-                # PIL has no 16-bit RGB mode, so RGB PNG is 8-bit (TIFF is the 16-bit
-                # lossless path). Mirror the JPEG branch for color management.
+                # PIL has no 16-bit RGB mode, so RGB PNG is 8-bit and TIFF is the 16-bit
+                # lossless path. Mirror the JPEG branch for color management.
                 img_int = float_to_uint8(buffer)
                 pil_img, icc_bytes = self.apply_color_management(
                     Image.fromarray(img_int), working_color_space, color_space, icc_output, icc_input
@@ -970,9 +962,9 @@ class ImageProcessor:
             # 8-bit only (WebP has no higher bit depth). Lossy or lossless via a
             # flag; PIL embeds the ICC profile for any color space.
             if is_greyscale:
-                # apply_color_management can't transform an L image with the RGB
-                # working profile (lcms refuses the transform, leaving the file
-                # untagged in the working TRC); use the synthetic grey re-encode.
+                # apply_color_management cannot transform an L image with the RGB working
+                # profile: lcms refuses it and the file lands untagged in the working TRC.
+                # Use the synthetic grey re-encode.
                 pil_img, icc_bytes = self._greyscale_to_pil_u8(buffer, working_color_space, color_space, icc_output, icc_input)
             else:
                 pil_img, icc_bytes = self.apply_color_management(
@@ -993,8 +985,8 @@ class ImageProcessor:
             return output_buf.getvalue(), "webp"
         else:
             if is_greyscale:
-                # Same constraint as the WebP branch: greyscale can't go through the
-                # RGB CMS transform, so re-encode at 16-bit and downconvert.
+                # Same constraint as the WebP branch: greyscale cannot go through the RGB
+                # CMS transform, so re-encode at 16-bit and downconvert.
                 pil_img, icc_bytes = self._greyscale_to_pil_u8(buffer, working_color_space, color_space, icc_output, icc_input)
             else:
                 pil_img, icc_bytes = self.apply_color_management(
@@ -1053,10 +1045,10 @@ class ImageProcessor:
             self._precorrect_key = None
             self._precorrect_value = None
 
-            # A Print/Target-px export setting sizes the paper from print_size x DPI,
-            # which would re-inflate the tile to full print resolution right after the
-            # downsample. Bound it with the virtual-DPI trick the UI print preview uses
-            # (PrintService.preview_paper_layout) so borders stay proportional.
+            # A Print/Target-px export setting sizes the paper from print_size x DPI, which
+            # re-inflates the tile to full print resolution right after the downsample. Bound
+            # it with the virtual-DPI trick PrintService.preview_paper_layout uses, so
+            # borders stay proportional.
             if params.export.export_resolution_mode != ExportResolutionMode.ORIGINAL.value:
                 virtual_dpi = max(1, int((target_long_px * 2.54) / max(0.1, params.export.export_print_size)))
                 params = dc_replace(
@@ -1123,8 +1115,8 @@ class ImageProcessor:
             if isinstance(buffer, np.ndarray) and buffer.ndim == 3 and buffer.shape[2] == 4:
                 buffer = buffer[:, :, :3]
             buffer = apply_display_transform(buffer, working_color_space)
-            # Downsample after the display transform, matching where the sheet
-            # compositor resamples, so the tile looks identical — just smaller.
+            # Downsample after the display transform, where the sheet compositor resamples,
+            # so the tile looks identical but smaller.
             buffer = _downsample_to_long_edge(buffer, target_long_px)
             return float_to_uint8(buffer)
         except Exception as e:
@@ -1413,10 +1405,10 @@ class ImageProcessor:
             p_display = open_profile_from_bytes(monitor_icc_bytes) if monitor_icc_bytes else ImageCms.createProfile("sRGB")
 
             if ImageProcessor._is_print_profile(p_dst):
-                # Paper/printer profile: simulate the print on screen (paper white + ink)
-                # via a proof transform — relative-colorimetric source→paper, then
-                # absolute-colorimetric paper→display so the paper white/Dmax show.
-                # Handles RGB and CMYK paper profiles (proof space is internal).
+                # Paper/printer profile: simulate the print on screen through a proof
+                # transform. Relative-colorimetric source to paper, then
+                # absolute-colorimetric paper to display, so paper white and Dmax show.
+                # Handles RGB and CMYK paper profiles.
                 proof = ImageCms.buildProofTransform(
                     p_src,
                     p_display,
@@ -1430,7 +1422,7 @@ class ImageProcessor:
                 result = ImageCms.applyTransform(pil_img, proof)
                 return result if result is not None else pil_img
 
-            # Export color space / display-class profile: gamut-only proof. GRAY
+            # Export color space or display-class profile: gamut-only proof. GRAY
             # destinations need an "L" intermediate.
             dst_space = (getattr(p_dst.profile, "xcolor_space", "RGB ") or "RGB ").strip()
             out_mode = "L" if dst_space == "GRAY" else "RGB"
@@ -1445,11 +1437,11 @@ class ImageProcessor:
             if result is None:
                 return pil_img
             result = result if result.mode == "RGB" else result.convert("RGB")
-            # Final output → display transform so the proof is shown in display space
-            # rather than reinterpreted by the viewer. Always runs (not just when a
-            # monitor profile is known): without it the proof would leak output-space
-            # numbers to the screen and shift per output space (issue #243). Skipped for
-            # GRAY outputs, whose `result` is no longer in `p_dst`'s space after RGB-ising.
+            # Output-to-display transform, so the proof is shown in display space instead
+            # of being reinterpreted by the viewer. Always runs, not only when a monitor
+            # profile is known: without it the proof leaks output-space numbers to the
+            # screen and shifts per output space (issue #243). Skipped for GRAY outputs,
+            # whose `result` has left `p_dst`'s space after RGB-ising.
             if out_mode == "RGB":
                 proofed = ImageCms.profileToProfile(
                     result,

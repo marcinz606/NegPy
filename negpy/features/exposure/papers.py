@@ -34,13 +34,13 @@ DyeMatrix = Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[
 _IDENTITY_DYE: DyeMatrix = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
 
 # Lith hue path: four (a*, b*) anchors at the density fractions in
-# LITH_CONSTANTS["path_u"] (0.10 / 0.35 / 0.65 / 1.00) — peach, ochre, olive,
-# neutral. The olive knot is not decorative: the green transition between warm
-# highlights and cold blacks is the signature of a lith print on warmtone paper.
+# LITH_CONSTANTS["path_u"], reading peach, ochre, olive, neutral. The olive knot is not
+# decorative: the green transition between warm highlights and cold blacks is the
+# signature of a lith print on warmtone paper.
 LithPath = Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float], Tuple[float, float]]
 
-# The default belongs to the *Neutral* profile, so it stays restrained — a hint
-# of warmth, not a look. Pick a warmtone paper to get the color.
+# The default belongs to the *Neutral* profile, so it stays restrained: a hint of warmth,
+# not a look. Pick a warmtone paper to get the color.
 _DEFAULT_LITH_PATH: LithPath = ((4.0, 8.0), (2.0, 8.0), (-1.0, 4.0), (0.0, 0.0))
 
 # Paper-character keys a profile overrides in the effective constants dict.
@@ -96,9 +96,9 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
         d_max=2.10,
         d_min=0.04,
         paper_midtone_gamma=0.15,
-        # Multigrade resists lith — Rudman's lithability test reads an
-        # incorporated accelerator, which short-circuits the semiquinone
-        # cascade. The restrained default path is right for it.
+        # Multigrade resists lith. Rudman's lithability test reads an incorporated accelerator,
+        # which short-circuits the semiquinone cascade, so the restrained default path is right
+        # for it.
     ),
     "ilford_fb_classic": PaperProfile(
         label="Ilford Multigrade FB Classic",
@@ -117,8 +117,8 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
         d_min=0.05,
         toe_sharpness_base=3.5,
         paper_midtone_gamma=0.10,
-        # The canonical lith paper: reddish-yellow highlights through an olive
-        # transition to green-black shadows (Moersch's per-paper tables).
+        # The canonical lith paper: reddish-yellow highlights through an olive transition to
+        # green-black shadows (Moersch's per-paper tables).
         lith_path=((14.0, 22.0), (7.0, 26.0), (-8.0, 14.0), (-2.0, 2.0)),
     ),
     "foma_fomabrom": PaperProfile(
@@ -135,9 +135,9 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
     "kodak_endura": PaperProfile(
         label="Kodak Endura Premier",
         kind="ra4",
-        # Neutral, deep blacks (Dmax ~2.55), punchy midtone S. Datasheet R/G/B
-        # diverge only at Dmax (R densest) → cool deep shadows; approximated with a
-        # small channel_gamma.
+        # Neutral, with deep blacks and a punchy midtone S. The datasheet R/G/B diverge only at
+        # Dmax, red densest, which cools the deep shadows. Approximated with a small
+        # channel_gamma.
         d_max=2.55,
         d_min=0.06,
         toe_sharpness_base=3.5,
@@ -153,9 +153,9 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
     "fuji_crystal": PaperProfile(
         label="Fujicolor Crystal Archive",
         kind="ra4",
-        # No published curve; rough estimate — brilliant whites, vivid blue/green,
-        # slight cool base. Tint is a per-channel density offset (+darkens that
-        # channel): negative M/Y lifts green/blue for the cool, vivid look.
+        # No published curve, so this is a rough estimate: brilliant whites, vivid blue and
+        # green, a slightly cool base. The tint is a per-channel density offset, where positive
+        # darkens that channel, so a negative M/Y lifts green and blue for the vivid look.
         d_max=2.35,
         d_min=0.03,
         paper_midtone_gamma=0.15,
@@ -229,9 +229,9 @@ def compose_density_matrices(dye: Optional[np.ndarray], sat: Optional[np.ndarray
     return s @ d
 
 
-# Which paper kind each process mode exposes. E-6 (slide) has no entry — it gets
-# only the neutral default. Keyed by ProcessMode (a StrEnum), so plain-string
-# process_mode values look up fine.
+# Which paper kind each process mode exposes. E-6 (slide) has no entry and gets only the
+# neutral default. Keyed by ProcessMode, a StrEnum, so plain-string process_mode values
+# look up fine.
 _MODE_KIND: Dict[str, str] = {ProcessMode.C41: "ra4", ProcessMode.BW: "bw"}
 
 

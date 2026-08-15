@@ -27,7 +27,7 @@ class Channel(Enum):
         )
 
 
-#: Capture order — red first, blue last (matches TriRGB and NegPy RGB-scan).
+#: Capture order: red first, blue last, matching TriRGB and NegPy RGB-scan.
 CAPTURE_ORDER: tuple[Channel, Channel, Channel] = (Channel.RED, Channel.GREEN, Channel.BLUE)
 
 
@@ -69,9 +69,9 @@ class CaptureSettings:
     min_raw_bytes: int = 8 * 1024 * 1024
     max_raw_bytes: int = 200 * 1024 * 1024
     shutters: Optional[tuple[Optional[str], Optional[str], Optional[str]]] = None
-    # ISO + aperture the preset was calibrated at — the scan forces them so a drifted body can't
-    # falsify it (like `shutters`, None means "leave the camera as set"). An RGB triplet passes the
-    # preset's; white-light / normal scans leave them free.
+    # ISO and aperture the preset was calibrated at. The scan forces them so a drifted body
+    # cannot falsify it, and like `shutters`, None means "leave the camera as set". An RGB
+    # triplet passes the preset's values; white-light and normal scans leave them free.
     iso: Optional[str] = None
     aperture: Optional[str] = None
 

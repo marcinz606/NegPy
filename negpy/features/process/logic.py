@@ -116,8 +116,8 @@ def detect_process_mode(raw: Optional[ImageBuffer]) -> ProcessMode:
 
     r, g, b = img[:, :, 0], img[:, :, 1], img[:, :, 2]
 
-    # B&W: channels stay near-perfectly correlated even with a color tint;
-    # real color (C41/E-6) has varied hues and lower correlation.
+    # B&W: the channels stay near-perfectly correlated even with a color tint, while real
+    # color (C41, E-6) has varied hues and lower correlation.
     min_corr = min(_corr(r, g), _corr(g, b), _corr(r, b))
     if min_corr > _BW_CORR_THRESHOLD:
         return ProcessMode.BW
@@ -126,8 +126,8 @@ def detect_process_mode(raw: Optional[ImageBuffer]) -> ProcessMode:
     r_p25, b_p25 = float(np.percentile(r, 25)), float(np.percentile(b, 25))
     r_p98, g_p98, b_p98 = float(np.percentile(r, 98)), float(np.percentile(g, 98)), float(np.percentile(b, 98))
 
-    # Orange mask (standard C41): R >> B.
-    # Scanners sometimes correct the mask only in bright areas; check across density levels.
+    # Orange mask (standard C41): R much greater than B. Scanners sometimes correct the mask
+    # only in bright areas, so check across density levels.
     orange_score = max(
         (r_mean + 1e-6) / (b_mean + 1e-6),
         (r_p25 + 1e-6) / (b_p25 + 1e-6),
@@ -136,8 +136,8 @@ def detect_process_mode(raw: Optional[ImageBuffer]) -> ProcessMode:
     if orange_score > _C41_ORANGE_THRESHOLD:
         return ProcessMode.C41
 
-    # Purple mask (e.g. Harman Phoenix): R≈B with G suppressed.
-    # Check at p98 (clearest film areas) where the base color is most visible.
+    # Purple mask, as on Harman Phoenix: R about equal to B with G suppressed. Check at p98,
+    # the clearest film areas, where the base color is most visible.
     if _has_purple_mask(r_p98, g_p98, b_p98):
         return ProcessMode.C41
 

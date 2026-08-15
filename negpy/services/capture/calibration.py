@@ -40,52 +40,44 @@ from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
 
-# The decode normalises the camera's white level to full 16-bit, so the *demosaiced* saturation
-# point is camera-independent (65535). This only holds because `linear_demosaic` pins
-# adjust_maximum_thr=0.0 — on LibRaw's default the reference silently becomes the frame's own
-# brightest pixel, every frame gets its own scale, and nothing below is comparable between shots
-# (that bug read as an LED plateau for a whole rig session). The camera-SPECIFIC saturation — the
-# raw sensor white level, which differs per body (full-well capacity + ADC bit depth) — is handled
-# separately by the raw-Bayer check (raw_channel_clip_fraction, which reads the real per-camera
-# white_level and also catches clipped photosites the demosaic averages away). This demosaiced
-# ceiling is a fast secondary guard on the normalised scale.
+# The decode normalises the camera white level to full 16-bit, so the *demosaiced*
+# saturation point is camera-independent (65535). This holds only because
+# `linear_demosaic` pins adjust_maximum_thr=0.0. On LibRaw's default the reference
+# becomes the frame's own brightest pixel and no two shots are comparable. The
+# camera-SPECIFIC raw white level is checked separately by raw_channel_clip_fraction,
+# which also catches clipped photosites the demosaic averages away. This ceiling is
+# only a fast secondary guard on the normalised scale.
 CLIP_CEILING = 65535
-# A demosaiced pixel this close to the normalised ceiling counts as clipped; the ~0.2 % margin
-# absorbs demosaic interpolation + read noise just below saturation.
+# A demosaiced pixel this close to the ceiling counts as clipped. The margin absorbs
+# demosaic interpolation and read noise just below saturation.
 SATURATION_VALUE = int(CLIP_CEILING * 0.998)  # ≈ 65404
 PWM_MIN = 40
 PWM_MAX = 255
-# Aim the dimmest channel here, not at 255 — this is the phase-4 trim's headroom, not an LED limit.
-# A measured level ramp (40→255 per channel, on the fixed decode — see raw_demosaic) shows the LEDs
-# do not saturate: they are gently concave, red losing only ~2 % of k_eff between levels 200 and 250.
-# So `k`, measured at the probe level, slightly over-states the light at the solved level and the
-# first shot lands ~2 % under target; the trim corrects that by raising the level, which needs room
-# above. 250 leaves ~3 % (a solved ~247 can still reach the 255 clamp) — enough for the measured
-# curvature — and it is the lowest ceiling that still buys a full shutter step: on a C-41 base at
-# ISO 100 / f8 the solved shutter snaps to 1/3 rather than 4/10. Above 250 nothing more is gained
-# (the level follows from the snapped shutter), and the LED itself is near its limit there: level
-# 255 yields only ~21 % more light than the ~206 a 4/10 solve lands on.
+# Aim the dimmest channel here, not at 255: this is the phase-4 trim's headroom, not an
+# LED limit. The LEDs are gently concave, so `k` measured at the probe level over-states
+# the light at the solved level and the first shot lands slightly under target. The trim
+# raises the level to correct that, which needs room above. 250 is the lowest ceiling
+# that still buys a full shutter step; above it nothing more is gained.
 PWM_MAX_SAFE = 250
 TARGET_FRACTION = 0.9  # expose the film base to 90 % of the usable range
 MIN_SIGNAL = 10.0  # counts; below this the channel read no real signal
-# ETTR meters p99.9 (ignores the top 0.1 %), so the base can read on-target while a sliver clips.
-# The base is the whitepoint (blackpoint after inversion) and must stay just below clipping.
+# ETTR meters p99.9, so the base can read on-target while a sliver clips. The base is the
+# whitepoint (blackpoint after inversion) and must stay just below clipping.
 MAX_CLIP_FRACTION = 0.002
-# A channel this far under target is materially under-exposed, from any cause — maxed LED at the
-# slowest shutter, or a clip-guard that pulled the LED down hard. Aborts the run as "under"
-# (CalibrationExposureError); a small undershoot within this margin still counts as on-target.
+# A channel this far under target is under-exposed from any cause: a maxed LED at the
+# slowest shutter, or a clip guard that pulled the LED down hard. Aborts the run as
+# "under". A smaller undershoot still counts as on-target.
 MAX_TARGET_UNDER_FRACTION = 0.2
-# Probe budget = the whole reachable range, so the loop can only end by resolving (in-range return,
-# graceful-over return, or the dark-side break) — never by exhaustion, which would mislabel a
-# blinding over-exposure as "no signal". Worst case is a deeply-over scene from the slowest start:
-# ~9 shutter halvings (2 s → 1/250) + 3 LED halvings (255 → 40) + the final in-range measurement.
+# Probe budget = the whole reachable range, so the loop can only end by resolving, never
+# by exhaustion. Exhaustion would mislabel a blinding over-exposure as "no signal". Worst
+# case is ~9 shutter halvings + 3 LED halvings + the final measurement.
 _MAX_PROBE_STEPS = 14
 _MAX_CLIP_GUARD_STEPS = 12  # LED-down steps (PWM_MAX→PWM_MIN at 0.85×) — keeps captures hard-bounded
 
-# Shutter ladder, fastest first (third-stops). Extends to 2 s (up from 1 s) so a closed-down
-# aperture can still reach target on the dim channel instead of failing (dark current at ISO 100
-# / ≤2 s is negligible). Faster than 1/250 s is avoided (PWM-LED banding). The body's own writable
-# ladder is preferred when live view has published it.
+# Shutter ladder, fastest first (third-stops). Reaches 2 s so a closed-down aperture can
+# still hit target on the dim channel; dark current at ISO 100 is negligible there.
+# Nothing faster than 1/250 s: PWM-LED banding. The body's own ladder wins when live view
+# has published it.
 SHUTTER_CANDIDATES: tuple[str, ...] = (
     "1/250",
     "1/200",
@@ -117,19 +109,16 @@ SHUTTER_CANDIDATES: tuple[str, ...] = (
     "2",
 )
 
-# --- Fixed start point (Phase 1) ------------------------------------------------------------
-# A neutral reference the calibration always starts from, normalized to the live ISO/aperture.
-# Rig-measured on a Portra 400 clear base at ISO 100 / f8 (two runs, kR 694…716, solving to levels
-# 206…213 / 94…96 / 82…83 at 4/10) and rounded to tidy numbers for the UI. The exact values matter
-# little — the probe only measures `k` from here and the phase-4 trim absorbs the rest; a few levels
-# either way is well inside the ~3 % run-to-run spread of k itself. What matters is that the start
-# point sits close to where the solve lands, so `k` is measured at roughly the level the channel
-# ends up at and the LEDs' gentle concavity cancels instead of biasing the solve. Never a previous
-# preset — a badly placed ROI in a past run must not poison the next calibration.
+# Fixed start point (Phase 1): a neutral reference the calibration always starts from,
+# normalized to the live ISO/aperture. Rig-measured on a Portra 400 clear base at
+# ISO 100 / f8 and rounded for the UI. The exact values matter little, since the probe
+# only measures `k` from here and the phase-4 trim absorbs the rest. What matters is that
+# the start sits close to where the solve lands, so the LEDs' concavity cancels instead of
+# biasing the solve. Never a previous preset: a bad ROI must not poison the next run.
 REFERENCE_ISO = 100.0
 REFERENCE_APERTURE = 8.0
-# 0.4 s, spelled in SHUTTER_CANDIDATES' vocabulary — bodies name this speed differently (the a7C II
-# publishes "4/10"), and normalize_start_point re-snaps onto whatever ladder the body reports.
+# 0.4 s in SHUTTER_CANDIDATES' vocabulary. Bodies name this speed differently (the a7C II
+# publishes "4/10"), and normalize_start_point re-snaps onto the body's own ladder.
 REFERENCE_SHUTTER = "0.4"
 REFERENCE_LEVELS = (210, 95, 80)  # (R, G, B); R needs the most drive (665 nm, low sensor QE)
 
@@ -145,17 +134,17 @@ def shutter_seconds(label: str) -> float:
     number is multiplied into the physics (k, the level solve, shutter_at_least's ≥-comparison)
     must use `true_seconds` instead.
     """
-    # Nikon publishes decimal seconds with the unit attached ("0.4000s", "0.0666s"); a D600's
-    # whole ladder parsed as junk, left the body with no usable speeds, and the fallback then
-    # wrote a Sony-spelled "0.4" the camera silently ignored (issue #768).
+    # Nikon publishes decimal seconds with the unit attached ("0.4000s"). Without this a
+    # D600's whole ladder parses as junk and the fallback writes a Sony-spelled "0.4" the
+    # camera ignores (issue #768).
     label = re.sub(r"(?i)\s*(?:sec(?:onds?)?|s)$", "", label.strip()).strip()
     if "/" in label:
         num, den = label.split("/", 1)
         denominator = float(den)
         if denominator == 0:
-            # Some bodies (e.g. the a7 IV) publish a bulb-like shutter label with a zero
-            # denominator. Raise ValueError (not a bare ZeroDivisionError) so the shutter-ladder
-            # filter in _available_shutters drops the label instead of crashing calibration.
+            # Some bodies publish a bulb-like label with a zero denominator. Raise
+            # ValueError, not ZeroDivisionError, so _available_shutters drops the label
+            # instead of crashing the run.
             raise ValueError(f"invalid shutter label {label!r}: zero denominator")
         return float(num) / denominator
     return float(label)
@@ -214,9 +203,9 @@ def true_seconds(label: str, candidates: tuple[str, ...] = SHUTTER_CANDIDATES) -
         return nominal
     stops = _ladder_stops(tuple(candidates) or SHUTTER_CANDIDATES)
     exact = float(2.0 ** (round(np.log2(nominal) / stops) * stops))
-    # Only correct what is plausibly the same rung. A label rounds by ≲7 %; a wider gap means this
-    # value isn't on this ladder (a bulb entry, an oddly labelled body), and then the label itself
-    # is the better guess — never invent a correction larger than the rounding it undoes.
+    # Only correct what is plausibly the same rung. A label rounds by ≲7 %; a wider gap
+    # means the value is not on this ladder, and then the label is the better guess. Never
+    # invent a correction larger than the rounding it undoes.
     return exact if abs(exact / nominal - 1.0) <= 0.08 else nominal
 
 
@@ -261,10 +250,9 @@ def normalize_start_point(
     f_now = aperture_fnumber(aperture)
     if f_now is not None:
         t *= (f_now / REFERENCE_APERTURE) ** 2
-    # Snap the raw seconds value straight onto the ladder (no label round-trip, which mislabels
-    # e.g. 0.8 s as "1/1"). Like calibrate(), clean the body's ladder on the way in — this is a
-    # public entry point receiving camera-reported labels, and one bulb-like "1/0" must degrade to
-    # a dropped entry, not a ValueError (#478).
+    # Snap the raw seconds value onto the ladder. No label round-trip: that mislabels 0.8 s
+    # as "1/1". Clean the body's ladder on the way in, like calibrate() does, so a bulb-like
+    # "1/0" degrades to a dropped entry instead of a ValueError (#478).
     return levels, _nearest_by_seconds(t, usable_ladder(tuple(candidates)) or SHUTTER_CANDIDATES)
 
 
@@ -413,8 +401,8 @@ class CalibrationService:
         self._light = light
         self._camera = camera
         self._demosaic = demosaic
-        # (path, channel_index, roi) → raw-Bayer source-clip fraction. None → the rawpy default;
-        # tests inject a stub so the hardware-free path never touches rawpy.
+        # (path, channel_index, roi) -> raw-Bayer source-clip fraction. None = the rawpy
+        # default; tests inject a stub so the hardware-free path never touches rawpy.
         self._source_clip = source_clip
         self._sleep = sleep
         self._settle_s = settle_s
@@ -431,9 +419,8 @@ class CalibrationService:
         progress: Optional[ProgressCb] = None,
         cancel=None,
     ) -> CalibrationResult:
-        # Clean once, here: everything downstream parses and indexes this ladder, and an unparseable
-        # label from the body would otherwise surface as a crash mid-run (#478) rather than a dropped
-        # entry. Empty (or entirely unusable) → the built-in ladder.
+        # Clean once, here: everything downstream indexes this ladder, so an unparseable
+        # label would crash mid-run (#478) instead of dropping out. Empty = the built-in ladder.
         candidates = usable_ladder(tuple(candidates)) or SHUTTER_CANDIDATES
         start_shutter = nearest_shutter(start_shutter, candidates)
         T = target_signal(target_fraction)
@@ -464,10 +451,9 @@ class CalibrationService:
                 _check_cancel()
                 _report(0.1 + 0.2 * i, f"Probing {ch.letter}…")
                 k[ch.letter] = self._measure_response(i, ch, start_levels[i], start_shutter, candidates, _shoot)
-                # Reachability, settled at the probe: the most light this channel can ever get is
-                # k · PWM_MAX · slowest shutter. If even that stays materially under target, the
-                # verify would end "under" after a full solve — fail fast here instead (plain
-                # arithmetic, no extra capture), so a doomed run costs seconds, not the whole flow.
+                # Reachability, settled at the probe: the most light this channel can get is
+                # k * PWM_MAX * slowest shutter. If that stays under target the verify would
+                # end "under" after a full solve, so fail fast here. No extra capture.
                 if k[ch.letter] * PWM_MAX * true_seconds(candidates[-1], candidates) < (1.0 - MAX_TARGET_UNDER_FRACTION) * T:
                     raise CalibrationExposureError("under", ch.letter)
 
@@ -502,9 +488,9 @@ class CalibrationService:
         level, shutter = start_level, start_shutter
         for _ in range(_MAX_PROBE_STEPS):
             signal, clip = shoot(i, ch, level, shutter)
-            # Halve/double the exposure per step (log-convergence: 8 steps span 8 stops), moving the
-            # shutter first and only dropping to the LED when the ladder end is reached. A 1-stop
-            # step can't jump the ~12.6-stop measurable window, so it never overshoots clip↔no-signal.
+            # Halve/double the exposure per step, moving the shutter first and dropping to the
+            # LED only at the ladder end. A 1-stop step cannot jump the measurable window, so
+            # it never overshoots from clipping to no-signal.
             if clip > MAX_CLIP_FRACTION or signal >= SATURATION_VALUE:  # too bright → halve exposure
                 faster = _nearest_by_seconds(shutter_seconds(shutter) * 0.5, candidates)
                 if shutter_seconds(faster) < shutter_seconds(shutter):
@@ -513,10 +499,9 @@ class CalibrationService:
                 if level > PWM_MIN:
                     level = max(PWM_MIN, level // 2)
                     continue
-                # Minimum exposure (fastest shutter + lowest LED) still clips → the aperture is
-                # provably too open, and no solve can change that. Abort right here at the probe
-                # (rig decision: a preset that misses its target is worthless, so none is saved) —
-                # the UI turns this into the stop-down advice.
+                # Minimum exposure still clips, so the aperture is too open and no solve can
+                # change that. Abort at the probe and save no preset. The UI turns this into
+                # the stop-down advice.
                 raise CalibrationExposureError("over", ch.letter)
             if signal < MIN_SIGNAL:  # too dark → double exposure
                 slower = _nearest_by_seconds(shutter_seconds(shutter) * 2.0, candidates)
@@ -527,11 +512,11 @@ class CalibrationService:
                     level = PWM_MAX
                     continue
                 break  # slowest shutter + max LED and still no signal — dead LED / ROI off the base
-            # k is exposure-normalised, so it must divide by the TRUE exposure, not the rounded
-            # label — otherwise k inherits the label's error and the solver spends it elsewhere.
+            # k is exposure-normalised, so divide by the TRUE exposure, not the rounded label.
+            # Otherwise k inherits the label's error and the solver spends it elsewhere.
             return signal / (level * true_seconds(shutter, candidates))
-        # Only "no signal even at maximum exposure" reaches here (over-exposure returns gracefully
-        # above, under-exposure is handled by the solver + _verify_channel's "under" status).
+        # Only "no signal even at maximum exposure" reaches here. Over-exposure returns above,
+        # under-exposure is handled by the solver and _verify_channel.
         raise RuntimeError(
             f"calibration failed: no signal from the {ch.letter} channel even at maximum exposure "
             f"(check the ROI is on the clear film base and the Scanlight is on)"
@@ -545,10 +530,9 @@ class CalibrationService:
         if clip <= MAX_CLIP_FRACTION and abs(measured - T) > tol:
             level = correct_led_level(level, measured, T)
             measured, clip = shoot(i, ch, level, shutter)
-        # Clip guard: pull the LED down until the base sits below clipping (p99.9 can read on-target
-        # while the top 0.1 % saturates). Iterate — a dense base overshoots — re-measuring each time.
-        # Bounded by _MAX_CLIP_GUARD_STEPS so the capture budget stays hard-bounded even in the worst
-        # case (a level solved near PWM_MAX that still clips).
+        # Clip guard: pull the LED down until the base sits below clipping. p99.9 can read
+        # on-target while the top 0.1 % saturates. A dense base overshoots, so iterate and
+        # re-measure, bounded by _MAX_CLIP_GUARD_STEPS to keep the capture budget hard.
         for _ in range(_MAX_CLIP_GUARD_STEPS):
             if clip <= MAX_CLIP_FRACTION or level <= PWM_MIN:
                 break
@@ -567,9 +551,9 @@ class CalibrationService:
             status,
         )
         if status != "target":
-            # Safety net behind the probe's early checks: the probe predicted the target reachable,
-            # but the base disagreed at the solved settings (e.g. a clip guard pulled the LED far
-            # down over a bright sliver). Same rule as at the probe — no preset off target.
+            # Safety net behind the probe's checks: the probe predicted the target reachable
+            # but the base disagreed at the solved settings, for example after a clip guard
+            # pulled the LED far down. Same rule as at the probe: no preset off target.
             raise CalibrationExposureError(status, ch.letter)
         return ChannelCalibration(
             channel=ch.letter,
@@ -629,9 +613,8 @@ def _solve_shared(k: dict[str, float], T: int, candidates: tuple[str, ...]) -> t
     k_min = min(k.values())
     t_ideal = T / (k_min * PWM_MAX_SAFE)  # dimmest channel sits at ~PWM_MAX_SAFE here
     shutter = shutter_at_least(t_ideal, candidates)
-    # Solve the levels against the shutter's TRUE time: the ladder is snapped by nominal label, but
-    # what the sensor actually receives is the rounded-off time (a "1/3" pick exposes 0.315 s, not
-    # 0.333 s — 5.8 % less light than the label promises).
+    # Solve the levels against the shutter's TRUE time. The ladder snaps by nominal label,
+    # but the sensor receives the rounded time: a "1/3" pick exposes 0.315 s, not 0.333 s.
     secs = true_seconds(shutter, candidates)
     levels = {c: int(np.clip(round(T / (k[c] * secs)), PWM_MIN, PWM_MAX)) for c in k}
     return shutter, levels

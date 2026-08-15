@@ -58,7 +58,7 @@ class AppState:
     wb_pick_region: int = 0
     uploaded_files: List[Dict[str, Any]] = field(default_factory=list)
     thumbnails: Dict[str, Any] = field(default_factory=dict)  # asset_thumbnail_key -> QIcon/QPixmap
-    # Keys whose thumbnail came from a canvas render (correct, inverted); the batch
+    # Keys whose thumbnail came from a canvas render, so it is correctly inverted. The batch
     # generator must not overwrite these with its cheaper source-decode placeholder.
     rendered_thumbnails: Set[str] = field(default_factory=set)
     source_exif: Dict[str, Any] = field(default_factory=dict)  # file_hash -> piexif dict
@@ -68,12 +68,12 @@ class AppState:
     last_metrics: Dict[str, Any] = field(default_factory=dict)
     metrics_lock: threading.Lock = field(default_factory=threading.Lock, init=False, compare=False, repr=False)
     preview_raw: Optional[Any] = None
-    # Decoder XYZ->camera matrix for preview_raw. Only the transparency transfer reads it;
+    # Decoder XYZ->camera matrix for preview_raw. Only the transparency transfer reads it.
     # None for sources that carry no camera matrix (scanner TIFF, JPEG).
     preview_cam_xyz: Optional[list] = None
     preview_camera_wb: Optional[list] = None
-    # Preview-resolution stand-in for preview_raw while HQ is on; interactive frames
-    # render against it. None when preview_raw is already small enough.
+    # Preview-resolution stand-in for preview_raw while HQ is on. Interactive frames render
+    # against it. None when preview_raw is already small enough.
     preview_proxy: Optional[Any] = None
     preview_ir: Optional[Any] = None  # downsampled IR float32 [0,1] (H,W); None if source has no IR
     # IR plane matched to preview_proxy. The pipeline reads the IR against whichever
@@ -87,16 +87,16 @@ class AppState:
     # ICC Management
     icc_input_path: Optional[str] = None
     icc_output_path: Optional[str] = None
-    # Effective monitor ICC profile bytes used by every preview → display transform;
-    # None = treat the display as sRGB. Resolved from the override (if any) else the
+    # Effective monitor ICC profile bytes for every preview-to-display transform.
+    # None means treat the display as sRGB. Resolved from the override, else from the
     # auto-detected profile below.
     monitor_icc_bytes: Optional[bytes] = None
     # Raw profile auto-detected from the active screen (drives the "As detected" option).
     monitor_icc_detected_bytes: Optional[bytes] = None
     # User override: a ColorSpace value (e.g. "Display P3") or None = use detected.
     monitor_profile_override: Optional[str] = None
-    # Soft-proof toggle: when off, Output/Input ICC affect export only, not the preview.
-    # Defaults on so the preview is true to export by default.
+    # Soft-proof toggle: when off, Output/Input ICC affect the export only. On by default,
+    # so the preview matches the export.
     soft_proof_enabled: bool = True
 
     # Hardware Acceleration
@@ -111,9 +111,8 @@ class AppState:
     # Canvas background color swatch index (0=Black, 1=Dark Grey, 2=Mid Grey)
     canvas_bg_index: int = 0
 
-    # When False, fit-to-window reserves space for the floating toolbar so the
-    # image never sits behind it.  When True (default), the image fills the full
-    # canvas and the toolbar overlaps.
+    # When False, fit-to-window reserves space for the floating toolbar so the image never
+    # sits behind it. When True (default), the image fills the canvas and the toolbar overlaps.
     immersive_canvas: bool = True
 
     # When True, switching to a different image keeps the current zoom level
@@ -124,40 +123,40 @@ class AppState:
     crop_guide: str = "thirds"
     crop_guide_orientation: int = 0
 
-    # Dust-detection overlay mode ("off"|"spots"|"marked"|"ir"); display-only,
-    # session-only diagnostic — never persisted.
+    # Dust-detection overlay mode ("off"|"spots"|"marked"|"ir"): a display-only, session-only
+    # diagnostic. Never persisted.
     dust_overlay_mode: str = "off"
 
-    # Adams-zone box overlay on the canvas; display-only, session-only — never persisted.
+    # Adams-zone box overlay on the canvas: display-only and session-only, never persisted.
     zones_overlay: bool = False
 
-    # Grain focuser: 1:1-ish loupe following the cursor; display-only, session-only.
+    # Grain focuser: a near-1:1 loupe following the cursor. Display-only, session-only.
     grain_focuser: bool = False
 
-    # Printing notes: dodge/burn map + print recipe over the frame; display-only,
-    # session-only — never persisted.
+    # Printing notes: the dodge/burn map and print recipe over the frame. Display-only and
+    # session-only, never persisted.
     printing_notes: bool = False
 
-    # Zone-placement pins (ZonePin: probed spot + target zone); session-only, dropped
-    # by any real render like the test strip. Never persisted.
+    # Zone-placement pins (ZonePin: probed spot + target zone). Session-only and dropped by
+    # any real render, like the test strip. Never persisted.
     zone_pins: List[Any] = field(default_factory=list)
 
     # Zone picked on the strip and waiting for the canvas click that spends it.
     zone_arm_target: Optional[float] = None
 
-    # Density x grade test strip: session-only proof, dropped by any real render. The
-    # mosaic is the assembled patches at preview resolution, content_rect its picture area.
-    # `mosaics` is one per quarter-turn, `mosaic` the one on screen; rotating swaps between them.
+    # Density x grade test strip: a session-only proof, dropped by any real render. The mosaic
+    # is the assembled patches at preview resolution and content_rect its picture area.
+    # `mosaics` holds one per quarter-turn and `mosaic` the one on screen.
     test_strip: bool = False
     test_strip_pending: bool = False
     test_strip_mosaic: Optional[Any] = None
     test_strip_mosaics: Optional[tuple] = None
     test_strip_content_rect: Optional[tuple] = None
-    # Which proof owns the canvas: "tone" (density × grade) or "color" (M/Y ring-around).
+    # Which proof owns the canvas: "tone" (density x grade) or "color" (M/Y ring-around).
     # One slot, so every path that drops a proof drops both kinds.
     test_strip_kind: str = "tone"
-    # Quarter-turns CCW the ladder is turned by. Shared by both kinds and kept across clear and
-    # reprint, so a chosen orientation sticks for the session.
+    # Quarter-turns CCW the ladder is turned by. Shared by both kinds and kept across clear
+    # and reprint, so a chosen orientation sticks for the session.
     test_strip_rotation: int = 0
 
     # Reverse scroll-wheel zoom direction on the image viewer (scroll up = zoom out).
@@ -165,10 +164,10 @@ class AppState:
 
     # Local adjustments UI state (not persisted in workspace config)
     local_selected_mask: int = -1
-    # Per-file sets of mask indices whose outline is hidden on the canvas (keyed by
-    # content hash; empty/absent = all shown). Persisted as the "hidden_masks_by_hash"
-    # global setting (written through on every toggle) and reloaded on launch. Read the
-    # current file's set via the local_hidden_masks property below.
+    # Per-file sets of mask indices whose outline is hidden on the canvas, keyed by content
+    # hash. Empty or absent means all shown. Persisted as the "hidden_masks_by_hash" global
+    # setting, written through on every toggle. Read the current file's set through the
+    # local_hidden_masks property below.
     local_hidden_masks_by_hash: dict = field(default_factory=dict)
 
     # History tracking
@@ -197,7 +196,7 @@ class AppState:
     linear_output: bool = False
     # Linear Output expansion factor override. None = source-type default (4× Pakon, off DNG).
     linear_expansion: float | None = None
-    # Linear Output optional corrections (off by default — raw dump philosophy).
+    # Linear Output optional corrections, off by default because this is a raw dump.
     linear_apply_wb: bool = False
     linear_apply_flatfield: bool = False
     linear_apply_sensor: bool = False
@@ -280,8 +279,8 @@ class AssetListModel(QAbstractListModel):
     def __init__(self, state: AppState, facts_provider: Optional[Any] = None):
         super().__init__()
         self._state = state
-        # Returns {asset hash: facts}; without one, plain queries see file facts only
-        # (name/ext/date), which is all a model built outside a session can know.
+        # Returns {asset hash: facts}. Without one, plain queries see file facts only
+        # (name, ext, date), which is all a model built outside a session can know.
         self._facts_provider = facts_provider
         self._sort_order = "name"  # "name" | "date"
         self._sort_descending = False
@@ -552,7 +551,7 @@ class DesktopSessionManager(QObject):
         self._search_facts: Optional[Dict[str, Dict[str, Any]]] = None
         self.asset_model = AssetListModel(self.state, self.search_facts)
         # Both signals already fire from every mutation that can change a frame's
-        # searchable facts — file list changes and any settings write.
+        # searchable facts: file list changes and any settings write.
         self.files_changed.connect(self._invalidate_search_facts)
         self.settings_saved.connect(self._invalidate_search_facts)
         # is_dirty initialised to False via AppState default
@@ -636,8 +635,8 @@ class DesktopSessionManager(QObject):
             self.state.linear_gamma_key = str(saved_gamma)
         saved_linear_fmt = self.repo.get_global_setting("linear_format")
         if saved_linear_fmt is not None:
-            # "tiff_jxl" (TIFF-with-JXL-compression) was retired — too few readers
-            # actually support the tag. Anyone with it saved falls back to plain TIFF.
+            # "tiff_jxl" was retired because too few readers support the tag. Anyone with it
+            # saved falls back to plain TIFF.
             self.state.linear_format = str(saved_linear_fmt) if saved_linear_fmt in ("tiff", "jxl") else "tiff"
         saved_jxl_effort = self.repo.get_global_setting("linear_jxl_effort")
         if saved_jxl_effort is not None:
@@ -768,8 +767,8 @@ class DesktopSessionManager(QObject):
                 metadata=replace(config.metadata, protect_original_metadata=bool(sticky_protect)),
             )
 
-        # Description fields: unset (None) inherits the sticky roll choice; an explicit
-        # per-frame tuple from Description… is left alone.
+        # Description fields: unset (None) inherits the sticky roll choice, and an explicit
+        # per-frame tuple is left alone.
         if config.metadata.description_fields is None:
             from negpy.features.metadata.models import resolve_description_fields
 
@@ -782,9 +781,9 @@ class DesktopSessionManager(QObject):
                 ),
             )
 
-        # Flat-field profile and distortion k1 are rig-global: the active profile's
-        # values always override the per-file ones. New files default to enabled when a
-        # profile is active; saved files keep their toggle.
+        # Flat-field profile and distortion k1 are rig-global, so the active profile's values
+        # always override the per-file ones. New files default to enabled when a profile is
+        # active, and saved files keep their toggle.
         active_ff = self.repo.get_global_setting("flatfield_active_profile")
         ff_prof = FlatFieldProfiles.get(active_ff) if active_ff else None
         ff_id = ff_prof.id if ff_prof else ""
@@ -810,13 +809,13 @@ class DesktopSessionManager(QObject):
 
         config = replace(config, flatfield=replace(config.flatfield, apply=bool(ff_id)))
 
-        # Workflow settings — safe to carry across all files on a roll
+        # Workflow settings, safe to carry across all files on a roll
         sticky_mode = self.repo.get_global_setting("last_process_mode")
         sticky_buffer = self.repo.get_global_setting("last_analysis_buffer")
         sticky_luma_range_clip = self.repo.get_global_setting("last_luma_range_clip")
         sticky_color_range_clip = self.repo.get_global_setting("last_color_range_clip")
-        # Roll-average baseline is roll-scoped (written per-file by Batch Analysis /
-        # a saved roll), never seeded onto fresh files.
+        # The roll-average baseline is roll-scoped, written per-file by Batch Analysis or a
+        # saved roll, and never seeded onto fresh files.
         sticky_crosstalk_strength = self.repo.get_global_setting("last_crosstalk_strength")
         sticky_crosstalk_matrix = self.repo.get_global_setting("last_crosstalk_matrix")
         sticky_crosstalk_profile = self.repo.get_global_setting("last_crosstalk_profile")
@@ -872,9 +871,9 @@ class DesktopSessionManager(QObject):
             valid_keys = LabConfig.__dataclass_fields__.keys()
             config = replace(config, lab=LabConfig(**{k: v for k, v in sticky_lab.items() if k in valid_keys}))
 
-        # Exposure, toning, retouch are per-image look decisions and are
-        # deliberately excluded here — fresh files start from WorkspaceConfig defaults.
-        # Exception: linear_raw and dust_remove are workflow preferences, not image-specific looks.
+        # Exposure, toning and retouch are per-image look decisions and stay out of here:
+        # fresh files start from WorkspaceConfig defaults. linear_raw and dust_remove are the
+        # exception, since they are workflow preferences.
         sticky_linear_raw = self.repo.get_global_setting("last_linear_raw")
         if sticky_linear_raw is not None:
             config = replace(config, process=replace(config.process, linear_raw=bool(sticky_linear_raw)))
@@ -886,9 +885,9 @@ class DesktopSessionManager(QObject):
         if sticky_hue_trim is not None:
             config = replace(config, process=replace(config.process, hue_trim=float(sticky_hue_trim)))
 
-        # Processing toggles (Auto Density / Auto Grade / Shadow Neutral / Paper
-        # White / Paper Black / Cast Removal) are workflow preferences, not
-        # per-image looks: carry them to fresh files unless explicitly changed per file.
+        # The processing toggles (Auto Density, Auto Grade, Shadow Neutral, Paper White,
+        # Paper Black, Cast Removal) are workflow preferences, not per-image looks, so carry
+        # them to fresh files unless a file changes them.
         new_exp = config.exposure
         for key, attr in (
             ("last_auto_exposure", "auto_exposure"),
@@ -909,7 +908,7 @@ class DesktopSessionManager(QObject):
             new_exp = replace(new_exp, cast_removal_strength=float(sticky_cast_removal))
         config = replace(config, exposure=new_exp)
 
-        # Paper stock is roll-wide; render guards cross-mode leak.
+        # Paper stock is roll-wide, and the render guards against a cross-mode leak.
         sticky_paper = self.repo.get_global_setting("last_paper_profile")
         if sticky_paper:
             config = replace(config, exposure=replace(config.exposure, paper_profile=str(sticky_paper)))
@@ -996,12 +995,12 @@ class DesktopSessionManager(QObject):
             composite=bool(asset.get("hdr_paths") or asset.get("stitch_paths")),
         )
         if saved_config is not None:
-            # A saved edit keeps its own process mode and shadow lift — those are the
-            # user's now — so only the wiring overlays apply.
+            # A saved edit keeps its own process mode and shadow lift, which are the user's
+            # now, so only the wiring overlays apply.
             config = self._apply_sticky_settings(saved_config, only_global=True)
             return resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(config, asset), asset), asset), False
-        # Sticky settings include the global process mode, which a composite must not take
-        # over the mode of the frames it was built from — _asset_defaults applies after.
+        # Sticky settings include the global process mode, which a composite must not take over
+        # the mode of the frames it was built from. _asset_defaults applies after.
         return self._asset_defaults(self._apply_sticky_settings(WorkspaceConfig(), only_global=False), asset), True
 
     def config_for_asset(self, asset: dict) -> WorkspaceConfig:
@@ -1210,9 +1209,9 @@ class DesktopSessionManager(QObject):
         """
         Updates global config and optionally saves to disk.
         """
-        # A step identical to the live config renders as a dead "· —" row in the History
-        # panel and costs a redo branch — reloading the same work print, resetting an
-        # already-default panel or pasting identical settings all land here.
+        # A step identical to the live config renders as a dead row in the History panel and
+        # costs a redo branch. Reloading the same work print, resetting an already-default panel
+        # and pasting identical settings all land here.
         if persist and record_history and config == self.state.config:
             record_history = False
 
@@ -1460,16 +1459,16 @@ class DesktopSessionManager(QObject):
         paths = [f["path"] for f in self.state.uploaded_files]
         self.repo.save_global_setting("session_files", paths)
         self.repo.save_global_setting("session_active_path", self.state.current_file_path)
-        # RGB-scan triplets keep their green/blue exposures here so restore can rebuild
-        # the merged asset (re-discovery from the red path alone cannot regroup it).
+        # RGB-scan triplets keep their green and blue exposures here so restore can rebuild the
+        # merged asset. Re-discovery from the red path alone cannot regroup it.
         triplets = {
             f["path"]: [f["green_path"], f["blue_path"], bool(f.get("align", True))]
             for f in self.state.uploaded_files
             if f.get("green_path") and f.get("blue_path")
         }
         self.repo.save_global_setting("session_triplets", triplets)
-        # Stitch composites keep their parts + registration here so restore can rebuild
-        # the merged asset without re-running SIFT (re-discovery sees only the primary).
+        # Stitch composites keep their parts and registration here so restore can rebuild the
+        # merged asset without re-running SIFT. Re-discovery sees only the primary.
         stitches = {
             f["path"]: {
                 "paths": list(f["stitch_paths"]),
@@ -1485,9 +1484,9 @@ class DesktopSessionManager(QObject):
             if f.get("stitch_paths")
         }
         self.repo.save_global_setting("session_stitches", stitches)
-        # HDR merges keep their bracket + solved ratios here for the same reason: the
-        # reference path alone cannot regroup the bracket, and re-solving would decode
-        # every exposure again.
+        # HDR merges keep their bracket and solved ratios here for the same reason: the
+        # reference path alone cannot regroup the bracket, and re-solving would decode every
+        # exposure again.
         merges = {
             f["path"]: {
                 "paths": list(f["hdr_paths"]),
@@ -1521,7 +1520,7 @@ class DesktopSessionManager(QObject):
                     (
                         i
                         for i, existing in enumerate(self.state.uploaded_files)
-                        # half-frame assets share a path — match per half
+                        # half-frame assets share a path, so match per half
                         if existing["path"] == info["path"] and existing.get("half") == info.get("half")
                     ),
                     None,
@@ -1555,8 +1554,8 @@ class DesktopSessionManager(QObject):
                 except Exception as e:
                     logger.error(f"Failed to add {path}: {e}")
 
-        # Marks: DB is the source of truth; toggles write through, so the
-        # unconditional overlay can't lose one.
+        # Marks: the DB is the source of truth and toggles write through, so the unconditional
+        # overlay cannot lose one.
         marks = self.repo.load_file_marks()
         for f in self.state.uploaded_files:
             m = marks.get(f["hash"])

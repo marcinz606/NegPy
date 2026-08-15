@@ -197,7 +197,7 @@ class ScanWindowLabel(QLabel):
                 painter.setBrush(QColor(0, 0, 0, 110))
                 pen = QPen(QColor("#E0A83C"), 2)
                 pen.setStyle(Qt.PenStyle.DashLine)
-                # Line ≥1 px inside the frame — an edge-pinned indicator must stay visible.
+                # Keep the line at least 1 px inside the frame: an edge-pinned indicator must stay visible.
                 if edge == "left":
                     x = min(draw_rect.right() - 1, max(draw_rect.left() + 1, draw_rect.left() + int(frac * draw_rect.width())))
                     painter.drawRect(QRect(draw_rect.left(), draw_rect.top(), max(0, x - draw_rect.left()), draw_rect.height()))

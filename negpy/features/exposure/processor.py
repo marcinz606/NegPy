@@ -64,17 +64,17 @@ class NormalizationProcessor:
         epsilon = 1e-6
         if is_transparency_transfer(context.process_mode, self.config.e6_normalize):
             return self._process_transparency(image, context)
-        # No upper clamp: mirrors normalization.wgsl (only the low side is clamped);
-        # values above 1.0 only occur with flat-field gain and must match the GPU.
+        # No upper clamp, mirroring normalization.wgsl, which clamps only the low side. Values
+        # above 1.0 occur only with flat-field gain and must match the GPU.
         img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, None))
-        # Shared prefilter, once for all five meters (ROI/buffer applied here). A freehand
-        # analysis_rect overrides the crop ROI + centered buffer for the metered region.
+        # Shared prefilter, once for all five meters, with the ROI and buffer applied here. A
+        # freehand analysis_rect overrides the crop ROI and centered buffer for the metered region.
         an_roi, an_buffer = resolve_analysis_region(image.shape, context.active_roi, self.config.analysis_buffer, self.config.analysis_rect)
         prefiltered = prefilter_log_grid(image, an_roi, an_buffer)
         context.metrics["scan_clip_fractions"] = measure_clip_fractions(image, an_roi, an_buffer)
 
-        # Capture-side dye unmix on the negative densities, before any metering,
-        # so bounds/anchor/cast refs all read the unmixed film.
+        # Capture-side dye unmix on the negative densities, before any metering, so the bounds,
+        # anchor and cast refs all read the unmixed film.
         unmix = effective_crosstalk_matrix(self.config, context.process_mode)
         img_log = unmix_log_image(img_log, unmix)
         prefiltered = unmix_log_image(prefiltered, unmix)
@@ -130,9 +130,9 @@ class NormalizationProcessor:
 
         bounds, base_bounds = resolve_bounds_detailed(self.config, analyze_base)
         context.metrics["log_bounds_base"] = base_bounds
-        # Cast Removal analyses the film's inherent cast, a source property — the
-        # neutral-axis (below) uses the pre-trim bounds so creative WP/BP trims don't
-        # perturb it; mirrors the GPU (gpu_engine.py:586, measured pre adj_floors).
+        # Cast Removal analyses the film's inherent cast, a source property. The neutral axis
+        # below uses the pre-trim bounds, so creative WP/BP trims do not perturb it. Mirrors the
+        # GPU, which measures before adj_floors.
         pre_trim_bounds = bounds
 
         context.metrics["norm_density_range"] = luminance_density_range(bounds)
@@ -181,8 +181,8 @@ class NormalizationProcessor:
         if context.process_mode == ProcessMode.C41:
             context.metrics["neutral_axis_refs"] = measure_neutral_axis_from_log(prefiltered, pre_trim_bounds, None, 0.0)
 
-        # Per-frame exposure anchor, measured against the same final bounds the
-        # image is normalized with. Stored unconditionally (cheap, block-grid);
+        # Per-frame exposure anchor, measured against the same final bounds the image is
+        # normalized with. Stored unconditionally, since the block grid is cheap.
         # PhotometricProcessor uses it only when auto_exposure is on.
         anchor_bounds = luma_source_bounds(self.config, base_bounds)
         context.metrics["metered_anchor"] = measure_anchor_from_log(prefiltered, anchor_bounds, None, 0.0)
@@ -205,15 +205,15 @@ class NormalizationProcessor:
         """
         epsilon = 1e-6
         # Linear RAW decodes without white balance, which the row-normalized camera matrix
-        # assumes; folding the as-shot multipliers back in makes this render independent of
-        # which decode produced the buffer, so the toggle cannot cast the image here.
+        # assumes. Folding the as-shot multipliers back in makes this render independent of which
+        # decode produced the buffer, so the toggle cannot cast the image here.
         matrix = camera_to_working_matrix(context.cam_xyz, context.camera_wb if effective_linear_raw(self.config) else None)
         linear = apply_camera_matrix(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), matrix)
 
         img_log = np.log10(np.clip(linear, epsilon, None))
-        # Honoured here too: a rig-calibrated matrix is a capture correction like Hue Trim,
-        # and the mode gate keeps a negative's profile from touching a slide. Inert at the
-        # shipped default, so the as-captured render is unperturbed.
+        # Honoured here too: a rig-calibrated matrix is a capture correction like Hue Trim, and
+        # the mode gate keeps a negative's profile from touching a slide. Inert at the shipped
+        # default, so the as-captured render is unperturbed.
         img_log = unmix_log_image(img_log, effective_crosstalk_matrix(self.config, context.process_mode))
         floors, ceils = transfer_bounds()
         bounds = LogNegativeBounds(floors=floors, ceils=ceils)
@@ -243,8 +243,8 @@ class PhotometricProcessor:
     ):
         self.config = config
         self.local_config = local_config
-        # Absent means the print path: only the transparency transfer needs to know
-        # whether Normalize is off, and every other caller renders a print.
+        # Absent means the print path: only the transparency transfer needs to know whether
+        # Normalize is off, and every other caller renders a print.
         self.process_config = process_config or ProcessConfig()
 
     def _build_local_maps(self, image: ImageBuffer, context: PipelineContext) -> Optional[np.ndarray]:
@@ -332,8 +332,8 @@ class PhotometricProcessor:
         )
 
         if context.process_mode == ProcessMode.BW:
-            # Panchromatic response: collapse to a single density BEFORE the
-            # curve, so the curve shapes one channel instead of mixing three.
+            # Panchromatic response: collapse to a single density BEFORE the curve, so the curve
+            # shapes one channel instead of mixing three.
             lum = get_luminance(image)
             image = np.stack([lum, lum, lum], axis=-1)
 
@@ -384,9 +384,9 @@ class PhotometricProcessor:
             highlight_density=self.config.highlight_density,
             shadow_grade_deltas=sg_deltas,
             highlight_grade_deltas=hg_deltas,
-            # B&W collapses to luminance before this call (all channels equal),
-            # so the matrix is already a mathematical no-op there; skip it
-            # explicitly anyway to avoid the wasted per-pixel 3x3 multiply.
+            # B&W collapses to luminance before this call, with all channels equal, so the matrix is
+            # already a no-op there. Skip it explicitly anyway to avoid the wasted per-pixel 3x3
+            # multiply.
             dye_separation=1.0 if context.process_mode == ProcessMode.BW else self.config.dye_separation,
             dye_separation_trims=(0.0, 0.0, 0.0)
             if context.process_mode == ProcessMode.BW

@@ -19,8 +19,8 @@ from negpy.kernel.system.paths import get_resource_path
 _MARKER = re.compile(r"^<!--\s*panel:([a-z_]+)\s*-->\s*$")
 _HEADING = re.compile(r"^(#{1,6})\s")
 # Cross-doc links ([CROSSTALK.md](CROSSTALK.md)) have nowhere to go from a modal, and Qt's
-# markdown importer paints anchors in the app palette's accent red — unreadable at body size.
-# Flattened to their text, so they read as the file names they are.
+# markdown importer paints anchors in the app palette's accent red, unreadable at body
+# size. Flattened to their text, so they read as the file names they are.
 _LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 
 
@@ -41,8 +41,7 @@ def _guides() -> dict[str, str]:
         heading = _HEADING.match(lines[i + 1])
         if not heading:
             continue
-        # Stop at the next heading of the same or higher rank; deeper ones (#### topics
-        # inside §3) belong to this slice.
+        # Stop at the next heading of the same or higher rank. Deeper ones belong to this slice.
         closing = re.compile(rf"^#{{1,{len(heading.group(1))}}}\s")
         body = lines[i + 2 :]
         for j, later in enumerate(body):
@@ -88,8 +87,8 @@ class SectionHelpDialog(QDialog):
         self.body = QTextBrowser()
         self.body.setReadOnly(True)
         self.body.setOpenExternalLinks(False)
-        # Backstop for a link the loader can't flatten (GitHub-dialect bare-URL autolinks):
-        # navigating would replace the guide with a load error.
+        # Backstop for a link the loader cannot flatten, such as a GitHub-dialect bare-URL
+        # autolink: navigating would replace the guide with a load error.
         self.body.setOpenLinks(False)
         self.body.setFrameShape(QFrame.Shape.NoFrame)
         self.body.setStyleSheet(

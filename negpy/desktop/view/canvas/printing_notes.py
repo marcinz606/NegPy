@@ -21,8 +21,8 @@ from negpy.features.local.models import LocalAdjustmentsConfig, MaskShape
 from negpy.services.view.coordinate_mapping import CoordinateMapping
 from negpy.services.view.printing_notes import MaskNote, mask_notes
 
-# Same amber/blue the Dodge & Burn outlines already use, so a mask reads the same
-# in the notes as it does while editing.
+# The same amber and blue the Dodge & Burn outlines use, so a mask reads the same in the
+# notes as it does while editing.
 _DODGE = QColor(232, 200, 74)
 _BURN = QColor(74, 143, 232)
 _INK = QColor(242, 242, 242)

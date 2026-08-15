@@ -74,8 +74,8 @@ class LocalAssetStore(IAssetStore):
                 img = Image.open(thumb_path)
                 if max(img.size) != APP_CONFIG.thumbnail_size:
                     return None
-                # Decode here: Image.open reads the header only, so a truncated entry
-                # would pass as a hit and raise later, on the thread that paints it.
+                # Decode here: Image.open reads the header only, so a truncated entry would pass as a hit
+                # and raise later, on the thread that paints it.
                 img.load()
                 return img
             except Exception:

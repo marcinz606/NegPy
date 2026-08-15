@@ -158,9 +158,8 @@ class ScanSidebar(QWidget):
         self.form.addRow(self.ae_check)
         self.ae_check.setVisible(False)
 
-        # Scan exposure time (SANE `scan-exposure-time`), shown only when the
-        # device reports a usable range. Slider in microseconds; label shows
-        # the value in a human-readable form.
+        # Scan exposure time (SANE `scan-exposure-time`), shown only when the device reports a
+        # usable range. The slider is in microseconds and the label shows a readable value.
         self.exposure_row_widget = QWidget()
         exposure_layout = QHBoxLayout(self.exposure_row_widget)
         exposure_layout.setContentsMargins(0, 0, 0, 0)
@@ -177,7 +176,7 @@ class ScanSidebar(QWidget):
         self.exposure_label.setVisible(False)
         self.exposure_row_widget.setVisible(False)
 
-        # Frame range (roll/strip feeders only — shown when a live capacity is known).
+        # Frame range, for roll and strip feeders only. Shown when a live capacity is known.
         self.frame_range_widget = QWidget()
         frame_row = QHBoxLayout(self.frame_range_widget)
         frame_row.setContentsMargins(0, 0, 0, 0)
@@ -344,9 +343,9 @@ class ScanSidebar(QWidget):
         return self.backend_combo.currentData() or DEFAULT_BACKEND_ID
 
     def _on_backend_changed(self, _index: int) -> None:
-        # Device lists are backend-specific → persist the choice, then re-enumerate.
-        # Per-backend UI tweaks that capabilities can't express branch here on
-        # _current_backend_id(); none needed today.
+        # Device lists are backend-specific, so persist the choice and then re-enumerate.
+        # Per-backend UI tweaks that capabilities cannot express branch here on
+        # _current_backend_id(). None are needed today.
         self._update_settings_from_ui()
         self._request_devices()
 
@@ -461,10 +460,9 @@ class ScanSidebar(QWidget):
             else:
                 self.dpi_combo.setCurrentText(str(self._settings.dpi))
 
-        # Depth — shown only when the device offers more than one bit depth.
-        # Default to the deepest supported when the saved value is absent
-        # (a saved 16 does not exist on a 14-bit LS-50; findData → -1 must not
-        # leave the combo silently on index 0 = 8-bit).
+        # Depth, shown only when the device offers more than one bit depth. Default to the
+        # deepest supported when the saved value is absent: a saved 16 does not exist on a
+        # 14-bit LS-50, and findData returning -1 must not leave the combo on index 0 (8-bit).
         self.depth_combo.clear()
         if caps.supported_depths:
             for d in caps.supported_depths:
@@ -487,7 +485,7 @@ class ScanSidebar(QWidget):
             self.ir_check.setChecked(False)
             self.ir_check.setToolTip("IR scanning not supported by this device")
 
-        # Autofocus / Auto-exposure — shown only when the device reports them.
+        # Autofocus and auto-exposure, shown only when the device reports them.
         self._caps_autofocus = bool(caps.autofocus)
         self._caps_auto_exposure = bool(caps.auto_exposure)
         self.autofocus_check.blockSignals(True)
@@ -507,7 +505,7 @@ class ScanSidebar(QWidget):
             self.ae_check.setChecked(False)
             self.ae_check.setToolTip("Auto-exposure not supported by this device")
 
-        # Scan exposure time — shown only when the device reports a usable range.
+        # Scan exposure time, shown only when the device reports a usable range.
         self.exposure_slider.blockSignals(True)
         et_range = caps.exposure_time_us
         if et_range is not None:
@@ -527,7 +525,7 @@ class ScanSidebar(QWidget):
         self.exposure_slider.blockSignals(False)
         self._update_exposure_value_label()
 
-        # Frame range — only a roll/strip feeder reporting a live capacity
+        # Frame range, only for a roll or strip feeder reporting a live capacity
         capacity = caps.adapter_frame_capacity
         has_frames = capacity is not None
         self.frame_range_label.setVisible(has_frames)
@@ -861,9 +859,8 @@ class ScanSidebar(QWidget):
         from dataclasses import replace
 
         device = self._current_device()
-        # replace(), never a fresh ScannerSettings: fields with no sidebar
-        # control must survive UI edits — reconstruction silently resets any
-        # field missing from this list.
+        # replace(), never a fresh ScannerSettings: fields with no sidebar control must survive
+        # UI edits, and reconstruction silently resets any field missing from this list.
         self.settings = replace(
             self._settings,
             last_device_id=device.id if device else self._settings.last_device_id,

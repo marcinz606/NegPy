@@ -24,13 +24,13 @@ logger = get_logger(__name__)
 DEFAULT_BAUDRATE = 115200
 DEFAULT_READ_TIMEOUT_S = 0.1
 
-# Every Scanlight (v2/v4/Big Scanlight) enumerates with the stock Pico CDC stdio
-# descriptors — VID 0x2E8A, PID 0x000A on RP2040 or 0x0009 on RP2350/Pico 2.
+# Every Scanlight (v2, v4, Big Scanlight) enumerates with the stock Pico CDC stdio
+# descriptors: VID 0x2E8A, PID 0x000A on RP2040 or 0x0009 on RP2350/Pico 2.
 PICO_VID = 0x2E8A
 PICO_CDC_PIDS = {0x000A, 0x0009}
 
-# Sentinel pushed to the response queues when the reader thread exits, so an
-# in-flight _request() blocked on q.get() wakes immediately with the real cause.
+# Sentinel pushed to the response queues when the reader thread exits, so an in-flight
+# _request() blocked on q.get() wakes immediately with the real cause.
 _READER_DIED = object()
 
 
@@ -99,8 +99,8 @@ class Scanlight:
 
         self._lock = threading.Lock()
         self._last_temp_c: Optional[float] = None
-        # One queue per solicited response header. Unsolicited telemetry (LED_TEMP) and
-        # headers this codec ignores never land here — see `_dispatch`.
+        # One queue per solicited response header. Unsolicited telemetry (LED_TEMP) and headers
+        # this codec ignores never land here; see `_dispatch`.
         self._response_queues: dict[int, queue.Queue] = {proto.D2H_FW_VERSION: queue.Queue()}
 
         self._reader_stop = threading.Event()
@@ -234,4 +234,4 @@ class Scanlight:
                 self._last_temp_c = temp
         elif header in self._response_queues:
             self._response_queues[header].put(data)
-        # Unknown headers are silently dropped — forward-compat with newer firmware.
+        # Unknown headers are dropped silently, for forward-compatibility with newer firmware.

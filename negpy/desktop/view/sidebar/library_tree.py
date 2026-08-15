@@ -72,7 +72,7 @@ class LibraryTree(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        # No title of its own — the section header above already names it.
+        # No title of its own: the section header above already names it.
         header = QHBoxLayout()
         header.setSpacing(4)
         header.addStretch(1)
@@ -110,8 +110,8 @@ class LibraryTree(QWidget):
         self.tree.itemDoubleClicked.connect(self._on_double_clicked)
         self.tree.itemSelectionChanged.connect(self._recolor_counts)
         self.tree.customContextMenuRequested.connect(self._show_context_menu)
-        # Scoped shortcuts rather than an event filter: the filter object outliving (or
-        # being collected before) the tree aborts Qt during teardown.
+        # Scoped shortcuts rather than an event filter: a filter object that outlives the tree, or
+        # is collected before it, aborts Qt during teardown.
         for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             shortcut = QShortcut(QKeySequence(key), self.tree)
             shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
@@ -271,8 +271,8 @@ class LibraryTree(QWidget):
         self.tree.setCurrentItem(parent)
 
     def _recolor_counts(self) -> None:
-        # A per-item brush is out of a stylesheet's reach, so the count column has to be
-        # repainted by hand or it stays grey on the accent red.
+        # A per-item brush is out of a stylesheet's reach, so the count column has to be repainted
+        # by hand or it stays grey on the accent red.
         self._each_top_level(lambda item: item.setForeground(1, QColor("#FFFFFF") if item.isSelected() else QColor(THEME.text_muted)))
 
     # --- opening -----------------------------------------------------------

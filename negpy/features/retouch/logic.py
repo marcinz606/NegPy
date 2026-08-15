@@ -15,174 +15,170 @@ from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Spread floor: stops noise on low-contrast sources (fog, flat frames) from
-# being amplified to full range; dust sits ≥ ~1 density unit above surroundings.
+# Spread floor: stops noise on low-contrast sources (fog, flat frames) from being
+# amplified to full range. Dust sits about a density unit above its surroundings.
 _PROXY_MIN_SPREAD = 0.8
-# Pad heals past the detected bright core — an unhealed soft skirt reads as a halo.
+# Pad heals past the detected bright core: an unhealed soft skirt reads as a halo.
 _DETECT_PAD_PX = 2.5
 
-# Manual heal gate. A painted stroke marks a *search area*, not a stamp: the pixels
-# repaired inside it are the ones that stand out from the film around them, so clean
-# grain under a generous brush is left byte-identical. Two-sided is the point: dust is
-# a bright outlier in density, a scratch a dark one, and a bright-only gate could never
-# repair a scratch at all (#791).
+# Manual heal gate. A painted stroke marks a *search area*, not a stamp: only pixels that
+# stand out from the film around them are repaired, so clean grain under a generous brush
+# stays byte-identical. The gate is two-sided because dust is a bright outlier in density
+# and a scratch a dark one (#791).
 #
-# The excess is measured on a 3×3 mean of the local high-pass, against the σ of that
-# same quantity taken robustly (MAD) over the stroke's neighbourhood. Both halves matter:
-# averaging drops uncorrelated grain by 3 while a defect ≥2 px keeps its full excess, and
-# measuring σ rather than assuming one keeps the bars valid on any film and any scanner.
-# On clean film |z| peaks around 3 whatever the noise level, which is what puts the bars
-# where they are — an absolute density threshold could not separate the two.
+# The excess is measured on a 3x3 mean of the local high-pass, against the MAD σ of that
+# same quantity over the stroke's neighbourhood. Averaging drops uncorrelated grain by 3
+# while a defect of 2 px or more keeps its full excess, and measuring σ keeps the bars
+# valid on any film and scanner. An absolute density threshold cannot separate the two.
 _MANUAL_Z_HI = 8.0
-# Grow bar for the hysteresis below: the floor a connected pixel must clear to count as part
-# of a defect already found. Absolute, or a fraction of the core's own strength for a defect
-# whose skirt is proportionally deep.
+# Grow bar for the hysteresis below: the floor a connected pixel must clear to join a
+# defect already found. Absolute, or a fraction of the core's strength for a defect whose
+# skirt is proportionally deep.
 _MANUAL_Z_GROW = 2.0
 _MANUAL_Z_GROW_FRAC = 0.25
 # Backstop bar: a stroke whose strongest pixel never reaches _MANUAL_Z_HI is rescaled
-# against its own maximum, so a faint-but-real defect still repairs instead of the tool
-# silently doing nothing. Under this it stays a no-op — the brush found clean film.
+# against its own maximum, so a faint but real defect still repairs. Under this bar the
+# stroke stays a no-op: the brush found clean film.
 _MANUAL_Z_MIN = 5.0
-# Local-statistics window as a multiple of the brush radius: wide enough that a defect
+# Local-statistics window, as a multiple of the brush radius. Wide enough that a defect
 # filling the brush cannot set its own baseline.
 _MANUAL_WIN_FACTOR = 3.0
-# Soft edge on the search area itself, so a defect crossing the brush rim doesn't repair
-# to a hard line.
+# Soft edge on the search area, so a defect crossing the brush rim does not repair to a
+# hard line.
 _MANUAL_RIM_PX = 1.5
 
-# Transport scratches (#788): a mark running the length of the film, nearly straight and a
-# few px wide. Its length is what makes it findable at all — per pixel it sits under the
-# manual-heal seed bar, so no per-pixel gate can reach it and the evidence has to be
-# integrated along the line instead.
+# Transport scratches (#788): a nearly straight mark a few px wide running the length of
+# the film. Per pixel it sits under the manual-heal seed bar, so no per-pixel gate can
+# reach it. Only integrating along the line finds it.
 #
 # Cross-section band-pass: film grain is finer, image structure broader.
 _SCRATCH_FINE_PX = 1.2
 _SCRATCH_BROAD_PX = 9.0
-# The ridge response is normalized by a *local* noise scale. Global lets one busy corner of
-# the frame set the bar and buries a faint scratch running through smooth sky.
+# The ridge response is normalized by a *local* noise scale. A global one lets a busy
+# corner set the bar and buries a faint scratch running through smooth sky.
 _SCRATCH_NOISE_WIN = 151
 # Slope search, rise per unit run. The scratch is straight but the film is rarely square to
-# the sensor, and a fraction of a degree drifts tens of px across a frame — enough for an
+# the sensor, and a fraction of a degree drifts tens of px across a frame, enough for an
 # axis-aligned collapse to smear the ridge away.
 _SCRATCH_SLOPE_MAX = 0.02
 _SCRATCH_SLOPE_STEP = 0.00025
 # Rows searched either side of the click, and how hard the fit is pulled back toward it.
-# Without the pull it snaps to whatever ridge is strongest in the band, not the one clicked.
+# Without the pull it snaps to the strongest ridge in the band, not the one clicked.
 _SCRATCH_SEARCH_ROWS = 30
 _SCRATCH_CLICK_PULL = 12.0
 # Slider range for the bar a ridge must clear (see scratch_detect_bar); the default
 # slider position sits in the middle of it.
 _SCRATCH_Z_LOOSE = 0.4
 _SCRATCH_Z_TIGHT = 1.6
-# Presence along the line: the bar must hold over this fraction of a window this wide before
-# a stretch is repaired. Transport scratches fade in and out, so extent is measured.
+# Presence along the line: the bar must hold over this fraction of a window this wide
+# before a stretch is repaired. Transport scratches fade in and out, so measure the extent.
 _SCRATCH_RUN_WIN = 151
 _SCRATCH_RUN_FRAC = 0.35
-# A trace this weak is not a scratch — the click found clean film.
+# A trace this weak is not a scratch: the click found clean film.
 _SCRATCH_MIN_EVIDENCE = 0.25
-# Ceiling on the repaired half-width, px at HEAL_SIZE_REF. The band is grown from the
+# Ceiling on the repaired half-width, px at HEAL_SIZE_REF. The band grows from the
 # scratch, so this only stops a runaway where the ridge never breaks.
 _SCRATCH_WIDTH_MAX = 14.0
 _SCRATCH_WIDTH_MIN = 3.0
 
-# Detection follows the buffer it repairs, at most this far under it: the score is upsampled
-# onto that buffer and the fill supports scale with the same factor, so coarse detection writes
-# a fat mask and averages over a wide support. A defect straddling a tonal edge is then rebuilt
-# from the bright side of it and prints as a dark blotch on the light one.
+# Detection follows the buffer it repairs, at most this far under it. The score is upsampled
+# onto that buffer and the fill supports scale with it, so coarse detection writes a fat mask
+# and averages over a wide support. A defect on a tonal edge is then rebuilt from the bright
+# side and prints as a dark blotch on the light one.
 _IR_MAX_UPSAMPLE = 1.5
 _IR_DETECT_MAX = 3600  # memory: ir_ratio_and_gain holds ~10 planes of it
-# Film-footprint windows below are px at this detection long edge and scale with the plane
-# (_ir_win): on a finer plane a wide hair fills an unscaled base window, depresses its own base
-# and stops reading as a defect at all.
+# The film-footprint windows below are px at this detection long edge and scale with the
+# plane (_ir_win). On a finer plane a wide hair fills an unscaled base window, depresses
+# its own base and stops reading as a defect.
 _IR_DETECT_REF = 1600
 # IR ratio-normalization base window (px at _IR_DETECT_REF, pinned like HEAL_SIZE_REF).
-# Defects wider than ~half of it depress their own base (max-area/Scratch territory).
+# Defects wider than about half of it depress their own base.
 _IR_BASE_WIN = 25
 _IR_GAIN_IDENTITY = 0.97  # gain is identity at/above this ratio
 _IR_GAIN_CLAMP = 2.0  # caps misregistration halos
-# Per-channel refraction γ, fitted per frame (patent 1.03–1.10 under-correct file IR).
+# Per-channel refraction γ, fitted per frame. The patent values under-correct file IR.
 _IR_GAMMA_LO = 1.0
 _IR_GAMMA_HI = 2.2
 _IR_GAMMA_FALLBACK = 1.5
-# Below this the beam is blocked outright — holder, not film. Coolscan rolls: margin 98% under
-# it. ponytail: absolute; a low-IR-gain scanner would want a percentile. Opaque hairs pass under
-# the floor too, so only below-floor regions this large (fraction of the frame) are holder —
-# writing the rest off leaves them unrepairable once the plane resolves their cores.
+# Below this the beam is blocked outright: holder, not film. ponytail: absolute; a
+# low-IR-gain scanner would want a percentile. Opaque hairs also pass under the floor, so
+# only below-floor regions this large (fraction of the frame) count as holder. Writing off
+# the rest leaves them unrepairable once the plane resolves their cores.
 _IR_DEAD_FLOOR = 0.05
 _IR_DEAD_MIN_AREA = 0.002
-# Clean-film pivot: normalize_ir's base is a local max, so clean film sits ~k·σ_IR under 1,
-# where depending on the scanner. Left absolute, a Coolscan 5000 (ratio median 0.945) put
-# 84% of the frame below _IR_GAIN_IDENTITY, starving _ir_clean_base into its local-max
-# fallback — no cap, mottled film at every slider position (#647). Measured at detection
-# scale, on the same ratio it corrects; not on the full-res plane.
+# Clean-film pivot: normalize_ir's base is a local max, so clean film sits some multiple of
+# σ_IR under 1, depending on the scanner. Left absolute, a Coolscan 5000 puts most of the
+# frame below _IR_GAIN_IDENTITY, starves _ir_clean_base into its local-max fallback and
+# leaves mottled film at every slider position (#647). Measured at detection scale, on the
+# same ratio it corrects.
 _IR_NOISE_SIGMA = 3.0
-# Bounds the rescale so >50% coverage (median inside the dust) can't scale the ratio clean
-# and silently disable IR removal. ponytail: absolute; the knob if a scanner needs more.
+# Bounds the rescale, so coverage above 50% (a median inside the dust) cannot scale the
+# ratio clean and disable IR removal. ponytail: absolute; the knob if a scanner needs more.
 _IR_PIVOT_LO = 0.60
-# Dip depth is scanner-dependent — clean-film MAD σ is 0.038–0.063 on a Coolscan 5000 against
-# 0.005 on a Plustek/SilverFast HDRi DNG, putting one speck at ratio 0.62 and the other at 0.92,
-# past every absolute landmark below. Stretch-only, so σ ≥ _IR_REF_SIGMA is an exact no-op.
+# Dip depth is scanner-dependent: clean-film σ differs by an order of magnitude between a
+# Coolscan and a Plustek DNG, putting the same speck either side of every absolute landmark
+# below. Stretch-only, so σ >= _IR_REF_SIGMA is an exact no-op.
 _IR_REF_SIGMA = 0.02
 _IR_SCALE_MAX = 6.0  # bounds a degenerate/quantized plane measuring σ ~0
-# Crosstalk unmixing: dye/silver absorbs some IR, so the IR plane carries a ghost of
-# the image that normalize_ir's spatial high-pass can't see (a sharp edge survives it).
+# Crosstalk unmixing: dye and silver absorb some IR, so the IR plane carries a ghost of the
+# image that normalize_ir's spatial high-pass cannot see. A sharp edge survives it.
 _IR_XTALK_MAX = 0.8  # per-channel exponent cap; ≥0 only — density can only block IR
 _IR_XTALK_MIN = 0.02  # |b| sum below this is a noise-level fit → exact no-op
 _IR_DEGENERATE_GHOST = 0.5  # fitted exponent sum above this: IR mirrors the image (B&W/Kodachrome)
 _IR_XTALK_TRIM = 5.0  # fit drops this bottom-ratio percentile (the dust minority)
-# γ fit sample: keep this flattest fraction of the band by visible Laplacian, dropping the
-# restriction below _IR_FIT_MIN_PX rather than fitting a handful of pixels. See _fit_refraction_gammas.
+# γ fit sample: keep this flattest fraction of the band by visible Laplacian. Below
+# _IR_FIT_MIN_PX drop the restriction instead of fitting a handful of pixels.
 _IR_FIT_FLAT_PCT = 40
 _IR_FIT_MIN_PX = 200
-# Fit sample cap: _ir_decontaminate and _fit_refraction_gammas resolve 3-4 per-frame scalars,
-# so they stride their pixel set down to this rather than growing with the detection plane.
+# Fit sample cap: _ir_decontaminate and _fit_refraction_gammas resolve a few per-frame
+# scalars, so they stride their pixel set down to this instead of growing with the plane.
 _IR_FIT_MAX_PX = 200_000
-# Clean-base cap window (px at _IR_DETECT_REF, odd). The bake may never lift a pixel above its
-# own local clean base — past that it invents signal rather than recovering it. Needed because
-# downsample_ir is min-preserving while the visible arrives area-averaged, so at detection scale
-# the ratio's dip runs deeper and ~1 px wider than the defect the visible carries (0.816 against
-# 0.892); uncapped, that skirt lifts clean film and every speck and hair renders with a dark
-# outline. Reaches ±4 px, past _DETECT_PAD_PX's skirt. Base = defect-excluded local mean −
-# _IR_CAP_SIGMA·σ, not blur(dilate): the dilate is a local max, ~2σ of grain high, and re-admits
-# the ring on grainy film (#563). Under _IR_CAP_MIN_SUPPORT clean pixels in the window → the max
-# estimate returns (deep inside wide defects, where _IR_GAIN_CLAMP binds first).
+# Clean-base cap window (px at _IR_DETECT_REF, odd). The bake may never lift a pixel above
+# its own local clean base: past that it invents signal instead of recovering it. Needed
+# because downsample_ir is min-preserving while the visible arrives area-averaged, so at
+# detection scale the ratio's dip runs deeper and about 1 px wider than the defect the
+# visible carries. Uncapped, that skirt lifts clean film and every speck renders with a dark
+# outline. Reaches ±4 px, past _DETECT_PAD_PX's skirt. Base = defect-excluded local mean -
+# _IR_CAP_SIGMA*σ, not blur(dilate): the dilate is a local max about 2σ of grain high and
+# re-admits the ring on grainy film (#563). Under _IR_CAP_MIN_SUPPORT clean pixels in the
+# window the max estimate returns, deep inside wide defects where _IR_GAIN_CLAMP binds first.
 _IR_CAP_WIN = 9
 _IR_CAP_SIGMA = 1.0
 _IR_CAP_MIN_SUPPORT = 0.1  # fraction of the window (~8 px at 9×9)
 
-# IR reconstruction: concepts ported from digital-fauxice (MIT, © 2026 Rohan
-# Pandula, see NOTICE.md) — continuous score, score-weighted fill, original-floor rule.
-# Score: 1 = clean (ratio ≥ _IR_GAIN_IDENTITY), floor at/below the slider's cutoff.
-# Never thresholded — no mask edge to halo, no coverage fraction to abort on.
+# IR reconstruction: concepts ported from digital-fauxice (MIT, © 2026 Rohan Pandula, see
+# NOTICE.md): continuous score, score-weighted fill, original-floor rule.
+# Score: 1 = clean (ratio >= _IR_GAIN_IDENTITY), floor at or below the slider's cutoff.
+# Never thresholded, so there is no mask edge to halo and no coverage fraction to abort on.
 _IR_SCORE_FLOOR = 0.02
-# Fill supports (detection-scale px, × the buffer's upsample factor). Candidate per
-# support: Σ(rgb·score·win)/Σ(score·win) — low-score neighbours self-exclude. A finer
-# support wins once its clean fraction reaches _IR_FILL_TAU (edges continue through).
+# Fill supports (detection-scale px, times the buffer's upsample factor). Candidate per
+# support: Σ(rgb*score*win)/Σ(score*win), so low-score neighbours self-exclude. A finer
+# support wins once its clean fraction reaches _IR_FILL_TAU, and edges continue through.
 _IR_FILL_SCALES = (9, 5, 3)
 _IR_FILL_TAU = 0.15
-# Write ramp: untouched above HI (grain survives), full fill at/below LO.
+# Write ramp: untouched above HI so grain survives, full fill at or below LO.
 _IR_WRITE_HI = 0.85
 _IR_WRITE_LO = 0.40
-# Route to inpaint only components with a core the fill can't see across (chebyshev
-# radius ≥ 5 ⇔ solid 9×9 interior). Thin hairs stay with the fill: every pixel is
-# within reach of clean film, and NS inpaint would smear structure the fill keeps.
-# The budget bounds only this heavy path; the fill always runs.
+# Route to inpaint only components with a core the fill cannot see across (chebyshev
+# radius >= 5, a solid 9x9 interior). Thin hairs stay with the fill: every pixel is within
+# reach of clean film, and NS inpaint would smear structure the fill keeps. The budget
+# bounds only this heavy path; the fill always runs.
 _IR_ROUTE_RADIUS = 5
 _IR_ROUTE_DILATE = 2
 _IR_ROUTE_BUDGET = 0.02  # fraction of the frame
 # Crop-per-defect stops paying past this count (see repair_components).
 _REPAIR_MAX_COMPONENTS = 256
 
-# Strong hairs/scratches route to structure-following inpaint instead of the weighted
-# fill: a long twist crosses varied background, and averaging across it smears the
-# structure the inpaint follows. Detection-scale px. See _is_hair.
+# Strong hairs and scratches route to structure-following inpaint instead of the weighted
+# fill: a long twist crosses varied background, and averaging across it smears the structure
+# the inpaint follows. Detection-scale px. See _is_hair.
 _HAIR_MIN_AREA = 20
 _HAIR_MIN_ELONG = 8.0  # area/thickness² ≈ length/thickness; round specks measure 1–3
-# cv2.inpaint fill: dilate covers the PSF skirt at 1:1 (apply_hair_inpaint widens it to
-# track the mask's upsample); NS radius; gamma gives the 8-bit encode a perceptual
-# spread (cv2.inpaint is 8-bit only). Navier-Stokes only propagates outward from the mask
-# boundary, so each defect is filled in its own bbox + _HAIR_INPAINT_PAD (>= the radius):
-# same pixels, without gamma-encoding the whole frame to serve a hairline.
+# cv2.inpaint fill: the dilate covers the PSF skirt at 1:1 (apply_hair_inpaint widens it to
+# track the mask's upsample), then the NS radius, then gamma to give the 8-bit encode a
+# perceptual spread (cv2.inpaint is 8-bit only). Navier-Stokes propagates outward from the
+# mask boundary only, so each defect is filled in its own bbox + _HAIR_INPAINT_PAD. Same
+# pixels, without gamma-encoding the whole frame to serve a hairline.
 _HAIR_DILATE_PX = 1
 _HAIR_INPAINT_RADIUS = 3
 _HAIR_INPAINT_GAMMA = 2.2
@@ -363,7 +359,7 @@ def strokes_to_score(
     dens = _density(img)
     score = np.ones((h, w), dtype=np.float32)
     # Brush size is a DIAMETER at HEAL_SIZE_REF scale, so the painted footprint matches the
-    # cursor at any render resolution (overlay._brush_screen_radius draws size/(2·REF)).
+    # cursor at any render resolution (overlay._brush_screen_radius draws size/(2*REF)).
     scale = max(w, h) / HEAL_SIZE_REF
     touched = False
 
@@ -395,7 +391,7 @@ def strokes_to_score(
         crop = dens[y0:y1, x0:x1]
         detail = cv2.blur(crop - cv2.blur(crop, (win, win)), (3, 3))
         # MAD about zero over the whole crop, so the defect stays a minority in its own
-        # noise estimate. 0.6745 = the half-normal median, turning it into a σ.
+        # noise estimate. 0.6745 is the half-normal median, which turns it into a σ.
         sigma = float(np.median(np.abs(detail))) / 0.6745
         z = np.abs(detail) / max(sigma, 1e-9)
 
@@ -403,13 +399,13 @@ def strokes_to_score(
         peak = float(z[inside].max())
         if peak < _MANUAL_Z_MIN:
             continue  # the brush found clean film; repairing it would only smooth grain
-        # Self-normalize a faint defect against its own peak, so a real mark the absolute bar
-        # would miss still repairs rather than the tool doing nothing.
+        # Self-normalize a faint defect against its own peak, so a real mark under the
+        # absolute bar still repairs.
         hi = _MANUAL_Z_HI if peak >= _MANUAL_Z_HI else peak * 0.9
-        # Hysteresis, the reason a single bar cannot do this job: a defect's bright core clears
-        # any bar, but the soft skirt around it (and a hair lying over scene structure) does not,
-        # and a bar low enough to catch those catches grain everywhere. Grow from the core down
-        # to the low bar through connected pixels only — grain is isolated, so it never joins.
+        # Hysteresis, because a single bar cannot do this job: a defect's core clears any bar
+        # but its soft skirt does not, and a bar low enough to catch the skirt catches grain
+        # everywhere. Grow from the core to the low bar through connected pixels only. Grain
+        # is isolated, so it never joins.
         lo = max(_MANUAL_Z_GROW, hi * _MANUAL_Z_GROW_FRAC)
         strong = inside & (z >= hi)
         if not strong.any():
@@ -418,11 +414,10 @@ def strokes_to_score(
         seeded = np.unique(lab[strong])
         keep = np.isin(lab, seeded[seeded > 0]).astype(np.uint8)
 
-        # Pad past the defect, the way the detector does: a defect's soft PSF skirt falls under
-        # any bar that keeps grain out, and leaving it unrepaired prints as a dark outline
-        # around an otherwise clean repair.
+        # Pad past the defect, like the detector does: the soft PSF skirt falls under any bar
+        # that keeps grain out, and left unrepaired it prints as a dark outline.
         region = _mask_to_score(keep, _DETECT_PAD_PX * film_scale((h, w)))
-        # Soften the search area's own rim, or a defect crossing it repairs to a hard line.
+        # Soften the search area's rim, or a defect crossing it repairs to a hard line.
         d = cv2.distanceTransform(cover, cv2.DIST_L2, 3)
         alpha = np.clip(d / _MANUAL_RIM_PX, 0.0, 1.0)
 
@@ -463,7 +458,7 @@ def _scratch_ridge(img: ImageBuffer) -> np.ndarray:
     broad = cv2.GaussianBlur(dens, (1, 0), sigmaX=0, sigmaY=_SCRATCH_BROAD_PX)
     ridge = fine - broad
     win = (_SCRATCH_NOISE_WIN, _SCRATCH_NOISE_WIN)
-    # mean|x| is 0.8σ for gaussian noise; the ratio is what the bars above are quoted in.
+    # mean|x| is 0.8σ for gaussian noise, and the bars above are quoted in that ratio.
     scale = cv2.blur(np.abs(ridge), win) / 0.8
     return ridge / np.maximum(scale, 1e-6)
 
@@ -508,8 +503,8 @@ def trace_scratch(img: ImageBuffer, nx: float, ny: float, threshold: float = 0.5
         return None
     _, slope, k, along = best
 
-    # A transport scratch fades in and out, so measure its extent rather than assume it spans
-    # the frame.
+    # A transport scratch fades in and out, so measure its extent instead of assuming it
+    # spans the frame.
     on = (along * np.sign(along.mean()) > bar).astype(np.float32)
     run = cv2.blur(on.reshape(1, -1), (_SCRATCH_RUN_WIN, 1)).ravel() >= _SCRATCH_RUN_FRAC
     if not run.any():
@@ -517,7 +512,7 @@ def trace_scratch(img: ImageBuffer, nx: float, ny: float, threshold: float = 0.5
     cols = np.flatnonzero(run)
     x0, x1 = float(cols[0]), float(cols[-1])
     row = y0 + k
-    # For the guide only — the repair grows its own band per column.
+    # For the guide only: the repair grows its own band per column.
     scale = film_scale((h, w))
     max_half = max(1, int(round(0.5 * _SCRATCH_WIDTH_MAX * scale)))
     grown = _grow_band(_shear_rows(z, slope, cx, w), row, cols, max_half, float(np.sign(along.mean()) or 1.0), bar)
@@ -570,8 +565,8 @@ def lines_to_score(img: ImageBuffer, lines: List[Tuple], threshold: float = 0.5)
         if abs(x1 - x0) < 1.0:
             continue
         slope = (y1 - y0) / (x1 - x0)
-        # ``width`` is only what the guide drew — the band is re-grown from the scratch here,
-        # so it follows one that widens along its length and ignores the traced resolution.
+        # ``width`` is only what the guide drew. The band is re-grown from the scratch here,
+        # so it follows a scratch that widens and ignores the traced resolution.
         max_half = max(1, int(round(0.5 * _SCRATCH_WIDTH_MAX * scale)))
         sheared = _shear_rows(z, slope, x0, w)
         row = int(round(y0))
@@ -660,7 +655,7 @@ def downsample_ir(plane: np.ndarray, target_long_edge: int, dims: Optional[Tuple
         dims = (max(1, int(round(w * s))), max(1, int(round(h * s))))
     if dims == (w, h):
         return plane
-    # Erode by the resample footprint — a 1.25x downsample must not fatten by a 4.5x kernel.
+    # Erode by the resample footprint: a 1.25x downsample must not fatten by a 4.5x kernel.
     k = max(1, int(round(long_edge / target_long_edge)) | 1)
     if k > 1:
         plane = cv2.erode(plane, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
@@ -758,8 +753,8 @@ def _borrow_clean_grain(src: np.ndarray, clean: np.ndarray, sigma: float) -> np.
     # DIST_LABEL_PIXEL numbers the zero pixels 1..N in raster order, so flatnonzero inverts it.
     _, labels = cv2.distanceTransformWithLabels((~clean).astype(np.uint8), cv2.DIST_L2, 3, labelType=cv2.DIST_LABEL_PIXEL)
     nearest = np.flatnonzero(clean.ravel())[labels.ravel().astype(np.intp) - 1]
-    # Mirror through the donor, don't sample it: a whole row across a hair shares one nearest
-    # clean pixel, and pasting that verbatim streaks the grain into bands.
+    # Mirror through the donor, do not sample it: a whole row across a hair shares one
+    # nearest clean pixel, and pasting that verbatim streaks the grain into bands.
     ny, nx = np.divmod(nearest, w)
     py, px = np.divmod(np.arange(h * w), w)
     mirrored = np.clip(2 * ny - py, 0, h - 1) * w + np.clip(2 * nx - px, 0, w - 1)
@@ -805,10 +800,10 @@ def apply_score_repair(
     clean = score >= _IR_WRITE_HI
     if clean.any():
         out += a * _borrow_clean_grain(src, clean, sigma)
-    # Original-floor rule: dust is dark in negative transmittance — repairs only lighten. Compared
-    # on the low-frequency deficit, since per pixel it is a half-wave rectifier: it keeps the
-    # fill's grain peaks and clips its troughs, sitting the repair ~3% bright with half the
-    # texture. Under the same ramp, so a pixel the fill never touched stays byte-identical.
+    # Original-floor rule: dust is dark in negative transmittance, so repairs only lighten.
+    # Compared on the low-frequency deficit, because per pixel the rule is a half-wave
+    # rectifier that keeps the fill's grain peaks, clips its troughs and leaves the repair
+    # bright and half-textured. Under the same ramp, so an untouched pixel stays identical.
     if floor:
         lo_deficit = cv2.GaussianBlur(src, (0, 0), sigma) - cv2.GaussianBlur(out, (0, 0), sigma)
         out += a * np.maximum(lo_deficit, 0.0)
@@ -856,7 +851,7 @@ def repair_components(img: ImageBuffer, score_det: np.ndarray, *, floor: bool = 
         y1 = min(h, by + int(stats[i, cv2.CC_STAT_HEIGHT]) + pad)
         sub = apply_score_repair(src[y0:y1, x0:x1], score[y0:y1, x0:x1], floor=floor, long_edge=max(h, w), factor=factor)
         # This component only: a neighbour clipped by the crop repairs badly here and gets
-        # its own correctly-padded crop anyway.
+        # its own padded crop anyway.
         mb = labels[y0:y1, x0:x1] == i
         out[y0:y1, x0:x1][mb] = np.asarray(sub)[mb]
     return ensure_image(out)
@@ -906,18 +901,18 @@ def _ir_decontaminate(ratio: np.ndarray, vis_log: np.ndarray) -> Tuple[np.ndarra
     returns the exponent sum — ghost strength, which is how ``ir_ratio_and_gain`` bails."""
     if ratio.size < 500:
         return ratio, 0.0
-    # Fit on clean film only. Dust dips *both* planes, so a fit that sees it explains
-    # the defect away as ghost and the division stops lifting it. Trim by ratio
-    # percentile, not a fixed cutoff (a strong ghost drags clean film below any fixed
-    # one) and not by residual (the dust fits itself perfectly — residual can't see it).
+    # Fit on clean film only. Dust dips *both* planes, so a fit that sees it explains the
+    # defect away as ghost and the division stops lifting it. Trim by ratio percentile: a
+    # fixed cutoff fails because a strong ghost drags clean film below it, and residual
+    # fails because the dust fits itself perfectly.
     keep = _fit_sample(ratio >= np.percentile(ratio, _IR_XTALK_TRIM))
     y = np.log(np.clip(ratio.ravel()[keep], 1e-4, 1.0))
     x = vis_log.reshape(-1, vis_log.shape[-1])[keep]
     if y.size < 500:
         return ratio, 0.0
-    # Intercept column, dropped from the result: both logs sit below their own dilate+blur
+    # Intercept column, dropped from the result. Both logs sit below their own dilate+blur
     # envelope, so origin-forced least squares reads that shared negative offset as slope
-    # and fits b≈0.6 on two *independent* noisy planes.
+    # and fits a large b on two *independent* noisy planes.
     x = np.concatenate([x, np.ones((x.shape[0], 1), dtype=x.dtype)], axis=1)
     b = np.clip(np.linalg.lstsq(x, y, rcond=None)[0][:3], 0.0, _IR_XTALK_MAX)
     ghost = float(np.abs(b).sum())
@@ -943,7 +938,7 @@ def _fit_refraction_gammas(ratio: np.ndarray, vis_log: np.ndarray, img_det: np.n
     edge = np.abs(cv2.Laplacian(img_det[:, :, 1], cv2.CV_32F, ksize=5))
     flat = band & (edge < np.percentile(edge[band], _IR_FIT_FLAT_PCT))
     fit = _fit_sample(flat if int(flat.sum()) >= _IR_FIT_MIN_PX else band)
-    # The band bounds ratio away from 1, so the per-pixel slope needs no guard.
+    # The band bounds the ratio away from 1, so the per-pixel slope needs no guard.
     xb = np.log(ratio.ravel()[fit])
     vl = vis_log.reshape(-1, 3)[fit]
     return tuple(float(np.clip(np.median(vl[:, c] / xb), _IR_GAMMA_LO, _IR_GAMMA_HI)) for c in range(3))
@@ -980,8 +975,8 @@ def _ir_normalize_ratio(ratio: np.ndarray, live: np.ndarray) -> np.ndarray:
     # A clipped pivot is an exact no-op: x/x is 1.0 in IEEE, float32 × 1.0 exact.
     scale = _IR_GAIN_IDENTITY / pivot
     ratio = (ratio * scale).astype(np.float32)
-    # The rescale carries σ with it, so no second median pass. Dips only: a noiseless plane
-    # takes the full _IR_SCALE_MAX, which would land its clean level at 1.15.
+    # The rescale carries σ with it, so there is no second median pass. Dips only: a
+    # noiseless plane takes the full _IR_SCALE_MAX and would land its clean level above 1.
     k = float(np.clip(_IR_REF_SIGMA / max(sigma * scale, 1e-6), 1.0, _IR_SCALE_MAX))
     if k > 1.0:
         stretched = _IR_GAIN_IDENTITY - (_IR_GAIN_IDENTITY - ratio) * k
@@ -996,8 +991,8 @@ def ir_ratio_and_gain(ir_det: np.ndarray, img_det: np.ndarray) -> Tuple[np.ndarr
     (B&W/Kodachrome) → caller skips the whole IR bake."""
     plane = ir_det[:, :, 0] if ir_det.ndim == 3 else ir_det
     ratio = normalize_ir(plane)
-    # No film under the head is not a defect; left as a dip the holder margin would score
-    # as one giant routed component and swamp the routing budget.
+    # No film under the head is not a defect. Left as a dip, the holder margin scores as one
+    # giant routed component and swamps the routing budget.
     live = _ir_live(plane)
     ratio[~live] = 1.0
     img_det = np.ascontiguousarray(img_det, dtype=np.float32)
@@ -1006,8 +1001,8 @@ def ir_ratio_and_gain(ir_det: np.ndarray, img_det: np.ndarray) -> Tuple[np.ndarr
 
     vis_log = np.stack([np.log(np.clip(normalize_ir(img_det[:, :, c]), 1e-4, 1.0)) for c in range(3)], axis=-1)
     ratio, ghost = _ir_decontaminate(ratio, vis_log)
-    # On the fitted exponent, not on how far the ratio dips: a few percent of IR noise
-    # (deepened by the min-preserving downsample) read as silver on clean C41 rolls.
+    # On the fitted exponent, not on how far the ratio dips. A few percent of IR noise,
+    # deepened by the min-preserving downsample, reads as silver on clean C41 rolls.
     degenerate = ghost > _IR_DEGENERATE_GHOST
     # After the unmixing, never before: it clips log(ratio) at 1.0, and a rescaled clean
     # population piles into that clip and flattens the fitted exponent.
@@ -1018,8 +1013,8 @@ def ir_ratio_and_gain(ir_det: np.ndarray, img_det: np.ndarray) -> Tuple[np.ndarr
     gain = np.empty(ratio.shape + (3,), dtype=np.float32)
     for c in range(3):
         gain[:, :, c] = np.minimum(_IR_GAIN_CLAMP, base ** (-gammas[c]))
-    # Never lift a pixel past its own local clean base (see _IR_CAP_WIN); floored at 1 so the
-    # cap only ever holds the bake back, never darkens a pixel itself.
+    # Never lift a pixel past its own local clean base (see _IR_CAP_WIN). Floored at 1, so
+    # the cap only holds the bake back and never darkens a pixel.
     clean = _ir_clean_base(img_det, ratio)
     np.minimum(gain, np.maximum(clean / np.maximum(img_det, 1e-5), 1.0), out=gain)
     return ratio, gain, degenerate, gammas
@@ -1029,8 +1024,8 @@ def apply_ir_attenuation(img: ImageBuffer, gain_det: np.ndarray) -> ImageBuffer:
     """Visible buffer × upsampled per-channel IR gain map (new array — buffers are read-only)."""
     h, w = img.shape[:2]
     gain = gain_det if gain_det.shape[:2] == (h, w) else cv2.resize(gain_det, (w, h), interpolation=cv2.INTER_LINEAR)
-    # cv2.multiply, not `a * b`: the product of two float32 buffers is already float32,
-    # so the astype numpy needs here would copy the whole frame a second time.
+    # cv2.multiply, not `a * b`: the product of two float32 buffers is already float32, so
+    # the astype numpy needs here would copy the whole frame a second time.
     return ensure_image(cv2.multiply(np.ascontiguousarray(img, dtype=np.float32), gain))
 
 
@@ -1061,8 +1056,8 @@ def apply_hair_inpaint(
         return img
     factor = max(1.0, h / masks[0].shape[0], w / masks[0].shape[1])
     if dilate_px is None:
-        # A detection-scale mask knows its boundary only to within the upsample factor,
-        # so the dilate tracks it; at 1:1 that's _HAIR_DILATE_PX, the PSF skirt alone.
+        # A detection-scale mask knows its boundary only to the upsample factor, so the
+        # dilate tracks it. At 1:1 that is _HAIR_DILATE_PX, the PSF skirt alone.
         dilate_px = max(_HAIR_DILATE_PX, round(factor))
     m = np.zeros((h, w), dtype=np.uint8)
     for hm in masks:
@@ -1082,11 +1077,11 @@ def apply_hair_inpaint(
         x0, y0 = max(0, bx - _HAIR_INPAINT_PAD), max(0, by - _HAIR_INPAINT_PAD)
         x1 = min(w, bx + int(stats[i, cv2.CC_STAT_WIDTH]) + _HAIR_INPAINT_PAD)
         y1 = min(h, by + int(stats[i, cv2.CC_STAT_HEIGHT]) + _HAIR_INPAINT_PAD)
-        # Mask the whole crop, not just this component: a neighbour reaching into the
-        # bbox must stay unknown or it becomes clone source and its dust is filled back in.
+        # Mask the whole crop, not just this component: a neighbour reaching into the bbox
+        # must stay unknown, or it becomes clone source and its dust is filled back in.
         sub_m = np.ascontiguousarray(m[y0:y1, x0:x1])
         crop = src[y0:y1, x0:x1]
-        # Encode against the crop's clean range — clip(0,1) posterizes fills in dark regions.
+        # Encode against the crop's clean range: clip(0,1) posterizes fills in dark regions.
         ctx = crop[sub_m == 0]
         lo = float(np.percentile(ctx, 0.5)) if ctx.size else 0.0
         hi = float(np.percentile(ctx, 99.5)) if ctx.size else 1.0
@@ -1094,16 +1089,16 @@ def apply_hair_inpaint(
         enc = np.clip((crop - lo) / span, 0.0, 1.0) ** (1.0 / _HAIR_INPAINT_GAMMA)
         filled = cv2.inpaint((enc * 255.0 + 0.5).astype(np.uint8), sub_m, radius, cv2.INPAINT_NS)
         dec = ((filled.astype(np.float32) / 255.0) ** _HAIR_INPAINT_GAMMA) * span + lo
-        # ...but only keep this component (a neighbour clipped by the bbox fills badly here,
-        # and gets its own correctly-padded crop anyway), alpha-feathered across the dilate
-        # band: full fill on the detected defect, ramp over the skirt. dilate_px=0 → no feather.
+        # ...but keep only this component, alpha-feathered across the dilate band: full fill
+        # on the detected defect, ramp over the skirt. A neighbour clipped by the bbox fills
+        # badly here and gets its own padded crop anyway. dilate_px=0 means no feather.
         mb = labels[y0:y1, x0:x1] == i
         d = cv2.distanceTransform(mb.astype(np.uint8), cv2.DIST_C, 3)
         a = np.minimum(d / float(dilate_px + 1), 1.0)[..., None]
         blended = crop * (1.0 - a) + dec * a
         out[y0:y1, x0:x1][mb] = blended[mb]
-    # Navier–Stokes propagates a smooth field, so the fill lands grainless (see
-    # apply_score_repair, which fills the same kind of hole by a different route).
+    # Navier-Stokes propagates a smooth field, so the fill lands grainless. See
+    # apply_score_repair, which fills the same kind of hole by a different route.
     filled_px = m.astype(bool)
     clean = ~filled_px
     if clean.any():

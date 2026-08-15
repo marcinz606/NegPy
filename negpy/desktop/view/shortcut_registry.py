@@ -21,8 +21,8 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "next_file": ShortcutEntry("Right", "Next file", "Navigation"),
     "toggle_keep": ShortcutEntry("K", "Mark frame as keeper", "Triage"),
     "toggle_reject": ShortcutEntry("Shift+X", "Reject frame (skipped by batch export)", "Triage"),
-    # No default key: nothing obvious is free, and an invented binding that collides makes
-    # Qt fire activatedAmbiguously and kills both actions.
+    # No default key: nothing obvious is free, and an invented binding that collides makes Qt
+    # fire activatedAmbiguously and kills both actions.
     "hdr_merge": ShortcutEntry("", "Merge selected exposures into one HDR frame", "Triage"),
     "hdr_unmerge": ShortcutEntry("", "Unmerge an HDR frame back into its exposures", "Triage"),
     "toggle_compare": ShortcutEntry("\\", "Before/after (auto baseline)", "Tools"),
@@ -331,14 +331,14 @@ def tooltip_with_shortcut(text: str, action_ids: str | Iterable[str] | None = No
     keys = [key_for(action_id, bindings) for action_id in ids if action_id in REGISTRY and key_for(action_id, bindings)]
     if not keys:
         return text
-    # Each key is a bordered table cell so it reads like a physical keycap: a thin,
-    # lighter-than-background border boxing the label. Qt's rich-text engine ignores
-    # `border` on inline <span> elements (background/padding render, the outline does
-    # not) but honours it on table cells, so the chips must be <td>s, not spans.
+    # Each key is a bordered table cell, so it reads like a physical keycap: a thin,
+    # lighter-than-background border boxing the label. Qt's rich-text engine ignores `border`
+    # on inline <span> elements, where background and padding render but the outline does not,
+    # and honours it on table cells, so the chips must be <td>s.
     cells = [
         f'<td style="border:1px solid #5A5A5A;background:#242424;color:#C8C8C8;padding:1px 6px;font-size:10px;">{key}</td>' for key in keys
     ]
-    # The " & " separator sits in its own borderless cell so it doesn't inherit a
-    # keycap outline. The whole row is right-aligned on its own line below the text.
+    # The " & " separator sits in its own borderless cell, so it does not inherit a keycap
+    # outline. The whole row is right-aligned on its own line below the text.
     row = "<td>&nbsp;&amp;&nbsp;</td>".join(cells)
     return f'{text}<table align="right" cellspacing="0" cellpadding="0"><tr>{row}</tr></table>'

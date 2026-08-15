@@ -437,11 +437,10 @@ class AppController(QObject):
         self.capture_thread = QThread()
         self.capture_worker = CaptureWorker()
         self.capture_worker.moveToThread(self.capture_thread)
-        # Started lazily on first capture use (_ensure_capture_thread): a *running* QThread aborts
-        # if destroyed without quit(), and controller unit tests build AppController without ever
-        # scanning — leaving the thread unstarted keeps it invisible to their teardown loops (so
-        # upstream tests needn't know about it), and the app starts it the moment the Camera
-        # Scanning tab polls or the user acts.
+        # Started lazily on first capture use (_ensure_capture_thread). A *running* QThread
+        # aborts if destroyed without quit(), and controller unit tests never scan, so an
+        # unstarted thread stays invisible to their teardown loops. The app starts it as
+        # soon as the Camera Scanning tab polls or the user acts.
         self._capture_thread_started = False
 
         self.canvas: Any = None
@@ -449,15 +448,15 @@ class AppController(QObject):
         self._busy_toast = False
         self._pending_render_task: Any = None
 
-        # Last displayed render per frame — navigate-back paints it instantly
-        # while the authoritative render refreshes underneath.
+        # Last displayed render per frame, so navigate-back paints instantly while the
+        # authoritative render refreshes underneath.
         self._render_memo = RenderMemo()
         # (source_hash, memo_key, content_rect) of the on-screen GPU render; load_file
         # files its texture under this on the way out.
         self._last_render_identity: Optional[tuple] = None
         self._render_memo.large_entries = self.state.hq_preview
-        # Test strips, keyed density/grade-blind (see _strip_memo_key). Four mosaics an
-        # entry, so the conservative budget.
+        # Test strips, keyed density/grade-blind (see _strip_memo_key). Four mosaics per
+        # entry, hence the conservative budget.
         self._strip_memo = RenderMemo()
         self._strip_memo.large_entries = True
 
@@ -555,8 +554,8 @@ class AppController(QObject):
             norm_h, norm_w = nl.shape[:2]
         else:
             norm_w, norm_h = nl.width, nl.height
-        # nx,ny arrive content-normalized (the overlay subtracts the border) —
-        # passing content_rect here would compensate twice.
+        # nx,ny arrive content-normalized, because the overlay subtracts the border.
+        # Passing content_rect here would compensate twice.
         pos = map_display_to_norm(
             nx,
             ny,
@@ -718,10 +717,10 @@ class AppController(QObject):
                 return
             self._thumb_requested = [asset_thumbnail_key(f) for f in missing]
             self.set_status("GENERATING THUMBNAILS...")
-            # Copies, carrying each frame's stored film process: the source decode cannot
-            # tell a slide from a negative reliably, and inverting one that is already a
-            # positive is what put negatives in the filmstrip. Copies because these dicts
-            # cross to a worker thread, and uploaded_files must not grow a stale mode.
+            # Copies, carrying each frame's stored film process. The source decode cannot
+            # tell a slide from a negative reliably, and inverting a positive is what put
+            # negatives in the filmstrip. They are copies because these dicts cross to a
+            # worker thread and uploaded_files must not grow a stale mode.
             self.thumbnail_requested.emit([{**f, "process_mode": self.session.stored_process_mode(f)} for f in missing])
 
     def clear_thumbnail_cache(self) -> None:
@@ -754,8 +753,8 @@ class AppController(QObject):
         keys whose image would not decode."""
         broken = set()
         for key, pil_img in new_thumbs.items():
-            # A frame that already rendered on the canvas has the correct (inverted)
-            # thumbnail; don't let this batch overwrite it with the source-decode placeholder.
+            # A frame that already rendered on the canvas has the correct inverted
+            # thumbnail, so keep this batch from overwriting it with the placeholder.
             if pil_img and key not in self.state.rendered_thumbnails:
                 if not self._set_thumbnail(key, pil_img):
                     broken.add(key)
@@ -1018,8 +1017,8 @@ class AppController(QObject):
         mode regroups/ungroups triplets in place (not only on the next folder load)."""
         self.session.repo.save_global_setting("rgbscan_mode", bool(enabled))
         if enabled:
-            # Narrowband LEDs are what RGB-scan triplets are captured with — correcting
-            # for them is the point of the toggle, so switch it on together.
+            # RGB-scan triplets are captured with narrowband LEDs, and correcting for them
+            # is the point of the toggle, so switch it on together.
             self.session.repo.save_global_setting("last_narrowband_scan", True)
         files = self.session.state.uploaded_files
         if not files:
@@ -1064,8 +1063,8 @@ class AppController(QObject):
             file_hash = asset["hash"]
             if file_hash == self.state.current_file_hash:
                 continue
-            # Frames with no saved edits inherit the values from the sticky defaults when
-            # they are first hydrated — writing them here would only churn the DB.
+            # Frames with no saved edits inherit the sticky defaults when first hydrated,
+            # so writing them here would only churn the DB.
             saved = self.session.repo.load_file_settings(file_hash)
             if saved is None:
                 continue
@@ -1193,8 +1192,8 @@ class AppController(QObject):
             self.generate_missing_thumbnails()
             idx = None
             if reselect_path:
-                # Guard on a set path: `None in (path, green_path, blue_path)` spuriously
-                # matches any non-RGB frame (its green/blue paths are absent → None).
+                # Guard on a set path: `None in (path, green_path, blue_path)` matches any
+                # non-RGB frame, whose green/blue paths are absent.
                 idx = next(
                     (
                         i
@@ -1220,8 +1219,8 @@ class AppController(QObject):
             if pending_scan and self._select_file_by_path(pending_scan):
                 selected_pending_scan = True
             elif auto_open and not self.state.current_file_path and len(self.session.state.uploaded_files) > first_new_idx:
-                # Select the first newly-loaded frame in filmstrip (sorted/filtered) order,
-                # not discovery order — otherwise the initial frame lands mid-strip.
+                # Select the first newly-loaded frame in filmstrip order, not discovery
+                # order, or the initial frame lands mid-strip.
                 new_indices = set(range(first_new_idx, len(self.session.state.uploaded_files)))
                 ordered = self.session.asset_model.visible_actual_indices_ordered()
                 target = next((i for i in ordered if i in new_indices), first_new_idx)
@@ -1332,23 +1331,21 @@ class AppController(QObject):
         self._last_render_identity = None
         texture = self.state.last_metrics.get("base_positive")
         if not isinstance(texture, GPUTexture):
-            # load_file pops base_positive, so a second reload arriving before a render has
-            # completed finds nothing here — while the canvas is still showing the texture
-            # spared on the previous pass. Spare that one again rather than reporting
-            # nothing, which would tell the canvas to let go of what it is displaying.
+            # load_file pops base_positive, so a second reload arriving before a render
+            # completes finds nothing here while the canvas still shows the texture spared
+            # on the previous pass. Spare that one again: reporting nothing would tell the
+            # canvas to let go of what it is displaying.
             texture = self._spared_texture
         if not isinstance(texture, GPUTexture):
             self._spared_texture = None
             return None
         self._spared_texture = texture
         # Sparing the texture and filing it in the memo are separate questions, and
-        # conflating them is what blanks the canvas. Filing is refused mid-render: that
-        # render paints into the same pooled texture, so the pixels would stop matching the
-        # key they are filed under. Sparing it is still right — the canvas goes on sampling
-        # what it is already showing until the new render replaces it, instead of being told
-        # to let go and painting nothing. A reload with no splash behind it (a merge
-        # suppresses its own, since the reference frame's JPEG would flash the unmerged
-        # exposure) has nothing else to show meanwhile.
+        # conflating them blanks the canvas. Filing is refused mid-render: that render
+        # paints into the same pooled texture, so the pixels would stop matching their key.
+        # Sparing is still right, because the canvas keeps sampling what it already shows
+        # until the new render replaces it. A reload with no splash behind it has nothing
+        # else to show meanwhile.
         if identity is not None and not self._is_rendering and self._pending_render_task is None:
             source_hash, memo_key, content_rect = identity
             self._render_memo.store(source_hash, memo_key, {"base_positive": texture, "content_rect": content_rect})
@@ -1366,15 +1363,14 @@ class AppController(QObject):
         self._preview_load_t0 = time.perf_counter()
         self._requested_file_path = file_path
         # A strip belongs to one frame, and the memo fast path below repaints without
-        # going through request_render — so drop it here, not only there. Zone pins
-        # froze their sample from this frame, so they go the same way.
+        # going through request_render, so drop it here too. Zone pins froze their sample
+        # from this frame and go the same way.
         self._clear_test_strip()
         self._drop_zone_pins()
 
-        # Navigate-back fast path: the frame's last render is memoized and nothing
-        # that shaped it has changed (select_file already hydrated its config), so
-        # paint it now — no spinner, no toasts — and let the real render refresh
-        # metrics quietly underneath.
+        # Navigate-back fast path: the frame's last render is memoized and nothing that
+        # shaped it has changed, since select_file already hydrated its config. Paint it
+        # now, with no spinner and no toasts, and let the real render refresh the metrics.
         target_hash = self._file_hash_for_path(file_path)
         memo = self._render_memo.get(target_hash, self._render_memo_key()) if target_hash else None
 
@@ -1385,13 +1381,13 @@ class AppController(QObject):
         self._thumb_config = None
 
         retained = self._retain_displayed_texture()
-        # A retained texture outlives the pool, so the canvas keeps sampling it; without
+        # A retained texture outlives the pool, so the canvas keeps sampling it. Without
         # one it must let go before the engine frees what it is showing.
         if retained is None:
             self.gpu_textures_released.emit()
         self._render_cleanup_requested.emit(retained)
-        # The cleanup destroys the GPU textures last_metrics still points at; drop the
-        # densitometer's probe sources so hover readouts go quiet until the next render.
+        # The cleanup destroys the GPU textures last_metrics still points at, so drop the
+        # densitometer's probe sources. Hover readouts go quiet until the next render.
         self.state.last_metrics.pop("normalized_log", None)
         self.state.last_metrics.pop("base_positive", None)
         self.state.last_metrics.pop("thumbnail_source", None)
@@ -1445,8 +1441,8 @@ class AppController(QObject):
                 # The half suffix distinguishes the two halves' preview caches now
                 # that the slice happens pre-downsample (each half is its own buffer).
                 file_hash=self._file_hash_for_path(file_path),
-                # A memoized frame is already painted — the embedded-JPEG splash
-                # would repaint stale pixels over it.
+                # A memoized frame is already painted, so the embedded-JPEG splash would
+                # repaint stale pixels over it.
                 use_splash=memo is None,
                 detect_mode=(
                     pending_import.detect_mode
@@ -1454,8 +1450,7 @@ class AppController(QObject):
                     else force_detect or (self.state.autodetect_enabled and self.state.current_file_is_new)
                 ),
                 # Whole, not flattened: the worker gates on the same predicates the decode
-                # paths use (is_rgb_triplet / stitch_active / hdr_active), so a disabled
-                # section needs no blanking here.
+                # paths use, so a disabled section needs no blanking here.
                 rgbscan=rgbscan,
                 stitch=stitch,
                 hdr=hdr,
@@ -1477,7 +1472,8 @@ class AppController(QObject):
             return
         raw, dims = self._split_active_half(raw, dims)
         self.state.original_res = dims
-        # Paint the embedded sRGB thumbnail directly — no pipeline; the real render replaces it.
+        # Paint the embedded sRGB thumbnail directly, with no pipeline. The real render
+        # replaces it.
         with self.state.metrics_lock:
             self.state.last_metrics["base_positive"] = raw
             self.state.last_metrics["splash"] = True
@@ -1550,9 +1546,9 @@ class AppController(QObject):
                 # linear_raw, not the current file's. Otherwise the warm buffer lands under
                 # the wrong key and navigation re-decodes anyway.
                 saved = self.session.repo.load_file_settings(h) if h else None
-                # effective_, so the key matches what load_file will decode. A neighbour with no
-                # saved edit still resolves False here: its mode is not known without hydrating it,
-                # which is the same miss as before rather than a new one.
+                # effective_, so the key matches what load_file will decode. A neighbour
+                # with no saved edit resolves False here, because its mode is unknown
+                # without hydrating it. That is the same miss as before, not a new one.
                 linear_raw = effective_linear_raw(saved.process, saved.exposure.render_intent) if saved else False
                 neighbour_half = self._half_slice_for_asset(path, h)
                 self.preview_load_requested.emit(
@@ -1560,8 +1556,8 @@ class AppController(QObject):
                         file_path=path,
                         workspace_color_space=self.state.workspace_color_space,
                         use_camera_wb=not linear_raw,
-                        # Half-size only: a full-res HQ neighbour (~720MB) evicts the
-                        # active buffer; the cache key separates resolutions.
+                        # Half-size only: a full-res HQ neighbour evicts the active buffer.
+                        # The cache key separates resolutions.
                         full_resolution=False,
                         file_hash=h,
                         use_splash=False,
@@ -1613,7 +1609,7 @@ class AppController(QObject):
 
     def set_active_tool(self, mode: ToolMode) -> None:
         # Both the crop and analysis-region tools show the full uncropped frame, so
-        # crossing into/out of that set must re-render to swap the preview.
+        # entering or leaving that set must re-render to swap the preview.
         uncropped = {ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW}
         preview_mode_changed = (self.state.active_tool in uncropped) != (mode in uncropped)
         leaving_crop = self.state.active_tool == ToolMode.CROP_MANUAL and mode != ToolMode.CROP_MANUAL
@@ -1629,10 +1625,9 @@ class AppController(QObject):
             self._crop_bounds_dirty = False
         if preview_mode_changed:
             if leaving_crop:
-                # Same spinner/overlay treatment as an initial file load: the bounds
-                # recompute above plus this render can take a noticeable moment on a
-                # large HQ frame, and image_updated (fired when the render lands)
-                # dismisses it — guaranteed since request_render() runs right below.
+                # Same spinner treatment as an initial file load: the bounds recompute and
+                # this render take a moment on a large HQ frame. image_updated dismisses it
+                # when the render lands, which is guaranteed by the request_render() below.
                 self.loading_started.emit()
             self.request_render()
 
@@ -1849,8 +1844,8 @@ class AppController(QObject):
             self._pin_solution = None
             return []
         self._refresh_pin_labels()
-        # The two-pin nested bisection costs ~15 ms, too slow per mouse-move: mid-drag
-        # the last solve stands in, and the drag's end recomputes it.
+        # The two-pin nested bisection is too slow per mouse-move, so the last solve stands
+        # in mid-drag and the drag's end recomputes it.
         if not self._pin_dragging:
             self._pin_solution = self._solve_zone_placement()
         sol = self._pin_solution
@@ -1965,7 +1960,7 @@ class AppController(QObject):
         overrides = ring_overrides() if kind == "color" else strip_overrides()
         toast = "Printing the color ring-around…" if kind == "color" else "Printing test strip…"
 
-        # Reprinting an unchanged proof is a pile of renders for pixels we already have.
+        # Reprinting an unchanged proof re-renders pixels we already have.
         cached = self._strip_memo.get(self.state.current_file_hash or "", self._strip_memo_key(kind))
         if cached is not None:
             self.state.test_strip_kind = kind
@@ -1975,7 +1970,7 @@ class AppController(QObject):
         self.state.test_strip_kind = kind
         self.state.test_strip_pending = True
         self.test_strip_changed.emit(False)
-        # A few seconds of renders: tick the HUD so it doesn't read as wedged.
+        # A few seconds of renders, so tick the HUD or it reads as wedged.
         self.status_message_requested.emit(toast, 2500)
         self.status_progress_requested.emit(0, len(overrides))
         self.strip_requested.emit(
@@ -1983,8 +1978,8 @@ class AppController(QObject):
                 buffer=self.state.preview_raw,
                 config=self.state.config,
                 source_hash=self.state.current_file_hash or "preview",
-                # Always preview res, never HQ: full-res renders per patch would take minutes,
-                # and each patch is shown at a fraction of the frame's width anyway.
+                # Always preview res, never HQ: full-res renders per patch take minutes, and
+                # each patch is shown at a fraction of the frame's width.
                 preview_size=float(APP_CONFIG.preview_render_size),
                 overrides=tuple(overrides),
                 grid=grid,
@@ -2017,12 +2012,11 @@ class AppController(QObject):
         if not (self.state.test_strip_pending or from_cache):
             return
         if not from_cache:
-            # Keyed on the config as it stands now, not as it was at dispatch: measured
-            # bounds are persisted after a render with render=False, so the config drifts
-            # mid-print without invalidating anything (the same drift RenderMemo.rekey
-            # exists for). Keying at dispatch made every reprint a miss. Safe because a
-            # change that *did* matter would have gone through request_render, which
-            # cancels the strip outright.
+            # Keyed on the config as it stands now, not as it was at dispatch. Measured
+            # bounds persist after a render with render=False, so the config drifts mid-print
+            # without invalidating anything, and keying at dispatch made every reprint a
+            # miss. Safe: a change that mattered would go through request_render, which
+            # cancels the strip.
             self._strip_memo.store(
                 self.state.current_file_hash or "",
                 self._strip_memo_key(self.state.test_strip_kind),
@@ -2095,7 +2089,8 @@ class AppController(QObject):
             ),
             auto_crop_enabled=False,
         )
-        # Defer the bounds recompute to crop-tool close; clearing here re-normalizes every drag step.
+        # Defer the bounds recompute to crop-tool close. Clearing here re-normalizes on
+        # every drag step.
         self._crop_bounds_dirty = True
         self.session.update_config(replace(self.state.config, geometry=new_geo), persist=persist)
         if persist:
@@ -2174,9 +2169,8 @@ class AppController(QObject):
             new_geo = replace(new_geo, manual_crop_rect=(x1 / w, y1 / h, x2 / w, y2 / h))
 
         self.session.update_config(replace(self.state.config, geometry=new_geo), persist=True)
-        # Same spinner/overlay treatment as reset_crop/apply_auto_crop: the base
-        # stage still re-runs (geometry is part of its cache key), which can take a
-        # noticeable moment on a large HQ frame.
+        # Same spinner treatment as reset_crop/apply_auto_crop: the base stage re-runs,
+        # since geometry is part of its cache key, and that takes a moment on a large HQ frame.
         self.loading_started.emit()
         self.request_render()
 
@@ -2220,8 +2214,8 @@ class AppController(QObject):
                 process=new_proc,
             )
         )
-        # Same spinner/overlay treatment as an initial file load: the bounds
-        # recompute above can take a noticeable moment on a large HQ frame.
+        # Same spinner treatment as an initial file load: the bounds recompute above takes
+        # a moment on a large HQ frame.
         self.loading_started.emit()
         self.request_render()
 
@@ -2407,10 +2401,9 @@ class AppController(QObject):
         if geom.fine_rotation != 0.0:
             transformed = apply_fine_rotation(transformed, geom.fine_rotation)
 
-        # Detection can match a portrait-oriented frame to a portrait-only AspectRatio
-        # (e.g. "2:3") that the ratio picker doesn't display — canonicalize so the
-        # stored ratio always matches an entry the picker can show (see
-        # domain.models.CROP_RATIO_CHOICES; the crop tool auto-orients regardless).
+        # Detection can match a portrait frame to a portrait-only AspectRatio the picker
+        # does not display, so canonicalize to an entry it can show (see
+        # domain.models.CROP_RATIO_CHOICES). The crop tool auto-orients either way.
         new_ratio = canonical_crop_ratio(detect_closest_aspect_ratio(transformed, fallback=geom.autocrop_ratio))
         if new_ratio == geom.autocrop_ratio:
             return
@@ -2443,7 +2436,7 @@ class AppController(QObject):
         count = len(conf.manual_dust_spots) + len(conf.manual_heal_strokes) + len(conf.scratch_lines)
         if count == 0:
             return
-        # Wiping every heal is not step-recoverable like single-heal undo — confirm.
+        # Wiping every heal is not step-recoverable like single-heal undo, so confirm.
         if not confirm_clear_heals(None, count):
             return
         self.session.update_config(
@@ -2548,10 +2541,10 @@ class AppController(QObject):
     def _commit_heal_stroke(self, raw_pts: list) -> None:
         conf = self.state.config.retouch
         size = float(conf.manual_dust_size)
-        # Brush size is a diameter at HEAL_SIZE_REF scale (same convention as the
-        # pipeline radius and the overlay cursor). The trailing zeroes are the retired
-        # clone-source offset: repairs are content-aware now, but the stroke keeps its
-        # four-element shape so stored edits load unchanged.
+        # Brush size is a diameter at HEAL_SIZE_REF scale, like the pipeline radius and the
+        # overlay cursor. The trailing zeroes are the retired clone-source offset: repairs
+        # are content-aware now, but the stroke keeps its four-element shape so stored edits
+        # load unchanged.
         stroke = ([[rx, ry] for rx, ry in raw_pts], size, 0.0, 0.0)
         self.session.update_config(
             replace(
@@ -2741,10 +2734,9 @@ class AppController(QObject):
                 wb_yellow=float(np.clip(new_y, -1.0, 1.0)),
             )
         else:
-            # Store the residual over the global pair in the region's fields.
-            # Filtration offsets are range-normalized, regional ones absolute
-            # density — convert by the stretch range. Assumes the picked patch
-            # sits in its region (weight ~1).
+            # Store the residual over the global pair in the region's fields. Filtration
+            # offsets are range-normalized and regional ones are absolute density, so
+            # convert by the stretch range. Assumes the picked patch sits in its region.
             c_field, m_field, y_field = (
                 ("shadow_cyan", "shadow_magenta", "shadow_yellow"),
                 ("highlight_cyan", "highlight_magenta", "highlight_yellow"),
@@ -3209,17 +3201,17 @@ class AppController(QObject):
         if any(f.get("hdr_paths") for f in ordered):
             self.set_status("Merging an already-merged frame is not supported", 4000)
             return
-        # Both are multi-file source assembly and an asset carries one primary path; the
-        # composition order is definable but is not wired, so refuse rather than guess.
+        # Both are multi-file source assembly and an asset carries one primary path. The
+        # composition order is definable but not wired, so refuse instead of guessing.
         if any(f.get("stitch_paths") for f in ordered):
             self.set_status("HDR merge of a stitched frame is not supported", 4000)
             return
         if any(f.get("green_path") for f in ordered):
             self.set_status("HDR merge of an RGB-scan triplet is not supported", 4000)
             return
-        # Halves share a path, so by_path already dropped one of each pair; merging them
-        # would silently produce a whole-frame composite. Half-frame assets are left whole
-        # by every other assembly (see _expand_half_frames) for the same reason.
+        # Halves share a path, so by_path already dropped one of each pair and merging them
+        # would produce a whole-frame composite. Every other assembly leaves half-frame
+        # assets whole for the same reason (see _expand_half_frames).
         if any(f.get("half") for f in ordered):
             self.set_status("HDR merge of a half-frame asset is not supported", 4000)
             return
@@ -3236,7 +3228,7 @@ class AppController(QObject):
         self._end_batch("hdr")
         files = payload["files"]
         reference = payload["reference"]
-        # The reference frame becomes the composite's primary: it is the asset's own path
+        # The reference frame becomes the composite's primary. It is the asset's own path
         # everywhere downstream, and the merge expresses radiance in its units.
         ordered = [files[reference], *[f for i, f in enumerate(files) if i != reference]]
         ratios = payload["ratios"]
@@ -3305,13 +3297,13 @@ class AppController(QObject):
         asset["hdr_anchor"] = path
         asset["hdr_anchor_ev"] = ANCHOR_EV_UNSET  # a named frame supersedes a value
         # The asset dict is authoritative for the bracket, and only the manifest carries it
-        # across a restart; nothing else persists between here and quitting.
+        # across a restart.
         self.session.persist_session()
         cfg = self.state.config
         self.set_status(f"Rendering the merge as {os.path.basename(path)}" if path else "Rendering the merge at the bracket middle", 4000)
-        # apply_config re-decodes: the bracket is merged while the source is decoded, so
-        # the scale lives in the buffer the pipeline starts from, and a render alone
-        # would re-run the pipeline over the already-merged buffer and change nothing.
+        # apply_config re-decodes. The bracket is merged while the source is decoded, so the
+        # scale lives in the buffer the pipeline starts from and a render alone would change
+        # nothing.
         self.apply_config(replace(cfg, hdr=replace(cfg.hdr, hdr_anchor=path, hdr_anchor_ev=ANCHOR_EV_UNSET)))
 
     def set_hdr_anchor_ev(self, ev: float, persist: bool = True) -> None:
@@ -3330,8 +3322,8 @@ class AppController(QObject):
             return
         asset["hdr_anchor_ev"] = float(ev)
         if float(ev) < ANCHOR_EV_UNSET:
-            # A value and a frame are two answers to one question; keep only the live one so
-            # the menu's tick and the slider cannot disagree about what is rendering.
+            # A value and a frame are two answers to one question, so keep only the live one
+            # and the menu's tick cannot disagree with the slider.
             asset["hdr_anchor"] = ""
         self.session.persist_session()
         cfg = self.state.config
@@ -3416,8 +3408,8 @@ class AppController(QObject):
         self.live_view_focus_magnifier_pos_requested.emit(x, y)
 
     def set_camera_setting(self, which: str, raw: int) -> None:
-        # Ensure the worker thread runs: the sidebar counts these writes and gates Scan until
-        # each one reports back, so a write queued to a never-started thread would gate forever.
+        # Ensure the worker thread runs. The sidebar counts these writes and gates Scan until
+        # each reports back, so a write queued to an unstarted thread gates forever.
         self._ensure_capture_thread()
         self.live_view_camera_setting_requested.emit(which, raw)
 
@@ -3443,8 +3435,8 @@ class AppController(QObject):
         req = getattr(self, "_last_capture_req", None)
         white = bool(req is not None and req.white_mode)
         rgb = bool(req is not None and getattr(req, "rgb_mode", True))
-        # RGB-Scan (triplet merge) is on only for an actual RGB triplet — off for a single
-        # white-light slide OR a normal (non-Scanlight) camera scan.
+        # RGB-Scan (triplet merge) is on only for an actual RGB triplet. Off for a single
+        # white-light slide and for a normal camera scan.
         self.session.repo.save_global_setting("rgbscan_mode", rgb and not white)
         capture_roll = getattr(req, "roll_name", "") if req is not None else ""
         capture_frame = getattr(req, "frame_number", None) if req is not None else None
@@ -3458,7 +3450,7 @@ class AppController(QObject):
                 capture_frame=capture_frame,
             )
         elif rgb:
-            # Independently exposed RGB channels have no broadband orange-mask signal for
+            # Independently exposed RGB channels carry no broadband orange-mask signal for
             # the normal classifier. They are negative scans unless capture metadata says
             # otherwise, so carry C-41 through discovery instead of guessing from the merge.
             self._pending_capture_imports[_capture_import_key(paths[0])] = _PendingCaptureImport(
@@ -3587,9 +3579,9 @@ class AppController(QObject):
             self.state.flat_peek = False
             self.flat_peek_changed.emit(False)
 
-        # The strip's patches were printed from the config as it stood; once the edit
-        # moves they are a proof of something else, so drop them (this also cancels a
-        # strip still building). Zone pins die the same way.
+        # The strip's patches were printed from the config as it stood, so once the edit
+        # moves they prove something else. Drop them, which also cancels a strip still
+        # building. Zone pins die the same way.
         if config_override is None:
             self._clear_test_strip()
             self._drop_zone_pins()
@@ -3601,8 +3593,8 @@ class AppController(QObject):
         if preview_raw is None:
             return
 
-        # A drag asks for no metrics; the release does. Interactive frames go through
-        # the proxy, so full resolution is reached only once the gesture settles.
+        # A drag asks for no metrics, the release does. Interactive frames go through the
+        # proxy, so full resolution arrives only once the gesture settles.
         interactive = not readback_metrics
         ir_buffer = self.state.preview_ir
         if interactive and self.state.preview_proxy is not None:
@@ -3615,10 +3607,9 @@ class AppController(QObject):
             target_size = float(max(preview_raw.shape[:2]))
 
         crop_preview_full = self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
-        # Only a plain render of the saved edit is reproducible on navigate-back;
-        # overrides (compare/flat peek), splash and tool previews are not memoized.
-        # Interactive frames are excluded: a proxy render filed under the full-resolution
-        # config's key would be painted back as if it were the real one.
+        # Only a plain render of the saved edit is reproducible on navigate-back. Overrides,
+        # splash and tool previews are not memoized. Interactive frames are excluded: a proxy
+        # render filed under the full-resolution key would be painted back as the real one.
         memo_key = ""
         if config_override is None and not ephemeral and not crop_preview_full and not interactive:
             memo_key = self._render_memo_key()
@@ -3661,9 +3652,8 @@ class AppController(QObject):
             self.compare_changed.emit(False)
             self.request_render()
         else:
-            # Mutually exclusive with flat-peek: drop it so its toggle can't linger
-            # lit while the compare baseline is what's actually on screen (mirrors
-            # toggle_flat_peek, which exits compare on the way in).
+            # Mutually exclusive with flat-peek: drop it so its toggle cannot stay lit while
+            # the compare baseline is on screen. toggle_flat_peek exits compare the same way.
             if self.state.flat_peek:
                 self.state.flat_peek = False
                 self.flat_peek_changed.emit(False)
@@ -3785,18 +3775,17 @@ class AppController(QObject):
         half has it enabled and the other's DB entry defaults to 0, propagate the active
         session value so both frames get identical dye-unmixing during export.
         """
-        # For the active file, use the live session config — it may have unsaved
-        # changes that the user expects to see in the export. For other files, use
-        # saved DB settings (or fall back to session config if none exist).
+        # The active file uses the live session config, which may hold unsaved changes the
+        # user expects in the export. Other files use their saved DB settings, or the session
+        # config when they have none.
         if f.get("hash") == self.state.current_file_hash:
             params = self.state.config
         else:
             params = self.session.repo.load_file_settings(f["hash"]) or self.state.config
 
         # Propagate capture-side crosstalk between sibling half-frames. The dye-unmix
-        # calibration is a property of the scanner-film pair, not individual frames —
-        # if one half was calibrated and the other wasn't (still at default), both need
-        # the same correction during export.
+        # calibration belongs to the scanner-film pair, not to a frame, so if one half was
+        # calibrated and the other left at default both need the same correction.
         base = f.get("hash", "")
         half_val = half_of(base)
         if half_val is not None:
@@ -3872,7 +3861,7 @@ class AppController(QObject):
         if not file_hash:
             return []
         configs = dict(self.session.repo.load_all_history(file_hash))
-        # The live top step may not be persisted yet — it lives in state.config.
+        # The live top step may not be persisted yet: it lives in state.config.
         configs[self.state.undo_index] = self.state.config
 
         rows: List[Dict[str, Any]] = []
@@ -3926,10 +3915,10 @@ class AppController(QObject):
             if not is_linear_output_supported(file_path):
                 self.set_status("Linear Output is not supported for this file type", 4000)
                 return
-            # Reuse the asset dict from uploaded_files so RGB-scan triplet (green_path/
-            # blue_path) and stitch fields reach _batch_params_for — a bare {path, name,
-            # hash} dict makes resolve_asset_rgbscan/resolve_asset_stitch reset those
-            # configs, silently exporting only the primary narrowband exposure.
+            # Reuse the asset dict from uploaded_files so the RGB-scan triplet and stitch
+            # fields reach _batch_params_for. A bare {path, name, hash} dict makes
+            # resolve_asset_rgbscan/resolve_asset_stitch reset those configs and export only
+            # the primary narrowband exposure.
             file_info = next(
                 (f for f in self.state.uploaded_files if f.get("hash") == self.state.current_file_hash),
                 None,
@@ -3975,8 +3964,8 @@ class AppController(QObject):
             stem = f"{hdr_stem(frames)}-HDR" if frames else os.path.splitext(os.path.basename(f["path"]))[0]
             out_path = os.path.join(export_path, f"{stem}_linear.{out_ext}")
             counter = 2
-            # `taken` as well as the disk: the whole batch is named up front now, before
-            # the worker has written any of it, so same-stem frames would collide.
+            # `taken` as well as the disk: the whole batch is named up front, before the
+            # worker writes any of it, so same-stem frames would collide.
             while out_path in taken or os.path.exists(out_path):
                 out_path = os.path.join(export_path, f"{stem}_linear_{counter}.{out_ext}")
                 counter += 1
@@ -4031,10 +4020,9 @@ class AppController(QObject):
             export_conf = flat_export_config(export_conf)
         source_exif = self.state.source_exif.get(self.state.current_file_hash or "")
 
-        # Reuse the asset dict from uploaded_files so half-frame fields
-        # (half, split_x, crop_rect, gutter_thickness) reach the exporter —
-        # without them process_export gets half=0 and renders the whole scan
-        # instead of the half, dropping the crop and shifting log bounds.
+        # Reuse the asset dict from uploaded_files so the half-frame fields reach the
+        # exporter. Without them process_export gets half=0 and renders the whole scan,
+        # dropping the crop and shifting the log bounds.
         file_info = next(
             (f for f in self.state.uploaded_files if f.get("hash") == self.state.current_file_hash),
             None,
@@ -4101,10 +4089,9 @@ class AppController(QObject):
 
         tasks = []
         for f in files:
-            # Delivery settings are session-level. A per-file config from the DB
-            # bypasses _apply_sticky_settings and carries whatever export block was
-            # current when that frame was last saved, so honouring it exports at a
-            # size/format the panel never shows (#750).
+            # Delivery settings are session-level. A per-file config from the DB bypasses
+            # _apply_sticky_settings and carries the export block current when that frame was
+            # last saved, so honouring it exports at a size the panel never shows (#750).
             params = replace(self._batch_params_for(f), export=current_export)
 
             if flat:
@@ -4237,10 +4224,10 @@ class AppController(QObject):
         if not self.state.current_file_path:
             return
 
-        # Reuse the asset dict from uploaded_files so RGB-scan triplet (green_path/
-        # blue_path) and stitch fields reach _batch_params_for — a bare {path, name,
-        # hash} dict makes resolve_asset_rgbscan/resolve_asset_stitch reset those
-        # configs, silently preset-exporting only the primary un-merged exposure.
+        # Reuse the asset dict from uploaded_files so the RGB-scan triplet and stitch fields
+        # reach _batch_params_for. A bare {path, name, hash} dict makes
+        # resolve_asset_rgbscan/resolve_asset_stitch reset those configs and preset-export
+        # only the primary un-merged exposure.
         file_info = next(
             (f for f in self.state.uploaded_files if f.get("hash") == self.state.current_file_hash),
             None,
@@ -4501,8 +4488,8 @@ class AppController(QObject):
 
         result = metrics.get("base_positive")
         memoizable = bool(metrics.get("memo_key")) and metrics.get("source_hash") == self.state.current_file_hash
-        # The pool overwrites a GPU texture on the next frame, so only its identity is
-        # kept here; load_file files the texture itself on the way out.
+        # The pool overwrites a GPU texture on the next frame, so only its identity is kept
+        # here. load_file files the texture itself on the way out.
         self._last_render_identity = (
             (metrics["source_hash"], metrics["memo_key"], metrics.get("content_rect"))
             if memoizable and isinstance(result, GPUTexture)
@@ -4515,7 +4502,7 @@ class AppController(QObject):
 
         self.image_updated.emit()
 
-        # By reference — display buffers are read-only downstream. After the repaint:
+        # By reference, because display buffers are read-only downstream. After the repaint:
         # overwriting an entry frees the texture the canvas has just stopped sampling.
         if memoizable and isinstance(result, np.ndarray):
             self._render_memo.store(
@@ -4545,17 +4532,17 @@ class AppController(QObject):
             self.state.ir_degenerate = bool(metrics["ir_degenerate"])
         self.metrics_available.emit(metrics)
 
-        # Don't persist bounds from an ephemeral (splash) render or a render of a different
-        # file (late metric after a fast switch) — they aren't this frame's bounds. Nor
-        # from a mid-gesture frame, which measured the proxy rather than the real buffer.
+        # Do not persist bounds from a splash render, or from a render of another file
+        # arriving late after a fast switch: they are not this frame's bounds. Nor from a
+        # mid-gesture frame, which measured the proxy rather than the real buffer.
         if metrics.get("ephemeral") or metrics.get("interactive"):
             return
         src = metrics.get("source_hash")
         if src is not None and src != self.state.current_file_hash:
             return
 
-        # Persist the per-frame *base* (not the final mix) — re-feeding a mix as the next
-        # base stacks edits. Skip only when both axes ride the roll baseline.
+        # Persist the per-frame *base*, not the final mix: re-feeding a mix as the next base
+        # stacks edits. Skip only when both axes ride the roll baseline.
         proc = self.state.config.process
         bounds = metrics.get("log_bounds_base") or metrics.get("log_bounds")
         if bounds and not (proc.use_luma_average and proc.use_color_average):
@@ -4572,10 +4559,10 @@ class AppController(QObject):
                     render=False,
                     record_history=False,
                 )
-                # render=False: the displayed pixels already reflect these measured
-                # bounds — move the frame's memo entry to the updated config's key
-                # so the first navigate-back after an initial render still hits. A GPU
-                # render is not filed until navigate-away, so its identity follows too.
+                # render=False: the displayed pixels already reflect these measured bounds.
+                # Move the frame's memo entry to the updated config's key so the first
+                # navigate-back after an initial render still hits. A GPU render is not filed
+                # until navigate-away, so its identity follows too.
                 self._render_memo.rekey(src or self.state.current_file_hash or "", self._render_memo_key())
                 if self._last_render_identity is not None:
                     self._last_render_identity = (
@@ -4627,10 +4614,9 @@ class AppController(QObject):
                 return asset
         # No fallback to the selected frame. This runs on file switch, on save and after an
         # export as well as from the render itself, so last_metrics can hold a render whose
-        # frame has since left the list — a different folder was opened, or a merge swapped
-        # frames for a composite. Guessing files that buffer under whatever is selected now,
-        # and persists it, so one frame wears another's picture until it is rendered again.
-        # A skipped refresh costs nothing; the next render of that frame writes it.
+        # frame has left the list. Guessing files that buffer under whatever is selected now
+        # and persists it, so one frame wears another's picture until it renders again. A
+        # skipped refresh costs nothing: the next render of that frame writes it.
         return None
 
     def _update_thumbnail_from_state(self, persist: bool = True) -> None:
@@ -4643,8 +4629,8 @@ class AppController(QObject):
             return
         buffer = metrics.get("base_positive")
 
-        # The render worker supplies host pixels; reading back here would put a
-        # full-frame copy on the UI thread.
+        # The render worker supplies host pixels. Reading back here would put a full-frame
+        # copy on the UI thread.
         if isinstance(buffer, GPUTexture):
             buffer = metrics.get("thumbnail_source")
 
@@ -4653,8 +4639,8 @@ class AppController(QObject):
         if buffer is None or not isinstance(buffer, np.ndarray):
             return
 
-        # Same transform the canvas used for this buffer, so the filmstrip and the
-        # canvas can't disagree about the frame's color.
+        # The same transform the canvas used for this buffer, so the filmstrip and the canvas
+        # cannot disagree about the frame's color.
         display_cs, monitor_bytes, proof = self.display_transform_params(splash=bool(metrics.get("splash")))
         # The asset's own key, so the batch (source) path re-serves this rendered positive
         # instead of the uninverted source merge it would decode itself.

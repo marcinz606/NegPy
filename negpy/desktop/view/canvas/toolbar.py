@@ -90,8 +90,8 @@ class ActionToolbar(QWidget):
         self.btn_next.setIcon(qta.icon("fa5s.chevron-right", color=icon_color))
         self.btn_next.setToolTip("Next")
 
-        # Undo / Redo live in the main toolbar (mdi arrows, distinct from the
-        # rotate icons' file-with-arrow glyphs below).
+        # Undo and Redo live in the main toolbar (mdi arrows, distinct from the rotate icons'
+        # file-with-arrow glyphs below).
         self.btn_undo = QToolButton()
         self.btn_undo.setIcon(qta.icon("mdi.undo", color=icon_color))
         self.btn_undo.setToolTip(tooltip_with_shortcut("Undo", "undo"))
@@ -99,7 +99,7 @@ class ActionToolbar(QWidget):
         self.btn_redo.setIcon(qta.icon("mdi.redo", color=icon_color))
         self.btn_redo.setToolTip(tooltip_with_shortcut("Redo", "redo"))
 
-        # (kept as internal state holders — not added to layout)
+        # kept as internal state holders, not added to layout
         self.btn_copy = QPushButton()
         self.btn_paste = QPushButton()
         self.btn_reset = QPushButton()
@@ -121,9 +121,9 @@ class ActionToolbar(QWidget):
         self.btn_flip_v.setIcon(qta.icon("fa5s.arrows-alt-v", color=icon_color))
         self.btn_flip_v.setToolTip(tooltip_with_shortcut("Flip Vertical", "flip_v"))
 
-        # 3. Zoom — read-only percent readout (users zoom directly on the canvas).
-        # Match the button height and center both axes so it sits on the same line
-        # as the icons rather than floating; a touch larger/bolder than a caption.
+        # 3. Zoom: a read-only percent readout, since users zoom directly on the canvas. Match the
+        # button height and centre both axes so it sits on the same line as the icons rather than
+        # floating, a touch larger and bolder than a caption.
         self.zoom_label = QLabel("100%")
         self.zoom_label.setFixedSize(48, btn_height)
         self.zoom_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -189,18 +189,16 @@ class ActionToolbar(QWidget):
         overflow_menu = QMenu(self.btn_overflow)
         overflow_menu.setToolTipsVisible(True)  # so the GPU action can surface its backend/status
 
-        # Overflow always mirrors the full action set, independent of which of these
-        # also happen to be visible in the toolbar row at the current canvas width —
-        # "More actions" is meant to be a stable, complete menu a user can always find
-        # everything in, not a residue of whatever the row's responsive collapse left
-        # out (that previously made it lose entries whenever a side panel toggle gave
-        # the row enough width to show them directly instead).
+        # Overflow always mirrors the full action set, whatever the toolbar row shows at the
+        # current canvas width. "More actions" is a stable, complete menu the user can always
+        # find everything in, not a residue of the row's responsive collapse. It used to lose
+        # entries whenever a side panel toggle gave the row enough width to show them directly.
         self._ov_hq_action = overflow_menu.addAction("Toggle HQ Preview")
         self._ov_hq_action.setCheckable(True)
         self._ov_hq_action.setToolTip("Toggle High Quality Preview")
 
-        # GPU acceleration lives here (not on the editing row) — details in tooltip,
-        # refreshed by the dashboard via refresh_gpu_status().
+        # GPU acceleration lives here, not on the editing row. Details are in the tooltip,
+        # refreshed by the dashboard through refresh_gpu_status().
         self._ov_gpu_action = overflow_menu.addAction(qta.icon("fa5s.bolt", color=icon_color), "GPU Acceleration")
         self._ov_gpu_action.setCheckable(True)
         self._ov_gpu_action.setToolTip("GPU Acceleration")
@@ -210,18 +208,17 @@ class ActionToolbar(QWidget):
             self._ov_gpu_action.setEnabled(False)
             self._ov_gpu_action.setChecked(False)
 
-        # Beside GPU Acceleration because it answers the same question — which processor
-        # does the work — and the two trade against each other: with the GPU carrying the
-        # pipeline, the CPU kernels are left with the source assembly, where an HDR solve
-        # is the one that takes seconds.
+        # Beside GPU Acceleration because it answers the same question, which processor does the
+        # work, and the two trade against each other. With the GPU carrying the pipeline, the CPU
+        # kernels are left with the source assembly, where an HDR solve takes seconds.
         self._parallel_action = overflow_menu.addAction("Multi-core CPU Rendering")
         self._parallel_action.setCheckable(True)
         self._parallel_action.triggered.connect(self._on_cpu_parallel_toggled)
         self.refresh_cpu_parallel_status()
         overflow_menu.addSeparator()
 
-        # Canvas background — overflow-only (no toolbar swatches), exclusive
-        # checkable group so the menu itself shows which color is active.
+        # Canvas background, overflow-only with no toolbar swatches. An exclusive checkable group,
+        # so the menu itself shows which color is active.
         self._ov_color_group = QActionGroup(self)
         self._ov_color_group.setExclusive(True)
         self._ov_color_actions: list = []
@@ -284,8 +281,8 @@ class ActionToolbar(QWidget):
         self._ov_flip_v_action.setToolTip(tooltip_with_shortcut("Flip Vertical", "flip_v"))
         overflow_menu.addSeparator()
 
-        # Edits auto-save to the DB (and surface in History), so an explicit Save
-        # lives here in the overflow rather than the main toolbar.
+        # Edits auto-save to the DB and surface in History, so an explicit Save lives here in the
+        # overflow rather than the main toolbar.
         save_action = overflow_menu.addAction(qta.icon("fa5s.save", color=icon_color), "Save Edits", self.controller.save_current_edits)
         save_action.setToolTip("Write the current edit to the database now (edits also auto-save)")
         overflow_menu.addSeparator()
@@ -388,9 +385,9 @@ class ActionToolbar(QWidget):
             btn.setFixedHeight(btn_height)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        # The file-rotate glyphs (page + arrow) read as a blob at the standard 16px
-        # icon size; a touch larger keeps the page and arrow individually legible
-        # without changing the button's own footprint (btn_height still applies).
+        # The file-rotate glyphs (page plus arrow) read as a blob at the standard 16px icon size.
+        # A touch larger keeps the page and arrow legible without changing the button's own
+        # footprint, since btn_height still applies.
         rotate_icon_size = QSize(20, 20)
         for btn in (self.btn_rot_l, self.btn_rot_r):
             btn.setIconSize(rotate_icon_size)
@@ -615,8 +612,8 @@ class ActionToolbar(QWidget):
                 self.controller.canvas.set_background_color(r, g, b)
 
     def _on_zoom_changed(self, zoom: float) -> None:
-        # The label shows the true pixel zoom (zoom_level x fit_scale), which is what
-        # the user cares about; zoom_level itself is fit-relative.
+        # The label shows the true pixel zoom (zoom_level x fit_scale), which is what the user
+        # cares about. zoom_level itself is fit-relative.
         canvas = getattr(self.controller, "canvas", None)
         pct = canvas.current_zoom_percent() if canvas is not None else int(round(max(0.0, zoom) * 100.0))
         self.zoom_label.setText(f"{pct}%")
@@ -643,17 +640,17 @@ class ActionToolbar(QWidget):
 
         config = self.session.state.config
         geo = config.geometry
-        # The button's labelled direction is the visual rotation the user sees (the
-        # handedness fix below only keeps that promise under a flip). Crop/analysis
-        # rects live in display space, so they rotate by that visual quarter-turn.
+        # The button's labelled direction is the visual rotation the user sees, and the handedness
+        # fix below only keeps that promise under a flip. Crop and analysis rects live in display
+        # space, so they rotate by that visual quarter-turn.
         visual_turns_ccw = direction
         # Pipeline applies rotate-then-flip; a single mirror inverts rotation handedness.
         if geo.flip_horizontal != geo.flip_vertical:
             direction = -direction
         new_rot = (geo.rotation + direction) % 4
         new_geo = replace(geo, rotation=new_rot)
-        # Rotate the manual crop rect with the content so it keeps framing the same area
-        # (without this it stayed put and misaligned after a 90°/180° turn).
+        # Rotate the manual crop rect with the content so it keeps framing the same area. Without
+        # this it stayed put and misaligned after a quarter or half turn.
         if geo.manual_crop_rect is not None:
             new_geo = replace(new_geo, manual_crop_rect=rotate_normalized_rect(geo.manual_crop_rect, visual_turns_ccw))
         new_config = replace(config, geometry=new_geo)
@@ -662,8 +659,8 @@ class ActionToolbar(QWidget):
             new_rect = rotate_normalized_rect(config.process.analysis_rect, visual_turns_ccw)
             new_config = replace(new_config, process=replace(config.process, analysis_rect=new_rect))
         self.session.update_config(new_config, persist=True)
-        # Rotating shouldn't drop an active before/after or flat-peek — re-render in
-        # place within whichever view is on.
+        # Rotating must not drop an active before/after or flat-peek, so re-render in place within
+        # whichever view is on.
         self.controller.rerender_active_view()
 
     def flip(self, axis: str) -> None:
@@ -673,11 +670,11 @@ class ActionToolbar(QWidget):
 
         horizontal = axis == "horizontal"
         config = self.session.state.config
-        # toggle_flip negates fine rotation and mirrors the crop rect so the
-        # result is a true mirror of the current render (see its docstring).
+        # toggle_flip negates fine rotation and mirrors the crop rect, so the result is a true
+        # mirror of the current render (see its docstring).
         new_config = replace(config, geometry=toggle_flip(config.geometry, horizontal))
-        # The freehand analysis region is transformed-space like the crop rect;
-        # mirroring it keeps the meters reading the same picture content.
+        # The freehand analysis region is transformed-space like the crop rect, so mirroring it
+        # keeps the meters reading the same picture content.
         if config.process.analysis_rect is not None:
             new_rect = mirror_normalized_rect(config.process.analysis_rect, horizontal)
             new_config = replace(new_config, process=replace(config.process, analysis_rect=new_rect))

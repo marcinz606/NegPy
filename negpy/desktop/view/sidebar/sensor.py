@@ -47,9 +47,9 @@ class SensorSidebar(BaseSidebar):
         capture_row.addWidget(self.scan_setup_btn)
         self.layout.addLayout(capture_row)
 
-        # Greyed rather than hidden: these are sticky settings, so a hidden one is a
-        # setting the user cannot see the state of. Hiding them is what let a rig's
-        # narrowband pair follow a frame into Transparency unnoticed.
+        # Greyed rather than hidden: these are sticky settings, so a hidden one is a setting the
+        # user cannot see the state of. Hiding them is what let a rig's narrowband pair follow a
+        # frame into Transparency unnoticed.
         self.capture_hint = hint_label("")
         self.capture_hint.setVisible(False)  # text and tooltip are set per film process in sync_ui
         self.layout.addWidget(self.capture_hint)
@@ -76,9 +76,9 @@ class SensorSidebar(BaseSidebar):
         row.addWidget(self.calibrate_sensor_btn)
         self.layout.addLayout(row)
 
-        # Muted, not warning: this is the normal state for anyone not using Linear
-        # RAW, so it explains the greyed controls rather than flagging a problem.
-        # Text and tooltip are set per reason in _apply_gate.
+        # Muted, not warning: this is the normal state for anyone not using Linear RAW, so it
+        # explains the greyed controls rather than flagging a problem. Text and tooltip are set
+        # per reason in _apply_gate.
         self.sensor_hint = hint_label("Requires Linear RAW.")
         self.layout.addWidget(self.sensor_hint)
 
@@ -90,9 +90,8 @@ class SensorSidebar(BaseSidebar):
         self.crosstalk_combo = QComboBox()
         self._fill_crosstalk_combo()
         self.crosstalk_combo.setCurrentText(conf.crosstalk_profile)
-        # Wrap the long tooltip in a fixed-width table so Qt word-wraps it to the
-        # panel width instead of rendering one line that runs off the screen (plain
-        # text tooltips are not auto-wrapped — only rich text is).
+        # Wrap the long tooltip in a fixed-width table, so Qt word-wraps it to the panel width
+        # instead of rendering one line that runs off the screen. Qt auto-wraps rich text only.
         self.crosstalk_combo.setToolTip(
             "<table width='280'><tr><td>"
             "Channel unmix on the raw NEGATIVE densities, before analysis and inversion — the domain "
@@ -122,8 +121,8 @@ class SensorSidebar(BaseSidebar):
         matrix_row.addWidget(self.manage_crosstalk_btn)
         self.layout.addLayout(matrix_row)
 
-        # Shown when the film process has no matrices yet. Muted, not a warning: it is the
-        # normal state for any process NegPy ships nothing for.
+        # Shown when the film process has no matrices yet. Muted, not a warning: it is the normal
+        # state for any process NegPy ships nothing for.
         self.crosstalk_hint = hint_label("No matrices for this film process — build one in the editor.")
         self.crosstalk_hint.setToolTip(
             wrap_tooltip(
@@ -189,8 +188,8 @@ class SensorSidebar(BaseSidebar):
             if model.item(i) is None or model.item(i).isEnabled()
         ]
 
-    # Disabled widgets don't receive the hover that raises a tooltip, so the detail hangs
-    # off the hint label rather than the combo it describes.
+    # Disabled widgets do not receive the hover that raises a tooltip, so the detail hangs off
+    # the hint label rather than the combo it describes.
     _SENSOR_BLOCKED = {
         "linear_raw": (
             "Requires Linear RAW.",
@@ -253,8 +252,8 @@ class SensorSidebar(BaseSidebar):
                 **invalidate_local_bounds(self.state.config.process),
             ),
         )
-        # linear_raw switches use_camera_wb, so it is a source change: apply_config
-        # re-decodes, and suppresses the bounds analysis over the stale buffer.
+        # linear_raw switches use_camera_wb, so it is a source change: apply_config re-decodes and
+        # suppresses the bounds analysis over the stale buffer.
         self.controller.apply_config(new_config, persist=True)
 
     def _on_narrowband_scan_toggled(self, checked: bool) -> None:
@@ -268,8 +267,8 @@ class SensorSidebar(BaseSidebar):
             win.show_scan_setup()
 
     def _on_sensor_profile_changed(self, name: str) -> None:
-        # Bake the matrix like crosstalk does; the per-frame bounds were analyzed
-        # under the previous mix, so clear them.
+        # Bake the matrix like crosstalk does. The per-frame bounds were analyzed under the
+        # previous mix, so clear them.
         matrix = SensorProfiles.get_matrix(name)
         self.update_config_section(
             "process",
@@ -292,10 +291,10 @@ class SensorSidebar(BaseSidebar):
         self.sync_ui()  # rebuild the combo (now includes the new profile) and select it
 
     def _on_crosstalk_profile_changed(self, name: str) -> None:
-        # Bake the matrix into the config so saved edits stay reproducible if the
-        # profile file is later moved/deleted. The persisted per-frame bounds were
-        # analyzed under the previous matrix — clear them so the stretch re-derives
-        # from the unmixed data (otherwise the mask redistribution leaks through).
+        # Bake the matrix into the config, so saved edits stay reproducible if the profile file is
+        # later moved or deleted. The persisted per-frame bounds were analyzed under the previous
+        # matrix, so clear them and the stretch re-derives from the unmixed data. Otherwise the
+        # mask redistribution leaks through.
         matrix = CrosstalkProfiles.get_matrix(name)
         self.update_config_section(
             "process",
@@ -330,8 +329,8 @@ class SensorSidebar(BaseSidebar):
         dlg.show()
 
     def _on_crosstalk_preview(self, matrix: object, strength: float, process: str) -> None:
-        # The process rides along: the render gates the unmix on it, so a preview without
-        # it shows nothing whenever the edited profile is for another film.
+        # The process rides along: the render gates the unmix on it, so a preview without it shows
+        # nothing whenever the edited profile is for another film.
         self.update_config_section(
             "process",
             persist=False,
@@ -385,10 +384,10 @@ class SensorSidebar(BaseSidebar):
             self.linear_raw_btn.setChecked(conf.linear_raw)
             self.narrowband_scan_btn.setChecked(conf.narrowband_scan)
             # Two different reasons, so two different gates. Narrowband is refused for any
-            # transparency: the bundled profile describes narrowband capture of negative
-            # dyes. Linear RAW is only inert on the *transfer*, where the camera matrix
-            # folds the as-shot multipliers back in — with Normalize on it still decides
-            # the decode, so it stays live there.
+            # transparency, because the bundled profile describes narrowband capture of negative
+            # dyes. Linear RAW is inert only on the *transfer*, where the camera matrix folds the
+            # as-shot multipliers back in. With Normalize on it still decides the decode, so it
+            # stays live there.
             from negpy.features.exposure.transfer import is_transparency_transfer
 
             e6 = conf.process_mode == ProcessMode.E6
@@ -430,10 +429,10 @@ class SensorSidebar(BaseSidebar):
                 self._fill_crosstalk_combo(conf.process_mode)
             self.crosstalk_combo.setCurrentText(conf.crosstalk_profile)
             self.crosstalk_strength_slider.setValue(conf.crosstalk_strength)
-            # Nothing to unmix on one B&W emulsion. Every other process keeps the section
-            # even with no matrices of its own — the editor is the only way to make one, so
-            # hiding it would leave no route in. The empty dropdown and the Strength slider
-            # it feeds are disabled instead, and a hint says why.
+            # Nothing to unmix on one B&W emulsion. Every other process keeps the section even with
+            # no matrices of its own, because the editor is the only way to make one and hiding it
+            # would leave no route in. The empty dropdown and the Strength slider it feeds are
+            # disabled instead, and a hint says why.
             is_bw = conf.process_mode == ProcessMode.BW
             has_profiles = bool(CrosstalkProfiles.grouped_profiles(conf.process_mode))
             for w in (self.crosstalk_header, self.crosstalk_label, self.crosstalk_combo, self.manage_crosstalk_btn):

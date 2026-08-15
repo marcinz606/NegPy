@@ -19,10 +19,10 @@ from negpy.kernel.system.paths import get_default_user_dir, get_resource_path
 
 BASE_USER_DIR = get_default_user_dir()
 APP_CONFIG = AppConfig(
-    # Cache thumbnails at the largest size the filmstrip shows them at 1:1 — a single
-    # column filling the minimum-width session sidebar (~240px). Cached smaller and
-    # that default view is a visible upscale. Raising this invalidates existing cached
-    # JPEGs; LocalAssetStore.get_thumbnail drops any that aren't this size.
+    # Cache thumbnails at the largest size the filmstrip shows them at 1:1, which is a single
+    # column filling the minimum-width session sidebar. Cached smaller, that default view is a
+    # visible upscale. Raising this invalidates existing cached JPEGs, and
+    # LocalAssetStore.get_thumbnail drops any that are not this size.
     thumbnail_size=256,
     max_workers=max(1, (os.cpu_count() or 1)),
     preview_render_size=1600,

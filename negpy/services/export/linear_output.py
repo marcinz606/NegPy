@@ -329,9 +329,9 @@ def _decode_linear(
         if apply_wb and wb is not None:
             rgb = _apply_white_balance(rgb, wb)
         return rgb, ir, wb, meta
-    # Ahead of every per-format branch below: each of those returns, so a bracket of
-    # anything but plain camera RAW would otherwise export as its unmerged reference
-    # frame — the canvas merged, the file did not, and nothing said so.
+    # Ahead of every per-format branch below, because each of those returns. Otherwise a
+    # bracket of anything but plain camera RAW would export as its unmerged reference frame:
+    # the canvas merged, the file did not, and nothing said so.
     if hdr is not None and hdr_active(hdr):
         rgb, wb, meta = _decode_hdr(file_path, hdr, geometry, expansion=expansion, gamma_key=gamma_key)
         if apply_flatfield and flatfield is not None:
@@ -565,12 +565,11 @@ def _decode_dng(
         ir = _apply_geometry(ir, orientation, geometry)
         return rgb, ir
 
-    # 3-channel LinearRaw (SilverFast HDRi, and DNG 1.7 JPEG-XL from DxO
-    # PhotoLab/PureRAW and Lightroom Enhance): same tag-aware decode as the
-    # RawpyLoader import fallback, so BlackLevel/WhiteLevel/LinearizationTable
-    # get applied here too (see _peek_linear_dng_rgb). It returns [0,1]-clamped
-    # data or raises; wrap so callers still see ValueError, not a raw tifffile/
-    # imagecodecs/numpy exception, on failure.
+    # 3-channel LinearRaw (SilverFast HDRi, and DNG 1.7 JPEG-XL from DxO PhotoLab/PureRAW and
+    # Lightroom Enhance): the same tag-aware decode as the RawpyLoader import fallback, so
+    # BlackLevel, WhiteLevel and LinearizationTable are applied here too (see
+    # _peek_linear_dng_rgb). It returns [0,1]-clamped data or raises, so wrap it and callers
+    # still see ValueError on failure, not a raw tifffile, imagecodecs or numpy exception.
     try:
         peeked_3ch = _peek_linear_dng_rgb(file_path)
     except Exception as e:
@@ -583,8 +582,8 @@ def _decode_dng(
 
     ir = _peek_hdri_ir_page(file_path)
     if ir is not None and ir.shape[:2] != rgb.shape[:2]:
-        # DefaultCrop* trimmed rgb but the HDRi IR page is still full sensor
-        # size. Fail loudly instead of pairing misaligned planes on export.
+        # DefaultCrop* trimmed rgb but the HDRi IR page is still full sensor size. Fail loudly
+        # instead of pairing misaligned planes on export.
         raise ValueError(
             f"LinearRaw RGB {rgb.shape[:2]} and IR plane {ir.shape[:2]} size "
             f"mismatch in {file_path} (DefaultCrop* tag with an HDRi IR page?)"

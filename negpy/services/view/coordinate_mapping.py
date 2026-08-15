@@ -128,9 +128,9 @@ class CoordinateMapping:
 
         nx, ny = min((x0 + wx + 0.5) / w_uv, 1.0), min((y0 + wy + 0.5) / h_uv, 1.0)
 
-        # The nearest sample is more than one grid step away only if the raw point is off
-        # the frame. Then the affine model gives the answer, the inverse of what
-        # map_click_to_raw does there.
+        # The nearest sample is more than one grid step away only if the raw point is off the
+        # frame. The affine model then gives the answer, the inverse of what map_click_to_raw
+        # does there.
         if float(wdist.flat[widx]) > (2.0 / max(h_uv, w_uv)) ** 2:
             viewport_ref, raw_ref, jacobian = CoordinateMapping._grid_affine(uv_grid)
             out = viewport_ref + np.linalg.solve(jacobian, np.array([rx, ry], dtype=np.float64) - raw_ref)

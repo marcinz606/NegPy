@@ -22,8 +22,8 @@ def load_stylesheet() -> str:
         value = getattr(THEME, f_.name)
         if isinstance(value, str):
             qss = qss.replace(f"@{f_.name}", value)
-    # QSS url() can't resolve relative paths reliably across dev/frozen runs,
-    # so bake in the absolute icon path (forward slashes, Qt-friendly).
+    # QSS url() cannot resolve relative paths reliably across dev and frozen runs, so bake in
+    # the absolute icon path, with forward slashes for Qt.
     check_icon = get_resource_path("media/icons/checkbox_check.svg").replace("\\", "/")
     return qss.replace("__CHECKBOX_CHECK_ICON__", check_icon)
 

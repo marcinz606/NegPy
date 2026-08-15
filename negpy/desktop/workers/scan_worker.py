@@ -52,8 +52,8 @@ class BatchRequest:
     output_format: str
     frames: tuple[int, ...]
     frame_windows: dict[int, tuple[float, float, float, float]] = field(default_factory=dict)
-    # Feed-axis drift (mm/frame): frame N scans at
-    # frame_offset_mm + (N-1) * modifier, floored at 0.
+    # Feed-axis drift (mm/frame): frame N scans at frame_offset_mm + (N-1) * modifier,
+    # floored at 0.
     frame_offset_modifier_mm: float = 0.0
 
 
@@ -112,9 +112,9 @@ class ScanWorker(QObject):
             self.error.emit(str(e))
         except Exception as e:
             logger.exception("Device listing failed")
-            # Empty list first: the sidebar's devices_ready handler overwrites the
-            # status label, so emitting it last would clobber the failure message
-            # (which carries the backend's install hint).
+            # Empty list first: the sidebar's devices_ready handler overwrites the status label, so
+            # emitting it last would clobber the failure message, which carries the backend's
+            # install hint.
             self.devices_ready.emit([])
             self.error.emit(str(e))
 
@@ -122,10 +122,10 @@ class ScanWorker(QObject):
     def run_scan(self, req: ScanRequest) -> None:
         """Execute a scan and emit exactly one terminal outcome."""
 
-        # AppController prepares a queued request synchronously on the GUI
-        # thread.  Do not clear its Event here: Stop may have arrived after the
-        # request was queued but before this slot began running.  Direct legacy
-        # callers that skip prepare_scan() still receive a fresh Event.
+        # AppController prepares a queued request synchronously on the GUI thread. Do not clear
+        # its Event here: Stop may have arrived after the request was queued but before this slot
+        # began running. Direct legacy callers that skip prepare_scan() still receive a fresh
+        # Event.
         with self._state_lock:
             if not self._request_prepared:
                 self._cancel_event.clear()
@@ -142,8 +142,8 @@ class ScanWorker(QObject):
                     result = service.run_scan(
                         device_id=req.device_id,
                         params=req.params,
-                        # A one-phase backend calls progress(fraction), which a
-                        # two-argument signal's emit rejects on its own.
+                        # A one-phase backend calls progress(fraction), which a two-argument signal's emit
+                        # rejects on its own.
                         progress=lambda fraction, phase="Scanning": self.progress.emit(fraction, phase),
                         cancel=self._cancel_event,
                     )
@@ -157,9 +157,8 @@ class ScanWorker(QObject):
                     if self._cancel_event.is_set():
                         outcome = ("cancelled", None)
                     else:
-                        # Acquisition is complete now.  Cancellation cannot abort
-                        # an in-progress file write, and it must never disguise a
-                        # disk or encoder failure as a cleanly stopped scan.
+                        # Acquisition is complete now. Cancellation cannot abort an in-progress file write, and
+                        # it must never disguise a disk or encoder failure as a cleanly stopped scan.
                         try:
                             path = service.write_result(
                                 result=result,
@@ -264,8 +263,8 @@ class ScanWorker(QObject):
         elif kind == "error":
             self.error.emit(payload or "Unknown scan error")
         elif kind == "finished":
-            # Return the strip so it need not wait for the feeder's auto-park.
-            # Capability-gated no-op on devices without an eject option.
+            # Return the strip, so it need not wait for the feeder's auto-park. A capability-gated
+            # no-op on devices without an eject option.
             self.eject(req.device_id)
 
     @pyqtSlot(RollPreviewRequest)

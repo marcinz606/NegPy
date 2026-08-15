@@ -65,15 +65,15 @@ class LocalSidebar(BaseSidebar):
         self.mask_list.setToolTip("Click a mask to select it. Use the eye to show/hide its outline and the trash icon to delete it.")
         self.mask_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.mask_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        # The row is a custom widget, so drop the app-wide item padding/margin/border
-        # that would otherwise squeeze and clip it.
+        # The row is a custom widget, so drop the app-wide item padding, margin and border that
+        # would otherwise squeeze and clip it.
         self.mask_list.setStyleSheet(
             "QListView::item { border: none; margin: 0px; padding: 0px; }QListView::item:selected { background-color: #2A2A2A; }"
         )
         self.layout.addWidget(self.mask_list)
 
-        # Exposure-signed like the frame's Print Density and the Finishing edge burn:
-        # positive is more light on the paper, hence darker.
+        # Exposure-signed like the frame's Print Density and the Finishing edge burn: positive is
+        # more light on the paper, so darker.
         self.burn_slider = CompactSlider("Burn", -2.0, 2.0, 0.0, step=0.05, precision=100, has_neutral=True, unit=" st")
         self.burn_slider.setToolTip(
             "Print exposure for the selected mask, in stops — positive burns (longer exposure, "
@@ -83,8 +83,8 @@ class LocalSidebar(BaseSidebar):
         self.feather_slider = CompactSlider("Feather", 0.0, 0.15, 0.04, step=0.005, precision=1000)
         self.feather_slider.setToolTip("Edge softness for the selected mask")
 
-        # inverted like every other grade slider (Tone's ISO-R Grade, split grade,
-        # layer trims): dragging right is harder paper, even though R falls.
+        # Inverted like every other grade slider (Tone's ISO-R Grade, split grade, layer trims):
+        # dragging right is harder paper, even though R falls.
         self.grade_slider = CompactSlider("Grade", -40.0, 40.0, 0.0, step=5.0, precision=1, has_neutral=True, unit=" R", inverted=True)
         self.grade_slider.setToolTip(
             "Print the selected mask at its own grade, in ISO-R points off the frame's Grade — "
@@ -115,8 +115,8 @@ class LocalSidebar(BaseSidebar):
     def _connect_signals(self) -> None:
         for btn, mode in self._tool_modes().items():
             btn.toggled.connect(lambda checked, m=mode: self._on_draw_toggled(checked, m))
-        # Drag steps render only; the commit writes history and settings, as in every
-        # other sidebar.
+        # Drag steps render only. The commit writes history and settings, as in every other
+        # sidebar.
         for slider, field in (
             (self.burn_slider, "stops"),
             (self.feather_slider, "feather"),
@@ -153,8 +153,8 @@ class LocalSidebar(BaseSidebar):
         elif mask.stops < 0:
             kind, color = "Dodge", "#E8C84A"
         else:
-            # A mask that only changes grade is neither: it re-prints the area
-            # at its own contrast without adding or holding back exposure.
+            # A mask that only changes grade is neither: it re-prints the area at its own contrast
+            # without adding or holding back exposure.
             kind, color = "Grade", THEME.text_primary
         row = _MaskRow()
         lay = QHBoxLayout(row)

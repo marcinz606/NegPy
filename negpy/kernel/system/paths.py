@@ -14,12 +14,11 @@ def get_resource_path(relative_path: str) -> str:
     elif getattr(sys, "frozen", False):
         base_path = os.path.dirname(sys.executable)
     else:
-        # this file is in src/kernel/system/paths.py
-        # Root is 3 levels up
+        # this file is at src/kernel/system/paths.py, so the root is 3 levels up
         base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-    # Callers pass forward-slash relatives ("icc/RGBScan.icc"); normpath keeps
-    # the result in the platform's own separators instead of a mixed form.
+    # Callers pass forward-slash relatives ("icc/RGBScan.icc"), and normpath keeps the result
+    # in the platform's own separators instead of a mixed form.
     return os.path.normpath(os.path.join(base_path, relative_path))
 
 
@@ -103,11 +102,10 @@ def get_default_user_dir() -> str:
     if not docs_dir:
         docs_dir = home / "Documents"
 
-    # The registered Documents folder can point at a location that does not exist
-    # on disk — most commonly a OneDrive-backed Documents (...\OneDrive\Documents)
-    # after OneDrive is unlinked, signed out, or not yet synced. Trusting it blindly
-    # made the startup os.makedirs die with WinError 2 (#441). Validate the
-    # candidate and fall back to plain local locations that always exist.
+    # The registered Documents folder can point at a location that does not exist on disk,
+    # most often a OneDrive-backed Documents after OneDrive is unlinked, signed out or not yet
+    # synced. Trusting it blindly made the startup os.makedirs die with WinError 2 (#441).
+    # Validate the candidate and fall back to plain local locations that always exist.
     candidates = list(dict.fromkeys([docs_dir, home / "Documents", home]))
     for base in candidates:
         usable = _usable_user_dir(base)

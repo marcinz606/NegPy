@@ -192,8 +192,8 @@ class MainWindow(QMainWindow):
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
-        # The window handle (and thus its screen) only exists once shown. Wire
-        # monitor-profile detection once, then track screen changes.
+        # The window handle, and so its screen, only exists once shown. Wire monitor-profile
+        # detection once, then track screen changes.
         if not getattr(self, "_monitor_wired", False):
             self._monitor_wired = True
             handle = self.windowHandle()
@@ -292,9 +292,9 @@ class MainWindow(QMainWindow):
         self.session_dock.setWidget(self.session_panel)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.session_dock)
 
-        # Snapshot the pristine layout (both docked at their home edges, default
-        # widths) so the pin and Reset Panel Layout can restore the true original
-        # position and size, not merely re-add the dock where it currently sits.
+        # Snapshot the pristine layout, with both docked at their home edges at default widths,
+        # so the pin and Reset Panel Layout restore the true original position and size rather
+        # than re-adding the dock where it currently sits.
         self._default_dock_state = self.saveState()
 
         # Restore saved panel visibility
@@ -336,8 +336,8 @@ class MainWindow(QMainWindow):
     def _on_tutorial_finished(self, _completed: bool) -> None:
         repo = self.controller.session.repo
         repo.save_global_setting("tutorial_seen", True)
-        # Unset only until the wizard is answered once, so replaying the tour later
-        # from the ⋯ menu doesn't ask again.
+        # Unset only until the wizard is answered once, so replaying the tour later from the
+        # menu does not ask again.
         if repo.get_global_setting("scan_setup") is None:
             QTimer.singleShot(0, self.show_scan_setup)
 
@@ -356,9 +356,9 @@ class MainWindow(QMainWindow):
             self.restoreState(self._default_dock_state)
 
     def dock_session_panel(self) -> None:
-        # Restore the pristine layout (returns this panel to its original edge and
-        # width) but preserve the other panel's current visibility so pinning one
-        # never forces the other to reappear.
+        # Restore the pristine layout, which returns this panel to its original edge and width,
+        # but preserve the other panel's current visibility so pinning one never forces the
+        # other to reappear.
         right_visible = self.drawer.isVisible()
         self._restore_default_dock_state()
         self.drawer.setVisible(right_visible)
@@ -406,8 +406,8 @@ class MainWindow(QMainWindow):
         self.controller.session.state_changed.connect(self._update_title)
         self.controller.session.state_changed.connect(self._on_immersive_changed)
 
-        # visibilityChanged only mirrors the button — it also fires on close/minimize,
-        # so we persist in the toggle methods to avoid clobbering the saved state on exit.
+        # visibilityChanged only mirrors the button, and it also fires on close and minimize, so
+        # persist in the toggle methods instead and the saved state survives exit.
         self.toolbar.btn_toggle_left.clicked.connect(self.toggle_session_dock)
         self.toolbar.btn_toggle_right.clicked.connect(self.toggle_controls_dock)
         self.session_dock.visibilityChanged.connect(self.toolbar.btn_toggle_left.setChecked)
@@ -531,8 +531,8 @@ class MainWindow(QMainWindow):
     def _on_image_updated(self) -> None:
         """Refreshes canvas when a new render pass completes."""
         if not self.state.uploaded_files:
-            # A render that was in flight when the session emptied — the frame
-            # belongs to a removed file; keep the viewer blank.
+            # A render that was in flight when the session emptied. The frame belongs to a removed
+            # file, so keep the viewer blank.
             return
         self.empty_state.setVisible(False)
         metrics = self.state.last_metrics
@@ -540,16 +540,16 @@ class MainWindow(QMainWindow):
             logger.warning("Render completed but 'base_positive' not found in metrics")
             return
 
-        # Passed on as-is: the GPU display path samples the texture and applies the
-        # working→display LUT in its shader.
+        # Passed on as it is: the GPU display path samples the texture and applies the
+        # working-to-display LUT in its shader.
         buffer = metrics["base_positive"]
         content_rect = metrics.get("content_rect")
 
         if isinstance(buffer, np.ndarray) and not self.state.gpu_enabled:
             finish_conf = self.state.config.finish
             export_conf = self.state.config.export
-            # Crop/analysis render the uncropped border-less frame — padding it would
-            # misalign the tool rect (GPU skips the layout pass there too).
+            # Crop and analysis render the uncropped, border-less frame, and padding it would
+            # misalign the tool rect. The GPU skips the layout pass there too.
             should_preview = (
                 finish_conf.border_size > 0 or export_conf.paper_aspect_ratio != AspectRatio.ORIGINAL
             ) and self.state.active_tool not in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
@@ -570,8 +570,8 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     logger.error(f"Border preview failure: {e}")
 
-        # Shared with the filmstrip thumbnail so the same frame can't render two
-        # different colors in the two places (see display_transform_params).
+        # Shared with the filmstrip thumbnail, so the same frame cannot render two different
+        # colors in the two places (see display_transform_params).
         display_cs, monitor_bytes, proof = self.controller.display_transform_params(splash=bool(metrics.get("splash")))
         self.canvas.update_buffer(buffer, display_cs, content_rect=content_rect, monitor_icc_bytes=monitor_bytes, proof=proof)
 
@@ -652,8 +652,8 @@ class MainWindow(QMainWindow):
     def dropEvent(self, event) -> None:
         paths = [u.toLocalFile() for u in event.mimeData().urls()]
         if len(paths) == 1 and os.path.isdir(paths[0]):
-            # Same courtesy as Add folder: a dropped folder that only holds subfolders
-            # shows them rather than reporting that it found nothing.
+            # The same courtesy as Add folder: a dropped folder that only holds subfolders shows
+            # them rather than reporting that it found nothing.
             self.session_panel.file_browser.open_or_browse(paths[0])
         elif paths:
             self.controller.request_asset_discovery(paths, auto_open=True)

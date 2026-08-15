@@ -40,9 +40,9 @@ class LoadingOverlay(QWidget):
         )
         layout.addWidget(self._label, alignment=Qt.AlignmentFlag.AlignHCenter)
 
-        # Track the canvas size ourselves: relying on the main window's resizeEvent
-        # leaves the overlay at its default (0,0) sizeHint rect until the first
-        # window resize — the spinner then huddles in the top-left corner.
+        # Track the canvas size ourselves. Relying on the main window's resizeEvent leaves the
+        # overlay at its default (0,0) sizeHint rect until the first window resize, and the
+        # spinner then huddles in the top-left corner.
         parent.installEventFilter(self)
 
         self._timeout = QTimer(self)

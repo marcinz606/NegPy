@@ -78,10 +78,8 @@ class PreviewManager:
     def __init__(self) -> None:
         self._cache = PreviewBufferCache(APP_CONFIG)
 
-    # ------------------------------------------------------------------
-    # Internal helpers — operate on an already-open raw object so that
-    # callers that need both splash and linear can share a single file open.
-    # ------------------------------------------------------------------
+    # Internal helpers. They operate on an already-open raw object, so a caller that needs
+    # both splash and linear shares one file open.
 
     @staticmethod
     def _try_splash_from_open_raw(
@@ -109,8 +107,8 @@ class PreviewManager:
         except Exception:
             return None
         arr = np.ascontiguousarray(np.array(img, dtype=np.float32) / 255.0)
-        # Half-frame slice before the splash downsample so the splash shows the
-        # active half, not the whole scan (and at the same pixels the linear load slices).
+        # Half-frame slice before the splash downsample, so the splash shows the active half
+        # rather than the whole scan, at the same pixels the linear load slices.
         if half_slice is not None:
             half, split_x, crop_rect, gutter_thickness = half_slice
             from negpy.services.assets.half_frame import slice_half
@@ -153,15 +151,15 @@ class PreviewManager:
         use_fast = (not full_resolution) and (not isinstance(raw, NonStandardFileWrapper))
         if use_fast:
             demosaic = rawpy.DemosaicAlgorithm.LINEAR
-            # half_size aliases the X-Trans 6x6 CFA → channel-ratio cast that shows in linear
-            # decodes (RGB-scan). Bayer 2x2 averages cleanly; camera-WB previews tolerate it.
-            # So for linear X-Trans decode full-res and let the cv2 downsample below handle it.
+            # half_size aliases the X-Trans 6x6 CFA into a channel-ratio cast that shows in
+            # linear decodes. Bayer 2x2 averages cleanly and camera-WB previews tolerate it, so
+            # only linear X-Trans decodes full-res and lets the cv2 downsample below handle it.
             post_kw: dict = {} if (is_xtrans(raw) and not use_camera_wb) else {"half_size": True}
         else:
             demosaic = get_best_demosaic_algorithm(raw)
             post_kw = {}
 
-        # Read full-resolution dims before postprocess — rawpy/libraw mutates
+        # Read the full-resolution dims before postprocess: libraw mutates
         # raw.sizes.iheight/iwidth when half_size=True, so reading after gives wrong dims.
         full_dims_pre = _output_dimensions_from_raw(raw, 0, 0)
 
@@ -183,9 +181,9 @@ class PreviewManager:
         log("load-timing decode.postprocess %.0fms (fast=%s) %s", (time.perf_counter() - t_pp) * 1000, use_fast, file_path)
         rgb = ensure_rgb(rgb)
 
-        # Sensor-native decode (output_color=raw) leaves the buffer in camera primaries;
-        # the transparency transfer needs the camera matrix to reach the working space.
-        # Absent (scanner TIFF, JPEG) means the source is already profiled — see
+        # A sensor-native decode (output_color=raw) leaves the buffer in camera primaries, and
+        # the transparency transfer needs the camera matrix to reach the working space. Absent
+        # (scanner TIFF, JPEG) means the source is already profiled. See
         # features.process.capture_color.
         metadata["cam_xyz"] = camera_xyz_matrix(raw)
         # Only needed when use_camera_wb is False; harmless otherwise.
@@ -200,7 +198,7 @@ class PreviewManager:
             ir_full = apply_exif_orientation(ir_full, orientation)
 
         h_p, w_p = full_linear.shape[:2]
-        # Use pre-postprocess dims if valid; fall back to buffer shape (e.g. NonStandardFileWrapper).
+        # Use the pre-postprocess dims when valid, else fall back to the buffer shape.
         if full_dims_pre[0] > 0:
             h_orig, w_orig = full_dims_pre
             # Sensor dims are pre-orientation; swap to match the oriented buffer for 90° rotations.
@@ -208,9 +206,8 @@ class PreviewManager:
                 h_orig, w_orig = w_orig, h_orig
         else:
             h_orig, w_orig = _output_dimensions_from_raw(raw, h_p, w_p)
-        # Half-frame slice before the downsample so the analysis stage sees the
-        # same pixels export analyzes (slice → downsample), not whole-scan pixels
-        # averaged across the gutter/other half (downsample → slice).
+        # Half-frame slice before the downsample, so the analysis stage sees the same pixels
+        # the export analyses. The other order averages whole-scan pixels across the gutter.
         if half_slice is not None:
             half, split_x, crop_rect, gutter_thickness = half_slice
             from negpy.services.assets.half_frame import slice_half
@@ -236,25 +233,24 @@ class PreviewManager:
                 )
             )
         else:
-            # Full-res (or already preview-sized): hand the decoded buffer through
-            # as-is — a defensive copy here doubles peak RSS on HQ loads of large
-            # scans for no benefit (preview buffers are read-only downstream).
+            # Full-res, or already preview-sized: hand the decoded buffer through as it is. A
+            # defensive copy doubles peak RSS on HQ loads of large scans for no benefit, since
+            # preview buffers are read-only downstream.
             preview_raw = full_linear
         log("load-timing decode.resize %.0fms", (time.perf_counter() - t_resize0) * 1000)
 
-        # IR channel travels with the preview; resize it to match the final preview dims.
-        # Min-preserving, not INTER_AREA: this is the only place the full-res IR exists,
-        # so a sub-pixel hair's dip has to survive *here* or dust detection never sees it.
-        # The dims equality holds for every IR source: libraw ignores half_size on the
-        # stacked LinearRaw a SilverFast HDRi DNG decodes as, and the other IR carriers
-        # arrive as NonStandardFileWrapper, which use_fast excludes. A plane that does
-        # mismatch belongs to another frame (a stale sidecar) and is dropped, not scaled.
+        # The IR channel travels with the preview, so resize it to the final preview dims.
+        # Min-preserving, not INTER_AREA: this is the only place the full-res IR exists, so a
+        # sub-pixel hair's dip must survive *here* or dust detection never sees it. The dims
+        # equality holds for every IR source, because libraw ignores half_size on stacked
+        # LinearRaw and the other IR carriers are excluded from fast decode. A plane that does
+        # mismatch belongs to another frame and is dropped, not scaled.
         if ir_full is not None and ir_full.shape[:2] == (h_p, w_p):
             ph, pw = preview_raw.shape[:2]
             if (ph, pw) != ir_full.shape[:2]:
                 metadata["ir_preview"] = downsample_ir(ir_full, APP_CONFIG.preview_render_size, dims=(pw, ph))
             else:
-                # copy=False: at most one conversion copy; the buffer is read-only downstream.
+                # copy=False: at most one conversion copy, and the buffer is read-only downstream.
                 metadata["ir_preview"] = ir_full.astype(np.float32, copy=False)
         else:
             metadata["ir_preview"] = None
@@ -276,15 +272,13 @@ class PreviewManager:
                 crop_rect=half_slice[2] if half_slice else None,
                 gutter_thickness=half_slice[3] if half_slice else 0.0,
             )
-            # The cache entry aliases the returned buffer — the same read-only
-            # contract as a cache hit (callers must not mutate preview buffers),
-            # so no defensive copy; on HQ loads that copy was ~40% of steady RSS.
+            # The cache entry aliases the returned buffer, under the same read-only contract as
+            # a cache hit, so there is no defensive copy. On HQ loads that copy was a large part
+            # of steady RSS.
             self._cache.put(ck, out, (h_orig, w_orig), dict(metadata))
         return out, (h_orig, w_orig), metadata
 
-    # ------------------------------------------------------------------
-    # Public API — thin wrappers; kept for all existing callers.
-    # ------------------------------------------------------------------
+    # Public API: thin wrappers, kept for all existing callers.
 
     @staticmethod
     def try_splash_preview(file_path: str) -> Optional[Tuple[ImageBuffer, Dimensions]]:
@@ -391,7 +385,7 @@ class PreviewManager:
                     post_kw: dict = {}
                 else:
                     demosaic = rawpy.DemosaicAlgorithm.LINEAR
-                    # half_size casts X-Trans channel ratios (skews detection); Bayer is fine.
+                    # half_size casts X-Trans channel ratios and skews detection. Bayer is fine.
                     post_kw = {} if is_xtrans(raw) else {"half_size": True}
                 rgb = raw.postprocess(
                     gamma=(1, 1),
@@ -451,7 +445,7 @@ class PreviewManager:
         merged = assemble_rgb(red, _match(green_out), _match(blue_out), align=align)
         out = ensure_image(merged)
         if merged_key is not None:
-            # Freshly assembled buffer — cache and caller alias it (read-only contract).
+            # A freshly assembled buffer: the cache and the caller alias it, read-only.
             self._cache.put(merged_key, out, dims, dict(meta))
         return out, dims, meta
 
@@ -484,9 +478,9 @@ class PreviewManager:
             )
             hit = self._cache.get(merged_key)
             if hit is not None:
-                # The cached buffer is the *unscaled* merge, so the exposure is applied on
-                # the way out. That is the whole point of the split: changing it costs this
-                # multiply rather than another decode of the bracket.
+                # The cached buffer is the *unscaled* merge, so the exposure is applied on the
+                # way out. That is the point of the split: changing it costs this multiply
+                # instead of another decode of the bracket.
                 raw_c, dims_c, meta_c = hit
                 scaled = apply_render_exposure(np.asarray(raw_c, dtype=np.float32), list(ratios), anchor)
                 return ensure_image(scaled), dims_c, meta_c
@@ -497,13 +491,13 @@ class PreviewManager:
         def _load(path: str) -> np.ndarray:
             arr = np.asarray(self.load_linear_preview(path, color_space, use_camera_wb, full_resolution, None)[0], dtype=np.float32)
             if arr.shape[:2] != ref.shape[:2]:
-                # Preview sizing rounds per file, so a pixel or two of difference between
-                # frames of one bracket is ordinary and resampling is right. A different
-                # *aspect* is not: a frame rotated or cropped differently would be squashed
-                # onto the reference and merged as if it lined up. The full-res path raises
-                # on any mismatch — do not let the preview quietly disagree with it.
-                # Aspects cross-multiplied, tolerance 2% relative; an orientation
-                # difference is a third off, so nothing borderline is at stake.
+                # Preview sizing rounds per file, so a pixel or two between frames of one
+                # bracket is ordinary and resampling is right. A different *aspect* is not: a
+                # frame rotated or cropped differently would be squashed onto the reference and
+                # merged as if it lined up. The full-res path raises on any mismatch, so the
+                # preview must not disagree with it. Aspects are cross-multiplied at a relative
+                # tolerance; an orientation difference is a third off, so nothing borderline is
+                # at stake.
                 if abs(arr.shape[1] * ref.shape[0] - arr.shape[0] * ref.shape[1]) > 0.02 * ref.shape[1] * arr.shape[0]:
                     raise ValueError(f"bracket frames differ in shape: {arr.shape}, {ref.shape}")
                 arr = cv2.resize(arr, (ref.shape[1], ref.shape[0]), interpolation=cv2.INTER_AREA)
@@ -512,8 +506,8 @@ class PreviewManager:
         providers = [lambda: ref, *[lambda p=p: _load(p) for p in other_paths]]
         merged = merge_providers(providers, list(ratios), reference=0, align=align)
         if merged_key is not None:
-            # Cache it unscaled: the exposure is applied below and can then change without
-            # costing another merge.
+            # Cache it unscaled: the exposure is applied below and can change without costing
+            # another merge.
             self._cache.put(merged_key, ensure_image(merged), dims, dict(meta))
         return ensure_image(apply_render_exposure(merged, list(ratios), anchor)), dims, meta
 

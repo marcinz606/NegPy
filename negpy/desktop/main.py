@@ -23,11 +23,11 @@ from negpy.kernel.system.paths import get_resource_path
 
 logger = get_logger(__name__)
 
-# qtawesome paints toolbar icons into a null pixmap when a button is asked to
-# render before its first layout has given it valid geometry (e.g. while the
-# startup "Restore Session" dialog spins a modal loop). The paint is harmless
-# but Qt emits a fixed cascade of QPainter warnings. Drop exactly that cascade;
-# forward every other Qt message to stderr unchanged.
+# qtawesome paints toolbar icons into a null pixmap when a button is asked to render
+# before its first layout has given it valid geometry, for example while the startup
+# "Restore Session" dialog spins a modal loop. The paint is harmless, but Qt emits a
+# fixed cascade of QPainter warnings. Drop exactly that cascade and forward every other
+# Qt message to stderr unchanged.
 _PAINTER_NOISE = (
     "QPainter::begin: Paint device returned engine == 0",
     "QPainter::save: Painter not active",
@@ -58,12 +58,11 @@ class _AppStyle(QProxyStyle):
         if hint == QStyle.StyleHint.SH_ToolTip_WakeUpDelay:
             return self._TOOLTIP_WAKEUP_MS
         if hint == QStyle.StyleHint.SH_UnderlineShortcut and sys.platform == "darwin":
-            # Qt's own standard-button text carries the mnemonic ("&Yes"), but macOS has
-            # no mnemonic convention, so QKeySequence::mnemonic() returns empty there and
-            # nothing is ever bound. The native style answers this hint false and draws no
-            # underline; Fusion, which we force for the dark theme, answers true. The
-            # result is an underlined Y on a button no key press can reach. Windows and
-            # Linux keep theirs, where Alt+letter does work.
+            # Qt's own standard-button text carries the mnemonic ("&Yes"), but macOS has no mnemonic
+            # convention, so QKeySequence::mnemonic() returns empty there and nothing is ever bound.
+            # The native style answers this hint false and draws no underline, while Fusion, which we
+            # force for the dark theme, answers true. The result is an underlined Y on a button no
+            # key press can reach. Windows and Linux keep theirs, where Alt+letter does work.
             return 0
         return super().styleHint(hint, option, widget, returnData)
 
@@ -161,26 +160,26 @@ def main() -> None:
 
         _bootstrap_environment()
 
-        # Storage (sqlite, no Qt dependency) — created before QApplication so the saved
-        # UI scale can be applied via QT_SCALE_FACTOR, which Qt only reads at startup.
+        # Storage (sqlite, no Qt dependency), created before QApplication so the saved UI scale
+        # can be applied through QT_SCALE_FACTOR, which Qt reads only at startup.
         repo = StorageRepository(APP_CONFIG.edits_db_path, APP_CONFIG.settings_db_path)
         repo.initialize()
 
-        # Multi-core Numba kernels: override.toml, then the saved setting, then the
-        # platform default (off on macOS). Read before the flags below are overwritten.
+        # Multi-core Numba kernels: override.toml, then the saved setting, then the platform
+        # default (off on macOS). Read before the flags below are overwritten.
         prev_clean_exit = bool(repo.get_global_setting("clean_shutdown", True))
         prev_run_parallel = bool(repo.get_global_setting("cpu_parallel_active", False))
         stored_parallel = repo.get_global_setting("cpu_parallel", None)
         configure_cpu_parallel(resolve_cpu_parallel(APP_CONFIG.cpu_parallel, None if stored_parallel is None else bool(stored_parallel)))
-        # Numba's workqueue layer aborts the process outright on concurrent entry — no
-        # exception, no dialog, nothing in the log. A marker is the only way an abort can
-        # be attributed to this setting afterwards rather than reported as a mystery.
+        # Numba's workqueue layer aborts the process outright on concurrent entry, with no
+        # exception, no dialog and nothing in the log. A marker is the only way an abort can
+        # later be attributed to this setting rather than reported as a mystery.
         repo.save_global_setting("clean_shutdown", False)
         repo.save_global_setting("cpu_parallel_active", parallel_enabled())
 
-        # Resolve flat-field gains by profile id from the on-disk store (keeps the
-        # numpy logic layer free of any storage dependency), then migrate any legacy
-        # DB-backed profiles into that store.
+        # Resolve flat-field gains by profile id from the on-disk store, which keeps the numpy
+        # logic layer free of any storage dependency, then migrate any legacy DB-backed profiles
+        # into that store.
         set_gain_provider(FlatFieldProfiles.load_gain)
         migrate_legacy_flatfield_profiles(repo)
 

@@ -81,8 +81,8 @@ class ShortcutManager:
 
         def _adjust() -> None:
             slider = getter()
-            # A window-wide QShortcut fires from any tab, so the gating the mouse gets for
-            # free on a disabled or mode-hidden control has to be applied here by hand.
+            # A window-wide QShortcut fires from any tab, so the gating a mouse gets for free on a
+            # disabled or mode-hidden control has to be applied here by hand.
             if not slider.isEnabled() or hidden_by_gating(slider):
                 self.window.controller.set_status(f"{_slider_name(slider, group)} not available", 1500)
                 return

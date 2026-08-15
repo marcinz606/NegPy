@@ -54,8 +54,8 @@ class _NSProcessInfoPowerAssertion:
         try:
             self._process_info.endActivity_(token)
         except Exception:
-            # Releasing an OS hint must never hide a scanner result or prevent
-            # the controller from forwarding its terminal signal.
+            # Releasing an OS hint must never hide a scanner result or stop the controller
+            # forwarding its terminal signal.
             logger.warning("could not end the macOS NSProcessInfo activity", exc_info=True)
 
 
@@ -126,8 +126,8 @@ def acquire_unattended_power_assertion(
             raise RuntimeError("NSProcessInfo returned no activity token")
         return _NSProcessInfoPowerAssertion(process_info, token)
     except Exception:
-        # Missing PyObjC is normal in a minimal wheel.  Keep this at debug level
-        # because the supported caffeinate fallback follows immediately.
+        # Missing PyObjC is normal in a minimal wheel. Keep this at debug level, because the
+        # supported caffeinate fallback follows immediately.
         logger.debug("macOS NSProcessInfo activity is unavailable", exc_info=True)
 
     process_factory = subprocess.Popen if _process_factory is None else _process_factory

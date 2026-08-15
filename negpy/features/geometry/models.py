@@ -3,9 +3,8 @@ from enum import StrEnum
 from typing import Optional, Tuple
 
 
-# Valid fine_rotation span (degrees): shared by the sidebar slider and the crop
-# tool's rotation handles so both controls cover the same range. Anything beyond
-# ±45° is an orientation change and belongs to the 90° rotate buttons.
+# Valid fine_rotation span (degrees), shared by the sidebar slider and the crop
+# tool's handles. Beyond ±45° is an orientation change: use the 90° buttons.
 FINE_ROTATION_LIMIT = 45.0
 
 
@@ -22,14 +21,11 @@ class AspectRatio(StrEnum):
     R_16_9 = "16:9"
     R_16_10 = "16:10"
     R_8_5_11 = "8.5:11"
-    # Reciprocal (portrait) mirrors of the ratios above. Not offered in the crop
-    # tool's ratio picker (see CROP_RATIO_CHOICES) — the crop tool auto-orients
-    # a ratio to match the current drag/box (overlay._oriented_target_ratio,
-    # geometry.logic._resolve_ratio_dims), so showing both forms there would just
-    # duplicate the same shape twice. Kept as real members because (a) the export
-    # "Paper ratio" picker does NOT auto-orient — a portrait vs. landscape paper
-    # size are genuinely different choices there — and (b) "Detect closest aspect
-    # ratio" needs both forms to match a portrait-oriented film frame correctly.
+    # Reciprocal (portrait) mirrors of the ratios above. The crop tool's picker omits
+    # them (CROP_RATIO_CHOICES) because it auto-orients a ratio to the current drag,
+    # so both forms would show the same shape twice. They stay real members because
+    # the export "Paper ratio" picker does NOT auto-orient, and "Detect closest aspect
+    # ratio" needs both forms to match a portrait film frame.
     R_2_3 = "2:3"
     R_3_4 = "3:4"
     R_4_5 = "4:5"
@@ -41,9 +37,8 @@ class AspectRatio(StrEnum):
     R_11_8_5 = "11:8.5"
 
 
-# Ratios offered in the crop tool's ratio picker: one canonical entry per shape
-# (see the AspectRatio docstring above for why the reciprocal forms exist but
-# aren't listed here). FREE is included since it's the "no constraint" choice.
+# Ratios offered in the crop tool's picker: one canonical entry per shape (the
+# AspectRatio docstring says why the reciprocals are not here). FREE = no constraint.
 CROP_RATIO_CHOICES: list[AspectRatio] = [
     AspectRatio.FREE,
     AspectRatio.R_1_1,
@@ -58,11 +53,8 @@ CROP_RATIO_CHOICES: list[AspectRatio] = [
     AspectRatio.R_8_5_11,
 ]
 
-# Maps each reciprocal (portrait) AspectRatio to the canonical entry shown in
-# CROP_RATIO_CHOICES, so a value that only exists in its portrait form (e.g. from
-# "Detect closest aspect ratio" matching a portrait-oriented frame, or a ratio
-# saved before this consolidation) always resolves to something the ratio picker
-# can display.
+# Maps each portrait AspectRatio to its canonical entry in CROP_RATIO_CHOICES, so a
+# portrait-only value always resolves to something the picker can display.
 _PORTRAIT_TO_CANONICAL_CROP_RATIO: dict[str, str] = {
     AspectRatio.R_2_3: AspectRatio.R_3_2,
     AspectRatio.R_3_4: AspectRatio.R_4_3,
@@ -85,12 +77,9 @@ def canonical_crop_ratio(ratio: str) -> str:
 
 
 # Candidates for "Detect closest aspect ratio" (geometry.logic._closest_standard_ratio):
-# real film/scan formats only, both orientations. 7:5, 16:9, 16:10 and 8.5:11 are
-# print/screen *output* sizes, not scannable film formats, and sit close enough to
-# 3:2 (1.4, 1.778, 1.6) and 5:4 (0.773) in log-ratio space that ordinary contour-
-# detection noise on a real 3:2 or 5:4 frame tips the match onto one of them instead
-# — including them here regressed detection to reliably misclassify 35mm scans as
-# "7:5". Keep this set to formats a camera/scanner could actually produce.
+# real film/scan formats only, both orientations. Keep output-only sizes (7:5, 16:9,
+# 16:10, 8.5:11) out: they sit too close to 3:2 and 5:4 in log-ratio space, so contour
+# noise tips the match onto them and 35mm scans misclassify as "7:5".
 FILM_FORMAT_RATIOS: list[AspectRatio] = [
     AspectRatio.R_1_1,
     AspectRatio.R_3_2,
@@ -120,14 +109,13 @@ class GeometryConfig:
     auto_crop_enabled: bool = False
 
     autocrop_offset: int = 0
-    # Free, not 3:2: autocrop reads the film format off the frame it detected (see
-    # geometry.logic.get_autocrop_coords), so the default fits 6x6, 645 and 6x7 as well as
-    # 35mm. A fixed 3:2 default center-cropped every other format down to a third of the
-    # picture. Any explicit ratio still overrides.
+    # Free, not 3:2: autocrop reads the film format off the detected frame, so the
+    # default fits 6x6, 645 and 6x7 as well as 35mm. A fixed 3:2 center-cropped every
+    # other format down to a third of the picture. An explicit ratio still overrides.
     autocrop_ratio: AspectRatio = AspectRatio.FREE
     autocrop_mode: AutocropMode = AutocropMode.IMAGE
-    # Fraction of the detected rebate to cut: 0.0 stops at the film edge, 1.0 lands on
-    # the image edge, above 1.0 bites into the picture. Image mode only.
+    # Fraction of the detected rebate to cut: 0.0 = film edge, 1.0 = image edge, above
+    # 1.0 bites into the picture. Image mode only.
     autocrop_rebate_trim: float = 1.0
     manual_crop_rect: Optional[Tuple[float, float, float, float]] = None
 

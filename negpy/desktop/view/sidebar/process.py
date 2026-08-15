@@ -21,21 +21,20 @@ from negpy.features.hdr.logic import output_scale
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, hdr_active
 from negpy.features.process.models import ProcessMode, invalidate_local_bounds
 
-# Luma Range Clip slider mapping: positions 0..100 clip the histogram tails; negative
-# positions -100..0 map to an outward log-density margin (gentler-than-zero stretch).
+# Luma Range Clip slider mapping: positions 0 to 100 clip the histogram tails, and
+# negative positions map to an outward log-density margin, a gentler-than-zero stretch.
 _LUMA_MARGIN_MIN = 1e-6
 _LUMA_MARGIN_MAX = 1.0
 
-# Color Clip slider: the per-channel-balance sampling depth, log-interpolated
-# around the neutral (pos 0 = base_color_clip) — the luma-band depth of the
-# same-pixel dense-end refs and the clip percentile of the thin-end/fallback
-# pass. The ends reach _COLOR_CLIP_MIN (gentlest, near-extreme bounds) and
-# _COLOR_CLIP_MAX (tightest channel balance).
+# Color Clip slider: the per-channel-balance sampling depth, log-interpolated around the
+# neutral (pos 0 = base_color_clip). It sets the luma-band depth of the same-pixel
+# dense-end refs and the clip percentile of the thin-end fallback pass. The ends reach
+# _COLOR_CLIP_MIN (gentlest, near-extreme bounds) and _COLOR_CLIP_MAX (tightest balance).
 _COLOR_CLIP_NEUTRAL = float(EXPOSURE_CONSTANTS["base_color_clip"])
 _COLOR_CLIP_MIN = 1e-6
 _COLOR_CLIP_MAX = 5.0
 
-# Mode bar: one film icon per mode, the color carries which one — orange mask,
+# Mode bar: one film icon per mode, with the color carrying which one. Orange mask,
 # silver grey, slide blue.
 _MODES = (
     (ProcessMode.C41, " Color", "#E08A3C", "Color Negative (C-41) — orange-masked negative"),
@@ -81,8 +80,8 @@ class ProcessSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         conf = self.state.config.process
 
-        # Lives above every Setup collapsible: ControlsPanel adds it to the page, so it
-        # is deliberately not in self.layout.
+        # Lives above every Setup collapsible. ControlsPanel adds it to the page, so it is
+        # deliberately not in self.layout.
         self.mode_bar = QWidget()
         mode_col = QVBoxLayout(self.mode_bar)
         mode_col.setContentsMargins(0, 0, 0, 0)
@@ -123,14 +122,14 @@ class ProcessSidebar(BaseSidebar):
             "Draw a freehand analysis region on the image — the meters read exactly that area "
             "(overrides the Analysis Buffer). Double-click inside it to confirm.",
         )
-        # Confirming a region closes the tool (unchecking the toggle), so the dot is
-        # the only cue left that it's still overriding the Analysis Buffer slider.
+        # Confirming a region closes the tool by unchecking the toggle, so the dot is the only
+        # cue left that it still overrides the Analysis Buffer slider.
         self.analysis_region_btn.edited_dot = EditedDot(self.analysis_region_btn)
         self.clear_analysis_region_btn = self._icon_action(
             "fa5s.times", "Clear the freehand analysis region (fall back to the Analysis Buffer)", width=None
         )
-        # Slider takes half the row; the three buttons split the other half, equal
-        # stretch (not fixed widths) being what keeps them the same size.
+        # The slider takes half the row and the three buttons split the other half. Equal stretch,
+        # not fixed widths, is what keeps them the same size.
         buf_row.addWidget(self.analysis_buffer_slider, 3)
         for btn in (self.analysis_region_btn, self.clear_analysis_region_btn, self.lock_bounds_btn):
             buf_row.addWidget(btn, 1)
@@ -149,8 +148,8 @@ class ProcessSidebar(BaseSidebar):
         clip_row.addWidget(self.color_range_clip_slider)
         self.layout.addLayout(clip_row)
 
-        # Channel selector scoped to the White/Black Point row below it:
-        # Global = the shared offsets; R/G/B = per-layer trims (film-base / Dmax).
+        # Channel selector scoped to the White/Black Point row below it. Global = the shared
+        # offsets, R/G/B = the per-layer trims (film base, Dmax).
         self.ch_global_btn = self._labeled_toggle("fa5s.globe", " Global", True, "Global — shared white/black point offsets (all layers)")
         self.ch_r_btn = self._labeled_toggle(
             "fa5s.circle", " Red", False, "Red layer — per-layer white/black point trims (cyan-dye film base / Dmax)"
@@ -183,10 +182,10 @@ class ProcessSidebar(BaseSidebar):
         wp_bp_row.addWidget(self.black_point_slider)
         self.layout.addLayout(wp_bp_row)
 
-        # Render exposure for a merged bracket, continuous rather than snapped to the frames
-        # that happen to have been shot. The menu still offers those, and writes a frame name;
-        # this writes a value and wins. 0 = the reference (the brightest unclipped frame),
-        # which is the most a merge can open at — output_scale clamps above it.
+        # Render exposure for a merged bracket, continuous rather than snapped to the frames that
+        # happen to have been shot. The menu still offers those and writes a frame name; this
+        # writes a value and wins. 0 = the reference, the brightest unclipped frame, which is the
+        # most a merge can open at. output_scale clamps above it.
         self.render_ev_slider = CompactSlider("Render Exposure", -4.0, 0.0, 0.0, step=0.05, unit=" EV")
         self.render_ev_slider.setToolTip(
             wrap_tooltip(
@@ -198,9 +197,9 @@ class ProcessSidebar(BaseSidebar):
                 "actually shot; this slider goes anywhere between them."
             )
         )
-        # Live again: the merge is cached unscaled, so a change of exposure is one multiply
-        # on the cached buffer rather than another decode of the bracket. valueChanged is
-        # already trailing-debounced, so a drag costs a few of those, not a few decodes.
+        # Live again: the merge is cached unscaled, so a change of exposure is one multiply on the
+        # cached buffer rather than another decode of the bracket. valueChanged is already
+        # trailing-debounced, so a drag costs a few of those, not a few decodes.
         self.render_ev_slider.valueChanged.connect(lambda v: self.controller.set_hdr_anchor_ev(float(v), persist=False))
         self.render_ev_slider.valueCommitted.connect(lambda v: self.controller.set_hdr_anchor_ev(float(v)))
         self.render_ev_slider.setVisible(False)
@@ -351,14 +350,14 @@ class ProcessSidebar(BaseSidebar):
             self.luma_range_clip_slider.setValue(_luma_range_value_to_slider(conf.luma_range_clip))
             self.color_range_clip_slider.setValue(_color_value_to_slider(conf.color_range_clip))
 
-            # Transparency transfer: the stretch is a fixed window anchored to the decoder's
-            # white level, so nothing that tunes a measured stretch has anything to act on.
+            # Transparency transfer: the stretch is a fixed window anchored to the decoder's white
+            # level, so nothing that tunes a measured stretch has anything to act on.
             from negpy.features.exposure.transfer import is_transparency_transfer
 
             transfer = is_transparency_transfer(conf.process_mode, conf.e6_normalize)
 
-            # Per-layer WP/BP trims are meaningless on single-emulsion B&W, and the
-            # selector goes with the sliders it scopes when those are hidden below.
+            # Per-layer WP/BP trims are meaningless on single-emulsion B&W, and the selector goes
+            # with the sliders it scopes when those are hidden below.
             is_bw_sel = conf.process_mode == ProcessMode.BW
             hide_channels = is_bw_sel or transfer
             if hide_channels and self._channel_index() != 0:
@@ -381,23 +380,23 @@ class ProcessSidebar(BaseSidebar):
                 btn.edited_dot.set_active(any(getattr(conf, f) != 0.0 for f in fields))
 
             is_e6 = conf.process_mode == ProcessMode.E6
-            # Greyed on a merge, not hidden: the render already ignores it (WorkspaceConfig
-            # holds that invariant), and a control that vanishes teaches nothing about why.
+            # Greyed on a merge, not hidden: the render already ignores it, since WorkspaceConfig
+            # holds that invariant, and a control that vanishes teaches nothing about why.
             merged = hdr_active(self.state.config.hdr)
             self.normalize_e6_btn.setVisible(is_e6)
             self.normalize_e6_btn.setChecked(conf.e6_normalize)
             self.normalize_e6_btn.setEnabled(not merged)
 
-            # Only a merge has a render exposure to choose, and only the transfer path uses
-            # a fixed window for it to mean anything against.
+            # Only a merge has a render exposure to choose, and only the transfer path uses a fixed
+            # window for it to mean anything against.
             self.render_ev_slider.setVisible(merged and transfer)
             if merged:
                 hdr = self.state.config.hdr
                 ev = float(hdr.hdr_anchor_ev)
                 if ev >= ANCHOR_EV_UNSET:
-                    # Unset means the bracket's middle exposure, which is only 0 EV when it
-                    # clamps there. Showing a bare 0.00 would misreport where the picture
-                    # actually sits on any bracket spread either side of the reference.
+                    # Unset means the bracket's middle exposure, which is only 0 EV when it clamps there. A
+                    # bare 0.00 would misreport where the picture sits on any bracket spread either side of
+                    # the reference.
                     scale = output_scale([float(r) for r in hdr.hdr_ratios])
                     ev = float(np.log2(scale)) if scale > 0 else 0.0
                 self.render_ev_slider.blockSignals(True)
@@ -426,9 +425,9 @@ class ProcessSidebar(BaseSidebar):
                 w.setVisible(not transfer)
 
             locked = conf.lock_bounds
-            # Each clip slider is disabled when its axis rides the roll baseline; the
-            # analysis buffer only matters when at least one axis still analyzes locally,
-            # and is overridden entirely by a freehand analysis region.
+            # Each clip slider is disabled when its axis rides the roll baseline. The analysis buffer
+            # matters only when at least one axis still analyzes locally, and a freehand analysis
+            # region overrides it entirely.
             self.analysis_buffer_slider.setEnabled(not locked and not has_region and not (conf.use_luma_average and conf.use_color_average))
             self.luma_range_clip_slider.setEnabled(not locked and not conf.use_luma_average)
             self.color_range_clip_slider.setEnabled(not locked and not conf.use_color_average)
@@ -443,8 +442,8 @@ class ProcessSidebar(BaseSidebar):
         Helper to block/unblock all sliders and buttons.
         """
         widgets = [
-            # The group, not just its buttons: QButtonGroup is notified internally, so a
-            # blocked button still makes it emit idToggled and re-enter the mode handler.
+            # The group, not just its buttons: QButtonGroup is notified internally, so a blocked
+            # button still makes it emit idToggled and re-enter the mode handler.
             self.mode_btn_group,
             *self.mode_btns,
             self.autodetect_btn,

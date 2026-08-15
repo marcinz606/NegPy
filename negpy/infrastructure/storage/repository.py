@@ -65,9 +65,9 @@ class StorageRepository(IRepository):
                 )
             """)
 
-            # Named versions of one frame's edit. Deliberately not a column on
-            # edit_history: an edit after stepping back truncates the future branch, so a
-            # named step would be deleted by the very thing it is meant to survive.
+            # Named versions of one frame's edit. Deliberately not a column on edit_history: an edit
+            # after stepping back truncates the future branch, so a named step would be deleted by
+            # the very thing it is meant to survive.
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS work_prints (
                     file_hash TEXT,
@@ -85,9 +85,9 @@ class StorageRepository(IRepository):
                 )
             """)
 
-            # Migration: add file_path so a mark can be resolved without the file's hash —
-            # library search joins by path (it never hashes) and would otherwise be blind
-            # to triage marks on frames it has not loaded.
+            # Migration: add file_path so a mark resolves without the file's hash. Library search
+            # joins by path and never hashes, so it would otherwise be blind to triage marks on
+            # frames it has not loaded.
             try:
                 conn.execute("ALTER TABLE file_marks ADD COLUMN file_path TEXT")
             except sqlite3.OperationalError:
@@ -236,8 +236,8 @@ class StorageRepository(IRepository):
         if not file_path:
             return None
         with self._connect(self.edits_db_path) as conn:
-            # Half-frame rows ('<hash>#<n>') share the scan's path; rehoming one onto
-            # the whole-file identity would steal that half's edit — exclude them.
+            # Half-frame rows ('<hash>#<n>') share the scan's path, and rehoming one onto the
+            # whole-file identity would steal that half's edit, so exclude them.
             cursor = conn.execute(
                 "SELECT file_hash, settings_json FROM file_settings WHERE file_path = ? AND file_hash NOT LIKE '%#%'",
                 (file_path,),
@@ -357,8 +357,8 @@ class StorageRepository(IRepository):
 
     def prune_history(self, file_hash: str, max_steps: int = 10) -> None:
         with self._connect(self.edits_db_path) as conn:
-            # Delete steps that are older than (current_max_index - max_steps)
-            # Find current max index for this file
+            # Delete steps older than (current_max_index - max_steps). Find the current max index
+            # for this file first.
             cursor = conn.execute("SELECT MAX(step_index) FROM edit_history WHERE file_hash = ?", (file_hash,))
             row = cursor.fetchone()
             if row and row[0] is not None:
@@ -422,9 +422,7 @@ class StorageRepository(IRepository):
                 pass
         return result
 
-    # ------------------------------------------------------------------
-    # Database management (view / clear) — backs the DB Management dialog.
-    # ------------------------------------------------------------------
+    # Database management (view and clear), behind the DB Management dialog.
 
     @staticmethod
     def _count(conn: sqlite3.Connection, table: str) -> int:

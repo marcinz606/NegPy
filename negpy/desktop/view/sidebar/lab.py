@@ -150,7 +150,7 @@ class LabSidebar(BaseSidebar):
             self.glow_slider.setValue(conf.glow_amount)
             self.halation_slider.setValue(conf.halation_strength)
 
-            # COLOR is entirely color controls — hide the header with them in B&W.
+            # COLOR is entirely color controls, so hide the header with them in B&W.
             self.color_header.setVisible(not is_bw)
             self.saturation_slider.setVisible(not is_bw)
             self.skin_protection_slider.setVisible(not is_bw)

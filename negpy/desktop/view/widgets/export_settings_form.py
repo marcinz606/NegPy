@@ -239,8 +239,8 @@ class ExportSettingsForm(QWidget):
     def _build_color(self, root: QVBoxLayout) -> None:
         root.addWidget(section_subheader("COLOR"))
 
-        # Drop bundled profiles already backed by a color-space enum so the ICC
-        # lists don't duplicate the color-space selector.
+        # Drop bundled profiles already backed by a color-space enum, so the ICC lists do not
+        # duplicate the color-space selector.
         enum_mapped = {ColorSpaceRegistry.get_icc_path(cs.value) for cs in ColorSpace}
         enum_mapped.discard(None)
         custom_profiles = [p for p in ColorService.get_available_profiles() if p not in enum_mapped]
@@ -379,9 +379,8 @@ class ExportSettingsForm(QWidget):
             self.icc_output_combo.setCurrentIndex(0)  # None — no custom output profile
         self.icc_output_combo.setEnabled(not is_jxl)
 
-        # flat_export_config() always forces jxl_lossless=True for a flat master —
-        # hide the lossy toggle/distance rather than show a control that's silently
-        # overridden at export time.
+        # flat_export_config() always forces jxl_lossless=True for a flat master, so hide the
+        # lossy toggle and distance rather than show a control the export silently overrides.
         flat_locked_lossless = self._flat_mode and is_jxl
         if flat_locked_lossless:
             self.jxl_lossless_check.setChecked(True)
@@ -469,9 +468,9 @@ class ExportSettingsForm(QWidget):
         self.fmt_combo.blockSignals(True)
         self.fmt_combo.clear()
         if enabled:
-            # "(lossless)" on the JXL entry — a flat master is always lossless
-            # (flat_export_config() forces jxl_lossless=True), so the label should
-            # never leave that in doubt the way the general "JXL" entry does.
+            # "(lossless)" on the JXL entry: a flat master is always lossless, since
+            # flat_export_config() forces jxl_lossless=True, so the label should never leave that in
+            # doubt the way the general "JXL" entry does.
             flat_items = [(ExportFormat.TIFF.value, ExportFormat.TIFF.value), ("JXL (lossless)", ExportFormat.JXL.value)]
             for label, data in flat_items:
                 self.fmt_combo.addItem(label, data)
@@ -500,9 +499,9 @@ class ExportSettingsForm(QWidget):
         """Populate all rows from a dict of shared field values."""
         self._loading = True
         try:
-            # findData() compares across the QVariant boundary — item data is a plain
-            # str, but a caller may hand back an ExportFormat (StrEnum) member, which
-            # never matches there even though it's == the str in Python. Normalize.
+            # findData() compares across the QVariant boundary. Item data is a plain str, but a
+            # caller may hand back an ExportFormat (StrEnum) member, which never matches there even
+            # though it is == the str in Python. Normalize.
             fmt_idx = self.fmt_combo.findData(str(v["export_fmt"]))
             if fmt_idx >= 0:
                 self.fmt_combo.setCurrentIndex(fmt_idx)

@@ -29,12 +29,12 @@ class RoiImageLabel(QLabel):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setMinimumHeight(160)
-        # Grow with the (resizable) pop-up — the frame is custom-painted to the
-        # current widget size, so the policy must let the label fill the window.
+        # Grow with the resizable pop-up. The frame is custom-painted to the current widget size,
+        # so the policy must let the label fill the window.
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        # roi_mode=True drops the calibration crosshair patch on click (calib window);
-        # False just emits `clicked` (scan pop-up → aim the focus magnifier).
+        # roi_mode=True drops the calibration crosshair patch on click, in the calib window.
+        # False only emits `clicked`, which the scan pop-up uses to aim the focus magnifier.
         self.roi_mode = True
         self._roi_locked = False  # true while a calibration runs → clicks must not move the patch
         self._pixmap: Optional[QPixmap] = None

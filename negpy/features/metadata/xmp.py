@@ -39,7 +39,8 @@ def build_xmp_xml(payload: MetadataPayload, *, standalone: bool = True) -> str:
     for prefix in ("dc", "negpy"):
         desc.set(f"xmlns:{prefix}", _NS[prefix])
 
-    # negpy namespace — original film capture (structured mirror; standard EXIF when flagged)
+    # negpy namespace: the original film capture. A structured mirror, with standard EXIF
+    # when flagged.
     if payload.camera_make:
         _sub(desc, "negpy", "CaptureCameraMake", payload.camera_make)
     if payload.camera_model:
@@ -77,7 +78,7 @@ def build_xmp_xml(payload: MetadataPayload, *, standalone: bool = True) -> str:
     if payload.capture_frame is not None:
         _sub(desc, "negpy", "CaptureFrame", str(payload.capture_frame))
 
-    # Digitization rig — always from source snapshot
+    # Digitization rig, always from the source snapshot
     if payload.scan_camera_make:
         _sub(desc, "negpy", "ScanCameraMake", payload.scan_camera_make)
     if payload.scan_camera_model:

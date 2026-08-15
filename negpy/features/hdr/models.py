@@ -6,7 +6,7 @@ from typing import Sequence
 from negpy.domain.tokens import composite_token
 
 
-#: Sentinel for "the render exposure was not set as a value" — see HdrConfig.hdr_anchor_ev.
+#: Sentinel for "the render exposure was not set as a value". See HdrConfig.hdr_anchor_ev.
 ANCHOR_EV_UNSET = 1.0
 
 
@@ -28,17 +28,17 @@ class HdrConfig:
     hdr_paths: tuple[str, ...] = ()  # non-reference exposures
     hdr_ratios: tuple[float, ...] = ()  # per frame incl. the reference, which is 1.0
     hdr_align: bool = True  # sub-pixel registration of each frame to the reference
-    #: Path of the frame the merge renders at. The reference defines *white*; this decides
-    #: which exposure the picture opens at, and they are not the same choice — see
+    #: Path of the frame the merge renders at. The reference defines *white*, and this decides
+    #: which exposure the picture opens at. They are not the same choice: see
     #: `logic.output_scale`. Empty falls back to the bracket's middle exposure.
     hdr_anchor: str = ""
     #: Render exposure in stops below the reference, when the user set it as a value rather
     #: than by naming a frame. Takes precedence over `hdr_anchor`.
     #:
-    #: Any value at or above ANCHOR_EV_UNSET means "not set": `output_scale` clamps the
-    #: scale to <= 1.0, so a positive EV renders identically to 0 and is unreachable as a
-    #: setting. That leaves the whole usable range (0 and below) free to mean what it says,
-    #: which a 0.0 sentinel would not — 0 EV is a real choice, distinct from the default.
+    #: Any value at or above ANCHOR_EV_UNSET means "not set": `output_scale` clamps the scale
+    #: to 1.0 or less, so a positive EV renders identically to 0 and is unreachable as a
+    #: setting. That leaves the whole usable range, 0 and below, free to mean what it says,
+    #: which a 0.0 sentinel would not, since 0 EV is a real choice distinct from the default.
     hdr_anchor_ev: float = 1.0
 
 

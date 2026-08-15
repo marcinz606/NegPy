@@ -87,8 +87,8 @@ class ThumbnailUpdateTask:
 
     file_hash: str  # asset_thumbnail_key — the filmstrip and the disk cache share it
     buffer: np.ndarray
-    # Display-transform inputs, from AppController.display_transform_params — must be
-    # the same triple the canvas used for this buffer or the thumbnail's color drifts.
+    # Display-transform inputs from AppController.display_transform_params. Must be the same
+    # triple the canvas used for this buffer, or the thumbnail's color drifts.
     color_space: str = WORKING_COLOR_SPACE
     monitor_icc_bytes: Optional[bytes] = None
     proof: Optional[tuple] = None
@@ -101,13 +101,13 @@ class NormalizationTask:
 
     files: list[dict]
     workspace_color_space: str
-    # Roll-wide overrides taken from the current image: applied to every file's
-    # analysis before averaging so the whole roll shares one buffer / luma bounds.
+    # Roll-wide overrides taken from the current image, applied to every file's analysis
+    # before averaging, so the whole roll shares one buffer and luma bounds.
     override_analysis_buffer: float
     override_luma_range_clip: float
     override_color_range_clip: float
-    # Capture-side unmix must match the render path — bounds measured under a
-    # different matrix are invalid for it.
+    # The capture-side unmix must match the render path: bounds measured under a different
+    # matrix are invalid for it.
     override_crosstalk_strength: float = 0.0
     override_crosstalk_matrix: tuple | None = None
 
@@ -169,8 +169,8 @@ class PreviewLoadTask:
     for_cache_warm: bool = False
     detect_mode: bool = False  # run process-mode autodetect (new files only)
     # The assembly configs travel whole rather than flattened into loose fields. They are
-    # frozen and hashable, the worker rebuilt them from the pieces anyway, and a field
-    # added to one of them then needs no change here or at the call site.
+    # frozen and hashable, the worker rebuilt them from the pieces anyway, and a new field on
+    # one of them then needs no change here or at the call site.
     rgbscan: RgbScanConfig = RgbScanConfig()  # triplet: green/blue exposures merged with file_path (red)
     stitch: StitchConfig = StitchConfig()  # composite: non-primary parts + stored registration
     hdr: HdrConfig = HdrConfig()  # bracket: the other exposures, merged with file_path (the reference)
@@ -215,8 +215,8 @@ class RenderWorker(QObject):
     def process(self, task: RenderTask) -> None:
         """Executes the rendering pipeline for a single frame."""
         try:
-            # Splash shares the file's source_hash but is the embedded JPEG, not the linear
-            # decode — isolate its cache identity so it can't leak into the real render.
+            # The splash shares the file's source_hash but is the embedded JPEG, not the linear
+            # decode, so isolate its cache identity and it cannot leak into the real render.
             pipeline_source_hash = task.source_hash + ("\x00splash" if task.ephemeral else "")
             result, metrics = self._processor.run_pipeline(
                 task.buffer,
@@ -235,12 +235,12 @@ class RenderWorker(QObject):
             if task.readback_metrics and "histogram_raw" not in metrics and isinstance(result, np.ndarray):
                 metrics["histogram_raw"] = output_histogram(result)
 
-            # The soft proof is not baked in: it rides the display LUT, so a GPU
-            # texture reaches the canvas shader without a readback.
+            # The soft proof is not baked in: it rides the display LUT, so a GPU texture reaches
+            # the canvas shader without a readback.
 
-            # Taken here because the engine recycles its stage textures next frame.
-            # Always assigned: the controller merges metrics into a running dict, so a
-            # stale entry would be filed under this asset's key.
+            # Taken here because the engine recycles its stage textures next frame. Always
+            # assigned: the controller merges metrics into a running dict, so a stale entry
+            # would be filed under this asset's key.
             metrics["thumbnail_source"] = (
                 np.ascontiguousarray(result.readback()[:, :, :3]) if task.wants_thumbnail and isinstance(result, GPUTexture) else None
             )
@@ -298,11 +298,12 @@ class RenderWorker(QObject):
                     content_rect = metrics.get("content_rect")
                 self.strip_progress.emit(len(tiles), len(task.overrides))
 
-            # One mosaic per quarter-turn while the tiles are still in hand: a rotated ladder needs
-            # a different slice of each render. Peak memory is unchanged, the tiles dominate.
+            # One mosaic per quarter-turn while the tiles are still in hand: a rotated ladder
+            # needs a different slice of each render. Peak memory is unchanged, since the tiles
+            # dominate.
             mosaics = tuple(strip_mosaic(rotate_grid(tiles, task.grid, k), proof_grid(task.grid, k)) for k in range(4))
-            # Unproofed like every other rendered buffer; the overlay proofs the mosaic
-            # through the same display LUT the canvas uses.
+            # Unproofed like every other rendered buffer. The overlay proofs the mosaic through
+            # the same display LUT the canvas uses.
             self.strip_finished.emit(mosaics, content_rect)
 
         except Exception as e:
@@ -320,11 +321,11 @@ class ThumbnailWorker(QObject):
 
     progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(dict)
-    # Chunks of the running batch, so a large folder fills its filmstrip as it goes
-    # instead of staying blank until the last file lands.
+    # Chunks of the running batch, so a large folder fills its filmstrip as it goes instead of
+    # staying blank until the last file lands.
     partial = pyqtSignal(dict)
-    # Rendered positives use their own signal so the batch's bulk overwrite can't
-    # clobber a frame that already rendered on the canvas.
+    # Rendered positives use their own signal, so the batch's bulk overwrite cannot clobber a
+    # frame that already rendered on the canvas.
     rendered_finished = pyqtSignal(dict)
     error = pyqtSignal(str)
 
@@ -406,7 +407,8 @@ def _safe_call(fn: Callable[[str], Any], path: str) -> Any:
         return None
 
 
-# Seek-bound: each hash costs 18 seeks, so cpu_count() concurrent readers thrash a spinning disk.
+# Seek-bound: each hash costs many seeks, so cpu_count() concurrent readers thrash a
+# spinning disk.
 _HASH_WORKERS = min(8, APP_CONFIG.max_workers)
 # Real decodes; halved for memory headroom, as NormalizationWorker does.
 _DECODE_WORKERS = max(1, APP_CONFIG.max_workers // 2)
@@ -473,7 +475,7 @@ class AssetDiscoveryWorker(QObject):
                         discovered_paths.append(path)
             except Exception as e:
                 logger.error(f"Discovery error for {path}: {e}")
-        # Half-frame re-discovery passes both halves' (identical) paths — hash once.
+        # Half-frame re-discovery passes both halves' identical paths, so hash once.
         discovered_paths = list(dict.fromkeys(discovered_paths))
         # IR companions ride along with their main TIFF; they are never assets of their own.
         discovered_paths = [p for p in discovered_paths if not is_ir_sidecar_path(p)]
@@ -591,7 +593,7 @@ class AssetDiscoveryWorker(QObject):
         out = []
         for a in assets:
             entry = stitches.get(a["path"])
-            # Triplet exposures count as parts — one missing decodes that part red-only.
+            # Triplet exposures count as parts: one missing decodes that part red-only.
             needed = [*(entry.get("paths") or ()), *(p for t in entry.get("triplets") or () for p in t if p)] if entry else []
             if entry and entry.get("paths") and all(os.path.exists(p) for p in needed):
                 out.append(
@@ -599,7 +601,7 @@ class AssetDiscoveryWorker(QObject):
                         **a,
                         "name": stitch_name([a["path"], *entry["paths"]]),
                         "hash": entry["hash"],
-                        # The composite hash is the parts' — inheriting the primary part's
+                        # The composite hash is the parts' own: inheriting the primary part's
                         # legacy digest would rehome that part's edit onto the composite.
                         "legacy_hash": "",
                         "stitch_paths": tuple(entry["paths"]),
@@ -631,7 +633,7 @@ class AssetDiscoveryWorker(QObject):
                         **a,
                         "name": hdr_name([a["path"], *entry["paths"]]),
                         "hash": entry["hash"],
-                        # The composite hash is the bracket's — inheriting the reference
+                        # The composite hash is the bracket's own: inheriting the reference
                         # frame's legacy digest would rehome that frame's edit onto it.
                         "legacy_hash": "",
                         "hdr_paths": tuple(entry["paths"]),
@@ -682,7 +684,7 @@ class PreviewLoadWorker(QObject):
     finished = pyqtSignal(str, object, object, str, object, str, object)
     splash = pyqtSignal(str, object, object)  # (file_path, buffer, dims) — first paint
     error = pyqtSignal(str)
-    # (file_path, message) — error carries no path, so badge attribution needs this
+    # (file_path, message): the error carries no path, so badge attribution needs this
     load_failed = pyqtSignal(str, str)
 
     def __init__(self, preview_service) -> None:
@@ -707,8 +709,8 @@ class PreviewLoadWorker(QObject):
         t0 = time.perf_counter()
         try:
             if stitch_active(task.stitch):
-                # Stitch composite: replay the stored registration at preview scale.
-                # No splash — the primary's embedded JPEG would flash a half frame.
+                # Stitch composite: replay the stored registration at preview scale. No splash,
+                # because the primary's embedded JPEG would flash a half frame.
                 raw, dims, metadata = self._preview_service.load_linear_preview_stitch(
                     task.file_path,
                     task.stitch,
@@ -731,8 +733,8 @@ class PreviewLoadWorker(QObject):
                 )
                 return
             if hdr_active(task.hdr):
-                # Bracketed capture: merge the exposures into one linear source. No splash —
-                # the reference frame's embedded JPEG would flash the unmerged exposure.
+                # Bracketed capture: merge the exposures into one linear source. No splash,
+                # because the reference frame's embedded JPEG would flash the unmerged exposure.
                 raw, dims, metadata = self._preview_service.load_linear_preview_hdr(
                     task.file_path,
                     task.hdr,
@@ -754,8 +756,8 @@ class PreviewLoadWorker(QObject):
                 )
                 return
             if is_rgb_triplet(task.rgbscan):
-                # RGB-scan triplet: assemble the frame from the three exposures.
-                # No splash — the red embedded JPEG would flash a red-cast preview.
+                # RGB-scan triplet: assemble the frame from the three exposures. No splash,
+                # because the red embedded JPEG would flash a red-cast preview.
                 raw, dims, metadata = self._preview_service.load_linear_preview_rgb(
                     task.file_path,
                     task.rgbscan,
@@ -813,10 +815,10 @@ class PreviewLoadWorker(QObject):
             )
         except Exception as e:
             logger.exception(f"Asset load failed: {task.file_path}")
-            # libraw reports "Unsupported file format or not RAW file" for a file whose
-            # tags it parsed perfectly and whose payload it cannot decode, which reads as
-            # "your NEF is broken". Ask why only once the decode has actually failed, so
-            # the check costs nothing on the files that work.
+            # libraw reports "Unsupported file format or not RAW file" for a file whose tags it
+            # parsed perfectly and whose payload it cannot decode, which reads as "your NEF is
+            # broken". Ask why only once the decode has failed, so the check costs nothing on
+            # the files that work.
             message = unsupported_raw_reason(task.file_path) or str(e)
             self.error.emit(message)
             self.load_failed.emit(task.file_path, message)
@@ -830,7 +832,7 @@ class PreviewLoadWorker(QObject):
             if not task.use_camera_wb:
                 scan = raw
             else:
-                # Camera WB hides the C41 mask — re-decode no-WB (lean; detect downsamples).
+                # Camera WB hides the C41 mask, so re-decode without WB. Lean: detect downsamples.
                 scan = self._preview_service.decode_for_detection(task.file_path)
             mode = str(detect_process_mode(scan))
             logger.info(
@@ -1064,8 +1066,8 @@ class NormalizationWorker(QObject):
                     return None
                 try:
                     params = self._repo.load_file_settings(f_info["hash"])
-                    # Roll-wide buffer / luma bounds from the current image — applied to every
-                    # file so one slider setting drives the whole batch baseline.
+                    # Roll-wide buffer and luma bounds from the current image, applied to every
+                    # file, so one slider setting drives the whole batch baseline.
                     analysis_buffer = task.override_analysis_buffer
                     luma_range_clip = task.override_luma_range_clip
                     color_range_clip = task.override_color_range_clip
@@ -1073,15 +1075,14 @@ class NormalizationWorker(QObject):
                     e6_normalize = params.process.e6_normalize if params else DEFAULT_WORKSPACE_CONFIG.process.e6_normalize
                     geometry = params.geometry if params else DEFAULT_WORKSPACE_CONFIG.geometry
                     # effective_, not the stored flag: the transfer path decodes neutral whatever
-                    # the flag says, and the comment below is the reason this has to match it.
+                    # the flag says, and the comment below is why this must match it.
                     _an = params if params else DEFAULT_WORKSPACE_CONFIG
                     linear_raw = effective_linear_raw(_an.process, _an.exposure.render_intent)
 
-                    # Use to_thread for blocking CPU/IO bound load and analysis.
-                    # Decode with the SAME WB the render path uses (use_camera_wb =
-                    # not linear_raw): the roll-average bounds are applied to the
-                    # render-decoded image, so analysing in a different WB space
-                    # shifts per-channel floors/ceils and produces a color cast.
+                    # to_thread for the blocking load and analysis. Decode with the SAME WB the
+                    # render path uses (use_camera_wb = not linear_raw): the roll-average bounds
+                    # are applied to the render-decoded image, so analysing in a different WB
+                    # space shifts the per-channel floors and ceils and produces a color cast.
                     raw, _, _ = await asyncio.to_thread(
                         self._preview_service.load_linear_preview,
                         f_info["path"],
@@ -1091,8 +1092,8 @@ class NormalizationWorker(QObject):
                         base_hash(f_info.get("hash")),  # halves share one decode
                     )
                     raw = slice_for_asset(raw, f_info)
-                    # Bounds must be measured on the same channel mix the render path
-                    # normalizes (triplet composites are never sensor-corrected there).
+                    # Bounds must be measured on the same channel mix the render path normalizes.
+                    # Triplet composites are never sensor-corrected there.
                     sensor_matrix = effective_sensor_matrix(params.process) if params is not None else None
                     if sensor_matrix is not None and not is_rgb_triplet(params.rgbscan):
                         raw = await asyncio.to_thread(apply_sensor_correction, raw, sensor_matrix)

@@ -54,11 +54,12 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
     # Add handler to logger
     logger.addHandler(handler)
 
-    # File handler too: the console log is invisible in a packaged .app (no terminal), so also write
-    # to a rotating file under the user data dir. Users can attach it to bug reports, and the global
-    # exception hook (desktop/main.py) records unhandled slot exceptions here that would otherwise
-    # only abort with a native crash report that hides the Python traceback. Best-effort — a
-    # file-logging failure (read-only home, etc.) must never stop the app from starting.
+    # A file handler as well as the console: the console log is invisible in a packaged .app,
+    # which has no terminal, so also write to a rotating file under the user data dir. Users
+    # can attach it to bug reports, and the global exception hook (desktop/main.py) records
+    # unhandled slot exceptions here that would otherwise abort with a native crash report
+    # hiding the Python traceback. Best-effort: a file-logging failure, such as a read-only
+    # home, must never stop the app from starting.
     try:
         from logging.handlers import RotatingFileHandler
 

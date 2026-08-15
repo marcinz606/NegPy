@@ -364,8 +364,8 @@ def measure_neutral_axis_from_log(
         return None
     highlight = _band_refs(float(hb[0]), float(hb[1]), chroma2_f, cap)
 
-    # Confidence: corrected tightness of the grey sets x midtone sample size x
-    # mid<->shadow deviation agreement (a dead zone passes plausible crossover).
+    # Confidence: the corrected tightness of the grey sets, times the midtone sample size,
+    # times the mid/shadow deviation agreement, where a dead zone passes plausible crossover.
     n0 = float(c["neutral_axis_confidence_n0"])
     dead = float(c["neutral_axis_agreement_deadzone"])
     scale = float(c["neutral_axis_agreement_scale"])
@@ -533,8 +533,8 @@ def _sample_log_bounds(
         clip = max(0.00001, min(50.0, percentile_clip + base))
         margin = 0.0
     else:
-        # Margin mode expands from the same robust basis so the slider stays
-        # continuous through its neutral position.
+        # Margin mode expands from the same robust basis, so the slider stays continuous through
+        # its neutral position.
         clip = base
         margin = -percentile_clip
     p_low, p_high = np.float64(clip), np.float64(100.0 - clip)
@@ -623,8 +623,8 @@ def _same_pixel_color_floor_refs(
 
     spans = np.array([luma_floors[ch] - base_refs[ch] for ch in range(3)], dtype=np.float64)
     first = _select(spans)
-    # Pass-1 loose cap: a homogeneous colored cluster would otherwise be
-    # self-normalized to zero chroma by pass 2 and read as neutral.
+    # Pass-1 loose cap: a homogeneous colored cluster would otherwise be self-normalized to
+    # zero chroma by pass 2 and read as neutral.
     if first is None or first[1] > float(c["neutral_axis_first_pass_cap"]):
         return None
     provisional = np.median(d[first[0]], axis=0)
@@ -696,11 +696,11 @@ def analyze_log_exposure_bounds_from_log(
 
     floors, ceils = _sample_log_bounds(img_log, percentile_clip, base_luma, process_mode, e6_normalize)
 
-    # Color pass: per-channel deviations recombined onto the luma mean centre+span.
-    # Ceils (thin end, base-anchored) come from per-channel percentiles at color_clip;
-    # floors (dense end, scene content) prefer the same-pixel chroma-gated band refs,
-    # falling back to the percentile pass when the band holds no trustworthy neutrals
-    # (and always for E-6 / margin-mode clips).
+    # Color pass: per-channel deviations recombined onto the luma mean centre and span. The
+    # ceils (thin end, base-anchored) come from per-channel percentiles at color_clip. The
+    # floors (dense end, scene content) prefer the same-pixel chroma-gated band refs and fall
+    # back to the percentile pass when the band holds no trustworthy neutrals, and always for
+    # E-6 and margin-mode clips.
     c_floors, c_ceils = _sample_log_bounds(img_log, color_clip, 0.0, process_mode, e6_normalize)
     if process_mode != ProcessMode.E6 and color_clip >= 0:
         sp = _same_pixel_color_floor_refs(img_log, floors, ceils, (c_ceils[0], c_ceils[1], c_ceils[2]), color_clip)

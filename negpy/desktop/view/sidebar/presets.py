@@ -20,8 +20,8 @@ from negpy.services.assets.presets import Presets
 
 _PRESET_EXCLUDED_SECTIONS = frozenset({"Crop", "Rotation"})
 
-# "Replace edits" resets only the look sections; per-frame geometry, frame
-# metadata and export prefs stay (dust/heal/masks aren't catalog rows at all).
+# "Replace edits" resets only the look sections. Per-frame geometry, frame metadata and
+# export prefs stay, and dust, heal and masks are not catalog rows at all.
 _REPLACE_KEPT_SECTIONS = frozenset({"Crop", "Rotation", "Metadata", "Export"})
 _LOOK_ROWS = tuple(r for title, rows in CATALOG if title not in _REPLACE_KEPT_SECTIONS for r in rows)
 
@@ -163,8 +163,8 @@ class PresetsSidebar(BaseSidebar):
             self._refresh_presets(force=True)
 
     def _refresh_presets(self, force: bool = False) -> None:
-        # sync_ui fires on every state sync; skip the rebuild (N file reads)
-        # unless the name set actually changed. force covers same-name overwrites.
+        # sync_ui fires on every state sync, so skip the rebuild and its N file reads unless the
+        # name set actually changed. force covers same-name overwrites.
         names = sorted(Presets.list_presets())
         if not force and names == [self.preset_list.item(i).text() for i in range(self.preset_list.count())]:
             return

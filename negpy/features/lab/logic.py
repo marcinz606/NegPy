@@ -81,13 +81,13 @@ def apply_clahe(img: ImageBuffer, strength: float) -> ImageBuffer:
     return ensure_image(np.clip(lab_to_rgb_working(lab), 0.0, 1.0))
 
 
-# Sharpen constants — mirrored as WGSL consts in shaders/lab.wgsl.
-# Gate separating grain from detail in L*; sized against |L - blur| at a 1 px
-# radius, which tops out near 1.0.
+# Sharpen constants, mirrored as WGSL consts in shaders/lab.wgsl.
+# Gate separating grain from detail in L*, sized against |L - blur| at a 1 px radius,
+# which tops out near 1.0.
 SHARPEN_GATE_LO = 0.25
 SHARPEN_GATE_HI = 0.33
-# L*-domain USM exaggerates light halos, so overshoot above the local max is
-# clamped tighter than undershoot below the local min.
+# L*-domain USM exaggerates light halos, so overshoot above the local max is clamped
+# tighter than undershoot below the local min.
 SHARPEN_OVERSHOOT_LIGHT = 1.0
 SHARPEN_OVERSHOOT_DARK = 2.0
 SHARPEN_MASK_T_HI = 10.0
@@ -105,7 +105,7 @@ def gaussian_kernel_1d(sigma: float) -> np.ndarray:
     return k / np.float32(k.sum())
 
 
-# Richardson-Lucy noise floor (linear luminance) — mirrors RL_EPS in the WGSL shaders.
+# Richardson-Lucy noise floor (linear luminance), mirroring RL_EPS in the WGSL shaders.
 RL_EPS = 1e-6
 # Adobe RGB (1998) -> XYZ D65 luminance row (Yn = 1). Mirrors lab_sharpen_h.wgsl / rl_init.wgsl.
 LUM_R, LUM_G, LUM_B = 0.2973769, 0.6273491, 0.0752741
@@ -254,9 +254,9 @@ def apply_saturation(img: ImageBuffer, saturation: float, skin_protection: float
     return ensure_image(np.clip(res_rgb, 0.0, 1.0))
 
 
-# Chroma-similarity sigma for the denoise range term, in CIELAB a*/b* units. Taps
-# further than this in chroma are rejected, so a saturated object cannot bleed color
-# past its own edge. Mirrored as a WGSL literal in lab.wgsl.
+# Chroma-similarity sigma for the denoise range term, in CIELAB a*/b* units. Taps further
+# than this in chroma are rejected, so a saturated object cannot bleed color past its own
+# edge. Mirrored as a WGSL literal in lab.wgsl.
 CHROMA_DENOISE_SIGMA_R = 15.0
 
 
@@ -273,8 +273,8 @@ def apply_chroma_denoise(img: ImageBuffer, radius: float, scale_factor: float = 
     l_chan, a, b = cv2.split(lab)
 
     sigma = radius * scale_factor
-    # bilateralFilter takes 1 or 3 channels; the zero plane adds nothing to the L1
-    # range distance. d<=0 lets OpenCV derive the window from sigmaSpace.
+    # bilateralFilter takes 1 or 3 channels, and the zero plane adds nothing to the L1 range
+    # distance. d<=0 lets OpenCV derive the window from sigmaSpace.
     ab = cv2.merge([a, b, np.zeros_like(a)])
     smoothed = cv2.bilateralFilter(ab, 0, CHROMA_DENOISE_SIGMA_R, sigma)
 
@@ -284,9 +284,9 @@ def apply_chroma_denoise(img: ImageBuffer, radius: float, scale_factor: float = 
     return ensure_image(np.clip(res_rgb, 0.0, 1.0))
 
 
-# Halation mask threshold in LINEAR reflectance: regions the negative rendered
-# dense (near paper white on the print). Thresholding linear light keeps the
-# halation footprint fixed by scene exposure instead of moving with grade/density.
+# Halation mask threshold in LINEAR reflectance: the regions the negative rendered dense,
+# near paper white on the print. Thresholding linear light keeps the halation footprint
+# fixed by scene exposure instead of moving with grade and density.
 HALATION_THRESHOLD_LINEAR = 0.65
 
 

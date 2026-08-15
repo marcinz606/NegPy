@@ -51,9 +51,9 @@ class GeometrySidebar(BaseSidebar):
         ratio_row = QHBoxLayout()
         ratio_row.addWidget(self._field_label("Ratio"))
         self.ratio_combo = QComboBox()
-        # One entry per shape (see CROP_RATIO_CHOICES) — the crop tool auto-orients
-        # to match the current drag, so a separate portrait entry for every ratio
-        # would just duplicate the same shape twice.
+        # One entry per shape (see CROP_RATIO_CHOICES). The crop tool auto-orients to match the
+        # current drag, so a separate portrait entry for every ratio would duplicate the same
+        # shape twice.
         self.ratio_combo.addItems([r.value for r in CROP_RATIO_CHOICES])
         self.ratio_combo.setCurrentText(canonical_crop_ratio(conf.autocrop_ratio))
         self.ratio_combo.setPlaceholderText("Select Ratio...")
@@ -160,10 +160,10 @@ class GeometrySidebar(BaseSidebar):
         self.straighten_btn = self._tool_toggle("fa5s.ruler", "", "")
         self.straighten_btn.setFixedWidth(36)
 
-        # Slider shows the photographer's convention — positive = clockwise on screen.
-        # Internally geometry.fine_rotation keeps the cv2/warp convention (positive =
-        # counter-clockwise, flip-independent because flips apply before fine rotation),
-        # so saved edits keep their meaning: display = -stored at this boundary.
+        # The slider shows the photographer's convention, where positive is clockwise on screen.
+        # Internally geometry.fine_rotation keeps the cv2/warp convention, where positive is
+        # counter-clockwise and flip-independent because flips apply before fine rotation, so
+        # saved edits keep their meaning: display = -stored at this boundary.
         self.fine_rot_slider = CompactSlider("Fine Rotation", -FINE_ROTATION_LIMIT, FINE_ROTATION_LIMIT, -conf.fine_rotation, unit="°")
         align_row.addWidget(self.fine_rot_slider, 1)
         align_row.addWidget(self.straighten_btn, 0)

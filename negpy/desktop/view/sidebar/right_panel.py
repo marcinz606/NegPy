@@ -106,11 +106,11 @@ class RightPanel(QWidget):
 
         self.scanlight_sidebar = ScanlightSidebar(self.controller)
 
-        # One "Scan" tab hosting both the SANE scanner and the RGB-Scan capture as
-        # collapsible sections (mirrors the "Color — Lab, Toning" tab).
+        # One "Scan" tab hosting both the SANE scanner and the RGB-Scan capture as collapsible
+        # sections, like the "Color: Lab, Toning" tab.
         self.scan_page = self._build_scan_page()
 
-        # Tab descriptors: workflow control-group pages first, then Export / Metadata / Scan.
+        # Tab descriptors: the workflow control-group pages first, then Export, Metadata and Scan.
         # (key, icon_name, tooltip, content_widget, [section_attrs])
         tab_specs = [
             (page["key"], page["icon_name"], page["tooltip"], page["widget"], page["sections"]) for page in self.controls_panel.pages
@@ -188,8 +188,8 @@ class RightPanel(QWidget):
             self.splitter.setSizes([320, 600])
         self.splitter.splitterMoved.connect(lambda *_: repo.save_global_setting("analysis_splitter_sizes", self.splitter.sizes()))
 
-        # Collapsing the Analysis section should hand its splitter space back to the tabs
-        # below (pinning the header at the top) instead of leaving a large empty pane.
+        # Collapsing the Analysis section hands its splitter space back to the tabs below and pins
+        # the header at the top, instead of leaving a large empty pane.
         self._analysis_expanded_size = self.splitter.sizes()[0]
         self.analysis_section.expanded_changed.connect(self._resize_splitter_for_analysis)
         if not analysis_expanded:
@@ -287,12 +287,11 @@ class RightPanel(QWidget):
         self.switcher.set_pinned(index)
         self._refresh_tab_icons()
 
-        # The heal/scratch tools live on the tab hosting the Retouch section;
-        # navigating to another tab suspends the active one so clicks on the
-        # canvas don't keep placing heals with their controls out of sight.
-        # Returning to the tab restores the suspended tool (and its overlay) —
-        # unless nothing was active when the user left, or another tool has
-        # been picked up in the meantime.
+        # The heal and scratch tools live on the tab hosting the Retouch section. Navigating to
+        # another tab suspends the active one, so clicks on the canvas do not keep placing heals
+        # with their controls out of sight. Returning to the tab restores the suspended tool and
+        # its overlay, unless nothing was active when the user left or another tool has been
+        # picked up meanwhile.
         from negpy.desktop.session import ToolMode
 
         state = self.controller.session.state
@@ -306,8 +305,8 @@ class RightPanel(QWidget):
                 self.controller.set_active_tool(self._suspended_retouch_tool)
             self._suspended_retouch_tool = None
 
-        # Trigger device detection + gating refresh when the Scan tab is selected — it now
-        # hosts both the SANE scanner and the RGB-Scan capture as collapsible sections.
+        # Trigger device detection and a gating refresh when the Scan tab is selected. It hosts
+        # both the SANE scanner and the RGB-Scan capture as collapsible sections.
         if index == self._scan_index:
             if hasattr(self.scan_sidebar, "on_activated"):
                 self.scan_sidebar.on_activated()
@@ -350,8 +349,8 @@ class RightPanel(QWidget):
         if source is None:
             source = metrics.get("analysis_buffer")
         if source is None:
-            # A GPU texture cannot be binned here without a full readback on the UI
-            # thread, so keep the last histogram rather than blanking the chart.
+            # A GPU texture cannot be binned here without a full readback on the UI thread, so keep
+            # the last histogram rather than blanking the chart.
             candidate = metrics.get("base_positive")
             source = candidate if isinstance(candidate, np.ndarray) else None
         if source is None:
@@ -362,7 +361,7 @@ class RightPanel(QWidget):
         self.curve_widget.set_density_histogram(metrics.get("histogram_density"))
         self._clip_fracs = output_clip_fractions(bins) if bins is not None else (None, None)
 
-        # A flat log master has no print zones — hide rather than mislead.
+        # A flat log master has no print zones, so hide them rather than mislead.
         if bins is None or self.controller.state.flat_peek:
             self.zone_strip.setVisible(False)
         else:
@@ -389,8 +388,8 @@ class RightPanel(QWidget):
         config = self.controller.session.state.config.exposure
         process_mode = self.controller.session.state.config.process.process_mode
 
-        # While peeking the flat master, plot the flat curve so the chart matches
-        # what the canvas is showing.
+        # While peeking the flat master, plot the flat curve so the chart matches what the canvas
+        # is showing.
         if self.controller.state.flat_peek:
             from negpy.domain.models import flat_master_config
             from negpy.features.exposure.logic import flat_curve_params
@@ -401,8 +400,8 @@ class RightPanel(QWidget):
             # A flat master has no print curve, so there is no wedge to print through it.
             self.step_wedge.setVisible(False)
         else:
-            # Mirror PhotometricProcessor so the plotted curve matches the render under
-            # the Auto Grade / Auto Density / Cast Removal toggles.
+            # Mirror PhotometricProcessor, so the plotted curve matches the render under the Auto
+            # Grade, Auto Density and Cast Removal toggles.
             slopes, pivots, curvatures = curve_params_from_metrics(config, process_mode, metrics)
             # Green channel is the base curve (white reference + stats slope).
             slope, pivot = slopes[1], pivots[1]

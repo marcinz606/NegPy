@@ -58,8 +58,8 @@ def write_tiff_16bit(result: ScanResult, path: str) -> str:
                 os.unlink(tmp_ir)
             raise
 
-    # Mask marking which IR pixels the scanner actually sampled. The loader
-    # fails closed on a malformed one, so write {0,255} the reader accepts.
+    # Mask marking which IR pixels the scanner actually sampled. The loader fails closed on a
+    # malformed one, so write the {0,255} the reader accepts.
     if result.ir_valid_mask is not None:
         base = os.path.splitext(path)[0]
         valid_path = f"{base}_IR_VALID.tif"

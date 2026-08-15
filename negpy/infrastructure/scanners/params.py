@@ -18,16 +18,15 @@ class ScanParams:
     # coolscan3 `subframe` (mm), applied to every frame. 0 = scanner default.
     frame_offset_mm: float = 0.0
     autofocus: bool = True
-    # Select a frame on a roll-fed scanner (coolscan3) before scanning. If a
-    # frame is requested and the device has no frame option, the scan fails
-    # rather than reading whatever frame is under the sensor.
+    # Select a frame on a roll-fed scanner (coolscan3) before scanning. If a frame is
+    # requested and the device has no frame option, the scan fails rather than reading
+    # whatever frame is under the sensor.
     frame: int | None = None
-    # Hardware auto-exposure (SANE `ae`), distinct from NegPy's rendering
-    # auto-exposure. An explicit request fails if the option is unavailable.
+    # Hardware auto-exposure (SANE `ae`), distinct from NegPy's rendering auto-exposure. An
+    # explicit request fails if the option is unavailable.
     auto_exposure: bool = False
-    # Hardware scan exposure time in microseconds (SANE `scan-exposure-time`).
-    # None = let the scanner use its default; ignored when the device has no
-    # such option.
+    # Hardware scan exposure time in microseconds (SANE `scan-exposure-time`). None lets the
+    # scanner use its default, and it is ignored when the device has no such option.
     exposure_time_us: int | None = None
 
 

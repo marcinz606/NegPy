@@ -25,8 +25,8 @@ from __future__ import annotations
 
 START_BYTE = 0xFE
 
-# Host-to-device headers (the firmware also defines 1 = GET_DEFAULT_RGB and
-# 3 = SHUTTER_PULSE, which NegPy never sends)
+# Host-to-device headers. The firmware also defines 1 = GET_DEFAULT_RGB and
+# 3 = SHUTTER_PULSE, which NegPy never sends.
 H2D_SET_COLOR = 0
 H2D_GET_FW_VERSION = 2
 
@@ -80,13 +80,13 @@ def decode_fw_version(data: bytes) -> tuple[int, int]:
     return word & 0xFFFF, (word >> 16) & 0xFFFF
 
 
-# Known Scanlight hardware IDs, from HW_VERSION_ID in jackw01's firmware (config.h).
-# The family shares this wire protocol, so NegPy drives any of them identically.
+# Known Scanlight hardware IDs, from HW_VERSION_ID in jackw01's firmware (config.h). The
+# family shares this wire protocol, so NegPy drives any of them identically.
 HARDWARE_NAMES = {0: "Big Scanlight", 1: "Scanlight v4"}
 
 # Models with a dedicated white LED. The white channel arrived with the v4, so the Big
-# Scanlight (0) and v4 (1) have it; the earlier v1/v2/v3 are RGB-only, as is any id we
-# don't recognise (a future white-capable model would just be added here).
+# Scanlight (0) and v4 (1) have it. The earlier v1, v2 and v3 are RGB-only, as is any id
+# we do not recognise; a future white-capable model would be added here.
 _WHITE_CAPABLE_HW = frozenset({0, 1})
 
 

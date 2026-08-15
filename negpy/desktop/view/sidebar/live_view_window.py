@@ -17,9 +17,9 @@ from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QPushBut
 from negpy.desktop.view.sidebar.roi_image import RoiImageLabel
 from negpy.desktop.view.styles.theme import THEME
 
-#: Progress-bar chunk color per triplet channel. The live view freezes during a triplet
-#: (the capture holds the camera without gaps now), so the bar carries the R→G→B switch
-#: the preview frames used to show. Muted tones, readable on the dark theme.
+#: Progress-bar chunk color per triplet channel. The live view freezes during a triplet,
+#: because the capture now holds the camera without gaps, so the bar carries the R to G
+#: to B switch the preview frames used to show. Muted tones, readable on the dark theme.
 _CHANNEL_COLORS = {"R": "#B5443C", "G": "#3F8F4A", "B": "#3C6FB5"}
 _DONE_COLOR = "#3F8F4A"
 _FLASH_MS = 1500
@@ -114,10 +114,10 @@ class SettingStepper(QWidget):
         self._sync()
 
     def hasFocus(self) -> bool:
-        # Treat a just-pressed arrow as "busy" so the ~1 Hz settings refresh doesn't snap the
-        # value back while the camera's reported `cur` catches up to the step the user made.
-        # The window must outlast a debounced (~0.25 s) + verified (~1-2 s) camera write, or
-        # the stepper flickers back to the old value mid-write.
+        # Treat a just-pressed arrow as "busy", so the settings refresh does not snap the value
+        # back while the camera's reported `cur` catches up to the user's step. The window must
+        # outlast a debounced and verified camera write, or the stepper flickers back to the old
+        # value mid-write.
         return (time.monotonic() - self._last_step) < 2.5 or super().hasFocus()
 
 
@@ -153,8 +153,8 @@ class LiveViewWindow(QDialog):
         layout.addWidget(self.image, 1)
 
         # Shown in the image's place on bodies that advertise no live view (issue #621). The
-        # window still scans — only the preview pane is replaced, so the toolbar, the settings
-        # row and the frame counter all keep working.
+        # window still scans: only the preview pane is replaced, so the toolbar, the settings row
+        # and the frame counter all keep working.
         self.no_preview = QLabel("")
         self.no_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.no_preview.setWordWrap(True)
@@ -162,20 +162,20 @@ class LiveViewWindow(QDialog):
         self.no_preview.setVisible(False)
         layout.addWidget(self.no_preview, 1)
 
-        # ── live camera settings (populated from the stream's settings JSON) ──
-        # Compact ‹ value › steppers instead of dropdowns: shutter/ISO span dozens of steps,
-        # so a full popup would fill the screen. Arrows nudge one stop at a time.
-        # Wrapped in a widget so the panel can hide the whole row as a unit: a calibrated RGB
-        # preset locks ISO/shutter/aperture (changing them would falsify the scan), so the steppers
-        # are shown only for white-light presets and normal camera-only scanning.
+        # Live camera settings, populated from the stream's settings JSON.
+        # Compact steppers instead of dropdowns: shutter and ISO span dozens of steps, so a full
+        # popup would fill the screen. The arrows nudge one stop at a time.
+        # Wrapped in a widget so the panel can hide the whole row as a unit. A calibrated RGB
+        # preset locks ISO, shutter and aperture, because changing them would falsify the scan,
+        # so the steppers show only for white-light presets and normal camera-only scanning.
         self.settings_widget = QWidget()
         settings_row = QHBoxLayout(self.settings_widget)
         settings_row.setContentsMargins(0, 0, 0, 0)
         self.iso_stepper = SettingStepper()
         self.shutter_stepper = SettingStepper()
         self.aperture_stepper = SettingStepper()
-        # No white-balance control: the scan decodes RAW with a fixed neutral WB
-        # (use_camera_wb=False), so the camera's WB only tints the preview, never the result.
+        # No white-balance control: the scan decodes RAW with a fixed neutral WB, so the camera's
+        # WB only tints the preview, never the result.
         for tag_text, stepper, tip in (
             ("ISO", self.iso_stepper, "ISO sensitivity"),
             ("Shutter", self.shutter_stepper, "Shutter speed"),
@@ -192,10 +192,9 @@ class LiveViewWindow(QDialog):
             settings_row.addLayout(col, 1)
         layout.addWidget(self.settings_widget)
 
-        # Capture progress lives here too (not only on the side panel): while scanning a roll
-        # the operator watches this window, and the bar reaching 100% is the "film may be
-        # advanced / next Scan may be pressed" signal. Below the view, mirroring the
-        # calibration window's bar placement.
+        # Capture progress lives here as well as on the side panel: while scanning a roll the
+        # operator watches this window, and the bar reaching 100% is the signal that the film may
+        # be advanced. Below the view, mirroring the calibration window's bar placement.
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setFormat("Capturing… %p%")
@@ -212,8 +211,8 @@ class LiveViewWindow(QDialog):
         self.scan_btn.clicked.connect(lambda: self.scanRequested.emit())
         self.retake_btn.clicked.connect(lambda: self.retakeRequested.emit())
 
-        # Keyboard shortcuts while the pop-up is focused (no text fields here, so
-        # letter keys are safe). The buttons respect their disabled/gated state.
+        # Keyboard shortcuts while the pop-up is focused. There are no text fields here, so
+        # letter keys are safe. The buttons respect their gated state.
         for key, btn in (("S", self.scan_btn), ("R", self.retake_btn)):
             QShortcut(QKeySequence(key), self, btn.click)
         self.scan_btn.setToolTip("Scan / Stop  (shortcut: S)")

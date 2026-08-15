@@ -29,7 +29,7 @@ class ColorSidebar(BaseSidebar):
         self.region_btn_group.addButton(self.region_global_btn, 0)
         self.region_btn_group.addButton(self.region_shadow_btn, 1)
         self.region_btn_group.addButton(self.region_highlight_btn, 2)
-        # (button, region CMY fields) — the edited dot shows when any field is set.
+        # (button, region CMY fields). The edited dot shows when any field is set.
         self._region_buttons = (
             (self.region_global_btn, ("wb_cyan", "wb_magenta", "wb_yellow")),
             (self.region_shadow_btn, ("shadow_cyan", "shadow_magenta", "shadow_yellow")),
@@ -166,8 +166,8 @@ class ColorSidebar(BaseSidebar):
         self.ring_btn.setToolTip(wrap_tooltip(self._ring_tooltip(printing=pending)))
 
     def _on_temp_drag_started(self) -> None:
-        # Anchor (M, Y) for the whole drag: re-projecting an already-clipped
-        # pair on every tick would corrupt the tint component.
+        # Anchor (M, Y) for the whole drag: re-projecting an already-clipped pair on every tick
+        # would corrupt the tint component.
         self._temp_anchor = self._region_my(self.state.config.exposure)
 
     def _on_temp_drag_ended(self) -> None:
@@ -224,11 +224,10 @@ class ColorSidebar(BaseSidebar):
 
             self.pick_wb_btn.setChecked(self.state.active_tool == ToolMode.WB_PICK)
             self.cast_removal_slider.setValue(conf.cast_removal_strength)
-            # C-41 only, in the render as well as here: the solve needs the shadow and
-            # neutral-axis refs, and both meters are gated to C-41 (processor.py, and
-            # `needs_refs` in gpu_engine.py). Everywhere else the slider moved a value that
-            # never reached the arithmetic. Safe to hide rather than merely disable — it is
-            # already inert, so nothing is left running invisibly.
+            # C-41 only, in the render as well as here: the solve needs the shadow and neutral-axis
+            # refs, and both meters are gated to C-41 (processor.py, and `needs_refs` in
+            # gpu_engine.py). Everywhere else the slider moved a value that never reached the
+            # arithmetic. Safe to hide rather than merely disable, since it is already inert.
             from negpy.features.process.models import ProcessMode
 
             self.cast_removal_slider.setVisible(self.state.config.process.process_mode == ProcessMode.C41)
