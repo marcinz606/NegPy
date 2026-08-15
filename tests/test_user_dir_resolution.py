@@ -42,6 +42,16 @@ def test_env_override_wins(monkeypatch, tmp_path):
     assert get_default_user_dir() == os.path.abspath(str(tmp_path / "custom"))
 
 
+def test_env_override_expands_a_leading_tilde(monkeypatch, tmp_path):
+    """Without expansion "~/dev" becomes a literal "~" directory under the working
+    directory — the app runs, out of a folder inside the checkout."""
+    home = tmp_path / "home"
+    monkeypatch.setattr(os.path, "expanduser", lambda p: p.replace("~", str(home), 1) if p.startswith("~") else p)
+    monkeypatch.setenv("NEGPY_USER_DIR", "~/negpy-devhome")
+
+    assert get_default_user_dir() == str(home / "negpy-devhome")
+
+
 def test_broken_documents_falls_back_to_home(monkeypatch, tmp_path):
     home = tmp_path / "home"
     home.mkdir()

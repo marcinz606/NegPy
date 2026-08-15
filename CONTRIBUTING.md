@@ -64,8 +64,14 @@ Set `NEGPY_USER_DIR` to an absolute path. The `Makefile` reads an optional, giti
 NEGPY_USER_DIR = $(HOME)/negpy-devhome
 ```
 
-`make run` then uses that directory, and creates it if it is missing. `~` is not
-expanded — use `$(HOME)` or a full path. Without the file, nothing changes.
+`make run` then uses that directory, and creates it if it is missing. Without the file,
+nothing changes.
+
+Write `$(HOME)`, not `~` or `$HOME`: make leaves `~` alone, and reads `$HOME` as the
+variable `H` followed by `OME`. Either one resolves to a path inside the checkout, so
+make stops and tells you when the value is not absolute. Note that the path must also
+be right for the platform — `/home/you/...` is a Linux path, and macOS puts your home
+under `/Users/you`.
 
 To start again with no saved edits and no caches:
 

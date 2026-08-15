@@ -7,6 +7,15 @@ UV = uv run
 -include .env.local
 export NEGPY_USER_DIR
 
+# A value that is not absolute means make did not expand what was written: it leaves ~
+# alone, and reads $HOME as the variable H followed by "OME". Either one quietly puts the
+# development user directory inside the checkout, so stop here with the correction.
+ifneq ($(NEGPY_USER_DIR),)
+ifneq ($(patsubst /%,,$(NEGPY_USER_DIR)),)
+$(error NEGPY_USER_DIR is "$(NEGPY_USER_DIR)", which is not an absolute path. make does not expand ~ or $$HOME in .env.local — write $$(HOME)/your-dir, or a full path)
+endif
+endif
+
 # Default target
 .PHONY: all
 all: format lint type test

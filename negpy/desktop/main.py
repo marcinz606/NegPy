@@ -79,7 +79,15 @@ def _install_exception_hook() -> None:
             return
         logger.critical("Unhandled exception", exc_info=(exc_type, exc_value, exc_tb))
         try:
-            from PyQt6.QtWidgets import QMessageBox
+            from PyQt6.QtWidgets import QApplication, QMessageBox
+
+            # Startup work runs before QApplication exists, and constructing a widget
+            # without one makes Qt call qFatal() — an abort at the C level, with no Python
+            # exception to catch, that buries the real failure under a complaint about
+            # widgets. Print the traceback instead; there is no UI to notify yet.
+            if QApplication.instance() is None:
+                sys.__excepthook__(exc_type, exc_value, exc_tb)
+                return
 
             QMessageBox.critical(
                 None,
@@ -92,6 +100,37 @@ def _install_exception_hook() -> None:
             logger.warning("could not show the error dialog", exc_info=True)
 
     sys.excepthook = _hook
+
+
+class UserDirectoryError(Exception):
+    """NegPy has nowhere to keep its databases, caches and presets.
+
+    Raised instead of the bare OSError so the startup path can say which directory it
+    could not create and what to do about it, rather than aborting on a makedirs
+    traceback the user cannot act on (issue #651).
+    """
+
+    def __init__(self, failed_dir: str, cause: OSError) -> None:
+        self.failed_dir = failed_dir
+        env_override = os.environ.get("NEGPY_USER_DIR")
+        lines = [
+            "NegPy could not create the directory it keeps its data in:",
+            f"    {failed_dir}",
+            f"    {cause.strerror or cause} (errno {cause.errno})",
+        ]
+        if env_override:
+            lines += [
+                "",
+                f"NEGPY_USER_DIR is set to {env_override!r}, which is where that path comes from.",
+                "It must be an absolute path on this machine that you can write to. If it came",
+                "from .env.local, note that make does not expand ~ or $HOME — use $(HOME).",
+            ]
+        else:
+            lines += [
+                "",
+                "Set NEGPY_USER_DIR to a directory you can write to, to start somewhere else.",
+            ]
+        super().__init__("\n".join(lines))
 
 
 def _bootstrap_environment() -> None:
@@ -108,7 +147,10 @@ def _bootstrap_environment() -> None:
         APP_CONFIG.default_export_dir,
     ]
     for d in dirs:
-        os.makedirs(d, exist_ok=True)
+        try:
+            os.makedirs(d, exist_ok=True)
+        except OSError as e:
+            raise UserDirectoryError(d, e) from e
     CrosstalkProfiles.ensure_user_dir()
     GearProfiles.ensure_user_dir()
 
@@ -158,7 +200,16 @@ def main() -> None:
 
         apply_override(override_cfg, APP_CONFIG)
 
-        _bootstrap_environment()
+        try:
+            _bootstrap_environment()
+        except UserDirectoryError as e:
+            # Nothing works without this directory, so stop here with an explanation
+            # rather than carry a traceback into a startup that can only fail again on
+            # the first database write. One line for the log, which may itself be
+            # unwritable here; the full text to stderr, since the log handler repeats it.
+            logger.critical("User directory unusable: %s", e.failed_dir)
+            print(f"\n{e}\n", file=sys.stderr)
+            sys.exit(1)
 
         # Storage (sqlite, no Qt dependency), created before QApplication so the saved UI scale
         # can be applied through QT_SCALE_FACTOR, which Qt reads only at startup.

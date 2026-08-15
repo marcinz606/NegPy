@@ -45,7 +45,9 @@ def get_default_user_dir() -> str:
     """Resolve the user directory, defaulting to Documents/NegPy with platform-native detection."""
     env_path = os.getenv("NEGPY_USER_DIR")
     if env_path:
-        return os.path.abspath(env_path)
+        # expanduser before abspath: a bare "~/dev" would otherwise become a literal "~"
+        # directory under the working directory, silently, and the app would run out of it.
+        return os.path.abspath(os.path.expanduser(env_path))
 
     docs_dir: Optional[Path] = None
 
