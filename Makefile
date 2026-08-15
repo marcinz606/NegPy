@@ -1,6 +1,12 @@
 # Variables
 UV = uv run
 
+# Optional per-developer settings, not in git. The usual content is NEGPY_USER_DIR,
+# which moves the app's user directory (databases, caches, presets, logs) away from
+# the production one. Absent, everything behaves as before.
+-include .env.local
+export NEGPY_USER_DIR
+
 # Default target
 .PHONY: all
 all: format lint type test
@@ -60,6 +66,32 @@ format:
 run:
 	@echo "Starting NegPy Desktop..."
 	@$(UV) python desktop.py
+
+# Delete the development user directory, so the next run starts with no saved edits
+# and no caches. Refuses to run against the default directory: that is the real
+# install. Set NEGPY_USER_DIR (see .env.local) to a scratch path first.
+# FORCE=1 skips the confirmation.
+.PHONY: clear-devhome
+clear-devhome:
+	@dir="$$NEGPY_USER_DIR"; \
+	if [ -z "$$dir" ]; then \
+		echo "NEGPY_USER_DIR is not set — nothing to clear."; \
+		echo "Set it in .env.local to a scratch directory, then run this again."; \
+		exit 1; \
+	fi; \
+	default=$$($(UV) python -c "import os; os.environ.pop('NEGPY_USER_DIR', None); from negpy.kernel.system.paths import get_default_user_dir; print(get_default_user_dir())"); \
+	if [ "$$(cd "$$dir" 2>/dev/null && pwd)" = "$$(cd "$$default" 2>/dev/null && pwd)" ]; then \
+		echo "Refusing to clear $$dir — that is the default user directory."; \
+		exit 1; \
+	fi; \
+	if [ ! -d "$$dir" ]; then echo "$$dir does not exist — nothing to clear."; exit 0; fi; \
+	if [ "$(FORCE)" != "1" ]; then \
+		printf "Delete %s and everything in it? [y/N] " "$$dir"; \
+		read reply; \
+		case "$$reply" in [yY]*) ;; *) echo "Cancelled."; exit 1;; esac; \
+	fi; \
+	rm -rf "$$dir"; \
+	echo "Cleared $$dir"
 
 # Run against a locally built sane-backends from rohanpandula's fork: coolscan3
 # with infrared un-gated (stock compiles it out; LS-50 reports no IR channel),

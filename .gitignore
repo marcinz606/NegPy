@@ -20,6 +20,8 @@ appimagetool-x86_64.AppImage
 # user settings
 user/
 debug/
+# per-developer make settings (NEGPY_USER_DIR, ...)
+.env.local
 
 # Virtual Environment
 venv/

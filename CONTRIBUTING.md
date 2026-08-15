@@ -49,6 +49,41 @@ make install
 make run
 ```
 
+#### A separate user directory for development
+
+NegPy keeps its databases, caches, presets, logs and `override.toml` in one user
+directory — `Documents/NegPy` by default. If you also use NegPy for real work, point
+your development builds at a different directory, so that test edits and stale caches
+cannot touch the real one.
+
+Set `NEGPY_USER_DIR` to an absolute path. The `Makefile` reads an optional, gitignored
+`.env.local`:
+
+```make
+# .env.local
+NEGPY_USER_DIR = $(HOME)/negpy-devhome
+```
+
+`make run` then uses that directory, and creates it if it is missing. `~` is not
+expanded — use `$(HOME)` or a full path. Without the file, nothing changes.
+
+To start again with no saved edits and no caches:
+
+```bash
+make clear-devhome
+```
+
+The target deletes the whole directory after a confirmation (`FORCE=1` skips it), and
+refuses to run if `NEGPY_USER_DIR` is unset or points at the default directory. An
+`override.toml` you rely on lives in there too, so keep a copy to put back.
+
+Two things stay outside the user directory:
+
+- `.negpy` sidecars, which are written next to the source images. A sidecar written by a
+  development build is promoted into the database of whichever install opens that image
+  next. Sidecar export is off by default; if you turn it on, test against copies.
+- Exports, wherever you send them.
+
 ## 🏗️ Project Structure
 
 The codebase follows a modular architecture:
@@ -107,6 +142,7 @@ The `Makefile` is the central source of truth for developer commands and execute
 - `make format`: Auto-format code with Ruff.
 - `make all`: Run lint, type, and test in sequence.
 - `make clean`: Removes cache and build artifacts.
+- `make clear-devhome`: Deletes the development user directory (see [above](#a-separate-user-directory-for-development)).
 
 
 ## 📦 Building and Packaging
