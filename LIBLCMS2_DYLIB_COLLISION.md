@@ -70,16 +70,32 @@ This is why the symptom looked identical to a codec-unavailable /
 code-signing problem: the observable error text is the same regardless of
 cause.
 
-Nothing about this is arm64-specific: downloaded the x86_64 wheels for all
-four packages (`uv pip install --target ... --python-platform
-x86_64-apple-darwin`, no Intel hardware needed — pure download/inspection)
-and checked symbol closure the same way. rawpy's x86_64 `liblcms2.2.dylib`
-is **also** missing `_cmsChannelsOfColorSpace`; PIL's and cv2's x86_64
-copies have it. The collision risk is identical on both architectures — the
-original report's "works on the Intel Mac Mini" was PyInstaller's arbitrary
-same-basename pick order happening not to choose rawpy's copy there, not
-architectural safety. The bug was always latent on Intel too, just never
-triggered.
+Nothing about this is arm64-specific. First checked the x86_64 *wheels*
+(`uv pip install --target ... --python-platform x86_64-apple-darwin`, no
+Intel hardware needed — pure download/inspection): rawpy's x86_64
+`liblcms2.2.dylib` is **also** missing `_cmsChannelsOfColorSpace`; PIL's
+and cv2's x86_64 copies have it. That shows the *risk* exists on both
+architectures, but not what the real shipped Intel build actually did —
+inferring "Intel got lucky" from wheel contents alone would have been the
+same shape of guess that cost this investigation twice already, so
+checked the real thing instead: downloaded the official 0.49.0
+arm64 *and* x86_64 DMGs (`gh release download 0.49.0 --repo
+marcinz606/NegPy`) and inspected each one's actual canonical symlink.
+
+- Shipped arm64: `Contents/Frameworks/liblcms2.2.dylib` →
+  `rawpy/.dylibs/liblcms2.2.dylib` — missing the symbol. Matches the
+  reported M1 failure exactly.
+- Shipped x86_64: `Contents/Frameworks/liblcms2.2.dylib` →
+  `imagecodecs/.dylibs/liblcms2.2.dylib` — imagecodecs' own copy, has the
+  symbol. Matches the reported "works on Intel" exactly.
+
+Confirmed, not inferred: the original bug report was accurate on both
+counts, and the reason is exactly what it looks like — PyInstaller's
+same-basename collision resolution picked a different copy per
+architecture, and only the arm64 pick happened to be broken. The
+underlying risk (rawpy's copy is incomplete) is architecture-independent;
+whether it bites you is down to build-time pick order, which is not
+something to rely on.
 
 ## Fix
 
@@ -90,14 +106,16 @@ covered by the final signature). Finds `imagecodecs`'s own bundled
 `Contents/Frameworks/liblcms2.2.dylib` symlink at it, so every consumer's
 `@rpath` resolution lands on the copy `_cms.abi3.so` actually needs.
 
-Verified on the M1 Pro used for this investigation:
+Verified on the M1 Pro used for this investigation, across two rebuilds
+(the initial fix, then the hardened version below):
 - `ctypes.CDLL()` on the rebuilt `_cms.abi3.so` now loads without error.
 - `codesign --verify --deep --strict` on the rebuilt `.app` passes cleanly.
 - The canonical symlink now reads
   `liblcms2.2.dylib -> imagecodecs/__dot__dylibs/liblcms2.2.dylib`.
-- End-to-end: relaunched the rebuilt app, re-ran the original failing
-  export. `negpy.log` shows no fallback warning and no error — the real
-  lcms2 transform runs, not the LUT approximation.
+- End-to-end, once per rebuild: force-quit any running instance, relaunched
+  the freshly rebuilt app, re-ran the export. `negpy.log` shows no fallback
+  warning and no error both times — the real lcms2 transform runs, not the
+  LUT approximation.
 
 `fix_lcms2_dylib_collision()` also fails the build (`raise`, not a
 `print`+`return`) if imagecodecs' own copy can't be found unambiguously, or
@@ -106,21 +124,26 @@ closure described below. A follow-up review pointed out the first version
 of this fix only warned and shipped anyway on a miss, which is the same
 silent-failure shape as the bug itself.
 
-## Did repointing the symlink break the other four consumers?
+## Did repointing the symlink break the other consumers?
 
-The canonical symlink is shared — `cv2`, `PIL`, and `rawpy`'s own dylibs
-also resolve `@rpath/liblcms2.2.dylib` through it, and previously got
-rawpy's copy. Repointing it at imagecodecs' copy could in principle have
-fixed one consumer by breaking another, on the unverified assumption that
-imagecodecs' lcms2 build is a strict superset. Checked directly rather than
-assumed:
+Four packages vendor their own `liblcms2.2.dylib` copy (`cv2`, `PIL`,
+`rawpy`, `imagecodecs`), and the canonical symlink they all resolve through
+is shared — before this fix it pointed at rawpy's copy, so `cv2`'s and
+`PIL`'s own dylibs were also getting rawpy's build. Repointing it at
+imagecodecs' copy could in principle have fixed one consumer by breaking
+another, on the unverified assumption that imagecodecs' lcms2 build is a
+strict superset. Checked directly rather than assumed:
 
-- Found every `.so`/`.dylib` in the bundle that links `liblcms2.2.dylib`
-  (`otool -L`): `PIL/_imagingcms*.so`, `rawpy/libraw_r*.dylib`,
-  `imagecodecs/_cms.abi3.so`, `imagecodecs/_jpeg2k.abi3.so`,
-  `libjxl_cms*.dylib` (top-level and `cv2`'s copy).
+- Found every real (non-symlink) `.so`/`.dylib` in the bundle that links
+  `liblcms2.2.dylib` (`otool -L`): 7 files —
+  `PIL/_imagingcms.cpython-313-darwin.so`; `rawpy/libraw_r.dylib`,
+  `rawpy/libraw_r.25.dylib`, and `rawpy/libraw_r.25.0.0.dylib` (three
+  filenames for the same versioned library, PyInstaller duplicates rather
+  than symlinks them); `imagecodecs/_cms.abi3.so` and
+  `imagecodecs/_jpeg2k.abi3.so`; and `cv2`'s own `libjxl_cms.0.11.1.dylib`
+  (the top-level copy of that name is a symlink to this one).
 - For each, diffed its undefined `_cms*` symbols (`nm -u`) against the new
-  canonical's exports (`nm -gU`): **no gaps for any consumer.**
+  canonical's exports (`nm -gU`): **no gaps for any of the 7.**
 - `LC_ID_DYLIB` compatibility versions: all four original copies, and every
   consumer's recorded `LC_LOAD_DYLIB` requirement, declare compatibility
   version `3.0.0` (only `current version` differs — lcms2 keeps its ABI
