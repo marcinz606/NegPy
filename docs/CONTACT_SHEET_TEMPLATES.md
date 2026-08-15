@@ -1,8 +1,8 @@
 # Contact Sheet Templates
 
-The **Contact Sheet** section in the Export sidebar can load layout presets from plain
-`.toml` files. **Default** is your in-app baseline layout (factory 600 / 16 / 32 / 38 until
-you change it).
+The **Contact Sheet** section in the Export sidebar loads layout presets from plain `.toml`
+files. **Default** is your in-app baseline layout. It starts at the factory values
+600 / 16 / 32 / 38.
 
 ---
 
@@ -20,8 +20,8 @@ On Windows this is typically:
 C:\Users\<you>\NegPy\contact_sheets\
 ```
 
-NegPy creates the folder on startup. You can also click **Save as template** in the app
-to write a file from the current layout settings.
+NegPy creates the folder on startup. Click **Save as template** in the app to write a file
+from the current layout settings.
 
 ---
 
@@ -46,16 +46,16 @@ max_tiles = 48
 | `margin` | Black border around the grid (pixels) | 0–500 |
 | `max_tiles` | Frames per sheet before pagination | 1–200 |
 
-Omitted keys fall back to the built-in defaults (600 / 16 / 32 / 38).
+An omitted key falls back to the built-in default (600 / 16 / 32 / 38).
 
-The optional top-level `name` field is what appears in the **Template** dropdown. If
-omitted, the filename stem is used (without `.toml`).
+The optional top-level `name` field appears in the **Template** dropdown. Without it,
+NegPy shows the filename stem (without `.toml`).
 
 ---
 
 ## Examples
 
-**NegPy factory default (reference — not required as a file)**
+**NegPy factory default (reference only, not required as a file)**
 
 ```toml
 name = "NegPy default"
@@ -83,12 +83,14 @@ max_tiles = 12
 
 ## Behaviour in the app
 
-- **Default** selected → loads your saved Default layout (starts at factory 600 / 16 / 32 / 38).
-- **Named template** selected → loads that `.toml` file into the spinboxes.
-- **Editing spinboxes** while a template is selected updates that template automatically
-  (Default → saved in app settings; named → rewritten `.toml` file). Changes debounce ~500 ms.
+- Select **Default** to load your saved Default layout. It starts at the factory 600 / 16 / 32 / 38.
+- Select a **named template** to load that `.toml` file into the spinboxes.
+- Change a spinbox while a template is selected and NegPy updates that template. Default goes
+  into the app settings, a named template is rewritten as a `.toml` file. Changes debounce
+  about 500 ms.
 - **Save as template** creates a **new** named file from the current spinbox values.
-- Invalid or unreadable files are ignored when building the list.
-- If a saved template file is deleted, the app falls back to **Default** on next launch.
+- NegPy ignores invalid or unreadable files when it builds the list.
+- If you delete a saved template file, the app falls back to **Default** on the next launch.
 
-Output folder, tile rendering, and JPEG naming are unchanged — templates only control grid layout.
+Templates control the grid layout only. The output folder, the tile rendering and the JPEG
+naming do not change.
