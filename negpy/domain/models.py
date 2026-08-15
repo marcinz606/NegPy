@@ -22,7 +22,7 @@ from negpy.features.toning.models import ToningConfig
 from negpy.features.finish.models import FinishConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.rgbscan.models import RgbScanConfig
-from negpy.features.hdr.models import HdrConfig
+from negpy.features.hdr.models import HdrConfig, hdr_active
 from negpy.features.stitch.models import StitchConfig
 from negpy.features.metadata.models import MetadataConfig
 from negpy.domain.migrations import migrate_export_fmt, migrate_flat_config
@@ -313,6 +313,27 @@ class WorkspaceConfig:
     finish: FinishConfig = field(default_factory=FinishConfig)
     metadata: MetadataConfig = field(default_factory=MetadataConfig)
     export: ExportConfig = field(default_factory=ExportConfig)
+
+    def __post_init__(self) -> None:
+        """A merged bracket never carries the Normalize stretch.
+
+        The two decide the same thing and the merge loses. Normalize meters the buffer and
+        stretches the measured range to full, which divides the render exposure's scale
+        straight back out — moving the anchor then changes nothing at all below the point
+        where its specular stops clipping. They do not want each other either: Normalize
+        rescues faded film, fading *compresses* density range, and a frame whose range
+        collapsed is not one that needed a bracket.
+
+        Held here rather than at the render, because e6_normalize is read from
+        `is_transparency_transfer` down through both engines and the sidebars, and a rule
+        applied at some of those is the hidden-but-live trap the Calibration panel already
+        learned. Inert everywhere, from one place.
+
+        Not a migration: this must hold however the config was built — a merge created now,
+        a composite loaded from the DB, a `replace` that turns an ordinary frame into one.
+        """
+        if hdr_active(self.hdr) and self.process.e6_normalize:
+            object.__setattr__(self, "process", replace(self.process, e6_normalize=False))
 
     def to_dict(self) -> Dict[str, Any]:
         """

@@ -13,12 +13,12 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.sidebar.tone import _CH_COLORS, _CH_LABEL, _CH_SUFFIX
-from negpy.desktop.view.styles.templates import EditedDot, section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import EditedDot, hint_label, section_subheader, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.hdr.logic import output_scale
-from negpy.features.hdr.models import ANCHOR_EV_UNSET
+from negpy.features.hdr.models import ANCHOR_EV_UNSET, hdr_active
 from negpy.features.process.models import ProcessMode, invalidate_local_bounds
 
 # Luma Range Clip slider mapping: positions 0..100 clip the histogram tails; negative
@@ -225,6 +225,21 @@ class ProcessSidebar(BaseSidebar):
         self.layout.addWidget(self.normalize_e6_btn)
         self.layout.addWidget(self.render_ev_slider)
 
+        # Disabled widgets get no hover, so the detail hangs off the hint, not the button.
+        self.normalize_merged_hint = hint_label("Not applied to a merged bracket.")
+        self.normalize_merged_hint.setToolTip(
+            wrap_tooltip(
+                "A merge already places the tones: Render exposure picks which exposure it "
+                "prints at. Normalize would meter the merged frame and stretch it to full, "
+                "which divides that choice straight back out — the anchor would stop doing "
+                "anything. The two are not wanted together in any case: Normalize rescues "
+                "faded film, and fading compresses the density range a bracket exists to "
+                "capture. Unmerge the frame if you need the stretch."
+            )
+        )
+        self.normalize_merged_hint.setVisible(False)
+        self.layout.addWidget(self.normalize_merged_hint)
+
         self.layout.addStretch()
 
     def _channel_index(self) -> int:
@@ -366,11 +381,15 @@ class ProcessSidebar(BaseSidebar):
                 btn.edited_dot.set_active(any(getattr(conf, f) != 0.0 for f in fields))
 
             is_e6 = conf.process_mode == ProcessMode.E6
+            # Greyed on a merge, not hidden: the render already ignores it (WorkspaceConfig
+            # holds that invariant), and a control that vanishes teaches nothing about why.
+            merged = hdr_active(self.state.config.hdr)
             self.normalize_e6_btn.setVisible(is_e6)
+            self.normalize_e6_btn.setChecked(conf.e6_normalize)
+            self.normalize_e6_btn.setEnabled(not merged)
 
             # Only a merge has a render exposure to choose, and only the transfer path uses
             # a fixed window for it to mean anything against.
-            merged = bool(self.state.config.hdr.hdr_enabled and self.state.config.hdr.hdr_paths)
             self.render_ev_slider.setVisible(merged and transfer)
             if merged:
                 hdr = self.state.config.hdr
@@ -384,7 +403,7 @@ class ProcessSidebar(BaseSidebar):
                 self.render_ev_slider.blockSignals(True)
                 self.render_ev_slider.setValue(ev)
                 self.render_ev_slider.blockSignals(False)
-            self.normalize_e6_btn.setChecked(conf.e6_normalize)
+            self.normalize_merged_hint.setVisible(is_e6 and merged)
 
             self.lock_bounds_btn.setChecked(conf.lock_bounds)
             self.autodetect_btn.setChecked(self.state.autodetect_enabled)
