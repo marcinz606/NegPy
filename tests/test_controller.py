@@ -1109,6 +1109,23 @@ class TestBatchExportFiltering(unittest.TestCase):
             # export_path is validated by _ensure_valid_export_path (mocked to /tmp/out)
             self.assertEqual(t.params.export.export_path, "/tmp/out")
 
+    def test_composite_frames_export_beside_a_half_frame(self):
+        """An HDR or stitched composite hash ends in "#hdr"/"#stitch". The sibling
+        lookup read that suffix as a half index, and int("hdr") stopped the batch
+        before any frame was written."""
+        from negpy.features.hdr.models import hdr_hash
+        from negpy.features.stitch.models import stitch_hash
+
+        self.mock_session_manager.state.uploaded_files = [
+            {"name": "bracket", "path": "/tmp/_DSC1722.NEF", "hash": hdr_hash(["h1", "h2"])},
+            {"name": "panorama", "path": "/tmp/_DSC1730.NEF", "hash": stitch_hash(["h3", "h4"])},
+            {"name": "left half", "path": "/tmp/scan.tif", "hash": "h5#1"},
+        ]
+        self.visible_indices = [0, 1, 2]
+        self.controller.request_batch_export()
+        tasks = self._captured_tasks()
+        self.assertEqual([t.file_info["name"] for t in tasks], ["bracket", "panorama", "left half"])
+
 
 class TestLinearOutputExportCurrentFile(unittest.TestCase):
     """Regression: exporting Linear Output for the *current* file (files=None) must

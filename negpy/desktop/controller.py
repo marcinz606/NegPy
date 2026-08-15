@@ -66,7 +66,7 @@ from negpy.domain.models import (
     preset_from_export_config,
     resolve_preset_export,
 )
-from negpy.services.assets.half_frame import half_hash
+from negpy.services.assets.half_frame import base_hash, half_hash, half_of
 from negpy.services.assets.sidecar import load_or_promote, write_sidecar
 from negpy.features.exposure.analysis import (
     RING_GRID,
@@ -3729,9 +3729,9 @@ class AppController(QObject):
         # if one half was calibrated and the other wasn't (still at default), both need
         # the same correction during export.
         base = f.get("hash", "")
-        if "#" in base:
-            half_val = int(base.split("#")[-1])
-            sibling_hash = half_hash(base.rsplit("#", 1)[0], 3 - half_val)
+        half_val = half_of(base)
+        if half_val is not None:
+            sibling_hash = half_hash(base_hash(base) or base, 3 - half_val)
             sibling_params = self.session.repo.load_file_settings(sibling_hash)
             session_ct = self.state.config.process.crosstalk_strength
             params_ct = params.process.crosstalk_strength
