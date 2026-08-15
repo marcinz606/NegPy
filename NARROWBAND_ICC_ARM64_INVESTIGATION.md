@@ -92,6 +92,39 @@ Confirmed by reproducing on real M1 hardware:
    ```
    Timestamps match the `negpy.log` warning to the second. AMFI is the cause.
 
+## Why this never showed up in dev mode
+
+Confirmed dev mode (`make run`, i.e. `uv run python desktop.py`) does not
+reproduce the bug at all:
+
+```
+uv run python -c "from imagecodecs import cms_transform"   # imports cleanly
+```
+
+The `_cms.abi3.so` file itself is the same kind of signature either way —
+plain ad-hoc, no Team ID, in both the venv copy and the packaged copy
+(`codesign -dvvv` on each shows identical `flags=0x2(adhoc)`,
+`TeamIdentifier=not set`). The difference is the signature of the process
+*loading* it:
+
+- Dev mode: `uv`'s managed CPython interpreter —
+  `flags=0x20002(adhoc,linker-signed)`.
+- Packaged app: PyInstaller's `NegPy` bootloader executable —
+  `flags=0x2(adhoc)`, no `linker-signed`.
+
+`linker-signed` is a flag the OS linker (`ld`) stamps on binaries it builds
+locally on that machine; AMFI treats those as implicitly trusted and is
+lenient about the ad-hoc extension modules they dlopen. A binary re-signed
+after the fact with plain `codesign -s -` — which is what PyInstaller's
+bootloader gets, and what `build.py`'s re-sign step does — never carries that
+flag, and doesn't get the same leniency: AMFI enforces the strict
+chain-to-Apple check on everything it lazily dlopens.
+
+Practical consequence: any contributor running `make run`, or launching
+`desktop.py` from an IDE, will never see this bug regardless of chip
+architecture — that's the normal dev workflow, and it's likely why this
+went unreported until a user hit it on a downloaded release build.
+
 ## Free workaround tested and ruled out
 
 Before accepting the $99/year Developer ID cost, tested whether the
