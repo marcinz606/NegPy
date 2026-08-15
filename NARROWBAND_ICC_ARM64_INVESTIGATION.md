@@ -179,6 +179,7 @@ than lcms2's exact per-pixel transform.
 ## Status
 
 Root cause confirmed; notarization (the durable fix) is not being done as
-part of this branch. Per the plan above, this file now stands as the tracked
-follow-up record rather than a live investigation — file a ticket for the
-`release.yml` notarization work and this doc can be deleted once that lands.
+part of this branch. Tracked as
+[#1](https://github.com/thetalkingdrum/NegPy/issues/1). This file now stands
+as the record behind that issue rather than a live investigation — delete it
+once #1 lands.
