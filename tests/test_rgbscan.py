@@ -233,6 +233,71 @@ def test_resolve_asset_rgbscan_resets_when_not_triplet():
     assert out.rgbscan == RgbScanConfig()
 
 
+def _with_bounds(config, **rgbscan_kwargs):
+    return replace(
+        config,
+        rgbscan=RgbScanConfig(**rgbscan_kwargs) if rgbscan_kwargs else RgbScanConfig(),
+        process=replace(config.process, local_floors=(-1.3, -1.4, -1.5), local_ceils=(-0.2, -0.3, -0.4)),
+    )
+
+
+def test_resolve_asset_rgbscan_drops_bounds_when_becoming_a_triplet():
+    """The lone red exposure's bounds measured G/B on sensor leak alone; on the composite
+    they invert both channels to black and leave a solid red frame."""
+    from negpy.desktop.session import resolve_asset_rgbscan
+
+    lone = _with_bounds(WorkspaceConfig())
+    out = resolve_asset_rgbscan(lone, {"path": "/r", "green_path": "/g", "blue_path": "/b"})
+    assert out.process.is_local_initialized is False
+
+
+def test_resolve_asset_rgbscan_drops_bounds_when_leaving_a_triplet():
+    from negpy.desktop.session import resolve_asset_rgbscan
+
+    triplet = _with_bounds(WorkspaceConfig(), enabled=True, green_path="/g", blue_path="/b")
+    out = resolve_asset_rgbscan(triplet, {"path": "/r"})
+    assert out.process.is_local_initialized is False
+
+
+def test_resolve_asset_rgbscan_drops_bounds_when_members_change():
+    from negpy.desktop.session import resolve_asset_rgbscan
+
+    triplet = _with_bounds(WorkspaceConfig(), enabled=True, green_path="/g", blue_path="/b")
+    out = resolve_asset_rgbscan(triplet, {"path": "/r", "green_path": "/g2", "blue_path": "/b2"})
+    assert out.process.is_local_initialized is False
+
+
+def test_resolve_asset_rgbscan_keeps_bounds_on_unchanged_composition():
+    """Reopening the same triplet must not throw away its analysis, and align is not a
+    composition change."""
+    from negpy.desktop.session import resolve_asset_rgbscan
+
+    triplet = _with_bounds(WorkspaceConfig(), enabled=True, green_path="/g", blue_path="/b")
+    out = resolve_asset_rgbscan(triplet, {"path": "/r", "green_path": "/g", "blue_path": "/b", "align": False})
+    assert out.process.local_floors == triplet.process.local_floors
+    assert out.process.local_ceils == triplet.process.local_ceils
+    assert out.rgbscan.align is False
+
+
+def test_resolve_asset_rgbscan_keeps_bounds_on_a_plain_frame():
+    """The overwhelmingly common case: no triplet either side, nothing to invalidate."""
+    from negpy.desktop.session import resolve_asset_rgbscan
+
+    plain = _with_bounds(WorkspaceConfig())
+    out = resolve_asset_rgbscan(plain, {"path": "/r"})
+    assert out.process.local_floors == plain.process.local_floors
+
+
+def test_resolve_asset_rgbscan_respects_locked_bounds():
+    """lock_bounds is the user pinning the stretch by hand; invalidate_local_bounds no-ops."""
+    from negpy.desktop.session import resolve_asset_rgbscan
+
+    lone = _with_bounds(WorkspaceConfig())
+    lone = replace(lone, process=replace(lone.process, lock_bounds=True))
+    out = resolve_asset_rgbscan(lone, {"path": "/r", "green_path": "/g", "blue_path": "/b"})
+    assert out.process.local_floors == lone.process.local_floors
+
+
 def test_thumbnail_cache_key_namespaces_triplets():
     """Batch and rendered paths must derive the same triplet key so they share a cache slot."""
     from negpy.services.assets.thumbnails import thumbnail_cache_key

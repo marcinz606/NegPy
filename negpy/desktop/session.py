@@ -11,7 +11,8 @@ from negpy.desktop.settings_catalog import apply_selected_fields
 from negpy.desktop.view.canvas.crop_guides import CropGuide
 from negpy.domain.models import ExportPreset, WorkspaceConfig
 from negpy.features.exposure.models import apply_targets
-from negpy.features.rgbscan.models import RgbScanConfig
+from negpy.features.process.models import invalidate_local_bounds
+from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.hdr.logic import resolve_anchor, seed_shadow_density
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, HdrConfig, hdr_frame_paths
 from negpy.features.stitch.models import StitchConfig
@@ -432,15 +433,37 @@ def _source_effective_bounds(process) -> Optional[tuple]:
     return None
 
 
+def _triplet_composition(config: RgbScanConfig) -> tuple:
+    """Which exposures the assembled source takes its channels from; () when not a triplet.
+
+    `align` is excluded on purpose: sub-pixel registration cannot move a whole-frame
+    percentile, so it must not cost a re-analysis.
+    """
+    return (config.green_path, config.blue_path) if is_rgb_triplet(config) else ()
+
+
 def resolve_asset_rgbscan(params: WorkspaceConfig, asset: dict) -> WorkspaceConfig:
     """Overlay a frame's own RGB-scan triplet paths (from the asset dict) onto its export
     params — the authoritative source select_file uses. A non-triplet frame gets rgbscan
-    reset so a batch frame never inherits the currently-open frame's leaked/stale triplet."""
+    reset so a batch frame never inherits the currently-open frame's leaked/stale triplet.
+
+    A triplet keeps the red exposure's content hash (it *is* that asset, with green/blue
+    riding along), so it loads the lone red exposure's saved edit — including per-frame
+    bounds measured when green and blue held nothing but sensor leak. Applying those to a
+    three-band composite puts its real G/B densities above their ceils and inverts both to
+    black, leaving a solid red frame. So a change of composition drops the bounds and the
+    stretch re-derives from the assembled source. Stitch and HDR need no such guard: they
+    get a fresh hash, so they never inherit a member's bounds.
+    """
     green, blue = asset.get("green_path"), asset.get("blue_path")
     if green and blue:
         align = bool(asset.get("align", params.rgbscan.align))
-        return replace(params, rgbscan=RgbScanConfig(enabled=True, green_path=green, blue_path=blue, align=align))
-    return replace(params, rgbscan=RgbScanConfig())
+        resolved = RgbScanConfig(enabled=True, green_path=green, blue_path=blue, align=align)
+    else:
+        resolved = RgbScanConfig()
+    if _triplet_composition(resolved) == _triplet_composition(params.rgbscan):
+        return replace(params, rgbscan=resolved)
+    return replace(params, rgbscan=resolved, process=replace(params.process, **invalidate_local_bounds(params.process)))
 
 
 def resolve_asset_process_mode(params: WorkspaceConfig, asset: dict) -> WorkspaceConfig:
