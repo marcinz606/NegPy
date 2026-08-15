@@ -1221,7 +1221,7 @@ class ImageProcessor:
             return result, self._get_target_icc_bytes(color_space, output_icc_path)
         except Exception as e:
             logger.error(f"CMS transformation failed: {e}")
-            return img_u16, None
+            return img_u16, self._get_target_icc_bytes(working_color_space, input_icc_path)
 
     def _apply_color_management_u16_greyscale(
         self,
@@ -1325,7 +1325,9 @@ class ImageProcessor:
             return result, self._get_target_icc_bytes(color_space, output_icc_path)
         except Exception as e:
             logger.error(f"CMS transformation failed: {e}")
-            return img_u16, None
+            # The pixels never left the working space, so tag them with it. Untagged,
+            # a 16-bit export reads as sRGB in every viewer.
+            return img_u16, self._get_target_icc_bytes(working_color_space, input_icc_path)
 
     @staticmethod
     def _log_cms_codec_dlopen_error() -> None:

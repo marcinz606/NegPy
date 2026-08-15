@@ -119,6 +119,35 @@ class TestExportColorManagement(unittest.TestCase):
         self.assertFalse(np.array_equal(out_fallback, img_u16), "fallback must still colour-manage, not pass the source through untouched")
         np.testing.assert_allclose(out_fallback.astype(np.float32), out_direct.astype(np.float32), atol=2.0)
 
+    def test_a_failed_transform_still_tags_the_pixels_it_ships(self):
+        """When the transform fails for a reason the LUT fallback does not cover, the
+        buffer goes out untouched — still in the working space. Shipping it untagged
+        makes every viewer read it as sRGB, so the export is wrong with nothing to
+        show why."""
+        from unittest.mock import patch
+
+        import imagecodecs
+
+        img_u16 = (np.array([[[0.50, 0.40, 0.30]]], dtype=np.float32) * 65535.0 + 0.5).astype(np.uint16)
+        working_icc = icc_bytes_for_space(WORKING_COLOR_SPACE)
+
+        imagecodecs.cms_transform  # noqa: B018  (materialize before patching; see the test above)
+        with patch(
+            "negpy.services.rendering.image_processor.imagecodecs.cms_transform",
+            side_effect=RuntimeError("lcms2 refused the profile"),
+        ):
+            out, icc = self.proc._apply_color_management_u16(img_u16, WORKING_COLOR_SPACE, ColorSpace.SRGB.value, None, None)
+        np.testing.assert_array_equal(out, img_u16)
+        self.assertEqual(icc, working_icc)
+
+        with patch(
+            "negpy.services.rendering.image_processor.apply_icc_u16_rgb",
+            side_effect=RuntimeError("LUT build failed"),
+        ):
+            out, icc = self.proc._apply_color_management_u16_rgb(img_u16, WORKING_COLOR_SPACE, ColorSpace.SRGB.value, None, None)
+        np.testing.assert_array_equal(out, img_u16)
+        self.assertEqual(icc, working_icc)
+
 
 class TestDisplayTransform(unittest.TestCase):
     def test_srgb_working_is_identity(self):
