@@ -3,7 +3,7 @@ import os
 import time
 from collections import Counter
 from dataclasses import dataclass, fields, replace
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import cv2
 import numpy as np
@@ -727,27 +727,38 @@ class AppController(QObject):
         self.status_progress_requested.emit(current, total)
         self.batch_progress.emit(current, total, name)
 
-    def _set_thumbnail(self, key: str, pil_img: Any) -> None:
-        u8_arr = np.array(pil_img.convert("RGB"))
+    def _set_thumbnail(self, key: str, pil_img: Any) -> bool:
+        """False when the image will not decode. PIL decodes lazily, so a truncated
+        file raises here — on the UI thread — not in the worker that supplied it."""
+        try:
+            u8_arr = np.array(pil_img.convert("RGB"))
+        except Exception as e:
+            logger.warning(f"Unreadable thumbnail for {key}: {e}")
+            return False
         self.state.thumbnails[key] = QIcon(QPixmap.fromImage(ImageConverter.to_qimage(u8_arr)))
+        return True
 
-    def _apply_thumbnails(self, new_thumbs: Dict[str, Any]) -> None:
-        """Commit a batch (or a chunk of a running one) to the filmstrip."""
+    def _apply_thumbnails(self, new_thumbs: Dict[str, Any]) -> Set[str]:
+        """Commit a batch (or a chunk of a running one) to the filmstrip. Returns the
+        keys whose image would not decode."""
+        broken = set()
         for key, pil_img in new_thumbs.items():
             # A frame that already rendered on the canvas has the correct (inverted)
             # thumbnail; don't let this batch overwrite it with the source-decode placeholder.
             if pil_img and key not in self.state.rendered_thumbnails:
-                self._set_thumbnail(key, pil_img)
+                if not self._set_thumbnail(key, pil_img):
+                    broken.add(key)
         self.session.asset_model.refresh()
+        return broken
 
     def _on_thumbnails_finished(self, new_thumbs: Dict[str, Any]) -> None:
         self.status_progress_requested.emit(0, 0)
         self._end_batch("thumbnails")
-        self._apply_thumbnails(new_thumbs)
+        broken = self._apply_thumbnails(new_thumbs)
 
         requested = getattr(self, "_thumb_requested", [])
         self._thumb_requested = []
-        failed = {k for k in requested if not new_thumbs.get(k)}
+        failed = {k for k in requested if not new_thumbs.get(k)} | broken
         for f in self.state.uploaded_files:
             key = asset_thumbnail_key(f)
             if key in failed:
@@ -759,8 +770,7 @@ class AppController(QObject):
     def _on_rendered_thumbnail(self, new_thumbs: Dict[str, Any]) -> None:
         """A canvas render produced a thumbnail — it supersedes any batch placeholder."""
         for key, pil_img in new_thumbs.items():
-            if pil_img:
-                self._set_thumbnail(key, pil_img)
+            if pil_img and self._set_thumbnail(key, pil_img):
                 self.state.rendered_thumbnails.add(key)
         self.session.asset_model.refresh()
 

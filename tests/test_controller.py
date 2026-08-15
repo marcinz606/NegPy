@@ -204,6 +204,26 @@ class TestAppController(unittest.TestCase):
         self.assertIn("decode_failed", state.uploaded_files[0])
         self.assertNotIn("decode_failed", state.uploaded_files[1])
 
+    def test_a_thumbnail_that_cannot_decode_badges_its_frame(self):
+        """A PIL image decodes lazily, so a truncated cache entry raises on the UI
+        thread, inside a Qt slot, where an exception ends the process."""
+        from PIL import Image
+
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
+        self.mock_session_manager.asset_model = MagicMock()
+        state = self.mock_session_manager.state
+        state.uploaded_files = [{"name": "cut.dng", "path": "/tmp/cut.dng", "hash": "h1"}]
+        key = asset_thumbnail_key(state.uploaded_files[0])
+        self.controller._thumb_requested = [key]
+
+        broken = MagicMock(spec=Image.Image)
+        broken.convert.side_effect = OSError("broken data stream when reading image file")
+        self.controller._on_thumbnails_finished({key: broken})
+
+        self.assertNotIn(key, state.thumbnails)
+        self.assertIn("decode_failed", state.uploaded_files[0])
+
     def test_render_thumbnail_update_does_not_badge_other_frames(self):
         from PIL import Image
 

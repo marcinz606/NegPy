@@ -44,6 +44,19 @@ class TestThumbnailCacheSize(unittest.TestCase):
     def test_missing_thumbnail_is_a_miss(self):
         self.assertIsNone(self.store.get_thumbnail("h_absent"))
 
+    def test_truncated_thumbnail_is_a_miss(self):
+        """A half-written entry (a kill or a full disk during the write) opens on its
+        header alone. It has to fail here, where the miss regenerates it, and not later
+        on the thread that paints it."""
+        ts = APP_CONFIG.thumbnail_size
+        self.store.save_thumbnail("h_cut", Image.new("RGB", (ts, ts), (10, 20, 30)))
+        path = os.path.join(self.store.thumb_dir, "h_cut.jpg")
+        with open(path, "rb") as f:
+            data = f.read()
+        with open(path, "wb") as f:
+            f.write(data[: len(data) // 2])
+        self.assertIsNone(self.store.get_thumbnail("h_cut"))
+
 
 class TestThumbnailCacheClearing(unittest.TestCase):
     """The Manage Database dialog reports and empties the thumbnail cache."""
