@@ -92,6 +92,41 @@ Confirmed by reproducing on real M1 hardware:
    ```
    Timestamps match the `negpy.log` warning to the second. AMFI is the cause.
 
+## Free workaround tested and ruled out
+
+Before accepting the $99/year Developer ID cost, tested whether the
+`com.apple.security.cs.disable-library-validation` entitlement — a free,
+ad-hoc-compatible opt-out of *Library Validation* — would satisfy AMFI here:
+
+```
+codesign --force --deep -s - --entitlements entitlements.plist NegPy.app
+```
+(entitlements.plist: `com.apple.security.cs.disable-library-validation` = true)
+
+Confirmed present on the re-signed executable (`codesign -d --entitlements -`),
+relaunched, reproduced the export. No change — `negpy.log` and `log show`
+recorded the identical rejection at the identical moment:
+
+```
+kernel: AMFI: '.../_cms.abi3.so' is adhoc signed.
+amfid: .../_cms.abi3.so not valid: Error Domain=AppleMobileFileIntegrityError
+  Code=-423 "The file is adhoc signed or signed by an unknown certificate chain"
+```
+
+Doesn't help because it's the wrong gate: Library Validation governs whether a
+dylib's Team ID must match the loading executable's; disabling it waives that
+match. Code `-423` is AMFI refusing the code outright because its signature
+doesn't chain to Apple's root at all — ad-hoc and free self-signed certs both
+fail that identically, and no entitlement waives it. The only certificate that
+chains to Apple is a Developer ID Application certificate, issued only to paid
+Apple Developer Program members. Signing with one (without going as far as
+full notarization) would likely clear this specific check, since it's a
+chain-of-trust check, not the separate Gatekeeper notarization-ticket check —
+but both live behind the same $99/year membership, and skipping notarization
+would leave the "unidentified developer" Gatekeeper prompt for anyone
+downloading the app from GitHub Releases. So there's no cheaper path in
+practice: full notarization is the right target regardless.
+
 ## Follow-up: notarize the release build (not done on this branch)
 
 The durable fix is notarizing the release build (Apple Developer ID
