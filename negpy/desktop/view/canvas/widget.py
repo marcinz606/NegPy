@@ -637,7 +637,19 @@ class ImageCanvas(QWidget):
         act_sticky_zoom.setCheckable(True)
         act_sticky_zoom.setChecked(self.state.sticky_zoom)
         act_sticky_zoom.toggled.connect(self._controller.session.set_sticky_zoom)  # type: ignore[union-attr]
+        menu.addSeparator()
+        act_unload = menu.addAction("Unload")
+        act_unload.triggered.connect(self._unload_current_file)
         menu.exec(event.globalPos())
+
+    def _unload_current_file(self) -> None:
+        """Removes the current image from the session (its saved edit is kept)."""
+        from negpy.desktop.view.confirm import confirm_unload
+
+        if self._controller is None:
+            return
+        if confirm_unload(self):
+            self._controller.session.remove_current_file()
 
     def _exec_retouch_menu(self, event) -> None:
         """Context menu while the heal or scratch tool is active."""
