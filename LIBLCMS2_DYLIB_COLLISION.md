@@ -243,9 +243,23 @@ Fixed and hardened on this branch:
   a future regression in this area is diagnosable from `negpy.log` alone
   instead of requiring a multi-day investigation like this one.
 
-Follow-up, not done here: generalize the symbol-closure check to every
-same-basename dylib collision in the bundle (not just liblcms2), which
-would also catch the pre-existing `libomp.dylib`/numba gap found while
-scoping this fix. `libjpeg`/`libpng`/`libz`/`libtiff` are vendored by
-multiple of the same packages and carry the same theoretical risk — no
-evidence any are currently broken, but untested.
+Follow-up, done: `check_bundled_dylib_collisions()` generalizes the
+symbol-closure check to every same-basename dylib collision under
+`Contents/Frameworks`, not just liblcms2. It scans the whole bundle rather
+than a curated list of risky basenames — a manual pass guessing which
+libraries might collide (by comparing vendored version strings across
+`cv2`/`PIL`/`rawpy`/`imagecodecs`) missed a real one: three packages vendor
+byte-different copies of `libjpeg.8.3.2.dylib`, invisible unless you check
+for repeated exact filenames rather than reasoning about version numbers.
+Also found real (currently benign — no missing symbols today) collisions on
+`libpng16.16.dylib` and `libtiff.6.dylib` (`cv2` vs `PIL`). Confirmed on the
+real local build: passes clean, and correctly raises when a canonical
+symlink is forced to point at a copy missing a symbol a sibling consumer
+needs.
+
+Still not done, deliberately: the `libomp.dylib`/numba gap. It's a
+different failure mode (PyInstaller not bundling the library at all, not a
+collision between multiple bundled copies), stays outside what this check
+looks for, and there is still no evidence it affects NegPy (numba's
+OpenMP-parallel pool is optional with a runtime fallback) — not worth
+fixing speculatively.
