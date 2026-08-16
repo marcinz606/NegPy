@@ -1316,6 +1316,109 @@ class TestLinearOutputExportCurrentFile(unittest.TestCase):
         self.assertEqual(rgbscan.blue_path, "/tmp/IMG_0001_B.cr2")
 
 
+class TestLinearOutputDestination(unittest.TestCase):
+    """Regression (#859): Linear Output built its own destination — always the absolute
+    export path, always `<stem>_linear` — instead of the Export panel's destination rules.
+    Selecting "Same as source" or a filename template did nothing under the Linear intent."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.source = os.path.join(self.tmp.name, "src", "IMG_0001.dng")
+        os.makedirs(os.path.dirname(self.source))
+        open(self.source, "w").close()
+
+        self.mock_session_manager = MagicMock(spec=DesktopSessionManager)
+        self.mock_session_manager.state = AppState()
+        self.mock_session_manager.repo = MagicMock()
+        self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.file_info = {"name": "IMG_0001.dng", "path": self.source, "hash": "h1"}
+        self.mock_session_manager.state.uploaded_files = [self.file_info]
+
+        with (
+            patch("negpy.desktop.controller.RenderWorker") as mock_rw_class,
+            patch("negpy.desktop.controller.PreviewManager") as mock_pm_class,
+        ):
+            mock_rw_class.return_value = MagicMock()
+            mock_pm_class.return_value = MagicMock(spec=PreviewManager)
+            mock_pm_class.return_value.load_linear_preview.return_value = (None, (0, 0), {})
+            self.controller = AppController(self.mock_session_manager)
+
+    def tearDown(self):
+        import gc
+
+        for thread in [
+            self.controller.render_thread,
+            self.controller.export_thread,
+            self.controller.thumb_thread,
+            self.controller.norm_thread,
+            self.controller.discovery_thread,
+            self.controller.preview_load_thread,
+            self.controller.scan_thread,
+        ]:
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                thread.wait()
+        del self.controller
+        gc.collect()
+        self.tmp.cleanup()
+
+    def _set_export(self, **kwargs):
+        state = self.controller.state
+        state.config = replace(state.config, export=replace(state.config.export, **kwargs))
+
+    def _out_path(self, export_path="/abs/out"):
+        tasks = self.controller._linear_output_tasks([self.file_info], export_path)
+        self.assertEqual(len(tasks), 1)
+        return tasks[0].out_path
+
+    def test_same_as_source_writes_beside_the_source(self):
+        self._set_export(output_mode=ExportPresetOutputMode.SAME_AS_SOURCE)
+        self.assertEqual(self._out_path(), os.path.join(os.path.dirname(self.source), "IMG_0001_linear.tiff"))
+
+    def test_subfolder_of_source_writes_into_the_subfolder(self):
+        self._set_export(output_mode=ExportPresetOutputMode.SUBFOLDER_OF_SOURCE, output_subfolder="linear")
+        expected = os.path.join(os.path.dirname(self.source), "linear", "IMG_0001_linear.tiff")
+        self.assertEqual(self._out_path(), expected)
+
+    def test_absolute_writes_to_the_export_path(self):
+        self._set_export(output_mode=ExportPresetOutputMode.ABSOLUTE)
+        self.assertEqual(self._out_path(), os.path.join("/abs/out", "IMG_0001_linear.tiff"))
+
+    def test_filename_template_is_honoured_and_keeps_the_linear_suffix(self):
+        # The suffix is not cosmetic: without it, "same as source" plus the default pattern
+        # writes the dump over the source file it was decoded from.
+        self._set_export(
+            output_mode=ExportPresetOutputMode.ABSOLUTE,
+            filename_pattern="{{ original_name }}_{{ format }}",
+        )
+        self.assertEqual(self._out_path(), os.path.join("/abs/out", "IMG_0001_TIFF_linear.tiff"))
+
+    def test_format_variable_names_the_linear_format_not_the_print_one(self):
+        self.controller.state.linear_format = "jxl"
+        self._set_export(
+            output_mode=ExportPresetOutputMode.ABSOLUTE,
+            export_fmt=ExportFormat.JPEG,
+            filename_pattern="{{ original_name }}_{{ format }}",
+        )
+        self.assertEqual(self._out_path(), os.path.join("/abs/out", "IMG_0001_JXL_linear.jxl"))
+
+    def test_existing_file_is_renamed_unless_overwrite_is_set(self):
+        out_dir = os.path.dirname(self.source)
+        open(os.path.join(out_dir, "IMG_0001_linear.tiff"), "w").close()
+
+        self._set_export(output_mode=ExportPresetOutputMode.SAME_AS_SOURCE, overwrite=False)
+        self.assertEqual(self._out_path(), os.path.join(out_dir, "IMG_0001_linear_2.tiff"))
+
+        self._set_export(overwrite=True)
+        self.assertEqual(self._out_path(), os.path.join(out_dir, "IMG_0001_linear.tiff"))
+
+    def test_unset_export_path_does_not_cancel_a_source_relative_export(self):
+        # `not export_path` used to abort here: the source-relative modes never read the
+        # path, so an empty one made Export do nothing at all, without a message.
+        self._set_export(output_mode=ExportPresetOutputMode.SAME_AS_SOURCE, export_path="")
+        self.assertEqual(self.controller._ensure_valid_export_path(), "")
+
+
 class TestPresetExportCurrentFileTriplet(unittest.TestCase):
     """Regression: request_preset_export() (the "Export Presets" button's current-file
     scope) built a bare {path, name, hash} dict for every call, unconditionally — never

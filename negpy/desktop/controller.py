@@ -22,7 +22,7 @@ from negpy.desktop.session import (
     resolve_asset_rgbscan,
     resolve_asset_stitch,
 )
-from negpy.desktop.workers.export import ExportTask, ExportWorker, LinearOutputTask, find_export_conflicts
+from negpy.desktop.workers.export import ExportTask, ExportWorker, LinearOutputTask, find_export_conflicts, resolve_output_dir
 from negpy.desktop.workers.render import (
     AssetDiscoveryTask,
     AssetDiscoveryWorker,
@@ -44,7 +44,7 @@ from negpy.desktop.workers.scan_worker import BatchRequest, PrescanRequest, Roll
 from negpy.desktop.workers.library import LibrarySearchTask, LibrarySearchWorker
 from negpy.desktop.workers.hdr import HdrTask, HdrWorker
 from negpy.desktop.workers.stitch import StitchTask, StitchWorker
-from negpy.features.hdr.models import ANCHOR_EV_UNSET, hdr_frame_paths, hdr_hash, hdr_name, hdr_stem
+from negpy.features.hdr.models import ANCHOR_EV_UNSET, hdr_frame_paths, hdr_hash, hdr_name
 from negpy.features.process.logic import effective_linear_raw, narrowband_profile_active
 from negpy.features.stitch.models import stitch_hash, stitch_name
 from negpy.desktop.workers.capture_worker import (
@@ -55,6 +55,7 @@ from negpy.desktop.workers.capture_worker import (
 )
 from negpy.domain.models import (
     ColorSpace,
+    ExportFormat,
     ExportPreset,
     ExportPresetOutputMode,
     ExportResolutionMode,
@@ -67,6 +68,7 @@ from negpy.domain.models import (
     resolve_preset_export,
 )
 from negpy.services.assets.half_frame import base_hash, diptych_configs, half_hash, half_of
+from negpy.services.export.templating import render_export_filename
 from negpy.services.assets.sidecar import load_or_promote, write_sidecar
 from negpy.features.exposure.analysis import (
     RING_GRID,
@@ -1776,10 +1778,12 @@ class AppController(QObject):
     def printing_notes_target_path(self) -> Optional[str]:
         """Next free `<stem>_notes.jpg` in the export folder."""
         export_path = self._ensure_valid_export_path()
-        if not export_path or not self.state.current_file_path:
+        if export_path is None or not self.state.current_file_path:
             return None
-        if self.state.config.export.output_mode == ExportPresetOutputMode.SAME_AS_SOURCE:
-            export_path = os.path.dirname(self.state.current_file_path)
+        export_path = resolve_output_dir(
+            self.state.current_file_path,
+            preset_from_export_config(replace(self.state.config.export, export_path=export_path)),
+        )
         stem = os.path.splitext(os.path.basename(self.state.current_file_path))[0]
         os.makedirs(export_path, exist_ok=True)
         path = os.path.join(export_path, f"{stem}_notes.jpg")
@@ -3922,11 +3926,13 @@ class AppController(QObject):
     def _ensure_valid_export_path(self) -> Optional[str]:
         """
         Checks if the current export path is valid. If not, prompts the user.
-        Returns the valid path or None if the user cancelled.
+        Returns the valid path, or None if the user cancelled. The path can come back
+        empty in the source-relative modes, which do not use it — callers must test
+        `is None`, not truthiness, or an unset path silently cancels the export.
         """
         export_path = self.state.config.export.export_path
-        if self.state.config.export.output_mode == ExportPresetOutputMode.SAME_AS_SOURCE:
-            return export_path  # path irrelevant when exporting to source folder
+        if self.state.config.export.output_mode != ExportPresetOutputMode.ABSOLUTE:
+            return export_path  # path irrelevant when the destination follows the source folder
         if export_path.strip().lower() in ["export", "/export", ""]:
             from PyQt6.QtWidgets import QFileDialog
 
@@ -3988,7 +3994,7 @@ class AppController(QObject):
             return
 
         export_path = self._ensure_valid_export_path()
-        if not export_path:
+        if export_path is None:
             return
 
         if files is None:
@@ -4036,21 +4042,38 @@ class AppController(QObject):
         expansion = self.state.linear_expansion
         linear_fmt = self.state.linear_format
         out_ext = "jxl" if linear_fmt == "jxl" else "tiff"
+        # Destination and naming are the Export panel's, shared with print and flat. Only the
+        # format belongs to the Linear intent, so the ephemeral preset carries it: `{{ format }}`
+        # in a filename template has to name the file that is actually written.
+        delivery = replace(
+            preset_from_export_config(replace(self.state.config.export, export_path=export_path)),
+            export_fmt=ExportFormat.JXL if linear_fmt == "jxl" else ExportFormat.TIFF,
+        )
+        sync_metadata = self.state.config.metadata.sync_to_batch
         taken: set[str] = set()
         tasks = []
         for f in supported:
             params = self._batch_params_for(f)
             stitch = params.stitch if params.stitch.stitch_enabled else None
             frames = hdr_frame_paths(f)
+            out_dir = resolve_output_dir(f["path"], delivery)
             # Same naming rule as a normal export: the bracket's first frame, suffixed so
-            # the merge does not write over that frame's own linear output.
-            stem = f"{hdr_stem(frames)}-HDR" if frames else os.path.splitext(os.path.basename(f["path"]))[0]
-            out_path = os.path.join(export_path, f"{stem}_linear.{out_ext}")
+            # the merge does not write over that frame's own linear output. No border and no
+            # half: a linear dump is the whole decoded source, whatever the print crop says.
+            stem = render_export_filename(
+                min(frames, key=lambda p: os.path.basename(p).lower()) if frames else f["path"],
+                delivery,
+                metadata=self.state.config.metadata if sync_metadata else params.metadata,
+                composite="HDR" if frames else "",
+            )
+            # `_linear` always, on top of whatever the template rendered: without it a dump
+            # written next to its source under the default pattern overwrites that source.
+            out_path = os.path.join(out_dir, f"{stem}_linear.{out_ext}")
             counter = 2
             # `taken` as well as the disk: the whole batch is named up front, before the
             # worker writes any of it, so same-stem frames would collide.
-            while out_path in taken or os.path.exists(out_path):
-                out_path = os.path.join(export_path, f"{stem}_linear_{counter}.{out_ext}")
+            while out_path in taken or (os.path.exists(out_path) and not delivery.overwrite):
+                out_path = os.path.join(out_dir, f"{stem}_linear_{counter}.{out_ext}")
                 counter += 1
             taken.add(out_path)
             tasks.append(
@@ -4087,7 +4110,7 @@ class AppController(QObject):
             return
 
         export_path = self._ensure_valid_export_path()
-        if not export_path:
+        if export_path is None:
             return
 
         params = self.state.config
@@ -4151,7 +4174,7 @@ class AppController(QObject):
         if self._batch_busy("export"):
             return
         export_path = self._ensure_valid_export_path()
-        if not export_path:
+        if export_path is None:
             return
 
         current_export = replace(self.state.config.export, export_path=export_path)
@@ -4348,9 +4371,14 @@ class AppController(QObject):
         custom = self.state.config.export.contact_sheet_output_path.strip()
         if custom:
             return custom
-        if self.state.config.export.output_mode == ExportPresetOutputMode.SAME_AS_SOURCE:
-            return os.path.dirname(visible_files[0]["path"])
-        return self._ensure_valid_export_path()
+        export_path = self._ensure_valid_export_path()
+        if export_path is None:
+            return None
+        # The sheet covers the whole roll, so the source-relative modes follow the first frame.
+        return resolve_output_dir(
+            visible_files[0]["path"],
+            preset_from_export_config(replace(self.state.config.export, export_path=export_path)),
+        )
 
     def request_contact_sheet(self) -> None:
         """Renders all visible files small and writes darkroom contact sheet(s)."""

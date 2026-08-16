@@ -719,7 +719,9 @@ class ExportSidebar(BaseSidebar):
         linear_on = self.intent_linear_btn.isChecked()
         if hasattr(self, "form"):
             self.form.set_flat_mode(flat_on)
-            self.form.setVisible(not linear_on)
+            # Linear keeps DESTINATION and drops the rest; set_flat_mode reruns the format
+            # rows, so the linear pass has to come second or FORMAT reappears.
+            self.form.set_linear_mode(linear_on)
         self.flat_hint_label.setVisible(flat_on)
         self.flat_peek_btn.setVisible(flat_on)
         self.linear_hint_label.setVisible(linear_on)
