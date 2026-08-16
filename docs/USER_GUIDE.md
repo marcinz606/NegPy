@@ -733,6 +733,8 @@ A scrollable list of every edit step, the last 100 kept, newest on top. The curr
     *   **Apply ICE dust removal** (visible when an IR channel is available): applies IR-based dust and scratch correction to the linear output before writing. Off by default.
     *   **Corrections** (camera RAW only): three optional toggles that bake corrections into the linear output before writing. All default to off, following the raw-dump philosophy. **Apply white balance** multiplies by the as-shot WB gains. **Apply flatfield** applies the flatfield gain correction. **Apply sensor correction** applies the sensor crosstalk unmixing matrix. For stitch composites, flatfield and sensor correction are always applied per-part regardless of these toggles, because clean seams require it.
 
+    Linear Output writes where the **Destination** section says, the same as a print or flat export: folder mode, subfolder, export path and Filename Pattern all apply. `_linear` is always appended to the rendered filename, so a dump written next to its source cannot overwrite that source. Without **Overwrite**, an existing file makes the next one `_linear_2`, `_linear_3` and so on.
+
     Linear Output runs in the background like any other batch: the progress popup shows which frame is being written, **Abort** stops it after the current one, and the finish message counts any frames that failed.
 
     The output file is always written clean: no ICC profiles, no EXIF color space tags, no XMP color metadata from the source. For **TIFF**, it carries raw pixels plus device metadata (Make, Model, DateTime) from the source file, and a description recording the source format, expansion, white balance and any corrections applied, including ICE. **JPEG XL carries none of that metadata at all**: no description, no device info, no record of whether ICE ran, only the pixels and the forced color tag noted above, which also is not from the source. The format simply cannot leave it unset.
@@ -748,7 +750,7 @@ The primary **Export** action. Its chevron menu picks the scope: current frame (
 *   **Input / Output ICC**: soft-proof against, and optionally embed, an ICC profile. Output is the destination profile (default); Input treats the profile as the source, for when a scan's profile is known but untagged. Not available for JPEG XL output; see the Format note above.
 *   **Paper Aspect Ratio**: final print ratio, or *Original* (no resize).
 *   **Resolution**: *Original* (full RAW resolution), *Print* (long-edge **Size** in cm plus **DPI**), or *Pixels* (long-edge **px**; the short side follows the paper ratio).
-*   **Destination**: **Filename Pattern** (a Jinja2 template with export settings plus Metadata fields such as roll, camera and film; see [TEMPLATING.md](TEMPLATING.md)), an **Overwrite** toggle, and the output location (subfolder of source, same as source, or an absolute **Export Path** with a browse button).
+*   **Destination**: **Filename Pattern** (a Jinja2 template with export settings plus Metadata fields such as roll, camera and film; see [TEMPLATING.md](TEMPLATING.md)), an **Overwrite** toggle, and the output location (subfolder of source, same as source, or an absolute **Export Path** with a browse button). Destination applies to all three output intents: with **Linear** selected, Format, Size and Color hide (a raw dump has no use for them) and Destination stays.
 
 ### Collapsible sections
 

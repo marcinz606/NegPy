@@ -69,16 +69,22 @@ _EXT = {
 }
 
 
-def resolve_export_dir(task: ExportTask) -> str:
-    """Destination folder for a task, per its output-mode rule."""
-    source_dir = os.path.dirname(task.file_info["path"])
-    output_mode = task.export_settings.output_mode
+def resolve_output_dir(source_path: str, settings: ExportPreset) -> str:
+    """Destination folder for one source file, per its output-mode rule. Linear Output
+    calls this too, so every intent answers the destination question the same way."""
+    source_dir = os.path.dirname(source_path)
+    output_mode = settings.output_mode
     if output_mode == ExportPresetOutputMode.SUBFOLDER_OF_SOURCE:
-        subfolder = task.export_settings.output_subfolder or ""
+        subfolder = settings.output_subfolder or ""
         return os.path.join(source_dir, subfolder) if subfolder else source_dir
     if output_mode == ExportPresetOutputMode.ABSOLUTE:
-        return task.export_settings.output_path or source_dir
+        return settings.output_path or source_dir
     return source_dir
+
+
+def resolve_export_dir(task: ExportTask) -> str:
+    """Destination folder for a task, per its output-mode rule."""
+    return resolve_output_dir(task.file_info["path"], task.export_settings)
 
 
 def resolve_export_naming(task: ExportTask) -> tuple[str, str, str]:
