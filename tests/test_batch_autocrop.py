@@ -40,6 +40,7 @@ def _evidence(
     angle_confident: bool = False,
     vertical_edge_profile: np.ndarray | None = None,
     vertical_edge_contrast: float | None = None,
+    fallback_roi: tuple[int, int, int, int] | None = None,
     reason: str = "",
 ) -> CropEvidence:
     profile = np.empty(0, dtype=np.float32) if vertical_edge_profile is None else np.asarray(vertical_edge_profile, dtype=np.float32)
@@ -59,6 +60,7 @@ def _evidence(
         angle_confident=angle_confident,
         vertical_edge_contrast=profile_contrast,
         vertical_edge_profile=profile,
+        fallback_roi=fallback_roi,
         reason=reason,
     )
 
@@ -189,6 +191,75 @@ def test_a_frame_with_no_film_box_still_reports_its_border(
     assert evidence.reason == "no_consensus"
     assert len(evidence.border) == len(batch_autocrop.BORDER_SIDES)
     assert evidence.border[0] > 0.0
+    assert evidence.fallback_roi is not None
+
+
+# A 3:2 canvas whose only border is a left-hand strip, so the inset alone lands on the
+# target ratio and the crop is the border measurement rather than the ratio correction.
+_BORDERLESS_SHAPE = (1000, 1600)
+_BORDERLESS_BORDER = (0.0, 0.0, 0.0625, 0.0)
+
+
+def _borderless_roll(count: int = 6) -> list[CropEvidence]:
+    """A roll on which the film detector abstained everywhere, borders still measured."""
+    return [
+        _evidence(
+            f"borderless-{index}",
+            canvas_shape=_BORDERLESS_SHAPE,
+            roi=None,
+            fallback_roi=(0, 1000, 0, 1600),
+            correction_angle=0.0,
+            confidence=0.0,
+            supported_sides=frozenset(),
+            geometry_score=0.0,
+            border=_BORDERLESS_BORDER,
+            reason="no_consensus",
+        )
+        for index in range(count)
+    ]
+
+
+def test_a_roll_with_no_film_box_anywhere_crops_from_its_measured_borders() -> None:
+    # Film that overfills the sensor leaves no bed to read a box against, so every frame
+    # abstains. Auto Crop All used to build no template and return nothing at all, while
+    # single-frame Auto Crop cropped each of the same frames from its threshold box.
+    resolved = _resolved_by_key(_borderless_roll())
+
+    assert len(resolved) == 6
+    first = resolved["borderless-0"]
+    assert first.calibrated is True
+    assert first.confidence < batch_autocrop._TRUSTED_CONFIDENCE
+    assert first.crop_rect == pytest.approx((0.0625, 0.0, 1.0, 1.0), abs=2e-3)
+
+
+def test_a_borderless_roll_keeps_the_frames_it_could_not_measure_consistent() -> None:
+    roll = _borderless_roll()
+    template = build_roll_template(roll)
+
+    assert template is not None
+    assert template.from_fallback is True
+    assert template.sample_count == 6
+    assert template.border == pytest.approx(_BORDERLESS_BORDER)
+
+
+def test_a_fallback_box_is_ignored_when_the_roll_has_a_real_template() -> None:
+    # The threshold box is nearly the whole frame, so preferring it over the edge-profile
+    # route would hand a weak frame the full canvas instead of the roll's geometry.
+    weak = _evidence(
+        "weak",
+        roi=None,
+        fallback_roi=(0, 1000, 0, 1000),
+        confidence=0.0,
+        supported_sides=frozenset(),
+        geometry_score=0.0,
+        vertical_edge_profile=np.zeros(101, dtype=np.float32),
+        reason="no_consensus",
+    )
+
+    resolved = _resolved_by_key([*_trusted_roll(), weak])
+
+    assert build_roll_template([*_trusted_roll(), weak]).from_fallback is False
+    assert "weak" not in resolved
 
 
 def test_post_deskew_abstention_does_not_inherit_initial_confidence(

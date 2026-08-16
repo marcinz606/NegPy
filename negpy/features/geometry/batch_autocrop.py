@@ -7,7 +7,7 @@ a robust roll template, and resolves only frames that retain film-edge evidence.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Sequence
 
 import cv2
@@ -51,6 +51,9 @@ _CONFIRMED_ANGLE_TOL = 2.5
 # where the roll puts each edge, so this is a second, independent check: they must also be
 # the right distance apart.
 _EDGE_PAIR_WIDTH_TOL = 0.02
+# Confidence given to a frame whose rect is the threshold box rather than a detected film
+# box. Low: the box is the frame, and every real measurement on it came from the border walk.
+_FALLBACK_CONFIDENCE = 0.30
 
 
 @dataclass(frozen=True)
@@ -80,6 +83,10 @@ class CropEvidence:
     # Per-side thickness in BORDER_SIDES order, as a fraction of the film box side. NaN
     # marks a side with no clean transition, () a frame that was never measured.
     border: tuple[float, ...] = ()
+    # The threshold-walk box, set only when the film detector found no box. It is what
+    # single-frame Auto Crop falls back to, and only a roll where *no* frame found a box
+    # ever uses it -- see _threshold_fallback_frames.
+    fallback_roi: ROI | None = None
     reason: str = ""
 
 
@@ -102,6 +109,9 @@ class RollCropTemplate:
     # Roll median per side (BORDER_SIDES order); () when too few frames measured one.
     border: tuple[float, ...] = ()
     border_sample_count: int = 0
+    # Built from threshold boxes because no frame in the roll found a film box. The rect it
+    # carries is close to the whole frame, so only the border inset makes a crop of it.
+    from_fallback: bool = False
 
 
 @dataclass(frozen=True)
@@ -201,17 +211,20 @@ def _side_border(lum: np.ndarray, roi: ROI) -> dict[str, float]:
     return {name: walked[name] if walked[name] > 0.0 else measured[name] for name in BORDER_SIDES}
 
 
-def _border_without_a_film_box(image: ImageBuffer) -> tuple[float, ...]:
-    """Border widths for a frame whose film box was never found.
+def _border_without_a_film_box(image: ImageBuffer) -> tuple[ROI, tuple[float, ...]]:
+    """Threshold box and border widths for a frame whose film box was never found.
 
-    The rect for such a frame comes from the roll template, but the *border* does not have
-    to: reading the edges needs no box, only the frame. Holders the film detector cannot
-    read at all would otherwise contribute no samples, the roll would never reach its
+    The rect for such a frame normally comes from the roll template, but the *border* does
+    not have to: reading the edges needs no box, only the frame. Holders the film detector
+    cannot read at all would otherwise contribute no samples, the roll would never reach its
     minimum, and no frame in it would be inset — the whole roll keeps its border.
+
+    The box comes back too because a roll on which *every* frame lands here has no template
+    to take a rect from either.
     """
     lum = _detection_luma(image)
     box = _trim_opaque_border(lum, _get_threshold_autocrop_coords(image, None))
-    return tuple(_side_border(lum, box)[name] for name in BORDER_SIDES)
+    return box, tuple(_side_border(lum, box)[name] for name in BORDER_SIDES)
 
 
 def detect_crop_candidate(
@@ -245,6 +258,7 @@ def detect_crop_candidate(
 
     initial = detect_film_bounds_with_confidence(image)
     if initial.roi is None:
+        fallback_roi, fallback_border = _border_without_a_film_box(image)
         return CropEvidence(
             key,
             (h, w),
@@ -255,7 +269,8 @@ def detect_crop_candidate(
             rebate_trim=rebate_trim,
             vertical_edge_contrast=initial.vertical_edge_contrast,
             vertical_edge_profile=np.asarray(initial.vertical_edge_profile, dtype=np.float32),
-            border=_border_without_a_film_box(image),
+            border=fallback_border,
+            fallback_roi=fallback_roi,
             reason="no_consensus",
         )
 
@@ -385,6 +400,22 @@ def _roll_border(evidence: Sequence[CropEvidence]) -> tuple[tuple[float, ...], i
     return tuple(medians), max(counts)
 
 
+def _threshold_fallback_frames(evidence: Sequence[CropEvidence]) -> list[CropEvidence]:
+    """Frames carrying a threshold box, presented as detections.
+
+    Only for a roll where the film detector found no box on any frame. Film that overfills
+    the sensor leaves no bed to read a box against, so every frame abstains, the roll gets no
+    template, and Auto Crop All returns nothing at all while single-frame Auto Crop — which
+    falls back to this same box — crops each of them. The box is near enough the whole frame
+    to be no crop by itself; the border walk that has already run is what trims it.
+    """
+    return [
+        replace(item, roi=item.fallback_roi, confidence=_FALLBACK_CONFIDENCE, evidence_sources=("threshold-fallback",))
+        for item in evidence
+        if item.roi is None and item.fallback_roi is not None
+    ]
+
+
 def build_roll_template(evidence: Sequence[CropEvidence]) -> RollCropTemplate | None:
     """Build a median/MAD roll template from multi-side, trustworthy detections."""
     trusted = [
@@ -396,6 +427,10 @@ def build_roll_template(evidence: Sequence[CropEvidence]) -> RollCropTemplate | 
         and (len(item.supported_sides) >= 2 or len(item.supported_corners) >= 1)
     ]
     border, border_samples = _roll_border(evidence)
+    from_fallback = False
+    if not trusted:
+        trusted = _threshold_fallback_frames(evidence)
+        from_fallback = True
     if not trusted:
         return None
 
@@ -440,6 +475,7 @@ def build_roll_template(evidence: Sequence[CropEvidence]) -> RollCropTemplate | 
         sample_count=len(kept_items),
         border=border,
         border_sample_count=border_samples,
+        from_fallback=from_fallback,
     )
 
 
@@ -497,10 +533,10 @@ def _map_rect_between_rotations(
 
 def _calibrate_detected_rect(
     item: CropEvidence,
+    roi: ROI,
     template: RollCropTemplate,
 ) -> tuple[tuple[float, float, float, float], bool]:
-    assert item.roi is not None
-    x1, y1, x2, y2 = _normalized_roi(item.roi, item.canvas_shape)
+    x1, y1, x2, y2 = _normalized_roi(roi, item.canvas_shape)
     width, height = x2 - x1, y2 - y1
     center = (x1 + x2) * 0.5
     calibrated = False
@@ -677,9 +713,20 @@ def resolve_roll_crops(
             continue
 
         calibrated = False
-        if item.roi is not None:
-            rect, calibrated = _calibrate_detected_rect(item, template)
-            confidence = item.confidence
+        # Only a fallback template reaches for the threshold box. Where the roll found real
+        # boxes, a weak frame still goes to the edge profile: that reads the roll's geometry,
+        # where the threshold box is near enough the whole frame to be no crop at all.
+        roi = item.roi
+        if roi is None and template.from_fallback:
+            roi = item.fallback_roi
+
+        if roi is not None:
+            rect, calibrated = _calibrate_detected_rect(item, roi, template)
+            if item.roi is None:
+                calibrated = True
+                confidence = min(0.55, template.confidence * 0.72)
+            else:
+                confidence = item.confidence
         else:
             rect = _rect_from_edge_profile(item, template)
             if rect is None:
