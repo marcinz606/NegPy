@@ -926,7 +926,15 @@ class FileBrowser(QWidget):
             if path is None:
                 path = self.session.state.uploaded_files[0].get("path")
             if path:
-                self.controller.open_half_frame_dialog(path)
+                profile = self.controller.open_half_frame_dialog(path)
+                if profile is None:
+                    # User cancelled or closed the dialog — revert the toggle without
+                    # activating half-frame mode so Cancel/X behaves as expected.
+                    self.half_frame_btn.blockSignals(True)
+                    self.half_frame_btn.setChecked(False)
+                    self.half_frame_btn.blockSignals(False)
+                    self._update_half_frame_style(False)
+                    return
         self.controller.set_half_frame_mode(checked)
 
     def _on_half_frame_adjust(self) -> None:
