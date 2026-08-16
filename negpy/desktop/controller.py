@@ -66,7 +66,7 @@ from negpy.domain.models import (
     preset_from_export_config,
     resolve_preset_export,
 )
-from negpy.services.assets.half_frame import base_hash, half_hash, half_of
+from negpy.services.assets.half_frame import base_hash, diptych_configs, half_hash, half_of
 from negpy.services.assets.sidecar import load_or_promote, write_sidecar
 from negpy.features.exposure.analysis import (
     RING_GRID,
@@ -357,6 +357,7 @@ class AppController(QObject):
         self.session = session_manager
         self.state: AppState = session_manager.state
         self._thumb_config: Optional[WorkspaceConfig] = None
+        self._active_diptych_memo: tuple[str, Optional[tuple[dict, tuple[WorkspaceConfig, WorkspaceConfig]]]] = ("", None)
         self._first_render_t0: Optional[float] = None
         self._export_start_time = 0.0
         self._export_failures = 0
@@ -1091,6 +1092,7 @@ class AppController(QObject):
         """Persist the half-frame toggle and re-discover already-loaded assets so the
         mode splits/collapses frames in place (not only on the next folder load)."""
         self.session.repo.save_global_setting("half_frame_mode", bool(enabled))
+        self._active_diptych_memo = ("", None)
         files = self.session.state.uploaded_files
         if not files:
             return
@@ -1162,10 +1164,25 @@ class AppController(QObject):
         self.status_progress_requested.emit(current, total)
         self.batch_progress.emit(current, total, name)
 
+    def _mark_diptychs(self, assets: List[Dict]) -> None:
+        """Flag whole-frame scans that already carry the two halves' edits.
+
+        One query for the whole roll, at discovery, so every later reader — the filmstrip
+        badge, the read-only panel, the exporter — finds the answer on the asset dict.
+        """
+        whole = [a for a in assets if not a.get("half") and a.get("hash") and "#" not in a["hash"]]
+        if not whole:
+            return
+        found = self.session.repo.load_file_settings_many([half_hash(a["hash"], n) for a in whole for n in (1, 2)])
+        for a in whole:
+            a["diptych"] = half_hash(a["hash"], 1) in found or half_hash(a["hash"], 2) in found
+
     def _on_discovery_finished(self, valid_assets: List[Dict]) -> None:
         """
         Adds discovered assets to the session and starts thumbnail generation.
         """
+        self._mark_diptychs(valid_assets)
+        self._active_diptych_memo = ("", None)
         ended_batch = self._end_batch("discovery")
         if not ended_batch and self._active_batch is None:
             # Preserve the completion signal for direct invocations and late
@@ -1279,6 +1296,53 @@ class AppController(QObject):
     def _active_half(self) -> Optional[tuple[int, float, tuple[float, float, float, float] | None, float]]:
         """(half, split_x, crop_rect, gutter_thickness) of the active asset, or None for whole-frame."""
         return self._half_slice_for_asset(self.state.current_file_path, self.state.current_file_hash)
+
+    def active_diptych(self) -> Optional[tuple[dict, tuple[WorkspaceConfig, WorkspaceConfig]]]:
+        """(asset with the split geometry, half configs) for the active scan, or None.
+
+        Memoized per hash: it is read on every render, and the halves' edits can only
+        change while half-frame mode is on, where the active asset is a half instead.
+        """
+        file_hash = self.state.current_file_hash or ""
+        if self._active_diptych_memo[0] != file_hash:
+            asset = next((a for a in self.state.uploaded_files if a.get("hash") == file_hash), None)
+            resolved = None
+            if asset is not None:
+                info, pair = self._diptych_task(asset)
+                resolved = (info, pair) if pair is not None else None
+            self._active_diptych_memo = (file_hash, resolved)
+        return self._active_diptych_memo[1]
+
+    def diptych_pair(self, file_info: dict) -> Optional[tuple[WorkspaceConfig, WorkspaceConfig]]:
+        """The two halves' saved edits for a whole-frame scan, or None.
+
+        Half-frame mode being off is implied: with it on the assets already *are* halves,
+        which `half` on the asset dict reports.
+        """
+        if file_info.get("half") or file_info.get("diptych") is False:
+            return None
+        return diptych_configs(self.session.repo, file_info.get("hash"))
+
+    def _diptych_task(self, file_info: dict) -> tuple[dict, Optional[tuple[WorkspaceConfig, WorkspaceConfig]]]:
+        """(asset dict with the split geometry stamped on, half configs) for a diptych.
+
+        A whole-frame asset never went through `_expand_half_frames`, so the split comes
+        from the saved profile — the same one the halves were cut with.
+        """
+        pair = self.diptych_pair(file_info)
+        if pair is None:
+            return file_info, None
+        profile = self.half_frame_profile() or {}
+        raw_rect = profile.get("crop_rect")
+        return (
+            {
+                **file_info,
+                "split_x": float(profile.get("split_x") or 0.5),
+                "crop_rect": tuple(float(v) for v in raw_rect) if raw_rect else None,
+                "gutter_thickness": float(profile.get("gutter_thickness") or 0.0),
+            },
+            pair,
+        )
 
     def _render_memo_key(self, config: Optional[WorkspaceConfig] = None) -> str:
         """Identity of everything that shapes the displayed render of the current
@@ -1436,6 +1500,13 @@ class AppController(QObject):
         hdr = self.state.config.hdr
         flatfield = self.state.config.flatfield
         half_info = self._active_half()
+        if half_info is None:
+            dip = self.active_diptych()
+            if dip is not None:
+                # half 0: cropped to the rect, still whole. The render worker splits it, so
+                # both halves come off one decode.
+                info = dip[0]
+                half_info = (0, info["split_x"], info["crop_rect"], info["gutter_thickness"])
         self.preview_load_requested.emit(
             PreviewLoadTask(
                 file_path=file_path,
@@ -3618,6 +3689,7 @@ class AppController(QObject):
         if config_override is None and not ephemeral and not crop_preview_full and not interactive:
             memo_key = self._render_memo_key()
 
+        dip = self.active_diptych()
         task = RenderTask(
             buffer=preview_raw,
             config=config_override if config_override is not None else self.state.config,
@@ -3635,6 +3707,9 @@ class AppController(QObject):
             wants_thumbnail=(not interactive and not ephemeral and config_override is None and self.state.config is not self._thumb_config),
             cam_xyz=self.state.preview_cam_xyz,
             camera_wb=self.state.preview_camera_wb,
+            diptych=dip[1] if dip is not None else None,
+            split_x=dip[0]["split_x"] if dip is not None else 0.5,
+            gutter_thickness=dip[0]["gutter_thickness"] if dip is not None else 0.0,
         )
 
         if self._is_rendering:
@@ -3822,6 +3897,9 @@ class AppController(QObject):
         source_exif=None,
         metadata_config=None,
     ) -> List[ExportTask]:
+        file_info, diptych = self._diptych_task(file_info)
+        if diptych is not None:
+            bounds_override = None  # the active frame's bounds belong to a half, not to the pair
         tasks = []
         for preset in presets:
             task_params, export_settings = resolve_preset_export(preset, params)
@@ -3836,6 +3914,7 @@ class AppController(QObject):
                     source_exif=source_exif,
                     metadata_config=metadata_config,
                     working_color_space=self.state.workspace_color_space,
+                    diptych=diptych,
                 )
             )
         return tasks
@@ -4038,8 +4117,10 @@ class AppController(QObject):
                 "hash": self.state.current_file_hash,
             }
 
+        file_info, diptych = self._diptych_task(file_info)
+
         bounds_override = None
-        if file_info.get("hash") == self.state.current_file_hash:
+        if diptych is None and file_info.get("hash") == self.state.current_file_hash:
             with self.state.metrics_lock:
                 bounds_override = self.state.last_metrics.get("log_bounds")
 
@@ -4054,6 +4135,7 @@ class AppController(QObject):
                     source_exif=source_exif,
                     metadata_config=self.state.config.metadata,
                     working_color_space=self.state.workspace_color_space,
+                    diptych=diptych,
                 )
             ]
         )
@@ -4110,8 +4192,10 @@ class AppController(QObject):
             if flat:
                 final_export = flat_export_config(final_export)
 
+            file_info, diptych = self._diptych_task(f)
+
             bounds_override = None
-            if f["hash"] == self.state.current_file_hash:
+            if diptych is None and f["hash"] == self.state.current_file_hash:
                 with self.state.metrics_lock:
                     bounds_override = self.state.last_metrics.get("log_bounds")
 
@@ -4120,7 +4204,7 @@ class AppController(QObject):
 
             tasks.append(
                 ExportTask(
-                    file_info=f,
+                    file_info=file_info,
                     params=params,
                     export_settings=preset_from_export_config(final_export),
                     gpu_enabled=self.state.gpu_enabled,
@@ -4128,6 +4212,7 @@ class AppController(QObject):
                     source_exif=source_exif,
                     metadata_config=metadata_config,
                     working_color_space=self.state.workspace_color_space,
+                    diptych=diptych,
                 )
             )
 
@@ -4567,7 +4652,9 @@ class AppController(QObject):
         # its own: they are not this frame's bounds. Nor from a mid-gesture frame, which
         # measured the proxy rather than the real buffer. A render of another file was
         # already dropped above.
-        if metrics.get("ephemeral") or metrics.get("interactive"):
+        # A diptych's bounds were measured on one half, under that half's edit; writing them
+        # onto the whole-frame config would file a half's measurement as the scan's.
+        if metrics.get("ephemeral") or metrics.get("interactive") or metrics.get("diptych"):
             return
         src = metrics.get("source_hash")
         if src is not None and src != self.state.current_file_hash:

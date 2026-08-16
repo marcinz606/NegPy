@@ -17,6 +17,10 @@ logger = get_logger(__name__)
 
 _SEP = "#"
 
+# The inter-frame gap in a joined diptych, in output space. Black is what the gap between
+# two exposures looks like once rendered; swap for the finish border colour if wanted.
+_GAP_FILL = 0.0
+
 
 def half_hash(file_hash: str, half: int) -> str:
     return f"{file_hash}{_SEP}{half}"
@@ -48,7 +52,7 @@ def slice_half(
     crop_rect: Optional[tuple[float, float, float, float]] = None,
     gutter_thickness: float = 0.0,
 ) -> np.ndarray:
-    """View of one half of a decoded buffer.
+    """View of one half of a decoded buffer; ``half=0`` crops only, without splitting.
 
     The scan is first cropped to ``crop_rect`` (normalized x1,y1,x2,y2; None =
     full frame), then split at the normalized gutter ``split_x`` relative to the
@@ -67,6 +71,8 @@ def slice_half(
         if cx2 <= cx1 or cy2 <= cy1:
             return a[:, :1]
         a = a[cy1:cy2, cx1:cx2]
+    if not half:
+        return a
     w = a.shape[1]
     xs = min(max(int(round(w * split_x)), 1), w - 1)
     if gutter_thickness > 0:
@@ -81,14 +87,15 @@ def slice_half(
 
 
 def slice_for_asset(buf: np.ndarray, file_info: Dict[str, Any]) -> np.ndarray:
-    """Apply the asset's half slice; no-op for whole-frame assets.
+    """Apply the asset's half slice; no-op for whole-frame assets without a crop rect.
 
     Recognizes an optional ``crop_rect`` (normalized x1,y1,x2,y2) and
     ``gutter_thickness`` (normalized fraction of the cropped width) set by the
-    half-frame rectangle editor.
+    half-frame rectangle editor. A whole-frame asset that carries a crop rect is a
+    diptych: cropped to the rect, still whole, split later per half.
     """
     half = int(file_info.get("half") or 0)
-    if not half:
+    if not half and not file_info.get("crop_rect"):
         return buf
     raw_rect = file_info.get("crop_rect")
     crop_rect = tuple(float(v) for v in raw_rect) if isinstance(raw_rect, (tuple, list)) else None
@@ -99,6 +106,63 @@ def slice_for_asset(buf: np.ndarray, file_info: Dict[str, Any]) -> np.ndarray:
         crop_rect=crop_rect,
         gutter_thickness=float(file_info.get("gutter_thickness") or 0.0),
     )
+
+
+def gap_px(left_width: int, right_width: int, gutter_thickness: float) -> int:
+    """Width of the diptych gap, from the two rendered halves.
+
+    Derived from the halves rather than from the source: an export can resize, so the
+    discarded band's pixel count on the scan is not the gap's pixel count on the output.
+    ``gutter_thickness`` is a fraction of the cropped scan width, of which the two halves
+    hold the remaining ``1 - gutter_thickness``.
+    """
+    if gutter_thickness <= 0 or gutter_thickness >= 1:
+        return 0
+    return int(round((left_width + right_width) * gutter_thickness / (1.0 - gutter_thickness)))
+
+
+def _pad_height(a: np.ndarray, height: int) -> np.ndarray:
+    pad = height - a.shape[0]
+    if pad <= 0:
+        return a
+    top = pad // 2
+    return np.pad(a, ((top, pad - top), (0, 0)) + ((0, 0),) * (a.ndim - 2), constant_values=_GAP_FILL)
+
+
+def join_halves(left: np.ndarray, right: np.ndarray, gap: int = 0) -> np.ndarray:
+    """Join two rendered halves side by side, with a ``gap``-wide band where the gutter was.
+
+    The gap is filled rather than copied from the scan: the source gutter is
+    scene-linear negative data, so pasting it in gives a bright bar, and running the
+    pipeline on a thin dark strip renormalizes it into noise.
+
+    Unequal heights (a per-half crop aspect or border) are centre-padded, never
+    resampled — an export must not resize pixels the pipeline already sized.
+    """
+    height = max(left.shape[0], right.shape[0])
+    parts = [_pad_height(left, height)]
+    if gap > 0:
+        parts.append(np.full((height, gap) + left.shape[2:], _GAP_FILL, dtype=left.dtype))
+    parts.append(_pad_height(right, height))
+    return np.ascontiguousarray(np.concatenate(parts, axis=1))
+
+
+def diptych_configs(repo: Any, file_hash: Optional[str]) -> Optional[tuple[Any, Any]]:
+    """The two halves' saved edits for a whole-frame scan, or None when it has none.
+
+    A half with no saved edit takes its sibling's, so a scan where only one side was
+    worked on still renders as a consistent pair. Any ``#``-suffixed hash is rejected:
+    a half is not a diptych, and a composite's base is its reference frame, whose half
+    edits are not the composite's.
+    """
+    if not file_hash or _SEP in file_hash:
+        return None
+    keys = [half_hash(file_hash, 1), half_hash(file_hash, 2)]
+    found = repo.load_file_settings_many(keys)
+    first, second = found.get(keys[0]), found.get(keys[1])
+    if first is None and second is None:
+        return None
+    return (first or second, second or first)
 
 
 def detect_split_x(buf: np.ndarray) -> float:

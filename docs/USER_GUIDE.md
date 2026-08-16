@@ -85,6 +85,8 @@ Toolbar buttons, left to right:
 *   **Hot Folder**: watches the current folder and auto-loads new files as they appear, which is handy when a scanner or tethering app drops files into a directory. While it is on, the "Working…" import popup stays hidden so each new frame does not raise a window; the status line over the canvas still reports the import.
 *   **RGB Scan**: treats the folder as red/green/blue exposure triplets and assembles each frame from three shots, for narrowband trichrome scanning. Right-click a frame → **Edit RGB Triplet…** to assign the three files by hand. An assembled frame carries the three-dot badge described under [Triage](#triage-culling-the-roll).
 *   **Half Frame**: splits each scan into two frames, for half-frame cameras. Each half is edited and metered separately and badged with which half it is. Enabling it opens a rectangle editor on the current scan: drag the green box to crop (everything outside is discarded), drag the orange line to set the split, and use **Cut thickness** to discard a band centred on the split, which is the physical black separator between the two exposures. The setting is saved and applied to every half-frame split from then on, whatever the scans were acquired with (SANE scanner, camera copy-stand, or folder import). **Adjust Half Frame**, beside Half Frame, re-opens the editor. Auto-detection of the gutter still seeds the initial split position.
+
+    Turning Half Frame off does not lose the work: each half keeps its own edit. The scan comes back as one frame carrying both, a **diptych** — half 1 rendered with its own edit, half 2 with its own, joined side by side at the original spacing, with the cut band as a black gap. It carries the both-sides-filled split badge and exports as one file named `<name>-DIPTYCH`. A diptych's controls panel is disabled, because the edits belong to the halves: turn Half Frame back on to change either one. A scan where only one half was worked on uses that half's edit for both sides. The filmstrip thumbnail and contact-sheet tile still show the plain whole scan, so a diptych's thumbnail does not match what it exports. An export size set as a long edge applies to each half, so a diptych comes out about twice that wide.
 *   **Apply (clone)**: copy the current frame's settings to selected frames or the whole roll. You choose which aspects in a dialog; crop and rotation are always per-image.
 *   **Sheet filter** (funnel): show *All frames*, *Keepers only*, or *Hide rejected*.
 *   **Sort**: by Name or Date, ascending or descending.
@@ -194,6 +196,7 @@ The bottom-left badge is grey, not red, because it reports what the frame *is* r
 | Three stacked bars | a merged bracket ([§Merging](#merging-bracketed-exposures-hdr)) |
 | Three red/green/blue dots | an RGB-scan triplet |
 | A split rectangle, one side filled | one half of a half-frame scan; the filled side is which half |
+| A split rectangle, both sides filled | a diptych: the whole scan, each half with its own edit |
 
 Hover any thumbnail and the tooltip says the same thing in words, with the frame count: *HDR merge of 5 exposures*, *Stitched composite of 3 frames*.
 

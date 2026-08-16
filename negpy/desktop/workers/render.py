@@ -59,6 +59,11 @@ class RenderTask:
     cam_xyz: Optional[list] = None
     # As-shot WB multipliers, needed only when the buffer was decoded without WB.
     camera_wb: Optional[list] = None
+    # Half-frame diptych: `buffer` is the whole cropped scan and these two configs render
+    # its halves, which are then joined. `config` is unused then — the halves own the edit.
+    diptych: Optional[tuple[WorkspaceConfig, WorkspaceConfig]] = None
+    split_x: float = 0.5
+    gutter_thickness: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -211,6 +216,46 @@ class RenderWorker(QObject):
         """Full teardown of processing resources."""
         self._processor.destroy_all()
 
+    def _render_diptych(self, task: RenderTask, pipeline_source_hash: str) -> tuple[np.ndarray, dict]:
+        """Render the scan's two halves with their own configs and join them.
+
+        Each half is sliced before the pipeline, so its normalization sees the pixels it
+        was edited on — the same reason the half-frame preview slices pre-downsample. The
+        halves get distinct pipeline hashes or they share the stage cache and the second
+        render comes back as the first. Metrics are half 1's, marked so the controller
+        does not write those bounds back to the whole-frame edit.
+        """
+        from negpy.services.assets.half_frame import gap_px, half_hash, join_halves, slice_half
+
+        assert task.diptych is not None
+        rendered = []
+        for n, config in ((1, task.diptych[0]), (2, task.diptych[1])):
+            buffer = np.ascontiguousarray(slice_half(task.buffer, n, task.split_x, gutter_thickness=task.gutter_thickness))
+            ir = None
+            if task.ir_buffer is not None:
+                ir = np.ascontiguousarray(slice_half(task.ir_buffer, n, task.split_x, gutter_thickness=task.gutter_thickness))
+            out, metrics = self._processor.run_pipeline(
+                buffer,
+                config,
+                half_hash(pipeline_source_hash, n),
+                render_size_ref=task.preview_size,
+                prefer_gpu=task.gpu_enabled,
+                readback_metrics=task.readback_metrics and n == 1,
+                ir_buffer=ir,
+                crop_preview_full=task.crop_preview_full,
+                cam_xyz=task.cam_xyz,
+                camera_wb=task.camera_wb,
+            )
+            if isinstance(out, GPUTexture):
+                out = np.ascontiguousarray(out.readback()[:, :, :3])
+            rendered.append((out, metrics))
+
+        (left, metrics), (right, _) = rendered
+        metrics["diptych"] = True
+        # Half 1's GPU histogram describes half 1; let `process` bin the joined image instead.
+        metrics.pop("histogram_raw", None)
+        return join_halves(left, right, gap_px(left.shape[1], right.shape[1], task.gutter_thickness)), metrics
+
     @pyqtSlot(RenderTask)
     def process(self, task: RenderTask) -> None:
         """Executes the rendering pipeline for a single frame."""
@@ -218,18 +263,21 @@ class RenderWorker(QObject):
             # The splash shares the file's source_hash but is the embedded JPEG, not the linear
             # decode, so isolate its cache identity and it cannot leak into the real render.
             pipeline_source_hash = task.source_hash + ("\x00splash" if task.ephemeral else "")
-            result, metrics = self._processor.run_pipeline(
-                task.buffer,
-                task.config,
-                pipeline_source_hash,
-                render_size_ref=task.preview_size,
-                prefer_gpu=task.gpu_enabled,
-                readback_metrics=task.readback_metrics,
-                ir_buffer=task.ir_buffer,
-                crop_preview_full=task.crop_preview_full,
-                cam_xyz=task.cam_xyz,
-                camera_wb=task.camera_wb,
-            )
+            if task.diptych is not None:
+                result, metrics = self._render_diptych(task, pipeline_source_hash)
+            else:
+                result, metrics = self._processor.run_pipeline(
+                    task.buffer,
+                    task.config,
+                    pipeline_source_hash,
+                    render_size_ref=task.preview_size,
+                    prefer_gpu=task.gpu_enabled,
+                    readback_metrics=task.readback_metrics,
+                    ir_buffer=task.ir_buffer,
+                    crop_preview_full=task.crop_preview_full,
+                    cam_xyz=task.cam_xyz,
+                    camera_wb=task.camera_wb,
+                )
 
             # CPU renders have no in-shader histogram; bin the float output here.
             if task.readback_metrics and "histogram_raw" not in metrics and isinstance(result, np.ndarray):

@@ -10,8 +10,11 @@ from negpy.domain.models import ExportConfig, WorkspaceConfig
 from negpy.services.assets.half_frame import (
     base_hash,
     detect_split_x,
+    diptych_configs,
+    gap_px,
     half_hash,
     half_name,
+    join_halves,
     slice_for_asset,
     slice_half,
 )
@@ -220,3 +223,178 @@ class TestSliceHalfCropGutter:
         }
         out = slice_for_asset(buf, info)
         np.testing.assert_array_equal(out, buf[:, :40])
+
+
+class TestDiptych:
+    """Half-frame mode off: a scan that carries both halves' edits renders as one image."""
+
+    def test_half_zero_crops_without_splitting(self):
+        buf = np.arange(2 * 100 * 3, dtype=np.float32).reshape(2, 100, 3)
+        np.testing.assert_array_equal(slice_half(buf, 0, 0.5, crop_rect=(0.2, 0.0, 0.8, 1.0)), buf[:, 20:80])
+
+    def test_slice_for_asset_crops_a_whole_frame_with_a_rect(self):
+        buf = np.arange(2 * 100 * 3, dtype=np.float32).reshape(2, 100, 3)
+        info = {"split_x": 0.5, "crop_rect": (0.2, 0.0, 0.8, 1.0), "gutter_thickness": 0.2}
+        np.testing.assert_array_equal(slice_for_asset(buf, info), buf[:, 20:80])
+
+    def test_slice_for_asset_is_a_no_op_without_a_rect(self):
+        buf = np.arange(2 * 100 * 3, dtype=np.float32).reshape(2, 100, 3)
+        assert slice_for_asset(buf, {"name": "x"}) is buf
+
+    def test_gap_px_is_scale_invariant(self):
+        # 20 % gutter: the two halves hold 80 % of the width, so the gap is a quarter of them.
+        assert gap_px(40, 40, 0.2) == 20
+        assert gap_px(400, 400, 0.2) == 200
+        assert gap_px(40, 40, 0.0) == 0
+
+    def test_join_halves_geometry_and_gap(self):
+        left = np.ones((10, 6, 3), np.float32)
+        right = np.full((10, 4, 3), 0.5, np.float32)
+        out = join_halves(left, right, 3)
+        assert out.shape == (10, 13, 3)
+        np.testing.assert_array_equal(out[:, :6], left)
+        assert out[:, 6:9].max() == 0.0
+        np.testing.assert_array_equal(out[:, 9:], right)
+
+    def test_join_halves_centre_pads_unequal_heights(self):
+        left = np.ones((10, 4, 3), np.float32)
+        right = np.ones((6, 4, 3), np.float32)
+        out = join_halves(left, right, 0)
+        assert out.shape == (10, 8, 3)
+        # right sits in rows 2..8, black above and below
+        assert out[0, 4:].max() == 0.0 and out[9, 4:].max() == 0.0
+        np.testing.assert_array_equal(out[2:8, 4:], right)
+
+    def _repo(self, rows):
+        repo = MagicMock()
+        repo.load_file_settings_many.side_effect = lambda keys: {k: v for k, v in rows.items() if k in keys}
+        return repo
+
+    def test_both_halves(self):
+        a, b = WorkspaceConfig(), WorkspaceConfig()
+        pair = diptych_configs(self._repo({"h#1": a, "h#2": b}), "h")
+        assert pair == (a, b)
+
+    def test_missing_half_copies_its_sibling(self):
+        a = WorkspaceConfig()
+        assert diptych_configs(self._repo({"h#2": a}), "h") == (a, a)
+
+    def test_no_half_edits(self):
+        assert diptych_configs(self._repo({}), "h") is None
+
+    def test_a_half_is_not_a_diptych(self):
+        assert diptych_configs(self._repo({"h#1": WorkspaceConfig()}), "h#1") is None
+
+    def test_a_composite_is_not_a_diptych(self):
+        """A stitch's base is its reference frame, whose half edits are not the stitch's."""
+        assert diptych_configs(self._repo({"h#1": WorkspaceConfig()}), "h#stitch") is None
+
+    def test_export_filename_is_not_a_half(self):
+        name = render_export_filename("/x/IMG420.tif", ExportConfig(), composite="DIPTYCH")
+        assert name.endswith("IMG420-DIPTYCH") and "IMG420_1" not in name
+
+
+class TestDiptychRender:
+    """The joined render must come from two pipeline runs on two slices, not one."""
+
+    def _worker(self, out_by_hash):
+        from negpy.desktop.workers.render import RenderWorker
+
+        worker = RenderWorker.__new__(RenderWorker)
+        seen = []
+
+        def run_pipeline(buffer, config, source_hash, **kw):
+            seen.append((buffer.shape[1], config, source_hash, kw["readback_metrics"]))
+            return np.full((buffer.shape[0], buffer.shape[1], 3), out_by_hash[source_hash], np.float32), {"log_bounds": source_hash}
+
+        worker._processor = MagicMock()
+        worker._processor.run_pipeline.side_effect = run_pipeline
+        return worker, seen
+
+    def _task(self, **kw):
+        from negpy.desktop.workers.render import RenderTask
+
+        return RenderTask(
+            buffer=np.zeros((8, 100, 3), np.float32),
+            config=WorkspaceConfig(),
+            source_hash="h",
+            preview_size=1000.0,
+            diptych=(WorkspaceConfig(), WorkspaceConfig()),
+            **kw,
+        )
+
+    def test_each_half_renders_with_its_own_config(self):
+        from negpy.desktop.workers.render import RenderWorker
+
+        worker, seen = self._worker({"h#1": 0.25, "h#2": 0.75})
+        out, _ = RenderWorker._render_diptych(worker, self._task(gutter_thickness=0.2), "h")
+
+        assert [s[0] for s in seen] == [40, 40]  # 20 % gutter discarded around the split
+        assert [s[2] for s in seen] == ["h#1", "h#2"]  # distinct stage-cache identities
+        assert [s[3] for s in seen] == [True, False]  # only half 1 is metered; two writebacks would fight
+        assert out.shape == (8, 100, 3)  # gap restores the original width
+        assert out[0, 0, 0] == 0.25 and out[0, 99, 0] == 0.75 and out[0, 50, 0] == 0.0
+
+    def test_metrics_come_from_half_one_and_are_marked(self):
+        from negpy.desktop.workers.render import RenderWorker
+
+        worker, _ = self._worker({"h#1": 0.25, "h#2": 0.75})
+        _, metrics = RenderWorker._render_diptych(worker, self._task(readback_metrics=True), "h")
+        assert metrics["log_bounds"] == "h#1"
+        assert metrics["diptych"] is True
+
+
+class TestDiptychAsset:
+    """Discovery flags the scan; every later reader takes the flag off the asset dict."""
+
+    def _controller(self, rows):
+        from negpy.desktop.controller import AppController
+
+        ctrl = AppController.__new__(AppController)
+        ctrl.session = MagicMock()
+        ctrl.session.repo.load_file_settings_many.side_effect = lambda keys: {k: v for k, v in rows.items() if k in keys}
+        ctrl.session.repo.get_global_setting.return_value = {"crop_rect": [0.1, 0.0, 0.9, 1.0], "split_x": 0.4, "gutter_thickness": 0.05}
+        ctrl._active_diptych_memo = ("", None)
+        return ctrl
+
+    def test_mark_diptychs_flags_only_scans_with_half_edits(self):
+        from negpy.desktop.controller import AppController
+
+        ctrl = self._controller({"ha#2": WorkspaceConfig()})
+        assets = [
+            {"path": "/p/a.tif", "hash": "ha"},
+            {"path": "/p/b.tif", "hash": "hb"},
+            {"path": "/p/c.tif", "hash": "hc#1", "half": 1},
+        ]
+        AppController._mark_diptychs(ctrl, assets)
+        assert assets[0]["diptych"] is True
+        assert assets[1]["diptych"] is False
+        assert "diptych" not in assets[2]  # a half is never its own diptych
+
+    def test_task_stamps_the_saved_split_geometry(self):
+        from negpy.desktop.controller import AppController
+
+        cfg = WorkspaceConfig()
+        ctrl = self._controller({"ha#1": cfg, "ha#2": cfg})
+        info, pair = AppController._diptych_task(ctrl, {"path": "/p/a.tif", "hash": "ha", "diptych": True})
+        assert pair == (cfg, cfg)
+        assert info["split_x"] == 0.4
+        assert info["crop_rect"] == (0.1, 0.0, 0.9, 1.0)
+        assert info["gutter_thickness"] == 0.05
+
+    def test_a_flagged_negative_skips_the_lookup(self):
+        from negpy.desktop.controller import AppController
+
+        ctrl = self._controller({"ha#1": WorkspaceConfig()})
+        info, pair = AppController._diptych_task(ctrl, {"hash": "ha", "diptych": False})
+        assert pair is None and info["hash"] == "ha"
+        ctrl.session.repo.load_file_settings_many.assert_not_called()
+
+    def test_composite_kind_and_summary(self):
+        from negpy.desktop.session import composite_kind, composite_summary
+
+        asset = {"hash": "ha", "diptych": True}
+        assert composite_kind(asset) == "diptych"
+        assert "Diptych" in composite_summary(asset)
+        # A half still reads as a half while the mode is on.
+        assert composite_kind({"hash": "ha#1", "half": 1, "diptych": True}) == "half"

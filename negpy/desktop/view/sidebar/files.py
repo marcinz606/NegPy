@@ -136,6 +136,10 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         elif kind == "half":  # a split frame, this asset's own half filled
             painter.drawRect(QRect(cx - 6, cy - 4, 12, 8))
             painter.fillRect(QRect(cx - 5 if half == 1 else cx + 1, cy - 3, 5, 7), self._COMPOSITE_GLYPH)
+        elif kind == "diptych":  # the same split frame with both halves filled
+            painter.drawRect(QRect(cx - 6, cy - 4, 12, 8))
+            for left in (cx - 5, cx + 1):
+                painter.fillRect(QRect(left, cy - 3, 5, 7), self._COMPOSITE_GLYPH)
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
         file_info = index.data(Qt.ItemDataRole.UserRole) or {}

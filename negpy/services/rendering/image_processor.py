@@ -774,6 +774,90 @@ class ImageProcessor:
             ir_full = np.ascontiguousarray(slice_half(ir_full, half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness))
         return f32_buffer, ir_full
 
+    def _render_export_buffer(
+        self,
+        file_path: str,
+        params: WorkspaceConfig,
+        export_settings,  # ExportConfig or ExportPreset
+        source_hash: str,
+        metrics: Optional[Dict[str, Any]] = None,
+        prefer_gpu: bool = True,
+        bounds_override: Optional[Any] = None,
+        half: int = 0,
+        split_x: float = 0.5,
+        crop_rect: Optional[tuple[float, float, float, float]] = None,
+        gutter_thickness: float = 0.0,
+    ) -> Tuple[np.ndarray, str]:
+        """Full-res render of one frame; returns the float buffer and its color space."""
+        # Ensure both GPU and CPU paths use the same export settings.
+        params = dc_replace(params, export=export_settings)
+
+        f32_buffer, ir_full, source_cs = self._load_source_f32(file_path, params)
+        f32_buffer, ir_full = self._slice_half_source(
+            f32_buffer, ir_full, half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness
+        )
+        target_cs = export_settings.export_color_space
+        if target_cs == ColorSpace.SAME_AS_SOURCE.value:
+            target_cs = source_cs
+        color_space = str(target_cs)
+
+        detect_key = (
+            source_hash
+            + flatfield_token(params.flatfield)
+            + rgbscan_token(params.rgbscan)
+            + stitch_token(params.stitch)
+            + hdr_token(params.hdr)
+            + linear_raw_token(params.process, params.exposure.render_intent)
+            + sensor_token(params.process)
+            + ir_bake_token(params.retouch, ir_full is not None)
+            + manual_bake_token(params.retouch)
+        )
+        f32_buffer, _, _, ir_routed = self._ir_bake(f32_buffer, ir_full, params, detect_key)
+        orig_ret = params.retouch
+        detected, hair_masks = self._detect_luma(params, f32_buffer, detect_key)
+        f32_buffer = self._luma_bake(f32_buffer, detected, detect_key + hair_bake_token(orig_ret))
+        f32_buffer, manual_routed = self._manual_bake(f32_buffer, params, detect_key)
+        extra = [m for m in (ir_routed, manual_routed) if m is not None]
+        if extra:
+            hair_masks = hair_masks + extra
+        if hair_masks:
+            f32_buffer = self._hair_inpaint(f32_buffer, hair_masks, detect_key + hair_bake_token(orig_ret))
+
+        h_raw, w_raw = f32_buffer.shape[:2]
+        export_scale = max(h_raw, w_raw) / float(APP_CONFIG.preview_render_size)
+
+        if self._is_flat(params):
+            prefer_gpu = False
+
+        if prefer_gpu and self.engine_gpu:
+            buffer, _gpu_metrics = self.engine_gpu.process(
+                f32_buffer,
+                params,
+                scale_factor=export_scale,
+                bounds_override=bounds_override,
+                readback_metrics=False,
+                cam_xyz=self._cam_xyz_by_path.get(file_path, (None, None))[0],
+                camera_wb=self._cam_xyz_by_path.get(file_path, (None, None))[1],
+            )
+        else:
+            buffer, _ = self.run_pipeline(
+                f32_buffer,
+                params,
+                source_hash,
+                render_size_ref=float(APP_CONFIG.preview_render_size),
+                metrics=metrics or {"log_bounds": bounds_override} if bounds_override else metrics,
+                prefer_gpu=False,
+                wants_uv_grid=False,
+                skip_flatfield=True,  # f32_buffer already flat-fielded by _load_source_f32
+                cam_xyz=self._cam_xyz_by_path.get(file_path, (None, None))[0],
+                camera_wb=self._cam_xyz_by_path.get(file_path, (None, None))[1],
+            )
+            buffer = self._apply_scaling_and_border_f32(buffer, params, params.export)
+            # Release full-res arrays pinned in the CPU stage cache.
+            self.engine_cpu.cache.clear()
+
+        return buffer, color_space
+
     def process_export(
         self,
         file_path: str,
@@ -788,76 +872,49 @@ class ImageProcessor:
         split_x: float = 0.5,
         crop_rect: Optional[tuple[float, float, float, float]] = None,
         gutter_thickness: float = 0.0,
+        diptych: Optional[Tuple[WorkspaceConfig, WorkspaceConfig]] = None,
     ) -> Tuple[Optional[bytes], str]:
-        """Performs high-resolution export with color management."""
+        """Performs high-resolution export with color management.
+
+        ``diptych`` renders the scan's two halves with their own configs and joins them
+        back into the original geometry. Each half is sliced before the pipeline, so its
+        normalization sees the same pixels the user edited it on. ``params`` is unused
+        then — the halves own the edit. One encode, so no double compression.
+        """
         try:
-            # Ensure both GPU and CPU paths use the same export settings.
-            params = dc_replace(params, export=export_settings)
+            if diptych is not None:
+                from negpy.services.assets.half_frame import gap_px, half_hash, join_halves
 
-            f32_buffer, ir_full, source_cs = self._load_source_f32(file_path, params)
-            f32_buffer, ir_full = self._slice_half_source(
-                f32_buffer, ir_full, half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness
-            )
-            target_cs = export_settings.export_color_space
-            if target_cs == ColorSpace.SAME_AS_SOURCE.value:
-                target_cs = source_cs
-            color_space = str(target_cs)
-
-            detect_key = (
-                source_hash
-                + flatfield_token(params.flatfield)
-                + rgbscan_token(params.rgbscan)
-                + stitch_token(params.stitch)
-                + hdr_token(params.hdr)
-                + linear_raw_token(params.process, params.exposure.render_intent)
-                + sensor_token(params.process)
-                + ir_bake_token(params.retouch, ir_full is not None)
-                + manual_bake_token(params.retouch)
-            )
-            f32_buffer, _, _, ir_routed = self._ir_bake(f32_buffer, ir_full, params, detect_key)
-            orig_ret = params.retouch
-            detected, hair_masks = self._detect_luma(params, f32_buffer, detect_key)
-            f32_buffer = self._luma_bake(f32_buffer, detected, detect_key + hair_bake_token(orig_ret))
-            f32_buffer, manual_routed = self._manual_bake(f32_buffer, params, detect_key)
-            extra = [m for m in (ir_routed, manual_routed) if m is not None]
-            if extra:
-                hair_masks = hair_masks + extra
-            if hair_masks:
-                f32_buffer = self._hair_inpaint(f32_buffer, hair_masks, detect_key + hair_bake_token(orig_ret))
-
-            h_raw, w_raw = f32_buffer.shape[:2]
-            export_scale = max(h_raw, w_raw) / float(APP_CONFIG.preview_render_size)
-
-            if self._is_flat(params):
-                prefer_gpu = False
-
-            if prefer_gpu and self.engine_gpu:
-                buffer, gpu_metrics = self.engine_gpu.process(
-                    f32_buffer,
-                    params,
-                    scale_factor=export_scale,
-                    bounds_override=bounds_override,
-                    readback_metrics=False,
-                    cam_xyz=self._cam_xyz_by_path.get(file_path, (None, None))[0],
-                    camera_wb=self._cam_xyz_by_path.get(file_path, (None, None))[1],
-                )
+                rendered = [
+                    self._render_export_buffer(
+                        file_path,
+                        cfg,
+                        export_settings,
+                        half_hash(source_hash, n),
+                        prefer_gpu=prefer_gpu,
+                        half=n,
+                        split_x=split_x,
+                        crop_rect=crop_rect,
+                        gutter_thickness=gutter_thickness,
+                    )
+                    for n, cfg in ((1, diptych[0]), (2, diptych[1]))
+                ]
+                (left, color_space), (right, _) = rendered
+                buffer = join_halves(left, right, gap_px(left.shape[1], right.shape[1], gutter_thickness))
             else:
-                buffer, _ = self.run_pipeline(
-                    f32_buffer,
+                buffer, color_space = self._render_export_buffer(
+                    file_path,
                     params,
+                    export_settings,
                     source_hash,
-                    render_size_ref=float(APP_CONFIG.preview_render_size),
-                    metrics=metrics or {"log_bounds": bounds_override} if bounds_override else metrics,
-                    prefer_gpu=False,
-                    wants_uv_grid=False,
-                    skip_flatfield=True,  # f32_buffer already flat-fielded by _load_source_f32
-                    cam_xyz=self._cam_xyz_by_path.get(file_path, (None, None))[0],
-                    camera_wb=self._cam_xyz_by_path.get(file_path, (None, None))[1],
+                    metrics=metrics,
+                    prefer_gpu=prefer_gpu,
+                    bounds_override=bounds_override,
+                    half=half,
+                    split_x=split_x,
+                    crop_rect=crop_rect,
+                    gutter_thickness=gutter_thickness,
                 )
-                buffer = self._apply_scaling_and_border_f32(buffer, params, params.export)
-                # Release full-res arrays pinned in the CPU stage cache.
-                self.engine_cpu.cache.clear()
-
             return self._encode_export(buffer, export_settings, color_space, working_color_space)
 
         except Exception as e:

@@ -241,8 +241,8 @@ def _asset_mtime(asset: Dict[str, Any]) -> float:
 
 
 def composite_kind(asset: Dict[str, Any]) -> str:
-    """Which multi-file construction an asset is: stitch, hdr, rgb, half, or "" for a
-    plain frame.
+    """Which multi-file construction an asset is: stitch, hdr, rgb, half, diptych, or "" for
+    a plain frame.
 
     Order is load-bearing: a stitch of triplets also carries the primary part's
     green/blue pair (``controller._on_stitch_registered``), so it must be tested first.
@@ -255,6 +255,8 @@ def composite_kind(asset: Dict[str, Any]) -> str:
         return "rgb"
     if asset.get("half"):
         return "half"
+    if asset.get("diptych"):
+        return "diptych"
     return ""
 
 
@@ -269,6 +271,8 @@ def composite_summary(asset: Dict[str, Any]) -> str:
         return "RGB-scan triplet"
     if kind == "half":
         return f"Half-frame split ({int(asset['half'])} of 2)"
+    if kind == "diptych":
+        return "Diptych — both halves, each with its own edit"
     return ""
 
 

@@ -36,6 +36,9 @@ class ExportTask:
     source_exif: Optional[dict] = None
     metadata_config: Optional[MetadataConfig] = None
     working_color_space: str = WORKING_COLOR_SPACE
+    # The two halves' own edits, for a whole-frame scan that was worked on split.
+    # Set means one file holding both frames; `params` is then only a naming/metadata carrier.
+    diptych: Optional[tuple[WorkspaceConfig, WorkspaceConfig]] = None
 
 
 @dataclass(frozen=True)
@@ -95,7 +98,7 @@ def resolve_export_naming(task: ExportTask) -> tuple[str, str, str]:
         border_size=task.params.finish.border_size,
         half=int(task.file_info.get("half") or 0),
         metadata=task.metadata_config,
-        composite="HDR" if frames else "",
+        composite="DIPTYCH" if task.diptych else ("HDR" if frames else ""),
     )
     return out_dir, filename, ext
 
@@ -158,6 +161,7 @@ class ExportWorker(QObject):
                     split_x=float(task.file_info.get("split_x") or 0.5),
                     crop_rect=tuple(task.file_info["crop_rect"]) if task.file_info.get("crop_rect") else None,
                     gutter_thickness=float(task.file_info.get("gutter_thickness") or 0.0),
+                    diptych=task.diptych,
                 )
 
                 if not bits:
