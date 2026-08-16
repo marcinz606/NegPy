@@ -224,6 +224,9 @@ def get_thumbnail_worker(
 
             img = Image.fromarray(slice_half(np.asarray(img), half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness))
 
+        # Shrink before the inversion, not after: preview_positive is float math over every
+        # pixel, and on a full-size decode its temporaries cost a gigabyte per worker.
+        img.thumbnail((ts, ts), Image.Resampling.LANCZOS)
         square_img: Image.Image = prepare_thumbnail(preview_positive(img, process_mode), ts)
 
         if asset_store:

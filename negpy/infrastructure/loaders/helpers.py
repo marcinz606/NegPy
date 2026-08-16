@@ -89,20 +89,22 @@ def _tiff_preview_page(file_path: str) -> Optional[Image.Image]:
     """Reduced-resolution preview page of a TIFF-based raw, or None.
 
     Page 0 holds the preview only when the full-res data sits in SubIFDs, which is how
-    DNG writers lay it out.
+    DNG writers lay it out. Scanner DNGs write that page 16-bit, so both depths count.
     """
     try:
         import tifffile
 
         with tifffile.TiffFile(file_path) as tif:
             page = tif.pages[0]
-            if not page.pages or page.dtype != np.uint8:  # type: ignore[union-attr]
+            if not page.pages or page.dtype not in (np.uint8, np.uint16):  # type: ignore[union-attr]
                 return None
             arr = page.asarray()  # type: ignore[attr-defined]
     except Exception as e:
         logger.warning(f"TIFF preview page read failed for {file_path}: {e}")
         return None
 
+    if arr.dtype == np.uint16:
+        arr = (arr >> 8).astype(np.uint8)
     return Image.fromarray(ensure_rgb(arr))
 
 

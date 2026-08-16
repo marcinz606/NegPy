@@ -75,6 +75,17 @@ def test_bitmap_thumb_falls_back_to_tiff_preview_page(tmp_path):
     assert np.asarray(img).shape == (10, 16, 3)
 
 
+def test_16_bit_preview_page_is_scaled_down(tmp_path):
+    """Scanner DNGs write page 0 as uint16; rejecting it sent a whole library through the
+    half-size demosaic instead, at about a gigabyte of transients per worker."""
+    path = _dng_with_preview(tmp_path / "scan16.dng", np.full((10, 16), 0x8000, dtype=np.uint16))
+    img = embedded_preview(_Raw(_Thumb(rawpy.ThumbFormat.BITMAP)), path)
+    assert img is not None
+    arr = np.asarray(img)
+    assert arr.shape == (10, 16, 3) and arr.dtype == np.uint8
+    assert arr.max() == 0x80
+
+
 def test_plain_tiff_without_subifds_has_no_preview_page(tmp_path):
     """Page 0 is the image itself, not a preview, so nothing is offered."""
     path = str(tmp_path / "scan.tif")
