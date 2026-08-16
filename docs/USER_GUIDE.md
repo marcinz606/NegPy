@@ -16,6 +16,12 @@ This guide is for new users. It explains what each control does and when to reac
 *   **Centre, the canvas**: the live preview of the current frame. Most tools (crop, white-balance picker, heal brush, dodge/burn masks) are used by clicking directly on it. Scroll/pinch to zoom and drag to pan; a floating toolbar along the bottom holds Fit/1:1 zoom plus undo/redo, rotate/flip and more, moving overflow items into an **⋯** menu when the window narrows — that menu also has **Immersive Canvas** (image fills the canvas and the toolbar overlaps it; turn off to reserve space so it never occludes the image) **Show Slider Values** (keeps every slider's value box open instead of revealing it under the pointer — turn it on if you work by the numbers) and **Reverse Scroll Zoom** (scroll up zooms out instead of in). Right-click the image for **Reset View** and **Sticky Zoom** (keeps the current zoom level when you switch to another frame, instead of resetting to fit), alongside the picker tools, copy/paste settings, and **Unload** (removes the frame from the session; its saved edit is kept). With nothing loaded it shows **Load some scans to get started** — click it for **Add files** / **Add folder**.
 *   **Right, the controls**: a pinned **Analysis** readout at the top, and below it an icon tab bar. Each icon opens a *workflow page* holding one or more collapsible panels.
 
+### Before / After
+
+The canvas toolbar's **◑** button (or `\`) splits the canvas in two. Left of the divider is the auto baseline: the same frame with the same film process, crop and rotation, but with every creative control — exposure, tone, Lab, dodge/burn, toning, retouch and finishing — back at its default. Right of it is your edit. Drag the divider to move the split, or grab its knob in the middle.
+
+The split stays up while you work, so a slider moves the after side against a fixed reference. Press `\` again, or move to another frame, to close it. Peek Flat Scan and the test strip take the canvas over, so they close it too.
+
 ### The workflow (and the order things happen)
 
 The right-hand tabs follow the order you work in, which mirrors the processing pipeline:

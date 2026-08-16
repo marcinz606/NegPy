@@ -84,6 +84,8 @@ _NOTES_CARD_TOP_PX = 40.0  # clears the HUD's top-left filename pill
 
 _PIN_RADIUS_PX = 7.0  # zone-placement pin ring
 _PIN_GRAB_PX = 16.0  # grab radius, wider than the drawn ring
+_SPLIT_GRAB_PX = 12.0  # before/after divider grab half-width
+_SPLIT_HANDLE_PX = 11.0  # drawn knob radius
 
 _LOUPE_RADIUS_PX = 128.0
 # Device px per buffer px inside the glass. At fit-zoom the canvas already shows most of a
@@ -289,6 +291,11 @@ class CanvasOverlay(QWidget):
         # Zone-placement pin being dragged (the controller re-reads the tone as it moves).
         self._pin_drag_index: Optional[int] = None
 
+        # Before/after split: the stashed baseline frame, its content rect, its converted
+        # QImage (cached like the host one) and whether the divider is under the mouse.
+        self._compare_qimage_cache: Optional[Tuple[tuple, QImage]] = None
+        self._split_dragging: bool = False
+
         self.zoom_level: float = 1.0
         self.pan_x: float = 0.0
         self.pan_y: float = 0.0
@@ -483,6 +490,12 @@ class CanvasOverlay(QWidget):
             self._analysis_rect_norm = self.state.config.process.analysis_rect
 
         self._recalc_view_rect()
+        self.update()
+
+    def refresh_compare(self) -> None:
+        """Repaint the split after the stashed baseline frame changed (or went away)."""
+        self._compare_qimage_cache = None
+        self._split_dragging = False
         self.update()
 
     def drop_gpu_texture(self) -> None:
@@ -686,23 +699,18 @@ class CanvasOverlay(QWidget):
         if self.state.zone_pins and content_aligned and not self.state.test_strip:
             self._draw_zone_pins(painter)
 
-        # Not over the compare baseline: that render has no masks applied, so a map drawn on
+        # Not over the compare baseline: that half has no masks applied, so a map drawn on
         # it marks burns the picture underneath has not had.
-        if (
-            self.state.printing_notes
-            and content_aligned
-            and not self.state.test_strip
-            and not self.state.last_metrics.get("compare", False)
-        ):
+        if self.state.printing_notes and content_aligned and not self.state.test_strip and not self._compare_split_active():
             self._draw_printing_notes(painter)
 
         if self._rotation_grid_visible:
             self._draw_rotation_grid(painter, visible_rect)
 
-        # Keyed off the painted frame, not state.compare_mode. The toggle flips before its
-        # render lands, so the flag would badge the *edit* as BEFORE on slow renders.
-        if self.state.last_metrics.get("compare", False):
-            self._draw_compare_badge(painter, visible_rect)
+        # Keyed off the stashed baseline, not state.compare_mode: the toggle flips before its
+        # render lands, and half a split with no before frame is just the edit.
+        if self._compare_split_active() and content_aligned:
+            self._draw_compare_split(painter)
 
         # Last: the glass sits over everything else and claims no content rect, so it stays out
         # of the exclusion ladder above. It is suppressed wherever something else replaced the
@@ -740,13 +748,71 @@ class CanvasOverlay(QWidget):
         for poly in shapes:
             painter.drawPolyline(QPolygonF([QPointF(ox + x, oy + y) for x, y in poly]))
 
-    def _draw_compare_badge(self, painter: QPainter, visible_rect: QRectF) -> None:
-        badge = QRectF(visible_rect.x() + 12, visible_rect.y() + 12, 78, 22)
+    def _compare_before_qimage(self) -> Optional[QImage]:
+        """The stashed baseline frame under the current display transform."""
+        buf = self.state.compare_before
+        if not isinstance(buf, np.ndarray):
+            return None
+        key = (id(buf), self._display_cs, self._proof)
+        if self._compare_qimage_cache is not None and self._compare_qimage_cache[0] == key:
+            return self._compare_qimage_cache[1]
+        img = ImageConverter.to_qimage(buf, self._display_cs, self._monitor_icc_bytes, self._proof)
+        self._compare_qimage_cache = (key, img)
+        return img
+
+    def _split_screen_x(self) -> float:
+        rect = self._content_view_rect()
+        return rect.x() + float(np.clip(self.state.compare_split, 0.0, 1.0)) * rect.width()
+
+    def _compare_split_active(self) -> bool:
+        return bool(self.state.compare_mode) and isinstance(self.state.compare_before, np.ndarray)
+
+    def _draw_compare_split(self, painter: QPainter) -> None:
+        """Baseline frame left of the divider, the edit right of it.
+
+        Each half is mapped through its own content rect, so a border or mat on the edit —
+        which the baseline never has — cannot shift the picture across the divider.
+        """
+        before = self._compare_before_qimage()
+        target = self._content_view_rect()
+        if before is None or target.isEmpty():
+            return
+
+        src = QRectF(0.0, 0.0, float(before.width()), float(before.height()))
+        crect = self.state.compare_before_rect
+        if crect is not None and crect[2] > 0 and crect[3] > 0:
+            src = QRectF(float(crect[0]), float(crect[1]), float(crect[2]), float(crect[3]))
+
+        x = self._split_screen_x()
+        painter.save()
+        painter.setClipRect(QRectF(target.left(), target.top(), x - target.left(), target.height()))
+        painter.drawImage(target, before, src)
+        painter.restore()
+
+        pen = QPen(QColor(255, 255, 255, 210), 1.0)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.setBrush(QColor(0, 0, 0, 150))
+        painter.drawLine(QPointF(x, target.top()), QPointF(x, target.bottom()))
+
+        centre = QPointF(x, target.center().y())
+        painter.drawEllipse(centre, _SPLIT_HANDLE_PX, _SPLIT_HANDLE_PX)
+        painter.setPen(QColor(255, 255, 255, 230))
+        knob = QRectF(centre.x() - _SPLIT_HANDLE_PX, centre.y() - _SPLIT_HANDLE_PX, 2 * _SPLIT_HANDLE_PX, 2 * _SPLIT_HANDLE_PX)
+        painter.drawText(knob, Qt.AlignmentFlag.AlignCenter, "◂▸")
+
+        if x - target.left() > 92:
+            self._draw_compare_label(painter, "BEFORE", target.left() + 12, target.top() + 12)
+        if target.right() - x > 92:
+            self._draw_compare_label(painter, "AFTER", target.right() - 80, target.top() + 12)
+
+    def _draw_compare_label(self, painter: QPainter, text: str, x: float, y: float) -> None:
+        badge = QRectF(x, y, 68, 22)
         painter.setBrush(QColor(0, 0, 0, 170))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(badge, 4, 4)
         painter.setPen(QColor(THEME.accent_primary))
-        painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, "BEFORE")
+        painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, text)
 
     def _draw_brush(self, painter: QPainter) -> None:
         radius = self._brush_screen_radius(self.state.config.retouch.manual_dust_size)
@@ -1882,6 +1948,14 @@ class CanvasOverlay(QWidget):
             event.accept()
             return
 
+        # Before the pan branch: pan claims the left button whenever the view is zoomed in,
+        # which would swallow every grab of the divider.
+        if event.button() == Qt.MouseButton.LeftButton and self._hit_compare_split(event.position()):
+            self._split_dragging = True
+            self.setCursor(Qt.CursorShape.SplitHCursor)
+            event.accept()
+            return
+
         if event.button() == Qt.MouseButton.MiddleButton or (
             event.button() == Qt.MouseButton.LeftButton and self.zoom_level > 1.0 and self._tool_mode == ToolMode.NONE
         ):
@@ -1971,6 +2045,16 @@ class CanvasOverlay(QWidget):
             return []
         return [QPointF(rect.x() + p.nx * rect.width(), rect.y() + p.ny * rect.height()) for p in self.state.zone_pins]
 
+    def _hit_compare_split(self, pos: QPointF) -> bool:
+        """True when `pos` is on the before/after divider. Only with no tool armed: a tool
+        owns its clicks, and the divider spans the whole frame height."""
+        if not self._compare_split_active() or self._tool_mode != ToolMode.NONE:
+            return False
+        rect = self._content_view_rect()
+        if rect.isEmpty() or not (rect.top() <= pos.y() <= rect.bottom()):
+            return False
+        return abs(pos.x() - self._split_screen_x()) <= _SPLIT_GRAB_PX
+
     def _hit_zone_pin(self, pos: QPointF) -> Optional[int]:
         """Index of the pin under `pos` (nearest wins when they overlap), else None."""
         best, best_d = None, _PIN_GRAB_PX * _PIN_GRAB_PX
@@ -2050,6 +2134,21 @@ class CanvasOverlay(QWidget):
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         self._mouse_pos = event.position()
+
+        # First: a divider drag owns the mouse, and no tool or readout should see it.
+        if self._split_dragging:
+            rect = self._content_view_rect()
+            if not rect.isEmpty():
+                self.state.compare_split = float(np.clip((event.position().x() - rect.x()) / rect.width(), 0.0, 1.0))
+                self.update()
+            event.accept()
+            return
+
+        if self._compare_split_active():
+            if self._hit_compare_split(event.position()):
+                self.setCursor(Qt.CursorShape.SplitHCursor)
+            elif self.cursor().shape() == Qt.CursorShape.SplitHCursor:
+                self.unsetCursor()
 
         coords = self._map_to_image_coords(event.position())
         if coords is not None:
@@ -2501,6 +2600,13 @@ class CanvasOverlay(QWidget):
         self.update()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if self._split_dragging:
+            self._split_dragging = False
+            self.unsetCursor()
+            self.update()
+            event.accept()
+            return
+
         if self._pin_drag_index is not None:
             index, self._pin_drag_index = self._pin_drag_index, None
             norm = self._clamped_content_norm(event.position())

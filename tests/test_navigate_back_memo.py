@@ -43,6 +43,7 @@ def _stub(memo, **overrides):
             metrics_lock=MagicMock(__enter__=lambda s: None, __exit__=lambda s, *a: None),
             last_metrics={},
             current_file_hash="h1",
+            compare_mode=False,
         ),
         image_updated=MagicMock(),
         _update_thumbnail_from_state=MagicMock(),

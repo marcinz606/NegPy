@@ -3,7 +3,7 @@ import re
 import threading
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from PyQt6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt, pyqtSignal
 
@@ -181,8 +181,15 @@ class AppState:
     # True when the active file has no saved config yet (gates process-mode autodetect)
     current_file_is_new: bool = False
 
-    # True while the before/after view shows the un-graded auto baseline instead of edits
+    # True while the before/after split shows the un-graded auto baseline beside the edit
     compare_mode: bool = False
+    # The stashed baseline frame painted left of the divider: display buffer, its content
+    # rect (border/mat padding), and the render key it was captured under.
+    compare_before: Optional[Any] = None
+    compare_before_rect: Optional[Tuple[int, int, int, int]] = None
+    compare_before_key: str = ""
+    # Divider position, content-normalized x (0 = all after, 1 = all before)
+    compare_split: float = 0.5
 
     # Export presets (globally managed, not per-file)
     export_presets: List[ExportPreset] = field(default_factory=list)

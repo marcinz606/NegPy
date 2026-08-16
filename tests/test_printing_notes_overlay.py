@@ -77,7 +77,8 @@ def test_the_compare_baseline_gets_no_map() -> None:
     """The baseline render has no masks applied, so a map on it would mark burns that
     are not in the picture underneath."""
     overlay = _overlay()
-    overlay.state.last_metrics["compare"] = True
+    overlay.state.compare_mode = True
+    overlay.state.compare_before = np.zeros((H, W, 3), dtype=np.float32)
     assert not _paint(overlay, "_draw_printing_notes").called
 
 

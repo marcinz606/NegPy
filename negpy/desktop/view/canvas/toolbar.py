@@ -149,7 +149,9 @@ class ActionToolbar(QWidget):
         self.btn_compare = QToolButton()
         self.btn_compare.setCheckable(True)
         self.btn_compare.setIcon(qta.icon("fa5s.adjust", color=icon_color))
-        self.btn_compare.setToolTip(tooltip_with_shortcut("Before / After — show the auto baseline", "toggle_compare"))
+        self.btn_compare.setToolTip(
+            tooltip_with_shortcut("Before / After — split against the auto baseline, drag the divider", "toggle_compare")
+        )
 
         # Overflow-only (kept as a state holder so the checked-state mirror still works).
         self.btn_flat_peek = QToolButton()
@@ -243,7 +245,9 @@ class ActionToolbar(QWidget):
         )
         self._ov_compare_action = overflow_menu.addAction(qta.icon("fa5s.adjust", color=icon_color), "Before / After")
         self._ov_compare_action.setCheckable(True)
-        self._ov_compare_action.setToolTip(tooltip_with_shortcut("Before / After — show the auto baseline", "toggle_compare"))
+        self._ov_compare_action.setToolTip(
+            tooltip_with_shortcut("Before / After — split against the auto baseline, drag the divider", "toggle_compare")
+        )
         self._ov_flat_peek_action = overflow_menu.addAction(qta.icon("fa5s.eye", color=icon_color), "Peek Flat Scan")
         self._ov_flat_peek_action.setCheckable(True)
         self._ov_flat_peek_action.setToolTip(

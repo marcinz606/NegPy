@@ -2450,16 +2450,15 @@ class TestCompareFlatPeekInteraction(unittest.TestCase):
         self.assertFalse(self.controller.state.flat_peek)
         self.assertIn(False, seen)
 
-    def test_rerender_active_view_re_renders_the_compare_baseline(self):
-        from negpy.desktop.controller import baseline_compare_config
-
+    def test_rerender_active_view_keeps_the_compare_split_on_a_plain_render(self):
         self.controller.state.compare_mode = True
         with patch.object(self.controller, "request_render") as rr:
             self.controller.rerender_active_view()
         _, kwargs = rr.call_args
-        # A plain request_render() (override None) would exit compare; passing the
-        # baseline keeps the user in it.
-        self.assertEqual(kwargs.get("config_override"), baseline_compare_config(self.controller.state.config))
+        # The split renders the edit as usual; the baseline half re-captures on its own
+        # once the geometry key moves.
+        self.assertIsNone(kwargs.get("config_override"))
+        self.assertTrue(self.controller.state.compare_mode)
 
     def test_rerender_active_view_re_renders_the_flat_master(self):
         from negpy.domain.models import flat_master_config

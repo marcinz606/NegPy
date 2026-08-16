@@ -291,6 +291,7 @@ class AppController(QObject):
     config_updated = pyqtSignal()
     monitor_profile_changed = pyqtSignal()
     compare_changed = pyqtSignal(bool)
+    compare_frame_ready = pyqtSignal()
     flat_output_changed = pyqtSignal(bool)
     linear_output_changed = pyqtSignal(bool)
     flat_peek_changed = pyqtSignal(bool)
@@ -1430,9 +1431,11 @@ class AppController(QObject):
         self._requested_file_path = file_path
         # A strip belongs to one frame, and the memo fast path below repaints without
         # going through request_render, so drop it here too. Zone pins froze their sample
-        # from this frame and go the same way.
+        # from this frame and go the same way. The compare split holds the frame the user
+        # is leaving, so it goes too.
         self._clear_test_strip()
         self._drop_zone_pins()
+        self.exit_compare()
 
         # Navigate-back fast path: the frame's last render is memoized and nothing that
         # shaped it has changed, since select_file already hydrated its config. Paint it
@@ -1463,7 +1466,6 @@ class AppController(QObject):
                 self.state.last_metrics["base_positive"] = memo["base_positive"]
                 self.state.last_metrics["content_rect"] = memo.get("content_rect")
                 self.state.last_metrics["splash"] = False
-                self.state.last_metrics["compare"] = False
                 # These pixels are this frame's own last render. Leaving the outgoing
                 # frame's hash next to them would file them under it on the next
                 # thumbnail refresh, which reads whatever last_metrics holds.
@@ -1554,7 +1556,6 @@ class AppController(QObject):
         with self.state.metrics_lock:
             self.state.last_metrics["base_positive"] = raw
             self.state.last_metrics["splash"] = True
-            self.state.last_metrics["compare"] = False
         self.image_updated.emit()
 
     def _on_preview_load_failed(self, file_path: str, message: str) -> None:
@@ -1802,10 +1803,8 @@ class AppController(QObject):
             self._disarm_zone_target()
             return
         # Same reason compare, the peek and the strip are exclusive: they all want the canvas.
-        restore = self.state.compare_mode or self.state.flat_peek
-        if self.state.compare_mode:
-            self.state.compare_mode = False
-            self.compare_changed.emit(False)
+        restore = self.state.flat_peek
+        self.exit_compare()
         if self.state.flat_peek:
             self.state.flat_peek = False
             self.flat_peek_changed.emit(False)
@@ -2033,6 +2032,9 @@ class AppController(QObject):
             return
         if self.state.preview_raw is None:
             return
+
+        # The mosaic replaces the frame, so the split has nothing left to compare against.
+        self.exit_compare()
 
         # Unrotated: one print yields every orientation, so rotating never re-renders.
         grid = RING_GRID if kind == "color" else STRIP_GRID
@@ -3636,7 +3638,11 @@ class AppController(QObject):
         self._apply_monitor_profile()
 
     def request_render(
-        self, readback_metrics: bool = True, config_override: Optional[WorkspaceConfig] = None, ephemeral: bool = False
+        self,
+        readback_metrics: bool = True,
+        config_override: Optional[WorkspaceConfig] = None,
+        ephemeral: bool = False,
+        compare_capture: bool = False,
     ) -> None:
         """
         Dispatches a render task to the worker thread.
@@ -3645,15 +3651,13 @@ class AppController(QObject):
         config_override renders an alternate config (e.g. the before/after baseline) without
         mutating session state; pass readback_metrics=False so it doesn't disturb
         histogram/bounds persistence.
+
+        compare_capture marks the baseline render whose pixels are stashed for the
+        before/after split instead of being displayed.
         """
         self._render_debounce.stop()
 
-        # Any non-compare render (a user edit, navigation, etc.) exits before/after compare.
-        if config_override is None and self.state.compare_mode:
-            self.state.compare_mode = False
-            self.compare_changed.emit(False)
-
-        # Likewise, any direct render exits the flat preview-peek.
+        # Any direct render exits the flat preview-peek.
         if config_override is None and self.state.flat_peek:
             self.state.flat_peek = False
             self.flat_peek_changed.emit(False)
@@ -3673,8 +3677,10 @@ class AppController(QObject):
             return
 
         # A drag asks for no metrics, the release does. Interactive frames go through the
-        # proxy, so full resolution arrives only once the gesture settles.
-        interactive = not readback_metrics
+        # proxy, so full resolution arrives only once the gesture settles. The baseline
+        # capture wants no metrics but full resolution: it is painted beside the edit, and a
+        # proxy would show softer pixels on one side of the divider.
+        interactive = not readback_metrics and not compare_capture
         ir_buffer = self.state.preview_ir
         if interactive and self.state.preview_proxy is not None:
             preview_raw = self.state.preview_proxy
@@ -3705,7 +3711,7 @@ class AppController(QObject):
             crop_preview_full=crop_preview_full,
             ephemeral=ephemeral,
             memo_key=memo_key,
-            compare=self.state.compare_mode,
+            compare=compare_capture,
             interactive=interactive,
             # Mirrors should_update_thumb, minus its pending-task check.
             wants_thumbnail=(not interactive and not ephemeral and config_override is None and self.state.config is not self._thumb_config),
@@ -3726,14 +3732,49 @@ class AppController(QObject):
     def _baseline_compare_config(self) -> WorkspaceConfig:
         return baseline_compare_config(self.state.config)
 
-    def toggle_compare(self) -> None:
-        """Toggle the before/after view between current edits and the auto baseline."""
+    def _compare_before_key(self) -> str:
+        """Identity of the stashed baseline frame. Creative edits leave it alone (they are
+        reset in the baseline anyway); geometry, process and display changes invalidate it."""
+        return self._render_memo_key(self._baseline_compare_config())
+
+    def _request_compare_baseline(self) -> None:
         if self.state.preview_raw is None:
             return
+        self.request_render(readback_metrics=False, config_override=self._baseline_compare_config(), compare_capture=True)
+
+    def _capture_compare_before(self, metrics: Dict[str, Any]) -> None:
+        """Keep the baseline render's pixels for the split. The GPU pool overwrites its
+        textures on the next frame, so read back now rather than holding the texture."""
+        buffer = metrics.get("base_positive")
+        if isinstance(buffer, GPUTexture):
+            try:
+                readback = buffer.readback()
+            except Exception:
+                logger.exception("Failed to read back the before/after baseline frame")
+                return
+            buffer = np.ascontiguousarray(readback[:, :, :3]) if readback.ndim == 3 and readback.shape[2] >= 3 else readback
+        if not isinstance(buffer, np.ndarray):
+            return
+        self.state.compare_before = buffer
+        self.state.compare_before_rect = metrics.get("content_rect")
+        self.state.compare_before_key = self._compare_before_key()
+        self.compare_frame_ready.emit()
+
+    def exit_compare(self) -> None:
+        """Leave the before/after split and drop the stashed baseline frame."""
+        self.state.compare_before = None
+        self.state.compare_before_rect = None
+        self.state.compare_before_key = ""
         if self.state.compare_mode:
             self.state.compare_mode = False
             self.compare_changed.emit(False)
-            self.request_render()
+
+    def toggle_compare(self) -> None:
+        """Toggle the before/after split between the edit and the auto baseline."""
+        if self.state.preview_raw is None:
+            return
+        if self.state.compare_mode:
+            self.exit_compare()
         else:
             # Mutually exclusive with flat-peek: drop it so its toggle cannot stay lit while
             # the compare baseline is on screen. toggle_flat_peek exits compare the same way.
@@ -3744,18 +3785,17 @@ class AppController(QObject):
             self._clear_test_strip()
             self.state.compare_mode = True
             self.compare_changed.emit(True)
-            self.request_render(readback_metrics=False, config_override=self._baseline_compare_config())
+            # The edit is already on screen; only the baseline half has to be rendered.
+            self._request_compare_baseline()
 
     def rerender_active_view(self) -> None:
         """Re-render the canvas keeping whatever comparison overlay is active.
 
         Geometry ops (rotate/flip) change the config but shouldn't kick the user
-        out of before/after or flat-peek; a plain request_render() would exit both.
-        Passing the mode's config_override re-renders in place and leaves the mode on.
+        out of flat-peek; a plain request_render() would exit it. The compare split
+        survives a plain render, and its baseline half re-captures on the key change.
         """
-        if self.state.compare_mode:
-            self.request_render(readback_metrics=False, config_override=self._baseline_compare_config())
-        elif self.state.flat_peek:
+        if self.state.flat_peek:
             self.request_render(readback_metrics=False, config_override=flat_master_config(self.state.config))
         else:
             self.request_render()
@@ -3815,10 +3855,8 @@ class AppController(QObject):
         if target == self.state.flat_peek:
             return
 
-        if target and self.state.compare_mode:
-            self.state.compare_mode = False
-            self.compare_changed.emit(False)
         if target:
+            self.exit_compare()
             self._clear_test_strip()
 
         self.state.flat_peek = target
@@ -4599,6 +4637,19 @@ class AppController(QObject):
             self._dispatch_pending_render()
             return
 
+        # The baseline half of the split is stashed, never displayed: it must not reach
+        # last_metrics, the memo, the thumbnail or the canvas.
+        if metrics.get("compare"):
+            if self.state.compare_mode:
+                self._capture_compare_before(metrics)
+            if self._pending_render_task is not None:
+                self._dispatch_pending_render()
+            else:
+                # The engine pool hands every render the same output texture, so this one
+                # has just overwritten the edit the canvas is sampling. Print it again.
+                self.request_render()
+            return
+
         if self._first_render_t0 is not None and not metrics.get("ephemeral"):
             logger.info(
                 "load-timing first_render %.0fms (buffer -> painted) %s",
@@ -4650,6 +4701,12 @@ class AppController(QObject):
             # persist=False: refresh in-memory only; disk JPEG written on switch/save/export.
             self._update_thumbnail_from_state(persist=False)
 
+        # Geometry, process or display changes make the stashed baseline half disagree with
+        # the frame beside it; re-capture once the queue is empty.
+        if self.state.compare_mode and self._pending_render_task is None and self.state.compare_before_key != self._compare_before_key():
+            self._request_compare_baseline()
+            return
+
         self._dispatch_pending_render()
 
     def _dispatch_pending_render(self) -> None:
@@ -4666,8 +4723,9 @@ class AppController(QObject):
         """
         # A render of a frame the user has left measured that frame, not this one:
         # merging it corrupts the histogram, densitometer and UV grid until the next
-        # render replaces every key it touched.
-        if self._renders_another_frame(metrics):
+        # render replaces every key it touched. The compare baseline measures a config
+        # the user never set, so it is dropped for the same reason.
+        if self._renders_another_frame(metrics) or metrics.get("compare"):
             return
 
         with self.state.metrics_lock:

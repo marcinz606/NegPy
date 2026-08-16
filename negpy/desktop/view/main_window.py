@@ -457,6 +457,8 @@ class MainWindow(QMainWindow):
         self.controller.grain_focuser_changed.connect(lambda _on: self.canvas.overlay.update())
         self.controller.printing_notes_changed.connect(lambda _on: self.canvas.overlay.update())
         self.controller.printing_notes_requested.connect(self._save_printing_notes)
+        self.controller.compare_frame_ready.connect(self.canvas.refresh_compare)
+        self.controller.compare_changed.connect(lambda _on: self.canvas.refresh_compare())
         self.controller.test_strip_changed.connect(lambda _up: self.canvas.overlay.on_test_strip_changed())
         self.canvas.test_strip_picked.connect(self.controller.apply_test_strip_pick)
         self.controller.zone_pins_changed.connect(self.canvas.overlay.update)
