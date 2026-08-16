@@ -42,3 +42,7 @@ plans/
 
 # debug stuff
 samples/
+
+# nix build output symlink
+result
+result-*

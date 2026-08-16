@@ -92,6 +92,20 @@ sudo pacman -S libgphoto2        # Arch
 ```
 Or look up your distro's equivalent package.
 
+#### Nix
+You can run NegPy directly via:
+```bash
+nix run github:marcinz606/NegPy
+```
+Or add it as an input to your own flake:
+```nix
+{
+  inputs.negpy.url = "github:marcinz606/NegPy";
+  outputs = { self, nixpkgs, negpy, ... }: {
+    # negpy.packages.<system>.default
+  };
+}
+```
 
 #### Unsigned Software Warning
 Since this is a free hobby project, I don't pay Apple or Microsoft ransom for their developer certificates. You'll get a scary warning the first time you run it.
