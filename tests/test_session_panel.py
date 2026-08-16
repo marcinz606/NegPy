@@ -220,3 +220,30 @@ def test_the_window_stays_shut_while_the_running_version_is_current(panel, monke
     )
 
     panel.show_update_dialog()
+
+
+def test_the_version_button_runs_a_check(panel, monkeypatch):
+    started = []
+    monkeypatch.setattr("negpy.desktop.view.sidebar.session_panel.start_update_check", lambda cb: started.append(cb))
+
+    panel.header.update_button.click()
+
+    assert started
+    assert not panel.header.update_button.isEnabled()  # no second thread while one runs
+
+
+def test_the_version_button_returns_to_check_when_nothing_is_new(panel, monkeypatch):
+    monkeypatch.setattr("PyQt6.QtWidgets.QMessageBox.information", lambda *a, **k: None)
+    panel.header.set_checking()
+
+    panel._on_manual_check(None)
+
+    assert panel.header.update_button.isEnabled()
+    assert "Check for updates" in panel.header.update_button.toolTip()
+
+
+def test_the_version_button_offers_the_update_once_one_is_found(panel):
+    panel._on_update_checked(_update())
+
+    assert "update" in panel.header.update_button.toolTip().lower()
+    assert panel.header.update_button.isEnabled()
