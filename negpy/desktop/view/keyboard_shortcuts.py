@@ -155,6 +155,7 @@ class ShortcutManager:
             "toggle_immersive_canvas": lambda: controller.session.set_immersive_canvas(not controller.session.state.immersive_canvas),
             "toggle_sticky_zoom": lambda: controller.session.set_sticky_zoom(not controller.session.state.sticky_zoom),
             "toggle_slider_values": lambda: toolbar._ov_slider_values_action.trigger(),
+            "toggle_invert_zoom_scroll": lambda: toolbar._ov_invert_zoom_action.trigger(),
             "toggle_left_panel": self.window.toggle_session_dock,
             "toggle_right_panel": self.window.toggle_controls_dock,
             "reset_panel_layout": self.window.reset_panel_layout,
@@ -220,12 +221,7 @@ class ShortcutManager:
     def open_editor(self, parent=None) -> bool:
         from negpy.desktop.view.widgets.shortcut_editor import ShortcutEditorDialog
 
-        dlg = ShortcutEditorDialog(
-            self.bindings,
-            self.slider_steps,
-            parent or self.window,
-            session=self.window.controller.session,
-        )
+        dlg = ShortcutEditorDialog(self.bindings, self.slider_steps, parent or self.window)
         if dlg.exec():
             self.update_bindings(dlg.bindings())
             self.update_slider_steps(dlg.slider_steps())

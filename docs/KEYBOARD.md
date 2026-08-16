@@ -69,6 +69,6 @@ While a test strip or ring-around is up, `[` and `]` turn that proof's ladder in
 | `Ctrl + [` | Toggle session panel (re-docks when floating) |
 | `Ctrl + ]` | Toggle controls panel (re-docks when floating) |
 | `Ctrl + Shift + L` | Dock session and controls panels |
-| `Mouse Wheel` | Zoom in / out (up to 400%) |
+| `Mouse Wheel` | Zoom in / out (up to 400%); **Reverse Scroll Zoom** in the toolbar **⋯** menu flips the direction |
 | `Middle Click` + `Drag` | Pan zoomed image |
 | `Left Click` + `Drag` | Pan zoomed image (when no tool is active) |

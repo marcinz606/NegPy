@@ -168,6 +168,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "toggle_immersive_canvas": ShortcutEntry("", "Immersive canvas (toolbar overlaps image)", "View"),
     "toggle_sticky_zoom": ShortcutEntry("", "Sticky zoom (keep zoom level when switching images)", "View"),
     "toggle_slider_values": ShortcutEntry("", "Show slider values (keep every value box open)", "View"),
+    "toggle_invert_zoom_scroll": ShortcutEntry("", "Reverse scroll-to-zoom direction (scroll up zooms out)", "View"),
     "toggle_left_panel": ShortcutEntry("Ctrl+[", "Toggle session panel (re-docks when floating)", "View"),
     "toggle_right_panel": ShortcutEntry("Ctrl+]", "Toggle controls panel (re-docks when floating)", "View"),
     "reset_panel_layout": ShortcutEntry("Ctrl+Shift+L", "Dock session and controls panels", "View"),

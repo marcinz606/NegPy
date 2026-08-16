@@ -343,6 +343,10 @@ class ActionToolbar(QWidget):
         self._ov_sticky_zoom_action.setToolTip(
             tooltip_with_shortcut("Keep the current zoom level when switching images, instead of resetting to fit", "toggle_sticky_zoom")
         )
+        self._ov_invert_zoom_action = overflow_menu.addAction("Reverse Scroll Zoom")
+        self._ov_invert_zoom_action.setCheckable(True)
+        self._ov_invert_zoom_action.setChecked(self.session.state.invert_zoom_scroll)
+        self._ov_invert_zoom_action.setToolTip(tooltip_with_shortcut("Scroll up zooms out instead of in", "toggle_invert_zoom_scroll"))
         self._ov_slider_values_action = overflow_menu.addAction("Show Slider Values")
         self._ov_slider_values_action.setCheckable(True)
         self._ov_slider_values_action.setChecked(bool(self.session.repo.get_global_setting("show_slider_values", default=False)))
@@ -507,6 +511,7 @@ class ActionToolbar(QWidget):
         self._ov_redo_action.triggered.connect(self.session.redo)
         self._ov_immersive_action.triggered.connect(self._on_immersive_toggled)
         self._ov_sticky_zoom_action.triggered.connect(self._on_sticky_zoom_toggled)
+        self._ov_invert_zoom_action.triggered.connect(self._on_invert_zoom_toggled)
         self._ov_slider_values_action.triggered.connect(self._on_slider_values_toggled)
 
     def _on_overflow_unload(self) -> None:
@@ -526,6 +531,9 @@ class ActionToolbar(QWidget):
 
     def _on_sticky_zoom_toggled(self, checked: bool) -> None:
         self.session.set_sticky_zoom(checked)
+
+    def _on_invert_zoom_toggled(self, checked: bool) -> None:
+        self.session.set_invert_zoom_scroll(checked)
 
     def _on_gpu_toggled(self, checked: bool) -> None:
         if checked != self.session.state.gpu_enabled:
@@ -729,6 +737,7 @@ class ActionToolbar(QWidget):
         self._ov_flip_v_action.setChecked(geo.flip_vertical)
         self._ov_immersive_action.setChecked(state.immersive_canvas)
         self._ov_sticky_zoom_action.setChecked(state.sticky_zoom)
+        self._ov_invert_zoom_action.setChecked(state.invert_zoom_scroll)
 
         self.btn_undo.setEnabled(state.undo_index > 0)
         self.btn_redo.setEnabled(state.undo_index < state.max_history_index)

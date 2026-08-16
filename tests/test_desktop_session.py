@@ -172,6 +172,16 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.session.set_sticky_zoom(False)
         self.mock_repo.save_global_setting.assert_not_called()
 
+    def test_set_invert_zoom_scroll_persists(self):
+        self.assertFalse(self.session.state.invert_zoom_scroll)
+        self.session.set_invert_zoom_scroll(True)
+        self.assertTrue(self.session.state.invert_zoom_scroll)
+        self.mock_repo.save_global_setting.assert_called_with("invert_zoom_scroll", True)
+
+    def test_set_invert_zoom_scroll_noop_when_unchanged(self):
+        self.session.set_invert_zoom_scroll(False)
+        self.mock_repo.save_global_setting.assert_not_called()
+
     def test_persist_writes_sticky_settings_in_one_batch(self):
         self.session.select_file(0)
         self.mock_repo.save_global_settings.reset_mock()

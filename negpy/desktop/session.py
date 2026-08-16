@@ -727,6 +727,13 @@ class DesktopSessionManager(QObject):
             self.repo.save_global_setting("sticky_zoom", enabled)
             self.state_changed.emit()
 
+    def set_invert_zoom_scroll(self, enabled: bool) -> None:
+        """Updates and persists whether the wheel zoom direction is reversed."""
+        if self.state.invert_zoom_scroll != enabled:
+            self.state.invert_zoom_scroll = enabled
+            self.repo.save_global_setting("invert_zoom_scroll", enabled)
+            self.state_changed.emit()
+
     def set_canvas_bg(self, index: int) -> None:
         """Updates and persists the canvas background color index."""
         if self.state.canvas_bg_index != index:

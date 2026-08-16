@@ -1,7 +1,6 @@
 from PyQt6.QtCore import QEvent, QModelIndex, Qt, QTimer
 from PyQt6.QtGui import QKeySequence, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
-    QCheckBox,
     QCompleter,
     QDialog,
     QDoubleSpinBox,
@@ -55,11 +54,10 @@ def _format_default_pair(inc_key: str, dec_key: str) -> str:
 
 
 class ShortcutEditorDialog(QDialog):
-    def __init__(self, bindings: dict[str, str], slider_steps: dict[str, float] | None = None, parent=None, session=None):
+    def __init__(self, bindings: dict[str, str], slider_steps: dict[str, float] | None = None, parent=None):
         super().__init__(parent)
         self._initial_bindings = dict(bindings)
         self._initial_slider_steps = dict(slider_steps or default_slider_steps())
-        self._session = session
         self._edits: dict[str, KeypadAwareKeySequenceEdit] = {}
         self._step_edits: dict[str, QDoubleSpinBox] = {}
         self._sections: dict[str, CollapsibleSection] = {}
@@ -94,16 +92,6 @@ class ShortcutEditorDialog(QDialog):
         self._search_edit.installEventFilter(self)
         self._init_search_completer()
         root.addWidget(self._search_edit)
-
-        self._invert_zoom_chk = QCheckBox("Reverse scroll-to-zoom direction (scroll up zooms out)")
-        self._invert_zoom_chk.setToolTip(
-            "Flip the mouse-wheel zoom direction on the image viewer: scroll up to zoom out, scroll down to zoom in."
-        )
-        if self._session is not None:
-            self._invert_zoom_chk.setChecked(bool(getattr(self._session.state, "invert_zoom_scroll", False)))
-        else:
-            self._invert_zoom_chk.setEnabled(False)
-        root.addWidget(self._invert_zoom_chk)
 
         divider = QFrame()
         divider.setFrameShape(QFrame.Shape.HLine)
@@ -396,10 +384,5 @@ class ShortcutEditorDialog(QDialog):
             if spin.value() <= 0:
                 QMessageBox.warning(self, "Invalid Step", f"Step size for {group_id} must be greater than zero.")
                 return
-
-        if self._session is not None:
-            invert = self._invert_zoom_chk.isChecked()
-            self._session.state.invert_zoom_scroll = invert
-            self._session.repo.save_global_setting("invert_zoom_scroll", invert)
 
         self.accept()
