@@ -23,7 +23,7 @@ class TestDarkroomEngine(unittest.TestCase):
         engine = DarkroomEngine()
         img = np.random.rand(200, 200, 3).astype(np.float32)
         # Use explicit auto-crop plus offset to shrink image.
-        settings = WorkspaceConfig.from_flat_dict({"auto_crop_enabled": True, "autocrop_offset": 10})
+        settings = WorkspaceConfig.from_flat_dict({"crop_from_auto": True, "autocrop_offset": 10})
 
         res = engine.process(img, settings, source_hash="dummy")
 

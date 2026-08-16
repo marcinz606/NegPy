@@ -31,12 +31,10 @@ from negpy.features.exposure.normalization import (
     resolve_bounds_detailed,
 )
 from negpy.features.geometry.logic import (
-    AUTOCROP_DETECT_RES,
     apply_fine_rotation,
     apply_margin_to_roi,
     apply_radial_distortion,
     compute_distortion_scale,
-    get_autocrop_coords,
     get_manual_rect_coords,
 )
 from negpy.features.lab.logic import gaussian_kernel_1d, rl_iterations
@@ -87,47 +85,6 @@ METRICS_BUFFER_SIZE = 1152 * 4
 
 # Per-frame metrics clear; write_buffer copies at call time, so sharing is safe.
 _METRICS_ZEROS = np.zeros(METRICS_BUFFER_SIZE // 4, dtype=np.uint32)
-
-
-def _detect_autocrop_roi(img: np.ndarray, settings: WorkspaceConfig, h_rot: int, w_rot: int) -> Tuple[int, int, int, int]:
-    """
-    Computes the autocrop ROI on a detection-resolution copy, mirroring the CPU
-    GeometryProcessor transform order (rot90 -> flips -> fine rotation), and
-    returns it scaled to full post-rotation resolution (h_rot, w_rot).
-    """
-    h, w = img.shape[:2]
-    det_s = min(1.0, AUTOCROP_DETECT_RES / max(h, w))
-    if det_s < 1.0:
-        tmp = cv2.resize(img, (max(1, round(w * det_s)), max(1, round(h * det_s))), interpolation=cv2.INTER_AREA)
-    else:
-        tmp = img
-    if settings.geometry.rotation != 0:
-        tmp = np.rot90(tmp, k=settings.geometry.rotation)
-    if settings.geometry.flip_horizontal:
-        tmp = np.fliplr(tmp)
-    if settings.geometry.flip_vertical:
-        tmp = np.flipud(tmp)
-    tmp = np.ascontiguousarray(tmp.astype(np.float32, copy=False))
-    if settings.geometry.fine_rotation != 0.0:
-        tmp = apply_fine_rotation(tmp, settings.geometry.fine_rotation)
-    roi_tmp = get_autocrop_coords(
-        tmp,
-        offset_px=settings.geometry.autocrop_offset,
-        # Margin parity with CPU: (2+offset)*L/preview_size in det coords, upscaled
-        # by full/L below, equals the CPU path's (2+offset)*context.scale_factor.
-        scale_factor=max(tmp.shape[:2]) / APP_CONFIG.preview_render_size,
-        target_ratio_str=settings.geometry.autocrop_ratio,
-        mode=settings.geometry.autocrop_mode,
-        rebate_trim=settings.geometry.autocrop_rebate_trim,
-    )
-    rh, rw = tmp.shape[:2]
-    sy, sx = h_rot / rh, w_rot / rw
-    return (
-        int(roi_tmp[0] * sy),
-        int(roi_tmp[1] * sy),
-        int(roi_tmp[2] * sx),
-        int(roi_tmp[3] * sx),
-    )
 
 
 def _downsample_for_analysis(img: np.ndarray, max_size: int) -> np.ndarray:
@@ -292,8 +249,6 @@ class GPUEngine:
 
         # (key, grid): a pure function of geometry, reused across settled frames
         self._uv_grid_cache: Optional[Tuple[Tuple, np.ndarray]] = None
-        # (key, roi): autocrop detection, likewise geometry-only
-        self._autocrop_cache: Optional[Tuple[Tuple, Tuple[int, int, int, int]]] = None
         # Identity of the dodge/burn EV map currently sitting in the local_ev texture.
         self._local_ev_key: Optional[Tuple] = None
 
@@ -349,36 +304,6 @@ class GPUEngine:
             return 8
 
         return 9  # Nothing changed
-
-    def _cached_autocrop_roi(
-        self, img: np.ndarray, settings: WorkspaceConfig, h_rot: int, w_rot: int, source_hash: Optional[str]
-    ) -> Tuple[int, int, int, int]:
-        """Autocrop detection is a CPU scan that no creative slider moves.
-
-        Uncached without a source hash (export/tiled paths): the key could not tell
-        two different buffers apart.
-        """
-        if source_hash is None:
-            return _detect_autocrop_roi(img, settings, h_rot, w_rot)
-        g = settings.geometry
-        key = (
-            source_hash,
-            g.rotation,
-            g.flip_horizontal,
-            g.flip_vertical,
-            g.fine_rotation,
-            g.autocrop_offset,
-            g.autocrop_ratio,
-            g.autocrop_mode,
-            g.autocrop_rebate_trim,
-            h_rot,
-            w_rot,
-        )
-        if self._autocrop_cache is not None and self._autocrop_cache[0] == key:
-            return self._autocrop_cache[1]
-        roi = _detect_autocrop_roi(img, settings, h_rot, w_rot)
-        self._autocrop_cache = (key, roi)
-        return roi
 
     def _get_intermediate_texture(self, w: int, h: int, usage: int, label: str) -> GPUTexture:
         """Retrieves or creates a texture from the pool.
@@ -540,15 +465,13 @@ class GPUEngine:
             # calls, this invariant must be re-checked.
             assert w_rot > 0 and h_rot > 0
             actual_full_dims, orig_shape = (w_rot, h_rot), (h, w)
-            if settings.geometry.manual_crop_rect:
+            if settings.geometry.crop_rect:
                 roi = get_manual_rect_coords(
                     (h_rot, w_rot),
-                    settings.geometry.manual_crop_rect,
+                    settings.geometry.crop_rect,
                     offset_px=settings.geometry.autocrop_offset,
                     scale_factor=scale_factor,
                 )
-            elif settings.geometry.auto_crop_enabled:
-                roi = self._cached_autocrop_roi(img, settings, h_rot, w_rot, analysis_source_hash)
             elif settings.geometry.autocrop_offset > 0:
                 margin = settings.geometry.autocrop_offset * scale_factor
                 roi = apply_margin_to_roi((0, h_rot, 0, w_rot), h_rot, w_rot, margin)
@@ -1956,15 +1879,13 @@ class GPUEngine:
 
         rot = settings.geometry.rotation % 4
         w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)
-        if settings.geometry.manual_crop_rect:
+        if settings.geometry.crop_rect:
             roi = get_manual_rect_coords(
                 (h_rot, w_rot),
-                settings.geometry.manual_crop_rect,
+                settings.geometry.crop_rect,
                 offset_px=settings.geometry.autocrop_offset,
                 scale_factor=scale_factor,
             )
-        elif settings.geometry.auto_crop_enabled:
-            roi = _detect_autocrop_roi(img, settings, h_rot, w_rot)
         elif settings.geometry.autocrop_offset > 0:
             margin = settings.geometry.autocrop_offset * scale_factor
             roi = apply_margin_to_roi((0, h_rot, 0, w_rot), h_rot, w_rot, margin)

@@ -140,8 +140,8 @@ def test_batch_autocrop_applies_flatfield_and_crop_free_geometry(
         rotation=1,
         fine_rotation=2.5,
         flip_horizontal=True,
-        manual_crop_rect=(0.1, 0.2, 0.8, 0.9),
-        auto_crop_enabled=True,
+        crop_rect=(0.1, 0.2, 0.8, 0.9),
+        crop_from_auto=True,
         autocrop_offset=17,
         autocrop_ratio="4:3",
         autocrop_rebate_trim=1.25,
@@ -186,8 +186,8 @@ def test_batch_autocrop_applies_flatfield_and_crop_free_geometry(
     worker.process(_task(_input("frame", config)))
 
     assert captured["flatfield_config"] == flatfield
-    assert captured["geometry"].manual_crop_rect is None
-    assert captured["geometry"].auto_crop_enabled is False
+    assert captured["geometry"].crop_rect is None
+    assert captured["geometry"].crop_from_auto is False
     assert captured["geometry"].autocrop_offset == 0
     assert captured["geometry"].rotation == 1
     assert captured["geometry"].fine_rotation == 2.5

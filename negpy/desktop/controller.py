@@ -87,7 +87,13 @@ from negpy.features.exposure.logic import (
 from negpy.features.altprocess.models import AltProcess
 from negpy.features.exposure.models import ExposureConfig
 from negpy.features.finish.models import FinishConfig
-from negpy.features.geometry.logic import apply_fine_rotation, detect_closest_aspect_ratio, enforce_roi_aspect_ratio
+from negpy.features.geometry.logic import (
+    apply_fine_rotation,
+    autocrop_detection_key,
+    detect_closest_aspect_ratio,
+    enforce_roi_aspect_ratio,
+    has_manual_crop,
+)
 from negpy.features.geometry.models import FINE_ROTATION_LIMIT, AutocropMode
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig
@@ -2158,15 +2164,17 @@ class AppController(QObject):
         continuous adjustment, not a one-shot drag-then-close."""
         if self.state.active_tool != ToolMode.CROP_MANUAL:
             return
+        # Dragging the handles takes ownership of the rect, auto-detected or not: nothing
+        # re-arms detection over an edit the user has framed by hand.
         new_geo = replace(
             self.state.config.geometry,
-            manual_crop_rect=(
+            crop_rect=(
                 min(nx1, nx2),
                 min(ny1, ny2),
                 max(nx1, nx2),
                 max(ny1, ny2),
             ),
-            auto_crop_enabled=False,
+            crop_from_auto=False,
         )
         # Defer the bounds recompute to crop-tool close. Clearing here re-normalizes on
         # every drag step.
@@ -2236,7 +2244,10 @@ class AppController(QObject):
             return
         new_geo = replace(geom, autocrop_ratio=ratio)
 
-        rect = geom.manual_crop_rect
+        # An auto rect is left alone: the ratio is part of its detection key, so the next
+        # render re-detects under the new one. The frame Auto finds at 5:4 is not the 3:2
+        # frame shrunk to fit.
+        rect = None if geom.crop_from_auto else geom.crop_rect
         img = self.state.preview_raw
         if rect is not None and img is not None:
             h, w = img.shape[:2]
@@ -2245,7 +2256,7 @@ class AppController(QObject):
             nx1, ny1, nx2, ny2 = rect
             roi_px = (round(ny1 * h), round(ny2 * h), round(nx1 * w), round(nx2 * w))
             y1, y2, x1, x2 = enforce_roi_aspect_ratio(roi_px, h, w, ratio)
-            new_geo = replace(new_geo, manual_crop_rect=(x1 / w, y1 / h, x2 / w, y2 / h))
+            new_geo = replace(new_geo, crop_rect=(x1 / w, y1 / h, x2 / w, y2 / h))
 
         self.session.update_config(replace(self.state.config, geometry=new_geo), persist=True)
         # Same spinner treatment as reset_crop/apply_auto_crop: the base stage re-runs,
@@ -2289,7 +2300,7 @@ class AppController(QObject):
         self.session.update_config(
             replace(
                 self.state.config,
-                geometry=replace(self.state.config.geometry, manual_crop_rect=None, auto_crop_enabled=False),
+                geometry=replace(self.state.config.geometry, crop_rect=None, crop_from_auto=False),
                 process=new_proc,
             )
         )
@@ -2299,6 +2310,10 @@ class AppController(QObject):
         self.request_render()
 
     def apply_auto_crop(self) -> None:
+        """Arm Auto Crop: clear the rect and let the next render detect one.
+
+        The render reports the rect it found and _on_render_finished freezes it into the
+        edit, so the crop the user is looking at is the crop that gets exported."""
         # Autocrop supersedes a manual crop in progress: leave the tool.
         if self.state.active_tool == ToolMode.CROP_MANUAL:
             self.state.active_tool = ToolMode.NONE
@@ -2310,8 +2325,8 @@ class AppController(QObject):
                 self.state.config,
                 geometry=replace(
                     self.state.config.geometry,
-                    manual_crop_rect=None,
-                    auto_crop_enabled=True,
+                    crop_rect=None,
+                    crop_from_auto=True,
                 ),
                 process=new_proc,
             )
@@ -2340,7 +2355,7 @@ class AppController(QObject):
         preflight_skipped = 0
         for asset in visible_files:
             config = self._config_for_autocrop_asset(asset)
-            if config.geometry.manual_crop_rect is not None or config.geometry.autocrop_mode != AutocropMode.IMAGE:
+            if has_manual_crop(config.geometry) or config.geometry.autocrop_mode != AutocropMode.IMAGE:
                 preflight_skipped += 1
                 continue
             frames.append(
@@ -2393,14 +2408,14 @@ class AppController(QObject):
                 asset = result.file_info
                 try:
                     latest = self._config_for_autocrop_asset(asset)
-                    if latest.geometry.manual_crop_rect is not None:
+                    if has_manual_crop(latest.geometry):
                         conflicted += 1
                         continue
                     if _autocrop_fingerprint(latest, self.state.workspace_color_space) != result.fingerprint:
                         conflicted += 1
                         continue
 
-                    rect = result.manual_crop_rect
+                    rect = result.crop_rect
                     if len(rect) != 4 or not (0.0 <= rect[0] < rect[2] <= 1.0 and 0.0 <= rect[1] < rect[3] <= 1.0):
                         conflicted += 1
                         continue
@@ -2411,8 +2426,8 @@ class AppController(QObject):
 
                     new_geometry = replace(
                         latest.geometry,
-                        manual_crop_rect=tuple(float(value) for value in rect),
-                        auto_crop_enabled=False,
+                        crop_rect=tuple(float(value) for value in rect),
+                        crop_from_auto=False,
                         fine_rotation=float(fine_rotation),
                     )
                     new_process = replace(latest.process, **invalidate_local_bounds(latest.process))
@@ -2500,7 +2515,7 @@ class AppController(QObject):
         # Emit manually so UI syncs (combo dropdown updates), but without triggering
         # a render via the state_changed debounce.
         self.config_updated.emit()
-        if geom.auto_crop_enabled:
+        if geom.crop_from_auto:
             self.request_render()
 
     def save_current_edits(self) -> None:
@@ -2851,7 +2866,7 @@ class AppController(QObject):
         cropped = 0
         for f in visible_files:
             p = self.session.repo.load_file_settings(f["hash"])
-            if p and (p.geometry.manual_crop_rect or p.geometry.auto_crop_enabled):
+            if p and (p.geometry.crop_rect or p.geometry.crop_from_auto):
                 cropped += 1
 
         if cropped == 0:
@@ -4620,6 +4635,8 @@ class AppController(QObject):
             self.state.last_metrics.update(metrics)
             self.state.last_metrics["splash"] = False
 
+        self._freeze_resolved_auto_crop(metrics)
+
         result = metrics.get("base_positive")
         memoizable = bool(metrics.get("memo_key")) and metrics.get("source_hash") == self.state.current_file_hash
         # The pool overwrites a GPU texture on the next frame, so only its identity is kept
@@ -4651,6 +4668,31 @@ class AppController(QObject):
             self._update_thumbnail_from_state(persist=False)
 
         self._dispatch_pending_render()
+
+    def _freeze_resolved_auto_crop(self, metrics: Dict[str, Any]) -> None:
+        """Store the crop this render detected, so nothing detects it a second time.
+
+        Without this the crop is re-derived per render and a preview and its export can
+        disagree — the detector reads a 1600 px preview buffer and a full-res export, and
+        on a borderless frame those do not always find the same edge.
+
+        No render is requested: the rect is exactly what was just painted. The key guards
+        the gap between the render starting and this landing — change the ratio mid-flight
+        and the result is dropped, because a render is already queued under the new one.
+        """
+        rect = metrics.get("autocrop_resolved_rect")
+        if rect is None:
+            return
+        geom = self.state.config.geometry
+        if not geom.crop_from_auto or autocrop_detection_key(geom) != metrics.get("autocrop_resolved_key"):
+            return
+        if geom.crop_rect == rect and geom.crop_detect_key == metrics["autocrop_resolved_key"]:
+            return
+        new_geo = replace(geom, crop_rect=tuple(float(v) for v in rect), crop_detect_key=metrics["autocrop_resolved_key"])
+        # record_history=False: this is the tail of the Auto press the user already made,
+        # not a second edit to undo past.
+        self.session.update_config(replace(self.state.config, geometry=new_geo), persist=True, render=False, record_history=False)
+        self.config_updated.emit()
 
     def _dispatch_pending_render(self) -> None:
         """Start the render queued while the last one was running, if any."""

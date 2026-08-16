@@ -6,7 +6,6 @@ from negpy.features.geometry.logic import (
     apply_fine_rotation,
     apply_margin_to_roi,
     apply_radial_distortion,
-    get_autocrop_coords,
     get_manual_rect_coords,
 )
 
@@ -47,22 +46,15 @@ class GeometryProcessor:
         # Downstream coordinate mappers (retouch/local) need the same correction.
         context.metrics["distortion_k1"] = self.distortion_k1
 
-        if self.config.manual_crop_rect:
+        # One crop source, whether the rect was drawn or detected: border detection runs
+        # before the engines (ImageProcessor resolves it into crop_rect) and never here,
+        # so a preview and an export of the same edit cannot land on different boxes.
+        if self.config.crop_rect:
             roi = get_manual_rect_coords(
                 img,
-                self.config.manual_crop_rect,
+                self.config.crop_rect,
                 offset_px=self.config.autocrop_offset,
                 scale_factor=context.scale_factor,
-            )
-            context.active_roi = roi
-        elif self.config.auto_crop_enabled:
-            roi = get_autocrop_coords(
-                img,
-                offset_px=self.config.autocrop_offset,
-                scale_factor=context.scale_factor,
-                target_ratio_str=self.config.autocrop_ratio,
-                mode=self.config.autocrop_mode,
-                rebate_trim=self.config.autocrop_rebate_trim,
             )
             context.active_roi = roi
         elif self.config.autocrop_offset > 0:

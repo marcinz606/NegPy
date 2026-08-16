@@ -15,7 +15,7 @@ from negpy.desktop.view.widgets.scan_window_geometry import (
     normalize_rect,
     resize_corner,
 )
-from negpy.features.geometry.logic import translate_manual_crop_rect
+from negpy.features.geometry.logic import translate_normalized_rect
 
 _HANDLE_TOL = 0.03  # corner grab radius, fraction of frame
 _HANDLE_PX = 5  # drawn handle half-size, widget px
@@ -155,7 +155,7 @@ class ScanWindowLabel(QLabel):
         elif self._mode == "resize" and self._rect is not None and self._active_corner is not None:
             self._rect = resize_corner(self._rect, self._active_corner, fx, fy)
         elif self._mode == "move" and self._rect_at_press is not None:
-            self._rect = translate_manual_crop_rect(self._rect_at_press, fx - self._press_frac[0], fy - self._press_frac[1])
+            self._rect = translate_normalized_rect(self._rect_at_press, fx - self._press_frac[0], fy - self._press_frac[1])
         self.update()
 
     def mouseReleaseEvent(self, _ev: QMouseEvent) -> None:

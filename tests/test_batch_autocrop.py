@@ -107,7 +107,7 @@ def test_short_detection_expands_to_roll_width_from_supported_left_edge() -> Non
 
     resolved = _resolved_by_key([*_trusted_roll(), short])["short"]
 
-    assert resolved.manual_crop_rect == pytest.approx((0.15, 0.1, 0.95, 0.9))
+    assert resolved.crop_rect == pytest.approx((0.15, 0.1, 0.95, 0.9))
     assert resolved.calibrated is True
 
 
@@ -129,7 +129,7 @@ def test_weak_frame_resolves_from_profile_edges_near_roll_template() -> None:
     resolved = _resolved_by_key([*_trusted_roll(), weak])["weak-profile"]
 
     expected = _map_rect_between_rotations((0.1, 0.1, 0.9, 0.9), _LANDSCAPE_SHAPE, 0.0, 1.0)
-    assert resolved.manual_crop_rect == pytest.approx(expected, abs=6e-4)
+    assert resolved.crop_rect == pytest.approx(expected, abs=6e-4)
     assert resolved.correction_angle == pytest.approx(1.0)
     assert resolved.confidence == pytest.approx(0.55)
     assert resolved.calibrated is True
@@ -285,7 +285,7 @@ def test_divergent_frame_maps_crop_before_using_roll_median_angle() -> None:
     resolved = _resolved_by_key([*_trusted_roll(), divergent])["divergent-angle"]
 
     expected = _map_rect_between_rotations((0.1, 0.1, 0.9, 0.9), _LANDSCAPE_SHAPE, 4.0, 1.0)
-    assert resolved.manual_crop_rect == pytest.approx(expected, abs=6e-4)
+    assert resolved.crop_rect == pytest.approx(expected, abs=6e-4)
     assert resolved.correction_angle == pytest.approx(1.0)
     assert resolved.calibrated is True
 
@@ -310,7 +310,7 @@ def test_roll_templates_do_not_mix_different_target_ratios() -> None:
 
     resolved = _resolved_by_key([*three_two, four_three])["four-three"]
 
-    assert resolved.manual_crop_rect == pytest.approx((0.145, 0.1, 0.855, 0.9))
+    assert resolved.crop_rect == pytest.approx((0.145, 0.1, 0.855, 0.9))
 
 
 def test_resolved_rect_preserves_half_open_coordinates_when_normalized() -> None:
@@ -323,9 +323,9 @@ def test_resolved_rect_preserves_half_open_coordinates_when_normalized() -> None
 
     resolved = _resolved_by_key([evidence])["exclusive"]
 
-    assert resolved.manual_crop_rect == pytest.approx((11 / 203, 7 / 101, 199 / 203, 97 / 101))
-    assert (resolved.manual_crop_rect[2] - resolved.manual_crop_rect[0]) * 203 == pytest.approx(188)
-    assert (resolved.manual_crop_rect[3] - resolved.manual_crop_rect[1]) * 101 == pytest.approx(90)
+    assert resolved.crop_rect == pytest.approx((11 / 203, 7 / 101, 199 / 203, 97 / 101))
+    assert (resolved.crop_rect[2] - resolved.crop_rect[0]) * 203 == pytest.approx(188)
+    assert (resolved.crop_rect[3] - resolved.crop_rect[1]) * 101 == pytest.approx(90)
 
 
 _NAN = float("nan")
@@ -410,7 +410,7 @@ def test_border_inset_keeps_the_rect_when_it_would_collapse() -> None:
 def test_resolved_crop_trims_the_rebate_when_the_roll_measured_one() -> None:
     evidence = [_evidence(f"f{index}", border=(0.02, 0.02, 0.02, 0.02)) for index in range(6)]
 
-    x1, y1, x2, y2 = _resolved_by_key(evidence)["f0"].manual_crop_rect
+    x1, y1, x2, y2 = _resolved_by_key(evidence)["f0"].crop_rect
 
     assert x1 > 0.1 and y1 > 0.1
     assert x2 < 0.9 and y2 < 0.9
@@ -419,12 +419,12 @@ def test_resolved_crop_trims_the_rebate_when_the_roll_measured_one() -> None:
 def test_resolved_crop_passes_through_untouched_without_a_roll_border() -> None:
     resolved = _resolved_by_key(_trusted_roll())["trusted-0"]
 
-    assert resolved.manual_crop_rect == pytest.approx((0.1, 0.1, 0.9, 0.9))
+    assert resolved.crop_rect == pytest.approx((0.1, 0.1, 0.9, 0.9))
 
 
 def _trimmed_roll(rebate_trim: float) -> tuple[float, float, float, float]:
     evidence = [_evidence(f"f{index}", border=(0.02, 0.02, 0.02, 0.02), rebate_trim=rebate_trim) for index in range(6)]
-    return _resolved_by_key(evidence)["f0"].manual_crop_rect
+    return _resolved_by_key(evidence)["f0"].crop_rect
 
 
 def test_rebate_trim_zero_keeps_the_whole_film_box() -> None:
@@ -563,7 +563,7 @@ def test_edge_pair_at_the_roll_width_resolves_through_a_busy_picture() -> None:
     resolved = _resolved_by_key([*_trusted_roll(), busy])
 
     assert "busy" in resolved
-    x1, _, x2, _ = resolved["busy"].manual_crop_rect
+    x1, _, x2, _ = resolved["busy"].crop_rect
     assert x2 - x1 == pytest.approx(0.8, abs=0.02)
 
 

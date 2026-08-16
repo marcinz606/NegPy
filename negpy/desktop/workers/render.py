@@ -141,7 +141,7 @@ class BatchAutoCropResult:
 
     file_info: dict
     fingerprint: tuple
-    manual_crop_rect: tuple[float, float, float, float]
+    crop_rect: tuple[float, float, float, float]
     correction_angle: float
     confidence: float
     calibrated: bool
@@ -1000,8 +1000,8 @@ class BatchAutoCropWorker(QObject):
                         return
                     detection_geometry = replace(
                         config.geometry,
-                        manual_crop_rect=None,
-                        auto_crop_enabled=False,
+                        crop_rect=None,
+                        crop_from_auto=False,
                         autocrop_offset=0,
                     )
                     context = PipelineContext(
@@ -1047,7 +1047,7 @@ class BatchAutoCropWorker(QObject):
                     BatchAutoCropResult(
                         file_info=source.file_info,
                         fingerprint=source.fingerprint,
-                        manual_crop_rect=crop.manual_crop_rect,
+                        crop_rect=crop.crop_rect,
                         correction_angle=crop.correction_angle,
                         confidence=crop.confidence,
                         calibrated=crop.calibrated,

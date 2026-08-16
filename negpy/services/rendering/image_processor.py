@@ -26,6 +26,7 @@ from negpy.features.process.logic import effective_linear_raw, linear_raw_token
 from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix, sensor_token
 from negpy.features.exposure.models import RenderIntent
 from negpy.features.flatfield.logic import apply_flatfield, flatfield_token
+from negpy.features.geometry.logic import autocrop_detection_key, resolve_autocrop_rect
 from negpy.features.retouch.logic import (
     apply_hair_inpaint,
     apply_ir_attenuation,
@@ -94,6 +95,32 @@ _JXL_COLOR = {
     ColorSpace.REC2020.value: ("RGB", "BT2100", "BT709"),
     ColorSpace.GREYSCALE.value: ("GRAY", None, "SRGB"),
 }
+
+
+def _resolve_armed_autocrop(
+    img: np.ndarray, settings: WorkspaceConfig
+) -> Tuple[WorkspaceConfig, Optional[Tuple[Tuple[float, float, float, float], str]]]:
+    """Turns an armed Auto Crop into a concrete rect, once, before either engine runs.
+
+    Armed = crop_from_auto with either no rect yet (a fresh Auto press, or an edit saved
+    before the two crops converged on one field) or one detected under a stale key. Returns
+    the settings this render should use, and the (rect, key) worth freezing — None when
+    there was nothing to resolve.
+
+    Detection lives here rather than inside the engines on purpose. Reached per render, it
+    ran on whatever buffer that render held — a 1600 px preview against a full-res export —
+    and the two disagreed about where the frame was.
+    """
+    geom = settings.geometry
+    if not geom.crop_from_auto:
+        return settings, None
+    key = autocrop_detection_key(geom)
+    if geom.crop_rect is not None and geom.crop_detect_key == key:
+        return settings, None
+    rect = resolve_autocrop_rect(img, geom, APP_CONFIG.preview_render_size)
+    if rect is None:
+        return settings, None
+    return dc_replace(settings, geometry=dc_replace(geom, crop_rect=rect, crop_detect_key=key)), (rect, key)
 
 
 def _use_half_size_decode(raw: Any, linear_raw: bool) -> bool:
@@ -490,6 +517,8 @@ class ImageProcessor:
 
         scale_factor = max(h_orig, w_cols) / float(APP_CONFIG.preview_render_size)
 
+        settings, resolved_crop = _resolve_armed_autocrop(img, settings)
+
         context = PipelineContext(
             scale_factor=scale_factor,
             original_size=(h_orig, w_cols),
@@ -501,6 +530,12 @@ class ImageProcessor:
         )
         if metrics:
             context.metrics.update(metrics)
+        # The crop this render detected, for the controller to freeze into the edit. Only
+        # present on the render that resolved it; every later one reads the stored rect. The
+        # key rides along so a freeze that lands after the user has moved on is discarded.
+        if resolved_crop is not None:
+            context.metrics["autocrop_resolved_rect"] = resolved_crop[0]
+            context.metrics["autocrop_resolved_key"] = resolved_crop[1]
         # Display-overlay data: the detection-scale set that was repaired. Absent when
         # detection is off, so the overlay draws nothing.
         if detected_dust is not None:
@@ -826,6 +861,11 @@ class ImageProcessor:
         h_raw, w_raw = f32_buffer.shape[:2]
         export_scale = max(h_raw, w_raw) / float(APP_CONFIG.preview_render_size)
 
+        # Only reached by an edit never opened in the app (armed by copy-settings, or
+        # restored from an old sidecar). Anything previewed arrives with its rect already
+        # frozen, which is what keeps this export identical to what was on screen.
+        params, _ = _resolve_armed_autocrop(f32_buffer, params)
+
         if self._is_flat(params):
             prefer_gpu = False
 
@@ -1141,6 +1181,8 @@ class ImageProcessor:
                 hair_masks = hair_masks + extra
             if hair_masks:
                 f32_buffer = self._hair_inpaint(f32_buffer, hair_masks, detect_key + hair_bake_token(orig_ret))
+
+            params, _ = _resolve_armed_autocrop(f32_buffer, params)
 
             if self._is_flat(params):
                 prefer_gpu = False

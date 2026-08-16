@@ -93,8 +93,8 @@ class DarkroomEngine:
 
         current_img = img
 
-        if settings.geometry.manual_crop_rect:
-            logger.debug(f"Engine process with manual_crop_rect: {settings.geometry.manual_crop_rect}")
+        if settings.geometry.crop_rect:
+            logger.debug(f"Engine process with crop_rect: {settings.geometry.crop_rect}")
 
         # Folded into the base stage like fine_rotation, not into source_hash, so the slider
         # re-renders without re-decoding the RAW.
@@ -105,7 +105,7 @@ class DarkroomEngine:
             return NormalizationProcessor(settings.process).process(img_in, ctx)
 
         # While the crop tool shows the full uncropped frame, the crop-selection fields
-        # (manual_crop_rect, auto_crop_*) only feed context.active_roi, which is itself unused
+        # (crop_rect, autocrop_offset) only feed context.active_roi, which is itself unused
         # for output in that mode, since CropProcessor and uv_grid ROI slicing are both bypassed.
         # Keying on them would force a full base, exposure, clahe, lab and local recompute on
         # every crop-rect drag step.

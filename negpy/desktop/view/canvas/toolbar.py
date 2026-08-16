@@ -651,8 +651,8 @@ class ActionToolbar(QWidget):
         new_geo = replace(geo, rotation=new_rot)
         # Rotate the manual crop rect with the content so it keeps framing the same area. Without
         # this it stayed put and misaligned after a quarter or half turn.
-        if geo.manual_crop_rect is not None:
-            new_geo = replace(new_geo, manual_crop_rect=rotate_normalized_rect(geo.manual_crop_rect, visual_turns_ccw))
+        if geo.crop_rect is not None:
+            new_geo = replace(new_geo, crop_rect=rotate_normalized_rect(geo.crop_rect, visual_turns_ccw))
         new_config = replace(config, geometry=new_geo)
         # The freehand analysis region is display-space too; rotate it alongside.
         if config.process.analysis_rect is not None:

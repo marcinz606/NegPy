@@ -16,6 +16,7 @@ from negpy.desktop.view.styles.templates import EditedDot, default_button_height
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.domain.models import CROP_RATIO_CHOICES, canonical_crop_ratio
+from negpy.features.geometry.logic import has_manual_crop
 from negpy.features.geometry.models import FINE_ROTATION_LIMIT, AutocropMode
 from negpy.features.process.models import invalidate_local_bounds
 
@@ -271,9 +272,9 @@ class GeometrySidebar(BaseSidebar):
 
             self.manual_crop_btn.setChecked(self.state.active_tool == ToolMode.CROP_MANUAL)
             self.straighten_btn.setChecked(self.state.active_tool == ToolMode.STRAIGHTEN)
-            self.reset_crop_btn.setChecked(conf.auto_crop_enabled)
-            self.manual_crop_btn.set_crop_active(conf.manual_crop_rect is not None)
-            self.reset_crop_btn.set_crop_active(conf.auto_crop_enabled)
+            self.reset_crop_btn.setChecked(conf.crop_from_auto)
+            self.manual_crop_btn.set_crop_active(has_manual_crop(conf))
+            self.reset_crop_btn.set_crop_active(conf.crop_from_auto)
             self.auto_crop_all_btn.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
             self.rebate_trim_slider.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
         finally:

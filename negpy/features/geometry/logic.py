@@ -1990,6 +1990,87 @@ def get_autocrop_coords(
     return _enforce_ratio_by_occupancy(roi, h, w, ratio_str, row_occ, col_occ, det_scale)
 
 
+def has_manual_crop(geometry: GeometryConfig) -> bool:
+    """True when the crop was drawn or adjusted by hand, so Auto must not overwrite it."""
+    return geometry.crop_rect is not None and not geometry.crop_from_auto
+
+
+def autocrop_detection_key(geometry: GeometryConfig) -> str:
+    """
+    Everything border detection reads, as one comparable string.
+
+    A resolved auto crop stays valid only while this is unchanged. Crop Offset is absent
+    on purpose: it is applied to the stored rect on every render, so moving that slider
+    must not throw the detection away.
+    """
+    return "|".join(
+        str(part)
+        for part in (
+            geometry.rotation,
+            int(geometry.flip_horizontal),
+            int(geometry.flip_vertical),
+            round(geometry.fine_rotation, 4),
+            geometry.autocrop_ratio,
+            geometry.autocrop_mode,
+            round(geometry.autocrop_rebate_trim, 4),
+        )
+    )
+
+
+def resolve_autocrop_rect(
+    img: ImageBuffer,
+    geometry: GeometryConfig,
+    preview_size: float,
+) -> Optional[Tuple[float, float, float, float]]:
+    """
+    Detects the auto crop once and returns it as a normalized rect in transformed-image
+    space — the space GeometryConfig.crop_rect is stored in, and the space the canvas
+    overlay draws in.
+
+    The one place border detection is reached from during a render. The caller freezes
+    the result into the config, so an edit is detected once and every later render of it,
+    at any resolution, crops identically. Detection runs on a copy normalized to
+    AUTOCROP_DETECT_RES and replays the GeometryProcessor transform order
+    (rot90 -> flips -> fine rotation) on it.
+
+    The rect excludes Crop Offset: that slider applies to any crop, auto or manual, and
+    get_manual_rect_coords adds it back on every render. Only the 2 px baseline margin
+    is baked in. Returns None when the buffer is too small to detect on.
+    """
+    h, w = img.shape[:2]
+    det_s = min(1.0, AUTOCROP_DETECT_RES / max(h, w))
+    if det_s < 1.0:
+        tmp = cv2.resize(img, (max(1, round(w * det_s)), max(1, round(h * det_s))), interpolation=cv2.INTER_AREA)
+    else:
+        tmp = img
+    if geometry.rotation != 0:
+        tmp = np.rot90(tmp, k=geometry.rotation)
+    if geometry.flip_horizontal:
+        tmp = np.fliplr(tmp)
+    if geometry.flip_vertical:
+        tmp = np.flipud(tmp)
+    tmp = np.ascontiguousarray(tmp.astype(np.float32, copy=False))
+    if geometry.fine_rotation != 0.0:
+        tmp = apply_fine_rotation(tmp, geometry.fine_rotation)
+
+    rh, rw = tmp.shape[:2]
+    if rh < 2 or rw < 2:
+        return None
+    y1, y2, x1, x2 = get_autocrop_coords(
+        tmp,
+        offset_px=0,
+        # The margin is in detection pixels, so it scales by the detection buffer's own
+        # size, not the source's.
+        scale_factor=max(rh, rw) / float(preview_size),
+        target_ratio_str=geometry.autocrop_ratio,
+        mode=geometry.autocrop_mode,
+        rebate_trim=geometry.autocrop_rebate_trim,
+    )
+    if y2 - y1 < 2 or x2 - x1 < 2:
+        return None
+    return (x1 / rw, y1 / rh, x2 / rw, y2 / rh)
+
+
 def map_coords_to_geometry(
     nx: float,
     ny: float,
@@ -2079,7 +2160,7 @@ def smooth_polyline(
     return out
 
 
-def translate_manual_crop_rect(
+def translate_normalized_rect(
     rect: Tuple[float, float, float, float],
     dx: float,
     dy: float,
@@ -2138,8 +2219,8 @@ def toggle_flip(geo: GeometryConfig, horizontal: bool) -> GeometryConfig:
     CURRENTLY rendered image. The pipeline applies flips BEFORE fine rotation,
     and mirror(rotate(+a, img)) == rotate(-a, mirror(img)) — so each single
     mirror must negate the fine-rotation angle, or toggling a flip visibly
-    changes the horizon (the tilt doubles instead of mirroring). The manual
-    crop rect lives in transformed space and mirrors along with the content
+    changes the horizon (the tilt doubles instead of mirroring). The crop
+    rect lives in transformed space and mirrors along with the content
     it frames.
     """
     if horizontal:
@@ -2148,8 +2229,8 @@ def toggle_flip(geo: GeometryConfig, horizontal: bool) -> GeometryConfig:
         new_geo = replace(geo, flip_vertical=not geo.flip_vertical)
     if geo.fine_rotation != 0.0:
         new_geo = replace(new_geo, fine_rotation=-geo.fine_rotation)
-    if geo.manual_crop_rect is not None:
-        new_geo = replace(new_geo, manual_crop_rect=mirror_normalized_rect(geo.manual_crop_rect, horizontal))
+    if geo.crop_rect is not None:
+        new_geo = replace(new_geo, crop_rect=mirror_normalized_rect(geo.crop_rect, horizontal))
     return new_geo
 
 

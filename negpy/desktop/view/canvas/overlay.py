@@ -34,7 +34,7 @@ from negpy.features.exposure.analysis import (
     zone_region_labels,
 )
 from negpy.features.exposure.densitometer import zone_roman
-from negpy.features.geometry.logic import rotation_drag_angle, smooth_polyline, straighten_delta_degrees, translate_manual_crop_rect
+from negpy.features.geometry.logic import rotation_drag_angle, smooth_polyline, straighten_delta_degrees, translate_normalized_rect
 from negpy.features.local.logic import min_points, outline_points, rasterise
 from negpy.features.local.models import MaskShape
 from negpy.features.retouch.models import HEAL_SIZE_REF
@@ -373,7 +373,7 @@ class CanvasOverlay(QWidget):
     def set_tool_mode(self, mode: ToolMode) -> None:
         self._tool_mode = mode
         if mode == ToolMode.CROP_MANUAL:
-            self._crop_rect_norm = self.state.config.geometry.manual_crop_rect
+            self._crop_rect_norm = self.state.config.geometry.crop_rect
         else:
             self._crop_rect_norm = None
             self._end_crop_drag()
@@ -478,7 +478,7 @@ class CanvasOverlay(QWidget):
             self._current_size = gpu_size
 
         if self._tool_mode == ToolMode.CROP_MANUAL and self._crop_drag_mode is None:
-            self._crop_rect_norm = self.state.config.geometry.manual_crop_rect
+            self._crop_rect_norm = self.state.config.geometry.crop_rect
         if self._tool_mode == ToolMode.ANALYSIS_DRAW and self._analysis_drag_mode is None:
             self._analysis_rect_norm = self.state.config.process.analysis_rect
 
@@ -2149,7 +2149,7 @@ class CanvasOverlay(QWidget):
             curr_norm = self._screen_to_norm(event.position())
             dx = curr_norm[0] - self._analysis_press_norm[0]
             dy = curr_norm[1] - self._analysis_press_norm[1]
-            new_rect = translate_manual_crop_rect(self._analysis_orig_rect, dx, dy)
+            new_rect = translate_normalized_rect(self._analysis_orig_rect, dx, dy)
             if any(abs(a - b) > 5e-4 for a, b in zip(new_rect, self._analysis_rect_norm or new_rect)):
                 self._analysis_rect_norm = new_rect
                 self.analysis_rect_changed.emit(*new_rect, False)
@@ -2201,7 +2201,7 @@ class CanvasOverlay(QWidget):
             sensitivity = 0.5 if fine else 1.0
             dx = (curr_norm[0] - self._crop_press_norm[0]) * sensitivity
             dy = (curr_norm[1] - self._crop_press_norm[1]) * sensitivity
-            new_rect = translate_manual_crop_rect(self._crop_orig_rect, dx, dy)
+            new_rect = translate_normalized_rect(self._crop_orig_rect, dx, dy)
             if any(abs(a - b) > 5e-4 for a, b in zip(new_rect, self._crop_rect_norm or new_rect)):
                 self._crop_rect_norm = new_rect
                 self.crop_rect_changed.emit(*new_rect, False)

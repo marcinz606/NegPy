@@ -412,7 +412,7 @@ Where the frame gets its final shape: what is inside the print, and whether it s
 
 *   **Ratio** (default `Free`): target aspect ratio: `Free`, `1:1`, `3:2`, `4:3`, `5:4`, `6:7`, `7:5`, `65:24`, `16:9`, `16:10`, `11:8.5`. There is one entry per shape, because the crop tool auto-orients to portrait or landscape as you drag. On `Free` the crop tool is unconstrained, and auto-crop takes the ratio from the film format it detects, so 6x6, 645, 6x7 and 35mm each keep their own shape. Pick a ratio to force every frame to it instead.
 *   **Detect** (crosshairs): snap the ratio to the closest standard.
-*   **Crop** tool: draw a crop rectangle on the canvas. **Reset** clears it and turns auto-crop off.
+*   **Crop** tool: draw a crop rectangle on the canvas. It opens on whatever crop is already set, including one **Auto** found, so an auto crop can be nudged rather than redrawn. Adjusting it by hand makes the crop yours: nothing re-detects over it afterwards. **Reset** clears it and turns auto-crop off.
 *   **Guide**: overlay a composition guide while cropping: *Thirds*, *Phi Grid*, *Diagonals*, *Golden Triangles*, *Golden Spiral*, *Armature*, *Diagonal Method*, *Grid* or *Off*. The redo button rotates guides that have orientations; the spiral has 8, the triangles 2.
 
 **Auto Crop**, to detect the frame edge automatically:
@@ -420,7 +420,7 @@ Where the frame gets its final shape: what is inside the print, and whether it s
 *   **Mode**: *Image only* (exposed area) or *Film edge* (full film, including rebate and sprockets).
 *   **Crop Offset** (-5 to 100 px): inset the detected edge inward. Positive trims more; negative bleeds slightly outside, for when detection clips too tightly.
 *   **Rebate Trim** (0 to 150%): how far into the detected rebate to cut. 0% stops at the film edge, 100% lands on the detected image edge, and above 100% bites into the picture to clear a stubborn white border. *Image only* mode; it applies to both **Auto** and **Batch Autocrop**.
-*   **Auto**: detect and crop this frame. Best on clean rebate.
+*   **Auto**: detect and crop this frame. Best on clean rebate. Detection runs once and the crop it finds is stored, so the export is framed exactly like the preview. Changing **Mode**, **Ratio**, **Rebate Trim** or the orientation re-detects; **Crop Offset** adjusts the stored crop without re-detecting.
 *   **Batch Autocrop**: analyze all visible landscape frames as a roll, using confident detections to calibrate weaker ones. It runs in the background with progress and cancellation. Manual, Film-edge, portrait and ambiguous frames are left alone. *Image only* mode only.
 
 **Alignment:**

@@ -53,7 +53,7 @@ def test_get_manual_crop_coords_negative_offset():
 def test_geometry_processor_manual_offset():
     img = np.zeros((100, 200, 3), dtype=np.float32)
     # Manual crop rect defined -> should skip auto-crop
-    config = GeometryConfig(manual_crop_rect=(0.1, 0.1, 0.9, 0.9), autocrop_offset=0)
+    config = GeometryConfig(crop_rect=(0.1, 0.1, 0.9, 0.9), autocrop_offset=0)
     processor = GeometryProcessor(config)
     context = PipelineContext(scale_factor=1.0, original_size=(100, 200))
 
@@ -75,20 +75,19 @@ def test_geometry_processor_no_manual_rect_no_offset():
     assert context.active_roi is None
 
 
-def test_geometry_processor_auto_crop_requires_explicit_enable():
+def test_geometry_processor_never_detects():
+    """An armed auto crop carries no rect yet, and the processor does not go looking for
+    one: detection belongs to ImageProcessor, upstream of both engines, so a preview and
+    an export of one edit cannot resolve different frames."""
     img = np.ones((240, 360, 3), dtype=np.float32)
     img[50:190, 90:270] = 0.05
 
-    config = GeometryConfig(auto_crop_enabled=True, autocrop_offset=0, autocrop_ratio="Free")
-    processor = GeometryProcessor(config)
+    config = GeometryConfig(crop_from_auto=True, autocrop_offset=0, autocrop_ratio="Free")
     context = PipelineContext(scale_factor=1.0, original_size=(240, 360))
 
-    processor.process(img, context)
+    GeometryProcessor(config).process(img, context)
 
-    assert context.active_roi is not None
-    y1, y2, x1, x2 = context.active_roi
-    assert y2 > y1
-    assert x2 > x1
+    assert context.active_roi is None
 
 
 def test_get_autocrop_coords_detects_dark_frame_on_light_bed():
@@ -159,7 +158,7 @@ def test_crop_consistency_across_resolutions():
     full_h, full_w = 3000, 4500
     prev_h, prev_w = 1000, 1500
 
-    config = GeometryConfig(auto_crop_enabled=True, autocrop_offset=10)
+    config = GeometryConfig(crop_from_auto=True, crop_rect=(0.1, 0.1, 0.9, 0.9), autocrop_offset=10)
     processor = GeometryProcessor(config)
 
     ctx_full = PipelineContext(
@@ -230,10 +229,10 @@ def test_manual_crop_no_inflation_under_fine_rotation():
     img = np.zeros((400, 600, 3), dtype=np.float32)
 
     ctx_base = PipelineContext(scale_factor=1.0, original_size=(400, 600))
-    GeometryProcessor(GeometryConfig(manual_crop_rect=rect, autocrop_offset=0)).process(img, ctx_base)
+    GeometryProcessor(GeometryConfig(crop_rect=rect, autocrop_offset=0)).process(img, ctx_base)
 
     ctx_rot = PipelineContext(scale_factor=1.0, original_size=(400, 600))
-    GeometryProcessor(GeometryConfig(manual_crop_rect=rect, autocrop_offset=0, fine_rotation=4.0)).process(img, ctx_rot)
+    GeometryProcessor(GeometryConfig(crop_rect=rect, autocrop_offset=0, fine_rotation=4.0)).process(img, ctx_rot)
 
     assert ctx_base.active_roi == ctx_rot.active_roi
     # Exactly the fractional slice of the transformed frame, un-inflated.
@@ -242,19 +241,19 @@ def test_manual_crop_no_inflation_under_fine_rotation():
 
 def test_translate_within_bounds():
     from pytest import approx
-    from negpy.features.geometry.logic import translate_manual_crop_rect
+    from negpy.features.geometry.logic import translate_normalized_rect
 
     rect = (0.2, 0.2, 0.6, 0.5)
-    result = translate_manual_crop_rect(rect, 0.1, 0.05)
+    result = translate_normalized_rect(rect, 0.1, 0.05)
     assert result == approx((0.3, 0.25, 0.7, 0.55))
 
 
 def test_translate_clamps_at_right_edge():
     from pytest import approx
-    from negpy.features.geometry.logic import translate_manual_crop_rect
+    from negpy.features.geometry.logic import translate_normalized_rect
 
     rect = (0.6, 0.2, 0.9, 0.5)
-    nx1, ny1, nx2, ny2 = translate_manual_crop_rect(rect, 0.5, 0.0)
+    nx1, ny1, nx2, ny2 = translate_normalized_rect(rect, 0.5, 0.0)
     assert nx2 == approx(1.0)
     assert nx1 == approx(0.7)  # 1.0 - width 0.3
     assert (ny1, ny2) == approx((0.2, 0.5))
@@ -262,10 +261,10 @@ def test_translate_clamps_at_right_edge():
 
 def test_translate_clamps_at_left_edge():
     from pytest import approx
-    from negpy.features.geometry.logic import translate_manual_crop_rect
+    from negpy.features.geometry.logic import translate_normalized_rect
 
     rect = (0.2, 0.2, 0.6, 0.5)
-    nx1, ny1, nx2, ny2 = translate_manual_crop_rect(rect, -0.5, 0.0)
+    nx1, ny1, nx2, ny2 = translate_normalized_rect(rect, -0.5, 0.0)
     assert nx1 == approx(0.0)
     assert nx2 == approx(0.4)  # width preserved
     assert (ny1, ny2) == approx((0.2, 0.5))
@@ -273,39 +272,39 @@ def test_translate_clamps_at_left_edge():
 
 def test_translate_clamps_top_and_bottom():
     from pytest import approx
-    from negpy.features.geometry.logic import translate_manual_crop_rect
+    from negpy.features.geometry.logic import translate_normalized_rect
 
     rect = (0.2, 0.2, 0.6, 0.5)
-    _, ny1_top, _, ny2_top = translate_manual_crop_rect(rect, 0.0, -0.5)
+    _, ny1_top, _, ny2_top = translate_normalized_rect(rect, 0.0, -0.5)
     assert ny1_top == approx(0.0)
     assert ny2_top == approx(0.3)  # height 0.3 preserved
 
-    _, ny1_bot, _, ny2_bot = translate_manual_crop_rect(rect, 0.0, 0.9)
+    _, ny1_bot, _, ny2_bot = translate_normalized_rect(rect, 0.0, 0.9)
     assert ny2_bot == approx(1.0)
     assert ny1_bot == approx(0.7)  # 1.0 - 0.3
 
 
 def test_translate_clamps_diagonally():
     from pytest import approx
-    from negpy.features.geometry.logic import translate_manual_crop_rect
+    from negpy.features.geometry.logic import translate_normalized_rect
 
     rect = (0.6, 0.6, 0.9, 0.9)
-    result = translate_manual_crop_rect(rect, 0.5, 0.5)
+    result = translate_normalized_rect(rect, 0.5, 0.5)
     assert result == approx((0.7, 0.7, 1.0, 1.0))
 
 
 def test_translate_zero_delta_is_identity():
-    from negpy.features.geometry.logic import translate_manual_crop_rect
+    from negpy.features.geometry.logic import translate_normalized_rect
 
     rect = (0.2, 0.3, 0.7, 0.8)
-    assert translate_manual_crop_rect(rect, 0.0, 0.0) == rect
+    assert translate_normalized_rect(rect, 0.0, 0.0) == rect
 
 
 def test_translate_full_size_rect_no_movement():
-    from negpy.features.geometry.logic import translate_manual_crop_rect
+    from negpy.features.geometry.logic import translate_normalized_rect
 
     rect = (0.0, 0.0, 1.0, 1.0)
-    assert translate_manual_crop_rect(rect, 0.5, -0.5) == rect
+    assert translate_normalized_rect(rect, 0.5, -0.5) == rect
 
 
 def test_straighten_horizontal_right_end_down_rotates_ccw():
@@ -419,7 +418,7 @@ def test_negative_offset_yields_full_image_roi():
 
 
 def test_manual_crop_applies_offset():
-    config = GeometryConfig(manual_crop_rect=(0.1, 0.1, 0.9, 0.9), autocrop_offset=20)
+    config = GeometryConfig(crop_rect=(0.1, 0.1, 0.9, 0.9), autocrop_offset=20)
     processor = GeometryProcessor(config)
     ctx = PipelineContext(scale_factor=1.0, original_size=(100, 200))
     processor.process(np.zeros((100, 200, 3), dtype=np.float32), ctx)
@@ -620,7 +619,7 @@ def test_manual_crop_roi_consistent_preview_vs_export(rotation_k, flip_h):
     full_h, full_w = 3000, 4500
     prev_h, prev_w = 1000, 1500
 
-    config = GeometryConfig(manual_crop_rect=(0.15, 0.2, 0.7, 0.85), rotation=rotation_k, flip_horizontal=flip_h)
+    config = GeometryConfig(crop_rect=(0.15, 0.2, 0.7, 0.85), rotation=rotation_k, flip_horizontal=flip_h)
     proc = GeometryProcessor(config)
 
     ctx_full = PipelineContext(scale_factor=1.0, original_size=(full_h, full_w))
@@ -647,7 +646,7 @@ def test_manual_crop_extracts_same_marker_at_preview_and_export(rotation_k):
     full[210:390, 315:585] = 1.0  # centered block, normalized (0.35..0.65) in both axes
     prev = cv2.resize(full, (300, 200), interpolation=cv2.INTER_AREA)
 
-    config = GeometryConfig(manual_crop_rect=(0.35, 0.35, 0.65, 0.65), rotation=rotation_k)
+    config = GeometryConfig(crop_rect=(0.35, 0.35, 0.65, 0.65), rotation=rotation_k)
     proc = GeometryProcessor(config)
     cropper = CropProcessor(config)
 
@@ -1048,17 +1047,17 @@ def test_mirror_normalized_rect():
     assert mirror_normalized_rect((0.1, 0.2, 0.5, 0.7), horizontal=False) == approx((0.1, 0.3, 0.5, 0.8))
 
 
-def test_toggle_flip_mirrors_manual_crop_rect():
+def test_toggle_flip_mirrors_crop_rect():
     from pytest import approx
     from negpy.features.geometry.logic import toggle_flip
 
-    geo = GeometryConfig(fine_rotation=3.0, manual_crop_rect=(0.1, 0.2, 0.5, 0.7))
+    geo = GeometryConfig(fine_rotation=3.0, crop_rect=(0.1, 0.2, 0.5, 0.7))
     flipped_h = toggle_flip(geo, horizontal=True)
-    assert flipped_h.manual_crop_rect == approx((0.5, 0.2, 0.9, 0.7))
+    assert flipped_h.crop_rect == approx((0.5, 0.2, 0.9, 0.7))
     flipped_v = toggle_flip(geo, horizontal=False)
-    assert flipped_v.manual_crop_rect == approx((0.1, 0.3, 0.5, 0.8))
+    assert flipped_v.crop_rect == approx((0.1, 0.3, 0.5, 0.8))
     # Round trip restores the rect (corner order preserved).
-    assert toggle_flip(flipped_h, horizontal=True).manual_crop_rect == approx(geo.manual_crop_rect)
+    assert toggle_flip(flipped_h, horizontal=True).crop_rect == approx(geo.crop_rect)
 
 
 @pytest.mark.parametrize("horizontal", [True, False])

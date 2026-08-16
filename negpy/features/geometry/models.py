@@ -106,8 +106,6 @@ class GeometryConfig:
     fine_rotation: float = 0.0
     flip_horizontal: bool = False
     flip_vertical: bool = False
-    auto_crop_enabled: bool = False
-
     autocrop_offset: int = 0
     # Free, not 3:2: autocrop reads the film format off the detected frame, so the
     # default fits 6x6, 645 and 6x7 as well as 35mm. A fixed 3:2 center-cropped every
@@ -117,14 +115,35 @@ class GeometryConfig:
     # Fraction of the detected rebate to cut: 0.0 = film edge, 1.0 = image edge, above
     # 1.0 bites into the picture. Image mode only.
     autocrop_rebate_trim: float = 1.0
-    manual_crop_rect: Optional[Tuple[float, float, float, float]] = None
+
+    # The crop, always one normalized rect in transformed-image space, whoever drew it.
+    # `crop_from_auto` records where it came from and doubles as Auto Crop's armed state:
+    #
+    #   None + False  no crop
+    #   None + True   Auto Crop on, not yet resolved — the next render detects the rect
+    #                 and the controller freezes it here
+    #   rect + True   a resolved auto crop
+    #   rect + False  a manual crop (or an auto crop the user has since dragged)
+    #
+    # Detection never runs twice on the same edit, so preview and export cannot disagree
+    # about where the frame is. Anything detection depends on (ratio, mode, rebate trim,
+    # orientation) re-arms by clearing the rect, and the crop handles take ownership by
+    # clearing the flag.
+    crop_rect: Optional[Tuple[float, float, float, float]] = None
+    crop_from_auto: bool = False
+    # What the auto rect was detected under (autocrop_detection_key). Re-arming is a
+    # comparison, not something every control that feeds detection has to remember to do:
+    # change the ratio, the mode, the rebate trim or the orientation and the key stops
+    # matching, so the next render re-detects. Empty for a manual rect, which nothing
+    # invalidates.
+    crop_detect_key: str = ""
 
     def __post_init__(self) -> None:
         """Ensure a JSON-loaded list is converted back to a tuple, keeping the
         frozen dataclass hashable for pipeline cache keys. Enum fields coerce so a
         retired or hand-edited saved value degrades to the default, not a load failure."""
-        if self.manual_crop_rect is not None:
-            object.__setattr__(self, "manual_crop_rect", tuple(self.manual_crop_rect))
+        if self.crop_rect is not None:
+            object.__setattr__(self, "crop_rect", tuple(self.crop_rect))
         if self.autocrop_mode not in (AutocropMode.IMAGE, AutocropMode.FILM):
             object.__setattr__(self, "autocrop_mode", AutocropMode.IMAGE)
         try:

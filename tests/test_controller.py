@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import QApplication
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import DesktopSessionManager, AppState, ToolMode
 from negpy.desktop.workers.export import ExportTask, resolve_export_target_path
+from negpy.features.geometry.logic import autocrop_detection_key
 from negpy.domain.models import (
     ColorSpace,
     ExportConfig,
@@ -130,7 +131,7 @@ class TestAppController(unittest.TestCase):
         state.current_file_hash = "hash1"
         state.config = replace(
             WorkspaceConfig(),
-            geometry=GeometryConfig(manual_crop_rect=(0.1, 0.1, 0.9, 0.9)),
+            geometry=GeometryConfig(crop_rect=(0.1, 0.1, 0.9, 0.9)),
             retouch=RetouchConfig(manual_dust_spots=[(0.5, 0.5, 3)]),
         )
         self.mock_session_manager.repo.load_file_settings.return_value = None
@@ -141,7 +142,7 @@ class TestAppController(unittest.TestCase):
 
         saved = {c.args[0]: c.args[1] for c in self.mock_session_manager.repo.save_file_settings.call_args_list}
         self.assertIn("hash2", saved)
-        self.assertIsNone(saved["hash2"].geometry.manual_crop_rect)
+        self.assertIsNone(saved["hash2"].geometry.crop_rect)
         self.assertEqual(saved["hash2"].retouch.manual_dust_spots, [])
         # Baseline still broadcast onto the fresh frame.
         self.assertTrue(saved["hash2"].process.use_luma_average)
@@ -154,7 +155,7 @@ class TestAppController(unittest.TestCase):
         from negpy.domain.models import GeometryConfig
 
         state = self.mock_session_manager.state
-        state.config = replace(state.config, geometry=GeometryConfig(manual_crop_rect=(0.1, 0.1, 0.9, 0.9)))
+        state.config = replace(state.config, geometry=GeometryConfig(crop_rect=(0.1, 0.1, 0.9, 0.9)))
         hydrated = WorkspaceConfig()
         self.mock_session_manager.config_for_asset.return_value = hydrated
         frame = {"name": "b.dng", "path": "/tmp/b.dng", "hash": "hash2"}
@@ -169,7 +170,7 @@ class TestAppController(unittest.TestCase):
         self.mock_session_manager.config_for_asset.assert_called_once_with(frame)
         params = mock_write.call_args.args[1]
         self.assertIs(params, hydrated)
-        self.assertIsNone(params.geometry.manual_crop_rect)
+        self.assertIsNone(params.geometry.crop_rect)
 
     def test_clear_roll_baseline_resets_axes(self):
         state = self.mock_session_manager.state
@@ -668,27 +669,27 @@ class TestAppController(unittest.TestCase):
         self.controller.request_render.assert_not_called()
 
     def test_apply_auto_crop_enables_auto_crop_and_clears_manual_rect(self):
-        geometry = replace(self.controller.state.config.geometry, manual_crop_rect=(0.1, 0.1, 0.9, 0.9), auto_crop_enabled=False)
+        geometry = replace(self.controller.state.config.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=False)
         self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
         self.controller.request_render = MagicMock()
 
         self.controller.apply_auto_crop()
 
         saved_config = self.mock_session_manager.update_config.call_args.args[0]
-        self.assertTrue(saved_config.geometry.auto_crop_enabled)
-        self.assertIsNone(saved_config.geometry.manual_crop_rect)
+        self.assertTrue(saved_config.geometry.crop_from_auto)
+        self.assertIsNone(saved_config.geometry.crop_rect)
         self.controller.request_render.assert_called_once_with()
 
     def test_reset_crop_disables_auto_crop_and_clears_manual_rect(self):
-        geometry = replace(self.controller.state.config.geometry, manual_crop_rect=(0.1, 0.1, 0.9, 0.9), auto_crop_enabled=True)
+        geometry = replace(self.controller.state.config.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=True)
         self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
         self.controller.request_render = MagicMock()
 
         self.controller.reset_crop()
 
         saved_config = self.mock_session_manager.update_config.call_args.args[0]
-        self.assertFalse(saved_config.geometry.auto_crop_enabled)
-        self.assertIsNone(saved_config.geometry.manual_crop_rect)
+        self.assertFalse(saved_config.geometry.crop_from_auto)
+        self.assertIsNone(saved_config.geometry.crop_rect)
         self.controller.request_render.assert_called_once_with()
 
     def test_set_crop_ratio_updates_config_when_no_manual_rect(self):
@@ -698,7 +699,7 @@ class TestAppController(unittest.TestCase):
 
         saved_config = self.mock_session_manager.update_config.call_args.args[0]
         self.assertEqual(saved_config.geometry.autocrop_ratio, "4:3")
-        self.assertIsNone(saved_config.geometry.manual_crop_rect)
+        self.assertIsNone(saved_config.geometry.crop_rect)
         self.controller.request_render.assert_called_once_with()
 
     def test_set_crop_ratio_is_noop_when_unchanged(self):
@@ -723,7 +724,7 @@ class TestAppController(unittest.TestCase):
         config = replace(
             self.controller.state.config, process=replace(self.controller.state.config.process, local_floors=floors, local_ceils=ceils)
         )
-        config = replace(config, geometry=replace(config.geometry, manual_crop_rect=(0.15, 0.15, 0.85, 0.85)))
+        config = replace(config, geometry=replace(config.geometry, crop_rect=(0.15, 0.15, 0.85, 0.85)))
         self.controller.state.config = config
         self.controller.request_render = MagicMock()
 
@@ -744,7 +745,7 @@ class TestAppController(unittest.TestCase):
         rect = (0.15, 0.15, 0.85, 0.85)
         self.controller.state.config = replace(
             self.controller.state.config,
-            geometry=replace(self.controller.state.config.geometry, manual_crop_rect=rect),
+            geometry=replace(self.controller.state.config.geometry, crop_rect=rect),
         )
         self.controller.request_render = MagicMock()
 
@@ -752,10 +753,10 @@ class TestAppController(unittest.TestCase):
             self.mock_session_manager.reset_mock()
             self.controller.state.config = replace(
                 self.controller.state.config,
-                geometry=replace(self.controller.state.config.geometry, autocrop_ratio="Free", manual_crop_rect=rect),
+                geometry=replace(self.controller.state.config.geometry, autocrop_ratio="Free", crop_rect=rect),
             )
             self.controller.set_crop_ratio(ratio)
-            nx1, ny1, nx2, ny2 = self.mock_session_manager.update_config.call_args.args[0].geometry.manual_crop_rect
+            nx1, ny1, nx2, ny2 = self.mock_session_manager.update_config.call_args.args[0].geometry.crop_rect
             self.assertGreaterEqual(nx1, rect[0] - 1e-6, f"{ratio}: box grew left")
             self.assertGreaterEqual(ny1, rect[1] - 1e-6, f"{ratio}: box grew up")
             self.assertLessEqual(nx2, rect[2] + 1e-6, f"{ratio}: box grew right")
@@ -769,7 +770,7 @@ class TestAppController(unittest.TestCase):
         import numpy as np
 
         self.controller.state.preview_raw = np.empty((800, 1200, 3), dtype=np.float32)  # h=800, w=1200
-        geometry = replace(self.controller.state.config.geometry, manual_crop_rect=(0.25, 0.25, 0.75, 0.75))
+        geometry = replace(self.controller.state.config.geometry, crop_rect=(0.25, 0.25, 0.75, 0.75))
         self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
         self.controller.request_render = MagicMock()
 
@@ -777,7 +778,7 @@ class TestAppController(unittest.TestCase):
 
         saved_config = self.mock_session_manager.update_config.call_args.args[0]
         self.assertEqual(saved_config.geometry.autocrop_ratio, "1:1")
-        nx1, ny1, nx2, ny2 = saved_config.geometry.manual_crop_rect
+        nx1, ny1, nx2, ny2 = saved_config.geometry.crop_rect
         # Center unchanged.
         self.assertAlmostEqual((nx1 + nx2) / 2, 0.5, places=3)
         self.assertAlmostEqual((ny1 + ny2) / 2, 0.5, places=3)
@@ -796,7 +797,7 @@ class TestAppController(unittest.TestCase):
         geometry = replace(
             self.controller.state.config.geometry,
             rotation=1,
-            manual_crop_rect=(0.25, 0.25, 0.75, 0.75),
+            crop_rect=(0.25, 0.25, 0.75, 0.75),
         )
         self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
         self.controller.request_render = MagicMock()
@@ -804,7 +805,7 @@ class TestAppController(unittest.TestCase):
         self.controller.set_crop_ratio("1:1")
 
         saved_config = self.mock_session_manager.update_config.call_args.args[0]
-        nx1, ny1, nx2, ny2 = saved_config.geometry.manual_crop_rect
+        nx1, ny1, nx2, ny2 = saved_config.geometry.crop_rect
         # Display dims after a 90 rotation: h=1200, w=800.
         px_w = (nx2 - nx1) * 800
         px_h = (ny2 - ny1) * 1200
@@ -883,8 +884,63 @@ class TestAppController(unittest.TestCase):
             self.assertEqual(out, [task])
             self.controller._prompt_overwrite_conflicts.assert_not_called()
 
-    def test_manual_crop_rect_changed_disables_auto_crop(self):
-        geometry = replace(self.controller.state.config.geometry, auto_crop_enabled=True)
+    def _armed_auto_crop(self):
+        geometry = replace(self.controller.state.config.geometry, crop_from_auto=True, crop_rect=None)
+        self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
+        return autocrop_detection_key(geometry)
+
+    def test_freeze_stores_the_crop_the_render_detected(self):
+        key = self._armed_auto_crop()
+        metrics = {"autocrop_resolved_rect": (0.05, 0.04, 0.99, 0.98), "autocrop_resolved_key": key}
+
+        self.controller._freeze_resolved_auto_crop(metrics)
+
+        saved_config = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertEqual(saved_config.geometry.crop_rect, (0.05, 0.04, 0.99, 0.98))
+        self.assertEqual(saved_config.geometry.crop_detect_key, key)
+        self.assertTrue(saved_config.geometry.crop_from_auto)
+
+    def test_freeze_requests_no_render(self):
+        """The rect is what was just painted, so re-rendering it would only cost a frame."""
+        key = self._armed_auto_crop()
+        self.controller._freeze_resolved_auto_crop({"autocrop_resolved_rect": (0.1, 0.1, 0.9, 0.9), "autocrop_resolved_key": key})
+        self.assertFalse(self.mock_session_manager.update_config.call_args.kwargs["render"])
+
+    def test_freeze_drops_a_result_the_user_has_moved_past(self):
+        """Ratio changed while the render was in flight: a render under the new one is
+        already queued, and storing this rect would file it under the wrong detection."""
+        self._armed_auto_crop()
+        metrics = {"autocrop_resolved_rect": (0.05, 0.04, 0.99, 0.98), "autocrop_resolved_key": "stale-key"}
+
+        self.controller._freeze_resolved_auto_crop(metrics)
+
+        self.mock_session_manager.update_config.assert_not_called()
+
+    def test_freeze_ignores_a_render_of_a_manual_crop(self):
+        geometry = replace(self.controller.state.config.geometry, crop_from_auto=False, crop_rect=(0.2, 0.2, 0.8, 0.8))
+        self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
+
+        self.controller._freeze_resolved_auto_crop(
+            {"autocrop_resolved_rect": (0.0, 0.0, 1.0, 1.0), "autocrop_resolved_key": autocrop_detection_key(geometry)}
+        )
+
+        self.mock_session_manager.update_config.assert_not_called()
+
+    def test_apply_auto_crop_arms_without_a_rect(self):
+        self.controller.request_render = MagicMock()
+        self.controller.state.config = replace(
+            self.controller.state.config,
+            geometry=replace(self.controller.state.config.geometry, crop_rect=(0.2, 0.2, 0.8, 0.8)),
+        )
+
+        self.controller.apply_auto_crop()
+
+        saved_config = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertTrue(saved_config.geometry.crop_from_auto)
+        self.assertIsNone(saved_config.geometry.crop_rect)
+
+    def test_crop_rect_changed_disables_auto_crop(self):
+        geometry = replace(self.controller.state.config.geometry, crop_from_auto=True)
         self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
         self.controller.state.active_tool = ToolMode.CROP_MANUAL
         self.controller.request_render = MagicMock()
@@ -892,12 +948,12 @@ class TestAppController(unittest.TestCase):
         self.controller.handle_crop_rect_changed(0.2, 0.3, 0.8, 0.9, True)
 
         saved_config = self.mock_session_manager.update_config.call_args.args[0]
-        self.assertFalse(saved_config.geometry.auto_crop_enabled)
-        self.assertEqual(saved_config.geometry.manual_crop_rect, (0.2, 0.3, 0.8, 0.9))
+        self.assertFalse(saved_config.geometry.crop_from_auto)
+        self.assertEqual(saved_config.geometry.crop_rect, (0.2, 0.3, 0.8, 0.9))
         self.controller.request_render.assert_called_once_with()
 
     def test_handle_crop_rect_changed_updates_rect(self):
-        geometry = replace(self.controller.state.config.geometry, manual_crop_rect=(0.2, 0.2, 0.6, 0.5))
+        geometry = replace(self.controller.state.config.geometry, crop_rect=(0.2, 0.2, 0.6, 0.5))
         self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
         self.controller.state.active_tool = ToolMode.CROP_MANUAL
         self.controller.request_render = MagicMock()
@@ -905,11 +961,11 @@ class TestAppController(unittest.TestCase):
         self.controller.handle_crop_rect_changed(0.3, 0.25, 0.7, 0.55, True)
 
         saved_config = self.mock_session_manager.update_config.call_args.args[0]
-        self.assertEqual(saved_config.geometry.manual_crop_rect, (0.3, 0.25, 0.7, 0.55))
+        self.assertEqual(saved_config.geometry.crop_rect, (0.3, 0.25, 0.7, 0.55))
         self.controller.request_render.assert_called_once_with()
 
     def test_handle_crop_rect_changed_noop_when_tool_inactive(self):
-        geometry = replace(self.controller.state.config.geometry, manual_crop_rect=None)
+        geometry = replace(self.controller.state.config.geometry, crop_rect=None)
         self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
         self.controller.state.active_tool = ToolMode.NONE
         self.controller.request_render = MagicMock()
@@ -920,7 +976,7 @@ class TestAppController(unittest.TestCase):
         self.controller.request_render.assert_not_called()
 
     def test_handle_crop_rect_changed_does_not_deactivate_tool(self):
-        geometry = replace(self.controller.state.config.geometry, manual_crop_rect=(0.2, 0.2, 0.6, 0.5))
+        geometry = replace(self.controller.state.config.geometry, crop_rect=(0.2, 0.2, 0.6, 0.5))
         self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
         self.controller.state.active_tool = ToolMode.CROP_MANUAL
         self.controller.request_render = MagicMock()
@@ -930,7 +986,7 @@ class TestAppController(unittest.TestCase):
         self.assertEqual(self.controller.state.active_tool, ToolMode.CROP_MANUAL)
 
     def test_handle_crop_rect_changed_live_drag_does_not_persist(self):
-        geometry = replace(self.controller.state.config.geometry, manual_crop_rect=(0.2, 0.2, 0.6, 0.5))
+        geometry = replace(self.controller.state.config.geometry, crop_rect=(0.2, 0.2, 0.6, 0.5))
         self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
         self.controller.state.active_tool = ToolMode.CROP_MANUAL
         self.controller.request_render = MagicMock()

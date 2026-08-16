@@ -57,7 +57,7 @@ class TestBatchAutoCropController:
         self.controller.state.current_file_hash = "active"
         self.controller.state.current_file_path = files[0]["path"]
         active = replace(WorkspaceConfig(), geometry=replace(WorkspaceConfig().geometry, autocrop_ratio="4:3"))
-        manual = replace(WorkspaceConfig(), geometry=replace(WorkspaceConfig().geometry, manual_crop_rect=(0.1, 0.1, 0.9, 0.9)))
+        manual = replace(WorkspaceConfig(), geometry=replace(WorkspaceConfig().geometry, crop_rect=(0.1, 0.1, 0.9, 0.9)))
         fresh = WorkspaceConfig()
         self.controller.state.config = active
         self.session.asset_model.visible_actual_indices_ordered.return_value = [0, 1, 2]
@@ -151,16 +151,16 @@ class TestBatchAutoCropController:
         self.controller._on_batch_autocrop_finished(results)
 
         active_saved = self.session.persist_active_batch_config.call_args.args[0]
-        assert active_saved.geometry.manual_crop_rect == rect_a
+        assert active_saved.geometry.crop_rect == rect_a
         assert active_saved.geometry.fine_rotation == 1.75
-        assert not active_saved.geometry.auto_crop_enabled
+        assert not active_saved.geometry.crop_from_auto
         assert active_saved.process.local_floors == (0.0, 0.0, 0.0)
         assert active_saved.process.local_ceils == (0.0, 0.0, 0.0)
         self.session.persist_active_batch_config.assert_called_once_with(active_saved)
         self.session.update_config.assert_not_called()
 
         _, other_saved = self.session.repo.save_file_settings.call_args.args[:2]
-        assert other_saved.geometry.manual_crop_rect == rect_b
+        assert other_saved.geometry.crop_rect == rect_b
         assert other_saved.geometry.fine_rotation == -0.25
         assert other_saved.process.local_floors == (0.0, 0.0, 0.0)
         self.controller.request_render.assert_called_once_with()
@@ -238,7 +238,7 @@ class TestBatchAutoCropController:
         manual_asset = {"name": "manual.dng", "path": "/roll/manual.dng", "hash": "manual"}
         changed_asset = {"name": "changed.dng", "path": "/roll/changed.dng", "hash": "changed"}
         original = WorkspaceConfig()
-        manual = replace(original, geometry=replace(original.geometry, manual_crop_rect=(0.1, 0.1, 0.8, 0.8)))
+        manual = replace(original, geometry=replace(original.geometry, crop_rect=(0.1, 0.1, 0.8, 0.8)))
         changed = replace(original, geometry=replace(original.geometry, fine_rotation=2.0))
         self.session.config_for_asset.side_effect = [manual, changed]
         token = self.controller._begin_batch("autocrop", "Auto cropping roll", True)

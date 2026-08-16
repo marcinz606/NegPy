@@ -70,7 +70,7 @@ def _make_identity_geometry() -> GeometryConfig:
         fine_rotation=0.0,
         flip_horizontal=False,
         flip_vertical=False,
-        manual_crop_rect=(0.0, 0.0, 1.0, 1.0),
+        crop_rect=(0.0, 0.0, 1.0, 1.0),
         autocrop_offset=0,
     )
 

@@ -106,10 +106,10 @@ class RollCropTemplate:
 
 @dataclass(frozen=True)
 class ResolvedCrop:
-    """Explicit manual-crop payload ready for controller-side conflict checks."""
+    """Explicit crop payload ready for controller-side conflict checks."""
 
     key: str
-    manual_crop_rect: tuple[float, float, float, float]
+    crop_rect: tuple[float, float, float, float]
     correction_angle: float
     confidence: float
     calibrated: bool
@@ -731,7 +731,7 @@ def resolve_roll_crops(
         results.append(
             ResolvedCrop(
                 key=item.key,
-                manual_crop_rect=tuple(float(np.clip(v, 0.0, 1.0)) for v in manual_rect),
+                crop_rect=tuple(float(np.clip(v, 0.0, 1.0)) for v in manual_rect),
                 correction_angle=angle,
                 confidence=float(np.clip(confidence, 0.0, 1.0)),
                 calibrated=calibrated,
