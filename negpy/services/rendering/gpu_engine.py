@@ -617,7 +617,7 @@ class GPUEngine:
         # Keyed off the meter, so only the Contrast Mask slider's own value stays live.
         mask_plane = None
         mask_key = None
-        if settings.exposure.contrast_mask > 0.0 and not tiling_mode:
+        if settings.exposure.contrast_mask != 0.0 and not tiling_mode:
             mask_key = (analysis_key, bounds, roi, (h_rot, w_rot))
             if self._mask_plane is None or self._mask_plane[0] != mask_key:
                 self._mask_plane = (
@@ -1441,7 +1441,7 @@ class GPUEngine:
             + struct.pack(
                 "ffff",
                 *local_ev_scale(LogNegativeBounds(adj_floors, adj_ceils)),
-                1.0 if (settings.local.masks or exp.contrast_mask > 0.0) else 0.0,
+                1.0 if (settings.local.masks or exp.contrast_mask != 0.0) else 0.0,
             )
             # Split Grade per-channel zone contrast gains (split_grade_deltas). The w-lanes
             # carry Separation Damping's green and blue k.

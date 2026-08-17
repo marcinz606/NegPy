@@ -165,7 +165,7 @@ class DarkroomEngine:
         # same helper on the same array. Keyed on base, so the Contrast Mask slider re-runs
         # only the exposure stage.
         mask_bounds = context.metrics.get("final_bounds")
-        if settings.exposure.contrast_mask > 0.0 and mask_bounds is not None:
+        if settings.exposure.contrast_mask != 0.0 and mask_bounds is not None:
             mask_roi = context.active_roi
             mask_key = (calculate_config_hash(base_key), mask_roi, current_img.shape[:2])
             if self._mask_plane is None or self._mask_plane[0] != mask_key:

@@ -137,11 +137,15 @@ class ToneSidebar(BaseSidebar):
         split_grade_row.addWidget(self.highlight_grade_slider)
         self.layout.addLayout(split_grade_row)
 
-        self.contrast_mask_slider = CompactSlider("Contrast Mask", 0.0, 0.5, conf.contrast_mask)
+        # Inverted like ISO-R Grade, so dragging right hardens on both controls.
+        self.contrast_mask_slider = CompactSlider("Contrast Mask", -0.5, 0.5, conf.contrast_mask, has_neutral=True, inverted=True)
         self.contrast_mask_slider.setToolTip(
-            "Contrast Mask: sandwich the negative with a blurred low-contrast positive, as in the "
-            "darkroom. The value is the mask film's gamma — it compresses the negative's overall "
-            "range so a harder grade fits the paper, while local contrast and fine detail stay put."
+            "Contrast Mask: sandwich the negative with a blurred, low-contrast copy, as in the "
+            "darkroom. The value is the mask film's gamma, and it works both ways. Positive is a "
+            "blurred positive, which compresses the negative's range so a harder grade fits the "
+            "paper. Negative is a blurred negative, which expands the range instead, adding snap "
+            "to the broad tones without crunching grain and texture the way Grade does — and it "
+            "still has travel on a flat negative, where Grade has run out."
         )
         contrast_mask_row = QHBoxLayout()
         contrast_mask_row.addWidget(self.contrast_mask_slider)

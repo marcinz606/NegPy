@@ -29,6 +29,23 @@ def _wide_range_negative(h: int = 240, w: int = 360) -> np.ndarray:
     return np.ascontiguousarray(np.dstack([neg, neg, neg]).astype(np.float32))
 
 
+def _flat_negative(h: int = 300, w: int = 450) -> np.ndarray:
+    """A negative too flat for Grade: its log range puts the straight-line slope on the
+    k floor at every ISO-R, so the grade slider has no travel left."""
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    key = np.exp(-0.9 * (yy / h))
+    texture = 1.0 + 0.14 * np.sin(xx / 3.0) * np.sin(yy / 2.5)
+    scene = np.clip(key * texture, 1e-5, None)
+    scene /= scene.max()
+    neg = np.clip(0.25 + 0.30 * (1.0 - scene**0.35), 1e-4, 1.0)
+    return np.ascontiguousarray(np.dstack([neg, neg, neg]).astype(np.float32))
+
+
+def _global_spread(plane: np.ndarray) -> float:
+    """Spread of the broad tonal masses, with fine detail blurred away."""
+    return float(cv2.GaussianBlur(plane, (0, 0), 12.0).std())
+
+
 def _bw_settings(**exposure) -> WorkspaceConfig:
     s = WorkspaceConfig()
     return replace(
@@ -98,6 +115,15 @@ class TestContrastMaskPlane(unittest.TestCase):
         self.assertGreater(ev[0, 0], 0.0)
         self.assertLess(ev[0, 1], 0.0)
 
+    def test_negative_gamma_reverses_the_ev(self):
+        """A blurred negative adds the low frequencies where a blurred positive removes
+        them, so the two directions are one axis through zero."""
+        plane = np.array([[0.2]], dtype=np.float32)
+        reduce_ = contrast_mask_ev(plane, 0.3, 1.4, (1, 1))
+        increase = contrast_mask_ev(plane, -0.3, 1.4, (1, 1))
+        assert reduce_ is not None and increase is not None
+        self.assertAlmostEqual(float(reduce_[0, 0]), -float(increase[0, 0]), places=6)
+
     def test_ev_scales_with_gamma(self):
         plane = np.array([[0.25]], dtype=np.float32)
         half = contrast_mask_ev(plane, 0.25, 1.4, (1, 1))
@@ -122,6 +148,31 @@ class TestContrastMaskRender(unittest.TestCase):
         plain = _render(img, _bw_settings(grade=60.0), "cm-plain")
         masked = _render(img, _bw_settings(grade=60.0, contrast_mask=0.5), "cm-masked")
         self.assertLess(masked.std(), plain.std())
+
+    def test_negative_gamma_expands_the_range_where_grade_cannot(self):
+        """Contrast increase, the other half of Ctein's masking chapter. On a flat
+        negative the straight-line slope sits on its clamp, so Grade is inert there;
+        the mask still has travel because it works on the low frequencies."""
+        img = _flat_negative()
+        flat = _render(img, _bw_settings(grade=115.0), "cm-flat")
+        harder = _render(img, _bw_settings(grade=60.0), "cm-flat-hard")
+        masked = _render(img, _bw_settings(grade=115.0, contrast_mask=-0.3), "cm-flat-mask")
+
+        np.testing.assert_allclose(flat, harder, atol=1e-6, err_msg="grade should be clamped inert here")
+        self.assertGreater(_global_spread(masked), _global_spread(flat) * 1.1)
+
+    def test_the_two_directions_move_micro_contrast_oppositely(self):
+        """At a matched global gain Grade raises micro-contrast and the mask lowers it,
+        which is what makes the increasing mask more than a Grade preset."""
+        img = _wide_range_negative()
+        base = _render(img, _bw_settings(grade=115.0), "cm-dir-base")
+        masked = _render(img, _bw_settings(grade=115.0, contrast_mask=-0.3), "cm-dir-mask")
+        graded = _render(img, _bw_settings(grade=90.0), "cm-dir-grade")
+
+        for other in (masked, graded):
+            self.assertGreater(_global_spread(other), _global_spread(base))
+        self.assertLess(_micro_contrast(masked)[1], _micro_contrast(base)[1])
+        self.assertGreater(_micro_contrast(graded)[1], _micro_contrast(base)[1])
 
     def test_zero_gamma_changes_nothing(self):
         img = _wide_range_negative()
