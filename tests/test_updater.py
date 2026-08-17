@@ -230,7 +230,9 @@ def test_the_windows_script_switches_cmd_to_utf8_before_the_paths():
     """cmd parses a batch file in the OEM codepage, not the UTF-8 it is written in. The
     staging path carries the profile name, so a non-ASCII user name garbles every path
     unless the script switches the codepage first."""
-    script = nsis_script(Path("C:\\Users\\José\\Temp\\Setup.exe"), Path(r"C:\Program Files\NegPy"), Path(r"C:\Program Files\NegPy\NegPy.exe"), 3)
+    script = nsis_script(
+        Path("C:\\Users\\José\\Temp\\Setup.exe"), Path(r"C:\Program Files\NegPy"), Path(r"C:\Program Files\NegPy\NegPy.exe"), 3
+    )
 
     assert "chcp 65001 >nul" in script
     assert script.index("chcp 65001") < script.index("José")
