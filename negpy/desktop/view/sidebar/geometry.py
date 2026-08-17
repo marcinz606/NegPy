@@ -170,16 +170,18 @@ class GeometrySidebar(BaseSidebar):
         align_row.addWidget(self.straighten_btn, 0)
         self.layout.addLayout(align_row)
 
-        self.converge_v_slider = CompactSlider("Converging Verticals", -15.0, 15.0, conf.converge_v, unit="%")
+        self.converge_v_slider = CompactSlider("Tilt", -15.0, 15.0, conf.converge_v, unit="%")
         self.converge_v_slider.setToolTip(
-            "Converging Verticals: straighten a building that leans back, the way a printer tilts "
-            "the easel. Positive stretches the top edge. Measured as a per-cent of the frame, not "
-            "a tilt angle, because the same tilt keystones differently at every enlargement."
+            "Easel Tilt: tip the easel about a horizontal axis to straighten converging verticals, "
+            "the building that leans back because the camera was pointed up. Positive stretches the "
+            "top edge. Per-cent of the frame, the amount you would measure on the easel, not a tilt "
+            "angle — the same tilt keystones differently at every enlargement."
         )
-        self.converge_h_slider = CompactSlider("Converging Horizontals", -15.0, 15.0, conf.converge_h, unit="%")
+        self.converge_h_slider = CompactSlider("Swing", -15.0, 15.0, conf.converge_h, unit="%")
         self.converge_h_slider.setToolTip(
-            "Converging Horizontals: the same correction across the frame, for a wall shot from "
-            "one side or a copy stand that is not square. Positive stretches the left edge."
+            "Easel Swing: the same movement about a vertical axis, straightening converging "
+            "horizontals — a wall shot from one side, or a copy stand that is not square to the "
+            "film. Positive stretches the left edge."
         )
         converge_row = QHBoxLayout()
         converge_row.addWidget(self.converge_v_slider)
