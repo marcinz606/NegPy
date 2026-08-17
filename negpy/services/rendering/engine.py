@@ -17,6 +17,7 @@ from negpy.features.exposure.processor import (
     NormalizationProcessor,
     PhotometricProcessor,
 )
+from negpy.features.exposure.logic import expand_mask_plane
 from negpy.features.exposure.normalization import contrast_mask_plane, effective_crosstalk_matrix, normalized_roi
 from negpy.features.process.hue import apply_hue_trim
 from negpy.features.exposure.papers import effective_paper_profile
@@ -169,25 +170,27 @@ class DarkroomEngine:
             mask_roi = context.active_roi
             mask_key = (calculate_config_hash(base_key), mask_roi, current_img.shape[:2])
             if self._mask_plane is None or self._mask_plane[0] != mask_key:
-                self._mask_plane = (
-                    mask_key,
-                    *contrast_mask_plane(
-                        img,
-                        mask_bounds,
-                        effective_crosstalk_matrix(settings.process, settings.process.process_mode),
-                        rotation=settings.geometry.rotation,
-                        fine_rotation=settings.geometry.fine_rotation,
-                        flip_horizontal=settings.geometry.flip_horizontal,
-                        flip_vertical=settings.geometry.flip_vertical,
-                        converge_v=settings.geometry.converge_v,
-                        converge_h=settings.geometry.converge_h,
-                        distortion_k1=distortion_k1,
-                        roi_norm=normalized_roi(mask_roi, current_img.shape[:2]),
-                    ),
+                plane, centre = contrast_mask_plane(
+                    img,
+                    mask_bounds,
+                    effective_crosstalk_matrix(settings.process, settings.process.process_mode),
+                    rotation=settings.geometry.rotation,
+                    fine_rotation=settings.geometry.fine_rotation,
+                    flip_horizontal=settings.geometry.flip_horizontal,
+                    flip_vertical=settings.geometry.flip_vertical,
+                    converge_v=settings.geometry.converge_v,
+                    converge_h=settings.geometry.converge_h,
+                    distortion_k1=distortion_k1,
+                    roi_norm=normalized_roi(mask_roi, current_img.shape[:2]),
                 )
-            context.metrics["contrast_mask_plane"] = self._mask_plane[1]
-            context.metrics["contrast_mask_centre"] = self._mask_plane[2]
-            context.metrics["contrast_mask_roi"] = mask_roi
+                # Expanded here, not in the exposure stage: the slider re-runs that stage,
+                # and only the scalar moves with it.
+                expanded = expand_mask_plane(plane, current_img.shape[:2], mask_roi)
+                self._mask_plane = None if expanded is None else (mask_key, expanded, centre)
+            if self._mask_plane is not None:
+                context.metrics["contrast_mask_plane"] = self._mask_plane[1]
+                context.metrics["contrast_mask_centre"] = self._mask_plane[2]
+                context.metrics["contrast_mask_roi"] = None
 
         def run_exposure(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
             img_out = PhotometricProcessor(settings.exposure, settings.local, settings.process).process(img_in, ctx)

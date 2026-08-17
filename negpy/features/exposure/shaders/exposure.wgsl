@@ -51,6 +51,11 @@ struct ExposureUniforms {
     // Hue Trim: x = rotation in radians, yzw pad. Costs no slot; 288B already
     // spanned two.
     hue: vec4<f32>,
+    // Contrast Mask: x = stops per unit of plane (contrast_mask_scale; 0 gates
+    // mask_tex off), yz = the printed frame's origin in rotated pixels, w pad.
+    mask: vec4<f32>,
+    // Contrast Mask: xy = the printed frame's span in rotated pixels, zw pad.
+    mask_span: vec4<f32>,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -58,6 +63,25 @@ struct ExposureUniforms {
 @group(0) @binding(2) var<uniform> params: ExposureUniforms;
 // Per-pixel dodge/burn EV map, rasterised on the CPU (shared with the CPU path).
 @group(0) @binding(3) var ev_tex: texture_2d<f32>;
+// Contrast Mask plane on the analysis grid. Upscaled here rather than uploaded at
+// render size, so the slider costs a uniform write and no transfer.
+@group(0) @binding(4) var mask_tex: texture_2d<f32>;
+
+// The mask plane at this pixel, in stops. Mirrors expand_mask_plane in
+// exposure/logic.py: OpenCV's half-pixel bilinear, taps clamped, which is the
+// edge replication outside the printed frame.
+fn contrast_mask_stops(coords: vec2<i32>) -> f32 {
+    let dims = vec2<f32>(textureDimensions(mask_tex));
+    let p = (vec2<f32>(coords) + vec2<f32>(0.5) - params.mask.yz) * dims / params.mask_span.xy - vec2<f32>(0.5);
+    let lo = clamp(floor(p), vec2<f32>(0.0), dims - vec2<f32>(1.0));
+    let hi = clamp(lo + vec2<f32>(1.0), vec2<f32>(0.0), dims - vec2<f32>(1.0));
+    let f = clamp(p - lo, vec2<f32>(0.0), vec2<f32>(1.0));
+    let i0 = vec2<i32>(lo);
+    let i1 = vec2<i32>(hi);
+    let top = mix(textureLoad(mask_tex, vec2<i32>(i0.x, i0.y), 0).r, textureLoad(mask_tex, vec2<i32>(i1.x, i0.y), 0).r, f.x);
+    let bot = mix(textureLoad(mask_tex, vec2<i32>(i0.x, i1.y), 0).r, textureLoad(mask_tex, vec2<i32>(i1.x, i1.y), 0).r, f.x);
+    return params.mask.x * mix(top, bot, f.y);
+}
 
 fn fast_sigmoid(x: f32) -> f32 {
     if (x >= 0.0) {
@@ -184,6 +208,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let local_maps = textureLoad(ev_tex, coords, 0);
         ev = local_maps.r;
         gfac = local_maps.g;
+    }
+    if (params.mask.x != 0.0) {
+        ev = ev + contrast_mask_stops(coords);
     }
 
     var dens: vec3<f32>;

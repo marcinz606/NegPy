@@ -215,11 +215,11 @@ class GPUEngine:
             "density_hist",
         ]
         # Packed byte size per stage. A stage that exceeds the 256B dynamic-offset
-        # alignment (exposure, 304B) occupies multiple aligned slots.
+        # alignment (exposure, 336B) occupies multiple aligned slots.
         self._uniform_sizes = {
             "geometry": 64,
             "normalization": 160,
-            "exposure": 304,
+            "exposure": 336,
             "transfer": 144,
             "clahe_u": 32,
             "lab": 96,
@@ -263,6 +263,8 @@ class GPUEngine:
         # Identity of the dodge/burn EV map currently sitting in the local_ev texture.
         self._local_ev_key: Optional[Tuple] = None
         self._mask_plane: Optional[Tuple[Tuple, np.ndarray, float]] = None
+        # Identity of the plane currently sitting in the contrast_mask texture.
+        self._mask_tex_key: Optional[Tuple] = None
 
     def _detect_invalidated_stage(self, settings: WorkspaceConfig, scale_factor: float, render_size_ref: Optional[float] = None) -> int:
         """
@@ -640,6 +642,26 @@ class GPUEngine:
             mask_plane = self._mask_plane[1]
             mask_centre = self._mask_plane[2]
 
+        # The printed frame in rotated pixels; the shader maps the plane onto it and
+        # clamps outside, which is expand_mask_plane's edge padding.
+        mask_uniform = None
+        if mask_plane is not None:
+            y1_m, y2_m, x1_m, x2_m = roi if roi is not None else (0, h_rot, 0, w_rot)
+            y1_m, x1_m = max(0, y1_m), max(0, x1_m)
+            y2_m, x2_m = min(h_rot, y2_m), min(w_rot, x2_m)
+            if y2_m - y1_m < 1 or x2_m - x1_m < 1:
+                mask_plane = None
+            else:
+                from negpy.features.exposure.logic import contrast_mask_scale
+
+                mask_uniform = (
+                    contrast_mask_scale(settings.exposure.contrast_mask, luminance_density_range(bounds)),
+                    float(x1_m),
+                    float(y1_m),
+                    float(x2_m - x1_m),
+                    float(y2_m - y1_m),
+                )
+
         # CPU meter cost, logged once per source (skips creative-slider re-renders).
         if analysis_source is not None and analysis_source_hash is not None and analysis_source_hash != self._analysis_timing_hash:
             self._analysis_timing_hash = analysis_source_hash
@@ -673,6 +695,7 @@ class GPUEngine:
             unmix=unmix_m,
             cam_xyz=cam_xyz,
             camera_wb=camera_wb,
+            contrast_mask=mask_uniform,
         )
         if clahe_cdf_override is not None:
             self._buffers["clahe_c"].upload(clahe_cdf_override)
@@ -708,9 +731,29 @@ class GPUEngine:
             wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING,
             "lab",
         )
+        # The Contrast Mask plane rides its own analysis-grid texture, uploaded only when the
+        # plane itself moves. A 1x1 dummy keeps the bind group valid when it is off (mask.x
+        # gates it).
+        if mask_plane is not None:
+            tex_mask = self._get_intermediate_texture(
+                mask_plane.shape[1],
+                mask_plane.shape[0],
+                wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_DST,
+                "contrast_mask",
+            )
+            if self._mask_tex_key != mask_key:
+                tex_mask.upload(np.dstack([mask_plane] * 3))
+                self._mask_tex_key = mask_key
+        else:
+            tex_mask = self._get_intermediate_texture(
+                1,
+                1,
+                wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_DST,
+                "contrast_mask",
+            )
         # The dodge/burn EV map feeds the exposure pass. A zero-initialized 1x1 dummy keeps
         # the bind group valid when no masks are active (ev_scale.w gates it).
-        wants_ev_map = bool(settings.local.masks) or mask_plane is not None
+        wants_ev_map = bool(settings.local.masks)
         if wants_ev_map:
             tex_local_ev = self._get_intermediate_texture(
                 w_rot,
@@ -761,7 +804,7 @@ class GPUEngine:
             )
             if wants_ev_map:
                 # This stage re-runs for any exposure change, but the map only moves
-                # with the masks, the geometry, the grade and the contrast mask.
+                # with the masks, the geometry and the grade.
                 tiled_maps = local_maps is not None
                 ev_key = (
                     settings.local,
@@ -771,14 +814,12 @@ class GPUEngine:
                     settings.geometry.flip_vertical,
                     k1_eff,
                     settings.exposure.grade,
-                    settings.exposure.contrast_mask,
-                    mask_key,
                     orig_shape,
                     w_rot,
                     h_rot,
                 )
                 if tiled_maps or self._local_ev_key != ev_key:
-                    if local_maps is None and settings.local.masks:
+                    if local_maps is None:
                         local_maps = compute_local_maps(
                             settings.local,
                             h_rot,
@@ -790,17 +831,11 @@ class GPUEngine:
                             flip_vertical=settings.geometry.flip_vertical,
                             distortion_k1=k1_eff,
                         )
-                    from negpy.features.exposure.logic import contrast_mask_ev, local_grade_factor_map
+                    from negpy.features.exposure.logic import local_grade_factor_map
 
                     if local_maps is None:
                         local_maps = np.zeros((h_rot, w_rot, 2), dtype=np.float32)
                     ev_plane = local_maps[:, :, 0]
-                    mask_ev = contrast_mask_ev(
-                        mask_plane, settings.exposure.contrast_mask, luminance_density_range(bounds), (h_rot, w_rot), roi
-                    )
-                    if mask_ev is not None:
-                        ev_plane = ev_plane + mask_ev
-
                     # r = dodge/burn EV, g = local grade slope factor, b unused. One texture,
                     # so the local-grade map costs no bind slot.
                     tex_local_ev.upload(
@@ -837,6 +872,7 @@ class GPUEngine:
                         (1, tex_expo.view),
                         (2, self._get_uniform_binding("exposure")),
                         (3, tex_local_ev.view),
+                        (4, tex_mask.view),
                     ],
                     w_rot,
                     h_rot,
@@ -1159,6 +1195,7 @@ class GPUEngine:
         unmix: Optional[np.ndarray] = None,
         cam_xyz: Optional[list] = None,
         camera_wb: Optional[list] = None,
+        contrast_mask: Optional[Tuple[float, float, float, float, float]] = None,
     ) -> None:
         """Packs and uploads all pipeline parameters to the unified UBO."""
         # scale_s uses the post-rotation dims the geometry pass emits. Zeroed for tiled
@@ -1439,12 +1476,11 @@ class GPUEngine:
             + struct.pack("ffff", dye_rows[0, 0], dye_rows[0, 1], dye_rows[0, 2], _mg3[0])
             + struct.pack("ffff", dye_rows[1, 0], dye_rows[1, 1], dye_rows[1, 2], _mg3[1])
             + struct.pack("ffff", dye_rows[2, 0], dye_rows[2, 1], dye_rows[2, 2], _mg3[2])
-            # Dodge/burn EV-stop size per channel (local_ev_scale); w = enable flag. The
-            # contrast mask rides the same map, so it opens the same gate.
+            # Dodge/burn EV-stop size per channel (local_ev_scale); w = enable flag.
             + struct.pack(
                 "ffff",
                 *local_ev_scale(LogNegativeBounds(adj_floors, adj_ceils)),
-                1.0 if (settings.local.masks or exp.contrast_mask != 0.0) else 0.0,
+                1.0 if settings.local.masks else 0.0,
             )
             # Split Grade per-channel zone contrast gains (split_grade_deltas). The w-lanes
             # carry Separation Damping's green and blue k.
@@ -1452,6 +1488,10 @@ class GPUEngine:
             + struct.pack("ffff", _hg3[0], _hg3[1], _hg3[2], sat_k3[2])
             # Hue Trim in radians (x; yzw pad). The shader rotates before its encode.
             + struct.pack("ffff", math.radians(float(settings.process.hue_trim)), 0.0, 0.0, 0.0)
+            # Contrast Mask: stops per unit of plane (0 = off), then the printed frame's
+            # origin and span in rotated pixels. The shader does the upscale.
+            + struct.pack("ffff", *(contrast_mask[:3] if contrast_mask else (0.0, 0.0, 0.0)), 0.0)
+            + struct.pack("ffff", *(contrast_mask[3:] if contrast_mask else (1.0, 1.0)), 0.0, 0.0)
         )
 
         cls = float(settings.lab.clahe_strength)
@@ -2108,6 +2148,7 @@ class GPUEngine:
         self._current_source_hash = None
         self._last_settings = None
         self._local_ev_key = None
+        self._mask_tex_key = None
         if collect:
             gc.collect()
         logger.info("GPUEngine: VRAM resources released")

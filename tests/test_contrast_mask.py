@@ -196,33 +196,49 @@ class TestContrastMaskRender(unittest.TestCase):
 
 @unittest.skipUnless(GPUDevice.get().is_available, "GPU not available")
 class TestContrastMaskParity(unittest.TestCase):
-    def test_cpu_gpu_match(self):
+    def setUp(self):
         from negpy.services.rendering.image_processor import ImageProcessor
 
-        processor = ImageProcessor()
-        if processor.engine_gpu is None:
+        self.processor = ImageProcessor()
+        if self.processor.engine_gpu is None:
             self.skipTest("GPU engine not initialised")
+        self.img = _wide_range_negative(96, 144)
 
-        img = _wide_range_negative(96, 144)
-        settings = _bw_settings(grade=60.0, contrast_mask=0.5)
+    def _render(self, settings: WorkspaceConfig, tag: str, prefer_gpu: bool) -> np.ndarray:
+        result, _ = self.processor.run_pipeline(
+            self.img.copy(),
+            settings,
+            tag,
+            render_size_ref=float(max(self.img.shape[:2])),
+            prefer_gpu=prefer_gpu,
+            readback_metrics=False,
+        )
+        arr = np.asarray(result.readback()) if hasattr(result, "readback") else np.asarray(result)
+        return arr[:, :, :3].astype(np.float64)
 
-        def render(prefer_gpu: bool) -> np.ndarray:
-            result, _ = processor.run_pipeline(
-                img.copy(),
-                settings,
-                "contrast-mask-parity",
-                render_size_ref=float(max(img.shape[:2])),
-                prefer_gpu=prefer_gpu,
-                readback_metrics=False,
-            )
-            arr = np.asarray(result.readback()) if hasattr(result, "readback") else np.asarray(result)
-            return arr[:, :, :3].astype(np.float64)
-
-        cpu = render(False)
-        gpu = render(True)
+    def _assert_match(self, settings: WorkspaceConfig, tag: str):
+        cpu = self._render(settings, tag, prefer_gpu=False)
+        gpu = self._render(settings, tag, prefer_gpu=True)
         self.assertEqual(cpu.shape, gpu.shape)
         self.assertLess(float(np.mean(np.abs(cpu - gpu))), 0.01)
         self.assertLess(float(np.max(np.abs(cpu - gpu))), 0.04)
+
+    def test_cpu_gpu_match(self):
+        self._assert_match(_bw_settings(grade=60.0, contrast_mask=0.5), "contrast-mask-parity")
+
+    def test_cpu_gpu_match_negative_gamma(self):
+        self._assert_match(_bw_settings(grade=60.0, contrast_mask=-0.35), "contrast-mask-parity-neg")
+
+    def test_slider_uploads_no_texture(self):
+        base = _bw_settings(grade=60.0, contrast_mask=0.5)
+        self._render(base, "contrast-mask-drag", prefer_gpu=True)
+        engine = self.processor.engine_gpu
+        mask_key, ev_key = engine._mask_tex_key, engine._local_ev_key
+        self.assertIsNotNone(mask_key)
+
+        self._render(replace(base, exposure=replace(base.exposure, contrast_mask=0.2)), "contrast-mask-drag", prefer_gpu=True)
+        self.assertEqual(engine._mask_tex_key, mask_key)
+        self.assertEqual(engine._local_ev_key, ev_key)
 
 
 if __name__ == "__main__":
