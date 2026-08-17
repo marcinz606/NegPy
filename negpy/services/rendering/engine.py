@@ -168,7 +168,7 @@ class DarkroomEngine:
         mask_bounds = context.metrics.get("final_bounds")
         if settings.exposure.contrast_mask != 0.0 and mask_bounds is not None:
             mask_roi = context.active_roi
-            mask_key = (calculate_config_hash(base_key), mask_roi, current_img.shape[:2])
+            mask_key = (calculate_config_hash(base_key), mask_roi, current_img.shape[:2], settings.exposure.mask_blur)
             if self._mask_plane is None or self._mask_plane[0] != mask_key:
                 plane, centre = contrast_mask_plane(
                     img,
@@ -182,6 +182,7 @@ class DarkroomEngine:
                     converge_h=settings.geometry.converge_h,
                     distortion_k1=distortion_k1,
                     roi_norm=normalized_roi(mask_roi, current_img.shape[:2]),
+                    blur=settings.exposure.mask_blur,
                 )
                 # Expanded here, not in the exposure stage: the slider re-runs that stage,
                 # and only the scalar moves with it.

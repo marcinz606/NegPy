@@ -27,6 +27,7 @@ SLIDER_ATTRS: dict[str, str] = {
     "dye_separation": "tone_sidebar.dye_separation_slider",
     "separation_damping": "tone_sidebar.separation_damping_slider",
     "contrast_mask": "tone_sidebar.contrast_mask_slider",
+    "mask_blur": "tone_sidebar.mask_blur_slider",
     "offset": "geometry_sidebar.offset_slider",
     "fine_rot": "geometry_sidebar.fine_rot_slider",
     "converge_v": "geometry_sidebar.converge_v_slider",

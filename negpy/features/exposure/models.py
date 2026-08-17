@@ -46,6 +46,8 @@ class ExposureConfig:
     # Unsharp mask gamma: positive sandwiches a blurred positive and reduces contrast,
     # negative a blurred negative and increases it. [-0.5, 0.5]; 0 = no mask.
     contrast_mask: float = 0.0
+    # The mask's spacer: the scale above which tones are masked. [1.0, 8.0] %.
+    mask_blur: float = 4.0
     # Split grade: zone contrast in ISO-R points (negative = harder), global
     # value + per-layer trims like Grade.
     shadow_grade: float = 0.0

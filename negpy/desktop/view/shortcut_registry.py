@@ -95,6 +95,8 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "separation_damping_inc": ShortcutEntry("", "Separation Damping up", "Exposure"),
     "contrast_mask_dec": ShortcutEntry("", "Contrast Mask down", "Exposure"),
     "contrast_mask_inc": ShortcutEntry("", "Contrast Mask up", "Exposure"),
+    "mask_blur_dec": ShortcutEntry("", "Mask Blur down", "Exposure"),
+    "mask_blur_inc": ShortcutEntry("", "Mask Blur up", "Exposure"),
     "lock_bounds_toggle": ShortcutEntry("Alt+Q", "Toggle bounds lock", "Process"),
     "scan_setup": ShortcutEntry("", "Scanning setup wizard", "Process"),
     "scan_prescan": ShortcutEntry("", "Prescan and set crop (Plustek)", "Process"),

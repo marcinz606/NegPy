@@ -142,6 +142,8 @@ Here is what happens to your image. We apply these steps in order, passing the b
 
     The slider is a pure scalar on the plane (`contrast_mask_scale`), so neither engine rebuilds anything as it moves: the CPU caches the plane at render size (`expand_mask_plane`) and the GPU keeps it on the analysis grid in its own texture and upscales in the shader, leaving the slider a uniform write.
 
+    **Mask Blur** (`ExposureConfig.mask_blur`, 1 to 8%, default 4) is the spacer, the $\sigma$ of that blur as a per-cent of the analysis grid. It sets the scale above which tones are masked, so it is a frequency cut-off rather than a strength: measured per octave at $g=0.5$, 1% attenuates the 8px band to 0.75 and the 64px band to 0.51, while 8% leaves everything under 64px above 0.93. Narrower compresses harder and lifts shadows adjacent to bright areas, and at the limit $\text{blur}(val) \rightarrow val$ collapses the operator into a plain $(1-g)$ reduction, which is Grade. Unlike the scalar it does rebuild the plane, so it keys both engines' plane caches.
+
     The plane covers the printed frame only, because the enlarger projects the crop: a rebate or scanner surround blurred into the mask prints as a vignette the negative does not have. It is placed back at the crop, edge-replicated outside so the crop tool's full-frame preview has no seam. Hidden on the transparency transfer path, which takes no dodge/burn map. Instruments read the unmasked negative, as they already do under a dodge.
 *   **Output**: converts print density back to **scene-linear** reflectance (transmittance):
     $$I_{out} = 10^{-D}$$

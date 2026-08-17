@@ -253,3 +253,35 @@ class TestContrastMaskParity(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestMaskBlur(unittest.TestCase):
+    def test_blur_sets_the_scale_above_which_tones_are_masked(self):
+        """The spacer is a frequency cut-off, not a strength: a narrow mask reaches down
+        into finer detail, a wide one leaves it alone."""
+        img = _wide_range_negative()
+        bounds = LogNegativeBounds(floors=(-1.4, -1.4, -1.4), ceils=(-0.05, -0.05, -0.05))
+        narrow, _ = contrast_mask_plane(img, bounds, None, blur=1.0)
+        wide, _ = contrast_mask_plane(img, bounds, None, blur=8.0)
+        # A narrower blur keeps more of the frame's structure in the plane.
+        self.assertGreater(float(narrow.std()), float(wide.std()))
+
+    def test_blur_rebuilds_a_cached_plane(self):
+        """The gamma slider is a scalar on a cached plane, so the blur has to key that
+        cache or moving it would silently render the previous spacer."""
+        img = _wide_range_negative()
+        engine = DarkroomEngine()
+
+        def render(blur):
+            settings = _bw_settings(grade=60.0, contrast_mask=0.5, mask_blur=blur)
+            return np.asarray(engine.process(img.copy(), settings, "one-source"))[:, :, 1]
+
+        wide, narrow = render(8.0), render(1.0)
+        self.assertGreater(float(np.abs(wide - narrow).mean()), 1e-4)
+
+    def test_blur_alone_changes_nothing_without_a_mask(self):
+        img = _wide_range_negative()
+        engine = DarkroomEngine()
+        a = np.asarray(engine.process(img.copy(), _bw_settings(mask_blur=8.0), "no-mask"))
+        b = np.asarray(engine.process(img.copy(), _bw_settings(mask_blur=1.0), "no-mask"))
+        np.testing.assert_allclose(a, b, atol=1e-6)
