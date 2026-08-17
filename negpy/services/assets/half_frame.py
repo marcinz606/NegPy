@@ -22,6 +22,18 @@ _SEP = "#"
 _GAP_FILL = 0.0
 
 
+def is_composite(file_info: Dict[str, Any]) -> bool:
+    """Whether an asset is assembled from more than one file (triplet, stitch, HDR).
+
+    Half frame does not apply to these: a composite carries its primary's plain hash, so
+    without this test a stale ``#1``/``#2`` edit left on that primary by an earlier
+    half-frame session makes the assembled frame render as a diptych. Single source of
+    truth for the rule — discovery refuses to split them and the diptych readers refuse
+    to claim them, so the two cannot drift.
+    """
+    return bool(file_info.get("green_path") or file_info.get("stitch_paths") or file_info.get("hdr_paths"))
+
+
 def half_hash(file_hash: str, half: int) -> str:
     return f"{file_hash}{_SEP}{half}"
 

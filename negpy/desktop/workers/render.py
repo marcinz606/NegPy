@@ -576,10 +576,10 @@ class AssetDiscoveryWorker(QObject):
         """
         import os
 
-        from negpy.services.assets.half_frame import detect_split_x_for_file, half_hash, half_name
+        from negpy.services.assets.half_frame import detect_split_x_for_file, half_hash, half_name, is_composite
 
         def _splittable(a: dict) -> bool:
-            return not (a.get("green_path") or a.get("stitch_paths") or a.get("hdr_paths"))
+            return not is_composite(a)
 
         if profile is None:
             paths = [a["path"] for a in assets if _splittable(a)]

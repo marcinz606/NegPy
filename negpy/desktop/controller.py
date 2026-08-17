@@ -67,7 +67,7 @@ from negpy.domain.models import (
     preset_from_export_config,
     resolve_preset_export,
 )
-from negpy.services.assets.half_frame import base_hash, diptych_configs, half_hash, half_of
+from negpy.services.assets.half_frame import base_hash, diptych_configs, half_hash, half_of, is_composite
 from negpy.services.export.templating import render_export_filename
 from negpy.services.assets.sidecar import load_or_promote, write_sidecar
 from negpy.features.exposure.analysis import (
@@ -1173,7 +1173,10 @@ class AppController(QObject):
         One query for the whole roll, at discovery, so every later reader — the filmstrip
         badge, the read-only panel, the exporter — finds the answer on the asset dict.
         """
-        whole = [a for a in assets if not a.get("half") and a.get("hash") and "#" not in a["hash"]]
+        for a in assets:
+            if is_composite(a):
+                a["diptych"] = False
+        whole = [a for a in assets if not a.get("half") and a.get("hash") and "#" not in a["hash"] and not is_composite(a)]
         if not whole:
             return
         found = self.session.repo.load_file_settings_many([half_hash(a["hash"], n) for a in whole for n in (1, 2)])
@@ -1322,7 +1325,7 @@ class AppController(QObject):
         Half-frame mode being off is implied: with it on the assets already *are* halves,
         which `half` on the asset dict reports.
         """
-        if file_info.get("half") or file_info.get("diptych") is False:
+        if file_info.get("half") or file_info.get("diptych") is False or is_composite(file_info):
             return None
         return diptych_configs(self.session.repo, file_info.get("hash"))
 

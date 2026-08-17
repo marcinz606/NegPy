@@ -371,6 +371,24 @@ class TestDiptychAsset:
         assert assets[1]["diptych"] is False
         assert "diptych" not in assets[2]  # a half is never its own diptych
 
+    def test_a_composite_keeps_its_primarys_half_edits_out(self):
+        from negpy.desktop.controller import AppController
+
+        # An RGB triplet is {**red, green_path, blue_path}, so it carries the red
+        # exposure's plain hash. Half edits left on that file by an earlier half-frame
+        # session must not make the assembled frame render as a diptych.
+        ctrl = self._controller({"ha#1": WorkspaceConfig(), "ha#2": WorkspaceConfig()})
+        triplet = {"path": "/p/a_r.cr3", "hash": "ha", "green_path": "/p/a_g.cr3", "blue_path": "/p/a_b.cr3"}
+        assets = [triplet, {"path": "/p/b.tif", "hash": "ha"}]
+
+        AppController._mark_diptychs(ctrl, assets)
+        assert triplet["diptych"] is False
+        assert assets[1]["diptych"] is True  # same hash, but a plain scan
+
+        assert AppController.diptych_pair(ctrl, {"path": "/p/a_r.cr3", "hash": "ha", "green_path": "/p/a_g.cr3"}) is None
+        assert AppController.diptych_pair(ctrl, {"path": "/p/a.tif", "hash": "ha", "stitch_paths": ["/p/x.tif"]}) is None
+        assert AppController.diptych_pair(ctrl, {"path": "/p/a.tif", "hash": "ha", "hdr_paths": ["/p/x.tif"]}) is None
+
     def test_task_stamps_the_saved_split_geometry(self):
         from negpy.desktop.controller import AppController
 
