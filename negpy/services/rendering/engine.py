@@ -1,4 +1,7 @@
 from typing import Optional, Any, Callable, Tuple
+
+import numpy as np
+
 from negpy.domain.types import ImageBuffer
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
@@ -14,6 +17,7 @@ from negpy.features.exposure.processor import (
     NormalizationProcessor,
     PhotometricProcessor,
 )
+from negpy.features.exposure.normalization import contrast_mask_plane, effective_crosstalk_matrix, normalized_roi
 from negpy.features.process.hue import apply_hue_trim
 from negpy.features.exposure.papers import effective_paper_profile
 from negpy.features.cyanotype.processor import CyanotypeProcessor
@@ -36,6 +40,7 @@ class DarkroomEngine:
     def __init__(self) -> None:
         self.config = APP_CONFIG
         self.cache = PipelineCache()
+        self._mask_plane: Optional[Tuple[Any, np.ndarray]] = None
 
     def _run_stage(
         self,
@@ -155,6 +160,31 @@ class DarkroomEngine:
             exposure_models.TARGETS_REVISION,
         )
         current_img, pipeline_changed = self._run_stage(current_img, base_key, "base", run_base, context, pipeline_changed)
+
+        # Built from the source, not from the base output, so the GPU engine can call the
+        # same helper on the same array. Keyed on base, so the Contrast Mask slider re-runs
+        # only the exposure stage.
+        mask_bounds = context.metrics.get("final_bounds")
+        if settings.exposure.contrast_mask > 0.0 and mask_bounds is not None:
+            mask_roi = context.active_roi
+            mask_key = (calculate_config_hash(base_key), mask_roi, current_img.shape[:2])
+            if self._mask_plane is None or self._mask_plane[0] != mask_key:
+                self._mask_plane = (
+                    mask_key,
+                    contrast_mask_plane(
+                        img,
+                        mask_bounds,
+                        effective_crosstalk_matrix(settings.process, settings.process.process_mode),
+                        rotation=settings.geometry.rotation,
+                        fine_rotation=settings.geometry.fine_rotation,
+                        flip_horizontal=settings.geometry.flip_horizontal,
+                        flip_vertical=settings.geometry.flip_vertical,
+                        distortion_k1=distortion_k1,
+                        roi_norm=normalized_roi(mask_roi, current_img.shape[:2]),
+                    ),
+                )
+            context.metrics["contrast_mask_plane"] = self._mask_plane[1]
+            context.metrics["contrast_mask_roi"] = mask_roi
 
         def run_exposure(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
             img_out = PhotometricProcessor(settings.exposure, settings.local, settings.process).process(img_in, ctx)

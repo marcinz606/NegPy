@@ -137,6 +137,16 @@ class ToneSidebar(BaseSidebar):
         split_grade_row.addWidget(self.highlight_grade_slider)
         self.layout.addLayout(split_grade_row)
 
+        self.contrast_mask_slider = CompactSlider("Contrast Mask", 0.0, 0.5, conf.contrast_mask)
+        self.contrast_mask_slider.setToolTip(
+            "Contrast Mask: sandwich the negative with a blurred low-contrast positive, as in the "
+            "darkroom. The value is the mask film's gamma — it compresses the negative's overall "
+            "range so a harder grade fits the paper, while local contrast and fine detail stay put."
+        )
+        contrast_mask_row = QHBoxLayout()
+        contrast_mask_row.addWidget(self.contrast_mask_slider)
+        self.layout.addLayout(contrast_mask_row)
+
         # Density-domain saturation, composed into the same dye_mix slot as the paper's real dye
         # crosstalk, rather than a post-hoc Lab-space a*/b*
         self.dye_separation_slider = CompactSlider("Dye Separation", 0.5, 1.5, conf.dye_separation, has_neutral=True)
@@ -227,6 +237,9 @@ class ToneSidebar(BaseSidebar):
             self.paper_combo,
             self.shadow_density_slider,
             self.highlight_density_slider,
+            # A pan masking film is neutral: the mask is one plane subtracted as equal
+            # density from every layer, so it has no per-channel form to trim.
+            self.contrast_mask_slider,
         )
 
     def _open_targets_dialog(self) -> None:
@@ -316,6 +329,7 @@ class ToneSidebar(BaseSidebar):
             (self.highlight_density_slider, "highlight_density"),
             (self.dye_separation_slider, "dye_separation"),
             (self.separation_damping_slider, "separation_damping"),
+            (self.contrast_mask_slider, "contrast_mask"),
         ):
             slider.valueChanged.connect(
                 lambda v, f=field: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, **{f: v})
@@ -418,6 +432,8 @@ class ToneSidebar(BaseSidebar):
                 self.dye_separation_slider,
                 self.dye_separation_trim_slider,
                 self.separation_damping_slider,
+                # The transfer curve takes no dodge/burn map, and the mask rides it.
+                self.contrast_mask_slider,
             ):
                 w.setVisible(not transfer)
 
@@ -480,6 +496,7 @@ class ToneSidebar(BaseSidebar):
             self.highlight_density_slider.setValue(conf.highlight_density)
             self.dye_separation_slider.setValue(conf.dye_separation)
             self.separation_damping_slider.setValue(conf.separation_damping)
+            self.contrast_mask_slider.setValue(conf.contrast_mask)
             # It redistributes Dye Separation's push and does nothing on its own, so at 1.0
             # separation it is dead. Say so instead of letting it be dragged for no result.
             self.separation_damping_slider.setEnabled(conf.dye_separation != 1.0)
@@ -515,6 +532,7 @@ class ToneSidebar(BaseSidebar):
             self.separation_damping_slider,
             self.shadow_grade_slider,
             self.highlight_grade_slider,
+            self.contrast_mask_slider,
             self.paper_dmin_btn,
             self.paper_black_btn,
             self.auto_density_btn,

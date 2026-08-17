@@ -1,5 +1,6 @@
 from typing import Any, Dict, Optional, Tuple
 
+import cv2
 import numpy as np
 from numba import njit, prange  # type: ignore
 
@@ -1105,6 +1106,46 @@ def local_ev_scale(bounds: Any) -> Tuple[float, float, float]:
     for ch in range(3):
         out.append(step / max(abs(bounds.ceils[ch] - bounds.floors[ch]), 1e-6))
     return (out[0], out[1], out[2])
+
+
+def contrast_mask_ev(
+    plane: Optional[np.ndarray],
+    gamma: float,
+    density_range: float,
+    out_shape: Tuple[int, int],
+    roi: Optional[Tuple[int, int, int, int]] = None,
+) -> Optional[np.ndarray]:
+    """
+    The contrast mask as print-exposure stops, ready to add to the dodge/burn map.
+
+    Sandwiching a blurred gamma-g positive with the negative gives D' = D - g*blur(D),
+    which in normalized space is val - g*blur. One stop is log10(2) of density, so
+    dividing by that turns the density subtraction into the stops the map carries — and
+    equal stops is an equal absolute density change in every channel, which is what a
+    neutral panchromatic masking film records.
+
+    The plane covers the printed frame, so with a crop it is placed back at `roi` and
+    the surround is edge-replicated: outside the crop nothing is printed, and replicating
+    keeps the crop tool's full-frame preview free of a seam at the crop line.
+    """
+    if plane is None or gamma <= 0.0:
+        return None
+    ev = (-gamma * plane * float(density_range) / float(np.log10(2.0))).astype(np.float32)
+    h, w = out_shape
+    if roi is None:
+        if ev.shape[:2] != (h, w):
+            ev = cv2.resize(ev, (w, h), interpolation=cv2.INTER_LINEAR)
+        return np.ascontiguousarray(ev, dtype=np.float32)
+
+    y1, y2, x1, x2 = roi
+    y1, x1 = max(0, y1), max(0, x1)
+    y2, x2 = min(h, y2), min(w, x2)
+    if y2 - y1 < 1 or x2 - x1 < 1:
+        return None
+    inner = cv2.resize(ev, (x2 - x1, y2 - y1), interpolation=cv2.INTER_LINEAR)
+    if (y1, x1, y2, x2) == (0, 0, h, w):
+        return np.ascontiguousarray(inner, dtype=np.float32)
+    return np.ascontiguousarray(np.pad(inner, ((y1, h - y2), (x1, w - x2)), mode="edge"), dtype=np.float32)
 
 
 def cmy_to_density(val: float, log_range: float = 1.0) -> float:

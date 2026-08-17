@@ -17,7 +17,9 @@ from negpy.features.exposure import models as exposure_models
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
     analyze_log_exposure_bounds_from_log,
+    contrast_mask_plane,
     luma_source_bounds,
+    normalized_roi,
     luminance_density_range,
     measure_anchor_from_log,
     measure_clip_fractions,
@@ -251,6 +253,7 @@ class GPUEngine:
         self._uv_grid_cache: Optional[Tuple[Tuple, np.ndarray]] = None
         # Identity of the dodge/burn EV map currently sitting in the local_ev texture.
         self._local_ev_key: Optional[Tuple] = None
+        self._mask_plane: Optional[Tuple[Tuple, np.ndarray]] = None
 
     def _detect_invalidated_stage(self, settings: WorkspaceConfig, scale_factor: float, render_size_ref: Optional[float] = None) -> int:
         """
@@ -597,6 +600,29 @@ class GPUEngine:
                 self._analysis_cache, analysis_key, bounds, shadow_refs, metered_anchor, textural_range, neutral_axis_refs
             )
 
+        # Same helper, same pre-geometry array as the CPU engine, so the two mask alike.
+        # Keyed off the meter, so only the Contrast Mask slider's own value stays live.
+        mask_plane = None
+        mask_key = None
+        if settings.exposure.contrast_mask > 0.0 and not tiling_mode:
+            mask_key = (analysis_key, bounds, roi, (h_rot, w_rot))
+            if self._mask_plane is None or self._mask_plane[0] != mask_key:
+                self._mask_plane = (
+                    mask_key,
+                    contrast_mask_plane(
+                        img,
+                        bounds,
+                        unmix_m,
+                        rotation=settings.geometry.rotation,
+                        fine_rotation=settings.geometry.fine_rotation,
+                        flip_horizontal=settings.geometry.flip_horizontal,
+                        flip_vertical=settings.geometry.flip_vertical,
+                        distortion_k1=k1_eff,
+                        roi_norm=normalized_roi(roi, (h_rot, w_rot)),
+                    ),
+                )
+            mask_plane = self._mask_plane[1]
+
         # CPU meter cost, logged once per source (skips creative-slider re-renders).
         if analysis_source is not None and analysis_source_hash is not None and analysis_source_hash != self._analysis_timing_hash:
             self._analysis_timing_hash = analysis_source_hash
@@ -667,7 +693,8 @@ class GPUEngine:
         )
         # The dodge/burn EV map feeds the exposure pass. A zero-initialized 1x1 dummy keeps
         # the bind group valid when no masks are active (ev_scale.w gates it).
-        if settings.local.masks:
+        wants_ev_map = bool(settings.local.masks) or mask_plane is not None
+        if wants_ev_map:
             tex_local_ev = self._get_intermediate_texture(
                 w_rot,
                 h_rot,
@@ -715,9 +742,9 @@ class GPUEngine:
                 w_rot,
                 h_rot,
             )
-            if settings.local.masks:
+            if wants_ev_map:
                 # This stage re-runs for any exposure change, but the map only moves
-                # with the masks, the geometry and the grade.
+                # with the masks, the geometry, the grade and the contrast mask.
                 tiled_maps = local_maps is not None
                 ev_key = (
                     settings.local,
@@ -727,12 +754,14 @@ class GPUEngine:
                     settings.geometry.flip_vertical,
                     k1_eff,
                     settings.exposure.grade,
+                    settings.exposure.contrast_mask,
+                    mask_key,
                     orig_shape,
                     w_rot,
                     h_rot,
                 )
                 if tiled_maps or self._local_ev_key != ev_key:
-                    if local_maps is None:
+                    if local_maps is None and settings.local.masks:
                         local_maps = compute_local_maps(
                             settings.local,
                             h_rot,
@@ -744,16 +773,25 @@ class GPUEngine:
                             flip_vertical=settings.geometry.flip_vertical,
                             distortion_k1=k1_eff,
                         )
-                    from negpy.features.exposure.logic import local_grade_factor_map
+                    from negpy.features.exposure.logic import contrast_mask_ev, local_grade_factor_map
+
+                    if local_maps is None:
+                        local_maps = np.zeros((h_rot, w_rot, 2), dtype=np.float32)
+                    ev_plane = local_maps[:, :, 0]
+                    mask_ev = contrast_mask_ev(
+                        mask_plane, settings.exposure.contrast_mask, luminance_density_range(bounds), (h_rot, w_rot), roi
+                    )
+                    if mask_ev is not None:
+                        ev_plane = ev_plane + mask_ev
 
                     # r = dodge/burn EV, g = local grade slope factor, b unused. One texture,
                     # so the local-grade map costs no bind slot.
                     tex_local_ev.upload(
                         np.dstack(
                             [
-                                local_maps[:, :, 0],
+                                ev_plane,
                                 local_grade_factor_map(local_maps[:, :, 1], settings.exposure.grade),
-                                np.zeros_like(local_maps[:, :, 0]),
+                                np.zeros_like(ev_plane),
                             ]
                         )
                     )
@@ -1378,8 +1416,13 @@ class GPUEngine:
             + struct.pack("ffff", dye_rows[0, 0], dye_rows[0, 1], dye_rows[0, 2], _mg3[0])
             + struct.pack("ffff", dye_rows[1, 0], dye_rows[1, 1], dye_rows[1, 2], _mg3[1])
             + struct.pack("ffff", dye_rows[2, 0], dye_rows[2, 1], dye_rows[2, 2], _mg3[2])
-            # Dodge/burn EV-stop size per channel (local_ev_scale); w = enable flag.
-            + struct.pack("ffff", *local_ev_scale(LogNegativeBounds(adj_floors, adj_ceils)), 1.0 if settings.local.masks else 0.0)
+            # Dodge/burn EV-stop size per channel (local_ev_scale); w = enable flag. The
+            # contrast mask rides the same map, so it opens the same gate.
+            + struct.pack(
+                "ffff",
+                *local_ev_scale(LogNegativeBounds(adj_floors, adj_ceils)),
+                1.0 if (settings.local.masks or exp.contrast_mask > 0.0) else 0.0,
+            )
             # Split Grade per-channel zone contrast gains (split_grade_deltas). The w-lanes
             # carry Separation Damping's green and blue k.
             + struct.pack("ffff", _sg3[0], _sg3[1], _sg3[2], sat_k3[1])

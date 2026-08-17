@@ -43,6 +43,9 @@ class ExposureConfig:
     # Ranges are asymmetric: density is log10, so an equal ΔD reads smaller near d_max.
     shadow_density: float = 0.0
     highlight_density: float = 0.0
+    # Unsharp contrast-reduction mask: the gamma of the blurred low-contrast positive
+    # sandwiched with the negative. [0.0, 0.5]; 0 = no mask.
+    contrast_mask: float = 0.0
     # Split grade: zone contrast in ISO-R points (negative = harder), global
     # value + per-layer trims like Grade.
     shadow_grade: float = 0.0
