@@ -429,6 +429,7 @@ class GPUEngine:
         analysis_source_hash: Optional[str] = None,
         cam_xyz: Optional[list] = None,
         camera_wb: Optional[list] = None,
+        contrast_mask_override: Optional[Tuple[np.ndarray, float, Tuple[int, int, int, int]]] = None,
     ) -> Tuple[Any, Dict[str, Any]]:
         """
         Executes the full pipeline, returning a GPU texture and associated metrics.
@@ -436,6 +437,9 @@ class GPUEngine:
         ``local_maps`` is the pre-rasterised (h, w, 2) dodge/burn EV + local grade
         map already in the post-geometry frame; tiled export passes a per-tile slice.
         When None and masks are present, it is computed here from ``settings.local``.
+
+        ``contrast_mask_override`` is (plane, centre, printed frame in rotated pixels),
+        built once per tiled export because a tile cannot see the pre-geometry source.
         """
         if not self.gpu.is_available:
             raise RuntimeError("GPU not available")
@@ -620,46 +624,56 @@ class GPUEngine:
         mask_plane = None
         mask_centre = 0.5
         mask_key = None
-        if settings.exposure.contrast_mask != 0.0 and not tiling_mode:
-            mask_key = (analysis_key, bounds, roi, (h_rot, w_rot))
-            if self._mask_plane is None or self._mask_plane[0] != mask_key:
-                self._mask_plane = (
-                    mask_key,
-                    *contrast_mask_plane(
-                        img,
-                        bounds,
-                        unmix_m,
-                        rotation=settings.geometry.rotation,
-                        fine_rotation=settings.geometry.fine_rotation,
-                        flip_horizontal=settings.geometry.flip_horizontal,
-                        flip_vertical=settings.geometry.flip_vertical,
-                        converge_v=settings.geometry.converge_v,
-                        converge_h=settings.geometry.converge_h,
-                        distortion_k1=k1_eff,
-                        roi_norm=normalized_roi(roi, (h_rot, w_rot)),
-                    ),
-                )
-            mask_plane = self._mask_plane[1]
-            mask_centre = self._mask_plane[2]
-
         # The printed frame in rotated pixels; the shader maps the plane onto it and
         # clamps outside, which is expand_mask_plane's edge padding.
+        mask_rect = None
+        if settings.exposure.contrast_mask != 0.0:
+            if tiling_mode:
+                # A tile holds no pre-geometry source, so the caller builds the plane once
+                # for the whole export and the frame shifts into tile coords here.
+                if contrast_mask_override is not None:
+                    mask_plane, mask_centre, frame = contrast_mask_override
+                    mask_key = ("tiled",)
+                    mask_rect = (frame[0] - global_offset[0], frame[1] - global_offset[1], frame[2], frame[3])
+            else:
+                mask_key = (analysis_key, bounds, roi, (h_rot, w_rot))
+                if self._mask_plane is None or self._mask_plane[0] != mask_key:
+                    self._mask_plane = (
+                        mask_key,
+                        *contrast_mask_plane(
+                            img,
+                            bounds,
+                            unmix_m,
+                            rotation=settings.geometry.rotation,
+                            fine_rotation=settings.geometry.fine_rotation,
+                            flip_horizontal=settings.geometry.flip_horizontal,
+                            flip_vertical=settings.geometry.flip_vertical,
+                            converge_v=settings.geometry.converge_v,
+                            converge_h=settings.geometry.converge_h,
+                            distortion_k1=k1_eff,
+                            roi_norm=normalized_roi(roi, (h_rot, w_rot)),
+                        ),
+                    )
+                mask_plane = self._mask_plane[1]
+                mask_centre = self._mask_plane[2]
+                y1_m, y2_m, x1_m, x2_m = roi if roi is not None else (0, h_rot, 0, w_rot)
+                y1_m, x1_m = max(0, y1_m), max(0, x1_m)
+                y2_m, x2_m = min(h_rot, y2_m), min(w_rot, x2_m)
+                mask_rect = (x1_m, y1_m, x2_m - x1_m, y2_m - y1_m)
+
         mask_uniform = None
-        if mask_plane is not None:
-            y1_m, y2_m, x1_m, x2_m = roi if roi is not None else (0, h_rot, 0, w_rot)
-            y1_m, x1_m = max(0, y1_m), max(0, x1_m)
-            y2_m, x2_m = min(h_rot, y2_m), min(w_rot, x2_m)
-            if y2_m - y1_m < 1 or x2_m - x1_m < 1:
+        if mask_plane is not None and mask_rect is not None:
+            if mask_rect[2] < 1 or mask_rect[3] < 1:
                 mask_plane = None
             else:
                 from negpy.features.exposure.logic import contrast_mask_scale
 
                 mask_uniform = (
                     contrast_mask_scale(settings.exposure.contrast_mask, luminance_density_range(bounds)),
-                    float(x1_m),
-                    float(y1_m),
-                    float(x2_m - x1_m),
-                    float(y2_m - y1_m),
+                    float(mask_rect[0]),
+                    float(mask_rect[1]),
+                    float(mask_rect[2]),
+                    float(mask_rect[3]),
                 )
 
         # CPU meter cost, logged once per source (skips creative-slider re-renders).
@@ -813,6 +827,8 @@ class GPUEngine:
                     settings.geometry.flip_horizontal,
                     settings.geometry.flip_vertical,
                     k1_eff,
+                    settings.geometry.converge_v,
+                    settings.geometry.converge_h,
                     settings.exposure.grade,
                     orig_shape,
                     w_rot,
@@ -830,6 +846,8 @@ class GPUEngine:
                             flip_horizontal=settings.geometry.flip_horizontal,
                             flip_vertical=settings.geometry.flip_vertical,
                             distortion_k1=k1_eff,
+                            converge_v=settings.geometry.converge_v,
+                            converge_h=settings.geometry.converge_h,
                         )
                     from negpy.features.exposure.logic import local_grade_factor_map
 
@@ -1145,6 +1163,8 @@ class GPUEngine:
                     settings.geometry.flip_vertical,
                     roi,
                     k1_eff,
+                    settings.geometry.converge_v,
+                    settings.geometry.converge_h,
                 )
                 if self._uv_grid_cache is not None and self._uv_grid_cache[0] == uv_key:
                     metrics["uv_grid"] = self._uv_grid_cache[1]
@@ -1944,6 +1964,9 @@ class GPUEngine:
             img_rot = apply_fine_rotation(img_rot, settings.geometry.fine_rotation)
         if k1_eff != 0.0:
             img_rot = apply_radial_distortion(img_rot, k1_eff)
+        # Last, as in GeometryProcessor: a plane projectivity cannot be fitted to a frame
+        # that still carries barrel distortion.
+        img_rot = apply_keystone(img_rot, settings.geometry.converge_v, settings.geometry.converge_h)
 
         # Rasterise the dodge/burn EV map once at full post-geometry resolution; tiles
         # slice it directly, like IR above.
@@ -1963,25 +1986,19 @@ class GPUEngine:
                 flip_horizontal=settings.geometry.flip_horizontal,
                 flip_vertical=settings.geometry.flip_vertical,
                 distortion_k1=k1_eff,
+                converge_v=settings.geometry.converge_v,
+                converge_h=settings.geometry.converge_h,
             )
 
         preview_scale = APP_CONFIG.preview_render_size / max(h, w)
         img_small = cv2.resize(img, (int(w * preview_scale), int(h * preview_scale)))
 
-        # Reuse the CDF from the last preview render when CLAHE settings are unchanged.
-        reused_cdf: Optional[np.ndarray] = None
-        if (
-            settings.lab.clahe_strength > 0
-            and self._last_settings is not None
-            and self._last_settings.lab.clahe_strength == settings.lab.clahe_strength
-        ):
-            reused_cdf = self._readback_clahe_cdf()
+        # This render meters the whole frame for the tiles; the CLAHE CDF it leaves behind
+        # is the one they share. Taken from here rather than from the last preview, which
+        # may belong to another image or to settings the export has since moved past.
+        _, metrics_ref = self.process_to_texture(img_small, settings, scale_factor=scale_factor, cam_xyz=cam_xyz, camera_wb=camera_wb)
 
-        _, metrics_ref = self.process_to_texture(
-            img_small, settings, scale_factor=scale_factor, clahe_cdf_override=reused_cdf, cam_xyz=cam_xyz, camera_wb=camera_wb
-        )
-
-        global_cdfs = reused_cdf if reused_cdf is not None else self._readback_clahe_cdf()
+        global_cdfs = self._readback_clahe_cdf()
 
         rot = settings.geometry.rotation % 4
         w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)
@@ -2059,6 +2076,27 @@ class GPUEngine:
         if settings.exposure.auto_normalize_contrast:
             global_textural_range = measure_textural_range_from_log(_prefiltered(), None, 0.0)
 
+        global_mask = None
+        if settings.exposure.contrast_mask != 0.0:
+            global_mask = (
+                *contrast_mask_plane(
+                    img,
+                    global_bounds,
+                    unmix_m,
+                    rotation=settings.geometry.rotation,
+                    fine_rotation=settings.geometry.fine_rotation,
+                    flip_horizontal=settings.geometry.flip_horizontal,
+                    flip_vertical=settings.geometry.flip_vertical,
+                    converge_v=settings.geometry.converge_v,
+                    converge_h=settings.geometry.converge_h,
+                    distortion_k1=k1_eff,
+                    roi_norm=normalized_roi(roi, (h_rot, w_rot)),
+                ),
+                (x1, y1, crop_w, crop_h),
+            )
+            # One plane serves every tile; the first upload wins.
+            self._mask_tex_key = None
+
         paper_w, paper_h, content_w, content_h, off_x, off_y, _ = self._calculate_layout_dims(settings, crop_w, crop_h, None)
         full_source_res = np.zeros((crop_h, crop_w, 3), dtype=np.float32)
 
@@ -2109,6 +2147,7 @@ class GPUEngine:
                     local_maps=maps_tile,
                     cam_xyz=cam_xyz,
                     camera_wb=camera_wb,
+                    contrast_mask_override=global_mask,
                 )
                 full_source_res[ty : ty + th, tx : tx + tw] = self._readback_downsampled(tile_res)[oy : oy + th, ox : ox + tw]
 

@@ -315,7 +315,7 @@ Contrast Limited Adaptive Histogram Equalization on the CIELAB $L^{\ast}$ channe
 *   **Per-pixel remap**: a smoothstep-weighted bilinear blend of the four neighbouring tile CDFs (tile centres at $(\text{pos}/\text{dims}) \cdot 8 - 0.5$, edge-clamped), then
     $$L_{final} = (1 - \alpha) \cdot L + \alpha \cdot \text{CDF}(L) \cdot 100$$
     with $\alpha$ = `clahe_strength`.
-*   The GPU keeps the CDF from the preview render and reuses it for tiled full-res export (`clahe_cdf_override`), so export tiles share one seam-free global mapping.
+*   A tiled full-res export takes the CDF from the downsampled meter render it makes of the frame and hands it to every tile (`clahe_cdf_override`), so the tiles share one seam-free global mapping.
 
 The control lives in the Lab sidebar (`lab.clahe_strength`). Defect repair happens earlier still, on the linear source (§5), so local contrast is applied to film that has already been cleaned.
 
