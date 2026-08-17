@@ -361,6 +361,9 @@ class AppController(QObject):
         self.state: AppState = session_manager.state
         self._thumb_config: Optional[WorkspaceConfig] = None
         self._active_diptych_memo: tuple[str, Optional[tuple[dict, tuple[WorkspaceConfig, WorkspaceConfig]]]] = ("", None)
+        # Halves already known to hold a real edit; spares _may_persist_measured_bounds a
+        # repeat lookup per render. Only ever grows, since a row is never deleted mid-session.
+        self._measured_half_rows: set[str] = set()
         self._first_render_t0: Optional[float] = None
         self._export_start_time = 0.0
         self._export_failures = 0
@@ -4763,7 +4766,7 @@ class AppController(QObject):
                 new_process = replace(self.state.config.process, **changes)
                 self.session.update_config(
                     replace(self.state.config, process=new_process),
-                    persist=True,
+                    persist=self._may_persist_measured_bounds(),
                     render=False,
                     record_history=False,
                 )
@@ -4778,6 +4781,24 @@ class AppController(QObject):
                         self._render_memo_key(),
                         self._last_render_identity[2],
                     )
+
+    def _may_persist_measured_bounds(self) -> bool:
+        """Whether an auto-measured bounds write may reach the database.
+
+        A half must not be brought into existence by a measurement. Looking at one half of a
+        scan renders it, which meters it, which would file a settings row under `<hash>#1` —
+        and the mere existence of that row is what later says the scan is a diptych. Turning
+        Half Frame on and straight back off then leaves the frame stuck as one, having never
+        been edited. A half the user did edit already has a row, and its bounds keep tracking.
+        """
+        file_hash = self.state.current_file_hash or ""
+        if half_of(file_hash) is None:
+            return True
+        if file_hash not in self._measured_half_rows:
+            if self.session.repo.load_file_settings(file_hash) is None:
+                return False
+            self._measured_half_rows.add(file_hash)
+        return True
 
     def _on_render_error(self, message: str) -> None:
         self.state.is_processing = self._is_rendering = False
