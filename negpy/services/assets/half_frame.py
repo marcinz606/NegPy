@@ -17,6 +17,8 @@ logger = get_logger(__name__)
 
 _SEP = "#"
 
+SPLIT_SCANS_KEY = "half_frame_scans"
+
 # The inter-frame gap in a joined diptych, in output space. Black is what the gap between
 # two exposures looks like once rendered; swap for the finish border colour if wanted.
 _GAP_FILL = 0.0
@@ -32,6 +34,24 @@ def is_composite(file_info: Dict[str, Any]) -> bool:
     to claim them, so the two cannot drift.
     """
     return bool(file_info.get("green_path") or file_info.get("stitch_paths") or file_info.get("hdr_paths"))
+
+
+def split_scans(repo: Any) -> set:
+    """Base hashes the user split with Half Frame on — the scans allowed to be diptychs.
+
+    A saved ``#1``/``#2`` edit is not on its own evidence that a scan is half-frame: the row
+    is keyed by content hash, so it outlives the folder, the session and the mode being on.
+    Only a scan the user actually split may come back as a diptych.
+    """
+    return set(repo.get_global_setting(SPLIT_SCANS_KEY, default=None) or ())
+
+
+def remember_split_scans(repo: Any, hashes: Any) -> None:
+    """Add base hashes to the split-scan set; no write when they are all known already."""
+    known = split_scans(repo)
+    new = known | {h for h in hashes if h}
+    if new != known:
+        repo.save_global_setting(SPLIT_SCANS_KEY, sorted(new))
 
 
 def half_hash(file_hash: str, half: int) -> str:
@@ -165,9 +185,10 @@ def diptych_configs(repo: Any, file_hash: Optional[str]) -> Optional[tuple[Any, 
     A half with no saved edit takes its sibling's, so a scan where only one side was
     worked on still renders as a consistent pair. Any ``#``-suffixed hash is rejected:
     a half is not a diptych, and a composite's base is its reference frame, whose half
-    edits are not the composite's.
+    edits are not the composite's. A scan the user never split is rejected too — see
+    `split_scans`.
     """
-    if not file_hash or _SEP in file_hash:
+    if not file_hash or _SEP in file_hash or file_hash not in split_scans(repo):
         return None
     keys = [half_hash(file_hash, 1), half_hash(file_hash, 2)]
     found = repo.load_file_settings_many(keys)

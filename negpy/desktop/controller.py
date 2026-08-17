@@ -67,7 +67,15 @@ from negpy.domain.models import (
     preset_from_export_config,
     resolve_preset_export,
 )
-from negpy.services.assets.half_frame import base_hash, diptych_configs, half_hash, half_of, is_composite
+from negpy.services.assets.half_frame import (
+    base_hash,
+    diptych_configs,
+    half_hash,
+    half_of,
+    is_composite,
+    remember_split_scans,
+    split_scans,
+)
 from negpy.services.export.templating import render_export_filename
 from negpy.services.assets.sidecar import load_or_promote, write_sidecar
 from negpy.features.exposure.analysis import (
@@ -1171,15 +1179,20 @@ class AppController(QObject):
         self.batch_progress.emit(current, total, name)
 
     def _mark_diptychs(self, assets: List[Dict]) -> None:
-        """Flag whole-frame scans that already carry the two halves' edits.
+        """Flag whole-frame scans the user split that already carry the two halves' edits.
 
         One query for the whole roll, at discovery, so every later reader — the filmstrip
         badge, the read-only panel, the exporter — finds the answer on the asset dict.
         """
+        split = split_scans(self.session.repo)
+        whole = []
         for a in assets:
-            if is_composite(a):
+            if a.get("half") or not a.get("hash"):
+                continue
+            if is_composite(a) or "#" in a["hash"] or a["hash"] not in split:
                 a["diptych"] = False
-        whole = [a for a in assets if not a.get("half") and a.get("hash") and "#" not in a["hash"] and not is_composite(a)]
+                continue
+            whole.append(a)
         if not whole:
             return
         found = self.session.repo.load_file_settings_many([half_hash(a["hash"], n) for a in whole for n in (1, 2)])
@@ -1190,6 +1203,7 @@ class AppController(QObject):
         """
         Adds discovered assets to the session and starts thumbnail generation.
         """
+        remember_split_scans(self.session.repo, {base_hash(a["hash"]) for a in valid_assets if a.get("half")})
         self._mark_diptychs(valid_assets)
         self._active_diptych_memo = ("", None)
         ended_batch = self._end_batch("discovery")

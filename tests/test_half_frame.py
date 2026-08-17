@@ -10,11 +10,13 @@ from negpy.domain.models import ExportConfig, WorkspaceConfig
 from negpy.services.assets.half_frame import (
     base_hash,
     detect_split_x,
+    SPLIT_SCANS_KEY,
     diptych_configs,
     gap_px,
     half_hash,
     half_name,
     join_halves,
+    remember_split_scans,
     slice_for_asset,
     slice_half,
 )
@@ -265,9 +267,10 @@ class TestDiptych:
         assert out[0, 4:].max() == 0.0 and out[9, 4:].max() == 0.0
         np.testing.assert_array_equal(out[2:8, 4:], right)
 
-    def _repo(self, rows):
+    def _repo(self, rows, split=("h",)):
         repo = MagicMock()
         repo.load_file_settings_many.side_effect = lambda keys: {k: v for k, v in rows.items() if k in keys}
+        repo.get_global_setting.side_effect = lambda key, default=None: list(split) if key == SPLIT_SCANS_KEY else default
         return repo
 
     def test_both_halves(self):
@@ -288,6 +291,20 @@ class TestDiptych:
     def test_a_composite_is_not_a_diptych(self):
         """A stitch's base is its reference frame, whose half edits are not the stitch's."""
         assert diptych_configs(self._repo({"h#1": WorkspaceConfig()}), "h#stitch") is None
+
+    def test_a_scan_the_user_never_split_is_not_a_diptych(self):
+        """Half edits keyed by content hash outlive the session; the split decision rules."""
+        repo = self._repo({"h#1": WorkspaceConfig(), "h#2": WorkspaceConfig()}, split=())
+        assert diptych_configs(repo, "h") is None
+
+    def test_remember_split_scans_unions_and_skips_a_known_write(self):
+        repo = self._repo({}, split=("h",))
+        remember_split_scans(repo, {"g", "h"})
+        repo.save_global_setting.assert_called_once_with(SPLIT_SCANS_KEY, ["g", "h"])
+        repo.get_global_setting.side_effect = lambda key, default=None: ["g", "h"] if key == SPLIT_SCANS_KEY else default
+        repo.save_global_setting.reset_mock()
+        remember_split_scans(repo, {"h"})
+        repo.save_global_setting.assert_not_called()
 
     def test_export_filename_is_not_a_half(self):
         name = render_export_filename("/x/IMG420.tif", ExportConfig(), composite="DIPTYCH")
@@ -347,13 +364,14 @@ class TestDiptychRender:
 class TestDiptychAsset:
     """Discovery flags the scan; every later reader takes the flag off the asset dict."""
 
-    def _controller(self, rows):
+    def _controller(self, rows, split=("ha",)):
         from negpy.desktop.controller import AppController
 
         ctrl = AppController.__new__(AppController)
         ctrl.session = MagicMock()
         ctrl.session.repo.load_file_settings_many.side_effect = lambda keys: {k: v for k, v in rows.items() if k in keys}
-        ctrl.session.repo.get_global_setting.return_value = {"crop_rect": [0.1, 0.0, 0.9, 1.0], "split_x": 0.4, "gutter_thickness": 0.05}
+        profile = {"crop_rect": [0.1, 0.0, 0.9, 1.0], "split_x": 0.4, "gutter_thickness": 0.05}
+        ctrl.session.repo.get_global_setting.side_effect = lambda key, default=None: list(split) if key == SPLIT_SCANS_KEY else profile
         ctrl._active_diptych_memo = ("", None)
         return ctrl
 
@@ -370,6 +388,17 @@ class TestDiptychAsset:
         assert assets[0]["diptych"] is True
         assert assets[1]["diptych"] is False
         assert "diptych" not in assets[2]  # a half is never its own diptych
+
+    def test_half_edits_alone_do_not_make_a_diptych(self):
+        from negpy.desktop.controller import AppController
+
+        # A scan the user never split with Half Frame on stays whole, however its content
+        # hash was worked on in an earlier session or another folder.
+        ctrl = self._controller({"ha#1": WorkspaceConfig(), "ha#2": WorkspaceConfig()}, split=())
+        asset = {"path": "/p/a.tif", "hash": "ha"}
+        AppController._mark_diptychs(ctrl, [asset])
+        assert asset.get("diptych") is not True
+        assert AppController.diptych_pair(ctrl, {"path": "/p/a.tif", "hash": "ha"}) is None
 
     def test_a_composite_keeps_its_primarys_half_edits_out(self):
         from negpy.desktop.controller import AppController
