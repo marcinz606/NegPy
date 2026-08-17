@@ -932,6 +932,11 @@ class _TierLevels(NamedTuple):
     ring_spread: float
 
 
+# Smallest fraction of a film-box side the tier refinement may keep. A rebate never takes
+# half a side, so anything below this is a broken occupancy run, not a frame.
+_TIER_MIN_KEEP = 0.5
+
+
 def _detection_luma(img: np.ndarray) -> np.ndarray:
     """
     Luminance normalized so the light bed sits near 1.0 (anchored at P99.5).
@@ -1470,10 +1475,14 @@ def _refine_film_roi_by_tiers(lum: np.ndarray, film_roi: ROI) -> Optional[Tuple[
     hl, hr = hrun
 
     # Single-frame sanity. Multi-frame strip scans fail here and fall back to Sobel.
-    if (vb - vt) < 0.35 * bh or (hr - hl) < 0.35 * bw:
+    # The floor is half a side: no rebate eats more than that, so a shorter run means the
+    # occupancy broke on bright picture content inside a full-bleed frame and the "rebate"
+    # tier was really the picture reaching the film edge. That splits the frame into a
+    # sliver, and the sliver is what the caller would crop to.
+    if (vb - vt) < _TIER_MIN_KEEP * bh or (hr - hl) < _TIER_MIN_KEEP * bw:
         return None
     area_ratio = ((vb - vt) * (hr - hl)) / float(bh * bw)
-    if not (0.15 <= area_ratio <= 0.95):
+    if not (0.25 <= area_ratio <= 0.95):
         return None
 
     col_profile = box[vt:vb, :].mean(axis=0)

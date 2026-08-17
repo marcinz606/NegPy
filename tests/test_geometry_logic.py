@@ -944,6 +944,32 @@ def test_find_rebate_level_requires_opposite_pair():
     assert res is not None and abs(res[0] - 0.8) < 0.05
 
 
+def test_tier_refinement_rejects_split_occupancy_sliver():
+    from negpy.features.geometry.logic import _detection_luma, _refine_film_roi_by_tiers
+
+    # Full-bleed frame whose picture reaches the left and right film edges as a uniform
+    # bright band, so those two sides read as a rebate pair, and whose middle carries a
+    # wide bright region. Column occupancy then breaks in two and the longest run keeps
+    # 255 of the box's 520 px — under the half-a-side floor, so the tiers must be refused
+    # and the Sobel path left to decide. Mirrored too: the run that wins is the one the
+    # flip puts first, so a frame flipped horizontally fails on the opposite side.
+    film_roi = (80, 400, 100, 620)
+    img = np.full((480, 720, 3), 1.0, dtype=np.float32)  # light bed
+    img[80:400, 100:620] = 0.30  # picture
+    img[80:400, 100:130] = 0.90  # bright left edge, read as rebate
+    img[80:400, 590:620] = 0.90  # bright right edge, read as rebate
+    img[80:400, 385:545] = 0.90  # bright content splitting the picture
+
+    for oriented in (img, np.ascontiguousarray(np.fliplr(img))):
+        assert _refine_film_roi_by_tiers(_detection_luma(oriented), film_roi) is None
+
+    # Control: the same rebate pair without the split still refines to the picture.
+    intact = img.copy()
+    intact[80:400, 385:545] = 0.30
+    refined = _refine_film_roi_by_tiers(_detection_luma(intact), film_roi)
+    assert refined is not None and refined[0][3] - refined[0][2] >= 0.80 * 520
+
+
 def test_autocrop_image_mode_single_bright_side_not_rebate():
     # High-key full-bleed frame with a uniform bright strip on ONE side only (a
     # sunlit window edge) plus a dark subject. The bright strip must NOT be taken
