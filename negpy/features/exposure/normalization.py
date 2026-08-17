@@ -536,10 +536,12 @@ def contrast_mask_plane(
     converge_v: float = 0.0,
     converge_h: float = 0.0,
     roi_norm: Optional[Tuple[float, float, float, float]] = None,
-) -> np.ndarray:
+) -> Tuple[np.ndarray, float]:
     """
     The blurred low-gamma plane an unsharp mask is built from, zero-mean, on the analysis
-    grid. The gamma's sign picks the mask's polarity and so the direction.
+    grid, plus the val it was centred on. The gamma's sign picks the mask's polarity and
+    so the direction; the centre is the val a flat area rotates about, which the Analysis
+    chart needs to draw the mask's band.
 
     Takes the linear frame *before* geometry and replays it on the downsampled copy, so
     both engines call this on the same array. `roi_norm` is the printed frame as
@@ -577,13 +579,14 @@ def contrast_mask_plane(
 
     # A frame that never metered normalizes to huge values; no stretch, no mask.
     if luminance_density_range(bounds) < 1e-6:
-        return np.zeros(image.shape[:2], dtype=np.float32)
+        return np.zeros(image.shape[:2], dtype=np.float32), 0.5
 
     val = normalize_log_image(unmix_log_image(prefilter_log_grid(image, None, 0.0), unmix), bounds)
     lum = LUMA_R * val[:, :, 0] + LUMA_G * val[:, :, 1] + LUMA_B * val[:, :, 2]
     sigma = MASK_SIGMA_FRACTION * min(lum.shape[:2])
     blurred = cv2.GaussianBlur(np.ascontiguousarray(lum, dtype=np.float32), (0, 0), sigma, borderType=cv2.BORDER_REPLICATE)
-    return blurred - float(blurred.mean())
+    centre = float(blurred.mean())
+    return blurred - centre, centre
 
 
 def normalize_log_image(img_log: ImageBuffer, bounds: LogNegativeBounds) -> ImageBuffer:

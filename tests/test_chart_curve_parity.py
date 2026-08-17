@@ -146,3 +146,71 @@ def test_curvature_spread_alone_triggers_divergence(qapp):
     assert w._channel_curves
     w.update_curve(config, slope=4.0, pivot=0.3, slopes=(4.0, 4.0, 4.0), pivots=(0.3, 0.3, 0.3), curvatures=(0.0, 0.0, 0.0))
     assert not w._channel_curves
+
+
+def _band_gap(widget) -> float:
+    """Largest vertical gap between the base curve and the mask band's far edge."""
+    base = dict(widget._curve_pts)
+    return max(abs(base[x] - y) for x, y in widget._mask_pts)
+
+
+def test_mask_band_is_absent_without_a_mask(qapp):
+    from negpy.desktop.view.widgets.charts import PhotometricCurveWidget
+
+    w = PhotometricCurveWidget()
+    w.update_curve(ExposureConfig(), mask_centre=0.5)
+    assert w._mask_pts == []
+
+
+def test_mask_band_needs_the_metered_centre(qapp):
+    """Without the centre from the render there is nothing to rotate about, so the band
+    stays hidden rather than guessing one."""
+    from negpy.desktop.view.widgets.charts import PhotometricCurveWidget
+
+    w = PhotometricCurveWidget()
+    w.update_curve(ExposureConfig(contrast_mask=0.4), mask_centre=None)
+    assert w._mask_pts == []
+
+
+def test_mask_band_holds_the_centre_and_opens_at_the_ends(qapp):
+    """A flat area at the centre val prints where it always did; the band widens away
+    from it, which is what the (1-g) remap does."""
+    from negpy.desktop.view.widgets.charts import PhotometricCurveWidget
+
+    centre = 0.5
+    w = PhotometricCurveWidget()
+    w.update_curve(ExposureConfig(contrast_mask=0.4), mask_centre=centre)
+    assert w._mask_pts
+
+    base = dict(w._curve_pts)
+    # plt_x = 1 - val, so the centre val sits at plt_x = 1 - centre.
+    at_centre = min(w._mask_pts, key=lambda p: abs(p[0] - (1.0 - centre)))
+    assert abs(base[at_centre[0]] - at_centre[1]) < 5e-3
+
+    ends = [p for p in w._mask_pts if p[0] < 0.15 or p[0] > 0.85]
+    assert max(abs(base[x] - y) for x, y in ends) > 2e-2
+
+
+def test_mask_band_reverses_with_the_gamma_sign(qapp):
+    """Reduction pulls the ends toward the centre tone, increase pushes them away."""
+    from negpy.desktop.view.widgets.charts import PhotometricCurveWidget
+
+    reduce_w, increase_w = PhotometricCurveWidget(), PhotometricCurveWidget()
+    reduce_w.update_curve(ExposureConfig(contrast_mask=0.4), mask_centre=0.5)
+    increase_w.update_curve(ExposureConfig(contrast_mask=-0.4), mask_centre=0.5)
+
+    base = dict(reduce_w._curve_pts)
+    # The thin end of the negative (plt_x high) prints light; reduction darkens it back
+    # toward the centre, increase drives it further.
+    x = max(p[0] for p in reduce_w._mask_pts if p[0] < 0.95)
+    red = next(y for px, y in reduce_w._mask_pts if px == x)
+    inc = next(y for px, y in increase_w._mask_pts if px == x)
+    assert red < base[x] < inc or inc < base[x] < red
+
+
+def test_mask_band_is_off_for_the_flat_master(qapp):
+    from negpy.desktop.view.widgets.charts import PhotometricCurveWidget
+
+    w = PhotometricCurveWidget()
+    w.update_curve(ExposureConfig(contrast_mask=0.4), slope=0.65, pivot=0.10, flat=True, mask_centre=0.5)
+    assert w._mask_pts == []

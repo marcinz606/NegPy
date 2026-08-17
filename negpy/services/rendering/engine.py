@@ -40,7 +40,7 @@ class DarkroomEngine:
     def __init__(self) -> None:
         self.config = APP_CONFIG
         self.cache = PipelineCache()
-        self._mask_plane: Optional[Tuple[Any, np.ndarray]] = None
+        self._mask_plane: Optional[Tuple[Any, np.ndarray, float]] = None
 
     def _run_stage(
         self,
@@ -171,7 +171,7 @@ class DarkroomEngine:
             if self._mask_plane is None or self._mask_plane[0] != mask_key:
                 self._mask_plane = (
                     mask_key,
-                    contrast_mask_plane(
+                    *contrast_mask_plane(
                         img,
                         mask_bounds,
                         effective_crosstalk_matrix(settings.process, settings.process.process_mode),
@@ -186,6 +186,7 @@ class DarkroomEngine:
                     ),
                 )
             context.metrics["contrast_mask_plane"] = self._mask_plane[1]
+            context.metrics["contrast_mask_centre"] = self._mask_plane[2]
             context.metrics["contrast_mask_roi"] = mask_roi
 
         def run_exposure(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:

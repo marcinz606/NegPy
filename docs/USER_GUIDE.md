@@ -221,6 +221,8 @@ Pinned above the tabs, this is your feedback while printing. Drag the divider to
 
 The chart is the paper characteristic (H&D) curve NegPy is printing through right now. It models how a sheet of photographic paper responds, and it is not a curves editor. Left to right is **negative density**, the exposure the paper receives, so dense parts of the negative (the scene's highlights) sit to the right. Bottom to top is the **print tone** that comes out. A steeper curve means more contrast, which is what Grade moves. The flattening at each end is the toe (shadows) and shoulder (highlights), where the paper runs out of range.
 
+With a **Contrast Mask** dialled in, a violet band opens between the curve and a dashed edge. The mask shifts each pixel by how far its own value sits from its blurred surroundings, so there is no single curve for it: a large flat area prints on the dashed edge, fine detail prints on the solid curve, and everything else falls between. The band is the mask's reach. Dodge/burn, local grade and CLAHE are spatial in the same way and are deliberately absent from the chart, which plots the global curve.
+
 The crosshair marks the **pivot**, the density the curve rotates around when you change contrast, so the midtone stays put. While you drag a slider, a faint **ghost** of the previous curve stays behind for comparison. If cast removal pulls the channels apart you get three separate R/G/B traces instead of one grey curve, and that spread *is* the color correction.
 
 #### The two histograms

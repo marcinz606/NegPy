@@ -262,7 +262,7 @@ class GPUEngine:
         self._uv_grid_cache: Optional[Tuple[Tuple, np.ndarray]] = None
         # Identity of the dodge/burn EV map currently sitting in the local_ev texture.
         self._local_ev_key: Optional[Tuple] = None
-        self._mask_plane: Optional[Tuple[Tuple, np.ndarray]] = None
+        self._mask_plane: Optional[Tuple[Tuple, np.ndarray, float]] = None
 
     def _detect_invalidated_stage(self, settings: WorkspaceConfig, scale_factor: float, render_size_ref: Optional[float] = None) -> int:
         """
@@ -616,13 +616,14 @@ class GPUEngine:
         # Same helper, same pre-geometry array as the CPU engine, so the two mask alike.
         # Keyed off the meter, so only the Contrast Mask slider's own value stays live.
         mask_plane = None
+        mask_centre = 0.5
         mask_key = None
         if settings.exposure.contrast_mask != 0.0 and not tiling_mode:
             mask_key = (analysis_key, bounds, roi, (h_rot, w_rot))
             if self._mask_plane is None or self._mask_plane[0] != mask_key:
                 self._mask_plane = (
                     mask_key,
-                    contrast_mask_plane(
+                    *contrast_mask_plane(
                         img,
                         bounds,
                         unmix_m,
@@ -637,6 +638,7 @@ class GPUEngine:
                     ),
                 )
             mask_plane = self._mask_plane[1]
+            mask_centre = self._mask_plane[2]
 
         # CPU meter cost, logged once per source (skips creative-slider re-renders).
         if analysis_source is not None and analysis_source_hash is not None and analysis_source_hash != self._analysis_timing_hash:
@@ -1085,6 +1087,7 @@ class GPUEngine:
             "log_bounds_base": base_bounds,
             "norm_density_range": luminance_density_range(bounds),
             "metered_anchor": metered_anchor,
+            "contrast_mask_centre": mask_centre,
             "textural_range": textural_range,
             "scan_clip_fractions": scan_clip_fractions,
             # Raw cast refs so the chart can re-solve the exact render curves.

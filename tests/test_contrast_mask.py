@@ -71,7 +71,7 @@ class TestContrastMaskPlane(unittest.TestCase):
         """A sandwich is denser and the printer opens up for it, so the plane carries
         only the redistribution; otherwise the slider doubles as Print Density."""
         img = _wide_range_negative()
-        plane = contrast_mask_plane(img, LogNegativeBounds(floors=(-1.4, -1.4, -1.4), ceils=(-0.05, -0.05, -0.05)), None)
+        plane, _ = contrast_mask_plane(img, LogNegativeBounds(floors=(-1.4, -1.4, -1.4), ceils=(-0.05, -0.05, -0.05)), None)
         self.assertAlmostEqual(float(plane.mean()), 0.0, places=5)
 
     def test_surround_outside_the_crop_stays_out_of_the_mask(self):
@@ -85,8 +85,8 @@ class TestContrastMaskPlane(unittest.TestCase):
         bounds = LogNegativeBounds(floors=(-1.4, -1.4, -1.4), ceils=(-0.05, -0.05, -0.05))
         roi_norm = (border / h, (h - border) / h, border / w, (w - border) / w)
 
-        cropped = contrast_mask_plane(img, bounds, None, roi_norm=roi_norm)
-        whole = contrast_mask_plane(img, bounds, None)
+        cropped, _ = contrast_mask_plane(img, bounds, None, roi_norm=roi_norm)
+        whole, _ = contrast_mask_plane(img, bounds, None)
 
         # A uniform picture area has no low frequencies, so its mask must be flat.
         self.assertLess(float(cropped.std()), 0.002, f"crop-respecting plane std {cropped.std():.5f}")
