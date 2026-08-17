@@ -127,7 +127,7 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("Dye Separation Trim", "exposure", "dye_separation_trim_red", "dye_separation_trim_green", "dye_separation_trim_blue", channels="RGB"),
         _row("Separation Damping", "exposure", "separation_damping"),
         _row("Contrast Mask", "exposure", "contrast_mask"),
-        _row("Mask Blur", "exposure", "mask_blur"),
+        _row("Mask Spacer", "exposure", "mask_spacer"),
         _row("Auto Exposure", "exposure", "auto_exposure"),
         _row("Auto Contrast", "exposure", "auto_normalize_contrast"),
         _row("Paper Profile", "exposure", "paper_profile"),

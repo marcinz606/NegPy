@@ -147,16 +147,18 @@ class ToneSidebar(BaseSidebar):
             "stretches the range instead, adding snap to the broad tones while grain and texture "
             "stay put. It still works on a flat negative where Grade has run out."
         )
-        self.mask_blur_slider = CompactSlider("Mask Blur", 1.0, 8.0, conf.mask_blur, unit="%")
-        self.mask_blur_slider.setToolTip(
-            "Mask Blur: the spacer holding the mask off the negative, as a per-cent of the frame. "
-            "It sets the scale above which tones are masked. Wider leaves fine detail alone and "
-            "works on the broad tones only; narrower reaches further down into detail, compressing "
-            "harder but lifting shadows that sit next to something bright. Inert with no mask."
+        self.mask_spacer_slider = CompactSlider("Mask Spacer", 2.0, 6.0, conf.mask_spacer, unit="%")
+        self.mask_spacer_slider.setToolTip(
+            "Mask Spacer: what holds the mask off the negative, as a per-cent of the frame. It "
+            "sets the scale above which tones are masked, so it reads backwards from a blur "
+            "radius: a thick spacer works on the broad masses only and leaves detail alone, a "
+            "thin one reaches down into the detail and so bites harder. Thin also lifts shadows "
+            "that sit next to something bright, which is the mask line on the sheet. "
+            "Inert with no mask."
         )
         contrast_mask_row = QHBoxLayout()
         contrast_mask_row.addWidget(self.contrast_mask_slider)
-        contrast_mask_row.addWidget(self.mask_blur_slider)
+        contrast_mask_row.addWidget(self.mask_spacer_slider)
         self.layout.addLayout(contrast_mask_row)
 
         # Density-domain saturation, composed into the same dye_mix slot as the paper's real dye
@@ -342,7 +344,7 @@ class ToneSidebar(BaseSidebar):
             (self.dye_separation_slider, "dye_separation"),
             (self.separation_damping_slider, "separation_damping"),
             (self.contrast_mask_slider, "contrast_mask"),
-            (self.mask_blur_slider, "mask_blur"),
+            (self.mask_spacer_slider, "mask_spacer"),
         ):
             slider.valueChanged.connect(
                 lambda v, f=field: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, **{f: v})
@@ -447,7 +449,7 @@ class ToneSidebar(BaseSidebar):
                 self.separation_damping_slider,
                 # The transfer curve takes no dodge/burn map, and the mask rides it.
                 self.contrast_mask_slider,
-                self.mask_blur_slider,
+                self.mask_spacer_slider,
             ):
                 w.setVisible(not transfer)
 
@@ -511,9 +513,9 @@ class ToneSidebar(BaseSidebar):
             self.dye_separation_slider.setValue(conf.dye_separation)
             self.separation_damping_slider.setValue(conf.separation_damping)
             self.contrast_mask_slider.setValue(conf.contrast_mask)
-            self.mask_blur_slider.setValue(conf.mask_blur)
+            self.mask_spacer_slider.setValue(conf.mask_spacer)
             # Out of _global_only: that tuple means enabled exactly when global.
-            self.mask_blur_slider.setEnabled(global_mode and conf.contrast_mask != 0.0)
+            self.mask_spacer_slider.setEnabled(global_mode and conf.contrast_mask != 0.0)
             # It redistributes Dye Separation's push and does nothing on its own, so at 1.0
             # separation it is dead. Say so instead of letting it be dragged for no result.
             self.separation_damping_slider.setEnabled(conf.dye_separation != 1.0)
@@ -550,7 +552,7 @@ class ToneSidebar(BaseSidebar):
             self.shadow_grade_slider,
             self.highlight_grade_slider,
             self.contrast_mask_slider,
-            self.mask_blur_slider,
+            self.mask_spacer_slider,
             self.paper_dmin_btn,
             self.paper_black_btn,
             self.auto_density_btn,

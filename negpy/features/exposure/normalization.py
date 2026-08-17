@@ -16,12 +16,12 @@ if TYPE_CHECKING:
 # Above this size the block-median is threaded over row strips (np.median frees the GIL).
 _BLOCK_MEDIAN_PARALLEL_MIN_PIXELS = 2_000_000
 
-# Contrast-mask blur, per-cent of the analysis grid's short side. Of the grid, not of
+# Contrast-mask spacer, per-cent of the analysis grid's short side. Of the grid, not of
 # the render, so preview and export mask alike. Under the minimum the mask stops being
 # unsharp and collapses into a plain (1-g) reduction, which is Grade.
-MASK_BLUR_DEFAULT = 4.0
-MASK_BLUR_MIN = 1.0
-MASK_BLUR_MAX = 8.0
+MASK_SPACER_DEFAULT = 4.0
+MASK_SPACER_MIN = 2.0
+MASK_SPACER_MAX = 6.0
 
 
 @njit(cache=True, fastmath=True)
@@ -539,7 +539,7 @@ def contrast_mask_plane(
     converge_v: float = 0.0,
     converge_h: float = 0.0,
     roi_norm: Optional[Tuple[float, float, float, float]] = None,
-    blur: float = MASK_BLUR_DEFAULT,
+    spacer: float = MASK_SPACER_DEFAULT,
 ) -> Tuple[np.ndarray, float]:
     """
     The blurred low-gamma plane an unsharp mask is built from, zero-mean, on the analysis
@@ -550,7 +550,7 @@ def contrast_mask_plane(
     Takes the linear frame *before* geometry and replays it on the downsampled copy, so
     both engines call this on the same array. `roi_norm` is the printed frame as
     (y1, y2, x1, x2) fractions: a rebate or surround blurred in prints as a vignette.
-    `blur` is the spacer, per-cent of the grid: the scale above which tones are masked.
+    `spacer` is per-cent of the grid: the scale above which tones are masked.
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
     from negpy.features.geometry.logic import apply_fine_rotation, apply_keystone, apply_radial_distortion
@@ -588,7 +588,7 @@ def contrast_mask_plane(
 
     val = normalize_log_image(unmix_log_image(prefilter_log_grid(image, None, 0.0), unmix), bounds)
     lum = LUMA_R * val[:, :, 0] + LUMA_G * val[:, :, 1] + LUMA_B * val[:, :, 2]
-    sigma = max(blur, MASK_BLUR_MIN) * 0.01 * min(lum.shape[:2])
+    sigma = min(max(spacer, MASK_SPACER_MIN), MASK_SPACER_MAX) * 0.01 * min(lum.shape[:2])
     blurred = cv2.GaussianBlur(np.ascontiguousarray(lum, dtype=np.float32), (0, 0), sigma, borderType=cv2.BORDER_REPLICATE)
     centre = float(blurred.mean())
     return blurred - centre, centre

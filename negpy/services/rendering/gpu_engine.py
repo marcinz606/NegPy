@@ -636,7 +636,7 @@ class GPUEngine:
                     mask_key = ("tiled",)
                     mask_rect = (frame[0] - global_offset[0], frame[1] - global_offset[1], frame[2], frame[3])
             else:
-                mask_key = (analysis_key, bounds, roi, (h_rot, w_rot), settings.exposure.mask_blur)
+                mask_key = (analysis_key, bounds, roi, (h_rot, w_rot), settings.exposure.mask_spacer)
                 if self._mask_plane is None or self._mask_plane[0] != mask_key:
                     self._mask_plane = (
                         mask_key,
@@ -652,7 +652,7 @@ class GPUEngine:
                             converge_h=settings.geometry.converge_h,
                             distortion_k1=k1_eff,
                             roi_norm=normalized_roi(roi, (h_rot, w_rot)),
-                            blur=settings.exposure.mask_blur,
+                            spacer=settings.exposure.mask_spacer,
                         ),
                     )
                 mask_plane = self._mask_plane[1]
@@ -2092,7 +2092,7 @@ class GPUEngine:
                     converge_h=settings.geometry.converge_h,
                     distortion_k1=k1_eff,
                     roi_norm=normalized_roi(roi, (h_rot, w_rot)),
-                    blur=settings.exposure.mask_blur,
+                    spacer=settings.exposure.mask_spacer,
                 ),
                 (x1, y1, crop_w, crop_h),
             )

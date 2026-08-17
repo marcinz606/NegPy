@@ -35,6 +35,8 @@ KEY_RENAMES: Dict[str, str] = {
     "density_saturation_trim_green": "dye_separation_trim_green",
     "density_saturation_trim_blue": "dye_separation_trim_blue",
     "use_colour_average": "use_color_average",
+    # The contrast mask's radius is named for the darkroom spacer, not for the blur.
+    "mask_blur": "mask_spacer",
     # An old save with True and no rect lands armed, so it resolves on the next render.
     "manual_crop_rect": "crop_rect",
     "auto_crop_enabled": "crop_from_auto",
