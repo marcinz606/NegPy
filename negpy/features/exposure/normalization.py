@@ -538,8 +538,8 @@ def contrast_mask_plane(
     roi_norm: Optional[Tuple[float, float, float, float]] = None,
 ) -> np.ndarray:
     """
-    The blurred low-gamma copy an unsharp mask is made from, as a zero-mean luminance
-    plane on the analysis grid. The sign of the gamma decides positive or negative.
+    The blurred low-gamma plane an unsharp mask is built from, zero-mean, on the analysis
+    grid. The gamma's sign picks the mask's polarity and so the direction.
 
     Takes the linear frame *before* geometry and replays it on the downsampled copy, so
     both engines call this on the same array. `roi_norm` is the printed frame as

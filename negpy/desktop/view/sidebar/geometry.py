@@ -173,15 +173,15 @@ class GeometrySidebar(BaseSidebar):
         self.converge_v_slider = CompactSlider("Tilt", -15.0, 15.0, conf.converge_v, unit="%")
         self.converge_v_slider.setToolTip(
             "Easel Tilt: tip the easel about a horizontal axis to straighten converging verticals, "
-            "the building that leans back because the camera was pointed up. Positive stretches the "
-            "top edge. Per-cent of the frame, the amount you would measure on the easel, not a tilt "
-            "angle — the same tilt keystones differently at every enlargement."
+            "the building that leans back because the camera pointed up. Positive stretches the top "
+            "edge. Per-cent of the frame, what you would measure on the easel, not a tilt angle: "
+            "the same tilt keystones differently at every enlargement."
         )
         self.converge_h_slider = CompactSlider("Swing", -15.0, 15.0, conf.converge_h, unit="%")
         self.converge_h_slider.setToolTip(
-            "Easel Swing: the same movement about a vertical axis, straightening converging "
-            "horizontals — a wall shot from one side, or a copy stand that is not square to the "
-            "film. Positive stretches the left edge."
+            "Easel Swing: the same movement about a vertical axis, for converging horizontals. A "
+            "wall shot from one side, or a copy stand not square to the film. Positive stretches "
+            "the left edge."
         )
         converge_row = QHBoxLayout()
         converge_row.addWidget(self.converge_v_slider)

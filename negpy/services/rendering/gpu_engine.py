@@ -1171,7 +1171,7 @@ class GPUEngine:
             (1 if settings.geometry.flip_vertical else 0),
         ) + struct.pack("ffff", float(k1_eff), float(scale_s), 0.0, 0.0)
         # The shader undoes the keystone first, so it gets the CPU's own matrix inverted
-        # and normalized to [0,1] coords — deriving the quad twice would let the two drift.
+        # and normalized to [0,1] coords. Deriving the quad twice would let the two drift.
         g_data += _keystone_inverse_bytes(settings.geometry.converge_v, settings.geometry.converge_h)
         if tiling_mode:
             g_data = b"\x00" * 64

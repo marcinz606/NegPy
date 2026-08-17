@@ -1,6 +1,6 @@
 """Easel tilt and swing, the perspective correction.
 
-The warp is one cv2 call; what breaks silently is everything that has to agree with it —
+The warp is one cv2 call. What breaks silently is everything that has to agree with it:
 the shader's inverse, the meters, the point mapper behind dodge/burn masks, and
 autocrop's replay.
 """

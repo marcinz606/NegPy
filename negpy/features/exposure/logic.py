@@ -1120,10 +1120,10 @@ def contrast_mask_ev(
 
     The sandwich D' = D - g*blur(D) is val - g*blur in normalized space; one stop is
     log10(2) of density, and equal stops is an equal density change in every channel,
-    as a neutral panchromatic masking film gives. Positive g is the reduction mask, a
-    blurred positive; negative g is the increasing mask, a blurred negative, which adds
-    the low frequencies instead of removing them. The plane covers the printed frame,
-    so it lands back at `roi`, edge-replicated so the uncropped preview has no seam.
+    as a neutral panchromatic masking film gives. Positive g is a blurred positive and
+    subtracts the low frequencies; negative g matches the negative's polarity and adds
+    them. The plane covers the printed frame, so it lands back at `roi`, edge-replicated
+    so the uncropped preview has no seam.
     """
     if plane is None or abs(gamma) < 1e-6:
         return None
