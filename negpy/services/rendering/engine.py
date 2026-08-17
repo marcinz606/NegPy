@@ -179,6 +179,8 @@ class DarkroomEngine:
                         fine_rotation=settings.geometry.fine_rotation,
                         flip_horizontal=settings.geometry.flip_horizontal,
                         flip_vertical=settings.geometry.flip_vertical,
+                        converge_v=settings.geometry.converge_v,
+                        converge_h=settings.geometry.converge_h,
                         distortion_k1=distortion_k1,
                         roi_norm=normalized_roi(mask_roi, current_img.shape[:2]),
                     ),
@@ -257,6 +259,8 @@ class DarkroomEngine:
                     autocrop=True,
                     autocrop_params=({"roi": context.active_roi} if context.active_roi and not context.crop_preview_full else None),
                     distortion_k1=distortion_k1,
+                    converge_v=settings.geometry.converge_v,
+                    converge_h=settings.geometry.converge_h,
                 )
                 context.metrics["uv_grid"] = uv_grid
             except Exception as e:

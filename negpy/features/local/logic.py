@@ -85,6 +85,8 @@ def compute_local_maps(
     flip_horizontal: bool = False,
     flip_vertical: bool = False,
     distortion_k1: float = 0.0,
+    converge_v: float = 0.0,
+    converge_h: float = 0.0,
 ) -> np.ndarray:
     """
     Build the per-pixel dodge/burn maps [h, w, 2] float32, each plane the sum over
@@ -111,6 +113,8 @@ def compute_local_maps(
                 flip_horizontal,
                 flip_vertical,
                 distortion_k1=distortion_k1,
+                converge_v=converge_v,
+                converge_h=converge_h,
             )
             for rx, ry in mask.vertices
         ]

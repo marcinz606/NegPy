@@ -4,6 +4,7 @@ from negpy.domain.types import ImageBuffer
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.geometry.logic import (
     apply_fine_rotation,
+    apply_keystone,
     apply_margin_to_roi,
     apply_radial_distortion,
     get_manual_rect_coords,
@@ -37,11 +38,17 @@ class GeometryProcessor:
         if self.distortion_k1 != 0.0:
             img = apply_radial_distortion(img, self.distortion_k1)
 
+        # Last in the forward chain: a plane projectivity cannot be fitted to a frame that
+        # still carries barrel distortion.
+        img = apply_keystone(img, self.config.converge_v, self.config.converge_h)
+
         context.metrics["geometry_params"] = {
             "rotation": self.config.rotation,
             "fine_rotation": self.config.fine_rotation,
             "flip_horizontal": self.config.flip_horizontal,
             "flip_vertical": self.config.flip_vertical,
+            "converge_v": self.config.converge_v,
+            "converge_h": self.config.converge_h,
         }
         # Downstream coordinate mappers (retouch/local) need the same correction.
         context.metrics["distortion_k1"] = self.distortion_k1

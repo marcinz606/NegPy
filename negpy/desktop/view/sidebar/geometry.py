@@ -170,6 +170,22 @@ class GeometrySidebar(BaseSidebar):
         align_row.addWidget(self.straighten_btn, 0)
         self.layout.addLayout(align_row)
 
+        self.converge_v_slider = CompactSlider("Converging Verticals", -15.0, 15.0, conf.converge_v, unit="%")
+        self.converge_v_slider.setToolTip(
+            "Converging Verticals: straighten a building that leans back, the way a printer tilts "
+            "the easel. Positive stretches the top edge. Measured as a per-cent of the frame, not "
+            "a tilt angle, because the same tilt keystones differently at every enlargement."
+        )
+        self.converge_h_slider = CompactSlider("Converging Horizontals", -15.0, 15.0, conf.converge_h, unit="%")
+        self.converge_h_slider.setToolTip(
+            "Converging Horizontals: the same correction across the frame, for a wall shot from "
+            "one side or a copy stand that is not square. Positive stretches the left edge."
+        )
+        converge_row = QHBoxLayout()
+        converge_row.addWidget(self.converge_v_slider)
+        converge_row.addWidget(self.converge_h_slider)
+        self.layout.addLayout(converge_row)
+
     def cycle_guide(self) -> None:
         self.guide_combo.setCurrentIndex((self.guide_combo.currentIndex() + 1) % self.guide_combo.count())
 
@@ -211,6 +227,14 @@ class GeometrySidebar(BaseSidebar):
         self.fine_rot_slider.valueCommitted.connect(
             lambda v: self.update_config_section("geometry", render=True, persist=True, readback_metrics=True, fine_rotation=-v)
         )
+
+        for slider, field in ((self.converge_v_slider, "converge_v"), (self.converge_h_slider, "converge_h")):
+            slider.valueChanged.connect(
+                lambda v, f=field: self.update_config_section("geometry", render=True, persist=False, readback_metrics=False, **{f: v})
+            )
+            slider.valueCommitted.connect(
+                lambda v, f=field: self.update_config_section("geometry", render=True, persist=True, readback_metrics=True, **{f: v})
+            )
 
     def _on_ratio_changed(self, ratio: str) -> None:
         self.controller.set_crop_ratio(ratio)
@@ -269,6 +293,8 @@ class GeometrySidebar(BaseSidebar):
             self.offset_slider.setValue(float(conf.autocrop_offset))
             self.rebate_trim_slider.setValue(conf.autocrop_rebate_trim * 100.0)
             self.fine_rot_slider.setValue(-conf.fine_rotation)
+            self.converge_v_slider.setValue(conf.converge_v)
+            self.converge_h_slider.setValue(conf.converge_h)
 
             self.manual_crop_btn.setChecked(self.state.active_tool == ToolMode.CROP_MANUAL)
             self.straighten_btn.setChecked(self.state.active_tool == ToolMode.STRAIGHTEN)
@@ -289,6 +315,8 @@ class GeometrySidebar(BaseSidebar):
         self.offset_slider.blockSignals(blocked)
         self.rebate_trim_slider.blockSignals(blocked)
         self.fine_rot_slider.blockSignals(blocked)
+        self.converge_v_slider.blockSignals(blocked)
+        self.converge_h_slider.blockSignals(blocked)
         self.manual_crop_btn.blockSignals(blocked)
         self.straighten_btn.blockSignals(blocked)
         self.reset_crop_btn.blockSignals(blocked)

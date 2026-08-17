@@ -89,6 +89,8 @@ SLIDER_GROUPS: tuple[SliderShortcutGroup, ...] = (
     _g("contrast_mask", "Contrast Mask ↑/↓", "contrast_mask_inc", "contrast_mask_dec", 0.01, "Exposure"),
     _g("offset", "Crop offset ↑/↓", "offset_inc", "offset_dec", 1.0, "Geometry", step_decimals=0, step_suffix=" px"),
     _g("fine_rot", "Fine rotation ↑/↓", "fine_rot_inc", "fine_rot_dec", 0.01, "Geometry", step_suffix="°"),
+    _g("converge_v", "Converging verticals ↑/↓", "converge_v_inc", "converge_v_dec", 0.1, "Geometry", step_suffix="%"),
+    _g("converge_h", "Converging horizontals ↑/↓", "converge_h_inc", "converge_h_dec", 0.1, "Geometry", step_suffix="%"),
     _g("analysis_buffer", "Analysis buffer ↑/↓", "analysis_buffer_inc", "analysis_buffer_dec", 0.01, "Process"),
     _g("luma_range_clip", "Luma range clip ↑/↓", "luma_range_clip_inc", "luma_range_clip_dec", 1.0, "Process", step_decimals=0),
     _g("color_range_clip", "Color range clip ↑/↓", "color_range_clip_inc", "color_range_clip_dec", 1.0, "Process", step_decimals=0),

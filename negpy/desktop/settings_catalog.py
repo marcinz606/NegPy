@@ -96,6 +96,8 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
     ("Rotation", (
         _row("Rotation", "geometry", "rotation"),
         _row("Fine Rotation", "geometry", "fine_rotation"),
+        _row("Converging Verticals", "geometry", "converge_v"),
+        _row("Converging Horizontals", "geometry", "converge_h"),
         _row("Flip Horizontal", "geometry", "flip_horizontal"),
         _row("Flip Vertical", "geometry", "flip_vertical"),
     )),

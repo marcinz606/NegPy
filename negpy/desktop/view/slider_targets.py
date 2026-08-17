@@ -29,6 +29,8 @@ SLIDER_ATTRS: dict[str, str] = {
     "contrast_mask": "tone_sidebar.contrast_mask_slider",
     "offset": "geometry_sidebar.offset_slider",
     "fine_rot": "geometry_sidebar.fine_rot_slider",
+    "converge_v": "geometry_sidebar.converge_v_slider",
+    "converge_h": "geometry_sidebar.converge_h_slider",
     "analysis_buffer": "process_sidebar.analysis_buffer_slider",
     "luma_range_clip": "process_sidebar.luma_range_clip_slider",
     "color_range_clip": "process_sidebar.color_range_clip_slider",

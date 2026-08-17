@@ -1738,6 +1738,88 @@ def map_point_radial(px: float, py: float, k1: float, w: int, h: int) -> Tuple[f
     return cx + ix * scale, cy + iy * scale
 
 
+# Converging verticals, the tilted easel. A plane-to-plane projectivity: the output
+# rectangle samples a trapezoid of the source, so one edge is stretched and the opposite
+# one squeezed. The unit is per-cent of frame width (or height), the number a printer
+# measures on the easel — not tilt degrees, which need an enlarger magnification and a
+# focal length the pipeline does not model. Mirrored in transform.wgsl and applied to
+# points in map_coords_to_geometry; change the quad in all three.
+
+_KEYSTONE_EPS = 1e-4  # per-cent
+
+
+def keystone_matrix_normalized(converge_v: float, converge_h: float) -> np.ndarray:
+    """Forward map (source -> corrected) in normalized frame coords.
+
+    The single definition of the quad. "Normalized" is the convention the GPU samples in,
+    u = (index + 0.5) / dims, so the frame spans [0, 1] and the pixel-space matrix below
+    is derived from this one rather than built a second time — the two would otherwise
+    disagree by half a pixel and a w/(w-1) scale.
+
+    Both convergences are per-cent of the frame, the config's unit. Positive converge_v
+    stretches the top edge, which straightens a frame shot with the camera tilted up;
+    positive converge_h stretches the left edge.
+    """
+    a, b = converge_v * 0.005, converge_h * 0.005
+    src = np.float32([[a, b], [1.0 - a, -b], [1.0 + a, 1.0 + b], [-a, 1.0 - b]])
+    dst = np.float32([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
+    return cv2.getPerspectiveTransform(src, dst).astype(np.float64)
+
+
+def _norm_to_index(w: int, h: int) -> np.ndarray:
+    """Normalized [0,1] -> OpenCV pixel-index coords, where pixel i sits at index i."""
+    return np.array([[float(w), 0.0, -0.5], [0.0, float(h), -0.5], [0.0, 0.0, 1.0]], dtype=np.float64)
+
+
+def keystone_matrix(converge_v: float, converge_h: float, w: int, h: int) -> np.ndarray:
+    """The same map in OpenCV pixel-index coords, for warpPerspective."""
+    a = _norm_to_index(w, h)
+    return a @ keystone_matrix_normalized(converge_v, converge_h) @ np.linalg.inv(a)
+
+
+def apply_keystone(img: ImageBuffer, converge_v: float, converge_h: float) -> ImageBuffer:
+    """Perspective correction. Same canvas size, replicated edges: the wedge stays and
+    the user crops it, exactly as fine rotation does. Scaling to fill would silently
+    change magnification and drag a crop the user already drew."""
+    if abs(converge_v) < _KEYSTONE_EPS and abs(converge_h) < _KEYSTONE_EPS:
+        return img
+    h, w = img.shape[:2]
+    res = cv2.warpPerspective(
+        img,
+        keystone_matrix(converge_v, converge_h, w, h),
+        (w, h),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REPLICATE,
+    )
+    return ensure_image(res)
+
+
+def map_point_keystone(px: float, py: float, converge_v: float, converge_h: float, w: int, h: int) -> Tuple[float, float]:
+    """Where a pre-correction point lands in the corrected output."""
+    if abs(converge_v) < _KEYSTONE_EPS and abs(converge_h) < _KEYSTONE_EPS:
+        return px, py
+    m = keystone_matrix(converge_v, converge_h, w, h)
+    den = m[2, 0] * px + m[2, 1] * py + m[2, 2]
+    if abs(den) < 1e-12:
+        return px, py
+    return (
+        float((m[0, 0] * px + m[0, 1] * py + m[0, 2]) / den),
+        float((m[1, 0] * px + m[1, 1] * py + m[1, 2]) / den),
+    )
+
+
+def keystone_inverse_normalized(converge_v: float, converge_h: float) -> np.ndarray:
+    """The keystone's inverse (corrected -> source) in normalized coords.
+
+    The GPU undoes the keystone first and consumes this directly, so the shader never
+    rebuilds the quad and cannot drift from the CPU. Identity when both are zero.
+    """
+    if abs(converge_v) < _KEYSTONE_EPS and abs(converge_h) < _KEYSTONE_EPS:
+        return np.eye(3, dtype=np.float64)
+    m = np.linalg.inv(keystone_matrix_normalized(converge_v, converge_h))
+    return m / m[2, 2]
+
+
 def apply_margin_to_roi(
     roi: ROI,
     h: int,
@@ -2008,6 +2090,8 @@ def autocrop_detection_key(geometry: GeometryConfig) -> str:
             int(geometry.flip_horizontal),
             int(geometry.flip_vertical),
             round(geometry.fine_rotation, 4),
+            round(geometry.converge_v, 4),
+            round(geometry.converge_h, 4),
             geometry.autocrop_ratio,
             geometry.autocrop_mode,
             round(geometry.autocrop_rebate_trim, 4),
@@ -2046,6 +2130,9 @@ def resolve_autocrop_rect(
     tmp = np.ascontiguousarray(tmp.astype(np.float32, copy=False))
     if geometry.fine_rotation != 0.0:
         tmp = apply_fine_rotation(tmp, geometry.fine_rotation)
+    # Detection must see the frame the render produces, or the rect is found on a
+    # straight rebate and applied to a keystoned one.
+    tmp = apply_keystone(tmp, geometry.converge_v, geometry.converge_h)
 
     rh, rw = tmp.shape[:2]
     if rh < 2 or rw < 2:
@@ -2075,6 +2162,8 @@ def map_coords_to_geometry(
     flip_vertical: bool = False,
     roi: Optional[ROI] = None,
     distortion_k1: float = 0.0,
+    converge_v: float = 0.0,
+    converge_h: float = 0.0,
 ) -> Tuple[float, float]:
     """
     Maps raw coordinates to geometry-transformed space.
@@ -2109,6 +2198,9 @@ def map_coords_to_geometry(
     # (last forward op, matching GeometryProcessor / transform.wgsl).
     if distortion_k1 != 0.0:
         px, py = map_point_radial(px, py, distortion_k1, w, h)
+
+    if converge_v != 0.0 or converge_h != 0.0:
+        px, py = map_point_keystone(px, py, converge_v, converge_h, w, h)
 
     if roi:
         y1, y2, x1, x2 = roi

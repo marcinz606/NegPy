@@ -435,6 +435,10 @@ Where the frame gets its final shape: what is inside the print, and whether it s
 
 *   **Fine Rotation** (±45°): free rotation for tilted scans, in sub-degree steps (positive is clockwise). Applied after auto-crop so the frame stays axis-aligned.
 *   **Straighten** tool (ruler): draw a line along a horizon or vertical edge and NegPy rotates to make it level or plumb.
+*   **Converging Verticals** (±15%): straighten a building that leans back because the camera was tilted up, the way a printer tilts the easel under the enlarger. Positive stretches the top edge. The unit is per-cent of the frame, the amount you would measure with a ruler on the easel, not a tilt angle — the same tilt keystones differently at every enlargement, and NegPy models no enlarger.
+*   **Converging Horizontals** (±15%): the same correction across the frame, for a wall shot from one side, or a copy stand that is not square to the film. Positive stretches the left edge.
+
+    Both leave a wedge of replicated edge along the squeezed side, exactly as Fine Rotation does; crop it off. Nothing is scaled to hide it, because that would quietly change your magnification and drag a crop you had already drawn. Crop first if you can: the meters read the corrected frame, so on a still-uncropped scan a large correction pulls rebate and scanner surround further into the metered area and the print gets darker. Inside a crop the exposure barely moves.
 
 <!-- panel:flatfield -->
 ### 5.2 Flat Field: even out the light

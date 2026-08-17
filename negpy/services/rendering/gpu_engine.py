@@ -34,6 +34,8 @@ from negpy.features.exposure.normalization import (
 )
 from negpy.features.geometry.logic import (
     apply_fine_rotation,
+    apply_keystone,
+    keystone_inverse_normalized,
     apply_margin_to_roi,
     apply_radial_distortion,
     compute_distortion_scale,
@@ -105,6 +107,13 @@ def _binding_identity(idx: int, res: Any) -> tuple:
     if isinstance(res, GPUBuffer):
         return (idx, id(res.buffer))
     return (idx, id(res))
+
+
+def _keystone_inverse_bytes(converge_v: float, converge_h: float) -> bytes:
+    """The keystone inverse packed as two vec4s: (h00, h01, h02, h10), (h11, h12, h20, h21).
+    h22 is 1 by construction, so the shader supplies it."""
+    m = keystone_inverse_normalized(converge_v, converge_h)
+    return struct.pack("ffff", m[0, 0], m[0, 1], m[0, 2], m[1, 0]) + struct.pack("ffff", m[1, 1], m[1, 2], m[2, 0], m[2, 1])
 
 
 def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str) -> tuple:
@@ -208,7 +217,7 @@ class GPUEngine:
         # Packed byte size per stage. A stage that exceeds the 256B dynamic-offset
         # alignment (exposure, 304B) occupies multiple aligned slots.
         self._uniform_sizes = {
-            "geometry": 32,
+            "geometry": 64,
             "normalization": 160,
             "exposure": 304,
             "transfer": 144,
@@ -546,6 +555,10 @@ class GPUEngine:
                 analysis_source = np.ascontiguousarray(analysis_source[ay1:ay2, ax1:ax2])
             if settings.geometry.fine_rotation != 0.0:
                 analysis_source = apply_fine_rotation(analysis_source, settings.geometry.fine_rotation)
+            # The meters must read the frame the print stage gets. The CPU engine
+            # normalizes the keystoned buffer, so this replay has to carry it too or the
+            # two engines measure different bounds.
+            analysis_source = apply_keystone(analysis_source, settings.geometry.converge_v, settings.geometry.converge_h)
 
             analysis_source = _downsample_for_analysis(analysis_source, APP_CONFIG.preview_render_size)
             # Shared prefilter, once for all five meters (ROI already applied).
@@ -617,6 +630,8 @@ class GPUEngine:
                         fine_rotation=settings.geometry.fine_rotation,
                         flip_horizontal=settings.geometry.flip_horizontal,
                         flip_vertical=settings.geometry.flip_vertical,
+                        converge_v=settings.geometry.converge_v,
+                        converge_h=settings.geometry.converge_h,
                         distortion_k1=k1_eff,
                         roi_norm=normalized_roi(roi, (h_rot, w_rot)),
                     ),
@@ -1105,6 +1120,8 @@ class GPUEngine:
                         autocrop=True,
                         autocrop_params={"roi": roi} if roi else None,
                         distortion_k1=k1_eff,
+                        converge_v=settings.geometry.converge_v,
+                        converge_h=settings.geometry.converge_h,
                     )
                     self._uv_grid_cache = (uv_key, uv_grid)
                     metrics["uv_grid"] = uv_grid
@@ -1153,8 +1170,11 @@ class GPUEngine:
             (1 if settings.geometry.flip_horizontal else 0),
             (1 if settings.geometry.flip_vertical else 0),
         ) + struct.pack("ffff", float(k1_eff), float(scale_s), 0.0, 0.0)
+        # The shader undoes the keystone first, so it gets the CPU's own matrix inverted
+        # and normalized to [0,1] coords — deriving the quad twice would let the two drift.
+        g_data += _keystone_inverse_bytes(settings.geometry.converge_v, settings.geometry.converge_h)
         if tiling_mode:
-            g_data = b"\x00" * 32
+            g_data = b"\x00" * 64
 
         f, c = bounds.floors, bounds.ceils
         mode_val = 0

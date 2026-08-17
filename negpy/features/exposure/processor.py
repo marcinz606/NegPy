@@ -263,6 +263,8 @@ class PhotometricProcessor:
             flip_horizontal=geo.get("flip_horizontal", False),
             flip_vertical=geo.get("flip_vertical", False),
             distortion_k1=context.metrics.get("distortion_k1", 0.0),
+            converge_v=geo.get("converge_v", 0.0),
+            converge_h=geo.get("converge_h", 0.0),
         )
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:

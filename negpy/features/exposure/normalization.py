@@ -534,6 +534,8 @@ def contrast_mask_plane(
     flip_horizontal: bool = False,
     flip_vertical: bool = False,
     distortion_k1: float = 0.0,
+    converge_v: float = 0.0,
+    converge_h: float = 0.0,
     roi_norm: Optional[Tuple[float, float, float, float]] = None,
 ) -> np.ndarray:
     """
@@ -553,7 +555,7 @@ def contrast_mask_plane(
     the plane carries only the redistribution and leaves print density alone.
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
-    from negpy.features.geometry.logic import apply_fine_rotation, apply_radial_distortion
+    from negpy.features.geometry.logic import apply_fine_rotation, apply_keystone, apply_radial_distortion
 
     h, w = image.shape[:2]
     grid = int(EXPOSURE_CONSTANTS["analysis_grid"])
@@ -572,6 +574,7 @@ def contrast_mask_plane(
         image = apply_fine_rotation(image, fine_rotation)
     if distortion_k1 != 0.0:
         image = apply_radial_distortion(image, distortion_k1)
+    image = apply_keystone(image, converge_v, converge_h)
 
     if roi_norm is not None:
         gh, gw = image.shape[:2]
