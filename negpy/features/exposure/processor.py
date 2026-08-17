@@ -342,8 +342,7 @@ class PhotometricProcessor:
 
         local_maps = self._build_local_maps(image, context)
         ev_map = None if local_maps is None else np.ascontiguousarray(local_maps[:, :, 0])
-        # The contrast mask reaches the print as print exposure, like a dodge, so it rides
-        # the same map instead of needing a stage of its own.
+        # The mask is a print-exposure input like a dodge, so it rides the same map.
         mask_ev = contrast_mask_ev(
             context.metrics.get("contrast_mask_plane"),
             self.config.contrast_mask,

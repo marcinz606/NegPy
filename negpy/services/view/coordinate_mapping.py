@@ -71,11 +71,10 @@ class CoordinateMapping:
     def _grid_homography(uv_grid: np.ndarray) -> np.ndarray:
         """The grid as a projective map, viewport (0-1) -> raw (0-1).
 
-        Fitted from four interior samples, so it is exact for every geometry op that is
-        itself projective — rotation, flips, fine rotation, crop and the keystone. Only
-        distortion stays approximate, and the model applies off the frame, where the grid
-        has no data anyway. Samples come from the middle: a fine rotation fills the grid
-        border with zeros, and those are not coordinates.
+        Four interior samples, exact for every projective op (rotation, flips, fine
+        rotation, crop, keystone); only distortion stays approximate, and this is used
+        only off the frame. Samples come from the middle, since a fine rotation fills
+        the border with zeros and those are not coordinates.
         """
         h_uv, w_uv = uv_grid.shape[:2]
         x0, x1 = w_uv // 4, w_uv - 1 - w_uv // 4

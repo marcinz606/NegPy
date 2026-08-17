@@ -1738,27 +1738,21 @@ def map_point_radial(px: float, py: float, k1: float, w: int, h: int) -> Tuple[f
     return cx + ix * scale, cy + iy * scale
 
 
-# Converging verticals, the tilted easel. A plane-to-plane projectivity: the output
-# rectangle samples a trapezoid of the source, so one edge is stretched and the opposite
-# one squeezed. The unit is per-cent of frame width (or height), the number a printer
-# measures on the easel — not tilt degrees, which need an enlarger magnification and a
-# focal length the pipeline does not model. Mirrored in transform.wgsl and applied to
-# points in map_coords_to_geometry; change the quad in all three.
+# Easel tilt and swing: a plane-to-plane projectivity, the output rect sampling a
+# trapezoid of the source. The unit is per-cent of the frame, not tilt degrees, which
+# need an enlarger magnification and focal length the pipeline does not model. Mirrored
+# in transform.wgsl and in map_coords_to_geometry; change the quad in all three.
 
 _KEYSTONE_EPS = 1e-4  # per-cent
 
 
 def keystone_matrix_normalized(converge_v: float, converge_h: float) -> np.ndarray:
-    """Forward map (source -> corrected) in normalized frame coords.
+    """Forward map (source -> corrected) in the GPU's sampling convention,
+    u = (index + 0.5) / dims.
 
-    The single definition of the quad. "Normalized" is the convention the GPU samples in,
-    u = (index + 0.5) / dims, so the frame spans [0, 1] and the pixel-space matrix below
-    is derived from this one rather than built a second time — the two would otherwise
-    disagree by half a pixel and a w/(w-1) scale.
-
-    Both convergences are per-cent of the frame, the config's unit. Positive converge_v
-    stretches the top edge, which straightens a frame shot with the camera tilted up;
-    positive converge_h stretches the left edge.
+    The single definition of the quad: the pixel-space matrix and the shader's inverse
+    both derive from it. Convergences are per-cent; positive converge_v stretches the
+    top edge, positive converge_h the left.
     """
     a, b = converge_v * 0.005, converge_h * 0.005
     src = np.float32([[a, b], [1.0 - a, -b], [1.0 + a, 1.0 + b], [-a, 1.0 - b]])
@@ -1779,8 +1773,8 @@ def keystone_matrix(converge_v: float, converge_h: float, w: int, h: int) -> np.
 
 def apply_keystone(img: ImageBuffer, converge_v: float, converge_h: float) -> ImageBuffer:
     """Perspective correction. Same canvas size, replicated edges: the wedge stays and
-    the user crops it, exactly as fine rotation does. Scaling to fill would silently
-    change magnification and drag a crop the user already drew."""
+    the user crops it, as fine rotation does. Scaling to fill would change magnification
+    and move an existing crop."""
     if abs(converge_v) < _KEYSTONE_EPS and abs(converge_h) < _KEYSTONE_EPS:
         return img
     h, w = img.shape[:2]
@@ -1809,11 +1803,8 @@ def map_point_keystone(px: float, py: float, converge_v: float, converge_h: floa
 
 
 def keystone_inverse_normalized(converge_v: float, converge_h: float) -> np.ndarray:
-    """The keystone's inverse (corrected -> source) in normalized coords.
-
-    The GPU undoes the keystone first and consumes this directly, so the shader never
-    rebuilds the quad and cannot drift from the CPU. Identity when both are zero.
-    """
+    """The keystone's inverse (corrected -> source), which the shader consumes directly
+    rather than rebuilding the quad. Identity when both are zero."""
     if abs(converge_v) < _KEYSTONE_EPS and abs(converge_h) < _KEYSTONE_EPS:
         return np.eye(3, dtype=np.float64)
     m = np.linalg.inv(keystone_matrix_normalized(converge_v, converge_h))

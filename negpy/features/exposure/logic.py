@@ -1118,15 +1118,10 @@ def contrast_mask_ev(
     """
     The contrast mask as print-exposure stops, ready to add to the dodge/burn map.
 
-    Sandwiching a blurred gamma-g positive with the negative gives D' = D - g*blur(D),
-    which in normalized space is val - g*blur. One stop is log10(2) of density, so
-    dividing by that turns the density subtraction into the stops the map carries — and
-    equal stops is an equal absolute density change in every channel, which is what a
-    neutral panchromatic masking film records.
-
-    The plane covers the printed frame, so with a crop it is placed back at `roi` and
-    the surround is edge-replicated: outside the crop nothing is printed, and replicating
-    keeps the crop tool's full-frame preview free of a seam at the crop line.
+    The sandwich D' = D - g*blur(D) is val - g*blur in normalized space; one stop is
+    log10(2) of density, and equal stops is an equal density change in every channel,
+    as a neutral panchromatic masking film gives. The plane covers the printed frame,
+    so it lands back at `roi`, edge-replicated so the uncropped preview has no seam.
     """
     if plane is None or gamma <= 0.0:
         return None

@@ -1,8 +1,8 @@
-"""Converging verticals — the perspective correction, framed as easel tilt.
+"""Easel tilt and swing, the perspective correction.
 
-The warp itself is one cv2 call. What can silently break is everything that has to
-agree with it: the shader's inverse, the meters that read the warped frame, the point
-mapper that puts dodge/burn masks where the canvas draws them, and autocrop's replay.
+The warp is one cv2 call; what breaks silently is everything that has to agree with it —
+the shader's inverse, the meters, the point mapper behind dodge/burn masks, and
+autocrop's replay.
 """
 
 import unittest
@@ -37,8 +37,7 @@ class TestKeystoneTransform(unittest.TestCase):
         np.testing.assert_allclose(keystone_inverse_normalized(0.0, 0.0), np.eye(3), atol=1e-12)
 
     def test_output_keeps_the_canvas_size(self):
-        """Same-size output is an invariant the GPU's texture allocation depends on: it
-        derives the intermediate dimensions from rotation alone."""
+        """The GPU derives its intermediate dimensions from rotation alone."""
         img = _test_field()
         self.assertEqual(apply_keystone(img, 12.0, -8.0).shape, img.shape)
 
@@ -54,8 +53,8 @@ class TestKeystoneTransform(unittest.TestCase):
         self.assertGreater(top, bottom, f"top {top} px, bottom {bottom} px")
 
     def test_point_mapper_follows_the_resample(self):
-        """A feature point must land where the warp actually put its pixels, or masks
-        drift off what the canvas draws."""
+        """A feature point lands where the warp put its pixels, or masks drift off what
+        the canvas draws."""
         h, w = 96, 144
         for cv_, ch_ in ((8.0, 0.0), (0.0, -6.0), (12.0, 5.0)):
             img = np.zeros((h, w), np.float32)
@@ -68,8 +67,7 @@ class TestKeystoneTransform(unittest.TestCase):
             self.assertAlmostEqual(got[1], want[0], delta=1.0, msg=f"x at cv={cv_} ch={ch_}")
 
     def test_shader_inverse_undoes_the_forward_matrix(self):
-        """The GPU consumes this matrix directly; if it stopped being the inverse of the
-        CPU's own quad the two engines would sample different pixels."""
+        """The GPU consumes this matrix directly, so it must invert the CPU's own quad."""
         h, w = 96, 144
         fwd = keystone_matrix(9.0, -4.0, w, h)
         inv_norm = keystone_inverse_normalized(9.0, -4.0)
@@ -84,7 +82,7 @@ class TestKeystoneTransform(unittest.TestCase):
 
     def test_detection_key_tracks_the_correction(self):
         """Autocrop replays the keystone, so a resolved rect must not survive a change
-        to it — detection would have found the rebate on a differently warped frame."""
+        to it."""
         g = WorkspaceConfig().geometry
         self.assertNotEqual(autocrop_detection_key(g), autocrop_detection_key(replace(g, converge_v=6.0)))
         self.assertNotEqual(autocrop_detection_key(g), autocrop_detection_key(replace(g, converge_h=6.0)))
@@ -99,8 +97,8 @@ class TestKeystoneCoordinateMapping(unittest.TestCase):
         self.assertFalse(np.allclose(plain, warped))
 
     def test_off_frame_points_round_trip(self):
-        """Card-edge masks put handles outside the picture, where there is no grid sample
-        and the projective model answers instead. It must invert cleanly."""
+        """Card-edge handles sit outside the picture, where the projective model answers
+        instead of the grid. It must invert cleanly."""
         from negpy.services.view.coordinate_mapping import CoordinateMapping
 
         grid = CoordinateMapping.create_uv_grid(96, 144, 0, 0.0, converge_v=10.0, converge_h=-6.0)

@@ -1,8 +1,7 @@
 """The unsharp contrast-reduction mask.
 
-The mask reaches the print through the dodge/burn EV map, so both engines build the
-plane with the same helper on the same pre-geometry array. These pin the three things
-that would silently break it: the sign, the resolution invariance, and CPU/GPU parity.
+Pins what would break silently: the sign, resolution invariance, the crop boundary and
+CPU/GPU parity.
 """
 
 import unittest
@@ -52,16 +51,15 @@ def _render(img: np.ndarray, settings: WorkspaceConfig, tag: str) -> np.ndarray:
 
 class TestContrastMaskPlane(unittest.TestCase):
     def test_plane_is_zero_mean(self):
-        """A sandwiched mask is denser and the printer opens up for it; the plane must
-        carry only the redistribution, or the slider would double as Print Density."""
+        """A sandwich is denser and the printer opens up for it, so the plane carries
+        only the redistribution; otherwise the slider doubles as Print Density."""
         img = _wide_range_negative()
         plane = contrast_mask_plane(img, LogNegativeBounds(floors=(-1.4, -1.4, -1.4), ceils=(-0.05, -0.05, -0.05)), None)
         self.assertAlmostEqual(float(plane.mean()), 0.0, places=5)
 
     def test_surround_outside_the_crop_stays_out_of_the_mask(self):
-        """The enlarger projects the frame you print. Blurred over, a bright rebate or a
-        black scanner surround prints as a vignette the negative does not have, so the
-        plane must be built on the crop, not on the whole scan."""
+        """A rebate or surround blurred into the mask prints as a vignette the negative
+        does not have."""
         h, w = 600, 900
         img = np.full((h, w, 3), 0.35, dtype=np.float32)
         border = 60
@@ -92,8 +90,8 @@ class TestContrastMaskPlane(unittest.TestCase):
         self.assertIsNone(contrast_mask_ev(None, 0.5, 1.4, (8, 8)))
 
     def test_ev_opposes_the_plane(self):
-        """The sandwich subtracts the blurred positive, so a dense low-frequency area
-        must come back as negative exposure and a thin one as positive."""
+        """The sandwich subtracts the blurred positive: dense areas come back as
+        negative exposure, thin ones as positive."""
         plane = np.array([[-0.2, 0.2]], dtype=np.float32)
         ev = contrast_mask_ev(plane, 0.5, 1.4, (1, 2))
         assert ev is not None
@@ -110,8 +108,8 @@ class TestContrastMaskPlane(unittest.TestCase):
 
 class TestContrastMaskRender(unittest.TestCase):
     def test_mask_raises_micro_contrast_at_every_density(self):
-        """The point of the mask: the global range is compressed, so a hard grade's
-        local contrast survives at both ends instead of being traded away."""
+        """The range compresses, so a hard grade's local contrast survives at both ends
+        instead of being traded away."""
         img = _wide_range_negative()
         plain = _render(img, _bw_settings(grade=60.0), "cm-plain")
         masked = _render(img, _bw_settings(grade=60.0, contrast_mask=0.5), "cm-masked")
@@ -132,8 +130,7 @@ class TestContrastMaskRender(unittest.TestCase):
         np.testing.assert_allclose(off, explicit, atol=1e-6)
 
     def test_mask_survives_a_resolution_change(self):
-        """Sigma is a fraction of the analysis grid, not of the render, so the mask
-        must not add a resolution dependence of its own on top of the pipeline's."""
+        """Sigma is a fraction of the analysis grid, not of the render."""
         img = _wide_range_negative()
         h, w = img.shape[:2]
         big = cv2.resize(img, (w * 2, h * 2), interpolation=cv2.INTER_LINEAR)

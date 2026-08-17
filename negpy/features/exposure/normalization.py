@@ -16,9 +16,8 @@ if TYPE_CHECKING:
 # Above this size the block-median is threaded over row strips (np.median frees the GIL).
 _BLOCK_MEDIAN_PARALLEL_MIN_PIXELS = 2_000_000
 
-# Unsharpness of the contrast mask, as a fraction of the analysis grid's short side. A
-# fraction of the grid rather than of the render is what keeps the mask identical at
-# preview and export resolution.
+# Contrast-mask unsharpness, as a fraction of the analysis grid's short side. Of the
+# grid, not of the render, so preview and export mask alike.
 MASK_SIGMA_FRACTION = 0.04
 
 
@@ -514,8 +513,8 @@ def measure_textural_range(
 
 
 def normalized_roi(roi: Optional[Tuple[int, int, int, int]], shape: Tuple[int, int]) -> Optional[Tuple[float, float, float, float]]:
-    """An (y1, y2, x1, x2) pixel ROI as fractions of `shape`, so it can be replayed on
-    any downsampled copy. None (or a full-frame ROI) stays None."""
+    """A pixel ROI as fractions of `shape`, replayable on any downsampled copy. None
+    and a full-frame ROI both stay None."""
     if roi is None:
         return None
     h, w = shape
@@ -539,20 +538,12 @@ def contrast_mask_plane(
     roi_norm: Optional[Tuple[float, float, float, float]] = None,
 ) -> np.ndarray:
     """
-    The blurred low-gamma positive of an unsharp contrast-reduction mask, as a
-    normalized luminance plane on the analysis grid.
+    The blurred low-gamma positive of an unsharp contrast-reduction mask, as a zero-mean
+    luminance plane on the analysis grid.
 
-    Takes the linear frame *before* geometry and replays it on the downsampled copy,
-    so both engines can call this on the same array and get the same plane. Sigma is a
-    fraction of the grid, never of the render, so preview and export mask alike.
-
-    `roi_norm` is the printed frame as (y1, y2, x1, x2) fractions. The plane covers only
-    that: the enlarger projects the frame you print, so rebate and scanner surround must
-    stay out of the mask — blurred over, they would print as a vignette the negative
-    does not have.
-
-    Returned zero-mean: a sandwiched mask is denser and the printer opens up for it, so
-    the plane carries only the redistribution and leaves print density alone.
+    Takes the linear frame *before* geometry and replays it on the downsampled copy, so
+    both engines call this on the same array. `roi_norm` is the printed frame as
+    (y1, y2, x1, x2) fractions: a rebate or surround blurred in prints as a vignette.
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
     from negpy.features.geometry.logic import apply_fine_rotation, apply_keystone, apply_radial_distortion
@@ -584,8 +575,7 @@ def contrast_mask_plane(
         x2 = max(x1 + 1, min(gw, int(round(roi_norm[3] * gw))))
         image = np.ascontiguousarray(image[y1:y2, x1:x2])
 
-    # Degenerate bounds (a frame that never metered) would normalize to huge values and
-    # the mask would amplify them into the print. No stretch, no mask.
+    # A frame that never metered normalizes to huge values; no stretch, no mask.
     if luminance_density_range(bounds) < 1e-6:
         return np.zeros(image.shape[:2], dtype=np.float32)
 
