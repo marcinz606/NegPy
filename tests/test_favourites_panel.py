@@ -139,24 +139,24 @@ def _dialog(qapp, selected):
     return FavouritesDialog(None, choices, selected)
 
 
-def test_dialog_reorders_within_bounds(qapp):
+def test_dialog_reads_the_dropped_order_back(qapp):
+    """InternalMove takes the row out and re-inserts it, so the list is the truth after a drop."""
     dlg = _dialog(qapp, ["density", "grade", "saturation"])
 
-    dlg.chosen_list.setCurrentRow(2)
-    dlg._move_up()
-    assert dlg.selected_ids() == ["density", "saturation", "grade"]
+    dlg.chosen_list.insertItem(0, dlg.chosen_list.takeItem(2))
+    dlg.chosen_list.reordered.emit()
 
-    dlg.chosen_list.setCurrentRow(0)
-    dlg._move_up()
-    assert dlg.selected_ids() == ["density", "saturation", "grade"]
-
-    dlg.chosen_list.setCurrentRow(2)
-    dlg._move_down()
-    assert dlg.selected_ids() == ["density", "saturation", "grade"]
-
-    dlg.chosen_list.setCurrentRow(0)
-    dlg._move_down()
     assert dlg.selected_ids() == ["saturation", "density", "grade"]
+
+
+def test_chosen_list_takes_internal_drags(qapp):
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QAbstractItemView
+
+    dlg = _dialog(qapp, ["density", "grade"])
+
+    assert dlg.chosen_list.dragDropMode() == QAbstractItemView.DragDropMode.InternalMove
+    assert dlg.chosen_list.defaultDropAction() == Qt.DropAction.MoveAction
 
 
 def test_dialog_ticking_appends_and_unticking_removes(qapp):
@@ -171,18 +171,6 @@ def test_dialog_ticking_appends_and_unticking_removes(qapp):
 
     items["grade"].setCheckState(Qt.CheckState.Unchecked)
     assert dlg.selected_ids() == ["density"]
-
-
-def test_dialog_remove_button_unticks_the_source_row(qapp):
-    from PyQt6.QtCore import Qt
-
-    dlg = _dialog(qapp, ["density", "grade"])
-    dlg.chosen_list.setCurrentRow(0)
-    dlg._remove_selected()
-
-    assert dlg.selected_ids() == ["grade"]
-    states = {dlg.available_list.item(i).data(256): dlg.available_list.item(i).checkState() for i in range(dlg.available_list.count())}
-    assert states["density"] == Qt.CheckState.Unchecked
 
 
 def test_dialog_drops_stored_ids_it_was_not_offered(qapp):

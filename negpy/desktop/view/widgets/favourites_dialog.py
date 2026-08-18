@@ -1,7 +1,7 @@
-import qtawesome as qta
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -18,6 +18,23 @@ from negpy.desktop.view.styles.theme import THEME
 _ID_ROLE = Qt.ItemDataRole.UserRole
 
 
+class _ReorderList(QListWidget):
+    """Drag-to-reorder list. QListWidget's internal move is a remove plus an insert, so
+    rowsMoved never fires and the drop itself is the only reliable signal."""
+
+    reordered = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+
+    def dropEvent(self, event) -> None:
+        super().dropEvent(event)
+        self.reordered.emit()
+
+
 class FavouritesDialog(QDialog):
     """Column-chooser for the Favourites panel: tick sliders on the left, order them on the
     right. Takes plain (id, category, label) triples rather than widgets so it stays testable
@@ -31,7 +48,7 @@ class FavouritesDialog(QDialog):
         *,
         title: str = "Edit Favourites",
         chosen_header: str = "FAVOURITES",
-        hint: str = "Favourites mirror the real controls — editing one here is the same as editing it in its own panel.",
+        hint: str = "Drag to reorder. Favourites mirror the real controls — editing one here is the same as editing it in its own panel.",
         defaults: list[str] | None = None,
     ):
         super().__init__(parent)
@@ -106,33 +123,10 @@ class FavouritesDialog(QDialog):
         title.setStyleSheet(pane_header_qss())
         layout.addWidget(title)
 
-        self.chosen_list = QListWidget()
+        self.chosen_list = _ReorderList()
         self.chosen_list.setObjectName("preset_list")
+        self.chosen_list.reordered.connect(self._on_reordered)
         layout.addWidget(self.chosen_list)
-
-        row = QHBoxLayout()
-        self.up_btn = QPushButton()
-        self.up_btn.setIcon(qta.icon("fa5s.arrow-up", color=THEME.text_primary))
-        self.up_btn.setToolTip("Move up")
-        self.up_btn.setFixedWidth(36)
-        self.up_btn.clicked.connect(self._move_up)
-
-        self.down_btn = QPushButton()
-        self.down_btn.setIcon(qta.icon("fa5s.arrow-down", color=THEME.text_primary))
-        self.down_btn.setToolTip("Move down")
-        self.down_btn.setFixedWidth(36)
-        self.down_btn.clicked.connect(self._move_down)
-
-        self.remove_btn = QPushButton()
-        self.remove_btn.setIcon(qta.icon("fa5s.times", color=THEME.text_primary))
-        self.remove_btn.setToolTip("Remove from favourites")
-        self.remove_btn.setFixedWidth(36)
-        self.remove_btn.clicked.connect(self._remove_selected)
-
-        for btn in (self.up_btn, self.down_btn, self.remove_btn):
-            row.addWidget(btn)
-        row.addStretch()
-        layout.addLayout(row)
         return pane
 
     def _build_footer(self) -> QHBoxLayout:
@@ -174,41 +168,16 @@ class FavouritesDialog(QDialog):
             self._chosen.remove(slider_id)
         self._rebuild_chosen()
 
-    def _rebuild_chosen(self, select_row: int = -1) -> None:
+    def _rebuild_chosen(self) -> None:
         self.chosen_list.clear()
         for slider_id in self._chosen:
             item = QListWidgetItem(self._label_by_id[slider_id])
             item.setData(_ID_ROLE, slider_id)
             self.chosen_list.addItem(item)
-        if 0 <= select_row < len(self._chosen):
-            self.chosen_list.setCurrentRow(select_row)
 
-    def _set_checked(self, slider_id: str, checked: bool) -> None:
-        for i in range(self.available_list.count()):
-            item = self.available_list.item(i)
-            if item.data(_ID_ROLE) == slider_id:
-                self.available_list.blockSignals(True)
-                item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
-                self.available_list.blockSignals(False)
-                return
-
-    def _move_up(self) -> None:
-        row = self.chosen_list.currentRow()
-        if row > 0:
-            self._chosen[row - 1], self._chosen[row] = self._chosen[row], self._chosen[row - 1]
-            self._rebuild_chosen(row - 1)
-
-    def _move_down(self) -> None:
-        row = self.chosen_list.currentRow()
-        if 0 <= row < len(self._chosen) - 1:
-            self._chosen[row + 1], self._chosen[row] = self._chosen[row], self._chosen[row + 1]
-            self._rebuild_chosen(row + 1)
-
-    def _remove_selected(self) -> None:
-        row = self.chosen_list.currentRow()
-        if 0 <= row < len(self._chosen):
-            self._set_checked(self._chosen.pop(row), False)
-            self._rebuild_chosen(min(row, len(self._chosen) - 1))
+    def _on_reordered(self) -> None:
+        """The dropped list is the truth; read the order back off it."""
+        self._chosen = [self.chosen_list.item(i).data(_ID_ROLE) for i in range(self.chosen_list.count())]
 
     def selected_ids(self) -> list[str]:
         return list(self._chosen)

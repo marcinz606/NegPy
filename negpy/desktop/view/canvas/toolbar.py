@@ -921,7 +921,7 @@ class ActionToolbar(QWidget):
             self._item_ids,
             title="Edit Toolbar",
             chosen_header="TOOLBAR",
-            hint="Whatever does not fit the canvas width collapses from the right. The ⋯ menu always holds every action, whichever ones the row shows.",
+            hint="Drag to reorder. Whatever does not fit the canvas width collapses from the right. The ⋯ menu always holds every action, whichever ones the row shows.",
             defaults=list(DEFAULT_TOOLBAR_IDS),
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
