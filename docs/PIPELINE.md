@@ -305,6 +305,11 @@ When the render intent is **Linear**, the entire darkroom pipeline is bypassed. 
 
 **The JPEG XL path carries none of this.** `_write_jxl()` and `_write_ir_jxl()` take no metadata parameters at all: no description, no XMP, no Make/Model/DateTime, and critically no record of whether ICE was applied. A linear JXL file has zero processing history baked in, and the only indirect signal is the IR sidecar's presence, whose absence could mean either "no IR channel" or "ICE consumed it". `imagecodecs.jpegxl_encode()` has no parameter for this, though libjxl's box API (Exif and XMP boxes) and the reference `cjxl` CLI (`-x exif=`, `-x xmp=`) both support it. Closing this gap needs the same encoder rework as the ICC limitation above, not a small patch.
 
+### Peek Negative
+**Code**: `AppController.toggle_negative_peek` / `_paint_negative_peek`
+
+The canvas equivalent of Linear Output, and not a pipeline stage of its own. The decoded source buffer (`AppState.preview_raw`, pre-bake, so before flat-field, sensor unmix and every defect repair) runs through `GeometryProcessor` and `CropProcessor`, the same two the base and crop stages use, so the frame keeps the user's rotation, flip, straighten, keystone and crop. It then takes `working_oetf_encode`, a display encode rather than an edit, since a linear buffer would otherwise show as near-black. Everything between those two is skipped: nothing is inverted, metered or normalized, so the negative is on screen as the loader read it. `content_rect` is cleared, no border stage having run. The buffer is in camera or scanner primaries, so it is marked `splash` and the working-to-display matrix and the soft proof are left off. The state is transient, mutually exclusive with the flat peek and the before/after split, and any render with no config override drops it.
+
 ---
 
 ## 4. Local Contrast (CLAHE)

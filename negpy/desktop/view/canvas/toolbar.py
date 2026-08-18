@@ -161,6 +161,16 @@ class ActionToolbar(QWidget):
             tooltip_with_shortcut("Peek flat scan — temporarily show the flat master (does not change your edit)", "toggle_flat_peek")
         )
 
+        self.btn_negative_peek = QToolButton()
+        self.btn_negative_peek.setCheckable(True)
+        self.btn_negative_peek.setIcon(qta.icon("fa5s.film", color=icon_color))
+        self.btn_negative_peek.setToolTip(
+            tooltip_with_shortcut(
+                "Peek negative — show the source as it was loaded, un-inverted and unedited, at your crop and rotation (no colour management)",
+                "toggle_negative_peek",
+            )
+        )
+
         self.btn_zones = QToolButton()
         self.btn_zones.setCheckable(True)
         self.btn_zones.setIcon(qta.icon("mdi.grid", color=icon_color))
@@ -252,6 +262,14 @@ class ActionToolbar(QWidget):
         self._ov_flat_peek_action.setCheckable(True)
         self._ov_flat_peek_action.setToolTip(
             tooltip_with_shortcut("Peek flat scan — temporarily show the flat master (does not change your edit)", "toggle_flat_peek")
+        )
+        self._ov_negative_peek_action = overflow_menu.addAction(qta.icon("fa5s.film", color=icon_color), "Peek Negative")
+        self._ov_negative_peek_action.setCheckable(True)
+        self._ov_negative_peek_action.setToolTip(
+            tooltip_with_shortcut(
+                "Peek negative — show the source as it was loaded, un-inverted and unedited, at your crop and rotation (no colour management)",
+                "toggle_negative_peek",
+            )
         )
         self._ov_zones_action = overflow_menu.addAction(qta.icon("mdi.grid", color=icon_color), "Zone Overlay")
         self._ov_zones_action.setCheckable(True)
@@ -384,6 +402,7 @@ class ActionToolbar(QWidget):
             self.btn_zoom_original,
             self.btn_hq,
             self.btn_compare,
+            self.btn_negative_peek,
             self.btn_zones,
             self.btn_loupe,
             self.btn_overflow,
@@ -423,13 +442,14 @@ class ActionToolbar(QWidget):
         row_layout.addWidget(self.btn_undo)
         row_layout.addWidget(self.btn_redo)
         row_layout.addWidget(self.btn_compare)
+        row_layout.addWidget(self.btn_negative_peek)
         row_layout.addWidget(self.btn_zones)
         row_layout.addWidget(self.btn_loupe)
         row_layout.addWidget(self.btn_overflow)
         row_layout.addWidget(self.btn_toggle_right)
 
         # Overflow groups for responsive resize (first listed = first collapsed).
-        self._ov_view_toggles: list = [self.btn_compare, self.btn_zones, self.btn_loupe]
+        self._ov_view_toggles: list = [self.btn_compare, self.btn_negative_peek, self.btn_zones, self.btn_loupe]
         self._ov_undo_redo: list = [self._sep3, self.btn_undo, self.btn_redo]
         self._ov_zoom_extra: list = [self.btn_zoom_fit, self.btn_zoom_original]
         self._ov_hq_group: list = [self.btn_hq, self._sep2]
@@ -466,6 +486,12 @@ class ActionToolbar(QWidget):
         self._ov_flat_peek_action.setChecked(active)
         self._ov_flat_peek_action.blockSignals(False)
 
+    def _on_negative_peek_changed(self, active: bool) -> None:
+        for widget in (self.btn_negative_peek, self._ov_negative_peek_action):
+            widget.blockSignals(True)
+            widget.setChecked(active)
+            widget.blockSignals(False)
+
     def _connect_signals(self) -> None:
         self.btn_prev.clicked.connect(self.session.prev_file)
         self.btn_next.clicked.connect(self.session.next_file)
@@ -487,6 +513,9 @@ class ActionToolbar(QWidget):
         self.controller.compare_changed.connect(self._ov_compare_action.setChecked)
         self.btn_flat_peek.toggled.connect(lambda checked: self.controller.toggle_flat_peek(force=checked))
         self.controller.flat_peek_changed.connect(self._on_flat_peek_changed)
+        self.btn_negative_peek.toggled.connect(lambda checked: self.controller.toggle_negative_peek(force=checked))
+        self._ov_negative_peek_action.triggered.connect(lambda checked: self.controller.toggle_negative_peek(force=checked))
+        self.controller.negative_peek_changed.connect(self._on_negative_peek_changed)
         self.btn_zones.toggled.connect(lambda checked: self.controller.toggle_zones_overlay(force=checked))
         self._ov_zones_action.triggered.connect(lambda checked: self.controller.toggle_zones_overlay(force=checked))
         self.controller.zones_overlay_changed.connect(self._on_zones_changed)
@@ -731,6 +760,7 @@ class ActionToolbar(QWidget):
         self._ov_compare_action.setChecked(state.compare_mode)
         self.btn_flat_peek.setChecked(state.flat_peek)
         self._ov_flat_peek_action.setChecked(state.flat_peek)
+        self._on_negative_peek_changed(state.negative_peek)
         self._on_zones_changed(state.zones_overlay)
         self._on_grain_focuser_changed(state.grain_focuser)
 

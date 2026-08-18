@@ -687,7 +687,11 @@ class CanvasOverlay(QWidget):
             self._draw_dust_overlay(painter)
 
         # Crop/analysis modes show the uncropped frame, so the boxes wouldn't line up.
-        content_aligned = not self.state.flat_peek and self._tool_mode not in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
+        content_aligned = (
+            not self.state.flat_peek
+            and not self.state.negative_peek
+            and self._tool_mode not in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
+        )
         if self.state.test_strip and content_aligned:
             # Takes the content rect over from the zone grid: both would claim it.
             self._draw_test_strip(painter)

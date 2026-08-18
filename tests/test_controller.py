@@ -2531,6 +2531,117 @@ class TestCompareFlatPeekInteraction(unittest.TestCase):
         _, kwargs = rr.call_args
         self.assertIsNone(kwargs.get("config_override"))
 
+    def test_negative_peek_paints_the_source_with_only_the_oetf(self):
+        import numpy as np
+
+        from negpy.kernel.image.logic import working_oetf_encode
+
+        source = np.linspace(0.0, 1.0, 8 * 8 * 3, dtype=np.float32).reshape(8, 8, 3)
+        self.controller.state.preview_raw = source
+        painted: list = []
+        self.controller.image_updated.connect(lambda: painted.append(True))
+
+        self.controller.toggle_negative_peek(force=True)
+
+        self.assertTrue(self.controller.state.negative_peek)
+        self.assertTrue(painted)
+        metrics = self.controller.state.last_metrics
+        np.testing.assert_allclose(metrics["base_positive"], working_oetf_encode(source))
+        # Camera primaries, so the working-to-display matrix and the proof stay out.
+        self.assertTrue(metrics["splash"])
+
+    def test_leaving_the_negative_peek_re_renders_the_edit(self):
+        self.controller.state.negative_peek = True
+        with patch.object(self.controller, "request_render") as rr:
+            self.controller.toggle_negative_peek(force=False)
+        self.assertFalse(self.controller.state.negative_peek)
+        rr.assert_called_once()
+
+    def test_negative_peek_needs_a_loaded_source(self):
+        self.controller.state.preview_raw = None
+        seen: list = []
+        self.controller.negative_peek_changed.connect(seen.append)
+        self.controller.toggle_negative_peek(force=True)
+        self.assertFalse(self.controller.state.negative_peek)
+        self.assertEqual(seen, [])
+
+    def test_the_two_peeks_are_mutually_exclusive(self):
+        self.controller.state.flat_peek = True
+        self.controller.toggle_negative_peek(force=True)
+        self.assertTrue(self.controller.state.negative_peek)
+        self.assertFalse(self.controller.state.flat_peek)
+
+        with patch.object(self.controller, "request_render"):
+            self.controller.toggle_flat_peek(force=True)
+        self.assertTrue(self.controller.state.flat_peek)
+        self.assertFalse(self.controller.state.negative_peek)
+
+    def test_enabling_compare_clears_an_active_negative_peek(self):
+        self.controller.state.negative_peek = True
+        seen: list = []
+        self.controller.negative_peek_changed.connect(seen.append)
+        with patch.object(self.controller, "request_render"):
+            self.controller.toggle_compare()
+        self.assertTrue(self.controller.state.compare_mode)
+        self.assertFalse(self.controller.state.negative_peek)
+        self.assertIn(False, seen)
+
+    def test_the_negative_peek_takes_the_geometry(self):
+        import numpy as np
+        from dataclasses import replace
+
+        # Landscape, so a quarter turn is visible in the shape alone.
+        source = np.random.default_rng(0).random((6, 10, 3), dtype=np.float32)
+        self.controller.state.preview_raw = source
+        geo = replace(self.controller.state.config.geometry, rotation=1, crop_rect=(0.0, 0.0, 0.5, 1.0))
+        self.controller.state.config = replace(self.controller.state.config, geometry=geo)
+
+        self.controller.toggle_negative_peek(force=True)
+
+        painted = self.controller.state.last_metrics["base_positive"]
+        # Quarter turn swaps the axes, then the crop keeps the left half of the width.
+        self.assertEqual(painted.shape, (10, 3, 3))
+        # No border stage ran, so nothing may claim the frame is inset.
+        self.assertIsNone(self.controller.state.last_metrics["content_rect"])
+
+    def test_the_crop_tool_peeks_the_uncropped_frame(self):
+        import numpy as np
+        from dataclasses import replace
+
+        from negpy.desktop.session import ToolMode
+
+        source = np.zeros((6, 10, 3), dtype=np.float32)
+        self.controller.state.preview_raw = source
+        geo = replace(self.controller.state.config.geometry, crop_rect=(0.0, 0.0, 0.5, 1.0))
+        self.controller.state.config = replace(self.controller.state.config, geometry=geo)
+        self.controller.state.active_tool = ToolMode.CROP_MANUAL
+
+        self.controller.toggle_negative_peek(force=True)
+
+        # Framing a crop against a pre-cropped frame would be impossible.
+        self.assertEqual(self.controller.state.last_metrics["base_positive"].shape, (6, 10, 3))
+
+    def test_any_plain_render_leaves_the_negative_peek(self):
+        self.controller.state.negative_peek = True
+        seen: list = []
+        self.controller.negative_peek_changed.connect(seen.append)
+        with patch.object(self.controller, "_dispatch_pending_render"):
+            self.controller.request_render()
+        self.assertFalse(self.controller.state.negative_peek)
+        self.assertIn(False, seen)
+
+    def test_rerender_active_view_keeps_the_negative_peek(self):
+        import numpy as np
+
+        self.controller.state.preview_raw = np.zeros((8, 8, 3), dtype=np.float32)
+        self.controller.state.negative_peek = True
+        with patch.object(self.controller, "request_render") as rr:
+            self.controller.rerender_active_view()
+        # A geometry op must not drop the peek, and the peek is not a render.
+        rr.assert_not_called()
+        self.assertTrue(self.controller.state.negative_peek)
+        self.assertIn("base_positive", self.controller.state.last_metrics)
+
 
 class TestClearThumbnailCache(unittest.TestCase):
     """'Clear Thumbnails' has to drop the disk cache and the in-memory icons, then refill."""

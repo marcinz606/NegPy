@@ -20,7 +20,11 @@ This guide is for new users. It explains what each control does and when to reac
 
 The canvas toolbar's **◑** button (or `\`) splits the canvas in two. Left of the divider is the auto baseline: the same frame with the same film process, crop and rotation, but with every creative control (exposure, tone, Lab, dodge/burn, toning, retouch and finishing) back at its default. Right of it is your edit. Drag the divider to move the split, or grab its knob in the middle.
 
-The split stays up while you work, so a slider moves the after side against a fixed reference. Press `\` again, or move to another frame, to close it. Peek Flat Scan and the test strip take the canvas over, so they close it too.
+The split stays up while you work, so a slider moves the after side against a fixed reference. Press `\` again, or move to another frame, to close it. Peek Negative, Peek Flat Scan and the test strip take the canvas over, so they close it too.
+
+### Peek Negative
+
+The canvas toolbar's film button (or `N`) shows the scan as it was loaded: the negative, un-inverted, with no metering, no film-base normalization and none of your edits. Use it to judge the scan rather than the print — whether the frame is thin or dense, what colour the mask really is, whether the scanner clipped. It changes nothing and closes as soon as you touch a control. Your crop, rotation and flip still apply, so the frame stays where you put it. Because it is the file's own numbers, it gets no colour management or soft proof, so expect the raw orange cast rather than an accurate one.
 
 ### The workflow (and the order things happen)
 
@@ -544,7 +548,7 @@ Two conventions are worth knowing, both borrowed from the darkroom rather than f
 
 A mask with a local **Grade** also carries the grade it actually prints at, not the trim: a burn of +1.00 st at −20 R on a frame graded R115 is written `Burn +1 @ R95`, and a grade-only mask reads `Grade @ R95`.
 
-Every mask is on the map, including ones whose outline you hid with the eye: that eye is there to unclutter editing, and a printing record that quietly omits a burn would be wrong. The overlay steps aside while a test strip, the flat peek, the before/after baseline, or the crop and analysis tools own the canvas. Both the preview and its export live in the Export tab's **Printing Notes** section.
+Every mask is on the map, including ones whose outline you hid with the eye: that eye is there to unclutter editing, and a printing record that quietly omits a burn would be wrong. The overlay steps aside while a test strip, either peek, the before/after baseline, or the crop and analysis tools own the canvas. Both the preview and its export live in the Export tab's **Printing Notes** section.
 
 ---
 

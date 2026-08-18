@@ -45,6 +45,7 @@ def _stub(memo, **overrides):
             last_metrics={},
             current_file_hash="h1",
             compare_mode=False,
+            negative_peek=False,
         ),
         image_updated=MagicMock(),
         _update_thumbnail_from_state=MagicMock(),

@@ -199,6 +199,8 @@ class AppState:
     flat_output: bool = False
     # Transient: preview is currently peeking the flat render (not persisted).
     flat_peek: bool = False
+    # Transient: preview is showing the decoded source as loaded, un-inverted.
+    negative_peek: bool = False
 
     # Linear Output: export the loader's raw decoded buffer as an untagged 16-bit TIFF.
     linear_output: bool = False

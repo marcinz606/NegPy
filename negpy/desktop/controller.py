@@ -12,6 +12,7 @@ from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import QCheckBox, QMessageBox
 
 from negpy.kernel.system.text import count_of, plural
+from negpy.kernel.image.logic import working_oetf_encode
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.render_memo import RenderMemo
 from negpy.desktop.session import (
@@ -104,6 +105,8 @@ from negpy.features.geometry.logic import (
     has_manual_crop,
 )
 from negpy.features.geometry.models import FINE_ROTATION_LIMIT, AutocropMode
+from negpy.features.geometry.processor import CropProcessor, GeometryProcessor
+from negpy.domain.interfaces import PipelineContext
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig
 from negpy.features.process.models import ProcessConfig, ProcessMode, invalidate_local_bounds, scan_setup_values
@@ -310,6 +313,7 @@ class AppController(QObject):
     flat_output_changed = pyqtSignal(bool)
     linear_output_changed = pyqtSignal(bool)
     flat_peek_changed = pyqtSignal(bool)
+    negative_peek_changed = pyqtSignal(bool)
     zoom_requested = pyqtSignal(float)
     zoom_changed = pyqtSignal(float)
     _render_cleanup_requested = pyqtSignal(object)  # texture to spare, or None
@@ -1503,6 +1507,9 @@ class AppController(QObject):
         self.state.preview_ir = None
         self.state.has_ir = False
         self.state.original_res = (0, 0)
+        if self.state.negative_peek:
+            self.state.negative_peek = False
+            self.negative_peek_changed.emit(False)
 
         pending_import = self._pending_capture_imports.pop(_capture_import_key(file_path), None)
         if pending_import is not None and pending_import.process_mode is not None:
@@ -3720,6 +3727,9 @@ class AppController(QObject):
         if config_override is None and self.state.flat_peek:
             self.state.flat_peek = False
             self.flat_peek_changed.emit(False)
+        if config_override is None and self.state.negative_peek:
+            self.state.negative_peek = False
+            self.negative_peek_changed.emit(False)
 
         # The strip's patches were printed from the config as it stood, so once the edit
         # moves they prove something else. Drop them, which also cancels a strip still
@@ -3840,6 +3850,9 @@ class AppController(QObject):
             if self.state.flat_peek:
                 self.state.flat_peek = False
                 self.flat_peek_changed.emit(False)
+            if self.state.negative_peek:
+                self.state.negative_peek = False
+                self.negative_peek_changed.emit(False)
             # Same reason the strip and the peek are exclusive: both want the canvas.
             self._clear_test_strip()
             self.state.compare_mode = True
@@ -3854,7 +3867,9 @@ class AppController(QObject):
         out of flat-peek; a plain request_render() would exit it. The compare split
         survives a plain render, and its baseline half re-captures on the key change.
         """
-        if self.state.flat_peek:
+        if self.state.negative_peek:
+            self._paint_negative_peek()
+        elif self.state.flat_peek:
             self.request_render(readback_metrics=False, config_override=flat_master_config(self.state.config))
         else:
             self.request_render()
@@ -3916,6 +3931,9 @@ class AppController(QObject):
 
         if target:
             self.exit_compare()
+            if self.state.negative_peek:
+                self.state.negative_peek = False
+                self.negative_peek_changed.emit(False)
             self._clear_test_strip()
 
         self.state.flat_peek = target
@@ -3923,6 +3941,67 @@ class AppController(QObject):
 
         if target:
             self.request_render(readback_metrics=False, config_override=flat_master_config(self.state.config))
+        else:
+            self.request_render()
+
+    def _paint_negative_peek(self) -> None:
+        """Put the decoded source on the canvas: un-inverted, un-normalized, no tone edits.
+
+        Geometry is the one thing the peek does apply, through the same two processors
+        the base and crop stages use, so the negative sits at the orientation and
+        framing the user set. Everything after it is skipped: no metering, no
+        inversion, no look. Only the working OETF follows, or a linear buffer shows as
+        near-black. The source is in camera primaries, so it is marked splash to keep
+        the working-to-display matrix and the proof out of it, and content_rect is
+        cleared because no border stage ran to inset the picture.
+        """
+        source = self.state.preview_raw
+        if source is None:
+            return
+        geometry = self.state.config.geometry
+        flatfield = self.state.config.flatfield
+        original = self.state.original_res if any(self.state.original_res) else source.shape[:2]
+        context = PipelineContext(
+            original_size=(original[0], original[1]),
+            scale_factor=max(original) / float(APP_CONFIG.preview_render_size),
+            process_mode=self.state.config.process.process_mode,
+            # Mirrors request_render: the crop tool frames against the uncropped frame.
+            crop_preview_full=self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW),
+            wants_uv_grid=False,
+        )
+        img = GeometryProcessor(geometry, flatfield.k1 if flatfield.apply else 0.0).process(source, context)
+        if not context.crop_preview_full:
+            img = CropProcessor(geometry).process(img, context)
+        with self.state.metrics_lock:
+            self.state.last_metrics["base_positive"] = working_oetf_encode(img)
+            self.state.last_metrics["content_rect"] = None
+            self.state.last_metrics["splash"] = True
+        self.image_updated.emit()
+
+    def toggle_negative_peek(self, force: Optional[bool] = None) -> None:
+        """Show the negative as it was loaded, without changing the saved edit.
+
+        ``force`` sets an explicit state; otherwise toggles. Mutually exclusive with
+        the before/after compare view and the flat peek.
+        """
+        if self.state.preview_raw is None:
+            return
+        target = (not self.state.negative_peek) if force is None else force
+        if target == self.state.negative_peek:
+            return
+
+        if target:
+            self.exit_compare()
+            if self.state.flat_peek:
+                self.state.flat_peek = False
+                self.flat_peek_changed.emit(False)
+            self._clear_test_strip()
+
+        self.state.negative_peek = target
+        self.negative_peek_changed.emit(target)
+
+        if target:
+            self._paint_negative_peek()
         else:
             self.request_render()
 
@@ -4746,7 +4825,11 @@ class AppController(QObject):
             self._gpu_fallback_notified = True
             self.set_status("GPU acceleration failed — using CPU", 5000)
 
-        self.image_updated.emit()
+        # A render already in flight when the peek went on would otherwise repaint over it.
+        if self.state.negative_peek:
+            self._paint_negative_peek()
+        else:
+            self.image_updated.emit()
 
         # By reference, because display buffers are read-only downstream. After the repaint:
         # overwriting an entry frees the texture the canvas has just stopped sampling.

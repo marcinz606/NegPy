@@ -141,6 +141,7 @@ class ShortcutManager:
             "local_gradient": lambda: _toggle_tool_button(self.window, "tone", controls.local_sidebar.gradient_btn),
             "analysis_draw": lambda: _toggle_tool_button(self.window, "setup", controls.process_sidebar.analysis_region_btn),
             "toggle_flat_peek": controller.toggle_flat_peek,
+            "toggle_negative_peek": controller.toggle_negative_peek,
             "toggle_zones": controller.toggle_zones_overlay,
             "toggle_test_strip": controller.toggle_test_strip,
             "toggle_ring_around": controller.toggle_ring_around,
