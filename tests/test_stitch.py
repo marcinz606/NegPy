@@ -14,6 +14,7 @@ from negpy.features.stitch.logic import (
     stitch_composite,
 )
 from negpy.features.stitch.models import StitchConfig, stitch_hash, stitch_token
+from negpy.services.assets.composites import COMPOSITES_KEY
 
 _H, _W = 900, 2000
 _P0_W, _P1_W = 1200, 1280
@@ -420,7 +421,7 @@ def test_apply_stitch_replaces_parts_with_composite():
     assert files[1]["hash"] == "digest#stitch"
     assert session.state.selected_file_idx == 1
     saved = {c.args[0]: c.args[1] for c in repo.save_global_setting.call_args_list}
-    assert "/a" in saved.get("session_stitches", {})
+    assert "/a" in saved.get(COMPOSITES_KEY, {})
 
 
 def test_stitch_real_panorama_samples():

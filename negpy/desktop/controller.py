@@ -68,6 +68,7 @@ from negpy.domain.models import (
     preset_from_export_config,
     resolve_preset_export,
 )
+from negpy.services.assets.composites import forget_composite, restore_maps
 from negpy.services.assets.half_frame import (
     base_hash,
     diptych_configs,
@@ -227,8 +228,6 @@ class _DiscoveryRequest:
     reselect_path: Optional[str]
     rgb_scan: bool
     half_frame: bool
-    restore_stitches: Optional[dict] = None
-    restore_hdr: Optional[dict] = None
     half_frame_profile: Optional[dict] = None  # {crop_rect, split_x, gutter_thickness}
 
 
@@ -901,9 +900,7 @@ class AppController(QObject):
         active = self.session.repo.get_global_setting("session_active_path")
         self._pending_scanned_file = active if active in paths else paths[0]
         triplets = self.session.repo.get_global_setting("session_triplets", {}) or {}
-        stitches = self.session.repo.get_global_setting("session_stitches", {}) or {}
-        merges = self.session.repo.get_global_setting("session_hdr_merges", {}) or {}
-        self.request_asset_discovery(paths, auto_open=True, restore_triplets=triplets, restore_stitches=stitches, restore_hdr=merges)
+        self.request_asset_discovery(paths, auto_open=True, restore_triplets=triplets)
 
     def request_asset_discovery(
         self,
@@ -912,8 +909,6 @@ class AppController(QObject):
         restore_triplets: Optional[dict] = None,
         replace_existing: bool = False,
         reselect_path: Optional[str] = None,
-        restore_stitches: Optional[dict] = None,
-        restore_hdr: Optional[dict] = None,
     ) -> None:
         """
         Starts asynchronous discovery of supported assets.
@@ -931,8 +926,6 @@ class AppController(QObject):
             reselect_path=reselect_path,
             rgb_scan=bool(self.session.repo.get_global_setting("rgbscan_mode", False)),
             half_frame=bool(self.session.repo.get_global_setting("half_frame_mode", False)),
-            restore_stitches=restore_stitches,
-            restore_hdr=restore_hdr,
             half_frame_profile=self.half_frame_profile(),
         )
         if self._discovery_running:
@@ -960,14 +953,17 @@ class AppController(QObject):
         self._reselect_after_discovery = request.reselect_path
         self._active_discovery_keys = frozenset(_capture_import_key(path) for path in request.paths)
         self.set_status("SCANNING FOR ASSETS...")
+        stitches, merges = restore_maps(self.session.repo)
         task = AssetDiscoveryTask(
             paths=list(request.paths),
             supported_extensions=tuple(SUPPORTED_RAW_EXTENSIONS),
             rgb_scan=request.rgb_scan,
             restore_triplets=request.restore_triplets,
             half_frame=request.half_frame,
-            restore_stitches=request.restore_stitches,
-            restore_hdr=request.restore_hdr,
+            # Read as the request starts, not as it was queued: a composite made while
+            # a discovery waits its turn must still be re-attached when the queue gets to it.
+            restore_stitches=stitches,
+            restore_hdr=merges,
             half_frame_profile=request.half_frame_profile,
         )
         self.asset_discovery_requested.emit(task)
@@ -3291,6 +3287,7 @@ class AppController(QObject):
         self.session.state.thumbnails.pop(key, None)
         self.session.state.rendered_thumbnails.discard(key)
         self.session.asset_model.refresh()
+        forget_composite(self.session.repo, asset["path"])
         self._pending_scanned_file = paths[0]
         self.request_asset_discovery(paths, restore_triplets=triplets or None)
 
@@ -3473,6 +3470,7 @@ class AppController(QObject):
         self.session.state.thumbnails.pop(key, None)
         self.session.state.rendered_thumbnails.discard(key)
         self.session.asset_model.refresh()
+        forget_composite(self.session.repo, asset["path"])
         self._pending_scanned_file = paths[0]
         self.request_asset_discovery(paths)
 

@@ -20,6 +20,7 @@ from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.text import count_of
+from negpy.services.assets.composites import remember_composites
 from negpy.services.assets.flatfield import FlatFieldProfiles
 from negpy.services.assets.search import facts_for, match, parse_query
 from negpy.services.assets.sidecar import load_or_promote
@@ -1510,40 +1511,9 @@ class DesktopSessionManager(QObject):
             if f.get("green_path") and f.get("blue_path")
         }
         self.repo.save_global_setting("session_triplets", triplets)
-        # Stitch composites keep their parts and registration here so restore can rebuild the
-        # merged asset without re-running SIFT. Re-discovery sees only the primary.
-        stitches = {
-            f["path"]: {
-                "paths": list(f["stitch_paths"]),
-                "transforms": [list(t) for t in f["stitch_transforms"]],
-                "canvas": list(f["stitch_canvas"]),
-                "sizes": [list(s) for s in f["stitch_sizes"]],
-                "triplets": [list(t) for t in f.get("stitch_triplets") or ()],
-                "align": bool(f.get("stitch_align", True)),
-                "hash": f["hash"],
-                "process_mode": f.get("process_mode", ""),
-            }
-            for f in self.state.uploaded_files
-            if f.get("stitch_paths")
-        }
-        self.repo.save_global_setting("session_stitches", stitches)
-        # HDR merges keep their bracket and solved ratios here for the same reason: the
-        # reference path alone cannot regroup the bracket, and re-solving would decode every
-        # exposure again.
-        merges = {
-            f["path"]: {
-                "paths": list(f["hdr_paths"]),
-                "ratios": [float(r) for r in f.get("hdr_ratios") or ()],
-                "align": bool(f.get("hdr_align", True)),
-                "anchor": str(f.get("hdr_anchor", "") or ""),
-                "anchor_ev": float(f.get("hdr_anchor_ev", ANCHOR_EV_UNSET)),
-                "hash": f["hash"],
-                "process_mode": f.get("process_mode", ""),
-            }
-            for f in self.state.uploaded_files
-            if f.get("hdr_paths")
-        }
-        self.repo.save_global_setting("session_hdr_merges", merges)
+        # Stitch and HDR membership is not part of the manifest: a composite outlives the
+        # file list it was made in, so it is upserted into its own store instead.
+        remember_composites(self.repo, self.state.uploaded_files)
 
     def add_files(self, file_paths: List[str], validated_info: Optional[List[Dict]] = None) -> None:
         """
