@@ -11,9 +11,9 @@ This guide is for new users. It explains what each control does and when to reac
 ### Screen layout
 
 *   **Left, the film strip**: your loaded frames as a contact sheet, plus import, sorting and triage tools.
-*   **Centre, the canvas**: the live preview. Most tools (crop, white-balance picker, heal brush, dodge/burn masks) are used by clicking directly on it. Scroll or pinch to zoom, drag to pan. A floating toolbar along the bottom holds Fit/1:1 zoom, undo/redo, rotate/flip and more, moving overflow items into an **⋯** menu as the window narrows. That menu also holds **Immersive Canvas** (the image fills the canvas and the toolbar overlaps it; turn it off to reserve space) **Show Slider Values** (every slider's value box stays open instead of appearing under the pointer) and **Reverse Scroll Zoom** (scroll up zooms out instead of in). Right-click the image for **Reset View** and **Sticky Zoom** (keeps the current zoom when you switch frames), plus the picker tools and copy/paste settings. With nothing loaded the canvas shows **Load some scans to get started**; click it for **Add files** or **Add folder**.
+*   **Centre, the canvas**: the live preview. Most tools (crop, white-balance picker, heal brush, dodge/burn masks) are used by clicking directly on it. Scroll or pinch to zoom, drag to pan. A floating toolbar along the bottom holds Fit/1:1 zoom, undo/redo, rotate/flip and more, moving overflow items into an **⋯** menu as the window narrows. **Edit Toolbar…** in that menu chooses which controls sit on the row and in what order (drag them into place); what does not fit collapses from the right, and the **⋯** menu keeps every action whatever the row shows. That menu also holds **Immersive Canvas** (the image fills the canvas and the toolbar overlaps it; turn it off to reserve space) **Show Slider Values** (every slider's value box stays open instead of appearing under the pointer) and **Reverse Scroll Zoom** (scroll up zooms out instead of in). Right-click the image for **Reset View** and **Sticky Zoom** (keeps the current zoom when you switch frames), plus the picker tools and copy/paste settings. With nothing loaded the canvas shows **Load some scans to get started**; click it for **Add files** or **Add folder**.
 *   **Left, the film strip**: your loaded frames as a contact sheet, plus import, sorting, and triage tools.
-*   **Centre, the canvas**: the live preview of the current frame. Most tools (crop, white-balance picker, heal brush, dodge/burn masks) are used by clicking directly on it. Scroll/pinch to zoom and drag to pan; a floating toolbar along the bottom holds Fit/1:1 zoom plus undo/redo, rotate/flip and more, moving overflow items into an **⋯** menu when the window narrows. That menu also has **Immersive Canvas** (image fills the canvas and the toolbar overlaps it; turn off to reserve space so it never occludes the image) **Show Slider Values** (keeps every slider's value box open instead of revealing it under the pointer; turn it on if you work by the numbers) and **Reverse Scroll Zoom** (scroll up zooms out instead of in). Right-click the image for **Reset View** and **Sticky Zoom** (keeps the current zoom level when you switch to another frame, instead of resetting to fit), alongside the picker tools, copy/paste settings, and **Unload** (removes the frame from the session; its saved edit is kept). With nothing loaded it shows **Load some scans to get started**; click it for **Add files** / **Add folder**.
+*   **Centre, the canvas**: the live preview of the current frame. Most tools (crop, white-balance picker, heal brush, dodge/burn masks) are used by clicking directly on it. Scroll/pinch to zoom and drag to pan; a floating toolbar along the bottom holds Fit/1:1 zoom plus undo/redo, rotate/flip and more, moving overflow items into an **⋯** menu when the window narrows. **Edit Toolbar…** in that menu chooses which controls sit on the row and in what order (drag them into place); what does not fit collapses from the right, and the **⋯** menu keeps every action whatever the row shows. That menu also has **Immersive Canvas** (image fills the canvas and the toolbar overlaps it; turn off to reserve space so it never occludes the image) **Show Slider Values** (keeps every slider's value box open instead of revealing it under the pointer; turn it on if you work by the numbers) and **Reverse Scroll Zoom** (scroll up zooms out instead of in). Right-click the image for **Reset View** and **Sticky Zoom** (keeps the current zoom level when you switch to another frame, instead of resetting to fit), alongside the picker tools, copy/paste settings, and **Unload** (removes the frame from the session; its saved edit is kept). With nothing loaded it shows **Load some scans to get started**; click it for **Add files** / **Add folder**.
 *   **Right, the controls**: a pinned **Analysis** readout at the top, and below it an icon tab bar. Each icon opens a *workflow page* holding one or more collapsible panels.
 
 ### Before / After
@@ -48,6 +48,19 @@ You do not have to touch every panel. The defaults are tuned to produce a good p
 A small **dot** on a panel header, and on a tab icon, means you changed something from its default. Every panel header has a **reset** action and an **ⓘ** that opens this guide at that panel's section.
 
 Both side panels can be narrowed to give the canvas more room. As the controls panel shrinks, tab icons that no longer fit move into a **»** menu at the right of the tab bar. The tab you are on always stays visible.
+
+### Menu bar (macOS)
+
+On macOS NegPy has a menu bar. Almost nothing in it is new: apart from Report an Issue, every item runs something a button, a window control or a keyboard shortcut already runs.
+
+*   **Window**: Minimize (`⌘M`), Zoom, Close (`⌘W`) and Bring All to Front, then every open NegPy window — the main window plus any live view or calibration window — with a tick against the front one. Select a name to bring that window forward. Minimize and Zoom are unavailable while a window is full screen, as elsewhere on macOS.
+*   **Help**: Take the Tour, Keyboard Shortcuts, Customize Shortcuts, the Analysis panel guide, Report an Issue (which opens the NegPy issue tracker in your browser), and Check for Updates.
+
+Full screen is macOS's own, so NegPy adds no item for it: use the green window button. macOS puts an Enter Full Screen item in the View menu of an app that has one, and NegPy's View menu comes later.
+
+A menu shows a key only when that key uses `⌘`. A shortcut bound to a plain key — `?` for Keyboard Shortcuts — still works, but a menu cannot claim it: macOS gives a menu key priority over everything, so a plain `?` in the menu would fire while you type a `?` into the film strip search box. Rebind a shortcut and its menu item follows.
+
+`⌘W` on the main window closes NegPy. Windows and Linux have no menu bar; nothing there changes.
 
 ---
 
@@ -708,8 +721,8 @@ The paper margin takes the mat color, so it runs into the border with no seam.
 The sliders you reach for most, gathered in one place, so a routine edit no longer costs a
 tab switch and a scroll. Empty until you fill it.
 
-*   **Edit Favourites**: opens a picker. Tick sliders on the left, order them on the right with
-    the arrow buttons, then press **Apply**.
+*   **Edit Favourites**: opens a picker. Tick sliders on the left, drag them into the order you
+    want on the right, then press **Apply**.
 *   The panel then shows those sliders in your chosen order. They are the *same* controls as in
     their home panels, so moving one here moves it there and the other way round. Nothing is
     duplicated or moved out of its own tab.

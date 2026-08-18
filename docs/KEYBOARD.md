@@ -72,3 +72,14 @@ While a test strip or ring-around is up, `[` and `]` turn that proof's ladder in
 | `Mouse Wheel` | Zoom in / out (up to 400%); **Reverse Scroll Zoom** in the toolbar **⋯** menu flips the direction |
 | `Middle Click` + `Drag` | Pan zoomed image |
 | `Left Click` + `Drag` | Pan zoomed image (when no tool is active) |
+
+## Menu bar (macOS only)
+
+NegPy has a menu bar on macOS, with a **Window** and a **Help** menu. These keys come from it. They are platform window commands, not NegPy actions, so they are fixed and do not appear in the shortcut editor.
+
+| Key | Action |
+|-----|--------|
+| `⌘ + M` | Minimize the front window |
+| `⌘ + W` | Close the front window (closing the main window quits NegPy) |
+
+Every other menu item uses the binding listed above for its action, and shows it only when that binding uses `⌘`. A shortcut bound to a plain key still works from the keyboard; the menu just does not print it, because macOS gives a menu key priority over everything and a plain `?` would fire while you type into a text box.

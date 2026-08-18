@@ -139,24 +139,24 @@ def _dialog(qapp, selected):
     return FavouritesDialog(None, choices, selected)
 
 
-def test_dialog_reorders_within_bounds(qapp):
+def test_dialog_reads_the_dropped_order_back(qapp):
+    """InternalMove takes the row out and re-inserts it, so the list is the truth after a drop."""
     dlg = _dialog(qapp, ["density", "grade", "saturation"])
 
-    dlg.chosen_list.setCurrentRow(2)
-    dlg._move_up()
-    assert dlg.selected_ids() == ["density", "saturation", "grade"]
+    dlg.chosen_list.insertItem(0, dlg.chosen_list.takeItem(2))
+    dlg.chosen_list.reordered.emit()
 
-    dlg.chosen_list.setCurrentRow(0)
-    dlg._move_up()
-    assert dlg.selected_ids() == ["density", "saturation", "grade"]
-
-    dlg.chosen_list.setCurrentRow(2)
-    dlg._move_down()
-    assert dlg.selected_ids() == ["density", "saturation", "grade"]
-
-    dlg.chosen_list.setCurrentRow(0)
-    dlg._move_down()
     assert dlg.selected_ids() == ["saturation", "density", "grade"]
+
+
+def test_chosen_list_takes_internal_drags(qapp):
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QAbstractItemView
+
+    dlg = _dialog(qapp, ["density", "grade"])
+
+    assert dlg.chosen_list.dragDropMode() == QAbstractItemView.DragDropMode.InternalMove
+    assert dlg.chosen_list.defaultDropAction() == Qt.DropAction.MoveAction
 
 
 def test_dialog_ticking_appends_and_unticking_removes(qapp):
@@ -173,18 +173,32 @@ def test_dialog_ticking_appends_and_unticking_removes(qapp):
     assert dlg.selected_ids() == ["density"]
 
 
-def test_dialog_remove_button_unticks_the_source_row(qapp):
-    from PyQt6.QtCore import Qt
-
-    dlg = _dialog(qapp, ["density", "grade"])
-    dlg.chosen_list.setCurrentRow(0)
-    dlg._remove_selected()
-
-    assert dlg.selected_ids() == ["grade"]
-    states = {dlg.available_list.item(i).data(256): dlg.available_list.item(i).checkState() for i in range(dlg.available_list.count())}
-    assert states["density"] == Qt.CheckState.Unchecked
-
-
 def test_dialog_drops_stored_ids_it_was_not_offered(qapp):
     dlg = _dialog(qapp, ["density", "retired_slider"])
     assert dlg.selected_ids() == ["density"]
+
+
+def test_dialog_without_defaults_has_no_restore_button(qapp):
+    from PyQt6.QtWidgets import QPushButton
+
+    dlg = _dialog(qapp, ["density"])
+    assert [b.text() for b in dlg.findChildren(QPushButton) if b.text() == "Restore Defaults"] == []
+
+
+def test_dialog_restore_defaults_resets_the_chosen_list_and_the_ticks(qapp):
+    """The toolbar editor passes defaults so the stock row is one click away."""
+    choices = [("density", "Exposure", "Density"), ("grade", "Exposure", "Grade"), ("saturation", "Lab", "Chroma")]
+    from PyQt6.QtCore import Qt
+
+    dlg = FavouritesDialog(None, choices, ["saturation"], defaults=["grade", "density"])
+
+    dlg._restore_defaults()
+
+    assert dlg.selected_ids() == ["grade", "density"]
+    states = {
+        dlg.available_list.item(i).data(Qt.ItemDataRole.UserRole): dlg.available_list.item(i).checkState()
+        for i in range(dlg.available_list.count())
+    }
+    assert states["grade"] == Qt.CheckState.Checked
+    assert states["density"] == Qt.CheckState.Checked
+    assert states["saturation"] == Qt.CheckState.Unchecked

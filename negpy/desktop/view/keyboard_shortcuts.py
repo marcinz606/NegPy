@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from typing import Optional
 
 from PyQt6.QtGui import QKeySequence, QShortcut
 
@@ -162,6 +163,7 @@ class ShortcutManager:
             "toggle_left_panel": self.window.toggle_session_dock,
             "toggle_right_panel": self.window.toggle_controls_dock,
             "reset_panel_layout": self.window.reset_panel_layout,
+            "edit_toolbar": toolbar.open_toolbar_editor,
             "tab_favourites": lambda: right.show_tab_by_key("favourites"),
             "tab_setup": lambda: right.show_tab_by_key("setup"),
             "tab_geometry": lambda: right.show_tab_by_key("geometry"),
@@ -195,6 +197,11 @@ class ShortcutManager:
             actions[group.dec_action] = self._slider_adjuster(getter, group.dec_action)
         return actions
 
+    def action_for(self, action_id: str) -> Optional[Callable[[], None]]:
+        """The handler a shortcut runs. The macOS menu bar dispatches through this, so a
+        menu item and its key can never drift apart."""
+        return self._actions.get(action_id)
+
     def apply_bindings(self, bindings: dict[str, str]) -> None:
         self.bindings = dict(bindings)
         set_current_bindings(self.bindings)
@@ -212,6 +219,11 @@ class ShortcutManager:
 
         self.window.controls_panel.apply_shortcut_tooltips()
         self.window.right_panel.apply_shortcut_tooltips()
+        # The macOS menu bar carries key equivalents of its own; a rebind has to reach them
+        # or the retired key keeps working from the menu.
+        menus = getattr(self.window, "mac_menus", None)
+        if menus is not None:
+            menus.sync_shortcuts()
 
     def update_bindings(self, bindings: dict[str, str]) -> None:
         save_bindings(self.window.controller.session.repo, bindings)
