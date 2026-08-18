@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from typing import Optional
 
 from PyQt6.QtGui import QKeySequence, QShortcut
 
@@ -194,6 +195,11 @@ class ShortcutManager:
             actions[group.dec_action] = self._slider_adjuster(getter, group.dec_action)
         return actions
 
+    def action_for(self, action_id: str) -> Optional[Callable[[], None]]:
+        """The handler a shortcut runs. The macOS menu bar dispatches through this, so a
+        menu item and its key can never drift apart."""
+        return self._actions.get(action_id)
+
     def apply_bindings(self, bindings: dict[str, str]) -> None:
         self.bindings = dict(bindings)
         set_current_bindings(self.bindings)
@@ -211,6 +217,11 @@ class ShortcutManager:
 
         self.window.controls_panel.apply_shortcut_tooltips()
         self.window.right_panel.apply_shortcut_tooltips()
+        # The macOS menu bar carries key equivalents of its own; a rebind has to reach them
+        # or the retired key keeps working from the menu.
+        menus = getattr(self.window, "mac_menus", None)
+        if menus is not None:
+            menus.sync_shortcuts()
 
     def update_bindings(self, bindings: dict[str, str]) -> None:
         save_bindings(self.window.controller.session.repo, bindings)

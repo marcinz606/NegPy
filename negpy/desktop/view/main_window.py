@@ -23,6 +23,7 @@ from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
 from negpy.desktop.view.canvas.toolbar import ActionToolbar
 from negpy.desktop.view.canvas.widget import ImageCanvas
 from negpy.desktop.view.keyboard_shortcuts import setup_keyboard_shortcuts
+from negpy.desktop.view.mac_menu_bar import install_mac_menus
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.right_panel import RightPanel
 from negpy.desktop.view.sidebar.session_panel import SessionPanel
@@ -152,6 +153,9 @@ class MainWindow(QMainWindow):
         self._init_ui()
         self._connect_signals()
         self.shortcut_manager = setup_keyboard_shortcuts(self)
+        # macOS only: the global menu bar costs no window space, and elsewhere this is a
+        # no-op. After the shortcut manager, whose actions the menu items dispatch through.
+        self.mac_menus = install_mac_menus(self)
         self._update_title()
 
         if self.controller.session.repo.get_global_setting("show_slider_values", default=False):

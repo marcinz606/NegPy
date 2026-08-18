@@ -45,6 +45,19 @@ A small **dot** on a panel header, and on a tab icon, means you changed somethin
 
 Both side panels can be narrowed to give the canvas more room. As the controls panel shrinks, tab icons that no longer fit move into a **»** menu at the right of the tab bar. The tab you are on always stays visible.
 
+### Menu bar (macOS)
+
+On macOS NegPy has a menu bar. Almost nothing in it is new: apart from Report an Issue, every item runs something a button, a window control or a keyboard shortcut already runs.
+
+*   **Window**: Minimize (`⌘M`), Zoom, Close (`⌘W`) and Bring All to Front, then every open NegPy window — the main window plus any live view or calibration window — with a tick against the front one. Select a name to bring that window forward. Minimize and Zoom are unavailable while a window is full screen, as elsewhere on macOS.
+*   **Help**: Take the Tour, Keyboard Shortcuts, Customize Shortcuts, the Analysis panel guide, Report an Issue (which opens the NegPy issue tracker in your browser), and Check for Updates.
+
+Full screen is macOS's own, so NegPy adds no item for it: use the green window button. macOS puts an Enter Full Screen item in the View menu of an app that has one, and NegPy's View menu comes later.
+
+A menu shows a key only when that key uses `⌘`. A shortcut bound to a plain key — `?` for Keyboard Shortcuts — still works, but a menu cannot claim it: macOS gives a menu key priority over everything, so a plain `?` in the menu would fire while you type a `?` into the film strip search box. Rebind a shortcut and its menu item follows.
+
+`⌘W` on the main window closes NegPy. Windows and Linux have no menu bar; nothing there changes.
+
 ---
 
 ## 2. Film strip (left panel)

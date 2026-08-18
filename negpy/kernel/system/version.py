@@ -7,6 +7,7 @@ from typing import Any, Optional
 GITHUB_REPO = "marcinz606/NegPy"
 LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 RELEASES_PAGE = f"https://github.com/{GITHUB_REPO}/releases"
+ISSUES_PAGE = f"https://github.com/{GITHUB_REPO}/issues/new/choose"
 USER_AGENT = "NegPy-Updater"
 
 
