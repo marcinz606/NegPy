@@ -116,7 +116,8 @@ class LocalSidebar(BaseSidebar):
         for btn, mode in self._tool_modes().items():
             btn.toggled.connect(lambda checked, m=mode: self._on_draw_toggled(checked, m))
         # Drag steps render only. The commit writes history and settings, as in every other
-        # sidebar.
+        # sidebar. The canvas drops the mask tint between grab and release, so the value is
+        # judged on the picture.
         for slider, field in (
             (self.burn_slider, "stops"),
             (self.feather_slider, "feather"),
@@ -126,6 +127,8 @@ class LocalSidebar(BaseSidebar):
                 lambda v, f=field: self.controller.update_selected_local_mask(persist=False, readback_metrics=False, **{f: float(v)})
             )
             slider.valueCommitted.connect(lambda v, f=field: self.controller.update_selected_local_mask(**{f: float(v)}))
+            slider.dragStarted.connect(lambda: self.controller.local_drag_changed.emit(True))
+            slider.dragEnded.connect(lambda: self.controller.local_drag_changed.emit(False))
         self.invert_btn.toggled.connect(lambda v: self.controller.update_selected_local_mask(invert=bool(v)))
 
     def _tool_modes(self) -> dict:

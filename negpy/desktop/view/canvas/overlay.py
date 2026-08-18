@@ -35,7 +35,7 @@ from negpy.features.exposure.analysis import (
 )
 from negpy.features.exposure.densitometer import zone_roman
 from negpy.features.geometry.logic import rotation_drag_angle, smooth_polyline, straighten_delta_degrees, translate_normalized_rect
-from negpy.features.local.logic import min_points, outline_points, rasterise
+from negpy.features.local.logic import min_points, outline_points, overlapping_masks, rasterise
 from negpy.features.local.models import MaskShape
 from negpy.features.retouch.models import HEAL_SIZE_REF
 from negpy.features.retouch.logic import trace_scratch
@@ -283,6 +283,9 @@ class CanvasOverlay(QWidget):
         self._local_drag_vertex: Optional[int] = None
         # Set when the handle moves the full mask, as an oval centre does.
         self._local_drag_anchor: Optional[QPointF] = None
+        # Masks whose tint a gesture on the selected one holds off: it and the ones it
+        # overlaps, fixed for the gesture.
+        self._local_muted_masks: frozenset = frozenset()
 
         # Straighten tool: reference-line drag (press -> drag -> release applies).
         self._straighten_p1: Optional[QPointF] = None
@@ -409,10 +412,28 @@ class CanvasOverlay(QWidget):
             self._pin_drag_index = None
         self.update()
 
+    def set_local_slider_drag(self, dragging: bool) -> None:
+        """Hold tints off the canvas while a Burn, Feather or Grade slider is dragged, so the
+        value being set is judged on the picture."""
+        self._mute_masks_for_gesture(dragging)
+        self.update()
+
+    def _mute_masks_for_gesture(self, active: bool) -> None:
+        """Take the tint off the selected mask and off every mask it overlaps, for as long as
+        a gesture on it runs. Stacked tints hide the area being judged worse than one does.
+        The set is fixed at the start, so a vertex dragged across a neighbour does not make
+        it blink."""
+        idx = getattr(self.state, "local_selected_mask", -1)
+        if not active or idx < 0:
+            self._local_muted_masks = frozenset()
+            return
+        self._local_muted_masks = frozenset({idx}) | overlapping_masks(self.state.config.local, idx)
+
     def _end_local_edit(self) -> None:
         self._local_edit_verts = None
         self._local_drag_vertex = None
         self._local_drag_anchor = None
+        self._local_muted_masks = frozenset()
 
     def _end_crop_drag(self) -> None:
         self._crop_drag_mode = None
@@ -1722,7 +1743,6 @@ class CanvasOverlay(QWidget):
                 continue
             ctrl = [self._raw_to_screen(rx, ry, uv_grid) for rx, ry in mask.vertices]
             working = self._local_edit_verts if is_selected else None
-            drag_this = working is not None
             draw_ctrl = working if working is not None else ctrl
             curve = outline_points(mask.shape, [(p.x(), p.y()) for p in draw_ctrl])
             self._local_mask_screen_polys.append([QPointF(x, y) for x, y in curve])
@@ -1733,8 +1753,10 @@ class CanvasOverlay(QWidget):
             outline = QColor(74, 143, 232) if mask.stops > 0 else QColor(232, 200, 74)
             max_alpha = 70 if is_selected else 32
 
-            # Skip the feathered fill mid-drag; it re-rasters every frame.
-            if not drag_this:
+            # A vertex drag skips the feathered fill; it re-rasters every frame. A gesture on
+            # the selected mask drops its fill and the fills it overlaps, so the change under
+            # them stays visible.
+            if working is None and i not in self._local_muted_masks:
                 sigma_screen = mask.feather * min(self._view_rect.width(), self._view_rect.height())
                 pad = 3.0 * sigma_screen + 2.0
                 # A gradient has no boundary, and an inverted mask applies outside its own.
@@ -2407,25 +2429,22 @@ class CanvasOverlay(QWidget):
             return False
         mask, pts = selected
         vi = self._hit_local_vertex(pos, pts)
-        if vi is not None:
-            self._local_edit_verts = list(pts)
-            self._local_drag_vertex = vi
-            # The oval centre moves its axes with it. All other handles move alone.
-            self._local_drag_anchor = pos if (mask.shape == MaskShape.OVAL and vi == 0) else None
-            self.update()
-            return True
-        if mask.shape != MaskShape.POLYGON:
+        if vi is None and mask.shape == MaskShape.POLYGON:
+            ei = self._hit_local_edge_midpoint(pos, pts)
+            if ei is not None:
+                pts = list(pts)
+                a, b = pts[ei], pts[(ei + 1) % len(pts)]
+                pts.insert(ei + 1, QPointF((a.x() + b.x()) / 2.0, (a.y() + b.y()) / 2.0))
+                vi = ei + 1
+        if vi is None:
             return False
-        ei = self._hit_local_edge_midpoint(pos, pts)
-        if ei is not None:
-            work = list(pts)
-            a, b = work[ei], work[(ei + 1) % len(work)]
-            work.insert(ei + 1, QPointF((a.x() + b.x()) / 2.0, (a.y() + b.y()) / 2.0))
-            self._local_edit_verts = work
-            self._local_drag_vertex = ei + 1
-            self.update()
-            return True
-        return False
+        self._local_edit_verts = list(pts)
+        self._local_drag_vertex = vi
+        # The oval centre moves its axes with it. All other handles move alone.
+        self._local_drag_anchor = pos if (mask.shape == MaskShape.OVAL and vi == 0) else None
+        self._mute_masks_for_gesture(True)
+        self.update()
+        return True
 
     def _handle_lasso_press(self, pos: QPointF) -> None:
         if not self._view_rect.contains(pos):

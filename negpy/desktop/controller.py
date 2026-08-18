@@ -321,6 +321,7 @@ class AppController(QObject):
     pixel_readout_rgb = pyqtSignal(object)  # (r255, g255, b255) tuple or None
     densitometer_readout = pyqtSignal(object)  # DensitometerReading or None
     tone_drag_changed = pyqtSignal(str)  # exposure field being slider-dragged; "" = drag ended
+    local_drag_changed = pyqtSignal(bool)  # a selected-mask slider is under the mouse
     scan_devices_requested = pyqtSignal()
     scan_backend_requested = pyqtSignal(str)
     scan_requested = pyqtSignal(ScanRequest)

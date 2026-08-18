@@ -461,6 +461,7 @@ class MainWindow(QMainWindow):
         self.controller.compare_changed.connect(lambda _on: self.canvas.refresh_compare())
         self.controller.test_strip_changed.connect(lambda _up: self.canvas.overlay.on_test_strip_changed())
         self.canvas.test_strip_picked.connect(self.controller.apply_test_strip_pick)
+        self.controller.local_drag_changed.connect(self.canvas.overlay.set_local_slider_drag)
         self.controller.zone_pins_changed.connect(self.canvas.overlay.update)
         self.controller.zone_arm_changed.connect(self._on_zone_armed)
 

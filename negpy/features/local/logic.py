@@ -8,6 +8,10 @@ from negpy.features.local.models import LocalAdjustmentsConfig, MaskShape
 from negpy.features.geometry.logic import map_coords_to_geometry, smooth_polyline
 
 _OVAL_SAMPLES = 64
+# Overlap testing grid, and the alpha below which a tint is too faint to hide anything, so a
+# feather tail brushing a neighbour is not an overlap.
+_OVERLAP_GRID = 96
+_OVERLAP_ALPHA = 0.25
 
 Point = Tuple[float, float]
 
@@ -73,6 +77,38 @@ def rasterise(
             k = int(feather_sigma * 3) | 1  # odd kernel covering ~3 sigma
             alpha = cv2.GaussianBlur(alpha, (k, k), feather_sigma)
     return 1.0 - alpha if invert else alpha
+
+
+def _tinted_area(mask, grid: int) -> np.ndarray | None:
+    """The mask's alpha above the faint-tail threshold, or None if it has too few points."""
+    if len(mask.vertices) < min_points(mask.shape):
+        return None
+    alpha = rasterise(mask.shape, mask.vertices, grid, grid, mask.feather * grid, mask.invert)
+    return alpha > _OVERLAP_ALPHA
+
+
+def overlapping_masks(config: LocalAdjustmentsConfig, index: int, grid: int = _OVERLAP_GRID) -> frozenset:
+    """The indices of the masks whose tinted area meets mask `index`'s own.
+
+    Tested on a coarse square grid in raw-normalised space, through the same rasteriser the
+    render uses, so a gradient's whole side of the frame and an inverted mask's surround
+    count as the area they really cover. Geometry moves every mask together, so an overlap
+    here is an overlap on the canvas at any rotation, zoom or pan.
+    """
+    masks = config.masks
+    if not 0 <= index < len(masks):
+        return frozenset()
+    target = _tinted_area(masks[index], grid)
+    if target is None:
+        return frozenset()
+    hits = set()
+    for i, mask in enumerate(masks):
+        if i == index:
+            continue
+        other = _tinted_area(mask, grid)
+        if other is not None and bool((target & other).any()):
+            hits.add(i)
+    return frozenset(hits)
 
 
 def compute_local_maps(
