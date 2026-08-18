@@ -252,6 +252,11 @@ class DarkroomEngine:
             # Output transform: scene-linear -> display-encoded (flat master skips this).
             current_img = ensure_image(working_oetf_encode(current_img))
 
+        # No paper layout runs here, so the whole buffer is the picture. Reported rather
+        # than left out: the controller merges each render's metrics into last_metrics, so
+        # a key only one engine writes keeps the other engine's last value.
+        context.metrics["content_rect"] = None
+
         if context.wants_uv_grid:
             try:
                 uv_grid = CoordinateMapping.create_uv_grid(
