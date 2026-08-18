@@ -16,7 +16,7 @@ def _rich_config() -> WorkspaceConfig:
     """A config exercising scalar + crop + local-mask paths, so the round trip is meaningful."""
     return WorkspaceConfig(
         exposure=ExposureConfig(density=0.42, grade=130.0),
-        geometry=GeometryConfig(fine_rotation=1.5, manual_crop_rect=(0.1, 0.2, 0.8, 0.9)),
+        geometry=GeometryConfig(fine_rotation=1.5, crop_rect=(0.1, 0.2, 0.8, 0.9)),
         local=LocalAdjustmentsConfig(masks=(LocalMask(vertices=((0.0, 0.0), (0.5, 0.5)), stops=-0.7, feather=0.05),)),
     )
 
@@ -38,7 +38,7 @@ def test_roundtrip_next_to_source(tmp_path):
     d = loaded.to_dict()
     assert d["density"] == 0.42
     assert d["grade"] == 130.0
-    assert tuple(d["manual_crop_rect"]) == (0.1, 0.2, 0.8, 0.9)
+    assert tuple(d["crop_rect"]) == (0.1, 0.2, 0.8, 0.9)
     masks = d["local_masks"]["masks"]
     assert len(masks) == 1
     assert masks[0]["stops"] == -0.7

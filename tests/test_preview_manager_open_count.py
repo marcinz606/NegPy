@@ -6,10 +6,12 @@ exactly once per file, even when use_splash=True triggers both a splash and a
 linear decode.
 """
 
+import io
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import rawpy
+from PIL import Image
 
 
 # ---------------------------------------------------------------------------
@@ -23,9 +25,11 @@ def _make_fake_raw(w: int = 100, h: int = 100) -> MagicMock:
     raw.sizes = MagicMock(iheight=h, iwidth=w)
     raw.postprocess.return_value = np.zeros((h, w, 3), dtype=np.uint16)
 
+    buf = io.BytesIO()
+    Image.new("RGB", (w, h), (10, 20, 30)).save(buf, format="JPEG")
     thumb = MagicMock()
-    thumb.format = rawpy.ThumbFormat.BITMAP
-    thumb.data = np.zeros((h, w, 3), dtype=np.uint8)
+    thumb.format = rawpy.ThumbFormat.JPEG
+    thumb.data = buf.getvalue()
     raw.extract_thumb.return_value = thumb
 
     # Support use as a context manager

@@ -20,7 +20,7 @@ def _edited_cfg() -> WorkspaceConfig:
     return replace(
         c,
         exposure=replace(c.exposure, density=1.5),
-        geometry=replace(c.geometry, manual_crop_rect=(0.1, 0.1, 0.9, 0.9)),
+        geometry=replace(c.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9)),
     )
 
 
@@ -132,6 +132,21 @@ def test_context_menu_single_selection_items(browser, session):
     assert "Apply settings…" in labels
 
 
+def test_context_menu_offers_unsplit_only_for_a_diptych(browser, session):
+    session.state.selected_indices = [0]
+    session.state.selected_file_idx = 0
+    assert "Unsplit diptych" not in _action_labels(browser._build_context_menu())
+
+    session.state.uploaded_files[0]["diptych"] = True
+    assert "Unsplit diptych" in _action_labels(browser._build_context_menu())
+
+
+def test_unsplit_diptych_needs_the_confirm(browser):
+    with patch("negpy.desktop.view.sidebar.files.QMessageBox.exec"):
+        browser.prompt_undiptych()  # no button clicked: rejected
+    browser.controller.request_undiptych.assert_not_called()
+
+
 def test_context_menu_multi_selection_uses_export_selected(browser, session):
     session.state.selected_indices = [0, 1]
     session.state.selected_file_idx = 0
@@ -172,7 +187,7 @@ def test_apply_dialog_check_all_and_none(qapp):
     assert not dlg.apply_btn.isEnabled()
     dlg._set_all_checked(True)
     # unchanged rows stay hidden and unchecked until "Show unchanged settings"
-    assert {r.label for r in dlg.selected()} == {"Print Density", "Manual Crop"}
+    assert {r.label for r in dlg.selected()} == {"Print Density", "Crop"}
     assert dlg.apply_btn.isEnabled()
 
 
@@ -182,13 +197,13 @@ def test_apply_dialog_apply_collects_checked_rows_and_scope(qapp):
     dlg._on_apply()
     labels = {r.label for r in dlg.selected()}
     assert "Print Density" in labels  # the edited exposure setting
-    assert "Manual Crop" in labels  # the edited geometry setting
+    assert "Crop" in labels  # the edited geometry setting
     assert dlg.scope() == "roll"
 
 
 def test_apply_dialog_only_preselects_edited_settings(qapp):
     dlg = GranularSettingsDialog(None, _edited_cfg(), "IMG_0001.cr2", show_scope=True, sel_count=1, roll_count=3)
-    assert {r.label for r in dlg.selected()} == {"Print Density", "Manual Crop"}  # nothing else was non-default
+    assert {r.label for r in dlg.selected()} == {"Print Density", "Crop"}  # nothing else was non-default
     # the rest are still built, just hidden, so they can be applied on demand (#656)
     assert "Crop Offset" in {row.label for _box, row, _edited, _line in dlg._checks}
 

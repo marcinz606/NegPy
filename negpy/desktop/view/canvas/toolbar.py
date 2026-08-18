@@ -149,7 +149,9 @@ class ActionToolbar(QWidget):
         self.btn_compare = QToolButton()
         self.btn_compare.setCheckable(True)
         self.btn_compare.setIcon(qta.icon("fa5s.adjust", color=icon_color))
-        self.btn_compare.setToolTip(tooltip_with_shortcut("Before / After — show the auto baseline", "toggle_compare"))
+        self.btn_compare.setToolTip(
+            tooltip_with_shortcut("Before / After — split against the auto baseline, drag the divider", "toggle_compare")
+        )
 
         # Overflow-only (kept as a state holder so the checked-state mirror still works).
         self.btn_flat_peek = QToolButton()
@@ -157,6 +159,16 @@ class ActionToolbar(QWidget):
         self.btn_flat_peek.setIcon(qta.icon("fa5s.eye", color=icon_color))
         self.btn_flat_peek.setToolTip(
             tooltip_with_shortcut("Peek flat scan — temporarily show the flat master (does not change your edit)", "toggle_flat_peek")
+        )
+
+        self.btn_negative_peek = QToolButton()
+        self.btn_negative_peek.setCheckable(True)
+        self.btn_negative_peek.setIcon(qta.icon("fa5s.film", color=icon_color))
+        self.btn_negative_peek.setToolTip(
+            tooltip_with_shortcut(
+                "Peek negative — show the source as it was loaded, un-inverted and unedited, at your crop and rotation (no colour management)",
+                "toggle_negative_peek",
+            )
         )
 
         self.btn_zones = QToolButton()
@@ -243,11 +255,21 @@ class ActionToolbar(QWidget):
         )
         self._ov_compare_action = overflow_menu.addAction(qta.icon("fa5s.adjust", color=icon_color), "Before / After")
         self._ov_compare_action.setCheckable(True)
-        self._ov_compare_action.setToolTip(tooltip_with_shortcut("Before / After — show the auto baseline", "toggle_compare"))
+        self._ov_compare_action.setToolTip(
+            tooltip_with_shortcut("Before / After — split against the auto baseline, drag the divider", "toggle_compare")
+        )
         self._ov_flat_peek_action = overflow_menu.addAction(qta.icon("fa5s.eye", color=icon_color), "Peek Flat Scan")
         self._ov_flat_peek_action.setCheckable(True)
         self._ov_flat_peek_action.setToolTip(
             tooltip_with_shortcut("Peek flat scan — temporarily show the flat master (does not change your edit)", "toggle_flat_peek")
+        )
+        self._ov_negative_peek_action = overflow_menu.addAction(qta.icon("fa5s.film", color=icon_color), "Peek Negative")
+        self._ov_negative_peek_action.setCheckable(True)
+        self._ov_negative_peek_action.setToolTip(
+            tooltip_with_shortcut(
+                "Peek negative — show the source as it was loaded, un-inverted and unedited, at your crop and rotation (no colour management)",
+                "toggle_negative_peek",
+            )
         )
         self._ov_zones_action = overflow_menu.addAction(qta.icon("mdi.grid", color=icon_color), "Zone Overlay")
         self._ov_zones_action.setCheckable(True)
@@ -343,6 +365,10 @@ class ActionToolbar(QWidget):
         self._ov_sticky_zoom_action.setToolTip(
             tooltip_with_shortcut("Keep the current zoom level when switching images, instead of resetting to fit", "toggle_sticky_zoom")
         )
+        self._ov_invert_zoom_action = overflow_menu.addAction("Reverse Scroll Zoom")
+        self._ov_invert_zoom_action.setCheckable(True)
+        self._ov_invert_zoom_action.setChecked(self.session.state.invert_zoom_scroll)
+        self._ov_invert_zoom_action.setToolTip(tooltip_with_shortcut("Scroll up zooms out instead of in", "toggle_invert_zoom_scroll"))
         self._ov_slider_values_action = overflow_menu.addAction("Show Slider Values")
         self._ov_slider_values_action.setCheckable(True)
         self._ov_slider_values_action.setChecked(bool(self.session.repo.get_global_setting("show_slider_values", default=False)))
@@ -376,6 +402,7 @@ class ActionToolbar(QWidget):
             self.btn_zoom_original,
             self.btn_hq,
             self.btn_compare,
+            self.btn_negative_peek,
             self.btn_zones,
             self.btn_loupe,
             self.btn_overflow,
@@ -415,13 +442,14 @@ class ActionToolbar(QWidget):
         row_layout.addWidget(self.btn_undo)
         row_layout.addWidget(self.btn_redo)
         row_layout.addWidget(self.btn_compare)
+        row_layout.addWidget(self.btn_negative_peek)
         row_layout.addWidget(self.btn_zones)
         row_layout.addWidget(self.btn_loupe)
         row_layout.addWidget(self.btn_overflow)
         row_layout.addWidget(self.btn_toggle_right)
 
         # Overflow groups for responsive resize (first listed = first collapsed).
-        self._ov_view_toggles: list = [self.btn_compare, self.btn_zones, self.btn_loupe]
+        self._ov_view_toggles: list = [self.btn_compare, self.btn_negative_peek, self.btn_zones, self.btn_loupe]
         self._ov_undo_redo: list = [self._sep3, self.btn_undo, self.btn_redo]
         self._ov_zoom_extra: list = [self.btn_zoom_fit, self.btn_zoom_original]
         self._ov_hq_group: list = [self.btn_hq, self._sep2]
@@ -458,6 +486,12 @@ class ActionToolbar(QWidget):
         self._ov_flat_peek_action.setChecked(active)
         self._ov_flat_peek_action.blockSignals(False)
 
+    def _on_negative_peek_changed(self, active: bool) -> None:
+        for widget in (self.btn_negative_peek, self._ov_negative_peek_action):
+            widget.blockSignals(True)
+            widget.setChecked(active)
+            widget.blockSignals(False)
+
     def _connect_signals(self) -> None:
         self.btn_prev.clicked.connect(self.session.prev_file)
         self.btn_next.clicked.connect(self.session.next_file)
@@ -479,6 +513,9 @@ class ActionToolbar(QWidget):
         self.controller.compare_changed.connect(self._ov_compare_action.setChecked)
         self.btn_flat_peek.toggled.connect(lambda checked: self.controller.toggle_flat_peek(force=checked))
         self.controller.flat_peek_changed.connect(self._on_flat_peek_changed)
+        self.btn_negative_peek.toggled.connect(lambda checked: self.controller.toggle_negative_peek(force=checked))
+        self._ov_negative_peek_action.triggered.connect(lambda checked: self.controller.toggle_negative_peek(force=checked))
+        self.controller.negative_peek_changed.connect(self._on_negative_peek_changed)
         self.btn_zones.toggled.connect(lambda checked: self.controller.toggle_zones_overlay(force=checked))
         self._ov_zones_action.triggered.connect(lambda checked: self.controller.toggle_zones_overlay(force=checked))
         self.controller.zones_overlay_changed.connect(self._on_zones_changed)
@@ -507,6 +544,7 @@ class ActionToolbar(QWidget):
         self._ov_redo_action.triggered.connect(self.session.redo)
         self._ov_immersive_action.triggered.connect(self._on_immersive_toggled)
         self._ov_sticky_zoom_action.triggered.connect(self._on_sticky_zoom_toggled)
+        self._ov_invert_zoom_action.triggered.connect(self._on_invert_zoom_toggled)
         self._ov_slider_values_action.triggered.connect(self._on_slider_values_toggled)
 
     def _on_overflow_unload(self) -> None:
@@ -526,6 +564,9 @@ class ActionToolbar(QWidget):
 
     def _on_sticky_zoom_toggled(self, checked: bool) -> None:
         self.session.set_sticky_zoom(checked)
+
+    def _on_invert_zoom_toggled(self, checked: bool) -> None:
+        self.session.set_invert_zoom_scroll(checked)
 
     def _on_gpu_toggled(self, checked: bool) -> None:
         if checked != self.session.state.gpu_enabled:
@@ -651,8 +692,8 @@ class ActionToolbar(QWidget):
         new_geo = replace(geo, rotation=new_rot)
         # Rotate the manual crop rect with the content so it keeps framing the same area. Without
         # this it stayed put and misaligned after a quarter or half turn.
-        if geo.manual_crop_rect is not None:
-            new_geo = replace(new_geo, manual_crop_rect=rotate_normalized_rect(geo.manual_crop_rect, visual_turns_ccw))
+        if geo.crop_rect is not None:
+            new_geo = replace(new_geo, crop_rect=rotate_normalized_rect(geo.crop_rect, visual_turns_ccw))
         new_config = replace(config, geometry=new_geo)
         # The freehand analysis region is display-space too; rotate it alongside.
         if config.process.analysis_rect is not None:
@@ -719,6 +760,7 @@ class ActionToolbar(QWidget):
         self._ov_compare_action.setChecked(state.compare_mode)
         self.btn_flat_peek.setChecked(state.flat_peek)
         self._ov_flat_peek_action.setChecked(state.flat_peek)
+        self._on_negative_peek_changed(state.negative_peek)
         self._on_zones_changed(state.zones_overlay)
         self._on_grain_focuser_changed(state.grain_focuser)
 
@@ -729,6 +771,7 @@ class ActionToolbar(QWidget):
         self._ov_flip_v_action.setChecked(geo.flip_vertical)
         self._ov_immersive_action.setChecked(state.immersive_canvas)
         self._ov_sticky_zoom_action.setChecked(state.sticky_zoom)
+        self._ov_invert_zoom_action.setChecked(state.invert_zoom_scroll)
 
         self.btn_undo.setEnabled(state.undo_index > 0)
         self.btn_redo.setEnabled(state.undo_index < state.max_history_index)

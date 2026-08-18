@@ -11,7 +11,7 @@ def _edited_cfg() -> WorkspaceConfig:
     return replace(
         c,
         exposure=replace(c.exposure, density=1.5),
-        geometry=replace(c.geometry, manual_crop_rect=(0.1, 0.1, 0.9, 0.9)),
+        geometry=replace(c.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9)),
     )
 
 
@@ -37,7 +37,7 @@ def test_exclude_sections_hides_geometry_rows(qapp):
         ask_name=True,
         exclude_sections=frozenset({"Crop", "Rotation"}),
     )
-    assert "Manual Crop" not in {row.label for _box, row, _edited, _line in dlg._checks}
+    assert "Crop" not in {row.label for _box, row, _edited, _line in dlg._checks}
     assert {row.label for row in dlg.selected()} == {"Print Density"}
 
 
@@ -88,13 +88,13 @@ def test_hiding_unchanged_rows_unchecks_them(qapp):
 
     dlg._show_unchanged.setChecked(False)
     assert not _crop_offset_box(dlg).isChecked()
-    assert {row.label for row in dlg.selected()} == {"Print Density", "Manual Crop"}
+    assert {row.label for row in dlg.selected()} == {"Print Density", "Crop"}
 
 
 def test_check_all_skips_hidden_unchanged_rows(qapp):
     dlg = GranularSettingsDialog(None, _edited_cfg(), "IMG.cr2")
     dlg._set_all_checked(True)
-    assert {row.label for row in dlg.selected()} == {"Print Density", "Manual Crop"}
+    assert {row.label for row in dlg.selected()} == {"Print Density", "Crop"}
 
 
 def test_default_mode_unchanged(qapp):

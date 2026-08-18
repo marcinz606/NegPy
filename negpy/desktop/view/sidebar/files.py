@@ -51,6 +51,7 @@ from negpy.infrastructure.filesystem.watcher import FolderWatchService
 from negpy.infrastructure.loaders.helpers import get_supported_raw_wildcards
 from negpy.desktop.view.sidebar.library_tree import LibraryTree
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
+from negpy.desktop.view.widgets.file_dialogs import last_open_folder, pick_start_dir
 from negpy.services.assets.library import folder_counts
 
 
@@ -135,6 +136,10 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         elif kind == "half":  # a split frame, this asset's own half filled
             painter.drawRect(QRect(cx - 6, cy - 4, 12, 8))
             painter.fillRect(QRect(cx - 5 if half == 1 else cx + 1, cy - 3, 5, 7), self._COMPOSITE_GLYPH)
+        elif kind == "diptych":  # the same split frame with both halves filled
+            painter.drawRect(QRect(cx - 6, cy - 4, 12, 8))
+            for left in (cx - 5, cx + 1):
+                painter.fillRect(QRect(left, cy - 3, 5, 7), self._COMPOSITE_GLYPH)
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
         file_info = index.data(Qt.ItemDataRole.UserRole) or {}
@@ -925,7 +930,15 @@ class FileBrowser(QWidget):
             if path is None:
                 path = self.session.state.uploaded_files[0].get("path")
             if path:
-                self.controller.open_half_frame_dialog(path)
+                profile = self.controller.open_half_frame_dialog(path)
+                if profile is None:
+                    # User cancelled or closed the dialog — revert the toggle without
+                    # activating half-frame mode so Cancel/X behaves as expected.
+                    self.half_frame_btn.blockSignals(True)
+                    self.half_frame_btn.setChecked(False)
+                    self.half_frame_btn.blockSignals(False)
+                    self._update_half_frame_style(False)
+                    return
         self.controller.set_half_frame_mode(checked)
 
     def _on_half_frame_adjust(self) -> None:
@@ -966,7 +979,7 @@ class FileBrowser(QWidget):
     def prompt_add_files(self) -> None:
         """Public entry point: also driven by the canvas empty state."""
         wildcards = get_supported_raw_wildcards()
-        start_dir = self.session.repo.get_global_setting("last_open_folder", "") or ""
+        start_dir = last_open_folder(self.session.repo)
         files, _ = QFileDialog.getOpenFileNames(
             self,
             "Select Images",
@@ -979,7 +992,7 @@ class FileBrowser(QWidget):
 
     def prompt_add_folder(self) -> None:
         """Public entry point: also driven by the canvas empty state."""
-        start_dir = self.session.repo.get_global_setting("last_open_folder", "") or ""
+        start_dir = last_open_folder(self.session.repo)
         folder = QFileDialog.getExistingDirectory(self, "Select Folder", start_dir)
         if folder:
             self.session.repo.save_global_setting("last_open_folder", os.path.dirname(folder))
@@ -1126,10 +1139,25 @@ class FileBrowser(QWidget):
             if active.get("hdr_paths"):
                 self._add_hdr_anchor_menu(menu, active)
                 menu.addAction("Unmerge exposures").triggered.connect(lambda: self.controller.request_unmerge_hdr())
+            if active.get("diptych"):
+                menu.addAction("Unsplit diptych").triggered.connect(self.prompt_undiptych)
         menu.addSeparator()
         unload_label = "Unload Selected" if multi else "Unload"
         menu.addAction(unload_label).triggered.connect(self._on_remove_from_menu)
         return menu
+
+    def prompt_undiptych(self) -> None:
+        """Confirm before the halves' edits go, then hand the frame back as one plain scan."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Unsplit diptych")
+        box.setText("Turn this diptych back into one plain frame?")
+        box.setInformativeText("Both halves' edits are deleted. Splitting the scan again starts from defaults.")
+        unsplit = box.addButton("Unsplit", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        if box.clickedButton() is unsplit:
+            self.controller.request_undiptych()
 
     def _add_hdr_merge_action(self, menu, state) -> None:
         """Merging is for transparencies, so the action follows the film process.
@@ -1200,7 +1228,14 @@ class FileBrowser(QWidget):
         if not (0 <= idx < len(files)):
             return
         info = files[idx]
-        dlg = _RgbTripletDialog(self, info["path"], info.get("green_path", ""), info.get("blue_path", ""), info.get("align", True))
+        dlg = _RgbTripletDialog(
+            self,
+            info["path"],
+            info.get("green_path", ""),
+            info.get("blue_path", ""),
+            info.get("align", True),
+            start_dir=last_open_folder(self.session.repo),
+        )
         if dlg.exec():
             red, green, blue = dlg.paths()
             if red and green and blue:
@@ -1226,8 +1261,9 @@ class FileBrowser(QWidget):
 class _RgbTripletDialog(QDialog):
     """Manually assign the red/green/blue exposure files for one RGB-scan frame."""
 
-    def __init__(self, parent, red: str, green: str, blue: str, align: bool = True) -> None:
+    def __init__(self, parent, red: str, green: str, blue: str, align: bool = True, start_dir: str = "") -> None:
         super().__init__(parent)
+        self._start_dir = start_dir
         self.setWindowTitle("Edit RGB Triplet")
         layout = QVBoxLayout(self)
         self._edits: dict[str, QLineEdit] = {}
@@ -1253,7 +1289,10 @@ class _RgbTripletDialog(QDialog):
         layout.addWidget(buttons)
 
     def _browse(self, edit: QLineEdit) -> None:
-        start = os.path.dirname(edit.text()) if edit.text() else ""
+        # An empty row starts where its siblings are: the three exposures of a triplet
+        # are shot in one go and live together.
+        siblings = [self._edits[label].text() for label in ("Red", "Green", "Blue")]
+        start = pick_start_dir(edit.text(), *siblings, self._start_dir)
         path, _ = QFileDialog.getOpenFileName(self, "Select exposure", start, f"Supported Images ({get_supported_raw_wildcards()})")
         if path:
             edit.setText(path)

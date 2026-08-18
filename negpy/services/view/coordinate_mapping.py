@@ -19,6 +19,8 @@ class CoordinateMapping:
         autocrop: bool = False,
         autocrop_params: Optional[dict] = None,
         distortion_k1: float = 0.0,
+        converge_v: float = 0.0,
+        converge_h: float = 0.0,
     ) -> np.ndarray:
         """
         Generates UV map for geometric state (output pixel -> raw uv it samples), so it
@@ -53,6 +55,11 @@ class CoordinateMapping:
 
             uv_grid = np.ascontiguousarray(apply_radial_distortion(uv_grid, distortion_k1))
 
+        if converge_v != 0.0 or converge_h != 0.0:
+            from negpy.features.geometry.logic import apply_keystone
+
+            uv_grid = np.ascontiguousarray(apply_keystone(uv_grid, converge_v, converge_h))
+
         if autocrop and autocrop_params:
             y1, y2, x1, x2 = autocrop_params["roi"]
             # copy so the ROI slice doesn't pin the full-size parent
@@ -61,42 +68,52 @@ class CoordinateMapping:
         return uv_grid
 
     @staticmethod
-    def _grid_affine(uv_grid: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """The grid as an affine map: (viewport reference, raw reference, 2x2 rate).
+    def _grid_homography(uv_grid: np.ndarray) -> np.ndarray:
+        """The grid as a projective map, viewport (0-1) -> raw (0-1).
 
-        Two central differences give the rate, so the model is exact for the affine part
-        of the geometry (rotation, flips, fine rotation, crop). Distortion is not affine,
-        but the model applies only off the frame, where the grid has no data anyway.
-
-        All samples come from the middle of the grid. A fine rotation fills the grid
-        border with zeros, and those are not coordinates.
+        Four interior samples, exact for every projective op (rotation, flips, fine
+        rotation, crop, keystone); only distortion stays approximate, and this is used
+        only off the frame. Samples come from the middle, since a fine rotation fills
+        the border with zeros and those are not coordinates.
         """
         h_uv, w_uv = uv_grid.shape[:2]
         x0, x1 = w_uv // 4, w_uv - 1 - w_uv // 4
         y0, y1 = h_uv // 4, h_uv - 1 - h_uv // 4
-        cx, cy = w_uv // 2, h_uv // 2
-        d_col = (uv_grid[cy, x1] - uv_grid[cy, x0]) * ((w_uv - 1) / max(x1 - x0, 1))
-        d_row = (uv_grid[y1, cx] - uv_grid[y0, cx]) * ((h_uv - 1) / max(y1 - y0, 1))
-        jacobian = np.stack([d_col, d_row], axis=-1).astype(np.float64)
-        viewport_ref = np.array([cx / (w_uv - 1), cy / (h_uv - 1)], dtype=np.float64)
-        return viewport_ref, np.asarray(uv_grid[cy, cx], dtype=np.float64), jacobian
+        src = np.float32(
+            [
+                [x0 / (w_uv - 1), y0 / (h_uv - 1)],
+                [x1 / (w_uv - 1), y0 / (h_uv - 1)],
+                [x1 / (w_uv - 1), y1 / (h_uv - 1)],
+                [x0 / (w_uv - 1), y1 / (h_uv - 1)],
+            ]
+        )
+        dst = np.float32([uv_grid[y0, x0], uv_grid[y0, x1], uv_grid[y1, x1], uv_grid[y1, x0]])
+        return cv2.getPerspectiveTransform(src, dst).astype(np.float64)
+
+    @staticmethod
+    def _apply_homography(m: np.ndarray, nx: float, ny: float) -> Tuple[float, float]:
+        den = m[2, 0] * nx + m[2, 1] * ny + m[2, 2]
+        if abs(den) < 1e-12:
+            return nx, ny
+        return (
+            float((m[0, 0] * nx + m[0, 1] * ny + m[0, 2]) / den),
+            float((m[1, 0] * nx + m[1, 1] * ny + m[1, 2]) / den),
+        )
 
     @staticmethod
     def map_click_to_raw(nx: float, ny: float, uv_grid: np.ndarray) -> Tuple[float, float]:
         """
         Viewport (0-1) -> Raw (0-1).
 
-        A point off the frame has no grid sample, so the affine model of the grid gives
-        it. Dodge/burn masks use this, because a card edge must start outside the
+        A point off the frame has no grid sample, so the projective model of the grid
+        gives it. Dodge/burn masks use this, because a card edge must start outside the
         picture to cover a corner when you tilt it.
         """
         h_uv, w_uv = uv_grid.shape[:2]
         if 0.0 <= nx <= 1.0 and 0.0 <= ny <= 1.0:
             raw_uv = uv_grid[int(ny * (h_uv - 1)), int(nx * (w_uv - 1))]
             return float(raw_uv[0]), float(raw_uv[1])
-        viewport_ref, raw_ref, jacobian = CoordinateMapping._grid_affine(uv_grid)
-        out = raw_ref + jacobian @ (np.array([nx, ny], dtype=np.float64) - viewport_ref)
-        return float(out[0]), float(out[1])
+        return CoordinateMapping._apply_homography(CoordinateMapping._grid_homography(uv_grid), nx, ny)
 
     @staticmethod
     def map_raw_to_viewport(rx: float, ry: float, uv_grid: np.ndarray, buckets: int = 100) -> Tuple[float, float]:
@@ -129,10 +146,9 @@ class CoordinateMapping:
         nx, ny = min((x0 + wx + 0.5) / w_uv, 1.0), min((y0 + wy + 0.5) / h_uv, 1.0)
 
         # The nearest sample is more than one grid step away only if the raw point is off the
-        # frame. The affine model then gives the answer, the inverse of what map_click_to_raw
-        # does there.
+        # frame. The projective model then gives the answer, the inverse of what
+        # map_click_to_raw does there.
         if float(wdist.flat[widx]) > (2.0 / max(h_uv, w_uv)) ** 2:
-            viewport_ref, raw_ref, jacobian = CoordinateMapping._grid_affine(uv_grid)
-            out = viewport_ref + np.linalg.solve(jacobian, np.array([rx, ry], dtype=np.float64) - raw_ref)
-            return float(out[0]), float(out[1])
+            inv = np.linalg.inv(CoordinateMapping._grid_homography(uv_grid))
+            return CoordinateMapping._apply_homography(inv, rx, ry)
         return nx, ny

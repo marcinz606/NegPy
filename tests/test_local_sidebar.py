@@ -134,3 +134,16 @@ def test_invert_toggle_syncs_and_writes_back(qapp):
     assert "inv" in _row_text(sidebar)
     sidebar.invert_btn.setChecked(False)
     controller.update_selected_local_mask.assert_called_with(invert=False)
+
+
+def test_grabbing_a_slider_tells_the_canvas_to_drop_the_tint(qapp):
+    """The mask tint sits over the area being judged, so it steps aside for the gesture."""
+    controller, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=1.0))
+    sidebar.sync_ui()
+
+    for slider in (sidebar.burn_slider, sidebar.grade_slider, sidebar.feather_slider):
+        controller.local_drag_changed.emit.reset_mock()
+        slider.slider.setSliderDown(True)
+        controller.local_drag_changed.emit.assert_called_once_with(True)
+        slider.slider.setSliderDown(False)
+        controller.local_drag_changed.emit.assert_called_with(False)

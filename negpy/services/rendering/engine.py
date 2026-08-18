@@ -1,4 +1,7 @@
 from typing import Optional, Any, Callable, Tuple
+
+import numpy as np
+
 from negpy.domain.types import ImageBuffer
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
@@ -14,6 +17,8 @@ from negpy.features.exposure.processor import (
     NormalizationProcessor,
     PhotometricProcessor,
 )
+from negpy.features.exposure.logic import expand_mask_plane
+from negpy.features.exposure.normalization import contrast_mask_plane, effective_crosstalk_matrix, normalized_roi
 from negpy.features.process.hue import apply_hue_trim
 from negpy.features.exposure.papers import effective_paper_profile
 from negpy.features.cyanotype.processor import CyanotypeProcessor
@@ -36,6 +41,7 @@ class DarkroomEngine:
     def __init__(self) -> None:
         self.config = APP_CONFIG
         self.cache = PipelineCache()
+        self._mask_plane: Optional[Tuple[Any, np.ndarray, float]] = None
 
     def _run_stage(
         self,
@@ -93,8 +99,8 @@ class DarkroomEngine:
 
         current_img = img
 
-        if settings.geometry.manual_crop_rect:
-            logger.debug(f"Engine process with manual_crop_rect: {settings.geometry.manual_crop_rect}")
+        if settings.geometry.crop_rect:
+            logger.debug(f"Engine process with crop_rect: {settings.geometry.crop_rect}")
 
         # Folded into the base stage like fine_rotation, not into source_hash, so the slider
         # re-renders without re-decoding the RAW.
@@ -105,7 +111,7 @@ class DarkroomEngine:
             return NormalizationProcessor(settings.process).process(img_in, ctx)
 
         # While the crop tool shows the full uncropped frame, the crop-selection fields
-        # (manual_crop_rect, auto_crop_*) only feed context.active_roi, which is itself unused
+        # (crop_rect, autocrop_offset) only feed context.active_roi, which is itself unused
         # for output in that mode, since CropProcessor and uv_grid ROI slicing are both bypassed.
         # Keying on them would force a full base, exposure, clahe, lab and local recompute on
         # every crop-rect drag step.
@@ -155,6 +161,37 @@ class DarkroomEngine:
             exposure_models.TARGETS_REVISION,
         )
         current_img, pipeline_changed = self._run_stage(current_img, base_key, "base", run_base, context, pipeline_changed)
+
+        # Built from the source, not from the base output, so the GPU engine can call the
+        # same helper on the same array. Keyed on base, so the Contrast Mask slider re-runs
+        # only the exposure stage.
+        mask_bounds = context.metrics.get("final_bounds")
+        if settings.exposure.contrast_mask != 0.0 and mask_bounds is not None:
+            mask_roi = context.active_roi
+            mask_key = (calculate_config_hash(base_key), mask_roi, current_img.shape[:2], settings.exposure.mask_spacer)
+            if self._mask_plane is None or self._mask_plane[0] != mask_key:
+                plane, centre = contrast_mask_plane(
+                    img,
+                    mask_bounds,
+                    effective_crosstalk_matrix(settings.process, settings.process.process_mode),
+                    rotation=settings.geometry.rotation,
+                    fine_rotation=settings.geometry.fine_rotation,
+                    flip_horizontal=settings.geometry.flip_horizontal,
+                    flip_vertical=settings.geometry.flip_vertical,
+                    converge_v=settings.geometry.converge_v,
+                    converge_h=settings.geometry.converge_h,
+                    distortion_k1=distortion_k1,
+                    roi_norm=normalized_roi(mask_roi, current_img.shape[:2]),
+                    spacer=settings.exposure.mask_spacer,
+                )
+                # Expanded here, not in the exposure stage: the slider re-runs that stage,
+                # and only the scalar moves with it.
+                expanded = expand_mask_plane(plane, current_img.shape[:2], mask_roi)
+                self._mask_plane = None if expanded is None else (mask_key, expanded, centre)
+            if self._mask_plane is not None:
+                context.metrics["contrast_mask_plane"] = self._mask_plane[1]
+                context.metrics["contrast_mask_centre"] = self._mask_plane[2]
+                context.metrics["contrast_mask_roi"] = None
 
         def run_exposure(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
             img_out = PhotometricProcessor(settings.exposure, settings.local, settings.process).process(img_in, ctx)
@@ -215,6 +252,11 @@ class DarkroomEngine:
             # Output transform: scene-linear -> display-encoded (flat master skips this).
             current_img = ensure_image(working_oetf_encode(current_img))
 
+        # No paper layout runs here, so the whole buffer is the picture. Reported rather
+        # than left out: the controller merges each render's metrics into last_metrics, so
+        # a key only one engine writes keeps the other engine's last value.
+        context.metrics["content_rect"] = None
+
         if context.wants_uv_grid:
             try:
                 uv_grid = CoordinateMapping.create_uv_grid(
@@ -227,6 +269,8 @@ class DarkroomEngine:
                     autocrop=True,
                     autocrop_params=({"roi": context.active_roi} if context.active_roi and not context.crop_preview_full else None),
                     distortion_k1=distortion_k1,
+                    converge_v=settings.geometry.converge_v,
+                    converge_h=settings.geometry.converge_h,
                 )
                 context.metrics["uv_grid"] = uv_grid
             except Exception as e:

@@ -5,10 +5,11 @@ from typing import Any, Optional, Tuple
 
 import numpy as np
 import rawpy
-from PIL import ImageCms
+from PIL import Image, ImageCms
 
 from negpy.domain.models import ColorSpace
 from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
+from negpy.kernel.image.logic import ensure_rgb
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
@@ -81,6 +82,52 @@ def identify_color_space_from_icc(icc_bytes: Optional[bytes]) -> Optional[str]:
         return ColorSpace.ADOBE_RGB.value
     if "srgb" in desc or "iec 61966" in desc or "iec61966" in desc:
         return ColorSpace.SRGB.value
+    return None
+
+
+def _tiff_preview_page(file_path: str) -> Optional[Image.Image]:
+    """Reduced-resolution preview page of a TIFF-based raw, or None.
+
+    Page 0 holds the preview only when the full-res data sits in SubIFDs, which is how
+    DNG writers lay it out. Scanner DNGs write that page 16-bit, so both depths count.
+    """
+    try:
+        import tifffile
+
+        with tifffile.TiffFile(file_path) as tif:
+            page = tif.pages[0]
+            if not page.pages or page.dtype not in (np.uint8, np.uint16):  # type: ignore[union-attr]
+                return None
+            arr = page.asarray()  # type: ignore[attr-defined]
+    except Exception as e:
+        logger.warning(f"TIFF preview page read failed for {file_path}: {e}")
+        return None
+
+    if arr.dtype == np.uint16:
+        arr = (arr >> 8).astype(np.uint8)
+    return Image.fromarray(ensure_rgb(arr))
+
+
+def embedded_preview(raw: Any, file_path: str) -> Optional[Image.Image]:
+    """Embedded preview image of a raw file, or None when it has none to give.
+
+    Only a JPEG thumb is taken from libraw. For a BITMAP thumb rawpy shapes the array
+    (h, w, 3) from libraw's hardcoded colors=3 while the allocation holds only data_size
+    bytes, and rawpy exposes no data_size — a grayscale thumb is then read three times
+    past its end, which segfaults whenever the heap tail is unmapped. A TIFF-based file
+    carries that same preview as its reduced-resolution page 0, so it is read from the
+    file instead. Never touch `thumb.data` on a BITMAP thumb.
+    """
+    if not hasattr(raw, "extract_thumb"):
+        return None
+    try:
+        thumb = raw.extract_thumb()
+        if thumb.format == rawpy.ThumbFormat.JPEG:
+            return Image.open(io.BytesIO(thumb.data))
+        if thumb.format == rawpy.ThumbFormat.BITMAP:
+            return _tiff_preview_page(file_path)
+    except Exception:
+        return None
     return None
 
 

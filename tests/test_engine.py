@@ -23,12 +23,29 @@ class TestDarkroomEngine(unittest.TestCase):
         engine = DarkroomEngine()
         img = np.random.rand(200, 200, 3).astype(np.float32)
         # Use explicit auto-crop plus offset to shrink image.
-        settings = WorkspaceConfig.from_flat_dict({"auto_crop_enabled": True, "autocrop_offset": 10})
+        settings = WorkspaceConfig.from_flat_dict({"crop_from_auto": True, "autocrop_offset": 10})
 
         res = engine.process(img, settings, source_hash="dummy")
 
         self.assertLess(res.shape[0], 200)
         self.assertLess(res.shape[1], 200)
+
+    def test_the_engine_always_reports_content_rect(self):
+        """The controller merges each render's metrics into last_metrics, so a key only
+        the GPU engine wrote kept its stale value through a CPU render: after a switch
+        the canvas mapped picker and overlay coords through the wrong rect."""
+        from negpy.domain.interfaces import PipelineContext
+
+        engine = DarkroomEngine()
+        img = np.random.rand(100, 100, 3).astype(np.float32)
+        context = PipelineContext(scale_factor=1.0, original_size=(100, 100))
+        # A rect left behind by an earlier GPU render of a differently framed buffer.
+        context.metrics["content_rect"] = (0, 0, 999, 999)
+
+        engine.process(img, WorkspaceConfig(), source_hash="dummy", context=context)
+
+        # No paper layout runs on this path, so the whole buffer is the picture.
+        self.assertIsNone(context.metrics["content_rect"])
 
     def test_engine_caching(self):
         """Check intermediate result caching."""

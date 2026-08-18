@@ -1738,6 +1738,79 @@ def map_point_radial(px: float, py: float, k1: float, w: int, h: int) -> Tuple[f
     return cx + ix * scale, cy + iy * scale
 
 
+# Easel tilt and swing: a plane-to-plane projectivity, the output rect sampling a
+# trapezoid of the source. The unit is per-cent of the frame, not tilt degrees, which
+# need an enlarger magnification and focal length the pipeline does not model. Mirrored
+# in transform.wgsl and in map_coords_to_geometry; change the quad in all three.
+
+_KEYSTONE_EPS = 1e-4  # per-cent
+
+
+def keystone_matrix_normalized(converge_v: float, converge_h: float) -> np.ndarray:
+    """Forward map (source -> corrected) in the GPU's sampling convention,
+    u = (index + 0.5) / dims.
+
+    The single definition of the quad: the pixel-space matrix and the shader's inverse
+    both derive from it. Convergences are per-cent; positive converge_v stretches the
+    top edge, positive converge_h the left.
+    """
+    a, b = converge_v * 0.005, converge_h * 0.005
+    src = np.float32([[a, b], [1.0 - a, -b], [1.0 + a, 1.0 + b], [-a, 1.0 - b]])
+    dst = np.float32([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
+    return cv2.getPerspectiveTransform(src, dst).astype(np.float64)
+
+
+def _norm_to_index(w: int, h: int) -> np.ndarray:
+    """Normalized [0,1] -> OpenCV pixel-index coords, where pixel i sits at index i."""
+    return np.array([[float(w), 0.0, -0.5], [0.0, float(h), -0.5], [0.0, 0.0, 1.0]], dtype=np.float64)
+
+
+def keystone_matrix(converge_v: float, converge_h: float, w: int, h: int) -> np.ndarray:
+    """The same map in OpenCV pixel-index coords, for warpPerspective."""
+    a = _norm_to_index(w, h)
+    return a @ keystone_matrix_normalized(converge_v, converge_h) @ np.linalg.inv(a)
+
+
+def apply_keystone(img: ImageBuffer, converge_v: float, converge_h: float) -> ImageBuffer:
+    """Perspective correction. Same canvas size, replicated edges: the wedge stays and
+    the user crops it, as fine rotation does. Scaling to fill would change magnification
+    and move an existing crop."""
+    if abs(converge_v) < _KEYSTONE_EPS and abs(converge_h) < _KEYSTONE_EPS:
+        return img
+    h, w = img.shape[:2]
+    res = cv2.warpPerspective(
+        img,
+        keystone_matrix(converge_v, converge_h, w, h),
+        (w, h),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REPLICATE,
+    )
+    return ensure_image(res)
+
+
+def map_point_keystone(px: float, py: float, converge_v: float, converge_h: float, w: int, h: int) -> Tuple[float, float]:
+    """Where a pre-correction point lands in the corrected output."""
+    if abs(converge_v) < _KEYSTONE_EPS and abs(converge_h) < _KEYSTONE_EPS:
+        return px, py
+    m = keystone_matrix(converge_v, converge_h, w, h)
+    den = m[2, 0] * px + m[2, 1] * py + m[2, 2]
+    if abs(den) < 1e-12:
+        return px, py
+    return (
+        float((m[0, 0] * px + m[0, 1] * py + m[0, 2]) / den),
+        float((m[1, 0] * px + m[1, 1] * py + m[1, 2]) / den),
+    )
+
+
+def keystone_inverse_normalized(converge_v: float, converge_h: float) -> np.ndarray:
+    """The keystone's inverse (corrected -> source), which the shader consumes directly
+    rather than rebuilding the quad. Identity when both are zero."""
+    if abs(converge_v) < _KEYSTONE_EPS and abs(converge_h) < _KEYSTONE_EPS:
+        return np.eye(3, dtype=np.float64)
+    m = np.linalg.inv(keystone_matrix_normalized(converge_v, converge_h))
+    return m / m[2, 2]
+
+
 def apply_margin_to_roi(
     roi: ROI,
     h: int,
@@ -1990,6 +2063,86 @@ def get_autocrop_coords(
     return _enforce_ratio_by_occupancy(roi, h, w, ratio_str, row_occ, col_occ, det_scale)
 
 
+def has_manual_crop(geometry: GeometryConfig) -> bool:
+    """True when the crop was drawn or adjusted by hand, so Auto must not overwrite it."""
+    return geometry.crop_rect is not None and not geometry.crop_from_auto
+
+
+def autocrop_detection_key(geometry: GeometryConfig) -> str:
+    """Everything border detection reads, as one comparable string.
+
+    A resolved auto crop stays valid while this is unchanged. Crop Offset is absent: it is
+    applied to the stored rect on every render, so it must not throw the detection away.
+    """
+    return "|".join(
+        str(part)
+        for part in (
+            geometry.rotation,
+            int(geometry.flip_horizontal),
+            int(geometry.flip_vertical),
+            round(geometry.fine_rotation, 4),
+            round(geometry.converge_v, 4),
+            round(geometry.converge_h, 4),
+            geometry.autocrop_ratio,
+            geometry.autocrop_mode,
+            round(geometry.autocrop_rebate_trim, 4),
+        )
+    )
+
+
+def resolve_autocrop_rect(
+    img: ImageBuffer,
+    geometry: GeometryConfig,
+    preview_size: float,
+) -> Optional[Tuple[float, float, float, float]]:
+    """Detect the auto crop and return a normalized rect in transformed-image space, as
+    GeometryConfig.crop_rect stores it and the canvas overlay draws it.
+
+    The only border detection a render reaches; the caller freezes the result, so every
+    later render of the edit crops identically at any resolution. Runs on a copy normalized
+    to AUTOCROP_DETECT_RES, replaying the GeometryProcessor transform order
+    (rot90 -> flips -> fine rotation).
+
+    The rect excludes Crop Offset, which get_manual_rect_coords adds back on every render;
+    only the 2 px baseline margin is baked in. None when the buffer is too small.
+    """
+    h, w = img.shape[:2]
+    det_s = min(1.0, AUTOCROP_DETECT_RES / max(h, w))
+    if det_s < 1.0:
+        tmp = cv2.resize(img, (max(1, round(w * det_s)), max(1, round(h * det_s))), interpolation=cv2.INTER_AREA)
+    else:
+        tmp = img
+    if geometry.rotation != 0:
+        tmp = np.rot90(tmp, k=geometry.rotation)
+    if geometry.flip_horizontal:
+        tmp = np.fliplr(tmp)
+    if geometry.flip_vertical:
+        tmp = np.flipud(tmp)
+    tmp = np.ascontiguousarray(tmp.astype(np.float32, copy=False))
+    if geometry.fine_rotation != 0.0:
+        tmp = apply_fine_rotation(tmp, geometry.fine_rotation)
+    # Detection must see the frame the render produces, or the rect is found on a
+    # straight rebate and applied to a keystoned one.
+    tmp = apply_keystone(tmp, geometry.converge_v, geometry.converge_h)
+
+    rh, rw = tmp.shape[:2]
+    if rh < 2 or rw < 2:
+        return None
+    y1, y2, x1, x2 = get_autocrop_coords(
+        tmp,
+        offset_px=0,
+        # The margin is in detection pixels, so it scales by the detection buffer's own
+        # size, not the source's.
+        scale_factor=max(rh, rw) / float(preview_size),
+        target_ratio_str=geometry.autocrop_ratio,
+        mode=geometry.autocrop_mode,
+        rebate_trim=geometry.autocrop_rebate_trim,
+    )
+    if y2 - y1 < 2 or x2 - x1 < 2:
+        return None
+    return (x1 / rw, y1 / rh, x2 / rw, y2 / rh)
+
+
 def map_coords_to_geometry(
     nx: float,
     ny: float,
@@ -2000,6 +2153,8 @@ def map_coords_to_geometry(
     flip_vertical: bool = False,
     roi: Optional[ROI] = None,
     distortion_k1: float = 0.0,
+    converge_v: float = 0.0,
+    converge_h: float = 0.0,
 ) -> Tuple[float, float]:
     """
     Maps raw coordinates to geometry-transformed space.
@@ -2034,6 +2189,9 @@ def map_coords_to_geometry(
     # (last forward op, matching GeometryProcessor / transform.wgsl).
     if distortion_k1 != 0.0:
         px, py = map_point_radial(px, py, distortion_k1, w, h)
+
+    if converge_v != 0.0 or converge_h != 0.0:
+        px, py = map_point_keystone(px, py, converge_v, converge_h, w, h)
 
     if roi:
         y1, y2, x1, x2 = roi
@@ -2079,7 +2237,7 @@ def smooth_polyline(
     return out
 
 
-def translate_manual_crop_rect(
+def translate_normalized_rect(
     rect: Tuple[float, float, float, float],
     dx: float,
     dy: float,
@@ -2138,8 +2296,8 @@ def toggle_flip(geo: GeometryConfig, horizontal: bool) -> GeometryConfig:
     CURRENTLY rendered image. The pipeline applies flips BEFORE fine rotation,
     and mirror(rotate(+a, img)) == rotate(-a, mirror(img)) — so each single
     mirror must negate the fine-rotation angle, or toggling a flip visibly
-    changes the horizon (the tilt doubles instead of mirroring). The manual
-    crop rect lives in transformed space and mirrors along with the content
+    changes the horizon (the tilt doubles instead of mirroring). The crop
+    rect lives in transformed space and mirrors along with the content
     it frames.
     """
     if horizontal:
@@ -2148,8 +2306,8 @@ def toggle_flip(geo: GeometryConfig, horizontal: bool) -> GeometryConfig:
         new_geo = replace(geo, flip_vertical=not geo.flip_vertical)
     if geo.fine_rotation != 0.0:
         new_geo = replace(new_geo, fine_rotation=-geo.fine_rotation)
-    if geo.manual_crop_rect is not None:
-        new_geo = replace(new_geo, manual_crop_rect=mirror_normalized_rect(geo.manual_crop_rect, horizontal))
+    if geo.crop_rect is not None:
+        new_geo = replace(new_geo, crop_rect=mirror_normalized_rect(geo.crop_rect, horizontal))
     return new_geo
 
 

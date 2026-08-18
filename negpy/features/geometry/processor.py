@@ -4,9 +4,9 @@ from negpy.domain.types import ImageBuffer
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.geometry.logic import (
     apply_fine_rotation,
+    apply_keystone,
     apply_margin_to_roi,
     apply_radial_distortion,
-    get_autocrop_coords,
     get_manual_rect_coords,
 )
 
@@ -38,31 +38,29 @@ class GeometryProcessor:
         if self.distortion_k1 != 0.0:
             img = apply_radial_distortion(img, self.distortion_k1)
 
+        # Last in the forward chain: a plane projectivity cannot be fitted to a frame that
+        # still carries barrel distortion.
+        img = apply_keystone(img, self.config.converge_v, self.config.converge_h)
+
         context.metrics["geometry_params"] = {
             "rotation": self.config.rotation,
             "fine_rotation": self.config.fine_rotation,
             "flip_horizontal": self.config.flip_horizontal,
             "flip_vertical": self.config.flip_vertical,
+            "converge_v": self.config.converge_v,
+            "converge_h": self.config.converge_h,
         }
         # Downstream coordinate mappers (retouch/local) need the same correction.
         context.metrics["distortion_k1"] = self.distortion_k1
 
-        if self.config.manual_crop_rect:
+        # Drawn or detected, the rect is already in crop_rect: ImageProcessor resolves
+        # detection before the engines, never here.
+        if self.config.crop_rect:
             roi = get_manual_rect_coords(
                 img,
-                self.config.manual_crop_rect,
+                self.config.crop_rect,
                 offset_px=self.config.autocrop_offset,
                 scale_factor=context.scale_factor,
-            )
-            context.active_roi = roi
-        elif self.config.auto_crop_enabled:
-            roi = get_autocrop_coords(
-                img,
-                offset_px=self.config.autocrop_offset,
-                scale_factor=context.scale_factor,
-                target_ratio_str=self.config.autocrop_ratio,
-                mode=self.config.autocrop_mode,
-                rebate_trim=self.config.autocrop_rebate_trim,
             )
             context.active_roi = roi
         elif self.config.autocrop_offset > 0:

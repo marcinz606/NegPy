@@ -598,6 +598,10 @@ class ImageCanvas(QWidget):
         # shifts the fit scale. Refresh the true-zoom readout for the new buffer.
         self.zoom_changed.emit(self.zoom_level)
 
+    def refresh_compare(self) -> None:
+        """Repaint the before/after split (its baseline frame landed or was dropped)."""
+        self.overlay.refresh_compare()
+
     def update_overlay(self, filename: str, res: str, colorspace: str, extra: str, edits: int = 0) -> None:
         self.overlay.update_overlay(filename, res, colorspace, extra, edits)
 

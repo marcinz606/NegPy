@@ -69,6 +69,7 @@ class ExportSettingsForm(QWidget):
         super().__init__(parent)
         self._loading = False
         self._flat_mode = False
+        self._linear_mode = False
         self._init_ui()
 
     @staticmethod
@@ -168,7 +169,13 @@ class ExportSettingsForm(QWidget):
 
     # --- SIZE ----------------------------------------------------------------
 
-    def _build_size(self, root: QVBoxLayout) -> None:
+    def _build_size(self, parent: QVBoxLayout) -> None:
+        self._size_section = QWidget()
+        root = QVBoxLayout(self._size_section)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(10)
+        parent.addWidget(self._size_section)
+
         root.addWidget(section_subheader("SIZE"))
 
         mode_row = QHBoxLayout()
@@ -236,7 +243,13 @@ class ExportSettingsForm(QWidget):
 
     # --- COLOR ---------------------------------------------------------------
 
-    def _build_color(self, root: QVBoxLayout) -> None:
+    def _build_color(self, parent: QVBoxLayout) -> None:
+        self._color_section = QWidget()
+        root = QVBoxLayout(self._color_section)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(10)
+        parent.addWidget(self._color_section)
+
         root.addWidget(section_subheader("COLOR"))
 
         # Drop bundled profiles already backed by a color-space enum, so the ICC lists do not
@@ -463,7 +476,7 @@ class ExportSettingsForm(QWidget):
             return
         self._flat_mode = enabled
 
-        self._format_section.setVisible(True)
+        self._format_section.setVisible(not self._linear_mode)
         current = self.fmt_combo.currentData()
         self.fmt_combo.blockSignals(True)
         self.fmt_combo.clear()
@@ -488,6 +501,26 @@ class ExportSettingsForm(QWidget):
 
     def flat_mode(self) -> bool:
         return self._flat_mode
+
+    def set_linear_mode(self, enabled: bool) -> None:
+        """Toggle Linear Output export UI: hide FORMAT, SIZE and COLOR, which a raw dump
+        has no use for, and keep DESTINATION, which it needs exactly as much as print does.
+        The Linear panel owns its own format row, so FORMAT would be a second, conflicting one."""
+        enabled = bool(enabled)
+        if enabled == self._linear_mode:
+            return
+        self._linear_mode = enabled
+        self._format_section.setVisible(not enabled)
+        self._size_section.setVisible(not enabled)
+        self._color_section.setVisible(not enabled)
+        if not enabled:
+            # Restore the rows the format and size modes were hiding on their own.
+            self._on_fmt_changed()
+            self._update_mode_visibility(self._current_mode_value())
+            self._update_ratio_visibility()
+
+    def linear_mode(self) -> bool:
+        return self._linear_mode
 
     def _update_output_mode_visibility(self, mode) -> None:
         self._subfolder_container.setVisible(mode == ExportPresetOutputMode.SUBFOLDER_OF_SOURCE)

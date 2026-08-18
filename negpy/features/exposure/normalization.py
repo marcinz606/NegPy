@@ -2,6 +2,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Optional, Tuple
 
+import cv2
 import numpy as np
 from numba import njit  # type: ignore
 
@@ -14,6 +15,13 @@ if TYPE_CHECKING:
 
 # Above this size the block-median is threaded over row strips (np.median frees the GIL).
 _BLOCK_MEDIAN_PARALLEL_MIN_PIXELS = 2_000_000
+
+# Contrast-mask spacer, per-cent of the analysis grid's short side. Of the grid, not of
+# the render, so preview and export mask alike. Under the minimum the mask stops being
+# unsharp and collapses into a plain (1-g) reduction, which is Grade.
+MASK_SPACER_DEFAULT = 4.0
+MASK_SPACER_MIN = 2.0
+MASK_SPACER_MAX = 6.0
 
 
 @njit(cache=True, fastmath=True)
@@ -505,6 +513,85 @@ def measure_textural_range(
     epsilon = 1e-6
     img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, 1.0))
     return measure_textural_range_from_log(img_log, roi, analysis_buffer)
+
+
+def normalized_roi(roi: Optional[Tuple[int, int, int, int]], shape: Tuple[int, int]) -> Optional[Tuple[float, float, float, float]]:
+    """A pixel ROI as fractions of `shape`, replayable on any downsampled copy. None
+    and a full-frame ROI both stay None."""
+    if roi is None:
+        return None
+    h, w = shape
+    y1, y2, x1, x2 = roi
+    if (y1, x1, y2, x2) == (0, 0, h, w):
+        return None
+    return (y1 / float(h), y2 / float(h), x1 / float(w), x2 / float(w))
+
+
+def contrast_mask_plane(
+    image: ImageBuffer,
+    bounds: LogNegativeBounds,
+    unmix: Optional[np.ndarray],
+    rotation: int = 0,
+    fine_rotation: float = 0.0,
+    flip_horizontal: bool = False,
+    flip_vertical: bool = False,
+    distortion_k1: float = 0.0,
+    converge_v: float = 0.0,
+    converge_h: float = 0.0,
+    roi_norm: Optional[Tuple[float, float, float, float]] = None,
+    spacer: float = MASK_SPACER_DEFAULT,
+) -> Tuple[np.ndarray, float]:
+    """
+    The blurred low-gamma plane an unsharp mask is built from, zero-mean, on the analysis
+    grid, plus the val it was centred on. The gamma's sign picks the mask's polarity and
+    so the direction; the centre is the val a flat area rotates about, which the Analysis
+    chart needs to draw the mask's band.
+
+    Takes the linear frame *before* geometry and replays it on the downsampled copy, so
+    both engines call this on the same array. `roi_norm` is the printed frame as
+    (y1, y2, x1, x2) fractions: a rebate or surround blurred in prints as a vignette.
+    `spacer` is per-cent of the grid: the scale above which tones are masked.
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+    from negpy.features.geometry.logic import apply_fine_rotation, apply_keystone, apply_radial_distortion
+
+    h, w = image.shape[:2]
+    grid = int(EXPOSURE_CONSTANTS["analysis_grid"])
+    if max(h, w) > grid:
+        scale = grid / float(max(h, w))
+        image = cv2.resize(image, (max(1, round(w * scale)), max(1, round(h * scale))), interpolation=cv2.INTER_AREA)
+
+    if rotation:
+        image = np.rot90(image, k=rotation)
+    if flip_horizontal:
+        image = np.fliplr(image)
+    if flip_vertical:
+        image = np.flipud(image)
+    image = np.ascontiguousarray(image)
+    if fine_rotation != 0.0:
+        image = apply_fine_rotation(image, fine_rotation)
+    if distortion_k1 != 0.0:
+        image = apply_radial_distortion(image, distortion_k1)
+    image = apply_keystone(image, converge_v, converge_h)
+
+    if roi_norm is not None:
+        gh, gw = image.shape[:2]
+        y1 = max(0, min(gh - 1, int(round(roi_norm[0] * gh))))
+        y2 = max(y1 + 1, min(gh, int(round(roi_norm[1] * gh))))
+        x1 = max(0, min(gw - 1, int(round(roi_norm[2] * gw))))
+        x2 = max(x1 + 1, min(gw, int(round(roi_norm[3] * gw))))
+        image = np.ascontiguousarray(image[y1:y2, x1:x2])
+
+    # A frame that never metered normalizes to huge values; no stretch, no mask.
+    if luminance_density_range(bounds) < 1e-6:
+        return np.zeros(image.shape[:2], dtype=np.float32), 0.5
+
+    val = normalize_log_image(unmix_log_image(prefilter_log_grid(image, None, 0.0), unmix), bounds)
+    lum = LUMA_R * val[:, :, 0] + LUMA_G * val[:, :, 1] + LUMA_B * val[:, :, 2]
+    sigma = min(max(spacer, MASK_SPACER_MIN), MASK_SPACER_MAX) * 0.01 * min(lum.shape[:2])
+    blurred = cv2.GaussianBlur(np.ascontiguousarray(lum, dtype=np.float32), (0, 0), sigma, borderType=cv2.BORDER_REPLICATE)
+    centre = float(blurred.mean())
+    return blurred - centre, centre
 
 
 def normalize_log_image(img_log: ImageBuffer, bounds: LogNegativeBounds) -> ImageBuffer:

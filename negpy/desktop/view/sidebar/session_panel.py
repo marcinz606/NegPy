@@ -39,6 +39,7 @@ class SessionPanel(QWidget):
         persisted = repo.get_global_setting("section_expanded_app_header")
         self.header = SidebarHeader(self.controller, expanded=bool(persisted) if persisted is not None else True)
         self.header.expanded_changed.connect(lambda v: repo.save_global_setting("section_expanded_app_header", v))
+        self.header.check_requested.connect(self.check_for_updates)
         layout.addWidget(self.header)
 
         self.update_label = QLabel("")
@@ -111,6 +112,7 @@ class SessionPanel(QWidget):
         if info is None:
             return
         self.update_info = info
+        self.header.set_update_state(True)
         self.update_label.setText(
             f'<a href="#update" style="color:{THEME.status_success}; text-decoration:none;">⬇ Update Available: v{info.version}</a>'
         )
@@ -132,10 +134,12 @@ class SessionPanel(QWidget):
         if self.update_info is not None:
             self.show_update_dialog()
             return
+        self.header.set_checking()
         start_update_check(self._on_manual_check)
 
     def _on_manual_check(self, info: Optional[UpdateInfo]) -> None:
         if info is None:
+            self.header.set_update_state(False)
             QMessageBox.information(self, "NegPy", f"NegPy {get_app_version()} is up to date.")
             return
         self._on_update_checked(info)

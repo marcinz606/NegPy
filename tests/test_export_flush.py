@@ -44,6 +44,7 @@ def test_request_export_calls_flush_export_ui():
     )
     controller._ensure_valid_export_path = MagicMock(return_value="C:/Exports")
     controller.effective_input_icc = MagicMock(return_value=None)
+    controller._diptych_task = lambda info: (info, None)
     controller._run_export_tasks = MagicMock()
 
     AppController.request_export(controller)

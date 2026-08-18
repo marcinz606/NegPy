@@ -1,11 +1,9 @@
-import io
 import os
 import time
 from typing import Any, Optional, Tuple
 
 import cv2
 import numpy as np
-from PIL import Image
 
 import rawpy
 
@@ -16,6 +14,7 @@ from negpy.infrastructure.loaders.helpers import (
     NonStandardFileWrapper,
     camera_wb_multipliers,
     camera_xyz_matrix,
+    embedded_preview,
     get_best_demosaic_algorithm,
     is_xtrans,
 )
@@ -92,17 +91,10 @@ class PreviewManager:
         Returns None if a thumb cannot be extracted or converted.
         """
         t0 = time.perf_counter()
-        if not hasattr(raw, "extract_thumb"):
+        img = embedded_preview(raw, file_path)
+        if img is None:
             return None
         try:
-            thumb = raw.extract_thumb()
-            img: Optional[Image.Image] = None
-            if thumb.format == rawpy.ThumbFormat.JPEG:
-                img = Image.open(io.BytesIO(thumb.data))
-            elif thumb.format == rawpy.ThumbFormat.BITMAP:
-                img = Image.fromarray(ensure_rgb(thumb.data))
-            if img is None:
-                return None
             img = img.convert("RGB")
         except Exception:
             return None

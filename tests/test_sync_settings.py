@@ -117,7 +117,7 @@ def _metered_target():
     return replace(c, process=replace(c.process, local_floors=(0.1, 0.2, 0.3), local_ceils=(0.9, 0.8, 0.7)))
 
 
-@pytest.mark.parametrize("label", ["Analysis Buffer", "Mode", "Range", "Color", "Crosstalk", "Trichrome Calibration", "Manual Crop"])
+@pytest.mark.parametrize("label", ["Analysis Buffer", "Mode", "Range", "Color", "Crosstalk", "Trichrome Calibration", "Crop"])
 def test_apply_metering_row_clears_local_bounds(label):
     tgt = _metered_target()
     out = apply_selected_fields(WorkspaceConfig(), tgt, [_row(label)])

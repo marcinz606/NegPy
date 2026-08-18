@@ -1,5 +1,6 @@
 from typing import Any, Dict, Optional, Tuple
 
+import cv2
 import numpy as np
 from numba import njit, prange  # type: ignore
 
@@ -1105,6 +1106,66 @@ def local_ev_scale(bounds: Any) -> Tuple[float, float, float]:
     for ch in range(3):
         out.append(step / max(abs(bounds.ceils[ch] - bounds.floors[ch]), 1e-6))
     return (out[0], out[1], out[2])
+
+
+def expand_mask_plane(
+    plane: Optional[np.ndarray],
+    out_shape: Tuple[int, int],
+    roi: Optional[Tuple[int, int, int, int]] = None,
+) -> Optional[np.ndarray]:
+    """
+    The analysis-grid mask plane at render size. The plane covers the printed frame, so
+    it lands back at `roi`, edge-replicated so the uncropped preview has no seam.
+
+    Split from `contrast_mask_ev` so a caller can cache this across slider values: only
+    the scalar depends on the gamma. The GPU shader mirrors the bilinear mapping.
+    """
+    if plane is None:
+        return None
+    h, w = out_shape
+    if roi is None:
+        if plane.shape[:2] != (h, w):
+            plane = cv2.resize(plane, (w, h), interpolation=cv2.INTER_LINEAR)
+        return np.ascontiguousarray(plane, dtype=np.float32)
+
+    y1, y2, x1, x2 = roi
+    y1, x1 = max(0, y1), max(0, x1)
+    y2, x2 = min(h, y2), min(w, x2)
+    if y2 - y1 < 1 or x2 - x1 < 1:
+        return None
+    inner = cv2.resize(plane, (x2 - x1, y2 - y1), interpolation=cv2.INTER_LINEAR)
+    if (y1, x1, y2, x2) == (0, 0, h, w):
+        return np.ascontiguousarray(inner, dtype=np.float32)
+    return np.ascontiguousarray(np.pad(inner, ((y1, h - y2), (x1, w - x2)), mode="edge"), dtype=np.float32)
+
+
+def contrast_mask_scale(gamma: float, density_range: float) -> float:
+    """
+    Stops of print exposure per unit of mask plane.
+
+    The sandwich D' = D - g*blur(D) is val - g*blur in normalized space; one stop is
+    log10(2) of density, and equal stops is an equal density change in every channel,
+    as a neutral panchromatic masking film gives. Positive g is a blurred positive and
+    subtracts the low frequencies; negative g matches the negative's polarity and adds
+    them.
+    """
+    return -float(gamma) * float(density_range) / float(np.log10(2.0))
+
+
+def contrast_mask_ev(
+    plane: Optional[np.ndarray],
+    gamma: float,
+    density_range: float,
+    out_shape: Tuple[int, int],
+    roi: Optional[Tuple[int, int, int, int]] = None,
+) -> Optional[np.ndarray]:
+    """The contrast mask as print-exposure stops, ready to add to the dodge/burn map."""
+    if plane is None or abs(gamma) < 1e-6:
+        return None
+    expanded = expand_mask_plane(plane, out_shape, roi)
+    if expanded is None:
+        return None
+    return (expanded * contrast_mask_scale(gamma, density_range)).astype(np.float32)
 
 
 def cmy_to_density(val: float, log_range: float = 1.0) -> float:

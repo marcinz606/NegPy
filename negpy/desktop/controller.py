@@ -12,6 +12,7 @@ from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import QCheckBox, QMessageBox
 
 from negpy.kernel.system.text import count_of, plural
+from negpy.kernel.image.logic import working_oetf_encode
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.render_memo import RenderMemo
 from negpy.desktop.session import (
@@ -22,7 +23,7 @@ from negpy.desktop.session import (
     resolve_asset_rgbscan,
     resolve_asset_stitch,
 )
-from negpy.desktop.workers.export import ExportTask, ExportWorker, LinearOutputTask, find_export_conflicts
+from negpy.desktop.workers.export import ExportTask, ExportWorker, LinearOutputTask, find_export_conflicts, resolve_output_dir
 from negpy.desktop.workers.render import (
     AssetDiscoveryTask,
     AssetDiscoveryWorker,
@@ -44,7 +45,7 @@ from negpy.desktop.workers.scan_worker import BatchRequest, PrescanRequest, Roll
 from negpy.desktop.workers.library import LibrarySearchTask, LibrarySearchWorker
 from negpy.desktop.workers.hdr import HdrTask, HdrWorker
 from negpy.desktop.workers.stitch import StitchTask, StitchWorker
-from negpy.features.hdr.models import ANCHOR_EV_UNSET, hdr_frame_paths, hdr_hash, hdr_name, hdr_stem
+from negpy.features.hdr.models import ANCHOR_EV_UNSET, hdr_frame_paths, hdr_hash, hdr_name
 from negpy.features.process.logic import effective_linear_raw, narrowband_profile_active
 from negpy.features.stitch.models import stitch_hash, stitch_name
 from negpy.desktop.workers.capture_worker import (
@@ -55,6 +56,7 @@ from negpy.desktop.workers.capture_worker import (
 )
 from negpy.domain.models import (
     ColorSpace,
+    ExportFormat,
     ExportPreset,
     ExportPresetOutputMode,
     ExportResolutionMode,
@@ -66,7 +68,17 @@ from negpy.domain.models import (
     preset_from_export_config,
     resolve_preset_export,
 )
-from negpy.services.assets.half_frame import base_hash, half_hash, half_of
+from negpy.services.assets.half_frame import (
+    base_hash,
+    diptych_configs,
+    forget_split_scan,
+    half_hash,
+    half_of,
+    is_composite,
+    remember_split_scans,
+    split_scans,
+)
+from negpy.services.export.templating import render_export_filename
 from negpy.services.assets.sidecar import load_or_promote, write_sidecar
 from negpy.features.exposure.analysis import (
     RING_GRID,
@@ -85,8 +97,16 @@ from negpy.features.exposure.logic import (
 from negpy.features.altprocess.models import AltProcess
 from negpy.features.exposure.models import ExposureConfig
 from negpy.features.finish.models import FinishConfig
-from negpy.features.geometry.logic import apply_fine_rotation, detect_closest_aspect_ratio, enforce_roi_aspect_ratio
+from negpy.features.geometry.logic import (
+    apply_fine_rotation,
+    autocrop_detection_key,
+    detect_closest_aspect_ratio,
+    enforce_roi_aspect_ratio,
+    has_manual_crop,
+)
 from negpy.features.geometry.models import FINE_ROTATION_LIMIT, AutocropMode
+from negpy.features.geometry.processor import CropProcessor, GeometryProcessor
+from negpy.domain.interfaces import PipelineContext
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig
 from negpy.features.process.models import ProcessConfig, ProcessMode, invalidate_local_bounds, scan_setup_values
@@ -289,9 +309,11 @@ class AppController(QObject):
     config_updated = pyqtSignal()
     monitor_profile_changed = pyqtSignal()
     compare_changed = pyqtSignal(bool)
+    compare_frame_ready = pyqtSignal()
     flat_output_changed = pyqtSignal(bool)
     linear_output_changed = pyqtSignal(bool)
     flat_peek_changed = pyqtSignal(bool)
+    negative_peek_changed = pyqtSignal(bool)
     zoom_requested = pyqtSignal(float)
     zoom_changed = pyqtSignal(float)
     _render_cleanup_requested = pyqtSignal(object)  # texture to spare, or None
@@ -303,6 +325,7 @@ class AppController(QObject):
     pixel_readout_rgb = pyqtSignal(object)  # (r255, g255, b255) tuple or None
     densitometer_readout = pyqtSignal(object)  # DensitometerReading or None
     tone_drag_changed = pyqtSignal(str)  # exposure field being slider-dragged; "" = drag ended
+    local_drag_changed = pyqtSignal(bool)  # a selected-mask slider is under the mouse
     scan_devices_requested = pyqtSignal()
     scan_backend_requested = pyqtSignal(str)
     scan_requested = pyqtSignal(ScanRequest)
@@ -357,6 +380,10 @@ class AppController(QObject):
         self.session = session_manager
         self.state: AppState = session_manager.state
         self._thumb_config: Optional[WorkspaceConfig] = None
+        self._active_diptych_memo: tuple[str, Optional[tuple[dict, tuple[WorkspaceConfig, WorkspaceConfig]]]] = ("", None)
+        # Halves already known to hold a real edit; spares _may_persist_measured_bounds a
+        # repeat lookup per render. Only ever grows, since a row is never deleted mid-session.
+        self._measured_half_rows: set[str] = set()
         self._first_render_t0: Optional[float] = None
         self._export_start_time = 0.0
         self._export_failures = 0
@@ -1091,6 +1118,7 @@ class AppController(QObject):
         """Persist the half-frame toggle and re-discover already-loaded assets so the
         mode splits/collapses frames in place (not only on the next folder load)."""
         self.session.repo.save_global_setting("half_frame_mode", bool(enabled))
+        self._active_diptych_memo = ("", None)
         files = self.session.state.uploaded_files
         if not files:
             return
@@ -1162,10 +1190,34 @@ class AppController(QObject):
         self.status_progress_requested.emit(current, total)
         self.batch_progress.emit(current, total, name)
 
+    def _mark_diptychs(self, assets: List[Dict]) -> None:
+        """Flag whole-frame scans the user split that already carry the two halves' edits.
+
+        One query for the whole roll, at discovery, so every later reader — the filmstrip
+        badge, the read-only panel, the exporter — finds the answer on the asset dict.
+        """
+        split = split_scans(self.session.repo)
+        whole = []
+        for a in assets:
+            if a.get("half") or not a.get("hash"):
+                continue
+            if is_composite(a) or "#" in a["hash"] or a["hash"] not in split:
+                a["diptych"] = False
+                continue
+            whole.append(a)
+        if not whole:
+            return
+        found = self.session.repo.load_file_settings_many([half_hash(a["hash"], n) for a in whole for n in (1, 2)])
+        for a in whole:
+            a["diptych"] = half_hash(a["hash"], 1) in found or half_hash(a["hash"], 2) in found
+
     def _on_discovery_finished(self, valid_assets: List[Dict]) -> None:
         """
         Adds discovered assets to the session and starts thumbnail generation.
         """
+        remember_split_scans(self.session.repo, {base_hash(a["hash"]) for a in valid_assets if a.get("half")})
+        self._mark_diptychs(valid_assets)
+        self._active_diptych_memo = ("", None)
         ended_batch = self._end_batch("discovery")
         if not ended_batch and self._active_batch is None:
             # Preserve the completion signal for direct invocations and late
@@ -1280,6 +1332,53 @@ class AppController(QObject):
         """(half, split_x, crop_rect, gutter_thickness) of the active asset, or None for whole-frame."""
         return self._half_slice_for_asset(self.state.current_file_path, self.state.current_file_hash)
 
+    def active_diptych(self) -> Optional[tuple[dict, tuple[WorkspaceConfig, WorkspaceConfig]]]:
+        """(asset with the split geometry, half configs) for the active scan, or None.
+
+        Memoized per hash: it is read on every render, and the halves' edits can only
+        change while half-frame mode is on, where the active asset is a half instead.
+        """
+        file_hash = self.state.current_file_hash or ""
+        if self._active_diptych_memo[0] != file_hash:
+            asset = next((a for a in self.state.uploaded_files if a.get("hash") == file_hash), None)
+            resolved = None
+            if asset is not None:
+                info, pair = self._diptych_task(asset)
+                resolved = (info, pair) if pair is not None else None
+            self._active_diptych_memo = (file_hash, resolved)
+        return self._active_diptych_memo[1]
+
+    def diptych_pair(self, file_info: dict) -> Optional[tuple[WorkspaceConfig, WorkspaceConfig]]:
+        """The two halves' saved edits for a whole-frame scan, or None.
+
+        Half-frame mode being off is implied: with it on the assets already *are* halves,
+        which `half` on the asset dict reports.
+        """
+        if file_info.get("half") or file_info.get("diptych") is False or is_composite(file_info):
+            return None
+        return diptych_configs(self.session.repo, file_info.get("hash"))
+
+    def _diptych_task(self, file_info: dict) -> tuple[dict, Optional[tuple[WorkspaceConfig, WorkspaceConfig]]]:
+        """(asset dict with the split geometry stamped on, half configs) for a diptych.
+
+        A whole-frame asset never went through `_expand_half_frames`, so the split comes
+        from the saved profile — the same one the halves were cut with.
+        """
+        pair = self.diptych_pair(file_info)
+        if pair is None:
+            return file_info, None
+        profile = self.half_frame_profile() or {}
+        raw_rect = profile.get("crop_rect")
+        return (
+            {
+                **file_info,
+                "split_x": float(profile.get("split_x") or 0.5),
+                "crop_rect": tuple(float(v) for v in raw_rect) if raw_rect else None,
+                "gutter_thickness": float(profile.get("gutter_thickness") or 0.0),
+            },
+            pair,
+        )
+
     def _render_memo_key(self, config: Optional[WorkspaceConfig] = None) -> str:
         """Identity of everything that shapes the displayed render of the current
         config: the edit itself plus every display-path input. Any mismatch is a
@@ -1364,9 +1463,11 @@ class AppController(QObject):
         self._requested_file_path = file_path
         # A strip belongs to one frame, and the memo fast path below repaints without
         # going through request_render, so drop it here too. Zone pins froze their sample
-        # from this frame and go the same way.
+        # from this frame and go the same way. The compare split holds the frame the user
+        # is leaving, so it goes too.
         self._clear_test_strip()
         self._drop_zone_pins()
+        self.exit_compare()
 
         # Navigate-back fast path: the frame's last render is memoized and nothing that
         # shaped it has changed, since select_file already hydrated its config. Paint it
@@ -1397,13 +1498,19 @@ class AppController(QObject):
                 self.state.last_metrics["base_positive"] = memo["base_positive"]
                 self.state.last_metrics["content_rect"] = memo.get("content_rect")
                 self.state.last_metrics["splash"] = False
-                self.state.last_metrics["compare"] = False
+                # These pixels are this frame's own last render. Leaving the outgoing
+                # frame's hash next to them would file them under it on the next
+                # thumbnail refresh, which reads whatever last_metrics holds.
+                self.state.last_metrics["source_hash"] = target_hash
             self.image_updated.emit()
 
         self.state.preview_raw = None
         self.state.preview_ir = None
         self.state.has_ir = False
         self.state.original_res = (0, 0)
+        if self.state.negative_peek:
+            self.state.negative_peek = False
+            self.negative_peek_changed.emit(False)
 
         pending_import = self._pending_capture_imports.pop(_capture_import_key(file_path), None)
         if pending_import is not None and pending_import.process_mode is not None:
@@ -1432,6 +1539,13 @@ class AppController(QObject):
         hdr = self.state.config.hdr
         flatfield = self.state.config.flatfield
         half_info = self._active_half()
+        if half_info is None:
+            dip = self.active_diptych()
+            if dip is not None:
+                # half 0: cropped to the rect, still whole. The render worker splits it, so
+                # both halves come off one decode.
+                info = dip[0]
+                half_info = (0, info["split_x"], info["crop_rect"], info["gutter_thickness"])
         self.preview_load_requested.emit(
             PreviewLoadTask(
                 file_path=file_path,
@@ -1477,7 +1591,6 @@ class AppController(QObject):
         with self.state.metrics_lock:
             self.state.last_metrics["base_positive"] = raw
             self.state.last_metrics["splash"] = True
-            self.state.last_metrics["compare"] = False
         self.image_updated.emit()
 
     def _on_preview_load_failed(self, file_path: str, message: str) -> None:
@@ -1701,10 +1814,12 @@ class AppController(QObject):
     def printing_notes_target_path(self) -> Optional[str]:
         """Next free `<stem>_notes.jpg` in the export folder."""
         export_path = self._ensure_valid_export_path()
-        if not export_path or not self.state.current_file_path:
+        if export_path is None or not self.state.current_file_path:
             return None
-        if self.state.config.export.output_mode == ExportPresetOutputMode.SAME_AS_SOURCE:
-            export_path = os.path.dirname(self.state.current_file_path)
+        export_path = resolve_output_dir(
+            self.state.current_file_path,
+            preset_from_export_config(replace(self.state.config.export, export_path=export_path)),
+        )
         stem = os.path.splitext(os.path.basename(self.state.current_file_path))[0]
         os.makedirs(export_path, exist_ok=True)
         path = os.path.join(export_path, f"{stem}_notes.jpg")
@@ -1723,10 +1838,8 @@ class AppController(QObject):
             self._disarm_zone_target()
             return
         # Same reason compare, the peek and the strip are exclusive: they all want the canvas.
-        restore = self.state.compare_mode or self.state.flat_peek
-        if self.state.compare_mode:
-            self.state.compare_mode = False
-            self.compare_changed.emit(False)
+        restore = self.state.flat_peek
+        self.exit_compare()
         if self.state.flat_peek:
             self.state.flat_peek = False
             self.flat_peek_changed.emit(False)
@@ -1955,6 +2068,9 @@ class AppController(QObject):
         if self.state.preview_raw is None:
             return
 
+        # The mosaic replaces the frame, so the split has nothing left to compare against.
+        self.exit_compare()
+
         # Unrotated: one print yields every orientation, so rotating never re-renders.
         grid = RING_GRID if kind == "color" else STRIP_GRID
         overrides = ring_overrides() if kind == "color" else strip_overrides()
@@ -2079,15 +2195,16 @@ class AppController(QObject):
         continuous adjustment, not a one-shot drag-then-close."""
         if self.state.active_tool != ToolMode.CROP_MANUAL:
             return
+        # A drag takes ownership of the rect, auto or not, so nothing re-detects over it.
         new_geo = replace(
             self.state.config.geometry,
-            manual_crop_rect=(
+            crop_rect=(
                 min(nx1, nx2),
                 min(ny1, ny2),
                 max(nx1, nx2),
                 max(ny1, ny2),
             ),
-            auto_crop_enabled=False,
+            crop_from_auto=False,
         )
         # Defer the bounds recompute to crop-tool close. Clearing here re-normalizes on
         # every drag step.
@@ -2157,7 +2274,9 @@ class AppController(QObject):
             return
         new_geo = replace(geom, autocrop_ratio=ratio)
 
-        rect = geom.manual_crop_rect
+        # An auto rect re-detects under the new ratio (it is in the detection key); the
+        # frame Auto finds at 5:4 is not the 3:2 frame shrunk to fit.
+        rect = None if geom.crop_from_auto else geom.crop_rect
         img = self.state.preview_raw
         if rect is not None and img is not None:
             h, w = img.shape[:2]
@@ -2166,7 +2285,7 @@ class AppController(QObject):
             nx1, ny1, nx2, ny2 = rect
             roi_px = (round(ny1 * h), round(ny2 * h), round(nx1 * w), round(nx2 * w))
             y1, y2, x1, x2 = enforce_roi_aspect_ratio(roi_px, h, w, ratio)
-            new_geo = replace(new_geo, manual_crop_rect=(x1 / w, y1 / h, x2 / w, y2 / h))
+            new_geo = replace(new_geo, crop_rect=(x1 / w, y1 / h, x2 / w, y2 / h))
 
         self.session.update_config(replace(self.state.config, geometry=new_geo), persist=True)
         # Same spinner treatment as reset_crop/apply_auto_crop: the base stage re-runs,
@@ -2210,7 +2329,7 @@ class AppController(QObject):
         self.session.update_config(
             replace(
                 self.state.config,
-                geometry=replace(self.state.config.geometry, manual_crop_rect=None, auto_crop_enabled=False),
+                geometry=replace(self.state.config.geometry, crop_rect=None, crop_from_auto=False),
                 process=new_proc,
             )
         )
@@ -2220,6 +2339,10 @@ class AppController(QObject):
         self.request_render()
 
     def apply_auto_crop(self) -> None:
+        """Arm Auto Crop: clear the rect and let the next render detect one.
+
+        _on_render_finished freezes the rect that render found into the edit, so the
+        exported crop is the one on screen."""
         # Autocrop supersedes a manual crop in progress: leave the tool.
         if self.state.active_tool == ToolMode.CROP_MANUAL:
             self.state.active_tool = ToolMode.NONE
@@ -2231,8 +2354,8 @@ class AppController(QObject):
                 self.state.config,
                 geometry=replace(
                     self.state.config.geometry,
-                    manual_crop_rect=None,
-                    auto_crop_enabled=True,
+                    crop_rect=None,
+                    crop_from_auto=True,
                 ),
                 process=new_proc,
             )
@@ -2261,7 +2384,7 @@ class AppController(QObject):
         preflight_skipped = 0
         for asset in visible_files:
             config = self._config_for_autocrop_asset(asset)
-            if config.geometry.manual_crop_rect is not None or config.geometry.autocrop_mode != AutocropMode.IMAGE:
+            if has_manual_crop(config.geometry) or config.geometry.autocrop_mode != AutocropMode.IMAGE:
                 preflight_skipped += 1
                 continue
             frames.append(
@@ -2314,14 +2437,14 @@ class AppController(QObject):
                 asset = result.file_info
                 try:
                     latest = self._config_for_autocrop_asset(asset)
-                    if latest.geometry.manual_crop_rect is not None:
+                    if has_manual_crop(latest.geometry):
                         conflicted += 1
                         continue
                     if _autocrop_fingerprint(latest, self.state.workspace_color_space) != result.fingerprint:
                         conflicted += 1
                         continue
 
-                    rect = result.manual_crop_rect
+                    rect = result.crop_rect
                     if len(rect) != 4 or not (0.0 <= rect[0] < rect[2] <= 1.0 and 0.0 <= rect[1] < rect[3] <= 1.0):
                         conflicted += 1
                         continue
@@ -2332,8 +2455,8 @@ class AppController(QObject):
 
                     new_geometry = replace(
                         latest.geometry,
-                        manual_crop_rect=tuple(float(value) for value in rect),
-                        auto_crop_enabled=False,
+                        crop_rect=tuple(float(value) for value in rect),
+                        crop_from_auto=False,
                         fine_rotation=float(fine_rotation),
                     )
                     new_process = replace(latest.process, **invalidate_local_bounds(latest.process))
@@ -2421,7 +2544,7 @@ class AppController(QObject):
         # Emit manually so UI syncs (combo dropdown updates), but without triggering
         # a render via the state_changed debounce.
         self.config_updated.emit()
-        if geom.auto_crop_enabled:
+        if geom.crop_from_auto:
             self.request_render()
 
     def save_current_edits(self) -> None:
@@ -2772,7 +2895,7 @@ class AppController(QObject):
         cropped = 0
         for f in visible_files:
             p = self.session.repo.load_file_settings(f["hash"])
-            if p and (p.geometry.manual_crop_rect or p.geometry.auto_crop_enabled):
+            if p and (p.geometry.crop_rect or p.geometry.crop_from_auto):
                 cropped += 1
 
         if cropped == 0:
@@ -3353,6 +3476,31 @@ class AppController(QObject):
         self._pending_scanned_file = paths[0]
         self.request_asset_discovery(paths)
 
+    def request_undiptych(self) -> None:
+        """Turn the active diptych back into one plain scan, deleting both halves' edits.
+
+        The scan leaves the split-scan set, so it stays a plain frame until it is split
+        again. Exported ``.negpy`` half sidecars are left alone.
+        """
+        idx = self.state.selected_file_idx
+        if not (0 <= idx < len(self.state.uploaded_files)):
+            return
+        asset = self.state.uploaded_files[idx]
+        file_hash = asset.get("hash") or ""
+        if not asset.get("diptych") or not file_hash:
+            return
+        forget_split_scan(self.session.repo, file_hash)
+        for n in (1, 2):
+            half = half_hash(file_hash, n)
+            self.session.repo.delete_file_settings(half)
+            self._measured_half_rows.discard(half)
+        asset["diptych"] = False
+        self._active_diptych_memo = ("", None)
+        self.session.asset_model.refresh()
+        if file_hash == self.state.current_file_hash and asset.get("path"):
+            self.load_file(asset["path"])
+        self.set_status("Diptych unsplit — the halves' edits are deleted", 4000)
+
     def _select_file_by_path(self, path: str) -> bool:
         """Find a file by path in uploaded_files and select it."""
         for i, f_info in enumerate(self.session.state.uploaded_files):
@@ -3557,7 +3705,11 @@ class AppController(QObject):
         self._apply_monitor_profile()
 
     def request_render(
-        self, readback_metrics: bool = True, config_override: Optional[WorkspaceConfig] = None, ephemeral: bool = False
+        self,
+        readback_metrics: bool = True,
+        config_override: Optional[WorkspaceConfig] = None,
+        ephemeral: bool = False,
+        compare_capture: bool = False,
     ) -> None:
         """
         Dispatches a render task to the worker thread.
@@ -3566,18 +3718,19 @@ class AppController(QObject):
         config_override renders an alternate config (e.g. the before/after baseline) without
         mutating session state; pass readback_metrics=False so it doesn't disturb
         histogram/bounds persistence.
+
+        compare_capture marks the baseline render whose pixels are stashed for the
+        before/after split instead of being displayed.
         """
         self._render_debounce.stop()
 
-        # Any non-compare render (a user edit, navigation, etc.) exits before/after compare.
-        if config_override is None and self.state.compare_mode:
-            self.state.compare_mode = False
-            self.compare_changed.emit(False)
-
-        # Likewise, any direct render exits the flat preview-peek.
+        # Any direct render exits the flat preview-peek.
         if config_override is None and self.state.flat_peek:
             self.state.flat_peek = False
             self.flat_peek_changed.emit(False)
+        if config_override is None and self.state.negative_peek:
+            self.state.negative_peek = False
+            self.negative_peek_changed.emit(False)
 
         # The strip's patches were printed from the config as it stood, so once the edit
         # moves they prove something else. Drop them, which also cancels a strip still
@@ -3594,8 +3747,10 @@ class AppController(QObject):
             return
 
         # A drag asks for no metrics, the release does. Interactive frames go through the
-        # proxy, so full resolution arrives only once the gesture settles.
-        interactive = not readback_metrics
+        # proxy, so full resolution arrives only once the gesture settles. The baseline
+        # capture wants no metrics but full resolution: it is painted beside the edit, and a
+        # proxy would show softer pixels on one side of the divider.
+        interactive = not readback_metrics and not compare_capture
         ir_buffer = self.state.preview_ir
         if interactive and self.state.preview_proxy is not None:
             preview_raw = self.state.preview_proxy
@@ -3614,6 +3769,7 @@ class AppController(QObject):
         if config_override is None and not ephemeral and not crop_preview_full and not interactive:
             memo_key = self._render_memo_key()
 
+        dip = self.active_diptych()
         task = RenderTask(
             buffer=preview_raw,
             config=config_override if config_override is not None else self.state.config,
@@ -3625,12 +3781,15 @@ class AppController(QObject):
             crop_preview_full=crop_preview_full,
             ephemeral=ephemeral,
             memo_key=memo_key,
-            compare=self.state.compare_mode,
+            compare=compare_capture,
             interactive=interactive,
             # Mirrors should_update_thumb, minus its pending-task check.
             wants_thumbnail=(not interactive and not ephemeral and config_override is None and self.state.config is not self._thumb_config),
             cam_xyz=self.state.preview_cam_xyz,
             camera_wb=self.state.preview_camera_wb,
+            diptych=dip[1] if dip is not None else None,
+            split_x=dip[0]["split_x"] if dip is not None else 0.5,
+            gutter_thickness=dip[0]["gutter_thickness"] if dip is not None else 0.0,
         )
 
         if self._is_rendering:
@@ -3643,35 +3802,74 @@ class AppController(QObject):
     def _baseline_compare_config(self) -> WorkspaceConfig:
         return baseline_compare_config(self.state.config)
 
-    def toggle_compare(self) -> None:
-        """Toggle the before/after view between current edits and the auto baseline."""
+    def _compare_before_key(self) -> str:
+        """Identity of the stashed baseline frame. Creative edits leave it alone (they are
+        reset in the baseline anyway); geometry, process and display changes invalidate it."""
+        return self._render_memo_key(self._baseline_compare_config())
+
+    def _request_compare_baseline(self) -> None:
         if self.state.preview_raw is None:
             return
+        self.request_render(readback_metrics=False, config_override=self._baseline_compare_config(), compare_capture=True)
+
+    def _capture_compare_before(self, metrics: Dict[str, Any]) -> None:
+        """Keep the baseline render's pixels for the split. The GPU pool overwrites its
+        textures on the next frame, so read back now rather than holding the texture."""
+        buffer = metrics.get("base_positive")
+        if isinstance(buffer, GPUTexture):
+            try:
+                readback = buffer.readback()
+            except Exception:
+                logger.exception("Failed to read back the before/after baseline frame")
+                return
+            buffer = np.ascontiguousarray(readback[:, :, :3]) if readback.ndim == 3 and readback.shape[2] >= 3 else readback
+        if not isinstance(buffer, np.ndarray):
+            return
+        self.state.compare_before = buffer
+        self.state.compare_before_rect = metrics.get("content_rect")
+        self.state.compare_before_key = self._compare_before_key()
+        self.compare_frame_ready.emit()
+
+    def exit_compare(self) -> None:
+        """Leave the before/after split and drop the stashed baseline frame."""
+        self.state.compare_before = None
+        self.state.compare_before_rect = None
+        self.state.compare_before_key = ""
         if self.state.compare_mode:
             self.state.compare_mode = False
             self.compare_changed.emit(False)
-            self.request_render()
+
+    def toggle_compare(self) -> None:
+        """Toggle the before/after split between the edit and the auto baseline."""
+        if self.state.preview_raw is None:
+            return
+        if self.state.compare_mode:
+            self.exit_compare()
         else:
             # Mutually exclusive with flat-peek: drop it so its toggle cannot stay lit while
             # the compare baseline is on screen. toggle_flat_peek exits compare the same way.
             if self.state.flat_peek:
                 self.state.flat_peek = False
                 self.flat_peek_changed.emit(False)
+            if self.state.negative_peek:
+                self.state.negative_peek = False
+                self.negative_peek_changed.emit(False)
             # Same reason the strip and the peek are exclusive: both want the canvas.
             self._clear_test_strip()
             self.state.compare_mode = True
             self.compare_changed.emit(True)
-            self.request_render(readback_metrics=False, config_override=self._baseline_compare_config())
+            # The edit is already on screen; only the baseline half has to be rendered.
+            self._request_compare_baseline()
 
     def rerender_active_view(self) -> None:
         """Re-render the canvas keeping whatever comparison overlay is active.
 
         Geometry ops (rotate/flip) change the config but shouldn't kick the user
-        out of before/after or flat-peek; a plain request_render() would exit both.
-        Passing the mode's config_override re-renders in place and leaves the mode on.
+        out of flat-peek; a plain request_render() would exit it. The compare split
+        survives a plain render, and its baseline half re-captures on the key change.
         """
-        if self.state.compare_mode:
-            self.request_render(readback_metrics=False, config_override=self._baseline_compare_config())
+        if self.state.negative_peek:
+            self._paint_negative_peek()
         elif self.state.flat_peek:
             self.request_render(readback_metrics=False, config_override=flat_master_config(self.state.config))
         else:
@@ -3732,10 +3930,11 @@ class AppController(QObject):
         if target == self.state.flat_peek:
             return
 
-        if target and self.state.compare_mode:
-            self.state.compare_mode = False
-            self.compare_changed.emit(False)
         if target:
+            self.exit_compare()
+            if self.state.negative_peek:
+                self.state.negative_peek = False
+                self.negative_peek_changed.emit(False)
             self._clear_test_strip()
 
         self.state.flat_peek = target
@@ -3743,6 +3942,67 @@ class AppController(QObject):
 
         if target:
             self.request_render(readback_metrics=False, config_override=flat_master_config(self.state.config))
+        else:
+            self.request_render()
+
+    def _paint_negative_peek(self) -> None:
+        """Put the decoded source on the canvas: un-inverted, un-normalized, no tone edits.
+
+        Geometry is the one thing the peek does apply, through the same two processors
+        the base and crop stages use, so the negative sits at the orientation and
+        framing the user set. Everything after it is skipped: no metering, no
+        inversion, no look. Only the working OETF follows, or a linear buffer shows as
+        near-black. The source is in camera primaries, so it is marked splash to keep
+        the working-to-display matrix and the proof out of it, and content_rect is
+        cleared because no border stage ran to inset the picture.
+        """
+        source = self.state.preview_raw
+        if source is None:
+            return
+        geometry = self.state.config.geometry
+        flatfield = self.state.config.flatfield
+        original = self.state.original_res if any(self.state.original_res) else source.shape[:2]
+        context = PipelineContext(
+            original_size=(original[0], original[1]),
+            scale_factor=max(original) / float(APP_CONFIG.preview_render_size),
+            process_mode=self.state.config.process.process_mode,
+            # Mirrors request_render: the crop tool frames against the uncropped frame.
+            crop_preview_full=self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW),
+            wants_uv_grid=False,
+        )
+        img = GeometryProcessor(geometry, flatfield.k1 if flatfield.apply else 0.0).process(source, context)
+        if not context.crop_preview_full:
+            img = CropProcessor(geometry).process(img, context)
+        with self.state.metrics_lock:
+            self.state.last_metrics["base_positive"] = working_oetf_encode(img)
+            self.state.last_metrics["content_rect"] = None
+            self.state.last_metrics["splash"] = True
+        self.image_updated.emit()
+
+    def toggle_negative_peek(self, force: Optional[bool] = None) -> None:
+        """Show the negative as it was loaded, without changing the saved edit.
+
+        ``force`` sets an explicit state; otherwise toggles. Mutually exclusive with
+        the before/after compare view and the flat peek.
+        """
+        if self.state.preview_raw is None:
+            return
+        target = (not self.state.negative_peek) if force is None else force
+        if target == self.state.negative_peek:
+            return
+
+        if target:
+            self.exit_compare()
+            if self.state.flat_peek:
+                self.state.flat_peek = False
+                self.flat_peek_changed.emit(False)
+            self._clear_test_strip()
+
+        self.state.negative_peek = target
+        self.negative_peek_changed.emit(target)
+
+        if target:
+            self._paint_negative_peek()
         else:
             self.request_render()
 
@@ -3818,6 +4078,9 @@ class AppController(QObject):
         source_exif=None,
         metadata_config=None,
     ) -> List[ExportTask]:
+        file_info, diptych = self._diptych_task(file_info)
+        if diptych is not None:
+            bounds_override = None  # the active frame's bounds belong to a half, not to the pair
         tasks = []
         for preset in presets:
             task_params, export_settings = resolve_preset_export(preset, params)
@@ -3832,6 +4095,7 @@ class AppController(QObject):
                     source_exif=source_exif,
                     metadata_config=metadata_config,
                     working_color_space=self.state.workspace_color_space,
+                    diptych=diptych,
                 )
             )
         return tasks
@@ -3839,11 +4103,13 @@ class AppController(QObject):
     def _ensure_valid_export_path(self) -> Optional[str]:
         """
         Checks if the current export path is valid. If not, prompts the user.
-        Returns the valid path or None if the user cancelled.
+        Returns the valid path, or None if the user cancelled. The path can come back
+        empty in the source-relative modes, which do not use it — callers must test
+        `is None`, not truthiness, or an unset path silently cancels the export.
         """
         export_path = self.state.config.export.export_path
-        if self.state.config.export.output_mode == ExportPresetOutputMode.SAME_AS_SOURCE:
-            return export_path  # path irrelevant when exporting to source folder
+        if self.state.config.export.output_mode != ExportPresetOutputMode.ABSOLUTE:
+            return export_path  # path irrelevant when the destination follows the source folder
         if export_path.strip().lower() in ["export", "/export", ""]:
             from PyQt6.QtWidgets import QFileDialog
 
@@ -3905,7 +4171,7 @@ class AppController(QObject):
             return
 
         export_path = self._ensure_valid_export_path()
-        if not export_path:
+        if export_path is None:
             return
 
         if files is None:
@@ -3953,21 +4219,38 @@ class AppController(QObject):
         expansion = self.state.linear_expansion
         linear_fmt = self.state.linear_format
         out_ext = "jxl" if linear_fmt == "jxl" else "tiff"
+        # Destination and naming are the Export panel's, shared with print and flat. Only the
+        # format belongs to the Linear intent, so the ephemeral preset carries it: `{{ format }}`
+        # in a filename template has to name the file that is actually written.
+        delivery = replace(
+            preset_from_export_config(replace(self.state.config.export, export_path=export_path)),
+            export_fmt=ExportFormat.JXL if linear_fmt == "jxl" else ExportFormat.TIFF,
+        )
+        sync_metadata = self.state.config.metadata.sync_to_batch
         taken: set[str] = set()
         tasks = []
         for f in supported:
             params = self._batch_params_for(f)
             stitch = params.stitch if params.stitch.stitch_enabled else None
             frames = hdr_frame_paths(f)
+            out_dir = resolve_output_dir(f["path"], delivery)
             # Same naming rule as a normal export: the bracket's first frame, suffixed so
-            # the merge does not write over that frame's own linear output.
-            stem = f"{hdr_stem(frames)}-HDR" if frames else os.path.splitext(os.path.basename(f["path"]))[0]
-            out_path = os.path.join(export_path, f"{stem}_linear.{out_ext}")
+            # the merge does not write over that frame's own linear output. No border and no
+            # half: a linear dump is the whole decoded source, whatever the print crop says.
+            stem = render_export_filename(
+                min(frames, key=lambda p: os.path.basename(p).lower()) if frames else f["path"],
+                delivery,
+                metadata=self.state.config.metadata if sync_metadata else params.metadata,
+                composite="HDR" if frames else "",
+            )
+            # `_linear` always, on top of whatever the template rendered: without it a dump
+            # written next to its source under the default pattern overwrites that source.
+            out_path = os.path.join(out_dir, f"{stem}_linear.{out_ext}")
             counter = 2
             # `taken` as well as the disk: the whole batch is named up front, before the
             # worker writes any of it, so same-stem frames would collide.
-            while out_path in taken or os.path.exists(out_path):
-                out_path = os.path.join(export_path, f"{stem}_linear_{counter}.{out_ext}")
+            while out_path in taken or (os.path.exists(out_path) and not delivery.overwrite):
+                out_path = os.path.join(out_dir, f"{stem}_linear_{counter}.{out_ext}")
                 counter += 1
             taken.add(out_path)
             tasks.append(
@@ -4004,7 +4287,7 @@ class AppController(QObject):
             return
 
         export_path = self._ensure_valid_export_path()
-        if not export_path:
+        if export_path is None:
             return
 
         params = self.state.config
@@ -4034,8 +4317,10 @@ class AppController(QObject):
                 "hash": self.state.current_file_hash,
             }
 
+        file_info, diptych = self._diptych_task(file_info)
+
         bounds_override = None
-        if file_info.get("hash") == self.state.current_file_hash:
+        if diptych is None and file_info.get("hash") == self.state.current_file_hash:
             with self.state.metrics_lock:
                 bounds_override = self.state.last_metrics.get("log_bounds")
 
@@ -4050,6 +4335,7 @@ class AppController(QObject):
                     source_exif=source_exif,
                     metadata_config=self.state.config.metadata,
                     working_color_space=self.state.workspace_color_space,
+                    diptych=diptych,
                 )
             ]
         )
@@ -4065,7 +4351,7 @@ class AppController(QObject):
         if self._batch_busy("export"):
             return
         export_path = self._ensure_valid_export_path()
-        if not export_path:
+        if export_path is None:
             return
 
         current_export = replace(self.state.config.export, export_path=export_path)
@@ -4106,8 +4392,10 @@ class AppController(QObject):
             if flat:
                 final_export = flat_export_config(final_export)
 
+            file_info, diptych = self._diptych_task(f)
+
             bounds_override = None
-            if f["hash"] == self.state.current_file_hash:
+            if diptych is None and f["hash"] == self.state.current_file_hash:
                 with self.state.metrics_lock:
                     bounds_override = self.state.last_metrics.get("log_bounds")
 
@@ -4116,7 +4404,7 @@ class AppController(QObject):
 
             tasks.append(
                 ExportTask(
-                    file_info=f,
+                    file_info=file_info,
                     params=params,
                     export_settings=preset_from_export_config(final_export),
                     gpu_enabled=self.state.gpu_enabled,
@@ -4124,6 +4412,7 @@ class AppController(QObject):
                     source_exif=source_exif,
                     metadata_config=metadata_config,
                     working_color_space=self.state.workspace_color_space,
+                    diptych=diptych,
                 )
             )
 
@@ -4259,9 +4548,14 @@ class AppController(QObject):
         custom = self.state.config.export.contact_sheet_output_path.strip()
         if custom:
             return custom
-        if self.state.config.export.output_mode == ExportPresetOutputMode.SAME_AS_SOURCE:
-            return os.path.dirname(visible_files[0]["path"])
-        return self._ensure_valid_export_path()
+        export_path = self._ensure_valid_export_path()
+        if export_path is None:
+            return None
+        # The sheet covers the whole roll, so the source-relative modes follow the first frame.
+        return resolve_output_dir(
+            visible_files[0]["path"],
+            preset_from_export_config(replace(self.state.config.export, export_path=export_path)),
+        )
 
     def request_contact_sheet(self) -> None:
         """Renders all visible files small and writes darkroom contact sheet(s)."""
@@ -4461,9 +4755,39 @@ class AppController(QObject):
             self._busy_toast = False
             self.set_status("")
 
+    def _renders_another_frame(self, metrics: Dict[str, Any]) -> bool:
+        """True when a render belongs to a frame that is no longer selected.
+
+        A render carries the hash it was dispatched for, and nothing cancels one that is
+        already in flight — click the next frame mid-render and it still lands. Its pixels
+        and its measurements describe the frame the user has left, so they must not reach
+        the canvas or ``last_metrics``. A task dispatched before the file had a hash
+        carries the same ``"preview"`` placeholder ``request_render`` gives it.
+        """
+        src = metrics.get("source_hash")
+        return src is not None and src != (self.state.current_file_hash or "preview")
+
     def _on_render_finished(self, _result: Any, metrics: Dict[str, Any]) -> None:
         self._is_rendering = False
         self._clear_busy_toast()
+
+        # The queue still drains — only the frame this render produced is unusable.
+        if self._renders_another_frame(metrics):
+            self._dispatch_pending_render()
+            return
+
+        # The baseline half of the split is stashed, never displayed: it must not reach
+        # last_metrics, the memo, the thumbnail or the canvas.
+        if metrics.get("compare"):
+            if self.state.compare_mode:
+                self._capture_compare_before(metrics)
+            if self._pending_render_task is not None:
+                self._dispatch_pending_render()
+            else:
+                # The engine pool hands every render the same output texture, so this one
+                # has just overwritten the edit the canvas is sampling. Print it again.
+                self.request_render()
+            return
 
         if self._first_render_t0 is not None and not metrics.get("ephemeral"):
             logger.info(
@@ -4486,6 +4810,8 @@ class AppController(QObject):
             self.state.last_metrics.update(metrics)
             self.state.last_metrics["splash"] = False
 
+        self._freeze_resolved_auto_crop(metrics)
+
         result = metrics.get("base_positive")
         memoizable = bool(metrics.get("memo_key")) and metrics.get("source_hash") == self.state.current_file_hash
         # The pool overwrites a GPU texture on the next frame, so only its identity is kept
@@ -4500,7 +4826,11 @@ class AppController(QObject):
             self._gpu_fallback_notified = True
             self.set_status("GPU acceleration failed — using CPU", 5000)
 
-        self.image_updated.emit()
+        # A render already in flight when the peek went on would otherwise repaint over it.
+        if self.state.negative_peek:
+            self._paint_negative_peek()
+        else:
+            self.image_updated.emit()
 
         # By reference, because display buffers are read-only downstream. After the repaint:
         # overwriting an entry frees the texture the canvas has just stopped sampling.
@@ -4516,6 +4846,36 @@ class AppController(QObject):
             # persist=False: refresh in-memory only; disk JPEG written on switch/save/export.
             self._update_thumbnail_from_state(persist=False)
 
+        # Geometry, process or display changes make the stashed baseline half disagree with
+        # the frame beside it; re-capture once the queue is empty.
+        if self.state.compare_mode and self._pending_render_task is None and self.state.compare_before_key != self._compare_before_key():
+            self._request_compare_baseline()
+            return
+
+        self._dispatch_pending_render()
+
+    def _freeze_resolved_auto_crop(self, metrics: Dict[str, Any]) -> None:
+        """Store the crop this render detected, so nothing detects it a second time.
+
+        No render is requested: the rect is what was just painted. The key guards the gap
+        between the render starting and this landing, so a ratio change mid-flight drops
+        the result, which a queued render then re-detects.
+        """
+        rect = metrics.get("autocrop_resolved_rect")
+        if rect is None:
+            return
+        geom = self.state.config.geometry
+        if not geom.crop_from_auto or autocrop_detection_key(geom) != metrics.get("autocrop_resolved_key"):
+            return
+        if geom.crop_rect == rect and geom.crop_detect_key == metrics["autocrop_resolved_key"]:
+            return
+        new_geo = replace(geom, crop_rect=tuple(float(v) for v in rect), crop_detect_key=metrics["autocrop_resolved_key"])
+        # record_history=False: tail of the Auto press, not a second edit to undo past.
+        self.session.update_config(replace(self.state.config, geometry=new_geo), persist=True, render=False, record_history=False)
+        self.config_updated.emit()
+
+    def _dispatch_pending_render(self) -> None:
+        """Start the render queued while the last one was running, if any."""
         if self._pending_render_task:
             task = self._pending_render_task
             self._pending_render_task = None
@@ -4526,16 +4886,26 @@ class AppController(QObject):
         """
         Handles late-arriving metrics and persists analysis results.
         """
+        # A render of a frame the user has left measured that frame, not this one:
+        # merging it corrupts the histogram, densitometer and UV grid until the next
+        # render replaces every key it touched. The compare baseline measures a config
+        # the user never set, so it is dropped for the same reason.
+        if self._renders_another_frame(metrics) or metrics.get("compare"):
+            return
+
         with self.state.metrics_lock:
             self.state.last_metrics.update(metrics)
         if "ir_degenerate" in metrics:
             self.state.ir_degenerate = bool(metrics["ir_degenerate"])
         self.metrics_available.emit(metrics)
 
-        # Do not persist bounds from a splash render, or from a render of another file
-        # arriving late after a fast switch: they are not this frame's bounds. Nor from a
-        # mid-gesture frame, which measured the proxy rather than the real buffer.
-        if metrics.get("ephemeral") or metrics.get("interactive"):
+        # Do not persist bounds from a splash render, or from a frame with no identity of
+        # its own: they are not this frame's bounds. Nor from a mid-gesture frame, which
+        # measured the proxy rather than the real buffer. A render of another file was
+        # already dropped above.
+        # A diptych's bounds were measured on one half, under that half's edit; writing them
+        # onto the whole-frame config would file a half's measurement as the scan's.
+        if metrics.get("ephemeral") or metrics.get("interactive") or metrics.get("diptych"):
             return
         src = metrics.get("source_hash")
         if src is not None and src != self.state.current_file_hash:
@@ -4555,7 +4925,7 @@ class AppController(QObject):
                 new_process = replace(self.state.config.process, **changes)
                 self.session.update_config(
                     replace(self.state.config, process=new_process),
-                    persist=True,
+                    persist=self._may_persist_measured_bounds(),
                     render=False,
                     record_history=False,
                 )
@@ -4571,6 +4941,24 @@ class AppController(QObject):
                         self._last_render_identity[2],
                     )
 
+    def _may_persist_measured_bounds(self) -> bool:
+        """Whether an auto-measured bounds write may reach the database.
+
+        A half must not be brought into existence by a measurement. Looking at one half of a
+        scan renders it, which meters it, which would file a settings row under `<hash>#1` —
+        and the mere existence of that row is what later says the scan is a diptych. Turning
+        Half Frame on and straight back off then leaves the frame stuck as one, having never
+        been edited. A half the user did edit already has a row, and its bounds keep tracking.
+        """
+        file_hash = self.state.current_file_hash or ""
+        if half_of(file_hash) is None:
+            return True
+        if file_hash not in self._measured_half_rows:
+            if self.session.repo.load_file_settings(file_hash) is None:
+                return False
+            self._measured_half_rows.add(file_hash)
+        return True
+
     def _on_render_error(self, message: str) -> None:
         self.state.is_processing = self._is_rendering = False
         self._busy_toast = False  # the failure message below replaces the toast
@@ -4578,11 +4966,7 @@ class AppController(QObject):
         self.set_status(f"Failed to load file: {message}", 5000)
         self.load_failed.emit()
 
-        if self._pending_render_task:
-            task = self._pending_render_task
-            self._pending_render_task = None
-            self._is_rendering = True
-            self.render_requested.emit(task)
+        self._dispatch_pending_render()
 
     def _on_export_task_error(self, _message: str) -> None:
         self._export_failures += 1

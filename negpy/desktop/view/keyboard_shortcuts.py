@@ -113,6 +113,8 @@ class ShortcutManager:
             "toggle_keep": lambda: controller.session.toggle_mark("keeper"),
             "hdr_merge": controller.request_hdr_merge_selected,
             "hdr_unmerge": controller.request_unmerge_hdr,
+            # The view method, not the controller's: it carries the confirm the deletion needs.
+            "half_frame_undiptych": self.window.session_panel.file_browser.prompt_undiptych,
             "toggle_reject": lambda: controller.session.toggle_mark("excluded"),
             "toggle_compare": controller.toggle_compare,
             "rotate_ccw": lambda: toolbar.rotate(1),
@@ -139,6 +141,7 @@ class ShortcutManager:
             "local_gradient": lambda: _toggle_tool_button(self.window, "tone", controls.local_sidebar.gradient_btn),
             "analysis_draw": lambda: _toggle_tool_button(self.window, "setup", controls.process_sidebar.analysis_region_btn),
             "toggle_flat_peek": controller.toggle_flat_peek,
+            "toggle_negative_peek": controller.toggle_negative_peek,
             "toggle_zones": controller.toggle_zones_overlay,
             "toggle_test_strip": controller.toggle_test_strip,
             "toggle_ring_around": controller.toggle_ring_around,
@@ -155,6 +158,7 @@ class ShortcutManager:
             "toggle_immersive_canvas": lambda: controller.session.set_immersive_canvas(not controller.session.state.immersive_canvas),
             "toggle_sticky_zoom": lambda: controller.session.set_sticky_zoom(not controller.session.state.sticky_zoom),
             "toggle_slider_values": lambda: toolbar._ov_slider_values_action.trigger(),
+            "toggle_invert_zoom_scroll": lambda: toolbar._ov_invert_zoom_action.trigger(),
             "toggle_left_panel": self.window.toggle_session_dock,
             "toggle_right_panel": self.window.toggle_controls_dock,
             "reset_panel_layout": self.window.reset_panel_layout,
@@ -220,12 +224,7 @@ class ShortcutManager:
     def open_editor(self, parent=None) -> bool:
         from negpy.desktop.view.widgets.shortcut_editor import ShortcutEditorDialog
 
-        dlg = ShortcutEditorDialog(
-            self.bindings,
-            self.slider_steps,
-            parent or self.window,
-            session=self.window.controller.session,
-        )
+        dlg = ShortcutEditorDialog(self.bindings, self.slider_steps, parent or self.window)
         if dlg.exec():
             self.update_bindings(dlg.bindings())
             self.update_slider_steps(dlg.slider_steps())

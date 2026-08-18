@@ -258,6 +258,10 @@ def nsis_script(setup: Path, install_dir: Path, exe: Path, pid: int) -> str:
     """
     return (
         "@echo off\r\n"
+        # cmd parses a batch file in the console OEM codepage, not the UTF-8 it is written
+        # in. The staging path carries the profile name, so a non-ASCII user name garbles
+        # every path below unless the codepage switches first.
+        "chcp 65001 >nul\r\n"
         f'powershell -NoProfile -Command "try {{ Wait-Process -Id {pid} -Timeout 240 }} catch {{ }}"\r\n'
         f'start "" /wait "{setup}" /S /D={install_dir}\r\n'
         f'del /q "{setup}"\r\n'

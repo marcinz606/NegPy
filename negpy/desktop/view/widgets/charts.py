@@ -58,6 +58,9 @@ class PhotometricCurveWidget(QWidget):
         self._shoulder_mask: list[float] = []
         self._toe_strength: float = 0.0
         self._shoulder_strength: float = 0.0
+        # Contrast Mask band: the curve on the mask's remapped input. Every pixel prints
+        # between this and the base curve, by how much of its own value survives the blur.
+        self._mask_pts: list[tuple[float, float]] = []
         # Drag feedback: pre-drag curve snapshot + the exposure field being dragged.
         self._active_param: str | None = None
         self._ghost_pts: list[tuple[float, float]] = []
@@ -165,6 +168,7 @@ class PhotometricCurveWidget(QWidget):
         curvatures: tuple[float, float, float] | None = None,
         process_mode: str | None = None,
         flat: bool = False,
+        mask_centre: float | None = None,
     ) -> None:
         from negpy.features.exposure.logic import (
             _expit,
@@ -213,11 +217,13 @@ class PhotometricCurveWidget(QWidget):
             sg_ch: float | None = None,
             hg_ch: float | None = None,
             curv_ch: float = 0.0,
+            x_in: np.ndarray | None = None,
         ) -> list[tuple[float, float]]:
+            xv = x_log_exp if x_in is None else x_in
             if flat:
                 # True log master: the code value is linear in the log signal (1 - val) and emitted
                 # directly, with no 10^-D and no sRGB. s = gain, p = lift.
-                yv = np.clip(p + s * (1.0 - x_log_exp), 0.0, 1.0)
+                yv = np.clip(p + s * (1.0 - xv), 0.0, 1.0)
                 return list(zip(plt_x.tolist(), yv.tolist()))
             curve = print_curve(
                 params,
@@ -233,10 +239,19 @@ class PhotometricCurveWidget(QWidget):
                 highlight_grade_delta=hg_ch,
                 curvature=curv_ch,
             )
-            return list(zip(plt_x.tolist(), print_curve_output(curve, x_log_exp).tolist()))
+            return list(zip(plt_x.tolist(), print_curve_output(curve, xv).tolist()))
 
         # Base (white) reference curve, and also the fill, pivot and zone geometry.
         self._curve_pts = _curve_points(slope, pivot)
+
+        # Contrast Mask: the mask shifts each pixel's print exposure by how far its own
+        # value sits from its blurred surroundings, so it has no single curve. A flat area,
+        # where the blur equals its own value, prints at val' = (1-g)*val + g*centre; fine
+        # detail riding on a neutral surround prints unmoved. The band spans the two.
+        self._mask_pts = []
+        gamma = float(getattr(params, "contrast_mask", 0.0) or 0.0)
+        if gamma and mask_centre is not None and not flat:
+            self._mask_pts = _curve_points(slope, pivot, x_in=(1.0 - gamma) * x_log_exp + gamma * float(mask_centre))
 
         # Per-channel traces when Cast Removal or grade trims diverge the channels, or the knee
         # trims split toe and shoulder. Otherwise one white curve.
@@ -376,6 +391,8 @@ class PhotometricCurveWidget(QWidget):
             zx = int(self._wx(i * 0.1, w))
             painter.drawLine(zx, h - 5, zx, h - 1)
 
+        self._draw_mask_band(painter, w, h)
+
         # Pre-drag ghost curve
         if self._ghost_pts:
             ghost_path = QPainterPath()
@@ -440,6 +457,32 @@ class PhotometricCurveWidget(QWidget):
 
         self._draw_clip_indicators(painter, w, h)
         self._draw_scale_toggle(painter, w, h)
+
+    def _draw_mask_band(self, painter: QPainter, w: int, h: int) -> None:
+        """The Contrast Mask's reach: filled between the base curve and the curve a flat
+        area prints on, with that far edge dashed because no single tone has to land there.
+        """
+        if not self._mask_pts or not self._curve_pts:
+            return
+        band = QPainterPath()
+        band.moveTo(self._wx(self._curve_pts[0][0], w), self._wy(self._curve_pts[0][1], h))
+        for px, py in self._curve_pts[1:]:
+            band.lineTo(self._wx(px, w), self._wy(py, h))
+        for px, py in reversed(self._mask_pts):
+            band.lineTo(self._wx(px, w), self._wy(py, h))
+        band.closeSubpath()
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor(175, 140, 255, 38)))
+        painter.drawPath(band)
+
+        edge = QPainterPath()
+        edge.moveTo(self._wx(self._mask_pts[0][0], w), self._wy(self._mask_pts[0][1], h))
+        for px, py in self._mask_pts[1:]:
+            edge.lineTo(self._wx(px, w), self._wy(py, h))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor(185, 155, 255, 165), 1, Qt.PenStyle.DashLine))
+        painter.drawPath(edge)
 
     def _draw_output_histogram(self, painter: QPainter, w: int, h: int) -> None:
         """Output tones, black left → white right — same direction the curve rises."""

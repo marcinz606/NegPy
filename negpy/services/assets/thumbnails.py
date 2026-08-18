@@ -6,6 +6,7 @@ from negpy.kernel.system.config import APP_CONFIG
 import numpy as np
 from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb, float_to_uint8, prepare_thumbnail, srgb_to_linear, uint8_to_float32
 from negpy.infrastructure.loaders.factory import loader_factory
+from negpy.infrastructure.loaders.helpers import embedded_preview
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.kernel.system.logging import get_logger
 
@@ -138,19 +139,7 @@ def decode_source_image(file_path: str, green_path: str = "", blue_path: str = "
 
     ctx_mgr, metadata = loader_factory.get_loader(file_path)
     with ctx_mgr as raw:
-        img: Optional[Image.Image] = None
-
-        if hasattr(raw, "extract_thumb"):
-            try:
-                thumb = raw.extract_thumb()
-                if thumb.format == rawpy.ThumbFormat.JPEG:
-                    import io
-
-                    img = Image.open(io.BytesIO(thumb.data))
-                elif thumb.format == rawpy.ThumbFormat.BITMAP:
-                    img = Image.fromarray(thumb.data)
-            except Exception:
-                pass
+        img: Optional[Image.Image] = embedded_preview(raw, file_path)
 
         if img is None:
             img = Image.fromarray(_fast_demosaic(raw))
@@ -235,6 +224,9 @@ def get_thumbnail_worker(
 
             img = Image.fromarray(slice_half(np.asarray(img), half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness))
 
+        # Shrink before the inversion, not after: preview_positive is float math over every
+        # pixel, and on a full-size decode its temporaries cost a gigabyte per worker.
+        img.thumbnail((ts, ts), Image.Resampling.LANCZOS)
         square_img: Image.Image = prepare_thumbnail(preview_positive(img, process_mode), ts)
 
         if asset_store:

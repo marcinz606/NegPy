@@ -196,6 +196,15 @@ class StorageRepository(IRepository):
                 return WorkspaceConfig.from_flat_dict(data)
         return None
 
+    def delete_file_settings(self, file_hash: str) -> None:
+        """Delete this hash's saved edit, its undo history and its work prints.
+
+        The triage mark stays: a keep/reject is a judgement on the frame, not an edit.
+        """
+        with self._connect(self.edits_db_path) as conn:
+            for table in ("file_settings", "edit_history", "work_prints"):
+                conn.execute(f"DELETE FROM {table} WHERE file_hash = ?", (file_hash,))
+
     def load_file_settings_many(self, hashes: List[str]) -> dict[str, WorkspaceConfig]:
         """Saved edits for many hashes in one connection — the search facts for a whole
         roll cost one round trip, not one per frame. Hashes with no saved edit are absent

@@ -7,6 +7,7 @@ right once the gesture settles.
 """
 
 import unittest
+from functools import partial
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -82,17 +83,22 @@ class TestSettleOnlyWorkIsSkipped(unittest.TestCase):
             _thumb_config=object(),
             _render_memo=MagicMock(),
             _gpu_fallback_notified=True,
+            _freeze_resolved_auto_crop=MagicMock(),
             state=SimpleNamespace(
                 config=object(),
                 metrics_lock=MagicMock(__enter__=lambda s: None, __exit__=lambda s, *a: None),
                 last_metrics={},
                 current_file_hash="h1",
+                compare_mode=False,
+                negative_peek=False,
             ),
             image_updated=MagicMock(),
             _update_thumbnail_from_state=MagicMock(),
             set_status=MagicMock(),
             render_requested=MagicMock(),
         )
+        stub._renders_another_frame = partial(AppController._renders_another_frame, stub)
+        stub._dispatch_pending_render = partial(AppController._dispatch_pending_render, stub)
         AppController._on_render_finished(stub, None, {"interactive": True, "source_hash": "h1"})
         stub._update_thumbnail_from_state.assert_not_called()
 
@@ -122,6 +128,7 @@ class TestSettleOnlyWorkIsSkipped(unittest.TestCase):
             metrics_available=MagicMock(),
             session=MagicMock(),
         )
+        stub._renders_another_frame = partial(AppController._renders_another_frame, stub)
         AppController._on_metrics_updated(stub, {"interactive": True, "log_bounds": object(), "source_hash": "h1"})
         stub.session.update_config.assert_not_called()
 

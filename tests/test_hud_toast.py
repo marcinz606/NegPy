@@ -10,6 +10,7 @@ from negpy.desktop.view.canvas.hud import _TOAST_WIDTH_RATIO, CanvasHud
 
 LONG = "Nikon High Efficiency (HE) raw — NegPy cannot decode this format. Re-shoot as Lossless Compressed, or convert to DNG."
 SHORT = "merging exposures"
+ONE_WORD = "rendering"
 
 
 def _hud(qapp, width=1400, height=900):
@@ -42,10 +43,15 @@ def test_a_long_message_wraps_rather_than_truncating(qapp):
 def test_a_short_message_keeps_its_natural_width(qapp):
     """The floor must not inflate an ordinary toast into a banner."""
     hud = _hud(qapp)
+    # Compared against a word that cannot wrap, not a font metric: a toast's height also carries
+    # the padding and the border the stylesheet gives it.
+    hud.showMessage(ONE_WORD, 3000)
+    hud.toast.adjustSize()
+    one_line = hud.toast.height()
     hud.showMessage(SHORT, 3000)
     hud.toast.adjustSize()
     assert hud.toast.width() < int(hud.width() * _TOAST_WIDTH_RATIO), "a short toast should not fill the cap"
-    assert hud.toast.height() <= hud.toast.fontMetrics().lineSpacing() * 2
+    assert hud.toast.height() <= one_line, "a short toast should stay on one line"
 
 
 def test_it_fits_before_the_hud_has_ever_been_resized(qapp):

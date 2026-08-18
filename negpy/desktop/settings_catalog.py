@@ -84,16 +84,20 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("Hue Trim", "process", "hue_trim"),
     )),
     ("Crop", (
-        _row("Auto Crop", "geometry", "auto_crop_enabled"),
+        _row("Auto Crop", "geometry", "crop_from_auto"),
         _row("Crop Offset", "geometry", "autocrop_offset"),
         _row("Rebate Trim", "geometry", "autocrop_rebate_trim"),
         _row("Crop Ratio", "geometry", "autocrop_ratio"),
         _row("Crop Mode", "geometry", "autocrop_mode"),
-        _row("Manual Crop", "geometry", "manual_crop_rect"),
+        # Rect and key copy together: without the key a copied auto rect looks freshly
+        # detected on the target.
+        _row("Crop", "geometry", "crop_rect", "crop_detect_key", fmt=lambda v: _fmt_scalar(v[0])),
     )),
     ("Rotation", (
         _row("Rotation", "geometry", "rotation"),
         _row("Fine Rotation", "geometry", "fine_rotation"),
+        _row("Easel Tilt", "geometry", "converge_v"),
+        _row("Easel Swing", "geometry", "converge_h"),
         _row("Flip Horizontal", "geometry", "flip_horizontal"),
         _row("Flip Vertical", "geometry", "flip_vertical"),
     )),
@@ -122,6 +126,8 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("Dye Separation", "exposure", "dye_separation"),
         _row("Dye Separation Trim", "exposure", "dye_separation_trim_red", "dye_separation_trim_green", "dye_separation_trim_blue", channels="RGB"),
         _row("Separation Damping", "exposure", "separation_damping"),
+        _row("Contrast Mask", "exposure", "contrast_mask"),
+        _row("Mask Spacer", "exposure", "mask_spacer"),
         _row("Auto Exposure", "exposure", "auto_exposure"),
         _row("Auto Contrast", "exposure", "auto_normalize_contrast"),
         _row("Paper Profile", "exposure", "paper_profile"),
@@ -254,11 +260,12 @@ _BOUNDS_INPUT_FIELDS = frozenset(
         "crosstalk_matrix",
         "sensor_profile",
         "sensor_matrix",
-        "auto_crop_enabled",
+        "crop_from_auto",
         "autocrop_offset",
         "autocrop_rebate_trim",
         "autocrop_mode",
-        "manual_crop_rect",
+        "crop_rect",
+        "crop_detect_key",
     }
 )
 

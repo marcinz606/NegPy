@@ -16,6 +16,7 @@ from negpy.desktop.view.styles.templates import EditedDot, default_button_height
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.domain.models import CROP_RATIO_CHOICES, canonical_crop_ratio
+from negpy.features.geometry.logic import has_manual_crop
 from negpy.features.geometry.models import FINE_ROTATION_LIMIT, AutocropMode
 from negpy.features.process.models import invalidate_local_bounds
 
@@ -169,6 +170,24 @@ class GeometrySidebar(BaseSidebar):
         align_row.addWidget(self.straighten_btn, 0)
         self.layout.addLayout(align_row)
 
+        self.converge_v_slider = CompactSlider("Tilt", -15.0, 15.0, conf.converge_v, unit="%")
+        self.converge_v_slider.setToolTip(
+            "Easel Tilt: tip the easel about a horizontal axis to straighten converging verticals, "
+            "the building that leans back because the camera pointed up. Positive stretches the top "
+            "edge. Per-cent of the frame, what you would measure on the easel, not a tilt angle: "
+            "the same tilt keystones differently at every enlargement."
+        )
+        self.converge_h_slider = CompactSlider("Swing", -15.0, 15.0, conf.converge_h, unit="%")
+        self.converge_h_slider.setToolTip(
+            "Easel Swing: the same movement about a vertical axis, for converging horizontals. A "
+            "wall shot from one side, or a copy stand not square to the film. Positive stretches "
+            "the left edge."
+        )
+        converge_row = QHBoxLayout()
+        converge_row.addWidget(self.converge_v_slider)
+        converge_row.addWidget(self.converge_h_slider)
+        self.layout.addLayout(converge_row)
+
     def cycle_guide(self) -> None:
         self.guide_combo.setCurrentIndex((self.guide_combo.currentIndex() + 1) % self.guide_combo.count())
 
@@ -210,6 +229,14 @@ class GeometrySidebar(BaseSidebar):
         self.fine_rot_slider.valueCommitted.connect(
             lambda v: self.update_config_section("geometry", render=True, persist=True, readback_metrics=True, fine_rotation=-v)
         )
+
+        for slider, field in ((self.converge_v_slider, "converge_v"), (self.converge_h_slider, "converge_h")):
+            slider.valueChanged.connect(
+                lambda v, f=field: self.update_config_section("geometry", render=True, persist=False, readback_metrics=False, **{f: v})
+            )
+            slider.valueCommitted.connect(
+                lambda v, f=field: self.update_config_section("geometry", render=True, persist=True, readback_metrics=True, **{f: v})
+            )
 
     def _on_ratio_changed(self, ratio: str) -> None:
         self.controller.set_crop_ratio(ratio)
@@ -268,12 +295,14 @@ class GeometrySidebar(BaseSidebar):
             self.offset_slider.setValue(float(conf.autocrop_offset))
             self.rebate_trim_slider.setValue(conf.autocrop_rebate_trim * 100.0)
             self.fine_rot_slider.setValue(-conf.fine_rotation)
+            self.converge_v_slider.setValue(conf.converge_v)
+            self.converge_h_slider.setValue(conf.converge_h)
 
             self.manual_crop_btn.setChecked(self.state.active_tool == ToolMode.CROP_MANUAL)
             self.straighten_btn.setChecked(self.state.active_tool == ToolMode.STRAIGHTEN)
-            self.reset_crop_btn.setChecked(conf.auto_crop_enabled)
-            self.manual_crop_btn.set_crop_active(conf.manual_crop_rect is not None)
-            self.reset_crop_btn.set_crop_active(conf.auto_crop_enabled)
+            self.reset_crop_btn.setChecked(conf.crop_from_auto)
+            self.manual_crop_btn.set_crop_active(has_manual_crop(conf))
+            self.reset_crop_btn.set_crop_active(conf.crop_from_auto)
             self.auto_crop_all_btn.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
             self.rebate_trim_slider.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
         finally:
@@ -288,6 +317,8 @@ class GeometrySidebar(BaseSidebar):
         self.offset_slider.blockSignals(blocked)
         self.rebate_trim_slider.blockSignals(blocked)
         self.fine_rot_slider.blockSignals(blocked)
+        self.converge_v_slider.blockSignals(blocked)
+        self.converge_h_slider.blockSignals(blocked)
         self.manual_crop_btn.blockSignals(blocked)
         self.straighten_btn.blockSignals(blocked)
         self.reset_crop_btn.blockSignals(blocked)

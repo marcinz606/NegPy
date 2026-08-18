@@ -78,6 +78,24 @@ def test_load_settings_by_path_skips_rows_without_a_path(tmp_path):
     assert by_path["/a/1.nef"].metadata.film == "Portra"
 
 
+def test_delete_file_settings_takes_the_edit_history_and_work_prints(tmp_path):
+    repo = _repo(tmp_path)
+    for h in ("h1", "h2"):
+        repo.save_file_settings(h, _config("Portra"), file_path="/a/1.nef")
+        repo.save_history_step(h, 0, _config("Portra"))
+        repo.save_work_print(h, "print", _config("Portra"))
+    repo.save_file_mark("h1", "keeper", file_path="/a/1.nef")
+
+    repo.delete_file_settings("h1")
+
+    assert repo.load_file_settings("h1") is None
+    assert repo.load_history_step("h1", 0) is None
+    assert repo.list_work_prints("h1") == []
+    assert repo.load_file_marks() == {"h1": "keeper"}  # a triage mark is not an edit
+    assert repo.load_file_settings("h2") is not None
+    assert repo.list_work_prints("h2") == ["print"]
+
+
 def test_file_marks_are_resolvable_by_path(tmp_path):
     repo = _repo(tmp_path)
     repo.save_file_mark("h1", "keeper", file_path="/a/1.nef")

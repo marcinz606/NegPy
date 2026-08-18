@@ -121,6 +121,7 @@ class ControlsPanel(QWidget):
         super().__init__()
         self.controller = controller
         self._last_histogram_buf = None
+        self._read_only = False
 
         self._init_ui()
         self._connect_signals()
@@ -716,10 +717,27 @@ class ControlsPanel(QWidget):
             )
         )
 
+    _DIPTYCH_HINT = "Diptych — the edits live on the halves. Turn Half Frame on to edit either one."
+
+    def _set_read_only(self, read_only: bool) -> None:
+        """A diptych renders from the two halves' own configs, so this panel drives nothing.
+
+        Announced on the transition rather than as a tooltip: Qt gives no tooltip to a
+        disabled widget.
+        """
+        if read_only == self._read_only:
+            return
+        self._read_only = read_only
+        for page in self.pages:
+            page["widget"].setEnabled(not read_only)
+        if read_only:
+            self.controller.set_status(self._DIPTYCH_HINT, 6000)
+
     def _sync_all_sidebars(self) -> None:
         """Force all sidebar panels to update their widgets from current AppState."""
         from negpy.features.process.models import ProcessMode
 
+        self._set_read_only(self.controller.active_diptych() is not None)
         self.color_section.setVisible(self.controller.state.config.process.process_mode != ProcessMode.BW)
         self.process_sidebar.sync_ui()
         self.roll_sidebar.sync_ui()
@@ -818,8 +836,8 @@ class ControlsPanel(QWidget):
                 geo.fine_rotation != _geo.fine_rotation,
                 geo.flip_horizontal != _geo.flip_horizontal,
                 geo.flip_vertical != _geo.flip_vertical,
-                geo.auto_crop_enabled != _geo.auto_crop_enabled,
-                geo.manual_crop_rect is not None,
+                geo.crop_from_auto != _geo.crop_from_auto,
+                geo.crop_rect is not None,
                 geo.autocrop_ratio != _geo.autocrop_ratio,
                 geo.autocrop_mode != _geo.autocrop_mode,
                 geo.autocrop_offset != _geo.autocrop_offset,

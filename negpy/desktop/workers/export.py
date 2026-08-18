@@ -36,6 +36,9 @@ class ExportTask:
     source_exif: Optional[dict] = None
     metadata_config: Optional[MetadataConfig] = None
     working_color_space: str = WORKING_COLOR_SPACE
+    # The two halves' own edits, for a whole-frame scan that was worked on split.
+    # Set means one file holding both frames; `params` is then only a naming/metadata carrier.
+    diptych: Optional[tuple[WorkspaceConfig, WorkspaceConfig]] = None
 
 
 @dataclass(frozen=True)
@@ -69,16 +72,22 @@ _EXT = {
 }
 
 
-def resolve_export_dir(task: ExportTask) -> str:
-    """Destination folder for a task, per its output-mode rule."""
-    source_dir = os.path.dirname(task.file_info["path"])
-    output_mode = task.export_settings.output_mode
+def resolve_output_dir(source_path: str, settings: ExportPreset) -> str:
+    """Destination folder for one source file, per its output-mode rule. Linear Output
+    calls this too, so every intent answers the destination question the same way."""
+    source_dir = os.path.dirname(source_path)
+    output_mode = settings.output_mode
     if output_mode == ExportPresetOutputMode.SUBFOLDER_OF_SOURCE:
-        subfolder = task.export_settings.output_subfolder or ""
+        subfolder = settings.output_subfolder or ""
         return os.path.join(source_dir, subfolder) if subfolder else source_dir
     if output_mode == ExportPresetOutputMode.ABSOLUTE:
-        return task.export_settings.output_path or source_dir
+        return settings.output_path or source_dir
     return source_dir
+
+
+def resolve_export_dir(task: ExportTask) -> str:
+    """Destination folder for a task, per its output-mode rule."""
+    return resolve_output_dir(task.file_info["path"], task.export_settings)
 
 
 def resolve_export_naming(task: ExportTask) -> tuple[str, str, str]:
@@ -95,7 +104,7 @@ def resolve_export_naming(task: ExportTask) -> tuple[str, str, str]:
         border_size=task.params.finish.border_size,
         half=int(task.file_info.get("half") or 0),
         metadata=task.metadata_config,
-        composite="HDR" if frames else "",
+        composite="DIPTYCH" if task.diptych else ("HDR" if frames else ""),
     )
     return out_dir, filename, ext
 
@@ -158,6 +167,7 @@ class ExportWorker(QObject):
                     split_x=float(task.file_info.get("split_x") or 0.5),
                     crop_rect=tuple(task.file_info["crop_rect"]) if task.file_info.get("crop_rect") else None,
                     gutter_thickness=float(task.file_info.get("gutter_thickness") or 0.0),
+                    diptych=task.diptych,
                 )
 
                 if not bits:

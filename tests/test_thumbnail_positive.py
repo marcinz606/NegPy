@@ -1,9 +1,11 @@
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 from PIL import Image
 
-from negpy.services.assets.thumbnails import preview_positive, thumbnail_cache_key
+from negpy.kernel.system.config import APP_CONFIG
+from negpy.services.assets.thumbnails import get_thumbnail_worker, preview_positive, thumbnail_cache_key
 
 
 def _orange_mask_negative() -> Image.Image:
@@ -94,6 +96,28 @@ class TestPreviewPositive(unittest.TestCase):
         self.assertNotEqual(thumbnail_cache_key("abc", False), "abc")
         self.assertNotEqual(thumbnail_cache_key("abc", True), "abc-rgb")
         self.assertNotEqual(thumbnail_cache_key("abc", False), thumbnail_cache_key("abc", True))
+
+
+class TestThumbnailWorker(unittest.TestCase):
+    def test_inversion_runs_on_the_shrunk_image(self):
+        """preview_positive is float math over every pixel. Run on a full-size decode its
+        temporaries cost about a gigabyte per worker, which OOM-killed the app on a
+        400-frame folder with one worker per core."""
+        big = Image.fromarray(np.full((2000, 3000, 3), 128, dtype=np.uint8))
+        seen = []
+
+        def _spy(img, process_mode=""):
+            seen.append(img.size)
+            return img
+
+        with patch("negpy.services.assets.thumbnails.decode_source_image", return_value=big):
+            with patch("negpy.services.assets.thumbnails.preview_positive", side_effect=_spy):
+                thumb = get_thumbnail_worker("frame.dng", "hash")
+
+        ts = APP_CONFIG.thumbnail_size
+        self.assertEqual(len(seen), 1)
+        self.assertLessEqual(max(seen[0]), ts)
+        self.assertEqual(thumb.size, (ts, ts))
 
 
 if __name__ == "__main__":

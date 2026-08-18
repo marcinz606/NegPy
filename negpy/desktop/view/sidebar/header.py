@@ -10,6 +10,7 @@ from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QPixmap
 
 from negpy.desktop.controller import AppController
+from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.styles.theme import THEME
 from negpy.kernel.system.paths import get_resource_path
 from negpy.kernel.system.version import get_app_version
@@ -24,6 +25,7 @@ class SidebarHeader(QWidget):
     """
 
     expanded_changed = pyqtSignal(bool)
+    check_requested = pyqtSignal()
 
     def __init__(self, controller: AppController, expanded: bool = True):
         super().__init__()
@@ -80,9 +82,44 @@ class SidebarHeader(QWidget):
         self.ver_label = QLabel(f"v{get_app_version()}")
         self.ver_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.ver_label.setStyleSheet(f"font-size: 14px; color: {THEME.text_secondary}; font-weight: bold;")
-        body_layout.addWidget(self.ver_label)
+
+        self.update_button = QToolButton()
+        self.update_button.setAutoRaise(True)
+        self.update_button.setIconSize(QSize(12, 12))
+        self.update_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.update_button.setStyleSheet("QToolButton { border: none; background: transparent; padding: 0px; }")
+        self.update_button.clicked.connect(self.check_requested)
+
+        version_row = QHBoxLayout()
+        version_row.setContentsMargins(0, 0, 0, 0)
+        version_row.setSpacing(4)
+        version_row.addStretch()
+        version_row.addWidget(self.ver_label)
+        version_row.addWidget(self.update_button)
+        version_row.addStretch()
+        body_layout.addLayout(version_row)
+
+        self.set_update_state(False)
 
         layout.addWidget(self.body)
+
+    def set_update_state(self, available: bool) -> None:
+        """Swap the version button between "check now" and "an update is waiting"."""
+        if available:
+            self.update_button.setIcon(qta.icon("fa5s.download", color=THEME.status_success))
+            self.update_button.setToolTip("An update is ready — click to install it")
+        else:
+            self.update_button.setIcon(qta.icon("fa5s.sync-alt", color=THEME.text_muted))
+            self.update_button.setToolTip(tooltip_with_shortcut("Check for updates", "check_for_updates"))
+        self.update_button.setEnabled(True)
+
+    def set_checking(self) -> None:
+        """Disable the button while a check runs: each click starts its own thread.
+
+        ``set_update_state`` re-enables it once the answer is in.
+        """
+        self.update_button.setEnabled(False)
+        self.update_button.setToolTip("Checking…")
 
     def is_expanded(self) -> bool:
         return self.toggle_button.isChecked()

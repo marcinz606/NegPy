@@ -1,7 +1,7 @@
 """Pure rect math for the scan-window picker — no Qt, unit-testable.
 
 Rects are normalized ``(x1, y1, x2, y2)`` in 0..1 (left, top, right, bottom),
-matching the crop convention (``GeometryConfig.manual_crop_rect``).
+matching the crop convention (``GeometryConfig.crop_rect``).
 """
 
 Rect = tuple[float, float, float, float]

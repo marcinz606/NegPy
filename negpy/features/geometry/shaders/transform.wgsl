@@ -4,6 +4,11 @@ struct GeometryUniforms {
     flip_h: i32,        // 0 or 1
     flip_v: i32,        // 0 or 1
     distortion: vec4<f32>, // (k1, scale_to_fill, _, _) — radial lens correction
+    // Keystone inverse in [0,1] coords, rows packed as (h00,h01,h02,h10) and
+    // (h11,h12,h20,h21); h22 is 1. Built by keystone_inverse_normalized on the CPU, so
+    // the quad is never derived twice. All zeros = no keystone.
+    keystone_a: vec4<f32>,
+    keystone_b: vec4<f32>,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -52,7 +57,21 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 
     let coords = vec2<i32>(i32(gid.x), i32(gid.y));
-    let out_uv = vec2<f32>(f32(coords.x) + 0.5, f32(coords.y) + 0.5) / vec2<f32>(f32(out_dims.x), f32(out_dims.y));
+    var out_uv = vec2<f32>(f32(coords.x) + 0.5, f32(coords.y) + 0.5) / vec2<f32>(f32(out_dims.x), f32(out_dims.y));
+
+    // Inverse keystone. It is the last forward op, so it is undone first, before the
+    // frame is centred. Mirrors apply_keystone on the CPU via the matrix it built.
+    let ka = params.keystone_a;
+    let kb = params.keystone_b;
+    if (ka.x != 0.0 || ka.y != 0.0 || kb.z != 0.0 || kb.w != 0.0) {
+        let den = kb.z * out_uv.x + kb.w * out_uv.y + 1.0;
+        if (abs(den) > 1e-12) {
+            out_uv = vec2<f32>(
+                (ka.x * out_uv.x + ka.y * out_uv.y + ka.z) / den,
+                (ka.w * out_uv.x + kb.x * out_uv.y + kb.y) / den,
+            );
+        }
+    }
 
     // 1. Center UV
     var uv = out_uv - 0.5;

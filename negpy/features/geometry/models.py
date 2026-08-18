@@ -106,8 +106,10 @@ class GeometryConfig:
     fine_rotation: float = 0.0
     flip_horizontal: bool = False
     flip_vertical: bool = False
-    auto_crop_enabled: bool = False
-
+    # Easel tilt and swing, in per-cent of the frame rather than degrees (see
+    # geometry.logic). Positive converge_v stretches the top edge, converge_h the left.
+    converge_v: float = 0.0  # [-15.0, 15.0] %
+    converge_h: float = 0.0  # [-15.0, 15.0] %
     autocrop_offset: int = 0
     # Free, not 3:2: autocrop reads the film format off the detected frame, so the
     # default fits 6x6, 645 and 6x7 as well as 35mm. A fixed 3:2 center-cropped every
@@ -117,14 +119,25 @@ class GeometryConfig:
     # Fraction of the detected rebate to cut: 0.0 = film edge, 1.0 = image edge, above
     # 1.0 bites into the picture. Image mode only.
     autocrop_rebate_trim: float = 1.0
-    manual_crop_rect: Optional[Tuple[float, float, float, float]] = None
+
+    # One normalized rect in transformed-image space, auto or manual. `crop_from_auto`
+    # doubles as Auto Crop's armed state:
+    #   None + False  no crop
+    #   None + True   armed: the next render detects a rect, the controller freezes it here
+    #   rect + True   resolved auto crop
+    #   rect + False  manual crop (or an auto crop since dragged)
+    crop_rect: Optional[Tuple[float, float, float, float]] = None
+    crop_from_auto: bool = False
+    # autocrop_detection_key the auto rect was found under; a mismatch re-detects on the
+    # next render. Empty for a manual rect, which nothing invalidates.
+    crop_detect_key: str = ""
 
     def __post_init__(self) -> None:
         """Ensure a JSON-loaded list is converted back to a tuple, keeping the
         frozen dataclass hashable for pipeline cache keys. Enum fields coerce so a
         retired or hand-edited saved value degrades to the default, not a load failure."""
-        if self.manual_crop_rect is not None:
-            object.__setattr__(self, "manual_crop_rect", tuple(self.manual_crop_rect))
+        if self.crop_rect is not None:
+            object.__setattr__(self, "crop_rect", tuple(self.crop_rect))
         if self.autocrop_mode not in (AutocropMode.IMAGE, AutocropMode.FILM):
             object.__setattr__(self, "autocrop_mode", AutocropMode.IMAGE)
         try:

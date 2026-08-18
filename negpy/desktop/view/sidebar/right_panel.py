@@ -406,7 +406,14 @@ class RightPanel(QWidget):
             # Green channel is the base curve (white reference + stats slope).
             slope, pivot = slopes[1], pivots[1]
             self.curve_widget.update_curve(
-                config, slope=slope, pivot=pivot, slopes=slopes, pivots=pivots, curvatures=curvatures, process_mode=process_mode
+                config,
+                slope=slope,
+                pivot=pivot,
+                slopes=slopes,
+                pivots=pivots,
+                curvatures=curvatures,
+                process_mode=process_mode,
+                mask_centre=metrics.get("contrast_mask_centre"),
             )
             self._update_step_wedge(config, process_mode, slope, pivot, metrics)
 

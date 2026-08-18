@@ -172,6 +172,16 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.session.set_sticky_zoom(False)
         self.mock_repo.save_global_setting.assert_not_called()
 
+    def test_set_invert_zoom_scroll_persists(self):
+        self.assertFalse(self.session.state.invert_zoom_scroll)
+        self.session.set_invert_zoom_scroll(True)
+        self.assertTrue(self.session.state.invert_zoom_scroll)
+        self.mock_repo.save_global_setting.assert_called_with("invert_zoom_scroll", True)
+
+    def test_set_invert_zoom_scroll_noop_when_unchanged(self):
+        self.session.set_invert_zoom_scroll(False)
+        self.mock_repo.save_global_setting.assert_not_called()
+
     def test_persist_writes_sticky_settings_in_one_batch(self):
         self.session.select_file(0)
         self.mock_repo.save_global_settings.reset_mock()
@@ -418,7 +428,7 @@ class TestDesktopSessionSync(unittest.TestCase):
     def test_sync_selected_settings_exclusions(self):
         source_config = WorkspaceConfig(
             exposure=replace(WorkspaceConfig().exposure, density=1.5),
-            geometry=GeometryConfig(rotation=1, fine_rotation=5.5, manual_crop_rect=(0, 0, 1, 1)),
+            geometry=GeometryConfig(rotation=1, fine_rotation=5.5, crop_rect=(0, 0, 1, 1)),
             retouch=RetouchConfig(dust_remove=True, manual_dust_spots=[(0.1, 0.1, 5)]),
             process=ProcessConfig(process_mode=ProcessMode.E6, e6_normalize=True),
         )
@@ -428,7 +438,7 @@ class TestDesktopSessionSync(unittest.TestCase):
 
         target_config = WorkspaceConfig(
             exposure=replace(WorkspaceConfig().exposure, density=0.0),
-            geometry=GeometryConfig(rotation=0, fine_rotation=0.0, manual_crop_rect=None),
+            geometry=GeometryConfig(rotation=0, fine_rotation=0.0, crop_rect=None),
             retouch=RetouchConfig(dust_remove=False, manual_dust_spots=[]),
             process=ProcessConfig(process_mode=ProcessMode.C41, e6_normalize=False),
         )
@@ -447,7 +457,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         # Geometry not selected → entirely preserved from target
         self.assertEqual(saved_config.geometry.rotation, 0)
         self.assertEqual(saved_config.geometry.fine_rotation, 0.0)
-        self.assertIsNone(saved_config.geometry.manual_crop_rect)
+        self.assertIsNone(saved_config.geometry.crop_rect)
         # Per-file retouch fields preserved from target even though Dust Removal was synced
         self.assertEqual(saved_config.retouch.manual_dust_spots, [])
         self.assertTrue(saved_config.retouch.dust_remove)
@@ -455,7 +465,7 @@ class TestDesktopSessionSync(unittest.TestCase):
     def test_sync_selected_settings_edits_with_geometry(self):
         source_config = WorkspaceConfig(
             exposure=replace(WorkspaceConfig().exposure, density=1.5),
-            geometry=GeometryConfig(rotation=1, fine_rotation=5.5, manual_crop_rect=(0.1, 0.1, 0.9, 0.9)),
+            geometry=GeometryConfig(rotation=1, fine_rotation=5.5, crop_rect=(0.1, 0.1, 0.9, 0.9)),
             retouch=RetouchConfig(dust_remove=True, manual_dust_spots=[(0.1, 0.1, 5)]),
             process=ProcessConfig(process_mode=ProcessMode.E6, e6_normalize=True),
         )
@@ -465,21 +475,21 @@ class TestDesktopSessionSync(unittest.TestCase):
 
         target_config = WorkspaceConfig(
             exposure=replace(WorkspaceConfig().exposure, density=0.0),
-            geometry=GeometryConfig(rotation=0, fine_rotation=0.0, manual_crop_rect=None),
+            geometry=GeometryConfig(rotation=0, fine_rotation=0.0, crop_rect=None),
             retouch=RetouchConfig(dust_remove=False, manual_dust_spots=[(0.5, 0.5, 3)]),
             process=ProcessConfig(process_mode=ProcessMode.C41, e6_normalize=False),
         )
         self.mock_repo.load_file_settings.return_value = target_config
 
         self.session.update_selection([0, 1])
-        self.session.sync_selected_settings([_row("Print Density"), _row("Fine Rotation"), _row("Rotation"), _row("Manual Crop")])
+        self.session.sync_selected_settings([_row("Print Density"), _row("Fine Rotation"), _row("Rotation"), _row("Crop")])
 
         args, _ = self.mock_repo.save_file_settings.call_args
         saved_config = args[1]
 
         # Crop and fine_rotation should now propagate from source
         self.assertEqual(saved_config.geometry.fine_rotation, 5.5)
-        self.assertEqual(saved_config.geometry.manual_crop_rect, (0.1, 0.1, 0.9, 0.9))
+        self.assertEqual(saved_config.geometry.crop_rect, (0.1, 0.1, 0.9, 0.9))
         self.assertEqual(saved_config.geometry.rotation, 1)
         # Edits still synced
         self.assertEqual(saved_config.exposure.density, 1.5)
@@ -489,7 +499,7 @@ class TestDesktopSessionSync(unittest.TestCase):
     def test_sync_selected_settings_geometry_only(self):
         source_config = WorkspaceConfig(
             exposure=replace(WorkspaceConfig().exposure, density=1.5),
-            geometry=GeometryConfig(rotation=2, fine_rotation=3.0, manual_crop_rect=(0.0, 0.0, 0.5, 0.5)),
+            geometry=GeometryConfig(rotation=2, fine_rotation=3.0, crop_rect=(0.0, 0.0, 0.5, 0.5)),
         )
         self.session.state.selected_file_idx = 0
         self.session.state.current_file_hash = "hash1"
@@ -497,12 +507,12 @@ class TestDesktopSessionSync(unittest.TestCase):
 
         target_config = WorkspaceConfig(
             exposure=replace(WorkspaceConfig().exposure, density=0.7),
-            geometry=GeometryConfig(rotation=0, fine_rotation=0.0, manual_crop_rect=None),
+            geometry=GeometryConfig(rotation=0, fine_rotation=0.0, crop_rect=None),
         )
         self.mock_repo.load_file_settings.return_value = target_config
 
         self.session.update_selection([0, 1])
-        self.session.sync_selected_settings([_row("Rotation"), _row("Fine Rotation"), _row("Manual Crop")])
+        self.session.sync_selected_settings([_row("Rotation"), _row("Fine Rotation"), _row("Crop")])
 
         args, _ = self.mock_repo.save_file_settings.call_args
         saved_config = args[1]
@@ -510,7 +520,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         # Geometry comes from source
         self.assertEqual(saved_config.geometry.rotation, 2)
         self.assertEqual(saved_config.geometry.fine_rotation, 3.0)
-        self.assertEqual(saved_config.geometry.manual_crop_rect, (0.0, 0.0, 0.5, 0.5))
+        self.assertEqual(saved_config.geometry.crop_rect, (0.0, 0.0, 0.5, 0.5))
         # Other config preserved from target
         self.assertEqual(saved_config.exposure.density, 0.7)
 
@@ -677,7 +687,7 @@ class TestDesktopSessionSync(unittest.TestCase):
                 locked_ceils=(0.95, 0.95, 0.95),
                 lock_bounds=True,
             ),
-            geometry=replace(self.session.state.config.geometry, rotation=2, manual_crop_rect=(0.1, 0.1, 0.9, 0.9)),
+            geometry=replace(self.session.state.config.geometry, rotation=2, crop_rect=(0.1, 0.1, 0.9, 0.9)),
         )
         self.session.update_config(dirty, persist=True)
 

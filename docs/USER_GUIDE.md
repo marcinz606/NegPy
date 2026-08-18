@@ -11,10 +11,20 @@ This guide is for new users. It explains what each control does and when to reac
 ### Screen layout
 
 *   **Left, the film strip**: your loaded frames as a contact sheet, plus import, sorting and triage tools.
-*   **Centre, the canvas**: the live preview. Most tools (crop, white-balance picker, heal brush, dodge/burn masks) are used by clicking directly on it. Scroll or pinch to zoom, drag to pan. A floating toolbar along the bottom holds Fit/1:1 zoom, undo/redo, rotate/flip and more, moving overflow items into an **⋯** menu as the window narrows. That menu also holds **Immersive Canvas** (the image fills the canvas and the toolbar overlaps it; turn it off to reserve space) and **Show Slider Values** (every slider's value box stays open instead of appearing under the pointer). Right-click the image for **Reset View** and **Sticky Zoom** (keeps the current zoom when you switch frames), plus the picker tools and copy/paste settings. With nothing loaded the canvas shows **Load some scans to get started**; click it for **Add files** or **Add folder**.
+*   **Centre, the canvas**: the live preview. Most tools (crop, white-balance picker, heal brush, dodge/burn masks) are used by clicking directly on it. Scroll or pinch to zoom, drag to pan. A floating toolbar along the bottom holds Fit/1:1 zoom, undo/redo, rotate/flip and more, moving overflow items into an **⋯** menu as the window narrows. That menu also holds **Immersive Canvas** (the image fills the canvas and the toolbar overlaps it; turn it off to reserve space) **Show Slider Values** (every slider's value box stays open instead of appearing under the pointer) and **Reverse Scroll Zoom** (scroll up zooms out instead of in). Right-click the image for **Reset View** and **Sticky Zoom** (keeps the current zoom when you switch frames), plus the picker tools and copy/paste settings. With nothing loaded the canvas shows **Load some scans to get started**; click it for **Add files** or **Add folder**.
 *   **Left, the film strip**: your loaded frames as a contact sheet, plus import, sorting, and triage tools.
-*   **Centre, the canvas**: the live preview of the current frame. Most tools (crop, white-balance picker, heal brush, dodge/burn masks) are used by clicking directly on it. Scroll/pinch to zoom and drag to pan; a floating toolbar along the bottom holds Fit/1:1 zoom plus undo/redo, rotate/flip and more, moving overflow items into an **⋯** menu when the window narrows — that menu also has **Immersive Canvas** (image fills the canvas and the toolbar overlaps it; turn off to reserve space so it never occludes the image) and **Show Slider Values** (keeps every slider's value box open instead of revealing it under the pointer — turn it on if you work by the numbers). Right-click the image for **Reset View** and **Sticky Zoom** (keeps the current zoom level when you switch to another frame, instead of resetting to fit), alongside the picker tools, copy/paste settings, and **Unload** (removes the frame from the session; its saved edit is kept). With nothing loaded it shows **Load some scans to get started** — click it for **Add files** / **Add folder**.
+*   **Centre, the canvas**: the live preview of the current frame. Most tools (crop, white-balance picker, heal brush, dodge/burn masks) are used by clicking directly on it. Scroll/pinch to zoom and drag to pan; a floating toolbar along the bottom holds Fit/1:1 zoom plus undo/redo, rotate/flip and more, moving overflow items into an **⋯** menu when the window narrows. That menu also has **Immersive Canvas** (image fills the canvas and the toolbar overlaps it; turn off to reserve space so it never occludes the image) **Show Slider Values** (keeps every slider's value box open instead of revealing it under the pointer; turn it on if you work by the numbers) and **Reverse Scroll Zoom** (scroll up zooms out instead of in). Right-click the image for **Reset View** and **Sticky Zoom** (keeps the current zoom level when you switch to another frame, instead of resetting to fit), alongside the picker tools, copy/paste settings, and **Unload** (removes the frame from the session; its saved edit is kept). With nothing loaded it shows **Load some scans to get started**; click it for **Add files** / **Add folder**.
 *   **Right, the controls**: a pinned **Analysis** readout at the top, and below it an icon tab bar. Each icon opens a *workflow page* holding one or more collapsible panels.
+
+### Before / After
+
+The canvas toolbar's **◑** button (or `\`) splits the canvas in two. Left of the divider is the auto baseline: the same frame with the same film process, crop and rotation, but with every creative control (exposure, tone, Lab, dodge/burn, toning, retouch and finishing) back at its default. Right of it is your edit. Drag the divider to move the split, or grab its knob in the middle.
+
+The split stays up while you work, so a slider moves the after side against a fixed reference. Press `\` again, or move to another frame, to close it. Peek Negative, Peek Flat Scan and the test strip take the canvas over, so they close it too.
+
+### Peek Negative
+
+The canvas toolbar's film button (or `N`) shows the scan as it was loaded: the negative, un-inverted, with no metering, no film-base normalization and none of your edits. Use it to judge the scan rather than the print — whether the frame is thin or dense, what colour the mask really is, whether the scanner clipped. It changes nothing and closes as soon as you touch a control. Your crop, rotation and flip still apply, so the frame stays where you put it. Because it is the file's own numbers, it gets no colour management or soft proof, so expect the raw orange cast rather than an accurate one.
 
 ### The workflow (and the order things happen)
 
@@ -43,7 +53,7 @@ Both side panels can be narrowed to give the canvas more room. As the controls p
 
 ## 2. Film strip (left panel)
 
-The header shows the NegPy logo and version. When a newer release is out, a green **⬇ Update Available** line appears under it; click it to read what changed and let NegPy install it ([§15](#15-updating-negpy)). The chevron at the header's top-right folds the branding away to give the frames more room.
+The header shows the NegPy logo and version. The **↻** button beside the version number asks GitHub for a newer release on demand; it becomes a green **⬇** when one is out. When a newer release is out, a green **⬇ Update Available** line also appears under the version; click either to read what changed and let NegPy install it ([§15](#15-updating-negpy)). The chevron at the header's top-right folds the branding away to give the frames more room.
 
 Below the header: the toolbar, the search box, and two collapsible sections. **Library** holds the folders your scans live in; **Film Strip** holds the frames you have open. Click either heading to fold it away; the one still open takes the whole panel. NegPy remembers which were open.
 
@@ -85,6 +95,10 @@ Toolbar buttons, left to right:
 *   **Hot Folder**: watches the current folder and auto-loads new files as they appear, which is handy when a scanner or tethering app drops files into a directory. While it is on, the "Working…" import popup stays hidden so each new frame does not raise a window; the status line over the canvas still reports the import.
 *   **RGB Scan**: treats the folder as red/green/blue exposure triplets and assembles each frame from three shots, for narrowband trichrome scanning. Right-click a frame → **Edit RGB Triplet…** to assign the three files by hand. An assembled frame carries the three-dot badge described under [Triage](#triage-culling-the-roll).
 *   **Half Frame**: splits each scan into two frames, for half-frame cameras. Each half is edited and metered separately and badged with which half it is. Enabling it opens a rectangle editor on the current scan: drag the green box to crop (everything outside is discarded), drag the orange line to set the split, and use **Cut thickness** to discard a band centred on the split, which is the physical black separator between the two exposures. The setting is saved and applied to every half-frame split from then on, whatever the scans were acquired with (SANE scanner, camera copy-stand, or folder import). **Adjust Half Frame**, beside Half Frame, re-opens the editor. Auto-detection of the gutter still seeds the initial split position.
+
+    Turning Half Frame off does not lose the work: each half you edited keeps its own edit. A half you only looked at is not work, so turning Half Frame on and back off again leaves the scan as it was. A scan you did split comes back as one frame carrying both halves, a **diptych**: half 1 rendered with its own edit, half 2 with its own, joined side by side at the original spacing, with the cut band as a black gap. A scan whose halves hold edits from another folder or an earlier session is not a diptych; it stays one plain frame until you split it again. A diptych carries the both-sides-filled split badge and exports as one file named `<name>-DIPTYCH`. Its controls panel is disabled, because the edits belong to the halves: turn Half Frame back on to change either one. A scan where only one half was worked on uses that half's edit for both sides. The filmstrip thumbnail and contact-sheet tile still show the plain whole scan, so a diptych's thumbnail does not match what it exports. An export size set as a long edge applies to each half, so a diptych comes out about twice that wide. To get a plain frame back, right-click the diptych and select **Unsplit diptych**: it renders and exports whole again, and both halves' edits are deleted, so a later split starts from defaults.
+
+    Half Frame does not apply to a frame assembled from more than one file: an RGB Scan triplet, a stitch, or an HDR merge. Those are never split, and they never come back as a diptych, even when the file they are built around was worked on as two halves earlier.
 *   **Apply (clone)**: copy the current frame's settings to selected frames or the whole roll. You choose which aspects in a dialog; crop and rotation are always per-image.
 *   **Sheet filter** (funnel): show *All frames*, *Keepers only*, or *Hide rejected*.
 *   **Sort**: by Name or Date, ascending or descending.
@@ -194,6 +208,7 @@ The bottom-left badge is grey, not red, because it reports what the frame *is* r
 | Three stacked bars | a merged bracket ([§Merging](#merging-bracketed-exposures-hdr)) |
 | Three red/green/blue dots | an RGB-scan triplet |
 | A split rectangle, one side filled | one half of a half-frame scan; the filled side is which half |
+| A split rectangle, both sides filled | a diptych: the whole scan, each half with its own edit |
 
 Hover any thumbnail and the tooltip says the same thing in words, with the frame count: *HDR merge of 5 exposures*, *Stitched composite of 3 frames*.
 
@@ -209,6 +224,8 @@ Pinned above the tabs, this is your feedback while printing. Drag the divider to
 #### Photometric curve
 
 The chart is the paper characteristic (H&D) curve NegPy is printing through right now. It models how a sheet of photographic paper responds, and it is not a curves editor. Left to right is **negative density**, the exposure the paper receives, so dense parts of the negative (the scene's highlights) sit to the right. Bottom to top is the **print tone** that comes out. A steeper curve means more contrast, which is what Grade moves. The flattening at each end is the toe (shadows) and shoulder (highlights), where the paper runs out of range.
+
+With a **Contrast Mask** dialled in, a violet band opens between the curve and a dashed edge. The mask shifts each pixel by how far its own value sits from its blurred surroundings, so there is no single curve for it: a large flat area prints on the dashed edge, fine detail prints on the solid curve, and everything else falls between. The band is the mask's reach. Dodge/burn, local grade and CLAHE are spatial in the same way and are deliberately absent from the chart, which plots the global curve.
 
 The crosshair marks the **pivot**, the density the curve rotates around when you change contrast, so the midtone stays put. While you drag a slider, a faint **ghost** of the previous curve stays behind for comparison. If cast removal pulls the channels apart you get three separate R/G/B traces instead of one grey curve, and that spread *is* the color correction.
 
@@ -409,7 +426,7 @@ Where the frame gets its final shape: what is inside the print, and whether it s
 
 *   **Ratio** (default `Free`): target aspect ratio: `Free`, `1:1`, `3:2`, `4:3`, `5:4`, `6:7`, `7:5`, `65:24`, `16:9`, `16:10`, `11:8.5`. There is one entry per shape, because the crop tool auto-orients to portrait or landscape as you drag. On `Free` the crop tool is unconstrained, and auto-crop takes the ratio from the film format it detects, so 6x6, 645, 6x7 and 35mm each keep their own shape. Pick a ratio to force every frame to it instead.
 *   **Detect** (crosshairs): snap the ratio to the closest standard.
-*   **Crop** tool: draw a crop rectangle on the canvas. **Reset** clears it and turns auto-crop off.
+*   **Crop** tool: draw a crop rectangle on the canvas. It opens on the crop already set, including one **Auto** found, so you can nudge an auto crop instead of redrawing it. Once you adjust it by hand, nothing re-detects over it. **Reset** clears it and turns auto-crop off.
 *   **Guide**: overlay a composition guide while cropping: *Thirds*, *Phi Grid*, *Diagonals*, *Golden Triangles*, *Golden Spiral*, *Armature*, *Diagonal Method*, *Grid* or *Off*. The redo button rotates guides that have orientations; the spiral has 8, the triangles 2.
 
 **Auto Crop**, to detect the frame edge automatically:
@@ -417,13 +434,17 @@ Where the frame gets its final shape: what is inside the print, and whether it s
 *   **Mode**: *Image only* (exposed area) or *Film edge* (full film, including rebate and sprockets).
 *   **Crop Offset** (-5 to 100 px): inset the detected edge inward. Positive trims more; negative bleeds slightly outside, for when detection clips too tightly.
 *   **Rebate Trim** (0 to 150%): how far into the detected rebate to cut. 0% stops at the film edge, 100% lands on the detected image edge, and above 100% bites into the picture to clear a stubborn white border. *Image only* mode; it applies to both **Auto** and **Batch Autocrop**.
-*   **Auto**: detect and crop this frame. Best on clean rebate.
+*   **Auto**: detect and crop this frame. Best on clean rebate. The crop is detected once and stored, so the export is framed like the preview. **Mode**, **Ratio**, **Rebate Trim** and the orientation re-detect; **Crop Offset** moves the stored crop without re-detecting.
 *   **Batch Autocrop**: analyze all visible landscape frames as a roll, using confident detections to calibrate weaker ones. It runs in the background with progress and cancellation. Manual, Film-edge, portrait and ambiguous frames are left alone. *Image only* mode only.
 
 **Alignment:**
 
 *   **Fine Rotation** (±45°): free rotation for tilted scans, in sub-degree steps (positive is clockwise). Applied after auto-crop so the frame stays axis-aligned.
 *   **Straighten** tool (ruler): draw a line along a horizon or vertical edge and NegPy rotates to make it level or plumb.
+*   **Tilt** (±15%): tip the easel about a horizontal axis to straighten converging verticals, the building that leans back because the camera pointed up. Positive stretches the top edge. The unit is per-cent of the frame, what you would measure on the easel, not a tilt angle: the same tilt keystones differently at every enlargement.
+*   **Swing** (±15%): the same movement about a vertical axis, for converging horizontals. A wall shot from one side, or a copy stand not square to the film. Positive stretches the left edge.
+
+    Both replicate a wedge along the squeezed edge, as Fine Rotation does; crop it off. Crop before correcting if you can, because the meters read the corrected frame: on an uncropped scan a big correction pulls rebate and surround into the metered area and the print darkens.
 
 <!-- panel:flatfield -->
 ### 5.2 Flat Field: even out the light
@@ -478,6 +499,15 @@ The paper's response. A **Global / R / G / B** selector at the top scopes most c
 
     These two also work in Transparency with **Normalize off**, on the same tones (the centres are mapped by position on each curve's own scale, not by raw density), and there they are the only mid-sparing controls: Shadows Density opens the quarter-tone with the highlights unmoved, where Grade and Toe drag the whole scale with them and cost the highlights.
 *   **Shadows Grade** / **Highlights Grade** (split grade, ±50 ISO-R): rotate contrast locally in the deep shadows or highlights, the digital equivalent of split-grade printing.
+*   **Contrast Mask** (±0.5, hidden in Transparency): sandwich the negative with a blurred, low-contrast mask, as the darkroom does with a mask film and a spacer. Densities add, so the mask's own polarity decides which way the range goes, and its gamma decides how far. The value is that gamma, signed.
+
+    Positive is the ordinary masking case: a blurred positive, contact-printed straight off the negative, so it is dense where the negative is thin. That squeezes the range by (1 − gamma) and a harder grade then fits the paper, while the blur keeps fine detail out of the squeeze. Use it on a scene too contrasty for the grade you want, then bring Grade back down in R. Past about 0.4 a soft halo appears along strong edges, as it does on a masked print.
+
+    Negative is a mask of the same polarity as the negative, dense where the negative is dense, which stretches the range by (1 + gamma) instead. The broad tones expand while grain and texture stay put, where a harder Grade steepens both together. It also works on a negative too flat for Grade, whose slope has bottomed out. Past about −0.4 highlights start to clip, and the Analysis panel's Clipping row says so.
+
+*   **Mask Spacer** (2 to 6%, dead without a mask): the clear sheet that holds the mask off the negative, as a per-cent of the frame. It sets the scale above which tones are masked, so it reads backwards from a blur radius: thick works on the broad masses only and leaves detail alone, thin reaches down into the detail and bites harder. Thin also lifts shadows sitting next to something bright and hazes them, which is the mask line a printer would see on the print. Below the minimum the mask stops being unsharp at all and becomes a plain contrast change, which is Grade's job. 4% is a conservative default.
+
+    Both controls read only your crop. A masking film is neutral, so there is no per-layer trim and both grey out in R/G/B mode.
 *   **Dye Separation** (0.5 to 1.5, hidden in B&W Negative): saturation in density space. It pushes the print's three dye densities apart *before* the positive is decoded, in the same matrix the paper's own dye crosstalk uses, so it responds to the paper profile you picked and eases off automatically where the curve is already compressed at toe and shoulder, instead of forcing color into tones that have none left to give. Below 1.0 it pulls the dyes together toward neutral. 1.0 is off. Contrast this with **Chroma** in the Color tab, which scales color evenly after decode.
 *   **Separation Damping** (0 to 1, hidden in B&W Negative): decides *where* the Dye Separation push lands, rather than adding a push of its own. At 0 every color gets the same treatment. Turn it up and muted color keeps the full push while color that is already saturated gets the opposite, so a hard push puts color into the tones that had none instead of driving the strongest colors until they flatten into a slab. Below 1.0 separation it mirrors: pastels go grey while the vivid colors survive. It is **dead at Dye Separation 1.0**, where the slider greys out, because it has no look of its own. This is not the same as backing Dye Separation off: a lower value takes color from *everything*, including tones that had little to start with, where turning damping up takes it only from the colors that already have plenty.
 
@@ -504,6 +534,7 @@ Draw masks and lighten or darken just those areas. Three shapes, one per darkroo
 Mask handles can go outside the picture, and a tilted Card Edge usually needs that: its line must start past the corner it burns, or the tilt cuts that corner off the full-exposure side. Drag into the grey area around the frame.
 
 *   **Mask list**: each mask shows its shape icon and Dodge (lighten), Burn (darken) or Grade (contrast only), with the values it carries. The eye toggles its outline; the trash deletes it.
+*   Each mask is tinted on the canvas so its extent is visible. Hold down **Burn**, **Feather** or **Grade**, or drag a vertex, and the tint drops away until you let go, so the value is judged on the picture rather than through the tint. Any mask that **intersects** the one you are working on drops its tint with it, since stacked tints are what hides the area worst; masks clear of it keep theirs. A Card Edge covers its whole side of the frame and an inverted mask covers its surround, so both count as intersecting anything in that area.
 *   **Burn** (-2 to 2 stops, default 0): print exposure for the selected mask, signed the way the rest of NegPy signs light on paper. **Positive burns** (longer exposure, darker paper), **negative dodges** (held back, brighter paper), the same direction as Print Density and the Finishing edge burn. A freshly drawn mask sits at 0, so it changes nothing until you give it a value.
 *   **Feather** (0.0 to 0.15): edge softness for the selected mask, as a fraction of the frame's short side. Inactive on a Card Edge.
 *   **Invert**: acts everywhere *except* inside the selected mask, so it is the card itself rather than the hole cut in it. Burn the surround and hold the face with one shape.
@@ -518,7 +549,7 @@ Two conventions are worth knowing, both borrowed from the darkroom rather than f
 
 A mask with a local **Grade** also carries the grade it actually prints at, not the trim: a burn of +1.00 st at −20 R on a frame graded R115 is written `Burn +1 @ R95`, and a grade-only mask reads `Grade @ R95`.
 
-Every mask is on the map, including ones whose outline you hid with the eye: that eye is there to unclutter editing, and a printing record that quietly omits a burn would be wrong. The overlay steps aside while a test strip, the flat peek, the before/after baseline, or the crop and analysis tools own the canvas. Both the preview and its export live in the Export tab's **Printing Notes** section.
+Every mask is on the map, including ones whose outline you hid with the eye: that eye is there to unclutter editing, and a printing record that quietly omits a burn would be wrong. The overlay steps aside while a test strip, either peek, the before/after baseline, or the crop and analysis tools own the canvas. Both the preview and its export live in the Export tab's **Printing Notes** section.
 
 ---
 
@@ -733,6 +764,8 @@ A scrollable list of every edit step, the last 100 kept, newest on top. The curr
     *   **Apply ICE dust removal** (visible when an IR channel is available): applies IR-based dust and scratch correction to the linear output before writing. Off by default.
     *   **Corrections** (camera RAW only): three optional toggles that bake corrections into the linear output before writing. All default to off, following the raw-dump philosophy. **Apply white balance** multiplies by the as-shot WB gains. **Apply flatfield** applies the flatfield gain correction. **Apply sensor correction** applies the sensor crosstalk unmixing matrix. For stitch composites, flatfield and sensor correction are always applied per-part regardless of these toggles, because clean seams require it.
 
+    Linear Output writes where the **Destination** section says, the same as a print or flat export: folder mode, subfolder, export path and Filename Pattern all apply. `_linear` is always appended to the rendered filename, so a dump written next to its source cannot overwrite that source. Without **Overwrite**, an existing file makes the next one `_linear_2`, `_linear_3` and so on.
+
     Linear Output runs in the background like any other batch: the progress popup shows which frame is being written, **Abort** stops it after the current one, and the finish message counts any frames that failed.
 
     The output file is always written clean: no ICC profiles, no EXIF color space tags, no XMP color metadata from the source. For **TIFF**, it carries raw pixels plus device metadata (Make, Model, DateTime) from the source file, and a description recording the source format, expansion, white balance and any corrections applied, including ICE. **JPEG XL carries none of that metadata at all**: no description, no device info, no record of whether ICE ran, only the pixels and the forced color tag noted above, which also is not from the source. The format simply cannot leave it unset.
@@ -748,7 +781,7 @@ The primary **Export** action. Its chevron menu picks the scope: current frame (
 *   **Input / Output ICC**: soft-proof against, and optionally embed, an ICC profile. Output is the destination profile (default); Input treats the profile as the source, for when a scan's profile is known but untagged. Not available for JPEG XL output; see the Format note above.
 *   **Paper Aspect Ratio**: final print ratio, or *Original* (no resize).
 *   **Resolution**: *Original* (full RAW resolution), *Print* (long-edge **Size** in cm plus **DPI**), or *Pixels* (long-edge **px**; the short side follows the paper ratio).
-*   **Destination**: **Filename Pattern** (a Jinja2 template with export settings plus Metadata fields such as roll, camera and film; see [TEMPLATING.md](TEMPLATING.md)), an **Overwrite** toggle, and the output location (subfolder of source, same as source, or an absolute **Export Path** with a browse button).
+*   **Destination**: **Filename Pattern** (a Jinja2 template with export settings plus Metadata fields such as roll, camera and film; see [TEMPLATING.md](TEMPLATING.md)), an **Overwrite** toggle, and the output location (subfolder of source, same as source, or an absolute **Export Path** with a browse button). Destination applies to all three output intents: with **Linear** selected, Format, Size and Color hide (a raw dump has no use for them) and Destination stays.
 
 ### Collapsible sections
 
@@ -839,6 +872,8 @@ If NegPy crashes on launch or has rendering glitches, you can force backend sett
 ## 15. Updating NegPy
 
 NegPy asks GitHub for the newest release once at startup. If there is one, a green **⬇ Update Available: vX.Y.Z** line appears under the logo in the left panel. Click it to open the update window with the release notes, the download size and one button.
+
+To check yourself, press the **↻** button next to the version number in the left panel's header. If nothing is new, NegPy says so; if something is, the button turns into a green **⬇** and the update window opens.
 
 **Install Update** downloads the build that matches how *this* copy was installed, then closes NegPy, installs it over the old version, and reopens on the new one. You do not download, uninstall or reinstall anything by hand. Nothing is replaced until NegPy has exited, so a failed download or a refused permission prompt leaves your working install exactly as it was.
 

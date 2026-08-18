@@ -168,6 +168,35 @@ def test_flat_mode_limits_format_choices(qapp):
     assert ExportFormat.JPEG.value in [form.fmt_combo.itemText(i) for i in range(form.fmt_combo.count())]
 
 
+def test_linear_mode_keeps_destination_and_drops_the_rest(qapp):
+    """Linear Output has no use for format, size or color, but needs the destination
+    rules as much as print does — hiding the whole form was what left it with none (#859)."""
+    form = ExportSettingsForm()
+    form.load(_values(output_mode=ExportPresetOutputMode.SUBFOLDER_OF_SOURCE))
+
+    form.set_linear_mode(True)
+    assert form.linear_mode()
+    assert form._format_section.isHidden()
+    assert form._size_section.isHidden()
+    assert form._color_section.isHidden()
+    assert not form._subfolder_container.isHidden()
+    assert not form.filename_edit.isHidden()
+
+    form.set_linear_mode(False)
+    assert not form._format_section.isHidden()
+    assert not form._size_section.isHidden()
+    assert not form._color_section.isHidden()
+
+
+def test_flat_mode_does_not_reveal_format_under_linear(qapp):
+    """Switching intents runs set_flat_mode first, which re-shows FORMAT unconditionally."""
+    form = ExportSettingsForm()
+    form.load(_values())
+    form.set_linear_mode(True)
+    form.set_flat_mode(True)
+    assert form._format_section.isHidden()
+
+
 def test_flat_mode_hides_paper_ratio_for_original(qapp):
     form = ExportSettingsForm()
     form.load(_values(export_resolution_mode=ExportResolutionMode.ORIGINAL.value))

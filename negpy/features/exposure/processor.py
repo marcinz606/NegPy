@@ -9,6 +9,7 @@ from negpy.features.exposure.logic import (
     apply_characteristic_curve,
     apply_flat_curve,
     cast_solve_inputs,
+    contrast_mask_ev,
     effective_midtone_gamma,
     filtration_offsets,
     flat_curve_params,
@@ -262,6 +263,8 @@ class PhotometricProcessor:
             flip_horizontal=geo.get("flip_horizontal", False),
             flip_vertical=geo.get("flip_vertical", False),
             distortion_k1=context.metrics.get("distortion_k1", 0.0),
+            converge_v=geo.get("converge_v", 0.0),
+            converge_h=geo.get("converge_h", 0.0),
         )
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
@@ -339,6 +342,16 @@ class PhotometricProcessor:
 
         local_maps = self._build_local_maps(image, context)
         ev_map = None if local_maps is None else np.ascontiguousarray(local_maps[:, :, 0])
+        # The mask is a print-exposure input like a dodge, so it rides the same map.
+        mask_ev = contrast_mask_ev(
+            context.metrics.get("contrast_mask_plane"),
+            self.config.contrast_mask,
+            lum_range if lum_range else 1.0,
+            image.shape[:2],
+            context.metrics.get("contrast_mask_roi"),
+        )
+        if mask_ev is not None:
+            ev_map = mask_ev if ev_map is None else np.ascontiguousarray(ev_map + mask_ev)
         grade_map = None
         if local_maps is not None and local_maps[:, :, 1].any():
             grade_map = local_grade_factor_map(np.ascontiguousarray(local_maps[:, :, 1]), self.config.grade)

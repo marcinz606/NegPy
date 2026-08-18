@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import QApplication
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import DesktopSessionManager, AppState, ToolMode
 from negpy.desktop.workers.export import ExportTask, resolve_export_target_path
+from negpy.features.geometry.logic import autocrop_detection_key
 from negpy.domain.models import (
     ColorSpace,
     ExportConfig,
@@ -130,7 +131,7 @@ class TestAppController(unittest.TestCase):
         state.current_file_hash = "hash1"
         state.config = replace(
             WorkspaceConfig(),
-            geometry=GeometryConfig(manual_crop_rect=(0.1, 0.1, 0.9, 0.9)),
+            geometry=GeometryConfig(crop_rect=(0.1, 0.1, 0.9, 0.9)),
             retouch=RetouchConfig(manual_dust_spots=[(0.5, 0.5, 3)]),
         )
         self.mock_session_manager.repo.load_file_settings.return_value = None
@@ -141,7 +142,7 @@ class TestAppController(unittest.TestCase):
 
         saved = {c.args[0]: c.args[1] for c in self.mock_session_manager.repo.save_file_settings.call_args_list}
         self.assertIn("hash2", saved)
-        self.assertIsNone(saved["hash2"].geometry.manual_crop_rect)
+        self.assertIsNone(saved["hash2"].geometry.crop_rect)
         self.assertEqual(saved["hash2"].retouch.manual_dust_spots, [])
         # Baseline still broadcast onto the fresh frame.
         self.assertTrue(saved["hash2"].process.use_luma_average)
@@ -154,7 +155,7 @@ class TestAppController(unittest.TestCase):
         from negpy.domain.models import GeometryConfig
 
         state = self.mock_session_manager.state
-        state.config = replace(state.config, geometry=GeometryConfig(manual_crop_rect=(0.1, 0.1, 0.9, 0.9)))
+        state.config = replace(state.config, geometry=GeometryConfig(crop_rect=(0.1, 0.1, 0.9, 0.9)))
         hydrated = WorkspaceConfig()
         self.mock_session_manager.config_for_asset.return_value = hydrated
         frame = {"name": "b.dng", "path": "/tmp/b.dng", "hash": "hash2"}
@@ -169,7 +170,7 @@ class TestAppController(unittest.TestCase):
         self.mock_session_manager.config_for_asset.assert_called_once_with(frame)
         params = mock_write.call_args.args[1]
         self.assertIs(params, hydrated)
-        self.assertIsNone(params.geometry.manual_crop_rect)
+        self.assertIsNone(params.geometry.crop_rect)
 
     def test_clear_roll_baseline_resets_axes(self):
         state = self.mock_session_manager.state
@@ -396,6 +397,105 @@ class TestAppController(unittest.TestCase):
         self.controller._on_render_finished(None, {"ephemeral": True})
         self.controller._update_thumbnail_from_state.assert_not_called()
 
+    def test_render_of_a_frame_the_user_left_is_dropped(self):
+        """Switching files mid-render leaves that render in flight. When it lands it must
+        not repaint the canvas nor overwrite the new frame's metrics."""
+        import numpy as np
+
+        state = self.controller.state
+        state.current_file_path = "/tmp/B.NEF"
+        state.current_file_hash = "hB"
+        current = np.full((2, 2, 3), 0.5, dtype=np.float32)
+        state.last_metrics = {"base_positive": current, "source_hash": "hB", "log_bounds": (0.1, 0.9)}
+
+        repaints = []
+        self.controller.image_updated.connect(lambda: repaints.append(1))
+        self.controller._update_thumbnail_from_state = MagicMock()
+
+        stale = {"base_positive": np.zeros((2, 2, 3), dtype=np.float32), "source_hash": "hA", "log_bounds": (0.4, 0.4)}
+        self.controller._on_render_finished(None, stale)
+        self.controller._on_metrics_updated(stale)
+
+        self.assertEqual(repaints, [])
+        self.assertIs(state.last_metrics["base_positive"], current)
+        self.assertEqual(state.last_metrics["log_bounds"], (0.1, 0.9))
+        self.controller._update_thumbnail_from_state.assert_not_called()
+
+        # The queue still drains — a stale frame must not wedge the render loop.
+        self.assertFalse(self.controller._is_rendering)
+
+    def test_render_of_the_current_frame_still_lands(self):
+        """The guard keys on the frame, not on staleness in general: the selected frame's
+        render — and an unhashed preview's, which carries the 'preview' placeholder —
+        repaint as before."""
+        import numpy as np
+
+        state = self.controller.state
+        state.current_file_path = "/tmp/B.NEF"
+        state.current_file_hash = "hB"
+
+        repaints = []
+        self.controller.image_updated.connect(lambda: repaints.append(1))
+        self.controller._update_thumbnail_from_state = MagicMock()
+
+        self.controller._on_render_finished(None, {"base_positive": np.zeros((2, 2, 3), np.float32), "source_hash": "hB"})
+        self.assertEqual(len(repaints), 1)
+
+        state.current_file_hash = None
+        self.controller._on_render_finished(None, {"base_positive": np.zeros((2, 2, 3), np.float32), "source_hash": "preview"})
+        self.assertEqual(len(repaints), 2)
+
+        # A render with no identity at all (older callers) is not treated as stale.
+        self.controller._on_render_finished(None, {})
+        self.assertEqual(len(repaints), 3)
+
+    def test_navigate_back_paint_carries_its_own_frames_identity(self):
+        """The memo fast path paints the incoming frame's last render. Leaving the
+        outgoing frame's hash beside those pixels files them under it on the next
+        thumbnail refresh."""
+        import numpy as np
+
+        state = self.controller.state
+        state.uploaded_files = [
+            {"name": "a.dng", "path": "/tmp/a.dng", "hash": "hA"},
+            {"name": "b.dng", "path": "/tmp/b.dng", "hash": "hB"},
+        ]
+        state.current_file_path = "/tmp/a.dng"
+        state.current_file_hash = "hA"
+        state.last_metrics = {"source_hash": "hA"}
+
+        cached = np.zeros((2, 2, 3), dtype=np.float32)
+        self.controller._render_memo.store("hB", self.controller._render_memo_key(), {"base_positive": cached, "content_rect": None})
+
+        self.controller.load_file("/tmp/b.dng")
+
+        self.assertIs(state.last_metrics["base_positive"], cached)
+        self.assertEqual(state.last_metrics["source_hash"], "hB")
+
+    def test_pending_render_is_dispatched_after_a_dropped_frame(self):
+        """A render queued behind the stale one must still be started."""
+        import numpy as np
+
+        from negpy.desktop.workers.render import RenderTask
+
+        state = self.controller.state
+        state.current_file_hash = "hB"
+        queued = RenderTask(
+            buffer=np.zeros((1, 1, 3), np.float32),
+            config=WorkspaceConfig(),
+            source_hash="hB",
+            preview_size=1.0,
+        )
+        self.controller._pending_render_task = queued
+
+        dispatched = []
+        self.controller.render_requested.connect(dispatched.append)
+        self.controller._on_render_finished(None, {"source_hash": "hA"})
+
+        self.assertEqual(dispatched, [queued])
+        self.assertIsNone(self.controller._pending_render_task)
+        self.assertTrue(self.controller._is_rendering)
+
     def test_proof_active_gated_by_toggle(self):
         """proof_active() is False unless the soft-proof toggle is on, even with an
         export color space set (which always resolves an output profile)."""
@@ -569,27 +669,27 @@ class TestAppController(unittest.TestCase):
         self.controller.request_render.assert_not_called()
 
     def test_apply_auto_crop_enables_auto_crop_and_clears_manual_rect(self):
-        geometry = replace(self.controller.state.config.geometry, manual_crop_rect=(0.1, 0.1, 0.9, 0.9), auto_crop_enabled=False)
+        geometry = replace(self.controller.state.config.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=False)
         self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
         self.controller.request_render = MagicMock()
 
         self.controller.apply_auto_crop()
 
         saved_config = self.mock_session_manager.update_config.call_args.args[0]
-        self.assertTrue(saved_config.geometry.auto_crop_enabled)
-        self.assertIsNone(saved_config.geometry.manual_crop_rect)
+        self.assertTrue(saved_config.geometry.crop_from_auto)
+        self.assertIsNone(saved_config.geometry.crop_rect)
         self.controller.request_render.assert_called_once_with()
 
     def test_reset_crop_disables_auto_crop_and_clears_manual_rect(self):
-        geometry = replace(self.controller.state.config.geometry, manual_crop_rect=(0.1, 0.1, 0.9, 0.9), auto_crop_enabled=True)
+        geometry = replace(self.controller.state.config.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9), crop_from_auto=True)
         self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
         self.controller.request_render = MagicMock()
 
         self.controller.reset_crop()
 
         saved_config = self.mock_session_manager.update_config.call_args.args[0]
-        self.assertFalse(saved_config.geometry.auto_crop_enabled)
-        self.assertIsNone(saved_config.geometry.manual_crop_rect)
+        self.assertFalse(saved_config.geometry.crop_from_auto)
+        self.assertIsNone(saved_config.geometry.crop_rect)
         self.controller.request_render.assert_called_once_with()
 
     def test_set_crop_ratio_updates_config_when_no_manual_rect(self):
@@ -599,7 +699,7 @@ class TestAppController(unittest.TestCase):
 
         saved_config = self.mock_session_manager.update_config.call_args.args[0]
         self.assertEqual(saved_config.geometry.autocrop_ratio, "4:3")
-        self.assertIsNone(saved_config.geometry.manual_crop_rect)
+        self.assertIsNone(saved_config.geometry.crop_rect)
         self.controller.request_render.assert_called_once_with()
 
     def test_set_crop_ratio_is_noop_when_unchanged(self):
@@ -624,7 +724,7 @@ class TestAppController(unittest.TestCase):
         config = replace(
             self.controller.state.config, process=replace(self.controller.state.config.process, local_floors=floors, local_ceils=ceils)
         )
-        config = replace(config, geometry=replace(config.geometry, manual_crop_rect=(0.15, 0.15, 0.85, 0.85)))
+        config = replace(config, geometry=replace(config.geometry, crop_rect=(0.15, 0.15, 0.85, 0.85)))
         self.controller.state.config = config
         self.controller.request_render = MagicMock()
 
@@ -645,7 +745,7 @@ class TestAppController(unittest.TestCase):
         rect = (0.15, 0.15, 0.85, 0.85)
         self.controller.state.config = replace(
             self.controller.state.config,
-            geometry=replace(self.controller.state.config.geometry, manual_crop_rect=rect),
+            geometry=replace(self.controller.state.config.geometry, crop_rect=rect),
         )
         self.controller.request_render = MagicMock()
 
@@ -653,10 +753,10 @@ class TestAppController(unittest.TestCase):
             self.mock_session_manager.reset_mock()
             self.controller.state.config = replace(
                 self.controller.state.config,
-                geometry=replace(self.controller.state.config.geometry, autocrop_ratio="Free", manual_crop_rect=rect),
+                geometry=replace(self.controller.state.config.geometry, autocrop_ratio="Free", crop_rect=rect),
             )
             self.controller.set_crop_ratio(ratio)
-            nx1, ny1, nx2, ny2 = self.mock_session_manager.update_config.call_args.args[0].geometry.manual_crop_rect
+            nx1, ny1, nx2, ny2 = self.mock_session_manager.update_config.call_args.args[0].geometry.crop_rect
             self.assertGreaterEqual(nx1, rect[0] - 1e-6, f"{ratio}: box grew left")
             self.assertGreaterEqual(ny1, rect[1] - 1e-6, f"{ratio}: box grew up")
             self.assertLessEqual(nx2, rect[2] + 1e-6, f"{ratio}: box grew right")
@@ -670,7 +770,7 @@ class TestAppController(unittest.TestCase):
         import numpy as np
 
         self.controller.state.preview_raw = np.empty((800, 1200, 3), dtype=np.float32)  # h=800, w=1200
-        geometry = replace(self.controller.state.config.geometry, manual_crop_rect=(0.25, 0.25, 0.75, 0.75))
+        geometry = replace(self.controller.state.config.geometry, crop_rect=(0.25, 0.25, 0.75, 0.75))
         self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
         self.controller.request_render = MagicMock()
 
@@ -678,7 +778,7 @@ class TestAppController(unittest.TestCase):
 
         saved_config = self.mock_session_manager.update_config.call_args.args[0]
         self.assertEqual(saved_config.geometry.autocrop_ratio, "1:1")
-        nx1, ny1, nx2, ny2 = saved_config.geometry.manual_crop_rect
+        nx1, ny1, nx2, ny2 = saved_config.geometry.crop_rect
         # Center unchanged.
         self.assertAlmostEqual((nx1 + nx2) / 2, 0.5, places=3)
         self.assertAlmostEqual((ny1 + ny2) / 2, 0.5, places=3)
@@ -697,7 +797,7 @@ class TestAppController(unittest.TestCase):
         geometry = replace(
             self.controller.state.config.geometry,
             rotation=1,
-            manual_crop_rect=(0.25, 0.25, 0.75, 0.75),
+            crop_rect=(0.25, 0.25, 0.75, 0.75),
         )
         self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
         self.controller.request_render = MagicMock()
@@ -705,7 +805,7 @@ class TestAppController(unittest.TestCase):
         self.controller.set_crop_ratio("1:1")
 
         saved_config = self.mock_session_manager.update_config.call_args.args[0]
-        nx1, ny1, nx2, ny2 = saved_config.geometry.manual_crop_rect
+        nx1, ny1, nx2, ny2 = saved_config.geometry.crop_rect
         # Display dims after a 90 rotation: h=1200, w=800.
         px_w = (nx2 - nx1) * 800
         px_h = (ny2 - ny1) * 1200
@@ -784,8 +884,63 @@ class TestAppController(unittest.TestCase):
             self.assertEqual(out, [task])
             self.controller._prompt_overwrite_conflicts.assert_not_called()
 
-    def test_manual_crop_rect_changed_disables_auto_crop(self):
-        geometry = replace(self.controller.state.config.geometry, auto_crop_enabled=True)
+    def _armed_auto_crop(self):
+        geometry = replace(self.controller.state.config.geometry, crop_from_auto=True, crop_rect=None)
+        self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
+        return autocrop_detection_key(geometry)
+
+    def test_freeze_stores_the_crop_the_render_detected(self):
+        key = self._armed_auto_crop()
+        metrics = {"autocrop_resolved_rect": (0.05, 0.04, 0.99, 0.98), "autocrop_resolved_key": key}
+
+        self.controller._freeze_resolved_auto_crop(metrics)
+
+        saved_config = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertEqual(saved_config.geometry.crop_rect, (0.05, 0.04, 0.99, 0.98))
+        self.assertEqual(saved_config.geometry.crop_detect_key, key)
+        self.assertTrue(saved_config.geometry.crop_from_auto)
+
+    def test_freeze_requests_no_render(self):
+        """The rect is what was just painted, so re-rendering it would only cost a frame."""
+        key = self._armed_auto_crop()
+        self.controller._freeze_resolved_auto_crop({"autocrop_resolved_rect": (0.1, 0.1, 0.9, 0.9), "autocrop_resolved_key": key})
+        self.assertFalse(self.mock_session_manager.update_config.call_args.kwargs["render"])
+
+    def test_freeze_drops_a_result_the_user_has_moved_past(self):
+        """Ratio changed while the render was in flight: a render under the new one is
+        already queued, and storing this rect would file it under the wrong detection."""
+        self._armed_auto_crop()
+        metrics = {"autocrop_resolved_rect": (0.05, 0.04, 0.99, 0.98), "autocrop_resolved_key": "stale-key"}
+
+        self.controller._freeze_resolved_auto_crop(metrics)
+
+        self.mock_session_manager.update_config.assert_not_called()
+
+    def test_freeze_ignores_a_render_of_a_manual_crop(self):
+        geometry = replace(self.controller.state.config.geometry, crop_from_auto=False, crop_rect=(0.2, 0.2, 0.8, 0.8))
+        self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
+
+        self.controller._freeze_resolved_auto_crop(
+            {"autocrop_resolved_rect": (0.0, 0.0, 1.0, 1.0), "autocrop_resolved_key": autocrop_detection_key(geometry)}
+        )
+
+        self.mock_session_manager.update_config.assert_not_called()
+
+    def test_apply_auto_crop_arms_without_a_rect(self):
+        self.controller.request_render = MagicMock()
+        self.controller.state.config = replace(
+            self.controller.state.config,
+            geometry=replace(self.controller.state.config.geometry, crop_rect=(0.2, 0.2, 0.8, 0.8)),
+        )
+
+        self.controller.apply_auto_crop()
+
+        saved_config = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertTrue(saved_config.geometry.crop_from_auto)
+        self.assertIsNone(saved_config.geometry.crop_rect)
+
+    def test_crop_rect_changed_disables_auto_crop(self):
+        geometry = replace(self.controller.state.config.geometry, crop_from_auto=True)
         self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
         self.controller.state.active_tool = ToolMode.CROP_MANUAL
         self.controller.request_render = MagicMock()
@@ -793,12 +948,12 @@ class TestAppController(unittest.TestCase):
         self.controller.handle_crop_rect_changed(0.2, 0.3, 0.8, 0.9, True)
 
         saved_config = self.mock_session_manager.update_config.call_args.args[0]
-        self.assertFalse(saved_config.geometry.auto_crop_enabled)
-        self.assertEqual(saved_config.geometry.manual_crop_rect, (0.2, 0.3, 0.8, 0.9))
+        self.assertFalse(saved_config.geometry.crop_from_auto)
+        self.assertEqual(saved_config.geometry.crop_rect, (0.2, 0.3, 0.8, 0.9))
         self.controller.request_render.assert_called_once_with()
 
     def test_handle_crop_rect_changed_updates_rect(self):
-        geometry = replace(self.controller.state.config.geometry, manual_crop_rect=(0.2, 0.2, 0.6, 0.5))
+        geometry = replace(self.controller.state.config.geometry, crop_rect=(0.2, 0.2, 0.6, 0.5))
         self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
         self.controller.state.active_tool = ToolMode.CROP_MANUAL
         self.controller.request_render = MagicMock()
@@ -806,11 +961,11 @@ class TestAppController(unittest.TestCase):
         self.controller.handle_crop_rect_changed(0.3, 0.25, 0.7, 0.55, True)
 
         saved_config = self.mock_session_manager.update_config.call_args.args[0]
-        self.assertEqual(saved_config.geometry.manual_crop_rect, (0.3, 0.25, 0.7, 0.55))
+        self.assertEqual(saved_config.geometry.crop_rect, (0.3, 0.25, 0.7, 0.55))
         self.controller.request_render.assert_called_once_with()
 
     def test_handle_crop_rect_changed_noop_when_tool_inactive(self):
-        geometry = replace(self.controller.state.config.geometry, manual_crop_rect=None)
+        geometry = replace(self.controller.state.config.geometry, crop_rect=None)
         self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
         self.controller.state.active_tool = ToolMode.NONE
         self.controller.request_render = MagicMock()
@@ -821,7 +976,7 @@ class TestAppController(unittest.TestCase):
         self.controller.request_render.assert_not_called()
 
     def test_handle_crop_rect_changed_does_not_deactivate_tool(self):
-        geometry = replace(self.controller.state.config.geometry, manual_crop_rect=(0.2, 0.2, 0.6, 0.5))
+        geometry = replace(self.controller.state.config.geometry, crop_rect=(0.2, 0.2, 0.6, 0.5))
         self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
         self.controller.state.active_tool = ToolMode.CROP_MANUAL
         self.controller.request_render = MagicMock()
@@ -831,7 +986,7 @@ class TestAppController(unittest.TestCase):
         self.assertEqual(self.controller.state.active_tool, ToolMode.CROP_MANUAL)
 
     def test_handle_crop_rect_changed_live_drag_does_not_persist(self):
-        geometry = replace(self.controller.state.config.geometry, manual_crop_rect=(0.2, 0.2, 0.6, 0.5))
+        geometry = replace(self.controller.state.config.geometry, crop_rect=(0.2, 0.2, 0.6, 0.5))
         self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
         self.controller.state.active_tool = ToolMode.CROP_MANUAL
         self.controller.request_render = MagicMock()
@@ -1215,6 +1370,109 @@ class TestLinearOutputExportCurrentFile(unittest.TestCase):
         self.assertTrue(rgbscan.enabled)
         self.assertEqual(rgbscan.green_path, "/tmp/IMG_0001_G.cr2")
         self.assertEqual(rgbscan.blue_path, "/tmp/IMG_0001_B.cr2")
+
+
+class TestLinearOutputDestination(unittest.TestCase):
+    """Regression (#859): Linear Output built its own destination — always the absolute
+    export path, always `<stem>_linear` — instead of the Export panel's destination rules.
+    Selecting "Same as source" or a filename template did nothing under the Linear intent."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.source = os.path.join(self.tmp.name, "src", "IMG_0001.dng")
+        os.makedirs(os.path.dirname(self.source))
+        open(self.source, "w").close()
+
+        self.mock_session_manager = MagicMock(spec=DesktopSessionManager)
+        self.mock_session_manager.state = AppState()
+        self.mock_session_manager.repo = MagicMock()
+        self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.file_info = {"name": "IMG_0001.dng", "path": self.source, "hash": "h1"}
+        self.mock_session_manager.state.uploaded_files = [self.file_info]
+
+        with (
+            patch("negpy.desktop.controller.RenderWorker") as mock_rw_class,
+            patch("negpy.desktop.controller.PreviewManager") as mock_pm_class,
+        ):
+            mock_rw_class.return_value = MagicMock()
+            mock_pm_class.return_value = MagicMock(spec=PreviewManager)
+            mock_pm_class.return_value.load_linear_preview.return_value = (None, (0, 0), {})
+            self.controller = AppController(self.mock_session_manager)
+
+    def tearDown(self):
+        import gc
+
+        for thread in [
+            self.controller.render_thread,
+            self.controller.export_thread,
+            self.controller.thumb_thread,
+            self.controller.norm_thread,
+            self.controller.discovery_thread,
+            self.controller.preview_load_thread,
+            self.controller.scan_thread,
+        ]:
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                thread.wait()
+        del self.controller
+        gc.collect()
+        self.tmp.cleanup()
+
+    def _set_export(self, **kwargs):
+        state = self.controller.state
+        state.config = replace(state.config, export=replace(state.config.export, **kwargs))
+
+    def _out_path(self, export_path="/abs/out"):
+        tasks = self.controller._linear_output_tasks([self.file_info], export_path)
+        self.assertEqual(len(tasks), 1)
+        return tasks[0].out_path
+
+    def test_same_as_source_writes_beside_the_source(self):
+        self._set_export(output_mode=ExportPresetOutputMode.SAME_AS_SOURCE)
+        self.assertEqual(self._out_path(), os.path.join(os.path.dirname(self.source), "IMG_0001_linear.tiff"))
+
+    def test_subfolder_of_source_writes_into_the_subfolder(self):
+        self._set_export(output_mode=ExportPresetOutputMode.SUBFOLDER_OF_SOURCE, output_subfolder="linear")
+        expected = os.path.join(os.path.dirname(self.source), "linear", "IMG_0001_linear.tiff")
+        self.assertEqual(self._out_path(), expected)
+
+    def test_absolute_writes_to_the_export_path(self):
+        self._set_export(output_mode=ExportPresetOutputMode.ABSOLUTE)
+        self.assertEqual(self._out_path(), os.path.join("/abs/out", "IMG_0001_linear.tiff"))
+
+    def test_filename_template_is_honoured_and_keeps_the_linear_suffix(self):
+        # The suffix is not cosmetic: without it, "same as source" plus the default pattern
+        # writes the dump over the source file it was decoded from.
+        self._set_export(
+            output_mode=ExportPresetOutputMode.ABSOLUTE,
+            filename_pattern="{{ original_name }}_{{ format }}",
+        )
+        self.assertEqual(self._out_path(), os.path.join("/abs/out", "IMG_0001_TIFF_linear.tiff"))
+
+    def test_format_variable_names_the_linear_format_not_the_print_one(self):
+        self.controller.state.linear_format = "jxl"
+        self._set_export(
+            output_mode=ExportPresetOutputMode.ABSOLUTE,
+            export_fmt=ExportFormat.JPEG,
+            filename_pattern="{{ original_name }}_{{ format }}",
+        )
+        self.assertEqual(self._out_path(), os.path.join("/abs/out", "IMG_0001_JXL_linear.jxl"))
+
+    def test_existing_file_is_renamed_unless_overwrite_is_set(self):
+        out_dir = os.path.dirname(self.source)
+        open(os.path.join(out_dir, "IMG_0001_linear.tiff"), "w").close()
+
+        self._set_export(output_mode=ExportPresetOutputMode.SAME_AS_SOURCE, overwrite=False)
+        self.assertEqual(self._out_path(), os.path.join(out_dir, "IMG_0001_linear_2.tiff"))
+
+        self._set_export(overwrite=True)
+        self.assertEqual(self._out_path(), os.path.join(out_dir, "IMG_0001_linear.tiff"))
+
+    def test_unset_export_path_does_not_cancel_a_source_relative_export(self):
+        # `not export_path` used to abort here: the source-relative modes never read the
+        # path, so an empty one made Export do nothing at all, without a message.
+        self._set_export(output_mode=ExportPresetOutputMode.SAME_AS_SOURCE, export_path="")
+        self.assertEqual(self.controller._ensure_valid_export_path(), "")
 
 
 class TestPresetExportCurrentFileTriplet(unittest.TestCase):
@@ -2248,16 +2506,15 @@ class TestCompareFlatPeekInteraction(unittest.TestCase):
         self.assertFalse(self.controller.state.flat_peek)
         self.assertIn(False, seen)
 
-    def test_rerender_active_view_re_renders_the_compare_baseline(self):
-        from negpy.desktop.controller import baseline_compare_config
-
+    def test_rerender_active_view_keeps_the_compare_split_on_a_plain_render(self):
         self.controller.state.compare_mode = True
         with patch.object(self.controller, "request_render") as rr:
             self.controller.rerender_active_view()
         _, kwargs = rr.call_args
-        # A plain request_render() (override None) would exit compare; passing the
-        # baseline keeps the user in it.
-        self.assertEqual(kwargs.get("config_override"), baseline_compare_config(self.controller.state.config))
+        # The split renders the edit as usual; the baseline half re-captures on its own
+        # once the geometry key moves.
+        self.assertIsNone(kwargs.get("config_override"))
+        self.assertTrue(self.controller.state.compare_mode)
 
     def test_rerender_active_view_re_renders_the_flat_master(self):
         from negpy.domain.models import flat_master_config
@@ -2273,6 +2530,117 @@ class TestCompareFlatPeekInteraction(unittest.TestCase):
             self.controller.rerender_active_view()
         _, kwargs = rr.call_args
         self.assertIsNone(kwargs.get("config_override"))
+
+    def test_negative_peek_paints_the_source_with_only_the_oetf(self):
+        import numpy as np
+
+        from negpy.kernel.image.logic import working_oetf_encode
+
+        source = np.linspace(0.0, 1.0, 8 * 8 * 3, dtype=np.float32).reshape(8, 8, 3)
+        self.controller.state.preview_raw = source
+        painted: list = []
+        self.controller.image_updated.connect(lambda: painted.append(True))
+
+        self.controller.toggle_negative_peek(force=True)
+
+        self.assertTrue(self.controller.state.negative_peek)
+        self.assertTrue(painted)
+        metrics = self.controller.state.last_metrics
+        np.testing.assert_allclose(metrics["base_positive"], working_oetf_encode(source))
+        # Camera primaries, so the working-to-display matrix and the proof stay out.
+        self.assertTrue(metrics["splash"])
+
+    def test_leaving_the_negative_peek_re_renders_the_edit(self):
+        self.controller.state.negative_peek = True
+        with patch.object(self.controller, "request_render") as rr:
+            self.controller.toggle_negative_peek(force=False)
+        self.assertFalse(self.controller.state.negative_peek)
+        rr.assert_called_once()
+
+    def test_negative_peek_needs_a_loaded_source(self):
+        self.controller.state.preview_raw = None
+        seen: list = []
+        self.controller.negative_peek_changed.connect(seen.append)
+        self.controller.toggle_negative_peek(force=True)
+        self.assertFalse(self.controller.state.negative_peek)
+        self.assertEqual(seen, [])
+
+    def test_the_two_peeks_are_mutually_exclusive(self):
+        self.controller.state.flat_peek = True
+        self.controller.toggle_negative_peek(force=True)
+        self.assertTrue(self.controller.state.negative_peek)
+        self.assertFalse(self.controller.state.flat_peek)
+
+        with patch.object(self.controller, "request_render"):
+            self.controller.toggle_flat_peek(force=True)
+        self.assertTrue(self.controller.state.flat_peek)
+        self.assertFalse(self.controller.state.negative_peek)
+
+    def test_enabling_compare_clears_an_active_negative_peek(self):
+        self.controller.state.negative_peek = True
+        seen: list = []
+        self.controller.negative_peek_changed.connect(seen.append)
+        with patch.object(self.controller, "request_render"):
+            self.controller.toggle_compare()
+        self.assertTrue(self.controller.state.compare_mode)
+        self.assertFalse(self.controller.state.negative_peek)
+        self.assertIn(False, seen)
+
+    def test_the_negative_peek_takes_the_geometry(self):
+        import numpy as np
+        from dataclasses import replace
+
+        # Landscape, so a quarter turn is visible in the shape alone.
+        source = np.random.default_rng(0).random((6, 10, 3), dtype=np.float32)
+        self.controller.state.preview_raw = source
+        geo = replace(self.controller.state.config.geometry, rotation=1, crop_rect=(0.0, 0.0, 0.5, 1.0))
+        self.controller.state.config = replace(self.controller.state.config, geometry=geo)
+
+        self.controller.toggle_negative_peek(force=True)
+
+        painted = self.controller.state.last_metrics["base_positive"]
+        # Quarter turn swaps the axes, then the crop keeps the left half of the width.
+        self.assertEqual(painted.shape, (10, 3, 3))
+        # No border stage ran, so nothing may claim the frame is inset.
+        self.assertIsNone(self.controller.state.last_metrics["content_rect"])
+
+    def test_the_crop_tool_peeks_the_uncropped_frame(self):
+        import numpy as np
+        from dataclasses import replace
+
+        from negpy.desktop.session import ToolMode
+
+        source = np.zeros((6, 10, 3), dtype=np.float32)
+        self.controller.state.preview_raw = source
+        geo = replace(self.controller.state.config.geometry, crop_rect=(0.0, 0.0, 0.5, 1.0))
+        self.controller.state.config = replace(self.controller.state.config, geometry=geo)
+        self.controller.state.active_tool = ToolMode.CROP_MANUAL
+
+        self.controller.toggle_negative_peek(force=True)
+
+        # Framing a crop against a pre-cropped frame would be impossible.
+        self.assertEqual(self.controller.state.last_metrics["base_positive"].shape, (6, 10, 3))
+
+    def test_any_plain_render_leaves_the_negative_peek(self):
+        self.controller.state.negative_peek = True
+        seen: list = []
+        self.controller.negative_peek_changed.connect(seen.append)
+        with patch.object(self.controller, "_dispatch_pending_render"):
+            self.controller.request_render()
+        self.assertFalse(self.controller.state.negative_peek)
+        self.assertIn(False, seen)
+
+    def test_rerender_active_view_keeps_the_negative_peek(self):
+        import numpy as np
+
+        self.controller.state.preview_raw = np.zeros((8, 8, 3), dtype=np.float32)
+        self.controller.state.negative_peek = True
+        with patch.object(self.controller, "request_render") as rr:
+            self.controller.rerender_active_view()
+        # A geometry op must not drop the peek, and the peek is not a render.
+        rr.assert_not_called()
+        self.assertTrue(self.controller.state.negative_peek)
+        self.assertIn("base_positive", self.controller.state.last_metrics)
 
 
 class TestClearThumbnailCache(unittest.TestCase):

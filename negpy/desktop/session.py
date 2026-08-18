@@ -3,7 +3,7 @@ import re
 import threading
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from PyQt6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt, pyqtSignal
 
@@ -11,7 +11,8 @@ from negpy.desktop.settings_catalog import apply_selected_fields
 from negpy.desktop.view.canvas.crop_guides import CropGuide
 from negpy.domain.models import ExportPreset, WorkspaceConfig
 from negpy.features.exposure.models import apply_targets
-from negpy.features.rgbscan.models import RgbScanConfig
+from negpy.features.process.models import invalidate_local_bounds
+from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.hdr.logic import resolve_anchor, seed_shadow_density
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, HdrConfig, hdr_frame_paths
 from negpy.features.stitch.models import StitchConfig
@@ -180,8 +181,15 @@ class AppState:
     # True when the active file has no saved config yet (gates process-mode autodetect)
     current_file_is_new: bool = False
 
-    # True while the before/after view shows the un-graded auto baseline instead of edits
+    # True while the before/after split shows the un-graded auto baseline beside the edit
     compare_mode: bool = False
+    # The stashed baseline frame painted left of the divider: display buffer, its content
+    # rect (border/mat padding), and the render key it was captured under.
+    compare_before: Optional[Any] = None
+    compare_before_rect: Optional[Tuple[int, int, int, int]] = None
+    compare_before_key: str = ""
+    # Divider position, content-normalized x (0 = all after, 1 = all before)
+    compare_split: float = 0.5
 
     # Export presets (globally managed, not per-file)
     export_presets: List[ExportPreset] = field(default_factory=list)
@@ -191,6 +199,8 @@ class AppState:
     flat_output: bool = False
     # Transient: preview is currently peeking the flat render (not persisted).
     flat_peek: bool = False
+    # Transient: preview is showing the decoded source as loaded, un-inverted.
+    negative_peek: bool = False
 
     # Linear Output: export the loader's raw decoded buffer as an untagged 16-bit TIFF.
     linear_output: bool = False
@@ -240,8 +250,8 @@ def _asset_mtime(asset: Dict[str, Any]) -> float:
 
 
 def composite_kind(asset: Dict[str, Any]) -> str:
-    """Which multi-file construction an asset is: stitch, hdr, rgb, half, or "" for a
-    plain frame.
+    """Which multi-file construction an asset is: stitch, hdr, rgb, half, diptych, or "" for
+    a plain frame.
 
     Order is load-bearing: a stitch of triplets also carries the primary part's
     green/blue pair (``controller._on_stitch_registered``), so it must be tested first.
@@ -254,6 +264,8 @@ def composite_kind(asset: Dict[str, Any]) -> str:
         return "rgb"
     if asset.get("half"):
         return "half"
+    if asset.get("diptych"):
+        return "diptych"
     return ""
 
 
@@ -268,6 +280,8 @@ def composite_summary(asset: Dict[str, Any]) -> str:
         return "RGB-scan triplet"
     if kind == "half":
         return f"Half-frame split ({int(asset['half'])} of 2)"
+    if kind == "diptych":
+        return "Diptych — both halves, each with its own edit"
     return ""
 
 
@@ -432,15 +446,37 @@ def _source_effective_bounds(process) -> Optional[tuple]:
     return None
 
 
+def _triplet_composition(config: RgbScanConfig) -> tuple:
+    """Which exposures the assembled source takes its channels from; () when not a triplet.
+
+    `align` is excluded on purpose: sub-pixel registration cannot move a whole-frame
+    percentile, so it must not cost a re-analysis.
+    """
+    return (config.green_path, config.blue_path) if is_rgb_triplet(config) else ()
+
+
 def resolve_asset_rgbscan(params: WorkspaceConfig, asset: dict) -> WorkspaceConfig:
     """Overlay a frame's own RGB-scan triplet paths (from the asset dict) onto its export
     params — the authoritative source select_file uses. A non-triplet frame gets rgbscan
-    reset so a batch frame never inherits the currently-open frame's leaked/stale triplet."""
+    reset so a batch frame never inherits the currently-open frame's leaked/stale triplet.
+
+    A triplet keeps the red exposure's content hash (it *is* that asset, with green/blue
+    riding along), so it loads the lone red exposure's saved edit — including per-frame
+    bounds measured when green and blue held nothing but sensor leak. Applying those to a
+    three-band composite puts its real G/B densities above their ceils and inverts both to
+    black, leaving a solid red frame. So a change of composition drops the bounds and the
+    stretch re-derives from the assembled source. Stitch and HDR need no such guard: they
+    get a fresh hash, so they never inherit a member's bounds.
+    """
     green, blue = asset.get("green_path"), asset.get("blue_path")
     if green and blue:
         align = bool(asset.get("align", params.rgbscan.align))
-        return replace(params, rgbscan=RgbScanConfig(enabled=True, green_path=green, blue_path=blue, align=align))
-    return replace(params, rgbscan=RgbScanConfig())
+        resolved = RgbScanConfig(enabled=True, green_path=green, blue_path=blue, align=align)
+    else:
+        resolved = RgbScanConfig()
+    if _triplet_composition(resolved) == _triplet_composition(params.rgbscan):
+        return replace(params, rgbscan=resolved)
+    return replace(params, rgbscan=resolved, process=replace(params.process, **invalidate_local_bounds(params.process)))
 
 
 def resolve_asset_process_mode(params: WorkspaceConfig, asset: dict) -> WorkspaceConfig:
@@ -698,6 +734,13 @@ class DesktopSessionManager(QObject):
         if self.state.sticky_zoom != enabled:
             self.state.sticky_zoom = enabled
             self.repo.save_global_setting("sticky_zoom", enabled)
+            self.state_changed.emit()
+
+    def set_invert_zoom_scroll(self, enabled: bool) -> None:
+        """Updates and persists whether the wheel zoom direction is reversed."""
+        if self.state.invert_zoom_scroll != enabled:
+            self.state.invert_zoom_scroll = enabled
+            self.repo.save_global_setting("invert_zoom_scroll", enabled)
             self.state_changed.emit()
 
     def set_canvas_bg(self, index: int) -> None:

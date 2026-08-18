@@ -941,20 +941,30 @@ def _write_tiff(
     )
 
 
-def _write_ir_tiff(ir: np.ndarray, dest, source_name: str) -> None:
+def _write_ir_tiff(ir: np.ndarray, dest) -> None:
     """Write a single-channel IR buffer as an untagged 16-bit grayscale TIFF."""
     u16 = _to_uint16_jit(np.ascontiguousarray(ir[:, :, np.newaxis] if ir.ndim == 2 else ir, dtype=np.float32))
     if u16.ndim == 3 and u16.shape[2] == 1:
         u16 = u16[:, :, 0]
-    description = f"NegPy Linear Output -- infrared channel. Source: {source_name}"
-    _tifffile.imwrite(
-        dest,
-        u16,
-        photometric="minisblack",
-        compression="zlib",
-        predictor=True,
-        description=description,
-    )
+    # No filename in the description: TIFF tag 270 is 7-bit ASCII only, and a
+    # non-ASCII source name would make imwrite raise after the header is written.
+    description = "NegPy Linear Output -- infrared channel."
+    try:
+        _tifffile.imwrite(
+            dest,
+            u16,
+            photometric="minisblack",
+            compression="zlib",
+            predictor=True,
+            description=description,
+        )
+    except Exception:
+        # The sidecar is a bonus artifact; never let it kill the export or leave
+        # a header-only stub that looks like a real file.
+        try:
+            os.unlink(dest)
+        except OSError:
+            pass
 
 
 def _write_ir_jxl(ir: np.ndarray, dest, effort: int = 7) -> None:
@@ -1094,7 +1104,7 @@ def export_linear_output(
         if output_format == "jxl":
             _write_ir_jxl(ir, f"{stem}_ir.jxl", effort=jxl_effort)
         else:
-            _write_ir_tiff(ir, f"{stem}_ir.tiff", os.path.basename(file_path))
+            _write_ir_tiff(ir, f"{stem}_ir.tiff")
 
 
 def export_linear_output_bytes(file_path: str, geometry: Optional[GeometryConfig] = None) -> tuple[bytes, str]:

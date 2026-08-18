@@ -34,8 +34,8 @@ from negpy.features.exposure.analysis import (
     zone_region_labels,
 )
 from negpy.features.exposure.densitometer import zone_roman
-from negpy.features.geometry.logic import rotation_drag_angle, smooth_polyline, straighten_delta_degrees, translate_manual_crop_rect
-from negpy.features.local.logic import min_points, outline_points, rasterise
+from negpy.features.geometry.logic import rotation_drag_angle, smooth_polyline, straighten_delta_degrees, translate_normalized_rect
+from negpy.features.local.logic import min_points, outline_points, overlapping_masks, rasterise
 from negpy.features.local.models import MaskShape
 from negpy.features.retouch.models import HEAL_SIZE_REF
 from negpy.features.retouch.logic import trace_scratch
@@ -84,6 +84,8 @@ _NOTES_CARD_TOP_PX = 40.0  # clears the HUD's top-left filename pill
 
 _PIN_RADIUS_PX = 7.0  # zone-placement pin ring
 _PIN_GRAB_PX = 16.0  # grab radius, wider than the drawn ring
+_SPLIT_GRAB_PX = 12.0  # before/after divider grab half-width
+_SPLIT_HANDLE_PX = 11.0  # drawn knob radius
 
 _LOUPE_RADIUS_PX = 128.0
 # Device px per buffer px inside the glass. At fit-zoom the canvas already shows most of a
@@ -281,6 +283,9 @@ class CanvasOverlay(QWidget):
         self._local_drag_vertex: Optional[int] = None
         # Set when the handle moves the full mask, as an oval centre does.
         self._local_drag_anchor: Optional[QPointF] = None
+        # Masks whose tint a gesture on the selected one holds off: it and the ones it
+        # overlaps, fixed for the gesture.
+        self._local_muted_masks: frozenset = frozenset()
 
         # Straighten tool: reference-line drag (press -> drag -> release applies).
         self._straighten_p1: Optional[QPointF] = None
@@ -288,6 +293,11 @@ class CanvasOverlay(QWidget):
 
         # Zone-placement pin being dragged (the controller re-reads the tone as it moves).
         self._pin_drag_index: Optional[int] = None
+
+        # Before/after split: the stashed baseline frame, its content rect, its converted
+        # QImage (cached like the host one) and whether the divider is under the mouse.
+        self._compare_qimage_cache: Optional[Tuple[tuple, QImage]] = None
+        self._split_dragging: bool = False
 
         self.zoom_level: float = 1.0
         self.pan_x: float = 0.0
@@ -373,7 +383,7 @@ class CanvasOverlay(QWidget):
     def set_tool_mode(self, mode: ToolMode) -> None:
         self._tool_mode = mode
         if mode == ToolMode.CROP_MANUAL:
-            self._crop_rect_norm = self.state.config.geometry.manual_crop_rect
+            self._crop_rect_norm = self.state.config.geometry.crop_rect
         else:
             self._crop_rect_norm = None
             self._end_crop_drag()
@@ -402,10 +412,28 @@ class CanvasOverlay(QWidget):
             self._pin_drag_index = None
         self.update()
 
+    def set_local_slider_drag(self, dragging: bool) -> None:
+        """Hold tints off the canvas while a Burn, Feather or Grade slider is dragged, so the
+        value being set is judged on the picture."""
+        self._mute_masks_for_gesture(dragging)
+        self.update()
+
+    def _mute_masks_for_gesture(self, active: bool) -> None:
+        """Take the tint off the selected mask and off every mask it overlaps, for as long as
+        a gesture on it runs. Stacked tints hide the area being judged worse than one does.
+        The set is fixed at the start, so a vertex dragged across a neighbour does not make
+        it blink."""
+        idx = getattr(self.state, "local_selected_mask", -1)
+        if not active or idx < 0:
+            self._local_muted_masks = frozenset()
+            return
+        self._local_muted_masks = frozenset({idx}) | overlapping_masks(self.state.config.local, idx)
+
     def _end_local_edit(self) -> None:
         self._local_edit_verts = None
         self._local_drag_vertex = None
         self._local_drag_anchor = None
+        self._local_muted_masks = frozenset()
 
     def _end_crop_drag(self) -> None:
         self._crop_drag_mode = None
@@ -478,11 +506,17 @@ class CanvasOverlay(QWidget):
             self._current_size = gpu_size
 
         if self._tool_mode == ToolMode.CROP_MANUAL and self._crop_drag_mode is None:
-            self._crop_rect_norm = self.state.config.geometry.manual_crop_rect
+            self._crop_rect_norm = self.state.config.geometry.crop_rect
         if self._tool_mode == ToolMode.ANALYSIS_DRAW and self._analysis_drag_mode is None:
             self._analysis_rect_norm = self.state.config.process.analysis_rect
 
         self._recalc_view_rect()
+        self.update()
+
+    def refresh_compare(self) -> None:
+        """Repaint the split after the stashed baseline frame changed (or went away)."""
+        self._compare_qimage_cache = None
+        self._split_dragging = False
         self.update()
 
     def drop_gpu_texture(self) -> None:
@@ -674,7 +708,11 @@ class CanvasOverlay(QWidget):
             self._draw_dust_overlay(painter)
 
         # Crop/analysis modes show the uncropped frame, so the boxes wouldn't line up.
-        content_aligned = not self.state.flat_peek and self._tool_mode not in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
+        content_aligned = (
+            not self.state.flat_peek
+            and not self.state.negative_peek
+            and self._tool_mode not in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
+        )
         if self.state.test_strip and content_aligned:
             # Takes the content rect over from the zone grid: both would claim it.
             self._draw_test_strip(painter)
@@ -686,23 +724,18 @@ class CanvasOverlay(QWidget):
         if self.state.zone_pins and content_aligned and not self.state.test_strip:
             self._draw_zone_pins(painter)
 
-        # Not over the compare baseline: that render has no masks applied, so a map drawn on
+        # Not over the compare baseline: that half has no masks applied, so a map drawn on
         # it marks burns the picture underneath has not had.
-        if (
-            self.state.printing_notes
-            and content_aligned
-            and not self.state.test_strip
-            and not self.state.last_metrics.get("compare", False)
-        ):
+        if self.state.printing_notes and content_aligned and not self.state.test_strip and not self._compare_split_active():
             self._draw_printing_notes(painter)
 
         if self._rotation_grid_visible:
             self._draw_rotation_grid(painter, visible_rect)
 
-        # Keyed off the painted frame, not state.compare_mode. The toggle flips before its
-        # render lands, so the flag would badge the *edit* as BEFORE on slow renders.
-        if self.state.last_metrics.get("compare", False):
-            self._draw_compare_badge(painter, visible_rect)
+        # Keyed off the stashed baseline, not state.compare_mode: the toggle flips before its
+        # render lands, and half a split with no before frame is just the edit.
+        if self._compare_split_active() and content_aligned:
+            self._draw_compare_split(painter)
 
         # Last: the glass sits over everything else and claims no content rect, so it stays out
         # of the exclusion ladder above. It is suppressed wherever something else replaced the
@@ -740,13 +773,71 @@ class CanvasOverlay(QWidget):
         for poly in shapes:
             painter.drawPolyline(QPolygonF([QPointF(ox + x, oy + y) for x, y in poly]))
 
-    def _draw_compare_badge(self, painter: QPainter, visible_rect: QRectF) -> None:
-        badge = QRectF(visible_rect.x() + 12, visible_rect.y() + 12, 78, 22)
+    def _compare_before_qimage(self) -> Optional[QImage]:
+        """The stashed baseline frame under the current display transform."""
+        buf = self.state.compare_before
+        if not isinstance(buf, np.ndarray):
+            return None
+        key = (id(buf), self._display_cs, self._proof)
+        if self._compare_qimage_cache is not None and self._compare_qimage_cache[0] == key:
+            return self._compare_qimage_cache[1]
+        img = ImageConverter.to_qimage(buf, self._display_cs, self._monitor_icc_bytes, self._proof)
+        self._compare_qimage_cache = (key, img)
+        return img
+
+    def _split_screen_x(self) -> float:
+        rect = self._content_view_rect()
+        return rect.x() + float(np.clip(self.state.compare_split, 0.0, 1.0)) * rect.width()
+
+    def _compare_split_active(self) -> bool:
+        return bool(self.state.compare_mode) and isinstance(self.state.compare_before, np.ndarray)
+
+    def _draw_compare_split(self, painter: QPainter) -> None:
+        """Baseline frame left of the divider, the edit right of it.
+
+        Each half is mapped through its own content rect, so a border or mat on the edit —
+        which the baseline never has — cannot shift the picture across the divider.
+        """
+        before = self._compare_before_qimage()
+        target = self._content_view_rect()
+        if before is None or target.isEmpty():
+            return
+
+        src = QRectF(0.0, 0.0, float(before.width()), float(before.height()))
+        crect = self.state.compare_before_rect
+        if crect is not None and crect[2] > 0 and crect[3] > 0:
+            src = QRectF(float(crect[0]), float(crect[1]), float(crect[2]), float(crect[3]))
+
+        x = self._split_screen_x()
+        painter.save()
+        painter.setClipRect(QRectF(target.left(), target.top(), x - target.left(), target.height()))
+        painter.drawImage(target, before, src)
+        painter.restore()
+
+        pen = QPen(QColor(255, 255, 255, 210), 1.0)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.setBrush(QColor(0, 0, 0, 150))
+        painter.drawLine(QPointF(x, target.top()), QPointF(x, target.bottom()))
+
+        centre = QPointF(x, target.center().y())
+        painter.drawEllipse(centre, _SPLIT_HANDLE_PX, _SPLIT_HANDLE_PX)
+        painter.setPen(QColor(255, 255, 255, 230))
+        knob = QRectF(centre.x() - _SPLIT_HANDLE_PX, centre.y() - _SPLIT_HANDLE_PX, 2 * _SPLIT_HANDLE_PX, 2 * _SPLIT_HANDLE_PX)
+        painter.drawText(knob, Qt.AlignmentFlag.AlignCenter, "◂▸")
+
+        if x - target.left() > 92:
+            self._draw_compare_label(painter, "BEFORE", target.left() + 12, target.top() + 12)
+        if target.right() - x > 92:
+            self._draw_compare_label(painter, "AFTER", target.right() - 80, target.top() + 12)
+
+    def _draw_compare_label(self, painter: QPainter, text: str, x: float, y: float) -> None:
+        badge = QRectF(x, y, 68, 22)
         painter.setBrush(QColor(0, 0, 0, 170))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(badge, 4, 4)
         painter.setPen(QColor(THEME.accent_primary))
-        painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, "BEFORE")
+        painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, text)
 
     def _draw_brush(self, painter: QPainter) -> None:
         radius = self._brush_screen_radius(self.state.config.retouch.manual_dust_size)
@@ -1656,7 +1747,6 @@ class CanvasOverlay(QWidget):
                 continue
             ctrl = [self._raw_to_screen(rx, ry, uv_grid) for rx, ry in mask.vertices]
             working = self._local_edit_verts if is_selected else None
-            drag_this = working is not None
             draw_ctrl = working if working is not None else ctrl
             curve = outline_points(mask.shape, [(p.x(), p.y()) for p in draw_ctrl])
             self._local_mask_screen_polys.append([QPointF(x, y) for x, y in curve])
@@ -1667,8 +1757,10 @@ class CanvasOverlay(QWidget):
             outline = QColor(74, 143, 232) if mask.stops > 0 else QColor(232, 200, 74)
             max_alpha = 70 if is_selected else 32
 
-            # Skip the feathered fill mid-drag; it re-rasters every frame.
-            if not drag_this:
+            # A vertex drag skips the feathered fill; it re-rasters every frame. A gesture on
+            # the selected mask drops its fill and the fills it overlaps, so the change under
+            # them stays visible.
+            if working is None and i not in self._local_muted_masks:
                 sigma_screen = mask.feather * min(self._view_rect.width(), self._view_rect.height())
                 pad = 3.0 * sigma_screen + 2.0
                 # A gradient has no boundary, and an inverted mask applies outside its own.
@@ -1882,6 +1974,14 @@ class CanvasOverlay(QWidget):
             event.accept()
             return
 
+        # Before the pan branch: pan claims the left button whenever the view is zoomed in,
+        # which would swallow every grab of the divider.
+        if event.button() == Qt.MouseButton.LeftButton and self._hit_compare_split(event.position()):
+            self._split_dragging = True
+            self.setCursor(Qt.CursorShape.SplitHCursor)
+            event.accept()
+            return
+
         if event.button() == Qt.MouseButton.MiddleButton or (
             event.button() == Qt.MouseButton.LeftButton and self.zoom_level > 1.0 and self._tool_mode == ToolMode.NONE
         ):
@@ -1971,6 +2071,16 @@ class CanvasOverlay(QWidget):
             return []
         return [QPointF(rect.x() + p.nx * rect.width(), rect.y() + p.ny * rect.height()) for p in self.state.zone_pins]
 
+    def _hit_compare_split(self, pos: QPointF) -> bool:
+        """True when `pos` is on the before/after divider. Only with no tool armed: a tool
+        owns its clicks, and the divider spans the whole frame height."""
+        if not self._compare_split_active() or self._tool_mode != ToolMode.NONE:
+            return False
+        rect = self._content_view_rect()
+        if rect.isEmpty() or not (rect.top() <= pos.y() <= rect.bottom()):
+            return False
+        return abs(pos.x() - self._split_screen_x()) <= _SPLIT_GRAB_PX
+
     def _hit_zone_pin(self, pos: QPointF) -> Optional[int]:
         """Index of the pin under `pos` (nearest wins when they overlap), else None."""
         best, best_d = None, _PIN_GRAB_PX * _PIN_GRAB_PX
@@ -2050,6 +2160,21 @@ class CanvasOverlay(QWidget):
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         self._mouse_pos = event.position()
+
+        # First: a divider drag owns the mouse, and no tool or readout should see it.
+        if self._split_dragging:
+            rect = self._content_view_rect()
+            if not rect.isEmpty():
+                self.state.compare_split = float(np.clip((event.position().x() - rect.x()) / rect.width(), 0.0, 1.0))
+                self.update()
+            event.accept()
+            return
+
+        if self._compare_split_active():
+            if self._hit_compare_split(event.position()):
+                self.setCursor(Qt.CursorShape.SplitHCursor)
+            elif self.cursor().shape() == Qt.CursorShape.SplitHCursor:
+                self.unsetCursor()
 
         coords = self._map_to_image_coords(event.position())
         if coords is not None:
@@ -2149,7 +2274,7 @@ class CanvasOverlay(QWidget):
             curr_norm = self._screen_to_norm(event.position())
             dx = curr_norm[0] - self._analysis_press_norm[0]
             dy = curr_norm[1] - self._analysis_press_norm[1]
-            new_rect = translate_manual_crop_rect(self._analysis_orig_rect, dx, dy)
+            new_rect = translate_normalized_rect(self._analysis_orig_rect, dx, dy)
             if any(abs(a - b) > 5e-4 for a, b in zip(new_rect, self._analysis_rect_norm or new_rect)):
                 self._analysis_rect_norm = new_rect
                 self.analysis_rect_changed.emit(*new_rect, False)
@@ -2201,7 +2326,7 @@ class CanvasOverlay(QWidget):
             sensitivity = 0.5 if fine else 1.0
             dx = (curr_norm[0] - self._crop_press_norm[0]) * sensitivity
             dy = (curr_norm[1] - self._crop_press_norm[1]) * sensitivity
-            new_rect = translate_manual_crop_rect(self._crop_orig_rect, dx, dy)
+            new_rect = translate_normalized_rect(self._crop_orig_rect, dx, dy)
             if any(abs(a - b) > 5e-4 for a, b in zip(new_rect, self._crop_rect_norm or new_rect)):
                 self._crop_rect_norm = new_rect
                 self.crop_rect_changed.emit(*new_rect, False)
@@ -2308,25 +2433,22 @@ class CanvasOverlay(QWidget):
             return False
         mask, pts = selected
         vi = self._hit_local_vertex(pos, pts)
-        if vi is not None:
-            self._local_edit_verts = list(pts)
-            self._local_drag_vertex = vi
-            # The oval centre moves its axes with it. All other handles move alone.
-            self._local_drag_anchor = pos if (mask.shape == MaskShape.OVAL and vi == 0) else None
-            self.update()
-            return True
-        if mask.shape != MaskShape.POLYGON:
+        if vi is None and mask.shape == MaskShape.POLYGON:
+            ei = self._hit_local_edge_midpoint(pos, pts)
+            if ei is not None:
+                pts = list(pts)
+                a, b = pts[ei], pts[(ei + 1) % len(pts)]
+                pts.insert(ei + 1, QPointF((a.x() + b.x()) / 2.0, (a.y() + b.y()) / 2.0))
+                vi = ei + 1
+        if vi is None:
             return False
-        ei = self._hit_local_edge_midpoint(pos, pts)
-        if ei is not None:
-            work = list(pts)
-            a, b = work[ei], work[(ei + 1) % len(work)]
-            work.insert(ei + 1, QPointF((a.x() + b.x()) / 2.0, (a.y() + b.y()) / 2.0))
-            self._local_edit_verts = work
-            self._local_drag_vertex = ei + 1
-            self.update()
-            return True
-        return False
+        self._local_edit_verts = list(pts)
+        self._local_drag_vertex = vi
+        # The oval centre moves its axes with it. All other handles move alone.
+        self._local_drag_anchor = pos if (mask.shape == MaskShape.OVAL and vi == 0) else None
+        self._mute_masks_for_gesture(True)
+        self.update()
+        return True
 
     def _handle_lasso_press(self, pos: QPointF) -> None:
         if not self._view_rect.contains(pos):
@@ -2501,6 +2623,13 @@ class CanvasOverlay(QWidget):
         self.update()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if self._split_dragging:
+            self._split_dragging = False
+            self.unsetCursor()
+            self.update()
+            event.accept()
+            return
+
         if self._pin_drag_index is not None:
             index, self._pin_drag_index = self._pin_drag_index, None
             norm = self._clamped_content_norm(event.position())
