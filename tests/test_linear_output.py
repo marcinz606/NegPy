@@ -2,6 +2,7 @@
 
 import io
 import os
+import shutil
 from typing import Optional
 from unittest import mock
 
@@ -283,6 +284,20 @@ class TestExportLinearOutputJxl:
         assert os.path.exists(ir_path)
         with tifffile.TiffFile(ir_path) as tf:
             assert tf.pages[0].asarray().dtype == np.uint16
+
+    def test_ir_sidecar_survives_non_ascii_source_filename(self, tmp_path: str) -> None:
+        dng_path = _make_linearraw_dng_4ch(str(tmp_path))
+        non_ascii_path = os.path.join(str(tmp_path), "négatif_şcan.dng")
+        shutil.copyfile(dng_path, non_ascii_path)
+        out_path = os.path.join(str(tmp_path), "output.tiff")
+        export_linear_output(non_ascii_path, out_path, output_format="tiff")
+        ir_path = os.path.join(str(tmp_path), "output_ir.tiff")
+        assert os.path.exists(ir_path)
+        # More than a header-only stub, decodable, and no filename in tag 270.
+        assert os.path.getsize(ir_path) > 8
+        with tifffile.TiffFile(ir_path) as tf:
+            assert tf.pages[0].asarray().dtype == np.uint16
+            assert "négatif" not in (tf.pages[0].description or "")
 
 
 class TestExportLinearOutputBytes:
