@@ -2,9 +2,9 @@ import sys
 import unittest
 from unittest.mock import MagicMock
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QDialog
 
-from negpy.desktop.view.canvas.toolbar import ActionToolbar
+from negpy.desktop.view.canvas.toolbar import DEFAULT_TOOLBAR_IDS, TOOLBAR_ITEM_BY_ID, ActionToolbar, load_toolbar_items
 from negpy.domain.models import WorkspaceConfig
 
 if not QApplication.instance():
@@ -36,8 +36,15 @@ def _make_toolbar() -> ActionToolbar:
     return ActionToolbar(controller)
 
 
-def _visible_group_count(tb: ActionToolbar) -> int:
-    return sum(1 for group in tb._collapse_groups if any(w.isVisible() for w in group))
+def _visible_item_count(tb: ActionToolbar) -> int:
+    return sum(1 for item_id in tb._item_ids if not tb._row_widgets[item_id].isHidden())
+
+
+def _row_order(tb: ActionToolbar) -> list[str]:
+    """Ids in layout order, so a reorder is checked against the real row, not the stored list."""
+    by_widget = {widget: item_id for item_id, widget in tb._row_widgets.items()}
+    layout = tb._row_layout
+    return [by_widget[w] for i in range(layout.count()) if (w := layout.itemAt(i).widget()) in by_widget]
 
 
 class TestCanvasToolbarResponsive(unittest.TestCase):
@@ -61,7 +68,7 @@ class TestCanvasToolbarResponsive(unittest.TestCase):
         for canvas_w in (480, 640, 800, 1600):
             tb.set_available_width(canvas_w)
             QApplication.processEvents()
-            counts.append(_visible_group_count(tb))
+            counts.append(_visible_item_count(tb))
             widths.append(tb._pill_width())
 
         for prev, nxt in zip(counts[:-1], counts[1:], strict=True):
@@ -69,7 +76,7 @@ class TestCanvasToolbarResponsive(unittest.TestCase):
         for prev, nxt in zip(widths[:-1], widths[1:], strict=True):
             self.assertGreaterEqual(nxt, prev)
 
-    def test_core_controls_always_visible(self):
+    def test_anchors_and_core_controls_always_visible(self):
         tb = _make_toolbar()
         tb.show()
         QApplication.processEvents()
@@ -80,8 +87,10 @@ class TestCanvasToolbarResponsive(unittest.TestCase):
             self.assertTrue(tb.btn_prev.isVisible())
             self.assertTrue(tb.btn_next.isVisible())
             self.assertTrue(tb.btn_overflow.isVisible())
+            self.assertTrue(tb.btn_toggle_left.isVisible())
+            self.assertTrue(tb.btn_toggle_right.isVisible())
 
-    def test_full_width_shows_all_optional_groups(self):
+    def test_full_width_shows_every_chosen_control(self):
         tb = _make_toolbar()
         tb.show()
         QApplication.processEvents()
@@ -89,7 +98,7 @@ class TestCanvasToolbarResponsive(unittest.TestCase):
         tb.set_available_width(2000)
         QApplication.processEvents()
 
-        self.assertEqual(_visible_group_count(tb), len(tb._collapse_groups))
+        self.assertEqual(_visible_item_count(tb), len(tb._item_ids))
         self.assertTrue(tb.btn_compare.isVisible())
         self.assertTrue(tb.btn_undo.isVisible())
         self.assertTrue(tb.btn_zoom_fit.isVisible())
@@ -183,16 +192,119 @@ class TestCanvasToolbarResponsive(unittest.TestCase):
 
         tb.set_available_width(480)
         QApplication.processEvents()
-        narrow_count = _visible_group_count(tb)
+        narrow_count = _visible_item_count(tb)
 
         tb.set_available_width(2000)
         QApplication.processEvents()
-        wide_count = _visible_group_count(tb)
+        wide_count = _visible_item_count(tb)
 
         self.assertLess(narrow_count, wide_count)
         # Whatever the row hides at the narrow width, the overflow copy still works.
         self.assertTrue(tb._ov_compare_action.isVisible())
         self.assertTrue(tb._ov_undo_action.isVisible())
+
+
+class TestToolbarCustomization(unittest.TestCase):
+    def test_default_row_is_used_when_nothing_is_stored(self):
+        tb = _make_toolbar()
+        self.assertEqual(tb._item_ids, list(DEFAULT_TOOLBAR_IDS))
+        self.assertEqual(_row_order(tb), list(DEFAULT_TOOLBAR_IDS))
+
+    def test_load_drops_unknown_ids(self):
+        repo = MagicMock()
+        repo.get_global_setting.return_value = ["loupe", "retired_button", "prev"]
+        self.assertEqual(load_toolbar_items(repo), ["loupe", "prev"])
+
+    def test_load_tolerates_a_malformed_setting(self):
+        repo = MagicMock()
+        repo.get_global_setting.return_value = "prev"
+        self.assertEqual(load_toolbar_items(repo), list(DEFAULT_TOOLBAR_IDS))
+
+    def test_stored_order_drives_the_row(self):
+        tb = _make_toolbar()
+        tb.controller.session.repo.get_global_setting.return_value = ["loupe", "prev", "undo"]
+        tb._item_ids = load_toolbar_items(tb.session.repo)
+        tb._rebuild_row()
+
+        self.assertEqual(_row_order(tb), ["loupe", "prev", "undo"])
+        self.assertTrue(tb.btn_next.isHidden())
+
+    def test_a_separator_sits_at_every_visible_category_boundary(self):
+        tb = _make_toolbar()
+        tb.show()
+        tb.set_available_width(2000)
+        QApplication.processEvents()
+
+        categories = [TOOLBAR_ITEM_BY_ID[i].category for i in tb._item_ids]
+        boundaries = sum(1 for a, b in zip(categories[:-1], categories[1:], strict=True) if a != b)
+        visible_separators = sum(1 for widget, is_sep in tb._row_sequence if is_sep and not widget.isHidden())
+        self.assertEqual(visible_separators, boundaries)
+
+    def test_no_dangling_separator_once_the_row_collapses(self):
+        tb = _make_toolbar()
+        tb.show()
+        QApplication.processEvents()
+
+        for canvas_w in (320, 480, 640, 900):
+            tb.set_available_width(canvas_w)
+            QApplication.processEvents()
+            visible = [(w, is_sep) for w, is_sep in tb._row_sequence if not w.isHidden()]
+            if not visible:
+                continue
+            self.assertFalse(visible[0][1], f"row starts with a separator at width {canvas_w}")
+            self.assertFalse(visible[-1][1], f"row ends with a separator at width {canvas_w}")
+
+    def test_collapse_eats_from_the_end_of_the_users_order(self):
+        tb = _make_toolbar()
+        tb.show()
+        QApplication.processEvents()
+
+        tb.set_available_width(480)
+        QApplication.processEvents()
+        visible = [i for i in tb._item_ids if not tb._row_widgets[i].isHidden()]
+        self.assertLess(len(visible), len(tb._item_ids))
+        self.assertEqual(visible, tb._item_ids[: len(visible)])
+
+    def test_flat_peek_can_be_put_on_the_row_and_drives_the_controller(self):
+        tb = _make_toolbar()
+        tb._item_ids = ["flat_peek"]
+        tb._rebuild_row()
+
+        self.assertEqual(_row_order(tb), ["flat_peek"])
+        tb.btn_flat_peek.click()
+        tb.controller.toggle_flat_peek.assert_called_once_with(force=True)
+
+    def test_editing_the_toolbar_saves_and_rebuilds(self):
+        tb = _make_toolbar()
+        with unittest.mock.patch("negpy.desktop.view.widgets.favourites_dialog.FavouritesDialog") as dialog_cls:
+            dialog = dialog_cls.return_value
+            dialog.exec.return_value = QDialog.DialogCode.Accepted
+            dialog.selected_ids.return_value = ["next", "prev"]
+            tb.open_toolbar_editor()
+
+        tb.session.repo.save_global_setting.assert_called_once_with("toolbar_items", ["next", "prev"])
+        self.assertEqual(_row_order(tb), ["next", "prev"])
+
+    def test_a_cancelled_edit_changes_nothing(self):
+        tb = _make_toolbar()
+        with unittest.mock.patch("negpy.desktop.view.widgets.favourites_dialog.FavouritesDialog") as dialog_cls:
+            dialog_cls.return_value.exec.return_value = QDialog.DialogCode.Rejected
+            tb.open_toolbar_editor()
+
+        tb.session.repo.save_global_setting.assert_not_called()
+        self.assertEqual(_row_order(tb), list(DEFAULT_TOOLBAR_IDS))
+
+    def test_the_overflow_menu_stays_complete_with_an_empty_row(self):
+        tb = _make_toolbar()
+        tb._item_ids = []
+        tb._rebuild_row()
+        tb.show()
+        tb.set_available_width(480)
+        QApplication.processEvents()
+
+        for action in TestCanvasToolbarResponsive()._all_overflow_actions(tb):
+            self.assertTrue(action.isVisible(), f"{action.text()!r} hidden from overflow")
+        self.assertTrue(tb.btn_overflow.isVisible())
 
 
 class TestRotateRouting(unittest.TestCase):

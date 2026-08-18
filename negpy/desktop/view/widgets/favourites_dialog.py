@@ -23,14 +23,26 @@ class FavouritesDialog(QDialog):
     right. Takes plain (id, category, label) triples rather than widgets so it stays testable
     without a live controls panel."""
 
-    def __init__(self, parent, choices: list[tuple[str, str, str]], selected: list[str]):
+    def __init__(
+        self,
+        parent,
+        choices: list[tuple[str, str, str]],
+        selected: list[str],
+        *,
+        title: str = "Edit Favourites",
+        chosen_header: str = "FAVOURITES",
+        hint: str = "Favourites mirror the real controls — editing one here is the same as editing it in its own panel.",
+        defaults: list[str] | None = None,
+    ):
         super().__init__(parent)
         self._choices = choices
         known = {slider_id for slider_id, _, _ in choices}
         self._chosen = [slider_id for slider_id in selected if slider_id in known]
         self._label_by_id = {slider_id: label for slider_id, _, label in choices}
+        self._chosen_header = chosen_header
+        self._defaults = [slider_id for slider_id in defaults if slider_id in known] if defaults is not None else None
 
-        self.setWindowTitle("Edit Favourites")
+        self.setWindowTitle(title)
         self.setStyleSheet(f"QDialog {{ background: {THEME.bg_dark}; }}")
         self.resize(620, 560)
 
@@ -43,7 +55,7 @@ class FavouritesDialog(QDialog):
         panes.addWidget(self._build_available(), 1)
         panes.addWidget(self._build_chosen(), 1)
         root.addLayout(panes)
-        root.addWidget(hint_label("Favourites mirror the real controls — editing one here is the same as editing it in its own panel."))
+        root.addWidget(hint_label(hint))
         root.addLayout(self._build_footer())
 
         self._rebuild_chosen()
@@ -90,7 +102,7 @@ class FavouritesDialog(QDialog):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(THEME.space_sm)
 
-        title = QLabel("FAVOURITES")
+        title = QLabel(self._chosen_header)
         title.setStyleSheet(pane_header_qss())
         layout.addWidget(title)
 
@@ -125,6 +137,10 @@ class FavouritesDialog(QDialog):
 
     def _build_footer(self) -> QHBoxLayout:
         row = QHBoxLayout()
+        if self._defaults is not None:
+            restore = QPushButton("Restore Defaults")
+            restore.clicked.connect(self._restore_defaults)
+            row.addWidget(restore)
         row.addStretch()
         cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.reject)
@@ -134,6 +150,18 @@ class FavouritesDialog(QDialog):
         row.addWidget(cancel)
         row.addWidget(self.apply_btn)
         return row
+
+    def _restore_defaults(self) -> None:
+        self._chosen = list(self._defaults or [])
+        chosen = set(self._chosen)
+        self.available_list.blockSignals(True)
+        for i in range(self.available_list.count()):
+            item = self.available_list.item(i)
+            slider_id = item.data(_ID_ROLE)
+            if slider_id is not None:
+                item.setCheckState(Qt.CheckState.Checked if slider_id in chosen else Qt.CheckState.Unchecked)
+        self.available_list.blockSignals(False)
+        self._rebuild_chosen()
 
     def _on_item_toggled(self, item: QListWidgetItem) -> None:
         slider_id = item.data(_ID_ROLE)

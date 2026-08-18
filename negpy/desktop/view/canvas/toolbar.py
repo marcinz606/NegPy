@@ -1,4 +1,6 @@
 import os
+from dataclasses import dataclass
+
 import qtawesome as qta
 from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QActionGroup
@@ -29,6 +31,67 @@ CANVAS_COLORS = [
     ("#404040", (0.25, 0.25, 0.25), "Mid Grey"),
     ("#FFFFFF", (1.0, 1.0, 1.0), "White"),
 ]
+
+
+@dataclass(frozen=True)
+class ToolbarItem:
+    id: str
+    category: str
+    label: str
+
+
+# The row is customizable; the overflow menu is not. Category drives both the dialog's grouping
+# and the separators, so a reordered row still gets dividers where the kinds change.
+TOOLBAR_ITEMS: tuple[ToolbarItem, ...] = (
+    ToolbarItem("prev", "Navigation", "Previous"),
+    ToolbarItem("next", "Navigation", "Next"),
+    ToolbarItem("zoom_label", "Zoom", "Zoom Readout"),
+    ToolbarItem("zoom_fit", "Zoom", "Fit to Window"),
+    ToolbarItem("zoom_original", "Zoom", "Original Size (1:1)"),
+    ToolbarItem("hq", "Zoom", "HQ Preview"),
+    ToolbarItem("rot_l", "Geometry", "Rotate CCW"),
+    ToolbarItem("rot_r", "Geometry", "Rotate CW"),
+    ToolbarItem("flip_h", "Geometry", "Flip Horizontal"),
+    ToolbarItem("flip_v", "Geometry", "Flip Vertical"),
+    ToolbarItem("undo", "View", "Undo"),
+    ToolbarItem("redo", "View", "Redo"),
+    ToolbarItem("compare", "View", "Before / After"),
+    ToolbarItem("flat_peek", "View", "Peek Flat Scan"),
+    ToolbarItem("negative_peek", "View", "Peek Negative"),
+    ToolbarItem("zones", "View", "Zone Overlay"),
+    ToolbarItem("loupe", "View", "Grain Focuser"),
+)
+
+TOOLBAR_ITEM_BY_ID = {item.id: item for item in TOOLBAR_ITEMS}
+
+DEFAULT_TOOLBAR_IDS: tuple[str, ...] = (
+    "prev",
+    "next",
+    "zoom_label",
+    "zoom_fit",
+    "zoom_original",
+    "hq",
+    "rot_l",
+    "rot_r",
+    "flip_h",
+    "flip_v",
+    "undo",
+    "redo",
+    "compare",
+    "negative_peek",
+    "zones",
+    "loupe",
+)
+
+_TOOLBAR_SETTING_KEY = "toolbar_items"
+
+
+def load_toolbar_items(repo) -> list[str]:
+    """No stored row means the stock one; unknown ids drop so a retired button degrades quietly."""
+    stored = repo.get_global_setting(_TOOLBAR_SETTING_KEY)
+    if not isinstance(stored, list):
+        return list(DEFAULT_TOOLBAR_IDS)
+    return [item_id for item_id in stored if item_id in TOOLBAR_ITEM_BY_ID]
 
 
 class ActionToolbar(QWidget):
@@ -353,6 +416,12 @@ class ActionToolbar(QWidget):
             self._reset_panel_layout,
         )
         reset_layout_action.setToolTip("Restore the default panel sizes and positions")
+        edit_toolbar_action = overflow_menu.addAction(
+            qta.icon("fa5s.wrench", color=icon_color),
+            "Edit Toolbar…",
+            self.open_toolbar_editor,
+        )
+        edit_toolbar_action.setToolTip(tooltip_with_shortcut("Choose which controls sit on the toolbar, and in what order", "edit_toolbar"))
         self._ov_immersive_action = overflow_menu.addAction("Immersive Canvas")
         self._ov_immersive_action.setCheckable(True)
         self._ov_immersive_action.setChecked(self.session.state.immersive_canvas)
@@ -402,6 +471,7 @@ class ActionToolbar(QWidget):
             self.btn_zoom_original,
             self.btn_hq,
             self.btn_compare,
+            self.btn_flat_peek,
             self.btn_negative_peek,
             self.btn_zones,
             self.btn_loupe,
@@ -421,46 +491,30 @@ class ActionToolbar(QWidget):
             btn.setFixedHeight(btn_height)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        # Single-row layout: toggle_left · prev · next · sep1 · zoom_label · hq · sep2 · rot_l · rot_r · flip_h · flip_v · sep3 · undo · redo · compare · zones · loupe · overflow · toggle_right
-        row_layout.addWidget(self.btn_toggle_left)
-        row_layout.addWidget(self.btn_prev)
-        row_layout.addWidget(self.btn_next)
-        self._sep1 = self._create_separator()
-        row_layout.addWidget(self._sep1)
-        row_layout.addWidget(self.zoom_label)
-        row_layout.addWidget(self.btn_zoom_fit)
-        row_layout.addWidget(self.btn_zoom_original)
-        row_layout.addWidget(self.btn_hq)
-        self._sep2 = self._create_separator()
-        row_layout.addWidget(self._sep2)
-        row_layout.addWidget(self.btn_rot_l)
-        row_layout.addWidget(self.btn_rot_r)
-        row_layout.addWidget(self.btn_flip_h)
-        row_layout.addWidget(self.btn_flip_v)
-        self._sep3 = self._create_separator()
-        row_layout.addWidget(self._sep3)
-        row_layout.addWidget(self.btn_undo)
-        row_layout.addWidget(self.btn_redo)
-        row_layout.addWidget(self.btn_compare)
-        row_layout.addWidget(self.btn_negative_peek)
-        row_layout.addWidget(self.btn_zones)
-        row_layout.addWidget(self.btn_loupe)
-        row_layout.addWidget(self.btn_overflow)
-        row_layout.addWidget(self.btn_toggle_right)
-
-        # Overflow groups for responsive resize (first listed = first collapsed).
-        self._ov_view_toggles: list = [self.btn_compare, self.btn_negative_peek, self.btn_zones, self.btn_loupe]
-        self._ov_undo_redo: list = [self._sep3, self.btn_undo, self.btn_redo]
-        self._ov_zoom_extra: list = [self.btn_zoom_fit, self.btn_zoom_original]
-        self._ov_hq_group: list = [self.btn_hq, self._sep2]
-        self._ov_flip_rotate: list = [self.btn_rot_l, self.btn_rot_r, self.btn_flip_h, self.btn_flip_v, self._sep3]
-        self._collapse_groups: list = [
-            self._ov_view_toggles,
-            self._ov_undo_redo,
-            self._ov_zoom_extra,
-            self._ov_hq_group,
-            self._ov_flip_rotate,
-        ]
+        self._row_layout = row_layout
+        self._row_widgets: dict[str, QWidget] = {
+            "prev": self.btn_prev,
+            "next": self.btn_next,
+            "zoom_label": self.zoom_label,
+            "zoom_fit": self.btn_zoom_fit,
+            "zoom_original": self.btn_zoom_original,
+            "hq": self.btn_hq,
+            "rot_l": self.btn_rot_l,
+            "rot_r": self.btn_rot_r,
+            "flip_h": self.btn_flip_h,
+            "flip_v": self.btn_flip_v,
+            "undo": self.btn_undo,
+            "redo": self.btn_redo,
+            "compare": self.btn_compare,
+            "flat_peek": self.btn_flat_peek,
+            "negative_peek": self.btn_negative_peek,
+            "zones": self.btn_zones,
+            "loupe": self.btn_loupe,
+        }
+        self._row_sequence: list[tuple[QWidget, bool]] = []
+        self._available_width = 0
+        self._item_ids = load_toolbar_items(self.session.repo)
+        self._rebuild_row()
 
         v_layout.addLayout(row_layout)
         # Size the pill to its controls; don't stretch it across the canvas.
@@ -807,26 +861,101 @@ class ActionToolbar(QWidget):
         base = self.sizeHint()
         return QSize(self._pill_width(), base.height())
 
-    def set_available_width(self, w: int) -> None:
-        """Show as many toolbar groups as fit the canvas width.
+    def _rebuild_row(self) -> None:
+        """Lay the row out as left anchor, the chosen items, then overflow and right anchor.
 
-        Grow from a minimal core (nav, zoom, overflow) by re-adding optional
-        groups until the measured pill width would exceed the budget. The overflow
-        menu is not touched here — it always carries the full action set (see
-        _init_ui), so a control moving between the row and the menu never changes
-        what the menu itself contains."""
+        Widgets left out stay parented but hidden: they are still state holders the overflow
+        menu and the controller sync against."""
+        layout = self._row_layout
+        while layout.count():
+            layout.takeAt(0)
+        for widget, is_separator in self._row_sequence:
+            if is_separator:
+                widget.setParent(None)
+                widget.deleteLater()
+        self._row_sequence = []
+
+        for widget in self._row_widgets.values():
+            widget.setVisible(False)
+
+        layout.addWidget(self.btn_toggle_left)
+        previous_category = None
+        for item_id in self._item_ids:
+            item = TOOLBAR_ITEM_BY_ID[item_id]
+            if previous_category is not None and item.category != previous_category:
+                separator = self._create_separator()
+                layout.addWidget(separator)
+                self._row_sequence.append((separator, True))
+            previous_category = item.category
+            widget = self._row_widgets[item_id]
+            layout.addWidget(widget)
+            widget.setVisible(True)
+            self._row_sequence.append((widget, False))
+        layout.addWidget(self.btn_overflow)
+        layout.addWidget(self.btn_toggle_right)
+        self._sync_separators()
+
+    def _sync_separators(self) -> None:
+        """A divider earns its place only between two visible controls."""
+        seen_visible = False
+        pending: list[QWidget] = []
+        for widget, is_separator in self._row_sequence:
+            if is_separator:
+                pending.append(widget)
+            elif not widget.isHidden():
+                for i, separator in enumerate(pending):
+                    separator.setVisible(seen_visible and i == 0)
+                pending.clear()
+                seen_visible = True
+        for separator in pending:
+            separator.setVisible(False)
+
+    def open_toolbar_editor(self) -> None:
+        from PyQt6.QtWidgets import QDialog
+
+        from negpy.desktop.view.widgets.favourites_dialog import FavouritesDialog
+
+        dialog = FavouritesDialog(
+            self,
+            [(item.id, item.category, item.label) for item in TOOLBAR_ITEMS],
+            self._item_ids,
+            title="Edit Toolbar",
+            chosen_header="TOOLBAR",
+            hint="Whatever does not fit the canvas width collapses from the right. The ⋯ menu always holds every action, whichever ones the row shows.",
+            defaults=list(DEFAULT_TOOLBAR_IDS),
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self._item_ids = dialog.selected_ids()
+        self.session.repo.save_global_setting(_TOOLBAR_SETTING_KEY, self._item_ids)
+        self._rebuild_row()
+        self._update_ui_state()
+        canvas = self.parentWidget()
+        if canvas is not None and hasattr(canvas, "relayout_floating_widgets"):
+            canvas.relayout_floating_widgets()
+        else:
+            self.set_available_width(self._available_width or self.width())
+
+    def set_available_width(self, w: int) -> None:
+        """Show as many of the chosen controls as fit the canvas width.
+
+        Hiding runs from the end of the user's order inward, so the items they put first are
+        the ones that survive a narrow canvas. The overflow menu is not touched here — it
+        always carries the full action set (see _init_ui), so a control leaving the row never
+        changes what the menu contains."""
+        self._available_width = w
         budget = self._toolbar_width_budget(w)
 
-        for group in self._collapse_groups:
-            for widget in group:
-                widget.setVisible(False)
+        widgets = [self._row_widgets[item_id] for item_id in self._item_ids]
+        for widget in widgets:
+            widget.setVisible(True)
+        self._sync_separators()
 
-        for group in reversed(self._collapse_groups):
-            for widget in group:
-                widget.setVisible(True)
-            if self._pill_width() > budget:
-                for widget in group:
-                    widget.setVisible(False)
+        for widget in reversed(widgets):
+            if self._pill_width() <= budget:
+                break
+            widget.setVisible(False)
+            self._sync_separators()
 
         self._activate_layout()
         self.adjustSize()

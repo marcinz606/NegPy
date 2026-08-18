@@ -188,3 +188,29 @@ def test_dialog_remove_button_unticks_the_source_row(qapp):
 def test_dialog_drops_stored_ids_it_was_not_offered(qapp):
     dlg = _dialog(qapp, ["density", "retired_slider"])
     assert dlg.selected_ids() == ["density"]
+
+
+def test_dialog_without_defaults_has_no_restore_button(qapp):
+    from PyQt6.QtWidgets import QPushButton
+
+    dlg = _dialog(qapp, ["density"])
+    assert [b.text() for b in dlg.findChildren(QPushButton) if b.text() == "Restore Defaults"] == []
+
+
+def test_dialog_restore_defaults_resets_the_chosen_list_and_the_ticks(qapp):
+    """The toolbar editor passes defaults so the stock row is one click away."""
+    choices = [("density", "Exposure", "Density"), ("grade", "Exposure", "Grade"), ("saturation", "Lab", "Chroma")]
+    from PyQt6.QtCore import Qt
+
+    dlg = FavouritesDialog(None, choices, ["saturation"], defaults=["grade", "density"])
+
+    dlg._restore_defaults()
+
+    assert dlg.selected_ids() == ["grade", "density"]
+    states = {
+        dlg.available_list.item(i).data(Qt.ItemDataRole.UserRole): dlg.available_list.item(i).checkState()
+        for i in range(dlg.available_list.count())
+    }
+    assert states["grade"] == Qt.CheckState.Checked
+    assert states["density"] == Qt.CheckState.Checked
+    assert states["saturation"] == Qt.CheckState.Unchecked

@@ -202,6 +202,10 @@ class ImageCanvas(QWidget):
         # The fit scale moves with the viewport, so the true-zoom % readout must refresh.
         self.zoom_changed.emit(self.zoom_level)
 
+    def relayout_floating_widgets(self) -> None:
+        """Re-place the floating pill after it changes size outside a resize."""
+        self._layout_floating_widgets()
+
     def _layout_floating_widgets(self) -> None:
         self.hud.setGeometry(self.rect())
         tb = self._floating_toolbar

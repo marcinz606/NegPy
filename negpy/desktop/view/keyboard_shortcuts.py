@@ -162,6 +162,7 @@ class ShortcutManager:
             "toggle_left_panel": self.window.toggle_session_dock,
             "toggle_right_panel": self.window.toggle_controls_dock,
             "reset_panel_layout": self.window.reset_panel_layout,
+            "edit_toolbar": toolbar.open_toolbar_editor,
             "tab_favourites": lambda: right.show_tab_by_key("favourites"),
             "tab_setup": lambda: right.show_tab_by_key("setup"),
             "tab_geometry": lambda: right.show_tab_by_key("geometry"),
