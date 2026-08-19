@@ -14,6 +14,7 @@ class _Canvas:
     current_zoom_percent = ImageCanvas.current_zoom_percent
     zoom_to_percent = ImageCanvas.zoom_to_percent
     zoom_to_original = ImageCanvas.zoom_to_original
+    zoom_note = ImageCanvas.zoom_note
 
     def __init__(self, fit_scale: float, render_long_edge: int, original_res: tuple[int, int]) -> None:
         self.zoom_level = 1.0
@@ -22,6 +23,7 @@ class _Canvas:
         self.state = SimpleNamespace(
             last_metrics={"render_long_edge": render_long_edge},
             original_res=original_res,
+            hq_preview=False,
         )
 
     def _fit_scale(self):
@@ -69,3 +71,28 @@ def test_missing_metrics_fall_back_to_buffer_pixels():
     assert c._source_scale() == 1.0
     c.zoom_to_original()
     assert round(c.zoom_level, 6) == 2.0
+
+
+def _note(fit_scale, render_long_edge, original_res, zoom_level, hq):
+    c = _Canvas(fit_scale=fit_scale, render_long_edge=render_long_edge, original_res=original_res)
+    c.zoom_level = zoom_level
+    c.state.hq_preview = hq
+    return c.zoom_note()
+
+
+def test_note_marks_an_upscaled_preview_at_one_to_one():
+    assert _note(0.25, 1600, (6000, 4000), 15.0, hq=False) == "preview res · HQ off"
+
+
+def test_note_is_silent_below_one_to_one():
+    """Fit view on a preview buffer says nothing, however large the display."""
+    assert _note(2.0, 1600, (6000, 4000), 1.0, hq=False) == ""
+
+
+def test_note_is_silent_on_hq():
+    """An interactive proxy frame renders small while HQ is on; the settled frame does not."""
+    assert _note(0.25, 1600, (6000, 4000), 15.0, hq=True) == ""
+
+
+def test_note_is_silent_when_the_source_fits_the_preview_budget():
+    assert _note(0.5, 1200, (1200, 800), 2.0, hq=False) == ""

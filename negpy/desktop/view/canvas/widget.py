@@ -294,6 +294,14 @@ class ImageCanvas(QWidget):
         fs = self._fit_scale() or 1.0
         return int(round(self.zoom_level * fs * self._source_scale() * 100.0))
 
+    def zoom_note(self) -> str:
+        """HUD qualifier for a view the preview cannot supply pixels for: inspecting at
+        100% or closer while the frame rendered against a downscaled buffer. Empty on HQ,
+        where a settled frame carries every scan pixel and only a transient proxy does not."""
+        if self.state.hq_preview or self._source_scale() >= 1.0:
+            return ""
+        return "preview res · HQ off" if self.current_zoom_percent() >= 100 else ""
+
     def fit_to_window(self) -> None:
         """Fit the image to the viewport (zoom_level 1.0 is the shader's fit); reset pan."""
         self.set_zoom(1.0)

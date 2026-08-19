@@ -334,3 +334,38 @@ class TestRotateRouting(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestOneToOneButtonState(unittest.TestCase):
+    """The 1:1 button reads out the current zoom, the way HQ reads out its mode."""
+
+    def _toolbar_at(self, percent: int) -> ActionToolbar:
+        tb = _make_toolbar()
+        tb.controller.canvas = MagicMock()
+        tb.controller.canvas.current_zoom_percent.return_value = percent
+        return tb
+
+    def test_lit_at_one_to_one(self):
+        tb = self._toolbar_at(100)
+        tb._on_zoom_changed(1.0)
+        self.assertTrue(tb.btn_zoom_original.isChecked())
+        self.assertTrue(tb._ov_original_action.isChecked())
+
+    def test_dark_at_any_other_zoom(self):
+        tb = self._toolbar_at(65)
+        tb._on_zoom_changed(1.0)
+        self.assertFalse(tb.btn_zoom_original.isChecked())
+        self.assertFalse(tb._ov_original_action.isChecked())
+
+    def test_a_click_leaves_the_state_to_the_zoom_it_causes(self):
+        """The click's own toggle is overwritten by the resulting zoom_changed."""
+        tb = self._toolbar_at(100)
+        tb.btn_zoom_original.click()
+        tb.controller.canvas.zoom_to_original.assert_called_once()
+        tb._on_zoom_changed(1.0)
+        self.assertTrue(tb.btn_zoom_original.isChecked())
+
+    def test_a_click_with_no_canvas_does_not_stick(self):
+        tb = _make_toolbar()  # controller.canvas is None
+        tb.btn_zoom_original.click()
+        self.assertFalse(tb.btn_zoom_original.isChecked())

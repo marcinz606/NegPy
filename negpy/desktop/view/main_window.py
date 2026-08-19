@@ -585,6 +585,7 @@ class MainWindow(QMainWindow):
     def _refresh_image_info(self) -> None:
         """Updates the canvas HUD corner pills."""
         if not self.state.current_file_path:
+            self.canvas.hud.set_zoom_note("")
             self.canvas.hud.update_info("", "", "", "", "", "")
             return
 
@@ -606,7 +607,7 @@ class MainWindow(QMainWindow):
         self.canvas.hud.update_info(filename, res_str, mode_str, edits_str, tool_label, file_pos)
 
     def _on_zoom_info_changed(self, zoom: float) -> None:
-        pass
+        self.canvas.hud.set_zoom_note(self.canvas.zoom_note())
 
     def _on_export_progress(self, current: int, total: int, filename: str) -> None:
         self.canvas.hud.set_progress(current, total)
