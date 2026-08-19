@@ -190,3 +190,11 @@ class TestSyncCheckbox:
         sidebar.sync_check.setChecked(True)
         sidebar._persist_all_metadata_settings()
         assert sidebar.state.config.metadata.sync_to_batch is True
+
+
+class TestPlaceButtons:
+    def test_are_icon_only_with_tooltips_carrying_the_meaning(self, sidebar: MetadataSidebar) -> None:
+        for button in (sidebar.place_map_btn, sidebar.place_clear_btn):
+            assert button.text() == ""
+            assert button.icon().isNull() is False
+            assert button.toolTip() != ""
