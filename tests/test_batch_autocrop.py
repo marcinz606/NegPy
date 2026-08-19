@@ -36,6 +36,7 @@ def _evidence(
     supported_corners: frozenset[str] = frozenset(),
     geometry_score: float = 0.8,
     border: tuple[float, ...] = (),
+    bright_border: tuple[float, ...] = (),
     rebate_trim: float = 1.0,
     angle_confident: bool = False,
     vertical_edge_profile: np.ndarray | None = None,
@@ -56,6 +57,7 @@ def _evidence(
         supported_corners=supported_corners,
         geometry_score=geometry_score,
         border=border,
+        bright_border=bright_border,
         rebate_trim=rebate_trim,
         angle_confident=angle_confident,
         vertical_edge_contrast=profile_contrast,
@@ -240,6 +242,27 @@ def test_a_borderless_roll_keeps_the_frames_it_could_not_measure_consistent() ->
     assert template.from_fallback is True
     assert template.sample_count == 6
     assert template.border == pytest.approx(_BORDERLESS_BORDER)
+
+
+def test_a_roll_whose_threshold_box_is_itself_a_crop_abstains() -> None:
+    # A portrait slide inside a landscape capture: no frame finds a film box, and the
+    # threshold box encloses the slide rather than the frame. Taking it would crop to
+    # whatever the threshold happened to enclose, so the roll gets no template at all.
+    roll = [
+        _evidence(
+            f"inset-{index}",
+            roi=None,
+            fallback_roi=(20, 980, 220, 980),
+            confidence=0.0,
+            supported_sides=frozenset(),
+            geometry_score=0.0,
+            reason="no_consensus",
+        )
+        for index in range(6)
+    ]
+
+    assert build_roll_template(roll) is None
+    assert _resolved_by_key(roll) == {}
 
 
 def test_a_fallback_box_is_ignored_when_the_roll_has_a_real_template() -> None:
@@ -464,6 +487,34 @@ def test_abstaining_side_falls_back_to_the_roll_median() -> None:
 
 def test_no_roll_border_means_no_trim() -> None:
     assert _resolve_border((0.05, 0.02, 0.015, 0.012), ()) == ()
+
+
+def test_a_roll_too_short_to_pool_trims_by_the_brightness_measurement() -> None:
+    resolved = _resolve_border((0.005, 0.006, 0.037, 0.052), (), (0.0, _NAN, 0.036, 0.053))
+
+    assert resolved == pytest.approx((0.0, 0.0, 0.036, 0.053))
+
+
+def test_a_lone_bright_side_trims_nothing() -> None:
+    assert _resolve_border((0.0, 0.003, 0.007, 0.027), (), (0.0, _NAN, 0.0, 0.027)) == ()
+
+
+def test_a_short_roll_reading_no_brightness_anywhere_trims_nothing() -> None:
+    assert _resolve_border((0.0, 0.003, 0.007, 0.027), (), (0.0, 0.0, 0.0, 0.0)) == ()
+
+
+def test_a_pooled_roll_ignores_the_brightness_measurement() -> None:
+    own = (0.01, 0.02, 0.015, 0.012)
+
+    assert _resolve_border(own, (0.03, 0.03, 0.03, 0.03), (0.0, 0.0, 0.0, 0.0)) == pytest.approx(own)
+
+
+def test_one_frame_trims_its_rebate_without_a_roll_to_pool() -> None:
+    evidence = [_evidence("only", border=(0.0, 0.0, 0.02, 0.02), bright_border=(0.0, 0.0, 0.02, 0.02))]
+
+    x1, _, x2, _ = _resolved_by_key(evidence)["only"].crop_rect
+
+    assert x1 > 0.1 and x2 < 0.9
 
 
 def test_border_inset_trims_each_side_as_a_fraction_of_the_film_box() -> None:

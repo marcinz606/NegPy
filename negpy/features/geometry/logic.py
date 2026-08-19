@@ -1592,8 +1592,13 @@ def _trim_opaque_border(
     pixels — a camera-scan negative holder masks frame edges with an opaque stripe
     (lum ~ 0), well below the darkest real negative content (even unexposed film
     base transmits orange light). An edge moves only while its border line is
-    dominated (>= `frac`) by sub-`black` pixels, capped at `max_trim` of the side
-    so it can never eat into the image. `lum` is detection luminance (bed ~ 1.0).
+    dominated (>= `frac`) by sub-`black` pixels, capped at `max_trim` of the side.
+
+    A run reaching that cap trims nothing. The stripe has a finite width, so a run
+    that never ends found no boundary and its depth is only where the search stopped.
+    A slide breaks the premise the other way: its shadows reach true black, so dark
+    picture running to the frame edge reads exactly like the mask and would be trimmed
+    as deep as the cap allows. `lum` is detection luminance (bed ~ 1.0).
     """
     y1, y2, x1, x2 = roi
     sub = lum[y1:y2, x1:x2]
@@ -1609,7 +1614,7 @@ def _trim_opaque_border(
         i = 0
         while i < limit and profile[i if from_start else n - 1 - i] >= frac:
             i += 1
-        return i
+        return 0 if i >= limit else i
 
     ly = int(round(max_trim * bh))
     lx = int(round(max_trim * bw))

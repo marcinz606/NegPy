@@ -132,13 +132,33 @@ def test_trim_opaque_border_keeps_dark_negative_content():
     assert _trim_opaque_border(lum, (0, 100, 0, 120)) == (0, 100, 0, 120)
 
 
-def test_trim_opaque_border_capped_for_all_black_roi():
+def test_trim_opaque_border_keeps_an_all_black_roi_whole():
+    # Every side runs to the cap without finding a boundary, so none of them is one.
     from negpy.features.geometry.logic import _trim_opaque_border
 
     lum = np.zeros((100, 100), dtype=np.float32)
-    y1, y2, x1, x2 = _trim_opaque_border(lum, (0, 100, 0, 100))
-    assert y1 <= 20 and (100 - y2) <= 20 and x1 <= 20 and (100 - x2) <= 20
-    assert y2 > y1 and x2 > x1
+
+    assert _trim_opaque_border(lum, (0, 100, 0, 100)) == (0, 100, 0, 100)
+
+
+def test_trim_opaque_border_keeps_a_slide_shadow_running_to_the_edge():
+    # A slide's shadows reach true black, so dark picture at the frame edge reads like
+    # the holder mask. It is told apart by running past the cap: a mask band ends.
+    from negpy.features.geometry.logic import _trim_opaque_border
+
+    lum = np.full((100, 200), 0.4, dtype=np.float32)
+    lum[:, :60] = 0.0
+
+    assert _trim_opaque_border(lum, (0, 100, 0, 200)) == (0, 100, 0, 200)
+
+
+def test_trim_opaque_border_still_trims_a_band_that_ends_inside_the_cap():
+    from negpy.features.geometry.logic import _trim_opaque_border
+
+    lum = np.full((100, 200), 0.4, dtype=np.float32)
+    lum[:, :30] = 0.0
+
+    assert _trim_opaque_border(lum, (0, 100, 0, 200)) == (0, 100, 30, 200)
 
 
 def test_get_autocrop_coords_fallback_preserves_valid_roi_for_flat_image():

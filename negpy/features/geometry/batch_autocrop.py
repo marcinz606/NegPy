@@ -54,6 +54,10 @@ _EDGE_PAIR_WIDTH_TOL = 0.02
 # Confidence given to a frame whose rect is the threshold box rather than a detected film
 # box. Low: the box is the frame, and every real measurement on it came from the border walk.
 _FALLBACK_CONFIDENCE = 0.30
+# How much of the frame the threshold box must cover before a roll may fall back to it. The
+# fallback rests on that box being no crop by itself; a box well inside the frame is a crop,
+# and taking it as the film box crops to whatever the threshold happened to enclose.
+_MIN_FALLBACK_COVERAGE = 0.9
 
 
 @dataclass(frozen=True)
@@ -83,6 +87,10 @@ class CropEvidence:
     # Per-side thickness in BORDER_SIDES order, as a fraction of the film box side. NaN
     # marks a side with no clean transition, () a frame that was never measured.
     border: tuple[float, ...] = ()
+    # The same sides read by the ring alone, which trims only where the edge is brighter
+    # than the picture. The walk behind `border` has no such test, so a roll too short to
+    # pool a median takes this instead -- see _resolve_border.
+    bright_border: tuple[float, ...] = ()
     # The threshold-walk box, set only when the film detector found no box. It is what
     # single-frame Auto Crop falls back to, and only a roll where *no* frame found a box
     # ever uses it -- see _threshold_fallback_frames.
@@ -211,7 +219,13 @@ def _side_border(lum: np.ndarray, roi: ROI) -> dict[str, float]:
     return {name: walked[name] if walked[name] > 0.0 else measured[name] for name in BORDER_SIDES}
 
 
-def _border_without_a_film_box(image: ImageBuffer) -> tuple[ROI, tuple[float, ...]]:
+def _bright_side_border(lum: np.ndarray, roi: ROI) -> tuple[float, ...]:
+    """Ring-only border thickness: the sides that are measurably brighter than the picture."""
+    measured = measure_film_border(lum, roi)
+    return tuple(measured[name] for name in BORDER_SIDES)
+
+
+def _border_without_a_film_box(image: ImageBuffer) -> tuple[ROI, tuple[float, ...], tuple[float, ...]]:
     """Threshold box and border widths for a frame whose film box was never found.
 
     The rect for such a frame normally comes from the roll template, but the *border* does
@@ -224,7 +238,7 @@ def _border_without_a_film_box(image: ImageBuffer) -> tuple[ROI, tuple[float, ..
     """
     lum = _detection_luma(image)
     box = _trim_opaque_border(lum, _get_threshold_autocrop_coords(image, None))
-    return box, tuple(_side_border(lum, box)[name] for name in BORDER_SIDES)
+    return box, tuple(_side_border(lum, box)[name] for name in BORDER_SIDES), _bright_side_border(lum, box)
 
 
 def detect_crop_candidate(
@@ -258,7 +272,7 @@ def detect_crop_candidate(
 
     initial = detect_film_bounds_with_confidence(image)
     if initial.roi is None:
-        fallback_roi, fallback_border = _border_without_a_film_box(image)
+        fallback_roi, fallback_border, fallback_bright = _border_without_a_film_box(image)
         return CropEvidence(
             key,
             (h, w),
@@ -270,6 +284,7 @@ def detect_crop_candidate(
             vertical_edge_contrast=initial.vertical_edge_contrast,
             vertical_edge_profile=np.asarray(initial.vertical_edge_profile, dtype=np.float32),
             border=fallback_border,
+            bright_border=fallback_bright,
             fallback_roi=fallback_roi,
             reason="no_consensus",
         )
@@ -313,6 +328,7 @@ def detect_crop_candidate(
     lum = _detection_luma(corrected)
     roi = _trim_opaque_border(lum, final.roi)
     border = tuple(_side_border(lum, roi)[name] for name in BORDER_SIDES)
+    bright_border = _bright_side_border(lum, roi)
     y1, y2, x1, x2 = roi
     if y2 <= y1 or x2 <= x1:
         return CropEvidence(
@@ -346,6 +362,7 @@ def detect_crop_candidate(
         vertical_edge_contrast=final.vertical_edge_contrast,
         vertical_edge_profile=np.asarray(final.vertical_edge_profile, dtype=np.float32),
         border=border,
+        bright_border=bright_border,
     )
 
 
@@ -409,11 +426,26 @@ def _threshold_fallback_frames(evidence: Sequence[CropEvidence]) -> list[CropEvi
     falls back to this same box — crops each of them. The box is near enough the whole frame
     to be no crop by itself; the border walk that has already run is what trims it.
     """
+    boxes = [item for item in evidence if item.roi is None and item.fallback_roi is not None]
+    if not boxes:
+        return []
+    # Roll-level, not per frame: the premise is about the roll's whole geometry, and a
+    # per-frame test would take half a roll and leave the rest with no crop at all.
+    coverage = float(np.median([_roi_coverage(item.fallback_roi, item.canvas_shape) for item in boxes]))
+    if coverage < _MIN_FALLBACK_COVERAGE:
+        return []
     return [
-        replace(item, roi=item.fallback_roi, confidence=_FALLBACK_CONFIDENCE, evidence_sources=("threshold-fallback",))
-        for item in evidence
-        if item.roi is None and item.fallback_roi is not None
+        replace(item, roi=item.fallback_roi, confidence=_FALLBACK_CONFIDENCE, evidence_sources=("threshold-fallback",)) for item in boxes
     ]
+
+
+def _roi_coverage(roi: ROI, shape: tuple[int, int]) -> float:
+    """Share of the canvas the ROI covers."""
+    height, width = shape
+    y1, y2, x1, x2 = roi
+    if height <= 0 or width <= 0:
+        return 0.0
+    return max(0.0, (y2 - y1)) * max(0.0, (x2 - x1)) / float(height * width)
 
 
 def build_roll_template(evidence: Sequence[CropEvidence]) -> RollCropTemplate | None:
@@ -629,15 +661,23 @@ def _rect_from_edge_profile(item: CropEvidence, template: RollCropTemplate) -> t
     return _clamp_rect((x1, template.top, x2, template.top + template.height))
 
 
-def _resolve_border(frame: tuple[float, ...], roll: tuple[float, ...]) -> tuple[float, ...]:
+def _resolve_border(
+    frame: tuple[float, ...],
+    roll: tuple[float, ...],
+    bright: tuple[float, ...] = (),
+) -> tuple[float, ...]:
     """Prefer the frame's own border, falling back to the roll median per side.
 
     How much bed the detector leaves inside the film box varies frame to frame, so
     pooling that measurement across the roll trims the wrong amount. The median is only
     the safety net for sides that abstained (NaN).
+
+    A roll too short to pool any median at all falls back to `bright` instead of `frame`.
+    Pooling is what tells a rebate from a bright scene edge, and with too few samples to
+    pool, the brightness test is the only evidence left that a side has a border to trim.
     """
     if len(roll) != len(BORDER_SIDES):
-        return ()
+        return _bright_only_border(bright)
     if len(frame) != len(BORDER_SIDES):
         frame = (float("nan"),) * len(BORDER_SIDES)
     # A side neither the frame nor the roll could measure trims nothing, rather than
@@ -645,6 +685,23 @@ def _resolve_border(frame: tuple[float, ...], roll: tuple[float, ...]) -> tuple[
     return tuple(
         own if np.isfinite(own) else (fallback if np.isfinite(fallback) else 0.0) for own, fallback in zip(frame, roll, strict=True)
     )
+
+
+def _bright_only_border(bright: tuple[float, ...]) -> tuple[float, ...]:
+    """The ring measurement as an inset, and only where an opposite pair both read one.
+
+    A lone bright side is a uniform scene region far more often than a rebate, and
+    trimming to it carves the picture down to a dark subject.
+    """
+    if len(bright) != len(BORDER_SIDES):
+        return ()
+    amounts = {name: (value if np.isfinite(value) else 0.0) for name, value in zip(BORDER_SIDES, bright, strict=True)}
+    paired = {"top", "bottom"} if amounts["top"] > 0.0 and amounts["bottom"] > 0.0 else set()
+    if amounts["left"] > 0.0 and amounts["right"] > 0.0:
+        paired |= {"left", "right"}
+    if not paired:
+        return ()
+    return tuple(amounts[name] if name in paired else 0.0 for name in BORDER_SIDES)
 
 
 def _inset_rect_by_border(
@@ -757,7 +814,7 @@ def resolve_roll_crops(
             calibrated = True
         angle = float(np.clip(angle, -FINE_ROTATION_LIMIT, FINE_ROTATION_LIMIT))
 
-        border = _resolve_border(item.border, template.border)
+        border = _resolve_border(item.border, template.border, item.bright_border)
         if item.rebate_trim != 1.0:
             border = tuple(value * item.rebate_trim for value in border)
         inset = _inset_rect_by_border(rect, border)
