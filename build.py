@@ -246,8 +246,20 @@ def package_linux():
                 print(f"  WARNING: Could not clear execstack from {os.path.relpath(libpath, appdir)} — install patchelf or execstack")
 
     # 4. Add Desktop file and Icon
-    shutil.copy("negpy.desktop", os.path.join(appdir, "negpy.desktop"))
-    shutil.copy("media/icons/icon.png", os.path.join(appdir, "icon.png"))
+    shutil.copy("NegPy.desktop", os.path.join(appdir, "NegPy.desktop"))
+    shutil.copy("media/icons/icon.png", os.path.join(appdir, "negpy.png"))
+    # Also install into the hicolor theme so desktop integrators (e.g. appimaged)
+    # that read usr/share/icons rather than the AppDir root find the icon too.
+    hicolor_scalable = os.path.join(appdir, "usr", "share", "icons", "hicolor", "scalable", "apps")
+    os.makedirs(hicolor_scalable, exist_ok=True)
+    shutil.copy("media/icons/icon.svg", os.path.join(hicolor_scalable, "negpy.svg"))
+    hicolor_48 = os.path.join(appdir, "usr", "share", "icons", "hicolor", "48x48", "apps")
+    os.makedirs(hicolor_48, exist_ok=True)
+    shutil.copy("media/icons/48x48.png", os.path.join(hicolor_48, "negpy.png"))
+    # also install desktop file into /usr/share/applications
+    applications_dir = os.path.join(appdir, "usr", "share", "applications")
+    os.makedirs(applications_dir, exist_ok=True)
+    shutil.copy("NegPy.desktop", os.path.join(applications_dir, "NegPy.desktop"))
 
     # 5. Create AppRun script
     apprun_path = os.path.join(appdir, "AppRun")

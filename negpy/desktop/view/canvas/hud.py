@@ -77,6 +77,9 @@ class CanvasHud(QWidget):
         )
         self.progress.hide()
 
+        self._file_pos = ""
+        self._zoom_note = ""
+
         self._toast_timer = QTimer(self)
         self._toast_timer.setSingleShot(True)
         self._toast_timer.timeout.connect(self.toast.hide)
@@ -97,7 +100,19 @@ class CanvasHud(QWidget):
         self._set_pill(self.lbl_top_left, " · ".join(s for s in (filename, res) if s))
         self._set_pill(self.lbl_top_right, mode)
         self._set_pill(self.lbl_bottom_left, " · ".join(s for s in (edits, tool) if s))
-        self._set_pill(self.lbl_bottom_right, file_pos)
+        self._file_pos = file_pos
+        self._refresh_bottom_right()
+
+    def set_zoom_note(self, note: str) -> None:
+        """Qualifier for what the canvas shows at this zoom. It shares the bottom-right
+        pill with the file position, which changes on a different schedule."""
+        if note == self._zoom_note:
+            return
+        self._zoom_note = note
+        self._refresh_bottom_right()
+
+    def _refresh_bottom_right(self) -> None:
+        self._set_pill(self.lbl_bottom_right, " · ".join(s for s in (self._zoom_note, self._file_pos) if s))
 
     def showMessage(self, text: str, timeout: int = 0) -> None:
         if text == "Image Updated":

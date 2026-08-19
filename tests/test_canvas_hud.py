@@ -65,3 +65,28 @@ def test_set_progress_show_hide(qapp):
     hud.set_progress(2, 4)
     hud.hide_progress()
     assert hud.progress.isHidden()
+
+
+def test_zoom_note_shares_the_bottom_right_pill(qapp):
+    hud = CanvasHud()
+    hud.update_info("roll.nef", "", "", "", "", "3 / 24")
+    hud.set_zoom_note("preview res · HQ off")
+    assert hud.lbl_bottom_right.text() == "preview res · HQ off · 3 / 24"
+
+
+def test_zoom_note_survives_a_metadata_refresh(qapp):
+    """The two halves of the pill change on different schedules; neither clears the other."""
+    hud = CanvasHud()
+    hud.set_zoom_note("preview res · HQ off")
+    hud.update_info("roll.nef", "", "", "Edits: 2", "", "4 / 24")
+    assert hud.lbl_bottom_right.text() == "preview res · HQ off · 4 / 24"
+    hud.set_zoom_note("")
+    assert hud.lbl_bottom_right.text() == "4 / 24"
+
+
+def test_zoom_note_alone_shows_the_pill(qapp):
+    hud = CanvasHud()
+    hud.set_zoom_note("preview res · HQ off")
+    assert not hud.lbl_bottom_right.isHidden()
+    hud.set_zoom_note("")
+    assert hud.lbl_bottom_right.isHidden()

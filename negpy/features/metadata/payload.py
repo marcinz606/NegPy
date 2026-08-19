@@ -6,6 +6,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from negpy.features.metadata.capture import CaptureDate, format_coords, parse_capture_date, place_summary
 from negpy.features.metadata.exif_read import ScanExif, extract_scan_from_exif
 from negpy.features.metadata.gear_models import GearLibrary
 from negpy.features.metadata.models import (
@@ -87,6 +88,12 @@ class MetadataPayload:
     capture_exposure: str = ""
     capture_roll: str = ""
     capture_frame: Optional[int] = None
+    capture_date: Optional[CaptureDate] = None
+    gps_latitude: Optional[float] = None
+    gps_longitude: Optional[float] = None
+    location_city: str = ""
+    location_state: str = ""
+    location_country: str = ""
 
     # Digitization rig (negpy:Scan* XMP only; source EXIF when capture gear not set)
     scan_camera_make: str = ""
@@ -98,6 +105,9 @@ class MetadataPayload:
     scan_iso: Optional[int] = None
     scan_exposure: str = ""
     scan_method: str = ""
+    scan_datetime: str = ""
+    scan_gps_latitude: Optional[float] = None
+    scan_gps_longitude: Optional[float] = None
 
     image_description: str = ""
     developer: str = ""
@@ -114,11 +124,25 @@ class MetadataPayload:
     def scan_camera_display(self) -> str:
         return f"{self.scan_camera_make} {self.scan_camera_model}".strip()
 
+    def place_display(self) -> str:
+        return place_summary(
+            self.location_city,
+            self.location_state,
+            self.location_country,
+            self.gps_latitude,
+            self.gps_longitude,
+        )
+
+    def has_coords(self) -> bool:
+        return self.gps_latitude is not None and self.gps_longitude is not None
+
     def to_preview_sections(self) -> list[tuple[str, list[tuple[str, str]]]]:
         """Grouped preview: original capture, scan rig, process."""
         sections: list[tuple[str, list[tuple[str, str]]]] = []
 
         capture: list[tuple[str, str]] = []
+        if self.capture_date is not None:
+            capture.append(("Date", self.capture_date.xmp_text()))
         if self.camera_make:
             capture.append(("Camera make", self.camera_make))
         if self.camera_model:
@@ -143,6 +167,13 @@ class MetadataPayload:
             capture.append(("Film format", self.film_format))
         if self.film_color_type:
             capture.append(("Film type", self.film_color_type))
+        place = self.place_display()
+        if place:
+            capture.append(("Place", place))
+        if self.gps_latitude is not None and self.gps_longitude is not None:
+            coords = format_coords(self.gps_latitude, self.gps_longitude)
+            if coords != place:
+                capture.append(("Coordinates", coords))
         if capture:
             sections.append(("Original capture", capture))
 
@@ -165,6 +196,10 @@ class MetadataPayload:
             scan.append(("ISO", str(self.scan_iso)))
         if self.scan_method:
             scan.append(("Scan method", self.scan_method))
+        if self.scan_datetime:
+            scan.append(("Scan date", self.scan_datetime))
+        if self.scan_gps_latitude is not None and self.scan_gps_longitude is not None:
+            scan.append(("Scan place", format_coords(self.scan_gps_latitude, self.scan_gps_longitude)))
         if self.capture_roll:
             scan.append(("Roll", self.capture_roll))
         if self.capture_frame is not None:
@@ -294,6 +329,7 @@ def build_metadata_payload(
     scan: ScanExif = extract_scan_from_exif(source_exif)
     push_pull = PUSH_PULL_LABELS.get(config.push_pull, "Normal")
     capture_exposure = config.exposure_override.strip()
+    capture_date = parse_capture_date(config.capture_date)
 
     draft = MetadataPayload(
         camera_make=camera_make.strip(),
@@ -310,6 +346,12 @@ def build_metadata_payload(
         capture_exposure=capture_exposure,
         capture_roll=config.capture_roll.strip(),
         capture_frame=config.capture_frame,
+        capture_date=capture_date,
+        gps_latitude=config.gps_latitude,
+        gps_longitude=config.gps_longitude,
+        location_city=config.location_city.strip(),
+        location_state=config.location_state.strip(),
+        location_country=config.location_country.strip(),
         scan_camera_make=scan.camera_make,
         scan_camera_model=scan.camera_model,
         scan_lens_make=scan.lens_make,
@@ -319,6 +361,9 @@ def build_metadata_payload(
         scan_iso=scan.iso,
         scan_exposure=scan.exposure,
         scan_method=config.scanning.strip(),
+        scan_datetime=scan.datetime_original,
+        scan_gps_latitude=scan.gps_latitude,
+        scan_gps_longitude=scan.gps_longitude,
         developer=config.developer.strip(),
         push_pull=push_pull,
     )
@@ -345,6 +390,12 @@ def build_metadata_payload(
         capture_exposure=draft.capture_exposure,
         capture_roll=draft.capture_roll,
         capture_frame=draft.capture_frame,
+        capture_date=draft.capture_date,
+        gps_latitude=draft.gps_latitude,
+        gps_longitude=draft.gps_longitude,
+        location_city=draft.location_city,
+        location_state=draft.location_state,
+        location_country=draft.location_country,
         scan_camera_make=draft.scan_camera_make,
         scan_camera_model=draft.scan_camera_model,
         scan_lens_make=draft.scan_lens_make,
@@ -354,6 +405,9 @@ def build_metadata_payload(
         scan_iso=draft.scan_iso,
         scan_exposure=draft.scan_exposure,
         scan_method=draft.scan_method,
+        scan_datetime=draft.scan_datetime,
+        scan_gps_latitude=draft.scan_gps_latitude,
+        scan_gps_longitude=draft.scan_gps_longitude,
         image_description=desc,
         developer=draft.developer,
         push_pull=draft.push_pull,

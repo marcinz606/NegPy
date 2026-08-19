@@ -2452,6 +2452,124 @@ class TestDisplayTransformParams(unittest.TestCase):
         # next to a proofed canvas.
         self.assertIsNotNone(task.proof)
 
+    def test_unproofed_working_space_buffer_keeps_the_conversion(self):
+        """The negative peek wants the working->display conversion without the paper
+        simulation. Reporting sRGB to get rid of the proof would lose both."""
+        self.controller.state.soft_proof_enabled = True
+        cs, monitor, proof = self.controller.display_transform_params(proofed=False)
+        self.assertEqual(cs, self.controller.state.workspace_color_space)
+        self.assertEqual(monitor, b"fake-monitor-profile")
+        self.assertIsNone(proof)
+
+
+class TestNegativePeekColor(unittest.TestCase):
+    """The peek paints camera-native pixels, so it owns the camera matrix itself.
+
+    Without it the buffer goes to the canvas as though it were already display RGB,
+    which drains the film base: a C-41 mask reads far weaker than the file's own.
+    """
+
+    def setUp(self):
+        self.mock_session_manager = MagicMock(spec=DesktopSessionManager)
+        self.mock_session_manager.state = AppState()
+        self.mock_session_manager.repo = MagicMock()
+        with (
+            patch("negpy.desktop.controller.RenderWorker") as mock_rw_class,
+            patch("negpy.desktop.controller.PreviewManager") as mock_pm_class,
+        ):
+            mock_rw_class.return_value = MagicMock()
+            mock_pm_class.return_value = MagicMock(spec=PreviewManager)
+            mock_pm_class.return_value.load_linear_preview.return_value = (None, (0, 0), {})
+            self.controller = AppController(self.mock_session_manager)
+
+    def tearDown(self):
+        import gc
+
+        for thread in [
+            self.controller.render_thread,
+            self.controller.export_thread,
+            self.controller.thumb_thread,
+            self.controller.norm_thread,
+            self.controller.discovery_thread,
+            self.controller.preview_load_thread,
+            self.controller.scan_thread,
+        ]:
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                thread.wait()
+        del self.controller
+        gc.collect()
+
+    # A real decoder matrix (Nikon D3300), so the test fails on a plausible transform
+    # rather than only on an artificial one.
+    D3300 = [
+        [0.6988000273704529, -0.13840000331401825, -0.0714000016450882],
+        [-0.5630999803543091, 1.340999960899353, 0.24469999969005585],
+        [-0.148499995470047, 0.22040000557899475, 0.7318000197410583],
+    ]
+
+    def _paint(self, cam_xyz, camera_wb=None):
+        import numpy as np
+
+        state = self.controller.state
+        # An orange-mask film base: red passes, blue is held back.
+        state.preview_raw = np.full((8, 8, 3), 0.1, dtype=np.float32) * np.array([1.0, 0.45, 0.2], dtype=np.float32)
+        state.original_res = (8, 8)
+        state.preview_cam_xyz = cam_xyz
+        state.preview_camera_wb = camera_wb
+        self.controller._paint_negative_peek()
+        return state.last_metrics
+
+    def test_the_peek_applies_the_camera_matrix(self):
+        import numpy as np
+
+        from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
+        from negpy.kernel.image.logic import working_oetf_encode
+
+        metrics = self._paint(self.D3300)
+        painted = metrics["base_positive"]
+
+        source = self.controller.state.preview_raw
+        expected = working_oetf_encode(apply_camera_matrix(source, camera_to_working_matrix(self.D3300, None)))
+        np.testing.assert_allclose(painted, expected, atol=1e-5)
+        # And it is not the un-matrixed buffer, which is what shipped the weak mask.
+        self.assertFalse(np.allclose(painted, working_oetf_encode(source), atol=1e-3))
+
+    def test_the_peek_is_color_managed_but_never_proofed(self):
+        metrics = self._paint(self.D3300)
+        self.assertFalse(metrics["splash"], "a camera-matrixed buffer is in the working space")
+        self.assertFalse(metrics["proof"], "the peek shows the scan, not a print")
+
+    def test_a_source_with_no_matrix_passes_through(self):
+        """Scanner TIFF and JPEG carry no camera matrix; they are already profiled."""
+        import numpy as np
+
+        from negpy.kernel.image.logic import working_oetf_encode
+
+        metrics = self._paint(None)
+        np.testing.assert_allclose(metrics["base_positive"], working_oetf_encode(self.controller.state.preview_raw), atol=1e-6)
+
+    def test_linear_raw_folds_the_multipliers_back_in(self):
+        """The decode's white balance must not change what the mask looks like, or
+        Linear RAW silently restyles the negative instead of leaving it alone."""
+        import numpy as np
+
+        wb = [1.891, 1.0, 1.578]
+        with_wb = np.array(self._paint(self.D3300, camera_wb=wb)["base_positive"])
+
+        state = self.controller.state
+        state.config = replace(state.config, process=replace(state.config.process, linear_raw=True))
+        # The Linear RAW decode skips the multipliers, so its buffer is the unbalanced one.
+        raw_unbalanced = np.full((8, 8, 3), 0.1, dtype=np.float32) * np.array([1.0, 0.45, 0.2], dtype=np.float32)
+        state.preview_raw = (raw_unbalanced / np.array(wb, dtype=np.float32)).astype(np.float32)
+        state.original_res = (8, 8)
+        state.preview_cam_xyz = self.D3300
+        state.preview_camera_wb = wb
+        self.controller._paint_negative_peek()
+        without_wb = np.array(state.last_metrics["base_positive"])
+
+        np.testing.assert_allclose(with_wb, without_wb, atol=1e-5)
+
 
 class TestCompareFlatPeekInteraction(unittest.TestCase):
     """Before/After and flat-peek are mutually exclusive overlays; a geometry op must
@@ -2544,9 +2662,12 @@ class TestCompareFlatPeekInteraction(unittest.TestCase):
         self.assertTrue(self.controller.state.negative_peek)
         self.assertTrue(painted)
         metrics = self.controller.state.last_metrics
+        # No camera matrix on this source, so the encode is all that separates it from the
+        # buffer the loader read. See TestNegativePeekColor for the camera-native path.
         np.testing.assert_allclose(metrics["base_positive"], working_oetf_encode(source))
-        # Camera primaries, so the working-to-display matrix and the proof stay out.
-        self.assertTrue(metrics["splash"])
+        # Working space, so the display conversion runs; the proof does not.
+        self.assertFalse(metrics["splash"])
+        self.assertFalse(metrics["proof"])
 
     def test_leaving_the_negative_peek_re_renders_the_edit(self):
         self.controller.state.negative_peek = True

@@ -295,6 +295,9 @@ class RenderWorker(QObject):
 
             # Ensure ground truth is stored in metrics for view consumption
             metrics["base_positive"] = result
+            # Buffer resolution this frame rendered at, so the canvas reports zoom against
+            # source pixels rather than against whichever proxy the pipeline was handed.
+            metrics["render_long_edge"] = int(max(task.buffer.shape[:2])) if isinstance(task.buffer, np.ndarray) else 0
             # Render identity, so the controller can reject stale/ephemeral bounds writeback.
             metrics["source_hash"] = task.source_hash
             metrics["ephemeral"] = task.ephemeral

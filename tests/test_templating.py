@@ -297,3 +297,14 @@ def test_percent_format_with_frame_set():
     meta = MetadataConfig(capture_roll="R1", capture_frame=12)
     conf = ExportConfig(filename_pattern='{{ roll }}_Frame{{ "%03d" % frame }}')
     assert render_export_filename("shot.tif", conf, metadata=meta) == "R1_Frame012"
+
+
+def test_capture_date_vars():
+    meta = MetadataConfig(capture_date="1998-07")
+    conf = ExportConfig(filename_pattern="{{ capture_year }}_{{ capture_date }}_{{ original_name }}")
+    assert render_export_filename("shot.tif", conf, metadata=meta) == "1998_19980701_shot"
+
+
+def test_capture_date_vars_empty_when_unset():
+    conf = ExportConfig(filename_pattern="{{ capture_year }}_{{ original_name }}")
+    assert render_export_filename("shot.tif", conf, metadata=MetadataConfig()) == "shot"

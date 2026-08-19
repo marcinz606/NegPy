@@ -854,7 +854,7 @@ def detect_film_bounds_with_confidence(img: ImageBuffer) -> AutocropDetection:
         candidates.extend(_candidates_from_mask(mask, image_shape, lum, ring_median, robust_span, source))
 
     consensus = _select_consensus_cluster(candidates, image_shape)
-    if consensus is None or not _film_surround_is_plausible(lum, consensus.roi):
+    if consensus is None or not _film_box_covers_enough(lum, consensus.roi) or not _film_surround_is_plausible(lum, consensus.roi):
         return _empty_autocrop_detection(vertical_edge_profile, vertical_edge_contrast)
 
     roi = _snap_film_bounds_to_bed_gradient(consensus.roi, lum)
@@ -874,6 +874,19 @@ def detect_film_bounds_with_confidence(img: ImageBuffer) -> AutocropDetection:
 def _detect_film_bounds(img: ImageBuffer) -> ROI | None:
     """Compatibility wrapper returning only the half-open outer-film ROI."""
     return detect_film_bounds_with_confidence(img).roi
+
+
+# How much of the frame a detected film box must cover to be read as film. Film fills most
+# of a scan under every holder we have samples for, and on a positive whose bed clips to
+# white a dark subject can otherwise satisfy every other check on its own geometry. The
+# smallest legitimate box in the corpus covers 62.5%, so this sits clear of real geometry.
+_MIN_FILM_BOX_COVERAGE = 0.25
+
+
+def _film_box_covers_enough(lum: np.ndarray, roi: ROI) -> bool:
+    h, w = lum.shape[:2]
+    y1, y2, x1, x2 = roi
+    return h > 0 and w > 0 and (y2 - y1) * (x2 - x1) >= _MIN_FILM_BOX_COVERAGE * h * w
 
 
 def _film_surround_is_plausible(lum: np.ndarray, roi: ROI) -> bool:
@@ -930,6 +943,11 @@ class _TierLevels(NamedTuple):
     rebate: float
     image: float
     ring_spread: float
+
+
+# Smallest fraction of a film-box side the tier refinement may keep. A rebate never takes
+# half a side, so anything below this is a broken occupancy run, not a frame.
+_TIER_MIN_KEEP = 0.5
 
 
 def _detection_luma(img: np.ndarray) -> np.ndarray:
@@ -1470,10 +1488,14 @@ def _refine_film_roi_by_tiers(lum: np.ndarray, film_roi: ROI) -> Optional[Tuple[
     hl, hr = hrun
 
     # Single-frame sanity. Multi-frame strip scans fail here and fall back to Sobel.
-    if (vb - vt) < 0.35 * bh or (hr - hl) < 0.35 * bw:
+    # The floor is half a side: no rebate eats more than that, so a shorter run means the
+    # occupancy broke on bright picture content inside a full-bleed frame and the "rebate"
+    # tier was really the picture reaching the film edge. That splits the frame into a
+    # sliver, and the sliver is what the caller would crop to.
+    if (vb - vt) < _TIER_MIN_KEEP * bh or (hr - hl) < _TIER_MIN_KEEP * bw:
         return None
     area_ratio = ((vb - vt) * (hr - hl)) / float(bh * bw)
-    if not (0.15 <= area_ratio <= 0.95):
+    if not (0.25 <= area_ratio <= 0.95):
         return None
 
     col_profile = box[vt:vb, :].mean(axis=0)
@@ -1583,8 +1605,13 @@ def _trim_opaque_border(
     pixels — a camera-scan negative holder masks frame edges with an opaque stripe
     (lum ~ 0), well below the darkest real negative content (even unexposed film
     base transmits orange light). An edge moves only while its border line is
-    dominated (>= `frac`) by sub-`black` pixels, capped at `max_trim` of the side
-    so it can never eat into the image. `lum` is detection luminance (bed ~ 1.0).
+    dominated (>= `frac`) by sub-`black` pixels, capped at `max_trim` of the side.
+
+    A run reaching that cap trims nothing. The stripe has a finite width, so a run
+    that never ends found no boundary and its depth is only where the search stopped.
+    A slide breaks the premise the other way: its shadows reach true black, so dark
+    picture running to the frame edge reads exactly like the mask and would be trimmed
+    as deep as the cap allows. `lum` is detection luminance (bed ~ 1.0).
     """
     y1, y2, x1, x2 = roi
     sub = lum[y1:y2, x1:x2]
@@ -1600,7 +1627,7 @@ def _trim_opaque_border(
         i = 0
         while i < limit and profile[i if from_start else n - 1 - i] >= frac:
             i += 1
-        return i
+        return 0 if i >= limit else i
 
     ly = int(round(max_trim * bh))
     lx = int(round(max_trim * bw))

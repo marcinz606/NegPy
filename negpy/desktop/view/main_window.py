@@ -579,12 +579,15 @@ class MainWindow(QMainWindow):
 
         # Shared with the filmstrip thumbnail, so the same frame cannot render two different
         # colors in the two places (see display_transform_params).
-        display_cs, monitor_bytes, proof = self.controller.display_transform_params(splash=bool(metrics.get("splash")))
+        display_cs, monitor_bytes, proof = self.controller.display_transform_params(
+            splash=bool(metrics.get("splash")), proofed=bool(metrics.get("proof", True))
+        )
         self.canvas.update_buffer(buffer, display_cs, content_rect=content_rect, monitor_icc_bytes=monitor_bytes, proof=proof)
 
     def _refresh_image_info(self) -> None:
         """Updates the canvas HUD corner pills."""
         if not self.state.current_file_path:
+            self.canvas.hud.set_zoom_note("")
             self.canvas.hud.update_info("", "", "", "", "", "")
             return
 
@@ -606,7 +609,7 @@ class MainWindow(QMainWindow):
         self.canvas.hud.update_info(filename, res_str, mode_str, edits_str, tool_label, file_pos)
 
     def _on_zoom_info_changed(self, zoom: float) -> None:
-        pass
+        self.canvas.hud.set_zoom_note(self.canvas.zoom_note())
 
     def _on_export_progress(self, current: int, total: int, filename: str) -> None:
         self.canvas.hud.set_progress(current, total)

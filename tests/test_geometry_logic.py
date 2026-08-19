@@ -10,6 +10,7 @@ from negpy.features.geometry.logic import (
     _refine_roi_to_image,
     _roi_from_measured_border,
     detect_closest_aspect_ratio,
+    detect_film_bounds_with_confidence,
     get_autocrop_coords,
     get_manual_crop_coords,
     get_manual_rect_coords,
@@ -132,13 +133,33 @@ def test_trim_opaque_border_keeps_dark_negative_content():
     assert _trim_opaque_border(lum, (0, 100, 0, 120)) == (0, 100, 0, 120)
 
 
-def test_trim_opaque_border_capped_for_all_black_roi():
+def test_trim_opaque_border_keeps_an_all_black_roi_whole():
+    # Every side runs to the cap without finding a boundary, so none of them is one.
     from negpy.features.geometry.logic import _trim_opaque_border
 
     lum = np.zeros((100, 100), dtype=np.float32)
-    y1, y2, x1, x2 = _trim_opaque_border(lum, (0, 100, 0, 100))
-    assert y1 <= 20 and (100 - y2) <= 20 and x1 <= 20 and (100 - x2) <= 20
-    assert y2 > y1 and x2 > x1
+
+    assert _trim_opaque_border(lum, (0, 100, 0, 100)) == (0, 100, 0, 100)
+
+
+def test_trim_opaque_border_keeps_a_slide_shadow_running_to_the_edge():
+    # A slide's shadows reach true black, so dark picture at the frame edge reads like
+    # the holder mask. It is told apart by running past the cap: a mask band ends.
+    from negpy.features.geometry.logic import _trim_opaque_border
+
+    lum = np.full((100, 200), 0.4, dtype=np.float32)
+    lum[:, :60] = 0.0
+
+    assert _trim_opaque_border(lum, (0, 100, 0, 200)) == (0, 100, 0, 200)
+
+
+def test_trim_opaque_border_still_trims_a_band_that_ends_inside_the_cap():
+    from negpy.features.geometry.logic import _trim_opaque_border
+
+    lum = np.full((100, 200), 0.4, dtype=np.float32)
+    lum[:, :30] = 0.0
+
+    assert _trim_opaque_border(lum, (0, 100, 0, 200)) == (0, 100, 30, 200)
 
 
 def test_get_autocrop_coords_fallback_preserves_valid_roi_for_flat_image():
@@ -944,6 +965,32 @@ def test_find_rebate_level_requires_opposite_pair():
     assert res is not None and abs(res[0] - 0.8) < 0.05
 
 
+def test_tier_refinement_rejects_split_occupancy_sliver():
+    from negpy.features.geometry.logic import _detection_luma, _refine_film_roi_by_tiers
+
+    # Full-bleed frame whose picture reaches the left and right film edges as a uniform
+    # bright band, so those two sides read as a rebate pair, and whose middle carries a
+    # wide bright region. Column occupancy then breaks in two and the longest run keeps
+    # 255 of the box's 520 px — under the half-a-side floor, so the tiers must be refused
+    # and the Sobel path left to decide. Mirrored too: the run that wins is the one the
+    # flip puts first, so a frame flipped horizontally fails on the opposite side.
+    film_roi = (80, 400, 100, 620)
+    img = np.full((480, 720, 3), 1.0, dtype=np.float32)  # light bed
+    img[80:400, 100:620] = 0.30  # picture
+    img[80:400, 100:130] = 0.90  # bright left edge, read as rebate
+    img[80:400, 590:620] = 0.90  # bright right edge, read as rebate
+    img[80:400, 385:545] = 0.90  # bright content splitting the picture
+
+    for oriented in (img, np.ascontiguousarray(np.fliplr(img))):
+        assert _refine_film_roi_by_tiers(_detection_luma(oriented), film_roi) is None
+
+    # Control: the same rebate pair without the split still refines to the picture.
+    intact = img.copy()
+    intact[80:400, 385:545] = 0.30
+    refined = _refine_film_roi_by_tiers(_detection_luma(intact), film_roi)
+    assert refined is not None and refined[0][3] - refined[0][2] >= 0.80 * 520
+
+
 def test_autocrop_image_mode_single_bright_side_not_rebate():
     # High-key full-bleed frame with a uniform bright strip on ONE side only (a
     # sunlit window edge) plus a dark subject. The bright strip must NOT be taken
@@ -1514,6 +1561,28 @@ def test_film_surround_must_be_near_clipping_to_read_as_bed():
 
     lum[:, :] = np.where(lum > 0.5, 1.0, lum)  # the same box, now sitting on real bed
     assert _film_surround_is_plausible(lum, (120, 300, 200, 420))
+
+
+def test_a_film_box_must_cover_a_quarter_of_the_frame():
+    from negpy.features.geometry.logic import _film_box_covers_enough
+
+    # A positive whose bed clips to white leaves a dark subject satisfying every other
+    # check on its own geometry. Film fills most of a scan, so a box this small is not it.
+    lum = np.zeros((400, 600), dtype=np.float32)
+
+    assert not _film_box_covers_enough(lum, (120, 300, 250, 350))
+    assert _film_box_covers_enough(lum, (20, 380, 30, 570))
+
+
+def test_a_small_high_scoring_box_is_rejected_by_the_detector():
+    # A dark bar on a clipped surround: plausible bed, plausible geometry, far too small.
+    lum = np.full((400, 600), 1.0, dtype=np.float32)
+    lum[140:280, 270:340] = 0.1
+    image = np.repeat(lum[:, :, None], 3, axis=2)
+
+    detection = detect_film_bounds_with_confidence(image)
+
+    assert detection.roi is None
 
 
 def test_rebate_trim_scales_the_inset_between_film_edge_and_image_edge():

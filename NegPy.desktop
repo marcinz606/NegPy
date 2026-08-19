@@ -1,7 +1,8 @@
 [Desktop Entry]
 Name=NegPy
 Exec=NegPy
-Icon=icon
+Icon=negpy
+StartupWMClass=NegPy
 Type=Application
 Categories=Graphics;Photography;
 Comment=Film Negative Editor

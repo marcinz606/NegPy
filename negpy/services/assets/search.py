@@ -14,7 +14,10 @@ from typing import Any, Optional
 
 FLAG_FIELDS = frozenset({"keeper", "rejected", "edited"})
 NUMERIC_FIELDS = frozenset({"iso", "frame", "push"})
-TEXT_FIELDS = frozenset({"name", "path", "ext", "film", "camera", "lens", "developer", "format", "scanning", "roll", "date"})
+# shot is truncated ISO-8601, so the prefix comparison below orders it without parsing a date.
+TEXT_FIELDS = frozenset(
+    {"name", "path", "ext", "film", "camera", "lens", "developer", "format", "scanning", "roll", "date", "shot", "place"}
+)
 FIELDS = FLAG_FIELDS | NUMERIC_FIELDS | TEXT_FIELDS
 
 _OPS = (">=", "<=", ">", "<")
@@ -135,6 +138,8 @@ def facts_for(asset: dict, config: Any = None) -> dict[str, Any]:
             "frame": meta.capture_frame,
             "iso": meta.film_iso,
             "push": meta.push_pull,
+            "shot": meta.capture_date.casefold(),
+            "place": " ".join(p for p in (meta.location_city, meta.location_state, meta.location_country) if p).casefold(),
         }
     )
     return facts

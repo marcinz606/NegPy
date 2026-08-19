@@ -36,6 +36,8 @@ NegPy uses **Jinja2** for dynamic file naming in both the **Export** and **Scan*
 | `{{ push_pull }}` | Push/pull as an integer (−3…+3, 0 = Normal). | `1` |
 | `{{ scanning }}` | Scanning method note. | `DSLR copy-stand` |
 | `{{ exposure }}` | Exposure override text from Metadata. | `1/125s f/2.8` |
+| `{{ capture_date }}` | Original capture date in YYYYMMDD. A partial date pads to the first day. Empty if unset. | `19980714` |
+| `{{ capture_year }}` | Original capture year. Empty if unset. | `1998` |
 
 Gear and process values come from the **Metadata** panel, or from each file's saved metadata in a batch. An empty field renders as an empty string, so the separators around it collapse. NegPy strips path-unsafe characters from metadata values.
 

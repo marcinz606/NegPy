@@ -1,5 +1,6 @@
 import qtawesome as qta
 from dataclasses import asdict, replace
+from typing import Optional
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -19,7 +20,15 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.description_fields_dialog import DescriptionFieldsDialog
 from negpy.desktop.view.widgets.gear_library_dialog import GearLibraryDialog
+from negpy.desktop.view.widgets.location_picker_dialog import LocationPickerDialog
 from negpy.desktop.view.widgets.searchable_gear_combo import SearchableGearCombo
+from negpy.features.metadata.capture import (
+    CAPTURE_DATE_HINT,
+    parse_capture_date,
+    parse_coords,
+    place_summary,
+)
+from negpy.features.metadata.exif_read import extract_scan_from_exif
 from negpy.features.metadata.gear_logic import metadata_from_gear
 from negpy.features.metadata.gear_models import GearLibrary
 from negpy.features.metadata.models import DEFAULT_DESCRIPTION_FIELDS
@@ -62,6 +71,13 @@ class MetadataSidebar(BaseSidebar):
         )
         self.layout.addWidget(self.protect_check)
 
+        self.sync_check = QCheckBox("Sync custom metadata to all files in batch export")
+        self.sync_check.setChecked(conf.sync_to_batch)
+        self.sync_check.setToolTip(
+            "Batch and preset exports write this frame's capture, gear and process values to every file, instead of each file's own."
+        )
+        self.layout.addWidget(self.sync_check)
+
         self._metadata_controls = QWidget()
         controls = QVBoxLayout(self._metadata_controls)
         controls.setContentsMargins(0, 0, 0, 0)
@@ -102,6 +118,32 @@ class MetadataSidebar(BaseSidebar):
         self.manage_btn.setToolTip("Edit cameras, lenses, film stocks, and gear presets")
         gear.addWidget(self.manage_btn)
         controls.addWidget(self._card("Analog Gear", "gear", gear_body, "fa5s.camera-retro"))
+
+        # ── CAPTURE ──────────────────────────────────────────────────────
+        cap_body, cap = self._card_body()
+        cap.addWidget(field_label("Date"))
+        self.capture_date_edit = QLineEdit()
+        self.capture_date_edit.setPlaceholderText(CAPTURE_DATE_HINT)
+        self.capture_date_edit.setText(conf.capture_date)
+        self.capture_date_edit.setToolTip(
+            "When the frame was shot. Give only what you know: a year, a year and month, "
+            "a date, or a date and time. An offset like +02:00 may follow a time."
+        )
+        cap.addWidget(self.capture_date_edit)
+
+        cap.addWidget(field_label("Place"))
+        place_row = QHBoxLayout()
+        place_row.setSpacing(THEME.space_sm)
+        self.place_edit = QLineEdit()
+        self.place_edit.setPlaceholderText("Pick on a map, or paste coordinates")
+        self.place_edit.setToolTip("Capture place. Paste a coordinate pair or a map link here, or use Map… to pick one.")
+        place_row.addWidget(self.place_edit, 1)
+        self.place_map_btn = self._icon_action("fa5s.map-marked-alt", "Pick the capture place on a map (contacts OpenStreetMap)")
+        place_row.addWidget(self.place_map_btn)
+        self.place_clear_btn = self._icon_action("fa5s.times", "Clear the capture place")
+        place_row.addWidget(self.place_clear_btn)
+        cap.addLayout(place_row)
+        controls.addWidget(self._card("Capture", "capture", cap_body, "fa5s.clock"))
 
         # ── PROCESS ──────────────────────────────────────────────────────
         proc_body, proc = self._card_body()
@@ -163,9 +205,6 @@ class MetadataSidebar(BaseSidebar):
         roll_row.addLayout(frame_col, 1)
         scan.addLayout(roll_row)
 
-        self.sync_check = QCheckBox("Sync custom metadata to all files in batch export")
-        self.sync_check.setChecked(conf.sync_to_batch)
-        scan.addWidget(self.sync_check)
         controls.addWidget(self._card("Scanning", "scanning", scan_body, "mdi6.scanner"))
 
         # ── EXPOSURE ─────────────────────────────────────────────────────
@@ -250,6 +289,7 @@ class MetadataSidebar(BaseSidebar):
     def _set_metadata_controls_enabled(self, enabled: bool) -> None:
         self._metadata_controls.setEnabled(enabled)
         self.description_fields_btn.setEnabled(enabled)
+        self.sync_check.setEnabled(enabled)
 
     def _apply_lock_style(self, edit: QLineEdit, locked: bool) -> None:
         if locked:
@@ -284,6 +324,11 @@ class MetadataSidebar(BaseSidebar):
         self.lens_combo.selection_changed.connect(self._on_gear_changed)
         self.film_stock_combo.selection_changed.connect(self._on_gear_changed)
         self.manage_btn.clicked.connect(self._open_gear_library)
+
+        self.capture_date_edit.textChanged.connect(self._on_capture_date_changed)
+        self.place_edit.editingFinished.connect(self._on_place_edited)
+        self.place_map_btn.clicked.connect(self._open_location_picker)
+        self.place_clear_btn.clicked.connect(self._on_place_clear)
 
         self.format_combo.currentTextChanged.connect(self._on_format_changed)
         self.format_other_edit.textChanged.connect(self._mark_dirty)
@@ -456,6 +501,85 @@ class MetadataSidebar(BaseSidebar):
     def _schedule_preview(self) -> None:
         self.preview_timer.start()
 
+    def _on_capture_date_changed(self, text: str) -> None:
+        valid = not text.strip() or parse_capture_date(text) is not None
+        self.capture_date_edit.setStyleSheet("" if valid else f"border: 1px solid {THEME.accent_secondary};")
+        self._mark_dirty()
+
+    def _source_exif(self) -> Optional[dict]:
+        current_hash = self.state.current_file_hash
+        if current_hash and current_hash in self.state.source_exif:
+            return self.state.source_exif[current_hash]
+        return None
+
+    def _place_text(self) -> str:
+        conf = self.state.config.metadata
+        return place_summary(
+            conf.location_city,
+            conf.location_state,
+            conf.location_country,
+            conf.gps_latitude,
+            conf.gps_longitude,
+        )
+
+    def _apply_location(self, lat, lon, city: str, state: str, country: str) -> None:
+        self.update_config_section(
+            "metadata",
+            persist=True,
+            render=False,
+            readback_metrics=False,
+            gps_latitude=lat,
+            gps_longitude=lon,
+            location_city=city,
+            location_state=state,
+            location_country=country,
+        )
+        self._set_place_text_quiet()
+        self._schedule_preview()
+
+    def _set_place_text_quiet(self) -> None:
+        self.place_edit.blockSignals(True)
+        try:
+            self.place_edit.setText(self._place_text())
+        finally:
+            self.place_edit.blockSignals(False)
+
+    def _on_place_edited(self) -> None:
+        """Typed text is only ever coordinates; place names come from the picker."""
+        text = self.place_edit.text().strip()
+        if not text:
+            self._on_place_clear()
+            return
+        coords = parse_coords(text)
+        if coords is None:
+            self._set_place_text_quiet()
+            return
+        conf = self.state.config.metadata
+        self._apply_location(coords[0], coords[1], conf.location_city, conf.location_state, conf.location_country)
+
+    def _on_place_clear(self) -> None:
+        self._apply_location(None, None, "", "", "")
+
+    def _open_location_picker(self) -> None:
+        conf = self.state.config.metadata
+        center = None
+        if conf.gps_latitude is None or conf.gps_longitude is None:
+            scan = extract_scan_from_exif(self._source_exif())
+            if scan.gps_latitude is not None and scan.gps_longitude is not None:
+                center = (scan.gps_latitude, scan.gps_longitude)
+        dlg = LocationPickerDialog(
+            conf.gps_latitude,
+            conf.gps_longitude,
+            conf.location_city,
+            conf.location_state,
+            conf.location_country,
+            center=center,
+            parent=self,
+        )
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            return
+        self._apply_location(*dlg.location())
+
     def _on_format_changed(self, text: str) -> None:
         self.format_other_edit.setVisible(text == "Other")
         self._mark_dirty()
@@ -480,11 +604,16 @@ class MetadataSidebar(BaseSidebar):
             except ValueError:
                 capture_frame = self.state.config.metadata.capture_frame
 
+        date_text = self.capture_date_edit.text().strip()
+        parsed_date = parse_capture_date(date_text)
+        capture_date = parsed_date.xmp_text() if parsed_date else ("" if not date_text else self.state.config.metadata.capture_date)
+
         self.update_config_section(
             "metadata",
             persist=True,
             render=False,
             readback_metrics=False,
+            capture_date=capture_date,
             gear_preset_id=self.preset_combo.selected_id(),
             camera_id=self.camera_combo.selected_id(),
             lens_id=self.lens_combo.selected_id(),
@@ -518,6 +647,9 @@ class MetadataSidebar(BaseSidebar):
                 self.format_combo.setCurrentText("Other")
                 self.format_other_edit.setText(conf.format_other)
             self.format_other_edit.setVisible(self.format_combo.currentText() == "Other")
+            self.capture_date_edit.setText(conf.capture_date)
+            self.capture_date_edit.setStyleSheet("")
+            self.place_edit.setText(self._place_text())
             self.developer_edit.setText(conf.developer)
             idx = PUSH_PULL_VALUES.index(conf.push_pull) if conf.push_pull in PUSH_PULL_VALUES else 3
             self.push_pull_combo.setCurrentIndex(idx)
@@ -579,8 +711,11 @@ class MetadataSidebar(BaseSidebar):
         else:
             exposure_override = conf.exposure_override
 
+        parsed_date = parse_capture_date(self.capture_date_edit.text())
+
         return replace(
             conf,
+            capture_date=parsed_date.xmp_text() if parsed_date else "",
             gear_preset_id=self.preset_combo.selected_id(),
             camera_id=self.camera_combo.selected_id(),
             lens_id=self.lens_combo.selected_id(),
@@ -608,12 +743,7 @@ class MetadataSidebar(BaseSidebar):
             self.preview_section.setEnabled(True)
             return
 
-        source_exif = None
-        current_hash = self.state.current_file_hash
-        if current_hash and current_hash in self.state.source_exif:
-            source_exif = self.state.source_exif[current_hash]
-
-        payload = build_metadata_payload(self._preview_metadata_config(), self._gear_library, source_exif)
+        payload = build_metadata_payload(self._preview_metadata_config(), self._gear_library, self._source_exif())
         sections = payload.to_preview_sections()
 
         self.preview_empty.setText("Select gear or enter process metadata to see a preview.")

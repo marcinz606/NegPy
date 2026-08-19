@@ -279,17 +279,35 @@ class ImageCanvas(QWidget):
             vh = max(1.0, vh - self._toolbar_reserved_height() * dpr)
         return min(vw / max(1, img_w), vh / max(1, img_h))
 
+    def _source_scale(self) -> float:
+        """Rendered-buffer pixels per source pixel. Below 1 when the frame rendered
+        against a downscaled preview, so zoom stays quoted in scan pixels whatever
+        resolution the pipeline was handed."""
+        long_edge = float(self.state.last_metrics.get("render_long_edge") or 0.0)
+        source_edge = float(max(self.state.original_res or (0, 0)))
+        if long_edge <= 0.0 or source_edge <= 0.0:
+            return 1.0
+        return long_edge / source_edge
+
     def current_zoom_percent(self) -> int:
-        """True pixel zoom percentage (100 = 1 image pixel : 1 device pixel)."""
+        """True pixel zoom percentage (100 = 1 source pixel : 1 device pixel)."""
         fs = self._fit_scale() or 1.0
-        return int(round(self.zoom_level * fs * 100.0))
+        return int(round(self.zoom_level * fs * self._source_scale() * 100.0))
+
+    def zoom_note(self) -> str:
+        """HUD qualifier for a view the preview cannot supply pixels for: inspecting at
+        100% or closer while the frame rendered against a downscaled buffer. Empty on HQ,
+        where a settled frame carries every scan pixel and only a transient proxy does not."""
+        if self.state.hq_preview or self._source_scale() >= 1.0:
+            return ""
+        return "preview res · HQ off" if self.current_zoom_percent() >= 100 else ""
 
     def fit_to_window(self) -> None:
         """Fit the image to the viewport (zoom_level 1.0 is the shader's fit); reset pan."""
         self.set_zoom(1.0)
 
     def zoom_to_percent(self, percent: float) -> None:
-        """Set the true pixel zoom to ``percent`` (100 = 1 image pixel : 1 device pixel)."""
+        """Set the true pixel zoom to ``percent`` (100 = 1 source pixel : 1 device pixel)."""
         fs = self._fit_scale()
         if not fs:
             self.set_zoom(1.0)
@@ -297,13 +315,14 @@ class ImageCanvas(QWidget):
         zmin = APP_CONFIG.canvas_zoom_min
         # Allow above the normal wheel max, so a true 100% stays reachable for images much larger
         # than the viewport, where 1 / fit_scale exceeds canvas_zoom_max.
-        self.zoom_level = max(zmin, (percent / 100.0) / fs)
+        self.zoom_level = max(zmin, (percent / 100.0) / (fs * self._source_scale()))
         if self.zoom_level <= 1.0:
             self.pan_offset = QPointF(0, 0)
         self._sync_transform()
 
     def zoom_to_original(self) -> None:
-        """Zoom to true 1:1 pixels (100%)."""
+        """Zoom to one source pixel per device pixel (100%). Below HQ the preview is
+        upscaled to get there, so the framing is right and the detail is not."""
         self.zoom_to_percent(100.0)
 
     def set_monitor_profile(self, monitor_icc_bytes: Optional[bytes]) -> None:
