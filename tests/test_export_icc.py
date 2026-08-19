@@ -115,3 +115,28 @@ def test_contact_sheet_srgb_bytes_available():
     icc = _srgb_icc_bytes()
     assert icc
     assert "sRGB" in _profile_desc(icc)
+
+
+def _tiff_icc(bits):
+    with tifffile.TiffFile(io.BytesIO(bits)) as tf:
+        tag = tf.pages[0].tags.get("InterColorProfile")
+    return bytes(tag.value) if tag else None
+
+
+@pytest.mark.parametrize("cs", [c for c in EXPORT_COLOR_SPACES if c != ColorSpace.GREYSCALE.value])
+def test_rgb_tiff_is_tagged_like_the_png(proc, cs):
+    """An RGB TIFF must carry the same profile the PNG of that edit carries.
+
+    Reported in #598: a P3 D65 TIFF arrived with no profile while the PNG of the
+    same export had one, so the file read as sRGB downstream. Only greyscale TIFF
+    was covered here, and greyscale takes a different branch in `_encode_export`,
+    so nothing pinned the RGB path.
+    """
+    buf = np.full((8, 8, 3), 0.42, dtype=np.float32)
+
+    tif_icc = _tiff_icc(_encode(proc, ExportFormat.TIFF, cs, buf.copy())[0])
+    png_icc = _pil_icc(_encode(proc, ExportFormat.PNG, cs, buf.copy())[0])
+
+    assert tif_icc, f"RGB TIFF for {cs} shipped untagged"
+    assert png_icc, f"RGB PNG for {cs} shipped untagged"
+    assert _profile_desc(tif_icc) == _profile_desc(png_icc)
