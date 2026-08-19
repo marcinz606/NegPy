@@ -25,6 +25,28 @@ def test_histogram_marker_set_clear_and_paint() -> None:
     widget.grab()
 
 
+def test_channel_density_toggle_selects_the_row_count() -> None:
+    from negpy.features.exposure.analysis import DENSITY_HIST_BINS
+
+    widget = PhotometricCurveWidget()
+    widget.resize(200, 120)
+    widget.update_curve(ExposureConfig())
+    bins = np.zeros((4, DENSITY_HIST_BINS))
+    bins[0, 10] = 5.0  # R only, so a merged luma-only view and a per-channel one differ
+    bins[3, 60] = 3.0
+    widget.set_density_histogram(bins)
+
+    assert widget._channel_density is False
+    widget.grab()  # luma-only trace; R must not raise or get drawn
+
+    widget.set_channel_density(True)
+    assert widget._channel_density is True
+    widget.grab()  # R/G/B/L traces
+
+    widget.set_channel_density(False)
+    assert widget._channel_density is False
+
+
 def test_curve_ghost_frozen_across_updates_and_cleared() -> None:
     widget = PhotometricCurveWidget()
     widget.resize(200, 120)

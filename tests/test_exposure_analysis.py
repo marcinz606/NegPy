@@ -20,28 +20,40 @@ class TestDensityHistogram(unittest.TestCase):
     def test_bin_placement(self):
         # Bin-center value: exact bin edges are float32-fragile by construction.
         hist = density_histogram(_gray([0.505]))
-        self.assertEqual(hist.sum(), 1)
-        self.assertEqual(int(np.argmax(hist)), _bin_of(0.505))
+        self.assertEqual(hist.shape, (4, DENSITY_HIST_BINS))
+        self.assertEqual(hist[0].sum(), 1)  # gray input: every row agrees
+        self.assertEqual(int(np.argmax(hist[0])), _bin_of(0.505))
 
     def test_out_of_range_mass_lands_in_edge_bins(self):
         hist = density_histogram(_gray([-0.5, -0.2, 2.0]))
-        self.assertEqual(hist[0], 2)
-        self.assertEqual(hist[-1], 1)
-        self.assertEqual(hist.sum(), 3)
+        self.assertEqual(hist[0, 0], 2)
+        self.assertEqual(hist[0, -1], 1)
+        self.assertEqual(hist[0].sum(), 3)
 
     def test_roi_slicing(self):
         img = np.zeros((4, 4, 3), dtype=np.float32)
         img[1:3, 1:3] = 0.905
         hist = density_histogram(img, roi=(1, 3, 1, 3))
-        self.assertEqual(hist.sum(), 4)
-        self.assertEqual(hist[_bin_of(0.905)], 4)
-        self.assertEqual(hist[_bin_of(0.005)], 0)
+        self.assertEqual(hist[0].sum(), 4)
+        self.assertEqual(hist[0, _bin_of(0.905)], 4)
+        self.assertEqual(hist[0, _bin_of(0.005)], 0)
 
     def test_luma_weighting(self):
         img = np.zeros((1, 1, 3), dtype=np.float32)
         img[..., 1] = 1.0
         hist = density_histogram(img)
-        self.assertEqual(int(np.argmax(hist)), _bin_of(0.7152))
+        self.assertEqual(int(np.argmax(hist[3])), _bin_of(0.7152))
+
+    def test_channels_bin_independently(self):
+        # A red-dominant pixel: the R row sits on its own density, G/B stay off at theirs.
+        img = np.full((1, 1, 3), 0.005, dtype=np.float32)
+        img[..., 0] = 0.905
+        hist = density_histogram(img)
+        self.assertEqual(int(np.argmax(hist[0])), _bin_of(0.905))
+        self.assertEqual(int(np.argmax(hist[1])), _bin_of(0.005))
+        self.assertEqual(int(np.argmax(hist[2])), _bin_of(0.005))
+        luma = 0.2126 * 0.905 + (0.7152 + 0.0722) * 0.005
+        self.assertEqual(int(np.argmax(hist[3])), _bin_of(luma))
 
 
 class TestOutputHistogram(unittest.TestCase):
@@ -140,13 +152,14 @@ class TestDensityHistogramGpuParity(unittest.TestCase):
 
         hc = np.asarray(m_cpu["histogram_density"], dtype=np.float64)
         hg = np.asarray(m_gpu["histogram_density"], dtype=np.float64)
-        self.assertEqual(hc.shape, (DENSITY_HIST_BINS,))
-        self.assertEqual(hg.shape, (DENSITY_HIST_BINS,))
-        self.assertGreater(hc.sum(), 0)
-        self.assertGreater(hg.sum(), 0)
-        # Distribution-level agreement: engines sample/round differently.
-        l1 = float(np.abs(hc / hc.sum() - hg / hg.sum()).sum())
-        self.assertLess(l1, 0.05, f"normalized L1 distance {l1:.4f}")
+        self.assertEqual(hc.shape, (4, DENSITY_HIST_BINS))
+        self.assertEqual(hg.shape, (4, DENSITY_HIST_BINS))
+        for row in range(4):
+            self.assertGreater(hc[row].sum(), 0)
+            self.assertGreater(hg[row].sum(), 0)
+            # Distribution-level agreement: engines sample/round differently.
+            l1 = float(np.abs(hc[row] / hc[row].sum() - hg[row] / hg[row].sum()).sum())
+            self.assertLess(l1, 0.05, f"row {row} normalized L1 distance {l1:.4f}")
 
 
 if __name__ == "__main__":

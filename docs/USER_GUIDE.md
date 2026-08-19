@@ -250,7 +250,7 @@ Two different histograms share the chart. Behind the curve, rising from the bott
 
 Read them against each other. The density histogram tells you which part of the horizontal axis your negative occupies, and the curve tells you what happens to it. If the negative's data sits entirely on the flat toe, no amount of contrast pulls those shadows apart. Move the exposure so the data lands on the steep middle instead.
 
-Peek Negative shows the scan before any curve ran, so the chart drops the curve, the output histogram and the zone strip and leaves only the density histogram.
+Peek Negative shows the scan before any curve ran, so the chart drops the curve, the output histogram and the zone strip, and the density histogram itself splits into R, G, B and luminance, since there is no print histogram left to carry color information. Each channel is scaled to its own peak, so a spike pinned to the left or right edge is that channel clipping, and a trace sitting well apart from the others is a strong color cast.
 
 #### LIN / LOG toggle
 

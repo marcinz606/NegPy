@@ -321,8 +321,8 @@ def loupe_acutance(patch: Any) -> float:
 
 
 def density_histogram(normalized_log: np.ndarray, roi: Optional[Tuple[int, int, int, int]] = None) -> np.ndarray:
-    """Luma occupancy of the val domain; out-of-range mass lands in the edge bins.
-    `roi` is the crop rect (y1, y2, x1, x2) in the same frame as `normalized_log`."""
+    """(4, DENSITY_HIST_BINS) [R, G, B, L] val-domain occupancy; out-of-range mass lands in
+    the edge bins. `roi` is the crop rect (y1, y2, x1, x2) in the same frame as `normalized_log`."""
     img = normalized_log
     if roi is not None:
         y1, y2, x1, x2 = roi
@@ -330,7 +330,9 @@ def density_histogram(normalized_log: np.ndarray, roi: Optional[Tuple[int, int, 
     step = max(1, round(np.sqrt(img.shape[0] * img.shape[1] / _MAX_HIST_SAMPLES)))
     if step > 1:
         img = img[::step, ::step]
-    val = get_luminance(np.ascontiguousarray(img))
+    img = np.ascontiguousarray(img)
+    lum = get_luminance(img)
     lo, hi = DENSITY_HIST_RANGE
-    hist, _ = np.histogram(np.clip(val, lo, hi), bins=DENSITY_HIST_BINS, range=DENSITY_HIST_RANGE)
-    return hist.astype(np.float64)
+    rows = [np.histogram(np.clip(img[..., c], lo, hi), bins=DENSITY_HIST_BINS, range=DENSITY_HIST_RANGE)[0] for c in range(3)]
+    rows.append(np.histogram(np.clip(lum, lo, hi), bins=DENSITY_HIST_BINS, range=DENSITY_HIST_RANGE)[0])
+    return np.stack(rows).astype(np.float64)

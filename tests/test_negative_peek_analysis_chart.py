@@ -46,11 +46,18 @@ def test_a_normal_render_still_shows_the_print(monkeypatch) -> None:
 def test_show_print_false_leaves_the_density_histogram_paintable() -> None:
     """set_show_print only gates the print-derived traces; the widget must not blank
     entirely just because there is no curve to draw."""
+    import numpy as np
+
+    from negpy.features.exposure.analysis import DENSITY_HIST_BINS
+
     widget = PhotometricCurveWidget()
     widget.resize(200, 120)
     widget._curve_pts = [(0.0, 0.0), (1.0, 1.0)]
-    widget.set_density_histogram([1.0, 2.0, 3.0])
+    bins = np.zeros((4, DENSITY_HIST_BINS))
+    bins[:, 10] = 1.0
+    widget.set_density_histogram(bins)
     widget.set_show_print(False)
+    widget.set_channel_density(True)
 
     assert widget._show_print is False
     # paintEvent must not raise with print traces suppressed but density data present.

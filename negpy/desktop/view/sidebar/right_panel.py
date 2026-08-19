@@ -349,14 +349,17 @@ class RightPanel(QWidget):
 
         # Peek Negative applied no curve, so the print histogram, curve and zone strip
         # would describe a print that was never made. Density is unaffected: it reads
-        # the scan itself, before the curve.
+        # the scan itself, before the curve, and splits into channels since there is no
+        # print histogram here to carry color information.
         if self.controller.state.negative_peek:
             self.curve_widget.set_output_histogram(None)
             self.curve_widget.set_show_print(False)
+            self.curve_widget.set_channel_density(True)
             self._clip_fracs = (None, None)
             self.zone_strip.setVisible(False)
             return
         self.curve_widget.set_show_print(True)
+        self.curve_widget.set_channel_density(False)
 
         source = metrics.get("histogram_raw")
         if source is None:

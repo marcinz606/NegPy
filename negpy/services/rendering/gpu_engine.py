@@ -80,12 +80,13 @@ TILE_SIZE = 2048
 TILE_HALO = 32
 TILING_THRESHOLD_PX = 12_000_000
 HISTOGRAM_BINS = 256
-# Metrics buffer layout in u32 words: RGBL histogram (metrics.wgsl), then the density
-# histogram (density_hist.wgsl). 256 B-aligned offsets, mirrored as WGSL array lengths.
-# Append-only.
+# Metrics buffer layout in u32 words: RGBL output histogram (metrics.wgsl), then the RGBL
+# density histogram (density_hist.wgsl). 256 B-aligned offsets, mirrored as WGSL array
+# lengths. Append-only.
 _METRICS_HIST_WORDS = HISTOGRAM_BINS * 4
 _METRICS_DENSITY_BASE = 1024
-METRICS_BUFFER_SIZE = 1152 * 4
+_METRICS_DENSITY_WORDS = DENSITY_HIST_BINS * 4  # R, G, B, Luma
+METRICS_BUFFER_SIZE = (_METRICS_DENSITY_BASE + _METRICS_DENSITY_WORDS) * 4
 
 # Per-frame metrics clear; write_buffer copies at call time, so sharing is safe.
 _METRICS_ZEROS = np.zeros(METRICS_BUFFER_SIZE // 4, dtype=np.uint32)
@@ -1105,7 +1106,7 @@ class GPUEngine:
                         {
                             "buffer": self._buffers["metrics"].buffer,
                             "offset": _METRICS_DENSITY_BASE * 4,
-                            "size": DENSITY_HIST_BINS * 4,
+                            "size": _METRICS_DENSITY_WORDS * 4,
                         },
                     ),
                     (2, self._get_uniform_binding("density_hist")),
@@ -1153,7 +1154,11 @@ class GPUEngine:
         if not tiling_mode and readback_metrics:
             raw_metrics = self._readback_metrics()
             metrics["histogram_raw"] = raw_metrics[:_METRICS_HIST_WORDS].reshape((4, HISTOGRAM_BINS))
-            metrics["histogram_density"] = raw_metrics[_METRICS_DENSITY_BASE : _METRICS_DENSITY_BASE + DENSITY_HIST_BINS].astype(np.float64)
+            metrics["histogram_density"] = (
+                raw_metrics[_METRICS_DENSITY_BASE : _METRICS_DENSITY_BASE + _METRICS_DENSITY_WORDS]
+                .reshape((4, DENSITY_HIST_BINS))
+                .astype(np.float64)
+            )
             try:
                 uv_key = (
                     h,

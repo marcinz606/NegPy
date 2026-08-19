@@ -47,6 +47,9 @@ class PhotometricCurveWidget(QWidget):
         # plt_x = 1 - val_center(i).
         self._density_bins: np.ndarray | None = None
         self._output_counts: np.ndarray | None = None  # (4, 256) [R, G, B, L]
+        # Per-channel density traces only while Peek Negative is up: the print's own output
+        # histogram already carries color information the rest of the time.
+        self._channel_density: bool = False
         # False during Peek Negative: no curve was applied, so the curve, print histogram
         # and zone traces would describe a print that was never made.
         self._show_print: bool = True
@@ -81,6 +84,15 @@ class PhotometricCurveWidget(QWidget):
         if enabled == self._log_scale:
             return
         self._log_scale = enabled
+        self.update()
+
+    def set_channel_density(self, enabled: bool) -> None:
+        """Draw the density histogram as separate R/G/B/L traces instead of one merged
+        luma trace; True only while Peek Negative is up."""
+        enabled = bool(enabled)
+        if enabled == self._channel_density:
+            return
+        self._channel_density = enabled
         self.update()
 
     def set_show_print(self, visible: bool) -> None:
@@ -130,10 +142,11 @@ class PhotometricCurveWidget(QWidget):
         self.update()
 
     def set_density_histogram(self, bins: Any) -> None:
-        """Negative-density occupancy along the curve's exposure axis; None clears."""
+        """(4, DENSITY_HIST_BINS) [R, G, B, L] negative-density occupancy along the curve's
+        exposure axis; None clears."""
         if bins is not None:
             bins = np.asarray(bins, dtype=float)
-            if bins.size < 2 or float(bins.max()) <= 0.0:
+            if bins.ndim != 2 or bins.shape[0] != 4 or bins.shape[1] < 2 or float(bins.max()) <= 0.0:
                 bins = None
         if bins is None and self._density_bins is None:
             return
@@ -621,32 +634,59 @@ class PhotometricCurveWidget(QWidget):
         super().mouseMoveEvent(event)
 
     def _draw_density_histogram(self, painter: QPainter, w: int, h: int) -> None:
+        """Luma-only merged trace normally; while Peek Negative is up (`_channel_density`),
+        R, G, B and luminance traces instead, each normalized to its own peak like the
+        output histogram, so a channel that clips (edge-bin spike) or sits off from the
+        others (a dominant mask color) reads at a glance."""
         bins = self._density_bins
         if bins is None:
             return
         from negpy.features.exposure.analysis import DENSITY_HIST_RANGE
 
         lo, hi = DENSITY_HIST_RANGE
-        n = bins.size
-        vals = np.log1p(bins) if self._log_scale else bins
-        peak = float(vals.max())
+        n = bins.shape[-1]
         bot = self._wy(self._Y_MIN, h)
         scale = self._DENSITY_HIST_FRAC * h
-
-        path = QPainterPath()
         xs = [self._wx(1.0 - (lo + (i + 0.5) * (hi - lo) / n), w) for i in range(n)]
-        path.moveTo(xs[0], bot)
-        for x, count in zip(xs, vals.tolist()):
-            path.lineTo(x, bot - count / peak * scale)
-        path.lineTo(xs[-1], bot)
-        path.closeSubpath()
 
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(QColor(200, 200, 200, 30)))
-        painter.drawPath(path)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor(200, 200, 200, 80), 1))
-        painter.drawPath(path)
+        if self._channel_density:
+            specs = (
+                (3, "#D4D4D4", 26, 120),
+                (0, THEME.channel_red, 55, 160),
+                (1, THEME.channel_green, 55, 160),
+                (2, THEME.channel_blue, 55, 160),
+            )
+        else:
+            specs = ((3, "#D4D4D4", 26, 120),)
+        for row, color_hex, alpha_fill, alpha_line in specs:
+            counts = np.log1p(bins[row]) if self._log_scale else bins[row]
+            peak = float(counts.max())
+            if peak <= 0:
+                continue
+            vals = (counts / peak).tolist()
+
+            path = QPainterPath()
+            path.moveTo(xs[0], bot)
+            for x, count in zip(xs, vals):
+                path.lineTo(x, bot - count * scale)
+            path.lineTo(xs[-1], bot)
+            path.closeSubpath()
+
+            c_fill = QColor(color_hex)
+            c_fill.setAlpha(alpha_fill)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(c_fill))
+            painter.drawPath(path)
+
+            path_line = QPainterPath()
+            path_line.moveTo(xs[0], bot - vals[0] * scale)
+            for x, count in zip(xs, vals):
+                path_line.lineTo(x, bot - count * scale)
+            c_line = QColor(color_hex)
+            c_line.setAlpha(alpha_line)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(c_line, 1.0))
+            painter.drawPath(path_line)
 
     def _draw_zone_shading(
         self,
