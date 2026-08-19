@@ -73,11 +73,13 @@ class TestDesktopSessionSync(unittest.TestCase):
             geometry=replace(defaults.geometry, autocrop_ratio="4:3"),
         )
         sticky = {
-            "last_export_config": {"jpeg_quality": 73},
-            "last_protect_original_metadata": True,
-            # Workflow defaults must not overwrite an edited/saved asset.
-            "last_process_mode": ProcessMode.C41,
-            "last_aspect_ratio": "1:1",
+            "sticky_config": {
+                "jpeg_quality": 73,
+                "protect_original_metadata": True,
+                # Workflow defaults must not overwrite an edited/saved asset.
+                "process_mode": ProcessMode.C41,
+                "autocrop_ratio": "1:1",
+            },
         }
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
         asset = {"name": "saved.dng", "path": "/roll/saved.dng", "hash": "saved-hash"}
@@ -103,11 +105,12 @@ class TestDesktopSessionSync(unittest.TestCase):
         )
         self.session.state.config = active
         sticky = {
-            "last_export_config": {},
-            "last_process_mode": ProcessMode.E6,
-            "last_aspect_ratio": "1:1",
-            "last_autocrop_offset": 7,
-            "last_auto_exposure": True,
+            "sticky_config": {
+                "process_mode": ProcessMode.E6,
+                "autocrop_ratio": "1:1",
+                "autocrop_offset": 7,
+                "auto_exposure": True,
+            },
             "last_narrowband_scan": True,
         }
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
@@ -191,14 +194,13 @@ class TestDesktopSessionSync(unittest.TestCase):
 
         self.mock_repo.save_global_settings.assert_called_once()
         saved = self.mock_repo.save_global_settings.call_args.args[0]
-        self.assertEqual(saved["last_density"], 1.5)
-        self.assertIn("last_process_mode", saved)
+        snapshot = saved["sticky_config"]
+        self.assertEqual(snapshot["density"], 1.5)
+        for field in ("process_mode", "jpeg_quality", "dust_remove", "paper_black", "protect_original_metadata", "cast_removal_strength"):
+            self.assertIn(field, snapshot)
+        # Carried on their own keys: no catalog row reaches them.
         self.assertIn("last_export_config", saved)
-        self.assertIn("last_dust_remove", saved)
-        self.assertIn("last_paper_black", saved)
         self.assertIn("last_narrowband_scan", saved)
-        self.assertIn("last_protect_original_metadata", saved)
-        self.assertIn("last_cast_removal_strength", saved)
 
     def test_persist_active_batch_config_saves_before_exposing_state(self):
         original = self.session.state.config
@@ -229,19 +231,13 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertFalse(self.session.state.is_dirty)
 
     def test_protect_original_metadata_carries_globally(self):
-        sticky = {
-            "last_export_config": {},
-            "last_protect_original_metadata": True,
-        }
+        sticky = {"sticky_config": {"protect_original_metadata": True}}
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
         config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
         self.assertTrue(config.metadata.protect_original_metadata)
 
     def test_protect_original_metadata_applied_to_saved_files(self):
-        sticky = {
-            "last_export_config": {},
-            "last_protect_original_metadata": True,
-        }
+        sticky = {"sticky_config": {"protect_original_metadata": True}}
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
         base = WorkspaceConfig(metadata=replace(WorkspaceConfig().metadata, protect_original_metadata=False))
         config = self.session._apply_sticky_settings(base, only_global=True)
@@ -281,13 +277,14 @@ class TestDesktopSessionSync(unittest.TestCase):
     def test_processing_toggles_carry_to_new_files(self):
         # Globally remembered toggles must be applied to a fresh (sidecar-less) file.
         sticky = {
-            "last_export_config": {},
-            "last_auto_exposure": True,
-            "last_auto_normalize_contrast": True,
-            "last_paper_dmin": True,
-            "last_paper_black": True,
-            "last_paper_profile": "ilford_mg_rc",
-            "last_cast_removal_strength": 0.8,
+            "sticky_config": {
+                "auto_exposure": True,
+                "auto_normalize_contrast": True,
+                "paper_dmin": True,
+                "paper_black": True,
+                "paper_profile": "ilford_mg_rc",
+                "cast_removal_strength": 0.8,
+            },
         }
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
         config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
@@ -300,14 +297,14 @@ class TestDesktopSessionSync(unittest.TestCase):
 
     def test_cast_removal_zero_carries_to_new_files(self):
         """Sticky must carry an explicit zero, not just non-zero — default is 0.5."""
-        sticky = {"last_export_config": {}, "last_cast_removal_strength": 0.0}
+        sticky = {"sticky_config": {"cast_removal_strength": 0.0}}
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
         config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
         self.assertEqual(config.exposure.cast_removal_strength, 0.0)
 
     def test_paper_black_carries_to_new_files(self):
         """Sticky must carry an explicit value over the file's base."""
-        sticky = {"last_export_config": {}, "last_paper_black": False}
+        sticky = {"sticky_config": {"paper_black": False}}
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
         base = WorkspaceConfig(exposure=replace(WorkspaceConfig().exposure, paper_black=True))
         config = self.session._apply_sticky_settings(base, only_global=False)
@@ -315,10 +312,69 @@ class TestDesktopSessionSync(unittest.TestCase):
 
     def test_legacy_true_black_sticky_migrates_inverted(self):
         """A pre-rename sticky (last_true_black) maps to paper_black inverted."""
-        sticky = {"last_export_config": {}, "last_true_black": False}
+        from negpy.desktop.sticky import migrate_legacy
+
+        legacy = {"last_true_black": False}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: legacy.get(key, default)
+        migrate_legacy(self.mock_repo)
+        key, snapshot = self.mock_repo.save_global_setting.call_args.args
+        self.assertEqual(key, "sticky_config")
+        self.assertTrue(snapshot["paper_black"])
+
+    def test_opt_in_row_carries_once_chosen(self):
+        """A look setting is not sticky by default, but becomes so when ticked."""
+        sticky = {"sticky_config": {"density": 2.2}}
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
         config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
-        self.assertTrue(config.exposure.paper_black)
+        self.assertEqual(config.exposure.density, WorkspaceConfig().exposure.density)
+
+        sticky["sticky_rows"] = ["exposure.density"]
+        config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
+        self.assertEqual(config.exposure.density, 2.2)
+
+    def test_unticked_default_row_stops_carrying(self):
+        sticky = {"sticky_config": {"process_mode": ProcessMode.E6}, "sticky_rows": []}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
+        config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
+        self.assertEqual(config.process.process_mode, WorkspaceConfig().process.process_mode)
+
+    def test_only_global_tier_ignores_look_rows(self):
+        """A saved edit keeps its own look even when the user made a look row sticky."""
+        sticky = {
+            "sticky_config": {"density": 2.2, "jpeg_quality": 73},
+            "sticky_rows": ["exposure.density", "export.jpeg_quality"],
+        }
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
+        config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=True)
+        self.assertEqual(config.exposure.density, WorkspaceConfig().exposure.density)
+        self.assertEqual(config.export.jpeg_quality, 73)
+
+    def test_saved_file_keeps_cached_bounds(self):
+        """The global tier must not touch a bounds-input field, or resolve_bounds re-runs."""
+        sticky = {
+            "sticky_config": {"process_mode": ProcessMode.E6, "jpeg_quality": 73},
+            "sticky_rows": ["process.process_mode", "export.jpeg_quality"],
+        }
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
+        base = WorkspaceConfig(
+            process=replace(
+                WorkspaceConfig().process,
+                locked_floors=(0.1, 0.2, 0.3),
+                locked_ceils=(1.1, 1.2, 1.3),
+            )
+        )
+        config = self.session._apply_sticky_settings(base, only_global=True)
+        self.assertTrue(config.process.is_locked_initialized)
+        self.assertEqual(config.process.locked_floors, (0.1, 0.2, 0.3))
+
+    def test_export_remainder_carries_without_a_catalog_row(self):
+        """The output folder has no row, so it rides last_export_config unconditionally."""
+        sticky = {"last_export_config": {"export_path": "/out", "jpeg_quality": 99}, "sticky_rows": []}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
+        config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
+        self.assertEqual(config.export.export_path, "/out")
+        # jpeg_quality has a row, and no row was chosen, so it must not ride along.
+        self.assertEqual(config.export.jpeg_quality, WorkspaceConfig().export.jpeg_quality)
 
     def test_roll_average_not_seeded_onto_fresh_files(self):
         # A roll baseline must not leak onto a fresh (sidecar-less) file.
@@ -542,8 +598,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         sticky-aware hydrated config, not bare WorkspaceConfig(), so syncing one field
         doesn't silently reset its scan/process-mode to dataclass defaults."""
         sticky = {
-            "last_export_config": {},
-            "last_process_mode": ProcessMode.E6,
+            "sticky_config": {"process_mode": ProcessMode.E6},
             "last_narrowband_scan": True,
         }
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)

@@ -394,6 +394,12 @@ class ActionToolbar(QWidget):
             qta.icon("fa5s.history", color=icon_color), "Reset Settings", self.session.reset_settings
         )
         reset_settings_action.setToolTip("Discard all edits and return this image to its default look")
+        persistent_action = overflow_menu.addAction(
+            qta.icon("fa5s.thumbtack", color=icon_color),
+            tooltip_with_shortcut("Persistent Settings…", "persistent_settings"),
+            self._show_sticky_dialog,
+        )
+        persistent_action.setToolTip("Choose which settings carry onto the next file you open")
         overflow_menu.addSeparator()
         unload_action = overflow_menu.addAction(qta.icon("fa5s.times-circle", color=icon_color), "Unload", self._on_overflow_unload)
         unload_action.setToolTip("Remove this image from the session (its saved edit is kept)")
@@ -807,6 +813,11 @@ class ActionToolbar(QWidget):
 
         dlg = ShortcutsOverlay(self.window().shortcut_manager, self.window())
         dlg.exec()
+
+    def _show_sticky_dialog(self) -> None:
+        from negpy.desktop.view.widgets.granular_settings_dialog import open_sticky_dialog
+
+        open_sticky_dialog(self.window(), self.controller)
 
     def _show_database_dialog(self) -> None:
         from negpy.desktop.view.widgets.database_dialog import DatabaseDialog

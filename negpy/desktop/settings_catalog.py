@@ -21,9 +21,10 @@ from negpy.features.process.models import invalidate_local_bounds
 
 class SettingRow:
     """One copyable setting. `fields` are config-field names on `section`;
-    `channels` gives per-channel letters for grouped numeric trims (e.g. "RGB")."""
+    `channels` gives per-channel letters for grouped numeric trims (e.g. "RGB").
+    `sticky` marks the rows that carry onto a freshly-opened file by default."""
 
-    __slots__ = ("label", "section", "fields", "channels", "fmt")
+    __slots__ = ("label", "section", "fields", "channels", "fmt", "sticky")
 
     def __init__(
         self,
@@ -32,12 +33,19 @@ class SettingRow:
         fields: tuple[str, ...],
         channels: str = "",
         fmt: Optional[Callable[[tuple], str]] = None,
+        sticky: bool = False,
     ):
         self.label = label
         self.section = section
         self.fields = fields
         self.channels = channels
         self.fmt = fmt
+        self.sticky = sticky
+
+    @property
+    def id(self) -> str:
+        """Stable identity for persistence. Unique because no field is listed twice."""
+        return f"{self.section}.{self.fields[0]}"
 
 
 def _fmt_scalar(v) -> str:
@@ -62,34 +70,34 @@ def _format(row: SettingRow, values: tuple) -> str:
     return " / ".join(_fmt_scalar(v) for v in values)
 
 
-def _row(label, section, *fields, channels="", fmt=None) -> SettingRow:
-    return SettingRow(label, section, tuple(fields), channels, fmt)
+def _row(label, section, *fields, channels="", fmt=None, sticky=False) -> SettingRow:
+    return SettingRow(label, section, tuple(fields), channels, fmt, sticky)
 
 
 # fmt: off
 CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
     ("Process", (
-        _row("Mode", "process", "process_mode"),
-        _row("Analysis Buffer", "process", "analysis_buffer"),
-        _row("Range", "process", "luma_range_clip"),
-        _row("Color", "process", "color_range_clip"),
+        _row("Mode", "process", "process_mode", sticky=True),
+        _row("Analysis Buffer", "process", "analysis_buffer", sticky=True),
+        _row("Range", "process", "luma_range_clip", sticky=True),
+        _row("Color", "process", "color_range_clip", sticky=True),
         _row("White Point", "process", "white_point_offset"),
         _row("White Trim", "process", "white_point_trim_red", "white_point_trim_green", "white_point_trim_blue", channels="RGB"),
         _row("Black Point", "process", "black_point_offset"),
         _row("Black Trim", "process", "black_point_trim_red", "black_point_trim_green", "black_point_trim_blue", channels="RGB"),
         # Strength, profile and the baked matrix copy atomically: strength alone would leave the
         # target on a stale or None matrix.
-        _row("Crosstalk", "process", "crosstalk_strength", "crosstalk_profile", "crosstalk_matrix", fmt=lambda v: _fmt_scalar(v[0])),
-        _row("Trichrome Calibration", "process", "sensor_profile", "sensor_matrix", fmt=lambda v: _fmt_scalar(v[0])),
+        _row("Crosstalk", "process", "crosstalk_strength", "crosstalk_profile", "crosstalk_matrix", fmt=lambda v: _fmt_scalar(v[0]), sticky=True),
+        _row("Trichrome Calibration", "process", "sensor_profile", "sensor_matrix", fmt=lambda v: _fmt_scalar(v[0]), sticky=True),
         # Absent from _BOUNDS_INPUT_FIELDS: it acts after inversion, so it never feeds the meters.
-        _row("Hue Trim", "process", "hue_trim"),
+        _row("Hue Trim", "process", "hue_trim", sticky=True),
     )),
     ("Crop", (
         _row("Auto Crop", "geometry", "crop_from_auto"),
-        _row("Crop Offset", "geometry", "autocrop_offset"),
-        _row("Rebate Trim", "geometry", "autocrop_rebate_trim"),
-        _row("Crop Ratio", "geometry", "autocrop_ratio"),
-        _row("Crop Mode", "geometry", "autocrop_mode"),
+        _row("Crop Offset", "geometry", "autocrop_offset", sticky=True),
+        _row("Rebate Trim", "geometry", "autocrop_rebate_trim", sticky=True),
+        _row("Crop Ratio", "geometry", "autocrop_ratio", sticky=True),
+        _row("Crop Mode", "geometry", "autocrop_mode", sticky=True),
         # Rect and key copy together: without the key a copied auto rect looks freshly
         # detected on the target.
         _row("Crop", "geometry", "crop_rect", "crop_detect_key", fmt=lambda v: _fmt_scalar(v[0])),
@@ -99,15 +107,15 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("Fine Rotation", "geometry", "fine_rotation"),
         _row("Easel Tilt", "geometry", "converge_v"),
         _row("Easel Swing", "geometry", "converge_h"),
-        _row("Flip Horizontal", "geometry", "flip_horizontal"),
-        _row("Flip Vertical", "geometry", "flip_vertical"),
+        _row("Flip Horizontal", "geometry", "flip_horizontal", sticky=True),
+        _row("Flip Vertical", "geometry", "flip_vertical", sticky=True),
     )),
     ("Tone", (
         _row("Print Density", "exposure", "density"),
         _row("ISO-R Grade", "exposure", "grade"),
         _row("Grade Trim", "exposure", "grade_trim_red", "grade_trim_green", "grade_trim_blue", channels="RGB"),
-        _row("Paper Black", "exposure", "paper_black"),
-        _row("Paper Dmin", "exposure", "paper_dmin"),
+        _row("Paper Black", "exposure", "paper_black", sticky=True),
+        _row("Paper Dmin", "exposure", "paper_dmin", sticky=True),
         _row("Shadows Density", "exposure", "shadow_density"),
         _row("Highlights Density", "exposure", "highlight_density"),
         _row("Shadows Grade", "exposure", "shadow_grade"),
@@ -129,9 +137,9 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("Separation Damping", "exposure", "separation_damping"),
         _row("Contrast Mask", "exposure", "contrast_mask"),
         _row("Mask Spacer", "exposure", "mask_spacer"),
-        _row("Auto Exposure", "exposure", "auto_exposure"),
-        _row("Auto Contrast", "exposure", "auto_normalize_contrast"),
-        _row("Paper Profile", "exposure", "paper_profile"),
+        _row("Auto Exposure", "exposure", "auto_exposure", sticky=True),
+        _row("Auto Contrast", "exposure", "auto_normalize_contrast", sticky=True),
+        _row("Paper Profile", "exposure", "paper_profile", sticky=True),
     )),
     ("Color", (
         _row("Cyan", "exposure", "wb_cyan"),
@@ -139,19 +147,19 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("Yellow", "exposure", "wb_yellow"),
         _row("Shadow CMY", "exposure", "shadow_cyan", "shadow_magenta", "shadow_yellow", channels="CMY"),
         _row("Highlight CMY", "exposure", "highlight_cyan", "highlight_magenta", "highlight_yellow", channels="CMY"),
-        _row("Cast Removal", "exposure", "cast_removal_strength"),
+        _row("Cast Removal", "exposure", "cast_removal_strength", sticky=True),
     )),
     ("Lab", (
-        _row("Chroma", "lab", "saturation"),
-        _row("Skin Protection", "lab", "skin_protection"),
-        _row("CLAHE", "lab", "clahe_strength"),
-        _row("Sharpening", "lab", "sharpen"),
-        _row("Sharpen Method", "lab", "sharpen_method"),
-        _row("Radius", "lab", "sharpen_radius"),
-        _row("Masking", "lab", "sharpen_masking"),
-        _row("Chroma Denoise", "lab", "chroma_denoise"),
-        _row("Glow", "lab", "glow_amount"),
-        _row("Halation", "lab", "halation_strength"),
+        _row("Chroma", "lab", "saturation", sticky=True),
+        _row("Skin Protection", "lab", "skin_protection", sticky=True),
+        _row("CLAHE", "lab", "clahe_strength", sticky=True),
+        _row("Sharpening", "lab", "sharpen", sticky=True),
+        _row("Sharpen Method", "lab", "sharpen_method", sticky=True),
+        _row("Radius", "lab", "sharpen_radius", sticky=True),
+        _row("Masking", "lab", "sharpen_masking", sticky=True),
+        _row("Chroma Denoise", "lab", "chroma_denoise", sticky=True),
+        _row("Glow", "lab", "glow_amount", sticky=True),
+        _row("Halation", "lab", "halation_strength", sticky=True),
     )),
     ("Alternative Processes", (
         _row("Process", "altproc", "alt_process"),
@@ -190,7 +198,7 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("Border Match Paper", "finish", "border_match_paper"),
     )),
     ("Retouch", (
-        _row("Dust Removal", "retouch", "dust_remove"),
+        _row("Dust Removal", "retouch", "dust_remove", sticky=True),
         _row("Dust Threshold", "retouch", "dust_threshold"),
         _row("Dust Size", "retouch", "dust_size"),
         _row("IR Removal", "retouch", "ir_dust_remove"),
@@ -223,33 +231,34 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("Push/Pull", "metadata", "push_pull", fmt=lambda v: PUSH_PULL_LABELS.get(v[0], str(v[0]))),
         _row("Scanning", "metadata", "scanning"),
         _row("Exposure Override", "metadata", "exposure_override"),
-        _row("Protect Original Metadata", "metadata", "protect_original_metadata"),
+        _row("Protect Original Metadata", "metadata", "protect_original_metadata", sticky=True),
         _row(
             "Description Fields",
             "metadata",
             "description_fields",
             fmt=lambda v: (", ".join(str(x) for x in v[0]) if v[0] else "—"),
+            sticky=True,
         ),
     )),
     ("Export", (
-        _row("Format", "export", "export_fmt"),
-        _row("JPEG Quality", "export", "jpeg_quality"),
-        _row("JXL Lossless", "export", "jxl_lossless"),
-        _row("JXL Distance", "export", "jxl_distance"),
-        _row("JXL Effort", "export", "jxl_effort"),
-        _row("WebP Quality", "export", "webp_quality"),
-        _row("WebP Lossless", "export", "webp_lossless"),
-        _row("WebP Method", "export", "webp_method"),
-        _row("Resolution Mode", "export", "export_resolution_mode"),
-        _row("Aspect Ratio", "export", "paper_aspect_ratio"),
-        _row("Print Size", "export", "export_print_size"),
-        _row("DPI", "export", "export_dpi"),
-        _row("Target Long Edge", "export", "export_target_long_edge_px"),
-        _row("Color Space", "export", "export_color_space"),
-        _row("Filename Pattern", "export", "filename_pattern"),
-        _row("Overwrite", "export", "overwrite"),
-        _row("Output Mode", "export", "output_mode"),
-        _row("Sidecars", "export", "export_sidecars_enabled"),
+        _row("Format", "export", "export_fmt", sticky=True),
+        _row("JPEG Quality", "export", "jpeg_quality", sticky=True),
+        _row("JXL Lossless", "export", "jxl_lossless", sticky=True),
+        _row("JXL Distance", "export", "jxl_distance", sticky=True),
+        _row("JXL Effort", "export", "jxl_effort", sticky=True),
+        _row("WebP Quality", "export", "webp_quality", sticky=True),
+        _row("WebP Lossless", "export", "webp_lossless", sticky=True),
+        _row("WebP Method", "export", "webp_method", sticky=True),
+        _row("Resolution Mode", "export", "export_resolution_mode", sticky=True),
+        _row("Aspect Ratio", "export", "paper_aspect_ratio", sticky=True),
+        _row("Print Size", "export", "export_print_size", sticky=True),
+        _row("DPI", "export", "export_dpi", sticky=True),
+        _row("Target Long Edge", "export", "export_target_long_edge_px", sticky=True),
+        _row("Color Space", "export", "export_color_space", sticky=True),
+        _row("Filename Pattern", "export", "filename_pattern", sticky=True),
+        _row("Overwrite", "export", "overwrite", sticky=True),
+        _row("Output Mode", "export", "output_mode", sticky=True),
+        _row("Sidecars", "export", "export_sidecars_enabled", sticky=True),
     )),
 ]
 # fmt: on
@@ -284,6 +293,18 @@ _BOUNDS_INPUT_FIELDS = frozenset(
 
 def all_rows() -> list[SettingRow]:
     return [r for _title, rows in CATALOG for r in rows]
+
+
+def rows_by_id() -> dict[str, SettingRow]:
+    return {r.id: r for r in all_rows()}
+
+
+# What carries onto a fresh file out of the box. The user's own choice overrides it.
+DEFAULT_STICKY_IDS: frozenset[str] = frozenset(r.id for r in all_rows() if r.sticky)
+
+# Config attrs whose rows also carry onto a file that already has a saved edit. Everything
+# else is a per-frame decision and the saved edit wins.
+GLOBAL_TIER_SECTIONS: frozenset[str] = frozenset({"export", "metadata"})
 
 
 def _row_edited(row: SettingRow, cfg: WorkspaceConfig) -> bool:

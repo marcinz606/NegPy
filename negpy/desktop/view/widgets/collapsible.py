@@ -2,6 +2,7 @@ from typing import Optional
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
+    QCheckBox,
     QPushButton,
     QFrame,
     QHBoxLayout,
@@ -22,6 +23,7 @@ class CollapsibleSection(QWidget):
     reset_requested = pyqtSignal()
     expanded_changed = pyqtSignal(bool)
     info_requested = pyqtSignal()
+    selection_toggled = pyqtSignal(bool)
 
     def __init__(
         self,
@@ -30,6 +32,7 @@ class CollapsibleSection(QWidget):
         icon: Optional[QIcon] = None,
         background_widget: Optional[QWidget] = None,
         info: bool = False,
+        select: bool = False,
         parent=None,
     ):
         super().__init__(parent)
@@ -53,6 +56,17 @@ class CollapsibleSection(QWidget):
         btn_layout = QHBoxLayout(self.toggle_button)
         btn_layout.setContentsMargins(THEME.space_xl, 8, THEME.space_xl, 8)
         btn_layout.setSpacing(10)
+
+        # Nested in the header button like reset_btn, so ticking the section does not also
+        # collapse it. Tristate is for display only: a click always resolves to all or none.
+        self.select_box: Optional[QCheckBox] = None
+        if select:
+            self.select_box = QCheckBox()
+            self.select_box.setTristate(True)
+            self.select_box.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.select_box.setToolTip(f"Select every {title} setting")
+            self.select_box.clicked.connect(self._on_select_clicked)
+            btn_layout.addWidget(self.select_box)
 
         if icon:
             icon_label = QLabel()
@@ -143,6 +157,27 @@ class CollapsibleSection(QWidget):
             self.title_label.setText(f"{self._title_text} · {count}")
         else:
             self.title_label.setText(self._title_text)
+
+    def set_selection_state(self, checked: int, total: int) -> None:
+        """Reflect how many of the section's rows are ticked. Emits nothing."""
+        if self.select_box is None:
+            return
+        if checked == 0:
+            state = Qt.CheckState.Unchecked
+        elif checked == total:
+            state = Qt.CheckState.Checked
+        else:
+            state = Qt.CheckState.PartiallyChecked
+        self.select_box.blockSignals(True)
+        self.select_box.setCheckState(state)
+        self.select_box.blockSignals(False)
+
+    def _on_select_clicked(self) -> None:
+        if self.select_box is None:
+            return
+        want = self.select_box.checkState() != Qt.CheckState.Checked
+        self.select_box.setCheckState(Qt.CheckState.Checked if want else Qt.CheckState.Unchecked)
+        self.selection_toggled.emit(want)
 
     def _on_reset_clicked(self) -> None:
         self.reset_requested.emit()

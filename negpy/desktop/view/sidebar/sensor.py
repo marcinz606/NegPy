@@ -375,8 +375,6 @@ class SensorSidebar(BaseSidebar):
     def _on_hue_trim_changed(self, val: float, persist: bool = True) -> None:
         # Sticky on commit only, so a drag doesn't write every intermediate value.
         self.update_config_section("process", hue_trim=val, persist=persist)
-        if persist:
-            self.controller.session.repo.save_global_setting("last_hue_trim", float(val))
 
     def sync_ui(self) -> None:
         conf = self.state.config.process

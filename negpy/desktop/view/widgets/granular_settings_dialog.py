@@ -1,3 +1,5 @@
+from functools import partial
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QButtonGroup,
@@ -39,10 +41,15 @@ class GranularSettingsDialog(QDialog):
         exclude_sections: frozenset[str] = frozenset(),
         show_current: bool = False,
         show_apply_mode: bool = False,
+        preselect_ids: frozenset[str] | None = None,
     ):
+        # ponytail: at nine flags this class is at its ceiling. A tenth means splitting
+        # pick mode into its own dialog.
         super().__init__(parent)
         self._checks: list[tuple[QCheckBox, SettingRow, bool, QWidget]] = []
         self._sections: list[tuple[QWidget, int]] = []
+        self._section_rows: list[tuple[CollapsibleSection, tuple[str, ...]]] = []
+        self._preselect_ids = preselect_ids
         self._bounds_luma: QCheckBox | None = None
         self._bounds_color: QCheckBox | None = None
         self._name_edit: QLineEdit | None = None
@@ -51,7 +58,9 @@ class GranularSettingsDialog(QDialog):
         else:
             self._scope = "selection" if sel_count > 0 else "roll"
 
-        if ask_name:
+        if preselect_ids is not None:
+            self.setWindowTitle("Persistent Settings")
+        elif ask_name:
             self.setWindowTitle("Save Preset")
         else:
             self.setWindowTitle("Paste Settings" if not show_scope else "Apply Settings")
@@ -62,7 +71,11 @@ class GranularSettingsDialog(QDialog):
         root.setContentsMargins(THEME.space_2xl, THEME.space_2xl, THEME.space_2xl, THEME.space_2xl)
         root.setSpacing(THEME.space_xl)
 
-        header = QLabel(f'From "{source_name}"' if source_name else "Nothing to apply")
+        if preselect_ids is not None:
+            header = QLabel("Settings that carry onto the next file you open")
+            header.setToolTip("A file you have already edited keeps its own look; only export and metadata settings reach it.")
+        else:
+            header = QLabel(f'From "{source_name}"' if source_name else "Nothing to apply")
         header.setStyleSheet(f"color: {THEME.text_primary}; font-weight: bold;")
         root.addWidget(header)
 
@@ -80,6 +93,7 @@ class GranularSettingsDialog(QDialog):
         root.addLayout(self._build_footer(ask_name))
 
         self._apply_visibility()
+        self._refresh_section_states()
         self._update_apply_enabled()
 
     def _build_scope_row(self, sel_count: int, roll_count: int, show_current: bool = False) -> QHBoxLayout:
@@ -128,6 +142,7 @@ class GranularSettingsDialog(QDialog):
         self._show_unchanged = QCheckBox("Show unchanged settings")
         self._show_unchanged.setToolTip("List settings still at their default, so they can be applied too")
         self._show_unchanged.toggled.connect(self._apply_visibility)
+        self._show_unchanged.setVisible(self._preselect_ids is None)
         row.addWidget(check_all)
         row.addWidget(check_none)
         row.addStretch()
@@ -143,13 +158,20 @@ class GranularSettingsDialog(QDialog):
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(THEME.space_sm)
 
+        pick_mode = self._preselect_ids is not None
         for title, rows in catalog_sections(source_cfg):
             if title in exclude_sections:
                 continue
             edited_count = sum(1 for _r, _v, edited in rows if edited)
-            section = CollapsibleSection(title, expanded=True)
-            section.set_modified(edited_count)
-            section.set_content(self._build_rows(rows))
+            section = CollapsibleSection(title, expanded=not pick_mode, select=pick_mode)
+            if pick_mode:
+                boxes = self._build_rows(rows)
+                section.set_content(boxes)
+                section.selection_toggled.connect(partial(self._on_section_toggled, section, tuple(r for r, _v, _e in rows)))
+                self._section_rows.append((section, tuple(r.id for r, _v, _e in rows)))
+            else:
+                section.set_modified(edited_count)
+                section.set_content(self._build_rows(rows))
             col.addWidget(section)
             self._sections.append((section, edited_count))
 
@@ -173,8 +195,9 @@ class GranularSettingsDialog(QDialog):
             line_layout = QHBoxLayout(line)
             line_layout.setContentsMargins(0, 0, 0, 0)
             box = QCheckBox(row.label)
-            box.setChecked(edited)
+            box.setChecked(row.id in self._preselect_ids if self._preselect_ids is not None else edited)
             box.stateChanged.connect(self._update_apply_enabled)
+            box.stateChanged.connect(self._refresh_section_states)
             self._checks.append((box, row, edited, line))
             val = QLabel(value)
             val.setStyleSheet(f"color: {THEME.text_muted};")
@@ -212,7 +235,23 @@ class GranularSettingsDialog(QDialog):
         boxes += [b for b in (self._bounds_luma, self._bounds_color) if b is not None]
         return boxes
 
+    def _on_section_toggled(self, _section, rows: tuple[SettingRow, ...], checked: bool) -> None:
+        wanted = {r.id for r in rows}
+        for box, row, _edited, _line in self._checks:
+            if row.id in wanted:
+                box.setChecked(checked)
+
+    def _refresh_section_states(self) -> None:
+        if self._preselect_ids is None:
+            return
+        state = {row.id: box.isChecked() for box, row, _edited, _line in self._checks}
+        for section, row_ids in self._section_rows:
+            section.set_selection_state(sum(1 for i in row_ids if state.get(i)), len(row_ids))
+
     def _apply_visibility(self) -> None:
+        # Pick mode lists everything: a setting still at its default must stay selectable.
+        if self._preselect_ids is not None:
+            return
         show_all = self._show_unchanged.isChecked()
         for box, _row, edited, line in self._checks:
             if edited:
@@ -225,7 +264,7 @@ class GranularSettingsDialog(QDialog):
             section.setVisible(show_all or edited_count > 0)
 
     def _set_all_checked(self, checked: bool) -> None:
-        show_all = self._show_unchanged.isChecked()
+        show_all = self._show_unchanged.isChecked() or self._preselect_ids is not None
         for box, _row, edited, _line in self._checks:
             if edited or show_all:
                 box.setChecked(checked)
@@ -234,6 +273,10 @@ class GranularSettingsDialog(QDialog):
                 box.setChecked(checked)
 
     def _update_apply_enabled(self) -> None:
+        # Ticking nothing is a valid choice in pick mode: nothing carries over.
+        if self._preselect_ids is not None:
+            self.apply_btn.setEnabled(True)
+            return
         enabled = any(box.isChecked() for box in self._all_boxes())
         if self._name_edit is not None:
             enabled = enabled and bool(self._name_edit.text().strip())
@@ -249,6 +292,9 @@ class GranularSettingsDialog(QDialog):
 
     def selected(self) -> list[SettingRow]:
         return [row for box, row, _edited, _line in self._checks if box.isChecked()]
+
+    def selected_ids(self) -> list[str]:
+        return [row.id for row in self.selected()]
 
     def name(self) -> str:
         return self._name_edit.text().strip() if self._name_edit is not None else ""
@@ -281,3 +327,17 @@ def open_paste_dialog(parent, controller) -> None:
     dlg = GranularSettingsDialog(parent, state.clipboard, "clipboard", show_scope=False)
     if dlg.exec() == QDialog.DialogCode.Accepted:
         controller.session.apply_pasted_fields(dlg.selected())
+
+
+def open_sticky_dialog(parent, controller) -> None:
+    """Pick which settings carry onto a freshly-opened file. Values shown are the last
+    saved edit's, so the list reads as what would actually carry."""
+    from negpy.domain.models import WorkspaceConfig
+    from negpy.desktop.sticky import load_sticky_config, load_sticky_rows, save_sticky_rows
+
+    repo = controller.session.repo
+    source = load_sticky_config(repo) or WorkspaceConfig()
+    chosen = frozenset(r.id for r in load_sticky_rows(repo))
+    dlg = GranularSettingsDialog(parent, source, "", preselect_ids=chosen)
+    if dlg.exec() == QDialog.DialogCode.Accepted:
+        save_sticky_rows(repo, dlg.selected_ids())

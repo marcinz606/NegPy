@@ -7,7 +7,17 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from PyQt6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt, pyqtSignal
 
-from negpy.desktop.settings_catalog import apply_selected_fields
+from negpy.desktop.settings_catalog import GLOBAL_TIER_SECTIONS, apply_selected_fields
+from negpy.desktop.sticky import (
+    ALWAYS_STICKY_PROCESS,
+    DESCRIPTION_FIELDS_KEY,
+    EXPORT_REMAINDER,
+    STICKY_CONFIG_KEY,
+    load_sticky_config,
+    load_sticky_rows,
+    migrate_legacy,
+    sticky_snapshot,
+)
 from negpy.desktop.view.canvas.crop_guides import CropGuide
 from negpy.domain.models import ExportPreset, WorkspaceConfig
 from negpy.features.exposure.models import apply_targets
@@ -593,6 +603,8 @@ class DesktopSessionManager(QObject):
         self.settings_saved.connect(self._invalidate_search_facts)
         # is_dirty initialised to False via AppState default
 
+        migrate_legacy(self.repo)
+
         # Load global hardware settings
         saved_gpu = self.repo.get_global_setting("gpu_enabled")
         if saved_gpu is not None:
@@ -789,41 +801,23 @@ class DesktopSessionManager(QObject):
         """
         Overlays globally persisted settings onto the config.
 
-        Two tiers:
-        - only_global=True  (file has a sidecar): only export preferences are overlaid.
-        - only_global=False (new file, no sidecar): workflow settings are overlaid
-          (process mode, roll name, analysis buffer, geometry defaults, export).
-          Per-image look settings (exposure, lab, toning, retouch) are intentionally
-          NOT carried over so that fresh files always start from clean defaults.
+        Which settings carry is the user's choice, held as catalog row ids and edited in
+        the Persistent Settings dialog. Two tiers:
+        - only_global=True  (file has a sidecar): only GLOBAL_TIER_SECTIONS rows carry, so
+          the saved edit keeps its own look.
+        - only_global=False (new file, no sidecar): every chosen row carries.
+
+        The carries below are hard-coded because they are not plain config-value copies:
+        the rig-global flat-field profile, the Kelvin roll-locks, the export fields with no
+        catalog row, and the scan-setup preferences.
         """
-        from negpy.domain.models import ExportConfig
+        from negpy.features.metadata.models import resolve_description_fields
 
         sticky_export = self.repo.get_global_setting("last_export_config")
         if sticky_export:
-            valid_keys = ExportConfig.__dataclass_fields__.keys()
-            filtered = {k: v for k, v in sticky_export.items() if k in valid_keys}
-            config = replace(config, export=ExportConfig(**filtered))
-
-        sticky_protect = self.repo.get_global_setting("last_protect_original_metadata")
-        if sticky_protect is not None:
-            config = replace(
-                config,
-                metadata=replace(config.metadata, protect_original_metadata=bool(sticky_protect)),
-            )
-
-        # Description fields: unset (None) inherits the sticky roll choice, and an explicit
-        # per-frame tuple is left alone.
-        if config.metadata.description_fields is None:
-            from negpy.features.metadata.models import resolve_description_fields
-
-            sticky_desc = self.repo.get_global_setting("last_description_fields")
-            config = replace(
-                config,
-                metadata=replace(
-                    config.metadata,
-                    description_fields=resolve_description_fields(None, sticky_desc),
-                ),
-            )
+            remainder = {k: v for k, v in sticky_export.items() if k in EXPORT_REMAINDER}
+            if remainder:
+                config = replace(config, export=replace(config.export, **remainder))
 
         # Flat-field profile and distortion k1 are rig-global, so the active profile's values
         # always override the per-file ones. New files default to enabled when a profile is
@@ -833,6 +827,30 @@ class DesktopSessionManager(QObject):
         ff_id = ff_prof.id if ff_prof else ""
         ff_k1 = ff_prof.k1 if ff_prof else 0.0
         config = replace(config, flatfield=replace(config.flatfield, profile_id=ff_id, k1=ff_k1))
+
+        rows = load_sticky_rows(self.repo)
+        if only_global:
+            rows = [r for r in rows if r.section in GLOBAL_TIER_SECTIONS]
+        # Description fields carry on their own key, so the last Description… confirm wins
+        # for the roll rather than whichever frame was saved last.
+        wants_desc = any("description_fields" in r.fields for r in rows)
+        rows = [r for r in rows if "description_fields" not in r.fields]
+
+        sticky_cfg = load_sticky_config(self.repo)
+        if sticky_cfg is not None and rows:
+            config = apply_selected_fields(sticky_cfg, config, rows)
+
+        # Unset (None) inherits the sticky roll choice, then the gear-only defaults; an
+        # explicit per-frame tuple is left alone.
+        if config.metadata.description_fields is None:
+            sticky_desc = self.repo.get_global_setting(DESCRIPTION_FIELDS_KEY) if wants_desc else None
+            config = replace(
+                config,
+                metadata=replace(
+                    config.metadata,
+                    description_fields=resolve_description_fields(None, sticky_desc),
+                ),
+            )
 
         # Temperature roll-locks (per region): re-aim each locked region's M/Y
         # pair at its Kelvin target, keeping the frame's own off-locus tint.
@@ -853,163 +871,27 @@ class DesktopSessionManager(QObject):
 
         config = replace(config, flatfield=replace(config.flatfield, apply=bool(ff_id)))
 
-        # Workflow settings, safe to carry across all files on a roll
-        sticky_mode = self.repo.get_global_setting("last_process_mode")
-        sticky_buffer = self.repo.get_global_setting("last_analysis_buffer")
-        sticky_luma_range_clip = self.repo.get_global_setting("last_luma_range_clip")
-        sticky_color_range_clip = self.repo.get_global_setting("last_color_range_clip")
-        # The roll-average baseline is roll-scoped, written per-file by Batch Analysis or a
-        # saved roll, and never seeded onto fresh files.
-        sticky_crosstalk_strength = self.repo.get_global_setting("last_crosstalk_strength")
-        sticky_crosstalk_matrix = self.repo.get_global_setting("last_crosstalk_matrix")
-        sticky_crosstalk_profile = self.repo.get_global_setting("last_crosstalk_profile")
-        sticky_sensor_matrix = self.repo.get_global_setting("last_sensor_matrix")
-        sticky_sensor_profile = self.repo.get_global_setting("last_sensor_profile")
-
         new_process = config.process
-        if sticky_mode:
-            new_process = replace(new_process, process_mode=sticky_mode)
-        if sticky_buffer is not None:
-            new_process = replace(new_process, analysis_buffer=float(sticky_buffer))
-        if sticky_luma_range_clip is not None:
-            new_process = replace(new_process, luma_range_clip=float(sticky_luma_range_clip))
-        if sticky_color_range_clip is not None:
-            new_process = replace(new_process, color_range_clip=float(sticky_color_range_clip))
-        if sticky_crosstalk_strength is not None:
-            new_process = replace(new_process, crosstalk_strength=float(sticky_crosstalk_strength))
-        if sticky_crosstalk_matrix:
-            new_process = replace(new_process, crosstalk_matrix=tuple(sticky_crosstalk_matrix))
-        if sticky_crosstalk_profile:
-            new_process = replace(new_process, crosstalk_profile=str(sticky_crosstalk_profile))
-        if sticky_sensor_matrix:
-            new_process = replace(new_process, sensor_matrix=tuple(sticky_sensor_matrix))
-        if sticky_sensor_profile:
-            new_process = replace(new_process, sensor_profile=str(sticky_sensor_profile))
-        config = replace(config, process=new_process)
-
-        sticky_ratio = self.repo.get_global_setting("last_aspect_ratio")
-        sticky_autocrop_mode = self.repo.get_global_setting("last_autocrop_mode")
-        sticky_offset = self.repo.get_global_setting("last_autocrop_offset")
-        sticky_rebate_trim = self.repo.get_global_setting("last_autocrop_rebate_trim")
-        sticky_flip_h = self.repo.get_global_setting("last_flip_horizontal")
-        sticky_flip_v = self.repo.get_global_setting("last_flip_vertical")
-        new_geo = config.geometry
-        if sticky_ratio:
-            new_geo = replace(new_geo, autocrop_ratio=sticky_ratio)
-        if sticky_autocrop_mode:
-            new_geo = replace(new_geo, autocrop_mode=str(sticky_autocrop_mode))
-        if sticky_offset is not None:
-            new_geo = replace(new_geo, autocrop_offset=int(sticky_offset))
-        if sticky_rebate_trim is not None:
-            new_geo = replace(new_geo, autocrop_rebate_trim=float(sticky_rebate_trim))
-        if sticky_flip_h is not None:
-            new_geo = replace(new_geo, flip_horizontal=bool(sticky_flip_h))
-        if sticky_flip_v is not None:
-            new_geo = replace(new_geo, flip_vertical=bool(sticky_flip_v))
-        config = replace(config, geometry=new_geo)
-
-        sticky_lab = self.repo.get_global_setting("last_lab_config")
-        if sticky_lab:
-            from negpy.features.lab.models import LabConfig
-
-            valid_keys = LabConfig.__dataclass_fields__.keys()
-            config = replace(config, lab=LabConfig(**{k: v for k, v in sticky_lab.items() if k in valid_keys}))
-
-        # Exposure, toning and retouch are per-image look decisions and stay out of here:
-        # fresh files start from WorkspaceConfig defaults. linear_raw and dust_remove are the
-        # exception, since they are workflow preferences.
-        sticky_linear_raw = self.repo.get_global_setting("last_linear_raw")
-        if sticky_linear_raw is not None:
-            config = replace(config, process=replace(config.process, linear_raw=bool(sticky_linear_raw)))
-        sticky_narrowband = self.repo.get_global_setting("last_narrowband_scan")
-        if sticky_narrowband is not None:
-            config = replace(config, process=replace(config.process, narrowband_scan=bool(sticky_narrowband)))
-        # Hue Trim is a property of the light source, not the frame, so it carries across files.
-        sticky_hue_trim = self.repo.get_global_setting("last_hue_trim")
-        if sticky_hue_trim is not None:
-            config = replace(config, process=replace(config.process, hue_trim=float(sticky_hue_trim)))
-
-        # The processing toggles (Auto Density, Auto Grade, Shadow Neutral, Paper White,
-        # Paper Black, Cast Removal) are workflow preferences, not per-image looks, so carry
-        # them to fresh files unless a file changes them.
-        new_exp = config.exposure
-        for key, attr in (
-            ("last_auto_exposure", "auto_exposure"),
-            ("last_auto_normalize_contrast", "auto_normalize_contrast"),
-            ("last_paper_dmin", "paper_dmin"),
-            ("last_paper_black", "paper_black"),
-        ):
-            val = self.repo.get_global_setting(key)
+        for legacy_key, attr in ALWAYS_STICKY_PROCESS:
+            val = self.repo.get_global_setting(legacy_key)
             if val is not None:
-                new_exp = replace(new_exp, **{attr: bool(val)})
-        # True Black renamed to Paper Black (inverted); honour a legacy sticky pref.
-        if self.repo.get_global_setting("last_paper_black") is None:
-            legacy_bpc = self.repo.get_global_setting("last_true_black")
-            if legacy_bpc is not None:
-                new_exp = replace(new_exp, paper_black=not bool(legacy_bpc))
-        sticky_cast_removal = self.repo.get_global_setting("last_cast_removal_strength")
-        if sticky_cast_removal is not None:
-            new_exp = replace(new_exp, cast_removal_strength=float(sticky_cast_removal))
-        config = replace(config, exposure=new_exp)
-
-        # Paper stock is roll-wide, and the render guards against a cross-mode leak.
-        sticky_paper = self.repo.get_global_setting("last_paper_profile")
-        if sticky_paper:
-            config = replace(config, exposure=replace(config.exposure, paper_profile=str(sticky_paper)))
-
-        # Exception: dust_remove is a workflow preference, not an image-specific look.
-        sticky_dust = self.repo.get_global_setting("last_dust_remove")
-        if sticky_dust is not None:
-            config = replace(config, retouch=replace(config.retouch, dust_remove=bool(sticky_dust)))
-
-        return config
+                new_process = replace(new_process, **{attr: bool(val)})
+        return replace(config, process=new_process)
 
     def _persist_sticky_settings(self, config: WorkspaceConfig) -> None:
-        """
-        Saves current settings to global storage in a single transaction.
+        """Snapshot the settings a fresh file can inherit, in a single transaction.
+
+        `last_export_config` is separate from the snapshot because EXPORT_REMAINDER — the
+        output folder, ICC paths, contact-sheet layout — has no catalog row to travel on.
         """
         from dataclasses import asdict
 
         self.repo.save_global_settings(
             {
-                "last_process_mode": config.process.process_mode,
-                "last_analysis_buffer": config.process.analysis_buffer,
-                "last_luma_range_clip": config.process.luma_range_clip,
-                "last_color_range_clip": config.process.color_range_clip,
-                "last_crosstalk_strength": config.process.crosstalk_strength,
-                "last_crosstalk_matrix": config.process.crosstalk_matrix,
-                "last_crosstalk_profile": config.process.crosstalk_profile,
-                "last_sensor_matrix": config.process.sensor_matrix,
-                "last_sensor_profile": config.process.sensor_profile,
-                "last_density": config.exposure.density,
-                "last_grade": config.exposure.grade,
-                "last_wb_cyan": config.exposure.wb_cyan,
-                "last_wb_magenta": config.exposure.wb_magenta,
-                "last_wb_yellow": config.exposure.wb_yellow,
+                STICKY_CONFIG_KEY: sticky_snapshot(config),
+                "last_export_config": asdict(config.export),
                 "last_linear_raw": config.process.linear_raw,
                 "last_narrowband_scan": config.process.narrowband_scan,
-                "last_auto_exposure": config.exposure.auto_exposure,
-                "last_auto_normalize_contrast": config.exposure.auto_normalize_contrast,
-                "last_paper_dmin": config.exposure.paper_dmin,
-                "last_paper_black": config.exposure.paper_black,
-                "last_cast_removal_strength": config.exposure.cast_removal_strength,
-                "last_paper_profile": config.exposure.paper_profile,
-                "last_toe": config.exposure.toe,
-                "last_toe_width": config.exposure.toe_width,
-                "last_shoulder": config.exposure.shoulder,
-                "last_shoulder_width": config.exposure.shoulder_width,
-                "last_aspect_ratio": config.geometry.autocrop_ratio,
-                "last_autocrop_mode": config.geometry.autocrop_mode,
-                "last_autocrop_offset": config.geometry.autocrop_offset,
-                "last_autocrop_rebate_trim": config.geometry.autocrop_rebate_trim,
-                "last_flip_horizontal": config.geometry.flip_horizontal,
-                "last_flip_vertical": config.geometry.flip_vertical,
-                "last_export_config": asdict(config.export),
-                "last_lab_config": asdict(config.lab),
-                "last_toning_config": asdict(config.toning),
-                "last_retouch_config": asdict(config.retouch),
-                "last_dust_remove": config.retouch.dust_remove,
-                "last_protect_original_metadata": config.metadata.protect_original_metadata,
             }
         )
 
