@@ -2109,3 +2109,61 @@ class TestHdrDecodeIsFormatAgnostic:
         # there, so the shadow arrives at ~15/16 of its converted level.
         assert float(merged[:, :4].min()) > 0.9 * (400.0 / 65535.0) / 4.0, "the bracket decoded unmerged"
         assert float(merged.max()) <= 1.0
+
+
+class TestSourceMetaExifFallback:
+    """`_read_source_meta_exif` is the fallback path for RAF, ORF and friends."""
+
+    _EXIF_MARKER = b"Exif" + bytes(2)
+
+    def test_module_compiles_without_syntaxwarning(self) -> None:
+        """`return` inside `finally` discards any in-flight exception.
+
+        Python 3.14 warns about it, so every import emitted a SyntaxWarning. The
+        parsing that used to sit in that `finally` also read `tif`, which is
+        unbound when `TiffFile()` raises, so a malformed EXIF block surfaced as
+        `UnboundLocalError` rather than the real tifffile error.
+        """
+        import warnings
+
+        from negpy.services.export import linear_output
+
+        with open(linear_output.__file__, encoding="utf-8") as fh:
+            source = fh.read()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            compile(source, linear_output.__file__, "exec")
+        assert [w for w in caught if issubclass(w.category, SyntaxWarning)] == []
+
+    def test_malformed_exif_block_returns_empty_meta(self, tmp_path: str) -> None:
+        from negpy.services.export.linear_output import _read_source_meta_exif
+
+        path = os.path.join(str(tmp_path), "bad-exif.raf")
+        with open(path, "wb") as fh:
+            fh.write(self._EXIF_MARKER + b"garbage that is not a TIFF header")
+
+        assert _read_source_meta_exif(path) == _SourceMeta()
+
+    def test_file_without_exif_marker_returns_empty_meta(self, tmp_path: str) -> None:
+        from negpy.services.export.linear_output import _read_source_meta_exif
+
+        path = os.path.join(str(tmp_path), "no-exif.bin")
+        with open(path, "wb") as fh:
+            fh.write(bytes(512))
+
+        assert _read_source_meta_exif(path) == _SourceMeta()
+
+    def test_tifffile_log_level_is_restored_on_failure(self, tmp_path: str) -> None:
+        """The `finally` exists to undo the CRITICAL silencing; keep it doing that."""
+        import logging
+
+        from negpy.services.export.linear_output import _read_source_meta_exif
+
+        path = os.path.join(str(tmp_path), "bad-exif.bin")
+        with open(path, "wb") as fh:
+            fh.write(self._EXIF_MARKER + b"\xff" * 256)
+
+        logger = logging.getLogger("tifffile")
+        before = logger.level
+        _read_source_meta_exif(path)
+        assert logger.level == before

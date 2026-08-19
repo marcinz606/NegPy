@@ -98,15 +98,15 @@ def _read_source_meta_exif(file_path: str) -> _SourceMeta:
             tif = _tifffile.TiffFile(io.BytesIO(tiff_bytes))
         finally:
             logging.getLogger("tifffile").setLevel(prev)
-            tags = tif.pages[0].tags
-            make = tags.get("Make")
-            model = tags.get("Model")
-            dt = tags.get("DateTime")
-            return _SourceMeta(
-                make=str(make.value).strip() if make else None,
-                model=str(model.value).strip() if model else None,
-                datetime=str(dt.value).strip() if dt else None,
-            )
+        tags = tif.pages[0].tags
+        make = tags.get("Make")
+        model = tags.get("Model")
+        dt = tags.get("DateTime")
+        return _SourceMeta(
+            make=str(make.value).strip() if make else None,
+            model=str(model.value).strip() if model else None,
+            datetime=str(dt.value).strip() if dt else None,
+        )
     except Exception:
         return _SourceMeta()
 
