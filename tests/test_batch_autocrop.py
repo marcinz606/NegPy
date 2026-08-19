@@ -346,7 +346,35 @@ def test_portrait_detection_and_resolution_abstain_before_detector(
     assert portrait.roi is None
     assert portrait.confidence == 0.0
     assert portrait.reason == "unsupported_orientation"
-    assert "portrait" not in _resolved_by_key([*_trusted_roll(), portrait])
+
+    # It takes no part in the roll, but it does not go uncropped: batch abstaining where
+    # single-frame Auto reads the frame would leave batch the worse of the two.
+    resolved = _resolved_by_key([*_trusted_roll(), portrait])["portrait"]
+    assert resolved.calibrated is False
+    assert resolved.correction_angle == 0.0
+
+
+def test_a_portrait_frame_resolves_even_without_a_roll(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An all-portrait selection builds no template at all, and the frame still has its own crop.
+    monkeypatch.setattr(batch_autocrop, "get_autocrop_coords", lambda *_a, **_k: (10, 110, 5, 75))
+    portrait = detect_crop_candidate("only", np.zeros((120, 80, 3), dtype=np.float32))
+
+    resolved = resolve_roll_crops([portrait])
+
+    assert [crop.key for crop in resolved] == ["only"]
+    assert resolved[0].crop_rect == pytest.approx((5 / 80, 10 / 120, 75 / 80, 110 / 120))
+
+
+def test_a_portrait_frame_the_detector_cannot_read_still_abstains(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(batch_autocrop, "get_autocrop_coords", lambda *_a, **_k: (0, 0, 0, 0))
+    portrait = detect_crop_candidate("blank", np.zeros((120, 80, 3), dtype=np.float32))
+
+    assert resolve_roll_crops([*_trusted_roll(), portrait]) != []
+    assert "blank" not in _resolved_by_key([*_trusted_roll(), portrait])
 
 
 def test_safety_border_uses_equal_one_percent_padding_or_common_edge_limit() -> None:

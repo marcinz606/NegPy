@@ -21,6 +21,7 @@ from negpy.features.geometry.logic import (
     _get_threshold_autocrop_coords,
     _trim_opaque_border,
     apply_fine_rotation,
+    get_autocrop_coords,
     detect_film_bounds_with_confidence,
     enforce_roi_aspect_ratio,
     measure_film_border,
@@ -63,6 +64,9 @@ _MIN_FALLBACK_COVERAGE = 0.9
 # the bed can clip to white and a dark subject then reads as the film box. The smallest real
 # box in the corpus covers 62.5%, so this sits well clear of legitimate geometry.
 _MIN_DETECTED_BOX_COVERAGE = 0.25
+# Confidence for a frame the roll never saw, resolved from its own crop alone. It carries a
+# single frame's evidence, so it cannot claim what a pooled frame does.
+_OWN_CROP_CONFIDENCE = 0.5
 
 
 def _box_too_small(roi: ROI, shape: tuple[int, int]) -> bool:
@@ -264,12 +268,18 @@ def detect_crop_candidate(
     """Collect crop, deskew, and edge evidence for one transformed preview.
 
     The caller must apply flat-field correction, coarse rotation, flips, existing
-    fine rotation, and distortion first.  Portrait canvases are intentionally left
-    unchanged because the first implementation targets the landscape roll workflow.
+    fine rotation, and distortion first.  A portrait canvas takes no part in the roll,
+    which is landscape, and carries its own single-frame crop instead.
     """
     h, w = image.shape[:2]
     profile, profile_contrast = _vertical_edge_profile(image)
     if w <= h:
+        # The roll template cannot place this frame, but the single-frame detector reads it
+        # like any other. Abstaining would leave batch worse than Auto on the same frame.
+        try:
+            own_roi = get_autocrop_coords(image, target_ratio_str=target_ratio, rebate_trim=rebate_trim)
+        except Exception:
+            own_roi = None
         return CropEvidence(
             key,
             (h, w),
@@ -280,6 +290,7 @@ def detect_crop_candidate(
             rebate_trim=rebate_trim,
             vertical_edge_contrast=profile_contrast,
             vertical_edge_profile=profile,
+            fallback_roi=own_roi,
             reason="unsupported_orientation",
         )
 
@@ -761,6 +772,26 @@ def add_uniform_safety_border(
     return y1 - pad, y2 + pad, x1 - pad, x2 + pad
 
 
+def _own_crop(item: CropEvidence) -> list[ResolvedCrop]:
+    """The frame's own single-frame crop, for a frame the roll cannot place."""
+    if item.fallback_roi is None:
+        return []
+    h, w = item.canvas_shape
+    y1, y2, x1, x2 = item.fallback_roi
+    if y2 <= y1 or x2 <= x1 or h <= 0 or w <= 0:
+        return []
+    rect = tuple(float(np.clip(v, 0.0, 1.0)) for v in (x1 / w, y1 / h, x2 / w, y2 / h))
+    return [
+        ResolvedCrop(
+            key=item.key,
+            crop_rect=rect,
+            correction_angle=0.0,
+            confidence=_OWN_CROP_CONFIDENCE,
+            calibrated=False,
+        )
+    ]
+
+
 def resolve_roll_crops(
     evidence: Sequence[CropEvidence],
     *,
@@ -771,10 +802,13 @@ def resolve_roll_crops(
         ratio: build_roll_template([item for item in evidence if item.target_ratio == ratio])
         for ratio in dict.fromkeys(item.target_ratio for item in evidence)
     }
-    if not any(template is not None for template in templates.values()):
-        return []
 
-    results: list[ResolvedCrop] = []
+    # A portrait frame resolves before the roll is consulted, and whether or not the roll
+    # produced a template: it took no part in either, so neither can place it.
+    results = [crop for item in evidence if item.reason == "unsupported_orientation" for crop in _own_crop(item)]
+    if not any(template is not None for template in templates.values()):
+        return results
+
     for item in evidence:
         if item.reason == "unsupported_orientation":
             continue
