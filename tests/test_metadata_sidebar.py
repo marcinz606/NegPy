@@ -12,7 +12,7 @@ from dataclasses import replace
 
 import piexif
 import pytest
-from PyQt6.QtWidgets import QApplication, QLabel
+from PyQt6.QtWidgets import QApplication, QCheckBox, QLabel
 
 from conftest import FakeController
 from negpy.desktop.view.sidebar import metadata as metadata_module
@@ -170,3 +170,23 @@ class TestSourceGpsPrefill:
         seen = self._capture_picker(monkeypatch)
         sidebar._open_location_picker()
         assert seen["center"] is None
+
+
+class TestSyncCheckbox:
+    def test_sits_at_the_top_beside_protect_and_not_inside_a_card(self, sidebar: MetadataSidebar) -> None:
+        order = [sidebar.layout.indexOf(w) for w in (sidebar.protect_check, sidebar.sync_check)]
+        assert -1 not in order
+        assert order[0] < order[1] < sidebar.layout.indexOf(sidebar._metadata_controls)
+        assert sidebar._metadata_controls.findChildren(QCheckBox).count(sidebar.sync_check) == 0
+
+    def test_protect_disables_it(self, sidebar: MetadataSidebar) -> None:
+        """Protect mode ignores the panel's fields, so syncing them would mean nothing."""
+        sidebar._on_protect_toggled(True)
+        assert sidebar.sync_check.isEnabled() is False
+        sidebar._on_protect_toggled(False)
+        assert sidebar.sync_check.isEnabled() is True
+
+    def test_toggle_persists(self, sidebar: MetadataSidebar) -> None:
+        sidebar.sync_check.setChecked(True)
+        sidebar._persist_all_metadata_settings()
+        assert sidebar.state.config.metadata.sync_to_batch is True

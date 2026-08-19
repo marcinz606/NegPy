@@ -814,6 +814,7 @@ The primary **Export** action. Its chevron menu picks the scope: current frame (
 Archival metadata for the **original analog capture** (camera, lens, film, process), written into exported files as EXIF and embedded XMP, so DAMs like Lightroom show your film gear rather than the scanner.
 
 *   **Protect original metadata**: copy the source file's EXIF/XMP to exports unchanged, adding nothing. When it is on, the fields below are ignored.
+*   **Sync custom metadata to all files in batch export**: batch and preset exports write this frame's capture, gear and process values to every file, instead of each file's own.
 
 **Analog Gear** (searchable; type in any field to filter the library):
 
@@ -836,7 +837,6 @@ Archival metadata for the **original analog capture** (camera, lens, film, proce
 
 *   **Scanning**: scan method or notes. EXIF `Software` is always `NegPy`.
 *   **Roll / Frame**: Scanlight capture roll name and frame number, stamped automatically on capture and editable here. Available in export filename templates as `{{ roll }}` and `{{ frame }}`, and written to XMP as `negpy:CaptureRoll` and `negpy:CaptureFrame` when set. Not the Roll Analysis normalization name.
-*   **Sync custom metadata to all files in batch export**: apply this tab's values to every file in a batch.
 
 **Exposure**: optional original shutter, aperture and ISO. Click the lock to edit a free-text string, for example `1/125s f/2.8 ISO 400`.
 

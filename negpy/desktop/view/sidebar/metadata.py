@@ -71,6 +71,13 @@ class MetadataSidebar(BaseSidebar):
         )
         self.layout.addWidget(self.protect_check)
 
+        self.sync_check = QCheckBox("Sync custom metadata to all files in batch export")
+        self.sync_check.setChecked(conf.sync_to_batch)
+        self.sync_check.setToolTip(
+            "Batch and preset exports write this frame's capture, gear and process values to every file, instead of each file's own."
+        )
+        self.layout.addWidget(self.sync_check)
+
         self._metadata_controls = QWidget()
         controls = QVBoxLayout(self._metadata_controls)
         controls.setContentsMargins(0, 0, 0, 0)
@@ -199,9 +206,6 @@ class MetadataSidebar(BaseSidebar):
         roll_row.addLayout(frame_col, 1)
         scan.addLayout(roll_row)
 
-        self.sync_check = QCheckBox("Sync custom metadata to all files in batch export")
-        self.sync_check.setChecked(conf.sync_to_batch)
-        scan.addWidget(self.sync_check)
         controls.addWidget(self._card("Scanning", "scanning", scan_body, "mdi6.scanner"))
 
         # ── EXPOSURE ─────────────────────────────────────────────────────
@@ -286,6 +290,7 @@ class MetadataSidebar(BaseSidebar):
     def _set_metadata_controls_enabled(self, enabled: bool) -> None:
         self._metadata_controls.setEnabled(enabled)
         self.description_fields_btn.setEnabled(enabled)
+        self.sync_check.setEnabled(enabled)
 
     def _apply_lock_style(self, edit: QLineEdit, locked: bool) -> None:
         if locked:
