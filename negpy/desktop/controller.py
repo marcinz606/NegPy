@@ -1447,7 +1447,15 @@ class AppController(QObject):
         # else to show meanwhile.
         if identity is not None and not self._is_rendering and self._pending_render_task is None:
             source_hash, memo_key, content_rect = identity
-            self._render_memo.store(source_hash, memo_key, {"base_positive": texture, "content_rect": content_rect})
+            self._render_memo.store(
+                source_hash,
+                memo_key,
+                {
+                    "base_positive": texture,
+                    "content_rect": content_rect,
+                    "render_long_edge": self.state.last_metrics.get("render_long_edge", 0),
+                },
+            )
         return texture
 
     def _on_file_selected_load(self, file_path: str) -> None:
@@ -1497,6 +1505,7 @@ class AppController(QObject):
             with self.state.metrics_lock:
                 self.state.last_metrics["base_positive"] = memo["base_positive"]
                 self.state.last_metrics["content_rect"] = memo.get("content_rect")
+                self.state.last_metrics["render_long_edge"] = memo.get("render_long_edge", 0)
                 self.state.last_metrics["splash"] = False
                 # These pixels are this frame's own last render. Leaving the outgoing
                 # frame's hash next to them would file them under it on the next
@@ -1590,6 +1599,7 @@ class AppController(QObject):
         # replaces it.
         with self.state.metrics_lock:
             self.state.last_metrics["base_positive"] = raw
+            self.state.last_metrics["render_long_edge"] = int(max(raw.shape[:2])) if isinstance(raw, np.ndarray) else 0
             self.state.last_metrics["splash"] = True
         self.image_updated.emit()
 
@@ -4838,7 +4848,11 @@ class AppController(QObject):
             self._render_memo.store(
                 metrics["source_hash"],
                 metrics["memo_key"],
-                {"base_positive": result, "content_rect": metrics.get("content_rect")},
+                {
+                    "base_positive": result,
+                    "content_rect": metrics.get("content_rect"),
+                    "render_long_edge": metrics.get("render_long_edge", 0),
+                },
             )
 
         if should_update_thumb:

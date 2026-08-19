@@ -199,7 +199,8 @@ class ActionToolbar(QWidget):
         self.btn_zoom_original.setText("1:1")
         self.btn_zoom_original.setToolTip(
             tooltip_with_shortcut(
-                "Original size (100%). Displays a lower-resolution preview unless HQ is enabled.",
+                "Original size (100%) — one scan pixel per screen pixel. Below HQ the preview is scaled up to it, "
+                "so the framing is right and the detail is not.",
                 "zoom_100",
             )
         )
@@ -312,7 +313,8 @@ class ActionToolbar(QWidget):
         self._ov_original_action = overflow_menu.addAction("Original Size (1:1)")
         self._ov_original_action.setToolTip(
             tooltip_with_shortcut(
-                "Original size (100%). Displays a lower-resolution preview unless HQ is enabled.",
+                "Original size (100%) — one scan pixel per screen pixel. Below HQ the preview is scaled up to it, "
+                "so the framing is right and the detail is not.",
                 "zoom_100",
             )
         )
