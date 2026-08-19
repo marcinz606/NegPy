@@ -359,6 +359,26 @@ class TestConfigDeserialization(unittest.TestCase):
         with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):
             WorkspaceConfig.from_flat_dict(WorkspaceConfig().to_dict())
 
+    def test_capture_date_and_place_survive_json(self):
+        """The place is Optional[float] plus strings, so a null must not become 0.0."""
+        config = replace(
+            WorkspaceConfig(),
+            metadata=replace(
+                WorkspaceConfig().metadata,
+                capture_date="1998-07",
+                gps_latitude=35.6762,
+                gps_longitude=139.6503,
+                location_city="Tokyo",
+            ),
+        )
+        loaded = WorkspaceConfig.from_flat_dict(json.loads(json.dumps(config.to_dict()))).metadata
+        self.assertEqual(loaded.capture_date, "1998-07")
+        self.assertEqual((loaded.gps_latitude, loaded.gps_longitude), (35.6762, 139.6503))
+        self.assertEqual(loaded.location_city, "Tokyo")
+
+        unset = WorkspaceConfig.from_flat_dict(json.loads(json.dumps(WorkspaceConfig().to_dict())))
+        self.assertIsNone(unset.metadata.gps_latitude)
+
 
 if __name__ == "__main__":
     unittest.main()

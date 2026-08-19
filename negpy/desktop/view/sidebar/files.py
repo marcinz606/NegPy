@@ -536,8 +536,8 @@ class FileBrowser(QWidget):
         self.search_input.setToolTip(
             "Filter the sheet. A bare word matches the filename; terms are combined with AND.\n"
             "Fields: film, camera, lens, developer, format, scanning, roll, frame, iso, push,\n"
-            "name, path, ext, date, keeper, rejected, edited.\n"
-            'Examples:  film:portra iso:>=400   ·   camera:"Nikon F3" -rejected:   ·   date:>=2024-03'
+            "shot, place, name, path, ext, date, keeper, rejected, edited.\n"
+            'Examples:  film:portra iso:>=400   ·   camera:"Nikon F3" -rejected:   ·   shot:>=1998-07   ·   place:tokyo'
         )
         self.search_input.setClearButtonEnabled(True)
         self.search_input.addAction(

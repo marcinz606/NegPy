@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
+from negpy.features.metadata.capture import xmp_gps
 from negpy.features.metadata.payload import MetadataPayload
 
 _XMP_BEGIN = '<?xpacket begin="\ufeff" id="W5M0MpCehiHzreSzNTczkc9d"?>'
@@ -13,6 +14,8 @@ _NS = {
     "x": "adobe:ns:meta/",
     "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
     "dc": "http://purl.org/dc/elements/1.1/",
+    "photoshop": "http://ns.adobe.com/photoshop/1.0/",
+    "exif": "http://ns.adobe.com/exif/1.0/",
     "negpy": "https://negpy.app/ns/1.0/",
 }
 
@@ -36,7 +39,7 @@ def build_xmp_xml(payload: MetadataPayload, *, standalone: bool = True) -> str:
     desc = ET.SubElement(rdf, f"{{{_NS['rdf']}}}Description")
     desc.set(f"{{{_NS['rdf']}}}about", "")
 
-    for prefix in ("dc", "negpy"):
+    for prefix in ("dc", "photoshop", "exif", "negpy"):
         desc.set(f"xmlns:{prefix}", _NS[prefix])
 
     # negpy namespace: the original film capture. A structured mirror, with standard EXIF
@@ -55,6 +58,11 @@ def build_xmp_xml(payload: MetadataPayload, *, standalone: bool = True) -> str:
         _sub(desc, "negpy", "CaptureMaxAperture", _to_rational(payload.max_aperture))
     if payload.capture_exposure:
         _sub(desc, "negpy", "CaptureExposure", payload.capture_exposure)
+    if payload.capture_date is not None:
+        # photoshop:DateCreated keeps the truncated form; the precision word says whether
+        # "1998" meant a year or the first of January.
+        _sub(desc, "photoshop", "DateCreated", payload.capture_date.xmp_text())
+        _sub(desc, "negpy", "CaptureDatePrecision", payload.capture_date.precision)
     if payload.iso is not None:
         _sub(desc, "negpy", "CaptureFilmISO", str(payload.iso))
     if payload.film_stock:
@@ -71,6 +79,17 @@ def build_xmp_xml(payload: MetadataPayload, *, standalone: bool = True) -> str:
         _sub(desc, "negpy", "PushPull", payload.push_pull)
     if payload.notes:
         _sub(desc, "negpy", "Notes", payload.notes)
+    if payload.location_city:
+        _sub(desc, "photoshop", "City", payload.location_city)
+    if payload.location_state:
+        _sub(desc, "photoshop", "State", payload.location_state)
+    if payload.location_country:
+        _sub(desc, "photoshop", "Country", payload.location_country)
+    if payload.gps_latitude is not None and payload.gps_longitude is not None:
+        lat, lon = xmp_gps(payload.gps_latitude, payload.gps_longitude)
+        _sub(desc, "exif", "GPSLatitude", lat)
+        _sub(desc, "exif", "GPSLongitude", lon)
+        _sub(desc, "exif", "GPSMapDatum", "WGS-84")
     if payload.scan_method:
         _sub(desc, "negpy", "ScanMethod", payload.scan_method)
     if payload.capture_roll:
@@ -95,6 +114,8 @@ def build_xmp_xml(payload: MetadataPayload, *, standalone: bool = True) -> str:
         _sub(desc, "negpy", "ScanExposure", payload.scan_exposure)
     if payload.scan_iso is not None:
         _sub(desc, "negpy", "ScanISO", str(payload.scan_iso))
+    if payload.scan_datetime:
+        _sub(desc, "negpy", "ScanDateTime", payload.scan_datetime)
 
     keywords: list[str] = []
     for val in (payload.film_stock, payload.film_manufacturer, payload.film_format, payload.film_color_type):

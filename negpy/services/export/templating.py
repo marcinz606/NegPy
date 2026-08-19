@@ -6,6 +6,7 @@ from typing import Optional, Union
 from jinja2.sandbox import SandboxedEnvironment
 
 from negpy.domain.models import ExportConfig, ExportPreset, ExportResolutionMode
+from negpy.features.metadata.capture import parse_capture_date
 from negpy.features.metadata.models import MetadataConfig
 from negpy.kernel.system.logging import get_logger
 
@@ -74,6 +75,7 @@ def _metadata_context(original_stem: str, metadata: Optional[MetadataConfig]) ->
 
     camera = f"{meta.camera_make} {meta.camera_model}".strip()
     lens = meta.lens_model.strip() or meta.lens_make.strip()
+    captured = parse_capture_date(meta.capture_date)
 
     return {
         "roll": _path_safe(roll),
@@ -95,6 +97,8 @@ def _metadata_context(original_stem: str, metadata: Optional[MetadataConfig]) ->
         "push_pull": meta.push_pull,
         "scanning": _path_safe(meta.scanning),
         "exposure": _path_safe(meta.exposure_override),
+        "capture_date": captured.compact() if captured else "",
+        "capture_year": str(captured.year) if captured else "",
     }
 
 
@@ -124,6 +128,7 @@ def render_export_filename(
     - target_px: Target long edge in pixels (TARGET_PX mode only, else empty)
     - border: "border" if border size > 0, else empty
     - date: Current date in YYYYMMDD format
+    - capture_date / capture_year: Original capture date (YYYYMMDD / YYYY), empty when unset
     - roll / frame / frame_padded: Scanlight capture roll and frame (metadata or stem parse)
     - camera / camera_make / camera_model, lens / lens_make / lens_model / focal_length
     - film / film_iso / film_manufacturer / film_color_type / film_format

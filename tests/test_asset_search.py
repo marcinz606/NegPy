@@ -26,6 +26,8 @@ def _facts(**overrides):
         "frame": 7,
         "iso": 400,
         "push": 0,
+        "shot": "",
+        "place": "",
     }
     base.update(overrides)
     return base
@@ -177,3 +179,56 @@ def test_facts_for_edited_asset_reads_metadata_and_roll():
 def test_facts_for_bad_mtime_yields_empty_date():
     assert facts_for({"name": "a.nef", "mtime": None}, None)["date"] == ""
     assert _hits("date:2024", date="") is False
+
+
+@pytest.mark.parametrize(
+    "query, expected",
+    [
+        ("shot:1998", True),
+        ("shot:1998-07", True),
+        ("shot:1999", False),
+        ("shot:>=1998-07", True),
+        ("shot:>=1998-08", False),
+        ("shot:<2000", True),
+        ("shot:>1998-07-14", False),
+        ("-shot:1998", False),
+    ],
+)
+def test_capture_date_orders_without_parsing_a_date(query: str, expected: bool):
+    """`shot` is truncated ISO-8601, so a prefix comparison is the whole ordering."""
+    assert _hits(query, shot="1998-07-14 16:30") is expected
+
+
+def test_capture_date_is_not_the_file_date():
+    assert _hits("shot:2024", shot="1998") is False
+    assert _hits("date:2024") is True
+
+
+def test_a_year_only_capture_date_is_not_claimed_to_be_in_any_month():
+    assert _hits("shot:1998", shot="1998") is True
+    assert _hits("shot:>=1998-07", shot="1998") is False
+
+
+@pytest.mark.parametrize("query, expected", [("place:tokyo", True), ("place:japan", True), ("place:paris", False)])
+def test_place_matches_any_of_city_state_country(query: str, expected: bool):
+    assert _hits(query, place="tokyo tokyo japan") is expected
+
+
+def test_unset_capture_date_and_place_never_match():
+    assert _hits("shot:1998") is False
+    assert _hits("place:tokyo") is False
+
+
+def test_facts_for_edited_asset_reads_capture_date_and_place():
+    config = replace(
+        WorkspaceConfig(),
+        metadata=MetadataConfig(
+            capture_date="1998-07-14 16:30",
+            location_city="Tokyo",
+            location_state="Tokyo",
+            location_country="Japan",
+        ),
+    )
+    facts = facts_for({"name": "a.nef", "mtime": 0.0}, config)
+    assert facts["shot"] == "1998-07-14 16:30"
+    assert facts["place"] == "tokyo tokyo japan"

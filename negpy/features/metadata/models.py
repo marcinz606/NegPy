@@ -93,6 +93,16 @@ class MetadataConfig:
     scanning: str = ""
     sync_to_batch: bool = False
 
+    # Original capture instant, ISO-8601 truncated to the precision the user knows.
+    capture_date: str = ""
+
+    # Capture place: WGS-84 position and the place names for it.
+    gps_latitude: Optional[float] = None
+    gps_longitude: Optional[float] = None
+    location_city: str = ""
+    location_state: str = ""
+    location_country: str = ""
+
     # Scanlight capture identity (not process.roll_name / Roll Analysis)
     capture_roll: str = ""
     capture_frame: Optional[int] = None

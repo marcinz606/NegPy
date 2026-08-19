@@ -14,6 +14,7 @@ from dataclasses import replace
 from typing import Any, Callable, Iterable, Mapping, Optional
 
 from negpy.domain.models import WorkspaceConfig
+from negpy.features.metadata.capture import place_summary
 from negpy.features.metadata.models import PUSH_PULL_LABELS
 from negpy.features.process.models import invalidate_local_bounds
 
@@ -207,6 +208,17 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("Film Manufacturer", "metadata", "film_manufacturer"),
         _row("Film Color Type", "metadata", "film_color_type"),
         _row("Format", "metadata", "format", "format_other", fmt=lambda v: (v[1] if v[0] == "Other" and v[1] else v[0]) or "—"),
+        _row("Capture Date", "metadata", "capture_date"),
+        _row(
+            "Place",
+            "metadata",
+            "location_city",
+            "location_state",
+            "location_country",
+            "gps_latitude",
+            "gps_longitude",
+            fmt=lambda v: place_summary(v[0], v[1], v[2], v[3], v[4]) or "—",
+        ),
         _row("Developer", "metadata", "developer"),
         _row("Push/Pull", "metadata", "push_pull", fmt=lambda v: PUSH_PULL_LABELS.get(v[0], str(v[0]))),
         _row("Scanning", "metadata", "scanning"),

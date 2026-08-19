@@ -307,3 +307,90 @@ class TestDecodeAscii:
         with tifffile.TiffFile(io.BytesIO(out)) as tf:
             desc = tf.pages[0].tags.get("ImageDescription")
             desc.value.encode("ascii")
+
+
+def _jpeg_bytes() -> bytes:
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (16, 16), (10, 20, 30)).save(buf, "JPEG")
+    return buf.getvalue()
+
+
+def _source_exif(exif: dict | None = None) -> dict:
+    return {"0th": {}, "Exif": dict(exif or {}), "GPS": {}, "Interop": {}, "1st": {}}
+
+
+class TestCaptureDateAndPlace:
+    def test_capture_date_replaces_the_scan_timestamp(self) -> None:
+        source = _source_exif({piexif.ExifIFD.DateTimeOriginal: b"2026:07:03 18:51:59"})
+        out = embed_metadata(_jpeg_bytes(), MetadataConfig(capture_date="1998-07-14 16:30+02:00"), source)
+        exif = piexif.load(out)["Exif"]
+        assert exif[piexif.ExifIFD.DateTimeOriginal] == b"1998:07:14 16:30:00"
+        assert exif[piexif.ExifIFD.OffsetTimeOriginal] == b"+02:00"
+        # The scan is what was digitized, so its timestamp moves to that tag.
+        assert exif[piexif.ExifIFD.DateTimeDigitized] == b"2026:07:03 18:51:59"
+
+    def test_partial_date_is_padded_for_exif_and_kept_in_xmp(self) -> None:
+        out = embed_metadata(_jpeg_bytes(), MetadataConfig(capture_date="1998"), _source_exif())
+        assert piexif.load(out)["Exif"][piexif.ExifIFD.DateTimeOriginal] == b"1998:01:01 00:00:00"
+        assert b"<photoshop:DateCreated>1998</photoshop:DateCreated>" in out
+        assert b"<negpy:CaptureDatePrecision>year</negpy:CaptureDatePrecision>" in out
+
+    def test_unset_capture_date_leaves_the_source_timestamp_alone(self) -> None:
+        source = _source_exif({piexif.ExifIFD.DateTimeOriginal: b"2026:07:03 18:51:59"})
+        out = embed_metadata(_jpeg_bytes(), MetadataConfig(), source)
+        exif = piexif.load(out)["Exif"]
+        assert exif[piexif.ExifIFD.DateTimeOriginal] == b"2026:07:03 18:51:59"
+        assert piexif.ExifIFD.DateTimeDigitized not in exif
+
+    def test_gps_ifd_and_place_names(self) -> None:
+        config = MetadataConfig(
+            gps_latitude=-33.8688,
+            gps_longitude=151.2093,
+            location_city="Sydney",
+            location_country="Australia",
+        )
+        out = embed_metadata(_jpeg_bytes(), config, _source_exif())
+        gps = piexif.load(out)["GPS"]
+        assert gps[piexif.GPSIFD.GPSLatitudeRef] == b"S"
+        assert gps[piexif.GPSIFD.GPSLongitudeRef] == b"E"
+        assert gps[piexif.GPSIFD.GPSMapDatum] == b"WGS-84"
+        assert b"<photoshop:City>Sydney</photoshop:City>" in out
+        assert b"<exif:GPSLatitude>" in out
+
+    def test_tiff_carries_location_in_xmp_and_not_as_top_level_tags(self) -> None:
+        """GPS tag numbers 1-4 are not TIFF tags; a TIFF gets its location from XMP."""
+        config = MetadataConfig(gps_latitude=35.6762, gps_longitude=139.6503)
+        out = embed_metadata(_make_tiff_bytes(), config, _source_exif())
+        with tifffile.TiffFile(io.BytesIO(out)) as tf:
+            codes = {tag.code for tag in tf.pages[0].tags}
+        assert not codes & {1, 2, 3, 4}
+        assert b"<exif:GPSLongitude>" in out
+
+
+class TestSourceGps:
+    _SOURCE_GPS = {
+        piexif.GPSIFD.GPSLatitudeRef: b"N",
+        piexif.GPSIFD.GPSLatitude: ((51, 1), (30, 1), (0, 100)),
+        piexif.GPSIFD.GPSLongitudeRef: b"W",
+        piexif.GPSIFD.GPSLongitude: ((0, 1), (7, 1), (3900, 100)),
+        piexif.GPSIFD.GPSAltitude: (35, 1),
+    }
+
+    def _with_gps(self) -> dict:
+        source = _source_exif()
+        source["GPS"] = dict(self._SOURCE_GPS)
+        return source
+
+    def test_source_position_survives_when_no_place_is_set(self) -> None:
+        out = embed_metadata(_jpeg_bytes(), MetadataConfig(), self._with_gps())
+        assert piexif.load(out)["GPS"] == self._SOURCE_GPS
+
+    def test_picked_place_replaces_the_whole_source_block(self) -> None:
+        """Keeping the scan's altitude or heading beside our coordinates would mix two places."""
+        config = MetadataConfig(gps_latitude=35.6762, gps_longitude=139.6503)
+        out = embed_metadata(_jpeg_bytes(), config, self._with_gps())
+        gps = piexif.load(out)["GPS"]
+        assert piexif.GPSIFD.GPSAltitude not in gps
+        assert gps[piexif.GPSIFD.GPSLongitudeRef] == b"E"

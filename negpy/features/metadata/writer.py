@@ -12,7 +12,8 @@ import piexif
 import tifffile
 from PIL import Image, PngImagePlugin
 
-from negpy.features.metadata.exif_read import strip_scan_exif_for_capture
+from negpy.features.metadata.capture import exif_gps_rationals
+from negpy.features.metadata.exif_read import strip_scan_exif_for_capture, strip_scan_gps
 from negpy.features.metadata.gear_models import GearLibrary
 from negpy.features.metadata.models import MetadataConfig
 from negpy.features.metadata.payload import NEGPY_SOFTWARE, MetadataPayload, build_metadata_payload
@@ -131,7 +132,24 @@ def _build_custom_exif(payload: MetadataPayload) -> dict:
     if flags.exposure and payload.capture_exposure:
         exif.update(_parse_exposure_str(payload.capture_exposure))
 
-    return {"0th": zeroth, "Exif": exif, "GPS": {}, "Interop": {}, "1st": {}}
+    if payload.capture_date is not None:
+        exif[piexif.ExifIFD.DateTimeOriginal] = _exif_ascii(payload.capture_date.exif_text())
+        if payload.capture_date.tz_offset:
+            exif[piexif.ExifIFD.OffsetTimeOriginal] = _exif_ascii(payload.capture_date.tz_offset)
+
+    gps: dict = {}
+    if payload.gps_latitude is not None and payload.gps_longitude is not None:
+        gps = exif_gps_rationals(payload.gps_latitude, payload.gps_longitude)
+
+    return {"0th": zeroth, "Exif": exif, "GPS": gps, "Interop": {}, "1st": {}}
+
+
+def _demote_scan_datetime(merged: dict) -> None:
+    """The source timestamp records when the frame was digitized, not when it was shot."""
+    exif = merged.setdefault("Exif", {})
+    source = exif.get(piexif.ExifIFD.DateTimeOriginal)
+    if source and piexif.ExifIFD.DateTimeDigitized not in exif:
+        exif[piexif.ExifIFD.DateTimeDigitized] = source
 
 
 def _sanitize_exif(exif_dict: dict) -> dict:
@@ -340,6 +358,12 @@ def embed_metadata(
     if payload.exif_flags.strip_scan_residuals:
         strip_scan_exif_for_capture(merged)
 
+    if payload.capture_date is not None:
+        _demote_scan_datetime(merged)
+
+    if payload.gps_latitude is not None and payload.gps_longitude is not None:
+        strip_scan_gps(merged)
+
     custom = _build_custom_exif(payload)
     for ifd_name in ("0th", "Exif", "GPS", "Interop", "1st"):
         if ifd_name in custom and custom[ifd_name]:
@@ -488,7 +512,7 @@ def _exif_bytes_to_extratags(exif_bytes: bytes) -> tuple[str | None, list[tuple]
     description = _decode_ascii(exif_dict.get("0th", {}).get(piexif.ImageIFD.ImageDescription))
 
     extratags: list[tuple] = []
-    for ifd_name in ("0th", "Exif", "GPS"):
+    for ifd_name in ("0th", "Exif"):
         ifd_data = exif_dict.get(ifd_name) or {}
         type_table = piexif.TAGS.get(ifd_name, {})
         for tag, value in ifd_data.items():
