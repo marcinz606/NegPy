@@ -10,6 +10,7 @@ from negpy.features.geometry.logic import (
     _refine_roi_to_image,
     _roi_from_measured_border,
     detect_closest_aspect_ratio,
+    detect_film_bounds_with_confidence,
     get_autocrop_coords,
     get_manual_crop_coords,
     get_manual_rect_coords,
@@ -1560,6 +1561,28 @@ def test_film_surround_must_be_near_clipping_to_read_as_bed():
 
     lum[:, :] = np.where(lum > 0.5, 1.0, lum)  # the same box, now sitting on real bed
     assert _film_surround_is_plausible(lum, (120, 300, 200, 420))
+
+
+def test_a_film_box_must_cover_a_quarter_of_the_frame():
+    from negpy.features.geometry.logic import _film_box_covers_enough
+
+    # A positive whose bed clips to white leaves a dark subject satisfying every other
+    # check on its own geometry. Film fills most of a scan, so a box this small is not it.
+    lum = np.zeros((400, 600), dtype=np.float32)
+
+    assert not _film_box_covers_enough(lum, (120, 300, 250, 350))
+    assert _film_box_covers_enough(lum, (20, 380, 30, 570))
+
+
+def test_a_small_high_scoring_box_is_rejected_by_the_detector():
+    # A dark bar on a clipped surround: plausible bed, plausible geometry, far too small.
+    lum = np.full((400, 600), 1.0, dtype=np.float32)
+    lum[140:280, 270:340] = 0.1
+    image = np.repeat(lum[:, :, None], 3, axis=2)
+
+    detection = detect_film_bounds_with_confidence(image)
+
+    assert detection.roi is None
 
 
 def test_rebate_trim_scales_the_inset_between_film_edge_and_image_edge():

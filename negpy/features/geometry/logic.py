@@ -854,7 +854,7 @@ def detect_film_bounds_with_confidence(img: ImageBuffer) -> AutocropDetection:
         candidates.extend(_candidates_from_mask(mask, image_shape, lum, ring_median, robust_span, source))
 
     consensus = _select_consensus_cluster(candidates, image_shape)
-    if consensus is None or not _film_surround_is_plausible(lum, consensus.roi):
+    if consensus is None or not _film_box_covers_enough(lum, consensus.roi) or not _film_surround_is_plausible(lum, consensus.roi):
         return _empty_autocrop_detection(vertical_edge_profile, vertical_edge_contrast)
 
     roi = _snap_film_bounds_to_bed_gradient(consensus.roi, lum)
@@ -874,6 +874,19 @@ def detect_film_bounds_with_confidence(img: ImageBuffer) -> AutocropDetection:
 def _detect_film_bounds(img: ImageBuffer) -> ROI | None:
     """Compatibility wrapper returning only the half-open outer-film ROI."""
     return detect_film_bounds_with_confidence(img).roi
+
+
+# How much of the frame a detected film box must cover to be read as film. Film fills most
+# of a scan under every holder we have samples for, and on a positive whose bed clips to
+# white a dark subject can otherwise satisfy every other check on its own geometry. The
+# smallest legitimate box in the corpus covers 62.5%, so this sits clear of real geometry.
+_MIN_FILM_BOX_COVERAGE = 0.25
+
+
+def _film_box_covers_enough(lum: np.ndarray, roi: ROI) -> bool:
+    h, w = lum.shape[:2]
+    y1, y2, x1, x2 = roi
+    return h > 0 and w > 0 and (y2 - y1) * (x2 - x1) >= _MIN_FILM_BOX_COVERAGE * h * w
 
 
 def _film_surround_is_plausible(lum: np.ndarray, roi: ROI) -> bool:
