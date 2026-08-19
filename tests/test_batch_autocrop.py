@@ -727,3 +727,44 @@ def test_roll_angle_keeps_every_frame_below_the_fitted_minimum() -> None:
 
     assert template is not None
     assert template.correction_angle == pytest.approx(1.0)
+
+
+def _detection(roi: tuple[int, int, int, int]) -> SimpleNamespace:
+    return SimpleNamespace(
+        roi=roi,
+        correction_angle=0.0,
+        confidence=0.9,
+        supported_sides=frozenset({"top", "right", "bottom", "left"}),
+        supported_corners=frozenset({"top_left"}),
+        evidence_sources=("adaptive-dark",),
+        geometry_score=0.9,
+        vertical_edge_contrast=0.8,
+        vertical_edge_profile=np.zeros(600, dtype=np.float32),
+    )
+
+
+def test_a_detected_box_below_the_coverage_floor_is_not_taken_as_film(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A positive whose bed clips to white leaves a dark subject reading as the film box, at a
+    # confidence high enough to be trusted. Film fills the frame, so a box this small is not it.
+    monkeypatch.setattr(batch_autocrop, "detect_film_bounds_with_confidence", lambda _image: _detection((50, 750, 620, 840)))
+    monkeypatch.setattr(batch_autocrop, "apply_fine_rotation", lambda image, _angle: image)
+
+    evidence = detect_crop_candidate("silhouette", np.zeros((1000, 1500, 3), dtype=np.float32))
+
+    assert evidence.roi is None
+    assert evidence.reason == "no_consensus"
+
+
+def test_a_detected_box_filling_the_frame_is_kept(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(batch_autocrop, "detect_film_bounds_with_confidence", lambda _image: _detection((50, 950, 40, 1460)))
+    monkeypatch.setattr(batch_autocrop, "apply_fine_rotation", lambda image, _angle: image)
+    monkeypatch.setattr(batch_autocrop, "_trim_opaque_border", lambda _lum, roi: roi)
+    monkeypatch.setattr(batch_autocrop, "measure_film_border", lambda *_a, **_k: dict.fromkeys(batch_autocrop.BORDER_SIDES, 0.0))
+
+    evidence = detect_crop_candidate("full", np.zeros((1000, 1500, 3), dtype=np.float32))
+
+    assert evidence.roi == (50, 950, 40, 1460)

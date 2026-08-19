@@ -58,6 +58,19 @@ _FALLBACK_CONFIDENCE = 0.30
 # fallback rests on that box being no crop by itself; a box well inside the frame is a crop,
 # and taking it as the film box crops to whatever the threshold happened to enclose.
 _MIN_FALLBACK_COVERAGE = 0.9
+# How much of the frame a *detected* film box must cover to be believed. Film fills most of
+# a scan under every holder we support, so a box far below this is not film: on a positive
+# the bed can clip to white and a dark subject then reads as the film box. The smallest real
+# box in the corpus covers 62.5%, so this sits well clear of legitimate geometry.
+_MIN_DETECTED_BOX_COVERAGE = 0.25
+
+
+def _box_too_small(roi: ROI, shape: tuple[int, int]) -> bool:
+    y1, y2, x1, x2 = roi
+    h, w = shape
+    if h <= 0 or w <= 0:
+        return True
+    return (y2 - y1) * (x2 - x1) < _MIN_DETECTED_BOX_COVERAGE * h * w
 
 
 @dataclass(frozen=True)
@@ -271,7 +284,7 @@ def detect_crop_candidate(
         )
 
     initial = detect_film_bounds_with_confidence(image)
-    if initial.roi is None:
+    if initial.roi is None or _box_too_small(initial.roi, (h, w)):
         fallback_roi, fallback_border, fallback_bright = _border_without_a_film_box(image)
         return CropEvidence(
             key,
@@ -308,7 +321,7 @@ def detect_crop_candidate(
 
     corrected = apply_fine_rotation(image, correction) if abs(correction) > 1e-4 else image
     final = detect_film_bounds_with_confidence(corrected)
-    if final.roi is None:
+    if final.roi is None or _box_too_small(final.roi, corrected.shape[:2]):
         return CropEvidence(
             key,
             corrected.shape[:2],
