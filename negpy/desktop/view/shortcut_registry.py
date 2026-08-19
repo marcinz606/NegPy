@@ -52,7 +52,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "local_oval": ShortcutEntry("", "Toggle dodge & burn oval mask draw", "Tools"),
     "local_gradient": ShortcutEntry("", "Toggle dodge & burn card-edge mask draw", "Tools"),
     "analysis_draw": ShortcutEntry("Shift+R", "Toggle analysis region draw", "Tools"),
-    "toggle_flat_peek": ShortcutEntry("|", "Peek flat scan (digital intermediate)", "Tools"),
+    "toggle_flat_peek": ShortcutEntry("M", "Peek flat scan (digital intermediate)", "Tools"),
     "toggle_negative_peek": ShortcutEntry("N", "Peek negative (source as loaded)", "Tools"),
     "toggle_zones": ShortcutEntry("Shift+Z", "Adams zone overlay", "Tools"),
     "toggle_test_strip": ShortcutEntry("Shift+T", "Density × grade test strip", "Tools"),
