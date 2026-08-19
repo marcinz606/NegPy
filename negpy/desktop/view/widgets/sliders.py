@@ -636,7 +636,7 @@ class RangeSlider(QWidget):
         # Debounce
         self.timer = QTimer()
         self.timer.setSingleShot(True)
-        self.timer.setInterval(50)
+        self.timer.setInterval(33)
         self.timer.timeout.connect(lambda: self.rangeChanged.emit(self._min_val, self._max_val))
 
     def setRange(self, low: float, high: float) -> None:

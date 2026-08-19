@@ -117,6 +117,7 @@ def _panel_stub(flat_peek: bool) -> MagicMock:
     panel = MagicMock()
     panel._clip_fracs = (None, None)
     panel.controller.state.flat_peek = flat_peek
+    panel.controller.state.negative_peek = False
     panel.controller.session.state.config = WorkspaceConfig()
     panel.controller.session.state.last_metrics = {}
     panel.controller.display_transform_params.return_value = ("sRGB", None, None)
@@ -128,6 +129,14 @@ def test_a_flat_peek_hides_the_wedge() -> None:
     """The flat intent bypasses the print curve, so there is nothing to print the wedge through
     and a stale strip would describe tones the canvas isn't showing."""
     panel = _panel_stub(flat_peek=True)
+    RightPanel._update_analysis(panel)
+    assert not panel.step_wedge.isVisibleTo(panel.step_wedge)
+
+
+def test_a_negative_peek_hides_the_wedge() -> None:
+    """No curve ran, so there is nothing to print the wedge through."""
+    panel = _panel_stub(flat_peek=False)
+    panel.controller.state.negative_peek = True
     RightPanel._update_analysis(panel)
     assert not panel.step_wedge.isVisibleTo(panel.step_wedge)
 

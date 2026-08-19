@@ -489,7 +489,7 @@ class AppController(QObject):
 
         self._render_debounce = QTimer()
         self._render_debounce.setSingleShot(True)
-        self._render_debounce.setInterval(80)
+        self._render_debounce.setInterval(50)
         self._render_debounce.timeout.connect(self.request_render)
 
         self._crop_bounds_dirty = False
