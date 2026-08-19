@@ -5,6 +5,7 @@ import sys
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtCore import QModelIndex  # noqa: E402
 from PyQt6.QtWidgets import QApplication  # noqa: E402
 
 from negpy.desktop.view.widgets.location_picker_dialog import LocationPickerDialog  # noqa: E402
@@ -40,20 +41,78 @@ def test_opens_with_the_existing_location(monkeypatch) -> None:
     assert dlg.map_view.pin() == (35.6586, 139.7454)
 
 
+def _suggestions(dlg: LocationPickerDialog) -> list[str]:
+    return dlg._suggestions.stringList()
+
+
+def _choose(dlg: LocationPickerDialog, row: int) -> None:
+    dlg._on_suggestion_chosen(dlg._suggestions.index(row, 0))
+
+
 def test_search_result_sets_pin_and_place(monkeypatch) -> None:
     dlg = _dialog(monkeypatch)
     dlg._on_search_done([_TOKYO])
-    assert dlg.results_list.isVisible() is False or dlg.results_list.count() == 1
-    dlg._on_result_selected(0)
+    assert _suggestions(dlg) == ["Tokyo, Japan"]
+    _choose(dlg, 0)
     lat, lon, city, state, country = dlg.location()
     assert (round(lat, 4), round(lon, 4)) == (35.6762, 139.6503)
     assert (city, state, country) == ("Tokyo", "Tokyo", "Japan")
 
 
-def test_empty_search_result_reports_unavailable(monkeypatch) -> None:
+def test_empty_search_result_clears_the_suggestions(monkeypatch) -> None:
     dlg = _dialog(monkeypatch)
+    dlg._on_search_done([_TOKYO])
     dlg._on_search_done([])
-    assert "unavailable" in dlg.status_label.text()
+    assert _suggestions(dlg) == []
+    assert "No place matched" in dlg.status_label.text()
+
+
+def test_typing_searches_after_a_pause_and_not_per_keystroke(monkeypatch) -> None:
+    """Nominatim allows one request a second, so the timer must absorb the keystrokes."""
+    queries: list[str] = []
+    monkeypatch.setattr(
+        "negpy.desktop.view.widgets.location_picker_dialog.search_places",
+        lambda query, **_kwargs: queries.append(query) or [],
+    )
+    dlg = _dialog(monkeypatch)
+
+    for text in ("t", "to", "tok"):
+        dlg.search_edit.setText(text)
+        dlg._on_search_text_edited(text)
+
+    assert queries == []
+    assert dlg._search_timer.isActive() is True
+
+    dlg._search_timer.timeout.emit()
+    assert queries == ["tok"]
+
+
+def test_a_too_short_query_never_searches(monkeypatch) -> None:
+    queries: list[str] = []
+    monkeypatch.setattr(
+        "negpy.desktop.view.widgets.location_picker_dialog.search_places",
+        lambda query, **_kwargs: queries.append(query) or [],
+    )
+    dlg = _dialog(monkeypatch)
+    dlg.search_edit.setText("to")
+    dlg._on_search_text_edited("to")
+    assert dlg._search_timer.isActive() is False
+
+    dlg._on_search()
+    assert queries == []
+
+
+def test_duplicate_display_names_collapse_to_one_suggestion(monkeypatch) -> None:
+    dlg = _dialog(monkeypatch)
+    dlg._on_search_done([_TOKYO, dict(_TOKYO)])
+    assert _suggestions(dlg) == ["Tokyo, Japan"]
+
+
+def test_choosing_nothing_leaves_the_place_alone(monkeypatch) -> None:
+    dlg = _dialog(monkeypatch, city="Kyoto")
+    dlg._on_search_done([_TOKYO])
+    dlg._on_suggestion_chosen(QModelIndex())
+    assert dlg.location()[2] == "Kyoto"
 
 
 def test_pasted_map_link_moves_the_pin(monkeypatch) -> None:

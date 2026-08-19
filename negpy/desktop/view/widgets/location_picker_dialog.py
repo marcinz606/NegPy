@@ -4,15 +4,14 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt6.QtCore import QObject, QRunnable, QThreadPool, pyqtSignal
+import qtawesome as qta
+from PyQt6.QtCore import QModelIndex, QObject, QRunnable, QStringListModel, Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
+    QCompleter,
     QDialog,
     QDialogButtonBox,
     QGridLayout,
-    QHBoxLayout,
     QLineEdit,
-    QListWidget,
-    QPushButton,
     QVBoxLayout,
 )
 
@@ -23,7 +22,11 @@ from negpy.features.metadata.capture import format_coords, parse_coords
 from negpy.services.maps import place_fields, result_coords, reverse_place, search_places
 
 _OFFLINE_HINT = "Map unavailable — enter coordinates manually."
+_NO_MATCH_HINT = "No place matched, or the lookup is unreachable."
 _SHUTDOWN_WAIT_MS = 6000
+# Nominatim asks for at most one request a second, so a keystroke must not be a request.
+_SEARCH_DEBOUNCE_MS = 500
+_MIN_QUERY_CHARS = 3
 
 
 class _LookupSignals(QObject):
@@ -86,7 +89,7 @@ class LocationPickerDialog(QDialog):
         self._signals.search_done.connect(self._on_search_done)
         self._signals.reverse_done.connect(self._on_reverse_done)
         self._reverse_token = 0
-        self._results: list[dict] = []
+        self._results: dict[str, dict] = {}
 
         root = QVBoxLayout(self)
         root.setContentsMargins(THEME.space_xl, THEME.space_xl, THEME.space_xl, THEME.space_xl)
@@ -96,22 +99,31 @@ class LocationPickerDialog(QDialog):
             hint_label("Search a place, click the map, or paste coordinates or a map link. Opening this dialog contacts OpenStreetMap.")
         )
 
-        search_row = QHBoxLayout()
-        search_row.setSpacing(THEME.space_sm)
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("e.g. Tokyo, Japan")
+        self.search_edit.addAction(
+            qta.icon("fa5s.search", color=THEME.text_secondary),
+            QLineEdit.ActionPosition.LeadingPosition,
+        )
+        self.search_edit.textEdited.connect(self._on_search_text_edited)
         self.search_edit.returnPressed.connect(self._on_search)
-        self.search_btn = QPushButton("Search")
-        self.search_btn.clicked.connect(self._on_search)
-        search_row.addWidget(self.search_edit, 1)
-        search_row.addWidget(self.search_btn)
-        root.addLayout(search_row)
+        root.addWidget(self.search_edit)
 
-        self.results_list = QListWidget()
-        self.results_list.setMaximumHeight(96)
-        self.results_list.setVisible(False)
-        self.results_list.currentRowChanged.connect(self._on_result_selected)
-        root.addWidget(self.results_list)
+        # A QCompleter, not a hand-rolled Qt.Popup: a popup grabs the keyboard, so the next
+        # keystroke would go to the list instead of the field. Unfiltered, because the hits
+        # come from the geocoder — filtering them again locally would hide "Tōkyō" for "tokyo".
+        self._suggestions = QStringListModel(self)
+        self._completer = QCompleter(self._suggestions, self)
+        self._completer.setCompletionMode(QCompleter.CompletionMode.UnfilteredPopupCompletion)
+        self._completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self._completer.setMaxVisibleItems(8)
+        self._completer.setWidget(self.search_edit)
+        self._completer.activated[QModelIndex].connect(self._on_suggestion_chosen)
+
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(_SEARCH_DEBOUNCE_MS)
+        self._search_timer.timeout.connect(self._on_search)
 
         self.map_view = SlippyMapWidget()
         self.map_view.pin_moved.connect(self._on_pin_moved)
@@ -181,28 +193,39 @@ class LocationPickerDialog(QDialog):
 
     # ── search ───────────────────────────────────────────────────────────
 
+    def _on_search_text_edited(self, text: str) -> None:
+        if len(text.strip()) < _MIN_QUERY_CHARS:
+            self._search_timer.stop()
+            return
+        self._search_timer.start()
+
     def _on_search(self) -> None:
+        self._search_timer.stop()
         query = self.search_edit.text().strip()
-        if not query:
+        if len(query) < _MIN_QUERY_CHARS:
             return
         self.status_label.setText("Searching…")
         self._pool.start(_SearchJob(self._signals, query))
 
     def _on_search_done(self, results: object) -> None:
-        self._results = list(results) if isinstance(results, list) else []
-        self.results_list.blockSignals(True)
-        self.results_list.clear()
-        for item in self._results:
-            self.results_list.addItem(str(item.get("display_name", "")))
-        self.results_list.setCurrentRow(-1)
-        self.results_list.blockSignals(False)
-        self.results_list.setVisible(bool(self._results))
-        self.status_label.setText("" if self._results else _OFFLINE_HINT)
+        self._results = {}
+        for item in results if isinstance(results, list) else []:
+            name = str(item.get("display_name", ""))
+            if name and name not in self._results:
+                self._results[name] = item
 
-    def _on_result_selected(self, row: int) -> None:
-        if not 0 <= row < len(self._results):
+        self._suggestions.setStringList(list(self._results))
+        if self._results:
+            self._completer.complete()
+            self.status_label.setText("")
+        else:
+            self._completer.popup().hide()
+            self.status_label.setText(_NO_MATCH_HINT)
+
+    def _on_suggestion_chosen(self, index: QModelIndex) -> None:
+        result = self._results.get(str(index.data()))
+        if result is None:
             return
-        result = self._results[row]
         coords = result_coords(result)
         if coords is None:
             return

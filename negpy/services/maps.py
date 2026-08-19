@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import locale
 import os
 import urllib.parse
 import urllib.request
@@ -27,6 +28,13 @@ _TIMEOUT = 3.0
 
 # The OSM tile policy requires an identifying User-Agent and local caching.
 _USER_AGENT = f"NegPy/{get_app_version()} (+https://github.com/marcinz606/NegPy)"
+
+
+def accept_language() -> str:
+    """Ask for place names in the user's language: an unreadable script would be written to XMP."""
+    tag = (locale.getlocale()[0] or os.environ.get("LANG", "")).split(".")[0].replace("_", "-")
+    return f"{tag},en" if tag else "en"
+
 
 _CITY_KEYS = ("city", "town", "village", "hamlet", "municipality", "suburb")
 _STATE_KEYS = ("state", "region", "province", "county")
@@ -87,14 +95,25 @@ def search_places(query: str, limit: int = 8, timeout: float = _TIMEOUT) -> list
     """Nominatim hits for a place name. Empty when offline or nothing matches."""
     if not query.strip():
         return []
-    params = urllib.parse.urlencode({"q": query.strip(), "format": "json", "addressdetails": 1, "limit": limit})
+    params = urllib.parse.urlencode(
+        {"q": query.strip(), "format": "json", "addressdetails": 1, "limit": limit, "accept-language": accept_language()}
+    )
     payload = _json(f"{_NOMINATIM}/search?{params}", timeout)
     return [item for item in payload if isinstance(item, dict)] if isinstance(payload, list) else []
 
 
 def reverse_place(lat: float, lon: float, timeout: float = _TIMEOUT) -> Optional[dict]:
     """The Nominatim result for a position, or None when it cannot be reached."""
-    params = urllib.parse.urlencode({"lat": f"{lat:.6f}", "lon": f"{lon:.6f}", "format": "json", "addressdetails": 1, "zoom": 10})
+    params = urllib.parse.urlencode(
+        {
+            "lat": f"{lat:.6f}",
+            "lon": f"{lon:.6f}",
+            "format": "json",
+            "addressdetails": 1,
+            "zoom": 10,
+            "accept-language": accept_language(),
+        }
+    )
     payload = _json(f"{_NOMINATIM}/reverse?{params}", timeout)
     return payload if isinstance(payload, dict) and "error" not in payload else None
 

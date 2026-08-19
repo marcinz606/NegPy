@@ -112,3 +112,24 @@ class TestFetchTile:
         monkeypatch.setattr(maps, "tile_cache_path", lambda z, x, y: str(tmp_path / "t.png"))
         _patch_urlopen(monkeypatch, None)
         assert maps.fetch_tile(9, 1, 2) is None
+
+
+class TestAcceptLanguage:
+    def test_asks_for_the_locale_language_with_an_english_fallback(self, monkeypatch) -> None:
+        monkeypatch.setattr(maps.locale, "getlocale", lambda *a: ("pl_PL", "UTF-8"))
+        assert maps.accept_language() == "pl-PL,en"
+
+    def test_falls_back_to_the_environment_then_to_english(self, monkeypatch) -> None:
+        monkeypatch.setattr(maps.locale, "getlocale", lambda *a: (None, None))
+        monkeypatch.setenv("LANG", "ja_JP.UTF-8")
+        assert maps.accept_language() == "ja-JP,en"
+
+        monkeypatch.setenv("LANG", "")
+        assert maps.accept_language() == "en"
+
+    def test_both_lookups_send_it(self, monkeypatch) -> None:
+        monkeypatch.setattr(maps, "accept_language", lambda: "pl-PL,en")
+        urls = _patch_urlopen(monkeypatch, [])
+        maps.search_places("Tokyo")
+        maps.reverse_place(35.0, 139.0)
+        assert all("accept-language=pl-PL%2Cen" in url for url in urls)
