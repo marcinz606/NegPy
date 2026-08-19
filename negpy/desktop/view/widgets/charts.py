@@ -47,6 +47,9 @@ class PhotometricCurveWidget(QWidget):
         # plt_x = 1 - val_center(i).
         self._density_bins: np.ndarray | None = None
         self._output_counts: np.ndarray | None = None  # (4, 256) [R, G, B, L]
+        # False during Peek Negative: no curve was applied, so the curve, print histogram
+        # and zone traces would describe a print that was never made.
+        self._show_print: bool = True
         self._log_scale: bool = False
         self._clip_low: dict[int, bool] = {}
         self._clip_high: dict[int, bool] = {}
@@ -78,6 +81,14 @@ class PhotometricCurveWidget(QWidget):
         if enabled == self._log_scale:
             return
         self._log_scale = enabled
+        self.update()
+
+    def set_show_print(self, visible: bool) -> None:
+        """Hide the curve, print histogram, zone traces and clip marks; density stays."""
+        visible = bool(visible)
+        if visible == self._show_print:
+            return
+        self._show_print = visible
         self.update()
 
     def set_marker(self, rgb: tuple | None) -> None:
@@ -351,111 +362,114 @@ class PhotometricCurveWidget(QWidget):
 
         # Histograms under everything else so the curve/zone tints stay readable.
         self._draw_density_histogram(painter, w, h)
-        self._draw_output_histogram(painter, w, h)
 
-        # Build the main curve path (reused for fill and line)
-        curve_path = QPainterPath()
-        curve_path.moveTo(self._wx(self._curve_pts[0][0], w), self._wy(self._curve_pts[0][1], h))
-        for px, py in self._curve_pts[1:]:
-            curve_path.lineTo(self._wx(px, w), self._wy(py, h))
+        if self._show_print:
+            self._draw_output_histogram(painter, w, h)
 
-        # P4: toe zone shading. Warm amber, right side, dense silver = shadows
-        self._draw_zone_shading(painter, w, h, self._toe_mask, self._toe_strength, QColor(255, 140, 50))
+            # Build the main curve path (reused for fill and line)
+            curve_path = QPainterPath()
+            curve_path.moveTo(self._wx(self._curve_pts[0][0], w), self._wy(self._curve_pts[0][1], h))
+            for px, py in self._curve_pts[1:]:
+                curve_path.lineTo(self._wx(px, w), self._wy(py, h))
 
-        # P4: shoulder zone shading. Cool blue, left side, thin silver = highlights
-        self._draw_zone_shading(painter, w, h, self._shoulder_mask, self._shoulder_strength, QColor(60, 130, 255))
+            # P4: toe zone shading. Warm amber, right side, dense silver = shadows
+            self._draw_zone_shading(painter, w, h, self._toe_mask, self._toe_strength, QColor(255, 140, 50))
 
-        # Glow the dragged slider's zone at fixed strength, so it reads at zero and negative values
-        if self._active_param in ("toe", "toe_width"):
-            self._draw_zone_shading(painter, w, h, self._toe_mask, 0.5, QColor(255, 140, 50))
-        elif self._active_param in ("shoulder", "shoulder_width"):
-            self._draw_zone_shading(painter, w, h, self._shoulder_mask, 0.5, QColor(60, 130, 255))
+            # P4: shoulder zone shading. Cool blue, left side, thin silver = highlights
+            self._draw_zone_shading(painter, w, h, self._shoulder_mask, self._shoulder_strength, QColor(60, 130, 255))
 
-        # P2: Gradient luminance fill under the curve
-        fill_path = QPainterPath(curve_path)
-        bot = self._wy(self._Y_MIN, h)
-        fill_path.lineTo(self._wx(self._curve_pts[-1][0], w), bot)
-        fill_path.lineTo(self._wx(self._curve_pts[0][0], w), bot)
-        fill_path.closeSubpath()
+            # Glow the dragged slider's zone at fixed strength, so it reads at zero and negative values
+            if self._active_param in ("toe", "toe_width"):
+                self._draw_zone_shading(painter, w, h, self._toe_mask, 0.5, QColor(255, 140, 50))
+            elif self._active_param in ("shoulder", "shoulder_width"):
+                self._draw_zone_shading(painter, w, h, self._shoulder_mask, 0.5, QColor(60, 130, 255))
 
-        gradient = QLinearGradient(0.0, 0.0, float(w), 0.0)
-        gradient.setColorAt(0.0, QColor(0, 0, 0, 55))
-        gradient.setColorAt(1.0, QColor(255, 255, 255, 55))
-        painter.setBrush(QBrush(gradient))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawPath(fill_path)
+            # P2: Gradient luminance fill under the curve
+            fill_path = QPainterPath(curve_path)
+            bot = self._wy(self._Y_MIN, h)
+            fill_path.lineTo(self._wx(self._curve_pts[-1][0], w), bot)
+            fill_path.lineTo(self._wx(self._curve_pts[0][0], w), bot)
+            fill_path.closeSubpath()
 
-        # P5: zone tick marks along the bottom (Adams Zone I to IX)
-        painter.setPen(QPen(QColor("#3A3A3A"), 1))
-        for i in range(1, 10):
-            zx = int(self._wx(i * 0.1, w))
-            painter.drawLine(zx, h - 5, zx, h - 1)
+            gradient = QLinearGradient(0.0, 0.0, float(w), 0.0)
+            gradient.setColorAt(0.0, QColor(0, 0, 0, 55))
+            gradient.setColorAt(1.0, QColor(255, 255, 255, 55))
+            painter.setBrush(QBrush(gradient))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawPath(fill_path)
 
-        self._draw_mask_band(painter, w, h)
+            # P5: zone tick marks along the bottom (Adams Zone I to IX)
+            painter.setPen(QPen(QColor("#3A3A3A"), 1))
+            for i in range(1, 10):
+                zx = int(self._wx(i * 0.1, w))
+                painter.drawLine(zx, h - 5, zx, h - 1)
 
-        # Pre-drag ghost curve
-        if self._ghost_pts:
-            ghost_path = QPainterPath()
-            ghost_path.moveTo(self._wx(self._ghost_pts[0][0], w), self._wy(self._ghost_pts[0][1], h))
-            for px, py in self._ghost_pts[1:]:
-                ghost_path.lineTo(self._wx(px, w), self._wy(py, h))
+            self._draw_mask_band(painter, w, h)
+
+            # Pre-drag ghost curve
+            if self._ghost_pts:
+                ghost_path = QPainterPath()
+                ghost_path.moveTo(self._wx(self._ghost_pts[0][0], w), self._wy(self._ghost_pts[0][1], h))
+                for px, py in self._ghost_pts[1:]:
+                    ghost_path.lineTo(self._wx(px, w), self._wy(py, h))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.setPen(QPen(QColor(200, 200, 200, 90), 1, Qt.PenStyle.DashLine))
+                painter.drawPath(ghost_path)
+                if self._ghost_pivot:
+                    painter.setBrush(QBrush(QColor(200, 200, 200, 90)))
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.drawEllipse(QPointF(self._wx(self._ghost_pivot[0], w), self._wy(self._ghost_pivot[1], h)), 2.5, 2.5)
+
+            # Curve line on top; per-channel traces replace the white line when present.
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.setPen(QPen(QColor(200, 200, 200, 90), 1, Qt.PenStyle.DashLine))
-            painter.drawPath(ghost_path)
-            if self._ghost_pivot:
-                painter.setBrush(QBrush(QColor(200, 200, 200, 90)))
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.drawEllipse(QPointF(self._wx(self._ghost_pivot[0], w), self._wy(self._ghost_pivot[1], h)), 2.5, 2.5)
+            if self._channel_curves:
+                for color, pts in self._channel_curves:
+                    ch_path = QPainterPath()
+                    ch_path.moveTo(self._wx(pts[0][0], w), self._wy(pts[0][1], h))
+                    for px, py in pts[1:]:
+                        ch_path.lineTo(self._wx(px, w), self._wy(py, h))
+                    painter.setPen(QPen(color, 1.5))
+                    painter.drawPath(ch_path)
+            else:
+                painter.setPen(QPen(QColor("#FFFFFF"), 1.5))
+                painter.drawPath(curve_path)
 
-        # Curve line on top; per-channel traces replace the white line when present.
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        if self._channel_curves:
-            for color, pts in self._channel_curves:
-                ch_path = QPainterPath()
-                ch_path.moveTo(self._wx(pts[0][0], w), self._wy(pts[0][1], h))
-                for px, py in pts[1:]:
-                    ch_path.lineTo(self._wx(px, w), self._wy(py, h))
-                painter.setPen(QPen(color, 1.5))
-                painter.drawPath(ch_path)
-        else:
-            painter.setPen(QPen(QColor("#FFFFFF"), 1.5))
-            painter.drawPath(curve_path)
+            # P3: Pivot crosshairs + dot
+            if self._pivot_pt:
+                wpx = self._wx(self._pivot_pt[0], w)
+                wpy = self._wy(self._pivot_pt[1], h)
 
-        # P3: Pivot crosshairs + dot
-        if self._pivot_pt:
-            wpx = self._wx(self._pivot_pt[0], w)
-            wpy = self._wy(self._pivot_pt[1], h)
+                # Grade and Density act about the pivot, so brighten its crosshair while dragged.
+                cross_alpha = 110 if self._active_param in ("grade", "density") else 45
+                painter.setPen(QPen(QColor(200, 200, 200, cross_alpha), 1, Qt.PenStyle.DotLine))
+                painter.drawLine(int(wpx), 0, int(wpx), h)
+                painter.drawLine(0, int(wpy), w, int(wpy))
 
-            # Grade and Density act about the pivot, so brighten its crosshair while dragged.
-            cross_alpha = 110 if self._active_param in ("grade", "density") else 45
-            painter.setPen(QPen(QColor(200, 200, 200, cross_alpha), 1, Qt.PenStyle.DotLine))
-            painter.drawLine(int(wpx), 0, int(wpx), h)
-            painter.drawLine(0, int(wpy), w, int(wpy))
+                painter.setBrush(QBrush(QColor("#FFFFFF")))
+                painter.setPen(QPen(QColor("#050505"), 1))
+                painter.drawEllipse(QPointF(wpx, wpy), 3.5, 3.5)
 
-            painter.setBrush(QBrush(QColor("#FFFFFF")))
-            painter.setPen(QPen(QColor("#050505"), 1))
-            painter.drawEllipse(QPointF(wpx, wpy), 3.5, 3.5)
+            # Spot-densitometer tracking dot
+            if self._tracking_val is not None:
+                plt_x = float(np.clip(1.0 - self._tracking_val, self._X_MIN, self._X_MAX))
+                idx = round((plt_x - self._X_MIN) / (self._X_MAX - self._X_MIN) * (len(self._curve_pts) - 1))
+                idx = max(0, min(len(self._curve_pts) - 1, idx))
+                tx, ty = self._curve_pts[idx]
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.setPen(QPen(QColor(255, 255, 255, 220), 1.5))
+                painter.drawEllipse(QPointF(self._wx(tx, w), self._wy(ty, h)), 4.0, 4.0)
 
-        # Spot-densitometer tracking dot
-        if self._tracking_val is not None:
-            plt_x = float(np.clip(1.0 - self._tracking_val, self._X_MIN, self._X_MAX))
-            idx = round((plt_x - self._X_MIN) / (self._X_MAX - self._X_MIN) * (len(self._curve_pts) - 1))
-            idx = max(0, min(len(self._curve_pts) - 1, idx))
-            tx, ty = self._curve_pts[idx]
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.setPen(QPen(QColor(255, 255, 255, 220), 1.5))
-            painter.drawEllipse(QPointF(self._wx(tx, w), self._wy(ty, h)), 4.0, 4.0)
+            # Hovered-pixel marker lines
+            if self._marker is not None:
+                for value, color_hex in zip(self._marker, (THEME.channel_red, THEME.channel_green, THEME.channel_blue)):
+                    c = QColor(color_hex)
+                    c.setAlpha(220)
+                    painter.setPen(QPen(c, 1, Qt.PenStyle.DashLine))
+                    mx = int(value / 255 * (w - 1))
+                    painter.drawLine(mx, 0, mx, h)
 
-        # Hovered-pixel marker lines
-        if self._marker is not None:
-            for value, color_hex in zip(self._marker, (THEME.channel_red, THEME.channel_green, THEME.channel_blue)):
-                c = QColor(color_hex)
-                c.setAlpha(220)
-                painter.setPen(QPen(c, 1, Qt.PenStyle.DashLine))
-                mx = int(value / 255 * (w - 1))
-                painter.drawLine(mx, 0, mx, h)
+            self._draw_clip_indicators(painter, w, h)
 
-        self._draw_clip_indicators(painter, w, h)
         self._draw_scale_toggle(painter, w, h)
 
     def _draw_mask_band(self, painter: QPainter, w: int, h: int) -> None:

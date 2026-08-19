@@ -345,6 +345,19 @@ class RightPanel(QWidget):
             zone_warnings,
         )
 
+        self.curve_widget.set_density_histogram(metrics.get("histogram_density"))
+
+        # Peek Negative applied no curve, so the print histogram, curve and zone strip
+        # would describe a print that was never made. Density is unaffected: it reads
+        # the scan itself, before the curve.
+        if self.controller.state.negative_peek:
+            self.curve_widget.set_output_histogram(None)
+            self.curve_widget.set_show_print(False)
+            self._clip_fracs = (None, None)
+            self.zone_strip.setVisible(False)
+            return
+        self.curve_widget.set_show_print(True)
+
         source = metrics.get("histogram_raw")
         if source is None:
             source = metrics.get("analysis_buffer")
@@ -358,7 +371,6 @@ class RightPanel(QWidget):
         bins = output_histogram(source)
 
         self.curve_widget.set_output_histogram(bins)
-        self.curve_widget.set_density_histogram(metrics.get("histogram_density"))
         self._clip_fracs = output_clip_fractions(bins) if bins is not None else (None, None)
 
         # A flat log master has no print zones, so hide them rather than mislead.
@@ -398,6 +410,10 @@ class RightPanel(QWidget):
             gain, lift = flat_curve_params()
             self.curve_widget.update_curve(flat_cfg, slope=gain, pivot=lift, flat=True)
             # A flat master has no print curve, so there is no wedge to print through it.
+            self.step_wedge.setVisible(False)
+        elif self.controller.state.negative_peek:
+            # No curve ran, so there is nothing to plot or to print the wedge through;
+            # the chart itself already suppressed the curve in _update_histograms.
             self.step_wedge.setVisible(False)
         else:
             # Mirror PhotometricProcessor, so the plotted curve matches the render under the Auto

@@ -250,6 +250,8 @@ Two different histograms share the chart. Behind the curve, rising from the bott
 
 Read them against each other. The density histogram tells you which part of the horizontal axis your negative occupies, and the curve tells you what happens to it. If the negative's data sits entirely on the flat toe, no amount of contrast pulls those shadows apart. Move the exposure so the data lands on the steep middle instead.
 
+Peek Negative shows the scan before any curve ran, so the chart drops the curve, the output histogram and the zone strip and leaves only the density histogram.
+
 #### LIN / LOG toggle
 
 Bottom-right of the chart. It switches the histogram's *height* axis (how many pixels), not the tone axis. **LIN** is literal, so a big flat sky dwarfs everything else. **LOG** compresses the tall peaks so the thin tails become visible, which is where the few hundred pixels of deep shadow or specular highlight live. Use LOG to hunt for clipping, LIN to judge where the bulk of the frame sits. NegPy remembers the choice between sessions.
