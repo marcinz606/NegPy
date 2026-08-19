@@ -46,6 +46,7 @@ from negpy.desktop.workers.library import LibrarySearchTask, LibrarySearchWorker
 from negpy.desktop.workers.hdr import HdrTask, HdrWorker
 from negpy.desktop.workers.stitch import StitchTask, StitchWorker
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, hdr_frame_paths, hdr_hash, hdr_name
+from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
 from negpy.features.process.logic import effective_linear_raw, narrowband_profile_active
 from negpy.features.stitch.models import stitch_hash, stitch_name
 from negpy.desktop.workers.capture_worker import (
@@ -1498,6 +1499,7 @@ class AppController(QObject):
                 self.state.last_metrics["base_positive"] = memo["base_positive"]
                 self.state.last_metrics["content_rect"] = memo.get("content_rect")
                 self.state.last_metrics["splash"] = False
+                self.state.last_metrics["proof"] = True
                 # These pixels are this frame's own last render. Leaving the outgoing
                 # frame's hash next to them would file them under it on the next
                 # thumbnail refresh, which reads whatever last_metrics holds.
@@ -3634,7 +3636,7 @@ class AppController(QObject):
             return get_resource_path("icc/RGBScan.icc")
         return None
 
-    def display_transform_params(self, splash: bool = False) -> tuple[str, Optional[bytes], Optional[tuple]]:
+    def display_transform_params(self, splash: bool = False, proofed: bool = True) -> tuple[str, Optional[bytes], Optional[tuple]]:
         """Everything the display transform needs for the current render, as
         ``(color_space, monitor_icc_bytes, proof)``.
 
@@ -3644,10 +3646,13 @@ class AppController(QObject):
         proof is *not* baked into them, it is folded into the display LUT here (see
         ``get_display_lut``), which is what lets a GPU texture go to the shader
         untouched. ``splash`` marks the embedded camera thumbnail, already sRGB.
+        ``proofed`` is False for a working-space buffer that is not a print: the
+        negative peek shows the scan, which a paper simulation would misdescribe.
         """
         if splash:
             return ColorSpace.SRGB.value, self.state.monitor_icc_bytes, None
-        return self.state.workspace_color_space, self.state.monitor_icc_bytes, self.proof_profiles()
+        proof = self.proof_profiles() if proofed else None
+        return self.state.workspace_color_space, self.state.monitor_icc_bytes, proof
 
     def proof_profiles(self) -> Optional[tuple]:
         """``(input_icc, output_icc)`` for the preview proof, or None when off.
@@ -3952,9 +3957,15 @@ class AppController(QObject):
         the base and crop stages use, so the negative sits at the orientation and
         framing the user set. Everything after it is skipped: no metering, no
         inversion, no look. Only the working OETF follows, or a linear buffer shows as
-        near-black. The source is in camera primaries, so it is marked splash to keep
-        the working-to-display matrix and the proof out of it, and content_rect is
-        cleared because no border stage ran to inset the picture.
+        near-black. ``content_rect`` is cleared because no border stage ran to inset the
+        picture.
+
+        The source is in camera primaries, so the camera matrix runs here: painting those
+        numbers as display RGB flattens the film base, which on a C-41 negative reads as a
+        mask that is far weaker than the one in the file. The multipliers fold into the
+        matrix when the decode skipped them, so the peek looks the same either way and
+        Linear RAW does not change what the mask looks like. The proof stays off — this is
+        the scan, not a print.
         """
         source = self.state.preview_raw
         if source is None:
@@ -3973,10 +3984,19 @@ class AppController(QObject):
         img = GeometryProcessor(geometry, flatfield.k1 if flatfield.apply else 0.0).process(source, context)
         if not context.crop_preview_full:
             img = CropProcessor(geometry).process(img, context)
+        decoded_without_wb = effective_linear_raw(self.state.config.process, self.state.config.exposure.render_intent)
+        img = apply_camera_matrix(
+            img,
+            camera_to_working_matrix(
+                self.state.preview_cam_xyz,
+                self.state.preview_camera_wb if decoded_without_wb else None,
+            ),
+        )
         with self.state.metrics_lock:
             self.state.last_metrics["base_positive"] = working_oetf_encode(img)
             self.state.last_metrics["content_rect"] = None
-            self.state.last_metrics["splash"] = True
+            self.state.last_metrics["splash"] = False
+            self.state.last_metrics["proof"] = False
         self.image_updated.emit()
 
     def toggle_negative_peek(self, force: Optional[bool] = None) -> None:
@@ -4809,6 +4829,9 @@ class AppController(QObject):
         with self.state.metrics_lock:
             self.state.last_metrics.update(metrics)
             self.state.last_metrics["splash"] = False
+            # last_metrics carries over between frames, so a peek's suppressed proof must
+            # not outlive it onto the next render.
+            self.state.last_metrics["proof"] = True
 
         self._freeze_resolved_auto_crop(metrics)
 
@@ -5025,7 +5048,9 @@ class AppController(QObject):
 
         # The same transform the canvas used for this buffer, so the filmstrip and the canvas
         # cannot disagree about the frame's color.
-        display_cs, monitor_bytes, proof = self.display_transform_params(splash=bool(metrics.get("splash")))
+        display_cs, monitor_bytes, proof = self.display_transform_params(
+            splash=bool(metrics.get("splash")), proofed=bool(metrics.get("proof", True))
+        )
         # The asset's own key, so the batch (source) path re-serves this rendered positive
         # instead of the uninverted source merge it would decode itself.
         self.thumbnail_update_requested.emit(

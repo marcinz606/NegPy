@@ -24,7 +24,7 @@ The split stays up while you work, so a slider moves the after side against a fi
 
 ### Peek Negative
 
-The canvas toolbar's film button (or `N`) shows the scan as it was loaded: the negative, un-inverted, with no metering, no film-base normalization and none of your edits. Use it to judge the scan rather than the print — whether the frame is thin or dense, what colour the mask really is, whether the scanner clipped. It changes nothing and closes as soon as you touch a control. Your crop, rotation and flip still apply, so the frame stays where you put it. Because it is the file's own numbers, it gets no colour management or soft proof, so expect the raw orange cast rather than an accurate one.
+The canvas toolbar's film button (or `N`) shows the scan as it was loaded: the negative, un-inverted, with no metering, no film-base normalization and none of your edits. Use it to judge the scan rather than the print — whether the frame is thin or dense, what color the mask really is, whether the scanner clipped. It changes nothing and closes as soon as you touch a control. Your crop, rotation and flip still apply, so the frame stays where you put it. The frame is color managed, so a C-41 mask is as orange here as in the file, and Linear RAW does not change how it looks. The soft proof stays off: this is the scan, not a print.
 
 ### The workflow (and the order things happen)
 

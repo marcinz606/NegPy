@@ -41,7 +41,7 @@ class TestControllerDoesNotReadBack(unittest.TestCase):
                 last_metrics=metrics,
                 metrics_lock=MagicMock(__enter__=lambda s: None, __exit__=lambda s, *a: None),
             ),
-            display_transform_params=lambda splash=False: ("Adobe RGB", None, None),
+            display_transform_params=lambda splash=False, proofed=True: ("Adobe RGB", None, None),
             thumbnail_update_requested=MagicMock(),
         )
         # Attributing a render to its own frame is the caller's first step.
