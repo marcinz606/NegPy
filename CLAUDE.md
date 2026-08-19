@@ -39,6 +39,8 @@ Edits persist in SQLite (`edits.db`, keyed by content hash), optionally mirrored
 
 Migrations that rewrite *rows* rather than a config payload need a repository, so they stay out of that dependency-free module and live beside their feature: `services/assets/hash_migration.py` (edits saved under a superseded content hash — see the identity note below) and `services/assets/flatfield_migration.py` (the retired profile table).
 
+**Composite membership** (`services/assets/composites.py`) — which files a stitch or an HDR merge is made of is a user decision that nothing in the files records, so it is stored per primary path and lives until the composite is dissolved, not until the file list changes. Every asset discovery re-attaches from it and drops the parts it consumed; `_persist_session` upserts into it, never rewrites it, because the open files are one folder and the store is all of them.
+
 ### Pipeline
 
 - **CPU**: `DarkroomEngine.process()` (`negpy/services/rendering/engine.py`) — base (geometry + normalization) → exposure (incl. dodge/burn) → clahe → lab → alt process → toning → crop → finish. The first four stages are cached per config-hash via `_run_stage()`; the rest run unconditionally. The alt-process stage (lith or cyanotype, never both) is B&W-only and off by default — when off, both engines skip it rather than run an identity pass.

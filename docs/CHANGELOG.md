@@ -1,5 +1,9 @@
 # Change Log
 
+## Unreleased
+
+- Fix: **Exports are no longer half a level too dark.** Converting the finished float image to 8- or 16-bit truncated toward zero instead of rounding to nearest, so every sample landed on the level below whenever it fell between two — a systematic 0.196% darkening of full scale at 8-bit, with half of all pixels one level off, on every export and on the canvas itself. The two greyscale conversions in the same module had always rounded, so a black-and-white export was already correct while a colour one was not. Both now round, and the print-layout path uses the same shared conversion rather than a second copy of it. Re-exported files will differ from old ones by up to one level, which is the point.
+
 ## 0.52.0
 
 - New: **Contrast Mask** — the darkroom's unsharp mask in the Tone panel: a blurred low-gamma sandwich that compresses or opens the global range while fine detail passes through. Works both ways, and its reach is drawn as a violet band on the H&D chart.

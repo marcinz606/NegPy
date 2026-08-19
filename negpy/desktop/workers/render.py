@@ -462,6 +462,12 @@ _HASH_WORKERS = min(8, APP_CONFIG.max_workers)
 _DECODE_WORKERS = max(1, APP_CONFIG.max_workers // 2)
 
 
+def _without_parts(assets: list, parts: set) -> list:
+    """Drop the files a re-attached composite is built from. A folder walk finds them
+    beside the primary, and they belong to the composite, not to the roll."""
+    return [a for a in assets if a["path"] not in parts] if parts else assets
+
+
 class AssetDiscoveryWorker(QObject):
     """
     Background worker for file system crawling and hashing.
@@ -637,8 +643,10 @@ class AssetDiscoveryWorker(QObject):
         import os
 
         from negpy.features.stitch.models import stitch_name
+        from negpy.services.assets.composites import part_paths
 
         out = []
+        attached = []
         for a in assets:
             entry = stitches.get(a["path"])
             # Triplet exposures count as parts: one missing decodes that part red-only.
@@ -661,9 +669,10 @@ class AssetDiscoveryWorker(QObject):
                         "process_mode": entry.get("process_mode", ""),
                     }
                 )
+                attached.append(entry)
             else:
                 out.append(a)
-        return out
+        return _without_parts(out, part_paths(attached))
 
     def _attach_restored_hdr(self, assets: list, merges: dict) -> list:
         """Re-attach saved brackets to restored reference assets (no re-solve). A merge whose
@@ -671,8 +680,10 @@ class AssetDiscoveryWorker(QObject):
         import os
 
         from negpy.features.hdr.models import hdr_name
+        from negpy.services.assets.composites import part_paths
 
         out = []
+        attached = []
         for a in assets:
             entry = merges.get(a["path"])
             if entry and entry.get("paths") and all(os.path.exists(p) for p in entry["paths"]):
@@ -691,9 +702,10 @@ class AssetDiscoveryWorker(QObject):
                         "hdr_anchor_ev": float(entry.get("anchor_ev", 1.0)),
                     }
                 )
+                attached.append(entry)
             else:
                 out.append(a)
-        return out
+        return _without_parts(out, part_paths(attached))
 
     def _group_rgb_triplets(self, assets: list) -> list:
         """Classify each file by dominant channel and merge consecutive R/G/B triplets
