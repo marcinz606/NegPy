@@ -138,20 +138,22 @@ def _plateau_clip_fraction(values: np.ndarray, dark_frame_guard: int) -> float:
     return float(np.count_nonzero(values >= anchor)) / values.size
 
 
-def raw_channel_clip_fraction(path: str, channel_index: int, roi, saturation_margin: int = 16) -> float:
-    """Fraction of *raw Bayer* photosites for one channel at or beyond saturation, inside the ROI
-    — "clipped" for ETTR purposes even where it is a soft, non-linear rolloff rather than a hard
-    ADC ceiling.
+def raw_channel_clip_fraction(path: str, channel_index: int, roi, saturation_margin: int = 16) -> tuple[float, float]:
+    """Fraction of *raw Bayer* photosites for one channel past two independent points, inside the
+    ROI: (linearity_fraction, plateau_fraction).
 
-    A demosaiced channel can read clean while its source photosites are already past that point —
-    interpolation averages a bad site with clean neighbours and hides it. Metering the raw sites
+    A demosaiced channel can read clean while its source photosites are already past either point
+    — interpolation averages a bad site with clean neighbours and hides it. Metering the raw sites
     (before demosaic/color) catches that, which matters for ETTR where the base is deliberately
-    exposed near the ceiling. Two independent signals are combined by `max()`, so either one alone
-    can flag clipping the other misses, never suppress it: the camera's calibrated linearity limit
-    (`_linearity_limit`, when the body publishes one) and a shape-based plateau detector
-    (`_plateau_clip_fraction`) that needs no metadata at all. `roi` is any object with a
+    exposed near the ceiling. The two are semantically different and must not be merged into one
+    number here: `linearity_fraction` (`_linearity_limit`, when the body publishes a calibrated
+    ceiling) can overstate real clipping — a body's calibrated ceiling is often a conservative
+    linearity limit, not where it actually saturates, so a channel legitimately using the top of
+    its range reads as partly "past" it. `plateau_fraction` (`_plateau_clip_fraction`) finds the
+    true saturation pile from the data's shape, needs no metadata, and is what should gate a hard
+    abort; the caller is expected to budget the two separately. `roi` is any object with a
     `.pixels(w, h)` method (duck-typed to avoid an infra→services import). channel_index: R=0,
-    G=1, B=2. Returns 0.0 if the channel can't be resolved."""
+    G=1, B=2. Returns (0.0, 0.0) if the channel can't be resolved."""
     import rawpy
 
     with rawpy.imread(path) as raw:
@@ -161,21 +163,21 @@ def raw_channel_clip_fraction(path: str, channel_index: int, roi, saturation_mar
         desc = raw.color_desc.decode("ascii", errors="ignore")  # e.g. "RGBG": 0=R,1=G,2=B,3=G
         wanted = [j for j, c in enumerate(desc) if c.upper() == letter]
         if not wanted:
-            return 0.0
+            return 0.0, 0.0
         h, w = img.shape[:2]
         x0, y0, x1, y1 = roi.pixels(w, h)
         sub_img = img[y0:y1, x0:x1]
         mask = np.isin(colors[y0:y1, x0:x1], wanted)
         if not mask.any():
-            return 0.0
+            return 0.0, 0.0
         values = sub_img[mask]
 
-        by_limit = 0.0
+        linearity_fraction = 0.0
         # raw_image_visible is absolute ADC counts (black not subtracted), matching the limit's scale.
         limit = _linearity_limit(raw, wanted)
         if limit > 0:
             threshold = max(0, limit - saturation_margin)
-            by_limit = float(np.mean(values >= threshold))
+            linearity_fraction = float(np.mean(values >= threshold))
 
-        by_plateau = _plateau_clip_fraction(values, int(raw.white_level or 0))
-        return max(by_limit, by_plateau)
+        plateau_fraction = _plateau_clip_fraction(values, int(raw.white_level or 0))
+        return linearity_fraction, plateau_fraction

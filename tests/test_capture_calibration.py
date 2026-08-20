@@ -14,6 +14,7 @@ import pytest
 
 from negpy.services.capture.calibration import (
     MAX_CLIP_FRACTION,
+    MAX_LINEARITY_FRACTION,
     PWM_MAX,
     PWM_MAX_SAFE,
     PWM_MIN,
@@ -163,10 +164,21 @@ def test_channel_status_is_measured_based_not_level_based():
     # materially under target — that must read "under", not "target". The status keys off the
     # measured signal, not the level.
     T = target_signal()
-    assert _channel_status(T, 0.0, T) == "target"
-    assert _channel_status(0.85 * T, 0.0, T) == "target"  # small undershoot within the margin
-    assert _channel_status(0.5 * T, 0.0, T) == "under"  # materially under (level irrelevant here)
-    assert _channel_status(T, 0.01, T) == "over"  # still clipping → over
+    assert _channel_status(T, 0.0, 0.0, T) == "target"
+    assert _channel_status(0.85 * T, 0.0, 0.0, T) == "target"  # small undershoot within the margin
+    assert _channel_status(0.5 * T, 0.0, 0.0, T) == "under"  # materially under (level irrelevant here)
+    assert _channel_status(T, 0.0, 0.01, T) == "over"  # plateau clip → over
+    assert _channel_status(T, 0.05, 0.0, T) == "over"  # linearity fraction well over its own budget → over
+
+
+def test_channel_status_gives_the_linearity_limit_its_own_looser_budget():
+    # A body's calibrated linearity limit routinely undershoots where it actually saturates, so a
+    # clean channel with an ordinary tail past that limit must not read "over" the way real
+    # (plateau) clipping does — that was the false-abort risk a shared budget created.
+    T = target_signal()
+    assert _channel_status(T, MAX_CLIP_FRACTION, 0.0, T) == "target"  # at the strict budget, fine here
+    assert _channel_status(T, MAX_LINEARITY_FRACTION * 0.5, 0.0, T) == "target"
+    assert _channel_status(T, MAX_LINEARITY_FRACTION * 1.5, 0.0, T) == "over"
 
 
 def test_spread_stops():
@@ -273,8 +285,8 @@ def _make_demosaic(light, camera, *, k_scale=1.0, level_cap=None, sliver=0):
 
 
 def _service(light, cam, **demo):
-    # source_clip stubbed to 0 → the hardware-free path never touches rawpy.
-    return CalibrationService(light, cam, _make_demosaic(light, cam, **demo), source_clip=lambda *_a: 0.0, sleep=lambda _s: None)
+    # source_clip stubbed to (0.0, 0.0) → the hardware-free path never touches rawpy.
+    return CalibrationService(light, cam, _make_demosaic(light, cam, **demo), source_clip=lambda *_a: (0.0, 0.0), sleep=lambda _s: None)
 
 
 def _calibrate(service, roi=Roi(0, 0, 1, 1)):
@@ -360,9 +372,13 @@ def test_calibrate_raises_only_when_a_channel_has_no_signal_at_all():
 
 def test_calibrate_clip_guard_pulls_the_led_down_below_clipping():
     # A bright sliver clips at the solved level; the guard lowers the LED until the base is clean.
+    # This drives the demosaiced clip_fraction() check, which now feeds the linearity budget (its
+    # ceiling is itself linearity-anchored via user_sat) — sized above MAX_LINEARITY_FRACTION, not
+    # the stricter MAX_CLIP_FRACTION, so the guard has something to actually pull down here.
     light, cam = FakeLight(), FakeCamera()
-    result = _calibrate(_service(light, cam, sliver=40))
+    result = _calibrate(_service(light, cam, sliver=400))
     for ch in result.channels.values():
+        assert ch.linearity_fraction <= MAX_LINEARITY_FRACTION
         assert ch.clip_fraction <= MAX_CLIP_FRACTION
 
 
@@ -372,6 +388,41 @@ def test_calibrate_measures_spread_matching_the_channel_responses():
     # log2(760/250) ≈ 1.60 — the value that confirms one shutter can serve all three (< 2.7).
     assert result.spread_stops == pytest.approx(1.60, abs=0.05)
     assert result.spread_stops < 2.7
+
+
+# ---- linearity limit vs. plateau: separately budgeted --------------------
+
+
+def test_calibrate_survives_a_raw_source_reading_past_only_the_linearity_limit():
+    # A body's calibrated linearity limit routinely undershoots true saturation, so a channel
+    # sitting past it while never actually piling up must not false-abort a clean run (the bug a
+    # shared budget created — see discussion #906 / PR #931 review).
+    light, cam = FakeLight(), FakeCamera()
+    service = CalibrationService(
+        light,
+        cam,
+        _make_demosaic(light, cam),
+        source_clip=lambda *_a: (MAX_LINEARITY_FRACTION * 0.5, 0.0),  # linearity only, no plateau
+        sleep=lambda _s: None,
+    )
+    result = _calibrate(service)
+    assert set(result.channels) == {"R", "G", "B"}  # completed without aborting
+
+
+def test_calibrate_still_aborts_on_a_genuine_plateau_reading():
+    # The plateau signal alone must still gate a hard abort — the split loosens the linearity
+    # budget, it does not weaken real-clipping detection.
+    light, cam = FakeLight(), FakeCamera()
+    service = CalibrationService(
+        light,
+        cam,
+        _make_demosaic(light, cam),
+        source_clip=lambda *_a: (0.0, MAX_CLIP_FRACTION * 2),  # plateau only, over its own budget
+        sleep=lambda _s: None,
+    )
+    with pytest.raises(CalibrationExposureError) as e:
+        _calibrate(service)
+    assert e.value.status == "over"
 
 
 # ---- source-clip guard (fail-closed) --------------------------------------
@@ -385,7 +436,7 @@ def test_source_clip_reads_the_file_the_camera_actually_wrote():
 
     def record(path, _channel, _roi):
         seen.append(path)
-        return 0.0
+        return 0.0, 0.0
 
     service = CalibrationService(light, cam, _make_demosaic(light, cam), source_clip=record, sleep=lambda _s: None)
     _calibrate(service)
@@ -407,7 +458,7 @@ def test_calibrate_fails_closed_when_the_raw_clip_check_errors(monkeypatch):
 
 def test_calibrate_fails_closed_on_a_nonfinite_raw_clip_measurement():
     light, cam = FakeLight(), FakeCamera()
-    service = CalibrationService(light, cam, _make_demosaic(light, cam), source_clip=lambda *_a: np.nan, sleep=lambda _s: None)
+    service = CalibrationService(light, cam, _make_demosaic(light, cam), source_clip=lambda *_a: (np.nan, np.nan), sleep=lambda _s: None)
     with pytest.raises(RuntimeError, match="non-finite raw source-clip"):
         _calibrate(service)
 

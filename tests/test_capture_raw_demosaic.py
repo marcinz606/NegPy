@@ -176,34 +176,43 @@ def test_linear_demosaic_clamps_a_calibrated_limit_that_exceeds_the_format_ceili
 
 
 def test_raw_clip_returns_zero_when_the_body_reports_no_white_level(monkeypatch):
-    # The documented contract ("Returns 0.0 if the channel/white level can't be resolved") — the code
-    # used to guess img.max() instead, an image-dependent reference (the adjust_maximum_thr failure
-    # class). On a uniform base the guess sits inside the noise, so the quieter the sensor the more
-    # photosites read as clipped (~40 % at σ=4 DN): the probe then halves a frame that clips nowhere.
+    # The documented contract ("Returns (0.0, 0.0) if the channel/limit can't be resolved") — the
+    # code used to guess img.max() instead, an image-dependent reference (the adjust_maximum_thr
+    # failure class). On a uniform base the guess sits inside the noise, so the quieter the sensor
+    # the more photosites read as clipped: the probe then halves a frame that clips nowhere.
     monkeypatch.setattr(rawpy, "imread", lambda _path: _FakeBayer(white_level=None))
-    assert raw_channel_clip_fraction("x.ARW", 0, _FullRoi()) == 0.0
+    linearity, plateau = raw_channel_clip_fraction("x.ARW", 0, _FullRoi())
+    assert linearity == 0.0
+    assert plateau == 0.0
 
 
 def test_raw_clip_still_catches_genuine_clipping(monkeypatch):
-    # The positive path must survive the contract fix: photosites at the ceiling are reported.
+    # The positive path must survive the contract fix: photosites at the ceiling are reported by
+    # both signals — genuinely pinned rows are past the linearity limit AND form a real plateau.
     monkeypatch.setattr(rawpy, "imread", lambda _path: _FakeBayer(white_level=16383, clipped_rows=8))
-    frac = raw_channel_clip_fraction("x.ARW", 0, _FullRoi())
-    assert frac > 0.1  # 8 of 64 rows pinned to the ceiling
+    linearity, plateau = raw_channel_clip_fraction("x.ARW", 0, _FullRoi())
+    assert linearity > 0.1  # 8 of 64 rows pinned to the ceiling
+    assert plateau > 0.1
     # And a clean frame with a proper white level reads ~0, not noise-tail false positives.
     monkeypatch.setattr(rawpy, "imread", lambda _path: _FakeBayer(white_level=16383))
-    assert raw_channel_clip_fraction("x.ARW", 0, _FullRoi()) == 0.0
+    linearity, plateau = raw_channel_clip_fraction("x.ARW", 0, _FullRoi())
+    assert linearity == 0.0
+    assert plateau == 0.0
 
 
 def test_raw_clip_uses_the_calibrated_ceiling_when_the_body_reports_a_higher_generic_one(monkeypatch):
-    # A D800-shaped body: generic white_level is 16383, the real calibrated ceiling is
-    # 15311. A base exposed to just under the *real* ceiling is genuinely clipped, but
-    # reads clean against the generic one (issue #906) — this must be caught.
+    # A D800-shaped body: generic white_level is 16383, the real calibrated ceiling is 15311. A
+    # base exposed to just under the *real* ceiling reads past the linearity limit, but reads
+    # clean against the generic one alone (issue #906) — this must be caught. It is an ordinary
+    # exposed base, not a real pileup, so the plateau signal correctly stays quiet either way.
     monkeypatch.setattr(
         rawpy,
         "imread",
         lambda _path: _FakeBayer(white_level=16383, base=15320.0, sigma=4.0, camera_white_level=15311),
     )
-    assert raw_channel_clip_fraction("x.NEF", 0, _FullRoi()) > 0.9
+    linearity, plateau = raw_channel_clip_fraction("x.NEF", 0, _FullRoi())
+    assert linearity > 0.9
+    assert plateau == 0.0
 
     # The same photosites, checked against the generic ceiling alone, would have read as clean —
     # this is exactly what let the old code pass a clipped base as "on target".
@@ -212,7 +221,8 @@ def test_raw_clip_uses_the_calibrated_ceiling_when_the_body_reports_a_higher_gen
         "imread",
         lambda _path: _FakeBayer(white_level=16383, base=15320.0, sigma=4.0, camera_white_level=None),
     )
-    assert raw_channel_clip_fraction("x.NEF", 0, _FullRoi()) == 0.0
+    linearity, _plateau = raw_channel_clip_fraction("x.NEF", 0, _FullRoi())
+    assert linearity == 0.0
 
 
 def test_raw_clip_plateau_survives_a_noise_tail_above_the_pile(monkeypatch):
@@ -230,8 +240,8 @@ def test_raw_clip_plateau_survives_a_noise_tail_above_the_pile(monkeypatch):
         "imread",
         lambda _path: _FakeBayerFromValues(values, white_level=16383, camera_white_level=None),
     )
-    frac = raw_channel_clip_fraction("x.NEF", 0, _FullRoi())
-    assert frac > 0.6  # the pile is ~71 % of the ROI; a max()-anchored window would report 0
+    _linearity, plateau = raw_channel_clip_fraction("x.NEF", 0, _FullRoi())
+    assert plateau > 0.6  # the pile is ~71 % of the ROI; a max()-anchored window would report 0
 
 
 def test_raw_clip_plateau_needs_no_white_level_at_all(monkeypatch):
@@ -246,8 +256,9 @@ def test_raw_clip_plateau_needs_no_white_level_at_all(monkeypatch):
         "imread",
         lambda _path: _FakeBayerFromValues(values, white_level=None, camera_white_level=None),
     )
-    frac = raw_channel_clip_fraction("x.NEF", 0, _FullRoi())
-    assert frac > 0.15  # found from shape alone, roughly pile / total
+    linearity, plateau = raw_channel_clip_fraction("x.NEF", 0, _FullRoi())
+    assert linearity == 0.0  # no white level at all → the linearity signal has nothing to check
+    assert plateau > 0.15  # found from shape alone, roughly pile / total
 
 
 def test_raw_clip_plateau_does_not_false_positive_on_a_quiet_clean_base(monkeypatch):
@@ -261,4 +272,6 @@ def test_raw_clip_plateau_does_not_false_positive_on_a_quiet_clean_base(monkeypa
         "imread",
         lambda _path: _FakeBayerFromValues(values, white_level=16383, camera_white_level=None),
     )
-    assert raw_channel_clip_fraction("x.NEF", 0, _FullRoi()) == 0.0
+    linearity, plateau = raw_channel_clip_fraction("x.NEF", 0, _FullRoi())
+    assert linearity == 0.0
+    assert plateau == 0.0

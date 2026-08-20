@@ -45,10 +45,10 @@ logger = get_logger(__name__)
 # limit, not the format's generic ADC max. This holds only because `linear_demosaic`
 # pins adjust_maximum_thr=0.0 and passes user_sat from the body's own calibration table
 # (see `_linearity_limit`/`_user_sat`) instead of the frame's own brightest pixel or
-# LibRaw's generic white_level. The raw Bayer plane is checked separately by
-# raw_channel_clip_fraction, on the same calibrated reference, which also catches bad
-# photosites the demosaic averages away. This ceiling is only a fast secondary guard on
-# the normalised scale.
+# LibRaw's generic white_level. Because this ceiling is itself linearity-anchored, a
+# check against it feeds MAX_LINEARITY_FRACTION, not MAX_CLIP_FRACTION — the raw Bayer
+# plane's shape-based plateau check is what owns that stricter budget (both live in
+# raw_channel_clip_fraction, kept separate on purpose).
 CLIP_CEILING = 65535
 # A demosaiced pixel this close to the ceiling counts as clipped. The margin absorbs
 # demosaic interpolation and read noise just below saturation.
@@ -64,8 +64,19 @@ PWM_MAX_SAFE = 250
 TARGET_FRACTION = 0.9  # expose the film base to 90 % of the usable range
 MIN_SIGNAL = 10.0  # counts; below this the channel read no real signal
 # ETTR meters p99.9, so the base can read on-target while a sliver clips. The base is the
-# whitepoint (blackpoint after inversion) and must stay just below clipping.
+# whitepoint (blackpoint after inversion) and must stay just below clipping. This budgets
+# genuine, physically-lost data — the shape-based plateau detector, which finds the true
+# saturation pile from the data itself. See MAX_LINEARITY_FRACTION for the separate,
+# looser budget a body's (often conservative) calibrated linearity limit is held to.
 MAX_CLIP_FRACTION = 0.002
+# A calibrated linearity limit (camera_white_level_per_channel) is often conservative: a
+# body can keep responding, usefully if non-linearly, well above it before it actually
+# saturates. Photosites past the limit are not lost data the way a plateau is, so this
+# budget is an order of magnitude looser than MAX_CLIP_FRACTION — wide enough to absorb a
+# clean channel's ordinary tail into that non-linear-but-still-usable region, tight enough
+# that a channel genuinely run too far into it still aborts rather than trusting a `k`
+# measurement taken off a non-linear response.
+MAX_LINEARITY_FRACTION = 0.02
 # A channel this far under target is under-exposed from any cause: a maxed LED at the
 # slowest shutter, or a clip guard that pulled the LED down hard. Aborts the run as
 # "under". A smaller undershoot still counts as on-target.
@@ -308,7 +319,8 @@ class ChannelCalibration:
     shutter: str  # solved camera shutter label (shared across channels)
     signal: float  # measured base p99.9 at the solved settings
     target: int  # target signal
-    clip_fraction: float = 0.0  # fraction of base pixels at/above saturation (ETTR keeps this ~0)
+    clip_fraction: float = 0.0  # fraction of base pixels genuinely lost to the plateau (ETTR keeps this ~0)
+    linearity_fraction: float = 0.0  # fraction past the (often conservative) calibrated linearity limit
 
 
 @dataclass(frozen=True)
@@ -396,15 +408,16 @@ class CalibrationService:
         camera: Camera,
         demosaic: DemosaicFn,
         *,
-        source_clip: Optional[Callable[[str, int, Roi], float]] = None,
+        source_clip: Optional[Callable[[str, int, Roi], tuple[float, float]]] = None,
         sleep: Callable[[float], None] = time.sleep,
         settle_s: float = 0.4,
     ) -> None:
         self._light = light
         self._camera = camera
         self._demosaic = demosaic
-        # (path, channel_index, roi) -> raw-Bayer source-clip fraction. None = the rawpy
-        # default; tests inject a stub so the hardware-free path never touches rawpy.
+        # (path, channel_index, roi) -> raw-Bayer (linearity_fraction, plateau_fraction).
+        # None = the rawpy default; tests inject a stub so the hardware-free path never
+        # touches rawpy.
         self._source_clip = source_clip
         self._sleep = sleep
         self._settle_s = settle_s
@@ -438,13 +451,16 @@ class CalibrationService:
             if progress is not None:
                 progress(_floor[0], msg)
 
-        def _shoot(i: int, ch, level: int, shutter: str) -> tuple[float, float]:
-            """Light channel `ch` at `level`, capture at `shutter`, meter → (base p99.9, clip)."""
+        def _shoot(i: int, ch, level: int, shutter: str) -> tuple[float, float, float]:
+            """Light channel `ch` at `level`, capture at `shutter`, meter → (base p99.9,
+            linearity_clip, plateau_clip). The demosaiced check joins the linearity budget: its
+            ceiling is itself scaled from the calibrated linearity limit via user_sat."""
             self._light.set_color(*ch.rgb(level))
             self._sleep(self._settle_s)
             img, written = self._capture(scratch_path, shutter=shutter)
-            clip = max(clip_fraction(img[..., i], roi), self._source_clip_fraction(written, i, roi))
-            return meter_base(img[..., i], roi), clip
+            source_linearity, source_plateau = self._source_clip_fraction(written, i, roi)
+            linearity_clip = max(clip_fraction(img[..., i], roi), source_linearity)
+            return meter_base(img[..., i], roi), linearity_clip, source_plateau
 
         try:
             # --- Phase 2: measure the response k per channel (adaptive probe) ------------------
@@ -489,11 +505,13 @@ class CalibrationService:
         raises RuntimeError (that is a broken setup — lens cap, dead LED, ROI off the base)."""
         level, shutter = start_level, start_shutter
         for _ in range(_MAX_PROBE_STEPS):
-            signal, clip = shoot(i, ch, level, shutter)
+            signal, linearity_clip, plateau_clip = shoot(i, ch, level, shutter)
             # Halve/double the exposure per step, moving the shutter first and dropping to the
             # LED only at the ladder end. A 1-stop step cannot jump the measurable window, so
             # it never overshoots from clipping to no-signal.
-            if clip > MAX_CLIP_FRACTION or signal >= SATURATION_VALUE:  # too bright → halve exposure
+            if (
+                linearity_clip > MAX_LINEARITY_FRACTION or plateau_clip > MAX_CLIP_FRACTION or signal >= SATURATION_VALUE
+            ):  # too bright → halve exposure
                 faster = _nearest_by_seconds(shutter_seconds(shutter) * 0.5, candidates)
                 if shutter_seconds(faster) < shutter_seconds(shutter):
                     shutter = faster
@@ -528,28 +546,33 @@ class CalibrationService:
         """Capture at the solved settings, one proportional trim, then a clip guard. Returns the
         channel calibration with a graceful status (never raises on a physical limit)."""
         tol = 0.05 * T
-        measured, clip = shoot(i, ch, level, shutter)
-        if clip <= MAX_CLIP_FRACTION and abs(measured - T) > tol:
+
+        def _in_budget(linearity_clip: float, plateau_clip: float) -> bool:
+            return linearity_clip <= MAX_LINEARITY_FRACTION and plateau_clip <= MAX_CLIP_FRACTION
+
+        measured, linearity_clip, plateau_clip = shoot(i, ch, level, shutter)
+        if _in_budget(linearity_clip, plateau_clip) and abs(measured - T) > tol:
             level = correct_led_level(level, measured, T)
-            measured, clip = shoot(i, ch, level, shutter)
-        # Clip guard: pull the LED down until the base sits below clipping. p99.9 can read
+            measured, linearity_clip, plateau_clip = shoot(i, ch, level, shutter)
+        # Clip guard: pull the LED down until the base sits below both budgets. p99.9 can read
         # on-target while the top 0.1 % saturates. A dense base overshoots, so iterate and
         # re-measure, bounded by _MAX_CLIP_GUARD_STEPS to keep the capture budget hard.
         for _ in range(_MAX_CLIP_GUARD_STEPS):
-            if clip <= MAX_CLIP_FRACTION or level <= PWM_MIN:
+            if _in_budget(linearity_clip, plateau_clip) or level <= PWM_MIN:
                 break
             level = max(PWM_MIN, int(round(level * 0.85)))
-            measured, clip = shoot(i, ch, level, shutter)
+            measured, linearity_clip, plateau_clip = shoot(i, ch, level, shutter)
 
-        status = _channel_status(measured, clip, T)
+        status = _channel_status(measured, linearity_clip, plateau_clip, T)
         logger.info(
-            "calibrated %s → level %d, shutter %s (target %d, got %.0f, clip %.3f%%, %s)",
+            "calibrated %s → level %d, shutter %s (target %d, got %.0f, linearity %.3f%%, plateau %.3f%%, %s)",
             ch.letter,
             level,
             shutter,
             T,
             measured,
-            clip * 100,
+            linearity_clip * 100,
+            plateau_clip * 100,
             status,
         )
         if status != "target":
@@ -563,23 +586,26 @@ class CalibrationService:
             shutter=shutter,
             signal=measured,
             target=T,
-            clip_fraction=clip,
+            clip_fraction=plateau_clip,
+            linearity_fraction=linearity_clip,
         )
 
-    def _source_clip_fraction(self, path: str, channel_index: int, roi: Roi) -> float:
-        """Raw-Bayer source clip for one channel (catches clipped photosites the demosaic hides)."""
+    def _source_clip_fraction(self, path: str, channel_index: int, roi: Roi) -> tuple[float, float]:
+        """Raw-Bayer source clip for one channel: (linearity_fraction, plateau_fraction) — kept
+        separate because they budget differently, see raw_channel_clip_fraction."""
         if self._source_clip is not None:
-            measured = float(self._source_clip(path, channel_index, roi))
+            linearity, plateau = self._source_clip(path, channel_index, roi)
         else:
             from negpy.infrastructure.capture.raw_demosaic import raw_channel_clip_fraction
 
             try:
-                measured = raw_channel_clip_fraction(path, channel_index, roi)
+                linearity, plateau = raw_channel_clip_fraction(path, channel_index, roi)
             except Exception as exc:
                 raise RuntimeError(f"calibration failed: raw source-clip check failed for {path}") from exc
-        if not np.isfinite(measured):
+        linearity, plateau = float(linearity), float(plateau)
+        if not (np.isfinite(linearity) and np.isfinite(plateau)):
             raise RuntimeError(f"calibration failed: non-finite raw source-clip measurement for {path}")
-        return measured
+        return linearity, plateau
 
     def _capture(self, path: str, shutter: Optional[str]) -> tuple[np.ndarray, str]:
         """Capture, decode, and report *where the file landed* (the camera names it after its own
@@ -588,12 +614,12 @@ class CalibrationService:
         return self._demosaic(written), written
 
 
-def _channel_status(measured: float, clip: float, target: int) -> str:
+def _channel_status(measured: float, linearity_clip: float, plateau_clip: float, target: int) -> str:
     """Per-channel verdict from the *measured signal*, not the level — the verify's abort input.
-    'over' if the base still clips; 'under' if it is materially below target from any cause — a
-    maxed LED at the slowest shutter, OR a clip-guard that pulled the LED well below PWM_MAX; else
-    'target' (a small clip-guard undershoot within the margin stays 'target')."""
-    if clip > MAX_CLIP_FRACTION:
+    'over' if the base is past either budget; 'under' if it is materially below target from any
+    cause — a maxed LED at the slowest shutter, OR a clip-guard that pulled the LED well below
+    PWM_MAX; else 'target' (a small clip-guard undershoot within the margin stays 'target')."""
+    if plateau_clip > MAX_CLIP_FRACTION or linearity_clip > MAX_LINEARITY_FRACTION:
         return "over"
     if measured < (1.0 - MAX_TARGET_UNDER_FRACTION) * target:
         return "under"
