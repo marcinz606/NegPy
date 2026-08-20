@@ -40,13 +40,15 @@ from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
 
-# The decode normalises the camera white level to full 16-bit, so the *demosaiced*
-# saturation point is camera-independent (65535). This holds only because
-# `linear_demosaic` pins adjust_maximum_thr=0.0. On LibRaw's default the reference
-# becomes the frame's own brightest pixel and no two shots are comparable. The
-# camera-SPECIFIC raw white level is checked separately by raw_channel_clip_fraction,
-# which also catches clipped photosites the demosaic averages away. This ceiling is
-# only a fast secondary guard on the normalised scale.
+# The decode normalises the camera's calibrated linearity limit to full 16-bit, so the
+# *demosaiced* ceiling is camera-independent (65535) while still landing on the real
+# limit, not the format's generic ADC max. This holds only because `linear_demosaic`
+# pins adjust_maximum_thr=0.0 and passes user_sat from the body's own calibration table
+# (see `_linearity_limit`/`_user_sat`) instead of the frame's own brightest pixel or
+# LibRaw's generic white_level. The raw Bayer plane is checked separately by
+# raw_channel_clip_fraction, on the same calibrated reference, which also catches bad
+# photosites the demosaic averages away. This ceiling is only a fast secondary guard on
+# the normalised scale.
 CLIP_CEILING = 65535
 # A demosaiced pixel this close to the ceiling counts as clipped. The margin absorbs
 # demosaic interpolation and read noise just below saturation.
