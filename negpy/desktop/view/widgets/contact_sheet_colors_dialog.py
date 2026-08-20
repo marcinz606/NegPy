@@ -5,6 +5,7 @@ from PyQt6.QtCore import QPointF, Qt, QRectF, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QImage, QMouseEvent, QPainter, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import QDialog, QHBoxLayout, QPushButton, QVBoxLayout, QWidget
 
+from negpy.desktop.view.styles.fonts import mono_font_family
 from negpy.desktop.view.styles.theme import THEME
 
 
@@ -260,7 +261,7 @@ class _TargetRow(QWidget):
 
         # Hex readout (right-aligned, read-only)
         painter.setPen(QColor(THEME.text_secondary))
-        hex_font = QFont("Consolas, Menlo, monospace")
+        hex_font = QFont(mono_font_family())
         hex_font.setPixelSize(THEME.font_size_xs)
         painter.setFont(hex_font)
         painter.drawText(

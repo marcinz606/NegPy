@@ -5,6 +5,7 @@ import qtawesome as qta
 from PyQt6.QtCore import QEvent
 from PyQt6.QtWidgets import QLabel, QPushButton, QWidget
 
+from negpy.desktop.view.styles.fonts import ui_font_family
 from negpy.desktop.view.styles.theme import THEME
 
 _default_btn_height: int | None = None
@@ -25,7 +26,8 @@ def load_stylesheet() -> str:
     # QSS url() cannot resolve relative paths reliably across dev and frozen runs, so bake in
     # the absolute icon path, with forward slashes for Qt.
     check_icon = get_resource_path("media/icons/checkbox_check.svg").replace("\\", "/")
-    return qss.replace("__CHECKBOX_CHECK_ICON__", check_icon)
+    qss = qss.replace("__CHECKBOX_CHECK_ICON__", check_icon)
+    return qss.replace("__UI_FONT__", ui_font_family())
 
 
 def default_button_height() -> int:

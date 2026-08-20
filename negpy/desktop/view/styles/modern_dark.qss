@@ -5,7 +5,7 @@ QMainWindow {
 QWidget {
     background-color: #0D0D0D;
     color: #D4D4D4;
-    font-family: "Inter", "Segoe UI", "Roboto", "Arial";
+    font-family: "__UI_FONT__";
     font-size: 10pt;
 }
 

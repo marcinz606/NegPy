@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_label, hint_label
+from negpy.desktop.view.styles.fonts import mono_font_family
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.description_fields_dialog import DescriptionFieldsDialog
@@ -748,7 +749,7 @@ class MetadataSidebar(BaseSidebar):
 
         self.preview_empty.setText("Select gear or enter process metadata to see a preview.")
         self.preview_empty.setVisible(not sections)
-        mono = f"font-family: Consolas, monospace; font-size: {THEME.font_size_xs}px;"
+        mono = f"font-family: {mono_font_family()}; font-size: {THEME.font_size_xs}px;"
 
         for title, rows in sections:
             header = QLabel(title)

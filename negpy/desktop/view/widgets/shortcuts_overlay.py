@@ -36,6 +36,7 @@ from negpy.desktop.view.shortcut_registry import (
     category_editor_rows,
     slider_step_for,
 )
+from negpy.desktop.view.styles.fonts import mono_font_family
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.shortcut_search_line_edit import ShortcutSearchLineEdit
@@ -253,7 +254,7 @@ class ShortcutsOverlay(QDialog):
             hdr.setStyleSheet(header_style)
             grid.addWidget(hdr, 0, col)
 
-        mono = f"color: {THEME.text_secondary}; font-family: Consolas, monospace;"
+        mono = f"color: {THEME.text_secondary}; font-family: {mono_font_family()};"
         for row, editor_row in enumerate(category_editor_rows(items), start=1):
             if isinstance(editor_row, EditorRowSlider):
                 self._add_slider_row(grid, row, editor_row, mono)
@@ -269,7 +270,7 @@ class ShortcutsOverlay(QDialog):
             background-color: {THEME.bg_header};
             border: 1px solid {THEME.border_primary};
             border-radius: 3px;
-            font-family: Consolas, monospace;
+            font-family: {mono_font_family()};
             font-size: 11px;
             padding: 2px 6px;
         """)

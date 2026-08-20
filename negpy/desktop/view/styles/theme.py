@@ -8,8 +8,7 @@ class ThemeConfig:
     Centralized UI styling constants.
     """
 
-    # Fonts
-    font_family: str = "Inter, Segoe UI, Roboto, sans-serif"
+    # Fonts (families are resolved at runtime in styles/fonts.py)
     font_size_base: int = 13
     font_size_small: int = 12
     font_size_header: int = 14
