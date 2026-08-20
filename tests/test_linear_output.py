@@ -24,6 +24,7 @@ from negpy.services.export.linear_output import (
     _SourceMeta,
     _apply_white_balance,
     _build_xmp,
+    _decode_camera_raw_triplet,
     _decode_dng,
     _default_pakon_expansion,
     _effective_expansion,
@@ -950,6 +951,29 @@ class TestTripletExport:
         with tifffile.TiffFile(out) as tf:
             arr = tf.pages[0].asarray()
             assert arr.shape == (60, 40, 3)
+
+    def test_triplet_merge_clamps_alignment_ringing(self, tmp_path: str, monkeypatch) -> None:
+        """The alignment warp is cubic interpolation on a float32 buffer here (the main render
+        pipeline gets this clamp for free from its uint16 saturate-cast; this path does not), so
+        a sharp edge near the ceiling can ring past 1.0. Nothing downstream clips before a
+        correction (flatfield, WB) would read it, so the merge itself must clamp."""
+        paths = _make_fake_camera_raws(str(tmp_path))
+        h, w = 40, 60
+        r = np.full((h, w, 3), 0.1, dtype=np.float32)
+        g = np.full((h, w, 3), 0.1, dtype=np.float32)
+        g[:, 30:, 1] = 0.999  # a sharp edge right at the ceiling
+        b = np.full((h, w, 3), 0.1, dtype=np.float32)
+        bufs = {"r": r, "g": g, "b": b}
+
+        # A real fractional shift, so the warp interpolates instead of no-op'ing.
+        monkeypatch.setattr("negpy.features.rgbscan.logic.estimate_shift", lambda ref, mov: (0.4, 0.0))
+        rgbscan = RgbScanConfig(enabled=True, green_path=paths[1], blue_path=paths[2], align=True)
+
+        with self._patch_decode(paths, bufs):
+            f32, _ir, _wb, _meta = _decode_camera_raw_triplet(paths[0], rgbscan)
+
+        assert f32.max() <= 1.0
+        assert f32.min() >= 0.0
 
     def test_no_triplet_without_rgbscan(self, tmp_path: str) -> None:
         """Without rgbscan config, camera RAW goes through the normal single-file path."""

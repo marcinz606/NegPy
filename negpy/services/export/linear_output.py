@@ -694,6 +694,12 @@ def _decode_camera_raw_triplet(
         return buf
 
     f32 = merge_rgb_triplet(_decode, file_path, rgbscan.green_path, rgbscan.blue_path, align=rgbscan.align)
+    # merge_rgb_triplet's alignment warp runs on this float32 buffer (unlike the main render
+    # pipeline, which merges in uint16 and gets this for free from the saturate-cast): cubic
+    # interpolation can ring past 1.0 near a sharp edge, and nothing downstream clips before the
+    # final TIFF write, so a correction applied here would multiply an out-of-range value instead
+    # of the ceiling it stands in for.
+    f32 = np.clip(f32, 0.0, 1.0)
     if geometry is not None:
         f32 = _apply_user_geometry(f32, geometry)
     return f32, None, wb, merged_meta
@@ -725,6 +731,7 @@ def _decode_stitch_part(
             return buf
 
         f32 = merge_rgb_triplet(_decode, file_path, rgbscan.green_path, rgbscan.blue_path, align=rgbscan.align)
+        f32 = np.clip(f32, 0.0, 1.0)  # see _decode_camera_raw_triplet: the warp can ring past 1.0
     else:
         f32, _, _ = _decode_camera_raw_buffer(file_path)
 
