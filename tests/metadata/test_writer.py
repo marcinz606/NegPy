@@ -6,6 +6,7 @@ import imagecodecs
 import numpy as np
 import piexif
 import tifffile
+from PIL import Image
 
 from negpy.features.metadata.models import MetadataConfig
 from negpy.features.metadata.writer import (
@@ -13,6 +14,7 @@ from negpy.features.metadata.writer import (
     _decode_ascii,
     _jxl_boxes,
     _sanitize_exif,
+    _webp_chunks,
     embed_metadata,
     preserve_source_metadata,
 )
@@ -492,4 +494,78 @@ class TestJxlMetadata:
 
     def test_malformed_container_falls_back_to_the_input(self) -> None:
         broken = _JXL_SIGNATURE + b"\x00\x00\xff\xffjxlc"
+        assert embed_metadata(broken, MetadataConfig(film="Portra 400"), None) == broken
+
+
+def _webp_bytes(**save_kwargs) -> bytes:
+    """Lossy WebP in the shape produced by the real export pipeline."""
+    arr = np.random.default_rng(0).integers(0, 255, (16, 16, 3), dtype=np.uint8)
+    buf = io.BytesIO()
+    Image.fromarray(arr).save(buf, format="WEBP", quality=80, **save_kwargs)
+    return buf.getvalue()
+
+
+def _webp_chunk_names(data: bytes) -> list[bytes]:
+    return [fourcc for fourcc, _start, _end in _webp_chunks(data)]
+
+
+class TestWebpMetadata:
+    def test_exif_and_xmp_chunks_reach_the_container(self) -> None:
+        source_exif = {
+            "0th": {piexif.ImageIFD.Make: b"Plustek"},
+            "Exif": {},
+            "GPS": {},
+            "Interop": {},
+            "1st": {},
+        }
+        out = embed_metadata(_webp_bytes(), MetadataConfig(film="Portra 400"), source_exif)
+
+        names = _webp_chunk_names(out)
+        assert names[0] == b"VP8X", "metadata needs the extended container"
+        assert b"EXIF" in names and b"XMP " in names
+        payload = next(out[s:e] for f, s, e in _webp_chunks(out) if f == b"EXIF")
+        assert piexif.load(payload)["0th"][piexif.ImageIFD.Make] == b"Plustek"
+
+    def test_vp8x_flags_announce_what_the_file_carries(self) -> None:
+        """A reader that trusts the flags over the chunk list must still find both."""
+        out = embed_metadata(_webp_bytes(), MetadataConfig(film="Portra 400"), None)
+
+        flags = next(out[s:e] for f, s, e in _webp_chunks(out) if f == b"VP8X")[0]
+        assert flags & 0x08, "EXIF flag"
+        assert flags & 0x04, "XMP flag"
+
+    def test_icc_profile_survives_and_keeps_its_place(self) -> None:
+        """ICCP must follow VP8X, and PIL embeds one on every color-managed export."""
+        icc = b"\x00" * 128
+        out = embed_metadata(_webp_bytes(icc_profile=icc), MetadataConfig(film="Portra 400"), None)
+
+        names = _webp_chunk_names(out)
+        assert names[:2] == [b"VP8X", b"ICCP"]
+        assert next(out[s:e] for f, s, e in _webp_chunks(out) if f == b"ICCP") == icc
+        with Image.open(io.BytesIO(out)) as im:
+            assert im.info.get("icc_profile") == icc
+
+    def test_pixels_are_not_re_encoded(self) -> None:
+        """The lossy codestream is copied, never decoded and re-compressed."""
+        image_bytes = _webp_bytes()
+        out = embed_metadata(image_bytes, MetadataConfig(film="Portra 400"), None)
+
+        original = next(image_bytes[s:e] for f, s, e in _webp_chunks(image_bytes) if f in (b"VP8 ", b"VP8L"))
+        assert next(out[s:e] for f, s, e in _webp_chunks(out) if f in (b"VP8 ", b"VP8L")) == original
+
+    def test_re_embedding_replaces_rather_than_stacks_chunks(self) -> None:
+        config = MetadataConfig(film="Portra 400")
+        once = embed_metadata(_webp_bytes(), config, None)
+        twice = embed_metadata(once, config, None)
+        assert twice == once
+
+    def test_odd_sized_payload_stays_word_aligned(self) -> None:
+        """A RIFF chunk pads to an even size, and the pad is outside the stated size."""
+        out = embed_metadata(_webp_bytes(), MetadataConfig(film="Portra 400"), None)
+        for _fourcc, start, end in _webp_chunks(out):
+            assert start % 2 == 0, "chunk payload must start on an even offset"
+        assert len(out) == 8 + int.from_bytes(out[4:8], "little")
+
+    def test_malformed_container_falls_back_to_the_input(self) -> None:
+        broken = b"RIFF" + (20).to_bytes(4, "little") + b"WEBPVP8 " + (999).to_bytes(4, "little")
         assert embed_metadata(broken, MetadataConfig(film="Portra 400"), None) == broken

@@ -177,8 +177,7 @@ class ExportWorker(QObject):
                     continue
 
                 if bits:
-                    # Skipped for WebP, where embed_metadata has no branch.
-                    if task.metadata_config is not None and task.export_settings.export_fmt is not ExportFormat.WEBP:
+                    if task.metadata_config is not None:
                         if task.metadata_config.protect_original_metadata:
                             bits = preserve_source_metadata(
                                 bits,

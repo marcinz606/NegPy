@@ -825,7 +825,7 @@ The primary **Export** action. Its chevron menu picks the scope: current frame (
 
 Archival metadata for the **original analog capture** (camera, lens, film, process), written into exported files as EXIF and embedded XMP, so DAMs like Lightroom show your film gear rather than the scanner.
 
-JPEG, TIFF, PNG and JPEG XL exports carry it; WebP carries none.
+Every export format carries it: JPEG, TIFF, PNG, JPEG XL and WebP. A TIFF holds the capture position in XMP only.
 
 *   **Protect original metadata**: copy the source file's EXIF/XMP to exports unchanged, adding nothing. When it is on, the fields below are ignored.
 *   **Sync custom metadata to all files in batch export**: batch and preset exports write this frame's capture, gear and process values to every file, instead of each file's own.
