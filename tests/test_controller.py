@@ -2570,6 +2570,15 @@ class TestNegativePeekColor(unittest.TestCase):
 
         np.testing.assert_allclose(with_wb, without_wb, atol=1e-5)
 
+    def test_the_peek_clears_a_stale_interactive_flag(self):
+        """Flat Peek renders with readback_metrics=False, which tags its metrics
+        interactive; switching straight to Negative Peek must not inherit that flag,
+        or right_panel's analysis-chart refresh mistakes the settled peek frame for a
+        mid-gesture one and never re-syncs the histogram."""
+        self.controller.state.last_metrics["interactive"] = True
+        metrics = self._paint(self.D3300)
+        self.assertFalse(metrics["interactive"])
+
 
 class TestCompareFlatPeekInteraction(unittest.TestCase):
     """Before/After and flat-peek are mutually exclusive overlays; a geometry op must

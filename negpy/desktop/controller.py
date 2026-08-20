@@ -4005,6 +4005,11 @@ class AppController(QObject):
             self.state.last_metrics["content_rect"] = None
             self.state.last_metrics["splash"] = False
             self.state.last_metrics["proof"] = False
+            # A prior interactive/peek render (e.g. Flat Peek, which renders with
+            # readback_metrics=False) can leave this stale True, which makes
+            # right_panel's _update_analysis mistake this settled frame for a
+            # mid-gesture one and skip the histogram refresh.
+            self.state.last_metrics["interactive"] = False
         self.image_updated.emit()
 
     def toggle_negative_peek(self, force: Optional[bool] = None) -> None:
