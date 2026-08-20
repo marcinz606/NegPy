@@ -15,15 +15,18 @@ import pytest
 
 from negpy.infrastructure.scanners.base import ScannerUnavailable, TransientScanError
 from negpy.infrastructure.scanners.params import ScanParams
-from pyopticfilm.exceptions import ScanCancelled, UsbError
-from pyopticfilm.image import ScanImage
-from pyopticfilm.usb.device import (
+from negpy.infrastructure.scanners.result import ScanResult
+
+pytest.importorskip("pyopticfilm")
+
+from negpy.infrastructure.scanners.plustek_backend import PlustekBackend  # noqa: E402
+from pyopticfilm.exceptions import ScanCancelled, UsbError  # noqa: E402
+from pyopticfilm.image import ScanImage  # noqa: E402
+from pyopticfilm.usb.device import (  # noqa: E402
     PID_OPTICFILM_8200I_SE,
     VID_PLUSTEK,
     UsbDeviceInfo,
 )
-from negpy.infrastructure.scanners.plustek_backend import PlustekBackend
-from negpy.infrastructure.scanners.result import ScanResult
 
 _NEGPY_ROOT = Path(__file__).resolve().parents[2] / "negpy"
 _ADAPTER = _NEGPY_ROOT / "infrastructure" / "scanners" / "plustek_backend.py"

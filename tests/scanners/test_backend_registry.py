@@ -51,6 +51,8 @@ def test_create_backend_falls_back_from_sane_on_windows(monkeypatch):
 
 
 def test_create_plustek_backend_when_usb_available(monkeypatch):
+    pytest.importorskip("pyopticfilm")
+
     class _FakeBackend:
         pass
 
@@ -67,6 +69,8 @@ def test_create_plustek_backend_when_usb_available(monkeypatch):
 
 
 def test_create_plustek_unavailable_without_pyusb(monkeypatch):
+    pytest.importorskip("pyopticfilm")
+
     def _boom(*, calib_cache=None):
         raise ScannerUnavailable("PyUSB is required")
 

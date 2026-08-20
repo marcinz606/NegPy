@@ -2,8 +2,11 @@
 
 import cv2
 import numpy as np
+import pytest
 
-from pyopticfilm.ir_align import align_ir_to_rgb
+pytest.importorskip("pyopticfilm")
+
+from pyopticfilm.ir_align import align_ir_to_rgb  # noqa: E402
 
 
 def _texture(h=128, w=128, seed=0):
