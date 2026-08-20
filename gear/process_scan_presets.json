@@ -1,0 +1,20 @@
+[
+  {
+    "id": "psp-d76-copystand",
+    "displayName": "D-76 1+1 / Copy stand",
+    "developerId": "dev-d76-1plus1",
+    "scanSetupId": "scan-copystand-scanlight"
+  },
+  {
+    "id": "psp-c41-copystand",
+    "displayName": "C-41 lab / Copy stand",
+    "developerId": "dev-c41-lab",
+    "scanSetupId": "scan-copystand-scanlight"
+  },
+  {
+    "id": "psp-hc110-opticfilm",
+    "displayName": "HC-110 B / OpticFilm 8200i",
+    "developerId": "dev-hc110-b",
+    "scanSetupId": "scan-opticfilm-8200i"
+  }
+]

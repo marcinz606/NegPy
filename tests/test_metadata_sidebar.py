@@ -17,7 +17,12 @@ from PyQt6.QtWidgets import QApplication, QCheckBox, QLabel
 from conftest import FakeController
 from negpy.desktop.view.sidebar import metadata as metadata_module
 from negpy.desktop.view.sidebar.metadata import MetadataSidebar
-from negpy.features.metadata.gear_models import GearLibrary
+from negpy.features.metadata.gear_models import (
+    DeveloperRecipe,
+    GearLibrary,
+    ProcessScanPreset,
+    ScanSetup,
+)
 
 if not QApplication.instance():
     _app = QApplication(sys.argv)
@@ -198,3 +203,80 @@ class TestPlaceButtons:
             assert button.text() == ""
             assert button.icon().isNull() is False
             assert button.toolTip() != ""
+
+
+class TestDeveloperAndScanCombos:
+    @pytest.fixture
+    def stocked(self, sidebar: MetadataSidebar, monkeypatch) -> MetadataSidebar:
+        library = GearLibrary(
+            developers=[DeveloperRecipe(id="d1", developer="D-76", dilution="1+1", time="9:30", temperature_c=20)],
+            scan_setups=[ScanSetup(id="s1", device="Sony A7RIV", light_source="Scanlight narrowband")],
+            process_scan_presets=[ProcessScanPreset(id="ps1", display_name="Home B&W", developer_id="d1", scan_setup_id="s1")],
+        )
+        monkeypatch.setattr(metadata_module.GearProfiles, "load_library", staticmethod(lambda: library))
+        sidebar._refresh_gear_combos(force=True)
+        return sidebar
+
+    def test_picking_a_developer_fills_the_text_field(self, stocked: MetadataSidebar) -> None:
+        stocked.developer_combo.set_selected_id("d1")
+        stocked.developer_combo.selection_changed.emit("d1")
+
+        assert stocked.state.config.metadata.developer_id == "d1"
+        assert stocked.developer_edit.text() == "D-76 1+1, 9:30 @ 20 °C"
+
+    def test_picking_a_scan_setup_fills_the_text_field(self, stocked: MetadataSidebar) -> None:
+        stocked.scan_setup_combo.set_selected_id("s1")
+        stocked.scan_setup_combo.selection_changed.emit("s1")
+
+        assert stocked.state.config.metadata.scan_setup_id == "s1"
+        assert stocked.scanning_edit.text() == "Copy stand — Sony A7RIV, Scanlight narrowband"
+
+    def test_process_scan_preset_sets_both_cards(self, stocked: MetadataSidebar) -> None:
+        stocked.process_scan_combo.set_selected_id("ps1")
+        stocked.process_scan_combo.selection_changed.emit("ps1")
+
+        assert stocked.developer_edit.text() == "D-76 1+1, 9:30 @ 20 °C"
+        assert stocked.scanning_edit.text() == "Copy stand — Sony A7RIV, Scanlight narrowband"
+
+    def test_a_manual_pick_clears_only_the_process_scan_preset(self, stocked: MetadataSidebar) -> None:
+        """Chemistry and gear own separate presets, so one must not clear the other."""
+        _set_metadata(stocked, gear_preset_id="p1")
+        stocked.process_scan_combo.set_selected_id("ps1")
+        stocked.process_scan_combo.selection_changed.emit("ps1")
+
+        stocked.developer_combo.set_selected_id("d1")
+        stocked.developer_combo.selection_changed.emit("d1")
+
+        assert stocked.state.config.metadata.process_scan_preset_id == ""
+        assert stocked.state.config.metadata.gear_preset_id == "p1"
+
+    def test_clear_empties_both_slots(self, stocked: MetadataSidebar) -> None:
+        stocked.process_scan_combo.set_selected_id("ps1")
+        stocked.process_scan_combo.selection_changed.emit("ps1")
+
+        stocked._on_process_scan_preset_clear()
+
+        conf = stocked.state.config.metadata
+        assert (conf.process_scan_preset_id, conf.developer_id, conf.scan_setup_id) == ("", "", "")
+        assert conf.developer == ""
+        assert conf.scanning == ""
+
+    def test_a_pick_during_the_save_delay_keeps_both_edits(self, stocked: MetadataSidebar) -> None:
+        """Typing then picking inside the debounce window must lose neither."""
+        stocked.capture_roll_edit.setText("Roll007")
+
+        stocked.developer_combo.set_selected_id("d1")
+        stocked.developer_combo.selection_changed.emit("d1")
+
+        conf = stocked.state.config.metadata
+        assert conf.capture_roll == "Roll007"
+        assert conf.developer == "D-76 1+1, 9:30 @ 20 °C"
+
+    def test_a_typed_override_survives_a_later_camera_pick(self, stocked: MetadataSidebar) -> None:
+        stocked.developer_combo.set_selected_id("d1")
+        stocked.developer_combo.selection_changed.emit("d1")
+        stocked.developer_edit.setText("D-76 1+1, stand 20 min")
+
+        stocked.camera_combo.selection_changed.emit("")
+
+        assert stocked.state.config.metadata.developer == "D-76 1+1, stand 20 min"

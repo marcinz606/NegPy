@@ -822,9 +822,10 @@ Archival metadata for the **original analog capture** (camera, lens, film, proce
 
 **Analog Gear** (searchable; type in any field to filter the library):
 
-*   **Preset**: a reusable camera, lens and film combination. **Clear** empties the gear selections.
+*   **Preset**: a reusable camera, lens and film combination. **Clear** empties the gear selections. A preset may also name a developer and a scan setup; those two slots apply only when the preset sets them, so a gear pick never wipes chemistry you chose by hand.
+*   **Process & Scan preset**: a reusable developer and scan-setup pair, for a roll processed and digitized the same way each time. It owns both slots, so an empty slot clears the matching pick. **Clear** empties both.
 *   **Camera / Lens / Film stock**: pick from your library. Empty means not set.
-*   **Manage…**: edit cameras, lenses, film stocks and presets. Starter data seeds into `~/NegPy/gear/` on first launch.
+*   **Manage…**: edit cameras, lenses, film stocks, developers, scan setups and both kinds of preset. Starter data seeds into `~/NegPy/gear/` on first launch.
 
 **Capture:**
 
@@ -834,12 +835,12 @@ Archival metadata for the **original analog capture** (camera, lens, film, proce
 **Process:**
 
 *   **Format**: `35mm`, `120`, `4×5`, `8×10`, `110`, or `Other` with a free-text field.
-*   **Developer**: for example `D-76 1+1`.
+*   **Developer**: pick a saved recipe — chemistry, dilution, time, temperature, process (`B&W`, `C-41`, `E-6`, `ECN-2`, `Other`) and lab — or type the text yourself, for example `D-76 1+1`. Picking a recipe fills the text field; what you type afterwards wins and survives later gear changes.
 *   **Push / Pull**: `Push +3` … `Normal` … `Pull -3`.
 
 **Scanning:**
 
-*   **Scanning**: scan method or notes. EXIF `Software` is always `NegPy`.
+*   **Scanning**: pick a saved scan setup — method (`Copy stand`, `Flatbed`, `Film scanner`, `Drum`, `Lab scan`, `Other`), device, light source, holder and software — or type the method or notes yourself. It fills the text field the same way the developer does. EXIF `Software` is always `NegPy`.
 *   **Roll / Frame**: Scanlight capture roll name and frame number, stamped automatically on capture and editable here. Available in export filename templates as `{{ roll }}` and `{{ frame }}`, and written to XMP as `negpy:CaptureRoll` and `negpy:CaptureFrame` when set. Not the Roll Analysis normalization name.
 
 **Exposure**: optional original shutter, aperture and ISO. Click the lock to edit a free-text string, for example `1/125s f/2.8 ISO 400`.

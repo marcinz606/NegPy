@@ -1,0 +1,76 @@
+[
+  {
+    "id": "dev-d76-stock",
+    "displayName": "D-76 stock",
+    "developer": "Kodak D-76",
+    "dilution": "stock",
+    "time": "8:00",
+    "temperatureC": 20,
+    "process": "B&W",
+    "notes": "Fine grain, full film speed."
+  },
+  {
+    "id": "dev-d76-1plus1",
+    "displayName": "D-76 1+1",
+    "developer": "Kodak D-76",
+    "dilution": "1+1",
+    "time": "11:00",
+    "temperatureC": 20,
+    "process": "B&W",
+    "notes": "One-shot dilution, finer grain and a little more sharpness."
+  },
+  {
+    "id": "dev-hc110-b",
+    "displayName": "HC-110 dil. B",
+    "developer": "Kodak HC-110",
+    "dilution": "dil. B",
+    "time": "6:00",
+    "temperatureC": 20,
+    "process": "B&W"
+  },
+  {
+    "id": "dev-xtol-1plus1",
+    "displayName": "XTOL 1+1",
+    "developer": "Kodak XTOL",
+    "dilution": "1+1",
+    "time": "9:45",
+    "temperatureC": 20,
+    "process": "B&W"
+  },
+  {
+    "id": "dev-rodinal-1plus50",
+    "displayName": "Rodinal 1+50",
+    "developer": "Rodinal",
+    "dilution": "1+50",
+    "time": "13:00",
+    "temperatureC": 20,
+    "process": "B&W",
+    "notes": "High acutance, visible grain."
+  },
+  {
+    "id": "dev-c41-lab",
+    "displayName": "C-41 (lab)",
+    "developer": "C-41",
+    "time": "3:15",
+    "temperatureC": 37.8,
+    "process": "C-41",
+    "notes": "Standard colour negative process."
+  },
+  {
+    "id": "dev-e6-lab",
+    "displayName": "E-6 (lab)",
+    "developer": "E-6",
+    "temperatureC": 38,
+    "process": "E-6",
+    "notes": "Standard reversal process."
+  },
+  {
+    "id": "dev-ecn2",
+    "displayName": "ECN-2",
+    "developer": "ECN-2",
+    "time": "3:00",
+    "temperatureC": 41.1,
+    "process": "ECN-2",
+    "notes": "Motion-picture negative process, for Vision3 and similar."
+  }
+]

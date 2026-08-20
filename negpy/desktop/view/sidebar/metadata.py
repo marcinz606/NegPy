@@ -98,6 +98,17 @@ class MetadataSidebar(BaseSidebar):
         preset_row.addWidget(self.preset_clear_btn)
         gear.addLayout(preset_row)
 
+        ps_row = QHBoxLayout()
+        ps_row.setSpacing(THEME.space_sm)
+        gear.addWidget(field_label("Process & Scan preset"))
+        self.process_scan_combo = SearchableGearCombo(placeholder="Search process & scan presets…")
+        self.process_scan_combo.setToolTip("Reusable developer + scan setup combination. Click and type to search.")
+        ps_row.addWidget(self.process_scan_combo, 1)
+        self.process_scan_clear_btn = QPushButton("Clear")
+        self.process_scan_clear_btn.setToolTip("Clear process & scan preset selection")
+        ps_row.addWidget(self.process_scan_clear_btn)
+        gear.addLayout(ps_row)
+
         gear.addWidget(field_label("Camera"))
         self.camera_combo = SearchableGearCombo(placeholder="Search cameras…")
         self.camera_combo.setToolTip("Original film camera body. Click and type to search.")
@@ -115,7 +126,7 @@ class MetadataSidebar(BaseSidebar):
 
         self.manage_btn = QPushButton(" Manage…")
         self.manage_btn.setIcon(qta.icon("fa5s.cog", color=THEME.text_primary))
-        self.manage_btn.setToolTip("Edit cameras, lenses, film stocks, and gear presets")
+        self.manage_btn.setToolTip("Edit cameras, lenses, film stocks, developers, scan setups and presets")
         gear.addWidget(self.manage_btn)
         controls.addWidget(self._card("Analog Gear", "gear", gear_body, "fa5s.camera-retro"))
 
@@ -161,6 +172,9 @@ class MetadataSidebar(BaseSidebar):
         proc.addWidget(self.format_other_edit)
 
         proc.addWidget(field_label("Developer"))
+        self.developer_combo = SearchableGearCombo(placeholder="Search developers…")
+        self.developer_combo.setToolTip("Saved development recipe. Click and type to search; the field below stays editable.")
+        proc.addWidget(self.developer_combo)
         self.developer_edit = QLineEdit()
         self.developer_edit.setPlaceholderText("e.g. D-76 1+1")
         self.developer_edit.setText(conf.developer)
@@ -177,6 +191,9 @@ class MetadataSidebar(BaseSidebar):
         # ── SCANNING ─────────────────────────────────────────────────────
         scan_body, scan = self._card_body()
         scan.addWidget(field_label("Scanning"))
+        self.scan_setup_combo = SearchableGearCombo(placeholder="Search scan setups…")
+        self.scan_setup_combo.setToolTip("Saved digitization rig. Click and type to search; the field below stays editable.")
+        scan.addWidget(self.scan_setup_combo)
         self.scanning_edit = QLineEdit()
         self.scanning_edit.setPlaceholderText("e.g. DSLR copy-stand scan")
         self.scanning_edit.setText(conf.scanning)
@@ -323,6 +340,10 @@ class MetadataSidebar(BaseSidebar):
         self.camera_combo.selection_changed.connect(self._on_gear_changed)
         self.lens_combo.selection_changed.connect(self._on_gear_changed)
         self.film_stock_combo.selection_changed.connect(self._on_gear_changed)
+        self.developer_combo.selection_changed.connect(self._on_gear_changed)
+        self.scan_setup_combo.selection_changed.connect(self._on_gear_changed)
+        self.process_scan_combo.selection_changed.connect(self._on_process_scan_preset_changed)
+        self.process_scan_clear_btn.clicked.connect(self._on_process_scan_preset_clear)
         self.manage_btn.clicked.connect(self._open_gear_library)
 
         self.capture_date_edit.textChanged.connect(self._on_capture_date_changed)
@@ -412,6 +433,30 @@ class MetadataSidebar(BaseSidebar):
                 lambda stock: stock.resolved_display_name,
             )
 
+        if should_refresh(self.process_scan_combo):
+            self.process_scan_combo.blockSignals(True)
+            self.process_scan_combo.set_gear_items(
+                library.process_scan_presets,
+                conf.process_scan_preset_id or "",
+                lambda p: p.display_name or "Unnamed preset",
+                library,
+            )
+            self.process_scan_combo.blockSignals(False)
+
+        if should_refresh(self.developer_combo):
+            self.developer_combo.set_gear_items(
+                library.developers,
+                conf.developer_id or "",
+                lambda recipe: recipe.resolved_display_name,
+            )
+
+        if should_refresh(self.scan_setup_combo):
+            self.scan_setup_combo.set_gear_items(
+                library.scan_setups,
+                conf.scan_setup_id or "",
+                lambda rig: rig.resolved_display_name,
+            )
+
     def _on_preset_changed(self, _preset_id: str = "") -> None:
         preset_id = self.preset_combo.selected_id()
         if not preset_id:
@@ -444,9 +489,33 @@ class MetadataSidebar(BaseSidebar):
         )
         self._apply_metadata_config(cleared)
 
+    def _on_process_scan_preset_changed(self, _preset_id: str = "") -> None:
+        preset_id = self.process_scan_combo.selected_id()
+        if not preset_id:
+            return
+        self._flush_pending_edits()
+        new_meta = metadata_from_gear(
+            self.state.config.metadata,
+            self._gear_library,
+            process_scan_preset_id=preset_id,
+        )
+        self._apply_metadata_config(new_meta)
+
+    def _on_process_scan_preset_clear(self) -> None:
+        cleared = replace(
+            self.state.config.metadata,
+            process_scan_preset_id="",
+            developer_id="",
+            scan_setup_id="",
+            developer="",
+            scanning="",
+        )
+        self._apply_metadata_config(cleared)
+
     def _on_gear_changed(self, *_args) -> None:
         sender = self.sender()
         kwargs: dict = {}
+        self._flush_pending_edits()
         if sender is self.camera_combo:
             kwargs["gear_preset_id"] = ""
             kwargs["camera_id"] = self.camera_combo.selected_id()
@@ -456,6 +525,12 @@ class MetadataSidebar(BaseSidebar):
         elif sender is self.film_stock_combo:
             kwargs["gear_preset_id"] = ""
             kwargs["film_stock_id"] = self.film_stock_combo.selected_id()
+        elif sender is self.developer_combo:
+            kwargs["process_scan_preset_id"] = ""
+            kwargs["developer_id"] = self.developer_combo.selected_id()
+        elif sender is self.scan_setup_combo:
+            kwargs["process_scan_preset_id"] = ""
+            kwargs["scan_setup_id"] = self.scan_setup_combo.selected_id()
         else:
             return
 
@@ -464,9 +539,10 @@ class MetadataSidebar(BaseSidebar):
             self._gear_library,
             **kwargs,
         )
-        self.preset_combo.blockSignals(True)
-        self.preset_combo.set_selected_id("")
-        self.preset_combo.blockSignals(False)
+        cleared = self.process_scan_combo if "process_scan_preset_id" in kwargs else self.preset_combo
+        cleared.blockSignals(True)
+        cleared.set_selected_id("")
+        cleared.blockSignals(False)
         self._apply_metadata_config(new_meta, refresh_combos=False)
 
     def _apply_metadata_config(self, new_meta, *, refresh_combos: bool = True) -> None:
@@ -492,6 +568,12 @@ class MetadataSidebar(BaseSidebar):
         self._gear_library = GearProfiles.load_library()
         self._refresh_gear_combos()
         self._schedule_preview()
+
+    def _flush_pending_edits(self) -> None:
+        """Write typed-but-unsaved fields to the config, so a library pick builds on them."""
+        self.update_timer.stop()
+        self._persist_all_metadata_settings()
+        self._dirty = False
 
     def _mark_dirty(self) -> None:
         self._dirty = True
@@ -618,6 +700,9 @@ class MetadataSidebar(BaseSidebar):
             camera_id=self.camera_combo.selected_id(),
             lens_id=self.lens_combo.selected_id(),
             film_stock_id=self.film_stock_combo.selected_id(),
+            process_scan_preset_id=self.process_scan_combo.selected_id(),
+            developer_id=self.developer_combo.selected_id(),
+            scan_setup_id=self.scan_setup_combo.selected_id(),
             format=fmt,
             format_other=self.format_other_edit.text().strip() if fmt == "Other" else "",
             developer=self.developer_edit.text().strip(),
@@ -720,6 +805,9 @@ class MetadataSidebar(BaseSidebar):
             camera_id=self.camera_combo.selected_id(),
             lens_id=self.lens_combo.selected_id(),
             film_stock_id=self.film_stock_combo.selected_id(),
+            process_scan_preset_id=self.process_scan_combo.selected_id(),
+            developer_id=self.developer_combo.selected_id(),
+            scan_setup_id=self.scan_setup_combo.selected_id(),
             format=fmt,
             format_other=self.format_other_edit.text().strip() if fmt == "Other" else "",
             developer=self.developer_edit.text().strip(),

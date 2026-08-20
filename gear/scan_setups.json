@@ -1,0 +1,38 @@
+[
+  {
+    "id": "scan-copystand-scanlight",
+    "displayName": "Copy stand + Scanlight",
+    "method": "Copy stand",
+    "lightSource": "NegPy Scanlight narrowband RGB"
+  },
+  {
+    "id": "scan-copystand-white",
+    "displayName": "Copy stand + white LED",
+    "method": "Copy stand",
+    "lightSource": "White LED panel"
+  },
+  {
+    "id": "scan-opticfilm-8200i",
+    "displayName": "Plustek OpticFilm 8200i SE",
+    "method": "Film scanner",
+    "device": "Plustek OpticFilm 8200i SE"
+  },
+  {
+    "id": "scan-coolscan-v",
+    "displayName": "Nikon Coolscan V ED",
+    "method": "Film scanner",
+    "device": "Nikon Coolscan V ED"
+  },
+  {
+    "id": "scan-flatbed-v850",
+    "displayName": "Epson V850",
+    "method": "Flatbed",
+    "device": "Epson Perfection V850 Pro"
+  },
+  {
+    "id": "scan-lab",
+    "displayName": "Lab scan",
+    "method": "Lab scan",
+    "notes": "Scanned by the lab that processed the roll."
+  }
+]

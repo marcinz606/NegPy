@@ -27,12 +27,17 @@ from negpy.desktop.view.widgets.searchable_gear_combo import SearchableGearCombo
 from negpy.features.metadata.gear_logic import matches_gear_filter
 from negpy.features.metadata.gear_models import (
     Camera,
+    DeveloperRecipe,
+    DevProcess,
     FilmColorType,
     FilmFormat,
     FilmStock,
     GearLibrary,
     GearPreset,
     Lens,
+    ProcessScanPreset,
+    ScanMethod,
+    ScanSetup,
 )
 from negpy.services.assets.gear import GearProfiles
 
@@ -40,21 +45,30 @@ _CATEGORIES = [
     ("cameras", "Cameras"),
     ("lenses", "Lenses"),
     ("film_stocks", "Film Stocks"),
+    ("developers", "Developers"),
+    ("scan_setups", "Scan Setups"),
     ("gear_presets", "Gear Presets"),
+    ("process_scan_presets", "Process & Scan"),
 ]
 
 _CATEGORY_FIELDS: dict[str, frozenset[str]] = {
     "cameras": frozenset({"display_name", "make", "model", "notes"}),
     "lenses": frozenset({"display_name", "make", "lens_model", "focal", "aperture", "notes"}),
     "film_stocks": frozenset({"display_name", "manufacturer", "stock_name", "iso", "format", "color_type", "notes"}),
-    "gear_presets": frozenset({"display_name", "preset_camera", "preset_lens", "preset_film", "notes"}),
+    "developers": frozenset({"display_name", "developer", "dilution", "dev_time", "temperature", "dev_process", "lab", "notes"}),
+    "scan_setups": frozenset({"display_name", "scan_method", "device", "light_source", "holder", "software", "notes"}),
+    "gear_presets": frozenset({"display_name", "preset_camera", "preset_lens", "preset_film", "preset_developer", "preset_scan", "notes"}),
+    "process_scan_presets": frozenset({"display_name", "preset_developer", "preset_scan", "notes"}),
 }
 
 _CATEGORY_SEARCH_PLACEHOLDER = {
     "cameras": "Search cameras…",
     "lenses": "Search lenses…",
     "film_stocks": "Search film stocks…",
+    "developers": "Search developers…",
+    "scan_setups": "Search scan setups…",
     "gear_presets": "Search presets…",
+    "process_scan_presets": "Search process & scan presets…",
 }
 
 
@@ -167,9 +181,33 @@ class GearLibraryDialog(QDialog):
         self.color_combo = QComboBox()
         self.color_combo.addItems([e.value for e in FilmColorType])
         self.notes_edit = QLineEdit()
+        self.developer_edit = QLineEdit()
+        self.developer_edit.setPlaceholderText("e.g. D-76")
+        self.dilution_edit = QLineEdit()
+        self.dilution_edit.setPlaceholderText("e.g. 1+1")
+        self.dev_time_edit = QLineEdit()
+        self.dev_time_edit.setPlaceholderText("e.g. 9:30, or stand 60 min")
+        self.temperature_spin = QDoubleSpinBox()
+        self.temperature_spin.setRange(0, 60)
+        self.temperature_spin.setDecimals(1)
+        self.temperature_spin.setSuffix(" °C")
+        self.dev_process_combo = QComboBox()
+        self.dev_process_combo.addItems([e.value for e in DevProcess])
+        self.lab_edit = QLineEdit()
+        self.lab_edit.setPlaceholderText("Commercial lab, when not self-developed")
+        self.scan_method_combo = QComboBox()
+        self.scan_method_combo.addItems([e.value for e in ScanMethod])
+        self.device_edit = QLineEdit()
+        self.device_edit.setPlaceholderText("e.g. Sony A7RIV + 90mm macro")
+        self.light_source_edit = QLineEdit()
+        self.light_source_edit.setPlaceholderText("e.g. NegPy Scanlight narrowband")
+        self.holder_edit = QLineEdit()
+        self.software_edit = QLineEdit()
         self.preset_camera_combo = SearchableGearCombo(placeholder="Search cameras…")
         self.preset_lens_combo = SearchableGearCombo(placeholder="Search lenses…")
         self.preset_film_combo = SearchableGearCombo(placeholder="Search film stocks…")
+        self.preset_developer_combo = SearchableGearCombo(placeholder="Search developers…")
+        self.preset_scan_combo = SearchableGearCombo(placeholder="Search scan setups…")
 
         for w in (
             self.display_name_edit,
@@ -178,6 +216,14 @@ class GearLibraryDialog(QDialog):
             self.lens_model_edit,
             self.manufacturer_edit,
             self.stock_name_edit,
+            self.developer_edit,
+            self.dilution_edit,
+            self.dev_time_edit,
+            self.lab_edit,
+            self.device_edit,
+            self.light_source_edit,
+            self.holder_edit,
+            self.software_edit,
             self.notes_edit,
         ):
             w.textChanged.connect(self._on_form_changed)
@@ -189,6 +235,11 @@ class GearLibraryDialog(QDialog):
         self.preset_camera_combo.selection_changed.connect(self._on_form_changed)
         self.preset_lens_combo.selection_changed.connect(self._on_form_changed)
         self.preset_film_combo.selection_changed.connect(self._on_form_changed)
+        self.temperature_spin.valueChanged.connect(self._on_form_changed)
+        self.dev_process_combo.currentIndexChanged.connect(self._on_form_changed)
+        self.scan_method_combo.currentIndexChanged.connect(self._on_form_changed)
+        self.preset_developer_combo.selection_changed.connect(self._on_form_changed)
+        self.preset_scan_combo.selection_changed.connect(self._on_form_changed)
 
         self.form_panel = QWidget()
         self.form_layout = QFormLayout(self.form_panel)
@@ -205,9 +256,22 @@ class GearLibraryDialog(QDialog):
         self._register_form_row("iso", "ISO", self.iso_spin)
         self._register_form_row("format", "Format", self.format_combo)
         self._register_form_row("color_type", "Color type", self.color_combo)
+        self._register_form_row("developer", "Developer", self.developer_edit)
+        self._register_form_row("dilution", "Dilution", self.dilution_edit)
+        self._register_form_row("dev_time", "Time", self.dev_time_edit)
+        self._register_form_row("temperature", "Temperature", self.temperature_spin)
+        self._register_form_row("dev_process", "Process", self.dev_process_combo)
+        self._register_form_row("lab", "Lab", self.lab_edit)
+        self._register_form_row("scan_method", "Method", self.scan_method_combo)
+        self._register_form_row("device", "Device", self.device_edit)
+        self._register_form_row("light_source", "Light source", self.light_source_edit)
+        self._register_form_row("holder", "Holder", self.holder_edit)
+        self._register_form_row("software", "Software", self.software_edit)
         self._register_form_row("preset_camera", "Camera", self.preset_camera_combo)
         self._register_form_row("preset_lens", "Lens", self.preset_lens_combo)
         self._register_form_row("preset_film", "Film stock", self.preset_film_combo)
+        self._register_form_row("preset_developer", "Developer", self.preset_developer_combo)
+        self._register_form_row("preset_scan", "Scan setup", self.preset_scan_combo)
         self._register_form_row("notes", "Notes", self.notes_edit)
 
         right_layout.addWidget(self.form_panel)
@@ -241,7 +305,13 @@ class GearLibraryDialog(QDialog):
             return self._library.lenses
         if self._category == "film_stocks":
             return self._library.film_stocks
-        return self._library.gear_presets
+        if self._category == "developers":
+            return self._library.developers
+        if self._category == "scan_setups":
+            return self._library.scan_setups
+        if self._category == "gear_presets":
+            return self._library.gear_presets
+        return self._library.process_scan_presets
 
     def _set_current_items(self, items: list) -> None:
         if self._category == "cameras":
@@ -250,8 +320,14 @@ class GearLibraryDialog(QDialog):
             self._library.lenses = items
         elif self._category == "film_stocks":
             self._library.film_stocks = items
-        else:
+        elif self._category == "developers":
+            self._library.developers = items
+        elif self._category == "scan_setups":
+            self._library.scan_setups = items
+        elif self._category == "gear_presets":
             self._library.gear_presets = items
+        else:
+            self._library.process_scan_presets = items
 
     def _item_label(self, item) -> str:
         if isinstance(item, Camera):
@@ -260,7 +336,9 @@ class GearLibraryDialog(QDialog):
             return item.resolved_display_name
         if isinstance(item, FilmStock):
             return item.resolved_display_name
-        if isinstance(item, GearPreset):
+        if isinstance(item, (DeveloperRecipe, ScanSetup)):
+            return item.resolved_display_name
+        if isinstance(item, (GearPreset, ProcessScanPreset)):
             return item.display_name or "Unnamed preset"
         return str(item)
 
@@ -291,7 +369,7 @@ class GearLibraryDialog(QDialog):
             selected_id = all_items[self._selected_idx].id
 
         query = self.item_search.text().strip()
-        lib = self._library if self._category == "gear_presets" else None
+        lib = self._library if self._category in ("gear_presets", "process_scan_presets") else None
         visible = [item for item in all_items if matches_gear_filter(item, query, lib)]
 
         self._list_items = visible
@@ -323,6 +401,8 @@ class GearLibraryDialog(QDialog):
         camera_id: str = "",
         lens_id: str = "",
         film_id: str = "",
+        developer_id: str = "",
+        scan_setup_id: str = "",
     ) -> None:
         self.preset_camera_combo.set_gear_items(
             self._library.cameras,
@@ -338,6 +418,16 @@ class GearLibraryDialog(QDialog):
             self._library.film_stocks,
             film_id,
             lambda stock: stock.resolved_display_name,
+        )
+        self.preset_developer_combo.set_gear_items(
+            self._library.developers,
+            developer_id,
+            lambda recipe: recipe.resolved_display_name,
+        )
+        self.preset_scan_combo.set_gear_items(
+            self._library.scan_setups,
+            scan_setup_id,
+            lambda rig: rig.resolved_display_name,
         )
 
     def _on_item_changed(self, row: int) -> None:
@@ -384,11 +474,41 @@ class GearLibraryDialog(QDialog):
                 if idx >= 0:
                     self.color_combo.setCurrentIndex(idx)
                 self.notes_edit.setText(item.notes)
+            elif isinstance(item, DeveloperRecipe):
+                self.display_name_edit.setText(item.display_name)
+                self.developer_edit.setText(item.developer)
+                self.dilution_edit.setText(item.dilution)
+                self.dev_time_edit.setText(item.time)
+                self.temperature_spin.setValue(item.temperature_c or 0)
+                idx = self.dev_process_combo.findText(item.process.value)
+                if idx >= 0:
+                    self.dev_process_combo.setCurrentIndex(idx)
+                self.lab_edit.setText(item.lab)
+                self.notes_edit.setText(item.notes)
+            elif isinstance(item, ScanSetup):
+                self.display_name_edit.setText(item.display_name)
+                idx = self.scan_method_combo.findText(item.method.value)
+                if idx >= 0:
+                    self.scan_method_combo.setCurrentIndex(idx)
+                self.device_edit.setText(item.device)
+                self.light_source_edit.setText(item.light_source)
+                self.holder_edit.setText(item.holder)
+                self.software_edit.setText(item.software)
+                self.notes_edit.setText(item.notes)
             elif isinstance(item, GearPreset):
                 self._refresh_preset_combos(
                     camera_id=item.camera_id,
                     lens_id=item.lens_id,
                     film_id=item.film_stock_id,
+                    developer_id=item.developer_id,
+                    scan_setup_id=item.scan_setup_id,
+                )
+                self.display_name_edit.setText(item.display_name)
+                self.notes_edit.setText(item.notes)
+            elif isinstance(item, ProcessScanPreset):
+                self._refresh_preset_combos(
+                    developer_id=item.developer_id,
+                    scan_setup_id=item.scan_setup_id,
                 )
                 self.display_name_edit.setText(item.display_name)
                 self.notes_edit.setText(item.notes)
@@ -405,12 +525,21 @@ class GearLibraryDialog(QDialog):
                 self.lens_model_edit,
                 self.manufacturer_edit,
                 self.stock_name_edit,
+                self.developer_edit,
+                self.dilution_edit,
+                self.dev_time_edit,
+                self.lab_edit,
+                self.device_edit,
+                self.light_source_edit,
+                self.holder_edit,
+                self.software_edit,
                 self.notes_edit,
             ):
                 w.clear()
             self.focal_spin.setValue(0)
             self.aperture_spin.setValue(0)
             self.iso_spin.setValue(100)
+            self.temperature_spin.setValue(0)
         finally:
             self._updating = False
 
@@ -440,11 +569,35 @@ class GearLibraryDialog(QDialog):
             item.format = FilmFormat(self.format_combo.currentText())
             item.color_type = FilmColorType(self.color_combo.currentText())
             item.notes = self.notes_edit.text().strip()
+        elif isinstance(item, DeveloperRecipe):
+            item.display_name = self.display_name_edit.text().strip()
+            item.developer = self.developer_edit.text().strip()
+            item.dilution = self.dilution_edit.text().strip()
+            item.time = self.dev_time_edit.text().strip()
+            item.temperature_c = self.temperature_spin.value() or None
+            item.process = DevProcess(self.dev_process_combo.currentText())
+            item.lab = self.lab_edit.text().strip()
+            item.notes = self.notes_edit.text().strip()
+        elif isinstance(item, ScanSetup):
+            item.display_name = self.display_name_edit.text().strip()
+            item.method = ScanMethod(self.scan_method_combo.currentText())
+            item.device = self.device_edit.text().strip()
+            item.light_source = self.light_source_edit.text().strip()
+            item.holder = self.holder_edit.text().strip()
+            item.software = self.software_edit.text().strip()
+            item.notes = self.notes_edit.text().strip()
         elif isinstance(item, GearPreset):
             item.display_name = self.display_name_edit.text().strip()
             item.camera_id = self.preset_camera_combo.selected_id()
             item.lens_id = self.preset_lens_combo.selected_id()
             item.film_stock_id = self.preset_film_combo.selected_id()
+            item.developer_id = self.preset_developer_combo.selected_id()
+            item.scan_setup_id = self.preset_scan_combo.selected_id()
+            item.notes = self.notes_edit.text().strip()
+        elif isinstance(item, ProcessScanPreset):
+            item.display_name = self.display_name_edit.text().strip()
+            item.developer_id = self.preset_developer_combo.selected_id()
+            item.scan_setup_id = self.preset_scan_combo.selected_id()
             item.notes = self.notes_edit.text().strip()
 
         items[self._selected_idx] = item
@@ -462,8 +615,14 @@ class GearLibraryDialog(QDialog):
             item = Lens(lens_model="New lens")
         elif self._category == "film_stocks":
             item = FilmStock(stock_name="New stock")
-        else:
+        elif self._category == "developers":
+            item = DeveloperRecipe(developer="New developer")
+        elif self._category == "scan_setups":
+            item = ScanSetup(display_name="New scan setup")
+        elif self._category == "gear_presets":
             item = GearPreset(display_name="New preset")
+        else:
+            item = ProcessScanPreset(display_name="New preset")
         items = list(self._current_items())
         items.append(item)
         self._set_current_items(items)

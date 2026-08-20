@@ -73,6 +73,9 @@ class MetadataConfig:
     camera_id: str = ""
     lens_id: str = ""
     film_stock_id: str = ""
+    process_scan_preset_id: str = ""
+    developer_id: str = ""
+    scan_setup_id: str = ""
 
     # Structured gear fields (resolved from library or manual)
     camera_make: str = ""
