@@ -231,7 +231,7 @@ def test_closing_running_calibration_waits_for_worker_terminal_signal():
     assert w._lv_target is w.lv_image
 
 
-def test_running_calibration_locks_the_window_inputs():
+def test_running_calibration_locks_the_window_inputs(monkeypatch):
     """A calibration meters a fixed base at a fixed ISO/aperture, so the film-stock name, the base
     ROI and the ISO/aperture must not change under it mid-run. They lock when it starts and unlock
     on a terminal outcome (here a cancel) so a failed run can be adjusted and retried."""
@@ -239,6 +239,8 @@ def test_running_calibration_locks_the_window_inputs():
     w._camera_verified = True
     w._light_verified = True
     w.calib_window.image._set_crosshair(0.5, 0.5)  # place the base patch so the run can start
+    # A run also needs the body's own shutter ladder; without one the start refuses (issue #768).
+    monkeypatch.setattr(w, "_settings_json", lambda: {"shutter": {"options": [{"label": "1/250"}, {"label": "1/60"}]}})
 
     w._on_calibrate_new_preset("Portra 400")
 
