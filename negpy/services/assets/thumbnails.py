@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 from typing import Optional, Any, List, Dict, Tuple
 from PIL import Image
 import rawpy
@@ -47,7 +48,7 @@ async def generate_batch_thumbnails(
             )
             completed += 1
             if progress_callback:
-                if asyncio.iscoroutinefunction(progress_callback):
+                if inspect.iscoroutinefunction(progress_callback):
                     await progress_callback(completed, f_info["name"])
                 else:
                     progress_callback(completed, f_info["name"])
