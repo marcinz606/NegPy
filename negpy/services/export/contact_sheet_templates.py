@@ -57,6 +57,9 @@ class ContactSheetTemplates:
 
     DEFAULT_NAME = DEFAULT_NAME
 
+    # (mtime stamp, parsed layouts): the TOML parse re-runs only on a file change.
+    _scan_cache: Optional[tuple[tuple, Dict[str, ContactSheetLayout]]] = None
+
     @staticmethod
     def _templates_dir() -> str:
         return APP_CONFIG.contact_sheet_templates_dir
@@ -68,9 +71,15 @@ class ContactSheetTemplates:
         templates_dir = ContactSheetTemplates._templates_dir()
         if not os.path.isdir(templates_dir):
             return result
-        for fname in os.listdir(templates_dir):
-            if not fname.endswith(".toml"):
-                continue
+        try:
+            with os.scandir(templates_dir) as entries:
+                stamp = tuple(sorted((e.name, e.stat().st_mtime_ns) for e in entries if e.name.endswith(".toml")))
+        except OSError:
+            stamp = None
+        cached = ContactSheetTemplates._scan_cache
+        if stamp is not None and cached is not None and cached[0] == stamp:
+            return cached[1]
+        for fname, _mtime in stamp or ():
             path = os.path.join(templates_dir, fname)
             parsed = ContactSheetTemplates._parse_file(path)
             if parsed is None:
@@ -78,6 +87,8 @@ class ContactSheetTemplates:
             name, layout = parsed
             if name != DEFAULT_NAME:
                 result[name] = layout
+        if stamp is not None:
+            ContactSheetTemplates._scan_cache = (stamp, result)
         return result
 
     @staticmethod

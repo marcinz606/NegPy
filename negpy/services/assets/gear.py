@@ -77,14 +77,30 @@ class GearProfiles:
         user = GearProfiles._read_list(os.path.join(GearProfiles._gear_dir(), fname), factory)
         return GearProfiles._merge(bundled, user)
 
+    # (user-file mtime stamp, library); bundled files are static per install.
+    _library_cache: tuple[tuple, GearLibrary] | None = None
+
     @staticmethod
     def load_library() -> GearLibrary:
-        return GearLibrary(
+        gear_dir = GearProfiles._gear_dir()
+        stamp = []
+        for fname in (_CAMERAS_FILE, _LENSES_FILE, _FILM_STOCKS_FILE, _GEAR_PRESETS_FILE):
+            try:
+                stamp.append(os.stat(os.path.join(gear_dir, fname)).st_mtime_ns)
+            except OSError:
+                stamp.append(None)
+        key = tuple(stamp)
+        cached = GearProfiles._library_cache
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        library = GearLibrary(
             cameras=GearProfiles._load_merged(_CAMERAS_FILE, Camera),
             lenses=GearProfiles._load_merged(_LENSES_FILE, Lens),
             film_stocks=GearProfiles._load_merged(_FILM_STOCKS_FILE, FilmStock),
             gear_presets=GearProfiles._load_merged(_GEAR_PRESETS_FILE, GearPreset),
         )
+        GearProfiles._library_cache = (key, library)
+        return library
 
     @staticmethod
     def save_cameras(cameras: list[Camera]) -> None:

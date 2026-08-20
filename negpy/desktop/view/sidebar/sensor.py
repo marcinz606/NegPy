@@ -313,6 +313,7 @@ class SensorSidebar(BaseSidebar):
             "process",
             persist=persist,
             render=True,
+            readback_metrics=persist,
             crosstalk_strength=val,
             **invalidate_local_bounds(self.state.config.process),
         )
@@ -374,7 +375,7 @@ class SensorSidebar(BaseSidebar):
 
     def _on_hue_trim_changed(self, val: float, persist: bool = True) -> None:
         # Sticky on commit only, so a drag doesn't write every intermediate value.
-        self.update_config_section("process", hue_trim=val, persist=persist)
+        self.update_config_section("process", hue_trim=val, persist=persist, readback_metrics=persist)
 
     def sync_ui(self) -> None:
         conf = self.state.config.process

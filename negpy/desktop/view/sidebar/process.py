@@ -279,10 +279,10 @@ class ProcessSidebar(BaseSidebar):
         self.sync_ui()
 
     def _on_white_point_changed(self, val: float, persist: bool = True) -> None:
-        self.update_config_section("process", persist=persist, **{self._wp_field(): val})
+        self.update_config_section("process", persist=persist, readback_metrics=persist, **{self._wp_field(): val})
 
     def _on_black_point_changed(self, val: float, persist: bool = True) -> None:
-        self.update_config_section("process", persist=persist, **{self._bp_field(): val})
+        self.update_config_section("process", persist=persist, readback_metrics=persist, **{self._bp_field(): val})
 
     def _on_lock_bounds_toggled(self, checked: bool) -> None:
         self.update_config_section("process", lock_bounds=checked, persist=True, render=False)
@@ -315,6 +315,7 @@ class ProcessSidebar(BaseSidebar):
             "process",
             persist=persist,
             render=True,
+            readback_metrics=persist,
             analysis_buffer=val,
             **invalidate_local_bounds(self.state.config.process),
         )
@@ -325,6 +326,7 @@ class ProcessSidebar(BaseSidebar):
             "process",
             persist=persist,
             render=True,
+            readback_metrics=persist,
             luma_range_clip=_luma_range_slider_to_value(val),
             **invalidate_local_bounds(self.state.config.process),
         )
@@ -334,6 +336,7 @@ class ProcessSidebar(BaseSidebar):
             "process",
             persist=persist,
             render=True,
+            readback_metrics=persist,
             color_range_clip=_color_slider_to_value(val),
             **invalidate_local_bounds(self.state.config.process),
         )
