@@ -2,12 +2,20 @@
 
 import io
 
+import imagecodecs
 import numpy as np
 import piexif
 import tifffile
 
 from negpy.features.metadata.models import MetadataConfig
-from negpy.features.metadata.writer import _decode_ascii, _sanitize_exif, embed_metadata, preserve_source_metadata
+from negpy.features.metadata.writer import (
+    _JXL_SIGNATURE,
+    _decode_ascii,
+    _jxl_boxes,
+    _sanitize_exif,
+    embed_metadata,
+    preserve_source_metadata,
+)
 
 
 def _make_tiff_bytes() -> bytes:
@@ -394,3 +402,94 @@ class TestSourceGps:
         gps = piexif.load(out)["GPS"]
         assert piexif.GPSIFD.GPSAltitude not in gps
         assert gps[piexif.GPSIFD.GPSLongitudeRef] == b"E"
+
+
+def _jxl_bytes() -> bytes:
+    """16-bit RGB JPEG XL in the shape produced by the real export pipeline."""
+    arr = np.random.default_rng(0).integers(0, 65535, (16, 16, 3), dtype=np.uint16)
+    return bytes(
+        imagecodecs.jpegxl_encode(
+            arr,
+            bitspersample=16,
+            photometric="RGB",
+            primaries="SRGB",
+            transfer="SRGB",
+            lossless=True,
+            effort=1,
+        )
+    )
+
+
+def _jxl_box_types(data: bytes) -> list[bytes]:
+    return [btype for btype, _start, _end in _jxl_boxes(data)]
+
+
+class TestJxlMetadata:
+    def test_exif_and_xmp_boxes_reach_the_container(self) -> None:
+        source_exif = {
+            "0th": {piexif.ImageIFD.Make: b"Plustek"},
+            "Exif": {},
+            "GPS": {},
+            "Interop": {},
+            "1st": {},
+        }
+        config = MetadataConfig(film="Portra 400", camera_make="Nikon", camera_model="FM2")
+
+        out = embed_metadata(_jxl_bytes(), config, source_exif)
+
+        types = _jxl_box_types(out)
+        assert b"Exif" in types and b"xml " in types
+        exif_at, codestream_at = types.index(b"Exif"), types.index(b"jxlc")
+        assert exif_at < codestream_at, "metadata must precede the codestream"
+
+    def test_exif_box_payload_is_offset_plus_tiff_header(self) -> None:
+        """The JPEG XL Exif box holds a 4-byte offset to the TIFF header, not the
+        JPEG 'Exif\\x00\\x00' APP1 prefix."""
+        out = embed_metadata(_jxl_bytes(), MetadataConfig(film="Portra 400"), None)
+
+        payload = next(out[start + 8 : end] for btype, start, end in _jxl_boxes(out) if btype == b"Exif")
+        assert payload[:4] == b"\x00\x00\x00\x00"
+        assert payload[4:6] in (b"MM", b"II")
+        assert piexif.load(payload[4:])["0th"][piexif.ImageIFD.Software] == b"NegPy"
+
+    def test_pixels_survive_the_rewrite(self) -> None:
+        image_bytes = _jxl_bytes()
+        out = embed_metadata(image_bytes, MetadataConfig(film="Portra 400"), None)
+        np.testing.assert_array_equal(imagecodecs.jpegxl_decode(out), imagecodecs.jpegxl_decode(image_bytes))
+
+    def test_re_embedding_replaces_rather_than_stacks_boxes(self) -> None:
+        config = MetadataConfig(film="Portra 400")
+        once = embed_metadata(_jxl_bytes(), config, None)
+        twice = embed_metadata(once, config, None)
+        assert twice == once
+
+    def test_preserve_copies_source_exif_without_negpy_software(self) -> None:
+        source_exif = {
+            "0th": {piexif.ImageIFD.Make: b"Nikon", piexif.ImageIFD.Software: b"MV-1 Recorder"},
+            "Exif": {},
+            "GPS": {},
+            "Interop": {},
+            "1st": {},
+        }
+        out = preserve_source_metadata(_jxl_bytes(), "/unused/source.dng", source_exif)
+
+        payload = next(out[start + 8 : end] for btype, start, end in _jxl_boxes(out) if btype == b"Exif")
+        zeroth = piexif.load(payload[4:])["0th"]
+        assert zeroth[piexif.ImageIFD.Make] == b"Nikon"
+        assert zeroth[piexif.ImageIFD.Software] == b"MV-1 Recorder"
+
+    def test_bare_codestream_is_wrapped_in_a_container(self) -> None:
+        """imagecodecs can emit a container-less codestream, which has nowhere to
+        hold metadata boxes."""
+        bare = bytes(imagecodecs.jpegxl_encode(np.zeros((8, 8, 3), dtype=np.uint8), lossless=True, effort=1, usecontainer=False))
+        assert bare[:2] == b"\xff\x0a"
+
+        out = embed_metadata(bare, MetadataConfig(film="Portra 400"), None)
+
+        assert out[:12] == _JXL_SIGNATURE
+        assert _jxl_box_types(out) == [b"JXL ", b"ftyp", b"Exif", b"xml ", b"jxlc"]
+        np.testing.assert_array_equal(imagecodecs.jpegxl_decode(out), imagecodecs.jpegxl_decode(bare))
+
+    def test_malformed_container_falls_back_to_the_input(self) -> None:
+        broken = _JXL_SIGNATURE + b"\x00\x00\xff\xffjxlc"
+        assert embed_metadata(broken, MetadataConfig(film="Portra 400"), None) == broken

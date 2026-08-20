@@ -177,12 +177,8 @@ class ExportWorker(QObject):
                     continue
 
                 if bits:
-                    # Skipped for JXL, where embed_metadata corrupts the stream, and for WebP, where
-                    # embed_metadata has no branch.
-                    if task.metadata_config is not None and task.export_settings.export_fmt not in (
-                        ExportFormat.JXL,
-                        ExportFormat.WEBP,
-                    ):
+                    # Skipped for WebP, where embed_metadata has no branch.
+                    if task.metadata_config is not None and task.export_settings.export_fmt is not ExportFormat.WEBP:
                         if task.metadata_config.protect_original_metadata:
                             bits = preserve_source_metadata(
                                 bits,
