@@ -289,3 +289,23 @@ class TestExposureDomainDodgeBurn(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_block_median_b2_fast_path_matches_np_median():
+    """The b==2 min/max fast path must agree with np.median over 2x2 blocks."""
+    import numpy as np
+
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+    from negpy.features.exposure.normalization import _block_median_grid
+
+    grid = int(EXPOSURE_CONSTANTS["analysis_grid"])
+    rng = np.random.default_rng(9)
+    # Long edge just over the grid, so b == 2.
+    img = rng.random((grid + 40, (grid * 2) // 3, 3)).astype(np.float32)
+
+    out = _block_median_grid(img)
+
+    h, w = img.shape[:2]
+    hb, wb = (h // 2) * 2, (w // 2) * 2
+    ref = np.median(img[:hb, :wb].reshape(hb // 2, 2, wb // 2, 2, 3), axis=(1, 3))
+    np.testing.assert_allclose(out, ref, atol=1e-6)
