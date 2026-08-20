@@ -96,11 +96,9 @@ def test_export_batch_keeps_source_cache_for_consecutive_same_file(tmp_path) -> 
     # a.cr2 exported twice (multi-format preset), then b.cr2.
     worker.run_batch([_task("a.cr2"), _task("a.cr2"), _task("b.cr2")])
 
-    assert proc.cleanup.call_args_list == [
-        call(release_source_cache=False, collect=False),  # next task = same source
-        call(release_source_cache=True, collect=False),
-        call(release_source_cache=True, collect=False),  # last task
-    ]
+    # Decoded source dropped only at source boundaries; VRAM evacuated once per batch.
+    assert proc.release_source_cache.call_args_list == [call(), call()]
+    assert proc.cleanup.call_args_list == [call(release_source_cache=True, collect=False)]
     assert proc.process_export.call_count == 3
 
     # _same_decode_source mirrors the _load_source_f32 cache key fields.

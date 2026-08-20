@@ -8,7 +8,7 @@ interpolation. The interpolation keeps the 16-bit dynamic range smooth;
 per-sample fidelity is 8-bit (bounded by LUT size and profile non-linearity).
 """
 
-from typing import Any
+from typing import Any, Optional
 import numpy as np
 from numba import prange  # type: ignore
 from PIL import Image, ImageCms
@@ -197,3 +197,75 @@ def apply_icc_u16_greyscale(
     full_lut = np.interp(np.arange(65536, dtype=np.float64), xs, diag.astype(np.float64))
     full_lut = np.clip(full_lut * 65535.0 + 0.5, 0, 65535).astype(np.uint16)
     return full_lut[img_u16]
+
+
+@parallel_njit(cache=True, fastmath=True)
+def _matrix_trc_u8_jit(img: np.ndarray, dec_lut: np.ndarray, m: np.ndarray, enc_lut: np.ndarray) -> np.ndarray:
+    h = img.shape[0]
+    w = img.shape[1]
+    kmax = enc_lut.shape[1] - 1
+    out = np.empty_like(img)
+    for y in prange(h):
+        for x in range(w):
+            r = dec_lut[0, img[y, x, 0]]
+            g = dec_lut[1, img[y, x, 1]]
+            b = dec_lut[2, img[y, x, 2]]
+            for c in range(3):
+                v = m[c, 0] * r + m[c, 1] * g + m[c, 2] * b
+                if v < 0.0:
+                    v = 0.0
+                elif v > 1.0:
+                    v = 1.0
+                f = v * kmax
+                i0 = int(f)
+                if i0 >= kmax:
+                    i0 = kmax - 1
+                d = f - i0
+                e = enc_lut[c, i0] * (1.0 - d) + enc_lut[c, i0 + 1] * d
+                vi = int(e * 255.0 + 0.5)
+                if vi < 0:
+                    vi = 0
+                elif vi > 255:
+                    vi = 255
+                out[y, x, c] = vi
+    return out
+
+
+_ENC_LUT_SIZE = 65536
+
+
+def apply_matrix_trc_u8(img_u8: np.ndarray, src_icc: bytes, dst_icc: bytes) -> Optional[np.ndarray]:
+    """Relative-colorimetric transform between two matrix/TRC profiles on a (H,W,3)
+    uint8 image: TRC decode, inv(dst_pcs) @ src_pcs with gamut clip, TRC encode.
+    None when either profile is not matrix/TRC; the caller falls back to lcms."""
+    from negpy.infrastructure.display.icc_profile import (
+        extract_pcs_matrix,
+        extract_trc_decode_samples,
+        is_matrix_trc_profile,
+    )
+
+    if not (is_matrix_trc_profile(src_icc) and is_matrix_trc_profile(dst_icc)):
+        return None
+    m_src = extract_pcs_matrix(src_icc)
+    m_dst = extract_pcs_matrix(dst_icc)
+    if m_src is None or m_dst is None:
+        return None
+    dec = extract_trc_decode_samples(src_icc, np.linspace(0.0, 1.0, 256))
+    dst_dec_dense = extract_trc_decode_samples(dst_icc, np.linspace(0.0, 1.0, _ENC_LUT_SIZE))
+    if dec is None or dst_dec_dense is None:
+        return None
+    try:
+        m = np.linalg.inv(m_dst) @ m_src
+    except np.linalg.LinAlgError:
+        return None
+    # The accumulate guards interp against a flat toe in a table-based curve.
+    x_enc = np.linspace(0.0, 1.0, _ENC_LUT_SIZE)
+    lin_grid = x_enc
+    enc_rows = []
+    for ch in range(3):
+        d = np.maximum.accumulate(np.clip(dst_dec_dense[ch], 0.0, 1.0))
+        enc_rows.append(np.interp(lin_grid, d, x_enc))
+    enc_lut = np.ascontiguousarray(np.stack(enc_rows).astype(np.float32))
+    dec_lut = np.ascontiguousarray(np.clip(dec, 0.0, 1.0).astype(np.float32))
+    m32 = np.ascontiguousarray(m.astype(np.float32))
+    return _matrix_trc_u8_jit(np.ascontiguousarray(img_u8), dec_lut, m32, enc_lut)

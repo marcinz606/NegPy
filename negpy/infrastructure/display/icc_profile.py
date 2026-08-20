@@ -89,6 +89,83 @@ def is_matrix_trc_profile(data: bytes) -> bool:
     return has_colorants and has_trc and not has_lut
 
 
+def extract_pcs_matrix(data: bytes) -> Optional[np.ndarray]:
+    """The raw PCS(D50)-relative RGB→XYZ matrix from the colorant tags, unadapted.
+
+    Relative-colorimetric lcms is exactly inv(dst_pcs) @ src_pcs; the D65-referenced
+    matrices from extract_primaries_matrix would fold in Bradford adaptations lcms
+    never applies.
+    """
+    tags = _read_tag_table(data)
+    cols = []
+    for sig in (b"rXYZ", b"gXYZ", b"bXYZ"):
+        entry = tags.get(sig)
+        if entry is None:
+            return None
+        xyz = _read_xyz_tag(data, *entry)
+        if xyz is None:
+            return None
+        cols.append(xyz)
+    return np.column_stack(cols)
+
+
+def _decode_trc_at(data: bytes, offset: int, size: int, x: np.ndarray) -> Optional[np.ndarray]:
+    """One TRC tag's decode (encoded → linear) at points ``x`` in [0, 1].
+    Handles 'curv' and 'para' types 0-4 (ICC spec §10.18); None on anything else."""
+    sig = data[offset : offset + 4]
+    if sig == b"curv":
+        if size < 12:
+            return None
+        count = struct.unpack_from(">I", data, offset + 8)[0]
+        if count == 0:
+            return x.astype(np.float64)
+        if count == 1:
+            g = struct.unpack_from(">H", data, offset + 12)[0] / 256.0
+            return np.power(x, g)
+        if offset + 12 + count * 2 > len(data):
+            return None
+        vals = np.frombuffer(data, dtype=">u2", count=count, offset=offset + 12).astype(np.float64) / 65535.0
+        return np.interp(x, np.linspace(0.0, 1.0, count), vals)
+    if sig == b"para":
+        if size < 12:
+            return None
+        ftype = struct.unpack_from(">H", data, offset + 8)[0]
+        nparams = {0: 1, 1: 3, 2: 4, 3: 5, 4: 7}.get(ftype)
+        if nparams is None or offset + 12 + nparams * 4 > len(data):
+            return None
+        p = [struct.unpack_from(">i", data, offset + 12 + 4 * i)[0] / 65536.0 for i in range(nparams)]
+        if ftype == 0:
+            return np.power(x, p[0])
+        if ftype == 1:
+            g, a, b = p
+            return np.where(x >= -b / a, np.power(np.clip(a * x + b, 0.0, None), g), 0.0)
+        if ftype == 2:
+            g, a, b, c = p
+            return np.where(x >= -b / a, np.power(np.clip(a * x + b, 0.0, None), g) + c, c)
+        if ftype == 3:
+            g, a, b, c, d = p
+            return np.where(x >= d, np.power(np.clip(a * x + b, 0.0, None), g), c * x)
+        g, a, b, c, d, e, f = p
+        return np.where(x >= d, np.power(np.clip(a * x + b, 0.0, None), g) + e, c * x + f)
+    return None
+
+
+def extract_trc_decode_samples(data: bytes, x: np.ndarray) -> Optional[np.ndarray]:
+    """(3, len(x)) float64: the r/g/bTRC decodes at encoded points ``x``, or None
+    when a tag is missing or of an unsupported curve type."""
+    tags = _read_tag_table(data)
+    rows = []
+    for sig in (b"rTRC", b"gTRC", b"bTRC"):
+        entry = tags.get(sig)
+        if entry is None:
+            return None
+        row = _decode_trc_at(data, *entry, x)
+        if row is None:
+            return None
+        rows.append(row)
+    return np.stack(rows)
+
+
 def extract_primaries_matrix(data: bytes) -> Optional[np.ndarray]:
     """Extract the 3x3 D65-referenced RGB→XYZ matrix from rXYZ/gXYZ/bXYZ colorant tags.
 

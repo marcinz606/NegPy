@@ -623,3 +623,56 @@ class TestJxlSourceMetadata:
         xmp = _read_xmp_from_source(str(path))
 
         assert xmp is not None and b"Portra 400" in xmp
+
+
+class TestExportEmbedPlan:
+    """First-encode embedding must carry the same metadata as the post-hoc rewrite."""
+
+    SOURCE_EXIF = {
+        "0th": {piexif.ImageIFD.Make: b"Plustek", piexif.ImageIFD.Model: b"OpticFilm"},
+        "Exif": {piexif.ExifIFD.LensModel: b"Nikkor 50mm"},
+        "GPS": {},
+        "Interop": {},
+        "1st": {},
+    }
+
+    def _tags(self, tiff_bytes: bytes) -> dict:
+        with tifffile.TiffFile(io.BytesIO(tiff_bytes)) as tf:
+            return {t.name: t.value for t in tf.pages[0].tags}
+
+    def test_tiff_first_encode_matches_rewrite(self) -> None:
+        from negpy.features.metadata.writer import export_embed_plan, tiff_metadata_kwargs
+
+        config = MetadataConfig(film="Portra 400", developer="C-41")
+        plan = export_embed_plan(config, dict(self.SOURCE_EXIF), "/nonexistent.tif")
+        assert plan is not None
+        exif_bytes, xmp_bytes, fold = plan
+
+        arr = np.random.randint(0, 65535, (16, 16, 3), dtype=np.uint16)
+        buf = io.BytesIO()
+        tifffile.imwrite(
+            buf,
+            arr,
+            photometric="rgb",
+            compression="zlib",
+            predictor=True,
+            **tiff_metadata_kwargs(exif_bytes, xmp_bytes, fold_user_comment=fold),
+        )
+        first_encode = self._tags(buf.getvalue())
+
+        rewrite = self._tags(embed_metadata(_make_tiff_bytes(), config, dict(self.SOURCE_EXIF)))
+
+        for name in ("ImageDescription", "Make", "Model", "LensModel"):
+            assert first_encode.get(name) == rewrite.get(name), name
+        assert ("XMP" in first_encode) == ("XMP" in rewrite)
+
+    def test_preserve_mode_without_source_exif_is_none(self) -> None:
+        from negpy.features.metadata.writer import export_embed_plan
+
+        config = MetadataConfig(protect_original_metadata=True)
+        assert export_embed_plan(config, None, "/nonexistent.tif") is None
+
+    def test_no_config_is_none(self) -> None:
+        from negpy.features.metadata.writer import export_embed_plan
+
+        assert export_embed_plan(None, dict(self.SOURCE_EXIF), "/nonexistent.tif") is None

@@ -6,7 +6,7 @@ import logging
 import re
 import struct
 from fractions import Fraction
-from typing import Optional
+from typing import Any, Optional
 
 import piexif
 import tifffile
@@ -405,15 +405,12 @@ def embed_jxl_boxes(
         return image_bytes
 
 
-def embed_metadata(
-    image_bytes: bytes,
+def _merged_exif_and_payload(
     config: MetadataConfig,
     source_exif: Optional[dict],
     gear: Optional[GearLibrary] = None,
-) -> bytes:
-    """
-    Insert custom metadata + preserved source EXIF + XMP into exported image bytes.
-    """
+) -> tuple[dict, Any]:
+    """Source EXIF merged with the config's custom fields, plus the resolved payload."""
     payload = _resolve_payload(config, gear, source_exif)
 
     if source_exif is not None:
@@ -440,7 +437,19 @@ def embed_metadata(
     merged.setdefault("0th", {})[piexif.ImageIFD.Orientation] = 1
     if isinstance(merged.get("1st"), dict):
         merged["1st"].pop(piexif.ImageIFD.Orientation, None)
+    return merged, payload
 
+
+def embed_metadata(
+    image_bytes: bytes,
+    config: MetadataConfig,
+    source_exif: Optional[dict],
+    gear: Optional[GearLibrary] = None,
+) -> bytes:
+    """
+    Insert custom metadata + preserved source EXIF + XMP into exported image bytes.
+    """
+    merged, payload = _merged_exif_and_payload(config, source_exif, gear)
     xmp_bytes = build_xmp_bytes(payload) if payload.has_any_data() else None
 
     try:
@@ -647,6 +656,46 @@ def _tiff_metadata_from_exif_bytes(exif_bytes: bytes) -> tuple[dict | None, str 
     return (metadata or None), software
 
 
+def tiff_metadata_kwargs(exif_bytes: bytes, xmp_bytes: Optional[bytes] = None, *, fold_user_comment: bool = True) -> dict:
+    """tifffile.imwrite kwargs carrying the EXIF/XMP payload, for embedding at the
+    first encode."""
+    description, extratags = _exif_bytes_to_extratags(exif_bytes)
+    if fold_user_comment:
+        description = _fold_user_comment_into_description(description, extratags)
+    if xmp_bytes:
+        extratags.append((_TIFF_XMP_TAG, 7, len(xmp_bytes), xmp_bytes, True))
+    metadata, software = _tiff_metadata_from_exif_bytes(exif_bytes)
+    if fold_user_comment:
+        # Artist and Copyright reach the file through extratags on the embed path.
+        metadata = None
+    return {"description": description or "", "metadata": metadata, "software": software, "extratags": extratags}
+
+
+def export_embed_plan(
+    config: Optional[MetadataConfig],
+    source_exif: Optional[dict],
+    source_path: str,
+    gear: Optional[GearLibrary] = None,
+) -> Optional[tuple[bytes, Optional[bytes], bool]]:
+    """(exif_bytes, xmp_bytes, fold_user_comment) for embedding at first encode.
+    None when there is nothing to embed or the payload cannot be built; the
+    caller then keeps the post-hoc rewrite path."""
+    if config is None:
+        return None
+    try:
+        if config.protect_original_metadata:
+            exif_dict = _load_source_exif(source_path, source_exif)
+            if not exif_dict:
+                return None
+            return piexif.dump(_sanitize_exif(exif_dict)), _read_xmp_from_source(source_path), False
+        merged, payload = _merged_exif_and_payload(config, source_exif, gear)
+        xmp_bytes = build_xmp_bytes(payload) if payload.has_any_data() else None
+        return piexif.dump(_sanitize_exif(merged)), xmp_bytes, True
+    except Exception:
+        _log.warning("metadata embed plan failed", exc_info=True)
+        return None
+
+
 def _rewrite_tiff_preserve(
     image_bytes: bytes,
     exif_bytes: bytes,
@@ -666,28 +715,13 @@ def _rewrite_tiff_preserve(
         compression = page.compression.name.lower() if int(page.compression) != 1 else None
         icc = page.iccprofile
 
-    description, extratags = _exif_bytes_to_extratags(exif_bytes)
-    if fold_user_comment:
-        description = _fold_user_comment_into_description(description, extratags)
-
-    if xmp_bytes:
-        extratags.append((_TIFF_XMP_TAG, 7, len(xmp_bytes), xmp_bytes, True))
-
-    metadata, software = _tiff_metadata_from_exif_bytes(exif_bytes)
-    if fold_user_comment:
-        # Artist and Copyright reach the file through extratags on the embed path.
-        metadata = None
-
     tifffile.imwrite(
         output,
         arr,
         photometric=photometric,
         compression=compression,
         iccprofile=icc,
-        description=description or "",
-        metadata=metadata,
-        software=software,
-        extratags=extratags,
+        **tiff_metadata_kwargs(exif_bytes, xmp_bytes, fold_user_comment=fold_user_comment),
     )
 
 

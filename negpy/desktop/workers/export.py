@@ -6,7 +6,7 @@ import tempfile
 import threading
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 from negpy.domain.models import ColorSpace, WorkspaceConfig, ExportConfig, ExportFormat, ExportPreset, ExportPresetOutputMode
-from negpy.features.metadata.writer import embed_metadata, preserve_source_metadata
+from negpy.features.metadata.writer import embed_metadata, export_embed_plan, preserve_source_metadata
 from negpy.features.metadata.models import MetadataConfig
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE, ColorSpaceRegistry
 from negpy.services.rendering.image_processor import ImageProcessor
@@ -155,6 +155,16 @@ class ExportWorker(QObject):
                 name = os.path.splitext(full_name)[0]
                 self.progress.emit(i + 1, total, name)
 
+                # TIFF/PNG take the metadata at the first encode; the post-hoc
+                # rewrite re-compresses the full-res file.
+                embed_plan = None
+                if task.metadata_config is not None and task.export_settings.export_fmt in (ExportFormat.TIFF, ExportFormat.PNG):
+                    embed_plan = export_embed_plan(
+                        task.metadata_config,
+                        task.source_exif,
+                        task.file_info["path"],
+                    )
+
                 bits, status = self._processor.process_export(
                     task.file_info["path"],
                     task.params,
@@ -168,6 +178,7 @@ class ExportWorker(QObject):
                     crop_rect=tuple(task.file_info["crop_rect"]) if task.file_info.get("crop_rect") else None,
                     gutter_thickness=float(task.file_info.get("gutter_thickness") or 0.0),
                     diptych=task.diptych,
+                    embed_plan=embed_plan,
                 )
 
                 if not bits:
@@ -177,7 +188,7 @@ class ExportWorker(QObject):
                     continue
 
                 if bits:
-                    if task.metadata_config is not None:
+                    if task.metadata_config is not None and embed_plan is None:
                         if task.metadata_config.protect_original_metadata:
                             bits = preserve_source_metadata(
                                 bits,
@@ -209,18 +220,17 @@ class ExportWorker(QObject):
                         self.error.emit(str(write_err))
                         continue
 
-                # VRAM is evacuated per file. The decoded source is kept for a same-file next task, as
-                # with multi-format presets, and gc is deferred to once per batch.
+                # The engine evicts stale pool textures itself per render; the decoded
+                # source is kept until the next task needs a different file.
                 nxt = tasks[i + 1] if i + 1 < len(tasks) else None
-                self._processor.cleanup(
-                    release_source_cache=nxt is None or not _same_decode_source(task, nxt),
-                    collect=False,
-                )
+                if nxt is None or not _same_decode_source(task, nxt):
+                    self._processor.release_source_cache()
 
             self.finished.emit()
         except Exception as e:
             self.error.emit(str(e))
         finally:
+            self._processor.cleanup(release_source_cache=True, collect=False)
             gc.collect()
 
     @pyqtSlot(list)

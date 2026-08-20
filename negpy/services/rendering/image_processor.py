@@ -6,9 +6,10 @@ import rawpy
 import tifffile
 import imagecodecs
 import numpy as np
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace as dc_replace
 from functools import lru_cache
-from PIL import Image, ImageCms
+from PIL import Image, ImageCms, PngImagePlugin
 from typing import Callable, Tuple, Optional, Any, Dict, List, Sequence
 from negpy.kernel.system.logging import get_logger
 from negpy.kernel.system.config import APP_CONFIG
@@ -78,13 +79,20 @@ from negpy.infrastructure.loaders.helpers import (
 )
 from negpy.services.export.print import PrintService
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry, WORKING_COLOR_SPACE
-from negpy.infrastructure.display.icc_lut import DEFAULT_LUT_SIZE, apply_icc_u16_rgb
+from negpy.infrastructure.display.icc_lut import DEFAULT_LUT_SIZE, apply_icc_u16_rgb, apply_matrix_trc_u8
 
 # Preview soft-proof LUT grid. Finer than the display LUT because the proof clips at the
 # output gamut boundary, and interpolating across that kink is where the error is.
 PROOF_LUT_SIZE = 65
 
 logger = get_logger(__name__)
+
+
+@lru_cache(maxsize=16)
+def _read_icc_bytes(path: str) -> bytes:
+    with open(path, "rb") as f:
+        return f.read()
+
 
 # (photometric, primaries, transfer) for JXL's enumerated color encoding (D65 white only,
 # no ICC). Other spaces must hard-fail. Transfers verified against the bundled icc/*.icc:
@@ -356,14 +364,15 @@ class ImageProcessor:
         if key == self._retouch_detect_key and self._retouch_detect_value is not None:
             return self._retouch_detect_value
 
+        small = _detection_downsample(img)
         stats_key = (source_key, int(ret.dust_size))
         if stats_key == self._dust_stats_key and self._dust_stats_value is not None:
             stats = self._dust_stats_value
         else:
-            stats = compute_dust_stats(_detection_downsample(img), ret.dust_size)
+            stats = compute_dust_stats(small, ret.dust_size)
             self._dust_stats_key = stats_key
             self._dust_stats_value = stats
-        score, hair_luma = detect_luma_score(_detection_downsample(img), ret.dust_threshold, ret.dust_size, stats=stats)
+        score, hair_luma = detect_luma_score(small, ret.dust_threshold, ret.dust_size, stats=stats)
         value = (score, [hair_luma] if hair_luma is not None else [])
         self._retouch_detect_key = key
         self._retouch_detect_value = value
@@ -679,14 +688,15 @@ class ImageProcessor:
             return self._source_cache_value
 
         if params.stitch.stitch_enabled and params.stitch.stitch_paths:
-            parts, irs = [], []
-            source_cs = WORKING_COLOR_SPACE
-            for i, path in enumerate((file_path, *params.stitch.stitch_paths)):
-                f32, ir, cs = self._decode_oriented_f32(path, _part_params(params, i), fast_decode)
-                if i == 0:
-                    source_cs = cs
-                parts.append(f32)
-                irs.append(ir)
+            # libraw/tifffile release the GIL, so the parts decode concurrently.
+            all_paths = (file_path, *params.stitch.stitch_paths)
+            with ThreadPoolExecutor(max_workers=min(3, len(all_paths))) as pool:
+                decoded = list(
+                    pool.map(lambda ip: self._decode_oriented_f32(ip[1], _part_params(params, ip[0]), fast_decode), enumerate(all_paths))
+                )
+            parts = [f32 for f32, _ir, _cs in decoded]
+            irs = [ir for _f32, ir, _cs in decoded]
+            source_cs = decoded[0][2]
             f32_buffer, ir_full = stitch_composite(parts, irs, params.stitch)
             result = (f32_buffer, ir_full, source_cs)
         else:
@@ -715,7 +725,19 @@ class ImageProcessor:
         # differently on the two paths.
         is_triplet = is_rgb_triplet(rgbcfg) and not hdr_active(params.hdr)
 
-        rgb, metadata = self._decode_sensor_rgb(file_path, linear_raw, fast=fast_decode, wb_override=wb_override)
+        decoded: Dict[str, np.ndarray] = {}
+        if is_triplet:
+            # libraw releases the GIL, so all three exposures decode concurrently.
+            for label, path in (("green", rgbcfg.green_path), ("blue", rgbcfg.blue_path)):
+                if not os.path.exists(path):
+                    raise FileNotFoundError(f"RGB-scan {label} exposure not found: {path}")
+            siblings = [p for p in dict.fromkeys((rgbcfg.green_path, rgbcfg.blue_path)) if p != file_path]
+            with ThreadPoolExecutor(max_workers=1 + len(siblings)) as pool:
+                primary_future = pool.submit(self._decode_sensor_rgb, file_path, linear_raw, fast=fast_decode, wb_override=wb_override)
+                decoded = dict(zip(siblings, pool.map(lambda p: self._decode_sensor_rgb(p, linear_raw)[0], siblings)))
+                rgb, metadata = primary_future.result()
+        else:
+            rgb, metadata = self._decode_sensor_rgb(file_path, linear_raw, fast=fast_decode, wb_override=wb_override)
         # No embedded profile (scanner-raw linear, sensor-native RAW) means the buffer is
         # already in the working space, so "Same as Source" exports without converting.
         source_cs = str(metadata.get("color_space") or WORKING_COLOR_SPACE)
@@ -725,16 +747,11 @@ class ImageProcessor:
         ir_full = metadata.get("ir")
 
         if is_triplet:
-            # Assemble one frame from the R/G/B exposures. The primary (red) file is already
-            # decoded above, so reuse it and decode only green and blue.
-            for label, path in (("green", rgbcfg.green_path), ("blue", rgbcfg.blue_path)):
-                if not os.path.exists(path):
-                    raise FileNotFoundError(f"RGB-scan {label} exposure not found: {path}")
 
             def _decode(path: str) -> np.ndarray:
                 if path == file_path:
                     return rgb
-                return self._decode_sensor_rgb(path, linear_raw)[0]
+                return decoded[path]
 
             rgb = merge_rgb_triplet(_decode, file_path, rgbcfg.green_path, rgbcfg.blue_path, align=rgbcfg.align)
 
@@ -751,10 +768,20 @@ class ImageProcessor:
             # a bracket whose frames sit on different white balances solves wrong ratios
             # and reports nothing.
             bracket_wb = None if linear_raw else metadata.get("camera_wb")
+            # fast_decode must ride along: a half-size primary against full-size
+            # siblings is a shape mismatch, not just a slow merge.
+            hdr_siblings = [p for p in dict.fromkeys(params.hdr.hdr_paths) if p != file_path]
+            with ThreadPoolExecutor(max_workers=min(3, max(1, len(hdr_siblings)))) as pool:
+                hdr_decoded = dict(
+                    zip(
+                        hdr_siblings,
+                        pool.map(
+                            lambda p: self._decode_sensor_rgb(p, linear_raw, fast=fast_decode, wb_override=bracket_wb)[0], hdr_siblings
+                        ),
+                    )
+                )
             f32_buffer = merge_bracket(
-                # fast_decode must ride along: a half-size primary against full-size
-                # siblings is a shape mismatch, not just a slow merge.
-                lambda p: rgb if p == file_path else self._decode_sensor_rgb(p, linear_raw, fast=fast_decode, wb_override=bracket_wb)[0],
+                lambda p: rgb if p == file_path else hdr_decoded[p],
                 file_path,
                 params.hdr,
             )
@@ -865,6 +892,13 @@ class ImageProcessor:
             prefer_gpu = False
 
         if prefer_gpu and self.engine_gpu:
+            # Mirrors run_pipeline's base_hash, so a multi-preset batch of one frame
+            # reuses the source upload and the meter cache.
+            export_hash = (
+                detect_key
+                + (hair_bake_token(orig_ret) if hair_masks else "")
+                + f"|res{w_raw}x{h_raw}|half{half}:{split_x}:{crop_rect}:{gutter_thickness}"
+            )
             buffer, _gpu_metrics = self.engine_gpu.process(
                 f32_buffer,
                 params,
@@ -873,6 +907,8 @@ class ImageProcessor:
                 readback_metrics=False,
                 cam_xyz=self._cam_xyz_by_path.get(file_path, (None, None))[0],
                 camera_wb=self._cam_xyz_by_path.get(file_path, (None, None))[1],
+                source_hash=export_hash,
+                analysis_source_hash=export_hash,
             )
         else:
             buffer, _ = self.run_pipeline(
@@ -908,6 +944,7 @@ class ImageProcessor:
         crop_rect: Optional[tuple[float, float, float, float]] = None,
         gutter_thickness: float = 0.0,
         diptych: Optional[Tuple[WorkspaceConfig, WorkspaceConfig]] = None,
+        embed_plan: Optional[tuple] = None,
     ) -> Tuple[Optional[bytes], str]:
         """Performs high-resolution export with color management.
 
@@ -915,6 +952,9 @@ class ImageProcessor:
         back into the original geometry. Each half is sliced before the pipeline, so its
         normalization sees the same pixels the user edited it on. ``params`` is unused
         then — the halves own the edit. One encode, so no double compression.
+
+        ``embed_plan`` (from writer.export_embed_plan): TIFF/PNG embed it at the
+        first encode instead of the post-hoc rewrite.
         """
         try:
             if diptych is not None:
@@ -950,7 +990,7 @@ class ImageProcessor:
                     crop_rect=crop_rect,
                     gutter_thickness=gutter_thickness,
                 )
-            return self._encode_export(buffer, export_settings, color_space, working_color_space)
+            return self._encode_export(buffer, export_settings, color_space, working_color_space, embed_plan=embed_plan)
 
         except Exception as e:
             logger.error(f"Export pipeline failed: {e}")
@@ -962,6 +1002,7 @@ class ImageProcessor:
         export_settings,
         color_space: str,
         working_color_space: str = WORKING_COLOR_SPACE,
+        embed_plan: Optional[tuple] = None,
     ) -> Tuple[bytes, str]:
         """Encodes a processed float buffer to the target format's file bytes.
 
@@ -996,6 +1037,12 @@ class ImageProcessor:
                 img_int = float_to_uint16(buffer)
                 img_out, icc_bytes = self._apply_color_management_u16(img_int, working_color_space, color_space, icc_output, icc_input)
 
+            meta_kwargs = {}
+            if embed_plan is not None:
+                from negpy.features.metadata.writer import tiff_metadata_kwargs
+
+                exif_bytes, xmp_bytes, fold = embed_plan
+                meta_kwargs = tiff_metadata_kwargs(exif_bytes, xmp_bytes, fold_user_comment=fold)
             output_buf = io.BytesIO()
             tifffile.imwrite(
                 output_buf,
@@ -1004,6 +1051,7 @@ class ImageProcessor:
                 iccprofile=icc_bytes,
                 compression="zlib",
                 predictor=True,
+                **meta_kwargs,
             )
             return output_buf.getvalue(), "tiff"
         elif fmt == ExportFormat.PNG:
@@ -1025,6 +1073,13 @@ class ImageProcessor:
             save_kwargs: Dict[str, Any] = {"format": "PNG", "compress_level": 6}
             if icc_bytes:
                 save_kwargs["icc_profile"] = icc_bytes
+            if embed_plan is not None:
+                exif_bytes, xmp_bytes, _fold = embed_plan
+                save_kwargs["exif"] = exif_bytes
+                if xmp_bytes:
+                    pnginfo = PngImagePlugin.PngInfo()
+                    pnginfo.add_itxt("XML:com.adobe.xmp", xmp_bytes.decode("utf-8"), zip=False)
+                    save_kwargs["pnginfo"] = pnginfo
             pil_img.save(output_buf, **save_kwargs)
             return output_buf.getvalue(), "png"
         elif fmt == ExportFormat.JXL:
@@ -1235,12 +1290,10 @@ class ImageProcessor:
     def _get_target_icc_bytes(self, color_space: str, icc_path: Optional[str]) -> Optional[bytes]:
         """Loads ICC profile data for embedding (custom output profile or target space)."""
         if icc_path and os.path.exists(icc_path):
-            with open(icc_path, "rb") as f:
-                return f.read()
+            return _read_icc_bytes(icc_path)
         path = ColorSpaceRegistry.get_icc_path(color_space)
         if path and os.path.exists(path):
-            with open(path, "rb") as f:
-                return f.read()
+            return _read_icc_bytes(path)
         return None
 
     @staticmethod
@@ -1487,6 +1540,16 @@ class ImageProcessor:
             if pil_img.mode not in ("RGB", "L"):
                 pil_img = pil_img.convert("RGB" if pil_img.mode != "I;16" else "L")
 
+            if pil_img.mode == "RGB":
+                # Matrix/TRC pairs take the parallel kernel; LUT profiles (printer
+                # ICCs) return None and fall through to exact lcms.
+                src_bytes = self._get_target_icc_bytes(working_color_space, input_icc_path)
+                dst_bytes = self._get_target_icc_bytes(color_space, output_icc_path)
+                if src_bytes and dst_bytes:
+                    fast = apply_matrix_trc_u8(np.asarray(pil_img), src_bytes, dst_bytes)
+                    if fast is not None:
+                        return Image.fromarray(fast), dst_bytes
+
             result_pil = ImageCms.profileToProfile(
                 pil_img,
                 p_src,
@@ -1645,13 +1708,17 @@ class ImageProcessor:
             compression="tiff_lzw" if fmt == "TIFF" else None,
         )
 
+    def release_source_cache(self) -> None:
+        """Drops the decoded-source and pre-correction caches (full-res arrays)."""
+        self._source_cache_key = None
+        self._source_cache_value = None
+        self._precorrect_key = None
+        self._precorrect_value = None
+
     def cleanup(self, release_source_cache: bool = True, collect: bool = True, retain: Any = None) -> None:
         """Evacuates transient GPU resources; ``retain`` survives the teardown."""
         if release_source_cache:
-            self._source_cache_key = None
-            self._source_cache_value = None
-            self._precorrect_key = None
-            self._precorrect_value = None
+            self.release_source_cache()
         if self.engine_gpu:
             self.engine_gpu.cleanup(collect=collect, retain=retain)
 

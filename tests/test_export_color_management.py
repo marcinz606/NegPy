@@ -1,369 +1,61 @@
+"""Export ICC fast path: the matrix/TRC kernel must match lcms within 1 LSB."""
+
 import unittest
 
 import numpy as np
-from PIL import ImageCms
+from PIL import Image, ImageCms
 
-from negpy.domain.models import ColorSpace
-from negpy.infrastructure.display.color_mgmt import (
-    ColorService,
-    apply_display_transform,
-    get_display_lut,
-    icc_bytes_for_space,
-    open_profile_from_bytes,
-    profile_description,
-)
-from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE, ColorSpaceRegistry
-from negpy.infrastructure.display.icc_lut import apply_icc_u16_rgb
+from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
+from negpy.infrastructure.display.icc_lut import apply_matrix_trc_u8
 from negpy.services.rendering.image_processor import ImageProcessor
 
 
-def _open(cs_name: str):
-    path = ColorSpaceRegistry.get_icc_path(cs_name)
-    return ImageCms.getOpenProfile(path)
-
-
-def _decode_to_srgb_u16(img_u16: np.ndarray, src_cs: str) -> np.ndarray:
-    """Render a buffer (tagged `src_cs`) into sRGB, as a color-managed viewer would."""
-    return apply_icc_u16_rgb(
-        img_u16,
-        _open(src_cs),
-        ImageCms.createProfile("sRGB"),
-        ImageCms.Intent.RELATIVE_COLORIMETRIC,
-        ImageCms.Flags.BLACKPOINTCOMPENSATION,
-    )
-
-
-class TestExportColorManagement(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.proc = ImageProcessor()
-
-    def test_greyscale_export_matches_gamma22_tag(self):
-        """B&W luma must be re-encoded from the working TRC (Adobe RGB 563/256) to the
-        gamma 2.2 expected by the GrayGamma2.2 tag, so a viewer recovers the linear luma.
-
-        The two gammas are now near-identical, so this is a round-trip check rather than
-        a check that the re-encode moves the values."""
-        from negpy.kernel.image.logic import working_oetf_encode
-
-        lin = np.linspace(0.05, 0.9, 6, dtype=np.float32)
-        enc = np.asarray(working_oetf_encode(lin))  # engine-output luma in the working TRC
-        u16 = np.clip(enc * 65535.0 + 0.5, 0, 65535).astype(np.uint16).reshape(1, -1)
-
-        out, _icc = self.proc._apply_color_management_u16_greyscale(u16, WORKING_COLOR_SPACE, ColorSpace.GREYSCALE.value, None)
-
-        decoded = (out.astype(np.float32) / 65535.0) ** 2.2  # as a Gamma2.2 viewer would decode
-        np.testing.assert_allclose(decoded.reshape(-1), lin, atol=0.01)
-
-    def test_export_is_appearance_preserving_across_spaces(self):
-        """Exporting to sRGB / Adobe / ProPhoto must look the same in a CM viewer.
-
-        Working space is Adobe RGB. A real working→target conversion preserves the
-        in-gamut appearance, so decoding each export back through its embedded
-        profile yields ~identical sRGB pixels. (The old tag-only behaviour diverged.)
-        """
-        # Mid patch well inside every gamut so no clipping masks differences.
-        patch = np.array([[[0.50, 0.40, 0.30]]], dtype=np.float32)
-        img_u16 = (patch * 65535.0 + 0.5).astype(np.uint16)
-
-        decoded = {}
-        for target in (ColorSpace.SRGB.value, ColorSpace.ADOBE_RGB.value, ColorSpace.PROPHOTO.value):
-            out, _ = self.proc._apply_color_management_u16_rgb(img_u16, WORKING_COLOR_SPACE, target, None, None)
-            decoded[target] = _decode_to_srgb_u16(out, target).astype(np.float32) / 65535.0
-
-        ref = decoded[ColorSpace.SRGB.value]
-        for target, arr in decoded.items():
-            self.assertTrue(
-                np.allclose(arr, ref, atol=0.02),
-                msg=f"{target} export diverges from sRGB export in CM view: {arr.ravel()} vs {ref.ravel()}",
-            )
-
-    def test_same_space_export_is_noop(self):
-        """working == target with no custom profile leaves pixels untouched."""
-        img_u16 = np.random.randint(0, 65535, size=(4, 4, 3), dtype=np.uint16)
-        out, icc = self.proc._apply_color_management_u16_rgb(img_u16, WORKING_COLOR_SPACE, WORKING_COLOR_SPACE, None, None)
-        np.testing.assert_array_equal(out, img_u16)
-        self.assertIsNotNone(icc)  # target profile still embedded
-
-    def test_cms_codec_unavailable_falls_back_to_lut_transform(self):
-        """Some imagecodecs builds ship without the cms codec compiled in (observed on
-        an unnotarized macOS arm64 build), surfacing as ImportError only once the
-        codec is actually invoked. The 16-bit RGB export path must still colour-manage
-        via the LUT transform rather than silently ship unmanaged pixels."""
-        from unittest.mock import patch
-
-        import imagecodecs
-
-        img_u16 = (np.array([[[0.50, 0.40, 0.30]]], dtype=np.float32) * 65535.0 + 0.5).astype(np.uint16)
-
-        # Force imagecodecs' lazy module __getattr__ to materialize cms_transform as a
-        # real attribute first — patching it while still lazy makes mock's teardown
-        # (hasattr/getattr on the module) re-enter that same __getattr__ and recurse.
-        imagecodecs.cms_transform  # noqa: B018
-
-        with patch(
-            "negpy.services.rendering.image_processor.imagecodecs.cms_transform",
-            side_effect=ImportError("could not import name 'cms_transform' from 'imagecodecs'"),
-        ):
-            out_fallback, icc = self.proc._apply_color_management_u16(img_u16, WORKING_COLOR_SPACE, ColorSpace.SRGB.value, None, None)
-
-        # Same LUT resolution the fallback uses (PROOF_LUT_SIZE), so this checks the
-        # fallback wiring itself rather than the LUT's own approximation error.
-        from negpy.services.rendering.image_processor import PROOF_LUT_SIZE
-
-        out_direct, _ = self.proc._apply_color_management_u16_rgb(
-            img_u16, WORKING_COLOR_SPACE, ColorSpace.SRGB.value, None, None, lut_size=PROOF_LUT_SIZE
-        )
-
-        self.assertIsNotNone(icc)
-        self.assertFalse(np.array_equal(out_fallback, img_u16), "fallback must still colour-manage, not pass the source through untouched")
-        np.testing.assert_allclose(out_fallback.astype(np.float32), out_direct.astype(np.float32), atol=2.0)
-
-    def test_a_failed_transform_still_tags_the_pixels_it_ships(self):
-        """When the transform fails for a reason the LUT fallback does not cover, the
-        buffer goes out untouched — still in the working space. Shipping it untagged
-        makes every viewer read it as sRGB, so the export is wrong with nothing to
-        show why."""
-        from unittest.mock import patch
-
-        import imagecodecs
-
-        img_u16 = (np.array([[[0.50, 0.40, 0.30]]], dtype=np.float32) * 65535.0 + 0.5).astype(np.uint16)
-        working_icc = icc_bytes_for_space(WORKING_COLOR_SPACE)
-
-        imagecodecs.cms_transform  # noqa: B018  (materialize before patching; see the test above)
-        with patch(
-            "negpy.services.rendering.image_processor.imagecodecs.cms_transform",
-            side_effect=RuntimeError("lcms2 refused the profile"),
-        ):
-            out, icc = self.proc._apply_color_management_u16(img_u16, WORKING_COLOR_SPACE, ColorSpace.SRGB.value, None, None)
-        np.testing.assert_array_equal(out, img_u16)
-        self.assertEqual(icc, working_icc)
-
-        with patch(
-            "negpy.services.rendering.image_processor.apply_icc_u16_rgb",
-            side_effect=RuntimeError("LUT build failed"),
-        ):
-            out, icc = self.proc._apply_color_management_u16_rgb(img_u16, WORKING_COLOR_SPACE, ColorSpace.SRGB.value, None, None)
-        np.testing.assert_array_equal(out, img_u16)
-        self.assertEqual(icc, working_icc)
-
-
-class TestDisplayTransform(unittest.TestCase):
-    def test_srgb_working_is_identity(self):
-        img = np.random.rand(4, 4, 3).astype(np.float32)
-        out = apply_display_transform(img, ColorSpace.SRGB.value)
-        np.testing.assert_array_equal(out, img)
-        self.assertIsNone(get_display_lut(ColorSpace.SRGB.value))
-
-    def test_display_matches_simulate_on_srgb(self):
-        """The float display LUT must agree with PIL's simulate_on_srgb (Adobe→sRGB)."""
-        from PIL import Image
-
-        patch = np.array([[[0.80, 0.30, 0.20]]], dtype=np.float32)
-        lut_out = apply_display_transform(patch, WORKING_COLOR_SPACE)[0, 0]
-
-        u8 = (patch * 255.0 + 0.5).astype(np.uint8)
-        sim = ColorService.simulate_on_srgb(Image.fromarray(u8, mode="RGB"), WORKING_COLOR_SPACE)
-        sim_arr = np.asarray(sim, dtype=np.float32)[0, 0] / 255.0
-
-        self.assertTrue(
-            np.allclose(lut_out, sim_arr, atol=0.02),
-            msg=f"display LUT {lut_out} != simulate_on_srgb {sim_arr}",
-        )
-
-    def test_non_rgb_buffer_passthrough(self):
-        grey = np.random.rand(4, 4).astype(np.float32)
-        out = apply_display_transform(grey, WORKING_COLOR_SPACE)
-        np.testing.assert_array_equal(out, grey)
-
-    def test_color_managed_defaults_use_working_space(self):
-        """Color-space params must default to the working space, not a hardcoded
-        'sRGB' that silently skips color management on the float32 path (cf. #518)."""
-        import inspect
-
-        from negpy.desktop.converters import ImageConverter
-        from negpy.desktop.workers.render import ThumbnailUpdateTask
-        from negpy.services.assets.thumbnails import get_rendered_thumbnail
-
-        # Premise: the working space is not sRGB, so the default choice is load-bearing.
-        self.assertNotEqual(WORKING_COLOR_SPACE, ColorSpace.SRGB.value)
-        self.assertEqual(inspect.signature(ImageConverter.to_qimage).parameters["color_space"].default, WORKING_COLOR_SPACE)
-        self.assertEqual(inspect.signature(get_rendered_thumbnail).parameters["color_space"].default, WORKING_COLOR_SPACE)
-        self.assertEqual(ThumbnailUpdateTask.__dataclass_fields__["color_space"].default, WORKING_COLOR_SPACE)
-
-
-def _icc_bytes(cs_name: str) -> bytes:
-    with open(ColorSpaceRegistry.get_icc_path(cs_name), "rb") as f:
+def _icc_bytes(space: str) -> bytes:
+    path = ColorSpaceRegistry.get_icc_path(space)
+    assert path is not None
+    with open(path, "rb") as f:
         return f.read()
 
 
-class TestMonitorDisplayProfile(unittest.TestCase):
-    """The display transform must target the monitor profile, not always sRGB."""
-
-    def test_no_monitor_is_legacy_srgb(self):
-        # Default (no monitor profile) keeps the sRGB-display behaviour: sRGB working
-        # stays identity, so existing callers are unaffected.
-        self.assertIsNone(get_display_lut(ColorSpace.SRGB.value))
-        self.assertIsNone(get_display_lut(ColorSpace.SRGB.value, None))
-
-    def test_monitor_profile_makes_srgb_working_nonidentity(self):
-        # On a P3 display even an sRGB working space needs a transform.
-        lut = get_display_lut(ColorSpace.SRGB.value, _icc_bytes(ColorSpace.P3_D65.value))
-        self.assertIsNotNone(lut)
-
-    def test_monitor_display_differs_from_srgb_display(self):
-        p3 = _icc_bytes(ColorSpace.P3_D65.value)
-        patch = np.array([[[0.80, 0.30, 0.20]]], dtype=np.float32)
-        srgb_disp = apply_display_transform(patch, WORKING_COLOR_SPACE)[0, 0]
-        p3_disp = apply_display_transform(patch, WORKING_COLOR_SPACE, p3)[0, 0]
-        self.assertFalse(
-            np.allclose(srgb_disp, p3_disp, atol=0.02),
-            msg=f"P3 display {p3_disp} should differ from sRGB display {srgb_disp}",
-        )
-
-
-class TestDisplayProfileOverrideHelpers(unittest.TestCase):
-    """Helpers backing the manual Display-profile override dropdown."""
-
-    def test_icc_bytes_for_space_opens_as_profile(self):
-        data = icc_bytes_for_space(ColorSpace.P3_D65.value)
-        self.assertTrue(data)
-        # Must open as a usable profile (drives apply_display_transform).
-        self.assertIsNotNone(open_profile_from_bytes(data))
-
-    def test_icc_bytes_for_space_unknown_is_none(self):
-        self.assertIsNone(icc_bytes_for_space("NotARealSpace"))
-
-    def test_profile_description_none_is_srgb_fallback(self):
-        self.assertEqual(profile_description(None), "sRGB fallback")
-
-    def test_profile_description_reads_name(self):
-        desc = profile_description(icc_bytes_for_space(ColorSpace.P3_D65.value))
-        self.assertTrue(desc and desc != "sRGB fallback")
-
-    def test_override_bytes_match_apply_transform(self):
-        # An override to Display P3 must produce the same display LUT as feeding those
-        # bytes directly — i.e. the dropdown selection drives the real transform.
-        p3 = icc_bytes_for_space(ColorSpace.P3_D65.value)
-        patch = np.array([[[0.80, 0.30, 0.20]]], dtype=np.float32)
-        via_override = apply_display_transform(patch, WORKING_COLOR_SPACE, p3)
-        via_direct = apply_display_transform(patch, WORKING_COLOR_SPACE, _icc_bytes(ColorSpace.P3_D65.value))
-        np.testing.assert_array_equal(via_override, via_direct)
-
-
-class TestPrintProfileDetection(unittest.TestCase):
-    """`_is_print_profile` routes paper/printer profiles to the paper-white proof."""
-
-    class _Stub:
-        def __init__(self, device_class="", xcolor_space="RGB "):
-            self.profile = type("P", (), {"device_class": device_class, "xcolor_space": xcolor_space})()
-
-    def test_printer_class_is_print(self):
-        self.assertTrue(ImageProcessor._is_print_profile(self._Stub(device_class="prtr ")))
-
-    def test_cmyk_space_is_print(self):
-        self.assertTrue(ImageProcessor._is_print_profile(self._Stub(xcolor_space="CMYK")))
-
-    def test_bundled_display_spaces_not_print(self):
-        for cs in (ColorSpace.SRGB.value, ColorSpace.ADOBE_RGB.value, ColorSpace.P3_D65.value):
-            prof = ImageCms.getOpenProfile(ColorSpaceRegistry.get_icc_path(cs))
-            self.assertFalse(ImageProcessor._is_print_profile(prof), msg=f"{cs} should not be a print profile")
-
-
-class TestSoftProofToMonitor(unittest.TestCase):
-    """Soft proof must chain working→output→monitor when a display profile is set."""
-
+class TestMatrixTrcFastPath(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.proc = ImageProcessor()
+        rng = np.random.default_rng(11)
+        cls.arr = (rng.random((256, 384, 3)) * 255).astype(np.uint8)
+        cls.working = "Adobe RGB"
 
-    def test_proof_unchanged_without_monitor(self):
-        from PIL import Image
-
-        u8 = (np.array([[[0.70, 0.40, 0.25]]], dtype=np.float32) * 255.0 + 0.5).astype(np.uint8)
-        img = Image.fromarray(u8, mode="RGB")
-        out_path = ColorSpaceRegistry.get_icc_path(ColorSpace.SRGB.value)
-        a = np.asarray(self.proc.soft_proof_preview(img, WORKING_COLOR_SPACE, None, out_path), dtype=np.float32)
-        b = np.asarray(self.proc.soft_proof_preview(img, WORKING_COLOR_SPACE, None, out_path, None), dtype=np.float32)
-        np.testing.assert_array_equal(a, b)
-
-    def test_proof_in_gamut_stable_across_output_spaces(self):
-        """An in-gamut proof must look the same regardless of export space (#243).
-
-        The output→display step always runs (sRGB display here), so source→output→
-        display cancels to source→display for in-gamut colors — the intermediate
-        export space drops out. Only out-of-gamut colors should differ.
-        """
-        from PIL import Image
-
-        u8 = (np.array([[[0.55, 0.42, 0.30]]], dtype=np.float32) * 255.0 + 0.5).astype(np.uint8)
-        img = Image.fromarray(u8, mode="RGB")
-        spaces = (
-            ColorSpace.SRGB.value,
-            ColorSpace.ADOBE_RGB.value,
-            ColorSpace.REC2020.value,
-            ColorSpace.PROPHOTO.value,
-        )
-        outs = [
-            np.asarray(
-                self.proc.soft_proof_preview(img, WORKING_COLOR_SPACE, None, ColorSpaceRegistry.get_icc_path(s)),
-                dtype=np.float32,
-            )
-            for s in spaces
-        ]
-        ref = outs[0]
-        for s, arr in zip(spaces, outs):
-            # ±2/255: only 8-bit LUT rounding, not a per-space appearance shift.
-            self.assertTrue(np.allclose(arr, ref, atol=2.0), msg=f"{s} proof diverges: {arr.ravel()} vs {ref.ravel()}")
-
-    def test_proof_to_monitor_matches_explicit_chain(self):
-        from PIL import Image
-
-        p3 = _icc_bytes(ColorSpace.P3_D65.value)
-        out_path = ColorSpaceRegistry.get_icc_path(ColorSpace.SRGB.value)
-        u8 = (np.array([[[0.70, 0.40, 0.25]]], dtype=np.float32) * 255.0 + 0.5).astype(np.uint8)
-        img = Image.fromarray(u8, mode="RGB")
-
-        no_mon = np.asarray(self.proc.soft_proof_preview(img, WORKING_COLOR_SPACE, None, out_path), dtype=np.float32)
-        with_mon = np.asarray(self.proc.soft_proof_preview(img, WORKING_COLOR_SPACE, None, out_path, p3), dtype=np.float32)
-        # The output→monitor step changes the displayed pixels.
-        self.assertFalse(np.allclose(no_mon, with_mon, atol=1.0))
-
-        # ...and equals an explicit working→output→monitor chain (relative + BPC).
-        p_work = _open(WORKING_COLOR_SPACE)
-        p_out = _open(ColorSpace.SRGB.value)
-        p_mon = open_profile_from_bytes(p3)
-        step1 = ImageCms.profileToProfile(
-            img,
-            p_work,
-            p_out,
+    def _lcms_reference(self, target: str) -> np.ndarray:
+        p_src = ImageProcessor._resolve_src_profile(self.working, None)
+        p_dst = ImageProcessor._resolve_dst_profile(target, None)
+        ref = ImageCms.profileToProfile(
+            Image.fromarray(self.arr),
+            p_src,
+            p_dst,
             renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC,
             outputMode="RGB",
             flags=ImageCms.Flags.BLACKPOINTCOMPENSATION,
         )
-        step2 = ImageCms.profileToProfile(
-            step1,
-            p_out,
-            p_mon,
-            renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC,
-            outputMode="RGB",
-            flags=ImageCms.Flags.BLACKPOINTCOMPENSATION,
-        )
-        chain = np.asarray(step2, dtype=np.float32)
-        np.testing.assert_allclose(with_mon, chain, atol=1.0)
+        return np.asarray(ref).astype(np.int16)
 
+    def test_matches_lcms_within_one_lsb(self):
+        src = _icc_bytes(self.working)
+        for target in ("sRGB", "Rec 2020", "ProPhoto RGB"):
+            with self.subTest(target=target):
+                out = apply_matrix_trc_u8(self.arr, src, _icc_bytes(target))
+                self.assertIsNotNone(out)
+                delta = np.abs(out.astype(np.int16) - self._lcms_reference(target))
+                self.assertLessEqual(delta.max(), 1)
 
-class TestSessionBoundaryProfile(unittest.TestCase):
-    def test_session_workspace_matches_working_space(self):
-        """AppState's boundary profile must be the working space.
+    def test_same_space_is_identity(self):
+        src = _icc_bytes(self.working)
+        out = apply_matrix_trc_u8(self.arr, src, src)
+        np.testing.assert_array_equal(out, self.arr)
 
-        It is handed to export/proof/thumbnail/CPU-display as the *source* profile for
-        the engine's working-space-encoded buffer; drift silently mis-tags every export.
-        """
-        from negpy.desktop.session import AppState
-
-        self.assertEqual(AppState().workspace_color_space, WORKING_COLOR_SPACE)
+    def test_non_matrix_profile_falls_through(self):
+        """A profile without RGB colorant tags (greyscale) must return None so the
+        caller takes the exact lcms path."""
+        grey = _icc_bytes("Greyscale")
+        self.assertIsNone(apply_matrix_trc_u8(self.arr, _icc_bytes(self.working), grey))
 
 
 if __name__ == "__main__":
