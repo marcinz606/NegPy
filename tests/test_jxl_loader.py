@@ -104,3 +104,59 @@ class TestFactoryDispatch:
 
         assert wrapper.data.dtype == np.float32
         assert wrapper.data.shape == (4, 4, 3)
+
+
+class TestJxlSourceMetadata:
+    """A JPEG XL scan is a supported source, so its EXIF has to be readable. PIL
+    cannot open the format and piexif cannot parse it, leaving the container boxes
+    as the only way in."""
+
+    def test_exif_is_read_out_of_the_container(self, tmp_path):
+        import piexif
+
+        from negpy.features.metadata.models import MetadataConfig
+        from negpy.features.metadata.writer import embed_metadata
+        from negpy.infrastructure.loaders.helpers import read_exif_from_file
+
+        source_exif = {
+            "0th": {piexif.ImageIFD.Make: b"Plustek", piexif.ImageIFD.Orientation: 6},
+            "Exif": {},
+            "GPS": {},
+            "Interop": {},
+            "1st": {},
+        }
+        scan = np.random.randint(0, 255, (8, 8, 3), dtype=np.uint8)
+        path = str(tmp_path / "scan.jxl")
+        with open(path, "wb") as f:
+            f.write(embed_metadata(bytes(imagecodecs.jpegxl_encode(scan, lossless=True)), MetadataConfig(), source_exif))
+
+        exif = read_exif_from_file(path)
+
+        assert exif is not None
+        assert exif["0th"][piexif.ImageIFD.Make] == b"Plustek"
+
+    def test_brotli_compressed_exif_box_is_decompressed(self, tmp_path):
+        """cjxl writes metadata into a 'brob' box, which names its inner type in the
+        first four payload bytes."""
+        import struct
+
+        import piexif
+
+        from negpy.infrastructure.loaders.jxl_boxes import read_jxl_exif
+
+        exif = piexif.dump({"0th": {piexif.ImageIFD.Make: b"Nikon"}, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {}})
+        payload = b"Exif" + bytes(imagecodecs.brotli_encode(b"\x00\x00\x00\x00" + exif[6:]))
+        codestream = bytes(imagecodecs.jpegxl_encode(np.zeros((8, 8, 3), dtype=np.uint8), lossless=True, usecontainer=False))
+        container = (
+            b"\x00\x00\x00\x0cJXL \x0d\x0a\x87\x0a"
+            + struct.pack(">I", 20)
+            + b"ftypjxl \x00\x00\x00\x00jxl "
+            + struct.pack(">I", len(payload) + 8)
+            + b"brob"
+            + payload
+            + struct.pack(">I", len(codestream) + 8)
+            + b"jxlc"
+            + codestream
+        )
+
+        assert piexif.load(read_jxl_exif(container))["0th"][piexif.ImageIFD.Make] == b"Nikon"

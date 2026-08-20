@@ -259,6 +259,42 @@ class TestExportLinearOutputJxl:
 
         np.testing.assert_array_equal(tiff_u16, jxl_u16)
 
+    def test_jxl_records_the_same_processing_history_as_the_tiff(self, tmp_path: str) -> None:
+        """A linear dump with no record of whether ICE ran cannot be audited later,
+        and the container holds it in boxes without the encoder's help."""
+        import piexif
+
+        from negpy.infrastructure.loaders.jxl_boxes import read_jxl_exif, read_jxl_xmp
+
+        raw_path = _make_pakon_raw(str(tmp_path))
+        tiff_path = os.path.join(str(tmp_path), "output.tiff")
+        jxl_path = os.path.join(str(tmp_path), "output.jxl")
+
+        export_linear_output(raw_path, tiff_path, output_format="tiff")
+        export_linear_output(raw_path, jxl_path, output_format="jxl")
+
+        with tifffile.TiffFile(tiff_path) as tf:
+            tags = tf.pages[0].tags
+            tiff_description = tags["ImageDescription"].value
+            tiff_xmp = tags.get(700)
+
+        data = open(jxl_path, "rb").read()
+        zeroth = piexif.load(read_jxl_exif(data))["0th"]
+        assert zeroth[piexif.ImageIFD.ImageDescription].decode("ascii") == tiff_description
+        assert zeroth[piexif.ImageIFD.Software] == b"NegPy"
+        # Both writers emit XMP only for a source that carries camera white balance.
+        assert (read_jxl_xmp(data) is not None) == (tiff_xmp is not None)
+
+    def test_jxl_ir_sidecar_stays_untagged(self, tmp_path: str) -> None:
+        """The IR sidecar carries no provenance in either format."""
+        from negpy.infrastructure.loaders.jxl_boxes import read_jxl_exif
+
+        dng_path = _make_linearraw_dng_4ch(str(tmp_path))
+        export_linear_output(dng_path, os.path.join(str(tmp_path), "output.jxl"), output_format="jxl")
+
+        ir_path = os.path.join(str(tmp_path), "output_ir.jxl")
+        assert read_jxl_exif(open(ir_path, "rb").read()) is None
+
     def test_default_format_is_tiff(self, tmp_path: str) -> None:
         raw_path = _make_pakon_raw(str(tmp_path))
         out_path = os.path.join(str(tmp_path), "output.tiff")

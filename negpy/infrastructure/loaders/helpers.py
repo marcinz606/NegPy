@@ -36,6 +36,19 @@ def read_exif_from_file(file_path: str) -> Optional[dict]:
     except Exception:
         pass
 
+    # PIL cannot open JPEG XL, so its EXIF comes out of the container by hand.
+    try:
+        from negpy.infrastructure.loaders.jxl_boxes import is_jxl, read_jxl_exif
+
+        with open(file_path, "rb") as fh:
+            data = fh.read()
+        if is_jxl(data):
+            exif_bytes = read_jxl_exif(data)
+            if exif_bytes:
+                return piexif.load(exif_bytes)
+    except Exception:
+        pass
+
     return None
 
 

@@ -871,24 +871,18 @@ def _parse_tiff_datetime(dt_str: Optional[str]) -> Optional[str]:
     return None
 
 
-def _write_tiff(
-    f32: np.ndarray,
-    dest,
+def _linear_description(
     source_name: str,
-    camera_wb: Optional[_CameraWB] = None,
-    source_path: Optional[str] = None,
-    source_meta: Optional[_SourceMeta] = None,
-    expansion: float = 1.0,
-    source_format: str = "",
-    wb_applied: bool = False,
-    flatfield_applied: bool = False,
-    sensor_applied: bool = False,
-    ice_applied: bool = False,
-    gamma_key: str = "linear",
-) -> None:
-    """Write a float32 buffer as an untagged 16-bit TIFF to *dest* (path or file-like)."""
-    u16 = _to_uint16_jit(np.ascontiguousarray(f32, dtype=np.float32))
-    photometric = "rgb" if f32.ndim == 3 else "minisblack"
+    camera_wb: Optional[_CameraWB],
+    expansion: float,
+    source_format: str,
+    wb_applied: bool,
+    flatfield_applied: bool,
+    sensor_applied: bool,
+    ice_applied: bool,
+    gamma_key: str,
+) -> str:
+    """The processing record both linear writers stamp on their output."""
     parts = [f"source: {source_format or source_name}"]
     if expansion > 1.0:
         parts.append(f"expansion: x{expansion:g}")
@@ -909,7 +903,38 @@ def _write_tiff(
     if corrections:
         parts.append(f"corrections: {', '.join(corrections)}")
     parts.append("no color management")
-    description = f"NegPy Linear Output -- {', '.join(parts)}."
+    return f"NegPy Linear Output -- {', '.join(parts)}."
+
+
+def _write_tiff(
+    f32: np.ndarray,
+    dest,
+    source_name: str,
+    camera_wb: Optional[_CameraWB] = None,
+    source_path: Optional[str] = None,
+    source_meta: Optional[_SourceMeta] = None,
+    expansion: float = 1.0,
+    source_format: str = "",
+    wb_applied: bool = False,
+    flatfield_applied: bool = False,
+    sensor_applied: bool = False,
+    ice_applied: bool = False,
+    gamma_key: str = "linear",
+) -> None:
+    """Write a float32 buffer as an untagged 16-bit TIFF to *dest* (path or file-like)."""
+    u16 = _to_uint16_jit(np.ascontiguousarray(f32, dtype=np.float32))
+    photometric = "rgb" if f32.ndim == 3 else "minisblack"
+    description = _linear_description(
+        source_name,
+        camera_wb,
+        expansion,
+        source_format,
+        wb_applied,
+        flatfield_applied,
+        sensor_applied,
+        ice_applied,
+        gamma_key,
+    )
 
     extratags: list[tuple] = []
     dt: Optional[str] = None
@@ -993,10 +1018,57 @@ def _write_ir_jxl(ir: np.ndarray, dest, effort: int = 7) -> None:
             fh.write(data)
 
 
+def _attach_jxl_provenance(
+    data: bytes,
+    description: str,
+    camera_wb: Optional[_CameraWB],
+    source_path: Optional[str],
+    source_meta: Optional[_SourceMeta],
+    wb_applied: bool,
+) -> bytes:
+    """Give the JPEG XL dump the same processing record and device metadata the TIFF
+    one carries. The container holds it in boxes, so the encoder needs no say in it."""
+    import piexif
+
+    from negpy.features.metadata.writer import embed_jxl_boxes
+
+    try:
+        zeroth: dict = {
+            piexif.ImageIFD.ImageDescription: description.encode("ascii", "replace"),
+            piexif.ImageIFD.Software: b"NegPy",
+        }
+        if source_meta is not None:
+            if source_meta.make:
+                zeroth[piexif.ImageIFD.Make] = source_meta.make.encode("ascii", "replace")
+            if source_meta.model:
+                zeroth[piexif.ImageIFD.Model] = source_meta.model.encode("ascii", "replace")
+            dt = _parse_tiff_datetime(source_meta.datetime or None)
+            if dt:
+                zeroth[piexif.ImageIFD.DateTime] = dt.encode("ascii", "replace")
+        exif_bytes = piexif.dump({"0th": zeroth, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {}})
+        xmp_bytes = None
+        if camera_wb is not None and source_path is not None:
+            xmp_bytes = _build_xmp(source_path, camera_wb, title=description, wb_applied=wb_applied)
+    except Exception:
+        return data
+    return embed_jxl_boxes(data, exif_bytes, xmp_bytes)
+
+
 def _write_jxl(
     f32: np.ndarray,
     dest,
     effort: int = 7,
+    source_name: str = "",
+    camera_wb: Optional[_CameraWB] = None,
+    source_path: Optional[str] = None,
+    source_meta: Optional[_SourceMeta] = None,
+    expansion: float = 1.0,
+    source_format: str = "",
+    wb_applied: bool = False,
+    flatfield_applied: bool = False,
+    sensor_applied: bool = False,
+    ice_applied: bool = False,
+    gamma_key: str = "linear",
 ) -> None:
     """Write a float32 buffer as a lossless 16-bit JPEG XL to *dest* (path or file-like).
 
@@ -1020,7 +1092,24 @@ def _write_jxl(
         effort=effort,
         numthreads=0,
     )
-    data = bytes(bits)
+    data = _attach_jxl_provenance(
+        bytes(bits),
+        _linear_description(
+            source_name,
+            camera_wb,
+            expansion,
+            source_format,
+            wb_applied,
+            flatfield_applied,
+            sensor_applied,
+            ice_applied,
+            gamma_key,
+        ),
+        camera_wb,
+        source_path,
+        source_meta,
+        wb_applied,
+    )
     if hasattr(dest, "write"):
         dest.write(data)
     else:
@@ -1081,7 +1170,22 @@ def export_linear_output(
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
 
     if output_format == "jxl":
-        _write_jxl(f32, output_path, effort=jxl_effort)
+        _write_jxl(
+            f32,
+            output_path,
+            effort=jxl_effort,
+            source_name=os.path.basename(file_path),
+            camera_wb=camera_wb,
+            source_path=file_path,
+            source_meta=meta,
+            expansion=eff,
+            source_format=fmt,
+            wb_applied=apply_wb,
+            flatfield_applied=apply_flatfield or is_stitch,
+            sensor_applied=apply_sensor or is_stitch,
+            ice_applied=ice_applied,
+            gamma_key=gamma_key,
+        )
     else:
         _write_tiff(
             f32,

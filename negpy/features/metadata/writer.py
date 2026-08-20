@@ -18,6 +18,15 @@ from negpy.features.metadata.gear_models import GearLibrary
 from negpy.features.metadata.models import MetadataConfig
 from negpy.features.metadata.payload import NEGPY_SOFTWARE, MetadataPayload, build_metadata_payload
 from negpy.features.metadata.xmp import build_xmp_bytes
+from negpy.infrastructure.loaders.jxl_boxes import (
+    JXL_CODESTREAM,
+    JXL_EXIF_BOX,
+    JXL_SIGNATURE,
+    JXL_XMP_BOX,
+    is_jxl,
+    jxl_boxes,
+    read_jxl_xmp,
+)
 from negpy.services.assets.gear import GearProfiles
 
 _log = logging.getLogger(__name__)
@@ -25,11 +34,9 @@ _log = logging.getLogger(__name__)
 _XMP_APP1_HEADER = b"http://ns.adobe.com/xap/1.0/\x00"
 _TIFF_XMP_TAG = 700  # XMLPacket
 
-_JXL_SIGNATURE = b"\x00\x00\x00\x0cJXL \x0d\x0a\x87\x0a"
-_JXL_CODESTREAM = b"\xff\x0a"
 _JXL_FTYP = b"jxl \x00\x00\x00\x00jxl "
 _JXL_CODESTREAM_BOXES = frozenset({b"jxlc", b"jxlp"})
-_JXL_METADATA_BOXES = frozenset({b"Exif", b"xml "})
+_JXL_METADATA_BOXES = frozenset({JXL_EXIF_BOX, JXL_XMP_BOX})
 
 _WEBP_METADATA_CHUNKS = frozenset({b"EXIF", b"XMP "})
 # VP8X feature flags, MSB first: reserved(2), ICC, alpha, EXIF, XMP, animation, reserved.
@@ -37,10 +44,6 @@ _VP8X_ICC = 0x20
 _VP8X_ALPHA = 0x10
 _VP8X_EXIF = 0x08
 _VP8X_XMP = 0x04
-
-
-def _is_jxl(image_bytes: bytes) -> bool:
-    return image_bytes[:12] == _JXL_SIGNATURE or image_bytes[:2] == _JXL_CODESTREAM
 
 
 def _parse_exposure_str(text: str) -> dict:
@@ -93,8 +96,26 @@ def _apex_from_f_number(f_number: float) -> float:
     return 2.0 * math.log(f_number, 2.0)
 
 
+_ASCII_SUBSTITUTIONS = str.maketrans(
+    {
+        "\u2022": "-",  # the bullet joining ImageDescription parts
+        "\u00d7": "x",  # sheet-film sizes: 4x5, 8x10
+        "\u2013": "-",
+        "\u2014": "-",
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u2026": "...",
+        "\u00a0": " ",
+    }
+)
+
+
 def _exif_ascii(text: str) -> bytes:
-    return text.encode("ascii", errors="replace")
+    """EXIF ASCII holds 7-bit only, so transliterate the punctuation NegPy and its
+    users write before the encoder turns it into '?'."""
+    return text.translate(_ASCII_SUBSTITUTIONS).encode("ascii", errors="replace")
 
 
 def _build_custom_exif(payload: MetadataPayload) -> dict:
@@ -143,7 +164,7 @@ def _build_custom_exif(payload: MetadataPayload) -> dict:
 
     if user_comment_parts:
         lines = [f"{k.replace('_', ' ').title()}: {v}" for k, v in user_comment_parts.items()]
-        uc_bytes = b"ASCII\x00\x00\x00" + "\n".join(lines).encode("ascii", "replace")
+        uc_bytes = b"ASCII\x00\x00\x00" + _exif_ascii("\n".join(lines))
         exif[piexif.ExifIFD.UserComment] = uc_bytes
 
     if flags.exposure and payload.capture_exposure:
@@ -248,6 +269,9 @@ def _read_xmp_from_source(source_path: str) -> Optional[bytes]:
             with open(source_path, "rb") as fh:
                 data = fh.read()
             return _extract_jpeg_xmp(data)
+        if is_jxl(head):
+            with open(source_path, "rb") as fh:
+                return read_jxl_xmp(fh.read())
         with tifffile.TiffFile(source_path) as tf:
             tag = tf.pages[0].tags.get(_TIFF_XMP_TAG)
             if tag is None:
@@ -350,7 +374,7 @@ def preserve_source_metadata(
         elif image_bytes[:4] == b"RIFF":
             exif_bytes = piexif.dump(_sanitize_exif(exif_dict))
             _rewrite_webp_with_metadata(image_bytes, exif_bytes, output, xmp_bytes)
-        elif _is_jxl(image_bytes):
+        elif is_jxl(image_bytes):
             exif_bytes = piexif.dump(_sanitize_exif(exif_dict))
             _rewrite_jxl_with_metadata(image_bytes, exif_bytes, output, xmp_bytes)
         else:
@@ -359,6 +383,25 @@ def preserve_source_metadata(
         return output.getvalue()
     except Exception:
         _log.warning("metadata passthrough failed", exc_info=True)
+        return image_bytes
+
+
+def embed_jxl_boxes(
+    image_bytes: bytes,
+    exif_bytes: Optional[bytes] = None,
+    xmp_bytes: Optional[bytes] = None,
+) -> bytes:
+    """Attach EXIF/XMP to JPEG XL bytes assembled outside the MetadataConfig path,
+    such as a Linear Output dump. Returns the input unchanged if the container
+    cannot be rebuilt."""
+    if not exif_bytes and not xmp_bytes:
+        return image_bytes
+    try:
+        output = io.BytesIO()
+        _rewrite_jxl_with_metadata(image_bytes, exif_bytes or b"", output, xmp_bytes)
+        return output.getvalue()
+    except Exception:
+        _log.warning("JPEG XL metadata embed failed", exc_info=True)
         return image_bytes
 
 
@@ -416,7 +459,7 @@ def embed_metadata(
         elif image_bytes[:4] == b"RIFF":
             exif_bytes = piexif.dump(_sanitize_exif(merged))
             _rewrite_webp_with_metadata(image_bytes, exif_bytes, output, xmp_bytes)
-        elif _is_jxl(image_bytes):
+        elif is_jxl(image_bytes):
             exif_bytes = piexif.dump(_sanitize_exif(merged))
             _rewrite_jxl_with_metadata(image_bytes, exif_bytes, output, xmp_bytes)
         else:
@@ -630,10 +673,10 @@ def _rewrite_tiff_preserve(
     if xmp_bytes:
         extratags.append((_TIFF_XMP_TAG, 7, len(xmp_bytes), xmp_bytes, True))
 
-    metadata = None
-    software = None
-    if not fold_user_comment:
-        metadata, software = _tiff_metadata_from_exif_bytes(exif_bytes)
+    metadata, software = _tiff_metadata_from_exif_bytes(exif_bytes)
+    if fold_user_comment:
+        # Artist and Copyright reach the file through extratags on the embed path.
+        metadata = None
 
     tifffile.imwrite(
         output,
@@ -666,34 +709,11 @@ def _rewrite_png_with_metadata(
         im.save(output, **save_kwargs)
 
 
-def _jxl_boxes(data: bytes) -> list[tuple[bytes, int, int]]:
-    """Split an ISOBMFF JPEG XL file into (type, start, end) boxes. Raises if the
-    boxes do not tile the file exactly, so a malformed input cannot be truncated."""
-    boxes: list[tuple[bytes, int, int]] = []
-    pos = 0
-    n = len(data)
-    while pos < n:
-        if pos + 8 > n:
-            raise ValueError("truncated JPEG XL box header")
-        size = int.from_bytes(data[pos : pos + 4], "big")
-        btype = data[pos + 4 : pos + 8]
-        header = 8
-        if size == 1:
-            if pos + 16 > n:
-                raise ValueError("truncated JPEG XL box header")
-            size = int.from_bytes(data[pos + 8 : pos + 16], "big")
-            header = 16
-        elif size == 0:
-            size = n - pos
-        if size < header or pos + size > n:
-            raise ValueError("malformed JPEG XL box size")
-        boxes.append((btype, pos, pos + size))
-        pos += size
-    return boxes
-
-
 def _jxl_box(btype: bytes, payload: bytes) -> bytes:
-    return struct.pack(">I", len(payload) + 8) + btype + payload
+    size = len(payload) + 8
+    if size > 0xFFFFFFFF:
+        return struct.pack(">I", 1) + btype + struct.pack(">Q", size + 8) + payload
+    return struct.pack(">I", size) + btype + payload
 
 
 def _tiff_header_exif(exif_bytes: bytes) -> bytes:
@@ -707,7 +727,7 @@ def _is_jxl_metadata_box(btype: bytes, data: bytes, start: int) -> bool:
     inner type in the first four payload bytes."""
     if btype in _JXL_METADATA_BOXES:
         return True
-    return btype == b"brob" and data[start + 8 : start + 12] in _JXL_METADATA_BOXES
+    return btype == b"brob" and data[start : start + 4] in _JXL_METADATA_BOXES
 
 
 def _rewrite_jxl_with_metadata(
@@ -717,28 +737,27 @@ def _rewrite_jxl_with_metadata(
     xmp_bytes: Optional[bytes] = None,
 ) -> None:
     """Rebuild a JPEG XL container with fresh Exif/XMP boxes ahead of the codestream."""
-    if image_bytes[:2] == _JXL_CODESTREAM:
-        container = _JXL_SIGNATURE + _jxl_box(b"ftyp", _JXL_FTYP) + _jxl_box(b"jxlc", image_bytes)
+    if image_bytes[:2] == JXL_CODESTREAM:
+        container = JXL_SIGNATURE + _jxl_box(b"ftyp", _JXL_FTYP) + _jxl_box(b"jxlc", image_bytes)
     else:
         container = image_bytes
 
     metadata: list[bytes] = []
     if exif_bytes:
         # The Exif box payload is a 4-byte offset to the TIFF header, then the header itself.
-        tiff = exif_bytes[6:] if exif_bytes[:6] == b"Exif\x00\x00" else exif_bytes
-        metadata.append(_jxl_box(b"Exif", b"\x00\x00\x00\x00" + tiff))
+        metadata.append(_jxl_box(JXL_EXIF_BOX, b"\x00\x00\x00\x00" + _tiff_header_exif(exif_bytes)))
     if xmp_bytes:
-        metadata.append(_jxl_box(b"xml ", xmp_bytes))
+        metadata.append(_jxl_box(JXL_XMP_BOX, xmp_bytes))
 
     parts: list[bytes] = []
     inserted = False
-    for btype, start, end in _jxl_boxes(container):
+    for btype, start, end in jxl_boxes(container):
         if _is_jxl_metadata_box(btype, container, start):
             continue
         if not inserted and btype in _JXL_CODESTREAM_BOXES:
             parts.extend(metadata)
             inserted = True
-        parts.append(container[start:end])
+        parts.append(_jxl_box(btype, container[start:end]))
     if not inserted:
         raise ValueError("no JPEG XL codestream box")
 

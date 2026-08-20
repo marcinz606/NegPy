@@ -308,7 +308,7 @@ When the render intent is **Linear**, the entire darkroom pipeline is bypassed. 
 
 **Output is always clean, and for TIFF, richly self-documenting.** The file is written from scratch: only raw pixels plus Make, Model and DateTime from the source. ICC profiles, EXIF color space tags and XMP color metadata from scanner software or editors are never copied through. For the **TIFF** path, the description field records the source format, expansion, white balance and any applied corrections, including whether ICE ran, and ends with "no color management"; as-shot WB also goes into XMP. For Flextight FFF files, the Make field includes film stock and type from the embedded plist, and the Model field includes the scanner serial.
 
-**The JPEG XL path carries none of this.** `_write_jxl()` and `_write_ir_jxl()` take no metadata parameters at all: no description, no XMP, no Make/Model/DateTime, and critically no record of whether ICE was applied. A linear JXL file has zero processing history baked in, and the only indirect signal is the IR sidecar's presence, whose absence could mean either "no IR channel" or "ICE consumed it". `imagecodecs.jpegxl_encode()` has no parameter for this, though libjxl's box API (Exif and XMP boxes) and the reference `cjxl` CLI (`-x exif=`, `-x xmp=`) both support it. Closing this gap needs the same encoder rework as the ICC limitation above, not a small patch.
+**The JPEG XL path carries the same record.** `imagecodecs.jpegxl_encode()` has no metadata parameter, so `_write_jxl()` writes the description, Make, Model, DateTime and XMP into the container's Exif and `xml ` boxes after the encode. The IR sidecar stays untagged in both formats.
 
 ### Peek Negative
 **Code**: `AppController.toggle_negative_peek` / `_paint_negative_peek`

@@ -795,7 +795,7 @@ A scrollable list of every edit step, the last 100 kept, newest on top. The curr
 
     Linear Output runs in the background like any other batch: the progress popup shows which frame is being written, **Abort** stops it after the current one, and the finish message counts any frames that failed.
 
-    The output file is always written clean: no ICC profiles, no EXIF color space tags, no XMP color metadata from the source. For **TIFF**, it carries raw pixels plus device metadata (Make, Model, DateTime) from the source file, and a description recording the source format, expansion, white balance and any corrections applied, including ICE. **JPEG XL carries none of that metadata at all**: no description, no device info, no record of whether ICE ran, only the pixels and the forced color tag noted above, which also is not from the source. The format simply cannot leave it unset.
+    The output file is always written clean: no ICC profiles, no EXIF color space tags, no XMP color metadata from the source. Both formats carry raw pixels plus device metadata (Make, Model, DateTime) from the source file, and a description recording the source format, expansion, white balance and any corrections applied, including ICE. JPEG XL also carries the forced color tag noted above, which is not from the source; the format cannot leave it unset.
 
 ### Export button
 
@@ -825,7 +825,7 @@ The primary **Export** action. Its chevron menu picks the scope: current frame (
 
 Archival metadata for the **original analog capture** (camera, lens, film, process), written into exported files as EXIF and embedded XMP, so DAMs like Lightroom show your film gear rather than the scanner.
 
-Every export format carries it: JPEG, TIFF, PNG, JPEG XL and WebP. A TIFF holds the capture position in XMP only.
+Every export format carries it: JPEG, TIFF, PNG, JPEG XL and WebP. A TIFF holds the capture position in XMP only, and EXIF text is 7-bit, so typographic punctuation is transliterated (`4×5` is written `4x5`).
 
 *   **Protect original metadata**: copy the source file's EXIF/XMP to exports unchanged, adding nothing. When it is on, the fields below are ignored.
 *   **Sync custom metadata to all files in batch export**: batch and preset exports write this frame's capture, gear and process values to every file, instead of each file's own.
