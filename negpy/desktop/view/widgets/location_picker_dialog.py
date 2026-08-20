@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Optional
 
 import qtawesome as qta
-from PyQt6.QtCore import QModelIndex, QObject, QRunnable, QStringListModel, Qt, QThreadPool, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QModelIndex, QObject, QRunnable, QStringListModel, Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QCompleter,
     QDialog,
@@ -106,7 +106,6 @@ class LocationPickerDialog(QDialog):
             QLineEdit.ActionPosition.LeadingPosition,
         )
         self.search_edit.textEdited.connect(self._on_search_text_edited)
-        self.search_edit.returnPressed.connect(self._on_search)
         root.addWidget(self.search_edit)
 
         # A QCompleter, not a hand-rolled Qt.Popup: a popup grabs the keyboard, so the next
@@ -119,6 +118,9 @@ class LocationPickerDialog(QDialog):
         self._completer.setMaxVisibleItems(8)
         self._completer.setWidget(self.search_edit)
         self._completer.activated[QModelIndex].connect(self._on_suggestion_chosen)
+        # Installed after the completer takes the field, so this filter is asked first and can
+        # stand aside while the popup owns Return.
+        self.search_edit.installEventFilter(self)
 
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
@@ -171,6 +173,14 @@ class LocationPickerDialog(QDialog):
             self.map_view.set_zoom(8)
             self.status_label.setText("Centred on the scan file's coordinates.")
 
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 - Qt override
+        """Return in the search field searches; without this the dialog's OK button takes it."""
+        if obj is self.search_edit and event.type() == QEvent.Type.KeyPress:
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and not self._completer.popup().isVisible():
+                self._on_search()
+                return True
+        return super().eventFilter(obj, event)
+
     def done(self, result: int) -> None:
         # Join the lookup threads here: the pool's destructor would wait with the GIL held,
         # which a worker needs to finish, and the app would hang instead of closing.
@@ -217,6 +227,9 @@ class LocationPickerDialog(QDialog):
         self._suggestions.setStringList(list(self._results))
         if self._results:
             self._completer.complete()
+            # Highlight the top hit, so Return in the field takes it instead of falling
+            # through to the dialog's OK button.
+            self._completer.popup().setCurrentIndex(self._completer.completionModel().index(0, 0))
             self.status_label.setText("")
         else:
             self._completer.popup().hide()

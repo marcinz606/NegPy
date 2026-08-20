@@ -10,7 +10,8 @@ import sys
 
 import pytest
 from PyQt6.QtCore import QPoint, QPointF, Qt
-from PyQt6.QtGui import QMouseEvent, QWheelEvent
+from PyQt6.QtGui import QMouseEvent, QNativeGestureEvent, QWheelEvent
+from PyQt6.QtGui import QPointingDevice
 from PyQt6.QtWidgets import QApplication
 
 from negpy.desktop.view.widgets import slippy_map
@@ -27,6 +28,21 @@ def widget(monkeypatch) -> SlippyMapWidget:
     map_widget.resize(512, 384)
     monkeypatch.setattr(map_widget._pool, "start", lambda job, *args: job.run())
     return map_widget
+
+
+def _pinch(widget: SlippyMapWidget, value: float) -> None:
+    widget.event(
+        QNativeGestureEvent(
+            Qt.NativeGestureType.ZoomNativeGesture,
+            QPointingDevice.primaryPointingDevice(),
+            2,
+            QPointF(120.0, 90.0),
+            QPointF(120.0, 90.0),
+            QPointF(120.0, 90.0),
+            value,
+            QPointF(0.0, 0.0),
+        )
+    )
 
 
 def _click(widget: SlippyMapWidget, x: int, y: int) -> None:
@@ -155,3 +171,71 @@ def test_shutdown_joins_running_fetches_instead_of_the_destructor(monkeypatch) -
     map_widget.shutdown()
 
     assert waited == [slippy_map._SHUTDOWN_WAIT_MS]
+
+
+def _wheel(widget: SlippyMapWidget, delta: int, phase: Qt.ScrollPhase = Qt.ScrollPhase.NoScrollPhase) -> None:
+    widget.event(
+        QWheelEvent(
+            QPointF(120.0, 90.0),
+            QPointF(120.0, 90.0),
+            QPoint(0, 0),
+            QPoint(0, delta),
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+            phase,
+            False,
+        )
+    )
+
+
+def test_trackpad_deltas_accumulate_to_one_notch(widget: SlippyMapWidget) -> None:
+    """A trackpad sends many small deltas; each must not be a zoom level of its own."""
+    start = widget._zoom
+    for _ in range(5):
+        _wheel(widget, 12)
+    assert widget._zoom == start
+
+    for _ in range(5):
+        _wheel(widget, 12)
+    assert widget._zoom == start + 1
+
+
+def test_reversing_the_scroll_drops_the_carried_delta(widget: SlippyMapWidget) -> None:
+    for _ in range(5):
+        _wheel(widget, 12)
+    start = widget._zoom
+    for _ in range(9):
+        _wheel(widget, -12)
+    assert widget._zoom == start
+    _wheel(widget, -12)
+    assert widget._zoom == start - 1
+
+
+def test_a_new_scroll_gesture_starts_from_zero(widget: SlippyMapWidget) -> None:
+    for _ in range(5):
+        _wheel(widget, 12)
+    _wheel(widget, 0, Qt.ScrollPhase.ScrollBegin)
+    start = widget._zoom
+    for _ in range(9):
+        _wheel(widget, 12)
+    assert widget._zoom == start
+
+
+def test_zoom_buttons_step_around_the_view_centre(widget: SlippyMapWidget) -> None:
+    center = widget._center
+    widget._zoom_in_btn.click()
+    assert widget._zoom == 5
+    assert widget._center == center
+    widget._zoom_out_btn.click()
+    assert widget._zoom == 4
+
+
+def test_pinch_accumulates_and_holds_the_gesture_point(widget: SlippyMapWidget) -> None:
+    anchor = widget.latlon_at(120.0, 90.0)
+    for _ in range(3):
+        _pinch(widget, 0.1)
+    assert widget._zoom == 4
+
+    _pinch(widget, 0.1)
+    assert widget._zoom == 5
+    assert widget.latlon_at(120.0, 90.0) == pytest.approx(anchor, abs=1e-6)

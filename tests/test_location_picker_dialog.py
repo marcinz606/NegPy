@@ -5,7 +5,8 @@ import sys
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QModelIndex  # noqa: E402
+from PyQt6.QtCore import QModelIndex, Qt  # noqa: E402
+from PyQt6.QtTest import QTest  # noqa: E402
 from PyQt6.QtWidgets import QApplication  # noqa: E402
 
 from negpy.desktop.view.widgets.location_picker_dialog import LocationPickerDialog  # noqa: E402
@@ -165,3 +166,34 @@ def test_centre_frames_the_view_without_claiming_the_place(monkeypatch) -> None:
 def test_an_existing_place_wins_over_the_centre(monkeypatch) -> None:
     dlg = _dialog(monkeypatch, lat=35.6586, lon=139.7454, center=(0.0, 0.0))
     assert dlg.map_view.pin() == (35.6586, 139.7454)
+
+
+def _press_return(dlg: LocationPickerDialog) -> None:
+    QTest.keyClick(dlg.search_edit, Qt.Key.Key_Return)
+
+
+def test_return_in_the_search_field_searches_and_keeps_the_dialog_open(monkeypatch) -> None:
+    queries: list[str] = []
+    monkeypatch.setattr(
+        "negpy.desktop.view.widgets.location_picker_dialog.search_places",
+        lambda query: queries.append(query) or [_TOKYO],
+    )
+    dlg = _dialog(monkeypatch)
+    dlg.show()
+    dlg.search_edit.setText("Tokyo")
+
+    _press_return(dlg)
+
+    assert queries == ["Tokyo"]
+    assert dlg.isVisible()
+    assert _suggestions(dlg) == ["Tokyo, Japan"]
+    dlg.close()
+
+
+def test_the_top_hit_is_highlighted_for_the_next_return(monkeypatch) -> None:
+    dlg = _dialog(monkeypatch)
+    dlg.show()
+    dlg._on_search_done([_TOKYO, dict(_TOKYO, display_name="Tokyo, Ohio")])
+
+    assert dlg._completer.popup().currentIndex().row() == 0
+    dlg.close()

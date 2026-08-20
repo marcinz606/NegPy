@@ -5,9 +5,10 @@ from __future__ import annotations
 import math
 from typing import Optional
 
-from PyQt6.QtCore import QObject, QPoint, QRunnable, Qt, QThreadPool, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPixmap, QWheelEvent
-from PyQt6.QtWidgets import QWidget
+import qtawesome as qta
+from PyQt6.QtCore import QObject, QPoint, QPointF, QRunnable, QSize, Qt, QThreadPool, pyqtSignal
+from PyQt6.QtGui import QColor, QFont, QMouseEvent, QNativeGestureEvent, QPainter, QPixmap, QWheelEvent
+from PyQt6.QtWidgets import QToolButton, QWidget
 
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.metadata.capture import deg2tile, tile2deg
@@ -20,6 +21,12 @@ _MAX_CONCURRENT_TILES = 4
 # closes. Cap the queue so that join is short, and so stale requests cannot pile up.
 _MAX_PENDING_TILES = 24
 _SHUTDOWN_WAIT_MS = 6000
+# One mouse notch is 120 units. A trackpad sends many smaller deltas, so the wheel must sum
+# to a notch instead of taking a zoom level per event.
+_WHEEL_NOTCH = 120.0
+# A trackpad pinch reports a scale delta per event; this much of one is a zoom level.
+_PINCH_STEP = 0.35
+_ZOOM_BUTTON_PX = 26
 
 
 class _TileSignals(QObject):
@@ -70,6 +77,32 @@ class SlippyMapWidget(QWidget):
 
         self._drag_origin: Optional[QPoint] = None
         self._dragged = False
+        self._wheel_accum = 0.0
+        self._pinch_accum = 0.0
+
+        self._zoom_in_btn = self._zoom_button("fa5s.plus", "Zoom in", 1)
+        self._zoom_out_btn = self._zoom_button("fa5s.minus", "Zoom out", -1)
+
+    def _zoom_button(self, icon: str, tip: str, step: int) -> QToolButton:
+        button = QToolButton(self)
+        button.setIcon(qta.icon(icon, color=THEME.text_primary))
+        button.setIconSize(QSize(10, 10))
+        button.setFixedSize(_ZOOM_BUTTON_PX, _ZOOM_BUTTON_PX)
+        button.setToolTip(tip)
+        button.setCursor(Qt.CursorShape.ArrowCursor)
+        button.setAutoRepeat(True)
+        button.setStyleSheet(
+            f"QToolButton {{ background: {THEME.surface_overlay}; border: 1px solid {THEME.border_color};"
+            f" border-radius: {THEME.radius_sm}px; }}"
+            f"QToolButton:hover {{ background: {THEME.surface_overlay_hover}; }}"
+        )
+        button.clicked.connect(lambda: self.zoom_by(step))
+        return button
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        self._zoom_in_btn.move(THEME.space_lg, THEME.space_lg)
+        self._zoom_out_btn.move(THEME.space_lg, THEME.space_lg + _ZOOM_BUTTON_PX + THEME.space_xs)
+        super().resizeEvent(event)
 
     # ── state ────────────────────────────────────────────────────────────
 
@@ -240,22 +273,52 @@ class SlippyMapWidget(QWidget):
         self.set_pin(lat, lon, recenter=False)
         self.pin_moved.emit(lat, lon)
 
-    def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802 - Qt override
-        notches = event.angleDelta().y()
-        if not notches:
-            return
-        step = 1 if notches > 0 else -1
+    def zoom_by(self, step: int, anchor: Optional[QPointF] = None) -> None:
+        """Zoom whole levels, holding the point under `anchor` fixed (the view centre if None)."""
         zoom = max(MIN_ZOOM, min(MAX_ZOOM, self._zoom + step))
         if zoom == self._zoom:
             return
-        # Keep the position under the cursor fixed, so the wheel zooms into what is aimed at.
-        pos = event.position()
-        anchor = self.latlon_at(pos.x(), pos.y())
+        if anchor is None:
+            self._zoom = zoom
+            self.update()
+            return
+        latlon = self.latlon_at(anchor.x(), anchor.y())
         self._zoom = zoom
-        ax, ay = deg2tile(*anchor, zoom)
+        ax, ay = deg2tile(*latlon, zoom)
         self._center = tile2deg(
-            ax - (pos.x() - self.width() / 2.0) / TILE_SIZE,
-            ay - (pos.y() - self.height() / 2.0) / TILE_SIZE,
+            ax - (anchor.x() - self.width() / 2.0) / TILE_SIZE,
+            ay - (anchor.y() - self.height() / 2.0) / TILE_SIZE,
             zoom,
         )
         self.update()
+
+    def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802 - Qt override
+        if event.phase() in (Qt.ScrollPhase.ScrollBegin, Qt.ScrollPhase.ScrollEnd):
+            self._wheel_accum = 0.0
+        notches = event.angleDelta().y()
+        if not notches:
+            return
+        if notches * self._wheel_accum < 0:
+            self._wheel_accum = 0.0
+        self._wheel_accum += notches
+        step = int(self._wheel_accum / _WHEEL_NOTCH)
+        if not step:
+            return
+        self._wheel_accum -= step * _WHEEL_NOTCH
+        self.zoom_by(step, event.position())
+
+    def event(self, event) -> bool:
+        # A trackpad pinch arrives as a native gesture, not as a wheel, and only where the
+        # platform synthesizes one.
+        if isinstance(event, QNativeGestureEvent):
+            gesture = event.gestureType()
+            if gesture == Qt.NativeGestureType.BeginNativeGesture:
+                self._pinch_accum = 0.0
+            elif gesture == Qt.NativeGestureType.ZoomNativeGesture:
+                self._pinch_accum += event.value()
+                step = int(self._pinch_accum / _PINCH_STEP)
+                if step:
+                    self._pinch_accum -= step * _PINCH_STEP
+                    self.zoom_by(step, event.position())
+                return True
+        return super().event(event)
