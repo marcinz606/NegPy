@@ -6,10 +6,10 @@ from negpy.desktop.workers import export as export_worker_mod
 from negpy.services.rendering.image_processor import ImageProcessor
 
 
-def test_export_worker_uses_process_export_not_preview_load() -> None:
-    """Export must keep using full-res `process_export(file_path, ...)` — not `PreviewManager` decode."""
+def test_export_worker_uses_full_res_render_not_preview_load() -> None:
+    """Export must keep using full-res `render_export(file_path, ...)` — not `PreviewManager` decode."""
     src = inspect.getsource(export_worker_mod.ExportWorker.run_batch)
-    assert "process_export" in src
+    assert "render_export" in src
     assert "load_linear_preview" not in src
 
 

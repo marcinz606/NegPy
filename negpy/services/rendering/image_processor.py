@@ -1,6 +1,7 @@
 import os
 import io
 import ctypes
+import threading
 import cv2
 import rawpy
 import tifffile
@@ -226,6 +227,11 @@ class ImageProcessor:
         # state, so whichever loses can be deleted without unpicking the other.
         self._ice_key: Optional[tuple] = None
         self._ice_value: Optional[tuple] = None
+
+        # Prefetched export source for the batch worker. The gate serializes the
+        # prepare compute: the decode/bake caches above are single-slot.
+        self._prepare_gate = threading.Lock()
+        self._prepare_slot: Optional[Tuple[tuple, Tuple[np.ndarray, str, str]]] = None
 
         # Called with a label when a slow uncached step starts, for a UI busy cue. Set by
         # RenderWorker. The caller runs on the render thread, so keep it to a signal emit.
@@ -505,21 +511,23 @@ class ImageProcessor:
         )
 
         # Bake the IR correction before detection so meters/stats see the corrected buffer.
+        # Gated: the bake caches are single-slot and the export prefetch bakes on a helper thread.
         want_ir = settings.retouch.ir_dust_remove and ir_buffer is not None and not self._is_flat(settings)
-        img, ir_corrected_mask, ir_degenerate, ir_routed = self._ir_bake(img, ir_buffer, settings, base_hash)
+        with self._prepare_gate:
+            img, ir_corrected_mask, ir_degenerate, ir_routed = self._ir_bake(img, ir_buffer, settings, base_hash)
 
-        orig_ret = settings.retouch
-        detected_dust, hair_masks = self._detect_luma(settings, img, base_hash)
-        img = self._luma_bake(img, detected_dust, base_hash + hair_bake_token(orig_ret))
-        img, manual_routed = self._manual_bake(img, settings, base_hash)
-        extra = [m for m in (ir_routed, manual_routed) if m is not None]
-        if extra:
-            hair_masks = hair_masks + extra  # never mutate the cached list
-        # Inpaint long/twisted hairs into the source, where both engines see it. The token
-        # invalidates the base stage when detection params change.
-        hair_token = hair_bake_token(orig_ret) if hair_masks else ""
-        if hair_masks:
-            img = self._hair_inpaint(img, hair_masks, base_hash + hair_token)
+            orig_ret = settings.retouch
+            detected_dust, hair_masks = self._detect_luma(settings, img, base_hash)
+            img = self._luma_bake(img, detected_dust, base_hash + hair_bake_token(orig_ret))
+            img, manual_routed = self._manual_bake(img, settings, base_hash)
+            extra = [m for m in (ir_routed, manual_routed) if m is not None]
+            if extra:
+                hair_masks = hair_masks + extra  # never mutate the cached list
+            # Inpaint long/twisted hairs into the source, where both engines see it. The token
+            # invalidates the base stage when detection params change.
+            hair_token = hair_bake_token(orig_ret) if hair_masks else ""
+            if hair_masks:
+                img = self._hair_inpaint(img, hair_masks, base_hash + hair_token)
 
         source_hash = base_hash + hair_token + f"|res{w_cols}x{h_orig}"
 
@@ -834,33 +842,43 @@ class ImageProcessor:
             ir_full = np.ascontiguousarray(slice_half(ir_full, half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness))
         return f32_buffer, ir_full
 
-    def _render_export_buffer(
+    def _prepare_export_source(
         self,
         file_path: str,
         params: WorkspaceConfig,
-        export_settings,  # ExportConfig or ExportPreset
         source_hash: str,
-        metrics: Optional[Dict[str, Any]] = None,
-        prefer_gpu: bool = True,
-        bounds_override: Optional[Any] = None,
         half: int = 0,
         split_x: float = 0.5,
         crop_rect: Optional[tuple[float, float, float, float]] = None,
         gutter_thickness: float = 0.0,
-    ) -> Tuple[np.ndarray, str]:
-        """Full-res render of one frame; returns the float buffer and its color space."""
-        # Ensure both GPU and CPU paths use the same export settings.
-        params = dc_replace(params, export=export_settings)
+    ) -> Tuple[np.ndarray, str, str]:
+        """Decode, slice and bake one frame for export: (f32_buffer, source color
+        space, bake token for the engine hash). Served from the handoff slot when
+        prefetched, computed under the gate otherwise."""
+        key = (file_path, source_hash, params, half, split_x, crop_rect, gutter_thickness)
+        slot = self._prepare_slot
+        if slot is not None and slot[0] == key:
+            return slot[1]
+        with self._prepare_gate:
+            slot = self._prepare_slot
+            if slot is not None and slot[0] == key:
+                return slot[1]
+            return self._prepare_export_source_locked(file_path, params, source_hash, half, split_x, crop_rect, gutter_thickness)
 
+    def _prepare_export_source_locked(
+        self,
+        file_path: str,
+        params: WorkspaceConfig,
+        source_hash: str,
+        half: int,
+        split_x: float,
+        crop_rect: Optional[tuple[float, float, float, float]],
+        gutter_thickness: float,
+    ) -> Tuple[np.ndarray, str, str]:
         f32_buffer, ir_full, source_cs = self._load_source_f32(file_path, params)
         f32_buffer, ir_full = self._slice_half_source(
             f32_buffer, ir_full, half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness
         )
-        target_cs = export_settings.export_color_space
-        if target_cs == ColorSpace.SAME_AS_SOURCE.value:
-            target_cs = source_cs
-        color_space = str(target_cs)
-
         detect_key = (
             source_hash
             + flatfield_token(params.flatfield)
@@ -883,6 +901,59 @@ class ImageProcessor:
             hair_masks = hair_masks + extra
         if hair_masks:
             f32_buffer = self._hair_inpaint(f32_buffer, hair_masks, detect_key + hair_bake_token(orig_ret))
+        export_token = detect_key + (hair_bake_token(orig_ret) if hair_masks else "")
+        return f32_buffer, source_cs, export_token
+
+    def prefetch_export_source(
+        self,
+        file_path: str,
+        params: WorkspaceConfig,
+        source_hash: str,
+        half: int = 0,
+        split_x: float = 0.5,
+        crop_rect: Optional[tuple[float, float, float, float]] = None,
+        gutter_thickness: float = 0.0,
+    ) -> None:
+        """Prepare a source into the handoff slot ahead of its render. Failures are
+        dropped; the render's own prepare raises them where they are reported."""
+        key = (file_path, source_hash, params, half, split_x, crop_rect, gutter_thickness)
+        slot = self._prepare_slot
+        if slot is not None and slot[0] == key:
+            return
+        try:
+            with self._prepare_gate:
+                slot = self._prepare_slot
+                if slot is not None and slot[0] == key:
+                    return
+                value = self._prepare_export_source_locked(file_path, params, source_hash, half, split_x, crop_rect, gutter_thickness)
+                self._prepare_slot = (key, value)
+        except Exception:
+            logger.exception(f"Export source prefetch failed for {file_path}")
+
+    def _render_export_buffer(
+        self,
+        file_path: str,
+        params: WorkspaceConfig,
+        export_settings,  # ExportConfig or ExportPreset
+        source_hash: str,
+        metrics: Optional[Dict[str, Any]] = None,
+        prefer_gpu: bool = True,
+        bounds_override: Optional[Any] = None,
+        half: int = 0,
+        split_x: float = 0.5,
+        crop_rect: Optional[tuple[float, float, float, float]] = None,
+        gutter_thickness: float = 0.0,
+    ) -> Tuple[np.ndarray, str]:
+        """Full-res render of one frame; returns the float buffer and its color space."""
+        f32_buffer, source_cs, export_token = self._prepare_export_source(
+            file_path, params, source_hash, half=half, split_x=split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness
+        )
+        # Ensure both GPU and CPU paths use the same export settings.
+        params = dc_replace(params, export=export_settings)
+        target_cs = export_settings.export_color_space
+        if target_cs == ColorSpace.SAME_AS_SOURCE.value:
+            target_cs = source_cs
+        color_space = str(target_cs)
 
         h_raw, w_raw = f32_buffer.shape[:2]
         export_scale = max(h_raw, w_raw) / float(APP_CONFIG.preview_render_size)
@@ -897,11 +968,7 @@ class ImageProcessor:
         if prefer_gpu and self.engine_gpu:
             # Mirrors run_pipeline's base_hash, so a multi-preset batch of one frame
             # reuses the source upload and the meter cache.
-            export_hash = (
-                detect_key
-                + (hair_bake_token(orig_ret) if hair_masks else "")
-                + f"|res{w_raw}x{h_raw}|half{half}:{split_x}:{crop_rect}:{gutter_thickness}"
-            )
+            export_hash = export_token + f"|res{w_raw}x{h_raw}|half{half}:{split_x}:{crop_rect}:{gutter_thickness}"
             buffer, _gpu_metrics = self.engine_gpu.process(
                 f32_buffer,
                 params,
@@ -932,7 +999,7 @@ class ImageProcessor:
 
         return buffer, color_space
 
-    def process_export(
+    def render_export(
         self,
         file_path: str,
         params: WorkspaceConfig,
@@ -941,23 +1008,18 @@ class ImageProcessor:
         metrics: Optional[Dict[str, Any]] = None,
         prefer_gpu: bool = True,
         bounds_override: Optional[Any] = None,
-        working_color_space: str = WORKING_COLOR_SPACE,
         half: int = 0,
         split_x: float = 0.5,
         crop_rect: Optional[tuple[float, float, float, float]] = None,
         gutter_thickness: float = 0.0,
         diptych: Optional[Tuple[WorkspaceConfig, WorkspaceConfig]] = None,
-        embed_plan: Optional[tuple] = None,
-    ) -> Tuple[Optional[bytes], str]:
-        """Performs high-resolution export with color management.
+    ) -> Tuple[Optional[np.ndarray], str]:
+        """Full-res export render; returns (float buffer, its color space) or (None, error).
 
         ``diptych`` renders the scan's two halves with their own configs and joins them
         back into the original geometry. Each half is sliced before the pipeline, so its
         normalization sees the same pixels the user edited it on. ``params`` is unused
-        then — the halves own the edit. One encode, so no double compression.
-
-        ``embed_plan`` (from writer.export_embed_plan): TIFF/PNG embed it at the
-        first encode instead of the post-hoc rewrite.
+        then — the halves own the edit.
         """
         try:
             if diptych is not None:
@@ -993,11 +1055,66 @@ class ImageProcessor:
                     crop_rect=crop_rect,
                     gutter_thickness=gutter_thickness,
                 )
-            return self._encode_export(buffer, export_settings, color_space, working_color_space, embed_plan=embed_plan)
-
+            return buffer, color_space
         except Exception as e:
-            logger.error(f"Export pipeline failed: {e}")
+            logger.error(f"Export render failed: {e}")
             return None, str(e)
+
+    def encode_export(
+        self,
+        buffer: np.ndarray,
+        export_settings,
+        color_space: str,
+        working_color_space: str = WORKING_COLOR_SPACE,
+        embed_plan: Optional[tuple] = None,
+    ) -> Tuple[Optional[bytes], str]:
+        """Encode a rendered export buffer to file bytes; (bytes, format) or (None, error).
+        Touches no processor state, so it can run on the finisher thread."""
+        try:
+            return self._encode_export(buffer, export_settings, color_space, working_color_space, embed_plan=embed_plan)
+        except Exception as e:
+            logger.error(f"Export encode failed: {e}")
+            return None, str(e)
+
+    def process_export(
+        self,
+        file_path: str,
+        params: WorkspaceConfig,
+        export_settings,  # ExportConfig or ExportPreset
+        source_hash: str,
+        metrics: Optional[Dict[str, Any]] = None,
+        prefer_gpu: bool = True,
+        bounds_override: Optional[Any] = None,
+        working_color_space: str = WORKING_COLOR_SPACE,
+        half: int = 0,
+        split_x: float = 0.5,
+        crop_rect: Optional[tuple[float, float, float, float]] = None,
+        gutter_thickness: float = 0.0,
+        diptych: Optional[Tuple[WorkspaceConfig, WorkspaceConfig]] = None,
+        embed_plan: Optional[tuple] = None,
+    ) -> Tuple[Optional[bytes], str]:
+        """Performs high-resolution export with color management.
+
+        ``embed_plan`` (from writer.export_embed_plan): TIFF/PNG embed it at the
+        first encode instead of the post-hoc rewrite.
+        """
+        buffer, color_space = self.render_export(
+            file_path,
+            params,
+            export_settings,
+            source_hash,
+            metrics=metrics,
+            prefer_gpu=prefer_gpu,
+            bounds_override=bounds_override,
+            half=half,
+            split_x=split_x,
+            crop_rect=crop_rect,
+            gutter_thickness=gutter_thickness,
+            diptych=diptych,
+        )
+        if buffer is None:
+            return None, color_space
+        return self.encode_export(buffer, export_settings, color_space, working_color_space, embed_plan=embed_plan)
 
     def _encode_export(
         self,
@@ -1718,6 +1835,7 @@ class ImageProcessor:
         self._source_cache_value = None
         self._precorrect_key = None
         self._precorrect_value = None
+        self._prepare_slot = None
 
     def cleanup(self, release_source_cache: bool = True, collect: bool = True, retain: Any = None) -> None:
         """Evacuates transient GPU resources; ``retain`` survives the teardown."""

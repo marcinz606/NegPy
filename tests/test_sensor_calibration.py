@@ -178,6 +178,7 @@ def test_run_pipeline_gates_triplets(monkeypatch):
     ip.engine_cpu.process.return_value = np.zeros((8, 8, 3), dtype=np.float32)
     ip._precorrect_key = None
     ip._precorrect_value = None
+    ip._prepare_gate = __import__("threading").Lock()
     ip._augment_retouch = lambda settings, img, key: (settings, None, [])
     ip._ir_bake = lambda img, ir, settings, key: (img, None, None, None)
     ip._is_flat = lambda settings: False

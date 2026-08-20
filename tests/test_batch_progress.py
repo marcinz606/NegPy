@@ -52,11 +52,11 @@ def test_export_worker_cancel_stops_batch_keeps_partial() -> None:
     worker = ExportWorker()
     proc = MagicMock()
 
-    def _process_export(*_a, **_k):
+    def _render_export(*_a, **_k):
         worker.cancel()  # abort requested mid-batch, after first file
-        return (b"", None)  # empty bits => nothing written
+        return (None, "aborted")  # render failed => nothing written
 
-    proc.process_export.side_effect = _process_export
+    proc.render_export.side_effect = _render_export
     worker._processor = proc
 
     finished: list[bool] = []
@@ -68,18 +68,17 @@ def test_export_worker_cancel_stops_batch_keeps_partial() -> None:
 
     assert cancelled == [True]
     assert finished == []
-    assert proc.process_export.call_count == 1  # second task skipped
+    assert proc.render_export.call_count == 1  # second task skipped
 
 
-def test_export_batch_keeps_source_cache_for_consecutive_same_file(tmp_path) -> None:
+def test_export_batch_prefetches_next_source_once_per_task(tmp_path) -> None:
     from unittest.mock import call
 
-    from negpy.desktop.workers.export import _same_decode_source
     from negpy.domain.models import preset_from_export_config
 
     worker = ExportWorker()
     proc = MagicMock()
-    proc.process_export.return_value = (b"bits", None)
+    proc.render_export.return_value = (None, "render failed")  # nothing written
     worker._processor = proc
 
     # Real batches carry ExportPresets (SAME_AS_SOURCE output), like the controller builds.
@@ -96,18 +95,12 @@ def test_export_batch_keeps_source_cache_for_consecutive_same_file(tmp_path) -> 
     # a.cr2 exported twice (multi-format preset), then b.cr2.
     worker.run_batch([_task("a.cr2"), _task("a.cr2"), _task("b.cr2")])
 
-    # Decoded source dropped only at source boundaries; VRAM evacuated once per batch.
-    assert proc.release_source_cache.call_args_list == [call(), call()]
+    # Every task but the first is prefetched ahead of its render; VRAM evacuated
+    # once per batch.
+    prefetched = [c.args[0] for c in proc.prefetch_export_source.call_args_list]
+    assert prefetched == [str(tmp_path / "a.cr2"), str(tmp_path / "b.cr2")]
     assert proc.cleanup.call_args_list == [call(release_source_cache=True, collect=False)]
-    assert proc.process_export.call_count == 3
-
-    # _same_decode_source mirrors the _load_source_f32 cache key fields.
-    a, b = _task("a.cr2"), _task("b.cr2")
-    assert _same_decode_source(a, _task("a.cr2"))
-    assert not _same_decode_source(a, b)
-    flat = replace(DEFAULT_WORKSPACE_CONFIG, flatfield=replace(DEFAULT_WORKSPACE_CONFIG.flatfield, apply=True, profile_id="rig-1"))
-    a_flat = ExportTask(file_info=a.file_info, params=flat, export_settings=preset)
-    assert not _same_decode_source(a, a_flat)
+    assert proc.render_export.call_count == 3
 
 
 def test_normalization_worker_cancel_emits_cancelled_no_baseline() -> None:

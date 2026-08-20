@@ -1,9 +1,12 @@
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import List, Optional, Any, Union
 import gc
 import os
 import tempfile
 import threading
+
+import numpy as np
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 from negpy.domain.models import ColorSpace, WorkspaceConfig, ExportConfig, ExportFormat, ExportPreset, ExportPresetOutputMode
 from negpy.features.metadata.writer import embed_metadata, export_embed_plan, preserve_source_metadata
@@ -49,18 +52,6 @@ class LinearOutputTask:
     file_info: dict
     out_path: str
     options: dict
-
-
-def _same_decode_source(a: ExportTask, b: ExportTask) -> bool:
-    """True when the decoded f32 source cache is reusable for the next task
-    (mirrors the _load_source_f32 cache key; the key still verifies on read)."""
-    return (
-        a.file_info["path"] == b.file_info["path"]
-        and a.params.process.linear_raw == b.params.process.linear_raw
-        and a.params.process.sensor_matrix == b.params.process.sensor_matrix
-        and a.params.rgbscan == b.params.rgbscan
-        and a.params.flatfield == b.params.flatfield
-    )
 
 
 _EXT = {
@@ -143,17 +134,34 @@ class ExportWorker(QObject):
 
     @pyqtSlot(list)
     def run_batch(self, tasks: List[ExportTask]) -> None:
-        """Processes an ordered list of export tasks."""
+        """Processes an ordered list of export tasks, pipelined: the prefetcher
+        prepares the next source and the finisher encodes+writes the previous
+        render while the current one renders. One finish in flight, so at most
+        two full-res buffers are held."""
         self._cancel.clear()
         total = len(tasks)
+        finisher = ThreadPoolExecutor(max_workers=1)
+        prefetcher = ThreadPoolExecutor(max_workers=1)
+        pending: Optional[Future] = None
+
+        def _drain(fut: Future) -> None:
+            err = fut.result()
+            if err:
+                self.error.emit(err)
+
         try:
             for i, task in enumerate(tasks):
                 if self._cancel.is_set():
-                    self.cancelled.emit()
-                    return
+                    break
                 full_name = task.file_info["name"]
                 name = os.path.splitext(full_name)[0]
                 self.progress.emit(i + 1, total, name)
+
+                nxt = tasks[i + 1] if i + 1 < len(tasks) else None
+                prefetch_next = nxt is not None and nxt.diptych is None
+                # Not on the first task: its own prepare would queue behind this on the gate.
+                if prefetch_next and i > 0:
+                    self._submit_prefetch(prefetcher, nxt)
 
                 # TIFF/PNG take the metadata at the first encode; the post-hoc
                 # rewrite re-compresses the full-res file.
@@ -165,73 +173,103 @@ class ExportWorker(QObject):
                         task.file_info["path"],
                     )
 
-                bits, status = self._processor.process_export(
+                buffer, status = self._processor.render_export(
                     task.file_info["path"],
                     task.params,
                     task.export_settings,
                     task.file_info["hash"],
                     prefer_gpu=task.gpu_enabled,
                     bounds_override=task.bounds_override,
-                    working_color_space=task.working_color_space,
                     half=int(task.file_info.get("half") or 0),
                     split_x=float(task.file_info.get("split_x") or 0.5),
                     crop_rect=tuple(task.file_info["crop_rect"]) if task.file_info.get("crop_rect") else None,
                     gutter_thickness=float(task.file_info.get("gutter_thickness") or 0.0),
                     diptych=task.diptych,
-                    embed_plan=embed_plan,
                 )
+                if prefetch_next and i == 0:
+                    self._submit_prefetch(prefetcher, nxt)
 
-                if not bits:
-                    # process_export returns (None, error) on failure. Surface it rather than skipping the
-                    # file silently.
+                if buffer is None:
+                    # render_export returns (None, error) on failure. Surface it rather
+                    # than skipping the file silently.
                     self.error.emit(status)
                     continue
 
-                if bits:
-                    if task.metadata_config is not None and embed_plan is None:
-                        if task.metadata_config.protect_original_metadata:
-                            bits = preserve_source_metadata(
-                                bits,
-                                task.file_info["path"],
-                                task.source_exif,
-                            )
-                        else:
-                            bits = embed_metadata(bits, task.metadata_config, task.source_exif)
+                if pending is not None:
+                    _drain(pending)
+                pending = finisher.submit(self._finish_task, task, buffer, status, embed_plan)
 
-                    out_dir, filename, ext = resolve_export_naming(task)
-                    os.makedirs(out_dir, exist_ok=True)
-                    path = os.path.join(out_dir, f"{filename}.{ext}")
-
-                    if not task.export_settings.overwrite:
-                        counter = 2
-                        while os.path.exists(path):
-                            path = os.path.join(out_dir, f"{filename}_{counter}.{ext}")
-                            counter += 1
-
-                    tmp_path = None
-                    try:
-                        with tempfile.NamedTemporaryFile(dir=out_dir, delete=False, suffix=".part") as tmp:
-                            tmp_path = tmp.name
-                            tmp.write(bits)
-                        os.replace(tmp_path, path)
-                    except Exception as write_err:
-                        if tmp_path is not None and os.path.exists(tmp_path):
-                            os.unlink(tmp_path)
-                        self.error.emit(str(write_err))
-                        continue
-
-                # The engine evicts stale pool textures itself per render; the decoded
-                # source is kept until the next task needs a different file.
-                nxt = tasks[i + 1] if i + 1 < len(tasks) else None
-                if nxt is None or not _same_decode_source(task, nxt):
-                    self._processor.release_source_cache()
-
-            self.finished.emit()
+            if pending is not None:
+                _drain(pending)
+                pending = None
+            if self._cancel.is_set():
+                self.cancelled.emit()
+            else:
+                self.finished.emit()
         except Exception as e:
             self.error.emit(str(e))
         finally:
+            prefetcher.shutdown(wait=True)
+            finisher.shutdown(wait=True)
             self._processor.cleanup(release_source_cache=True, collect=False)
             gc.collect()
+
+    def _submit_prefetch(self, prefetcher: ThreadPoolExecutor, nxt: ExportTask) -> None:
+        prefetcher.submit(
+            self._processor.prefetch_export_source,
+            nxt.file_info["path"],
+            nxt.params,
+            nxt.file_info["hash"],
+            half=int(nxt.file_info.get("half") or 0),
+            split_x=float(nxt.file_info.get("split_x") or 0.5),
+            crop_rect=tuple(nxt.file_info["crop_rect"]) if nxt.file_info.get("crop_rect") else None,
+            gutter_thickness=float(nxt.file_info.get("gutter_thickness") or 0.0),
+        )
+
+    def _finish_task(self, task: ExportTask, buffer: np.ndarray, color_space: str, embed_plan: Optional[tuple]) -> Optional[str]:
+        """Encode + metadata + atomic write for one rendered frame, on the finisher
+        thread. Returns an error message, or None on success."""
+        bits, status = self._processor.encode_export(
+            buffer,
+            task.export_settings,
+            color_space,
+            task.working_color_space,
+            embed_plan=embed_plan,
+        )
+        if not bits:
+            return status
+
+        if task.metadata_config is not None and embed_plan is None:
+            if task.metadata_config.protect_original_metadata:
+                bits = preserve_source_metadata(
+                    bits,
+                    task.file_info["path"],
+                    task.source_exif,
+                )
+            else:
+                bits = embed_metadata(bits, task.metadata_config, task.source_exif)
+
+        out_dir, filename, ext = resolve_export_naming(task)
+        os.makedirs(out_dir, exist_ok=True)
+        path = os.path.join(out_dir, f"{filename}.{ext}")
+
+        if not task.export_settings.overwrite:
+            counter = 2
+            while os.path.exists(path):
+                path = os.path.join(out_dir, f"{filename}_{counter}.{ext}")
+                counter += 1
+
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=out_dir, delete=False, suffix=".part") as tmp:
+                tmp_path = tmp.name
+                tmp.write(bits)
+            os.replace(tmp_path, path)
+        except Exception as write_err:
+            if tmp_path is not None and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            return str(write_err)
+        return None
 
     @pyqtSlot(list)
     def run_linear_output(self, tasks: List[LinearOutputTask]) -> None:
