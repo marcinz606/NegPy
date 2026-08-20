@@ -38,6 +38,7 @@ from negpy.features.retouch.logic import (
     downsample_ir,
     hair_bake_token,
     ir_bake_token,
+    luma_bake_token,
     ir_defect_score,
     ir_detect_cutoff,
     ir_detect_target,
@@ -500,6 +501,7 @@ class ImageProcessor:
             + sensor_token(settings.process)
             + ir_bake_token(settings.retouch, ir_buffer is not None)
             + manual_bake_token(settings.retouch)
+            + luma_bake_token(settings.retouch)
         )
 
         # Bake the IR correction before detection so meters/stats see the corrected buffer.
@@ -869,6 +871,7 @@ class ImageProcessor:
             + sensor_token(params.process)
             + ir_bake_token(params.retouch, ir_full is not None)
             + manual_bake_token(params.retouch)
+            + luma_bake_token(params.retouch)
         )
         f32_buffer, _, _, ir_routed = self._ir_bake(f32_buffer, ir_full, params, detect_key)
         orig_ret = params.retouch
@@ -1224,6 +1227,7 @@ class ImageProcessor:
                 + sensor_token(params.process)
                 + ir_bake_token(params.retouch, ir_full is not None)
                 + manual_bake_token(params.retouch)
+                + luma_bake_token(params.retouch)
             )
             f32_buffer, _, _, ir_routed = self._ir_bake(f32_buffer, ir_full, params, detect_key)
             orig_ret = params.retouch

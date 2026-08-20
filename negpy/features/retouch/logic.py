@@ -1029,6 +1029,16 @@ def apply_ir_attenuation(img: ImageBuffer, gain_det: np.ndarray) -> ImageBuffer:
     return ensure_image(cv2.multiply(np.ascontiguousarray(img, dtype=np.float32), gain))
 
 
+def luma_bake_token(retouch) -> str:
+    """Config identity of the auto speck repair, folded into source_hash so the
+    Dust Removal toggle invalidates the uploaded source (mirrors ir_bake_token).
+    hair_bake_token cannot cover this: it joins the hash only when a hair was
+    actually detected, and the speck fill runs regardless."""
+    if not retouch.dust_remove:
+        return ""
+    return f"|dust{round(float(retouch.dust_threshold), 3)}_{int(retouch.dust_size)}"
+
+
 def ir_bake_token(retouch, has_ir: bool) -> str:
     """Config-identity token for the IR bake (mirrors ``flatfield_token``); folded into
     source_hash so a toggle or threshold drag invalidates the engine cache."""

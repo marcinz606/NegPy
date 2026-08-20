@@ -450,3 +450,40 @@ def test_line_sensitivity_trades_reach_for_restraint():
 def test_scratch_detect_bar_is_monotonic():
     bars = [scratch_detect_bar(v) for v in (0.05, 0.5, 0.95)]
     assert bars == sorted(bars), "higher must be more conservative"
+
+
+def test_luma_bake_token_tracks_the_toggle_and_params():
+    from negpy.features.retouch.logic import luma_bake_token
+
+    off = luma_bake_token(RetouchConfig(dust_remove=False))
+    on = luma_bake_token(RetouchConfig(dust_remove=True))
+    assert off == ""
+    assert on != off
+    assert luma_bake_token(RetouchConfig(dust_remove=True, dust_threshold=0.5)) != on
+
+
+def test_dust_toggle_changes_engine_source_hash():
+    """The speck bake mutates the source, so the toggle must change the hash both
+    engine caches key on — or the GPU keeps rendering the stale uploaded texture."""
+    import dataclasses
+    from unittest.mock import patch
+
+    from negpy.domain.models import WorkspaceConfig
+    from negpy.services.rendering.image_processor import ImageProcessor
+
+    proc = ImageProcessor()
+    proc.engine_gpu = None  # CPU branch; both engines receive the same hash
+    img = np.random.default_rng(0).random((64, 96, 3)).astype(np.float32)
+    cfg = WorkspaceConfig()
+    seen = []
+
+    def spy(buf, settings, source_hash, context=None):
+        seen.append(source_hash)
+        return buf
+
+    with patch.object(proc.engine_cpu, "process", side_effect=spy):
+        proc.run_pipeline(img, cfg, "src", render_size_ref=1600.0, prefer_gpu=False, readback_metrics=False)
+        cfg_on = dataclasses.replace(cfg, retouch=dataclasses.replace(cfg.retouch, dust_remove=True))
+        proc.run_pipeline(img, cfg_on, "src", render_size_ref=1600.0, prefer_gpu=False, readback_metrics=False)
+
+    assert seen[0] != seen[1], "dust_remove toggle left source_hash unchanged"
