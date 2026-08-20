@@ -19,6 +19,8 @@ on:
       - "negpy/desktop/workers/render.py"
       - "negpy/desktop/prefetch_logic.py"
       - "negpy/kernel/caching/logic.py"
+      - "negpy/services/rendering/image_processor.py"
+      - "negpy/services/rendering/gpu_engine.py"
       - "tests/metrics/**"
   pull_request:
     branches: [main]
@@ -28,6 +30,8 @@ on:
       - "negpy/desktop/workers/render.py"
       - "negpy/desktop/prefetch_logic.py"
       - "negpy/kernel/caching/logic.py"
+      - "negpy/services/rendering/image_processor.py"
+      - "negpy/services/rendering/gpu_engine.py"
       - "tests/metrics/**"
 
 concurrency:

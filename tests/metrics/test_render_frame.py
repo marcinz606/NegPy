@@ -90,6 +90,14 @@ def _sepia(base, i):
     return dataclasses.replace(base, toning=dataclasses.replace(base.toning, sepia_strength=0.02 * (i + 1)))
 
 
+def _white_point(base, i):
+    return dataclasses.replace(base, process=dataclasses.replace(base.process, white_point_offset=0.001 * (i + 1)))
+
+
+def _luma_clip(base, i):
+    return dataclasses.replace(base, process=dataclasses.replace(base.process, luma_range_clip=0.001 * (i + 1)))
+
+
 def test_drag_frame(rig) -> None:
     """An exposure slider step: resumes from the exposure stage, no metrics readback."""
     elapsed = _frame_seconds(rig, _density, settle=False)
@@ -102,6 +110,22 @@ def test_late_stage_drag_frame(rig) -> None:
     elapsed = _frame_seconds(rig, _sepia, settle=False)
     recorder.record("render.frame.drag_late_stage_s", elapsed)
     assert elapsed < 0.5, f"a toning-only frame took {elapsed * 1000:.0f}ms"
+
+
+def test_white_point_drag_frame(rig) -> None:
+    """A white-point step applies as a uniform offset: it must reuse the analysis
+    cache and cost no more than a creative-slider frame."""
+    elapsed = _frame_seconds(rig, _white_point, settle=False)
+    recorder.record("render.frame.drag_offset_s", elapsed)
+    assert elapsed < 0.5, f"a white-point drag frame took {elapsed * 1000:.0f}ms"
+
+
+def test_clip_drag_frame(rig) -> None:
+    """A clip step re-meters by design, but reuses the prefiltered log grid; only
+    the percentile analysis re-runs."""
+    elapsed = _frame_seconds(rig, _luma_clip, settle=False)
+    recorder.record("render.frame.drag_remeter_s", elapsed)
+    assert elapsed < 0.5, f"a clip drag frame took {elapsed * 1000:.0f}ms"
 
 
 def test_settle_frame(rig) -> None:
