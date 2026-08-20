@@ -2555,11 +2555,6 @@ class AppController(QObject):
         if geom.crop_from_auto:
             self.request_render()
 
-    def save_current_edits(self) -> None:
-        if self.state.current_file_hash:
-            self.session.update_config(self.state.config, persist=True)
-            self._update_thumbnail_from_state()
-
     def clear_retouch(self) -> None:
         from negpy.desktop.view.confirm import confirm_clear_heals
 

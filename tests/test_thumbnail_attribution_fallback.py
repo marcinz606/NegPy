@@ -1,6 +1,6 @@
 """A render whose frame is no longer open must not be filed under whatever is selected now.
 
-`_update_thumbnail_from_state` runs on file switch, on save, and after an export — not only
+`_update_thumbnail_from_state` runs on file switch and after an export — not only
 from the render that produced the buffer. So `state.last_metrics` can hold a render whose
 frame has since left `uploaded_files`: opening a different folder replaces the list, and a
 merge or unmerge swaps frames for a composite. Resolving that by falling back to

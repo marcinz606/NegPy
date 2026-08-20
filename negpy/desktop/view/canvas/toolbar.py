@@ -372,11 +372,6 @@ class ActionToolbar(QWidget):
         self._ov_flip_v_action.setToolTip(tooltip_with_shortcut("Flip Vertical", "flip_v"))
         overflow_menu.addSeparator()
 
-        # Edits auto-save to the DB and surface in History, so an explicit Save lives here in the
-        # overflow rather than the main toolbar.
-        save_action = overflow_menu.addAction(qta.icon("fa5s.save", color=icon_color), "Save Edits", self.controller.save_current_edits)
-        save_action.setToolTip("Write the current edit to the database now (edits also auto-save)")
-        overflow_menu.addSeparator()
         self._action_copy = overflow_menu.addAction(
             qta.icon("fa5s.copy", color=icon_color), "Copy Settings  Ctrl+C", self.session.copy_settings
         )
