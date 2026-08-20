@@ -234,7 +234,9 @@ def test_batch_autocrop_per_file_failure_does_not_abort_roll(qapp, monkeypatch) 
     worker.process(_task(_input("bad", base), _input("good", base, ("good-fingerprint",))))
 
     assert len(detected) == 1
-    assert progress == [(1, 2, "bad"), (2, 2, "good")]
+    # Progress counts completions, so the frames may be named in either order.
+    assert [count for count, _total, _name in progress] == [1, 2]
+    assert sorted(name for _c, _t, name in progress) == ["bad", "good"]
     assert errors == []
     assert len(finished) == 1
     assert [result.file_info["name"] for result in finished[0]] == ["good"]

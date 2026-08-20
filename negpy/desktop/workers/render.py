@@ -12,7 +12,7 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.analysis import output_histogram, proof_grid, rotate_grid, strip_mosaic
 from negpy.features.flatfield.logic import apply_flatfield
 from negpy.features.hdr.models import HdrConfig, hdr_active
-from negpy.features.geometry.batch_autocrop import detect_crop_candidate, resolve_roll_crops
+from negpy.features.geometry.batch_autocrop import CropEvidence, detect_crop_candidate, resolve_roll_crops
 from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix
 from negpy.features.process.logic import effective_linear_raw
 from negpy.infrastructure.loaders.helpers import unsupported_raw_reason
@@ -942,6 +942,12 @@ class BatchAutoCropWorker(QObject):
         self.cancelled.emit()
         return True
 
+    def _cancel_requested(self, generation: int) -> bool:
+        """Peek at the cancel flag without consuming it: only the coordinating thread
+        may emit the terminal signal, so a pool worker just stops."""
+        with self._cancel_lock:
+            return generation in self._cancelled_generations
+
     def _emit_finished_unless_cancelled(self, generation: int, results: list[BatchAutoCropResult]) -> None:
         """Atomically choose the terminal signal for a generation."""
         with self._cancel_lock:
@@ -982,72 +988,80 @@ class BatchAutoCropWorker(QObject):
             )
         return slice_for_asset(raw, file_info)
 
+    def _frame_evidence(self, index: int, frame: BatchAutoCropInput, task: BatchAutoCropTask, generation: int) -> Optional[CropEvidence]:
+        """Decode and detect one frame. None when it failed or the run was cancelled."""
+        file_info = frame.file_info
+        if self._cancel_requested(generation):
+            return None
+        try:
+            raw = self._decode(frame, task.workspace_color_space)
+            if self._cancel_requested(generation):
+                return None
+
+            config = frame.config
+            corrected = apply_flatfield(raw, config.flatfield)
+            detection_geometry = replace(
+                config.geometry,
+                crop_rect=None,
+                crop_from_auto=False,
+                autocrop_offset=0,
+            )
+            context = PipelineContext(
+                original_size=(corrected.shape[1], corrected.shape[0]),
+                scale_factor=1.0,
+                process_mode=config.process.process_mode,
+            )
+            distortion_k1 = config.flatfield.k1 if config.flatfield.apply else 0.0
+            transformed = GeometryProcessor(detection_geometry, distortion_k1).process(corrected, context)
+            if self._cancel_requested(generation):
+                return None
+            return detect_crop_candidate(
+                f"{index}:{file_info.get('hash', '')}",
+                transformed,
+                target_ratio=config.geometry.autocrop_ratio,
+                rebate_trim=config.geometry.autocrop_rebate_trim,
+            )
+        except Exception:
+            if self._cancel_requested(generation):
+                return None
+            logger.exception("Auto Crop All skipped failed frame %s", file_info.get("name") or file_info.get("path") or index)
+            return None
+
     @pyqtSlot(BatchAutoCropTask)
     def process(self, task: BatchAutoCropTask) -> None:
-        """Collect frame evidence sequentially, then resolve it as one roll."""
+        """Collect frame evidence over a thread pool, then resolve it as one roll.
+
+        Frames are independent until `resolve_roll_crops`, and each is a decode the GIL is
+        not held for. Evidence is kept in frame order — it is what the roll medians and the
+        template fit see — while progress counts completions, so the bar advances out of order.
+        """
         generation = int(task.generation)
         with self._cancel_lock:
             self._active_generation = generation
         if self._emit_cancelled_if_requested(generation):
             return
         total = len(task.frames)
-        evidence = []
-        source_by_key: dict[str, BatchAutoCropInput] = {}
+
+        def _name(index: int) -> str:
+            info = task.frames[index].file_info
+            return str(info.get("name") or info.get("path") or index + 1)
 
         try:
-            for index, frame in enumerate(task.frames):
-                if self._emit_cancelled_if_requested(generation):
-                    return
-
-                current = index + 1
-                file_info = frame.file_info
-                name = str(file_info.get("name") or file_info.get("path") or current)
-                key = f"{index}:{file_info.get('hash', '')}"
-
-                try:
-                    raw = self._decode(frame, task.workspace_color_space)
-                    if self._emit_cancelled_if_requested(generation):
-                        return
-
-                    config = frame.config
-                    corrected = apply_flatfield(raw, config.flatfield)
-                    if self._emit_cancelled_if_requested(generation):
-                        return
-                    detection_geometry = replace(
-                        config.geometry,
-                        crop_rect=None,
-                        crop_from_auto=False,
-                        autocrop_offset=0,
-                    )
-                    context = PipelineContext(
-                        original_size=(corrected.shape[1], corrected.shape[0]),
-                        scale_factor=1.0,
-                        process_mode=config.process.process_mode,
-                    )
-                    distortion_k1 = config.flatfield.k1 if config.flatfield.apply else 0.0
-                    transformed = GeometryProcessor(detection_geometry, distortion_k1).process(corrected, context)
-                    if self._emit_cancelled_if_requested(generation):
-                        return
-                    candidate = detect_crop_candidate(
-                        key,
-                        transformed,
-                        target_ratio=config.geometry.autocrop_ratio,
-                        rebate_trim=config.geometry.autocrop_rebate_trim,
-                    )
-                    if self._emit_cancelled_if_requested(generation):
-                        return
-
-                    evidence.append(candidate)
-                    source_by_key[candidate.key] = frame
-                except Exception:
-                    if self._emit_cancelled_if_requested(generation):
-                        return
-                    logger.exception("Auto Crop All skipped failed frame %s", name)
-
-                self.progress.emit(current, total, name)
+            # Half the cores: each worker holds a preview-scale frame, and the detector
+            # inside it is already multi-core.
+            workers = max(1, min(APP_CONFIG.max_workers // 2, total))
+            candidates: list[Optional[CropEvidence]] = [None] * total
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                futures = {ex.submit(self._frame_evidence, i, frame, task, generation): i for i, frame in enumerate(task.frames)}
+                for done, future in enumerate(as_completed(futures), 1):
+                    index = futures[future]
+                    candidates[index] = future.result()
+                    self.progress.emit(done, total, _name(index))
 
             if self._emit_cancelled_if_requested(generation):
                 return
+            evidence = [item for item in candidates if item is not None]
+            source_by_key = {item.key: task.frames[i] for i, item in enumerate(candidates) if item is not None}
             resolved = resolve_roll_crops(evidence)
             if self._emit_cancelled_if_requested(generation):
                 return
