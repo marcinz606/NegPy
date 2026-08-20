@@ -31,6 +31,21 @@ class TestAnalysisCacheKey(unittest.TestCase):
         ):
             self.assertEqual(k0, _analysis_cache_key(cfg, "src"))
 
+    def test_downstream_process_fields_keep_key(self):
+        """White/black point offsets, per-channel trims and hue trim are applied as
+        uniform offsets after the meter, so their drags must reuse the analysis."""
+        k0 = _analysis_cache_key(self.cfg, "src")
+        for cfg in (
+            replace(self.cfg, process=replace(self.cfg.process, white_point_offset=0.1)),
+            replace(self.cfg, process=replace(self.cfg.process, black_point_offset=-0.05)),
+            replace(self.cfg, process=replace(self.cfg.process, white_point_trim_red=0.02)),
+            replace(self.cfg, process=replace(self.cfg.process, black_point_trim_blue=0.02)),
+            replace(self.cfg, process=replace(self.cfg.process, hue_trim=5.0)),
+            replace(self.cfg, process=replace(self.cfg.process, lock_bounds=True)),
+            replace(self.cfg, process=replace(self.cfg.process, narrowband_scan=True)),
+        ):
+            self.assertEqual(k0, _analysis_cache_key(cfg, "src"))
+
     def test_analysis_settings_change_key(self):
         """Anything feeding the meter must invalidate the key."""
         k0 = _analysis_cache_key(self.cfg, "src")
@@ -38,6 +53,10 @@ class TestAnalysisCacheKey(unittest.TestCase):
             replace(self.cfg, process=replace(self.cfg.process, analysis_buffer=self.cfg.process.analysis_buffer + 0.05)),
             replace(self.cfg, process=replace(self.cfg.process, luma_range_clip=0.05)),
             replace(self.cfg, process=replace(self.cfg.process, color_range_clip=0.05)),
+            replace(self.cfg, process=replace(self.cfg.process, crosstalk_strength=0.5)),
+            replace(self.cfg, process=replace(self.cfg.process, use_luma_average=True)),
+            replace(self.cfg, process=replace(self.cfg.process, locked_floors=(0.1, 0.1, 0.1))),
+            replace(self.cfg, process=replace(self.cfg.process, local_floors=(0.1, 0.1, 0.1))),
             replace(self.cfg, geometry=replace(self.cfg.geometry, rotation=1)),
             replace(self.cfg, exposure=replace(self.cfg.exposure, cast_removal_strength=0.0)),
             replace(self.cfg, exposure=replace(self.cfg.exposure, auto_exposure=not self.cfg.exposure.auto_exposure)),

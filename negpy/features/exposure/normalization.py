@@ -126,7 +126,15 @@ def _block_median_grid(img_log: ImageBuffer) -> ImageBuffer:
     grid_rows, c = hb // b, arr.shape[2]
 
     def _median(rows: np.ndarray) -> np.ndarray:
-        return np.median(rows.reshape(rows.shape[0] // b, b, wb // b, b, c), axis=(1, 3))
+        v = rows.reshape(rows.shape[0] // b, b, wb // b, b, c)
+        if b == 2:
+            # Median of 4 = (sum - min - max) / 2; strided views, no partition.
+            p00, p01, p10, p11 = v[:, 0, :, 0], v[:, 0, :, 1], v[:, 1, :, 0], v[:, 1, :, 1]
+            s = p00.astype(np.float64) + p01 + p10 + p11
+            mn = np.minimum(np.minimum(p00, p01), np.minimum(p10, p11))
+            mx = np.maximum(np.maximum(p00, p01), np.maximum(p10, p11))
+            return ((s - mn - mx) * 0.5).astype(rows.dtype, copy=False)
+        return np.median(v, axis=(1, 3))
 
     workers = min(os.cpu_count() or 1, grid_rows)
     if workers < 2 or hb * wb < _BLOCK_MEDIAN_PARALLEL_MIN_PIXELS:

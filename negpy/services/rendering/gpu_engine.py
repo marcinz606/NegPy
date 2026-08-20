@@ -118,13 +118,28 @@ def _keystone_inverse_bytes(converge_v: float, converge_h: float) -> bytes:
 
 
 def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str) -> tuple:
-    """Identity of the auto-exposure analysis for a frame. Mirrors the CPU base-stage
-    cache key (engine.py) plus the fields that gate refs/anchor/textural, so it survives
-    creative-slider drags but invalidates on anything the meter actually reads."""
+    """Identity of the auto-exposure analysis: only the fields the meter reads.
+    White/black point offsets and trims apply downstream as uniforms and must
+    not invalidate it."""
     e = settings.exposure
+    p = settings.process
     return (
         analysis_source_hash,
-        settings.process,
+        p.process_mode,
+        p.analysis_buffer,
+        p.analysis_rect,
+        p.luma_range_clip,
+        p.color_range_clip,
+        p.e6_normalize,
+        p.use_luma_average,
+        p.use_color_average,
+        p.locked_floors,
+        p.locked_ceils,
+        p.local_floors,
+        p.local_ceils,
+        p.crosstalk_strength,
+        p.crosstalk_matrix,
+        p.crosstalk_process,
         settings.geometry,
         e.cast_removal_strength > 0.0,
         e.auto_exposure,
@@ -200,6 +215,8 @@ class GPUEngine:
         self._buffers: Dict[str, GPUBuffer] = {}
         self._sampler: Optional[Any] = None
         self._tex_cache: Dict[Tuple[int, int, int, str], GPUTexture] = {}
+        self._tex_gen: Dict[Tuple[int, int, int, str], int] = {}
+        self._render_gen: int = 0
 
         self._uniform_names = [
             "geometry",
@@ -240,6 +257,8 @@ class GPUEngine:
         self._analysis_cache: Optional[tuple] = None
         # (analysis_key, per-channel clipped fractions) for the scan-exposure warning.
         self._clip_cache: Optional[tuple] = None
+        # (key, prefiltered grid, clip fractions), keyed without the clip sliders.
+        self._prefilter_cache: Optional[tuple] = None
         self._last_settings: Optional[WorkspaceConfig] = None
         self._last_targets_rev: int = -1
         self._last_scale_factor: float = 1.0
@@ -256,13 +275,15 @@ class GPUEngine:
 
         # Persistent staging buffers, so no create_buffer() per readback
         self._metrics_staging: Optional[Any] = None
-        # (prb, height, buffer): reused when image size and rotation are unchanged
-        self._downsample_staging: Optional[Tuple[int, int, Any]] = None
+        # slot -> (prb, height, buffer): the tiled path alternates two slots.
+        self._downsample_staging: Dict[int, Tuple[int, int, Any]] = {}
 
         # (key, grid): a pure function of geometry, reused across settled frames
         self._uv_grid_cache: Optional[Tuple[Tuple, np.ndarray]] = None
         # Identity of the dodge/burn EV map currently sitting in the local_ev texture.
         self._local_ev_key: Optional[Tuple] = None
+        # (key, maps): mask raster, keyed without grade; grade only rescales plane 1 at upload.
+        self._local_maps_cache: Optional[Tuple[Tuple, Optional[np.ndarray]]] = None
         self._mask_plane: Optional[Tuple[Tuple, np.ndarray, float]] = None
         # Identity of the plane currently sitting in the contrast_mask texture.
         self._mask_tex_key: Optional[Tuple] = None
@@ -334,7 +355,24 @@ class GPUEngine:
         key = (w, h, usage, label)
         if key not in self._tex_cache:
             self._tex_cache[key] = GPUTexture(w, h, usage=usage)
+        self._tex_gen[key] = self._render_gen
         return self._tex_cache[key]
+
+    def evict_stale_textures(self) -> None:
+        """Drop pool textures untouched by the previous render. Bounds batch-export
+        VRAM: a same-dimensions roll keeps its chain, a dimension change frees the
+        old one a render later."""
+        self._render_gen += 1
+        stale = [k for k, gen in self._tex_gen.items() if gen < self._render_gen - 1]
+        if not stale:
+            return
+        for key in stale:
+            tex = self._tex_cache.pop(key, None)
+            self._tex_gen.pop(key, None)
+            if tex is not None:
+                tex.destroy()
+        # Bind groups keyed by id() never match a destroyed view again; drop, don't leak.
+        self._bind_group_cache.clear()
 
     def _init_resources(self) -> None:
         """Initializes hardware pipelines and persistent buffers."""
@@ -536,45 +574,66 @@ class GPUEngine:
         needs_anchor = metered_anchor_override is None and not tiling_mode and (settings.exposure.auto_exposure or readback_metrics)
         needs_textural = textural_range_override is None and not tiling_mode and settings.exposure.auto_normalize_contrast
 
-        analysis_source = None
         prefiltered = None
+        scan_clip_fractions = None
+        analysis_source = None
         unmix_m = effective_crosstalk_matrix(settings.process, settings.process.process_mode)
         if needs_bounds_analysis or needs_refs or needs_anchor or needs_textural:
-            # Use views to avoid copying the full-res image; crop to ROI first.
-            analysis_source = img
-            if settings.geometry.rotation != 0:
-                analysis_source = np.rot90(analysis_source, k=settings.geometry.rotation)
-            if settings.geometry.flip_horizontal:
-                analysis_source = np.fliplr(analysis_source)
-            if settings.geometry.flip_vertical:
-                analysis_source = np.flipud(analysis_source)
-            # A freehand analysis_rect overrides the crop ROI and centered buffer, like the
-            # CPU path. Tiled export uses explicit overrides, so it stays on the ROI.
-            base_roi = roi if not tiling_mode else None
-            analysis_roi, an_buffer = resolve_analysis_region(
-                analysis_source.shape,
-                base_roi,
-                settings.process.analysis_buffer,
-                settings.process.analysis_rect if not tiling_mode else None,
+            # Keyed without the clip sliders: a clip drag reuses the grid and
+            # re-runs only the percentile analysis.
+            p = settings.process
+            prefilter_key = (
+                (
+                    analysis_source_hash,
+                    settings.geometry,
+                    roi,
+                    p.analysis_buffer,
+                    p.analysis_rect,
+                    p.crosstalk_strength,
+                    p.crosstalk_matrix,
+                    p.crosstalk_process,
+                    p.process_mode,
+                )
+                if analysis_source_hash is not None and not tiling_mode
+                else None
             )
-            if analysis_roi is not None:
-                ay1, ay2, ax1, ax2 = analysis_roi
-                analysis_source = np.ascontiguousarray(analysis_source[ay1:ay2, ax1:ax2])
-            if settings.geometry.fine_rotation != 0.0:
-                analysis_source = apply_fine_rotation(analysis_source, settings.geometry.fine_rotation)
-            # The meters must read the frame the print stage gets. The CPU engine
-            # normalizes the keystoned buffer, so this replay has to carry it too or the
-            # two engines measure different bounds.
-            analysis_source = apply_keystone(analysis_source, settings.geometry.converge_v, settings.geometry.converge_h)
+            if prefilter_key is not None and self._prefilter_cache is not None and self._prefilter_cache[0] == prefilter_key:
+                prefiltered, scan_clip_fractions = self._prefilter_cache[1], self._prefilter_cache[2]
+            else:
+                # Use views to avoid copying the full-res image; crop to ROI first.
+                analysis_source = img
+                if settings.geometry.rotation != 0:
+                    analysis_source = np.rot90(analysis_source, k=settings.geometry.rotation)
+                if settings.geometry.flip_horizontal:
+                    analysis_source = np.fliplr(analysis_source)
+                if settings.geometry.flip_vertical:
+                    analysis_source = np.flipud(analysis_source)
+                # A freehand analysis_rect overrides the crop ROI and centered buffer, like the
+                # CPU path. Tiled export uses explicit overrides, so it stays on the ROI.
+                base_roi = roi if not tiling_mode else None
+                analysis_roi, an_buffer = resolve_analysis_region(
+                    analysis_source.shape,
+                    base_roi,
+                    settings.process.analysis_buffer,
+                    settings.process.analysis_rect if not tiling_mode else None,
+                )
+                if analysis_roi is not None:
+                    ay1, ay2, ax1, ax2 = analysis_roi
+                    analysis_source = np.ascontiguousarray(analysis_source[ay1:ay2, ax1:ax2])
+                if settings.geometry.fine_rotation != 0.0:
+                    analysis_source = apply_fine_rotation(analysis_source, settings.geometry.fine_rotation)
+                # The meters must read the frame the print stage gets. The CPU engine
+                # normalizes the keystoned buffer, so this replay has to carry it too or the
+                # two engines measure different bounds.
+                analysis_source = apply_keystone(analysis_source, settings.geometry.converge_v, settings.geometry.converge_h)
 
-            analysis_source = _downsample_for_analysis(analysis_source, APP_CONFIG.preview_render_size)
-            # Shared prefilter, once for all five meters (ROI already applied).
-            # Unmixed like the CPU path so every meter reads the unmixed film.
-            prefiltered = unmix_log_image(prefilter_log_grid(analysis_source, None, an_buffer), unmix_m)
-
-        scan_clip_fractions = None
-        if analysis_source is not None:
-            scan_clip_fractions = measure_clip_fractions(analysis_source, None, an_buffer)
+                analysis_source = _downsample_for_analysis(analysis_source, APP_CONFIG.preview_render_size)
+                # Shared prefilter, once for all five meters (ROI already applied).
+                # Unmixed like the CPU path so every meter reads the unmixed film.
+                prefiltered = unmix_log_image(prefilter_log_grid(analysis_source, None, an_buffer), unmix_m)
+                scan_clip_fractions = measure_clip_fractions(analysis_source, None, an_buffer)
+                if prefilter_key is not None:
+                    self._prefilter_cache = (prefilter_key, prefiltered, scan_clip_fractions)
             if analysis_key is not None:
                 self._clip_cache = (analysis_key, scan_clip_fractions)
         elif analysis_key is not None and self._clip_cache is not None and self._clip_cache[0] == analysis_key:
@@ -822,7 +881,7 @@ class GPUEngine:
                 # This stage re-runs for any exposure change, but the map only moves
                 # with the masks, the geometry and the grade.
                 tiled_maps = local_maps is not None
-                ev_key = (
+                raster_key = (
                     settings.local,
                     settings.geometry.rotation,
                     settings.geometry.fine_rotation,
@@ -831,26 +890,30 @@ class GPUEngine:
                     k1_eff,
                     settings.geometry.converge_v,
                     settings.geometry.converge_h,
-                    settings.exposure.grade,
                     orig_shape,
                     w_rot,
                     h_rot,
                 )
+                ev_key = (raster_key, settings.exposure.grade)
                 if tiled_maps or self._local_ev_key != ev_key:
                     if local_maps is None:
-                        local_maps = compute_local_maps(
-                            settings.local,
-                            h_rot,
-                            w_rot,
-                            orig_shape,
-                            rotation=settings.geometry.rotation,
-                            fine_rotation=settings.geometry.fine_rotation,
-                            flip_horizontal=settings.geometry.flip_horizontal,
-                            flip_vertical=settings.geometry.flip_vertical,
-                            distortion_k1=k1_eff,
-                            converge_v=settings.geometry.converge_v,
-                            converge_h=settings.geometry.converge_h,
-                        )
+                        if self._local_maps_cache is not None and self._local_maps_cache[0] == raster_key:
+                            local_maps = self._local_maps_cache[1]
+                        else:
+                            local_maps = compute_local_maps(
+                                settings.local,
+                                h_rot,
+                                w_rot,
+                                orig_shape,
+                                rotation=settings.geometry.rotation,
+                                fine_rotation=settings.geometry.fine_rotation,
+                                flip_horizontal=settings.geometry.flip_horizontal,
+                                flip_vertical=settings.geometry.flip_vertical,
+                                distortion_k1=k1_eff,
+                                converge_v=settings.geometry.converge_v,
+                                converge_h=settings.geometry.converge_h,
+                            )
+                            self._local_maps_cache = (raster_key, local_maps)
                     from negpy.features.exposure.logic import local_grade_factor_map
 
                     if local_maps is None:
@@ -1820,22 +1883,23 @@ class GPUEngine:
         read_buf.unmap()
         return data
 
-    def _readback_downsampled(self, tex: GPUTexture) -> np.ndarray:
-        """Reads back texture as float32 RGB array, handling hardware alignment."""
+    def _submit_readback(self, tex: GPUTexture, slot: int = 0) -> Optional[tuple]:
+        """Queues a texture→staging copy; _resolve_readback maps it later."""
         device = self.gpu.device
         if not device:
-            return np.zeros((1, 1, 3), dtype=np.float32)
+            return None
         prb = (tex.width * 16 + 255) & ~255
-        if self._downsample_staging is None or self._downsample_staging[:2] != (prb, tex.height):
-            if self._downsample_staging is not None:
-                self._downsample_staging[2].destroy()
+        cur = self._downsample_staging.get(slot)
+        if cur is None or cur[:2] != (prb, tex.height):
+            if cur is not None:
+                cur[2].destroy()
             read_buf = device.create_buffer(
                 size=prb * tex.height,
                 usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.MAP_READ,
             )
-            self._downsample_staging = (prb, tex.height, read_buf)
+            self._downsample_staging[slot] = (prb, tex.height, read_buf)
         else:
-            read_buf = self._downsample_staging[2]
+            read_buf = cur[2]
         encoder = device.create_command_encoder()
         encoder.copy_texture_to_buffer(
             {"texture": tex.texture},
@@ -1843,15 +1907,27 @@ class GPUEngine:
             (tex.width, tex.height, 1),
         )
         device.queue.submit([encoder.finish()])
+        return (read_buf, prb, tex.width, tex.height)
+
+    @staticmethod
+    def _resolve_readback(handle: tuple) -> np.ndarray:
+        read_buf, prb, w, h = handle
         read_buf.map_sync(wgpu.MapMode.READ)
         try:
-            raw = np.frombuffer(read_buf.read_mapped(), dtype=np.uint8).reshape((tex.height, prb))
-            valid = raw[:, : tex.width * 16]
-            result = valid.view(np.float32).reshape((tex.height, tex.width, 4))
+            raw = np.frombuffer(read_buf.read_mapped(), dtype=np.uint8).reshape((h, prb))
+            valid = raw[:, : w * 16]
+            result = valid.view(np.float32).reshape((h, w, 4))
             # The texture is already display-encoded (output_encode pass).
             return result[:, :, :3]
         finally:
             read_buf.unmap()
+
+    def _readback_downsampled(self, tex: GPUTexture) -> np.ndarray:
+        """Reads back texture as float32 RGB array, handling hardware alignment."""
+        handle = self._submit_readback(tex)
+        if handle is None:
+            return np.zeros((1, 1, 3), dtype=np.float32)
+        return self._resolve_readback(handle)
 
     def _dispatch_pass(self, encoder: Any, pipeline_name: str, bindings: list, w: int, h: int) -> None:
         """Configures and dispatches a compute pass."""
@@ -1924,9 +2000,12 @@ class GPUEngine:
         readback_metrics: bool = True,
         cam_xyz: Optional[list] = None,
         camera_wb: Optional[list] = None,
+        source_hash: Optional[str] = None,
+        analysis_source_hash: Optional[str] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """High-level processing entry point with automatic tiling."""
         self._init_resources()
+        self.evict_stale_textures()
         h, w = img.shape[:2]
         max_tex = self.gpu.limits.get("max_texture_dimension_2d", 8192)
         rot = settings.geometry.rotation % 4
@@ -1941,6 +2020,8 @@ class GPUEngine:
             readback_metrics=readback_metrics,
             cam_xyz=cam_xyz,
             camera_wb=camera_wb,
+            source_hash=source_hash,
+            analysis_source_hash=analysis_source_hash,
         )
         return self._readback_downsampled(tex_final), metrics
 
@@ -2126,6 +2207,10 @@ class GPUEngine:
             halo = max(halo, int(np.ceil(max(5.0, 25.0 * scale_factor))))
         halo = min(halo, 512)
 
+        # The queue serializes tile N's staging copy ahead of tile N+1's passes, so
+        # deferring the map_sync by one tile is safe and overlaps the wait.
+        pending: Optional[tuple] = None
+        tile_index = 0
         for ty in range(0, crop_h, TILE_SIZE):
             for tx in range(0, crop_w, TILE_SIZE):
                 tw, th = min(TILE_SIZE, crop_w - tx), min(TILE_SIZE, crop_h - ty)
@@ -2156,7 +2241,19 @@ class GPUEngine:
                     camera_wb=camera_wb,
                     contrast_mask_override=global_mask,
                 )
-                full_source_res[ty : ty + th, tx : tx + tw] = self._readback_downsampled(tile_res)[oy : oy + th, ox : ox + tw]
+                handle = self._submit_readback(tile_res, slot=tile_index % 2)
+                if pending is not None:
+                    p_handle, p_ty, p_tx, p_th, p_tw, p_oy, p_ox = pending
+                    full_source_res[p_ty : p_ty + p_th, p_tx : p_tx + p_tw] = self._resolve_readback(p_handle)[
+                        p_oy : p_oy + p_th, p_ox : p_ox + p_tw
+                    ]
+                pending = (handle, ty, tx, th, tw, oy, ox)
+                tile_index += 1
+        if pending is not None:
+            p_handle, p_ty, p_tx, p_th, p_tw, p_oy, p_ox = pending
+            full_source_res[p_ty : p_ty + p_th, p_tx : p_tx + p_tw] = self._resolve_readback(p_handle)[
+                p_oy : p_oy + p_th, p_ox : p_ox + p_tw
+            ]
 
         # Mirrors PrintService.apply_layout: only INTER_AREA is area-correct on a shrink.
         shrinking = content_w < crop_w or content_h < crop_h
@@ -2185,6 +2282,7 @@ class GPUEngine:
             if tex is not retain:
                 tex.destroy()
         self._tex_cache.clear()
+        self._tex_gen.clear()
         # Bind groups reference the destroyed views, so drop them.
         self._bind_group_cache.clear()
         self._bind_layout_cache.clear()
@@ -2194,6 +2292,7 @@ class GPUEngine:
         self._current_source_hash = None
         self._last_settings = None
         self._local_ev_key = None
+        self._local_maps_cache = None
         self._mask_tex_key = None
         if collect:
             gc.collect()
@@ -2205,9 +2304,9 @@ class GPUEngine:
         if self._metrics_staging is not None:
             self._metrics_staging.destroy()
             self._metrics_staging = None
-        if self._downsample_staging is not None:
-            self._downsample_staging[2].destroy()
-            self._downsample_staging = None
+        for staging in self._downsample_staging.values():
+            staging[2].destroy()
+        self._downsample_staging.clear()
         for buf in self._buffers.values():
             buf.destroy()
         self._buffers.clear()

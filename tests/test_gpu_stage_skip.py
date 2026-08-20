@@ -183,14 +183,29 @@ class TestLocalMapCache(unittest.TestCase):
 
         self.assertEqual(self._count_rasterisations(drag), 1)
 
-    def test_grade_change_rebuilds_the_map(self):
-        """The green lane carries a grade-derived slope factor."""
+    def test_grade_change_reapplies_factor_without_rerasterising(self):
+        """The green lane carries a grade-derived slope factor, but the raster itself
+        does not depend on grade: a grade move re-uploads with a new factor only."""
+        from negpy.features.exposure import logic as exposure_logic
 
-        def move_grade():
-            self._render(self.cfg)
-            self._render(_sub(self.cfg, "exposure", grade=4.0))
+        factor_calls = {"n": 0}
+        real_factor = exposure_logic.local_grade_factor_map
 
-        self.assertEqual(self._count_rasterisations(move_grade), 2)
+        def factor_spy(*a, **k):
+            factor_calls["n"] += 1
+            return real_factor(*a, **k)
+
+        exposure_logic.local_grade_factor_map = factor_spy
+        try:
+
+            def move_grade():
+                self._render(self.cfg)
+                self._render(_sub(self.cfg, "exposure", grade=4.0))
+
+            self.assertEqual(self._count_rasterisations(move_grade), 1)
+        finally:
+            exposure_logic.local_grade_factor_map = real_factor
+        self.assertEqual(factor_calls["n"], 2)
 
     def test_mask_edit_rebuilds_the_map(self):
         def move_mask():
