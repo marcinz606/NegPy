@@ -670,6 +670,7 @@ class AppController(QObject):
         self.discovery_worker.finished.connect(self._on_discovery_finished)
         self.discovery_worker.error.connect(self._on_render_error)
         self.discovery_worker.error.connect(self._on_discovery_batch_error)
+        self.discovery_worker.notice.connect(lambda message: self.set_status(message, 12000))
         self.library_search_requested.connect(self.library_worker.search)
         self.library_worker.progress.connect(self._on_library_walk_progress)
         self.library_worker.finished.connect(self._on_library_search_finished)

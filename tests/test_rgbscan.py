@@ -8,13 +8,19 @@ from negpy.domain.models import WorkspaceConfig
 import cv2
 
 from negpy.features.rgbscan.logic import (
+    BLUE,
+    GREEN,
+    RED,
     estimate_shift,
     assemble_rgb,
     classify_channel,
+    frame_affinity,
+    capture_ordered,
     group_triplets,
     merge_rgb_triplet,
     probe_channel_means,
     rgbscan_token,
+    triplet_affinity,
 )
 from negpy.features.rgbscan.models import RgbScanConfig
 
@@ -129,6 +135,199 @@ def test_group_triplets_scrambled_order():
     assert triplets[0].ok
     assert (triplets[1].red, triplets[1].green, triplets[1].blue) == ("f5", "f6", "f4")
     assert triplets[1].ok
+
+
+def _scene_sig(seed, channel_gain=1.0, h=48, w=72):
+    """A z-scored scene signature, as _scene_signature would produce.
+
+    ``seed`` is the scene: two exposures of one frame share it. ``channel_gain`` stands
+    in for a narrowband channel seeing the same scene at a different strength.
+    """
+    rng = np.random.default_rng(seed)
+    scene = cv2.GaussianBlur(rng.random((h, w), dtype=np.float32), (0, 0), 1.5) * channel_gain
+    gy, gx = np.gradient(scene)
+    mag = np.hypot(gx, gy)
+    mag = mag - mag.mean()
+    sd = float(mag.std())
+    return (mag / sd if sd > 0 else mag).astype(np.float32)
+
+
+def _triplet_sigs(scene_seed):
+    """One frame's three exposures: same scene, different channel strengths."""
+    return {
+        f"r{scene_seed}": _scene_sig(scene_seed, 1.0),
+        f"g{scene_seed}": _scene_sig(scene_seed, 0.6),
+        f"b{scene_seed}": _scene_sig(scene_seed, 0.3),
+    }
+
+
+def test_frame_affinity_separates_same_scene_from_different():
+    same = frame_affinity(_scene_sig(1, 1.0), _scene_sig(1, 0.4))
+    different = frame_affinity(_scene_sig(1), _scene_sig(2))
+    assert same > 0.9
+    assert different < 0.3
+
+
+def test_frame_affinity_handles_missing_and_mismatched():
+    assert frame_affinity(None, _scene_sig(1)) == 0.0
+    assert frame_affinity(_scene_sig(1, h=48), _scene_sig(1, h=32)) == 0.0
+
+
+def test_group_triplets_rejects_chunk_built_from_two_frames():
+    """The off-by-one that a membership-only check cannot see: a shifted list still
+    yields one of each channel, taken from two different frames."""
+    sigs = {**_triplet_sigs(1), **_triplet_sigs(2)}
+    # Chunk holds frame 1's red and green with frame 2's blue: one of each channel.
+    items = [("r1", RED), ("g1", GREEN), ("b2", BLUE)]
+
+    assert group_triplets(items)[0].ok, "membership alone accepts the mispairing"
+    assert not group_triplets(items, sigs)[0].ok
+
+
+def test_group_triplets_accepts_a_genuine_triplet():
+    sigs = _triplet_sigs(7)
+    items = [("r7", RED), ("g7", GREEN), ("b7", BLUE)]
+    triplet = group_triplets(items, sigs)[0]
+    assert triplet.ok
+    assert (triplet.red, triplet.green, triplet.blue) == ("r7", "g7", "b7")
+
+
+def test_group_triplets_keeps_membership_verdict_when_signatures_missing():
+    """A file whose probe failed must not take the chunk down with it."""
+    sigs = {"r1": _scene_sig(1), "g1": _scene_sig(1, 0.6)}  # no signature for b1
+    items = [("r1", RED), ("g1", GREEN), ("b1", BLUE)]
+    assert group_triplets(items, sigs)[0].ok
+
+
+def test_triplet_affinity_is_the_weakest_pair():
+    sigs = {**_triplet_sigs(3), "b9": _scene_sig(9)}
+    good = group_triplets([("r3", RED), ("g3", GREEN), ("b3", BLUE)], sigs)[0]
+    intruded = group_triplets([("r3", RED), ("g3", GREEN), ("b9", BLUE)], sigs)[0]
+    assert triplet_affinity(good, sigs) > triplet_affinity(intruded, sigs)
+
+
+def test_mutual_best_rejects_a_chunk_whose_partner_is_elsewhere():
+    """The case a floor alone cannot catch: a chunk that scores respectably, while the
+    member's real partner sits elsewhere in the folder and scores better."""
+    sigs = {**_triplet_sigs(1), **_triplet_sigs(2)}
+    # Frame 2's blue is a passable match for frame 1 -- but frame 1's own blue is better.
+    sigs["b2"] = _scene_sig(1, 0.3) * 0.55 + _scene_sig(2, 0.3) * 0.45
+    items = [("r1", RED), ("g1", GREEN), ("b2", BLUE), ("r2", RED), ("g2", GREEN), ("b1", BLUE)]
+
+    intruded = group_triplets(items[:3], {k: sigs[k] for k in ("r1", "g1", "b2")})[0]
+    assert intruded.ok, "on its own the chunk clears the floor"
+
+    assert not group_triplets(items, sigs)[0].ok, "b1 is the better blue for frame 1"
+
+
+def test_floor_still_rejects_when_the_pool_is_too_small_to_rank():
+    """One candidate per channel makes every member trivially its own best match, so
+    the floor is all that stands between three unrelated files and a triplet."""
+    sigs = {"r1": _scene_sig(1), "g2": _scene_sig(2, 0.6), "b3": _scene_sig(3, 0.3)}
+    items = [("r1", RED), ("g2", GREEN), ("b3", BLUE)]
+    assert not group_triplets(items, sigs)[0].ok
+
+
+def test_mutual_best_accepts_a_genuine_triplet_among_many():
+    """A real triplet must survive both tests with other frames present to rank against."""
+    sigs = {}
+    for seed in (1, 2, 3, 4):
+        sigs.update(_triplet_sigs(seed))
+    items = [(f"{c}{seed}", ch) for seed in (1, 2, 3, 4) for c, ch in (("r", RED), ("g", GREEN), ("b", BLUE))]
+    triplets = group_triplets(items, sigs)
+    assert len(triplets) == 4
+    assert all(t.ok for t in triplets)
+
+
+def test_affinity_lookup_matches_pairwise():
+    """The matrix shortcut and the pairwise path must agree."""
+    from negpy.features.rgbscan.logic import _affinity_lookup
+
+    sigs = {**_triplet_sigs(1), **_triplet_sigs(2)}
+    paths = sorted(sigs)
+    lookup = _affinity_lookup(paths, sigs)
+    for a in paths:
+        for b in paths:
+            assert lookup(a, b) == pytest.approx(frame_affinity(sigs[a], sigs[b]), abs=1e-5)
+
+
+def test_affinity_lookup_falls_back_on_mixed_shapes():
+    """Two cameras in one folder have no common matrix; pairwise still works."""
+    from negpy.features.rgbscan.logic import _affinity_lookup
+
+    sigs = {"a": _scene_sig(1, h=48, w=72), "b": _scene_sig(1, h=32, w=48)}
+    lookup = _affinity_lookup(sorted(sigs), sigs)
+    assert lookup("a", "b") == 0.0
+    assert lookup("a", "a") == pytest.approx(1.0, abs=1e-5)
+
+
+def test_capture_ordered_sorts_by_the_clock_not_the_name():
+    """The reported bug: a constant frame token puts the color word above the only
+    part of the name that changes, so the roll sorts by color instead of by frame."""
+    names = ["F1_Blue_39", "F1_Blue_49", "F1_Green_39", "F1_Green_49", "F1_Red_39", "F1_Red_49"]
+    times = {
+        "F1_Red_39": "2026-08-18 15:33:13",
+        "F1_Green_39": "2026-08-18 15:33:16",
+        "F1_Blue_39": "2026-08-18 15:33:20",
+        "F1_Red_49": "2026-08-18 15:37:17",
+        "F1_Green_49": "2026-08-18 15:37:22",
+        "F1_Blue_49": "2026-08-18 15:37:27",
+    }
+    assert capture_ordered(names, times) == [
+        "F1_Red_39",
+        "F1_Green_39",
+        "F1_Blue_39",
+        "F1_Red_49",
+        "F1_Green_49",
+        "F1_Blue_49",
+    ]
+
+
+def test_capture_ordered_keeps_given_order_when_a_stamp_is_missing():
+    """All or nothing: one undated file must not interleave two orderings."""
+    names = ["b", "a", "c"]
+    assert capture_ordered(names, {"a": "2026-01-01 00:00:01", "b": "2026-01-01 00:00:02"}) == names
+    assert capture_ordered(names, {}) == names
+
+
+def test_capture_ordered_breaks_ties_on_filename():
+    """A whole-second stamp cannot separate a burst, so the order stays deterministic."""
+    tied = {"c": "2026-01-01 00:00:01", "a": "2026-01-01 00:00:01", "b": "2026-01-01 00:00:00"}
+    assert capture_ordered(["c", "a", "b"], tied) == ["b", "a", "c"]
+
+
+def test_grouping_notice_is_silent_on_a_clean_folder():
+    from negpy.desktop.workers.render import rgb_grouping_notice
+
+    assert rgb_grouping_notice(12, 0, 0, 0, True) == ""
+
+
+def test_grouping_notice_names_the_reason():
+    """The two failures need different things from the user, so the message separates
+    them: a folder without whole triplets, versus shots that could not be ordered."""
+    from negpy.desktop.workers.render import rgb_grouping_notice
+
+    incomplete = rgb_grouping_notice(10, 6, 2, 0, True)
+    assert "2 sets not one of each color" in incomplete
+    assert "showing different frames" not in incomplete
+
+    mismatched = rgb_grouping_notice(10, 6, 0, 2, True)
+    assert "2 sets showing different frames" in mismatched
+    assert "not one of each color" not in mismatched
+
+
+def test_grouping_notice_reports_the_filename_fallback():
+    """Undated files are grouped by name, which the user should not have to infer."""
+    from negpy.desktop.workers.render import rgb_grouping_notice
+
+    assert "state no capture time" in rgb_grouping_notice(0, 50, 16, 1, False)
+    assert "capture time" not in rgb_grouping_notice(0, 50, 16, 1, True)
+
+
+def test_grouping_notice_omits_the_count_when_nothing_assembled():
+    from negpy.desktop.workers.render import rgb_grouping_notice
+
+    assert rgb_grouping_notice(0, 6, 2, 0, True).startswith("RGB Scan: 6 files left separate")
 
 
 def test_group_triplets_flags_bad_chunks():
