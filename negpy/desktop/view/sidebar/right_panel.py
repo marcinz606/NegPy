@@ -253,7 +253,6 @@ class RightPanel(QWidget):
 
     def _connect_signals(self) -> None:
         self.controller.image_updated.connect(self._update_analysis)
-        self.controller.metrics_available.connect(self._update_histograms)
         self.controller.pixel_readout_rgb.connect(self.curve_widget.set_marker)
         self.controller.densitometer_readout.connect(self._on_densitometer)
         self.controller.zone_pins_changed.connect(self._refresh_zone_placement)
@@ -399,7 +398,9 @@ class RightPanel(QWidget):
         if metrics.get("interactive"):
             return
 
-        # Histograms refresh on metrics_available, which follows every settled render.
+        # The only histogram refresh: a peek paint emits image_updated without
+        # metrics_available, so this path must cover it.
+        self._update_histograms(metrics)
         # Measured zones read through the current config, so they track every render.
         self._refresh_zone_placement()
 
