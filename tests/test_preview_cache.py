@@ -204,3 +204,47 @@ def test_hdr_preview_resamples_a_rounding_difference_but_rejects_a_different_asp
         assert "differ in shape" in str(e)
     else:
         raise AssertionError("a transposed frame was silently squashed onto the reference")
+
+
+def test_preview_cache_survives_concurrent_access():
+    """Batch workers decode several frames at once against one shared manager, so the
+    LRU list and the entry map must move under a lock — unguarded, two threads recycling
+    the same key both reach `_order.remove` and the second raises ValueError."""
+    import sys
+    import threading
+
+    from negpy.kernel.system.config import APP_CONFIG
+
+    cache = PreviewBufferCache(APP_CONFIG)
+    keys = [
+        PreviewCacheKey(file_hash=f"hash-{i}", use_camera_wb=False, workspace_color_space="Adobe RGB", full_resolution=False)
+        for i in range(6)
+    ]
+    buf = np.zeros((4, 4, 3), dtype=np.float32)
+    for key in keys:
+        cache.put(key, buf, (4, 4), {})
+    errors: list[str] = []
+
+    def hammer() -> None:
+        try:
+            for _ in range(1200):
+                for key in keys:
+                    cache.get(key)
+                    cache.put(key, buf, (4, 4), {})
+        except BaseException as exc:  # noqa: BLE001 — the point is that nothing escapes
+            errors.append(repr(exc))
+
+    threads = [threading.Thread(target=hammer) for _ in range(8)]
+    switch_interval = sys.getswitchinterval()
+    sys.setswitchinterval(1e-7)  # widen the window an unguarded LRU loses in
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    finally:
+        sys.setswitchinterval(switch_interval)
+
+    assert errors == []
+    assert len(cache._order) == len(set(cache._order))
+    assert set(cache._order) == set(cache._data)
