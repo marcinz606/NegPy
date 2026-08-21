@@ -1829,6 +1829,15 @@ class GPUEngine:
                 off_x = (paper_w - content_w) // 2
                 off_y = PrintService.weighted_offset_y(paper_h, content_h, border_px, border_bottom_px)
 
+        # A preview must not manufacture pixels. The decode can land below size_ref (a
+        # half-size RAW preview, or a crop), and resampling it up to the paper long edge
+        # leaves the canvas quoting zoom against a buffer denser than the pixels behind
+        # it: 1:1 then reads closer than one scan pixel per device pixel. Re-derive the
+        # layout from the size the content can fill; the display shader does the rest.
+        if size_ref and cw > 0 and ch > 0 and (content_w > cw or content_h > ch):
+            fit = min(cw / content_w, ch / content_h)
+            return self._calculate_layout_dims(settings, cw, ch, size_ref * fit)
+
         max_tex = APP_CONFIG.max_texture_size
         if max_tex is not None:
             long_edge = max(paper_w, paper_h)
