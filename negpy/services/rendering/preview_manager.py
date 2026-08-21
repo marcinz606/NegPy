@@ -407,7 +407,13 @@ class PreviewManager:
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """Merge a narrowband R/G/B triplet into one linear preview: red channel from the
         red shot, green from green, blue from blue. The merged result is cached, so re-visiting
-        a triplet skips the green/blue decode and the phase-correlate align."""
+        a triplet skips the green/blue decode and the phase-correlate align.
+
+        Each exposure decodes neutral regardless of ``use_camera_wb``: as-shot white balance
+        has no scene to correct for on a single narrowband channel, and a camera on auto WB
+        would record a different one per frame — the same reasoning the bracket merge pins
+        its frames on. ``use_camera_wb`` still scopes the cache key, since callers pass it
+        through unconditionally alongside the other preview paths."""
         green_path, blue_path, align = rgbscan.green_path, rgbscan.blue_path, rgbscan.align
         merged_key = None
         token = rgbscan_token(rgbscan)
@@ -422,9 +428,9 @@ class PreviewManager:
             if hit is not None:
                 return hit  # cache hit — caller must not mutate this buffer
 
-        red_out, dims, meta = self.load_linear_preview(red_path, color_space, use_camera_wb, full_resolution, file_hash)
-        green_out, _, _ = self.load_linear_preview(green_path, color_space, use_camera_wb, full_resolution, None)
-        blue_out, _, _ = self.load_linear_preview(blue_path, color_space, use_camera_wb, full_resolution, None)
+        red_out, dims, meta = self.load_linear_preview(red_path, color_space, False, full_resolution, file_hash)
+        green_out, _, _ = self.load_linear_preview(green_path, color_space, False, full_resolution, None)
+        blue_out, _, _ = self.load_linear_preview(blue_path, color_space, False, full_resolution, None)
 
         red = np.asarray(red_out, dtype=np.float32)
 
@@ -436,6 +442,10 @@ class PreviewManager:
 
         merged = assemble_rgb(red, _match(green_out), _match(blue_out), align=align)
         out = ensure_image(merged)
+        # The red exposure's own as-shot camera_wb describes one narrowband frame, not the
+        # assembled triplet, and must not be folded into the capture matrix downstream.
+        meta = dict(meta)
+        meta["camera_wb"] = None
         if merged_key is not None:
             # A freshly assembled buffer: the cache and the caller alias it, read-only.
             self._cache.put(merged_key, out, dims, dict(meta))
