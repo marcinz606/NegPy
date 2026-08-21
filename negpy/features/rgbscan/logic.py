@@ -27,6 +27,11 @@ _SIG_INTERIOR = 0.6
 # folder too small for a ranking to mean anything falls back on.
 MIN_TRIPLET_AFFINITY = 0.35
 
+# Strongest channel over the next, above which a file was lit by one narrowband color.
+# Well clear of both: white light leaves the three channels within a small factor,
+# while a red, green or blue exposure puts one of them several times ahead.
+_NARROWBAND_DOMINANCE = 2.0
+
 
 @dataclass(frozen=True)
 class Triplet:
@@ -110,6 +115,27 @@ def probe_frame(path: str) -> FrameProbe:
 def probe_channel_means(path: str) -> Tuple[float, float, float]:
     """Black-subtracted per-Bayer-color means, without demosaicing (cheap classification probe)."""
     return probe_frame(path).means
+
+
+def channel_dominance(means: Sequence[float]) -> float:
+    """How far the strongest channel stands above the next. Narrowband light puts one
+    channel far ahead; light that carries all three leaves them close together."""
+    ordered = sorted(means[:3], reverse=True)
+    return ordered[0] / ordered[1] if ordered[1] > 0 else float("inf")
+
+
+def looks_narrowband(all_means: Sequence[Sequence[float]]) -> bool:
+    """Whether a folder was shot one color at a time.
+
+    Separates a trichrome folder that failed to group from a folder of ordinary scans
+    that RGB Scan should never have been applied to — a distinction worth making,
+    because the first needs explaining and the second needs turning off. The median,
+    so a few odd frames do not decide it.
+    """
+    if not all_means:
+        return False
+    ratios = sorted(channel_dominance(means) for means in all_means)
+    return ratios[len(ratios) // 2] >= _NARROWBAND_DOMINANCE
 
 
 def capture_timestamp(path: str) -> str:

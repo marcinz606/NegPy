@@ -296,6 +296,56 @@ def test_capture_ordered_breaks_ties_on_filename():
     assert capture_ordered(["c", "a", "b"], tied) == ["b", "a", "c"]
 
 
+def test_looks_narrowband_separates_trichrome_from_ordinary_scans():
+    """The dialog asks for opposite things in the two cases, so the split has to hold.
+    Values are the measured shape: white light leaves the channels close, a narrowband
+    exposure puts one several times ahead."""
+    from negpy.features.rgbscan.logic import looks_narrowband
+
+    white_light = [[136.3, 231.1, 272.0], [134.9, 237.6, 282.9], [140.8, 245.3, 289.3]]
+    trichrome = [[168.0, 20.4, 5.3], [35.4, 308.5, 90.0], [6.5, 56.6, 169.3]]
+    assert not looks_narrowband(white_light)
+    assert looks_narrowband(trichrome)
+    assert not looks_narrowband([])
+
+
+def test_looks_narrowband_tolerates_odd_frames():
+    """A median, so one blank or unusual frame does not flip a whole folder."""
+    from negpy.features.rgbscan.logic import looks_narrowband
+
+    mostly_trichrome = [[168.0, 20.4, 5.3], [35.4, 308.5, 90.0], [6.5, 56.6, 169.3], [100.0, 99.0, 98.0]]
+    assert looks_narrowband(mostly_trichrome)
+
+
+def test_nothing_matched_message_offers_to_turn_the_mode_off():
+    """An ordinary folder needs the mode off, not a lesson in triplet requirements."""
+    from negpy.desktop.workers.render import rgb_nothing_matched_message
+
+    title, body = rgb_nothing_matched_message({"loose": 36, "narrowband": False, "by_time": True})
+    assert "Turn RGB Scan off" in body
+    assert "one frame at a time" not in body
+    assert title == "Nothing to assemble"
+
+
+def test_nothing_matched_message_states_the_capture_requirement():
+    """The constraint that positional chunking really imposes, and that a reader would
+    otherwise get wrong: the three exposures have to be consecutive."""
+    from negpy.desktop.workers.render import rgb_nothing_matched_message
+
+    _, body = rgb_nothing_matched_message({"loose": 36, "narrowband": True, "by_time": True})
+    assert "taken back to back before you move on to the next frame" in body
+    assert "filenames do not matter" in body
+
+
+def test_nothing_matched_message_does_not_promise_filenames_are_free_without_times():
+    """Undated files are ordered by name, so the message must not say names are ignored."""
+    from negpy.desktop.workers.render import rgb_nothing_matched_message
+
+    _, body = rgb_nothing_matched_message({"loose": 36, "narrowband": True, "by_time": False})
+    assert "filenames do not matter" not in body
+    assert "sort into the order the shots were taken" in body
+
+
 def test_grouping_notice_is_silent_on_a_clean_folder():
     from negpy.desktop.workers.render import rgb_grouping_notice
 

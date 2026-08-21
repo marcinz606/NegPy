@@ -491,6 +491,43 @@ def rgb_grouping_notice(made: int, loose: int, incomplete: int, mismatched: int,
     )
 
 
+def rgb_nothing_matched_message(summary: dict) -> tuple[str, str]:
+    """Title and body for a folder where RGB Scan assembled nothing at all.
+
+    Two situations, opposite answers. A folder lit one color at a time is trichrome
+    that could not be ordered, and the user needs the requirements. A folder lit the
+    same way throughout is not trichrome at all, and the user needs the mode off.
+    """
+    from negpy.kernel.system.text import count_of
+
+    files = count_of(summary.get("loose", 0), "file")
+    if not summary.get("narrowband"):
+        return (
+            "Nothing to assemble",
+            f"RGB Scan is on, but this folder does not look like trichrome captures: its {files} were all "
+            "lit the same way, so there are no red, green and blue sets to combine.\n\n"
+            "Turn RGB Scan off to work with them as ordinary frames.",
+        )
+    # Filenames only stop mattering once the files date themselves; without that they
+    # carry the capture order and the claim would contradict the fallback.
+    if summary.get("by_time"):
+        naming = "Which of the three colors you shoot first does not matter, and filenames do not matter."
+    else:
+        naming = (
+            "Which of the three colors you shoot first does not matter. These files record no capture "
+            "time, so they were put in filename order — which means their names have to sort into the "
+            "order the shots were taken."
+        )
+    return (
+        "No triplets found",
+        f"None of the {files} in this folder could be assembled into RGB triplets.\n\n"
+        "Each frame needs three captures — one under red light, one under green, one under blue — "
+        "taken back to back before you move on to the next frame, and the folder should hold "
+        f"nothing else. {naming}\n\n"
+        "You can also pair files by hand: right-click a frame and choose Edit RGB Triplet.",
+    )
+
+
 def _without_parts(assets: list, parts: set) -> list:
     """Drop the files a re-attached composite is built from. A folder walk finds them
     beside the primary, and they belong to the composite, not to the roll."""
@@ -505,7 +542,7 @@ class AssetDiscoveryWorker(QObject):
     progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(list)
     error = pyqtSignal(str)
-    notice = pyqtSignal(str)  # a result worth reading, not a failure: RGB-scan grouping
+    rgb_grouped = pyqtSignal(dict)  # RGB-scan grouping outcome; the controller decides how loudly to say it
 
     def _map_files(
         self,
@@ -744,7 +781,14 @@ class AssetDiscoveryWorker(QObject):
         is left alone: its files stay individual and can be paired by hand."""
         import os
 
-        from negpy.features.rgbscan.logic import capture_ordered, capture_timestamp, classify_channel, group_triplets, probe_frame
+        from negpy.features.rgbscan.logic import (
+            capture_ordered,
+            capture_timestamp,
+            classify_channel,
+            group_triplets,
+            looks_narrowband,
+            probe_frame,
+        )
 
         by_path = {a["path"]: a for a in assets}
         ordered = sorted(by_path, key=lambda p: os.path.basename(p).lower())
@@ -777,10 +821,18 @@ class AssetDiscoveryWorker(QObject):
             grouped.update({t.red, t.green, t.blue})
 
         result.extend(by_path[p] for p in ordered if p not in grouped)
-        notice = rgb_grouping_notice(len(grouped) // 3, len(ordered) - len(grouped), incomplete, mismatched, by_time)
-        if notice:
-            logger.warning(notice)
-            self.notice.emit(notice)
+        loose = len(ordered) - len(grouped)
+        if loose:
+            summary = {
+                "made": len(grouped) // 3,
+                "loose": loose,
+                "incomplete": incomplete,
+                "mismatched": mismatched,
+                "by_time": by_time,
+                "narrowband": looks_narrowband([pr.means for pr in probes if pr is not None]),
+            }
+            logger.warning("RGB scan: %s", summary)
+            self.rgb_grouped.emit(summary)
         return result
 
 

@@ -27,6 +27,8 @@ from negpy.desktop.workers.export import ExportTask, ExportWorker, LinearOutputT
 from negpy.desktop.workers.render import (
     AssetDiscoveryTask,
     AssetDiscoveryWorker,
+    rgb_grouping_notice,
+    rgb_nothing_matched_message,
     BatchAutoCropInput,
     BatchAutoCropResult,
     BatchAutoCropTask,
@@ -296,6 +298,7 @@ class AppController(QObject):
     strip_requested = pyqtSignal(TestStripTask)
     test_strip_changed = pyqtSignal(bool)  # True = mosaic is up, False = cleared or building
     zone_pins_changed = pyqtSignal()
+    rgb_scan_mode_changed = pyqtSignal(bool)  # the mode changed from somewhere other than its button
     zone_arm_changed = pyqtSignal(object)  # armed zone, or None
     asset_discovery_requested = pyqtSignal(AssetDiscoveryTask)
     library_search_requested = pyqtSignal(LibrarySearchTask)
@@ -391,6 +394,7 @@ class AppController(QObject):
         self._auto_open_after_discovery = False
         self._replace_after_discovery = False
         self._reselect_after_discovery: Optional[str] = None
+        self._announce_rgb = False
         self._pending_capture_imports: Dict[str, _PendingCaptureImport] = {}
         self._pending_asset_discoveries: List[_DiscoveryRequest] = []
         self._active_discovery_keys: frozenset[str] = frozenset()
@@ -670,7 +674,7 @@ class AppController(QObject):
         self.discovery_worker.finished.connect(self._on_discovery_finished)
         self.discovery_worker.error.connect(self._on_render_error)
         self.discovery_worker.error.connect(self._on_discovery_batch_error)
-        self.discovery_worker.notice.connect(lambda message: self.set_status(message, 12000))
+        self.discovery_worker.rgb_grouped.connect(self._on_rgb_grouped)
         self.library_search_requested.connect(self.library_worker.search)
         self.library_worker.progress.connect(self._on_library_walk_progress)
         self.library_worker.finished.connect(self._on_library_search_finished)
@@ -911,6 +915,7 @@ class AppController(QObject):
         restore_triplets: Optional[dict] = None,
         replace_existing: bool = False,
         reselect_path: Optional[str] = None,
+        announce_rgb: bool = False,
     ) -> None:
         """
         Starts asynchronous discovery of supported assets.
@@ -919,7 +924,12 @@ class AppController(QObject):
         `replace_existing` rebuilds the asset list from the results (instead of
         appending) and reselects `reselect_path` — used when re-running discovery
         over already-loaded files (e.g. an RGB-scan mode toggle).
+
+        `announce_rgb` allows the modal report when RGB Scan assembles nothing. Set it
+        where the user just asked for this folder or just turned the mode on; leaving it
+        off is what keeps a restored session from opening a dialog nobody asked for.
         """
+        self._announce_rgb = announce_rgb
         request = _DiscoveryRequest(
             paths=tuple(paths),
             auto_open=auto_open,
@@ -1053,7 +1063,9 @@ class AppController(QObject):
                 replace(self.state.config, process=replace(self.state.config.process, narrowband_scan=True)), persist=True
             )
             self.request_render()
-        self.request_asset_discovery(_component_paths(files), replace_existing=True, reselect_path=self.state.current_file_path)
+        self.request_asset_discovery(
+            _component_paths(files), replace_existing=True, reselect_path=self.state.current_file_path, announce_rgb=enabled
+        )
 
     def apply_scan_setup(self, capture: str, light: str) -> None:
         """Apply the scanning-setup wizard's answer: Linear RAW and Narrowband are rig
@@ -1208,6 +1220,42 @@ class AppController(QObject):
         found = self.session.repo.load_file_settings_many([half_hash(a["hash"], n) for a in whole for n in (1, 2)])
         for a in whole:
             a["diptych"] = half_hash(a["hash"], 1) in found or half_hash(a["hash"], 2) in found
+
+    def _on_rgb_grouped(self, summary: dict) -> None:
+        """Report what RGB Scan did with a folder it could not fully assemble.
+
+        A partial result is a status line. Assembling nothing is a dead end the user
+        cannot diagnose from a filmstrip of loose frames, so that is modal — but only
+        when they just opened the folder or turned the mode on, never on a restore.
+        """
+        notice = rgb_grouping_notice(summary["made"], summary["loose"], summary["incomplete"], summary["mismatched"], summary["by_time"])
+        if notice:
+            self.set_status(notice, 12000)
+        if summary["made"] or not self._announce_rgb:
+            return
+        if self.session.repo.get_global_setting("rgbscan_hide_empty_warning", False):
+            return
+
+        title, body = rgb_nothing_matched_message(summary)
+        box = QMessageBox(QMessageBox.Icon.Information, title, body, QMessageBox.StandardButton.NoButton)
+        if summary["narrowband"]:
+            remember = QCheckBox("Do not show this again")
+            box.setCheckBox(remember)
+            close_btn = box.addButton(QMessageBox.StandardButton.Ok)
+            box.setDefaultButton(close_btn)
+            box.exec()
+            if remember.isChecked():
+                self.session.repo.save_global_setting("rgbscan_hide_empty_warning", True)
+            return
+
+        turn_off = box.addButton("Turn Off RGB Scan", QMessageBox.ButtonRole.AcceptRole)
+        keep = box.addButton("Keep It On", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(turn_off)
+        box.exec()
+        if box.clickedButton() is turn_off:
+            self.set_rgb_scan_mode(False)
+            self.rgb_scan_mode_changed.emit(False)
+        _ = keep
 
     def _on_discovery_finished(self, valid_assets: List[Dict]) -> None:
         """

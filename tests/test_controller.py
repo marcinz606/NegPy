@@ -1896,8 +1896,21 @@ class TestRgbScanModeReload(unittest.TestCase):
         state.current_file_path = "/r1.dng"
         self.controller.set_rgb_scan_mode(False)
         self.controller.request_asset_discovery.assert_called_once_with(
-            ["/r1.dng", "/g1.dng", "/b1.dng", "/c.dng"], replace_existing=True, reselect_path="/r1.dng"
+            ["/r1.dng", "/g1.dng", "/b1.dng", "/c.dng"], replace_existing=True, reselect_path="/r1.dng", announce_rgb=False
         )
+
+    def test_turning_the_mode_on_allows_the_empty_report(self):
+        """Turning RGB Scan on is the user asking for triplets, so a folder that yields
+        none is worth a dialog. Turning it off is not, and neither is anything else."""
+        state = self.mock_session_manager.state
+        state.uploaded_files = [{"name": "a", "path": "/a.dng", "hash": "h1"}]
+
+        self.controller.set_rgb_scan_mode(True)
+        self.assertTrue(self.controller.request_asset_discovery.call_args.kwargs["announce_rgb"])
+
+        self.controller.request_asset_discovery.reset_mock()
+        self.controller.set_rgb_scan_mode(False)
+        self.assertFalse(self.controller.request_asset_discovery.call_args.kwargs["announce_rgb"])
 
     def test_discovery_finished_replace_rebuilds_and_reselects(self):
         state = self.mock_session_manager.state

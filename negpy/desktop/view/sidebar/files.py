@@ -646,6 +646,7 @@ class FileBrowser(QWidget):
         self.list_view.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self.hot_folder_btn.toggled.connect(self._on_hot_folder_toggled)
         self.rgb_scan_btn.toggled.connect(self._on_rgb_scan_toggled)
+        self.controller.rgb_scan_mode_changed.connect(self._sync_rgb_scan_button)
         self.half_frame_btn.toggled.connect(self._on_half_frame_toggled)
         self.session.state_changed.connect(self.sync_ui)
         self.session.files_changed.connect(self._on_files_changed)
@@ -911,6 +912,15 @@ class FileBrowser(QWidget):
         self._update_rgb_scan_style(checked)
         self.controller.set_rgb_scan_mode(checked)
 
+    def _sync_rgb_scan_button(self, enabled: bool) -> None:
+        """Follow a mode change the button did not make. Signals are blocked because
+        the controller has already applied it; letting toggled through would ask for it
+        a second time and re-run discovery."""
+        self.rgb_scan_btn.blockSignals(True)
+        self.rgb_scan_btn.setChecked(enabled)
+        self.rgb_scan_btn.blockSignals(False)
+        self._update_rgb_scan_style(enabled)
+
     def _update_half_frame_style(self, checked: bool) -> None:
         icon_color = "white" if checked else THEME.text_primary
         self.half_frame_btn.setIcon(qta.icon("mdi.view-split-vertical", color=icon_color))
@@ -988,7 +998,7 @@ class FileBrowser(QWidget):
         )
         if files:
             self.session.repo.save_global_setting("last_open_folder", os.path.dirname(files[0]))
-            self.controller.request_asset_discovery(files, auto_open=True)
+            self.controller.request_asset_discovery(files, auto_open=True, announce_rgb=True)
 
     def prompt_add_folder(self) -> None:
         """Public entry point: also driven by the canvas empty state."""
@@ -1008,7 +1018,7 @@ class FileBrowser(QWidget):
         """
         images, subfolders = folder_counts(folder)
         if images:
-            self.controller.request_asset_discovery([folder], auto_open=True)
+            self.controller.request_asset_discovery([folder], auto_open=True, announce_rgb=True)
         elif subfolders:
             self.browse_requested.emit(folder)
             self.controller.set_status(f"No images directly in that folder — showing its {subfolders} subfolders", 5000)
