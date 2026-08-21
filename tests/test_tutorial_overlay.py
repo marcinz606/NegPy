@@ -68,7 +68,7 @@ def test_tutorial_overlay_uses_top_level_window_on_windows() -> None:
 
     if sys.platform == "win32":
         assert overlay.isWindow()
-        assert overlay.windowFlags() & Qt.WindowType.Tool
+        assert overlay.windowType() == Qt.WindowType.Tool
         assert overlay.windowFlags() & Qt.WindowType.FramelessWindowHint
         assert overlay.windowModality() == Qt.WindowModality.WindowModal
     else:
