@@ -385,19 +385,22 @@ class SensorSidebar(BaseSidebar):
         try:
             self.linear_raw_btn.setChecked(conf.linear_raw)
             self.narrowband_scan_btn.setChecked(conf.narrowband_scan)
-            # Two different reasons, so two different gates. Narrowband is refused for any
-            # transparency, because the bundled profile describes narrowband capture of negative
-            # dyes. Linear RAW is inert only on the *transfer*, where the camera matrix folds the
-            # as-shot multipliers back in. With Normalize on it still decides the decode, so it
-            # stays live there.
+            # Three reasons, three gates. Narrowband is refused for any transparency, because the
+            # bundled profile describes narrowband capture of negative dyes. Linear RAW is inert
+            # on the *transfer*, where the camera matrix folds the as-shot multipliers back in
+            # (with Normalize on it still decides the decode, so it stays live there), and on an
+            # RGB-scan triplet, where a narrowband exposure has no full-spectrum scene for a WB
+            # gain to describe in the first place — every exposure decodes neutral regardless.
             from negpy.features.exposure.transfer import is_transparency_transfer
+            from negpy.features.rgbscan.models import is_rgb_triplet
 
             e6 = conf.process_mode == ProcessMode.E6
             transfer = is_transparency_transfer(conf.process_mode, conf.e6_normalize)
+            triplet = is_rgb_triplet(self.state.config.rgbscan)
             self.narrowband_scan_btn.setEnabled(not e6)
-            self.linear_raw_btn.setEnabled(not transfer)
+            self.linear_raw_btn.setEnabled(not transfer and not triplet)
             self.scan_setup_btn.setEnabled(not e6)
-            self.capture_hint.setVisible(e6)
+            self.capture_hint.setVisible(e6 or triplet)
             if e6:
                 self.capture_hint.setText(
                     "Narrowband is not used for slides." if not transfer else "Not applied to an as-captured transparency."
@@ -414,7 +417,19 @@ class SensorSidebar(BaseSidebar):
                             if transfer
                             else " Linear RAW still applies, and stays live."
                         )
+                        + (" A triplet locks Linear RAW off as well, for the same reason as on a plain frame." if triplet else "")
                         + " Both settings are remembered, and apply again on a negative."
+                    )
+                )
+            elif triplet:
+                self.capture_hint.setText("Linear RAW is locked for a Trichrome triplet.")
+                self.capture_hint.setToolTip(
+                    wrap_tooltip(
+                        "A triplet exposure is a single narrowband channel: only one raw channel carries "
+                        "real signal, so a white-balance gain corrects nothing — there is no full-spectrum "
+                        "scene for it to describe. Every exposure decodes neutral regardless of this "
+                        "toggle, so it is locked rather than left live with no effect. Remembered, and "
+                        "applies again once the frame is no longer a triplet."
                     )
                 )
 

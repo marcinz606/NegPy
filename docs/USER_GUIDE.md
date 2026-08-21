@@ -324,7 +324,7 @@ Everything here corrects the *capture*, not the look. Three different things sit
 **Capture**, how the file is decoded before any of that:
 
 *   **Scanning setup** (bulb button): a two-question wizard, *how do you scan?* then *what light source?*, that sets Linear RAW and Narrowband for you. It runs once after the first-launch tour, and the button reopens it whenever your rig changes.
-*   **Linear RAW** (default off): decodes with neutral multipliers for completely raw data. When off, it decodes RAW with the camera's as-shot white balance. Toggling it reloads the file. Let the **Scanning setup** wizard pick it, or try both and keep whichever gives better results.
+*   **Linear RAW** (default off): decodes with neutral multipliers for completely raw data. When off, it decodes RAW with the camera's as-shot white balance. Toggling it reloads the file. Let the **Scanning setup** wizard pick it, or try both and keep whichever gives better results. **Locked on for a Trichrome triplet**: a narrowband exposure has no full-spectrum scene for a white-balance gain to describe, so every triplet exposure decodes neutral regardless of this toggle. It stays visible and remembered, and unlocks again once the frame is no longer a triplet.
 *   **Narrowband**: corrects the oversaturation typical of narrowband (RGB-LED) capture, using a bundled input profile. Leave it off for ordinary broadband scans. An explicit Input ICC in Export overrides it. It is **greyed out on Transparency**; see *Narrowband and slides* below.
 
 What the wizard sets, by rig:

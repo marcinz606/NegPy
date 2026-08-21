@@ -158,6 +158,12 @@ def _to_mode(w, **process):
     w.sync_ui()
 
 
+def _to_rgbscan(w, **rgbscan):
+    cfg = w.state.config
+    w.state.config = replace(cfg, rgbscan=replace(cfg.rgbscan, **rgbscan))
+    w.sync_ui()
+
+
 def test_capture_row_stays_visible_and_greys_out_per_reason():
     """Hiding these is what let a rig's narrowband pair follow a frame into Transparency
     without the user being able to see it. They stay visible and grey out instead."""
@@ -186,6 +192,27 @@ def test_capture_row_stays_visible_and_greys_out_per_reason():
 
     _to_mode(w, process_mode=ProcessMode.C41)
     assert w.narrowband_scan_btn.isEnabled()
+    assert w.linear_raw_btn.isEnabled()
+    assert w.capture_hint.isHidden()
+
+
+def test_linear_raw_locks_for_an_rgb_scan_triplet():
+    """Every triplet exposure decodes neutral regardless of this toggle (see
+    tests/test_rgbscan_white_balance.py), so it locks rather than sitting live with no
+    effect — narrowband correction itself stays fully in the user's control."""
+    w = _sidebar(linear_raw=True)
+    w.sync_ui()
+    assert w.linear_raw_btn.isEnabled()
+    assert w.capture_hint.isHidden()
+
+    _to_rgbscan(w, enabled=True, green_path="/x/g.arw", blue_path="/x/b.arw")
+    assert w.linear_raw_btn.isEnabled() is False
+    assert w.linear_raw_btn.isChecked()  # the sticky value is still shown, just not editable
+    assert w.narrowband_scan_btn.isEnabled()
+    assert w.scan_setup_btn.isEnabled()
+    assert not w.capture_hint.isHidden()
+
+    _to_rgbscan(w, enabled=False)
     assert w.linear_raw_btn.isEnabled()
     assert w.capture_hint.isHidden()
 
