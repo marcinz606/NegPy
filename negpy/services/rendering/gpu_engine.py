@@ -58,7 +58,7 @@ from negpy.features.exposure.transfer import (
     zone_geometry,
 )
 from negpy.features.process.capture_color import camera_to_working_matrix
-from negpy.features.process.logic import effective_linear_raw
+from negpy.features.process.logic import should_fold_camera_wb
 from negpy.features.process.models import ProcessMode, per_channel_point_offsets
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUBuffer, GPUTexture
@@ -1333,9 +1333,11 @@ class GPUEngine:
         # Working-space-from-camera rows, identity when the source carries no matrix. The
         # shader reads them only on the transfer path.
         # Linear RAW decodes without white balance, so fold the as-shot multipliers back in
-        # and the render stops depending on which decode produced the buffer.
+        # and the render stops depending on which decode produced the buffer — unless the
+        # capture is narrowband, where an as-shot WB estimate has no scene to describe and
+        # never folds (see should_fold_camera_wb).
         cam = camera_to_working_matrix(
-            cam_xyz, camera_wb if effective_linear_raw(settings.process, settings.exposure.render_intent) else None
+            cam_xyz, camera_wb if should_fold_camera_wb(settings.process, settings.exposure.render_intent) else None
         )
         if cam is None:
             cam = np.eye(3, dtype=np.float32)

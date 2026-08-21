@@ -12,7 +12,7 @@ import pytest
 
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.models import RenderIntent
-from negpy.features.process.logic import effective_linear_raw, linear_raw_token, narrowband_profile_active
+from negpy.features.process.logic import effective_linear_raw, linear_raw_token, narrowband_profile_active, should_fold_camera_wb
 from negpy.features.process.models import ProcessConfig, ProcessMode
 
 
@@ -72,6 +72,28 @@ class TestNarrowbandProfileActive:
         assert not narrowband_profile_active(cfg(ProcessMode.C41))
 
 
+class TestShouldFoldCameraWb:
+    """A narrowband capture's as-shot WB describes a continuous-spectrum scene it never
+    had, so the capture matrix must never fold it back in — not a milder version of the
+    ordinary fold, its own separate condition on top of effective_linear_raw.
+    """
+
+    def test_folds_for_an_ordinary_transfer(self):
+        assert should_fold_camera_wb(cfg(ProcessMode.E6, normalize=False, linear_raw=False))
+
+    def test_folds_when_the_user_flag_is_on(self):
+        assert should_fold_camera_wb(cfg(ProcessMode.C41, linear_raw=True))
+
+    def test_never_folds_for_narrowband_even_though_the_decode_is_neutral(self):
+        assert not should_fold_camera_wb(replace(cfg(ProcessMode.C41, linear_raw=True), narrowband_scan=True))
+        assert not should_fold_camera_wb(replace(cfg(ProcessMode.E6, normalize=False), narrowband_scan=True))
+
+    def test_narrowband_does_not_matter_when_the_decode_already_carries_wb(self):
+        """Nothing to un-fold: the decode applied WB itself, so the matrix must stay out
+        of it regardless of the light — same as the non-narrowband case."""
+        assert not should_fold_camera_wb(replace(cfg(ProcessMode.C41, linear_raw=False), narrowband_scan=True))
+
+
 class TestDecodeAndMatrixAgree:
     """The decode and the camera matrix must make the same choice.
 
@@ -81,14 +103,19 @@ class TestDecodeAndMatrixAgree:
     """
 
     def test_both_sides_read_one_helper(self):
+        """The decode asks effective_linear_raw directly; both matrix consumers ask
+        should_fold_camera_wb, which is effective_linear_raw plus one more condition
+        (not narrowband_scan — see TestShouldFoldCameraWb below). Either way, both sides
+        of the agreement trace back to the one flag."""
         import inspect
 
         from negpy.features.exposure import processor as cpu
         from negpy.services.rendering import image_processor as ip
 
-        for mod, what in ((cpu, "the CPU matrix"), (ip, "the decode")):
-            src = inspect.getsource(mod)
-            assert "effective_linear_raw" in src, f"{what} no longer asks the shared helper"
+        src = inspect.getsource(ip)
+        assert "effective_linear_raw" in src, "the decode no longer asks the shared helper"
+        src = inspect.getsource(cpu)
+        assert "should_fold_camera_wb" in src, "the CPU matrix no longer asks the shared helper"
 
     def test_batch_analysis_decodes_on_the_render_path_s_white_balance(self):
         """Its own comment is the requirement: the roll-average bounds are applied to the
@@ -118,7 +145,7 @@ class TestDecodeAndMatrixAgree:
 
         from negpy.services.rendering import gpu_engine
 
-        assert "effective_linear_raw" in inspect.getsource(gpu_engine), "GPU matrix would drift from the CPU one"
+        assert "should_fold_camera_wb" in inspect.getsource(gpu_engine), "GPU matrix would drift from the CPU one"
 
 
 class TestSourceIdentity:

@@ -48,7 +48,7 @@ from negpy.features.exposure.transfer import (
 from negpy.features.local.logic import compute_local_maps
 from negpy.features.local.models import LocalAdjustmentsConfig
 from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
-from negpy.features.process.logic import effective_linear_raw
+from negpy.features.process.logic import should_fold_camera_wb
 from negpy.features.process.models import ProcessConfig, ProcessMode, per_channel_point_offsets
 from negpy.kernel.image.logic import get_luminance
 
@@ -207,8 +207,11 @@ class NormalizationProcessor:
         epsilon = 1e-6
         # Linear RAW decodes without white balance, which the row-normalized camera matrix
         # assumes. Folding the as-shot multipliers back in makes this render independent of which
-        # decode produced the buffer, so the toggle cannot cast the image here.
-        matrix = camera_to_working_matrix(context.cam_xyz, context.camera_wb if effective_linear_raw(self.config) else None)
+        # decode produced the buffer, so the toggle cannot cast the image here — except under
+        # narrowband light, where the fold never runs: an as-shot WB estimate describes a
+        # continuous-spectrum scene, and there is no such scene to describe (see
+        # should_fold_camera_wb).
+        matrix = camera_to_working_matrix(context.cam_xyz, context.camera_wb if should_fold_camera_wb(self.config) else None)
         linear = apply_camera_matrix(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), matrix)
 
         img_log = np.log10(np.clip(linear, epsilon, None))

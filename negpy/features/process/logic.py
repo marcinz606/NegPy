@@ -50,6 +50,23 @@ def linear_raw_token(process: ProcessConfig, render_intent: Optional[str] = None
     return f"|lr:{int(effective_linear_raw(process, render_intent))}"
 
 
+def should_fold_camera_wb(process: ProcessConfig, render_intent: Optional[str] = None) -> bool:
+    """Whether `camera_to_working_matrix` should fold the as-shot multipliers back in.
+
+    True when the decode skipped white balance (`effective_linear_raw`) *and* the capture
+    was not made under narrowband light. A camera's as-shot WB is a continuous-spectrum
+    estimate, and narrowband light has no color temperature that estimate can describe — the
+    same reason white balance cannot fix the hue rotation narrowband light imposes (see
+    docs/USER_GUIDE.md's Hue Trim). Folding it back in for a narrowband capture is not a
+    milder version of the correct fix, it is the wrong correction: there is no scene white
+    balance for the fold to reconstruct, whatever the camera happened to read.
+
+    Every site that folds `camera_wb` into the capture matrix must ask this one question,
+    the same way every decode asks `effective_linear_raw`.
+    """
+    return effective_linear_raw(process, render_intent) and not process.narrowband_scan
+
+
 def narrowband_profile_active(process: ProcessConfig) -> bool:
     """Whether the bundled RGBScan input profile applies.
 
