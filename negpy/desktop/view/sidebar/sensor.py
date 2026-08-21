@@ -33,7 +33,7 @@ class SensorSidebar(BaseSidebar):
             "mdi6.led-strip-variant",
             "Narrowband",
             conf.narrowband_scan,
-            "Correct trichrome narrowband RGB scans oversaturation with the bundled input profile. "
+            "Correct narrowband capture oversaturation with the bundled input profile. "
             "An explicit Input ICC in Export settings overrides it. Not applied to transparencies: "
             "the profile describes narrowband capture of negative dyes",
         )
@@ -55,7 +55,7 @@ class SensorSidebar(BaseSidebar):
         self.capture_hint.setVisible(False)  # text and tooltip are set per film process in sync_ui
         self.layout.addWidget(self.capture_hint)
 
-        self.layout.addWidget(section_subheader("TRICHROME CALIBRATION"))
+        self.layout.addWidget(section_subheader("SINGLE-SHOT NARROWBAND CALIBRATION"))
 
         row = QHBoxLayout()
         self.sensor_label = field_label("Profile")
@@ -102,8 +102,9 @@ class SensorSidebar(BaseSidebar):
             "not just the stock.<br><br>"
             "<b>The bundled film matrices are read off published spec sheets, not measured</b> — they "
             "are marked (approx) for that reason. They describe the film's dyes alone, so they are only "
-            "the whole story where the capture reads each dye cleanly: a true RGB scan (a Coolscan-style "
-            "mono sensor lit one band at a time) or a calibrated trichrome rig. Under a broadband light "
+            "the whole story where the capture reads each dye cleanly: a Narrowband Scanner (a Coolscan-style "
+            "mono sensor lit one band at a time) or a Trichrome capture, or a Single-Shot Narrowband rig with "
+            "Single-Shot Narrowband Calibration applied. Under a broadband light "
             "and a Bayer sensor your capture adds its own mixing on top, and a dyes-only matrix will not "
             "describe it.<br><br>"
             "So treat them as starting points and expect to tune: raise Strength until colors separate "

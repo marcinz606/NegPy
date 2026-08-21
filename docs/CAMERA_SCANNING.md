@@ -117,7 +117,7 @@ property of your sensor and light pair, independent of the film.
 
 To correct it, photograph the bare light three times with no film in the holder: red only,
 green only, blue only. Use the same settings you scan with, exposed just below clipping.
-Then open the **Calibration** panel, find *Trichrome Calibration*, press the calibrate
+Then open the **Calibration** panel, find *Single-Shot Narrowband Calibration*, press the calibrate
 button, pick the three captures, name the profile and save it. The selected profile un-mixes
 every scan with a 3×3 matrix in the linear domain, before inversion. Profiles are TOML
 files in the `NegPy/sensor` folder. Re-run **Batch Analysis** after you change the profile.

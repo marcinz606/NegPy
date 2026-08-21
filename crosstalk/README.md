@@ -15,8 +15,9 @@ the whole combination (film + light + camera) rather than just the stock.
 
 The matrices currently in this folder are all **(approx)**: read off published spectral-dye-density
 spec sheets rather than measured, and describing the dyes alone. That makes them a reasonable
-starting point for a **true RGB scan** (Coolscan-style, one band at a time) or a calibrated
-trichrome rig, and an incomplete story for a broadband light plus a Bayer sensor, where the
+starting point for a **Narrowband Scanner** (Coolscan, Pakon), a **Trichrome** capture, or a
+Single-Shot Narrowband rig with Single-Shot Narrowband Calibration applied, and an incomplete
+story for a broadband light plus a Bayer sensor, where the
 capture adds mixing of its own. **Measured profiles are especially welcome** — say so in the
 PR if yours came from real scans rather than a datasheet, and drop the `(approx)` from its name.
 

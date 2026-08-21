@@ -293,7 +293,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "yourself: the <b>bulb</b> button runs a two-question wizard, how you scan and "
                 "what light you use, and sets <b>Linear RAW</b> and <b>Narrowband</b> from the "
                 "answer.<br><br>"
-                "<b>Trichrome Calibration</b> is for single-shot narrowband camera scans. Your "
+                "<b>Single-Shot Narrowband Calibration</b> is for single-shot camera scans under narrowband light. Your "
                 "camera's color filters overlap the light's bands, so a pure red exposure leaks "
                 "into green and blue. That leak belongs to your sensor and light together and has "
                 "nothing to do with the film, so it is corrected on the linear capture before "
@@ -307,7 +307,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "cast and there is no grey to correct. Judge it on something whose color you know, "
                 "and leave it at 0 for an ordinary broadband light. It is sticky, since a light "
                 "source is a property of your rig.<br><br>"
-                "Narrowband and Trichrome Calibration are greyed out on <b>Transparency</b>: both "
+                "Narrowband and Single-Shot Narrowband Calibration are greyed out on <b>Transparency</b>: both "
                 "describe negative dyes, which a slide does not have. Hue Trim still applies."
             ),
             target=_calibration,
@@ -316,7 +316,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         TutorialStep(
             title="Narrowband Scan: Correcting LED Light",
             body=(
-                "A trichrome scan lit by <b>narrowband RGB LEDs</b>, a Scanlight or most RGB-LED "
+                "A scan lit by <b>narrowband RGB LEDs</b>, a Scanlight or most RGB-LED "
                 "sources, hits each dye layer with a much purer band than white light does. "
                 "The layers separate further than the film intends, and the conversion can come "
                 "out over-saturated.<br><br>"

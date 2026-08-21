@@ -88,7 +88,7 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         # Strength, profile and the baked matrix copy atomically: strength alone would leave the
         # target on a stale or None matrix.
         _row("Crosstalk", "process", "crosstalk_strength", "crosstalk_profile", "crosstalk_matrix", fmt=lambda v: _fmt_scalar(v[0]), sticky=True),
-        _row("Trichrome Calibration", "process", "sensor_profile", "sensor_matrix", fmt=lambda v: _fmt_scalar(v[0]), sticky=True),
+        _row("Single-Shot Narrowband Calibration", "process", "sensor_profile", "sensor_matrix", fmt=lambda v: _fmt_scalar(v[0]), sticky=True),
         # Absent from _BOUNDS_INPUT_FIELDS: it acts after inversion, so it never feeds the meters.
         _row("Hue Trim", "process", "hue_trim", sticky=True),
     )),

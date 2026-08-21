@@ -67,14 +67,15 @@ spectrum. See [USER_GUIDE.md](USER_GUIDE.md) §4.2.
 > knowing before you trust one:
 >
 > - They model the **dyes only**. That is the complete correction only when your capture
->   reads each dye band cleanly: a **true RGB scan** (a Nikon Coolscan and friends read a
->   mono sensor under one LED at a time) or a **calibrated trichrome setup**. With a
+>   reads each dye band cleanly: a **Narrowband Scanner** (a Nikon Coolscan or Pakon — no
+>   Bayer sensor to begin with), a **Trichrome** capture, or a Single-Shot Narrowband rig
+>   with **Single-Shot Narrowband Calibration** applied. With a
 >   broadband light and a Bayer sensor, your light and CFA add mixing the datasheet knows
 >   nothing about, and a dyes-only matrix is the wrong shape for it.
 > - Consumer datasheets usually publish one *aggregate* midscale-neutral curve rather than
 >   separated C/M/Y curves, so even the dye part is an estimate read off a plot by eye.
 >
-> They are still far better starting points than identity for a trichrome rig. Just do not
+> They are still far better starting points than identity for a narrowband rig. Just do not
 > expect a bundled stock name to be "the" correction for your scanner. A matrix you tune
 > yourself is the more trustworthy object. Bundled matrices are read-only; use **Make
 > Editable Copy** to start from one.
