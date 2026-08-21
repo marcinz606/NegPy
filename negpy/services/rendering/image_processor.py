@@ -740,10 +740,11 @@ class ImageProcessor:
 
         decoded: Dict[str, np.ndarray] = {}
         if is_triplet:
-            # Each exposure is a single narrowband channel, so an as-shot white balance has
-            # no scene to correct for, and a camera left on auto WB records a different one
-            # per frame. All three decode neutral instead, matching the bracket merge's own
-            # reasoning for pinning every frame to one white balance rather than its own.
+            # Each exposure is a single narrowband channel: only one raw channel carries real
+            # signal, and a WB gain applied to it corrects nothing, since there is no scene
+            # spanning the spectrum for it to describe. Unlike the bracket merge below, which
+            # pins every frame to one WB because they share one real scene white balance to
+            # agree on, a triplet has none to agree on even if every frame's gains matched.
             for label, path in (("green", rgbcfg.green_path), ("blue", rgbcfg.blue_path)):
                 if not os.path.exists(path):
                     raise FileNotFoundError(f"RGB-scan {label} exposure not found: {path}")
@@ -760,9 +761,11 @@ class ImageProcessor:
         # already in the working space, so "Same as Source" exports without converting.
         source_cs = str(metadata.get("color_space") or WORKING_COLOR_SPACE)
         # Memoized rather than returned: several callers unpack the 3-tuple positionally,
-        # and only the export render and the bracket solve need this. A triplet's own
-        # as-shot camera_wb describes one narrowband exposure, not the assembled frame, so
-        # it must not be folded into the capture matrix downstream (see camera_to_working_matrix).
+        # and only the export render and the bracket solve need this. None for a triplet:
+        # its as-shot camera_wb is one narrowband exposure's gain, not a scene white balance
+        # the assembled frame has, so it must never reach the capture-matrix fold downstream
+        # (see camera_to_working_matrix) — not even the primary's alone, and not a value all
+        # three exposures happened to share.
         self._cam_xyz_by_path[file_path] = (metadata.get("cam_xyz"), None if is_triplet else metadata.get("camera_wb"))
         ir_full = metadata.get("ir")
 

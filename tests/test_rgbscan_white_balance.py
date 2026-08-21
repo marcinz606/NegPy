@@ -1,12 +1,13 @@
-"""Every exposure of an RGB-scan triplet must decode on one neutral white balance,
-never its own as-shot multipliers.
+"""Every exposure of an RGB-scan triplet must decode on no white balance at all, never
+its own as-shot multipliers — and never a value shared by all three, either.
 
 A triplet exposure is a single narrowband channel: only one raw channel carries real
-signal, so an as-shot white balance has no scene to correct for, and a camera left on
-auto WB records a different one per frame anyway. Left unpinned, each of the three
-files' own multipliers get baked into the one channel the merge keeps from it, which is
-exactly the failure the bracket merge was already pinned against (see
-test_hdr_solve_white_balance.py) — RGB scan never got the same treatment.
+signal, so a WB gain applied to it corrects nothing, there being no full-spectrum scene
+for it to describe. That makes this a sharper case than the bracket merge fixed in
+test_hdr_solve_white_balance.py: a bracket's frames share one real scene white balance to
+agree on, so pinning them to one frame's gain is the right fix; a triplet has no such
+value to agree on even if every exposure's own gain happened to match. Left unfixed, each
+of the three files' own multiplier got baked into the one channel the merge keeps from it.
 """
 
 from dataclasses import replace
