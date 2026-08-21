@@ -67,9 +67,10 @@ spectrum. See [USER_GUIDE.md](USER_GUIDE.md) §4.2.
 > knowing before you trust one:
 >
 > - They model the **dyes only**. That is the complete correction only when your capture
->   reads each dye band cleanly: a **Narrowband Scanner** (a Nikon Coolscan or Pakon — no
->   Bayer sensor to begin with), a **Trichrome** capture, or a Single-Shot Narrowband rig
->   with **Single-Shot Narrowband Calibration** applied. With a
+>   reads each dye band cleanly: a **Narrowband Scanner** (a Coolscan's mono sensor reads
+>   one LED at a time, fully clean; a Pakon's trilinear array comes close, with slight
+>   residual bleed), a **Trichrome** capture, or a Single-Shot Narrowband rig with
+>   **Single-Shot Narrowband Calibration** applied. With a
 >   broadband light and a Bayer sensor, your light and CFA add mixing the datasheet knows
 >   nothing about, and a dyes-only matrix is the wrong shape for it.
 > - Consumer datasheets usually publish one *aggregate* midscale-neutral curve rather than
