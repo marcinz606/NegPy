@@ -2,7 +2,29 @@
 
 ## Unreleased
 
-- Fix: **Exports are no longer half a level too dark.** Converting the finished float image to 8- or 16-bit truncated toward zero instead of rounding to nearest, so every sample landed on the level below whenever it fell between two — a systematic 0.196% darkening of full scale at 8-bit, with half of all pixels one level off, on every export and on the canvas itself. The two greyscale conversions in the same module had always rounded, so a black-and-white export was already correct while a colour one was not. Both now round, and the print-layout path uses the same shared conversion rather than a second copy of it. Re-exported files will differ from old ones by up to one level, which is the point.
+## 0.53.0
+
+- New: **Capture date and place** — a Metadata panel card for when and where a frame was shot, with a map picker; searchable as `shot:` and `place:`.
+- New: **Peek Negative** — view the negative as loaded, un-inverted and un-toned, to judge exposure or color cast before any edits; color-managed so the orange mask reads correctly, and the density histogram splits into R/G/B and luminance while peeking. @seanharding @thetalkingdrum
+- New: **NegPy gets a macOS menu bar** — Window (minimize, zoom, close, window list) and Help (tour, shortcuts, guide, update check, report an issue). @seanharding
+- New: **Choose what sits on the toolbar** — drag to reorder the toolbar and the Favourites pickers, plus an Edit Toolbar… entry.
+- New: **Mask tint steps aside while you adjust it** — Burn, Feather and Grade sliders are no longer judged through the tint overlay; overlapping masks fade too. @Icodextrin
+- New: **Single-shot scan preview** for scanners with no motorized frame feed (Plustek and similar) — a lightweight preview-and-crop dialog before the full scan. @cymbal221
+- Change: **Export and preview performance** — batch export overlaps decode, render and encode across files instead of running them strictly in sequence; slider drags on Process and Sensor, and other worst-case interactions, no longer pay settled-frame cost.
+- Change: **Canvas zoom reads real scan pixels** — 100% now means one scan pixel per screen pixel in every mode, and a HUD pill flags when 100% is showing an upscaled preview. @seanharding
+- Change: **Save Edits action removed** — edits already autosave on every change, so the explicit command was redundant. @seanharding
+- Fix: **Auto Crop and Batch Autocrop fixed across seven edge cases** — dark subjects, portrait frames in a batch run, slides with true-black shadows, RGB triplets and rolls with no bed to detect all crop correctly now. @seanharding
+- Fix: **Exports round to the nearest level instead of truncating** — every export, and the canvas itself, was up to half a level too dark. @seanharding
+- Fix: **RGB triplets group correctly regardless of filename order** — captures are grouped and verified by capture order and scene content, not filename sort, and a folder that assembles nothing now says why. @seanharding
+- Fix: **Matrix/TRC ICC input profiles no longer double-apply their tone curve** — the bypass gate never fired, and the primaries transform is now built and applied correctly for D50-, D60- and D65-native profiles alike. @thetalkingdrum
+- Fix: **ETTR clipping no longer trusts a generic sensor white level** — camera-scan calibration used a camera's published ADC ceiling instead of its calibrated one, letting a saturated channel read as clean. @light-sntchr
+- Fix: **A stitch or an HDR merge survives a folder switch** — composite membership is now stored independently of the open-file list. @seanharding
+- Fix: **Metadata is carried into every export format** — JPEG XL and WebP previously dropped every field; punctuation NegPy writes now survives EXIF's 7-bit limit, and a JPEG XL source's own metadata is read correctly. @Icodextrin
+- Fix: **Linear Output's triplet merge is clamped before it can overshoot** — ringing from the alignment warp could push values past 1.0 uncaught in the float32 decode path.
+- Fix: **Linux app icon resolves correctly** — follows the AppImage icon-theme spec, and fixes the taskbar icon under Wayland compositors. @kinnajowa
+- Fix: **The capture-location map is usable on a trackpad, and Enter searches instead of closing the picker.** @seanharding
+- Fix: **EXIF parsing no longer runs inside a `finally` block** — a malformed block silently returned empty metadata instead of surfacing the real error. @MohammedAlkindi
+- Fix: **IR TIFF sidecar description no longer carries the source filename.** @MohammedAlkindi
 
 ## 0.52.0
 
