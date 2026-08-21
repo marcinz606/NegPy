@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.view.sidebar.live_view_window import SettingStepper
 from negpy.desktop.view.sidebar.roi_image import RoiImageLabel
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.floating_panel import float_over_app
 
 
 class CalibrationWindow(QDialog):
@@ -33,6 +34,7 @@ class CalibrationWindow(QDialog):
         super().__init__(parent)
         self.setWindowTitle("New preset — calibrate on the film base")
         self.setModal(False)
+        float_over_app(self)
         self.resize(820, 680)
         layout = QVBoxLayout(self)
 

@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QPushBut
 
 from negpy.desktop.view.sidebar.roi_image import RoiImageLabel
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.floating_panel import float_over_app
 
 #: Progress-bar chunk color per triplet channel. The live view freezes during a triplet,
 #: because the capture now holds the camera without gaps, so the bar carries the R to G
@@ -132,6 +133,7 @@ class LiveViewWindow(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Scanlight — Live View")
         self.setModal(False)
+        float_over_app(self)
         self.resize(900, 720)
         layout = QVBoxLayout(self)
 

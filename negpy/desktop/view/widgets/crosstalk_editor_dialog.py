@@ -25,6 +25,7 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.process.models import DEFAULT_CROSSTALK_MATRIX, ProcessMode
 from negpy.services.assets.crosstalk import CrosstalkProfiles, CrosstalkType
+from negpy.desktop.view.widgets.floating_panel import float_over_app
 
 #: Selectable provenances, in dropdown group order. "Other" is not offered: it exists to
 #: keep a hand-written type loadable, not as something to choose.
@@ -118,6 +119,7 @@ class CrosstalkEditorDialog(QDialog):
         self._default_process = str(process_mode or ProcessMode.C41)
 
         self.setWindowTitle("Crosstalk Matrices")
+        float_over_app(self)
         self.resize(680, 620)
         self.setMinimumSize(520, 560)
         self._init_ui()

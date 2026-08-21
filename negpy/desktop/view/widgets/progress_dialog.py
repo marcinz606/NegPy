@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.floating_panel import float_over_app
 
 
 class ProgressDialog(QDialog):
@@ -26,6 +27,7 @@ class ProgressDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Working…")
         self.setModal(False)
+        float_over_app(self)
         self.setFixedWidth(360)
         self.setStyleSheet(f"""
             QDialog {{ background-color: {THEME.bg_panel}; border: 1px solid {THEME.border_primary}; }}

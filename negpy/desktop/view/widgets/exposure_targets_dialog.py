@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QVBoxLayout
 from negpy.desktop.view.styles.templates import hint_label, section_subheader
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import DEFAULT_TARGETS, TUNABLE_TARGETS
+from negpy.desktop.view.widgets.floating_panel import float_over_app
 
 # (key, slider label, tooltip) grouped under a heading + explanatory blurb.
 _GROUPS = (
@@ -66,6 +67,7 @@ class ExposureTargetsDialog(QDialog):
     def __init__(self, current: Dict[str, float], parent=None):
         super().__init__(parent)
         self.setWindowTitle("Auto Density & Grade Targets")
+        float_over_app(self)
         self.setMinimumWidth(340)
 
         self._sliders: Dict[str, CompactSlider] = {}
