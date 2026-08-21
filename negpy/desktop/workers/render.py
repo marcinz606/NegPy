@@ -486,7 +486,7 @@ def rgb_grouping_notice(made: int, loose: int, incomplete: int, mismatched: int,
     order = "" if by_time else "; grouped by filename, as the files state no capture time"
     made_text = f"{count_of(made, 'frame')} assembled, " if made else ""
     return (
-        f"RGB Scan: {made_text}{count_of(loose, 'file')} left separate{detail}{order}. "
+        f"Trichrome Scan: {made_text}{count_of(loose, 'file')} left separate{detail}{order}. "
         "Right-click a frame and choose Edit RGB Triplet to pair them by hand."
     )
 
@@ -504,9 +504,9 @@ def rgb_nothing_matched_message(summary: dict) -> tuple[str, str]:
     if not summary.get("narrowband"):
         return (
             "Nothing to assemble",
-            f"RGB Scan is on, but this folder does not look like trichrome captures: its {files} were all "
+            f"Trichrome Scan is on, but this folder does not look like trichrome captures: its {files} were all "
             "lit the same way, so there are no red, green and blue sets to combine.\n\n"
-            "Turn RGB Scan off to work with them as ordinary frames.",
+            "Turn Trichrome Scan off to work with them as ordinary frames.",
         )
     # Filenames only stop mattering once the files date themselves; without that they
     # carry the capture order and the claim would contradict the fallback.

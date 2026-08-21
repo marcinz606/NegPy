@@ -1248,7 +1248,7 @@ class AppController(QObject):
                 self.session.repo.save_global_setting("rgbscan_hide_empty_warning", True)
             return
 
-        turn_off = box.addButton("Turn Off RGB Scan", QMessageBox.ButtonRole.AcceptRole)
+        turn_off = box.addButton("Turn Off Trichrome Scan", QMessageBox.ButtonRole.AcceptRole)
         keep = box.addButton("Keep It On", QMessageBox.ButtonRole.RejectRole)
         box.setDefaultButton(turn_off)
         box.exec()
@@ -3383,7 +3383,7 @@ class AppController(QObject):
             self.set_status("HDR merge of a stitched frame is not supported", 4000)
             return
         if any(f.get("green_path") for f in ordered):
-            self.set_status("HDR merge of an RGB-scan triplet is not supported", 4000)
+            self.set_status("HDR merge of a Trichrome triplet is not supported", 4000)
             return
         # Halves share a path, so by_path already dropped one of each pair and merging them
         # would produce a whole-frame composite. Every other assembly leaves half-frame

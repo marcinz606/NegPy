@@ -404,7 +404,7 @@ class TestMergeRefusals(unittest.TestCase):
 
     def test_rgb_triplet(self):
         files = [{"path": "/x/a.nef", "green_path": "/x/g.nef"}, {"path": "/x/c.nef"}]
-        self.assertIn("RGB-scan", self._refusal(files))
+        self.assertIn("Trichrome", self._refusal(files))
 
     def test_half_frame(self):
         """Halves share a path, so the by-path dedupe drops one of each pair — merging

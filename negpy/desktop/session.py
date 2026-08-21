@@ -288,7 +288,7 @@ def composite_summary(asset: Dict[str, Any]) -> str:
     if kind == "hdr":
         return f"HDR merge of {count_of(len(hdr_frame_paths(asset)), 'exposure')}"
     if kind == "rgb":
-        return "RGB-scan triplet"
+        return "Trichrome triplet"
     if kind == "half":
         return f"Half-frame split ({int(asset['half'])} of 2)"
     if kind == "diptych":

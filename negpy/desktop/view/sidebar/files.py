@@ -418,7 +418,9 @@ class FileBrowser(QWidget):
         self.rgb_scan_btn = QToolButton()
         self.rgb_scan_btn.setCheckable(True)
         self.rgb_scan_btn.setIcon(qta.icon("mdi.google-circles-communities", color=THEME.text_primary))
-        self.rgb_scan_btn.setToolTip("RGB Scan — assemble each frame from red/green/blue exposures; groups a folder into triplets on load")
+        self.rgb_scan_btn.setToolTip(
+            "Trichrome Scan — assemble each frame from red/green/blue exposures; groups a folder into triplets on load"
+        )
         self.rgb_scan_btn.setChecked(bool(self.session.repo.get_global_setting("rgbscan_mode", False)))
         self._update_rgb_scan_style(self.rgb_scan_btn.isChecked())
 
@@ -511,7 +513,7 @@ class FileBrowser(QWidget):
             (self.unload_btn, "Clear all"),
             (None, None),
             (self.hot_folder_btn, "Hot Folder"),
-            (self.rgb_scan_btn, "RGB Scan"),
+            (self.rgb_scan_btn, "Trichrome Scan"),
             (self.half_frame_btn, "Half Frame"),
             (self.half_frame_adjust_btn, "Adjust Half Frame"),
             (self.apply_btn, "Apply settings"),

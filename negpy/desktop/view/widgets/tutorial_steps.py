@@ -136,11 +136,11 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             target=lambda w: w.session_panel,
         ),
         TutorialStep(
-            title="RGB Scan: Trichromatic Capture",
+            title="Trichrome Scan: Merging Triplets",
             body=(
                 "Shot a negative as three separate frames under red, green and blue light? "
-                "<b>RGB Scan</b> merges them into one clean, low-noise color scan.<br><br>"
-                "Toggle the <b>RGB Scan</b> button in the Files toolbar. Folders are grouped "
+                "<b>Trichrome Scan</b> merges them into one clean, low-noise color scan.<br><br>"
+                "Toggle the <b>Trichrome Scan</b> button in the Files toolbar. Folders are grouped "
                 "into triplets automatically, and <b>Edit RGB Triplet…</b> (right-click a frame) "
                 "fixes the grouping. Frames are sub-pixel aligned to kill color fringing, then "
                 "run through the normal conversion."
@@ -323,7 +323,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "The <b>Narrowband Scan</b> toggle corrects for that light source. It applies "
                 "to the preview <i>and</i> every export, so what you judge is what you "
                 "deliver.<br><br>"
-                "Turning on <b>RGB Scan</b> mode switches it on for you, on the current frame "
+                "Turning on <b>Trichrome Scan</b> mode switches it on for you, on the current frame "
                 "and as the default for new ones. If you have set a custom <b>Input ICC</b> "
                 "profile, that takes precedence and this toggle steps aside."
             ),

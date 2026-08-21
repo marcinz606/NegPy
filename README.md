@@ -37,9 +37,9 @@ It is built with **Python**, running natively on Linux, macOS, and Windows.
 *   **Positive/Slide Support**: Dedicated **Transparency mode** with optional normalization to save expired or faded film.
 
 **Capture & Input**
-*   **Camera Scanning**: Capture negatives with a tethered camera straight into NegPy — a single RAW, or automated red/green/blue narrowband triplets driven by an RGB [Scanlight](https://github.com/jackw01/scanlight) that feed the RGB Scan merge. macOS/Linux, optional dependency. [Camera Scanning guide](docs/CAMERA_SCANNING.md)
+*   **Camera Scanning**: Capture negatives with a tethered camera straight into NegPy — a single RAW, or automated red/green/blue narrowband triplets driven by an RGB [Scanlight](https://github.com/jackw01/scanlight) that feed the Trichrome Scan merge. macOS/Linux, optional dependency. [Camera Scanning guide](docs/CAMERA_SCANNING.md)
 *   **Scanner Support**: Direct control of SANE-compatible film scanners — Plusteks, Nikon Coolscans and others
-*   **RGB Scan (Trichromatic Capture)**: Merge three narrowband red/green/blue exposures of one negative into a single low-noise color scan, with automatic sub-pixel alignment to kill fringing.
+*   **Trichrome Scan**: Merge three narrowband red/green/blue exposures of one negative into a single low-noise color scan, with automatic sub-pixel alignment to kill fringing.
 *   **Flat-Field Correction**: Correct illumination falloff / vignetting from your light source or scanner via a reference scan of the bare light. Named profiles, toggle per image.
 *   **File Support**: Standard RAWs/TIFFs plus specialized formats like Kodak Pakon scanner raw files.
 

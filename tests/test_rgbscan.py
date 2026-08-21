@@ -322,7 +322,7 @@ def test_nothing_matched_message_offers_to_turn_the_mode_off():
     from negpy.desktop.workers.render import rgb_nothing_matched_message
 
     title, body = rgb_nothing_matched_message({"loose": 36, "narrowband": False, "by_time": True})
-    assert "Turn RGB Scan off" in body
+    assert "Turn Trichrome Scan off" in body
     assert "one frame at a time" not in body
     assert title == "Nothing to assemble"
 
@@ -377,7 +377,7 @@ def test_grouping_notice_reports_the_filename_fallback():
 def test_grouping_notice_omits_the_count_when_nothing_assembled():
     from negpy.desktop.workers.render import rgb_grouping_notice
 
-    assert rgb_grouping_notice(0, 6, 2, 0, True).startswith("RGB Scan: 6 files left separate")
+    assert rgb_grouping_notice(0, 6, 2, 0, True).startswith("Trichrome Scan: 6 files left separate")
 
 
 def test_group_triplets_flags_bad_chunks():

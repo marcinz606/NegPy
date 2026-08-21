@@ -570,7 +570,7 @@ def test_composite_summary_counts_every_source_frame():
     assets = _composite_assets()
     assert composite_summary(assets["stitch"]) == "Stitched composite of 2 frames"
     assert composite_summary(assets["hdr"]) == "HDR merge of 3 exposures"
-    assert composite_summary(assets["rgb"]) == "RGB-scan triplet"
+    assert composite_summary(assets["rgb"]) == "Trichrome triplet"
     assert composite_summary(assets["half"]) == "Half-frame split (2 of 2)"
     assert composite_summary(assets["plain"]) == ""
 

@@ -14,7 +14,7 @@ camera.
 
 **Narrowband RGB scanning.** With an RGB [Scanlight](https://github.com/jackw01/scanlight)
 connected, the light flashes red, then green, then blue, and the camera takes one exposure
-per channel. NegPy's **RGB Scan** merge sub-pixel-aligns the three RAWs and assembles one
+per channel. NegPy's **Trichrome Scan** merge sub-pixel-aligns the three RAWs and assembles one
 frame before inversion.
 
 Three shots beat one because a single broadband exposure lets each dye layer contaminate
