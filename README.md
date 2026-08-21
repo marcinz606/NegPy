@@ -174,6 +174,10 @@ max_texture_size = "auto"
 # Force HQ preview on/off. Uncomment to override saved preference.
 # force_hq_preview = false
 
+# Long edge of the interactive preview in pixels (512-8192). Higher is a sharper
+# canvas and more VRAM per frame.
+# preview_render_size = 1600
+
 # Preview cache size — keeps recently-viewed photos in memory for instant navigation.
 # Lower these on low-RAM machines. Uncomment to override defaults (~1.2 GB / 8 photos).
 # preview_cache_max_bytes = 1200000000

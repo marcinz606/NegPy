@@ -92,6 +92,17 @@ class TestOverrideConfigParsing(unittest.TestCase):
         for value in (0, -1, "eight", None):
             self.assertIsNone(_parse({"performance": {"render_memo_max_entries": value}}).render_memo_max_entries)
 
+    def test_parse_preview_render_size(self):
+        cfg = _parse({"performance": {"preview_render_size": 3000}})
+        self.assertEqual(cfg.preview_render_size, 3000)
+        app = _make_app_config()
+        apply(cfg, app)
+        self.assertEqual(app.preview_render_size, 3000)
+
+    def test_parse_preview_render_size_rejects_nonsense(self):
+        for value in (0, -1, "big", None):
+            self.assertIsNone(_parse({"performance": {"preview_render_size": value}}).preview_render_size)
+
     def test_parse_invalid_backend_falls_back_to_auto(self):
         cfg = _parse({"rendering": {"backend": "directx9"}})
         self.assertEqual(cfg.backend, "auto")
@@ -323,6 +334,21 @@ class TestApplyOverride(unittest.TestCase):
         app_config = _make_app_config()
         apply(cfg, app_config)
         self.assertIsNone(app_config.max_texture_size)
+
+    def test_preview_render_size_below_range_is_clamped(self):
+        app_config = _make_app_config()
+        apply(OverrideConfig(preview_render_size=1), app_config)
+        self.assertEqual(app_config.preview_render_size, 512)
+
+    def test_preview_render_size_above_range_is_clamped(self):
+        app_config = _make_app_config()
+        apply(OverrideConfig(preview_render_size=40000), app_config)
+        self.assertEqual(app_config.preview_render_size, 8192)
+
+    def test_preview_render_size_none_leaves_app_config_unchanged(self):
+        app_config = _make_app_config(preview_render_size=1600)
+        apply(OverrideConfig(preview_render_size=None), app_config)
+        self.assertEqual(app_config.preview_render_size, 1600)
 
     def test_force_hq_preview_true_propagated(self):
         cfg = OverrideConfig(force_hq_preview=True)

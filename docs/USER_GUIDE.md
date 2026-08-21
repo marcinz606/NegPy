@@ -889,6 +889,7 @@ If NegPy crashes on launch or has rendering glitches, you can force backend sett
 | `display.qt_rhi_backend` | `"auto"`, `"vulkan"`, `"d3d12"`, `"metal"`, `"opengl"`, `"software"` | Qt UI rendering backend. |
 | `display.qt_platform` | `"auto"`, `"xcb"`, `"wayland"` | Window system plugin (Linux only). |
 | `performance.max_texture_size` | `"auto"` or a number, e.g. `4096` | Caps GPU texture size; reduce on low-VRAM cards. |
+| `performance.preview_render_size` | a number, 512 to 8192, e.g. `3000` | Long edge of the interactive preview (default `1600`). Higher is a sharper canvas at 100% zoom; every rendered frame costs proportionally more VRAM, so lower `preview_cache_max_bytes` and `render_memo_max_entries` to match. RAW files decode at half sensor size for the preview, so there is nothing to gain past half the long edge of your scan. |
 | `performance.force_hq_preview` | `true` / `false` (or absent) | Overrides the saved HQ preview toggle. |
 | `performance.preview_cache_max_bytes` | a number, e.g. `1200000000` | Preview cache memory budget (default about 1.2 GB). |
 | `performance.preview_cache_max_entries` | a number, e.g. `8` | Max recently-viewed photos kept in memory. |

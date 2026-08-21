@@ -7,6 +7,7 @@
 - New: **NegPy gets a macOS menu bar** — Window (minimize, zoom, close, window list) and Help (tour, shortcuts, guide, update check, report an issue). @seanharding
 - New: **Choose what sits on the toolbar** — drag to reorder the toolbar and the Favourites pickers, plus an Edit Toolbar… entry.
 - New: **Mask tint steps aside while you adjust it** — Burn, Feather and Grade sliders are no longer judged through the tint overlay; overlapping masks fade too. @Icodextrin
+- New: **Preview resolution is configurable** — `preview_render_size` under `[performance]` in `override.toml` sets the interactive preview's long edge, between the 1600 px default and a full HQ decode.
 - New: **Single-shot scan preview** for scanners with no motorized frame feed (Plustek and similar) — a lightweight preview-and-crop dialog before the full scan. @cymbal221
 - Change: **Export and preview performance** — batch export overlaps decode, render and encode across files instead of running them strictly in sequence; slider drags on Process and Sensor, and other worst-case interactions, no longer pay settled-frame cost.
 - Change: **Canvas zoom reads real scan pixels** — 100% now means one scan pixel per screen pixel in every mode, and a HUD pill flags when 100% is showing an upscaled preview. @seanharding

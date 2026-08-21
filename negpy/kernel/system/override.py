@@ -1,9 +1,18 @@
+import logging
 import os
 import sys
 import tomllib
 from dataclasses import dataclass
 
 from negpy.domain.types import AppConfig
+
+
+logger = logging.getLogger(__name__)
+
+# A hand-edited preview size below this is not a usable canvas (`= true` coerces to 1,
+# since bool is an int), and above it no GPU can hold the frame.
+_PREVIEW_SIZE_MIN = 512
+_PREVIEW_SIZE_MAX = 8192
 
 
 _DEFAULT_TOML_LINUX_WIN = """\
@@ -39,6 +48,10 @@ qt_platform = "auto"
 # "auto" lets wgpu/hardware decide the maximum. Set a number (e.g. 4096) to cap it.
 max_texture_size = "auto"
 
+# Long edge of the interactive preview, in pixels. Higher is a sharper canvas at 100%
+# zoom and more VRAM and CPU per frame. Clamped to 512-8192.
+# preview_render_size = 1600
+
 # Preview cache size. Larger keeps more recently-viewed photos in memory for instant
 # navigation; lower it on machines with little RAM. Uncomment to override defaults.
 # preview_cache_max_bytes = 1200000000
@@ -73,6 +86,7 @@ class OverrideConfig:
     force_hq_preview: bool | None = None
     cpu_parallel: bool | None = None
     max_texture_size: int | None = None
+    preview_render_size: int | None = None
     preview_cache_max_bytes: int | None = None
     preview_cache_max_entries: int | None = None
     preview_cache_max_full_res_entries: int | None = None
@@ -141,6 +155,9 @@ def _parse(data: dict) -> OverrideConfig:
     raw_tex = performance.get("max_texture_size")
     max_tex: int | None = int(raw_tex) if isinstance(raw_tex, int) and raw_tex > 0 else None
 
+    raw_prev = performance.get("preview_render_size")
+    prev_size: int | None = int(raw_prev) if isinstance(raw_prev, int) and raw_prev > 0 else None
+
     raw_cache_b = performance.get("preview_cache_max_bytes")
     cache_b: int | None = int(raw_cache_b) if isinstance(raw_cache_b, int) and raw_cache_b > 0 else None
 
@@ -164,6 +181,7 @@ def _parse(data: dict) -> OverrideConfig:
         force_hq_preview=force_hq,
         cpu_parallel=cpu_parallel,
         max_texture_size=max_tex,
+        preview_render_size=prev_size,
         preview_cache_max_bytes=cache_b,
         preview_cache_max_entries=cache_n,
         preview_cache_max_full_res_entries=cache_fr,
@@ -227,6 +245,12 @@ def apply(cfg: OverrideConfig, app_config: AppConfig) -> None:
 
     if cfg.cpu_parallel is not None:
         app_config.cpu_parallel = cfg.cpu_parallel
+
+    if cfg.preview_render_size is not None:
+        size = min(_PREVIEW_SIZE_MAX, max(_PREVIEW_SIZE_MIN, cfg.preview_render_size))
+        if size != cfg.preview_render_size:
+            logger.warning("preview_render_size %d is out of range, using %d", cfg.preview_render_size, size)
+        app_config.preview_render_size = size
 
     if cfg.preview_cache_max_bytes is not None:
         app_config.preview_cache_max_bytes = cfg.preview_cache_max_bytes
