@@ -91,7 +91,7 @@ def test_triplet_render_ignores_the_primarys_own_camera_wb_downstream(tmp_path):
 
 def test_triplet_with_linear_raw_off_still_decodes_neutral_at_the_rawpy_call(tmp_path):
     """Reproduces the bug as a user hits it without ever touching Scanning Setup: add
-    three files, assemble them into a triplet (RGB Scan toggle or Edit RGB Triplet…),
+    three files, assemble them into a triplet (Trichrome Scan toggle or Edit RGB Triplet…),
     and render. Nothing about that path sets Linear RAW — it stays at its default,
     False — so `use_camera_wb` would read True for every exposure if the triplet
     branch did not override it. Goes through the real `_decode_sensor_rgb`, not a
