@@ -246,5 +246,45 @@ def test_embed_strips_makernote_tag() -> None:
     assert piexif.ExifIFD.MakerNote not in loaded["Exif"]
 
 
+def test_embed_strips_vestigial_gps_block_from_jxl() -> None:
+    """Regression: a camera's GPS IFD with no actual coordinates -- just a
+    version marker, common on bodies with no GPS receiver -- is vestigial
+    boilerplate. Isolated by an 8-file bisection, its bare presence (not
+    exposure, date, Artist/Copyright, or resolution tags, all of which were
+    also tested and are safe) was the one difference between a Print/Flat
+    JPEG XL export Adobe Bridge opened correctly and one it called untagged
+    and refused to preview, routing it through Camera Raw instead."""
+    source_exif = _raw_like_source_exif()
+    source_exif["GPS"] = {piexif.GPSIFD.GPSVersionID: (2, 3, 0, 0)}
+
+    out = embed_metadata(_jxl(), MetadataConfig(), source_exif)
+
+    tiff = read_jxl_exif(out)
+    assert tiff is not None
+    loaded = piexif.load(tiff)
+    assert loaded["GPS"] == {}
+    assert loaded["0th"][piexif.ImageIFD.Make] == b"NIKON CORPORATION"
+
+
+def test_embed_keeps_real_gps_coordinates() -> None:
+    """A GPS block with actual coordinates is real, user-relevant data (unlike
+    a bare version marker) and is not part of the vestigial-block strip."""
+    source_exif = _raw_like_source_exif()
+    source_exif["GPS"] = {
+        piexif.GPSIFD.GPSVersionID: (2, 3, 0, 0),
+        piexif.GPSIFD.GPSLatitudeRef: b"N",
+        piexif.GPSIFD.GPSLatitude: ((59, 1), (54, 1), (0, 1)),
+        piexif.GPSIFD.GPSLongitudeRef: b"E",
+        piexif.GPSIFD.GPSLongitude: ((10, 1), (44, 1), (0, 1)),
+    }
+
+    out = embed_metadata(_jxl(), MetadataConfig(), source_exif)
+
+    tiff = read_jxl_exif(out)
+    assert tiff is not None
+    loaded = piexif.load(tiff)
+    assert loaded["GPS"][piexif.GPSIFD.GPSLatitude] == ((59, 1), (54, 1), (0, 1))
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

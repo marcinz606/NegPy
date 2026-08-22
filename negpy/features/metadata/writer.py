@@ -255,6 +255,15 @@ def _sanitize_exif(exif_dict: dict) -> dict:
         if not isinstance(ifd_data, dict):
             result[ifd_name] = ifd_data
             continue
+        if ifd_name == "GPS" and not ({piexif.GPSIFD.GPSLatitude, piexif.GPSIFD.GPSLongitude} & ifd_data.keys()):
+            # A GPS IFD with no actual coordinates is vestigial camera boilerplate (a
+            # version marker with nothing to place on a map). Confirmed empirically:
+            # its bare presence, not any specific field's value, was the one
+            # difference between an export Bridge opened correctly and one it called
+            # untagged and refused to preview -- Bridge reads it as "this still
+            # carries the source's untouched raw GPS block".
+            result[ifd_name] = {}
+            continue
         tags_info = piexif.TAGS.get(ifd_name, {})
         clean = {}
         for tag, value in ifd_data.items():
