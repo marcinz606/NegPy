@@ -1,6 +1,8 @@
 """
-Guards the JPEG EXIF embed against the 64 KB APP1 overflow: source RAWs often carry an
-embedded thumbnail + multi-KB MakerNote that piexif.insert can't pack into one segment.
+Guards the EXIF embed/preserve paths against stale or oversized source metadata: RAW
+preview-IFD and maker-note pointers that are absolute to the source's own byte layout,
+a ColorSpace tag describing the camera's own rendering rather than NegPy's, and a
+64 KB JPEG APP1 overflow from an oversized thumbnail + maker note.
 """
 
 import io
@@ -170,8 +172,8 @@ def test_preserve_strips_stale_colorspace_tag_jpeg() -> None:
 
 
 def test_embed_strips_stale_colorspace_tag_jxl() -> None:
-    """Regression: a Nikon ColorSpace=2 carried into a JPEG XL export contradicted
-    the file's own sRGB color tag and made Adobe Bridge report the file untagged."""
+    """A Nikon ColorSpace=2 carried into a JPEG XL export would contradict the
+    file's own sRGB color tag."""
     source_exif = _raw_like_source_exif()
     source_exif["Exif"][piexif.ExifIFD.ColorSpace] = 2
 
@@ -182,6 +184,37 @@ def test_embed_strips_stale_colorspace_tag_jxl() -> None:
     loaded = piexif.load(tiff)
     assert piexif.ExifIFD.ColorSpace not in loaded["Exif"]
     assert loaded["0th"][piexif.ImageIFD.Make] == b"NIKON CORPORATION"
+
+
+def test_embed_strips_raw_preview_ifd_tags_from_jxl() -> None:
+    """Regression: a RAW's 0th-IFD preview/SubIFD pointers are absolute to the
+    source file's own byte layout. Carried into a JPEG XL export unchanged, they
+    pointed at the wrong bytes ("Bad SubIFD SubDirectory start" from ExifTool) and
+    made Adobe Bridge report the file untagged and refuse to preview it."""
+    source_exif = _raw_like_source_exif()
+
+    out = embed_metadata(_jxl(), MetadataConfig(), source_exif)
+
+    tiff = read_jxl_exif(out)
+    assert tiff is not None
+    loaded = piexif.load(tiff)
+    zeroth = loaded["0th"]
+    for tag in _RAW_PREVIEW_0TH_TAGS:
+        assert tag not in zeroth
+    assert zeroth[piexif.ImageIFD.Make] == b"NIKON CORPORATION"
+
+
+def test_embed_strips_makernote_tag() -> None:
+    """A maker note's internal sub-IFDs use the same source-relative pointer
+    scheme as the 0th-IFD preview tags; relocated into an export, they resolve
+    to the wrong bytes for anything that decodes into them."""
+    source_exif = _raw_like_source_exif()
+    source_exif["Exif"][piexif.ExifIFD.MakerNote] = b"\x00" * 100
+
+    out = embed_metadata(_jpeg(), MetadataConfig(), source_exif)
+
+    loaded = piexif.load(out)
+    assert piexif.ExifIFD.MakerNote not in loaded["Exif"]
 
 
 if __name__ == "__main__":
