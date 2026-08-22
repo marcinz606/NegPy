@@ -97,16 +97,18 @@ def _patch_enum(monkeypatch, devices: list[UsbDeviceInfo] | None = None) -> None
     monkeypatch.setattr(f"{_BACKEND}.list_devices", lambda: list(devices))
 
 
-def _fake_scanner(*, progress_steps: int = 0, scan_error: Exception | None = None):
+def _fake_scanner(*, progress_steps: int = 0, scan_error: Exception | None = None, rgb: np.ndarray | None = None):
     from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
 
-    rgb = np.zeros((8, 8, 3), dtype=np.uint16)
+    if rgb is None:
+        rgb = np.zeros((8, 8, 3), dtype=np.uint16)
     image = ScanImage(rgb=rgb, dpi=1800, device_model="PLUSTEK OpticFilm 8200i SE")
 
     scanner = MagicMock()
     scanner.model = MODEL_8200I_SE
     scanner.asic._initialized = True
     scanner.asic.is_at_home.return_value = True
+    scanner.asic.image_usb_pace_s = 0.0
 
     def scan(**kwargs):
         cancel = kwargs.get("cancel")
@@ -118,18 +120,15 @@ def _fake_scanner(*, progress_steps: int = 0, scan_error: Exception | None = Non
                 progress(i / progress_steps)
         if scan_error is not None:
             raise scan_error
-        mode = kwargs.get("mode", "color")
-        if mode == "infrared":
-            return ScanImage(
-                rgb=rgb,
-                dpi=kwargs.get("resolution", 1800),
-                device_model=image.device_model,
-                ir=rgb[:, :, 1].copy(),
-            )
+        out_rgb = rgb.copy()
+        ir = None
+        if kwargs.get("infrared"):
+            ir = out_rgb[:, :, 1].copy()
         return ScanImage(
-            rgb=rgb,
+            rgb=out_rgb,
             dpi=kwargs.get("resolution", 1800),
             device_model=image.device_model,
+            ir=ir,
         )
 
     scanner.scan.side_effect = scan
@@ -179,7 +178,7 @@ def test_backend_list_devices_maps_caps(monkeypatch):
     assert dev.capabilities.autofocus is False
     assert dev.capabilities.prescan is True
     assert dev.capabilities.prescan_dpi == 1200
-    assert dev.capabilities.prescan_mirror_x is True
+    assert dev.capabilities.multi_exposure is True
     assert dev.capabilities.prescan_default_crop is not None
 
 
@@ -283,7 +282,56 @@ def test_capture_ir_returns_ir_plane(monkeypatch):
     )
     assert result.ir is not None
     assert result.ir.ndim == 2
-    assert scanner.scan.call_count == 2
+    assert scanner.scan.call_count == 1
+    assert scanner.scan.call_args.kwargs.get("infrared") is True
+
+
+def test_scan_rgb_not_mirrored(monkeypatch):
+    """Guard against re-introducing NegPy-side horizontal flips."""
+    _patch_enum(monkeypatch)
+    rgb = np.zeros((8, 8, 3), dtype=np.uint16)
+    rgb[:, 0, 0] = 1000
+    rgb[:, 7, 0] = 2000
+    scanner = _fake_scanner(rgb=rgb)
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    result = PlustekBackend().scan(_DEVICE_ID, _params(), lambda *_: None, threading.Event())
+    assert result.rgb[0, 0, 0] == 1000
+    assert result.rgb[0, 7, 0] == 2000
+
+
+def test_multi_exposure_passthrough(monkeypatch):
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner()
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    PlustekBackend().scan(
+        _DEVICE_ID,
+        _params(multi_exposure=True),
+        lambda *_: None,
+        threading.Event(),
+    )
+    assert scanner.scan.call_args.kwargs.get("multi_exposure") is True
+
+
+def test_open_applies_quiet_usb_drain(monkeypatch):
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner()
+    scanner.asic.image_usb_pace_s = 0.0
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", lambda *a, **k: scanner)
+    from pyopticfilm.asic.gl128 import DEFAULT_IMAGE_USB_PACE_S
+
+    PlustekBackend().open_session(_DEVICE_ID).close()
+    assert scanner.asic.image_usb_pace_s == DEFAULT_IMAGE_USB_PACE_S
+
+
+def test_scan_applies_quiet_usb_drain(monkeypatch):
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner()
+    scanner.asic.image_usb_pace_s = 0.0
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    from pyopticfilm.asic.gl128 import DEFAULT_IMAGE_USB_PACE_S
+
+    PlustekBackend().scan(_DEVICE_ID, _params(), lambda *_: None, threading.Event())
+    assert scanner.asic.image_usb_pace_s == DEFAULT_IMAGE_USB_PACE_S
 
 
 def test_scan_ensures_colour_calib_before_scan(monkeypatch):

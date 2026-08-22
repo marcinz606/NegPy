@@ -78,7 +78,7 @@ SE_CAPS = ScannerCapabilities(
     max_area_mm=(36.33, 25.0),
     prescan=True,
     prescan_dpi=1200,
-    prescan_mirror_x=True,
+    multi_exposure=True,
     prescan_default_crop=(0.0, 0.35, 1.0, 0.65),
 )
 SE_DEVICE = ScannerDevice(
@@ -196,15 +196,41 @@ def test_minimal_device_hides_coolscan_controls() -> None:
 
 
 def test_se_device_shows_prescan() -> None:
-    sidebar, _ = _sidebar(SE_DEVICE)
+    sidebar, _ = _sidebar(SE_DEVICE, settings={"backend": "plustek"})
     assert sidebar.prescan_widget.isVisibleTo(sidebar) is True
     assert sidebar.prescan_label.isVisibleTo(sidebar) is True
+    assert sidebar.scan_window_widget.isVisibleTo(sidebar) is False
     assert sidebar.ir_check.isEnabled() is True
+    assert sidebar.me_check.isEnabled() is True
     assert sidebar.frame_range_widget.isVisibleTo(sidebar) is False
 
 
+def test_plustek_backend_hides_sane_window_control() -> None:
+    sidebar, _ = _sidebar(MINIMAL_DEVICE, settings={"backend": "plustek"})
+    assert sidebar.scan_window_widget.isVisibleTo(sidebar) is False
+    assert sidebar.scan_window_status.isVisibleTo(sidebar) is False
+
+
+def test_sane_backend_keeps_single_holder_window_control(monkeypatch) -> None:
+    sidebar, _ = _sidebar(MINIMAL_DEVICE, settings={"backend": "plustek"})
+    monkeypatch.setattr(sidebar, "_current_backend_id", lambda: "sane")
+    sidebar._update_device_caps()
+    assert sidebar.scan_window_widget.isVisibleTo(sidebar) is True
+    assert sidebar.scan_window_btn.text() == "Preview…"
+    assert sidebar.scan_window_row_label.text() == "Window"
+
+
+def test_minimal_device_disables_multi_exposure() -> None:
+    sidebar, _ = _sidebar(MINIMAL_DEVICE)
+    assert sidebar.me_check.isEnabled() is False
+    assert sidebar.me_check.isChecked() is False
+
+
 def test_scan_params_include_prescan_crop() -> None:
-    sidebar, controller = _sidebar(SE_DEVICE, settings={"scan_window": (0.1, 0.2, 0.9, 0.8)})
+    sidebar, controller = _sidebar(
+        SE_DEVICE,
+        settings={"backend": "plustek", "scan_window": (0.1, 0.2, 0.9, 0.8)},
+    )
     sidebar.folder_edit.setText("/tmp/negpy-scan-out")
     sidebar._on_scan()
     kind, req = controller.started[0]
@@ -212,24 +238,19 @@ def test_scan_params_include_prescan_crop() -> None:
     assert req.params.window == (0.1, 0.2, 0.9, 0.8)
 
 
-def test_minimal_device_still_gets_a_single_shot_preview_window_control() -> None:
-    # No frame adapter to page through, but a single manual holder still gets a
-    # quick low-res preview to set one crop window before the real scan.
-    sidebar, _ = _sidebar(MINIMAL_DEVICE)
-    assert sidebar.scan_window_widget.isVisibleTo(sidebar) is True
-    assert sidebar.scan_window_btn.text() == "Preview…"
-    assert sidebar.scan_window_row_label.text() == "Window"
-
-
-def test_full_capability_device_gets_the_strip_preview_window_control() -> None:
-    sidebar, _ = _sidebar(FULL_DEVICE)
+def test_full_capability_device_gets_the_strip_preview_window_control(monkeypatch) -> None:
+    sidebar, _ = _sidebar(FULL_DEVICE, settings={"backend": "plustek"})
+    monkeypatch.setattr(sidebar, "_current_backend_id", lambda: "sane")
+    sidebar._update_device_caps()
     assert sidebar.scan_window_widget.isVisibleTo(sidebar) is True
     assert sidebar.scan_window_btn.text() == "Preview strip…"
     assert sidebar.scan_window_row_label.text() == "Batch"
 
 
-def test_minimal_device_scan_window_opens_the_quick_preview_dialog(monkeypatch) -> None:
-    sidebar, _ = _sidebar(MINIMAL_DEVICE)
+def test_sane_backend_scan_window_opens_the_quick_preview_dialog(monkeypatch) -> None:
+    sidebar, _ = _sidebar(MINIMAL_DEVICE, settings={"backend": "plustek"})
+    monkeypatch.setattr(sidebar, "_current_backend_id", lambda: "sane")
+    sidebar._update_device_caps()
     rect = (0.2, 0.2, 0.8, 0.8)
 
     class _FakeDialog:
@@ -253,7 +274,9 @@ def test_minimal_device_scan_window_opens_the_quick_preview_dialog(monkeypatch) 
 
 
 def test_full_capability_device_scan_window_still_opens_the_strip_dialog(monkeypatch) -> None:
-    sidebar, _ = _sidebar(FULL_DEVICE)
+    sidebar, _ = _sidebar(FULL_DEVICE, settings={"backend": "plustek"})
+    monkeypatch.setattr(sidebar, "_current_backend_id", lambda: "sane")
+    sidebar._update_device_caps()
     opened: list = []
 
     class _FakeDialog:

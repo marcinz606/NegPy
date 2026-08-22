@@ -40,7 +40,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-plustek = ["pyopticfilm>=1.0"]
+plustek = ["pyopticfilm>=1.1.2"]
 sane = ["python-sane>=2.9"]
 camera = ["gphoto2>=2.5 ; sys_platform != 'win32'"]
 
@@ -56,7 +56,7 @@ sane = [
     "python-sane>=2.9",
 ]
 plustek = [
-    "pyopticfilm>=1.0",
+    "pyopticfilm>=1.1.2",
 ]
 camera = [
     # Tethered camera scanning. libgphoto2 has no Windows build, so the wheels — and the

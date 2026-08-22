@@ -1,6 +1,6 @@
 # Windows USB setup (Plustek OpticFilm)
 
-NegPy's Plustek USB backend uses the external [pyopticfilm](https://github.com/jboneng/pyopticfilm) driver (libusb through PyUSB). The stock Plustek Windows driver must not own the device.
+NegPy's Plustek USB backend uses the external [pyopticfilm](https://github.com/jboneng/pyopticfilm) driver (libusb through PyUSB). Requires pyopticfilm **1.1.2** or later. The stock Plustek Windows driver must not own the device.
 
 ## Requirements
 

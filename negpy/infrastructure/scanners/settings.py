@@ -15,6 +15,7 @@ class ScannerSettings:
     dpi: int = 3600
     depth: int = 16
     capture_ir: bool = False
+    multi_exposure: bool = False
     autofocus: bool = True
     auto_exposure: bool = False
     # Hardware scan exposure time in microseconds (SANE `scan-exposure-time`). None is the

@@ -20,6 +20,7 @@ from negpy.infrastructure.scanners.base import (
     TransientScanError,
 )
 from negpy.infrastructure.scanners.params import ScanMode, ScanParams
+from pyopticfilm.asic.gl128 import DEFAULT_IMAGE_USB_PACE_S
 from pyopticfilm.device.select import model_for_device, model_is_scan_ready
 from pyopticfilm.exceptions import (
     DeviceNotFoundError,
@@ -36,6 +37,12 @@ from negpy.infrastructure.scanners.result import ScanResult
 logger = get_logger(__name__)
 
 
+def _ensure_quiet_usb_drain(scanner: Scanner) -> None:
+    asic = scanner.asic
+    if hasattr(asic, "image_usb_pace_s"):
+        asic.image_usb_pace_s = DEFAULT_IMAGE_USB_PACE_S
+
+
 def _caps_for(model: Any) -> ScannerCapabilities:
     prescan_ready = bool(getattr(model, "scan_ready", False))
     from pyopticfilm.scan.bringup import PRESCAN_DPI, default_frame_crop_norm
@@ -50,8 +57,8 @@ def _caps_for(model: Any) -> ScannerCapabilities:
         autofocus=False,
         prescan=prescan_ready,
         prescan_dpi=PRESCAN_DPI if prescan_ready else 0,
-        prescan_mirror_x=bool(getattr(model, "mirror_x", False)) if prescan_ready else False,
         prescan_default_crop=default_frame_crop_norm(model) if prescan_ready else None,
+        multi_exposure=bool(getattr(model, "scan_ready", False) and getattr(model, "exposure_long", None)),
         adapter_frame_capacity=None,
         adapter_frame_control=False,
         can_eject=False,
@@ -105,6 +112,8 @@ def _validate_params(params: ScanParams, *, model: Any | None = None) -> None:
         raise RuntimeError("Autofocus requested but the device has no autofocus option")
     if params.capture_ir and model is not None and getattr(model, "supports_infrared", None) is False:
         raise RuntimeError(f"{getattr(model, 'model', 'device')} does not support infrared")
+    if params.multi_exposure and model is not None and not getattr(model, "exposure_long", None):
+        raise RuntimeError(f"{getattr(model, 'model', 'device')} does not support multi-exposure")
 
 
 class PlustekSession:
@@ -188,6 +197,7 @@ class PlustekBackend:
             scanner = Scanner.open(device_id, calib_cache=self._calib_cache)
             if not scanner.asic._initialized:
                 scanner.asic.init()
+            _ensure_quiet_usb_drain(scanner)
             if not scanner.asic.is_at_home():
                 scanner.home()
         except DriverBindingError as exc:
@@ -218,6 +228,7 @@ class PlustekBackend:
             with Scanner.open(device_id, calib_cache=self._calib_cache) as scanner:
                 if not scanner.asic._initialized:
                     scanner.asic.init()
+                _ensure_quiet_usb_drain(scanner)
                 if not scanner.asic.is_at_home():
                     scanner.home()
                 return self._scan_on_scanner(scanner, params, progress, cancel)
@@ -263,6 +274,7 @@ class PlustekBackend:
         _validate_params(params, model=scanner.model)
         dpi = int(params.dpi)
         capture_ir = bool(params.capture_ir)
+        multi_exposure = bool(params.multi_exposure)
         window = params.window
         geometry = self._default_scan_geometry(scanner, dpi=dpi, window=window)
 
@@ -279,30 +291,22 @@ class PlustekBackend:
                 progress=progress,
                 cancel=cancel,
             )
-            if capture_ir:
-                rgb_image, ir_plane = self._scan_color_and_ir(
-                    scanner,
-                    dpi=dpi,
-                    window=window,
-                    geometry=geometry,
-                    progress=progress,
-                    cancel=cancel,
-                    progress_start=0.1,
-                )
-            else:
 
-                def color_only_progress(p: float) -> None:
-                    _safe_progress(progress, 0.1 + 0.9 * p)
+            def scan_progress(p: float) -> None:
+                _safe_progress(progress, 0.1 + 0.9 * p)
 
-                rgb_image = scanner.scan(
-                    resolution=dpi,
-                    mode="color",
-                    area=None if geometry is not None else window,
-                    geometry=geometry,
-                    progress=color_only_progress,
-                    cancel=cancel,
-                )
-                ir_plane = None
+            scan_area = None if geometry is not None else window
+            rgb_image = scanner.scan(
+                resolution=dpi,
+                mode="color",
+                area=scan_area,
+                geometry=geometry,
+                progress=scan_progress,
+                cancel=cancel,
+                multi_exposure=multi_exposure,
+                infrared=capture_ir,
+            )
+            ir_plane = np.asarray(rgb_image.ir) if capture_ir and rgb_image.ir is not None else None
         except ScanCancelled as exc:
             raise RuntimeError("Scan cancelled") from exc
         except UsbError as exc:
@@ -402,51 +406,3 @@ class PlustekBackend:
             return geometry
         geometry, _meta = bringup_scan_geometry(scanner.model, dpi, profile="preview_safe")
         return geometry
-
-    def _scan_color_and_ir(
-        self,
-        scanner: Scanner,
-        *,
-        dpi: int,
-        window: tuple[float, float, float, float] | None,
-        geometry: object | None,
-        progress: Callable[[float, str], None],
-        cancel: threading.Event,
-        progress_start: float = 0.0,
-    ) -> tuple[Any, np.ndarray]:
-        span = max(0.0, 1.0 - progress_start)
-
-        def color_progress(p: float) -> None:
-            _safe_progress(progress, progress_start + 0.5 * span * p)
-
-        def ir_progress(p: float) -> None:
-            _safe_progress(progress, progress_start + 0.5 * span * (1.0 + p), "Infrared")
-
-        if cancel.is_set():
-            raise RuntimeError("Scan cancelled before start")
-
-        scan_area = None if geometry is not None else window
-        color = scanner.scan(
-            resolution=dpi,
-            mode="color",
-            area=scan_area,
-            geometry=geometry,
-            progress=color_progress,
-            cancel=cancel,
-        )
-        if cancel.is_set():
-            raise RuntimeError("Scan cancelled")
-
-        ir_img = scanner.scan(
-            resolution=dpi,
-            mode="infrared",
-            area=scan_area,
-            geometry=geometry,
-            progress=ir_progress,
-            cancel=cancel,
-        )
-        ir_plane = ir_img.ir if ir_img.ir is not None else ir_img.rgb[:, :, 1].copy()
-        from pyopticfilm.ir_align import align_ir_to_rgb
-
-        ir_plane = align_ir_to_rgb(np.asarray(color.rgb), np.asarray(ir_plane))
-        return color, ir_plane

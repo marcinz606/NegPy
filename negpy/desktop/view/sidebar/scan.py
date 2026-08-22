@@ -134,6 +134,11 @@ class ScanSidebar(QWidget):
         self.ir_check = QCheckBox("IR")
         self.ir_check.setToolTip("Scan a separate infrared channel for dust detection")
 
+        self.me_check = QCheckBox("Multi-exposure")
+        self.me_check.setToolTip(
+            "Merge short and long colour passes for more highlight and shadow detail. Takes longer."
+        )
+
         self.depth_row_widget = QWidget()
         depth_row = QHBoxLayout(self.depth_row_widget)
         depth_row.setContentsMargins(0, 0, 0, 0)
@@ -141,6 +146,7 @@ class ScanSidebar(QWidget):
         self.depth_combo.setToolTip("Bit depth")
         depth_row.addWidget(self.depth_combo, 1)
         depth_row.addWidget(self.ir_check)
+        depth_row.addWidget(self.me_check)
         self.depth_label = QLabel("Depth")
         self.form.addRow(self.depth_label, self.depth_row_widget)
         self.depth_combo.setVisible(False)
@@ -297,6 +303,7 @@ class ScanSidebar(QWidget):
         self.dpi_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
         self.depth_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
         self.ir_check.toggled.connect(lambda: self._update_settings_from_ui())
+        self.me_check.toggled.connect(lambda: self._update_settings_from_ui())
         self.autofocus_check.toggled.connect(lambda: self._update_settings_from_ui())
         self.ae_check.toggled.connect(lambda: self._on_ae_toggled())
         self.exposure_slider.valueChanged.connect(self._on_exposure_changed)
@@ -406,6 +413,7 @@ class ScanSidebar(QWidget):
             self.depth_combo.setVisible(False)
             self.depth_label.setVisible(False)
             self.ir_check.setEnabled(False)
+            self.me_check.setEnabled(False)
             self.eject_btn.setVisible(False)
             self.frame_range_label.setVisible(False)
             self.frame_range_widget.setVisible(False)
@@ -427,6 +435,7 @@ class ScanSidebar(QWidget):
         self.dpi_combo.setEnabled(True)
         self.depth_combo.setEnabled(True)
         self.ir_check.setEnabled(True)
+        self.me_check.setEnabled(True)
         self.eject_btn.setVisible(caps.can_eject)
         self.eject_btn.setEnabled(caps.can_eject and not self._scanning)
         self.frame_label.setText(f"Frame: {caps.max_area_mm[0]:.0f} × {caps.max_area_mm[1]:.0f} mm")
@@ -447,6 +456,7 @@ class ScanSidebar(QWidget):
         self.dpi_combo.blockSignals(True)
         self.depth_combo.blockSignals(True)
         self.ir_check.blockSignals(True)
+        self.me_check.blockSignals(True)
         self.ae_check.blockSignals(True)
         self.frame_from_spin.blockSignals(True)
         self.frame_to_spin.blockSignals(True)
@@ -487,6 +497,17 @@ class ScanSidebar(QWidget):
         else:
             self.ir_check.setChecked(False)
             self.ir_check.setToolTip("IR scanning not supported by this device")
+
+        # Multi-exposure (Plustek SE only today)
+        self.me_check.setEnabled(caps.multi_exposure)
+        if caps.multi_exposure:
+            self.me_check.setChecked(self._settings.multi_exposure)
+            self.me_check.setToolTip(
+                "Merge short and long colour passes for more highlight and shadow detail. Takes longer."
+            )
+        else:
+            self.me_check.setChecked(False)
+            self.me_check.setToolTip("Multi-exposure not supported by this device")
 
         # Autofocus and auto-exposure, shown only when the device reports them.
         self._caps_autofocus = bool(caps.autofocus)
@@ -544,20 +565,21 @@ class ScanSidebar(QWidget):
             self.frame_from_spin.setValue(frm)
             self.frame_to_spin.setValue(to)
 
-        # Scan window: a strip/roll feeder previews per-frame windows (StripPreviewDialog);
-        # any other device still gets one quick low-res preview of its single holder
-        # position to set one crop window (QuickScanPreviewDialog).
-        self.scan_window_row_label.setVisible(True)
-        self.scan_window_widget.setVisible(True)
-        self.scan_window_status.setVisible(True)
-        self.scan_window_row_label.setText("Batch" if has_frames else "Window")
-        if has_frames:
-            self.scan_window_btn.setText("Preview strip…")
-            self.scan_window_btn.setToolTip("Preview each frame, set a window per frame, and pick which frames to scan")
-        else:
-            self.scan_window_btn.setText("Preview…")
-            self.scan_window_btn.setToolTip("Preview the current holder position and set a crop window for the scan")
-        self._update_scan_window_status()
+        # Scan window: SANE-only crop UI (strip feeder or QuickScanPreviewDialog).
+        # pyOpticfilm uses Prescan instead; both wrote the same scan_window setting.
+        use_sane_window = self._current_backend_id() != "plustek"
+        self.scan_window_row_label.setVisible(use_sane_window)
+        self.scan_window_widget.setVisible(use_sane_window)
+        self.scan_window_status.setVisible(use_sane_window)
+        if use_sane_window:
+            self.scan_window_row_label.setText("Batch" if has_frames else "Window")
+            if has_frames:
+                self.scan_window_btn.setText("Preview strip…")
+                self.scan_window_btn.setToolTip("Preview each frame, set a window per frame, and pick which frames to scan")
+            else:
+                self.scan_window_btn.setText("Preview…")
+                self.scan_window_btn.setToolTip("Preview the current holder position and set a crop window for the scan")
+            self._update_scan_window_status()
 
         show_prescan = bool(caps.prescan)
         self.prescan_label.setVisible(show_prescan)
@@ -569,6 +591,7 @@ class ScanSidebar(QWidget):
         self.dpi_combo.blockSignals(False)
         self.depth_combo.blockSignals(False)
         self.ir_check.blockSignals(False)
+        self.me_check.blockSignals(False)
         self.ae_check.blockSignals(False)
         self.frame_from_spin.blockSignals(False)
         self.frame_to_spin.blockSignals(False)
@@ -741,6 +764,7 @@ class ScanSidebar(QWidget):
         dpi = int(self.dpi_combo.currentData() or self.dpi_combo.currentText() or 3600)
         depth = int(self.depth_combo.currentData() or 16)
         capture_ir = self.ir_check.isEnabled() and self.ir_check.isChecked()
+        multi_exposure = self.me_check.isEnabled() and self.me_check.isChecked()
         autofocus = self._caps_autofocus and self.autofocus_check.isChecked()
         auto_exposure = self._caps_auto_exposure and self.ae_check.isChecked()
         pattern = self.pattern_edit.text().strip() or '{{ date }}_{{ "%03d" % seq }}'
@@ -758,6 +782,7 @@ class ScanSidebar(QWidget):
             dpi=dpi,
             depth=depth,
             capture_ir=capture_ir,
+            multi_exposure=multi_exposure,
             autofocus=autofocus,
             auto_exposure=auto_exposure,
             exposure_time_us=exposure_time_us,
@@ -890,6 +915,7 @@ class ScanSidebar(QWidget):
             dpi=dpi,
             depth=depth,
             capture_ir=self.ir_check.isChecked() and self.ir_check.isEnabled(),
+            multi_exposure=self.me_check.isChecked() and self.me_check.isEnabled(),
             autofocus=self._caps_autofocus and self.autofocus_check.isChecked(),
             auto_exposure=self._caps_auto_exposure and self.ae_check.isChecked(),
             exposure_time_us=(self.exposure_slider.value() if self.exposure_row_widget.isVisible() else None),
