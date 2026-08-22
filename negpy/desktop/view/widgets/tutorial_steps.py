@@ -770,9 +770,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "Scan tab drives the body and Scanlight directly (macOS/Linux). See "
                 "<code>docs/CAMERA_SCANNING.md</code>.<br>"
                 "• See <code>docs/USER_GUIDE.md</code> for the full reference.<br>"
-                "• Having GPU or rendering issues? Edit "
-                "<code>Documents/NegPy/override.toml</code> to switch backends "
-                "without touching code.<br>"
+                "• <b>Preferences</b> (⋯ menu, or <b>Ctrl+,</b>) holds the app-wide settings: "
+                "interface, performance budgets and storage. For GPU or rendering trouble that "
+                "stops the app starting, edit <code>Documents/NegPy/override.toml</code>.<br>"
                 "• Edits auto-save to a local database, so there is no manual save needed "
                 "between files."
             ),

@@ -57,6 +57,7 @@ class MacMenuBar(QMenuBar):
         self._keyed: list[tuple[QAction, str]] = []
 
         # Apple's order: the app's own menus, then Window, Help.
+        self.app_menu = self._build_app()
         self.window_menu = WindowMenu(window, self)
         self.addMenu(self.window_menu)
         self.help_menu = self._build_help()
@@ -78,6 +79,7 @@ class MacMenuBar(QMenuBar):
         action_id: str = "",
         slot: Optional[Callable[[], None]] = None,
         key: str = "",
+        role: QAction.MenuRole = QAction.MenuRole.NoRole,
     ) -> QAction:
         if slot is None:
             slot = self._window.shortcut_manager.action_for(action_id)
@@ -87,8 +89,9 @@ class MacMenuBar(QMenuBar):
         action = QAction(text, self)
         # Window titles carry the open file's name, and Qt's macOS merge heuristic moves any
         # item whose text looks like "about", "settings" or "quit" into the application menu.
-        # NoRole keeps every item where it was put, whatever a frame is called.
-        action.setMenuRole(QAction.MenuRole.NoRole)
+        # NoRole is the default so an item stays where it was put, whatever a frame is called;
+        # only Preferences asks for a merge, by passing its own role.
+        action.setMenuRole(role)
         action.triggered.connect(lambda _checked=False, run=slot: run())
         if action_id:
             self._keyed.append((action, action_id))
@@ -96,6 +99,16 @@ class MacMenuBar(QMenuBar):
             action.setShortcut(_menu_key(key))
         menu.addAction(action)
         return action
+
+    def _build_app(self) -> QMenu:
+        """Holds only Preferences, which macOS then moves into the application menu.
+
+        PreferencesRole is the one place the NoRole rule above must not apply: the item
+        belongs in the application menu, and only that role puts it there with ⌘,.
+        """
+        menu = self._menu("NegPy")
+        self._add(menu, "Preferences…", action_id="open_preferences", role=QAction.MenuRole.PreferencesRole)
+        return menu
 
     def _build_help(self) -> QMenu:
         menu = self._menu("Help")

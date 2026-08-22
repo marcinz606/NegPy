@@ -68,6 +68,13 @@ def _show_shortcuts(window) -> None:
     dlg.exec()
 
 
+def _open_preferences(window, controller) -> None:
+    # Deferred: the dialog reaches the toolbar for the canvas palette, which imports this module.
+    from negpy.desktop.view.widgets.preferences_dialog import open_preferences
+
+    open_preferences(window, controller)
+
+
 class ShortcutManager:
     def __init__(self, window):
         self.window = window
@@ -76,6 +83,14 @@ class ShortcutManager:
         self._shortcuts: list[QShortcut] = []
         self._actions = self._build_actions()
         self.apply_bindings(self.bindings)
+
+    def _toggle_slider_values(self) -> None:
+        from negpy.desktop.view.widgets.sliders import apply_slider_value_visibility
+
+        repo = self.window.controller.session.repo
+        pinned = not bool(repo.get_global_setting("show_slider_values", default=False))
+        repo.save_global_setting("show_slider_values", pinned)
+        apply_slider_value_visibility(self.window, pinned)
 
     def _slider_adjuster(self, getter: Callable[[], object], action_id: str) -> Callable[[], None]:
         group = SLIDER_GROUP_BY_ACTION[action_id]
@@ -158,8 +173,8 @@ class ShortcutManager:
             "toggle_library_tree": self.window.session_panel.toggle_library_tree,
             "toggle_immersive_canvas": lambda: controller.session.set_immersive_canvas(not controller.session.state.immersive_canvas),
             "toggle_sticky_zoom": lambda: controller.session.set_sticky_zoom(not controller.session.state.sticky_zoom),
-            "toggle_slider_values": lambda: toolbar._ov_slider_values_action.trigger(),
-            "toggle_invert_zoom_scroll": lambda: toolbar._ov_invert_zoom_action.trigger(),
+            "toggle_slider_values": self._toggle_slider_values,
+            "toggle_invert_zoom_scroll": lambda: controller.session.set_invert_zoom_scroll(not controller.session.state.invert_zoom_scroll),
             "toggle_left_panel": self.window.toggle_session_dock,
             "toggle_right_panel": self.window.toggle_controls_dock,
             "reset_panel_layout": self.window.reset_panel_layout,
@@ -183,6 +198,7 @@ class ShortcutManager:
             "copy_with_bounds": controller.session.copy_settings_with_bounds,
             "paste": lambda: open_paste_dialog(self.window, controller),
             "persistent_settings": lambda: open_sticky_dialog(self.window, controller),
+            "open_preferences": lambda: _open_preferences(self.window, controller),
             "save_work_print": self.window.right_panel.history_panel.save_work_print,
             "undo": lambda: _context_undo(controller),
             "redo": controller.session.redo,

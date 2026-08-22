@@ -7,11 +7,15 @@ from unittest.mock import patch
 
 from negpy.domain.types import AppConfig
 from negpy.kernel.system.override import (
+    PREVIEW_SIZE_MAX,
+    PREVIEW_SIZE_MIN,
     OverrideConfig,
     _parse,
     _platform_defaults,
     apply,
+    apply_stored,
     load_or_create,
+    toml_pinned_keys,
 )
 
 _ENV_VARS = ("WGPU_BACKEND_TYPE", "QSG_RHI_BACKEND", "QT_QPA_PLATFORM")
@@ -371,3 +375,56 @@ class TestApplyOverride(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestStoredPreferences(unittest.TestCase):
+    """Preferences fills in the performance numbers override.toml left alone."""
+
+    @staticmethod
+    def _stored(**data):
+        return lambda key, default=None: data.get(key, default)
+
+    def test_a_saved_value_fills_a_gap(self):
+        app = _make_app_config()
+        apply_stored(OverrideConfig(), app, self._stored(preview_render_size=2048, render_memo_max_entries=12))
+        self.assertEqual(app.preview_render_size, 2048)
+        self.assertEqual(app.render_memo_max_entries, 12)
+
+    def test_the_toml_wins_over_a_saved_value(self):
+        app = _make_app_config()
+        cfg = OverrideConfig(preview_render_size=1024)
+        apply(cfg, app)
+        apply_stored(cfg, app, self._stored(preview_render_size=4096))
+        self.assertEqual(app.preview_render_size, 1024)
+
+    def test_a_saved_preview_size_is_clamped(self):
+        app = _make_app_config()
+        apply_stored(OverrideConfig(), app, self._stored(preview_render_size=99999))
+        self.assertEqual(app.preview_render_size, PREVIEW_SIZE_MAX)
+
+        apply_stored(OverrideConfig(), app, self._stored(preview_render_size=1))
+        self.assertEqual(app.preview_render_size, PREVIEW_SIZE_MIN)
+
+    def test_a_zero_texture_cap_means_the_hardware_decides(self):
+        app = _make_app_config(max_texture_size=4096)
+        apply_stored(OverrideConfig(), app, self._stored(max_texture_size=0))
+        self.assertIsNone(app.max_texture_size)
+
+    def test_nothing_saved_changes_nothing(self):
+        app = _make_app_config()
+        before = (app.preview_render_size, app.preview_cache_max_entries, app.render_memo_max_entries)
+        apply_stored(OverrideConfig(), app, self._stored())
+        self.assertEqual((app.preview_render_size, app.preview_cache_max_entries, app.render_memo_max_entries), before)
+
+    def test_a_bool_is_not_a_number(self):
+        """JSON storage round-trips True as an int subclass, which would read as 1 entry."""
+        app = _make_app_config()
+        apply_stored(OverrideConfig(), app, self._stored(preview_cache_max_entries=True))
+        self.assertEqual(app.preview_cache_max_entries, 8)
+
+    def test_pinned_keys_name_only_what_the_file_set(self):
+        self.assertEqual(toml_pinned_keys(OverrideConfig()), set())
+        self.assertEqual(
+            toml_pinned_keys(OverrideConfig(preview_render_size=1024, max_texture_size=2048)),
+            {"preview_render_size", "max_texture_size"},
+        )

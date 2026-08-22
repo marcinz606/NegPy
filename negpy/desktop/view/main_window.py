@@ -478,14 +478,6 @@ class MainWindow(QMainWindow):
         self.controller.batch_finished.connect(self.progress_dialog.finish)
         self.progress_dialog.abort_requested.connect(self.controller.abort_active_batch)
 
-        self.dash_timer = QTimer(self)
-        self.dash_timer.timeout.connect(self._refresh_dashboard)
-        self.dash_timer.start(2000)
-        self._refresh_dashboard()
-
-    def _refresh_dashboard(self) -> None:
-        self.toolbar.refresh_gpu_status()
-
     def _on_batch_started(self, title: str, abortable: bool) -> None:
         """Hot Folder polls every 2 s, so its per-frame import batches (the only
         non-abortable ones) would pop the dialog on every capture. The HUD status

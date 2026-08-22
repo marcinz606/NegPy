@@ -1,15 +1,12 @@
-import os
 from dataclasses import dataclass
 
 import qtawesome as qta
 from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtGui import QActionGroup
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
     QMenu,
-    QMessageBox,
     QPushButton,
     QToolButton,
     QVBoxLayout,
@@ -19,11 +16,8 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.keyboard_shortcuts import _context_undo
 from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog
-from negpy.desktop.view.widgets.sliders import apply_slider_value_visibility
-from negpy.kernel.system.parallel import parallel_enabled, set_parallel_enabled
 from negpy.desktop.view.shortcut_registry import key_for, tooltip_with_shortcut
 from negpy.desktop.view.styles.theme import THEME
-from negpy.infrastructure.gpu.device import GPUDevice
 
 CANVAS_COLORS = [
     ("#050505", (0.02, 0.02, 0.02), "Black"),
@@ -256,9 +250,6 @@ class ActionToolbar(QWidget):
             )
         )
 
-        # GPU availability drives the overflow toggle built below (btn moved off the row).
-        self._gpu_available = GPUDevice.get().is_available
-
         # 4. Overflow menu & responsive groups
         self.btn_overflow = QToolButton()
         self.btn_overflow.setIcon(qta.icon("fa5s.ellipsis-h", color=icon_color))
@@ -275,42 +266,8 @@ class ActionToolbar(QWidget):
         self._ov_hq_action = overflow_menu.addAction("Toggle HQ Preview")
         self._ov_hq_action.setCheckable(True)
         self._ov_hq_action.setToolTip("Toggle High Quality Preview")
-
-        # GPU acceleration lives here, not on the editing row. Details are in the tooltip,
-        # refreshed by the dashboard through refresh_gpu_status().
-        self._ov_gpu_action = overflow_menu.addAction(qta.icon("fa5s.bolt", color=icon_color), "GPU Acceleration")
-        self._ov_gpu_action.setCheckable(True)
-        self._ov_gpu_action.setToolTip("GPU Acceleration")
-        if self._gpu_available:
-            self._ov_gpu_action.setChecked(self.session.state.gpu_enabled)
-        else:
-            self._ov_gpu_action.setEnabled(False)
-            self._ov_gpu_action.setChecked(False)
-
-        # Beside GPU Acceleration because it answers the same question, which processor does the
-        # work, and the two trade against each other. With the GPU carrying the pipeline, the CPU
-        # kernels are left with the source assembly, where an HDR solve takes seconds.
-        self._parallel_action = overflow_menu.addAction("Multi-core CPU Rendering")
-        self._parallel_action.setCheckable(True)
-        self._parallel_action.triggered.connect(self._on_cpu_parallel_toggled)
-        self.refresh_cpu_parallel_status()
         overflow_menu.addSeparator()
 
-        # Canvas background, overflow-only with no toolbar swatches. An exclusive checkable group,
-        # so the menu itself shows which color is active.
-        self._ov_color_group = QActionGroup(self)
-        self._ov_color_group.setExclusive(True)
-        self._ov_color_actions: list = []
-        for i, (_, _, label) in enumerate(CANVAS_COLORS):
-            action = overflow_menu.addAction(f"Canvas: {label}")
-            action.setCheckable(True)
-            action.setChecked(i == self.session.state.canvas_bg_index)
-            action.setToolTip(f"Set the canvas background to {label.lower()}")
-            self._ov_color_group.addAction(action)
-            self._ov_color_actions.append(action)
-        overflow_menu.addSeparator()
-
-        overflow_menu.addSeparator()
         self._ov_fit_action = overflow_menu.addAction(qta.icon("fa5s.expand", color=icon_color), "Fit to Window")
         self._ov_fit_action.setToolTip(tooltip_with_shortcut("Fit to Window", "fit_view"))
         self._ov_original_action = overflow_menu.addAction("Original Size (1:1)")
@@ -389,72 +346,18 @@ class ActionToolbar(QWidget):
             qta.icon("fa5s.history", color=icon_color), "Reset Settings", self.session.reset_settings
         )
         reset_settings_action.setToolTip("Discard all edits and return this image to its default look")
-        persistent_action = overflow_menu.addAction(
-            qta.icon("fa5s.thumbtack", color=icon_color),
-            tooltip_with_shortcut("Persistent Settings…", "persistent_settings"),
-            self._show_sticky_dialog,
-        )
-        persistent_action.setToolTip("Choose which settings carry onto the next file you open")
         overflow_menu.addSeparator()
         unload_action = overflow_menu.addAction(qta.icon("fa5s.times-circle", color=icon_color), "Unload", self._on_overflow_unload)
         unload_action.setToolTip("Remove this image from the session (its saved edit is kept)")
         overflow_menu.addSeparator()
-        scale_menu = overflow_menu.addMenu(qta.icon("fa5s.search-plus", color=icon_color), "UI Scale")
-        scale_menu.setToolTipsVisible(True)
-        scale_menu.menuAction().setToolTip("Scale the whole interface (applies after a restart)")
-        self._ui_scale_group = QActionGroup(self)
-        self._ui_scale_group.setExclusive(True)
-        current_scale = float(self.session.repo.get_global_setting("ui_scale", 1.0) or 1.0)
-        for pct in (80, 90, 100, 110, 120):
-            val = pct / 100.0
-            act = scale_menu.addAction(f"{pct}%")
-            act.setCheckable(True)
-            act.setChecked(abs(val - current_scale) < 0.001)
-            self._ui_scale_group.addAction(act)
-            act.triggered.connect(lambda _checked=False, v=val, p=pct: self._on_ui_scale_selected(v, p))
 
-        overflow_menu.addSeparator()
-
-        reset_key = key_for("reset_panel_layout")
-        reset_label = "Reset Panel Layout" + (f"  {reset_key}" if reset_key else "")
-        reset_layout_action = overflow_menu.addAction(
-            qta.icon("fa5s.thumbtack", color=icon_color),
-            reset_label,
-            self._reset_panel_layout,
+        prefs_key = key_for("open_preferences")
+        prefs_action = overflow_menu.addAction(
+            qta.icon("fa5s.sliders-h", color=icon_color),
+            "Preferences…" + (f"  {prefs_key}" if prefs_key else ""),
+            self._show_preferences,
         )
-        reset_layout_action.setToolTip("Restore the default panel sizes and positions")
-        edit_toolbar_action = overflow_menu.addAction(
-            qta.icon("fa5s.wrench", color=icon_color),
-            "Edit Toolbar…",
-            self.open_toolbar_editor,
-        )
-        edit_toolbar_action.setToolTip(tooltip_with_shortcut("Choose which controls sit on the toolbar, and in what order", "edit_toolbar"))
-        self._ov_immersive_action = overflow_menu.addAction("Immersive Canvas")
-        self._ov_immersive_action.setCheckable(True)
-        self._ov_immersive_action.setChecked(self.session.state.immersive_canvas)
-        self._ov_immersive_action.setToolTip(
-            tooltip_with_shortcut("Toolbar overlaps image — turn off to fit the image above the toolbar", "toggle_immersive_canvas")
-        )
-        self._ov_sticky_zoom_action = overflow_menu.addAction("Sticky Zoom")
-        self._ov_sticky_zoom_action.setCheckable(True)
-        self._ov_sticky_zoom_action.setChecked(self.session.state.sticky_zoom)
-        self._ov_sticky_zoom_action.setToolTip(
-            tooltip_with_shortcut("Keep the current zoom level when switching images, instead of resetting to fit", "toggle_sticky_zoom")
-        )
-        self._ov_invert_zoom_action = overflow_menu.addAction("Reverse Scroll Zoom")
-        self._ov_invert_zoom_action.setCheckable(True)
-        self._ov_invert_zoom_action.setChecked(self.session.state.invert_zoom_scroll)
-        self._ov_invert_zoom_action.setToolTip(tooltip_with_shortcut("Scroll up zooms out instead of in", "toggle_invert_zoom_scroll"))
-        self._ov_slider_values_action = overflow_menu.addAction("Show Slider Values")
-        self._ov_slider_values_action.setCheckable(True)
-        self._ov_slider_values_action.setChecked(bool(self.session.repo.get_global_setting("show_slider_values", default=False)))
-        self._ov_slider_values_action.setToolTip(
-            tooltip_with_shortcut("Keep every slider's value box open, instead of revealing it on hover", "toggle_slider_values")
-        )
-        overflow_menu.addSeparator()
-
-        db_action = overflow_menu.addAction(qta.icon("fa5s.database", color=icon_color), "Manage Database…", self._show_database_dialog)
-        db_action.setToolTip("View stored data and clear saved edits")
+        prefs_action.setToolTip("Interface, performance and storage settings for the whole app")
         overflow_menu.addSeparator()
 
         tour_action = overflow_menu.addAction(qta.icon("fa5s.map-signs", color=icon_color), "Take the tour", self._show_tour)
@@ -583,7 +486,6 @@ class ActionToolbar(QWidget):
         self.btn_loupe.toggled.connect(lambda checked: self.controller.toggle_grain_focuser(force=checked))
         self._ov_loupe_action.triggered.connect(lambda checked: self.controller.toggle_grain_focuser(force=checked))
         self.controller.grain_focuser_changed.connect(self._on_grain_focuser_changed)
-        self._ov_gpu_action.toggled.connect(self._on_gpu_toggled)
         self.controller.zoom_changed.connect(self._on_zoom_changed)
 
         self.session.state_changed.connect(self._update_ui_state)
@@ -591,8 +493,6 @@ class ActionToolbar(QWidget):
 
         # Overflow menu action connections
         self._ov_hq_action.triggered.connect(self.controller.toggle_hq_preview)
-        for i, action in enumerate(self._ov_color_actions):
-            action.triggered.connect(lambda checked, idx=i: self._on_canvas_color_changed(idx, True))
         self._ov_rot_l_action.triggered.connect(lambda: self.rotate(1))
         self._ov_rot_r_action.triggered.connect(lambda: self.rotate(-1))
         self._ov_flip_h_action.triggered.connect(lambda: self.flip("horizontal"))
@@ -603,10 +503,6 @@ class ActionToolbar(QWidget):
         self._ov_flat_peek_action.triggered.connect(lambda checked: self.controller.toggle_flat_peek(force=checked))
         self._ov_undo_action.triggered.connect(lambda: _context_undo(self.controller))
         self._ov_redo_action.triggered.connect(self.session.redo)
-        self._ov_immersive_action.triggered.connect(self._on_immersive_toggled)
-        self._ov_sticky_zoom_action.triggered.connect(self._on_sticky_zoom_toggled)
-        self._ov_invert_zoom_action.triggered.connect(self._on_invert_zoom_toggled)
-        self._ov_slider_values_action.triggered.connect(self._on_slider_values_toggled)
 
     def _on_overflow_unload(self) -> None:
         from negpy.desktop.view.confirm import confirm_unload
@@ -615,103 +511,6 @@ class ActionToolbar(QWidget):
             return
         if confirm_unload(self):
             self.session.remove_current_file()
-
-    def _on_immersive_toggled(self, checked: bool) -> None:
-        self.session.set_immersive_canvas(checked)
-
-    def _on_slider_values_toggled(self, checked: bool) -> None:
-        self.session.repo.save_global_setting("show_slider_values", bool(checked))
-        apply_slider_value_visibility(self.window(), bool(checked))
-
-    def _on_sticky_zoom_toggled(self, checked: bool) -> None:
-        self.session.set_sticky_zoom(checked)
-
-    def _on_invert_zoom_toggled(self, checked: bool) -> None:
-        self.session.set_invert_zoom_scroll(checked)
-
-    def _on_gpu_toggled(self, checked: bool) -> None:
-        if checked != self.session.state.gpu_enabled:
-            self.session.set_gpu_enabled(checked)
-
-    def refresh_gpu_status(self) -> None:
-        """Reflect current GPU on/off state and active backend in the overflow toggle."""
-        enabled = self.session.state.gpu_enabled
-        action = self._ov_gpu_action
-
-        action.blockSignals(True)
-        action.setChecked(enabled and self._gpu_available)
-        action.blockSignals(False)
-
-        icon_color = THEME.accent_primary if (enabled and self._gpu_available) else THEME.text_primary
-        action.setIcon(qta.icon("fa5s.bolt", color=icon_color))
-
-        if not self._gpu_available:
-            action.setToolTip("GPU not available on this hardware")
-        elif enabled:
-            try:
-                backend = self.controller.render_worker.processor.backend_name
-            except Exception:
-                backend = "GPU"
-            action.setToolTip(f"GPU Acceleration: ON — {backend}\nClick to force the CPU pipeline.")
-        else:
-            action.setToolTip("GPU Acceleration: OFF — CPU pipeline\nClick to enable WebGPU for near-instant previews.")
-
-    def refresh_cpu_parallel_status(self) -> None:
-        """Reflect on/off in the icon, the way the GPU toggle does.
-
-        A checkable QAction that also carries an icon shows the icon in the indicator slot
-        instead of a tick, so the state has to live in the icon itself or the entry looks
-        identical either way.
-        """
-        enabled = parallel_enabled()
-        action = self._parallel_action
-
-        action.blockSignals(True)
-        action.setChecked(enabled)
-        action.blockSignals(False)
-
-        action.setIcon(qta.icon("fa5s.microchip", color=THEME.accent_primary if enabled else THEME.text_primary))
-        if enabled:
-            action.setToolTip(
-                f"Multi-core CPU Rendering: ON — {os.cpu_count() or '?'} cores\n"
-                "The rendering kernels run 5-8x faster, which is about 10% off a whole HDR\n"
-                "merge — the rest of that time is decoding the RAW files, which this does\n"
-                "not touch. Experimental: if the app closes without warning, turn it off."
-            )
-        else:
-            action.setToolTip(
-                "Multi-core CPU Rendering: OFF — one core\n"
-                "Click to spread the CPU rendering kernels across cores. They run 5-8x\n"
-                "faster, worth roughly 10% off a whole HDR merge — most of that time is\n"
-                "decoding the RAW files. Experimental on macOS."
-            )
-
-    def _on_cpu_parallel_toggled(self, checked: bool) -> None:
-        """Takes effect at once: every kernel is compiled both ways and dispatched per
-        call, so there is nothing to recompile and no restart to wait for."""
-        self.session.repo.save_global_setting("cpu_parallel", bool(checked))
-        set_parallel_enabled(bool(checked))
-        self.session.repo.save_global_setting("cpu_parallel_active", bool(checked))
-        self.refresh_cpu_parallel_status()
-        self.controller.set_status(
-            "Multi-core CPU rendering on — turn it off if the app closes unexpectedly" if checked else "Multi-core CPU rendering off",
-            5000,
-        )
-
-    def _on_ui_scale_selected(self, value: float, pct: int) -> None:
-        self.session.repo.save_global_setting("ui_scale", value)
-        QMessageBox.information(
-            self,
-            "UI Scale",
-            f"UI scale set to {pct}%.\n\nRestart NegPy to apply the change.",
-        )
-
-    def _on_canvas_color_changed(self, idx: int, checked: bool) -> None:
-        if checked:
-            self.session.set_canvas_bg(idx)
-            if self.controller.canvas:
-                _, (r, g, b), _ = CANVAS_COLORS[idx]
-                self.controller.canvas.set_background_color(r, g, b)
 
     def _on_zoom_changed(self, zoom: float) -> None:
         # The label shows the true pixel zoom (zoom_level x fit_scale), which is what the user
@@ -789,13 +588,6 @@ class ActionToolbar(QWidget):
         # Flipping shouldn't drop an active before/after or flat-peek (see rotate()).
         self.controller.rerender_active_view()
 
-    def _reset_panel_layout(self) -> None:
-        from negpy.desktop.view.main_window import MainWindow
-
-        win = self.window()
-        if isinstance(win, MainWindow):
-            win.reset_panel_layout()
-
     def _show_tour(self) -> None:
         from negpy.desktop.view.main_window import MainWindow
 
@@ -809,15 +601,10 @@ class ActionToolbar(QWidget):
         dlg = ShortcutsOverlay(self.window().shortcut_manager, self.window())
         dlg.exec()
 
-    def _show_sticky_dialog(self) -> None:
-        from negpy.desktop.view.widgets.granular_settings_dialog import open_sticky_dialog
+    def _show_preferences(self) -> None:
+        from negpy.desktop.view.widgets.preferences_dialog import open_preferences
 
-        open_sticky_dialog(self.window(), self.controller)
-
-    def _show_database_dialog(self) -> None:
-        from negpy.desktop.view.widgets.database_dialog import DatabaseDialog
-
-        DatabaseDialog(self.session.repo, self.controller, self.window()).exec()
+        open_preferences(self.window(), self.controller)
 
     def _update_ui_state(self) -> None:
         state = self.session.state
@@ -840,9 +627,6 @@ class ActionToolbar(QWidget):
         self.btn_flip_v.setChecked(geo.flip_vertical)
         self._ov_flip_h_action.setChecked(geo.flip_horizontal)
         self._ov_flip_v_action.setChecked(geo.flip_vertical)
-        self._ov_immersive_action.setChecked(state.immersive_canvas)
-        self._ov_sticky_zoom_action.setChecked(state.sticky_zoom)
-        self._ov_invert_zoom_action.setChecked(state.invert_zoom_scroll)
 
         self.btn_undo.setEnabled(state.undo_index > 0)
         self.btn_redo.setEnabled(state.undo_index < state.max_history_index)

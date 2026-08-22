@@ -15,6 +15,7 @@ from negpy.features.lab.models import LabConfig
 from negpy.features.process.models import ProcessConfig, ProcessMode
 from negpy.features.retouch.models import RetouchConfig
 from negpy.features.toning.models import ToningConfig
+from negpy.kernel.system.override import PREVIEW_SIZE_DEFAULT
 from negpy.kernel.system.paths import get_default_user_dir, get_resource_path
 
 BASE_USER_DIR = get_default_user_dir()
@@ -25,7 +26,7 @@ APP_CONFIG = AppConfig(
     # LocalAssetStore.get_thumbnail drops any that are not this size.
     thumbnail_size=256,
     max_workers=max(1, (os.cpu_count() or 1)),
-    preview_render_size=1600,
+    preview_render_size=PREVIEW_SIZE_DEFAULT,
     max_history_steps=100,
     edits_db_path=os.path.join(BASE_USER_DIR, "edits.db"),
     settings_db_path=os.path.join(BASE_USER_DIR, "settings.db"),

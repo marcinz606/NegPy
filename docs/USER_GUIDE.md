@@ -11,9 +11,9 @@ This guide is for new users. It explains what each control does and when to reac
 ### Screen layout
 
 *   **Left, the film strip**: your loaded frames as a contact sheet, plus import, sorting and triage tools.
-*   **Centre, the canvas**: the live preview. Most tools (crop, white-balance picker, heal brush, dodge/burn masks) are used by clicking directly on it. Scroll or pinch to zoom, drag to pan. A floating toolbar along the bottom holds Fit/1:1 zoom (**1:1** is one scan pixel per screen pixel, and lights up while you are at it; below **HQ** the preview is scaled up to reach it, which a **preview res · HQ off** pill on the canvas says), undo/redo, rotate/flip and more, moving overflow items into an **⋯** menu as the window narrows. **Edit Toolbar…** in that menu chooses which controls sit on the row and in what order (drag them into place); what does not fit collapses from the right, and the **⋯** menu keeps every action whatever the row shows. That menu also holds **Immersive Canvas** (the image fills the canvas and the toolbar overlaps it; turn it off to reserve space) **Show Slider Values** (every slider's value box stays open instead of appearing under the pointer) and **Reverse Scroll Zoom** (scroll up zooms out instead of in). **Persistent Settings…** chooses which settings carry onto the next file you open. Right-click the image for **Reset View** and **Sticky Zoom** (keeps the current zoom when you switch frames), plus the picker tools and copy/paste settings. With nothing loaded the canvas shows **Load some scans to get started**; click it for **Add files** or **Add folder**.
+*   **Centre, the canvas**: the live preview. Most tools (crop, white-balance picker, heal brush, dodge/burn masks) are used by clicking directly on it. Scroll or pinch to zoom, drag to pan. A floating toolbar along the bottom holds Fit/1:1 zoom (**1:1** is one scan pixel per screen pixel, and lights up while you are at it; below **HQ** the preview is scaled up to reach it, which a **preview res · HQ off** pill on the canvas says), undo/redo, rotate/flip and more, moving overflow items into an **⋯** menu as the window narrows. What does not fit collapses from the right, and the **⋯** menu keeps every action whatever the row shows. **Preferences…** in that menu holds every app-wide setting (§14): the interface options, the performance budgets, **Edit Toolbar…** for which controls sit on the row and in what order, and **Persistent Settings…** for what carries onto the next file you open. Right-click the image for **Reset View** and **Sticky Zoom** (keeps the current zoom when you switch frames), plus the picker tools and copy/paste settings. With nothing loaded the canvas shows **Load some scans to get started**; click it for **Add files** or **Add folder**.
 *   **Left, the film strip**: your loaded frames as a contact sheet, plus import, sorting, and triage tools.
-*   **Centre, the canvas**: the live preview of the current frame. Most tools (crop, white-balance picker, heal brush, dodge/burn masks) are used by clicking directly on it. Scroll/pinch to zoom and drag to pan; a floating toolbar along the bottom holds Fit/1:1 zoom (**1:1** is one scan pixel per screen pixel, and lights up while you are at it; below **HQ** the preview is scaled up to reach it, which a **preview res · HQ off** pill on the canvas says) plus undo/redo, rotate/flip and more, moving overflow items into an **⋯** menu when the window narrows. **Edit Toolbar…** in that menu chooses which controls sit on the row and in what order (drag them into place); what does not fit collapses from the right, and the **⋯** menu keeps every action whatever the row shows. That menu also has **Immersive Canvas** (image fills the canvas and the toolbar overlaps it; turn off to reserve space so it never occludes the image) **Show Slider Values** (keeps every slider's value box open instead of revealing it under the pointer; turn it on if you work by the numbers) and **Reverse Scroll Zoom** (scroll up zooms out instead of in). **Persistent Settings…** chooses which settings carry onto the next file you open. Right-click the image for **Reset View** and **Sticky Zoom** (keeps the current zoom level when you switch to another frame, instead of resetting to fit), alongside the picker tools, copy/paste settings, and **Unload** (removes the frame from the session; its saved edit is kept). With nothing loaded it shows **Load some scans to get started**; click it for **Add files** / **Add folder**.
+*   **Centre, the canvas**: the live preview of the current frame. Most tools (crop, white-balance picker, heal brush, dodge/burn masks) are used by clicking directly on it. Scroll/pinch to zoom and drag to pan; a floating toolbar along the bottom holds Fit/1:1 zoom (**1:1** is one scan pixel per screen pixel, and lights up while you are at it; below **HQ** the preview is scaled up to reach it, which a **preview res · HQ off** pill on the canvas says) plus undo/redo, rotate/flip and more, moving overflow items into an **⋯** menu when the window narrows. What does not fit collapses from the right, and the **⋯** menu keeps every action whatever the row shows. **Preferences…** in that menu holds every app-wide setting (§14): the interface options, the performance budgets, **Edit Toolbar…** for which controls sit on the row and in what order, and **Persistent Settings…** for what carries onto the next file you open. Right-click the image for **Reset View** and **Sticky Zoom** (keeps the current zoom level when you switch to another frame, instead of resetting to fit), alongside the picker tools, copy/paste settings, and **Unload** (removes the frame from the session; its saved edit is kept). With nothing loaded it shows **Load some scans to get started**; click it for **Add files** / **Add folder**.
 *   **Right, the controls**: a pinned **Analysis** readout at the top, and below it an icon tab bar. Each icon opens a *workflow page* holding one or more collapsible panels.
 
 ### Before / After
@@ -53,7 +53,7 @@ Both side panels can be narrowed to give the canvas more room. As the controls p
 
 Open a frame you have not edited and it does not start from bare defaults: the settings that belong to the *rig and the roll* rather than the picture come with it — film process, crop ratio, flips, calibration, paper stock, the Lab polish and your export preferences. The look itself (density, filtration, tone curve, toning, dodge and burn) starts clean on every frame.
 
-**Persistent Settings…** in the canvas **⋯** menu changes that list. Every setting the copy/paste picker knows is there, grouped by panel; tick one to make it carry, untick one to stop it. Tick the whole group from its header checkbox. Values shown are the ones from your last saved edit, so the list reads as what would actually carry.
+**Preferences → Session & Storage → Persistent Settings…** changes that list. Every setting the copy/paste picker knows is there, grouped by panel; tick one to make it carry, untick one to stop it. Tick the whole group from its header checkbox. Values shown are the ones from your last saved edit, so the list reads as what would actually carry.
 
 A frame you have already edited keeps its own look whatever you tick — only export and metadata settings reach it. **Reset Settings** on a frame ignores this list and returns it to bare defaults.
 
@@ -61,6 +61,7 @@ A frame you have already edited keeps its own look whatever you tick — only ex
 
 On macOS NegPy has a menu bar. Almost nothing in it is new: apart from Report an Issue, every item runs something a button, a window control or a keyboard shortcut already runs.
 
+*   **NegPy**: Preferences… (`⌘,`), which macOS shows in the application menu beside About and Quit.
 *   **Window**: Minimize (`⌘M`), Zoom, Close (`⌘W`) and Bring All to Front, then every open NegPy window — the main window plus any live view or calibration window — with a tick against the front one. Select a name to bring that window forward. Minimize and Zoom are unavailable while a window is full screen, as elsewhere on macOS.
 *   **Help**: Take the Tour, Keyboard Shortcuts, Customize Shortcuts, the Analysis panel guide, Report an Issue (which opens the NegPy issue tracker in your browser), and Check for Updates.
 
@@ -373,11 +374,11 @@ The film's dyes each absorb outside their own band, but they are not the only ca
 
 How the negative is measured and normalized into a positive. The film mode that decides *which* conversion runs sits above the panels (§4), and how the scan is decoded lives in **Calibration** (§4.1).
 
-*   **Multi-core CPU Rendering** (canvas toolbar → **»** menu, beside **GPU Acceleration**): spreads the CPU rendering kernels across your cores. It takes effect immediately, with no recompile and no restart.
+*   **Multi-core CPU rendering** (**Preferences → Performance**, beside **GPU acceleration**): spreads the CPU rendering kernels across your cores. It takes effect immediately, with no recompile and no restart.
 
     Be realistic about the gain. The kernels run much faster, but a merge is dominated by decoding the RAW files, which this does not touch, so the whole operation comes down by only about a tenth. Ordinary editing changes less again, because the GPU already carries the pipeline. The gain is largest wherever the CPU does the work: merges, exports, and any machine without a usable GPU.
 
-    On Windows and Linux this is **on**. On macOS it is **off**, pending more evidence: the underlying threading layer terminates the process outright if two threads enter it at once, and while NegPy serialises every such call behind a lock, that has been proven on one Mac rather than on the range of them. If you turn it on and the app ever closes without warning, NegPy notices on the next launch and offers to turn it back off; that is the failure to expect, and it is recoverable. Setting `cpu_parallel` under `[performance]` in `override.toml` still wins over the menu, for a machine that cannot start.
+    On Windows and Linux this is **on**. On macOS it is **off**, pending more evidence: the underlying threading layer terminates the process outright if two threads enter it at once, and while NegPy serialises every such call behind a lock, that has been proven on one Mac rather than on the range of them. If you turn it on and the app ever closes without warning, NegPy notices on the next launch and offers to turn it back off; that is the failure to expect, and it is recoverable. Setting `cpu_parallel` under `[performance]` in `override.toml` still wins over Preferences, for a machine that cannot start.
 
 **Analysis window**, where NegPy measures the black and white points. The slider takes half the row, the three buttons the other half:
 
@@ -879,23 +880,51 @@ Camera scanning needs the optional `python-gphoto2` dependency (`pip install gph
 
 ---
 
-## 14. Startup Override (`override.toml`)
+## 14. Preferences
 
-If NegPy crashes on launch or has rendering glitches, you can force backend settings without touching code. On first run NegPy creates `Documents/NegPy/override.toml` with defaults for your OS. Edit it and restart.
+Settings for the whole application, not for one photo. Open them from the canvas **⋯** menu → **Preferences…**, with `Ctrl + ,`, or on macOS from the application menu. Changes apply as you make them; the rows NegPy reads at startup say so and light a restart notice.
+
+### Interface
+
+*   **UI scale** (80% to 120%): scales the whole interface. Applies after a restart.
+*   **Canvas background**: four swatches — black, dark grey, mid grey, white — for the surround the image sits on. Mid grey is the neutral judgement surround; white reads like a print on a light table.
+*   **Immersive canvas**: the toolbar floats over the image instead of sitting below it, so the frame gets the whole canvas.
+*   **Sticky zoom**: keep the current zoom when you switch frames, instead of resetting to fit. Useful for checking the same magnification across a roll.
+*   **Reverse scroll zoom**: scroll up zooms out.
+*   **Show slider values**: keep every slider's value box open, instead of revealing it on hover.
+*   **Customize Shortcuts…**, **Edit Toolbar…** and **Reset Panel Layout**: the shortcut editor, the picker for which controls sit on the canvas toolbar, and a return to the default panel sizes and positions.
+
+### Performance
+
+*   **GPU acceleration**: render the pipeline on the GPU. The active backend is named below the row. Off falls back to the CPU pipeline, which is slower but produces the same image.
+*   **Multi-core CPU rendering**: see §4.2 — it takes effect at once, with no restart.
+*   **Preview size** (512 to 8192 px): long edge of the interactive canvas. Higher is sharper at 100% zoom, and costs proportionally more VRAM and CPU per frame, so lower the cache limit and the rendered-frame count to match. RAW files decode at half sensor size for the preview, so there is nothing to gain past half the long edge of your scan.
+*   **Preview cache** and **Preview cache limit**: how many recently-viewed photos stay decoded in memory, and the memory ceiling for them. Lower both on a machine with little RAM.
+*   **HQ buffers**: full-resolution HQ preview buffers kept in memory. Each is large — a 60 MP scan is about 700 MB — and keeping the previous frame makes going back instant.
+*   **Rendered frames**: rendered frames held for navigating back with no re-render.
+*   **GPU texture cap**: largest GPU texture dimension. 0 lets the hardware decide; set it to 4096 if exports run the card out of memory.
+
+Every row from **Preview size** down is read at startup, so a change needs a restart. A value set in `override.toml` wins over these, and its row is greyed out and says so.
+
+### Session & Storage
+
+*   **Persistent Settings…**: which edits carry onto the next file you open (§2).
+*   **Manage Database…**: stored row counts and sizes, clearing saved edits, and your library roots.
+
+### Startup override (`override.toml`)
+
+If NegPy crashes on launch or has rendering glitches, force the backend without touching code. On first run NegPy creates `Documents/NegPy/override.toml` with defaults for your OS. Edit it and restart. The `[performance]` numbers above are here too, and a value in this file wins over Preferences — which is what makes the file usable on a machine that will not start.
 
 | Setting | Values | Effect |
 |---------|--------|--------|
 | `rendering.backend` | `"auto"`, `"vulkan"`, `"dx12"`, `"metal"`, `"cpu"` | GPU backend for image processing. `"cpu"` disables GPU entirely. |
 | `display.qt_rhi_backend` | `"auto"`, `"vulkan"`, `"d3d12"`, `"metal"`, `"opengl"`, `"software"` | Qt UI rendering backend. |
 | `display.qt_platform` | `"auto"`, `"xcb"`, `"wayland"` | Window system plugin (Linux only). |
-| `performance.max_texture_size` | `"auto"` or a number, e.g. `4096` | Caps GPU texture size; reduce on low-VRAM cards. |
-| `performance.preview_render_size` | a number, 512 to 8192, e.g. `3000` | Long edge of the interactive preview (default `1600`). Higher is a sharper canvas at 100% zoom; every rendered frame costs proportionally more VRAM, so lower `preview_cache_max_bytes` and `render_memo_max_entries` to match. RAW files decode at half sensor size for the preview, so there is nothing to gain past half the long edge of your scan. |
 | `performance.force_hq_preview` | `true` / `false` (or absent) | Overrides the saved HQ preview toggle. |
-| `performance.preview_cache_max_bytes` | a number, e.g. `1200000000` | Preview cache memory budget (default about 1.2 GB). |
-| `performance.preview_cache_max_entries` | a number, e.g. `8` | Max recently-viewed photos kept in memory. |
-| `performance.preview_cache_max_full_res_entries` | a number, e.g. `2` | Full-resolution HQ preview buffers kept in memory (a 60 MP scan is about 700 MB each). |
 | `performance.cpu_parallel` | `true` / `false` (or absent) | Multi-core CPU rendering kernels. Defaults on, except on macOS. |
 | `logging.level` | `"debug"`, `"info"`, `"warning"`, `"error"` | Log verbosity. Use `"debug"` when reporting issues. |
+
+`max_texture_size`, `preview_render_size`, `preview_cache_max_bytes`, `preview_cache_max_entries`, `preview_cache_max_full_res_entries` and `render_memo_max_entries` take the same values as their Preferences rows.
 
 **Common fixes:**
 
@@ -932,7 +961,7 @@ You can ask for the check again at any time with the **Check for updates** actio
 
 ## Additional Info
 
-*   **GPU acceleration**: NegPy uses your GPU for near-instant previews and responsive sliders. The Normalization panel's analysis (bounds, white/black point, normalize) runs on the CPU. There is no global GPU switch in the UI, so force the CPU pipeline through `override.toml` if you suspect a driver issue.
+*   **GPU acceleration**: NegPy uses your GPU for near-instant previews and responsive sliders. The Normalization panel's analysis (bounds, white/black point, normalize) runs on the CPU. Turn it off in **Preferences → Performance** if you suspect a driver issue, or force the backend in `override.toml`.
 *   **Database**: all edits live in a local SQLite database keyed by file hash, so you can move or rename files without losing your work. Optional `.negpy` sidecars mirror edits next to your sources.
 *   **Saving edits**: edits are written to the database on export, when you switch frames, or when you save explicitly. Closing the app mid-edit without any of those loses unsaved changes.
 *   **Keyboard shortcuts**: [KEYBOARD.md](KEYBOARD.md)

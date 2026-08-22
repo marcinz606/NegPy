@@ -17,6 +17,7 @@ from negpy.services.assets.gear import GearProfiles
 from negpy.kernel.system.config import APP_CONFIG, BASE_USER_DIR
 from negpy.kernel.system.logging import get_logger, setup_logging
 from negpy.kernel.system.override import apply as apply_override
+from negpy.kernel.system.override import apply_stored as apply_stored_override
 from negpy.kernel.system.override import load_or_create as load_override
 from negpy.kernel.system.parallel import configure_cpu_parallel, parallel_enabled, resolve_cpu_parallel, set_parallel_enabled
 from negpy.kernel.system.paths import get_resource_path
@@ -215,6 +216,10 @@ def main() -> None:
         # can be applied through QT_SCALE_FACTOR, which Qt reads only at startup.
         repo = StorageRepository(APP_CONFIG.edits_db_path, APP_CONFIG.settings_db_path)
         repo.initialize()
+
+        # Preferences fills in the performance numbers override.toml left alone. After the
+        # file's own apply() above, and still before QApplication reads any of them.
+        apply_stored_override(override_cfg, APP_CONFIG, repo.get_global_setting)
 
         # Multi-core Numba kernels: override.toml, then the saved setting, then the platform
         # default (off on macOS). Read before the flags below are overwritten.

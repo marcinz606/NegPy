@@ -2,7 +2,9 @@ import logging
 import os
 import sys
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from negpy.domain.types import AppConfig
 
@@ -11,13 +13,17 @@ logger = logging.getLogger(__name__)
 
 # A hand-edited preview size below this is not a usable canvas (`= true` coerces to 1,
 # since bool is an int), and above it no GPU can hold the frame.
-_PREVIEW_SIZE_MIN = 512
-_PREVIEW_SIZE_MAX = 8192
+PREVIEW_SIZE_MIN = 512
+PREVIEW_SIZE_MAX = 8192
+PREVIEW_SIZE_DEFAULT = 1600
 
 
 _DEFAULT_TOML_LINUX_WIN = """\
 # NegPy Override Configuration
 # Edit this file and restart the app to apply changes.
+#
+# The [performance] numbers are also in Preferences. A value set here wins over the one
+# chosen there, so this file stays the escape hatch for a machine that cannot start.
 #
 # rendering.backend options:
 #   "auto"   - platform default (Vulkan on Linux/Windows, Metal on macOS)
@@ -247,7 +253,7 @@ def apply(cfg: OverrideConfig, app_config: AppConfig) -> None:
         app_config.cpu_parallel = cfg.cpu_parallel
 
     if cfg.preview_render_size is not None:
-        size = min(_PREVIEW_SIZE_MAX, max(_PREVIEW_SIZE_MIN, cfg.preview_render_size))
+        size = min(PREVIEW_SIZE_MAX, max(PREVIEW_SIZE_MIN, cfg.preview_render_size))
         if size != cfg.preview_render_size:
             logger.warning("preview_render_size %d is out of range, using %d", cfg.preview_render_size, size)
         app_config.preview_render_size = size
@@ -263,3 +269,42 @@ def apply(cfg: OverrideConfig, app_config: AppConfig) -> None:
 
     if cfg.render_memo_max_entries is not None:
         app_config.render_memo_max_entries = cfg.render_memo_max_entries
+
+
+# The [performance] numbers a user can also set in Preferences, saved under these exact key
+# names. The bool and string keys are absent on purpose: they are read before the settings
+# database exists, or a wrong choice stops the app from starting.
+STORED_PERF_KEYS: tuple[str, ...] = (
+    "preview_render_size",
+    "preview_cache_max_bytes",
+    "preview_cache_max_entries",
+    "preview_cache_max_full_res_entries",
+    "render_memo_max_entries",
+    "max_texture_size",
+)
+
+
+def toml_pinned_keys(cfg: OverrideConfig) -> set[str]:
+    """Which stored keys override.toml has taken over, so a UI can say so and stand down."""
+    return {key for key in STORED_PERF_KEYS if getattr(cfg, key) is not None}
+
+
+def apply_stored(cfg: OverrideConfig, app_config: AppConfig, get_setting: Callable[[str, Any], Any]) -> None:
+    """Fill in the saved preferences that override.toml left alone.
+
+    Runs after apply(), so the file keeps the last word. max_texture_size stores 0 for
+    "let the hardware decide", which AppConfig spells as None.
+    """
+    pinned = toml_pinned_keys(cfg)
+    for key in STORED_PERF_KEYS:
+        if key in pinned:
+            continue
+        raw = get_setting(key, None)
+        if not isinstance(raw, int) or isinstance(raw, bool):
+            continue
+        if key == "max_texture_size":
+            setattr(app_config, key, raw if raw > 0 else None)
+        elif key == "preview_render_size":
+            setattr(app_config, key, min(PREVIEW_SIZE_MAX, max(PREVIEW_SIZE_MIN, raw)))
+        elif raw > 0:
+            setattr(app_config, key, raw)

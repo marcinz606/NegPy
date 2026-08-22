@@ -62,6 +62,7 @@ While a test strip or ring-around is up, `[` and `]` turn that proof's ladder in
 | `Ctrl + Y` | Redo change |
 | `Ctrl + C` | Copy settings from current image |
 | `Ctrl + V` | Paste settings to current image |
+| `Ctrl + ,` | Open Preferences |
 
 ## Viewport
 | Key | Action |
@@ -69,13 +70,13 @@ While a test strip or ring-around is up, `[` and `]` turn that proof's ladder in
 | `Ctrl + [` | Toggle session panel (re-docks when floating) |
 | `Ctrl + ]` | Toggle controls panel (re-docks when floating) |
 | `Ctrl + Shift + L` | Dock session and controls panels |
-| `Mouse Wheel` | Zoom in / out (up to 400%); **Reverse Scroll Zoom** in the toolbar **⋯** menu flips the direction |
+| `Mouse Wheel` | Zoom in / out (up to 400%); **Reverse scroll zoom** in Preferences flips the direction |
 | `Middle Click` + `Drag` | Pan zoomed image |
 | `Left Click` + `Drag` | Pan zoomed image (when no tool is active) |
 
 ## Menu bar (macOS only)
 
-NegPy has a menu bar on macOS, with a **Window** and a **Help** menu. These keys come from it. They are platform window commands, not NegPy actions, so they are fixed and do not appear in the shortcut editor.
+NegPy has a menu bar on macOS: **Preferences…** sits in the application menu, and there is a **Window** and a **Help** menu. These keys come from it. They are platform window commands, not NegPy actions, so they are fixed and do not appear in the shortcut editor.
 
 | Key | Action |
 |-----|--------|

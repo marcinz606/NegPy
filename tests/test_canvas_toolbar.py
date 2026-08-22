@@ -138,8 +138,6 @@ class TestCanvasToolbarResponsive(unittest.TestCase):
     def _all_overflow_actions(self, tb: ActionToolbar) -> list:
         return [
             tb._ov_hq_action,
-            tb._ov_gpu_action,
-            *tb._ov_color_actions,
             tb._ov_fit_action,
             tb._ov_original_action,
             tb._ov_compare_action,
@@ -169,6 +167,25 @@ class TestCanvasToolbarResponsive(unittest.TestCase):
         labels = [a.text() for a in tb.btn_overflow.menu().actions()]
         self.assertNotIn("Color Ring-Around", labels)
         self.assertFalse(hasattr(tb, "_ov_ring_action"))
+
+    def test_app_settings_moved_out_of_the_overflow_menu(self):
+        tb = _make_toolbar()
+        labels = [a.text() for a in tb.btn_overflow.menu().actions()]
+        for gone in (
+            "GPU Acceleration",
+            "Multi-core CPU Rendering",
+            "Canvas: Black",
+            "UI Scale",
+            "Immersive Canvas",
+            "Sticky Zoom",
+            "Reverse Scroll Zoom",
+            "Show Slider Values",
+            "Reset Panel Layout",
+            "Edit Toolbar…",
+            "Manage Database…",
+        ):
+            self.assertNotIn(gone, labels)
+        self.assertTrue(any("Preferences" in label for label in labels))
 
     def test_overflow_menu_always_shows_full_action_set(self):
         """Regression: the overflow menu previously mirrored only whatever the row's

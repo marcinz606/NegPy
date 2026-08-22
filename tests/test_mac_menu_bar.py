@@ -70,7 +70,7 @@ def test_menus_are_in_apple_order(window):
     with patch("negpy.desktop.view.mac_menu_bar.sys.platform", "darwin"):
         bar = install_mac_menus(window)
 
-    assert [action.menu().title() for action in bar.actions()] == ["Window", "Help"]
+    assert [action.menu().title() for action in bar.actions()] == ["NegPy", "Window", "Help"]
 
 
 def test_bar_has_no_parent(bar, window):

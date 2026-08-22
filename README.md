@@ -153,7 +153,7 @@ Everything lives in your `Documents/NegPy` folder:
 
 ## Troubleshooting
 
-If NegPy crashes on startup or has rendering issues, edit `Documents/NegPy/override.toml`. It is created automatically on first run with sensible defaults for your OS.
+If NegPy crashes on startup or has rendering issues, edit `Documents/NegPy/override.toml`. It is created automatically on first run with sensible defaults for your OS. The `[performance]` numbers are also in **Preferences** (`Ctrl + ,`); a value in this file wins over the dialog, which is what makes it usable when the app will not start.
 
 ```toml
 [rendering]
