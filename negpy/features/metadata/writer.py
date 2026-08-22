@@ -198,7 +198,8 @@ def _demote_scan_datetime(merged: dict) -> None:
 
 
 def _sanitize_exif(exif_dict: dict) -> dict:
-    """Drop entries piexif can't serialize."""
+    """Drop entries piexif can't serialize, plus tags that describe the source
+    rather than the file being written."""
     _RATIONAL_TYPES = {5, 10}
 
     def _short_overflows(value) -> bool:
@@ -213,6 +214,14 @@ def _sanitize_exif(exif_dict: dict) -> dict:
         tags_info = piexif.TAGS.get(ifd_name, {})
         clean = {}
         for tag, value in ifd_data.items():
+            if ifd_name == "Exif" and tag == piexif.ExifIFD.ColorSpace:
+                # The source's ColorSpace tag records the camera's own in-body
+                # rendering (Nikon's non-standard "2" for Adobe RGB is common),
+                # not the space NegPy just rendered into. A stale mismatch against
+                # the file's real color tag (an ICC profile, or JPEG XL's own
+                # enumerated tag) reads as a self-contradicting file to a strict
+                # reader, which drops color management rather than guess.
+                continue
             tag_type = tags_info.get(tag, {}).get("type")
             if isinstance(value, bytes) and tag_type in _RATIONAL_TYPES:
                 continue
