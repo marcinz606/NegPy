@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import QApplication
 
 from negpy.desktop.view.sidebar.scan import ScanSidebar
 from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice
-from negpy.infrastructure.scanners.params import ScanMode
+from negpy.infrastructure.scanners.params import FILM_TYPES, ScanMode
 
 if not QApplication.instance():
     _app = QApplication(sys.argv)
@@ -87,6 +87,24 @@ SE_DEVICE = ScannerDevice(
     model="OpticFilm 8200i SE",
     capabilities=SE_CAPS,
 )
+
+
+# A Coolscan over nkscan: it measures the strip, cleans dust itself and multi-samples.
+NKSCAN_CAPS = ScannerCapabilities(
+    ir_channel=True,
+    supported_dpi=(1000, 4000),
+    supported_depths=(16,),
+    sources=(ScanMode.NEGATIVE, ScanMode.POSITIVE),
+    max_area_mm=(24.0, 36.0),
+    can_eject=True,
+    hw_clean=True,
+    roll_discovery=True,
+    film_formats=("135", "66"),
+    film_types=tuple(FILM_TYPES),
+    max_samples=16,
+    superfine=True,
+)
+NKSCAN_DEVICE = ScannerDevice(id="usb:1-3.2", vendor="Nikon", model="LS-50", capabilities=NKSCAN_CAPS)
 
 
 class _FakeRepo:
@@ -522,3 +540,166 @@ def test_lockout_scan_error_shows_message_box(monkeypatch) -> None:
 
     assert f"Error: {msg}" in sidebar.status_label.text()
     assert popped == [("Scan failed", msg)]
+
+
+# ── nkscan-only controls ──────────────────────────────────────────────────
+
+
+def test_a_measured_strip_device_shows_the_nkscan_controls() -> None:
+    sidebar, _ = _sidebar(NKSCAN_DEVICE)
+    assert sidebar.clean_check.isVisibleTo(sidebar) is True
+    assert sidebar.superfine_check.isVisibleTo(sidebar) is True
+    assert sidebar.samples_combo.isVisibleTo(sidebar) is True
+    assert sidebar.format_combo.isVisibleTo(sidebar) is True
+    assert [sidebar.samples_combo.itemData(i) for i in range(sidebar.samples_combo.count())] == [1, 2, 4, 8, 16]
+    assert [sidebar.format_combo.itemData(i) for i in range(sidebar.format_combo.count())] == [None, "135", "66"]
+
+
+def test_a_sane_device_shows_none_of_them() -> None:
+    sidebar, _ = _sidebar(FULL_DEVICE)
+    assert sidebar.clean_check.isVisibleTo(sidebar) is False
+    assert sidebar.superfine_check.isVisibleTo(sidebar) is False
+    assert sidebar.samples_combo.isVisibleTo(sidebar) is False
+    assert sidebar.format_combo.isVisibleTo(sidebar) is False
+
+
+def test_a_measured_strip_hides_the_frame_range_and_offers_the_strip_dialog() -> None:
+    sidebar, _ = _sidebar(NKSCAN_DEVICE)
+    assert sidebar.frame_range_widget.isVisibleTo(sidebar) is False
+    assert sidebar.scan_window_btn.text() == "Preview strip…"
+
+
+def test_a_measured_strip_scans_as_a_batch() -> None:
+    sidebar, controller = _sidebar(NKSCAN_DEVICE)
+    sidebar.folder_edit.setText("/tmp/negpy-test")
+    sidebar._on_scan()
+    assert [kind for kind, _req in controller.started] == ["batch"]
+
+
+def test_the_nkscan_options_reach_the_request() -> None:
+    sidebar, controller = _sidebar(NKSCAN_DEVICE)
+    sidebar.folder_edit.setText("/tmp/negpy-test")
+    sidebar.clean_check.setChecked(True)
+    sidebar.superfine_check.setChecked(True)
+    sidebar.samples_combo.setCurrentIndex(sidebar.samples_combo.findData(4))
+    sidebar.format_combo.setCurrentIndex(sidebar.format_combo.findData("66"))
+
+    sidebar._on_scan()
+    params = controller.started[-1][1].params
+    assert (params.clean, params.superfine, params.samples, params.film_format) == (True, True, 4, "66")
+
+
+def test_a_saved_clean_never_reaches_a_device_that_cannot_do_it() -> None:
+    """The same guard as autofocus: a stale saved value must not become a refused option."""
+    sidebar, controller = _sidebar(FULL_DEVICE, settings={"clean": True, "superfine": True, "samples": 8})
+    sidebar.folder_edit.setText("/tmp/negpy-test")
+    sidebar._on_scan()
+
+    params = controller.started[-1][1].params
+    assert (params.clean, params.superfine, params.samples, params.film_format) == (False, False, 1, None)
+
+
+def test_the_nkscan_options_persist() -> None:
+    sidebar, _ = _sidebar(NKSCAN_DEVICE)
+    sidebar.clean_check.setChecked(True)
+    sidebar.samples_combo.setCurrentIndex(sidebar.samples_combo.findData(2))
+    assert (sidebar.settings.clean, sidebar.settings.samples) == (True, 2)
+
+
+def test_a_measured_strip_says_what_scan_would_do_before_a_preview() -> None:
+    """Its frames come from the strip dialog, and there is no frame range to fall back on."""
+    sidebar, _ = _sidebar(NKSCAN_DEVICE)
+    assert "Preview strip" in sidebar.scan_window_status.text()
+
+
+def test_a_measured_strip_scans_the_frames_the_strip_dialog_picked() -> None:
+    sidebar, controller = _sidebar(NKSCAN_DEVICE, settings={"selected_frames": [2, 4]})
+    sidebar.folder_edit.setText("/tmp/negpy-test")
+    sidebar._on_scan()
+    assert controller.started[-1][1].frames == (2, 4)
+
+
+def test_a_measured_strip_with_nothing_picked_scans_the_whole_strip() -> None:
+    """Its frame count is unknown until the film is measured, so the batch names no frames."""
+    sidebar, controller = _sidebar(NKSCAN_DEVICE)
+    sidebar.folder_edit.setText("/tmp/negpy-test")
+    sidebar._on_scan()
+
+    kind, req = controller.started[-1]
+    assert kind == "batch" and req.frames == ()
+
+
+def test_a_feeder_with_nothing_picked_still_uses_its_frame_range() -> None:
+    sidebar, controller = _sidebar(LS50_DEVICE)
+    sidebar.folder_edit.setText("/tmp/negpy-test")
+    sidebar._on_scan()
+
+    assert controller.started[-1][1].frames == tuple(range(1, 7))
+
+
+def test_selecting_a_device_keeps_the_saved_capability_gated_settings() -> None:
+    """Populating the form must not persist a value read before the caps flags catch up."""
+    saved = {"backend": "nkscan", "clean": True, "superfine": True, "samples": 8}
+    sidebar, _ = _sidebar(NKSCAN_DEVICE, settings=saved)
+
+    assert (sidebar.settings.clean, sidebar.settings.superfine, sidebar.settings.samples) == (True, True, 8)
+    assert sidebar.clean_check.isChecked() and sidebar.superfine_check.isChecked()
+    assert sidebar.samples_combo.currentData() == 8
+
+
+def test_selecting_a_device_keeps_a_saved_auto_exposure() -> None:
+    sidebar, _ = _sidebar(FULL_DEVICE, settings={"auto_exposure": True, "autofocus": False})
+    assert sidebar.settings.auto_exposure is True
+    assert sidebar.settings.autofocus is False
+
+
+# ── what is on the film ───────────────────────────────────────────────────
+
+
+def test_the_film_types_the_transport_takes_are_offered() -> None:
+    sidebar, _ = _sidebar(NKSCAN_DEVICE)
+    labels = [sidebar.film_type_combo.itemText(i) for i in range(sidebar.film_type_combo.count())]
+    assert labels == ["Color negative", "B&W negative", "Slide", "Kodachrome"]
+    assert sidebar.film_type_combo.currentData() == "negative"
+
+
+def test_a_device_that_is_told_nothing_about_the_film_hides_the_control() -> None:
+    sidebar, _ = _sidebar(FULL_DEVICE)
+    assert sidebar.film_type_combo.isVisibleTo(sidebar) is False
+
+
+def test_a_film_that_blocks_infrared_disables_ir_and_ice() -> None:
+    """Silver grain stops infrared as it stops light, so the mask is the picture again."""
+    sidebar, _ = _sidebar(NKSCAN_DEVICE)
+    sidebar.ir_check.setChecked(True)
+    sidebar.clean_check.setChecked(True)
+
+    sidebar.film_type_combo.setCurrentIndex(sidebar.film_type_combo.findData("mono"))
+
+    assert sidebar.ir_check.isEnabled() is False and sidebar.ir_check.isChecked() is False
+    assert sidebar.clean_check.isEnabled() is False and sidebar.clean_check.isChecked() is False
+    assert "blocks infrared" in sidebar.ir_check.toolTip()
+
+
+def test_kodachrome_blocks_infrared_too() -> None:
+    sidebar, _ = _sidebar(NKSCAN_DEVICE)
+    sidebar.film_type_combo.setCurrentIndex(sidebar.film_type_combo.findData("kodachrome"))
+    assert sidebar.clean_check.isEnabled() is False
+
+
+def test_going_back_to_colour_negative_restores_them() -> None:
+    sidebar, _ = _sidebar(NKSCAN_DEVICE)
+    sidebar.film_type_combo.setCurrentIndex(sidebar.film_type_combo.findData("mono"))
+    sidebar.film_type_combo.setCurrentIndex(sidebar.film_type_combo.findData("negative"))
+
+    assert sidebar.ir_check.isEnabled() is True and sidebar.clean_check.isEnabled() is True
+
+
+def test_the_film_type_reaches_the_request_and_the_settings() -> None:
+    sidebar, controller = _sidebar(NKSCAN_DEVICE)
+    sidebar.folder_edit.setText("/tmp/negpy-test")
+    sidebar.film_type_combo.setCurrentIndex(sidebar.film_type_combo.findData("positive"))
+    sidebar._on_scan()
+
+    assert controller.started[-1][1].params.film_type == "positive"
+    assert sidebar.settings.film_type == "positive"

@@ -226,12 +226,16 @@ class RightPanel(QWidget):
         SANE flatbed/film scanner on top, the RGB-Scan trichromatic capture below."""
         repo = self.controller.session.repo
 
+        from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog, has_guide
+
         def make(title: str, key: str, icon_name: str, content: QWidget, default_expanded: bool) -> CollapsibleSection:
             persisted = repo.get_global_setting(f"section_expanded_{key}")
             expanded = bool(persisted) if persisted is not None else default_expanded
-            section = CollapsibleSection(title, expanded=expanded, icon=qta.icon(icon_name, color="#aaa"))
+            section = CollapsibleSection(title, expanded=expanded, icon=qta.icon(icon_name, color="#aaa"), info=has_guide(key))
             section.set_content(content)
             section.expanded_changed.connect(lambda checked, k=key: repo.save_global_setting(f"section_expanded_{k}", checked))
+            if section.info_btn:
+                section.info_requested.connect(lambda k=key, tt=title, s=section: SectionHelpDialog(k, tt, s).exec())
             return section
 
         self.scan_sane_section = make("Film Scanner", "scan_sane", "fa5s.camera-retro", self.scan_sidebar, False)

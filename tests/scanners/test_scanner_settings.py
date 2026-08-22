@@ -74,3 +74,15 @@ def test_resolve_batch_selection_falls_back_to_spinbox_range():
     assert frames == (2, 3, 4, 5)
     assert windows == {}
     assert base == (0.2, 0.2, 0.8, 0.8)
+
+
+def test_a_measured_strip_with_no_selection_means_every_frame() -> None:
+    """Its frame count is unknown until the film is measured, so a range would mean frame 1."""
+    frames, windows, window = resolve_batch_selection(ScannerSettings(), 1, 1, whole_strip=True)
+    assert frames == () and windows == {} and window is None
+
+
+def test_a_selection_still_wins_on_a_measured_strip() -> None:
+    settings = ScannerSettings(selected_frames=(2, 5))
+    frames, _windows, _window = resolve_batch_selection(settings, 1, 1, whole_strip=True)
+    assert frames == (2, 5)

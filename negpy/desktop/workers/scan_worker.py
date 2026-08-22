@@ -31,6 +31,10 @@ class RollPreviewRequest:
     slots: tuple[int, ...]
     dpi: int
     offsets: dict[int, float] = field(default_factory=dict)
+    # Frame length for a transport that measures the strip and cannot infer the format, and
+    # what is on the film, which decides which way its frame boundaries read.
+    film_format: str | None = None
+    film_type: str = "negative"
 
 
 @dataclass(frozen=True)
@@ -50,6 +54,8 @@ class BatchRequest:
     output_folder: str
     filename_pattern: str
     output_format: str
+    # Empty means every frame the transport finds on the loaded film, for one that measures it
+    # rather than counting slots.
     frames: tuple[int, ...]
     frame_windows: dict[int, tuple[float, float, float, float]] = field(default_factory=dict)
     # Feed-axis drift (mm/frame): frame N scans at frame_offset_mm + (N-1) * modifier,
@@ -204,18 +210,20 @@ class ScanWorker(QObject):
             self._scanning = True
 
         assertion = acquire_unattended_power_assertion("NegPy film scan batch")
-        frames = list(req.frames)
-        total = max(1, len(frames))
         paths: list[str] = []
         outcome: tuple[str, str | None] = ("finished", None)
         try:
             service = self._ensure_service()
+            frames = list(req.frames) or self._whole_strip(service, req)
+            total = max(1, len(frames))
             for index, frame in enumerate(frames):
                 if self._cancel_event.is_set():
                     outcome = ("cancelled", None)
                     break
                 window = req.frame_windows.get(frame, req.params.window)
-                offset = max(0.0, req.params.frame_offset_mm + (frame - 1) * req.frame_offset_modifier_mm)
+                # No floor here: a transport that cannot back up clamps in its own backend, and
+                # one that re-addresses an absolute frame may legitimately go negative.
+                offset = req.params.frame_offset_mm + (frame - 1) * req.frame_offset_modifier_mm
                 frame_params = dataclasses.replace(req.params, frame=frame, window=window, frame_offset_mm=offset)
                 base = index / total
 
@@ -267,6 +275,13 @@ class ScanWorker(QObject):
             # no-op on devices without an eject option.
             self.eject(req.device_id)
 
+    def _whole_strip(self, service: ScannerService, req: BatchRequest) -> list[int]:
+        """Every frame on the loaded film, for a request that named none."""
+        count = service.detect_frames(req.device_id, film_format=req.params.film_format, film_type=req.params.film_type)
+        if count <= 0:
+            raise RuntimeError("No frames were detected on the loaded film")
+        return list(range(1, count + 1))
+
     @pyqtSlot(RollPreviewRequest)
     def run_roll_preview(self, req: RollPreviewRequest) -> None:
         """Preview strip slots, emitting one RollPreview per slot as it lands.
@@ -287,7 +302,7 @@ class ScanWorker(QObject):
                 outcome = ("cancelled", None)
             else:
                 service = self._ensure_service()
-                session = service.open_roll(req.device, dpi=req.dpi)
+                session = service.open_roll(req.device, dpi=req.dpi, film_format=req.film_format, film_type=req.film_type)
                 try:
                     for slot, offset in req.offsets.items():
                         session.set_offset(slot, offset)

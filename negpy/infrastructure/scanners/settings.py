@@ -23,6 +23,13 @@ class ScannerSettings:
     exposure_time_us: int | None = None
     frame_from: int = 1
     frame_to: int = 1
+    # Let the transport remove dust itself, baked into the file it writes.
+    clean: bool = False
+    samples: int = 1
+    superfine: bool = False
+    # Frame length for a transport that measures the strip; None lets it decide.
+    film_format: str | None = None
+    film_type: str = "negative"
     output_folder: str = ""
     output_format: str = "TIFF"
     filename_pattern: str = '{{ date }}_{{ "%03d" % seq }}'
@@ -56,15 +63,19 @@ class ScannerSettings:
 
 
 def resolve_batch_selection(
-    settings: ScannerSettings, frame_from: int, frame_to: int
+    settings: ScannerSettings, frame_from: int, frame_to: int, *, whole_strip: bool = False
 ) -> tuple[tuple[int, ...], dict[int, Rect], Rect | None]:
     """(frames, per-frame windows, base window) for a BatchRequest.
 
-    The strip-dialog selection wins when present; otherwise fall back to the
-    sidebar spinbox range with the single reused scan_window.
+    The strip-dialog selection wins when present. Otherwise a transport that measures the film
+    gets an empty tuple, meaning every frame it finds — it has no frame range to fall back on,
+    so the spinbox default would silently mean frame 1. The rest fall back to that range with
+    the single reused scan_window.
     """
     if settings.selected_frames:
         frames = tuple(sorted(settings.selected_frames))
         windows = {f: settings.frame_windows[f] for f in frames if f in settings.frame_windows}
         return frames, windows, None
+    if whole_strip:
+        return (), {}, settings.scan_window
     return tuple(range(frame_from, frame_to + 1)), {}, settings.scan_window

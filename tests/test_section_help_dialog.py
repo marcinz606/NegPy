@@ -29,6 +29,7 @@ GUIDED_KEYS = (
     "toning",
     "retouch",
     "finish",
+    "scan_sane",
 )
 
 
@@ -77,7 +78,7 @@ def test_the_dialog_renders_markdown_for_every_panel(key: str) -> None:
 
 
 def test_the_info_button_is_opt_in() -> None:
-    """CollapsibleSection also backs the Export, Metadata and Scan sections, which have no guide."""
+    """CollapsibleSection also backs the Export and Metadata sections, which have no guide."""
     assert CollapsibleSection("Plain").info_btn is None
     assert CollapsibleSection("Analysis", info=True).info_btn is not None
 

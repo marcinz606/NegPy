@@ -499,3 +499,205 @@ def test_drift_past_the_pitch_is_clamped_and_flagged() -> None:
     assert dialog._offset_for_frame(1) == pytest.approx(8.0)
     assert dialog._offset_for_frame(14) == pytest.approx(36.83)  # pitch - 1 mm, not 40.5
     assert "14" in dialog.status.text()
+
+
+# ── a transport that measures the strip ───────────────────────────────────
+
+
+def _discovery_device() -> ScannerDevice:
+    caps = ScannerCapabilities(
+        ir_channel=True,
+        supported_dpi=(500, 4000),
+        supported_depths=(16,),
+        sources=(ScanMode.NEGATIVE,),
+        max_area_mm=(24.0, 36.0),
+        can_eject=True,
+        roll_discovery=True,
+        film_formats=("135", "66"),
+    )
+    return ScannerDevice(id="usb:1-3.2", vendor="Nikon", model="LS-50", capabilities=caps)
+
+
+def test_a_measured_strip_opens_with_no_tiles() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _discovery_device())
+    assert dialog._tiles == {}
+    assert dialog.preview_all_btn.text().strip() == "Detect frames"
+
+
+def test_tiles_grow_from_the_frames_the_measurement_found() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device())
+
+    dialog._on_preview_all()
+    controller.deliver_all((1, 2, 3))
+
+    assert sorted(dialog._tiles) == [1, 2, 3]
+    assert dialog.selected_frames() == (1, 2, 3)
+    assert "3 frames detected" in dialog.status.text()
+
+
+def test_the_selection_is_read_off_the_tiles_that_appeared() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device())
+    dialog._on_preview_all()
+    controller.deliver_all((1, 2, 3))
+
+    dialog._tiles[2].checkbox.setChecked(False)
+    assert dialog.selected_frames() == (1, 3)
+
+
+def test_a_measured_strip_asks_for_a_roll_worth_of_slots() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device())
+    dialog._on_preview_all()
+
+    # The count is unknown until the strip is measured, so ask wide and keep what arrives.
+    assert controller.preview_reqs[0].slots[0] == 1
+    assert len(controller.preview_reqs[0].slots) > 6
+
+
+def test_the_film_format_rides_along_with_the_request() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device(), film_format="66")
+    dialog._on_preview_all()
+
+    assert controller.preview_reqs[0].film_format == "66"
+
+
+def test_a_measured_strip_slides_the_frame_instead_of_losing_its_tail() -> None:
+    """The whole rect is re-addressed, so the raster keeps full length and just moves."""
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device())
+    dialog._on_preview_all()
+    controller.deliver_all((1,), offset=0.0)
+    assert dialog._tile_coverage(dialog._tiles[1]) == (0.0, 1.0)
+
+    dialog.offset_slider.setValue(180)  # 18 mm, half a frame pitch
+    start, end = dialog._tile_coverage(dialog._tiles[1])
+    assert start < 0.0 and end < 1.0
+    assert end - start == pytest.approx(1.0), "a slid frame is still a whole frame"
+
+
+def test_a_measured_strip_draws_the_boundary_it_slid_to() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device())
+    dialog._on_preview_all()
+    controller.deliver_all((1,), offset=0.0)
+    assert dialog._tiles[1].label._offset_indicators == []
+
+    dialog.offset_slider.setValue(180)
+    assert [edge for _frac, edge in dialog._tiles[1].label._offset_indicators] == ["right"]
+    # Nothing is cut off, so neither blackout warning applies.
+    assert not dialog.status.text().startswith(("Offset held", "Offset cuts"))
+
+
+def test_a_measured_strip_can_slide_a_frame_backwards() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _discovery_device())
+    assert dialog.offset_slider.minimum() < 0
+
+    dialog.offset_slider.setValue(-180)
+    assert dialog.frame_offset() < 0
+
+
+def test_a_feeder_cannot_slide_backwards() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(3))
+    assert dialog.offset_slider.minimum() == 0
+
+
+def test_an_empty_strip_says_so() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device())
+    dialog._on_preview_all()
+    controller.scan_roll_preview_finished.emit()
+
+    assert "No frames were detected" in dialog.status.text()
+    assert dialog.ok_btn.isEnabled() is False
+
+
+def test_a_measured_strip_offers_no_preview_resolution() -> None:
+    """Its previews are cut from the measurement's own pass; nothing chooses that resolution."""
+    dialog = StripPreviewDialog(_FakeController(), _discovery_device())
+    assert dialog.preview_dpi_combo.isVisibleTo(dialog) is False
+    assert dialog.preview_dpi_label.isVisibleTo(dialog) is False
+
+
+def test_a_feeder_still_picks_its_preview_resolution() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(6))
+    assert dialog.preview_dpi_combo.isVisibleTo(dialog) is True
+
+
+def test_a_measured_strip_raster_is_not_rotated() -> None:
+    """nkscan delivers the feed axis along the columns already, unlike a coolscan3 raster."""
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device())
+    dialog._on_preview_all()
+    controller.deliver(1, rgb=np.zeros((8, 24, 3), dtype=np.uint8))
+
+    pixmap = dialog._tiles[1].label._pixmap
+    assert (pixmap.width(), pixmap.height()) == (24, 8)
+
+
+def test_a_feeder_raster_turns_landscape() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _device(3))
+    dialog._on_preview_one(1)
+    controller.deliver(1, rgb=np.zeros((24, 8, 3), dtype=np.uint8))
+
+    pixmap = dialog._tiles[1].label._pixmap
+    assert (pixmap.width(), pixmap.height()) == (24, 8)
+
+
+def test_a_measured_strip_crop_needs_no_axis_swap() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device())
+    dialog._on_preview_all()
+    controller.deliver_all((1,))
+    dialog._tiles[1].label.set_window((0.1, 0.2, 0.5, 0.6))
+
+    assert dialog.frame_windows()[1] == (0.1, 0.2, 0.5, 0.6)
+
+
+# ── picking the frames to scan ────────────────────────────────────────────
+
+
+def test_an_undetected_strip_says_what_to_press() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _discovery_device())
+    assert dialog._empty_hint.isVisibleTo(dialog) is True
+    assert "Detect frames" in dialog._empty_hint.text()
+    assert dialog.selection_label.text() == "none yet"
+
+
+def test_the_hint_goes_once_the_strip_has_frames() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device())
+    dialog._on_preview_all()
+    controller.deliver_all((1, 2, 3))
+
+    assert dialog._empty_hint.isVisibleTo(dialog) is False
+
+
+def test_the_selection_is_counted_where_the_buttons_are() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device())
+    dialog._on_preview_all()
+    controller.deliver_all((1, 2, 3))
+    assert dialog.selection_label.text() == "3 of 3 frames"
+
+    dialog._tiles[2].checkbox.setChecked(False)
+    assert dialog.selection_label.text() == "2 of 3 frames"
+
+
+def test_none_and_all_move_the_whole_selection() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device())
+    dialog._on_preview_all()
+    controller.deliver_all((1, 2, 3))
+
+    dialog.select_none_btn.click()
+    assert dialog.selected_frames() == ()
+    # Nothing to scan, so neither button that would act on it is live.
+    assert dialog.ok_btn.isEnabled() is False and dialog.scan_btn.isEnabled() is False
+
+    dialog.select_all_btn.click()
+    assert dialog.selected_frames() == (1, 2, 3)
+    assert dialog.ok_btn.isEnabled() is True

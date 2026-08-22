@@ -342,6 +342,9 @@ dependencies = [
 camera = [
     { name = "gphoto2", marker = "sys_platform != 'win32'" },
 ]
+nkscan = [
+    { name = "nkscan" },
+]
 plustek = [
     { name = "pyopticfilm" },
 ]
@@ -360,6 +363,9 @@ dev = [
     { name = "ruff" },
     { name = "ty" },
 ]
+nkscan = [
+    { name = "nkscan" },
+]
 pieusb = [
     { name = "pieusb" },
 ]
@@ -376,6 +382,7 @@ requires-dist = [
     { name = "imagecodecs", specifier = "==2026.6.6" },
     { name = "imageio", specifier = "==2.37.3" },
     { name = "jinja2", specifier = "==3.1.6" },
+    { name = "nkscan", marker = "extra == 'nkscan'", editable = "../nkscan" },
     { name = "numba", specifier = "==0.65.1" },
     { name = "numpy", specifier = "==2.4.4" },
     { name = "opencv-python-headless", specifier = "==4.13.0.92" },
@@ -391,7 +398,7 @@ requires-dist = [
     { name = "tifffile", specifier = "==2026.6.1" },
     { name = "wgpu", specifier = "==0.31.1" },
 ]
-provides-extras = ["plustek", "sane", "camera"]
+provides-extras = ["nkscan", "plustek", "sane", "camera"]
 
 [package.metadata.requires-dev]
 camera = [{ name = "gphoto2", marker = "sys_platform != 'win32'", specifier = ">=2.5" }]
@@ -402,9 +409,14 @@ dev = [
     { name = "ruff", specifier = "==0.14.10" },
     { name = "ty", specifier = ">=0.0.26" },
 ]
+nkscan = [{ name = "nkscan", editable = "../nkscan" }]
 pieusb = [{ name = "pieusb", specifier = ">=0.3.7" }]
 plustek = [{ name = "pyopticfilm", specifier = ">=1.2.0" }]
 sane = [{ name = "python-sane", specifier = ">=2.9" }]
+
+[[package]]
+name = "nkscan"
+source = { editable = "../nkscan" }
 
 [[package]]
 name = "numba"

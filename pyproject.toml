@@ -40,6 +40,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+nkscan = ["nkscan>=0.7"]
 plustek = ["pyopticfilm>=1.2.0"]
 sane = ["python-sane>=2.9"]
 camera = ["gphoto2>=2.5 ; sys_platform != 'win32'"]
@@ -66,6 +67,15 @@ camera = [
 pieusb = [
     "pieusb>=0.3.7",
 ]
+nkscan = [
+    # Nikon Coolscan over SCSI/USB. A Rust extension, so installing this group needs the
+    # maturin build backend and a Rust toolchain until the wheels are on PyPI.
+    "nkscan>=0.7",
+]
+
+[tool.uv.sources]
+# Local build while nkscan is unreleased. Delete this once its wheels are on PyPI.
+nkscan = { path = "../nkscan", editable = true }
 
 [project.urls]
 Homepage = "https://github.com/marcinz606/NegPy"
