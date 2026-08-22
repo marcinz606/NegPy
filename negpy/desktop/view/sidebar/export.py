@@ -803,7 +803,7 @@ class ExportSidebar(BaseSidebar):
     }
 
     def _refresh_linear_expansion_combo(self) -> None:
-        from negpy.services.export.linear_output import linear_output_source_type
+        from negpy.services.export.linear_output import linear_output_source_type, wb_bake_block_reason
 
         path = self.state.current_file_path or ""
         source_type = linear_output_source_type(path) if path else "unsupported"
@@ -849,6 +849,18 @@ class ExportSidebar(BaseSidebar):
         else:
             self.linear_ice_checkbox.setToolTip("Apply IR-based dust and scratch correction")
 
+        wb_reason = wb_bake_block_reason(self.state.config.rgbscan, self.state.config.process)
+        wb_available = not wb_reason
+        self.linear_wb_checkbox.setEnabled(wb_available)
+        if wb_reason == "trichrome":
+            self.linear_wb_checkbox.setToolTip(
+                "No practical use: each Trichrome channel is its own narrowband exposure, not a broadband as-shot gain"
+            )
+        elif wb_reason == "narrowband":
+            self.linear_wb_checkbox.setToolTip("No practical use: as-shot WB gains do not correct a narrowband capture")
+        else:
+            self.linear_wb_checkbox.setToolTip("Multiply by the as-shot WB gains before writing")
+
         has_flatfield = bool(self.state.config.flatfield.apply and self.state.config.flatfield.profile_id)
         self.linear_flatfield_checkbox.setEnabled(has_flatfield)
         if not has_flatfield:
@@ -864,7 +876,7 @@ class ExportSidebar(BaseSidebar):
             self.linear_sensor_checkbox.setToolTip("Apply the sensor crosstalk unmixing matrix")
 
         any_on = (
-            self.state.linear_apply_wb
+            (self.state.linear_apply_wb and wb_available)
             or (self.state.linear_apply_flatfield and has_flatfield)
             or (self.state.linear_apply_sensor and has_matrix)
             or (self.state.linear_apply_ice and has_ir)

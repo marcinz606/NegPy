@@ -12,6 +12,7 @@ import pytest
 import tifffile
 
 from negpy.features.geometry.models import GeometryConfig
+from negpy.features.process.models import ProcessConfig
 from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.features.stitch.models import StitchConfig
 from negpy.kernel.image.logic import apply_exif_orientation
@@ -38,6 +39,7 @@ from negpy.services.export.linear_output import (
     export_linear_output_bytes,
     is_linear_output_supported,
     linear_output_source_type,
+    wb_bake_block_reason,
 )
 
 
@@ -960,6 +962,20 @@ class TestTripletExport:
             assert "no WB applied" in desc
             assert "as-shot:" in desc
 
+    def test_triplet_apply_wb_flag_is_inert(self, tmp_path: str) -> None:
+        """A Trichrome triplet has no single as-shot WB to bake: apply_wb=True stays a no-op."""
+        paths = _make_fake_camera_raws(str(tmp_path))
+        bufs = _triplet_buffers()
+        rgbscan = RgbScanConfig(enabled=True, green_path=paths[1], blue_path=paths[2], align=False)
+        out = os.path.join(str(tmp_path), "out.tiff")
+
+        with self._patch_decode(paths, bufs):
+            export_linear_output(paths[0], out, rgbscan=rgbscan, apply_wb=True)
+
+        with tifffile.TiffFile(out) as tf:
+            desc = tf.pages[0].description
+            assert "no WB applied" in desc
+
     def test_triplet_preserves_make_model(self, tmp_path: str) -> None:
         paths = _make_fake_camera_raws(str(tmp_path))
         bufs = _triplet_buffers()
@@ -1249,6 +1265,37 @@ class TestLinearCorrections:
         wb = _CameraWB(as_shot=(2.0, 1.0, 2.0, 1.0), daylight=(1.0, 1.0, 1.0, 1.0))
         result = _apply_white_balance(f32, wb)
         assert result.max() <= 1.0
+
+    def test_wb_bake_block_reason_trichrome(self) -> None:
+        rgbscan = RgbScanConfig(enabled=True, green_path="g.nef", blue_path="b.nef")
+        assert wb_bake_block_reason(rgbscan, ProcessConfig()) == "trichrome"
+
+    def test_wb_bake_block_reason_narrowband(self) -> None:
+        assert wb_bake_block_reason(RgbScanConfig(), ProcessConfig(narrowband_scan=True)) == "narrowband"
+
+    def test_wb_bake_block_reason_sensor_profile_alone(self) -> None:
+        """A calibrated sensor matrix flags Single-Shot Narrowband even with the toggle off."""
+        conf = ProcessConfig(narrowband_scan=False, sensor_matrix=(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0))
+        assert wb_bake_block_reason(RgbScanConfig(), conf) == "narrowband"
+
+    def test_wb_bake_block_reason_clear(self) -> None:
+        assert wb_bake_block_reason(RgbScanConfig(), ProcessConfig()) == ""
+        assert wb_bake_block_reason(None, None) == ""
+
+    def test_apply_wb_flag_blocked_for_single_shot_narrowband(self, tmp_path: str) -> None:
+        """As-shot WB has no practical use for a narrowband capture: the checkbox stays inert."""
+        p = os.path.join(str(tmp_path), "photo.nef")
+        open(p, "wb").close()
+
+        buf = np.full((10, 10, 3), 0.3, dtype=np.float32)
+        out = os.path.join(str(tmp_path), "out.tiff")
+
+        with self._patch_decode({p: buf}):
+            export_linear_output(p, out, apply_wb=True, process=ProcessConfig(narrowband_scan=True))
+
+        with tifffile.TiffFile(out) as tf:
+            desc = tf.pages[0].description
+            assert "no WB applied" in desc
 
     def test_apply_wb_flag_bakes_wb(self, tmp_path: str) -> None:
         p = os.path.join(str(tmp_path), "photo.nef")

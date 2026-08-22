@@ -272,6 +272,26 @@ def _apply_white_balance(f32: np.ndarray, wb: _CameraWB) -> np.ndarray:
     return f32
 
 
+def wb_bake_block_reason(rgbscan: Optional[RgbScanConfig], process: Optional[ProcessConfig]) -> str:
+    """Why baking the as-shot WB gains cannot apply — "trichrome", "narrowband", or "" when it can.
+
+    The as-shot gains are the camera's correction for a broadband scene under some assumed
+    illuminant. A narrowband capture (Trichrome's three isolated exposures, or a Single-Shot
+    Narrowband profile) has no such scene: the gains are an artifact of whatever preset was
+    dialed on the camera, not a correction the light or the film calls for. Channel separation
+    for these captures comes from the RGBScan/sensor-unmix profile instead.
+
+    Single-Shot Narrowband is flagged by either of two independent sticky settings: the
+    Narrowband toggle (the bundled RGBScan input profile) or a calibrated sensor matrix
+    (Single-Shot Narrowband Calibration) — a rig can have one set without the other.
+    """
+    if rgbscan is not None and is_rgb_triplet(rgbscan):
+        return "trichrome"
+    if process is not None and (process.narrowband_scan or process.sensor_matrix is not None):
+        return "narrowband"
+    return ""
+
+
 def _apply_ice(rgb: np.ndarray, ir: np.ndarray, retouch: RetouchConfig) -> np.ndarray:
     """Apply IR dust correction to a linear RGB buffer using the IR channel."""
     if retouch.ir_method == IR_METHOD_OPENICE:
@@ -324,9 +344,10 @@ def _decode_linear(
     gamma_key: str = "linear",
 ) -> tuple[np.ndarray, Optional[np.ndarray], Optional[_CameraWB], _SourceMeta]:
     """Decode to an oriented float32 buffer. Returns (rgb, ir_or_none, camera_wb_or_none, source_meta)."""
+    wb_blocked = bool(wb_bake_block_reason(rgbscan, process))
     if stitch is not None and stitch.stitch_enabled and stitch.stitch_paths:
         rgb, ir, wb, meta = _decode_stitch(file_path, stitch, geometry, flatfield, process)
-        if apply_wb and wb is not None:
+        if apply_wb and not wb_blocked and wb is not None:
             rgb = _apply_white_balance(rgb, wb)
         return rgb, ir, wb, meta
     # Ahead of every per-format branch below, because each of those returns. Otherwise a
@@ -338,7 +359,7 @@ def _decode_linear(
             rgb = _apply_flatfield_correction(rgb, flatfield)
         if apply_sensor and process is not None and process.sensor_matrix is not None:
             rgb = apply_sensor_correction(rgb, process.sensor_matrix)
-        if apply_wb and wb is not None:
+        if apply_wb and not wb_blocked and wb is not None:
             rgb = _apply_white_balance(rgb, wb)
         return rgb, None, wb, meta
     if PakonLoader.can_handle(file_path):
@@ -370,7 +391,7 @@ def _decode_linear(
             rgb, ir, wb, meta = _decode_camera_raw_triplet(file_path, rgbscan, geometry)
             if apply_flatfield and flatfield is not None:
                 rgb = _apply_flatfield_correction(rgb, flatfield)
-            if apply_wb and wb is not None:
+            if apply_wb and not wb_blocked and wb is not None:
                 rgb = _apply_white_balance(rgb, wb)
             return rgb, ir, wb, meta
         meta = _read_source_meta_tiff(file_path)
@@ -384,7 +405,7 @@ def _decode_linear(
             rgb = _apply_flatfield_correction(rgb, flatfield)
         if apply_sensor and process is not None and process.sensor_matrix is not None:
             rgb = apply_sensor_correction(rgb, process.sensor_matrix)
-        if apply_wb and wb is not None:
+        if apply_wb and not wb_blocked and wb is not None:
             rgb = _apply_white_balance(rgb, wb)
         return rgb, ir, wb, merged
     if _is_tiff(file_path):
@@ -1154,6 +1175,7 @@ def export_linear_output(
     """
     eff = _effective_expansion(file_path, expansion)
     fmt = _source_format_label(file_path, rgbscan, stitch)
+    wb_applied = apply_wb and not wb_bake_block_reason(rgbscan, process)
     f32, ir, camera_wb, meta = _decode_linear(
         file_path,
         geometry,
@@ -1187,7 +1209,7 @@ def export_linear_output(
             source_meta=meta,
             expansion=eff,
             source_format=fmt,
-            wb_applied=apply_wb,
+            wb_applied=wb_applied,
             flatfield_applied=apply_flatfield or is_stitch,
             sensor_applied=apply_sensor or is_stitch,
             ice_applied=ice_applied,
@@ -1203,7 +1225,7 @@ def export_linear_output(
             source_meta=meta,
             expansion=eff,
             source_format=fmt,
-            wb_applied=apply_wb,
+            wb_applied=wb_applied,
             flatfield_applied=apply_flatfield or is_stitch,
             sensor_applied=apply_sensor or is_stitch,
             ice_applied=ice_applied,
