@@ -197,33 +197,17 @@ def _demote_scan_datetime(merged: dict) -> None:
         exif[piexif.ExifIFD.DateTimeDigitized] = source
 
 
-def _sanitize_exif(exif_dict: dict) -> dict:
-    """Drop entries piexif can't serialize."""
-    _RATIONAL_TYPES = {5, 10}
-
-    def _short_overflows(value) -> bool:
-        vals = value if isinstance(value, (tuple, list)) else (value,)
-        return any(isinstance(v, int) and not (0 <= v <= 65535) for v in vals)
-
-    result = {}
-    for ifd_name, ifd_data in exif_dict.items():
-        if not isinstance(ifd_data, dict):
-            result[ifd_name] = ifd_data
-            continue
-        tags_info = piexif.TAGS.get(ifd_name, {})
-        clean = {}
-        for tag, value in ifd_data.items():
-            tag_type = tags_info.get(tag, {}).get("type")
-            if isinstance(value, bytes) and tag_type in _RATIONAL_TYPES:
-                continue
-            if tag_type == 3 and _short_overflows(value):
-                continue
-            clean[tag] = value
-        result[ifd_name] = clean
-    return result
-
-
-_JPEG_STRIP_0TH = frozenset(
+# A RAW's 0th IFD describes its embedded preview image, including StripOffsets/
+# JPEGInterchangeFormat/SubIFDs pointers that are absolute to that source file's own
+# byte layout, plus TIFFEPStandardID declaring TIFF/EP (ISO 12234-2) raw-image
+# compliance. Copied verbatim into a differently-laid-out export, the pointers land
+# on the wrong bytes -- confirmed for Nikon's SubIFDs tag (330), which parses clean
+# in the source NEF but trips "Bad SubIFD SubDirectory start" once relocated into an
+# export -- and the TIFF/EP claim is simply false for a rendered, non-raw output. A
+# raw-aware reader that trusts either one can misjudge the whole file: garbage from a
+# stale pointer, or routing a finished render through raw-specific handling that a
+# TIFF/EP claim invites.
+_RAW_PREVIEW_0TH_TAGS = frozenset(
     {
         254,
         256,
@@ -239,18 +223,82 @@ _JPEG_STRIP_0TH = frozenset(
         330,
         513,
         514,
+        piexif.ImageIFD.TIFFEPStandardID,
     }
 )
+
+# Exif-IFD tags that describe the original sensor capture -- a Bayer CFA pattern, a
+# one-chip sensing method, "directly photographed" -- none of which are still true
+# once NegPy has demosaiced, rendered and re-encoded the image. ColorSpace and
+# MakerNote are dropped for a different reason: see the comments at their use below.
+_RAW_CAPTURE_EXIF_TAGS = frozenset(
+    {
+        piexif.ExifIFD.CFAPattern,
+        piexif.ExifIFD.SensingMethod,
+        piexif.ExifIFD.FileSource,
+        piexif.ExifIFD.SceneType,
+    }
+)
+
+
+def _sanitize_exif(exif_dict: dict) -> dict:
+    """Drop entries piexif can't serialize, plus tags that describe the source
+    rather than the file being written."""
+    _RATIONAL_TYPES = {5, 10}
+
+    def _short_overflows(value) -> bool:
+        vals = value if isinstance(value, (tuple, list)) else (value,)
+        return any(isinstance(v, int) and not (0 <= v <= 65535) for v in vals)
+
+    result = {}
+    for ifd_name, ifd_data in exif_dict.items():
+        if not isinstance(ifd_data, dict):
+            result[ifd_name] = ifd_data
+            continue
+        if ifd_name == "GPS" and not ({piexif.GPSIFD.GPSLatitude, piexif.GPSIFD.GPSLongitude} & ifd_data.keys()):
+            # A GPS IFD with no actual coordinates is vestigial camera boilerplate (a
+            # version marker with nothing to place on a map). Confirmed empirically:
+            # its bare presence, not any specific field's value, was the one
+            # difference between an export Bridge opened correctly and one it called
+            # untagged and refused to preview -- Bridge reads it as "this still
+            # carries the source's untouched raw GPS block".
+            result[ifd_name] = {}
+            continue
+        tags_info = piexif.TAGS.get(ifd_name, {})
+        clean = {}
+        for tag, value in ifd_data.items():
+            if ifd_name == "0th" and tag in _RAW_PREVIEW_0TH_TAGS:
+                continue
+            if ifd_name == "Exif" and tag in _RAW_CAPTURE_EXIF_TAGS:
+                continue
+            if ifd_name == "Exif" and tag == piexif.ExifIFD.ColorSpace:
+                # The source's ColorSpace tag records the camera's own in-body
+                # rendering (Nikon's non-standard "2" for Adobe RGB is common),
+                # not the space NegPy just rendered into. A stale mismatch against
+                # the file's real color tag (an ICC profile, or JPEG XL's own
+                # enumerated tag) reads as a self-contradicting file to a strict
+                # reader, which drops color management rather than guess.
+                continue
+            if ifd_name == "Exif" and tag == piexif.ExifIFD.MakerNote:
+                # Same stale-absolute-offset problem as the 0th IFD tags above,
+                # one level deeper: a maker note's own internal sub-IFDs (lens
+                # data, AF info, and here the field that decodes as "ColorSpace")
+                # use the same source-relative pointer scheme.
+                continue
+            tag_type = tags_info.get(tag, {}).get("type")
+            if isinstance(value, bytes) and tag_type in _RATIONAL_TYPES:
+                continue
+            if tag_type == 3 and _short_overflows(value):
+                continue
+            clean[tag] = value
+        result[ifd_name] = clean
+    return result
 
 
 def _prepare_jpeg_exif(exif_dict: dict) -> dict:
     prepared = _sanitize_exif(exif_dict)
     prepared.pop("thumbnail", None)
     prepared["1st"] = {}
-    zeroth = prepared.get("0th")
-    if isinstance(zeroth, dict):
-        for tag in _JPEG_STRIP_0TH:
-            zeroth.pop(tag, None)
     return prepared
 
 
