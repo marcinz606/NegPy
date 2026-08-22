@@ -38,6 +38,7 @@ from negpy.desktop.view.shortcut_registry import (
     ShortcutEntry,
     categories_in_order,
     category_editor_rows,
+    display_key,
     default_bindings,
     default_slider_steps,
 )
@@ -49,8 +50,8 @@ from negpy.desktop.view.styles.theme import THEME
 
 
 def _format_default_pair(inc_key: str, dec_key: str) -> str:
-    inc = inc_key or "—"
-    dec = dec_key or "—"
+    inc = display_key(inc_key) or "—"
+    dec = display_key(dec_key) or "—"
     return f"{inc} / {dec}"
 
 
@@ -289,7 +290,7 @@ class ShortcutEditorDialog(QDialog):
         inner.setVerticalSpacing(0)
 
         inner.addWidget(QLabel(entry.description), 0, 0)
-        default_lbl = QLabel(entry.default_key or "—")
+        default_lbl = QLabel(display_key(entry.default_key) or "—")
         default_lbl.setStyleSheet(mono)
         inner.addWidget(default_lbl, 0, 1)
         inner.addWidget(edit, 0, 2)
@@ -376,7 +377,7 @@ class ShortcutEditorDialog(QDialog):
                 QMessageBox.warning(
                     self,
                     "Duplicate Shortcut",
-                    f'"{key}" is assigned to both "{REGISTRY[other].description}" and "{REGISTRY[action_id].description}".',
+                    f'"{display_key(key)}" is assigned to both "{REGISTRY[other].description}" and "{REGISTRY[action_id].description}".',
                 )
                 return
             seen[key] = action_id

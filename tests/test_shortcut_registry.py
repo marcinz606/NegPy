@@ -1,9 +1,13 @@
+import sys
+
 from negpy.desktop.view.shortcut_registry import (
     REGISTRY,
     EditorRowSlider,
     category_editor_rows,
     default_bindings,
     default_slider_steps,
+    display_key,
+    label_with_shortcut,
     load_bindings,
     load_slider_steps,
     merge_bindings,
@@ -149,3 +153,27 @@ def test_every_slider_action_has_a_group():
     for action_id in slider_actions:
         assert action_id in REGISTRY
         assert action_id in SLIDER_GROUP_BY_ACTION
+
+
+def test_display_key_uses_the_platform_notation():
+    # Qt binds portable "Ctrl" to ⌘ on macOS, so the label has to follow the binding.
+    expected = "⇧⌘C" if sys.platform == "darwin" else "Ctrl+Shift+C"
+    assert display_key("Ctrl+Shift+C") == expected
+    assert display_key("") == ""
+
+
+def test_display_key_keeps_an_unparsable_binding():
+    assert display_key("not a key") == "not a key"
+
+
+def test_label_with_shortcut_appends_the_current_binding():
+    bindings = default_bindings()
+    label = label_with_shortcut("Copy Settings", "copy", bindings)
+
+    assert label.startswith("Copy Settings  ")
+    assert label.endswith(display_key(bindings["copy"]))
+
+
+def test_label_with_shortcut_leaves_an_unbound_action_plain():
+    bindings = merge_bindings({"copy": ""})
+    assert label_with_shortcut("Copy Settings", "copy", bindings) == "Copy Settings"

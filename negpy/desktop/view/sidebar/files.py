@@ -45,6 +45,7 @@ from negpy.desktop.view.confirm import confirm_unload
 from negpy.features.hdr.logic import anchor_choices
 from negpy.features.hdr.models import hdr_frame_paths
 from negpy.desktop.view.widgets.overflow_bar import OverflowBar
+from negpy.desktop.view.shortcut_registry import label_with_shortcut
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog, open_paste_dialog
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
@@ -1119,9 +1120,11 @@ class FileBrowser(QWidget):
         else:
             menu.addAction("Export current frame").triggered.connect(lambda: self.controller.request_export())
         menu.addSeparator()
-        menu.addAction("Copy Settings  Ctrl+C").triggered.connect(self.session.copy_settings)
-        menu.addAction("Copy Settings + Bounds  Ctrl+Shift+C").triggered.connect(self.session.copy_settings_with_bounds)
-        act_paste = menu.addAction("Paste Settings  Ctrl+V")
+        menu.addAction(label_with_shortcut("Copy Settings", "copy")).triggered.connect(self.session.copy_settings)
+        menu.addAction(label_with_shortcut("Copy Settings + Bounds", "copy_with_bounds")).triggered.connect(
+            self.session.copy_settings_with_bounds
+        )
+        act_paste = menu.addAction(label_with_shortcut("Paste Settings", "paste"))
         act_paste.triggered.connect(lambda: open_paste_dialog(self, self.controller))
         act_paste.setEnabled(state.clipboard is not None)
         menu.addAction("Reset Settings").triggered.connect(self.session.reset_settings)

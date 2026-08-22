@@ -12,6 +12,7 @@ from negpy.desktop.view.canvas.overlay import CanvasOverlay
 from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUTexture
+from negpy.desktop.view.shortcut_registry import label_with_shortcut
 from negpy.desktop.view.styles.theme import THEME
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.logging import get_logger
@@ -645,16 +646,16 @@ class ImageCanvas(QWidget):
             return
 
         menu = QMenu(self)
-        act_wb = menu.addAction("Pick WB  Shift+W")
+        act_wb = menu.addAction(label_with_shortcut("Pick WB", "pick_wb"))
         act_wb.triggered.connect(lambda: self._controller.set_active_tool(ToolMode.WB_PICK))  # type: ignore[union-attr]
-        act_dust = menu.addAction("Pick Dust  Shift+D")
+        act_dust = menu.addAction(label_with_shortcut("Pick Dust", "pick_dust"))
         act_dust.triggered.connect(lambda: self._controller.set_active_tool(ToolMode.DUST_PICK))  # type: ignore[union-attr]
         menu.addSeparator()
-        act_copy = menu.addAction("Copy Settings  Ctrl+C")
+        act_copy = menu.addAction(label_with_shortcut("Copy Settings", "copy"))
         act_copy.triggered.connect(self._controller.session.copy_settings)  # type: ignore[union-attr]
-        act_copy_bounds = menu.addAction("Copy Settings + Bounds  Ctrl+Shift+C")
+        act_copy_bounds = menu.addAction(label_with_shortcut("Copy Settings + Bounds", "copy_with_bounds"))
         act_copy_bounds.triggered.connect(self._controller.session.copy_settings_with_bounds)  # type: ignore[union-attr]
-        act_paste = menu.addAction("Paste Settings  Ctrl+V")
+        act_paste = menu.addAction(label_with_shortcut("Paste Settings", "paste"))
         act_paste.triggered.connect(lambda: open_paste_dialog(self, self._controller))  # type: ignore[arg-type]
         act_paste.setEnabled(self.state.clipboard is not None)
         menu.addSeparator()
@@ -704,7 +705,7 @@ class ImageCanvas(QWidget):
             act_delete.triggered.connect(lambda _=False, k=kind, i=index: controller.delete_heal(k, i))
             menu.addSeparator()
 
-        act_undo = menu.addAction("Undo Last Heal  Ctrl+Z")
+        act_undo = menu.addAction(label_with_shortcut("Undo Last Heal", "undo"))
         act_undo.triggered.connect(controller.undo_last_retouch)
         act_undo.setEnabled(num_heals > 0)
         act_clear = menu.addAction("Clear All Heals…")

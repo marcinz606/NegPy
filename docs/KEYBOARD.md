@@ -6,6 +6,8 @@ A slider shortcut reports its new value in the canvas HUD, so you can keep a con
 
 A control that the current mode or a lock has retired does not move by keyboard. Temperature on a B&W frame is an example: the shortcut changes nothing, and the HUD shows the control name instead of a value. A control on another tab, in a collapsed section or behind a closed panel still works.
 
+`Ctrl` in this list is `⌘` on macOS. The app writes each key the way your platform writes it, so a menu, a tooltip and the overlay show `⇧⌘C` there and `Ctrl + Shift + C` elsewhere.
+
 Numpad keys can be bound separately from the number row (for example `Num+9` and `9`). Num Lock must be on for numpad digits.
 
 ## Navigation

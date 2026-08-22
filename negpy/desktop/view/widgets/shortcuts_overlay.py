@@ -34,6 +34,7 @@ from negpy.desktop.view.shortcut_registry import (
     EditorRowSlider,
     categories_in_order,
     category_editor_rows,
+    display_key,
     slider_step_for,
 )
 from negpy.desktop.view.styles.fonts import mono_font_family
@@ -43,8 +44,8 @@ from negpy.desktop.view.widgets.shortcut_search_line_edit import ShortcutSearchL
 
 
 def _format_key_pair(inc_key: str, dec_key: str) -> str:
-    inc = inc_key or "—"
-    dec = dec_key or "—"
+    inc = display_key(inc_key) or "—"
+    dec = display_key(dec_key) or "—"
     return f"{inc} / {dec}"
 
 
@@ -263,8 +264,8 @@ class ShortcutsOverlay(QDialog):
 
         return body
 
-    def _keycap(self, text: str) -> QLabel:
-        lbl = QLabel(text or "—")
+    def _keycap(self, key: str) -> QLabel:
+        lbl = QLabel(display_key(key) or "—")
         lbl.setStyleSheet(f"""
             color: {THEME.text_primary};
             background-color: {THEME.bg_header};
@@ -297,7 +298,7 @@ class ShortcutsOverlay(QDialog):
         inner.setVerticalSpacing(0)
 
         inner.addWidget(QLabel(entry.description), 0, 0)
-        inner.addWidget(self._mono_label(entry.default_key, mono), 0, 1)
+        inner.addWidget(self._mono_label(display_key(entry.default_key), mono), 0, 1)
         inner.addWidget(self._keycap(self._bindings.get(editor_row.action_id, "")), 0, 2)
         inner.addWidget(QLabel("—"), 0, 3)
         grid.addWidget(row_frame, row, 0, 1, 4)

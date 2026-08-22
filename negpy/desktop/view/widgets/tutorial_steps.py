@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Optional
 
 from PyQt6.QtWidgets import QWidget
 
+from negpy.desktop.view.shortcut_registry import display_key, key_for
 from negpy.desktop.view.widgets.tutorial_overlay import TutorialStep
 
 if TYPE_CHECKING:
@@ -770,7 +771,8 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "Scan tab drives the body and Scanlight directly (macOS/Linux). See "
                 "<code>docs/CAMERA_SCANNING.md</code>.<br>"
                 "• See <code>docs/USER_GUIDE.md</code> for the full reference.<br>"
-                "• <b>Preferences</b> (⋯ menu, or <b>Ctrl+,</b>) holds the app-wide settings: "
+                f"• <b>Preferences</b> (⋯ menu, or <b>{display_key(key_for('open_preferences'))}</b>) holds "
+                "the app-wide settings: "
                 "interface, performance budgets and storage. For GPU or rendering trouble that "
                 "stops the app starting, edit <code>Documents/NegPy/override.toml</code>.<br>"
                 "• Edits auto-save to a local database, so there is no manual save needed "

@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Iterable
 
+from PyQt6.QtGui import QKeySequence
+
 from negpy.desktop.view.slider_shortcut_groups import (
     SLIDER_GROUPS,
     SLIDER_GROUP_BY_ACTION,
@@ -335,6 +337,21 @@ def key_for(action_id: str, bindings: dict[str, str] | None = None) -> str:
     return (bindings or current_bindings()).get(action_id, "")
 
 
+def display_key(key: str) -> str:
+    """A binding written the way the platform writes it: ``⇧⌘C`` on macOS, ``Ctrl+Shift+C``
+    elsewhere. Qt binds portable ``Ctrl`` to ⌘ on macOS, so every label that shows a key
+    goes through here."""
+    if not key:
+        return ""
+    return QKeySequence(key).toString(QKeySequence.SequenceFormat.NativeText) or key
+
+
+def label_with_shortcut(text: str, action_id: str, bindings: dict[str, str] | None = None) -> str:
+    """A menu label with its binding appended, or the plain text when the action has none."""
+    key = display_key(key_for(action_id, bindings))
+    return f"{text}  {key}" if key else text
+
+
 def tooltip_with_shortcut(text: str, action_ids: str | Iterable[str] | None = None, bindings: dict[str, str] | None = None) -> str:
     if action_ids is None:
         return text
@@ -350,7 +367,8 @@ def tooltip_with_shortcut(text: str, action_ids: str | Iterable[str] | None = No
     # on inline <span> elements, where background and padding render but the outline does not,
     # and honours it on table cells, so the chips must be <td>s.
     cells = [
-        f'<td style="border:1px solid #5A5A5A;background:#242424;color:#C8C8C8;padding:1px 6px;font-size:10px;">{key}</td>' for key in keys
+        f'<td style="border:1px solid #5A5A5A;background:#242424;color:#C8C8C8;padding:1px 6px;font-size:10px;">{display_key(key)}</td>'
+        for key in keys
     ]
     # The " & " separator sits in its own borderless cell, so it does not inherit a keycap
     # outline. The whole row is right-aligned on its own line below the text.

@@ -31,6 +31,7 @@ from negpy.desktop.view.styles.templates import (
     section_subheader,
     set_hint_kind,
 )
+from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.sliders import CompactSlider
@@ -1039,7 +1040,7 @@ class ExportSidebar(BaseSidebar):
         "current": (
             "Export current frame",
             " Export Current Frame",
-            "Export the current frame with the settings below  Ctrl+E",
+            "Export the current frame with the settings below",
         ),
         "selected": (
             "Export selected frames",
@@ -1052,6 +1053,9 @@ class ExportSidebar(BaseSidebar):
             "Export every visible frame using the settings below",
         ),
     }
+
+    # Only the current-frame scope has a binding; the others fall through to the plain tooltip.
+    _EXPORT_SCOPE_SHORTCUTS = {"current": "export"}
 
     # The two "all visible" scopes, current against saved per-frame settings, collapsed into
     # one when per-frame export settings were retired.
@@ -1108,7 +1112,7 @@ class ExportSidebar(BaseSidebar):
         _label, btn_label, tooltip = self._EXPORT_SCOPES[key]
         self._export_scope_actions[key].setChecked(True)
         self.export_main_btn.setText(btn_label)
-        self.export_main_btn.setToolTip(tooltip)
+        self.export_main_btn.setToolTip(tooltip_with_shortcut(tooltip, self._EXPORT_SCOPE_SHORTCUTS.get(key)))
         if persist:
             self.controller.session.repo.save_global_setting("export_scope", key)
 

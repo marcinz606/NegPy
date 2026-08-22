@@ -59,6 +59,8 @@ A frame you have already edited keeps its own look whatever you tick — only ex
 
 ### Menu bar (macOS)
 
+`Ctrl` in this guide is `⌘` on macOS, and every menu, tooltip and shortcut list in the app shows it that way.
+
 On macOS NegPy has a menu bar. Almost nothing in it is new: apart from Report an Issue, every item runs something a button, a window control or a keyboard shortcut already runs.
 
 *   **NegPy**: Preferences… (`⌘,`), which macOS shows in the application menu beside About and Quit.

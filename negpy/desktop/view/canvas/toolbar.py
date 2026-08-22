@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.keyboard_shortcuts import _context_undo
 from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog
-from negpy.desktop.view.shortcut_registry import key_for, tooltip_with_shortcut
+from negpy.desktop.view.shortcut_registry import label_with_shortcut, tooltip_with_shortcut
 from negpy.desktop.view.styles.theme import THEME
 
 CANVAS_COLORS = [
@@ -330,15 +330,19 @@ class ActionToolbar(QWidget):
         overflow_menu.addSeparator()
 
         self._action_copy = overflow_menu.addAction(
-            qta.icon("fa5s.copy", color=icon_color), "Copy Settings  Ctrl+C", self.session.copy_settings
+            qta.icon("fa5s.copy", color=icon_color), label_with_shortcut("Copy Settings", "copy"), self.session.copy_settings
         )
         self._action_copy.setToolTip("Copy this image's settings to the clipboard")
         self._action_copy_bounds = overflow_menu.addAction(
-            qta.icon("fa5s.copy", color=icon_color), "Copy Settings + Bounds  Ctrl+Shift+C", self.session.copy_settings_with_bounds
+            qta.icon("fa5s.copy", color=icon_color),
+            label_with_shortcut("Copy Settings + Bounds", "copy_with_bounds"),
+            self.session.copy_settings_with_bounds,
         )
         self._action_copy_bounds.setToolTip("Copy settings plus the metering/normalization bounds")
         self._action_paste = overflow_menu.addAction(
-            qta.icon("fa5s.paste", color=icon_color), "Paste Settings  Ctrl+V", lambda: open_paste_dialog(self, self.controller)
+            qta.icon("fa5s.paste", color=icon_color),
+            label_with_shortcut("Paste Settings", "paste"),
+            lambda: open_paste_dialog(self, self.controller),
         )
         self._action_paste.setToolTip("Paste the copied settings onto this image")
         overflow_menu.addSeparator()
@@ -351,10 +355,9 @@ class ActionToolbar(QWidget):
         unload_action.setToolTip("Remove this image from the session (its saved edit is kept)")
         overflow_menu.addSeparator()
 
-        prefs_key = key_for("open_preferences")
         prefs_action = overflow_menu.addAction(
             qta.icon("fa5s.sliders-h", color=icon_color),
-            "Preferences…" + (f"  {prefs_key}" if prefs_key else ""),
+            label_with_shortcut("Preferences…", "open_preferences"),
             self._show_preferences,
         )
         prefs_action.setToolTip("Interface, performance and storage settings for the whole app")
