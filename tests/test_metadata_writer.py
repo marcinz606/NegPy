@@ -204,6 +204,35 @@ def test_embed_strips_raw_preview_ifd_tags_from_jxl() -> None:
     assert zeroth[piexif.ImageIFD.Make] == b"NIKON CORPORATION"
 
 
+def test_embed_strips_raw_capture_tags_from_jxl() -> None:
+    """Regression: CFAPattern/SensingMethod/FileSource/SceneType/TIFFEPStandardID
+    describe the original sensor capture, not NegPy's finished render. Carried
+    through, they told Adobe Bridge the file was TIFF/EP raw-compliant, and it
+    tried to route a rendered JPEG XL through Camera Raw instead of previewing it
+    directly -- landing on a slow, low-res-only preview with no way to open it."""
+    source_exif = _raw_like_source_exif()
+    source_exif["0th"][piexif.ImageIFD.TIFFEPStandardID] = (1, 0, 0, 0)
+    source_exif["Exif"][piexif.ExifIFD.CFAPattern] = b"\x00\x02\x00\x02\x00\x01\x01\x02"
+    source_exif["Exif"][piexif.ExifIFD.SensingMethod] = 2
+    source_exif["Exif"][piexif.ExifIFD.FileSource] = b"\x03"
+    source_exif["Exif"][piexif.ExifIFD.SceneType] = b"\x01"
+
+    out = embed_metadata(_jxl(), MetadataConfig(), source_exif)
+
+    tiff = read_jxl_exif(out)
+    assert tiff is not None
+    loaded = piexif.load(tiff)
+    assert piexif.ImageIFD.TIFFEPStandardID not in loaded["0th"]
+    for tag in (
+        piexif.ExifIFD.CFAPattern,
+        piexif.ExifIFD.SensingMethod,
+        piexif.ExifIFD.FileSource,
+        piexif.ExifIFD.SceneType,
+    ):
+        assert tag not in loaded["Exif"]
+    assert loaded["0th"][piexif.ImageIFD.Make] == b"NIKON CORPORATION"
+
+
 def test_embed_strips_makernote_tag() -> None:
     """A maker note's internal sub-IFDs use the same source-relative pointer
     scheme as the 0th-IFD preview tags; relocated into an export, they resolve

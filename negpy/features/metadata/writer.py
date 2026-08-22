@@ -199,11 +199,14 @@ def _demote_scan_datetime(merged: dict) -> None:
 
 # A RAW's 0th IFD describes its embedded preview image, including StripOffsets/
 # JPEGInterchangeFormat/SubIFDs pointers that are absolute to that source file's own
-# byte layout. Copied verbatim into a differently-laid-out export, those offsets land
-# on the wrong bytes -- confirmed for Nikon's SubIFDs tag (330), which parses clean in
-# the source NEF but trips "Bad SubIFD SubDirectory start" once relocated into an
-# export. A reader that walks a stale pointer lands on garbage, including whatever
-# field it uses to judge the file trustworthy enough to color-manage at all.
+# byte layout, plus TIFFEPStandardID declaring TIFF/EP (ISO 12234-2) raw-image
+# compliance. Copied verbatim into a differently-laid-out export, the pointers land
+# on the wrong bytes -- confirmed for Nikon's SubIFDs tag (330), which parses clean
+# in the source NEF but trips "Bad SubIFD SubDirectory start" once relocated into an
+# export -- and the TIFF/EP claim is simply false for a rendered, non-raw output. A
+# raw-aware reader that trusts either one can misjudge the whole file: garbage from a
+# stale pointer, or routing a finished render through raw-specific handling that a
+# TIFF/EP claim invites.
 _RAW_PREVIEW_0TH_TAGS = frozenset(
     {
         254,
@@ -220,6 +223,20 @@ _RAW_PREVIEW_0TH_TAGS = frozenset(
         330,
         513,
         514,
+        piexif.ImageIFD.TIFFEPStandardID,
+    }
+)
+
+# Exif-IFD tags that describe the original sensor capture -- a Bayer CFA pattern, a
+# one-chip sensing method, "directly photographed" -- none of which are still true
+# once NegPy has demosaiced, rendered and re-encoded the image. ColorSpace and
+# MakerNote are dropped for a different reason: see the comments at their use below.
+_RAW_CAPTURE_EXIF_TAGS = frozenset(
+    {
+        piexif.ExifIFD.CFAPattern,
+        piexif.ExifIFD.SensingMethod,
+        piexif.ExifIFD.FileSource,
+        piexif.ExifIFD.SceneType,
     }
 )
 
@@ -242,6 +259,8 @@ def _sanitize_exif(exif_dict: dict) -> dict:
         clean = {}
         for tag, value in ifd_data.items():
             if ifd_name == "0th" and tag in _RAW_PREVIEW_0TH_TAGS:
+                continue
+            if ifd_name == "Exif" and tag in _RAW_CAPTURE_EXIF_TAGS:
                 continue
             if ifd_name == "Exif" and tag == piexif.ExifIFD.ColorSpace:
                 # The source's ColorSpace tag records the camera's own in-body
