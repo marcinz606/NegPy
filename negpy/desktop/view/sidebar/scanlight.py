@@ -977,7 +977,7 @@ class ScanlightSidebar(QWidget):
             if self._lv_polls == 50 and self._lv_frames_seen == 0:  # ~4s without a frame
                 self._set_status(
                     "No live-view image — is the camera in PC Remote? "
-                    "On macOS, quit Preview / Photos / Image Capture — they hold the camera."
+                    "On macOS a background app such as a cloud sync client can be holding it; unplugging frees it."
                 )
                 self._lv_target.set_loading(False)  # stop the spinner; the hint explains why
             return
@@ -1499,7 +1499,7 @@ class ScanlightSidebar(QWidget):
     def _set_cam_status(self, ok: bool, model: str, claimed_elsewhere: bool = False) -> None:
         """Camera dot: '● Camera (USB)' when a body answered, '● Camera' when none did — and
         '● Camera (in use)' when it sits on the bus but another program holds its USB claim
-        (macOS hands it to Preview/Photos/Image Capture the moment one of them opens). The
+        (on macOS the system camera daemon, woken by any app that watches for cameras). The
         enumeration behind the dot cannot see a claim, so without this state the dot showed a
         healthy green while every live-view/scan attempt failed."""
         if claimed_elsewhere:
@@ -1508,7 +1508,9 @@ class ScanlightSidebar(QWidget):
             # hint line turns amber and says what to do, instead of the "plug it in" nudge, which
             # is wrong advice for a present body.
             self._conn_hint.setText(
-                "⚠ Another app is using the camera — close Preview, Photos and Image Capture. NegPy reconnects by itself once it is free."
+                "⚠ Another program is using the camera. On macOS a background app that watches for cameras, "
+                "a cloud sync client for example, holds it through the system camera daemon. Quit that app or "
+                "unplug the cable. NegPy reconnects by itself."
             )
             self._conn_hint.setStyleSheet(f"color: {_WARN_COLOR}; font-size: {THEME.font_size_small}px;")
             self._conn_hint.setVisible(True)

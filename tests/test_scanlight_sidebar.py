@@ -516,7 +516,13 @@ def test_poll_camera_claimed_by_another_app_says_so_and_gates(monkeypatch):
     assert "in use" in w.cam_status.text()
     # The advice is readable in the tab (amber hint line), not buried in a tooltip.
     assert w._conn_hint.isVisibleTo(w)
-    assert "close Preview, Photos and Image Capture" in w._conn_hint.text()
+    # The holder is named honestly: on macOS it is the system camera daemon, woken by whatever
+    # asks for a camera, and that is routinely a background sync client with no window at all.
+    # Telling the user to close three applications sends them hunting for windows that are not
+    # open, which is exactly what happened in issue #949 before the trigger was traced.
+    assert "camera daemon" in w._conn_hint.text()
+    assert "background app" in w._conn_hint.text()
+    assert "Preview" not in w._conn_hint.text()
     assert "#C8922E" in w._conn_hint.styleSheet()
     # The claim clearing (next successful open / re-plug) restores the normal green dot
     # and puts the hint line back to its plug-in nudge (hidden while a camera is present).

@@ -12,13 +12,22 @@ import os
 import pytest
 
 from negpy.infrastructure.capture.base import Camera
-from negpy.infrastructure.capture.gphoto import GphotoCamera, GphotoError, LiveViewUnsupported, _pin_locale, _safe_value
+from negpy.infrastructure.capture.gphoto import (
+    CameraClaimedError,
+    GphotoCamera,
+    GphotoError,
+    LiveViewUnsupported,
+    _pin_locale,
+    _safe_value,
+)
 
 # ---- fake libgphoto2 --------------------------------------------------------
 
 
 class _Err(Exception):
-    pass
+    def __init__(self, message, code=None):
+        super().__init__(message)
+        self.code = code
 
 
 class _Widget:
@@ -75,8 +84,13 @@ class _Camera:
             raise _Err("[-7] I/O problem")
 
     def init(self):
+        if self._fake.init_codes:
+            code = self._fake.init_codes.pop(0)
+            self._fake.init_attempts += 1
+            raise _Err(f"[{code}] open refused", code)
         if self._fake.init_error:
             raise _Err(self._fake.init_error)
+        self._fake.init_attempts += 1
         self._fake.opened = True
 
     def exit(self):
@@ -209,6 +223,8 @@ class FakeGP:
         self.captures = self.previews = 0
         self.writes: list[tuple[str, str]] = []
         self.init_error = init_error
+        self.init_codes: list[int] = []  # codes init() raises before it succeeds
+        self.init_attempts = 0
         self.raw_name = raw_name
         self._cameras = list(cameras)
         self._settle_writes = settle_writes
@@ -888,3 +904,45 @@ def test_a_value_the_body_never_published_is_refused_not_written(cam, fake, capl
     assert fake.writes == []  # nothing was sent to the body
     message = caplog.text
     assert "does not offer" in message and "1/5" in message  # the body's real choices are named
+
+
+def test_open_retries_a_transport_error_that_clears_itself(fake, monkeypatch):
+    # A body that is enumerated but momentarily busy refuses the open and accepts it moments
+    # later. Surfacing that first refusal sent users hunting for a cause that had already gone,
+    # and on macOS it named apps that were not even running.
+    monkeypatch.setattr("negpy.infrastructure.capture.gphoto.time.sleep", lambda _s: None)
+    # -10 is a timeout the reporter's log shows clearing in a second; -99 is a code no body has
+    # ever handed us, and it must be retried just the same, or the next camera's hiccup gets no
+    # retry only because nobody has met it yet.
+    fake.init_codes = [-10, -99]
+    camera = GphotoCamera(gp_module=fake, jpeg_path="/tmp/negpy_t.jpg", settings_path="/tmp/negpy_t.json")
+
+    camera.open()
+
+    assert camera.is_open()
+    assert fake.init_attempts == 3  # two refusals absorbed, third opened
+    camera.close()
+
+
+def test_open_gives_up_on_a_transport_error_that_does_not_clear(fake, monkeypatch):
+    # The retries are bounded, and what reaches the user names the transport, never a list of
+    # applications that have nothing to do with the failure.
+    monkeypatch.setattr("negpy.infrastructure.capture.gphoto.time.sleep", lambda _s: None)
+    fake.init_codes = [-10, -10, -10, -10]
+    camera = GphotoCamera(gp_module=fake, jpeg_path="/tmp/negpy_t.jpg", settings_path="/tmp/negpy_t.json")
+
+    with pytest.raises(GphotoError, match="could not open the camera") as e:
+        camera.open()
+    assert "Preview" not in str(e.value) and "Image Capture" not in str(e.value)
+
+
+def test_open_never_retries_a_claim_conflict(fake, monkeypatch):
+    # Whoever holds a PTP body keeps it for minutes, so retrying only delays the one message
+    # that explains what happened. It must be typed, too: the camera dot reads that type.
+    monkeypatch.setattr("negpy.infrastructure.capture.gphoto.time.sleep", lambda _s: None)
+    fake.init_codes = [-53, -53, -53, -53]
+    camera = GphotoCamera(gp_module=fake, jpeg_path="/tmp/negpy_t.jpg", settings_path="/tmp/negpy_t.json")
+
+    with pytest.raises(CameraClaimedError):
+        camera.open()
+    assert fake.init_attempts == 1  # refused once, reported at once

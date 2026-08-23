@@ -109,6 +109,13 @@ _DRAIN_SILENCE_MS = 50
 _FUJI_DRAIN_SILENCE_MS = 300
 _FUJI_DRAIN_BUDGET_S = 2.0
 
+#: An open is retried on any error except a claim conflict, and that asymmetry is the point: a
+#: busy transport clears on its own within seconds, while whoever holds a PTP body keeps it for
+#: minutes, so retrying there only delays the one message that explains it. An allow-list of
+#: transport codes was rejected as the alternative — it could only ever name the bodies already
+#: seen, and the next body's hiccup would arrive under a code nobody has reported yet.
+_OPEN_RETRY_DELAYS_S = (0.5, 1.5)
+
 _PREVIEW_INTERVAL_S = 0.05  # the body tops out near 24 fps; this leaves headroom
 _SETTINGS_INTERVAL_S = 2.0
 #: Consecutive preview failures before the session is treated as gone. One dropped frame
@@ -327,19 +334,24 @@ class GphotoCamera:
         if self.is_open():
             return
         self.close()  # drop a handle left behind by a body that went away
-        camera = self._gp.Camera()
-        try:
-            camera.init()
-        except self._gp.GPhoto2Error as exc:
-            # A camera sits on the bus but will not open. On macOS the ImageCapture daemons
-            # hand it to Preview, Photos or Image Capture as soon as one of them is open, and
-            # only one program may claim it. Raise the claim case typed (-53,
-            # GP_ERROR_IO_USB_CLAIM) so the connection poll can pin an "in use by another app"
-            # state on the camera dot, which enumeration alone cannot see.
-            message = f"could not open the camera: {exc}. Close Preview, Photos and Image Capture, then retry."
-            if getattr(exc, "code", None) == -53:
-                raise CameraClaimedError(message) from exc
-            raise GphotoError(message) from exc
+        for delay in (*_OPEN_RETRY_DELAYS_S, None):
+            camera = self._gp.Camera()
+            try:
+                camera.init()
+                break
+            except self._gp.GPhoto2Error as exc:
+                if getattr(exc, "code", None) == -53:
+                    # Only one program may hold a PTP body. Typed (GP_ERROR_IO_USB_CLAIM) so the
+                    # connection poll can pin an "in use by another app" state on the camera dot,
+                    # which enumeration alone cannot see.
+                    raise CameraClaimedError(
+                        f"could not open the camera: {exc}. Another program holds it. On macOS that is usually "
+                        "the system's own camera daemon rather than a window you can see; it releases the camera "
+                        "after a few minutes, and unplugging the cable frees it at once."
+                    ) from exc
+                if delay is None:
+                    raise GphotoError(f"could not open the camera: {exc}") from exc
+                time.sleep(delay)
         self._camera = camera
         self._model = _model_name(camera)
         self._alive = True
@@ -812,7 +824,7 @@ class GphotoCamera:
             # instead of blaming the connection, and make clear that scanning still works.
             return (
                 f"{self._model or 'this camera'} accepted the connection but its live view does not work "
-                "(a known gap in libgphoto2's Fujifilm support). Scanning still works, just without a preview."
+                "(a gap in libgphoto2's support for this body). Scanning still works, just without a preview."
             )
         if self._capabilities.mtp_mode:
             return (

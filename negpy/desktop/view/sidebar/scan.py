@@ -135,9 +135,7 @@ class ScanSidebar(QWidget):
         self.ir_check.setToolTip("Scan a separate infrared channel for dust detection")
 
         self.me_check = QCheckBox("Multi-exposure")
-        self.me_check.setToolTip(
-            "Merge short and long colour passes for more highlight and shadow detail. Takes longer."
-        )
+        self.me_check.setToolTip("Merge short and long colour passes for more highlight and shadow detail. Takes longer.")
 
         self.depth_row_widget = QWidget()
         depth_row = QHBoxLayout(self.depth_row_widget)
@@ -502,9 +500,7 @@ class ScanSidebar(QWidget):
         self.me_check.setEnabled(caps.multi_exposure)
         if caps.multi_exposure:
             self.me_check.setChecked(self._settings.multi_exposure)
-            self.me_check.setToolTip(
-                "Merge short and long colour passes for more highlight and shadow detail. Takes longer."
-            )
+            self.me_check.setToolTip("Merge short and long colour passes for more highlight and shadow detail. Takes longer.")
         else:
             self.me_check.setChecked(False)
             self.me_check.setToolTip("Multi-exposure not supported by this device")
