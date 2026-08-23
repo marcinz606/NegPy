@@ -254,8 +254,10 @@ def test_poll_self_heals_once_the_other_app_releases_the_camera(monkeypatch):
     worker.poll_connection("")
     assert seen[-1]["usb_claimed_elsewhere"] is False  # healed without any user action
     assert seen[-1]["usb_model"] == "ILCE-7CM2"  # the probe read the real name off the body
-    assert cam.opened and cam.closed  # probe session released again — nothing stays held
-    assert not worker._holds_camera()
+    # The reclaimed session is kept. Handing it back gives the OS camera daemon an opening it
+    # holds for minutes, and the next thing the user does is exactly what needs the camera.
+    assert cam.opened and not cam.closed
+    assert worker._holds_camera()
 
 
 def test_poll_identifies_the_body_on_first_sight(monkeypatch):
@@ -292,7 +294,7 @@ def test_poll_identifies_the_body_on_first_sight(monkeypatch):
     worker.poll_status.connect(seen.append)
     worker.poll_connection("")
     assert seen[-1]["usb_model"] == "ILCE-7CM2"  # real name, not the database placeholder
-    assert not worker._holds_camera()  # the identify session was released again
+    assert worker._holds_camera()  # the probe keeps the claim it won
     worker.poll_connection("")
     assert cam.open_calls == 1  # identified once, not per tick
 

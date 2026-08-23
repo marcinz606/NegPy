@@ -57,9 +57,11 @@ app shows the setup hint.
 Then put the camera in **PC Remote** mode and plug it in over USB. NegPy detects it
 automatically. There is no address to type, no login and no pairing.
 
-> On macOS, quit **Preview**, **Photos** and **Image Capture** first. The system's
-> ImageCapture daemons hand a PTP camera to whichever of those apps is open, and
-> libgphoto2 is then locked out.
+> On macOS a PTP camera is claimed by the system's own camera daemon as soon as nothing else
+> holds it, and it does not let go again for minutes. NegPy therefore takes the claim the
+> moment the Camera Scanning panel sees the body and keeps it: while that panel is open the
+> camera belongs to NegPy, and Preview, Photos, Image Capture and other tethering software
+> cannot use it. Unplugging the cable hands it back.
 
 ---
 
@@ -135,9 +137,9 @@ is film-dye crosstalk, which the density-domain **Crosstalk** matrix handles (se
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| The camera dot shows **"in use"** (amber hint) | An ImageCapture app holds the body. Only one program may claim a PTP camera. | **Quit Preview, Photos and Image Capture.** Preview is the usual culprit, because it grabs the camera silently. NegPy reconnects on its own once the camera is free. |
+| The camera dot shows **"in use"** (amber hint) | Another program holds the body, and only one program may claim a PTP camera. On macOS it is usually the system's own camera daemon, which needs no window to be open, so there is often nothing visible to quit. | **Unplug the cable and reconnect it** — that frees the camera at once. The daemon also lets go on its own after a few minutes. Quitting Preview, Photos and Image Capture helps when one of those really is open. NegPy reconnects by itself once the camera is free. |
 | No camera found, and nothing else is running | The body is not in PC Remote mode, or it is a mass-storage/MTP connection. | Set the camera's USB connection mode to **PC Remote**. |
-| `[-10] Timeout reading from or writing to the port`, and no other program holds it | A program crashed while connected. The *camera* still thinks the session is open and refuses a new one. | Power-cycle the camera, or unplug and replug the cable. Nothing on the computer fixes it. |
+| `[-10] Timeout reading from or writing to the port`, and no other program holds it | A program crashed while connected. The *camera* still thinks the session is open and refuses a new one. A timeout that clears on its own is retried silently and never reaches you, so seeing this means it did not clear. | Power-cycle the camera, or unplug and replug the cable. Nothing on the computer fixes it. |
 | Live view is black | The body dropped out of PC Remote, or the lens cap is on. | Power-cycle the camera. |
 | The scan window opens with **"no live view"** instead of a preview | libgphoto2's entry for this body has no preview capability. Either the body genuinely lacks it (Sony a6000), or it is connected in MTP mode, where no body has it. | If the message names MTP, set the camera's USB mode to **PC Remote** and reconnect. If not, this is expected. Scanning works normally, but you must set framing and focus on the camera, and calibration is unavailable because it aims through the live view. |
 | Capture says the camera returned JPEG instead of RAW | The camera's image-quality setting is JPEG, or RAW+JPEG selected the processed file. | Set image quality to **RAW only**, then retry. |

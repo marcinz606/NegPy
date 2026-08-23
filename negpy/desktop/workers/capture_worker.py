@@ -143,11 +143,12 @@ class CaptureWorker(QObject):
             try:
                 self._camera.open()
             except CameraClaimedError:
-                # Another program holds the USB claim (on macOS: Preview, Photos, Image
-                # Capture). Flip the dot on the False-to-True transition immediately: the next
-                # timer poll is seconds away, and "Scan did nothing" against a green dot is the
-                # confusion this state exists for. Only on the transition, because the poll's own
-                # re-probe lands here too and an unconditional push would recurse.
+                # Another program holds the USB claim (on macOS usually the system's own camera
+                # daemon, which needs no visible window). Flip the dot on the False-to-True
+                # transition immediately: the next timer poll is seconds away, and "Scan did
+                # nothing" against a green dot is the confusion this state exists for. Only on the
+                # transition, because the poll's own re-probe lands here too and an unconditional
+                # push would recurse.
                 first = not self._claimed_elsewhere
                 self._claimed_elsewhere = True
                 if first:
@@ -158,8 +159,8 @@ class CaptureWorker(QObject):
                 raise
             self._claimed_elsewhere = False
             self._model = self._camera.model
-            # Cached so the poll keeps reporting them after this session is closed again: the
-            # identify probe opens and closes immediately, and the UI gates on the result.
+            # Cached so the poll keeps reporting them once the session is released again, which
+            # the last camera window closing does, and the UI gates on the result.
             # Optional, because the `Camera` protocol does not require it: a backend that
             # cannot report abilities must leave the UI ungated instead of breaking the session.
             self._caps = getattr(self._camera, "capabilities", None)
@@ -369,7 +370,11 @@ class CaptureWorker(QObject):
                     self._identify_attempted = True
                     try:
                         self._acquire_camera()
-                        self._close_camera()
+                        # The claim is kept, never handed back. A freed PTP interface is taken by
+                        # the OS camera daemon within seconds and held for minutes, so a probe that
+                        # opened and closed left the user's first live view or scan refused. The
+                        # poll runs only while the camera panel is visible, so holding follows the
+                        # user; the last camera window closing still releases it.
                     except Exception:
                         pass  # verdict already updated by _acquire_camera's except paths
                 # A body on the bus that refused our last open, because another app holds the
