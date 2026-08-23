@@ -26,10 +26,21 @@ _TOOLTIPS = {
 
 
 _PROBE_EMPTY = "—"
+_PROBE_SAMPLE = "ΔD -0.00·0.00·0.00 · D 0.00 · VIII⅔"
 
 # One per zone-placement pin, in pin order. The canvas overlay draws its rings in these
 # same colors, so the sidebar row and the pin on the photo match by eye.
 PIN_COLORS = (THEME.accent_primary, "#FFFFFF", THEME.channel_blue)
+
+
+def _lock_height(label: QLabel, sample: str) -> None:
+    """Freeze a label at the height of *sample*. Zone fractions can come from a taller
+    fallback font, and the Analysis chart above absorbs every pixel a row gains."""
+    text = label.text()
+    label.setText(sample)
+    label.ensurePolished()
+    label.setFixedHeight(label.sizeHint().height())
+    label.setText(text)
 
 
 class DensitometerRow(QWidget):
@@ -55,6 +66,8 @@ class DensitometerRow(QWidget):
         self._value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         grid.addWidget(name, 0, 0)
         grid.addWidget(self._value, 0, 1)
+        _lock_height(name, "Probe")
+        _lock_height(self._value, _PROBE_SAMPLE)
         name.setToolTip(self._TOOLTIP)
         self._value.setToolTip(self._TOOLTIP)
 
@@ -131,6 +144,9 @@ class ZonePlacementRows(QWidget):
             grid.addWidget(plus, 0, 4)
             grid.addWidget(remove, 0, 5)
             grid.addWidget(lands, 1, 1, 1, 5)
+            _lock_height(name, "Pin 1 · reads VIII⅔")
+            _lock_height(target, "VIII⅔")
+            _lock_height(lands, "→ lands VIII⅔")
             col.addWidget(row)
             self._rows.append(row)
             self._names.append(name)
