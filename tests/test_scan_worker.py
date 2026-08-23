@@ -588,3 +588,20 @@ def test_a_named_frame_list_never_measures_the_film() -> None:
 
     assert service.frames == [2, 4]
     assert service.detect_calls == []
+
+
+def test_batch_progress_names_the_frame_and_its_position() -> None:
+    """A global percentage says nothing about how much film is left in the run."""
+    worker = ScanWorker()
+    worker._service = _BatchService()  # type: ignore[assignment]
+    seen: list[tuple[float, str]] = []
+    worker.progress.connect(lambda fraction, phase: seen.append((fraction, phase)))
+
+    worker.run_batch(_batch_request(frames=(2, 3, 4)))
+
+    assert [phase for _fraction, phase in seen] == [
+        "Frame 1 of 3 — Scanning",
+        "Frame 2 of 3 — Scanning",
+        "Frame 3 of 3 — Scanning",
+    ]
+    assert [fraction for fraction, _phase in seen] == pytest.approx([1 / 3, 2 / 3, 1.0])

@@ -49,13 +49,18 @@ def _device(capacity: int) -> ScannerDevice:
 class _FakeController(QObject):
     scan_roll_preview_ready = pyqtSignal(object)
     scan_roll_preview_finished = pyqtSignal()
+    scan_progress = pyqtSignal(float, str)
     scan_error = pyqtSignal(str)
     scan_cancelled = pyqtSignal()
 
     def __init__(self, *, raise_on_preview: bool = False) -> None:
         super().__init__()
         self.preview_reqs: list = []
+        self.cancels = 0
         self._raise = raise_on_preview
+
+    def cancel_scan(self) -> None:
+        self.cancels += 1
 
     def start_roll_preview(self, req) -> None:
         if self._raise:
@@ -572,7 +577,7 @@ def test_a_measured_strip_slides_the_frame_instead_of_losing_its_tail() -> None:
     controller.deliver_all((1,), offset=0.0)
     assert dialog._tile_coverage(dialog._tiles[1]) == (0.0, 1.0)
 
-    dialog.offset_slider.setValue(180)  # 18 mm, half a frame pitch
+    dialog.offset_slider.setValue(25)  # 2.5 mm, the whole span
     start, end = dialog._tile_coverage(dialog._tiles[1])
     assert start < 0.0 and end < 1.0
     assert end - start == pytest.approx(1.0), "a slid frame is still a whole frame"
@@ -585,7 +590,7 @@ def test_a_measured_strip_draws_the_boundary_it_slid_to() -> None:
     controller.deliver_all((1,), offset=0.0)
     assert dialog._tiles[1].label._offset_indicators == []
 
-    dialog.offset_slider.setValue(180)
+    dialog.offset_slider.setValue(25)
     assert [edge for _frac, edge in dialog._tiles[1].label._offset_indicators] == ["right"]
     # Nothing is cut off, so neither blackout warning applies.
     assert not dialog.status.text().startswith(("Offset held", "Offset cuts"))
@@ -595,8 +600,8 @@ def test_a_measured_strip_can_slide_a_frame_backwards() -> None:
     dialog = StripPreviewDialog(_FakeController(), _discovery_device())
     assert dialog.offset_slider.minimum() < 0
 
-    dialog.offset_slider.setValue(-180)
-    assert dialog.frame_offset() < 0
+    dialog.offset_slider.setValue(-25)
+    assert dialog.frame_offset() == -2.5
 
 
 def test_a_feeder_cannot_slide_backwards() -> None:
@@ -701,3 +706,126 @@ def test_none_and_all_move_the_whole_selection() -> None:
     dialog.select_all_btn.click()
     assert dialog.selected_frames() == (1, 2, 3)
     assert dialog.ok_btn.isEnabled() is True
+
+
+def test_stopping_a_running_preview_cancels_it_and_keeps_the_dialog_open() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device())
+    dialog._on_preview_all()
+    assert dialog.cancel_btn.text() == "Stop preview"
+
+    dialog.cancel_btn.click()
+
+    assert controller.cancels == 1
+    assert dialog.result() == 0  # not rejected: the tiles already in hand stay
+
+
+def test_cancel_closes_the_dialog_when_no_preview_is_running() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device())
+
+    dialog.cancel_btn.click()
+
+    assert controller.cancels == 0
+    assert dialog.isVisible() is False
+
+
+def test_leaving_mid_preview_stops_the_transport() -> None:
+    # The unit is held for the whole pass, so an abandoned preview would refuse the next scan.
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device())
+    dialog._on_preview_all()
+
+    dialog.accept()
+
+    assert controller.cancels == 1
+
+
+def test_committing_is_refused_while_the_preview_runs() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device())
+    dialog._on_preview_all()
+    controller.deliver_all((1, 2, 3))
+    assert dialog.ok_btn.isEnabled() is True
+
+    dialog._on_preview_all()
+
+    assert dialog.ok_btn.isEnabled() is False
+    assert dialog.scan_btn.isEnabled() is False
+
+
+def test_preview_progress_reaches_the_bar_and_names_the_phase() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device())
+    dialog._on_preview_all()
+
+    controller.scan_progress.emit(0.4, "Detecting frames")
+
+    assert dialog.preview_progress.value() == 40
+    assert dialog.preview_progress.format() == "Detecting frames… %p%"
+
+    controller.deliver_all((1,))
+    assert dialog.preview_progress.isVisibleTo(dialog) is False
+
+
+def test_idle_progress_updates_are_ignored() -> None:
+    # A batch scan started from the sidebar drives the same signal.
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device())
+
+    controller.scan_progress.emit(0.9, "Scanning")
+
+    assert dialog.preview_progress.value() == 0
+
+
+def test_reversal_film_previews_without_inversion() -> None:
+    slide = np.zeros((4, 4, 3), dtype=np.uint8)
+    slide[:, :2, :] = 20  # a dark slide stays dark
+    slide[:, 2:, :] = 200
+    pos = preview_positive(slide, "positive")
+    assert pos[:, :2, :].mean() < pos[:, 2:, :].mean()
+
+
+def test_the_film_type_decides_which_way_a_tile_reads() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device(), film_type="kodachrome")
+    dialog._on_preview_all()
+    rgb = np.zeros((4, 8, 3), dtype=np.uint8)
+    rgb[:, :4, :] = 20
+    rgb[:, 4:, :] = 200
+
+    controller.deliver(1, rgb=rgb)
+
+    assert dialog._tiles[1].label.has_frame() is True
+
+
+def test_a_measured_strip_says_it_is_measuring_not_how_many_slots_it_asked_for() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device())
+
+    dialog._on_preview_all()
+
+    assert dialog.status.text() == "Measuring the strip…"
+
+
+def test_a_feeder_still_counts_the_frames_it_previews() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _device(3))
+
+    dialog._on_preview_all()
+
+    assert dialog.status.text() == "Previewing 3 frames…"
+
+
+def test_the_offset_is_a_boundary_correction_not_a_way_to_the_next_frame() -> None:
+    measured = StripPreviewDialog(_FakeController(), _discovery_device())
+    assert (measured.offset_slider.minimum(), measured.offset_slider.maximum()) == (-25, 25)
+
+    measured.offset_slider.setValue(400)
+    assert measured.frame_offset() == 2.5
+
+
+def test_a_saved_negative_offset_comes_back_as_it_was() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _discovery_device(), initial_offset=-1.5)
+    assert dialog.frame_offset() == -1.5
+    assert dialog.offset_label.text() == "-1.5 mm"

@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QSlider,
@@ -39,6 +40,7 @@ _CUT_NOTICE = "Offset cuts into the frame"
 # (pitch - frame) discards that much picture off the frame tail.
 _FRAME_LEN_MM = 36.0
 _PREVIEW_FALLBACK_DPI = 500  # only when the device reports no DPI list at all
+_MAX_MEASURED_OFFSET_TENTHS = 25  # ±2.5 mm, in the slider's tenths of a millimetre
 _TILE_H = 140  # constant tile height; width follows the device aspect
 _TILES_PER_ROW = 6  # one SA-21 strip per row; roll adapters (up to 40 frames) wrap below
 # A transport that measures the strip reports its frame count only as previews arrive, so ask
@@ -174,13 +176,19 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         top = QHBoxLayout()
         top.addWidget(QLabel("Offset"))
         self.offset_slider = _ResetSlider()
-        # A measured strip re-addresses the frame, so the offset may run a whole frame either
-        # way; a feeder cannot back up and blacks out one pitch past the frame start.
-        self.offset_slider.setRange(-380 if self._discovers else 0, 380 if self._discovers else 100)
+        # A measured strip re-addresses the frame, so its offset may go either way; a feeder
+        # cannot back up and blacks out one pitch past the frame start. Both are a correction to
+        # a boundary, not a way to reach the next frame, so a measured strip gets the same
+        # ±2.5 mm span as Drift.
+        self.offset_slider.setRange(
+            -_MAX_MEASURED_OFFSET_TENTHS if self._discovers else 0, _MAX_MEASURED_OFFSET_TENTHS if self._discovers else 100
+        )
         self.offset_slider.setSingleStep(1)
         self.offset_slider.setPageStep(5)
         self.offset_slider.setFixedWidth(160)
-        self.offset_slider.setValue(int(round(max(0.0, float(initial_offset)) * 10)))
+        # Not floored at 0: a measured strip's saved offset may be negative, and the range
+        # clamps it either way.
+        self.offset_slider.setValue(int(round(float(initial_offset) * 10)))
         self.offset_slider.setToolTip(
             "Feed-axis offset applied to every frame"
             if self._discovers
@@ -252,6 +260,12 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self.status.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
         layout.addWidget(self.status)
 
+        self.preview_progress = QProgressBar()
+        self.preview_progress.setRange(0, 100)
+        self.preview_progress.setValue(0)
+        self.preview_progress.setVisible(False)
+        layout.addWidget(self.preview_progress)
+
         btns = QHBoxLayout()
         self.select_all_btn = QPushButton("All")
         self.select_all_btn.setFixedWidth(48)
@@ -274,9 +288,9 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self.clear_btn.clicked.connect(self._on_clear_all)
         btns.addWidget(self.clear_btn)
         btns.addStretch()
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.clicked.connect(self.reject)
-        btns.addWidget(cancel_btn)
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.clicked.connect(self._on_cancel_clicked)
+        btns.addWidget(self.cancel_btn)
         self.ok_btn = QPushButton("Use")
         self.ok_btn.setDefault(True)
         self.ok_btn.clicked.connect(self.accept)
@@ -403,10 +417,18 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self._scan_now = True
         self.accept()
 
+    def _on_cancel_clicked(self) -> None:
+        """Stop the pass in flight, or leave when there is none: the tiles already in
+        hand are worth keeping, so a stopped preview does not close the dialog."""
+        if self._previewing:
+            self.stop_preview()
+            return
+        self.reject()
+
     def _update_ok_enabled(self, *_args) -> None:
         picked = sum(1 for t in self._tiles.values() if t.checkbox.isChecked())
-        self.ok_btn.setEnabled(bool(picked))
-        self.scan_btn.setEnabled(bool(picked))
+        self.ok_btn.setEnabled(bool(picked) and not self._previewing)
+        self.scan_btn.setEnabled(bool(picked) and not self._previewing)
         self.selection_label.setText(f"{picked} of {count_of(len(self._tiles), 'frame')}" if self._tiles else "none yet")
 
     def _set_all_checked(self, checked: bool) -> None:
@@ -421,6 +443,13 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self.preview_all_btn.setEnabled(not busy)
         for tile in self._tiles.values():
             tile.preview_btn.setEnabled(not busy)
+        # Committing mid-pass would hand the batch a unit the preview still holds.
+        self.cancel_btn.setText("Stop preview" if busy else "Cancel")
+        self.preview_progress.setVisible(busy)
+        if busy:
+            self.preview_progress.setValue(0)
+            self.preview_progress.setFormat("Previewing… %p%")
+        self._update_ok_enabled()
 
     def _on_offset_changed(self, _value: int) -> None:
         self.offset_label.setText(f"{self.frame_offset():.1f} mm")
@@ -528,7 +557,11 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
             return
         self._previewing = True
         self._set_previewing(True)
-        self.status.setText(f"Previewing {'frame ' + str(slots[0]) if len(slots) == 1 else f'{len(slots)} frames'}…")
+        if self._discovers and len(slots) > 1:
+            # The slot count asked for is a roll's worth, not what the strip holds.
+            self.status.setText("Measuring the strip…")
+        else:
+            self.status.setText(f"Previewing {'frame ' + str(slots[0]) if len(slots) == 1 else f'{len(slots)} frames'}…")
 
     @pyqtSlot(object)
     def _on_preview_ready(self, preview) -> None:
@@ -544,7 +577,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
             self.status.setText(f"Frame {preview.slot} failed — continuing…")
             return
         try:
-            positive = preview_positive(preview.rgb)
+            positive = preview_positive(preview.rgb, self._film_type)
             pixmap = QPixmap.fromImage(ImageConverter.to_qimage(positive))
             if self._rotation:
                 pixmap = pixmap.transformed(QTransform().rotate(self._rotation))

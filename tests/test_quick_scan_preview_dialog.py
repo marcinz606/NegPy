@@ -42,13 +42,18 @@ def _device() -> ScannerDevice:
 class _FakeController(QObject):
     scan_roll_preview_ready = pyqtSignal(object)
     scan_roll_preview_finished = pyqtSignal()
+    scan_progress = pyqtSignal(float, str)
     scan_error = pyqtSignal(str)
     scan_cancelled = pyqtSignal()
 
     def __init__(self, *, raise_on_preview: bool = False) -> None:
         super().__init__()
         self.preview_reqs: list = []
+        self.cancels = 0
         self._raise = raise_on_preview
+
+    def cancel_scan(self) -> None:
+        self.cancels += 1
 
     def start_roll_preview(self, req) -> None:
         if self._raise:
@@ -156,3 +161,50 @@ def test_close_disconnects_preview_signals_without_error():
 
     # Disconnected: delivering a result now must not raise or touch the dialog.
     controller.deliver()
+
+
+def test_leaving_mid_preview_stops_the_transport():
+    controller = _FakeController()
+    dialog = QuickScanPreviewDialog(controller, _device())
+    dialog._on_preview()
+
+    dialog.accept()
+
+    assert controller.cancels == 1
+
+
+def test_stopping_a_running_preview_keeps_the_dialog_open():
+    controller = _FakeController()
+    dialog = QuickScanPreviewDialog(controller, _device())
+    dialog._on_preview()
+    assert dialog.cancel_btn.text() == "Stop preview"
+    assert dialog.ok_btn.isEnabled() is False
+
+    dialog.cancel_btn.click()
+
+    assert controller.cancels == 1
+    assert dialog.result() == 0
+
+
+def test_preview_progress_reaches_the_bar():
+    controller = _FakeController()
+    dialog = QuickScanPreviewDialog(controller, _device())
+    dialog._on_preview()
+
+    controller.scan_progress.emit(0.25, "Metering")
+
+    assert dialog.preview_progress.value() == 25
+    assert dialog.preview_progress.format() == "Metering… %p%"
+
+
+def test_reversal_film_previews_without_inversion():
+    controller = _FakeController()
+    dialog = QuickScanPreviewDialog(controller, _device(), film_type="positive")
+    dialog._on_preview()
+    rgb = np.zeros((4, 8, 3), dtype=np.uint8)
+    rgb[:, 4:, :] = 200
+
+    controller.deliver(rgb=rgb)
+
+    assert dialog.label.has_frame() is True
+    assert dialog._film_type == "positive"

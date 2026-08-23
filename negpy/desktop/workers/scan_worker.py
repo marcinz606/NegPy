@@ -39,7 +39,7 @@ class RollPreviewRequest:
 
 @dataclass(frozen=True)
 class PrescanRequest:
-    """One low-DPI full-window colour preview for crop setup (no file write)."""
+    """One low-DPI full-window color preview for crop setup (no file write)."""
 
     device_id: str
     prescan_dpi: int
@@ -227,8 +227,12 @@ class ScanWorker(QObject):
                 frame_params = dataclasses.replace(req.params, frame=frame, window=window, frame_offset_mm=offset)
                 base = index / total
 
-                def _progress(fraction: float, phase: str = "Scanning", _base: float = base) -> None:
-                    self.progress.emit(_base + min(1.0, max(0.0, fraction)) / total, phase)
+                # The frame's position in the run rides on the phase string: a batch's global
+                # percentage alone says nothing about how much film is left.
+                position = f"Frame {index + 1} of {total}"
+
+                def _progress(fraction: float, phase: str = "Scanning", _base: float = base, _at: str = position) -> None:
+                    self.progress.emit(_base + min(1.0, max(0.0, fraction)) / total, f"{_at} — {phase}")
 
                 try:
                     result = service.run_scan(req.device_id, frame_params, _progress, self._cancel_event)
@@ -329,7 +333,7 @@ class ScanWorker(QObject):
 
     @pyqtSlot(PrescanRequest)
     def run_prescan(self, req: PrescanRequest) -> None:
-        """Full-window colour preview at prescan_dpi; emit RGB without writing a file."""
+        """Full-window color preview at prescan_dpi; emit RGB without writing a file."""
         if req.prescan_dpi <= 0:
             self.prescan_error.emit("Device does not support Prescan")
             return

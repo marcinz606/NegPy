@@ -20,9 +20,10 @@ from types import SimpleNamespace
 
 import pytest
 from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtGui import QValidator
 from PyQt6.QtWidgets import QApplication
 
-from negpy.desktop.view.sidebar.scan import ScanSidebar
+from negpy.desktop.view.sidebar.scan import ScanSidebar, estimated_frame_bytes
 from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice
 from negpy.infrastructure.scanners.params import FILM_TYPES, ScanMode
 
@@ -272,8 +273,8 @@ def test_sane_backend_scan_window_opens_the_quick_preview_dialog(monkeypatch) ->
     rect = (0.2, 0.2, 0.8, 0.8)
 
     class _FakeDialog:
-        def __init__(self, controller, device, initial_window=None, parent=None) -> None:
-            self.seen = (controller, device, initial_window)
+        def __init__(self, controller, device, initial_window=None, film_type="negative", parent=None) -> None:
+            self.seen = (controller, device, initial_window, film_type)
 
         def exec(self) -> bool:
             return True
@@ -609,7 +610,7 @@ def test_the_nkscan_options_persist() -> None:
 def test_a_measured_strip_says_what_scan_would_do_before_a_preview() -> None:
     """Its frames come from the strip dialog, and there is no frame range to fall back on."""
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
-    assert "Preview strip" in sidebar.scan_window_status.text()
+    assert sidebar.scan_window_status.text().startswith("Whole strip")
 
 
 def test_a_measured_strip_scans_the_frames_the_strip_dialog_picked() -> None:
@@ -703,3 +704,148 @@ def test_the_film_type_reaches_the_request_and_the_settings() -> None:
 
     assert controller.started[-1][1].params.film_type == "positive"
     assert sidebar.settings.film_type == "positive"
+
+
+# ── group headers ─────────────────────────────────────────────────────
+
+
+def test_a_group_header_hides_with_its_whole_group() -> None:
+    sidebar, _ = _sidebar(MINIMAL_DEVICE)
+    # Nothing to say about the film, and one manual holder to frame.
+    assert sidebar.film_header.isVisibleTo(sidebar) is False
+    assert sidebar.quality_header.isVisibleTo(sidebar) is True
+    assert sidebar.output_header.isVisibleTo(sidebar) is True
+
+
+def test_the_film_group_appears_where_the_transport_asks_about_the_film() -> None:
+    sidebar, _ = _sidebar(NKSCAN_DEVICE)
+    assert sidebar.film_header.isVisibleTo(sidebar) is True
+    assert sidebar.framing_header.isVisibleTo(sidebar) is True
+
+
+def test_no_device_hides_the_optional_headers() -> None:
+    sidebar, _ = _sidebar()
+    sidebar._update_device_caps()
+    assert sidebar.film_header.isVisibleTo(sidebar) is False
+    assert sidebar.framing_header.isVisibleTo(sidebar) is False
+
+
+# ── the summary above the Scan button ─────────────────────────────────
+
+
+def test_the_summary_counts_the_frames_the_batch_will_scan() -> None:
+    sidebar, _ = _sidebar(FULL_DEVICE, settings={"selected_frames": [1, 3, 5], "dpi": 4000})
+    text = sidebar.summary_label.text()
+    assert text.startswith("3 frames  ·  4000 dpi")
+    assert "GB" in text or "MB" in text
+
+
+def test_the_summary_quotes_a_per_frame_size_for_an_unmeasured_strip() -> None:
+    sidebar, _ = _sidebar(NKSCAN_DEVICE)
+    text = sidebar.summary_label.text()
+    assert text.startswith("Whole strip")
+    assert "/frame" in text
+
+
+def test_the_summary_names_the_extra_passes() -> None:
+    sidebar, _ = _sidebar(NKSCAN_DEVICE)
+    sidebar.ir_check.setChecked(True)
+    sidebar.clean_check.setChecked(True)
+    sidebar.samples_combo.setCurrentIndex(sidebar.samples_combo.findData(4))
+
+    text = sidebar.summary_label.text()
+
+    assert "IR" in text and "ICE" in text and "4× sampled" in text
+
+
+def test_a_single_holder_device_summarizes_one_frame() -> None:
+    # The saved 3600 is not offered here, so the nearest stop the device has is shown and used.
+    sidebar, _ = _sidebar(MINIMAL_DEVICE)
+    assert sidebar.summary_label.text().startswith("1 frame  ·  2400 dpi")
+    assert sidebar._dpi() == 2400
+
+
+def test_the_summary_shrinks_with_the_crop() -> None:
+    full, _ = _sidebar(MINIMAL_DEVICE)
+    cropped, _ = _sidebar(MINIMAL_DEVICE, settings={"scan_window": [0.0, 0.0, 0.5, 0.5]})
+    assert full.summary_label.text() != cropped.summary_label.text()
+
+
+def test_an_ir_pass_costs_a_fourth_plane() -> None:
+    caps = MINIMAL_CAPS
+    plain = estimated_frame_bytes(caps, 2400, 16)
+    with_ir = estimated_frame_bytes(caps, 2400, 16, capture_ir=True)
+    assert with_ir == pytest.approx(plain * 4 / 3, rel=1e-3)
+
+
+def test_a_window_scales_the_estimate_by_its_area() -> None:
+    caps = MINIMAL_CAPS
+    assert estimated_frame_bytes(caps, 2400, 16, window=(0.0, 0.0, 0.5, 0.5)) == pytest.approx(
+        estimated_frame_bytes(caps, 2400, 16) / 4, rel=1e-3
+    )
+
+
+# ── the film that came out ────────────────────────────────────────────
+
+
+def test_ejecting_drops_the_frame_selection_of_the_film_that_left() -> None:
+    sidebar, _ = _sidebar(FULL_DEVICE, settings={"selected_frames": [1, 3], "frame_windows": {"1": [0.1, 0.1, 0.9, 0.9]}})
+    assert sidebar.settings.selected_frames == (1, 3)
+
+    sidebar._on_ejected(True)
+
+    assert sidebar.settings.selected_frames == ()
+    assert sidebar.settings.frame_windows == {}
+    assert "frame selection cleared" in sidebar.status_label.text()
+
+
+def test_ejecting_keeps_the_registration_offsets() -> None:
+    # Offset and drift belong to the transport's own registration, not to one strip.
+    sidebar, _ = _sidebar(FULL_DEVICE, settings={"selected_frames": [1], "frame_offset_mm": 1.5, "frame_offset_modifier_mm": 0.2})
+
+    sidebar._on_ejected(True)
+
+    assert sidebar.settings.frame_offset_mm == 1.5
+    assert sidebar.settings.frame_offset_modifier_mm == 0.2
+
+
+def test_ejecting_with_nothing_picked_says_only_that() -> None:
+    sidebar, _ = _sidebar(FULL_DEVICE)
+    sidebar._on_ejected(True)
+    assert sidebar.status_label.text() == "Film ejected"
+
+
+# ── typed DPI ─────────────────────────────────────────────────────────
+
+
+def test_a_typed_dpi_outside_the_device_range_cannot_be_entered() -> None:
+    sidebar, _ = _sidebar(MINIMAL_DEVICE)  # supported_dpi=(1200, 2400)
+    editor = sidebar.dpi_combo.lineEdit()
+    assert editor is not None
+    assert editor.validator() is not None
+    assert editor.validator().validate("99999", 5)[0] != QValidator.State.Acceptable
+
+
+def test_an_empty_dpi_box_falls_back_to_the_finest_the_device_offers() -> None:
+    sidebar, _ = _sidebar(MINIMAL_DEVICE)
+    sidebar.dpi_combo.clear()  # nothing selected and nothing typed
+    assert sidebar._dpi() == 2400
+
+
+def test_a_pass_the_device_cannot_run_is_not_shown_at_all() -> None:
+    # Disabled-with-a-reason is for a pass the film blocks; one the transport lacks goes away.
+    sidebar, _ = _sidebar(MINIMAL_DEVICE)
+    assert sidebar.ir_check.isVisibleTo(sidebar) is False
+    assert sidebar.me_check.isVisibleTo(sidebar) is False
+
+    sidebar, _ = _sidebar(SE_DEVICE, settings={"backend": "plustek"})
+    assert sidebar.ir_check.isVisibleTo(sidebar) is True
+    assert sidebar.me_check.isVisibleTo(sidebar) is True
+
+
+def test_a_film_that_blocks_infrared_leaves_the_control_visible_to_explain_itself() -> None:
+    sidebar, _ = _sidebar(NKSCAN_DEVICE)
+    sidebar.film_type_combo.setCurrentIndex(sidebar.film_type_combo.findData("mono"))
+
+    assert sidebar.ir_check.isVisibleTo(sidebar) is True
+    assert sidebar.ir_check.isEnabled() is False
