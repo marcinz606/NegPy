@@ -57,11 +57,15 @@ app shows the setup hint.
 Then put the camera in **PC Remote** mode and plug it in over USB. NegPy detects it
 automatically. There is no address to type, no login and no pairing.
 
-> On macOS a PTP camera is claimed by the system's own camera daemon as soon as nothing else
-> holds it, and it does not let go again for minutes. NegPy therefore takes the claim the
-> moment the Camera Scanning panel sees the body and keeps it: while that panel is open the
-> camera belongs to NegPy, and Preview, Photos, Image Capture and other tethering software
-> cannot use it. Unplugging the cable hands it back.
+> On macOS a PTP camera is claimed by the system camera daemon as soon as nothing else holds
+> it, and it does not let go again for minutes. NegPy therefore takes the claim the moment the
+> Camera Scanning panel sees the body and keeps it: while that panel is open the camera belongs
+> to NegPy, and Preview, Photos, Image Capture and other tethering software cannot use it.
+> Unplugging the cable hands it back.
+>
+> What wakes that daemon is any application asking for a camera, and it does not have to be one
+> you opened. A background sync client is the common case, silently and repeatedly: check for
+> those first if the camera reads as in use with nothing visible running.
 
 ---
 
@@ -137,7 +141,7 @@ is film-dye crosstalk, which the density-domain **Crosstalk** matrix handles (se
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| The camera dot shows **"in use"** (amber hint) | Another program holds the body, and only one program may claim a PTP camera. On macOS it is usually the system's own camera daemon, which needs no window to be open, so there is often nothing visible to quit. | **Unplug the cable and reconnect it** — that frees the camera at once. The daemon also lets go on its own after a few minutes. Quitting Preview, Photos and Image Capture helps when one of those really is open. NegPy reconnects by itself once the camera is free. |
+| The camera dot shows **"in use"** (amber hint) | Another program holds the body, and only one program may claim a PTP camera. On macOS the holder is the system camera daemon, and it is woken by any application that watches for cameras. Often that application is a **background sync client** with no window and no notification: Google Drive running as a login item has been confirmed to do it, and Dropbox and similar tools behave the same way. | Quit the background app, or remove it from **System Settings → General → Login Items** if it starts itself. Unplugging and reconnecting the cable frees the camera too, but only until that app asks again. Preview, Photos and Image Capture do the same when one of them is genuinely open. NegPy reconnects by itself once the camera is free. |
 | No camera found, and nothing else is running | The body is not in PC Remote mode, or it is a mass-storage/MTP connection. | Set the camera's USB connection mode to **PC Remote**. |
 | `[-10] Timeout reading from or writing to the port`, and no other program holds it | A program crashed while connected. The *camera* still thinks the session is open and refuses a new one. A timeout that clears on its own is retried silently and never reaches you, so seeing this means it did not clear. | Power-cycle the camera, or unplug and replug the cable. Nothing on the computer fixes it. |
 | Live view is black | The body dropped out of PC Remote, or the lens cap is on. | Power-cycle the camera. |
