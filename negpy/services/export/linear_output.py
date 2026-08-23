@@ -366,14 +366,10 @@ def _decode_linear(
         rgb, ir = _decode_pakon(file_path, geometry, expansion=expansion)
         meta = _SourceMeta(make="Pakon", model=_pakon_spec_desc(file_path))
         return rgb, ir, None, meta
-    if _is_dng(file_path):
+    if _is_dng(file_path) and _is_linearraw_dng(file_path):
         meta = _read_source_meta_tiff(file_path)
-        if _is_linearraw_dng(file_path):
-            rgb, ir = _decode_dng(file_path, geometry, expansion=expansion)
-            return rgb, ir, None, meta
-        if _is_camera_raw(file_path):
-            rgb, ir, wb = _decode_camera_raw(file_path, geometry)
-            return rgb, ir, wb, meta
+        rgb, ir = _decode_dng(file_path, geometry, expansion=expansion)
+        return rgb, ir, None, meta
     if is_coolscan_nef(file_path):
         meta = _read_source_meta_tiff(file_path)
         rgb, ir = _decode_nef(file_path, geometry, gamma_key=gamma_key)
