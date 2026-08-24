@@ -13,7 +13,6 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSlider,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -86,7 +85,7 @@ class ScanSidebar(QWidget):
         data = self.controller.session.repo.get_global_setting("scanner_settings", default={})
         if isinstance(data, dict) and data:
             try:
-                settings = ScannerSettings(**data)
+                settings = ScannerSettings.from_dict(data)
             except Exception:
                 settings = ScannerSettings.defaults()
         else:
@@ -109,6 +108,10 @@ class ScanSidebar(QWidget):
     def settings(self, value: ScannerSettings) -> None:
         self._settings = value
         self._save_settings()
+        # Every writer routes through here, so the frame box follows the selection wherever it
+        # was set — the strip dialog, a clear, an eject. A stale box would wipe it on the next
+        # edit of any other control.
+        self._sync_frame_spec()
 
     # ── UI construction ───────────────────────────────────────────────
 
@@ -263,24 +266,14 @@ class ScanSidebar(QWidget):
         self.framing_header = section_subheader("Framing")
         self.form.addRow(self.framing_header)
 
-        # Frame range, for roll and strip feeders only. Shown when a live capacity is known.
-        self.frame_range_widget = QWidget()
-        frame_row = QHBoxLayout(self.frame_range_widget)
-        frame_row.setContentsMargins(0, 0, 0, 0)
-        self.frame_from_spin = QSpinBox()
-        self.frame_from_spin.setMinimum(1)
-        self.frame_from_spin.setToolTip("First frame to scan")
-        self.frame_to_spin = QSpinBox()
-        self.frame_to_spin.setMinimum(1)
-        self.frame_to_spin.setToolTip("Last frame to scan")
-        frame_row.addWidget(self.frame_from_spin)
-        frame_row.addWidget(QLabel("–"))
-        frame_row.addWidget(self.frame_to_spin)
-        frame_row.addStretch()
-        self.frame_range_label = QLabel("Frames")
-        self.form.addRow(self.frame_range_label, self.frame_range_widget)
-        self.frame_range_label.setVisible(False)
-        self.frame_range_widget.setVisible(False)
+        # Which frames the batch scans, for roll and strip feeders only.
+        self.frame_spec_edit = QLineEdit()
+        self.frame_spec_edit.setPlaceholderText("All frames")
+        self.frame_spec_edit.setToolTip("Frames to scan: 1-6 or 1,2,5. Empty scans every frame.")
+        self.frame_spec_label = QLabel("Frames")
+        self.form.addRow(self.frame_spec_label, self.frame_spec_edit)
+        self.frame_spec_label.setVisible(False)
+        self.frame_spec_edit.setVisible(False)
 
         # Scan window (strip/roll feeders): set once from a preview, reused per frame.
         self.scan_window_widget = QWidget()
@@ -399,8 +392,8 @@ class ScanSidebar(QWidget):
         self.format_combo.currentIndexChanged.connect(lambda: self._update_settings_from_ui())
         self.film_type_combo.currentIndexChanged.connect(lambda: self._on_film_type_changed())
         self.exposure_slider.valueChanged.connect(self._on_exposure_changed)
-        self.frame_from_spin.valueChanged.connect(self._on_frame_from_changed)
-        self.frame_to_spin.valueChanged.connect(self._on_frame_to_changed)
+        self.frame_spec_edit.textChanged.connect(self._on_frame_spec_typed)
+        self.frame_spec_edit.editingFinished.connect(self._update_settings_from_ui)
         self.scan_window_btn.clicked.connect(self._on_set_scan_window)
         self.scan_window_clear_btn.clicked.connect(self._on_clear_scan_window)
         self.prescan_btn.clicked.connect(self._on_prescan)
@@ -509,8 +502,8 @@ class ScanSidebar(QWidget):
             self.ir_check.setEnabled(False)
             self.me_check.setEnabled(False)
             self.eject_btn.setVisible(False)
-            self.frame_range_label.setVisible(False)
-            self.frame_range_widget.setVisible(False)
+            self.frame_spec_label.setVisible(False)
+            self.frame_spec_edit.setVisible(False)
             self.scan_window_row_label.setVisible(False)
             self.scan_window_widget.setVisible(False)
             self.scan_window_status.setVisible(False)
@@ -568,8 +561,7 @@ class ScanSidebar(QWidget):
         self.ir_check.blockSignals(True)
         self.me_check.blockSignals(True)
         self.ae_check.blockSignals(True)
-        self.frame_from_spin.blockSignals(True)
-        self.frame_to_spin.blockSignals(True)
+        self.frame_spec_edit.blockSignals(True)
 
         # DPI
         self.dpi_combo.clear()
@@ -721,24 +713,13 @@ class ScanSidebar(QWidget):
         self.exposure_slider.blockSignals(False)
         self._update_exposure_value_label()
 
-        # Frame range, only for a roll or strip feeder reporting a live capacity. A transport
-        # that measures the strip has no capacity to range over: its frames come from the
-        # strip dialog.
-        capacity = caps.adapter_frame_capacity
-        has_frames = capacity is not None
+        # Which frames to scan: every transport that reaches more than one frame, whether it
+        # counts slots or measures them off the film.
         is_strip = _reaches_a_strip(caps)
-        self.frame_range_label.setVisible(has_frames)
-        self.frame_range_widget.setVisible(has_frames)
-        if has_frames:
-            self.frame_from_spin.setMaximum(capacity)
-            self.frame_to_spin.setMaximum(capacity)
-            frm = min(max(self._settings.frame_from, 1), capacity)
-            to = min(max(self._settings.frame_to, frm), capacity)
-            # A stored (1, 1) is the unset default → offer the whole strip.
-            if self._settings.frame_from == 1 and self._settings.frame_to == 1:
-                to = capacity
-            self.frame_from_spin.setValue(frm)
-            self.frame_to_spin.setValue(to)
+        self.frame_spec_label.setVisible(is_strip)
+        self.frame_spec_edit.setVisible(is_strip)
+        if is_strip:
+            self._sync_frame_spec()
 
         # Scan window: crop UI for every backend but pyOpticfilm, which uses Prescan instead;
         # both wrote the same scan_window setting.
@@ -768,8 +749,7 @@ class ScanSidebar(QWidget):
         self.ir_check.blockSignals(False)
         self.me_check.blockSignals(False)
         self.ae_check.blockSignals(False)
-        self.frame_from_spin.blockSignals(False)
-        self.frame_to_spin.blockSignals(False)
+        self.frame_spec_edit.blockSignals(False)
 
     def _film_type(self) -> str:
         default = FilmType.NEGATIVE.value
@@ -819,15 +799,27 @@ class ScanSidebar(QWidget):
         else:
             self.exposure_value_label.setText(f"{us} us")
 
-    def _on_frame_from_changed(self, _value: int) -> None:
-        if self.frame_to_spin.value() < self.frame_from_spin.value():
-            self.frame_to_spin.setValue(self.frame_from_spin.value())
-        self._update_settings_from_ui()
+    def _frame_spec(self) -> tuple[int, ...] | None:
+        """The typed frame selection, or None where the text cannot be read."""
+        from negpy.infrastructure.scanners.settings import parse_frame_spec
 
-    def _on_frame_to_changed(self, _value: int) -> None:
-        if self.frame_from_spin.value() > self.frame_to_spin.value():
-            self.frame_from_spin.setValue(self.frame_to_spin.value())
-        self._update_settings_from_ui()
+        try:
+            return parse_frame_spec(self.frame_spec_edit.text())
+        except ValueError:
+            return None
+
+    def _sync_frame_spec(self) -> None:
+        """Write the stored selection into the box, which the strip dialog also sets."""
+        from negpy.infrastructure.scanners.settings import format_frame_spec
+
+        text = format_frame_spec(self._settings.selected_frames)
+        if text != self.frame_spec_edit.text():
+            self.frame_spec_edit.setText(text)
+        self._update_summary()
+
+    def _on_frame_spec_typed(self, _text: str) -> None:
+        # Only the summary follows every keystroke; the selection is stored on editingFinished.
+        self._update_summary()
 
     def _on_set_scan_window(self) -> None:
         from dataclasses import replace
@@ -932,17 +924,11 @@ class ScanSidebar(QWidget):
         offset_txt = f"  ·  offset {offset:.1f} mm" if offset else ""
         drift = self._settings.frame_offset_modifier_mm
         offset_txt += f"  ·  drift {drift:+.2f} mm/frame" if drift else ""
-        selected = self._settings.selected_frames
-        if selected:
-            frames_txt = ", ".join(str(f) for f in sorted(selected))
-            n_windows = len(self._settings.frame_windows)
-            win_txt = f" · {count_of(n_windows, 'window')}" if n_windows else ""
-            self.scan_window_status.setText(f"Frames {frames_txt}{win_txt}{offset_txt}")
-            return
         device = self._current_device()
-        if device is not None and device.capabilities.roll_discovery:
-            # Nothing picked yet, and a measured strip has no frame range to fall back on.
-            self.scan_window_status.setText("Whole strip — pick frames in the preview")
+        if device is not None and _reaches_a_strip(device.capabilities):
+            n_windows = len(self._settings.frame_windows)
+            win_txt = count_of(n_windows, "window") if n_windows else "Full frame"
+            self.scan_window_status.setText(f"{win_txt}{offset_txt}")
             return
         area = scan_window_to_area(self._settings.scan_window, device.capabilities.max_area_mm) if device else None
         if area is None:
@@ -955,7 +941,7 @@ class ScanSidebar(QWidget):
         """A group header only earns its space when the group has a visible row."""
         self.film_header.setVisible(self.film_type_combo.isVisibleTo(self) or self.format_combo.isVisibleTo(self))
         self.framing_header.setVisible(
-            self.frame_range_widget.isVisibleTo(self) or self.scan_window_widget.isVisibleTo(self) or self.prescan_widget.isVisibleTo(self)
+            self.frame_spec_edit.isVisibleTo(self) or self.scan_window_widget.isVisibleTo(self) or self.prescan_widget.isVisibleTo(self)
         )
 
     def _dpi(self) -> int:
@@ -972,6 +958,8 @@ class ScanSidebar(QWidget):
     def _update_summary(self) -> None:
         """One line saying what pressing Scan will do: how much film, at what resolution,
         with which passes, and how much disk it takes."""
+        from dataclasses import replace
+
         from negpy.infrastructure.scanners.settings import resolve_batch_selection
 
         device = self._current_device()
@@ -979,10 +967,16 @@ class ScanSidebar(QWidget):
             self.summary_label.setText("")
             return
         caps = device.capabilities
+        spec = self._frame_spec()
+        if spec is None:
+            self.summary_label.setText("Frames: cannot read that")
+            self.scan_btn.setEnabled(False)
+            return
+        if not self._scanning:
+            self.scan_btn.setEnabled(True)
         frames, windows, base_window = resolve_batch_selection(
-            self._settings,
-            self.frame_from_spin.value(),
-            self.frame_to_spin.value(),
+            replace(self._settings, selected_frames=spec),
+            capacity=caps.adapter_frame_capacity,
             whole_strip=caps.roll_discovery,
         )
         if not _reaches_a_strip(caps):
@@ -1043,10 +1037,12 @@ class ScanSidebar(QWidget):
         pattern = self.pattern_edit.text().strip() or '{{ date }}_{{ "%03d" % seq }}'
         fmt = self.fmt_combo.currentText()
 
+        if self._frame_spec() is None:
+            return
+        self._update_settings_from_ui()
         frames, frame_windows, base_window = resolve_batch_selection(
             self._settings,
-            self.frame_from_spin.value(),
-            self.frame_to_spin.value(),
+            capacity=device.capabilities.adapter_frame_capacity,
             whole_strip=device.capabilities.roll_discovery,
         )
         exposure_time_us = (
@@ -1212,8 +1208,7 @@ class ScanSidebar(QWidget):
             superfine=self._caps_superfine and self.superfine_check.isChecked(),
             film_format=self._film_format(),
             film_type=self._film_type(),
-            frame_from=self.frame_from_spin.value(),
-            frame_to=self.frame_to_spin.value(),
+            selected_frames=(spec if (spec := self._frame_spec()) is not None else self._settings.selected_frames),
             output_folder=self.folder_edit.text().strip(),
             output_format=self.fmt_combo.currentText(),
             filename_pattern=self.pattern_edit.text().strip() or '{{ date }}_{{ "%03d" % seq }}',

@@ -177,7 +177,7 @@ def test_no_device_disables_controls() -> None:
     sidebar._update_device_caps()  # no device selected
     assert sidebar.scan_btn.isEnabled() is False
     assert sidebar.eject_btn.isVisibleTo(sidebar) is False
-    assert sidebar.frame_range_widget.isVisibleTo(sidebar) is False
+    assert sidebar.frame_spec_edit.isVisibleTo(sidebar) is False
     assert sidebar.ae_check.isVisibleTo(sidebar) is False
     assert sidebar.autofocus_check.isVisibleTo(sidebar) is False
     assert sidebar.depth_combo.isVisibleTo(sidebar) is False
@@ -191,9 +191,7 @@ def test_full_capability_device_enables_coolscan_controls() -> None:
     assert sidebar.ae_check.isVisibleTo(sidebar) is True
     assert sidebar.autofocus_check.isVisibleTo(sidebar) is True
     assert sidebar.eject_btn.isVisibleTo(sidebar) is True
-    assert sidebar.frame_range_widget.isVisibleTo(sidebar) is True
-    assert sidebar.frame_from_spin.maximum() == 40
-    assert sidebar.frame_to_spin.maximum() == 40
+    assert sidebar.frame_spec_edit.isVisibleTo(sidebar) is True
     assert sidebar.depth_combo.isVisibleTo(sidebar) is True
     assert sidebar.depth_label.isVisibleTo(sidebar) is True
 
@@ -206,7 +204,7 @@ def test_minimal_device_hides_coolscan_controls() -> None:
     assert sidebar.ae_check.isVisibleTo(sidebar) is False
     assert sidebar.autofocus_check.isVisibleTo(sidebar) is False
     assert sidebar.eject_btn.isVisibleTo(sidebar) is False
-    assert sidebar.frame_range_widget.isVisibleTo(sidebar) is False
+    assert sidebar.frame_spec_edit.isVisibleTo(sidebar) is False
     assert sidebar.depth_combo.isVisibleTo(sidebar) is False
     assert sidebar.depth_label.isVisibleTo(sidebar) is False
     assert sidebar.depth_combo.currentData() == 16
@@ -221,7 +219,7 @@ def test_se_device_shows_prescan() -> None:
     assert sidebar.scan_window_widget.isVisibleTo(sidebar) is False
     assert sidebar.ir_check.isEnabled() is True
     assert sidebar.me_check.isEnabled() is True
-    assert sidebar.frame_range_widget.isVisibleTo(sidebar) is False
+    assert sidebar.frame_spec_edit.isVisibleTo(sidebar) is False
 
 
 def test_plustek_backend_hides_sane_window_control() -> None:
@@ -325,19 +323,23 @@ def test_saved_depth_wins_when_the_device_offers_it() -> None:
     assert sidebar.depth_combo.currentData() == 8
 
 
-def test_frame_range_keeps_from_not_after_to() -> None:
-    sidebar, _ = _sidebar(FULL_DEVICE)
-    sidebar.frame_from_spin.setValue(5)
-    sidebar.frame_to_spin.setValue(3)
-    assert sidebar.frame_from_spin.value() == 3
-    assert sidebar.frame_to_spin.value() == 3
+def test_an_unreadable_frame_list_refuses_the_scan() -> None:
+    sidebar, controller = _sidebar(FULL_DEVICE)
+    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.frame_spec_edit.setText("2-")
+
+    assert sidebar.scan_btn.isEnabled() is False
+    sidebar._on_scan()
+    assert controller.started == []
+
+    sidebar.frame_spec_edit.setText("2-4")
+    assert sidebar.scan_btn.isEnabled() is True
 
 
 def test_scan_on_capacity_device_routes_to_batch() -> None:
     sidebar, controller = _sidebar(FULL_DEVICE)
     sidebar.folder_edit.setText("/tmp/negpy-scan-out")
-    sidebar.frame_from_spin.setValue(2)
-    sidebar.frame_to_spin.setValue(4)
+    sidebar.frame_spec_edit.setText("2-4")
 
     sidebar._on_scan()
 
@@ -564,9 +566,9 @@ def test_a_sane_device_shows_none_of_them() -> None:
     assert sidebar.format_combo.isVisibleTo(sidebar) is False
 
 
-def test_a_measured_strip_hides_the_frame_range_and_offers_the_strip_dialog() -> None:
+def test_a_measured_strip_offers_a_frame_list_and_the_strip_dialog() -> None:
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
-    assert sidebar.frame_range_widget.isVisibleTo(sidebar) is False
+    assert sidebar.frame_spec_edit.isVisibleTo(sidebar) is True
     assert sidebar.scan_window_btn.text() == "Preview strip…"
 
 
@@ -608,13 +610,31 @@ def test_the_nkscan_options_persist() -> None:
 
 
 def test_a_measured_strip_says_what_scan_would_do_before_a_preview() -> None:
-    """Its frames come from the strip dialog, and there is no frame range to fall back on."""
+    """Nothing is cropped yet, and the summary quotes the size of one frame."""
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
-    assert sidebar.scan_window_status.text().startswith("Whole strip")
+    assert sidebar.scan_window_status.text().startswith("Full frame")
+    assert sidebar.summary_label.text().startswith("Whole strip")
+
+
+def test_a_typed_frame_list_reaches_the_batch_without_a_preview() -> None:
+    sidebar, controller = _sidebar(NKSCAN_DEVICE)
+    sidebar.folder_edit.setText("/tmp/negpy-test")
+    sidebar.frame_spec_edit.setText("1,3-5")
+
+    sidebar._on_scan()
+
+    assert controller.started[-1][1].frames == (1, 3, 4, 5)
+    assert sidebar.settings.selected_frames == (1, 3, 4, 5)
+
+
+def test_a_selection_from_the_strip_dialog_shows_in_the_frame_box() -> None:
+    sidebar, _ = _sidebar(NKSCAN_DEVICE, settings={"selected_frames": [1, 2, 3, 6]})
+    assert sidebar.frame_spec_edit.text() == "1-3,6"
 
 
 def test_a_measured_strip_scans_the_frames_the_strip_dialog_picked() -> None:
     sidebar, controller = _sidebar(NKSCAN_DEVICE, settings={"selected_frames": [2, 4]})
+    assert sidebar.frame_spec_edit.text() == "2,4"
     sidebar.folder_edit.setText("/tmp/negpy-test")
     sidebar._on_scan()
     assert controller.started[-1][1].frames == (2, 4)
