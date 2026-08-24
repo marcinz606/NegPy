@@ -10,6 +10,7 @@ never raises into app startup.
 
 import json
 import sqlite3
+from contextlib import closing
 from typing import Dict
 
 from negpy.kernel.system.logging import get_logger
@@ -50,7 +51,7 @@ def migrate_legacy_flatfield_profiles(repo) -> None:
     if repo.get_global_setting(_DONE_FLAG):
         return
     try:
-        with sqlite3.connect(repo.edits_db_path) as conn:
+        with closing(sqlite3.connect(repo.edits_db_path)) as conn, conn:
             if _table_exists(conn, "flatfield_profiles"):
                 legacy = conn.execute("SELECT name, path, k1 FROM flatfield_profiles").fetchall()
 
