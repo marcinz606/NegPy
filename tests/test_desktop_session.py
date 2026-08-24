@@ -706,6 +706,17 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertEqual(self.session.state.config.exposure.density, 1.5)
         self.assertEqual(self.session.state.undo_index, 1)
 
+    def test_history_changed_sees_new_config(self):
+        """The HUD reads state.config from this signal, so the step must already be live."""
+        self.session.select_file(0)
+        seen = []
+        self.session.history_changed.connect(lambda: seen.append(self.session.state.config.exposure.density))
+
+        cfg = replace(self.session.state.config, exposure=replace(self.session.state.config.exposure, density=1.5))
+        self.session.update_config(cfg, persist=True)
+
+        self.assertEqual(seen, [1.5])
+
     def test_history_pruning(self):
         self.session.select_file(0)
         # Perform steps slightly over the limit
