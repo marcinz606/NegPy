@@ -33,6 +33,7 @@ from negpy.desktop.workers.render import (
     BatchAutoCropResult,
     BatchAutoCropTask,
     BatchAutoCropWorker,
+    NormalizationInput,
     NormalizationTask,
     NormalizationWorker,
     PreviewLoadTask,
@@ -440,7 +441,7 @@ class AppController(QObject):
         self.thumb_thread.start()
 
         self.norm_thread = QThread()
-        self.norm_worker = NormalizationWorker(self.preview_service, self.session.repo)
+        self.norm_worker = NormalizationWorker(self.preview_service)
         self.norm_worker.moveToThread(self.norm_thread)
         self.batch_autocrop_worker = BatchAutoCropWorker(self.batch_autocrop_preview_service)
         self.batch_autocrop_worker.moveToThread(self.norm_thread)
@@ -2420,7 +2421,7 @@ class AppController(QObject):
         self.loading_started.emit()
         self.request_render()
 
-    def _config_for_autocrop_asset(self, asset: dict) -> WorkspaceConfig:
+    def _config_for_batch_asset(self, asset: dict) -> WorkspaceConfig:
         """Resolve per-asset settings, including unsaved edits on the active frame."""
         if asset.get("hash") == self.state.current_file_hash:
             return resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(self.state.config, asset), asset), asset)
@@ -2440,7 +2441,7 @@ class AppController(QObject):
         frames: list[BatchAutoCropInput] = []
         preflight_skipped = 0
         for asset in visible_files:
-            config = self._config_for_autocrop_asset(asset)
+            config = self._config_for_batch_asset(asset)
             if has_manual_crop(config.geometry) or config.geometry.autocrop_mode != AutocropMode.IMAGE:
                 preflight_skipped += 1
                 continue
@@ -2493,7 +2494,7 @@ class AppController(QObject):
             for result in results:
                 asset = result.file_info
                 try:
-                    latest = self._config_for_autocrop_asset(asset)
+                    latest = self._config_for_batch_asset(asset)
                     if has_manual_crop(latest.geometry):
                         conflicted += 1
                         continue
@@ -3007,7 +3008,7 @@ class AppController(QObject):
             return
         self.set_status("Starting Batch Normalization...")
         task = NormalizationTask(
-            files=visible_files,
+            frames=[NormalizationInput(file_info=a, config=self._config_for_batch_asset(a)) for a in visible_files],
             workspace_color_space=self.state.workspace_color_space,
             override_analysis_buffer=self.state.config.process.analysis_buffer,
             override_luma_range_clip=self.state.config.process.luma_range_clip,

@@ -8,7 +8,7 @@ from dataclasses import replace
 
 import numpy as np
 
-from negpy.desktop.workers.render import NormalizationTask, NormalizationWorker
+from negpy.desktop.workers.render import NormalizationInput, NormalizationTask, NormalizationWorker
 from negpy.domain.models import WorkspaceConfig
 
 
@@ -24,12 +24,8 @@ class _FakePreviewService:
         return raw, (8, 8), {}
 
 
-class _FakeRepo:
-    def __init__(self, settings: dict[str, WorkspaceConfig]) -> None:
-        self._settings = settings
-
-    def load_file_settings(self, file_hash):
-        return self._settings.get(file_hash)
+def _frames(settings: dict[str, WorkspaceConfig]) -> list[NormalizationInput]:
+    return [NormalizationInput(file_info={"path": f"/{h}.dng", "hash": h, "name": h}, config=cfg) for h, cfg in settings.items()]
 
 
 def test_batch_analysis_decodes_in_render_wb(qapp):
@@ -39,13 +35,10 @@ def test_batch_analysis_decodes_in_render_wb(qapp):
         "h_flat": replace(base, process=replace(base.process, linear_raw=True)),
     }
     preview = _FakePreviewService()
-    worker = NormalizationWorker(preview, _FakeRepo(settings))
+    worker = NormalizationWorker(preview)
 
     task = NormalizationTask(
-        files=[
-            {"path": "/a.dng", "hash": "h_cam", "name": "a"},
-            {"path": "/b.dng", "hash": "h_flat", "name": "b"},
-        ],
+        frames=_frames(settings),
         workspace_color_space="sRGB",
         override_analysis_buffer=base.process.analysis_buffer,
         override_luma_range_clip=base.process.luma_range_clip,
@@ -90,13 +83,10 @@ def test_batch_analysis_applies_roll_wide_buffer_and_luma_range(qapp, monkeypatc
         "h1": replace(base, process=replace(base.process, analysis_buffer=0.20, luma_range_clip=5.0)),
         "h2": replace(base, process=replace(base.process, analysis_buffer=0.01, luma_range_clip=-2.0)),
     }
-    worker = NormalizationWorker(_FakePreviewService(), _FakeRepo(settings))
+    worker = NormalizationWorker(_FakePreviewService())
 
     task = NormalizationTask(
-        files=[
-            {"path": "/a.dng", "hash": "h1", "name": "a"},
-            {"path": "/b.dng", "hash": "h2", "name": "b"},
-        ],
+        frames=_frames(settings),
         workspace_color_space="sRGB",
         override_analysis_buffer=0.12,
         override_luma_range_clip=3.5,
@@ -109,3 +99,37 @@ def test_batch_analysis_applies_roll_wide_buffer_and_luma_range(qapp, monkeypatc
     for kw in captured_kwargs:
         assert kw["analysis_buffer"] == 0.12
         assert kw["percentile_clip"] == 3.5
+
+
+def test_batch_analysis_decodes_a_triplet_as_a_composite(qapp):
+    """A triplet's bounds must come from the assembled three-band source. Measured on the
+    lone red exposure, green and blue hold sensor leak alone, and the roll baseline then
+    puts every frame's real G/B above their ceils — a solid red roll."""
+    from negpy.features.rgbscan.models import RgbScanConfig
+
+    class _TripletPreviewService(_FakePreviewService):
+        def __init__(self) -> None:
+            super().__init__()
+            self.merged: list[tuple[str, str, str]] = []
+
+        def load_linear_preview_rgb(self, red_path, rgbscan, color_space, **kw):
+            self.merged.append((red_path, rgbscan.green_path, rgbscan.blue_path))
+            return np.full((8, 8, 3), 0.5, dtype=np.float32), (8, 8), {}
+
+    base = WorkspaceConfig()
+    triplet = replace(base, rgbscan=RgbScanConfig(enabled=True, green_path="/g.dng", blue_path="/b.dng"))
+    preview = _TripletPreviewService()
+    worker = NormalizationWorker(preview)
+
+    worker.process(
+        NormalizationTask(
+            frames=[NormalizationInput(file_info={"path": "/r.dng", "hash": "h_r", "name": "r"}, config=triplet)],
+            workspace_color_space="sRGB",
+            override_analysis_buffer=base.process.analysis_buffer,
+            override_luma_range_clip=base.process.luma_range_clip,
+            override_color_range_clip=base.process.color_range_clip,
+        )
+    )
+
+    assert preview.merged == [("/r.dng", "/g.dng", "/b.dng")]
+    assert preview.calls == {}  # never the lone red exposure

@@ -7,7 +7,8 @@ from PyQt6.QtWidgets import QApplication
 
 from negpy.desktop.view.widgets.progress_dialog import ProgressDialog
 from negpy.desktop.workers.export import ExportTask, ExportWorker
-from negpy.desktop.workers.render import NormalizationTask, NormalizationWorker
+from negpy.desktop.workers.render import NormalizationInput, NormalizationTask, NormalizationWorker
+from negpy.domain.models import WorkspaceConfig
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 
 
@@ -105,9 +106,7 @@ def test_export_batch_prefetches_next_source_once_per_task(tmp_path) -> None:
 
 def test_normalization_worker_cancel_emits_cancelled_no_baseline() -> None:
     preview = MagicMock()
-    repo = MagicMock()
-    repo.load_file_settings.return_value = None
-    worker = NormalizationWorker(preview, repo)
+    worker = NormalizationWorker(preview)
 
     def _load(*_a, **_k):
         worker.cancel()
@@ -121,7 +120,12 @@ def test_normalization_worker_cancel_emits_cancelled_no_baseline() -> None:
     worker.cancelled.connect(lambda: cancelled.append(True))
 
     task = NormalizationTask(
-        files=[{"name": "a.cr2", "path": "/tmp/a.cr2", "hash": "a"}],
+        frames=[
+            NormalizationInput(
+                file_info={"name": "a.cr2", "path": "/tmp/a.cr2", "hash": "a"},
+                config=WorkspaceConfig(),
+            )
+        ],
         workspace_color_space="sRGB",
         override_analysis_buffer=0.0,
         override_luma_range_clip=0.0,
