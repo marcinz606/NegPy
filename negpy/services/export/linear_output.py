@@ -934,6 +934,11 @@ def _linear_description(
     return f"NegPy Linear Output -- {', '.join(parts)}."
 
 
+# A linear master carries no print intent; the nominal tag keeps readers off
+# tifffile's unit-less default, which they report as 1 DPI.
+NOMINAL_DPI = 300
+
+
 def _write_tiff(
     f32: np.ndarray,
     dest,
@@ -991,6 +996,8 @@ def _write_tiff(
         datetime=dt,
         extratags=extratags or None,
         metadata=None,
+        resolution=(NOMINAL_DPI, NOMINAL_DPI),
+        resolutionunit="INCH",
     )
 
 
@@ -1010,6 +1017,8 @@ def _write_ir_tiff(ir: np.ndarray, dest) -> None:
             compression="zlib",
             predictor=True,
             description=description,
+            resolution=(NOMINAL_DPI, NOMINAL_DPI),
+            resolutionunit="INCH",
         )
     except Exception:
         # The sidecar is a bonus artifact; never let it kill the export or leave

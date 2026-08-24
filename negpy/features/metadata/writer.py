@@ -751,6 +751,20 @@ def export_embed_plan(
         return None
 
 
+def _page_resolution_kwargs(page) -> dict:
+    """imwrite resolution kwargs mirroring a source page; empty when it carries none.
+    Dropping them on a rewrite substitutes tifffile's unit-less default."""
+    xres = page.tags.get("XResolution")
+    yres = page.tags.get("YResolution")
+    if xres is None or yres is None:
+        return {}
+    kwargs: dict = {"resolution": (xres.value, yres.value)}
+    unit = page.tags.get("ResolutionUnit")
+    if unit is not None:
+        kwargs["resolutionunit"] = unit.value
+    return kwargs
+
+
 def _rewrite_tiff_preserve(
     image_bytes: bytes,
     exif_bytes: bytes,
@@ -769,6 +783,7 @@ def _rewrite_tiff_preserve(
         photometric = page.photometric.name.lower()
         compression = page.compression.name.lower() if int(page.compression) != 1 else None
         icc = page.iccprofile
+        res_kwargs = _page_resolution_kwargs(page)
 
     tifffile.imwrite(
         output,
@@ -776,6 +791,7 @@ def _rewrite_tiff_preserve(
         photometric=photometric,
         compression=compression,
         iccprofile=icc,
+        **res_kwargs,
         **tiff_metadata_kwargs(exif_bytes, xmp_bytes, fold_user_comment=fold_user_comment),
     )
 
@@ -789,12 +805,15 @@ def _rewrite_png_with_metadata(
     with Image.open(io.BytesIO(image_bytes)) as im:
         im.load()
         icc = im.info.get("icc_profile")
+        dpi = im.info.get("dpi")
         pnginfo = PngImagePlugin.PngInfo()
         if xmp_bytes:
             pnginfo.add_itxt("XML:com.adobe.xmp", xmp_bytes.decode("utf-8"), zip=False)
         save_kwargs: dict = {"format": "PNG", "compress_level": 6, "exif": exif_bytes, "pnginfo": pnginfo}
         if icc:
             save_kwargs["icc_profile"] = icc
+        if dpi:
+            save_kwargs["dpi"] = dpi
         im.save(output, **save_kwargs)
 
 
