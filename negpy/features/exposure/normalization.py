@@ -158,8 +158,7 @@ def prefilter_log_grid(
     fed to the *_from_log meters. Re-prefiltering it (roi=None, buffer=0) is a no-op
     (_block_median_grid early-returns when b<=1), so results stay bit-exact.
     """
-    epsilon = 1e-6
-    img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, 1.0))
+    img_log = to_log_density(image)
     if roi:
         y1, y2, x1, x2 = roi
         img_log = img_log[y1:y2, x1:x2]
@@ -239,10 +238,51 @@ def unmix_log_image(img_log: ImageBuffer, matrix: Optional[np.ndarray]) -> Image
     return np.einsum("hwc,kc->hwk", img_log.astype(np.float32, copy=False), matrix.astype(np.float32))
 
 
+def sorted_channel_grid(img_log: ImageBuffer) -> np.ndarray:
+    """
+    Per-channel sorted values of a prefiltered grid, shape (n, 3). The clip percentiles
+    index into it, so a clip drag re-reads one sort instead of re-partitioning the grid.
+    """
+    return np.sort(img_log.reshape(-1, 3), axis=0)
+
+
+def percentile_from_sorted(sorted_grid: np.ndarray, q: float) -> np.ndarray:
+    """
+    The three channels' `np.percentile(grid[:, :, ch], q)`, read off `sorted_channel_grid`.
+
+    Bit-exact needs numpy's arithmetic, not its definition: virtual index `(n-1)*(q/100)`
+    in float64, the far half interpolated back from the upper sample, and a weight that
+    keeps `q`'s own type -- numpy interpolates in float32 for a Python `q` and float64 for
+    an `np.float64` one, and both kinds of caller exist here.
+    """
+    n = sorted_grid.shape[0]
+    virtual = (n - 1) * np.true_divide(q, 100)
+    lo = min(max(int(np.floor(virtual)), 0), n - 1)
+    hi = min(lo + 1, n - 1)
+    t = virtual - lo
+    if type(q) in (int, float):
+        t = float(t)
+    a, b = sorted_grid[lo], sorted_grid[hi]
+    diff = b - a
+    return b - diff * (1 - t) if t >= 0.5 else a + diff * t
+
+
+def to_log_density(image: ImageBuffer) -> ImageBuffer:
+    """
+    Linear scan -> log10 density, the domain every meter reads.
+
+    fmin/fmax rather than clip: they drop a NaN in favour of the bound, so one clamp covers
+    the NaN and infinity fixup as well.
+    """
+    epsilon = 1e-6
+    return np.log10(np.fmin(np.fmax(image, epsilon), 1.0))
+
+
 def measure_shadow_refs_from_log(
     img_log: ImageBuffer,
     roi: Optional[tuple[int, int, int, int]] = None,
     analysis_buffer: float = 0.0,
+    sorted_grid: Optional[np.ndarray] = None,
 ) -> Tuple[float, float, float]:
     """
     Per-channel shadow reference density: a high percentile of the prefiltered
@@ -252,15 +292,20 @@ def measure_shadow_refs_from_log(
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
+    if roi or analysis_buffer > 0:
+        sorted_grid = None
     if roi:
         y1, y2, x1, x2 = roi
         img_log = img_log[y1:y2, x1:x2]
     if analysis_buffer > 0:
         img_log = get_analysis_crop(img_log, analysis_buffer)
 
-    img_log = _block_median_grid(img_log)
     p = float(EXPOSURE_CONSTANTS["shadow_neutral_percentile"])
-    refs = [float(np.percentile(img_log[:, :, ch], p)) for ch in range(3)]
+    if sorted_grid is not None:
+        refs = [float(v) for v in percentile_from_sorted(sorted_grid, p)]
+    else:
+        img_log = _block_median_grid(img_log)
+        refs = [float(np.percentile(img_log[:, :, ch], p)) for ch in range(3)]
     return (refs[0], refs[1], refs[2])
 
 
@@ -272,8 +317,7 @@ def measure_shadow_log_refs(
     """
     Linear-image wrapper around measure_shadow_refs_from_log.
     """
-    epsilon = 1e-6
-    img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, 1.0))
+    img_log = to_log_density(image)
     return measure_shadow_refs_from_log(img_log, roi, analysis_buffer)
 
 
@@ -334,15 +378,14 @@ def measure_neutral_axis_from_log(
             return None
         band_chroma = chroma_vals[band]
         thr = float(np.quantile(band_chroma, q))
-        idx = np.nonzero(band)[0][band_chroma <= thr]
-        near_neutral_chroma = float(np.median(chroma_vals[idx])) if idx.size else cap_val
+        keep = band_chroma <= thr
+        idx = np.nonzero(band)[0][keep]
+        near_neutral_chroma = float(np.median(band_chroma[keep])) if idx.size else cap_val
         if idx.size < min_px or near_neutral_chroma > cap_val:
             return None
-        refs = (
-            float(np.median(flat_log[idx, 0])),
-            float(np.median(flat_log[idx, 1])),
-            float(np.median(flat_log[idx, 2])),
-        )
+        # One gather for all three channels: the per-channel fancy index is the cost here.
+        sel = flat_log[idx]
+        refs = (float(np.median(sel[:, 0])), float(np.median(sel[:, 1])), float(np.median(sel[:, 2])))
         return (refs, near_neutral_chroma, int(idx.size))
 
     def _norm_ref(refs: Tuple[float, float, float]) -> Tuple[float, float, float]:
@@ -401,8 +444,7 @@ def measure_neutral_axis(
     analysis_buffer: float = 0.0,
 ) -> Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float], Optional[Tuple[float, float, float]], float]]:
     """Linear-image wrapper around measure_neutral_axis_from_log."""
-    epsilon = 1e-6
-    img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, 1.0))
+    img_log = to_log_density(image)
     return measure_neutral_axis_from_log(img_log, bounds, roi, analysis_buffer)
 
 
@@ -477,8 +519,7 @@ def measure_anchor(
     """
     Linear-image wrapper around measure_anchor_from_log.
     """
-    epsilon = 1e-6
-    img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, 1.0))
+    img_log = to_log_density(image)
     return measure_anchor_from_log(img_log, bounds, roi, analysis_buffer)
 
 
@@ -518,8 +559,7 @@ def measure_textural_range(
     """
     Linear-image wrapper around measure_textural_range_from_log.
     """
-    epsilon = 1e-6
-    img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, 1.0))
+    img_log = to_log_density(image)
     return measure_textural_range_from_log(img_log, roi, analysis_buffer)
 
 
@@ -618,6 +658,7 @@ def _sample_log_bounds(
     base: float,
     process_mode: str,
     e6_normalize: bool,
+    sorted_grid: Optional[np.ndarray] = None,
 ) -> tuple[list, list]:
     """
     Per-channel (floors, ceils) at one clip level. `base` is the robust baseline
@@ -639,15 +680,17 @@ def _sample_log_bounds(
         p_low, p_high = p_high, p_low
         fixed_range = -3.0
 
-    floors = [float(np.percentile(img_log[:, :, ch], p_low)) for ch in range(3)]
+    def _pct(p) -> list:
+        if sorted_grid is not None:
+            return [float(v) for v in percentile_from_sorted(sorted_grid, p)]
+        return [float(np.percentile(img_log[:, :, ch], p)) for ch in range(3)]
 
-    ceils = []
-    for ch in range(3):
-        data = img_log[:, :, ch]
-        if process_mode != ProcessMode.E6 or e6_normalize:
-            ceils.append(float(np.percentile(data, p_high)))
-        else:
-            ceils.append(float(floors[ch] + fixed_range))
+    floors = _pct(p_low)
+
+    if process_mode != ProcessMode.E6 or e6_normalize:
+        ceils = _pct(p_high)
+    else:
+        ceils = [floors[ch] + fixed_range for ch in range(3)]
 
     if margin > 0.0:
         # Expand outward; per-channel sign handles both f < c and f > c (E6).
@@ -760,8 +803,7 @@ def analyze_log_exposure_bounds(
     offsets from the color sampling, so the cast clip is tunable without compressing
     highlights. Identical channels (mono) give zero deviation at any clip.
     """
-    epsilon = 1e-6
-    img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, 1.0))
+    img_log = to_log_density(image)
     img_log = unmix_log_image(img_log, unmix)
     return analyze_log_exposure_bounds_from_log(img_log, roi, analysis_buffer, process_mode, e6_normalize, percentile_clip, color_clip)
 
@@ -774,10 +816,18 @@ def analyze_log_exposure_bounds_from_log(
     e6_normalize: bool = True,
     percentile_clip: float = 0.0,
     color_clip: float = 0.0,
+    sorted_grid: Optional[np.ndarray] = None,
 ) -> LogNegativeBounds:
-    """Log-image core of analyze_log_exposure_bounds (skips the log10)."""
+    """Log-image core of analyze_log_exposure_bounds (skips the log10).
+
+    ``sorted_grid`` is `sorted_channel_grid(img_log)` from a caller that already holds it;
+    it stands in for both percentile passes, so it is only valid when no ROI or analysis
+    buffer is left to apply here.
+    """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
+    if roi or analysis_buffer > 0:
+        sorted_grid = None
     if roi:
         y1, y2, x1, x2 = roi
         img_log = img_log[y1:y2, x1:x2]
@@ -789,14 +839,14 @@ def analyze_log_exposure_bounds_from_log(
 
     base_luma = float(EXPOSURE_CONSTANTS["base_luma_clip"])
 
-    floors, ceils = _sample_log_bounds(img_log, percentile_clip, base_luma, process_mode, e6_normalize)
+    floors, ceils = _sample_log_bounds(img_log, percentile_clip, base_luma, process_mode, e6_normalize, sorted_grid)
 
     # Color pass: per-channel deviations recombined onto the luma mean centre and span. The
     # ceils (thin end, base-anchored) come from per-channel percentiles at color_clip. The
     # floors (dense end, scene content) prefer the same-pixel chroma-gated band refs and fall
     # back to the percentile pass when the band holds no trustworthy neutrals, and always for
     # E-6 and margin-mode clips.
-    c_floors, c_ceils = _sample_log_bounds(img_log, color_clip, 0.0, process_mode, e6_normalize)
+    c_floors, c_ceils = _sample_log_bounds(img_log, color_clip, 0.0, process_mode, e6_normalize, sorted_grid)
     if process_mode != ProcessMode.E6 and color_clip >= 0:
         sp = _same_pixel_color_floor_refs(img_log, floors, ceils, (c_ceils[0], c_ceils[1], c_ceils[2]), color_clip)
         if sp is not None:
