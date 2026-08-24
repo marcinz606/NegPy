@@ -381,7 +381,7 @@ requires-dist = [
     { name = "opencv-python-headless", specifier = "==4.13.0.92" },
     { name = "piexif", specifier = "==1.1.3" },
     { name = "pillow", specifier = "==12.2.0" },
-    { name = "pyopticfilm", marker = "extra == 'plustek'", specifier = ">=1.1.2" },
+    { name = "pyopticfilm", marker = "extra == 'plustek'", specifier = ">=1.2.0" },
     { name = "pyqt6", specifier = "==6.11.0" },
     { name = "pyqt6-charts", specifier = "==6.11.0" },
     { name = "pyserial", specifier = ">=3.5" },
@@ -403,7 +403,7 @@ dev = [
     { name = "ty", specifier = ">=0.0.26" },
 ]
 pieusb = [{ name = "pieusb", specifier = ">=0.3.7" }]
-plustek = [{ name = "pyopticfilm", specifier = ">=1.1.2" }]
+plustek = [{ name = "pyopticfilm", specifier = ">=1.2.0" }]
 sane = [{ name = "python-sane", specifier = ">=2.9" }]
 
 [[package]]
@@ -667,16 +667,16 @@ wheels = [
 
 [[package]]
 name = "pyopticfilm"
-version = "1.1.2"
+version = "1.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "libusb-package", marker = "sys_platform == 'win32'" },
     { name = "numpy" },
     { name = "pyusb" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/00/44/f8f8da6d41103d0dda23b1f4bb6454edcf897fe3948e16d497a07f1874dd/pyopticfilm-1.1.2.tar.gz", hash = "sha256:9f4a47f239928945b0503739b7496b4321ac315b496d516df96f6e202909cdb8", size = 116291, upload-time = "2026-08-22T15:09:04.764Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4e/dd/bcd2397b674ab30cd39a4fce87850658a4f20e0a2fc5ac4a3c3426c5d346/pyopticfilm-1.2.0.tar.gz", hash = "sha256:e553318469cc67cb2d1ccaab711395587e7b78913908122ff7f8ecdbd0817197", size = 116969, upload-time = "2026-08-24T08:34:00.376Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e3/d5/cdbcc4abc0f629435dafa2f46c3a7cecbd254f52989f8940ffd840054f64/pyopticfilm-1.1.2-py3-none-any.whl", hash = "sha256:57a4cc1a1135504329ecb65957a539cddf512ac46f79cf776fbe2bdd2071a100", size = 147788, upload-time = "2026-08-22T15:09:03.529Z" },
+    { url = "https://files.pythonhosted.org/packages/9d/43/6c699fd2bf9df47883b7889b7e9b013fd82e5963250975301afd47880ffa/pyopticfilm-1.2.0-py3-none-any.whl", hash = "sha256:e85896a3a16403d90737bf652cf55d6839f7d0d4c7be2dc9f8d5bc805627a814", size = 148926, upload-time = "2026-08-24T08:33:59.183Z" },
 ]
 
 [[package]]
