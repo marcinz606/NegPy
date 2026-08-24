@@ -134,12 +134,12 @@ class NkscanRollSession:
         with self._backend._mapped_errors():
             result = self._backend.scan_frame(
                 self._session,
-                self._device.id,
                 rect,
                 dpi=self._dpi or None,
                 samples=1,
                 infrared=False,
                 clean=False,
+                lock_white_balance=self._backend.locks_white_balance(self._film_type),
                 exposures=self._exposures,
                 progress=_progress_bridge(None, cancel),
             )

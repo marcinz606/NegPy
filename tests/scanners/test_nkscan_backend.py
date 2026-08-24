@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import threading
 
 import numpy as np
@@ -9,7 +10,7 @@ import pytest
 
 from negpy.infrastructure.scanners.base import TransientScanError
 from negpy.infrastructure.scanners.nkscan_backend import _crop_frame, _offset_units, _shift_frame, _stack_rgb
-from negpy.infrastructure.scanners.params import ScanMode, ScanParams
+from negpy.infrastructure.scanners.params import FILM_TYPES, ScanMode, ScanParams
 from tests.scanners import fake_nkscan
 from tests.scanners.fake_nkscan import DEVICE_ID, FRAMES, FakeCapabilities, make_backend
 
@@ -211,8 +212,6 @@ def test_ice_samples_and_superfine_reach_the_scan() -> None:
     asked = module.opened[-1].scans[0]
     assert asked["clean"] and asked["infrared"] and asked["superfine"]
     assert (asked["samples"], asked["dpi"]) == (4, 2400)
-    # White balance stays locked: a negative is normalized downstream, not by the scanner.
-    assert asked["lock_white_balance"] is True
 
 
 def test_samples_outside_the_bound_are_refused() -> None:
@@ -353,22 +352,18 @@ def test_a_cancel_mid_read_stops_the_pass() -> None:
 
 
 def test_a_unit_with_no_fast_read_still_scans() -> None:
-    """The LS-50 offers only line ordering, and the bindings cannot be asked in advance."""
-    backend, module = make_backend(line_ordering_only=True)
+    """The LS-50 offers only line ordering, and says so, so the fast read is never asked for."""
+    backend, module = make_backend(caps=FakeCapabilities(multi_line=False))
     result = _scan(backend)
 
     assert result.rgb.shape == (8, 6, 3)
-    assert module.opened[-1].scans[-1]["superfine"] is True
+    assert [s["superfine"] for s in module.opened[-1].scans] == [True]
 
 
-def test_the_refusal_is_learned_once_per_device() -> None:
-    backend, module = make_backend(line_ordering_only=True)
+def test_a_unit_with_a_fast_read_is_asked_for_it() -> None:
+    backend, module = make_backend()
     _scan(backend)
-    _scan(backend)
-
-    # One wasted validation on the first scan, then straight to the read the unit accepts.
-    asked = [s["superfine"] for session_ in module.opened for s in session_.scans]
-    assert asked == [True, True]
+    assert module.opened[-1].scans[-1]["superfine"] is False
 
 
 def test_a_different_unsupported_operation_still_fails() -> None:
@@ -409,38 +404,55 @@ def test_bare_film_detects_nothing() -> None:
     assert backend.detect_frames(DEVICE_ID) == 0
 
 
+# ── what the unit says it can do ──────────────────────────────────────────
+
+
 def test_a_unit_that_offers_one_read_mode_offers_no_superfine_control() -> None:
-    backend, _ = make_backend(caps=FakeCapabilities(multiline_read=False))
+    backend, _ = make_backend(caps=FakeCapabilities(multi_line=False))
     caps = backend.list_devices()[0].capabilities
     assert caps.superfine is False
 
 
 def test_a_unit_that_ignores_repeated_reads_offers_no_samples_control() -> None:
-    backend, _ = make_backend(caps=FakeCapabilities(multi_reading=False))
+    backend, _ = make_backend(caps=FakeCapabilities(max_samples=1))
     caps = backend.list_devices()[0].capabilities
     assert caps.max_samples == 1
 
 
-def test_a_unit_that_says_it_has_no_fast_read_is_never_asked_for_one() -> None:
-    """The refusal is free but the round trip is not, and the pages already answered."""
-    backend, module = make_backend(caps=FakeCapabilities(multiline_read=False), line_ordering_only=True)
-    backend.list_devices()
-    _scan(backend)
-
-    assert [s["superfine"] for s in module.opened[-1].scans] == [True]
+def test_the_samples_ceiling_is_the_units_own() -> None:
+    backend, _ = make_backend(caps=FakeCapabilities(max_samples=4))
+    assert backend.list_devices()[0].capabilities.max_samples == 4
 
 
-def test_an_nkscan_too_old_to_say_assumes_both() -> None:
-    """The bits landed after the first bindings; a wheel without them must not lose controls."""
+def test_a_unit_that_cannot_give_the_film_back_offers_no_eject() -> None:
+    backend, _ = make_backend(caps=FakeCapabilities(eject=False))
+    assert backend.list_devices()[0].capabilities.can_eject is False
 
-    class OldCapabilities:
-        vendor, product, revision, model = "Nikon", "LS-9000 ED", "1.00", "LS-9000"
-        x_dpi_range = y_dpi_range = (500, 4000)
-        optical_dpi = 4000
 
-    backend, _ = make_backend(caps=OldCapabilities())
-    caps = backend.list_devices()[0].capabilities
-    assert caps.superfine is True and caps.max_samples == 16
+def test_only_a_transport_that_measures_the_film_is_told_the_frame_length() -> None:
+    """A holder with its own frame table fixes the format, so there is nothing to choose."""
+    measured, _ = make_backend(caps=FakeCapabilities(framing="perforation"))
+    assert "135" in measured.list_devices()[0].capabilities.film_formats
+
+    published, _ = make_backend(caps=FakeCapabilities(framing="published"))
+    assert published.list_devices()[0].capabilities.film_formats == ()
+
+
+# ── metering ──────────────────────────────────────────────────────────────
+
+
+def test_a_colour_negative_is_metered_per_channel() -> None:
+    """Held together, the orange mask is quantised through and the blue record loses range."""
+    backend, module = make_backend()
+    _scan(backend, dataclasses.replace(_PARAMS, film_type="negative"))
+    assert module.opened[-1].scans[-1]["lock_white_balance"] is False
+
+
+def test_every_other_film_keeps_its_factory_balance() -> None:
+    for film in ("positive", "kodachrome", "mono"):
+        backend, module = make_backend()
+        _scan(backend, dataclasses.replace(_PARAMS, film_type=film, capture_ir=False))
+        assert module.opened[-1].scans[-1]["lock_white_balance"] is True, film
 
 
 # ── what is on the film ───────────────────────────────────────────────────
@@ -482,3 +494,24 @@ def test_an_unknown_film_type_is_refused() -> None:
     backend, _ = make_backend()
     with pytest.raises(RuntimeError, match="Unknown film type"):
         _scan(backend, ScanParams(dpi=1000, depth=16, capture_ir=False, film_type="tintype"))
+
+
+# ── the fake against the real extension ───────────────────────────────────
+
+
+def test_the_fake_capabilities_carry_what_the_extension_does() -> None:
+    """The fake is the whole test suite's idea of the bindings, so it has to keep up with them.
+
+    Every capability the backend reads is a property on the real class; one the fake invents
+    would pass here and fail on hardware.
+    """
+    nkscan = pytest.importorskip("nkscan")
+    real = set(dir(nkscan.Capabilities))
+    assert {f.name for f in dataclasses.fields(FakeCapabilities)} <= real
+
+
+def test_the_films_the_backend_names_are_films_the_extension_knows() -> None:
+    nkscan = pytest.importorskip("nkscan")
+    backend, _ = make_backend()
+    for film in FILM_TYPES:
+        assert backend.locks_white_balance(film) == nkscan.Capabilities.locks_white_balance(film)

@@ -49,6 +49,11 @@ class UnsupportedError(ScannerError):
         self.reason = reason
 
 
+# What the real Capabilities.locks_white_balance answers: only a colour negative is metered
+# per channel, and the binding refuses a film it does not know.
+_LOCKED_FILMS = {"negative": False, "mono": True, "monochrome": True, "positive": True, "slide": True, "kodachrome": True}
+
+
 @dataclass(frozen=True)
 class FakeCapabilities:
     vendor: str = "Nikon"
@@ -58,8 +63,24 @@ class FakeCapabilities:
     x_dpi_range: tuple[int, int] = (500, 4000)
     y_dpi_range: tuple[int, int] = (500, 4000)
     optical_dpi: int = 4000
-    multiline_read: bool = True
-    multi_reading: bool = True
+    max_frames: int = 6
+    thumbnail_dpi: tuple[int, int] = (250, 250)
+    focus_range: tuple[int, int] = (0, 255)
+    max_samples: int = 16
+    framing: str = "thumbnail"
+    thumbnail: bool = True
+    multi_line: bool = True
+    eject: bool = True
+    autofocus: bool = True
+    hardware_metering: bool = False
+    interleavings: tuple[str, ...] = ("LINE_WITHOUT_DISTANCE", "MULTILINE_SIMULTANEOUS")
+
+    @staticmethod
+    def locks_white_balance(film: str) -> bool:
+        try:
+            return _LOCKED_FILMS[film.lower()]
+        except KeyError:
+            raise RuntimeError(f"unknown film type {film!r}") from None
 
 
 @dataclass(frozen=True)
@@ -99,8 +120,6 @@ class FakeNkscanModule:
     cols: int = 6
     thumbnail: bool = True
     strip_slack: int = 4  # columns past the last frame; negative pushes frames off the pass
-    # Some units (the LS-50) never read three CCD rows at once, and refuse the fast mode.
-    line_ordering_only: bool = False
     scan_error: Exception | None = None
     discover_error: Exception | None = None
     open_error: Exception | None = None
@@ -114,6 +133,7 @@ class FakeNkscanModule:
             _module = module
 
         self.Session = Session
+        self.Capabilities = FakeCapabilities
         for name in (
             "ScannerError",
             "TransientError",
@@ -222,7 +242,9 @@ class FakeSession:
         progress: Callable[..., Any] | None = None,
     ) -> FakeScanResult:
         module = self._module
-        if module.line_ordering_only and not superfine:
+        # A unit whose CCD reads one line at a time refuses the fast ordering, in the recipe
+        # check before the stage moves.
+        if not module.caps.multi_line and not superfine:
             raise UnsupportedError(
                 "color interleaving: this unit does not read the CCD three rows at once",
                 op="color interleaving",

@@ -44,7 +44,7 @@ _INSTALL_HINT = (
 # Frame lengths nkscan cannot measure for itself, as it spells them.
 FILM_FORMATS = ("135", "half", "IX240", "16", "645", "66", "67", "68", "69")
 
-_MAX_SAMPLES = 16
+_MAX_SAMPLES = 16  # the protocol's own ceiling; a unit's own limit comes from its capabilities
 
 # 135, across the film by along the feed: the raster is portrait. Only the tile aspect and the
 # window mm readout use it, and no adapter reports its opening through the bindings.
@@ -54,19 +54,15 @@ _PHASES = {"discover": "Detecting frames", "meter": "Metering", "scan": "Scannin
 
 _MM_PER_INCH = 25.4
 
-# nkscan's own name for the refusal a unit with no three-row CCD read raises.
-_INTERLEAVING_OP = "color interleaving"
+# The two of nkscan's four framing mechanisms that take a thumbnail pass, and so the two that
+# can be told a frame length. The others read the holder's own table or an address.
+_MEASURED_FRAMING = ("thumbnail", "perforation")
 
 
 def _caps_for(caps: Any) -> ScannerCapabilities:
     lo, hi = (int(v) for v in caps.x_dpi_range)
     optical = int(caps.optical_dpi)
     dpi = tuple(sorted({*dpi_stops_in_range(lo, hi), optical}))
-    # A unit with one read mode has no Superfine to choose, and one that ignores repeated
-    # reads has no Samples. An nkscan too old to say assumes both, and the first refusal
-    # teaches the backend the read mode anyway.
-    superfine = bool(getattr(caps, "multiline_read", True))
-    max_samples = _MAX_SAMPLES if getattr(caps, "multi_reading", True) else 1
     return ScannerCapabilities(
         ir_channel=True,
         supported_dpi=dpi,
@@ -74,17 +70,24 @@ def _caps_for(caps: Any) -> ScannerCapabilities:
         supported_depths=(16,),
         sources=(ScanMode.NEGATIVE, ScanMode.POSITIVE),
         max_area_mm=_DEFAULT_AREA_MM,
+        # nkscan meters every frame itself and focuses itself, and offers no parameter for
+        # either, so neither has a control to carry — `hardware_metering` and `autofocus` say
+        # what the unit does, not what a caller may ask for.
         auto_exposure=False,
         autofocus=False,
+        # Frames come from `discover_frames`, never from an index, so `max_frames` is not a
+        # capacity to range over: the strip dialog picks from what the film turned out to hold.
         adapter_frame_capacity=None,
-        can_eject=True,
+        can_eject=bool(caps.eject),
         exposure_time_us=None,
         hw_clean=True,
         roll_discovery=True,
-        film_formats=FILM_FORMATS,
+        film_formats=FILM_FORMATS if str(caps.framing) in _MEASURED_FRAMING else (),
         film_types=tuple(FILM_TYPES),
-        max_samples=max_samples,
-        superfine=superfine,
+        max_samples=max(1, int(caps.max_samples)),
+        # One read mode means no Superfine to switch: every pass on the unit is already one
+        # line at a time.
+        superfine=bool(caps.multi_line),
     )
 
 
@@ -238,8 +241,6 @@ class NkscanBackend:
         # re-previewing a strip after a nudge must not cost another read of the film.
         self._frames: dict[str, list[tuple[int, int, int, int]]] = {}
         self._strips: dict[str, np.ndarray] = {}
-        # Units that read one CCD line at a time, learned from the first refusal.
-        self._line_ordering_only: dict[str, bool] = {}
         self._lock = threading.Lock()
 
     # ── enumeration ───────────────────────────────────────────────────
@@ -277,9 +278,6 @@ class NkscanBackend:
             return None
         try:
             caps = session.capabilities
-            if getattr(caps, "multiline_read", True) is False:
-                # Said outright, so no scan has to learn it from a refusal.
-                self._line_ordering_only[location] = True
             return ScannerDevice(
                 id=location,
                 vendor=str(caps.vendor).strip(),
@@ -368,13 +366,13 @@ class NkscanBackend:
         with self._mapped_errors():
             result = self.scan_frame(
                 session,
-                device_id,
                 rect,
                 dpi=int(params.dpi),
                 samples=int(params.samples),
                 superfine=bool(params.superfine),
                 infrared=bool(params.capture_ir),
                 clean=bool(params.clean),
+                lock_white_balance=self.locks_white_balance(params.film_type),
                 exposures=exposures,
                 progress=report,
             )
@@ -387,7 +385,6 @@ class NkscanBackend:
     def scan_frame(
         self,
         session: Any,
-        device_id: str,
         rect: tuple[int, int, int, int],
         *,
         superfine: bool = False,
@@ -395,19 +392,20 @@ class NkscanBackend:
     ) -> Any:
         """One pass over `rect`. Every scan goes through here, previews included.
 
-        Some units read one CCD line at a time and nothing else — the LS-50 does — and the
-        bindings cannot be asked in advance. The refusal comes from the recipe check before the
-        stage moves, so the fast read is tried once, then remembered as unavailable.
+        A unit whose CCD cannot read its lines at once — the LS-50 cannot — has only the
+        superfine ordering, and asking for the fast one is refused before the stage moves.
         """
-        want = bool(superfine) or self._line_ordering_only.get(device_id, False)
-        try:
-            return session.scan_frame(rect, superfine=want, **options)
-        except self._nk.UnsupportedError as exc:
-            if want or getattr(exc, "op", "") != _INTERLEAVING_OP:
-                raise
-            logger.info("%s reads one CCD line at a time; every scan on it is superfine", device_id)
-            self._line_ordering_only[device_id] = True
-        return session.scan_frame(rect, superfine=True, **options)
+        want = bool(superfine) or not bool(session.capabilities.multi_line)
+        return session.scan_frame(rect, superfine=want, **options)
+
+    def locks_white_balance(self, film_type: str) -> bool:
+        """nkscan's own metering default for this film.
+
+        A colour negative is metered per channel, which takes the orange mask off before the
+        ADC instead of quantising the blue record through it; everything else keeps the factory
+        balance, because there the cast is the picture.
+        """
+        return bool(self._nk.Capabilities.locks_white_balance(film_type))
 
     def _to_result(self, result: Any, model: str) -> ScanResult:
         ir = result.ir
