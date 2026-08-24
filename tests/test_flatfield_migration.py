@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from contextlib import closing
 
 import numpy as np
 import pytest
@@ -19,7 +20,7 @@ def legacy_repo(tmp_path, monkeypatch):
     repo = StorageRepository(str(tmp_path / "edits.db"), str(tmp_path / "settings.db"))
     repo.initialize()
 
-    with sqlite3.connect(repo.edits_db_path) as conn:
+    with closing(sqlite3.connect(repo.edits_db_path)) as conn, conn:
         conn.execute("CREATE TABLE flatfield_profiles (name TEXT PRIMARY KEY, path TEXT, k1 REAL DEFAULT 0.0)")
         conn.executemany(
             "INSERT INTO flatfield_profiles (name, path, k1) VALUES (?, ?, ?)",
@@ -38,7 +39,7 @@ def legacy_repo(tmp_path, monkeypatch):
 
 
 def _config(repo, file_hash):
-    with sqlite3.connect(repo.edits_db_path) as conn:
+    with closing(sqlite3.connect(repo.edits_db_path)) as conn:
         row = conn.execute("SELECT settings_json FROM file_settings WHERE file_hash = ?", (file_hash,)).fetchone()
     return json.loads(row[0])
 
@@ -58,7 +59,7 @@ def test_migration_bakes_and_repoints(legacy_repo):
 
     # Active-profile setting remapped name -> id; legacy table gone; flag set.
     assert legacy_repo.get_global_setting("flatfield_active_profile") == profiles["rig-a"]
-    with sqlite3.connect(legacy_repo.edits_db_path) as conn:
+    with closing(sqlite3.connect(legacy_repo.edits_db_path)) as conn:
         assert conn.execute("SELECT name FROM sqlite_master WHERE name='flatfield_profiles'").fetchone() is None
     assert legacy_repo.get_global_setting("flatfield_migrated_v2") is True
 
