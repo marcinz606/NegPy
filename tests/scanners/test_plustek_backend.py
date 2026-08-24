@@ -163,6 +163,27 @@ def test_backend_list_devices_empty(monkeypatch):
     assert PlustekBackend().list_devices() == []
 
 
+def test_8100_v2_caps_match_pyopticfilm_model(monkeypatch):
+    """GL128 models other than the 8200i SE (e.g. 8100 V2) surface their own caps."""
+    from pyopticfilm.device.model_8100_v2 import MODEL_8100_V2
+    from pyopticfilm.usb.device import PID_OPTICFILM_8100_V2
+
+    info = UsbDeviceInfo(
+        vendor_id=VID_PLUSTEK,
+        product_id=PID_OPTICFILM_8100_V2,
+        bus=3,
+        address=12,
+    )
+    _patch_enum(monkeypatch, [info])
+    monkeypatch.setattr(f"{_BACKEND}.model_for_device", lambda *_a, **_k: MODEL_8100_V2)
+    dev = PlustekBackend().list_devices()[0]
+    caps = dev.capabilities
+    assert caps.ir_channel is False
+    assert caps.multi_exposure is True
+    assert caps.prescan is True
+    assert 1200 in caps.supported_dpi
+
+
 def test_backend_list_devices_maps_caps(monkeypatch):
     _patch_enum(monkeypatch)
     devices = PlustekBackend().list_devices()
