@@ -2135,7 +2135,7 @@ class TestBatchAnalysisFiltering(unittest.TestCase):
             mock_box.question.return_value = 1
             self.controller.request_batch_normalization()
         self.assertEqual(len(self.emitted), 1)
-        self.assertEqual([f["name"] for f in self.emitted[0].files], ["IMG_0001.cr2", "IMG_0002.cr2"])
+        self.assertEqual([f.file_info["name"] for f in self.emitted[0].frames], ["IMG_0001.cr2", "IMG_0002.cr2"])
 
     def test_analysis_zero_matches_does_not_dispatch(self):
         self.visible_indices = []

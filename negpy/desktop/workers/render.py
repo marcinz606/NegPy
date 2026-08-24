@@ -21,7 +21,7 @@ from negpy.features.stitch.models import StitchConfig, stitch_active
 from negpy.features.geometry.processor import GeometryProcessor
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.gpu.resources import GPUTexture
-from negpy.kernel.system.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
+from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.logging import get_logger
 from negpy.services.rendering.image_processor import ImageProcessor
 
@@ -101,10 +101,18 @@ class ThumbnailUpdateTask:
 
 
 @dataclass(frozen=True)
+class NormalizationInput:
+    """One frame and its dispatch-time settings for roll-wide bounds analysis."""
+
+    file_info: dict
+    config: WorkspaceConfig
+
+
+@dataclass(frozen=True)
 class NormalizationTask:
     """Request to analyze log bounds for a set of files."""
 
-    files: list[dict]
+    frames: list[NormalizationInput]
     workspace_color_space: str
     # Roll-wide overrides taken from the current image, applied to every file's analysis
     # before averaging, so the whole roll shares one buffer and luma bounds.
@@ -1010,6 +1018,37 @@ class PreviewLoadWorker(QObject):
             return ""
 
 
+def decode_asset_preview(
+    preview_service,
+    file_info: dict,
+    config: WorkspaceConfig,
+    workspace_color_space: str,
+) -> np.ndarray:
+    """Decode one asset the way the render path does: a composite through the merge that
+    assembles it, a plain frame direct.
+
+    A batch that decodes only ``file_info["path"]`` sees one member of the composite. For a
+    triplet that member holds real signal in the red channel alone, so anything measured off
+    it is invalid for the assembled three-band source.
+    """
+    from negpy.services.assets.half_frame import base_hash, slice_for_asset
+
+    rgbscan = config.rgbscan
+    common = {
+        "use_camera_wb": not effective_linear_raw(config.process, config.exposure.render_intent),
+        "full_resolution": False,
+        "file_hash": base_hash(file_info.get("hash")),  # halves share one decode
+    }
+    hdr = config.hdr
+    if hdr.hdr_enabled and hdr.hdr_paths:
+        raw, _, _ = preview_service.load_linear_preview_hdr(file_info["path"], hdr, workspace_color_space, **common)
+    elif rgbscan.enabled and rgbscan.green_path and rgbscan.blue_path:
+        raw, _, _ = preview_service.load_linear_preview_rgb(file_info["path"], rgbscan, workspace_color_space, **common)
+    else:
+        raw, _, _ = preview_service.load_linear_preview(file_info["path"], workspace_color_space, **common)
+    return slice_for_asset(raw, file_info)
+
+
 class BatchAutoCropWorker(QObject):
     """Decode, preprocess, and roll-calibrate visible frames off the UI thread."""
 
@@ -1064,28 +1103,7 @@ class BatchAutoCropWorker(QObject):
             self.cancelled.emit()
 
     def _decode(self, frame: BatchAutoCropInput, workspace_color_space: str) -> np.ndarray:
-        from negpy.services.assets.half_frame import base_hash, slice_for_asset
-
-        file_info = frame.file_info
-        config = frame.config
-        rgbscan = config.rgbscan
-        common = {
-            "use_camera_wb": not effective_linear_raw(config.process, config.exposure.render_intent),
-            "full_resolution": False,
-            "file_hash": base_hash(file_info.get("hash")),  # halves share one decode
-        }
-        hdr = config.hdr
-        if hdr.hdr_enabled and hdr.hdr_paths:
-            raw, _, _ = self._preview_service.load_linear_preview_hdr(file_info["path"], hdr, workspace_color_space, **common)
-        elif rgbscan.enabled and rgbscan.green_path and rgbscan.blue_path:
-            raw, _, _ = self._preview_service.load_linear_preview_rgb(file_info["path"], rgbscan, workspace_color_space, **common)
-        else:
-            raw, _, _ = self._preview_service.load_linear_preview(
-                file_info["path"],
-                workspace_color_space,
-                **common,
-            )
-        return slice_for_asset(raw, file_info)
+        return decode_asset_preview(self._preview_service, frame.file_info, frame.config, workspace_color_space)
 
     def _frame_evidence(self, index: int, frame: BatchAutoCropInput, task: BatchAutoCropTask, generation: int) -> Optional[CropEvidence]:
         """Decode and detect one frame. None when it failed or the run was cancelled."""
@@ -1203,10 +1221,9 @@ class NormalizationWorker(QObject):
     cancelled = pyqtSignal()
     error = pyqtSignal(str)
 
-    def __init__(self, preview_service, repo) -> None:
+    def __init__(self, preview_service) -> None:
         super().__init__()
         self._preview_service = preview_service
-        self._repo = repo
         self._cancel = threading.Event()
 
     @pyqtSlot()
@@ -1226,51 +1243,46 @@ class NormalizationWorker(QObject):
         from negpy.domain.interfaces import PipelineContext
         from negpy.features.exposure.normalization import analyze_log_exposure_bounds, resolve_crosstalk_matrix
         from negpy.features.geometry.processor import GeometryProcessor
-        from negpy.services.assets.half_frame import base_hash, slice_for_asset
 
         self._cancel.clear()
-        total = len(task.files)
+        total = len(task.frames)
         limit = max(1, APP_CONFIG.max_workers // 2)
         semaphore = asyncio.Semaphore(limit)
         lock = asyncio.Lock()
         completed = 0
 
-        async def _analyze_file(f_info: dict):
+        async def _analyze_file(frame: NormalizationInput):
             nonlocal completed
+            f_info = frame.file_info
             async with semaphore:
                 if self._cancel.is_set():
                     return None
                 try:
-                    params = self._repo.load_file_settings(f_info["hash"])
+                    params = frame.config
                     # Roll-wide buffer and luma bounds from the current image, applied to every
                     # file, so one slider setting drives the whole batch baseline.
                     analysis_buffer = task.override_analysis_buffer
                     luma_range_clip = task.override_luma_range_clip
                     color_range_clip = task.override_color_range_clip
-                    process_mode = params.process.process_mode if params else DEFAULT_WORKSPACE_CONFIG.process.process_mode
-                    e6_normalize = params.process.e6_normalize if params else DEFAULT_WORKSPACE_CONFIG.process.e6_normalize
-                    geometry = params.geometry if params else DEFAULT_WORKSPACE_CONFIG.geometry
-                    # effective_, not the stored flag: the transfer path decodes neutral whatever
-                    # the flag says, and the comment below is why this must match it.
-                    _an = params if params else DEFAULT_WORKSPACE_CONFIG
-                    linear_raw = effective_linear_raw(_an.process, _an.exposure.render_intent)
+                    process_mode = params.process.process_mode
+                    e6_normalize = params.process.e6_normalize
+                    geometry = params.geometry
 
-                    # to_thread for the blocking load and analysis. Decode with the SAME WB the
-                    # render path uses (use_camera_wb = not linear_raw): the roll-average bounds
-                    # are applied to the render-decoded image, so analysing in a different WB
-                    # space shifts the per-channel floors and ceils and produces a color cast.
-                    raw, _, _ = await asyncio.to_thread(
-                        self._preview_service.load_linear_preview,
-                        f_info["path"],
+                    # to_thread for the blocking load and analysis. decode_asset_preview picks
+                    # the same WB the render path uses (use_camera_wb = not effective linear
+                    # RAW): the roll-average bounds are applied to the render-decoded image, so
+                    # analyzing in a different WB space shifts the per-channel floors and ceils
+                    # and produces a color cast.
+                    raw = await asyncio.to_thread(
+                        decode_asset_preview,
+                        self._preview_service,
+                        f_info,
+                        params,
                         task.workspace_color_space,
-                        not linear_raw,  # use_camera_wb
-                        False,  # full_resolution
-                        base_hash(f_info.get("hash")),  # halves share one decode
                     )
-                    raw = slice_for_asset(raw, f_info)
                     # Bounds must be measured on the same channel mix the render path normalizes.
                     # Triplet composites are never sensor-corrected there.
-                    sensor_matrix = effective_sensor_matrix(params.process) if params is not None else None
+                    sensor_matrix = effective_sensor_matrix(params.process)
                     if sensor_matrix is not None and not is_rgb_triplet(params.rgbscan):
                         raw = await asyncio.to_thread(apply_sensor_correction, raw, sensor_matrix)
 
@@ -1308,7 +1320,7 @@ class NormalizationWorker(QObject):
                     return None
 
         async def _run_batch():
-            tasks = [_analyze_file(f) for f in task.files]
+            tasks = [_analyze_file(f) for f in task.frames]
             return await asyncio.gather(*tasks)
 
         try:
