@@ -351,6 +351,10 @@ class AssetListModel(QAbstractListModel):
     def sheet_filter(self) -> str:
         return self._sheet_filter
 
+    @property
+    def filter_text(self) -> str:
+        return self._filter_text
+
     def set_sort_order(self, order: str) -> None:
         self._sort_order = order
         self._rebuild_indices()
