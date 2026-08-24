@@ -27,6 +27,7 @@ from negpy.services.export.linear_output import (
     _build_xmp,
     _decode_camera_raw_triplet,
     _decode_dng,
+    _decode_linear,
     _default_pakon_expansion,
     _effective_expansion,
     _is_camera_raw,
@@ -2274,3 +2275,41 @@ class TestSourceMetaExifFallback:
         before = logger.level
         _read_source_meta_exif(path)
         assert logger.level == before
+
+
+class TestCameraDngDecode:
+    """A camera DNG is not LinearRaw, so it takes the general camera-raw path."""
+
+    def _decode(self, **patches):
+        import negpy.services.export.linear_output as lo
+
+        base = {
+            "_is_dng": mock.patch.object(lo, "_is_dng", return_value=True),
+            "_is_linearraw_dng": mock.patch.object(lo, "_is_linearraw_dng", return_value=False),
+            "_read_source_meta_tiff": mock.patch.object(
+                lo, "_read_source_meta_tiff", return_value=_SourceMeta(make="TiffMake", model=None)
+            ),
+            "_decode_camera_raw_buffer": mock.patch.object(
+                lo,
+                "_decode_camera_raw_buffer",
+                return_value=(
+                    np.zeros((4, 4, 3), np.float32),
+                    _CameraWB(as_shot=(1.0, 1.0, 1.0, 1.0), daylight=(1.0, 1.0, 1.0, 1.0)),
+                    _SourceMeta(make="RawMake", model="RawModel"),
+                ),
+            ),
+        }
+        base.update(patches)
+        with base["_is_dng"], base["_is_linearraw_dng"], base["_read_source_meta_tiff"], base["_decode_camera_raw_buffer"]:
+            return _decode_linear("/tmp/frame.dng")
+
+    def test_camera_dng_decodes(self) -> None:
+        rgb, ir, wb, _ = self._decode()
+        assert rgb.shape == (4, 4, 3)
+        assert ir is None
+        assert wb is not None
+
+    def test_camera_dng_merges_tiff_and_raw_metadata(self) -> None:
+        _, _, _, meta = self._decode()
+        assert meta.make == "TiffMake"
+        assert meta.model == "RawModel"
