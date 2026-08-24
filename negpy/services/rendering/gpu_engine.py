@@ -31,6 +31,7 @@ from negpy.features.exposure.normalization import (
     prefilter_log_grid,
     resolve_analysis_region,
     resolve_bounds_detailed,
+    sorted_channel_grid,
 )
 from negpy.features.geometry.logic import (
     apply_fine_rotation,
@@ -575,6 +576,7 @@ class GPUEngine:
         needs_textural = textural_range_override is None and not tiling_mode and settings.exposure.auto_normalize_contrast
 
         prefiltered = None
+        sorted_grid = None
         scan_clip_fractions = None
         analysis_source = None
         unmix_m = effective_crosstalk_matrix(settings.process, settings.process.process_mode)
@@ -599,6 +601,7 @@ class GPUEngine:
             )
             if prefilter_key is not None and self._prefilter_cache is not None and self._prefilter_cache[0] == prefilter_key:
                 prefiltered, scan_clip_fractions = self._prefilter_cache[1], self._prefilter_cache[2]
+                sorted_grid = self._prefilter_cache[3]
             else:
                 # Use views to avoid copying the full-res image; crop to ROI first.
                 analysis_source = img
@@ -633,11 +636,23 @@ class GPUEngine:
                 prefiltered = unmix_log_image(prefilter_log_grid(analysis_source, None, an_buffer), unmix_m)
                 scan_clip_fractions = measure_clip_fractions(analysis_source, None, an_buffer)
                 if prefilter_key is not None:
-                    self._prefilter_cache = (prefilter_key, prefiltered, scan_clip_fractions)
+                    self._prefilter_cache = (prefilter_key, prefiltered, scan_clip_fractions, None)
             if analysis_key is not None:
                 self._clip_cache = (analysis_key, scan_clip_fractions)
         elif analysis_key is not None and self._clip_cache is not None and self._clip_cache[0] == analysis_key:
             scan_clip_fractions = self._clip_cache[1]
+
+        def _sorted() -> np.ndarray:
+            """The prefiltered grid sorted per channel. Held beside the grid it came from,
+            so a clip drag re-reads one sort instead of re-partitioning per percentile."""
+            nonlocal sorted_grid
+            assert prefiltered is not None
+            if sorted_grid is None:
+                sorted_grid = sorted_channel_grid(prefiltered)
+                cache = self._prefilter_cache
+                if cache is not None and cache[1] is prefiltered:
+                    self._prefilter_cache = (cache[0], cache[1], cache[2], sorted_grid)
+            return sorted_grid
 
         def _analyze_bounds() -> LogNegativeBounds:
             assert prefiltered is not None
@@ -649,6 +664,7 @@ class GPUEngine:
                 e6_normalize=settings.process.e6_normalize,
                 percentile_clip=settings.process.luma_range_clip,
                 color_clip=settings.process.color_range_clip,
+                sorted_grid=_sorted(),
             )
 
         if bounds_override:
@@ -659,7 +675,7 @@ class GPUEngine:
 
         shadow_refs = shadow_refs_override
         if needs_refs and prefiltered is not None:
-            shadow_refs = measure_shadow_refs_from_log(prefiltered, None, 0.0)
+            shadow_refs = measure_shadow_refs_from_log(prefiltered, None, 0.0, sorted_grid=_sorted())
 
         # Neutral axis for the two-point Cast Removal; normalized at consumption.
         neutral_axis_refs = neutral_axis_override
@@ -1921,15 +1937,25 @@ class GPUEngine:
         return (read_buf, prb, tex.width, tex.height)
 
     @staticmethod
-    def _resolve_readback(handle: tuple) -> np.ndarray:
+    def _resolve_readback(handle: tuple, dest: Optional[np.ndarray] = None, crop: Optional[Tuple[int, int]] = None) -> Optional[np.ndarray]:
+        """Maps a queued staging buffer and hands back its RGB.
+
+        The mapped memory dies at unmap, so the copy out happens inside: `dest` takes the
+        trimmed region straight (one copy), else the caller gets an owned array.
+        """
         read_buf, prb, w, h = handle
         read_buf.map_sync(wgpu.MapMode.READ)
         try:
-            raw = np.frombuffer(read_buf.read_mapped(), dtype=np.uint8).reshape((h, prb))
+            raw = np.frombuffer(read_buf.read_mapped(copy=False), dtype=np.uint8).reshape((h, prb))
             valid = raw[:, : w * 16]
-            result = valid.view(np.float32).reshape((h, w, 4))
             # The texture is already display-encoded (output_encode pass).
-            return result[:, :, :3]
+            result = valid.view(np.float32).reshape((h, w, 4))[:, :, :3]
+            if dest is None:
+                return result.copy()
+            oy, ox = crop if crop is not None else (0, 0)
+            dh, dw = dest.shape[:2]
+            dest[:] = result[oy : oy + dh, ox : ox + dw]
+            return None
         finally:
             read_buf.unmap()
 
@@ -1938,7 +1964,9 @@ class GPUEngine:
         handle = self._submit_readback(tex)
         if handle is None:
             return np.zeros((1, 1, 3), dtype=np.float32)
-        return self._resolve_readback(handle)
+        out = self._resolve_readback(handle)
+        assert out is not None
+        return out
 
     def _dispatch_pass(self, encoder: Any, pipeline_name: str, bindings: list, w: int, h: int) -> None:
         """Configures and dispatches a compute pass."""
@@ -2136,12 +2164,19 @@ class GPUEngine:
         # auto refs, anchor or textural range need it.
         unmix_m = effective_crosstalk_matrix(settings.process, settings.process.process_mode)
         prefiltered_cache: Optional[np.ndarray] = None
+        sorted_cache: Optional[np.ndarray] = None
 
         def _prefiltered() -> np.ndarray:
             nonlocal prefiltered_cache
             if prefiltered_cache is None:
                 prefiltered_cache = unmix_log_image(prefilter_log_grid(_analysis_img(), meter_roi, meter_buffer), unmix_m)
             return prefiltered_cache
+
+        def _sorted() -> np.ndarray:
+            nonlocal sorted_cache
+            if sorted_cache is None:
+                sorted_cache = sorted_channel_grid(_prefiltered())
+            return sorted_cache
 
         def _analyze_global_bounds() -> LogNegativeBounds:
             return analyze_log_exposure_bounds_from_log(
@@ -2152,6 +2187,7 @@ class GPUEngine:
                 e6_normalize=settings.process.e6_normalize,
                 percentile_clip=settings.process.luma_range_clip,
                 color_clip=settings.process.color_range_clip,
+                sorted_grid=_sorted(),
             )
 
         if bounds_override:
@@ -2163,7 +2199,7 @@ class GPUEngine:
         global_shadow_refs = None
         global_neutral_axis = None
         if settings.exposure.cast_removal_strength > 0.0 and settings.process.process_mode == ProcessMode.C41:
-            global_shadow_refs = measure_shadow_refs_from_log(_prefiltered(), None, 0.0)
+            global_shadow_refs = measure_shadow_refs_from_log(_prefiltered(), None, 0.0, sorted_grid=_sorted())
             global_neutral_axis = measure_neutral_axis_from_log(_prefiltered(), global_bounds, None, 0.0)
 
         global_metered_anchor = None
@@ -2255,16 +2291,12 @@ class GPUEngine:
                 handle = self._submit_readback(tile_res, slot=tile_index % 2)
                 if pending is not None:
                     p_handle, p_ty, p_tx, p_th, p_tw, p_oy, p_ox = pending
-                    full_source_res[p_ty : p_ty + p_th, p_tx : p_tx + p_tw] = self._resolve_readback(p_handle)[
-                        p_oy : p_oy + p_th, p_ox : p_ox + p_tw
-                    ]
+                    self._resolve_readback(p_handle, full_source_res[p_ty : p_ty + p_th, p_tx : p_tx + p_tw], (p_oy, p_ox))
                 pending = (handle, ty, tx, th, tw, oy, ox)
                 tile_index += 1
         if pending is not None:
             p_handle, p_ty, p_tx, p_th, p_tw, p_oy, p_ox = pending
-            full_source_res[p_ty : p_ty + p_th, p_tx : p_tx + p_tw] = self._resolve_readback(p_handle)[
-                p_oy : p_oy + p_th, p_ox : p_ox + p_tw
-            ]
+            self._resolve_readback(p_handle, full_source_res[p_ty : p_ty + p_th, p_tx : p_tx + p_tw], (p_oy, p_ox))
 
         # Mirrors PrintService.apply_layout: only INTER_AREA is area-correct on a shrink.
         shrinking = content_w < crop_w or content_h < crop_h
@@ -2277,6 +2309,10 @@ class GPUEngine:
             if (content_w != crop_w or content_h != crop_h)
             else full_source_res
         )
+        # No border means the paper buffer is a full-res allocation, fill and copy that
+        # reproduces the content exactly.
+        if (paper_w, paper_h, off_x, off_y) == (content_w, content_h, 0, 0):
+            return scaled_content, metrics_ref
         result = np.zeros((paper_h, paper_w, 3), dtype=np.float32)
         color_hex = settings.finish.border_color.lstrip("#")
         result[:] = tuple(int(color_hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4))

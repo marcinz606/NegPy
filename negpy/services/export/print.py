@@ -243,6 +243,13 @@ class PrintService:
                 interpolation=cv2.INTER_AREA if shrinking else cv2.INTER_LANCZOS4,
             )
 
+        offset_x = (paper_w - target_w) // 2
+        offset_y = PrintService.weighted_offset_y(paper_h, target_h, border_px, border_bottom_px)
+        # No border means the paper buffer is a full-res allocation, fill and copy that
+        # reproduces the scaled content exactly.
+        if (paper_w, paper_h, offset_x, offset_y) == (target_w, target_h, 0, 0):
+            return img_scaled, (0, 0, target_w, target_h)
+
         color_hex = border_color.lstrip("#")
         r, g, b = tuple(int(color_hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
 
@@ -253,9 +260,6 @@ class PrintService:
             (r, g, b) if channels > 1 else (r,),
             dtype=img_scaled.dtype,
         )
-        offset_x = (paper_w - target_w) // 2
-        offset_y = PrintService.weighted_offset_y(paper_h, target_h, border_px, border_bottom_px)
-
         h_copy = min(target_h, paper_h - offset_y)
         w_copy = min(target_w, paper_w - offset_x)
 

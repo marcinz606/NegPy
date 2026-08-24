@@ -1,4 +1,5 @@
 import threading
+from typing import Optional
 
 import numpy as np
 import wgpu  # type: ignore
@@ -35,6 +36,7 @@ class GPUTexture:
         self._readback_staging = None  # full-texture readback
         self._region_staging = None  # sub-region readback
         self._region_staging_size: int = 0  # allocated size of _region_staging
+        self._rgba_scratch: Optional[np.ndarray] = None  # RGB -> RGBA padding buffer, alpha written once
         # Serializes readback against destroy: the UI thread probes textures (densitometer, pixel
         # readout) while the render worker may destroy them on file switch. Destroying a mapped
         # staging buffer panics in wgpu-native, and that panic is uncatchable.
@@ -49,9 +51,7 @@ class GPUTexture:
         if data.dtype != np.float32:
             data = data.astype(np.float32)
         if data.shape[2] == 3:
-            rgba = np.ones((data.shape[0], data.shape[1], 4), dtype=np.float32)
-            rgba[:, :, :3] = data
-            data = rgba
+            data = self._pad_to_rgba(data)
 
         gpu.device.queue.write_texture(
             {"texture": self.texture},
@@ -59,6 +59,16 @@ class GPUTexture:
             {"bytes_per_row": data.shape[1] * 16, "rows_per_image": data.shape[0]},
             (data.shape[1], data.shape[0], 1),
         )
+
+    def _pad_to_rgba(self, data: np.ndarray) -> np.ndarray:
+        """RGB -> RGBA in a buffer kept across uploads. Alpha is written when the buffer is
+        made, so a re-upload of the same shape only copies the three colour channels."""
+        shape = (data.shape[0], data.shape[1], 4)
+        if self._rgba_scratch is None or self._rgba_scratch.shape != shape:
+            self._rgba_scratch = np.empty(shape, dtype=np.float32)
+            self._rgba_scratch[:, :, 3] = 1.0
+        np.copyto(self._rgba_scratch[:, :, :3], data)
+        return self._rgba_scratch
 
     def readback_region(self, x: int, y: int, rw: int, rh: int) -> np.ndarray:
         """Downloads a sub-region from VRAM. Significantly faster than a full readback."""
@@ -169,6 +179,7 @@ class GPUTexture:
                         logger.warning(f"Failed to destroy GPU buffer ({attr})", exc_info=e)
                     setattr(self, attr, None)
             self._region_staging_size = 0
+            self._rgba_scratch = None
 
 
 class GPUBuffer:
