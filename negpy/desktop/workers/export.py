@@ -242,15 +242,14 @@ class ExportWorker(QObject):
             return status
 
         if task.metadata_config is not None and embed_plan is None:
-            dpi = PrintService.resolution_tag_dpi(task.export_settings)
             if task.metadata_config.protect_original_metadata:
                 bits = preserve_source_metadata(
                     bits,
                     task.file_info["path"],
                     task.source_exif,
-                    dpi=dpi,
                 )
             else:
+                dpi = PrintService.resolution_tag_dpi(task.export_settings)
                 bits = embed_metadata(bits, task.metadata_config, task.source_exif, dpi=dpi)
 
         out_dir, filename, ext = resolve_export_naming(task)

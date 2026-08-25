@@ -202,14 +202,47 @@ def test_embed_replaces_stale_source_resolution(proc, fmt):
 
 
 @pytest.mark.parametrize("fmt", [ExportFormat.JPEG, ExportFormat.JXL, ExportFormat.PNG])
-def test_preserve_replaces_stale_source_resolution(proc, fmt):
-    """protect_original_metadata copies the source EXIF verbatim — except this."""
+def test_preserve_keeps_the_source_resolution(proc, fmt):
+    """Protect original metadata means untouched, resolution included. An export that
+    was not resampled still has the source's sampling density, so overwriting it with
+    the Print-only spinbox value would replace a right answer with a guess."""
     settings = _pixels_settings(fmt)
     bits, _ = proc._encode_export(_buf(), settings, ColorSpace.SRGB.value, ColorSpace.SRGB.value)
 
-    out = preserve_source_metadata(bits, "unused.nef", _source_exif(), dpi=PrintService.resolution_tag_dpi(settings))
+    out = preserve_source_metadata(bits, "unused.nef", _source_exif())
 
-    assert _exif_dpi(out, fmt) == _DERIVED_DPI
+    assert _exif_dpi(out, fmt) == _SCANNER_DPI
+
+
+def _protect_plan(settings):
+    return export_embed_plan(
+        MetadataConfig(protect_original_metadata=True),
+        _source_exif(),
+        "unused.nef",
+        dpi=PrintService.resolution_tag_dpi(settings),
+    )
+
+
+def test_embed_plan_under_protect_keeps_the_source_resolution(proc):
+    """The first-encode path honours the toggle too. PNG's eXIf therefore keeps the
+    scanner's DPI while its pHYs describes the export: two records, by design, because
+    only one of them is copied metadata."""
+    settings = _pixels_settings(ExportFormat.PNG)
+
+    bits, _ = proc._encode_export(_buf(), settings, ColorSpace.SRGB.value, ColorSpace.SRGB.value, embed_plan=_protect_plan(settings))
+
+    assert _exif_dpi(bits, ExportFormat.PNG) == _SCANNER_DPI
+    assert _png_dpi(bits) == pytest.approx((_DERIVED_DPI, _DERIVED_DPI), abs=0.01)
+
+
+def test_tiff_baseline_describes_the_export_even_under_protect(proc):
+    """TIFF has no separate EXIF resolution: 282/283/296 are filtered out of the
+    extratags, so the baseline tag is the file's own record and always describes it."""
+    settings = _pixels_settings(ExportFormat.TIFF)
+
+    bits, _ = proc._encode_export(_buf(), settings, ColorSpace.SRGB.value, ColorSpace.SRGB.value, embed_plan=_protect_plan(settings))
+
+    assert _tiff_resolution(bits)[0] == (_DERIVED_DPI, 1)
 
 
 @pytest.mark.parametrize("fmt", [ExportFormat.TIFF, ExportFormat.PNG])

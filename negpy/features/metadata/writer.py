@@ -401,8 +401,9 @@ def _dump_exif_preserve(exif_dict: dict) -> Optional[bytes]:
 def _with_resolution(exif_dict: dict, dpi: Optional[int]) -> dict:
     """EXIF carrying the export's own resolution in IFD0, or the dict unchanged when
     no DPI is given. A source's XResolution describes the scan it came from, so it is
-    wrong for an export that was resized. Copies rather than mutates: the caller's
-    source EXIF is shared across presets."""
+    wrong for an export that was resized. Not used under Protect original metadata,
+    which copies the source untouched. Copies rather than mutates: the caller's source
+    EXIF is shared across presets."""
     if not dpi:
         return exif_dict
     out = dict(exif_dict)
@@ -418,14 +419,11 @@ def preserve_source_metadata(
     image_bytes: bytes,
     source_path: str,
     source_exif: Optional[dict] = None,
-    dpi: Optional[int] = None,
 ) -> bytes:
     """
     Copy EXIF/XMP from the source file onto exported image bytes without
-    adding or altering NegPy metadata fields.
-
-    ``dpi`` replaces the source resolution for JPEG and JPEG XL, whose only
-    resolution record is the EXIF block.
+    adding or altering NegPy metadata fields. Resolution included: a source
+    that was not resampled still describes the exported pixels.
     """
     exif_dict = _load_source_exif(source_path, source_exif)
     if not exif_dict:
@@ -436,7 +434,7 @@ def preserve_source_metadata(
     try:
         output = io.BytesIO()
         if image_bytes[:2] == b"\xff\xd8":
-            exif_bytes = _dump_exif_preserve(_with_resolution(exif_dict, dpi))
+            exif_bytes = _dump_exif_preserve(exif_dict)
             if exif_bytes is None:
                 return image_bytes
             jpeg_buf = io.BytesIO()
@@ -444,13 +442,13 @@ def preserve_source_metadata(
             result = _inject_jpeg_xmp(jpeg_buf.getvalue(), xmp_bytes) if xmp_bytes else jpeg_buf.getvalue()
             output.write(result)
         elif image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
-            exif_bytes = piexif.dump(_sanitize_exif(_with_resolution(exif_dict, dpi)))
+            exif_bytes = piexif.dump(_sanitize_exif(exif_dict))
             _rewrite_png_with_metadata(image_bytes, exif_bytes, output, xmp_bytes)
         elif image_bytes[:4] == b"RIFF":
             exif_bytes = piexif.dump(_sanitize_exif(exif_dict))
             _rewrite_webp_with_metadata(image_bytes, exif_bytes, output, xmp_bytes)
         elif is_jxl(image_bytes):
-            exif_bytes = piexif.dump(_sanitize_exif(_with_resolution(exif_dict, dpi)))
+            exif_bytes = piexif.dump(_sanitize_exif(exif_dict))
             _rewrite_jxl_with_metadata(image_bytes, exif_bytes, output, xmp_bytes)
         else:
             exif_bytes = piexif.dump(_sanitize_exif(exif_dict))
@@ -767,7 +765,7 @@ def export_embed_plan(
             exif_dict = _load_source_exif(source_path, source_exif)
             if not exif_dict:
                 return None
-            return piexif.dump(_sanitize_exif(_with_resolution(exif_dict, dpi))), _read_xmp_from_source(source_path), False
+            return piexif.dump(_sanitize_exif(exif_dict)), _read_xmp_from_source(source_path), False
         merged, payload = _merged_exif_and_payload(config, source_exif, gear)
         xmp_bytes = build_xmp_bytes(payload) if payload.has_any_data() else None
         return piexif.dump(_sanitize_exif(_with_resolution(merged, dpi))), xmp_bytes, True
