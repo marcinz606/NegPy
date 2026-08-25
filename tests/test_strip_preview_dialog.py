@@ -202,6 +202,31 @@ def test_offset_and_drift_sliders_reset_to_zero_on_double_click() -> None:
     assert dialog.drift_label.text() == "+0.00 mm/frame"
 
 
+def test_the_offset_and_drift_sliders_share_the_width_the_row_has_left() -> None:
+    """They carry the framing, so they take the row rather than a fixed 160 px of it. The
+    button keeps its own width, and the value labels are pinned so a wide reading cannot
+    shrink the slider it belongs to."""
+    dialog = StripPreviewDialog(_FakeController(), _device(3))
+    dialog.show()
+
+    widths = []
+    for width in (800, 1400):
+        dialog.resize(width, 700)
+        dialog.layout().activate()
+        widths.append((dialog.offset_slider.width(), dialog.drift_slider.width()))
+        assert abs(dialog.offset_slider.width() - dialog.drift_slider.width()) <= 1
+        assert dialog.preview_all_btn.width() == dialog.preview_all_btn.sizeHint().width()
+
+    assert widths[1][0] > widths[0][0]
+
+    before = dialog.offset_slider.width()
+    dialog.offset_slider.setValue(dialog.offset_slider.maximum())
+    dialog.drift_slider.setValue(dialog.drift_slider.minimum())
+    dialog.layout().activate()
+
+    assert dialog.offset_slider.width() == before
+
+
 def test_preview_dpi_dropdown_defaults_to_lowest_and_flows_into_requests() -> None:
     controller = _FakeController()
     dialog = StripPreviewDialog(controller, _device(3))  # supported_dpi=(1000, 4000)

@@ -185,7 +185,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         )
         self.offset_slider.setSingleStep(1)
         self.offset_slider.setPageStep(5)
-        self.offset_slider.setFixedWidth(160)
+        self.offset_slider.setMinimumWidth(160)
         # Not floored at 0: a measured strip's saved offset may be negative, and the range
         # clamps it either way.
         self.offset_slider.setValue(int(round(float(initial_offset) * 10)))
@@ -194,8 +194,11 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
             if self._discovers
             else "Feed-axis offset applied to every frame (the transport cannot back up)"
         )
-        top.addWidget(self.offset_slider)
+        top.addWidget(self.offset_slider, 1)
         self.offset_label = QLabel()
+        # Pinned to its widest reading: a label that grows with the value would take the width
+        # out of the slider it belongs to, and the handle would step sideways under the cursor.
+        self.offset_label.setFixedWidth(self.offset_label.fontMetrics().horizontalAdvance("-99.9 mm"))
         top.addWidget(self.offset_label)
         top.addSpacing(16)
         top.addWidget(QLabel("Drift"))
@@ -203,13 +206,14 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self.drift_slider.setRange(-250, 250)  # hundredths of a mm → ±2.50 mm/frame
         self.drift_slider.setSingleStep(1)
         self.drift_slider.setPageStep(10)
-        self.drift_slider.setFixedWidth(160)
+        self.drift_slider.setMinimumWidth(160)
         self.drift_slider.setValue(int(round(float(initial_offset_modifier) * 100)))
         self.drift_slider.setToolTip(
             "Extra offset added per frame position (mm/frame) — corrects progressive frame-gap drift along the strip"
         )
-        top.addWidget(self.drift_slider)
+        top.addWidget(self.drift_slider, 1)
         self.drift_label = QLabel()
+        self.drift_label.setFixedWidth(self.drift_label.fontMetrics().horizontalAdvance("-9.99 mm/frame"))
         top.addWidget(self.drift_label)
         top.addSpacing(16)
         # A measured strip previews out of its own pass, whose resolution nothing chooses.
@@ -223,7 +227,6 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self.preview_dpi_combo.setVisible(not self._discovers)
         top.addWidget(self.preview_dpi_label)
         top.addWidget(self.preview_dpi_combo)
-        top.addStretch()
         label = " Detect frames" if self._discovers else " Preview all"
         self.preview_all_btn = QPushButton(qta.icon("fa5s.eye", color=THEME.text_primary), label)
         self.preview_all_btn.clicked.connect(self._on_preview_all)
