@@ -1145,6 +1145,7 @@ class DesktopSessionManager(QObject):
         if persist and record_history and config == self.state.config:
             record_history = False
 
+        stepped = False
         if persist and record_history and self.state.current_file_hash:
             # If editing after an undo, drop the now-orphaned future branch
             if self.state.undo_index < self.state.max_history_index:
@@ -1156,9 +1157,14 @@ class DesktopSessionManager(QObject):
             if self.state.undo_index > APP_CONFIG.max_history_steps:
                 self.repo.prune_history(self.state.current_file_hash, max_steps=APP_CONFIG.max_history_steps)
 
-            self.history_changed.emit()
+            stepped = True
 
         self.state.config = config
+
+        # After the assignment: the step above is the *previous* config, and a handler that
+        # reads state.config (the canvas HUD) must see the new one.
+        if stepped:
+            self.history_changed.emit()
 
         if persist:
             self._config_dirty = True
