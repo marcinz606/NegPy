@@ -398,12 +398,29 @@ def _dump_exif_preserve(exif_dict: dict) -> Optional[bytes]:
     return None
 
 
+def source_dpi_from_exif(exif_dict: Optional[dict]) -> Optional[int]:
+    """The source's resolution in DPI, or None when it declares none. ResolutionUnit 1
+    means "no absolute unit", so the pair is only an aspect ratio and carries no DPI."""
+    if not exif_dict:
+        return None
+    zeroth = exif_dict.get("0th") or {}
+    value = zeroth.get(piexif.ImageIFD.XResolution)
+    unit = zeroth.get(piexif.ImageIFD.ResolutionUnit)
+    if not isinstance(value, tuple) or len(value) != 2 or not value[1]:
+        return None
+    dpi = value[0] / value[1]
+    if unit == 3:  # centimetres
+        dpi *= 2.54
+    elif unit != 2:
+        return None
+    return int(round(dpi)) or None
+
+
 def _with_resolution(exif_dict: dict, dpi: Optional[int]) -> dict:
-    """EXIF carrying the export's own resolution in IFD0, or the dict unchanged when
-    no DPI is given. A source's XResolution describes the scan it came from, so it is
-    wrong for an export that was resized. Not used under Protect original metadata,
-    which copies the source untouched. Copies rather than mutates: the caller's source
-    EXIF is shared across presets."""
+    """EXIF carrying the resolution NegPy decided on, or the dict unchanged when no DPI
+    is given. Not used under Protect original metadata, which copies the source
+    untouched. Copies rather than mutates: the caller's source EXIF is shared across
+    presets."""
     if not dpi:
         return exif_dict
     out = dict(exif_dict)
@@ -543,7 +560,7 @@ def embed_metadata(
             exif_bytes = piexif.dump(_sanitize_exif(_with_resolution(merged, dpi)))
             _rewrite_png_with_metadata(image_bytes, exif_bytes, output, xmp_bytes)
         elif image_bytes[:4] == b"RIFF":
-            exif_bytes = piexif.dump(_sanitize_exif(merged))
+            exif_bytes = piexif.dump(_sanitize_exif(_with_resolution(merged, dpi)))
             _rewrite_webp_with_metadata(image_bytes, exif_bytes, output, xmp_bytes)
         elif is_jxl(image_bytes):
             exif_bytes = piexif.dump(_sanitize_exif(_with_resolution(merged, dpi)))

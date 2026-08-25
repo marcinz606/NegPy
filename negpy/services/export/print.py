@@ -120,9 +120,16 @@ class PrintService:
         return export_settings.export_dpi
 
     @staticmethod
-    def resolution_tag_dpi(export_settings) -> int:
-        """DPI to tag an exported file with. Floored at 1 because the tag asserts an
-        absolute unit: a persisted config can hold a 0 the DPI spinbox cannot produce."""
+    def resolution_tag_dpi(export_settings, source_dpi: Optional[int] = None) -> int:
+        """DPI to tag an exported file with.
+
+        ORIGINAL resamples nothing, so the pixels keep the source's sampling density and
+        ``source_dpi`` still describes them; the DPI field is hidden in that mode anyway
+        and holds whatever Print last left there. Print and Pixels do resample, so the
+        size the user asked for wins. Floored at 1 because the tag asserts an absolute
+        unit and a persisted config can hold a 0 the spinbox cannot produce."""
+        if export_settings.export_resolution_mode == ExportResolutionMode.ORIGINAL:
+            return max(1, int(source_dpi or export_settings.export_dpi))
         return max(1, PrintService.effective_dpi(export_settings))
 
     @staticmethod

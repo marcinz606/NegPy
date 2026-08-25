@@ -1080,11 +1080,12 @@ class ImageProcessor:
         color_space: str,
         working_color_space: str = WORKING_COLOR_SPACE,
         embed_plan: Optional[tuple] = None,
+        dpi: Optional[int] = None,
     ) -> Tuple[Optional[bytes], str]:
         """Encode a rendered export buffer to file bytes; (bytes, format) or (None, error).
         Touches no processor state, so it can run on the finisher thread."""
         try:
-            return self._encode_export(buffer, export_settings, color_space, working_color_space, embed_plan=embed_plan)
+            return self._encode_export(buffer, export_settings, color_space, working_color_space, embed_plan=embed_plan, dpi=dpi)
         except Exception as e:
             logger.error(f"Export encode failed: {e}")
             return None, str(e)
@@ -1136,6 +1137,7 @@ class ImageProcessor:
         color_space: str,
         working_color_space: str = WORKING_COLOR_SPACE,
         embed_plan: Optional[tuple] = None,
+        dpi: Optional[int] = None,
     ) -> Tuple[bytes, str]:
         """Encodes a processed float buffer to the target format's file bytes.
 
@@ -1145,7 +1147,8 @@ class ImageProcessor:
         fmt = export_settings.export_fmt
         icc_input = export_settings.icc_input_path
         icc_output = export_settings.icc_output_path
-        dpi = PrintService.resolution_tag_dpi(export_settings)
+        if dpi is None:
+            dpi = PrintService.resolution_tag_dpi(export_settings)
 
         # A target with no ICC profile (ACES/XYZ, or a stale custom name) can be neither
         # converted to nor tagged, so the file would carry untagged working-space pixels.
@@ -1284,7 +1287,7 @@ class ImageProcessor:
                     icc_input,
                 )
             output_buf = io.BytesIO()
-            self._save_to_pil_buffer(pil_img, output_buf, export_settings, icc_bytes)
+            self._save_to_pil_buffer(pil_img, output_buf, export_settings, icc_bytes, dpi)
             return output_buf.getvalue(), "jpg"
 
     def render_display_array(
@@ -1831,11 +1834,11 @@ class ImageProcessor:
         buf: io.BytesIO,
         export_settings,
         icc_bytes: Optional[bytes],
+        dpi: int,
     ) -> None:
         """Encodes PIL image to byte stream."""
         fmt = "JPEG" if export_settings.export_fmt == ExportFormat.JPEG else "TIFF"
         quality = getattr(export_settings, "jpeg_quality", 95)
-        dpi = PrintService.resolution_tag_dpi(export_settings)
         pil_img.save(
             buf,
             format=fmt,

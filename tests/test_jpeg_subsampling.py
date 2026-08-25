@@ -13,7 +13,7 @@ def test_jpeg_export_uses_444_subsampling() -> None:
     settings = ExportConfig(export_fmt=ExportFormat.JPEG)
 
     buf = io.BytesIO()
-    service._save_to_pil_buffer(pil_img, buf, settings, icc_bytes=None)
+    service._save_to_pil_buffer(pil_img, buf, settings, icc_bytes=None, dpi=300)
 
     buf.seek(0)
     reopened = Image.open(buf)

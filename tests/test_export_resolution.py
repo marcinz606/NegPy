@@ -16,7 +16,13 @@ from PIL import Image
 
 from negpy.domain.models import ColorSpace, ExportConfig, ExportFormat, ExportResolutionMode, preset_from_export_config
 from negpy.features.metadata.models import MetadataConfig
-from negpy.features.metadata.writer import embed_metadata, export_embed_plan, preserve_source_metadata
+from negpy.desktop.workers.export import _export_dpi
+from negpy.features.metadata.writer import (
+    embed_metadata,
+    export_embed_plan,
+    preserve_source_metadata,
+    source_dpi_from_exif,
+)
 from negpy.infrastructure.loaders.jxl_boxes import read_jxl_exif
 from negpy.services.export.linear_output import NOMINAL_DPI, _write_tiff
 from negpy.services.export.print import PrintService
@@ -271,15 +277,94 @@ def test_png_exif_agrees_with_phys(proc):
     assert _exif_dpi(out, ExportFormat.PNG) == _DERIVED_DPI
 
 
-def test_webp_keeps_the_source_resolution(proc):
-    """Deliberate: WebP has no resolution field of its own and browsers ignore the
-    EXIF one, so it is left as the source wrote it rather than rewritten."""
+def test_webp_carries_the_export_resolution(proc):
+    """WebP has no resolution field of its own, so EXIF is the only carrier."""
     settings = _pixels_settings(ExportFormat.WEBP)
     bits, _ = proc._encode_export(_buf(), settings, ColorSpace.SRGB.value, ColorSpace.SRGB.value)
 
     out = embed_metadata(bits, MetadataConfig(), _source_exif(), dpi=PrintService.resolution_tag_dpi(settings))
 
-    assert _exif_dpi(out, ExportFormat.WEBP) == _SCANNER_DPI
+    assert _exif_dpi(out, ExportFormat.WEBP) == _DERIVED_DPI
+
+
+# --- Which DPI wins ------------------------------------------------------------
+
+
+def _exif_at(dpi, unit=2):
+    zeroth = (
+        {}
+        if dpi is None
+        else {
+            piexif.ImageIFD.XResolution: (dpi, 1),
+            piexif.ImageIFD.YResolution: (dpi, 1),
+            piexif.ImageIFD.ResolutionUnit: unit,
+        }
+    )
+    return {"0th": zeroth, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {}}
+
+
+@pytest.mark.parametrize(
+    ("dpi", "unit", "expected"),
+    [
+        (3600, 2, 3600),  # inches
+        (1417, 3, 3599),  # centimetres, converted
+        (3600, 1, None),  # no absolute unit: an aspect ratio, not a resolution
+        (None, 2, None),
+    ],
+)
+def test_source_dpi_from_exif(dpi, unit, expected):
+    assert source_dpi_from_exif(_exif_at(dpi, unit)) == expected
+
+
+class _Task:
+    """The three fields _export_dpi reads."""
+
+    def __init__(self, settings, source_exif, protect=False):
+        self.export_settings = settings
+        self.source_exif = source_exif
+        self.metadata_config = MetadataConfig(protect_original_metadata=protect)
+
+
+def _original_settings(dpi=300):
+    return ExportConfig(export_fmt=ExportFormat.TIFF, export_dpi=dpi, export_resolution_mode=ExportResolutionMode.ORIGINAL.value)
+
+
+def _print_settings_at(dpi):
+    return ExportConfig(
+        export_fmt=ExportFormat.TIFF,
+        export_dpi=dpi,
+        export_resolution_mode=ExportResolutionMode.PRINT.value,
+        export_print_size=_PRINT_SIZE_CM,
+    )
+
+
+def test_original_mode_keeps_the_source_dpi():
+    """Nothing is resampled, so the source's sampling density still describes the pixels."""
+    assert _export_dpi(_Task(_original_settings(), _exif_at(_SCANNER_DPI))) == _SCANNER_DPI
+
+
+def test_original_mode_falls_back_when_the_source_declares_none():
+    assert _export_dpi(_Task(_original_settings(dpi=300), _exif_at(None))) == 300
+
+
+@pytest.mark.parametrize(
+    ("settings", "expected"),
+    [(_print_settings_at(600), 600), (_pixels_settings(ExportFormat.TIFF), _DERIVED_DPI)],
+)
+def test_resampling_modes_use_the_size_the_user_asked_for(settings, expected):
+    assert _export_dpi(_Task(settings, _exif_at(_SCANNER_DPI))) == expected
+
+
+@pytest.mark.parametrize("settings", [_original_settings(), _print_settings_at(600), _pixels_settings(ExportFormat.TIFF)])
+def test_protect_keeps_the_source_dpi_in_every_mode(settings):
+    """Protect wins over an explicit Print DPI: the user asked for the source's
+    metadata untouched, and that is the more deliberate of the two choices."""
+    assert _export_dpi(_Task(settings, _exif_at(_SCANNER_DPI), protect=True)) == _SCANNER_DPI
+
+
+def test_protect_without_a_source_dpi_falls_back():
+    """TIFF's resolution is a required field, so there has to be a number."""
+    assert _export_dpi(_Task(_pixels_settings(ExportFormat.TIFF), _exif_at(None), protect=True)) == 300
 
 
 def test_embed_without_a_dpi_leaves_exif_alone(proc):

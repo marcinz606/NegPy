@@ -9,7 +9,7 @@ import threading
 import numpy as np
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 from negpy.domain.models import ColorSpace, WorkspaceConfig, ExportConfig, ExportFormat, ExportPreset, ExportPresetOutputMode
-from negpy.features.metadata.writer import embed_metadata, export_embed_plan, preserve_source_metadata
+from negpy.features.metadata.writer import embed_metadata, export_embed_plan, preserve_source_metadata, source_dpi_from_exif
 from negpy.features.metadata.models import MetadataConfig
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE, ColorSpaceRegistry
 from negpy.services.rendering.image_processor import ImageProcessor
@@ -17,6 +17,24 @@ from negpy.features.hdr.models import hdr_frame_paths
 from negpy.services.export.print import PrintService
 from negpy.services.export.templating import render_export_filename
 from negpy.services.export.contact_sheet import ContactSheetService
+
+
+def _protects_metadata(task: "ExportTask") -> bool:
+    return task.metadata_config is not None and task.metadata_config.protect_original_metadata
+
+
+def _export_dpi(task: "ExportTask") -> int:
+    """Resolution to write into the exported file.
+
+    Under Protect original metadata the source's own DPI is kept whatever the export
+    did to the pixels: the user asked for its metadata untouched. The formats whose
+    resolution is a required field still need a number, so a source that declares none
+    falls back to the export setting.
+    """
+    source_dpi = source_dpi_from_exif(task.source_exif)
+    if _protects_metadata(task):
+        return max(1, int(source_dpi or task.export_settings.export_dpi))
+    return PrintService.resolution_tag_dpi(task.export_settings, source_dpi)
 
 
 def _srgb_icc_bytes() -> Optional[bytes]:
@@ -172,7 +190,7 @@ class ExportWorker(QObject):
                         task.metadata_config,
                         task.source_exif,
                         task.file_info["path"],
-                        dpi=PrintService.resolution_tag_dpi(task.export_settings),
+                        dpi=_export_dpi(task),
                     )
 
                 buffer, status = self._processor.render_export(
@@ -231,12 +249,14 @@ class ExportWorker(QObject):
     def _finish_task(self, task: ExportTask, buffer: np.ndarray, color_space: str, embed_plan: Optional[tuple]) -> Optional[str]:
         """Encode + metadata + atomic write for one rendered frame, on the finisher
         thread. Returns an error message, or None on success."""
+        dpi = _export_dpi(task)
         bits, status = self._processor.encode_export(
             buffer,
             task.export_settings,
             color_space,
             task.working_color_space,
             embed_plan=embed_plan,
+            dpi=dpi,
         )
         if not bits:
             return status
@@ -249,7 +269,6 @@ class ExportWorker(QObject):
                     task.source_exif,
                 )
             else:
-                dpi = PrintService.resolution_tag_dpi(task.export_settings)
                 bits = embed_metadata(bits, task.metadata_config, task.source_exif, dpi=dpi)
 
         out_dir, filename, ext = resolve_export_naming(task)
