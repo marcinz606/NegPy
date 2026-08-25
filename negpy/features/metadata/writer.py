@@ -419,11 +419,18 @@ def preserve_source_metadata(
     image_bytes: bytes,
     source_path: str,
     source_exif: Optional[dict] = None,
+    resolution: Optional[Resolution] = None,
 ) -> bytes:
     """
     Copy EXIF/XMP from the source file onto exported image bytes without
-    adding or altering NegPy metadata fields. Resolution included: a source
-    that was not resampled still describes the exported pixels.
+    adding or altering NegPy metadata fields.
+
+    ``resolution`` is the source's own, and is written into IFD0 so it survives
+    into formats that keep resolution only there. A source states it in its
+    container as often as in its EXIF — a JPEG's JFIF density is the common case —
+    and that record does not survive the re-encode, so without this the export
+    lands with no resolution at all. None when the source declares none: this
+    carries a value across, it never invents one.
     """
     exif_dict = _load_source_exif(source_path, source_exif)
     if not exif_dict:
@@ -434,7 +441,7 @@ def preserve_source_metadata(
     try:
         output = io.BytesIO()
         if image_bytes[:2] == b"\xff\xd8":
-            exif_bytes = _dump_exif_preserve(exif_dict)
+            exif_bytes = _dump_exif_preserve(_with_resolution(exif_dict, resolution))
             if exif_bytes is None:
                 return image_bytes
             jpeg_buf = io.BytesIO()
@@ -442,13 +449,13 @@ def preserve_source_metadata(
             result = _inject_jpeg_xmp(jpeg_buf.getvalue(), xmp_bytes) if xmp_bytes else jpeg_buf.getvalue()
             output.write(result)
         elif image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
-            exif_bytes = piexif.dump(_sanitize_exif(exif_dict))
+            exif_bytes = piexif.dump(_sanitize_exif(_with_resolution(exif_dict, resolution)))
             _rewrite_png_with_metadata(image_bytes, exif_bytes, output, xmp_bytes)
         elif image_bytes[:4] == b"RIFF":
-            exif_bytes = piexif.dump(_sanitize_exif(exif_dict))
+            exif_bytes = piexif.dump(_sanitize_exif(_with_resolution(exif_dict, resolution)))
             _rewrite_webp_with_metadata(image_bytes, exif_bytes, output, xmp_bytes)
         elif is_jxl(image_bytes):
-            exif_bytes = piexif.dump(_sanitize_exif(exif_dict))
+            exif_bytes = piexif.dump(_sanitize_exif(_with_resolution(exif_dict, resolution)))
             _rewrite_jxl_with_metadata(image_bytes, exif_bytes, output, xmp_bytes)
         else:
             exif_bytes = piexif.dump(_sanitize_exif(exif_dict))

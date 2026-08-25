@@ -76,6 +76,10 @@ def _is_rational(value: Any) -> TypeGuard[tuple[int, int]]:
     return isinstance(value, tuple) and len(value) == 2 and all(isinstance(v, int) for v in value) and value[0] > 0 and value[1] > 0
 
 
+# JFIF density units, which are numbered differently from TIFF's ResolutionUnit.
+_JFIF_UNITS = {1: _INCH, 2: _CENTIMETRE}
+
+
 def from_container(path: str) -> Optional[Resolution]:
     """Resolution held by the file format itself rather than by EXIF: a JPEG's JFIF
     density, a PNG's pHYs, a TIFF's baseline tags. Returns None for anything Pillow
@@ -84,9 +88,29 @@ def from_container(path: str) -> Optional[Resolution]:
         from PIL import Image
 
         with Image.open(path) as img:
-            dpi = img.info.get("dpi")
+            info = dict(img.info)
     except Exception:
         return None
+    return _from_jfif(info) or _from_pillow_dpi(info)
+
+
+def _from_jfif(info: dict) -> Optional[Resolution]:
+    """A JPEG's own density, in the numbers and unit it states. Pillow's ``dpi`` converts
+    a per-centimetre density to inches, which is the same resolution written differently;
+    Protect original metadata has to hand back what the file actually says. JFIF unit 0
+    is an aspect ratio and carries no resolution."""
+    unit = _JFIF_UNITS.get(info.get("jfif_unit"))
+    density = info.get("jfif_density")
+    if unit is None or not isinstance(density, tuple) or len(density) != 2:
+        return None
+    x, y = density
+    if not isinstance(x, int) or not isinstance(y, int) or x <= 0 or y <= 0:
+        return None
+    return Resolution((x, 1), (y, 1), unit)
+
+
+def _from_pillow_dpi(info: dict) -> Optional[Resolution]:
+    dpi = info.get("dpi")
     if not dpi or len(dpi) != 2:
         return None
     try:

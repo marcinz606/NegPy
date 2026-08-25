@@ -7,6 +7,7 @@ drops it. Both need an explicit value at every write.
 """
 
 import io
+import struct
 
 import numpy as np
 import piexif
@@ -441,3 +442,72 @@ def test_linear_output_inherits_the_source_resolution(tmp_path):
     _write_tiff(_buf(), dest, "scan.tif", source_path=str(src))
 
     assert _tiff_resolution(dest.getvalue())[0] == (600, 1)
+
+
+# --- Resolution the source states in its container, not its EXIF ---------------
+#
+# A lab JPEG commonly carries its density only in the JFIF header. That record does
+# not survive the re-encode, so unless it is carried into EXIF the export lands with
+# no resolution at all — and for WebP and JPEG XL, EXIF is the only carrier there is.
+
+_JFIF_INCH, _JFIF_CM, _JFIF_ASPECT = 1, 2, 0
+
+
+def _jpeg_with_jfif(path, unit, x, y) -> str:
+    """A JPEG whose JFIF density says exactly this, with no EXIF at all."""
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8)).save(buf, "JPEG", dpi=(72, 72))
+    data = bytearray(buf.getvalue())
+    i = 2
+    while i < len(data) - 4 and data[i] == 0xFF:
+        marker, length = data[i + 1], struct.unpack(">H", bytes(data[i + 2 : i + 4]))[0]
+        if marker == 0xE0 and bytes(data[i + 4 : i + 9]) == b"JFIF\x00":
+            data[i + 11] = unit
+            struct.pack_into(">H", data, i + 12, x)
+            struct.pack_into(">H", data, i + 14, y)
+            break
+        i += 2 + length
+    path.write_bytes(bytes(data))
+    return str(path)
+
+
+def test_read_source_keeps_the_native_jfif_unit(tmp_path):
+    """Pillow's dpi converts a per-centimetre density to inches. Same resolution,
+    different numbers — Protect original metadata has to hand back the file's own."""
+    path = _jpeg_with_jfif(tmp_path / "dpcm.jpg", _JFIF_CM, 100, 50)
+
+    assert read_source(path, None) == Resolution((100, 1), (50, 1), 3)
+
+
+def test_read_source_ignores_an_aspect_only_jfif(tmp_path):
+    """JFIF unit 0 is a pixel aspect ratio and states no resolution."""
+    path = _jpeg_with_jfif(tmp_path / "aspect.jpg", _JFIF_ASPECT, 1, 1)
+
+    assert read_source(path, None) is None
+
+
+@pytest.mark.parametrize("fmt", [ExportFormat.JPEG, ExportFormat.WEBP, ExportFormat.JXL])
+def test_protect_carries_a_container_only_resolution_into_exif(proc, tmp_path, fmt):
+    """These three keep resolution only in EXIF once encoded, so a source that stated
+    it in JFIF would otherwise export untagged."""
+    path = _jpeg_with_jfif(tmp_path / "lab.jpg", _JFIF_INCH, 72, 72)
+    settings = ExportConfig(export_fmt=fmt, export_resolution_mode=ExportResolutionMode.ORIGINAL.value)
+    res = _export_resolution(_Task(settings, None, protect=True, path=path))
+
+    bits, _ = proc._encode_export(_buf(), settings, ColorSpace.SRGB.value, ColorSpace.SRGB.value, resolution=res)
+    out = preserve_source_metadata(bits, path, None, resolution=res)
+
+    assert _exif_dpi(out, fmt) == 72
+
+
+@pytest.mark.parametrize("fmt", [ExportFormat.JPEG, ExportFormat.WEBP, ExportFormat.JXL])
+def test_protect_invents_nothing_for_a_source_without_resolution(proc, tmp_path, fmt):
+    path = _jpeg_with_jfif(tmp_path / "bare.jpg", _JFIF_ASPECT, 1, 1)
+    settings = ExportConfig(export_fmt=fmt, export_resolution_mode=ExportResolutionMode.ORIGINAL.value)
+    res = _export_resolution(_Task(settings, None, protect=True, path=path))
+
+    assert res is None
+    bits, _ = proc._encode_export(_buf(), settings, ColorSpace.SRGB.value, ColorSpace.SRGB.value, resolution=res)
+    out = preserve_source_metadata(bits, path, None, resolution=res)
+
+    assert _exif_dpi(out, fmt) is None

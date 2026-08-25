@@ -282,6 +282,7 @@ class ExportWorker(QObject):
                     bits,
                     task.file_info["path"],
                     task.source_exif,
+                    resolution=resolution,
                 )
             else:
                 bits = embed_metadata(bits, task.metadata_config, task.source_exif, resolution=resolution)
