@@ -16,6 +16,7 @@ from negpy.features.metadata.capture import exif_gps_rationals
 from negpy.features.metadata.exif_read import strip_scan_exif_for_capture, strip_scan_gps
 from negpy.features.metadata.gear_models import GearLibrary
 from negpy.features.metadata.models import MetadataConfig
+from negpy.features.metadata.resolution import Resolution
 from negpy.features.metadata.payload import NEGPY_SOFTWARE, MetadataPayload, build_metadata_payload
 from negpy.features.metadata.xmp import build_xmp_bytes
 from negpy.infrastructure.loaders.jxl_boxes import (
@@ -398,36 +399,18 @@ def _dump_exif_preserve(exif_dict: dict) -> Optional[bytes]:
     return None
 
 
-def source_dpi_from_exif(exif_dict: Optional[dict]) -> Optional[int]:
-    """The source's resolution in DPI, or None when it declares none. ResolutionUnit 1
-    means "no absolute unit", so the pair is only an aspect ratio and carries no DPI."""
-    if not exif_dict:
-        return None
-    zeroth = exif_dict.get("0th") or {}
-    value = zeroth.get(piexif.ImageIFD.XResolution)
-    unit = zeroth.get(piexif.ImageIFD.ResolutionUnit)
-    if not isinstance(value, tuple) or len(value) != 2 or not value[1]:
-        return None
-    dpi = value[0] / value[1]
-    if unit == 3:  # centimetres
-        dpi *= 2.54
-    elif unit != 2:
-        return None
-    return int(round(dpi)) or None
-
-
-def _with_resolution(exif_dict: dict, dpi: Optional[int]) -> dict:
-    """EXIF carrying the resolution NegPy decided on, or the dict unchanged when no DPI
-    is given. Not used under Protect original metadata, which copies the source
+def _with_resolution(exif_dict: dict, resolution: Optional[Resolution]) -> dict:
+    """EXIF carrying the resolution NegPy decided on, or the dict unchanged when there
+    is none. Not used under Protect original metadata, which copies the source
     untouched. Copies rather than mutates: the caller's source EXIF is shared across
     presets."""
-    if not dpi:
+    if resolution is None:
         return exif_dict
     out = dict(exif_dict)
     zeroth = dict(out.get("0th") or {})
-    zeroth[piexif.ImageIFD.XResolution] = (int(dpi), 1)
-    zeroth[piexif.ImageIFD.YResolution] = (int(dpi), 1)
-    zeroth[piexif.ImageIFD.ResolutionUnit] = 2  # inches
+    zeroth[piexif.ImageIFD.XResolution] = resolution.x
+    zeroth[piexif.ImageIFD.YResolution] = resolution.y
+    zeroth[piexif.ImageIFD.ResolutionUnit] = resolution.unit
     out["0th"] = zeroth
     return out
 
@@ -535,13 +518,13 @@ def embed_metadata(
     config: MetadataConfig,
     source_exif: Optional[dict],
     gear: Optional[GearLibrary] = None,
-    dpi: Optional[int] = None,
+    resolution: Optional[Resolution] = None,
 ) -> bytes:
     """
     Insert custom metadata + preserved source EXIF + XMP into exported image bytes.
 
-    ``dpi`` replaces the source resolution for JPEG and JPEG XL, whose only
-    resolution record is the EXIF block.
+    ``resolution`` replaces the source's, for the formats whose only resolution
+    record is the EXIF block.
     """
     merged, payload = _merged_exif_and_payload(config, source_exif, gear)
     xmp_bytes = build_xmp_bytes(payload) if payload.has_any_data() else None
@@ -549,7 +532,7 @@ def embed_metadata(
     try:
         output = io.BytesIO()
         if image_bytes[:2] == b"\xff\xd8":
-            exif_bytes = _dump_exif_within_app1_limit(_with_resolution(merged, dpi), payload)
+            exif_bytes = _dump_exif_within_app1_limit(_with_resolution(merged, resolution), payload)
             jpeg_buf = io.BytesIO()
             piexif.insert(exif_bytes, image_bytes, jpeg_buf)
             jpeg_with_exif = jpeg_buf.getvalue()
@@ -557,13 +540,13 @@ def embed_metadata(
             result = _inject_jpeg_xmp(jpeg_with_exif, xmp_bytes) if xmp_bytes else jpeg_with_exif
             output.write(result)
         elif image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
-            exif_bytes = piexif.dump(_sanitize_exif(_with_resolution(merged, dpi)))
+            exif_bytes = piexif.dump(_sanitize_exif(_with_resolution(merged, resolution)))
             _rewrite_png_with_metadata(image_bytes, exif_bytes, output, xmp_bytes)
         elif image_bytes[:4] == b"RIFF":
-            exif_bytes = piexif.dump(_sanitize_exif(_with_resolution(merged, dpi)))
+            exif_bytes = piexif.dump(_sanitize_exif(_with_resolution(merged, resolution)))
             _rewrite_webp_with_metadata(image_bytes, exif_bytes, output, xmp_bytes)
         elif is_jxl(image_bytes):
-            exif_bytes = piexif.dump(_sanitize_exif(_with_resolution(merged, dpi)))
+            exif_bytes = piexif.dump(_sanitize_exif(_with_resolution(merged, resolution)))
             _rewrite_jxl_with_metadata(image_bytes, exif_bytes, output, xmp_bytes)
         else:
             exif_bytes = piexif.dump(_sanitize_exif(merged))
@@ -770,7 +753,7 @@ def export_embed_plan(
     source_exif: Optional[dict],
     source_path: str,
     gear: Optional[GearLibrary] = None,
-    dpi: Optional[int] = None,
+    resolution: Optional[Resolution] = None,
 ) -> Optional[tuple[bytes, Optional[bytes], bool]]:
     """(exif_bytes, xmp_bytes, fold_user_comment) for embedding at first encode.
     None when there is nothing to embed or the payload cannot be built; the
@@ -785,7 +768,7 @@ def export_embed_plan(
             return piexif.dump(_sanitize_exif(exif_dict)), _read_xmp_from_source(source_path), False
         merged, payload = _merged_exif_and_payload(config, source_exif, gear)
         xmp_bytes = build_xmp_bytes(payload) if payload.has_any_data() else None
-        return piexif.dump(_sanitize_exif(_with_resolution(merged, dpi))), xmp_bytes, True
+        return piexif.dump(_sanitize_exif(_with_resolution(merged, resolution))), xmp_bytes, True
     except Exception:
         _log.warning("metadata embed plan failed", exc_info=True)
         return None

@@ -8,8 +8,18 @@ import threading
 
 import numpy as np
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
-from negpy.domain.models import ColorSpace, WorkspaceConfig, ExportConfig, ExportFormat, ExportPreset, ExportPresetOutputMode
-from negpy.features.metadata.writer import embed_metadata, export_embed_plan, preserve_source_metadata, source_dpi_from_exif
+from negpy.domain.models import (
+    ColorSpace,
+    WorkspaceConfig,
+    ExportConfig,
+    ExportFormat,
+    ExportPreset,
+    ExportPresetOutputMode,
+    ExportResolutionMode,
+)
+from negpy.features.metadata import resolution as resolution_source
+from negpy.features.metadata.resolution import Resolution
+from negpy.features.metadata.writer import embed_metadata, export_embed_plan, preserve_source_metadata
 from negpy.features.metadata.models import MetadataConfig
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE, ColorSpaceRegistry
 from negpy.services.rendering.image_processor import ImageProcessor
@@ -23,18 +33,23 @@ def _protects_metadata(task: "ExportTask") -> bool:
     return task.metadata_config is not None and task.metadata_config.protect_original_metadata
 
 
-def _export_dpi(task: "ExportTask") -> int:
-    """Resolution to write into the exported file.
+def _export_resolution(task: "ExportTask") -> Optional[Resolution]:
+    """Resolution to write into the exported file, or None to make no claim at all.
 
-    Under Protect original metadata the source's own DPI is kept whatever the export
-    did to the pixels: the user asked for its metadata untouched. The formats whose
-    resolution is a required field still need a number, so a source that declares none
-    falls back to the export setting.
+    Protect original metadata returns the source's own record untouched — the exact
+    rationals and unit, and nothing when it declares nothing. Otherwise Original
+    resamples no pixels, so the source still describes them; Print and Pixels do, so
+    the size the user asked for wins.
+
+    The cached EXIF only covers files the user has selected, so a batch export of
+    untouched frames has to reach the file itself.
     """
-    source_dpi = source_dpi_from_exif(task.source_exif)
+    source = resolution_source.read_source(task.file_info.get("path"), task.source_exif)
     if _protects_metadata(task):
-        return max(1, int(source_dpi or task.export_settings.export_dpi))
-    return PrintService.resolution_tag_dpi(task.export_settings, source_dpi)
+        return source
+    if task.export_settings.export_resolution_mode == ExportResolutionMode.ORIGINAL and source is not None:
+        return source
+    return Resolution.from_dpi(PrintService.resolution_tag_dpi(task.export_settings))
 
 
 def _srgb_icc_bytes() -> Optional[bytes]:
@@ -190,7 +205,7 @@ class ExportWorker(QObject):
                         task.metadata_config,
                         task.source_exif,
                         task.file_info["path"],
-                        dpi=_export_dpi(task),
+                        resolution=_export_resolution(task),
                     )
 
                 buffer, status = self._processor.render_export(
@@ -249,14 +264,14 @@ class ExportWorker(QObject):
     def _finish_task(self, task: ExportTask, buffer: np.ndarray, color_space: str, embed_plan: Optional[tuple]) -> Optional[str]:
         """Encode + metadata + atomic write for one rendered frame, on the finisher
         thread. Returns an error message, or None on success."""
-        dpi = _export_dpi(task)
+        resolution = _export_resolution(task)
         bits, status = self._processor.encode_export(
             buffer,
             task.export_settings,
             color_space,
             task.working_color_space,
             embed_plan=embed_plan,
-            dpi=dpi,
+            resolution=resolution,
         )
         if not bits:
             return status
@@ -269,7 +284,7 @@ class ExportWorker(QObject):
                     task.source_exif,
                 )
             else:
-                bits = embed_metadata(bits, task.metadata_config, task.source_exif, dpi=dpi)
+                bits = embed_metadata(bits, task.metadata_config, task.source_exif, resolution=resolution)
 
         out_dir, filename, ext = resolve_export_naming(task)
         os.makedirs(out_dir, exist_ok=True)

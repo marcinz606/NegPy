@@ -16,13 +16,13 @@ from PIL import Image
 
 from negpy.domain.models import ColorSpace, ExportConfig, ExportFormat, ExportResolutionMode, preset_from_export_config
 from negpy.features.metadata.models import MetadataConfig
-from negpy.desktop.workers.export import _export_dpi
+from negpy.desktop.workers.export import _export_resolution
 from negpy.features.metadata.writer import (
     embed_metadata,
     export_embed_plan,
     preserve_source_metadata,
-    source_dpi_from_exif,
 )
+from negpy.features.metadata.resolution import Resolution, read_source
 from negpy.infrastructure.loaders.jxl_boxes import read_jxl_exif
 from negpy.services.export.linear_output import NOMINAL_DPI, _write_tiff
 from negpy.services.export.print import PrintService
@@ -202,7 +202,7 @@ def test_embed_replaces_stale_source_resolution(proc, fmt):
     settings = _pixels_settings(fmt)
     bits, _ = proc._encode_export(_buf(), settings, ColorSpace.SRGB.value, ColorSpace.SRGB.value)
 
-    out = embed_metadata(bits, MetadataConfig(), _source_exif(), dpi=PrintService.resolution_tag_dpi(settings))
+    out = embed_metadata(bits, MetadataConfig(), _source_exif(), resolution=Resolution.from_dpi(PrintService.resolution_tag_dpi(settings)))
 
     assert _exif_dpi(out, fmt) == _DERIVED_DPI
 
@@ -225,7 +225,7 @@ def _protect_plan(settings):
         MetadataConfig(protect_original_metadata=True),
         _source_exif(),
         "unused.nef",
-        dpi=PrintService.resolution_tag_dpi(settings),
+        resolution=Resolution.from_dpi(PrintService.resolution_tag_dpi(settings)),
     )
 
 
@@ -255,7 +255,9 @@ def test_tiff_baseline_describes_the_export_even_under_protect(proc):
 def test_embed_plan_path_carries_the_export_resolution(proc, fmt):
     """TIFF and PNG take metadata at the first encode instead of a post-hoc rewrite."""
     settings = _pixels_settings(fmt)
-    plan = export_embed_plan(MetadataConfig(), _source_exif(), "unused.nef", dpi=PrintService.resolution_tag_dpi(settings))
+    plan = export_embed_plan(
+        MetadataConfig(), _source_exif(), "unused.nef", resolution=Resolution.from_dpi(PrintService.resolution_tag_dpi(settings))
+    )
 
     bits, _ = proc._encode_export(_buf(), settings, ColorSpace.SRGB.value, ColorSpace.SRGB.value, embed_plan=plan)
 
@@ -271,7 +273,7 @@ def test_png_exif_agrees_with_phys(proc):
     settings = _pixels_settings(ExportFormat.PNG)
     bits, _ = proc._encode_export(_buf(), settings, ColorSpace.SRGB.value, ColorSpace.SRGB.value)
 
-    out = embed_metadata(bits, MetadataConfig(), _source_exif(), dpi=PrintService.resolution_tag_dpi(settings))
+    out = embed_metadata(bits, MetadataConfig(), _source_exif(), resolution=Resolution.from_dpi(PrintService.resolution_tag_dpi(settings)))
 
     assert _png_dpi(out) == pytest.approx((_DERIVED_DPI, _DERIVED_DPI), abs=0.01)
     assert _exif_dpi(out, ExportFormat.PNG) == _DERIVED_DPI
@@ -282,7 +284,7 @@ def test_webp_carries_the_export_resolution(proc):
     settings = _pixels_settings(ExportFormat.WEBP)
     bits, _ = proc._encode_export(_buf(), settings, ColorSpace.SRGB.value, ColorSpace.SRGB.value)
 
-    out = embed_metadata(bits, MetadataConfig(), _source_exif(), dpi=PrintService.resolution_tag_dpi(settings))
+    out = embed_metadata(bits, MetadataConfig(), _source_exif(), resolution=Resolution.from_dpi(PrintService.resolution_tag_dpi(settings)))
 
     assert _exif_dpi(out, ExportFormat.WEBP) == _DERIVED_DPI
 
@@ -306,20 +308,50 @@ def _exif_at(dpi, unit=2):
 @pytest.mark.parametrize(
     ("dpi", "unit", "expected"),
     [
-        (3600, 2, 3600),  # inches
-        (1417, 3, 3599),  # centimetres, converted
+        (3600, 2, Resolution((3600, 1), (3600, 1), 2)),
+        (1417, 3, Resolution((1417, 1), (1417, 1), 3)),  # centimetres, kept as centimetres
         (3600, 1, None),  # no absolute unit: an aspect ratio, not a resolution
         (None, 2, None),
     ],
 )
-def test_source_dpi_from_exif(dpi, unit, expected):
-    assert source_dpi_from_exif(_exif_at(dpi, unit)) == expected
+def test_read_source_from_exif(dpi, unit, expected):
+    assert read_source(None, _exif_at(dpi, unit)) == expected
+
+
+def test_read_source_keeps_asymmetric_axes():
+    exif = {
+        "0th": {
+            piexif.ImageIFD.XResolution: (600, 1),
+            piexif.ImageIFD.YResolution: (300, 1),
+            piexif.ImageIFD.ResolutionUnit: 2,
+        }
+    }
+    assert read_source(None, exif) == Resolution((600, 1), (300, 1), 2)
+
+
+def test_read_source_falls_back_to_the_container(tmp_path):
+    """A lab JPEG commonly carries its density in JFIF and no EXIF at all."""
+    path = tmp_path / "lab.jpg"
+    Image.new("RGB", (8, 8)).save(path, "JPEG", dpi=(72, 72))
+
+    assert piexif.load(path.read_bytes())["0th"] == {}  # nothing in EXIF
+    assert read_source(str(path), None) == Resolution((72, 1), (72, 1), 2)
+
+
+def test_read_source_reads_the_file_when_the_cache_is_empty(tmp_path):
+    """source_exif is only cached for files the user selected, so a batch export of
+    untouched frames has to reach the file itself."""
+    path = tmp_path / "scan.tif"
+    tifffile.imwrite(path, np.zeros((8, 8, 3), np.uint16), photometric="rgb", resolution=(600, 600), resolutionunit="INCH")
+
+    assert read_source(str(path), None) == Resolution((600, 1), (600, 1), 2)
 
 
 class _Task:
-    """The three fields _export_dpi reads."""
+    """The fields _export_resolution reads."""
 
-    def __init__(self, settings, source_exif, protect=False):
+    def __init__(self, settings, source_exif, protect=False, path="unused.nef"):
+        self.file_info = {"path": path}
         self.export_settings = settings
         self.source_exif = source_exif
         self.metadata_config = MetadataConfig(protect_original_metadata=protect)
@@ -338,13 +370,13 @@ def _print_settings_at(dpi):
     )
 
 
-def test_original_mode_keeps_the_source_dpi():
+def test_original_mode_keeps_the_source_resolution():
     """Nothing is resampled, so the source's sampling density still describes the pixels."""
-    assert _export_dpi(_Task(_original_settings(), _exif_at(_SCANNER_DPI))) == _SCANNER_DPI
+    assert _export_resolution(_Task(_original_settings(), _exif_at(_SCANNER_DPI))) == Resolution((_SCANNER_DPI, 1), (_SCANNER_DPI, 1), 2)
 
 
 def test_original_mode_falls_back_when_the_source_declares_none():
-    assert _export_dpi(_Task(_original_settings(dpi=300), _exif_at(None))) == 300
+    assert _export_resolution(_Task(_original_settings(dpi=300), _exif_at(None))) == Resolution.from_dpi(300)
 
 
 @pytest.mark.parametrize(
@@ -352,26 +384,60 @@ def test_original_mode_falls_back_when_the_source_declares_none():
     [(_print_settings_at(600), 600), (_pixels_settings(ExportFormat.TIFF), _DERIVED_DPI)],
 )
 def test_resampling_modes_use_the_size_the_user_asked_for(settings, expected):
-    assert _export_dpi(_Task(settings, _exif_at(_SCANNER_DPI))) == expected
+    assert _export_resolution(_Task(settings, _exif_at(_SCANNER_DPI))) == Resolution.from_dpi(expected)
 
 
 @pytest.mark.parametrize("settings", [_original_settings(), _print_settings_at(600), _pixels_settings(ExportFormat.TIFF)])
-def test_protect_keeps_the_source_dpi_in_every_mode(settings):
+def test_protect_keeps_the_source_resolution_in_every_mode(settings):
     """Protect wins over an explicit Print DPI: the user asked for the source's
     metadata untouched, and that is the more deliberate of the two choices."""
-    assert _export_dpi(_Task(settings, _exif_at(_SCANNER_DPI), protect=True)) == _SCANNER_DPI
+    assert _export_resolution(_Task(settings, _exif_at(_SCANNER_DPI), protect=True)) == Resolution((_SCANNER_DPI, 1), (_SCANNER_DPI, 1), 2)
 
 
-def test_protect_without_a_source_dpi_falls_back():
-    """TIFF's resolution is a required field, so there has to be a number."""
-    assert _export_dpi(_Task(_pixels_settings(ExportFormat.TIFF), _exif_at(None), protect=True)) == 300
+@pytest.mark.parametrize(
+    ("exif", "expected"),
+    [
+        (
+            {"0th": {piexif.ImageIFD.XResolution: (600, 1), piexif.ImageIFD.YResolution: (300, 1), piexif.ImageIFD.ResolutionUnit: 2}},
+            ((600, 1), (300, 1), 2),
+        ),
+        (
+            {"0th": {piexif.ImageIFD.XResolution: (118, 1), piexif.ImageIFD.YResolution: (118, 1), piexif.ImageIFD.ResolutionUnit: 3}},
+            ((118, 1), (118, 1), 3),
+        ),
+        (
+            {"0th": {piexif.ImageIFD.XResolution: (601, 2), piexif.ImageIFD.YResolution: (601, 2), piexif.ImageIFD.ResolutionUnit: 2}},
+            ((601, 2), (601, 2), 2),
+        ),
+    ],
+)
+def test_protect_writes_the_source_tags_verbatim(proc, exif, expected):
+    """No rounding to one integer, no forcing inches, no collapsing the two axes."""
+    settings = _pixels_settings(ExportFormat.TIFF)
+    res = _export_resolution(_Task(settings, exif, protect=True))
+
+    bits, _ = proc._encode_export(_buf(), settings, ColorSpace.SRGB.value, ColorSpace.SRGB.value, resolution=res)
+
+    assert _tiff_resolution(bits) == expected
 
 
-def test_embed_without_a_dpi_leaves_exif_alone(proc):
-    """The override is opt-in, so callers with no export settings are unaffected."""
-    settings = _pixels_settings(ExportFormat.JPEG)
-    bits, _ = proc._encode_export(_buf(), settings, ColorSpace.SRGB.value, ColorSpace.SRGB.value)
+def test_protect_without_a_source_resolution_writes_no_claim(proc):
+    """Rule: never synthesize under protect. tifffile's unit-less default is what a
+    file with no resolution looks like, and that is the honest state here."""
+    settings = _pixels_settings(ExportFormat.TIFF)
+    res = _export_resolution(_Task(settings, _exif_at(None), protect=True))
 
-    out = embed_metadata(bits, MetadataConfig(), _source_exif())
+    assert res is None
+    bits, _ = proc._encode_export(_buf(), settings, ColorSpace.SRGB.value, ColorSpace.SRGB.value, resolution=res)
+    assert _tiff_resolution(bits) == ((1, 1), (1, 1), 1)
 
-    assert _exif_dpi(out, ExportFormat.JPEG) == _SCANNER_DPI
+
+def test_linear_output_inherits_the_source_resolution(tmp_path):
+    """A linear dump resamples nothing, so it keeps what the source declared."""
+    src = tmp_path / "scan.tif"
+    tifffile.imwrite(src, np.zeros((8, 8, 3), np.uint16), photometric="rgb", resolution=(600, 600), resolutionunit="INCH")
+    dest = io.BytesIO()
+
+    _write_tiff(_buf(), dest, "scan.tif", source_path=str(src))
+
+    assert _tiff_resolution(dest.getvalue())[0] == (600, 1)
