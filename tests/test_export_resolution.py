@@ -422,15 +422,34 @@ def test_protect_writes_the_source_tags_verbatim(proc, exif, expected):
     assert _tiff_resolution(bits) == expected
 
 
-def test_protect_without_a_source_resolution_writes_no_claim(proc):
-    """Rule: never synthesize under protect. tifffile's unit-less default is what a
-    file with no resolution looks like, and that is the honest state here."""
+def test_protect_without_a_source_resolution_states_nothing_to_preserve(proc):
+    """Nothing is synthesized to preserve: the decision itself is None."""
     settings = _pixels_settings(ExportFormat.TIFF)
-    res = _export_resolution(_Task(settings, _exif_at(None), protect=True))
 
-    assert res is None
-    bits, _ = proc._encode_export(_buf(), settings, ColorSpace.SRGB.value, ColorSpace.SRGB.value, resolution=res)
-    assert _tiff_resolution(bits) == ((1, 1), (1, 1), 1)
+    assert _export_resolution(_Task(settings, _exif_at(None), protect=True)) is None
+
+
+def test_tiff_states_the_export_resolution_when_it_cannot_stay_silent(proc):
+    """TIFF has no way to say "no resolution" — omitting the tags makes tifffile write
+    the unit-less (1, 1) that readers call 1 DPI. Where protection cannot be honoured
+    exactly, the export's own resolution beats a claim known to be false."""
+    settings = _pixels_settings(ExportFormat.TIFF)
+
+    bits, _ = proc._encode_export(_buf(), settings, ColorSpace.SRGB.value, ColorSpace.SRGB.value, resolution=None)
+
+    assert _tiff_resolution(bits) == ((_DERIVED_DPI, 1), (_DERIVED_DPI, 1), 2)
+
+
+@pytest.mark.parametrize("fmt", [ExportFormat.PNG, ExportFormat.JPEG, ExportFormat.WEBP, ExportFormat.JXL])
+def test_formats_that_can_stay_silent_do(proc, fmt):
+    """Only TIFF is forced. Everything else omits the record rather than inventing one."""
+    settings = _pixels_settings(fmt)
+
+    bits, _ = proc._encode_export(_buf(), settings, ColorSpace.SRGB.value, ColorSpace.SRGB.value, resolution=None)
+
+    if fmt in (ExportFormat.PNG, ExportFormat.JPEG):
+        assert _png_dpi(bits) is None
+    assert _exif_dpi(bits, fmt) is None
 
 
 def test_linear_output_inherits_the_source_resolution(tmp_path):

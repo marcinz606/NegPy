@@ -143,11 +143,13 @@ def _use_half_size_decode(raw: Any, linear_raw: bool) -> bool:
 _DERIVE_RESOLUTION: Any = object()
 
 
-def _tiff_resolution_kwargs(resolution: Optional[Resolution]) -> Dict[str, Any]:
-    """tifffile writes XResolution (1, 1) with ResolutionUnit NONE when these are
-    absent, so they are omitted only when the file should make no resolution claim."""
+def _tiff_resolution_kwargs(resolution: Optional[Resolution], export_settings) -> Dict[str, Any]:
+    """TIFF cannot say "no resolution". Leaving these out makes tifffile write
+    XResolution (1, 1) with ResolutionUnit NONE, which readers report as 1 DPI, so a
+    file with nothing to preserve states the export's own resolution instead. Being
+    unable to stay silent is not a licence to state something false."""
     if resolution is None:
-        return {}
+        resolution = Resolution.from_dpi(PrintService.resolution_tag_dpi(export_settings))
     return {"resolution": (resolution.x, resolution.y), "resolutionunit": resolution.unit}
 
 
@@ -1202,7 +1204,7 @@ class ImageProcessor:
                 iccprofile=icc_bytes,
                 compression="zlib",
                 predictor=True,
-                **_tiff_resolution_kwargs(resolution),
+                **_tiff_resolution_kwargs(resolution, export_settings),
                 **meta_kwargs,
             )
             return output_buf.getvalue(), "tiff"

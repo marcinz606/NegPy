@@ -831,7 +831,7 @@ Archival metadata for the **original analog capture** (camera, lens, film, proce
 
 Every export format carries it: JPEG, TIFF, PNG, JPEG XL and WebP. A TIFF holds the capture position in XMP only, and EXIF text is 7-bit, so typographic punctuation is transliterated (`4×5` is written `4x5`).
 
-*   **Protect original metadata**: copy the source file's EXIF/XMP to exports unchanged, adding nothing. When it is on, the fields below are ignored and the source's resolution is copied exactly — the same numbers, axes and unit, whether the source states it in EXIF or in its own header — even where the export was resized. A source that declares no resolution stays that way; nothing is invented for it.
+*   **Protect original metadata**: copy the source file's EXIF/XMP to exports unchanged, adding nothing. When it is on, the fields below are ignored and the source's resolution is copied exactly — the same numbers, axes and unit, whether the source states it in EXIF or in its own header — even where the export was resized. A source that declares no resolution stays that way in every format that can leave it out. TIFF cannot, so it states the export's own resolution rather than the unit-less value readers report as 1 DPI.
 *   **Sync custom metadata to all files in batch export**: batch and preset exports write this frame's capture, gear and process values to every file, instead of each file's own.
 
 **Metadata Presets** — a saved set of metadata values, stored in `~/NegPy/presets/metadata/`, separate from the edit presets on the Setup tab:
