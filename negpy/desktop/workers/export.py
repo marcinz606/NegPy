@@ -14,6 +14,7 @@ from negpy.features.metadata.models import MetadataConfig
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE, ColorSpaceRegistry
 from negpy.services.rendering.image_processor import ImageProcessor
 from negpy.features.hdr.models import hdr_frame_paths
+from negpy.services.export.print import PrintService
 from negpy.services.export.templating import render_export_filename
 from negpy.services.export.contact_sheet import ContactSheetService
 
@@ -171,6 +172,7 @@ class ExportWorker(QObject):
                         task.metadata_config,
                         task.source_exif,
                         task.file_info["path"],
+                        dpi=PrintService.resolution_tag_dpi(task.export_settings),
                     )
 
                 buffer, status = self._processor.render_export(
@@ -240,14 +242,16 @@ class ExportWorker(QObject):
             return status
 
         if task.metadata_config is not None and embed_plan is None:
+            dpi = PrintService.resolution_tag_dpi(task.export_settings)
             if task.metadata_config.protect_original_metadata:
                 bits = preserve_source_metadata(
                     bits,
                     task.file_info["path"],
                     task.source_exif,
+                    dpi=dpi,
                 )
             else:
-                bits = embed_metadata(bits, task.metadata_config, task.source_exif)
+                bits = embed_metadata(bits, task.metadata_config, task.source_exif, dpi=dpi)
 
         out_dir, filename, ext = resolve_export_naming(task)
         os.makedirs(out_dir, exist_ok=True)

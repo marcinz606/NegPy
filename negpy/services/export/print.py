@@ -120,6 +120,12 @@ class PrintService:
         return export_settings.export_dpi
 
     @staticmethod
+    def resolution_tag_dpi(export_settings) -> int:
+        """DPI to tag an exported file with. Floored at 1 because the tag asserts an
+        absolute unit: a persisted config can hold a 0 the DPI spinbox cannot produce."""
+        return max(1, PrintService.effective_dpi(export_settings))
+
+    @staticmethod
     def paper_dims_from_long_edge(long_edge_px: int, aspect_ratio_str: str, img_w: int, img_h: int) -> Tuple[int, int]:
         """Paper dims in pixels given a paper long edge and aspect ratio."""
         if aspect_ratio_str == AspectRatio.ORIGINAL:

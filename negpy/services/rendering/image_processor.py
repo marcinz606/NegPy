@@ -139,12 +139,6 @@ def _use_half_size_decode(raw: Any, linear_raw: bool) -> bool:
     return not isinstance(raw, NonStandardFileWrapper) and not (is_xtrans(raw) and linear_raw)
 
 
-def _resolution_tag_dpi(export_settings) -> int:
-    """DPI to tag an exported file with. Floored at 1 because the tag asserts an
-    absolute unit: a persisted config can hold a 0 the DPI spinbox cannot produce."""
-    return max(1, PrintService.effective_dpi(export_settings))
-
-
 def _downsample_to_long_edge(buf: np.ndarray, long_px: int) -> np.ndarray:
     """Shrink so the long edge is at most long_px; never upscales."""
     h, w = buf.shape[:2]
@@ -1151,7 +1145,7 @@ class ImageProcessor:
         fmt = export_settings.export_fmt
         icc_input = export_settings.icc_input_path
         icc_output = export_settings.icc_output_path
-        dpi = _resolution_tag_dpi(export_settings)
+        dpi = PrintService.resolution_tag_dpi(export_settings)
 
         # A target with no ICC profile (ACES/XYZ, or a stale custom name) can be neither
         # converted to nor tagged, so the file would carry untagged working-space pixels.
@@ -1841,7 +1835,7 @@ class ImageProcessor:
         """Encodes PIL image to byte stream."""
         fmt = "JPEG" if export_settings.export_fmt == ExportFormat.JPEG else "TIFF"
         quality = getattr(export_settings, "jpeg_quality", 95)
-        dpi = _resolution_tag_dpi(export_settings)
+        dpi = PrintService.resolution_tag_dpi(export_settings)
         pil_img.save(
             buf,
             format=fmt,

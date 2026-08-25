@@ -811,7 +811,7 @@ The primary **Export** action. Its chevron menu picks the scope: current frame (
 *   **Color Space**: `Same as Source`, `sRGB`, `Adobe RGB`, `ProPhoto RGB`, `P3 D65`, `Rec 2020`, or `Greyscale` (true B&W output).
 *   **Input / Output ICC**: soft-proof against, and optionally embed, an ICC profile. Output is the destination profile (default); Input treats the profile as the source, for when a scan's profile is known but untagged. Not available for JPEG XL output; see the Format note above. Input overrides **primaries only** — the tone curve is always the pipeline's own, so a matrix-style profile's declared TRC is ignored (two profiles with identical primaries but different TRCs render identically); a LUT-style profile's own input curves are still honoured.
 *   **Paper Aspect Ratio**: final print ratio, or *Original* (no resize).
-*   **Resolution**: *Original* (full RAW resolution), *Print* (long-edge **Size** in cm plus **DPI**), or *Pixels* (long-edge **px**; the short side follows the paper ratio). JPEG, TIFF and PNG files are tagged with that DPI, so a print or layout tool opens them at the intended size; *Pixels* tags the DPI its own long edge implies, and *Original* tags the DPI last set under *Print*. WebP and JPEG XL have no resolution tag and carry none.
+*   **Resolution**: *Original* (full RAW resolution), *Print* (long-edge **Size** in cm plus **DPI**), or *Pixels* (long-edge **px**; the short side follows the paper ratio). JPEG, TIFF, PNG and JPEG XL files are tagged with that DPI, so a print or layout tool opens them at the intended size; *Pixels* tags the DPI its own long edge implies, and *Original* tags the DPI last set under *Print*. WebP is not tagged: any resolution it carries comes from the source file.
 *   **Destination**: **Filename Pattern** (a Jinja2 template with export settings plus Metadata fields such as roll, camera and film; see [TEMPLATING.md](TEMPLATING.md)), an **Overwrite** toggle, and the output location (subfolder of source, same as source, or an absolute **Export Path** with a browse button). Destination applies to all three output intents: with **Linear** selected, Format, Size and Color hide (a raw dump has no use for them) and Destination stays.
 
 ### Collapsible sections
@@ -831,7 +831,7 @@ Archival metadata for the **original analog capture** (camera, lens, film, proce
 
 Every export format carries it: JPEG, TIFF, PNG, JPEG XL and WebP. A TIFF holds the capture position in XMP only, and EXIF text is 7-bit, so typographic punctuation is transliterated (`4×5` is written `4x5`).
 
-*   **Protect original metadata**: copy the source file's EXIF/XMP to exports unchanged, adding nothing. When it is on, the fields below are ignored.
+*   **Protect original metadata**: copy the source file's EXIF/XMP to exports unchanged, adding nothing. When it is on, the fields below are ignored. Resolution is the one exception: it always describes the exported file, because a scanner's DPI is wrong for an export that was resized.
 *   **Sync custom metadata to all files in batch export**: batch and preset exports write this frame's capture, gear and process values to every file, instead of each file's own.
 
 **Metadata Presets** — a saved set of metadata values, stored in `~/NegPy/presets/metadata/`, separate from the edit presets on the Setup tab:
