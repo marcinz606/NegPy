@@ -18,7 +18,7 @@ from negpy.desktop.converters import ImageConverter
 from negpy.desktop.view.widgets.scan_window_label import ScanWindowLabel
 from negpy.desktop.workers.scan_worker import PrescanRequest
 from negpy.infrastructure.scanners.base import ScannerDevice
-from negpy.infrastructure.scanners.params import clamp_scan_area
+from negpy.infrastructure.scanners.params import crop_to_scan_window
 from negpy.infrastructure.scanners.result import ScanResult
 
 
@@ -53,8 +53,10 @@ class PrescanCropDialog(QDialog):
         super().__init__(parent)
         self._controller = controller
         self._device = device
+        caps = device.capabilities
         # TA / backend space (what ScanParams.window stores).
         self._scan_window: tuple[float, float, float, float] | None = initial_window
+        self._prescan_mirror_x = bool(caps.prescan_mirror_x)
         self._busy = False
 
         self.setWindowTitle("Prescan — set crop")
@@ -152,7 +154,7 @@ class PrescanCropDialog(QDialog):
             if default_crop is not None:
                 self._scan_window = default_crop
         if self._scan_window is not None:
-            image_rect = clamp_scan_area(self._scan_window)
+            image_rect = crop_to_scan_window(self._scan_window, mirror_x=self._prescan_mirror_x)
             self._label.set_window(image_rect)
         self._ok_btn.setEnabled(True)
         self._status.setText("Drag the rectangle to set the scan crop")
@@ -177,7 +179,7 @@ class PrescanCropDialog(QDialog):
         if rect is None:
             self._scan_window = None
             return
-        self._scan_window = clamp_scan_area(tuple(rect))  # type: ignore[arg-type]
+        self._scan_window = crop_to_scan_window(tuple(rect), mirror_x=self._prescan_mirror_x)  # type: ignore[arg-type]
 
     def _on_clear_crop(self) -> None:
         self._scan_window = None
@@ -197,7 +199,7 @@ class PrescanCropDialog(QDialog):
         # Sync from widget in case the last drag did not emit.
         rect = self._label.window()
         if rect is not None:
-            self._scan_window = clamp_scan_area(rect)
+            self._scan_window = crop_to_scan_window(rect, mirror_x=self._prescan_mirror_x)
         self._disconnect_controller()
         super().accept()
 

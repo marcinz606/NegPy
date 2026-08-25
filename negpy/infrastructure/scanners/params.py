@@ -50,6 +50,22 @@ def clamp_scan_area(area: ScanArea) -> ScanArea:
     return (x1, y1, x2, y2)
 
 
+def crop_to_scan_window(crop: ScanArea, *, mirror_x: bool) -> ScanArea:
+    """Map Prescan widget coords ↔ TA ``area`` for ``ScanParams.window``.
+
+    Self-inverse when ``mirror_x`` is fixed: image-left is sensor-right on mirrored
+    scanners, so trimming left chrome on the Prescan must crop the opposite TA side.
+
+    Mirrors the pre-#958 behaviour that PR #958 accidentally flattened to a plain
+    clamp, which displaced Prescan crops on mirror_x Plustek devices.
+    """
+    area = clamp_scan_area(crop)
+    if mirror_x:
+        x1, y1, x2, y2 = area
+        return (1.0 - x2, y1, 1.0 - x1, y2)
+    return area
+
+
 def clamp_frame_offset_mm(offset_mm: float, pitch_mm: float) -> float:
     """Effective feed-axis offset, floored at 0 and held short of one frame pitch.
 

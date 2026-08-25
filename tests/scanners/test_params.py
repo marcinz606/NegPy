@@ -1,7 +1,12 @@
 """Tests for ScanParams dataclass and ScanMode validation."""
 
 import pytest
-from negpy.infrastructure.scanners.params import ScanMode, ScanParams, clamp_scan_area
+from negpy.infrastructure.scanners.params import (
+    ScanMode,
+    ScanParams,
+    clamp_scan_area,
+    crop_to_scan_window,
+)
 from negpy.infrastructure.scanners.base import ScannerCapabilities
 
 
@@ -72,3 +77,19 @@ class TestCapabilityFiltering:
 class TestPrescanGeometry:
     def test_clamp_scan_area_enforces_positive_extent(self) -> None:
         assert clamp_scan_area((0.5, 0.5, 0.5, 0.5)) == (0.5, 0.5, 0.501, 0.501)
+
+    def test_crop_to_scan_window_reflects_x_when_mirrored(self) -> None:
+        """Mirror_x scanners: display-left is sensor-right, so x must be reflected.
+
+        Regression for PR #958, which flattened this conversion to a plain clamp and
+        displaced Prescan crops on mirror_x Plustek devices (8200i SE / 8100 V2).
+        """
+        assert crop_to_scan_window((0.1, 0.2, 0.4, 0.8), mirror_x=True) == pytest.approx((0.6, 0.2, 0.9, 0.8))
+
+    def test_crop_to_scan_window_passthrough_when_not_mirrored(self) -> None:
+        assert crop_to_scan_window((0.1, 0.2, 0.4, 0.8), mirror_x=False) == pytest.approx((0.1, 0.2, 0.4, 0.8))
+
+    def test_crop_to_scan_window_is_self_inverse(self) -> None:
+        crop = (0.1, 0.2, 0.4, 0.8)
+        reflected = crop_to_scan_window(crop, mirror_x=True)
+        assert crop_to_scan_window(reflected, mirror_x=True) == pytest.approx(crop)

@@ -57,6 +57,7 @@ def _caps_for(model: Any) -> ScannerCapabilities:
         autofocus=False,
         prescan=prescan_ready,
         prescan_dpi=PRESCAN_DPI if prescan_ready else 0,
+        prescan_mirror_x=bool(getattr(model, "mirror_x", False)) if prescan_ready else False,
         prescan_default_crop=default_frame_crop_norm(model) if prescan_ready else None,
         multi_exposure=bool(getattr(model, "scan_ready", False) and getattr(model, "exposure_long", None)),
         adapter_frame_capacity=None,
