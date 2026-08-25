@@ -593,6 +593,17 @@ class FileBrowser(QWidget):
         self.list_view.setAlternatingRowColors(False)
         self.list_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
+        # Takes the strip's place when a filter hides every frame: a blank panel under a
+        # full tally reads as a load failure.
+        self.empty_label = QLabel("")
+        self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_label.setWordWrap(True)
+        self.empty_label.setTextFormat(Qt.TextFormat.RichText)
+        self.empty_label.setOpenExternalLinks(False)
+        self.empty_label.setStyleSheet(f"color: {THEME.text_secondary}; font-size: 11px;")
+        self.empty_label.setVisible(False)
+        self.empty_label.linkActivated.connect(lambda _: self._clear_frame_filters())
+
         self.library_tree = LibraryTree(self.controller)
         self.library_section = self._make_section("Library", "fa5s.folder-open", self.library_tree, "library_section_expanded")
 
@@ -602,6 +613,7 @@ class FileBrowser(QWidget):
         frames_layout.setSpacing(4)
         frames_layout.addWidget(self.tally_label)
         frames_layout.addWidget(self.list_view, 1)
+        frames_layout.addWidget(self.empty_label, 1)
         self.frames_section = self._make_section("Film Strip", "fa5s.film", frames, "frames_section_expanded")
 
         layout.addWidget(self.library_section)
@@ -769,6 +781,7 @@ class FileBrowser(QWidget):
         selection_model = self.list_view.selectionModel()
         self._update_unload_button()
         self._update_tally()
+        self._update_empty_state()
 
         current_actual = {
             model.display_to_actual(idx.row()) for idx in selection_model.selectedIndexes() if model.display_to_actual(idx.row()) >= 0
@@ -880,6 +893,18 @@ class FileBrowser(QWidget):
         self._prune_selection_to_visible()
         self.sync_ui()
 
+    def _active_frame_filters(self) -> list:
+        """Names of the filters currently hiding frames, in the order they are applied."""
+        model = self.session.asset_model
+        names = []
+        if model.filter_text:
+            names.append("search")
+        if model.sheet_filter == "keepers":
+            names.append("Keepers")
+        elif model.sheet_filter == "unrejected":
+            names.append("Hide rejected")
+        return names
+
     def _update_tally(self) -> None:
         files = self.session.state.uploaded_files
         if not files:
@@ -888,13 +913,39 @@ class FileBrowser(QWidget):
         keepers = sum(1 for f in files if f.get("keeper"))
         rejected = sum(1 for f in files if f.get("excluded"))
         n = len(files)
-        text = f"{n} frame{'s' if n != 1 else ''}"
+        # The strip shows the model, the tally counts the session, so a filter that hides
+        # every frame reads as an empty panel under a full count unless it is named here.
+        visible = self.session.asset_model.rowCount()
+        text = f"{visible} of {n} frames" if visible != n else f"{n} frame{'s' if n != 1 else ''}"
+        for name in self._active_frame_filters():
+            text += f" · {name} filter"
         if keepers:
             text += f" · {keepers} keeper{'s' if keepers != 1 else ''}"
         if rejected:
             text += f" · {rejected} rejected"
         self.tally_label.setText(text)
         self.tally_label.setVisible(True)
+
+    def _update_empty_state(self) -> None:
+        """Swap the strip for a message when a filter leaves it with nothing to show."""
+        files = self.session.state.uploaded_files
+        filters = self._active_frame_filters()
+        empty = bool(files) and self.session.asset_model.rowCount() == 0 and bool(filters)
+        if empty:
+            named = " and ".join(filters)
+            self.empty_label.setText(
+                f'No frames match the {named} filter.<br><a href="#clear" style="color: {THEME.accent_primary};">Show all frames</a>'
+            )
+        self.empty_label.setVisible(empty)
+        self.list_view.setVisible(not empty)
+
+    def _clear_frame_filters(self) -> None:
+        """Clear both filters from the empty state, so the strip cannot be a dead end."""
+        self.search_input.clear()
+        # Ahead of the debounce the clear would otherwise start, so one click is one rebuild.
+        self.filter_timer.stop()
+        self._apply_filter()
+        self._apply_sheet_filter("all")
 
     def _on_hot_folder_toggled(self, checked: bool) -> None:
         self._update_hot_folder_style(checked)

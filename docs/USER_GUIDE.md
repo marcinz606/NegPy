@@ -124,10 +124,10 @@ Toolbar buttons, left to right:
 
     Half Frame does not apply to a frame assembled from more than one file: a Trichrome triplet, a stitch, or an HDR merge. Those are never split, and they never come back as a diptych, even when the file they are built around was worked on as two halves earlier.
 *   **Apply (clone)**: copy the current frame's settings to selected frames or the whole roll. You choose which aspects in a dialog; crop and rotation are always per-image.
-*   **Sheet filter** (funnel): show *All frames*, *Keepers only*, or *Hide rejected*.
+*   **Sheet filter** (funnel): show *All frames*, *Keepers only*, or *Hide rejected*. The choice is remembered between sessions and applies to every roll you open.
 *   **Sort**: by Name or Date, ascending or descending.
 
-Above both sections sit a **filter box**, a **`.*`** regex toggle and a **search-library** button. Inside the Film Strip section is a **tally**, for example "36 frames · 12 keepers · 3 rejected".
+Above both sections sit a **filter box**, a **`.*`** regex toggle and a **search-library** button. Inside the Film Strip section is a **tally**, for example "36 frames · 12 keepers · 3 rejected". While a filter hides frames the tally counts both sets and names the filter, for example "3 of 36 frames · Keepers filter". When a filter hides every frame, the strip carries a message with a **Show all frames** link that clears the filter box and the funnel together.
 
 #### Filtering the sheet
 
