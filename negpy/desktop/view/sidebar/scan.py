@@ -382,11 +382,11 @@ class ScanSidebar(QWidget):
         self.fmt_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
         self.dpi_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
         self.depth_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
-        self.ir_check.toggled.connect(lambda: self._update_settings_from_ui())
+        self.ir_check.toggled.connect(lambda on: self._on_ir_pass_toggled(self.clean_check, on))
         self.me_check.toggled.connect(lambda: self._update_settings_from_ui())
         self.autofocus_check.toggled.connect(lambda: self._update_settings_from_ui())
         self.ae_check.toggled.connect(lambda: self._on_ae_toggled())
-        self.clean_check.toggled.connect(lambda: self._update_settings_from_ui())
+        self.clean_check.toggled.connect(lambda on: self._on_ir_pass_toggled(self.ir_check, on))
         self.superfine_check.toggled.connect(lambda: self._update_settings_from_ui())
         self.samples_combo.currentIndexChanged.connect(lambda: self._update_settings_from_ui())
         self.format_combo.currentIndexChanged.connect(lambda: self._update_settings_from_ui())
@@ -609,7 +609,6 @@ class ScanSidebar(QWidget):
         else:
             self.ir_check.setChecked(False)
             self.ir_check.setToolTip("IR scanning not supported by this device")
-        self._apply_film_type_to_ir()
 
         # Multi-exposure (Plustek SE only today)
         self.me_check.setVisible(bool(caps.multi_exposure))
@@ -648,6 +647,8 @@ class ScanSidebar(QWidget):
         self.clean_check.setVisible(self._caps_clean)
         self.clean_check.setChecked(self._caps_clean and self._settings.clean)
         self.clean_check.blockSignals(False)
+        if self.clean_check.isChecked():
+            self.ir_check.setChecked(False)
 
         self.superfine_check.blockSignals(True)
         self.superfine_check.setVisible(self._caps_superfine)
@@ -678,6 +679,10 @@ class ScanSidebar(QWidget):
         self.film_type_label.setVisible(bool(self._caps_film_types))
         self.film_type_combo.setVisible(bool(self._caps_film_types))
         self.film_type_combo.blockSignals(False)
+
+        # Last: it gates IR and ICE on the film, so it needs both the ICE capability and the
+        # film list this device offers, which are read further up.
+        self._apply_film_type_to_ir()
 
         self._caps_film_formats = tuple(caps.film_formats)
         self.format_combo.blockSignals(True)
@@ -773,6 +778,15 @@ class ScanSidebar(QWidget):
             reason = f"{FILM_TYPES[self._film_type()][0]} blocks infrared"
             self.ir_check.setToolTip(reason)
             self.clean_check.setToolTip(reason)
+
+    def _on_ir_pass_toggled(self, other: QCheckBox, checked: bool) -> None:
+        """IR and ICE read the same pass, and ICE bakes its repair into the file, so a raw IR
+        plane beside it would only have cleaned pixels to detect dust in."""
+        if checked and other.isChecked():
+            other.blockSignals(True)
+            other.setChecked(False)
+            other.blockSignals(False)
+        self._update_settings_from_ui()
 
     def _samples(self) -> int:
         if self._caps_max_samples <= 1:

@@ -702,10 +702,50 @@ def test_a_film_that_blocks_infrared_disables_ir_and_ice() -> None:
     assert "blocks infrared" in sidebar.ir_check.toolTip()
 
 
+def test_ir_and_ice_untick_each_other() -> None:
+    """Both read the same pass, and ICE bakes its repair in, so only one can be asked for."""
+    sidebar, _ = _sidebar(NKSCAN_DEVICE)
+
+    sidebar.ir_check.setChecked(True)
+    sidebar.clean_check.setChecked(True)
+    assert (sidebar.ir_check.isChecked(), sidebar.clean_check.isChecked()) == (False, True)
+    assert (sidebar.settings.capture_ir, sidebar.settings.clean) == (False, True)
+
+    sidebar.ir_check.setChecked(True)
+    assert (sidebar.ir_check.isChecked(), sidebar.clean_check.isChecked()) == (True, False)
+    assert (sidebar.settings.capture_ir, sidebar.settings.clean) == (True, False)
+
+
+def test_a_saved_ir_and_ice_pair_comes_back_as_ice_alone() -> None:
+    saved = {"backend": "nkscan", "capture_ir": True, "clean": True}
+    sidebar, _ = _sidebar(NKSCAN_DEVICE, settings=saved)
+    assert (sidebar.ir_check.isChecked(), sidebar.clean_check.isChecked()) == (False, True)
+
+
 def test_kodachrome_blocks_infrared_too() -> None:
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
     sidebar.film_type_combo.setCurrentIndex(sidebar.film_type_combo.findData("kodachrome"))
     assert sidebar.clean_check.isEnabled() is False
+
+
+def test_a_saved_bw_film_greys_ir_and_ice_out_on_the_device_it_is_switched_to() -> None:
+    """The film gate reads the ICE capability and the film list, so it runs after both."""
+    sidebar, _ = _sidebar(settings={"backend": "nkscan", "film_type": "mono"})
+    sidebar._on_devices_ready([FULL_DEVICE, NKSCAN_DEVICE])
+    sidebar.device_combo.setCurrentIndex(1)
+
+    assert sidebar.film_type_combo.currentData() == "mono"
+    assert sidebar.ir_check.isEnabled() is False and sidebar.ir_check.isChecked() is False
+    assert sidebar.clean_check.isEnabled() is False and sidebar.clean_check.isChecked() is False
+
+
+def test_colour_negative_leaves_ice_usable_on_the_device_it_is_switched_to() -> None:
+    sidebar, _ = _sidebar(settings={"backend": "nkscan", "film_type": "negative"})
+    sidebar._on_devices_ready([SE_DEVICE, NKSCAN_DEVICE])
+    sidebar.device_combo.setCurrentIndex(1)
+
+    assert sidebar.ir_check.isEnabled() is True
+    assert sidebar.clean_check.isEnabled() is True
 
 
 def test_going_back_to_colour_negative_restores_them() -> None:
@@ -770,12 +810,13 @@ def test_the_summary_quotes_a_per_frame_size_for_an_unmeasured_strip() -> None:
 def test_the_summary_names_the_extra_passes() -> None:
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
     sidebar.ir_check.setChecked(True)
-    sidebar.clean_check.setChecked(True)
     sidebar.samples_combo.setCurrentIndex(sidebar.samples_combo.findData(4))
 
-    text = sidebar.summary_label.text()
+    assert "IR" in sidebar.summary_label.text() and "4× sampled" in sidebar.summary_label.text()
 
-    assert "IR" in text and "ICE" in text and "4× sampled" in text
+    sidebar.clean_check.setChecked(True)
+
+    assert "ICE" in sidebar.summary_label.text() and "IR" not in sidebar.summary_label.text()
 
 
 def test_a_single_holder_device_summarizes_one_frame() -> None:
