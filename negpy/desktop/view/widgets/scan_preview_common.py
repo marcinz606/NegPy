@@ -16,7 +16,7 @@ class RollPreviewSignalsMixin:
     doesn't vary, so it lives here once rather than being copy-pasted per dialog.
 
     A subclass must set ``self._controller``, ``self._previewing`` and
-    ``self.preview_progress`` before calling ``_connect_preview_signals()``, and
+    ``self.status_strip`` before calling ``_connect_preview_signals()``, and
     implement the four result handlers.
 
     Leaving a dialog mid-preview cancels the request: the transport holds the unit for
@@ -40,9 +40,7 @@ class RollPreviewSignalsMixin:
     def _on_preview_progress(self, fraction: float, phase: str = "Scanning") -> None:
         if not self._previewing:
             return
-        self.preview_progress.setVisible(True)
-        self.preview_progress.setFormat(f"{phase}… %p%")
-        self.preview_progress.setValue(int(max(0.0, min(1.0, float(fraction))) * 100))
+        self.status_strip.set_progress(f"{phase}… %p%", float(fraction))
 
     def stop_preview(self) -> None:
         """Ask the transport to abandon the pass in flight. The worker answers with

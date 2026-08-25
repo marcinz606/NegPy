@@ -94,7 +94,7 @@ def test_preview_result_shows_the_frame_and_clears_busy_state():
 
     assert dialog.preview_btn.isEnabled() is True
     assert dialog.label.has_frame()
-    assert dialog.status.text() == ""
+    assert dialog.status_strip.message() == ""
 
 
 def test_preview_failure_reports_status_and_clears_busy_state():
@@ -105,7 +105,7 @@ def test_preview_failure_reports_status_and_clears_busy_state():
     controller.deliver(error="carriage jammed")
 
     assert dialog.preview_btn.isEnabled() is True
-    assert "carriage jammed" in dialog.status.text()
+    assert "carriage jammed" in dialog.status_strip.message()
 
 
 def test_busy_scanner_reports_status_without_starting_preview():
@@ -114,7 +114,7 @@ def test_busy_scanner_reports_status_without_starting_preview():
 
     dialog._on_preview()
 
-    assert "busy" in dialog.status.text().lower()
+    assert "busy" in dialog.status_strip.message().lower()
     assert dialog.preview_btn.isEnabled() is True
 
 
@@ -193,8 +193,8 @@ def test_preview_progress_reaches_the_bar():
 
     controller.scan_progress.emit(0.25, "Metering")
 
-    assert dialog.preview_progress.value() == 25
-    assert dialog.preview_progress.format() == "Metering… %p%"
+    assert dialog.status_strip._bar.value() == 25
+    assert dialog.status_strip._bar.format() == "Metering… %p%"
 
 
 def test_reversal_film_previews_without_inversion():
@@ -208,3 +208,13 @@ def test_reversal_film_previews_without_inversion():
 
     assert dialog.label.has_frame() is True
     assert dialog._film_type == "positive"
+
+
+def test_the_exits_name_their_object_and_enter_scans() -> None:
+    """One grammar across the three preview dialogs: reset · Cancel · Apply <object> · Scan."""
+    dialog = QuickScanPreviewDialog(_FakeController(), _device())
+
+    assert dialog.clear_btn.text() == "Clear crop"
+    assert dialog.ok_btn.text() == "Apply window"
+    assert dialog.scan_btn.text().strip() == "Scan frame"
+    assert dialog.scan_btn.isDefault() is True

@@ -203,9 +203,8 @@ def test_offset_and_drift_sliders_reset_to_zero_on_double_click() -> None:
 
 
 def test_the_offset_and_drift_sliders_share_the_width_the_row_has_left() -> None:
-    """They carry the framing, so they take the row rather than a fixed 160 px of it. The
-    button keeps its own width, and the value labels are pinned so a wide reading cannot
-    shrink the slider it belongs to."""
+    """They carry the framing, so they take the row rather than a fixed 160 px of it, and the
+    button keeps its own width."""
     dialog = StripPreviewDialog(_FakeController(), _device(3))
     dialog.show()
 
@@ -219,12 +218,48 @@ def test_the_offset_and_drift_sliders_share_the_width_the_row_has_left() -> None
 
     assert widths[1][0] > widths[0][0]
 
-    before = dialog.offset_slider.width()
-    dialog.offset_slider.setValue(dialog.offset_slider.maximum())
-    dialog.drift_slider.setValue(dialog.drift_slider.minimum())
+
+def test_each_reading_sits_above_its_groove_with_room_for_its_widest_value() -> None:
+    """Beside the groove the reading clipped ("+0.10 mm/fram") — the panel sliders stack."""
+    dialog = StripPreviewDialog(_FakeController(), _device(3))
+    dialog.resize(1200, 700)
+    dialog.show()
+    dialog.offset_slider.setValue(dialog.offset_slider.minimum())
+    dialog.drift_slider.setValue(dialog.drift_slider.maximum())
     dialog.layout().activate()
 
-    assert dialog.offset_slider.width() == before
+    for label, slider in ((dialog.offset_label, dialog.offset_slider), (dialog.drift_label, dialog.drift_slider)):
+        assert label.mapTo(dialog, label.rect().topLeft()).y() < slider.mapTo(dialog, slider.rect().topLeft()).y()
+        assert label.fontMetrics().horizontalAdvance(label.text()) <= label.width()
+
+
+def test_both_exits_name_what_they_do_and_enter_scans_once_frames_are_ticked() -> None:
+    """ "Use" named nothing, and held the default — so Enter walked back after framing."""
+    dialog = StripPreviewDialog(_FakeController(), _device(3))
+
+    assert dialog.ok_btn.text() == "Apply framing"
+    assert dialog.scan_btn.text().strip() == "Scan 3 frames"
+    assert dialog.scan_btn.isDefault() is True
+    assert dialog.ok_btn.isDefault() is False
+
+    for tile in dialog._tiles.values():
+        tile.checkbox.setChecked(False)
+
+    assert dialog.scan_btn.text().strip() == "Scan"
+    assert dialog.scan_btn.isDefault() is False
+    assert dialog.ok_btn.isDefault() is True  # nothing to scan: Enter is the way back
+
+
+def test_the_help_is_one_line_and_the_detail_lives_where_the_hand_is() -> None:
+    """Ninety words above the tiles were read once and skipped after."""
+    from negpy.desktop.view.widgets.section_help_dialog import has_guide
+
+    dialog = StripPreviewDialog(_FakeController(), _device(3))
+
+    assert len(dialog.help_lbl.text().split()) < 20
+    assert "gap" in dialog.offset_slider.toolTip()
+    assert "per frame position" in dialog.drift_slider.toolTip()
+    assert has_guide("scan_strip") and dialog.help_btn.isVisibleTo(dialog) is True
 
 
 def test_preview_dpi_dropdown_defaults_to_lowest_and_flows_into_requests() -> None:
@@ -390,7 +425,7 @@ def test_a_failed_slot_does_not_abort_the_strip() -> None:
 
     assert dialog._tiles[1].label.has_frame() is False
     assert all(dialog._tiles[f].label.has_frame() for f in (2, 3))
-    assert "1" in dialog.status.text()  # the failed slot is named
+    assert "1" in dialog.status_strip.message()  # the failed slot is named
     assert dialog.preview_all_btn.isEnabled() is True
 
 
@@ -402,7 +437,7 @@ def test_a_terminal_error_unlocks_the_dialog() -> None:
     controller.scan_error.emit("scanner went away")
 
     assert dialog.preview_all_btn.isEnabled() is True
-    assert "scanner went away" in dialog.status.text()
+    assert "scanner went away" in dialog.status_strip.message()
 
 
 def test_a_second_preview_is_refused_while_one_is_running() -> None:
@@ -508,7 +543,7 @@ def test_offset_past_the_frame_budget_warns_about_picture_loss() -> None:
     dialog = StripPreviewDialog(_FakeController(), _pitch_device(3), initial_offset=5.5)
     dialog._refresh_offset_indicators()
 
-    text = dialog.status.text()
+    text = dialog.status_strip.message()
     assert "cuts into the frame" in text
     assert "3.7 mm" in text  # 5.5 - (37.83 - 36.0)
     assert "1, 2, 3" in text
@@ -520,7 +555,7 @@ def test_offset_within_the_frame_budget_does_not_warn() -> None:
 
     dialog.offset_slider.setValue(14)  # 1.4 mm — inside pitch - 36 mm budget
 
-    assert dialog.status.text() == ""  # warning cleared once the offset is safe
+    assert dialog.status_strip.message() == ""  # warning cleared once the offset is safe
 
 
 def test_drift_past_the_pitch_is_clamped_and_flagged() -> None:
@@ -528,7 +563,7 @@ def test_drift_past_the_pitch_is_clamped_and_flagged() -> None:
 
     assert dialog._offset_for_frame(1) == pytest.approx(8.0)
     assert dialog._offset_for_frame(14) == pytest.approx(36.83)  # pitch - 1 mm, not 40.5
-    assert "14" in dialog.status.text()
+    assert "14" in dialog.status_strip.message()
 
 
 # ── a transport that measures the strip ───────────────────────────────────
@@ -563,7 +598,7 @@ def test_tiles_grow_from_the_frames_the_measurement_found() -> None:
 
     assert sorted(dialog._tiles) == [1, 2, 3]
     assert dialog.selected_frames() == (1, 2, 3)
-    assert "3 frames detected" in dialog.status.text()
+    assert "3 frames detected" in dialog.status_strip.message()
 
 
 def test_the_selection_is_read_off_the_tiles_that_appeared() -> None:
@@ -618,7 +653,7 @@ def test_a_measured_strip_draws_the_boundary_it_slid_to() -> None:
     dialog.offset_slider.setValue(25)
     assert [edge for _frac, edge in dialog._tiles[1].label._offset_indicators] == ["right"]
     # Nothing is cut off, so neither blackout warning applies.
-    assert not dialog.status.text().startswith(("Offset held", "Offset cuts"))
+    assert not dialog.status_strip.message().startswith(("Offset held", "Offset cuts"))
 
 
 def test_a_measured_strip_can_slide_a_frame_backwards() -> None:
@@ -640,7 +675,7 @@ def test_an_empty_strip_says_so() -> None:
     dialog._on_preview_all()
     controller.scan_roll_preview_finished.emit()
 
-    assert "No frames were detected" in dialog.status.text()
+    assert "No frames were detected" in dialog.status_strip.message()
     assert dialog.ok_btn.isEnabled() is False
 
 
@@ -786,11 +821,11 @@ def test_preview_progress_reaches_the_bar_and_names_the_phase() -> None:
 
     controller.scan_progress.emit(0.4, "Detecting frames")
 
-    assert dialog.preview_progress.value() == 40
-    assert dialog.preview_progress.format() == "Detecting frames… %p%"
+    assert dialog.status_strip._bar.value() == 40
+    assert dialog.status_strip._bar.format() == "Detecting frames… %p%"
 
     controller.deliver_all((1,))
-    assert dialog.preview_progress.isVisibleTo(dialog) is False
+    assert dialog.status_strip.showing() != "progress"
 
 
 def test_idle_progress_updates_are_ignored() -> None:
@@ -800,7 +835,7 @@ def test_idle_progress_updates_are_ignored() -> None:
 
     controller.scan_progress.emit(0.9, "Scanning")
 
-    assert dialog.preview_progress.value() == 0
+    assert dialog.status_strip._bar.value() == 0
 
 
 def test_reversal_film_previews_without_inversion() -> None:
@@ -830,7 +865,7 @@ def test_a_measured_strip_says_it_is_measuring_not_how_many_slots_it_asked_for()
 
     dialog._on_preview_all()
 
-    assert dialog.status.text() == "Measuring the strip…"
+    assert dialog.status_strip.message() == "Measuring the strip…"
 
 
 def test_a_feeder_still_counts_the_frames_it_previews() -> None:
@@ -839,7 +874,7 @@ def test_a_feeder_still_counts_the_frames_it_previews() -> None:
 
     dialog._on_preview_all()
 
-    assert dialog.status.text() == "Previewing 3 frames…"
+    assert dialog.status_strip.message() == "Previewing 3 frames…"
 
 
 def test_the_offset_is_a_boundary_correction_not_a_way_to_the_next_frame() -> None:

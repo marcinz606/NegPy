@@ -11,6 +11,7 @@ invariant).
 from __future__ import annotations
 
 import os
+import re
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -24,6 +25,7 @@ from PyQt6.QtGui import QValidator
 from PyQt6.QtWidgets import QApplication
 
 from negpy.desktop.view.sidebar.scan import ScanSidebar, estimated_frame_bytes
+from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice
 from negpy.infrastructure.scanners.params import FILM_TYPES, ScanMode
 
@@ -164,6 +166,11 @@ def _sidebar(device: ScannerDevice | None = None, settings: dict | None = None) 
     if device is not None:
         sidebar._on_devices_ready([device])
     return sidebar, controller
+
+
+def _summary(sidebar: ScanSidebar) -> str:
+    """The summary line as the eye reads it: the count and size carry markup for weight."""
+    return re.sub(r"<[^>]+>", "", sidebar.status_strip._summary.text())
 
 
 def test_controller_signals_connect_without_error() -> None:
@@ -511,7 +518,6 @@ def test_unsupported_ae_af_forced_off_in_scan_params() -> None:
 def test_scan_error_resets_ui_and_shows_status(monkeypatch) -> None:
     sidebar, _ = _sidebar(SE_DEVICE)
     sidebar.set_scanning(True)
-    sidebar.progress_bar.setVisible(True)
     popped: list[tuple[str, str]] = []
 
     def _fake_warning(parent, title, text, *args, **kwargs):
@@ -523,8 +529,8 @@ def test_scan_error_resets_ui_and_shows_status(monkeypatch) -> None:
     sidebar._on_scan_error("USB I/O failed")
 
     assert sidebar._scanning is False
-    assert sidebar.progress_bar.isVisible() is False
-    assert "Error: USB I/O failed" in sidebar.status_label.text()
+    assert sidebar.status_strip.showing() == "message"
+    assert "Error: USB I/O failed" in sidebar.status_strip.message()
     assert popped == []
 
 
@@ -541,7 +547,7 @@ def test_lockout_scan_error_shows_message_box(monkeypatch) -> None:
     msg = "OpticFilm 8100 (GL845) cannot scan with pyOpticfilm in this release — only OpticFilm 8200i SE is validated."
     sidebar._on_scan_error(msg)
 
-    assert f"Error: {msg}" in sidebar.status_label.text()
+    assert f"Error: {msg}" in sidebar.status_strip.message()
     assert popped == [("Scan failed", msg)]
 
 
@@ -613,7 +619,7 @@ def test_a_measured_strip_says_what_scan_would_do_before_a_preview() -> None:
     """Nothing is cropped yet, and the summary quotes the size of one frame."""
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
     assert sidebar.scan_window_status.text().startswith("Full frame")
-    assert sidebar.summary_label.text().startswith("Whole strip")
+    assert _summary(sidebar).startswith("Whole strip")
 
 
 def test_a_typed_frame_list_reaches_the_batch_without_a_preview() -> None:
@@ -790,19 +796,82 @@ def test_no_device_hides_the_optional_headers() -> None:
     assert sidebar.framing_header.isVisibleTo(sidebar) is False
 
 
+# ── the status strip ──────────────────────────────────────────────────
+
+
+def test_the_status_row_keeps_its_height_through_every_role() -> None:
+    """Three rows that come and go moved the Scan button under the cursor."""
+    sidebar, _ = _sidebar(FULL_DEVICE)
+    sidebar.show()
+    sidebar.layout().activate()
+    reserved = sidebar.status_strip.height()
+    top_of_button = sidebar.scan_btn.pos().y()
+
+    for step in (
+        lambda: sidebar.set_scanning(True),
+        lambda: sidebar._on_scan_progress(0.4, "Scanning"),
+        lambda: sidebar._on_scan_error("USB I/O failed on a long path that would wrap a label"),
+    ):
+        step()
+        sidebar.layout().activate()
+        assert sidebar.status_strip.height() == reserved
+        assert sidebar.scan_btn.pos().y() == top_of_button
+
+
+def test_the_row_prefers_the_pass_then_the_message_then_the_summary() -> None:
+    sidebar, _ = _sidebar(FULL_DEVICE)
+    assert sidebar.status_strip.showing() == "summary"
+
+    sidebar.status_strip.set_message("Scanned: /tmp/a.tiff")
+    assert sidebar.status_strip.showing() == "message"
+
+    sidebar.status_strip.set_progress("Scanning… %p%", 0.5)
+    assert sidebar.status_strip.showing() == "progress"  # a running pass outranks the message
+
+    sidebar.status_strip.stop_progress()
+    assert sidebar.status_strip.showing() == "message"
+
+    sidebar._update_settings_from_ui()  # the operator edits: the summary is due again
+    assert sidebar.status_strip.showing() == "summary"
+
+
+# ── the commit button ─────────────────────────────────────────────────
+
+
+def test_the_scan_button_goes_hollow_while_a_scan_runs() -> None:
+    """The fill says "this starts a scan"; Stop must not wear it. QSS reads the property."""
+    sidebar, _ = _sidebar(FULL_DEVICE)
+    assert sidebar.scan_btn.property("scanning") == "false"
+
+    sidebar.set_scanning(True)
+    assert sidebar.scan_btn.property("scanning") == "true"
+    assert sidebar.scan_btn.text().strip() == "Stop"
+
+    sidebar.set_scanning(False)
+    assert sidebar.scan_btn.property("scanning") == "false"
+    assert sidebar.scan_btn.text().strip() == "Scan"
+
+
+def test_the_scan_button_has_a_rule_to_fill_it() -> None:
+    """objectName without a matching rule is how it stayed transparent."""
+    from negpy.desktop.view.styles.templates import load_stylesheet
+
+    assert "QPushButton#scan_btn" in load_stylesheet()
+
+
 # ── the summary above the Scan button ─────────────────────────────────
 
 
 def test_the_summary_counts_the_frames_the_batch_will_scan() -> None:
     sidebar, _ = _sidebar(FULL_DEVICE, settings={"selected_frames": [1, 3, 5], "dpi": 4000})
-    text = sidebar.summary_label.text()
+    text = _summary(sidebar)
     assert text.startswith("3 frames  ·  4000 dpi")
     assert "GB" in text or "MB" in text
 
 
 def test_the_summary_quotes_a_per_frame_size_for_an_unmeasured_strip() -> None:
     sidebar, _ = _sidebar(NKSCAN_DEVICE)
-    text = sidebar.summary_label.text()
+    text = _summary(sidebar)
     assert text.startswith("Whole strip")
     assert "/frame" in text
 
@@ -812,24 +881,34 @@ def test_the_summary_names_the_extra_passes() -> None:
     sidebar.ir_check.setChecked(True)
     sidebar.samples_combo.setCurrentIndex(sidebar.samples_combo.findData(4))
 
-    assert "IR" in sidebar.summary_label.text() and "4× sampled" in sidebar.summary_label.text()
+    assert "IR" in _summary(sidebar) and "4× sampled" in _summary(sidebar)
 
     sidebar.clean_check.setChecked(True)
 
-    assert "ICE" in sidebar.summary_label.text() and "IR" not in sidebar.summary_label.text()
+    assert "ICE" in _summary(sidebar) and "IR" not in _summary(sidebar)
+
+
+def test_the_count_and_the_size_carry_the_weight_in_the_summary() -> None:
+    """The two numbers the operator checks before committing are the two that stand out."""
+    sidebar, _ = _sidebar(FULL_DEVICE, settings={"selected_frames": [1, 3, 5], "dpi": 4000})
+    markup = sidebar.status_strip._summary.text()
+
+    assert f'<span style="color: {THEME.text_primary}">3 frames</span>' in markup
+    assert markup.count("<span") == 2  # the count and the size, nothing else
+    assert "4000 dpi" in _summary(sidebar)
 
 
 def test_a_single_holder_device_summarizes_one_frame() -> None:
     # The saved 3600 is not offered here, so the nearest stop the device has is shown and used.
     sidebar, _ = _sidebar(MINIMAL_DEVICE)
-    assert sidebar.summary_label.text().startswith("1 frame  ·  2400 dpi")
+    assert _summary(sidebar).startswith("1 frame  ·  2400 dpi")
     assert sidebar._dpi() == 2400
 
 
 def test_the_summary_shrinks_with_the_crop() -> None:
     full, _ = _sidebar(MINIMAL_DEVICE)
     cropped, _ = _sidebar(MINIMAL_DEVICE, settings={"scan_window": [0.0, 0.0, 0.5, 0.5]})
-    assert full.summary_label.text() != cropped.summary_label.text()
+    assert _summary(full) != _summary(cropped)
 
 
 def test_an_ir_pass_costs_a_fourth_plane() -> None:
@@ -857,7 +936,7 @@ def test_ejecting_drops_the_frame_selection_of_the_film_that_left() -> None:
 
     assert sidebar.settings.selected_frames == ()
     assert sidebar.settings.frame_windows == {}
-    assert "frame selection cleared" in sidebar.status_label.text()
+    assert "frame selection cleared" in sidebar.status_strip.message()
 
 
 def test_ejecting_keeps_the_registration_offsets() -> None:
@@ -873,7 +952,7 @@ def test_ejecting_keeps_the_registration_offsets() -> None:
 def test_ejecting_with_nothing_picked_says_only_that() -> None:
     sidebar, _ = _sidebar(FULL_DEVICE)
     sidebar._on_ejected(True)
-    assert sidebar.status_label.text() == "Film ejected"
+    assert sidebar.status_strip.message() == "Film ejected"
 
 
 # ── typed DPI ─────────────────────────────────────────────────────────

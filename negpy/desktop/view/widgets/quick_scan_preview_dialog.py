@@ -8,9 +8,10 @@ Read after ``exec()`` via ``window()``.
 import qtawesome as qta
 from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtGui import QPixmap
-from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QProgressBar, QPushButton, QVBoxLayout
+from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
 from negpy.desktop.converters import ImageConverter
+from negpy.desktop.view.styles.templates import StatusStrip
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.scan_preview_common import RollPreviewSignalsMixin, preview_positive
 from negpy.desktop.view.widgets.scan_window_label import ScanWindowLabel
@@ -67,19 +68,12 @@ class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self.label.set_window(tuple(initial_window) if initial_window else None)
         layout.addWidget(self.label, 1)
 
-        self.status = QLabel("")
-        self.status.setWordWrap(True)
-        self.status.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
-        layout.addWidget(self.status)
-
-        self.preview_progress = QProgressBar()
-        self.preview_progress.setRange(0, 100)
-        self.preview_progress.setValue(0)
-        self.preview_progress.setVisible(False)
-        layout.addWidget(self.preview_progress)
+        # One reserved row: the pass that is running, or the message it left behind.
+        self.status_strip = StatusStrip(lines=1)
+        layout.addWidget(self.status_strip)
 
         btns = QHBoxLayout()
-        self.clear_btn = QPushButton("Clear")
+        self.clear_btn = QPushButton("Clear crop")
         self.clear_btn.setToolTip("Scan the whole frame instead")
         self.clear_btn.clicked.connect(self.label.clear_window)
         btns.addWidget(self.clear_btn)
@@ -87,11 +81,12 @@ class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.clicked.connect(self._on_cancel_clicked)
         btns.addWidget(self.cancel_btn)
-        self.ok_btn = QPushButton("Use")
-        self.ok_btn.setDefault(True)
+        self.ok_btn = QPushButton("Apply window")
+        self.ok_btn.setToolTip("Keep this window and return to the Scan panel")
         self.ok_btn.clicked.connect(self.accept)
         btns.addWidget(self.ok_btn)
-        self.scan_btn = QPushButton(qta.icon("fa5s.play", color=THEME.text_primary), " Scan")
+        self.scan_btn = QPushButton(qta.icon("fa5s.play", color=THEME.text_primary), " Scan frame")
+        self.scan_btn.setDefault(True)
         self.scan_btn.setToolTip("Scan now with the current settings")
         self.scan_btn.clicked.connect(self._on_scan_clicked)
         btns.addWidget(self.scan_btn)
@@ -127,10 +122,10 @@ class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self.ok_btn.setEnabled(not busy)
         self.scan_btn.setEnabled(not busy)
         self.cancel_btn.setText("Stop preview" if busy else "Cancel")
-        self.preview_progress.setVisible(busy)
         if busy:
-            self.preview_progress.setValue(0)
-            self.preview_progress.setFormat("Previewing… %p%")
+            self.status_strip.start_progress("Previewing… %p%")
+        else:
+            self.status_strip.stop_progress()
 
     def _preview_dpi(self) -> int:
         return int(self.preview_dpi_combo.currentData() or _PREVIEW_FALLBACK_DPI)
@@ -147,24 +142,24 @@ class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
         try:
             self._controller.start_roll_preview(req)
         except Exception as e:
-            self.status.setText(f"Scanner busy — {e}")
+            self.status_strip.set_message(f"Scanner busy — {e}")
             return
         self._previewing = True
         self._set_previewing(True)
-        self.status.setText("Previewing…")
+        self.status_strip.set_message("Previewing…")
 
     @pyqtSlot(object)
     def _on_preview_ready(self, preview) -> None:
         if preview.slot != _PREVIEW_SLOT:
             return
         if preview.error is not None:
-            self.status.setText(f"Preview failed: {preview.error}")
+            self.status_strip.set_message(f"Preview failed: {preview.error}")
             return
         try:
             positive = preview_positive(preview.rgb, self._film_type)
             pixmap = QPixmap.fromImage(ImageConverter.to_qimage(positive))
         except Exception as e:
-            self.status.setText(f"Could not display preview: {e}")
+            self.status_strip.set_message(f"Could not display preview: {e}")
             return
         self.label.set_frame(pixmap)
 
@@ -172,8 +167,8 @@ class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
     def _on_preview_finished(self) -> None:
         self._previewing = False
         self._set_previewing(False)
-        if not self.status.text().startswith("Preview failed") and not self.status.text().startswith("Could not display"):
-            self.status.clear()
+        if not self.status_strip.message().startswith("Preview failed") and not self.status_strip.message().startswith("Could not display"):
+            self.status_strip.set_message("")
 
     @pyqtSlot(str)
     def _on_error(self, msg) -> None:
@@ -181,7 +176,7 @@ class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
             return
         self._previewing = False
         self._set_previewing(False)
-        self.status.setText(f"Preview failed: {msg}")
+        self.status_strip.set_message(f"Preview failed: {msg}")
 
     @pyqtSlot()
     def _on_cancelled(self) -> None:
@@ -189,4 +184,4 @@ class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
             return
         self._previewing = False
         self._set_previewing(False)
-        self.status.setText("Preview cancelled.")
+        self.status_strip.set_message("Preview cancelled.")

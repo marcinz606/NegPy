@@ -10,7 +10,6 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
-    QProgressBar,
     QPushButton,
     QSlider,
     QVBoxLayout,
@@ -19,7 +18,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.kernel.system.text import count_of, human_bytes
 from negpy.desktop.view.sidebar.base import install_wheel_guards
-from negpy.desktop.view.styles.templates import hint_label, section_subheader
+from negpy.desktop.view.styles.templates import StatusStrip, hint_label, section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice
 from negpy.infrastructure.scanners.params import FILM_TYPES, FilmType, film_passes_infrared
@@ -338,26 +337,18 @@ class ScanSidebar(QWidget):
 
         layout.addLayout(self.form)
 
-        # ── PROGRESS ────────────────────────────────────────
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setValue(0)
-        self.progress_bar.setFormat("Scanning… %p%")
-        layout.addWidget(self.progress_bar)
-
-        # ── STATUS ──────────────────────────────────────────
-        self.status_label = hint_label("")
-        layout.addWidget(self.status_label)
-
-        # ── SUMMARY + SCAN BUTTON ───────────────────────────
-        self.summary_label = hint_label("")
-        layout.addWidget(self.summary_label)
+        # ── STATUS + SCAN BUTTON ────────────────────────────
+        # One reserved row for all three: the pass that is running, the message it left, and
+        # the resting summary of what Scan will cost. Three rows that come and go move the
+        # button under them, which is where the cursor already is.
+        self.status_strip = StatusStrip()
+        layout.addWidget(self.status_strip)
 
         self.scan_btn = QPushButton(" Scan")
         self.scan_btn.setObjectName("scan_btn")
         self.scan_btn.setFixedHeight(40)
-        self.scan_btn.setIcon(qta.icon("fa5s.camera-retro", color=THEME.text_primary))
+        self.scan_btn.setProperty("scanning", "false")
+        self.scan_btn.setIcon(qta.icon("fa5s.camera-retro", color="#FFFFFF"))
         layout.addWidget(self.scan_btn)
 
         layout.addStretch()
@@ -425,7 +416,7 @@ class ScanSidebar(QWidget):
         self.device_combo.clear()
         self.device_combo.addItem("Detecting scanners…", None)
         self.device_combo.setEnabled(False)
-        self.status_label.setText("Detecting scanners…")
+        self.status_strip.set_message("Detecting scanners…")
         self.controller.request_scan_devices()
 
     def _on_refresh(self) -> None:
@@ -446,7 +437,7 @@ class ScanSidebar(QWidget):
         if device is None:
             return
         self.eject_btn.setEnabled(False)
-        self.status_label.setText("Ejecting film…")
+        self.status_strip.set_message("Ejecting film…")
         self.controller.eject_scanner(device.id)
 
     @pyqtSlot(list)
@@ -459,7 +450,7 @@ class ScanSidebar(QWidget):
         if not devices:
             self.device_combo.addItem("No scanners detected", None)
             self.device_combo.setEnabled(False)
-            self.status_label.setText("No scanners detected. Plug in your scanner and click Refresh.")
+            self.status_strip.set_message("No scanners detected. Plug in your scanner and click Refresh.")
             self.scan_btn.setEnabled(False)
             return
 
@@ -545,10 +536,10 @@ class ScanSidebar(QWidget):
 
         # If no film sources, show banner
         if not caps.sources:
-            self.status_label.setText("This scanner reports no film/transparency sources. NegPy v1 supports film scanning only.")
+            self.status_strip.set_message("This scanner reports no film/transparency sources. NegPy v1 supports film scanning only.")
             self.scan_btn.setEnabled(False)
         else:
-            self.status_label.setText("")
+            self.status_strip.set_message("")
             self.scan_btn.setEnabled(True)
 
         self._populate_form(caps)
@@ -908,6 +899,8 @@ class ScanSidebar(QWidget):
             self.settings = replace(self._settings, scan_window=dialog.scan_window())
             self._update_prescan_status()
             self._save_settings()
+            if dialog.scan_requested():
+                self._on_scan()
 
     def _on_clear_prescan_crop(self) -> None:
         from dataclasses import replace
@@ -978,12 +971,12 @@ class ScanSidebar(QWidget):
 
         device = self._current_device()
         if device is None:
-            self.summary_label.setText("")
+            self.status_strip.set_summary("")
             return
         caps = device.capabilities
         spec = self._frame_spec()
         if spec is None:
-            self.summary_label.setText("Frames: cannot read that")
+            self.status_strip.set_summary("Frames: cannot read that")
             self.scan_btn.setEnabled(False)
             return
         if not self._scanning:
@@ -1011,8 +1004,16 @@ class ScanSidebar(QWidget):
             passes.append(f"{self._samples()}× sampled")
         if self.me_check.isEnabled() and self.me_check.isChecked():
             passes.append("Multi-exposure")
-        parts = [count_of(len(frames), "frame") if frames else "Whole strip", f"{dpi} dpi", *passes, size]
-        self.summary_label.setText("  ·  ".join(parts))
+        # The count and the size are what the operator checks before committing, so they carry
+        # primary weight; the rest of the line stays secondary.
+        strong = f'<span style="color: {THEME.text_primary}">{{}}</span>'
+        parts = [
+            strong.format(count_of(len(frames), "frame") if frames else "Whole strip"),
+            f"{dpi} dpi",
+            *passes,
+            strong.format(size),
+        ]
+        self.status_strip.set_summary("  ·  ".join(parts))
 
     def _on_browse(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Select Output Folder")
@@ -1111,43 +1112,41 @@ class ScanSidebar(QWidget):
                 )
         except RuntimeError as e:
             self.set_scanning(False)
-            self.status_label.setText(f"Scanner busy: {e}")
+            self.status_strip.set_message(f"Scanner busy: {e}")
 
     @pyqtSlot(float, str)
     def _on_scan_progress(self, progress: float, phase_name: str = "Scanning") -> None:
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setFormat(f"{phase_name}… %p%")
-        self.progress_bar.setValue(int(progress * 100))
+        self.status_strip.set_progress(f"{phase_name}… %p%", progress)
 
     @pyqtSlot(str)
     def _on_scan_finished(self, path: str) -> None:
         self.set_scanning(False)
-        self.progress_bar.setVisible(False)
-        self.status_label.setText(f"Scanned: {path}")
+        self.status_strip.stop_progress()
+        self.status_strip.set_message(f"Scanned: {path}")
 
     @pyqtSlot(int, str)
     def _on_scan_frame_done(self, frame: int, path: str) -> None:
-        self.status_label.setText(f"Scanned frame {frame}: {path}")
+        self.status_strip.set_message(f"Scanned frame {frame}: {path}")
 
     @pyqtSlot(list)
     def _on_scan_batch_finished(self, paths: list) -> None:
         self.set_scanning(False)
-        self.progress_bar.setVisible(False)
+        self.status_strip.stop_progress()
         if paths:
-            self.status_label.setText(f"Batch complete: {count_of(len(paths), 'frame')}")
+            self.status_strip.set_message(f"Batch complete: {count_of(len(paths), 'frame')}")
 
     @pyqtSlot()
     def _on_scan_cancelled(self) -> None:
         self.set_scanning(False)
-        self.progress_bar.setVisible(False)
-        self.status_label.setText("Scan stopped")
+        self.status_strip.stop_progress()
+        self.status_strip.set_message("Scan stopped")
 
     @pyqtSlot(str)
     def _on_scan_error(self, msg: str) -> None:
         self.set_scanning(False)
-        self.progress_bar.setVisible(False)
+        self.status_strip.stop_progress()
         text = msg or "Unknown scan error"
-        self.status_label.setText(f"Error: {text}")
+        self.status_strip.set_message(f"Error: {text}")
         # Unsupported pyOpticfilm models: status alone is easy to miss.
         if "cannot scan with pyOpticfilm" in text:
             QMessageBox.warning(self, "Scan failed", text)
@@ -1159,7 +1158,7 @@ class ScanSidebar(QWidget):
         device = self._current_device()
         self.eject_btn.setEnabled(bool(device and device.capabilities.can_eject) and not self._scanning)
         if not triggered:
-            self.status_label.setText("This device has no eject control")
+            self.status_strip.set_message("This device has no eject control")
             return
         # Frames and their crops describe the piece of film that just came out; the next strip
         # is a different one, and silently reusing them scans the wrong frames.
@@ -1168,13 +1167,13 @@ class ScanSidebar(QWidget):
             self.settings = replace(self._settings, selected_frames=(), frame_windows={})
             self._update_scan_window_status()
             self._update_summary()
-        self.status_label.setText("Film ejected — frame selection cleared" if stale else "Film ejected")
+        self.status_strip.set_message("Film ejected — frame selection cleared" if stale else "Film ejected")
 
     @pyqtSlot(str)
     def _on_eject_error(self, msg: str) -> None:
         device = self._current_device()
         self.eject_btn.setEnabled(bool(device and device.capabilities.can_eject) and not self._scanning)
-        self.status_label.setText(f"Eject failed: {msg}")
+        self.status_strip.set_message(f"Eject failed: {msg}")
 
     # ── state helpers ─────────────────────────────────────────────────
 
@@ -1185,16 +1184,24 @@ class ScanSidebar(QWidget):
         self.eject_btn.setEnabled(bool(device and device.capabilities.can_eject) and not active)
         if active:
             self.scan_btn.setText(" Stop")
-            self.scan_btn.setIcon(qta.icon("fa5s.stop", color=THEME.text_primary))
-            self.progress_bar.setVisible(True)
-            self.progress_bar.setValue(0)
+            self.scan_btn.setIcon(qta.icon("fa5s.stop", color=THEME.accent_secondary))
+            self.status_strip.start_progress("Scanning… %p%")
             self.prescan_btn.setEnabled(False)
         else:
             self.scan_btn.setText(" Scan")
-            self.scan_btn.setIcon(qta.icon("fa5s.camera-retro", color=THEME.text_primary))
+            self.scan_btn.setIcon(qta.icon("fa5s.camera-retro", color="#FFFFFF"))
             self.prescan_btn.setEnabled(True)
+            self.status_strip.stop_progress()
+        # The filled/hollow swap is a QSS property selector, and Qt only re-reads those on a
+        # repolish.
+        self.scan_btn.setProperty("scanning", "true" if active else "false")
+        style = self.scan_btn.style()
+        style.unpolish(self.scan_btn)
+        style.polish(self.scan_btn)
 
     def _update_settings_from_ui(self) -> None:
+        # Editing anything means the last pass's message has been read: let the summary back.
+        self.status_strip.set_message("")
         dpi = self._dpi()
         try:
             depth = int(self.depth_combo.currentData() or 16)
