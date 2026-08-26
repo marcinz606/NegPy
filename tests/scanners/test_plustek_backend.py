@@ -181,6 +181,7 @@ def test_8100_v2_caps_match_pyopticfilm_model(monkeypatch):
     assert caps.ir_channel is False
     assert caps.multi_exposure is True
     assert caps.prescan is True
+    assert caps.prescan_mirror_x is True  # 8100 V2 inherits mirror_x from 8200i SE
     assert 1200 in caps.supported_dpi
 
 
