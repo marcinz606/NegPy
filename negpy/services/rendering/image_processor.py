@@ -79,6 +79,7 @@ from negpy.infrastructure.loaders.helpers import (
     get_best_demosaic_algorithm,
     is_xtrans,
 )
+from negpy.features.metadata.resolution import Resolution
 from negpy.services.export.print import PrintService
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry, WORKING_COLOR_SPACE
 from negpy.infrastructure.display.icc_lut import DEFAULT_LUT_SIZE, apply_icc_u16_rgb, apply_matrix_trc_u8
@@ -137,6 +138,19 @@ def _use_half_size_decode(raw: Any, linear_raw: bool) -> bool:
     """Mirrors the preview fast path (PreviewManager): rawpy half_size aliases the
     X-Trans 6x6 CFA on linear (no-camera-WB) decodes, so those stay full-res."""
     return not isinstance(raw, NonStandardFileWrapper) and not (is_xtrans(raw) and linear_raw)
+
+
+_DERIVE_RESOLUTION: Any = object()
+
+
+def _tiff_resolution_kwargs(resolution: Optional[Resolution], export_settings) -> Dict[str, Any]:
+    """TIFF cannot say "no resolution". Leaving these out makes tifffile write
+    XResolution (1, 1) with ResolutionUnit NONE, which readers report as 1 DPI, so a
+    file with nothing to preserve states the export's own resolution instead. Being
+    unable to stay silent is not a licence to state something false."""
+    if resolution is None:
+        resolution = Resolution.from_dpi(PrintService.resolution_tag_dpi(export_settings))
+    return {"resolution": (resolution.x, resolution.y), "resolutionunit": resolution.unit}
 
 
 def _downsample_to_long_edge(buf: np.ndarray, long_px: int) -> np.ndarray:
@@ -1080,11 +1094,14 @@ class ImageProcessor:
         color_space: str,
         working_color_space: str = WORKING_COLOR_SPACE,
         embed_plan: Optional[tuple] = None,
+        resolution: Any = _DERIVE_RESOLUTION,
     ) -> Tuple[Optional[bytes], str]:
         """Encode a rendered export buffer to file bytes; (bytes, format) or (None, error).
         Touches no processor state, so it can run on the finisher thread."""
         try:
-            return self._encode_export(buffer, export_settings, color_space, working_color_space, embed_plan=embed_plan)
+            return self._encode_export(
+                buffer, export_settings, color_space, working_color_space, embed_plan=embed_plan, resolution=resolution
+            )
         except Exception as e:
             logger.error(f"Export encode failed: {e}")
             return None, str(e)
@@ -1136,6 +1153,7 @@ class ImageProcessor:
         color_space: str,
         working_color_space: str = WORKING_COLOR_SPACE,
         embed_plan: Optional[tuple] = None,
+        resolution: Any = _DERIVE_RESOLUTION,
     ) -> Tuple[bytes, str]:
         """Encodes a processed float buffer to the target format's file bytes.
 
@@ -1145,6 +1163,8 @@ class ImageProcessor:
         fmt = export_settings.export_fmt
         icc_input = export_settings.icc_input_path
         icc_output = export_settings.icc_output_path
+        if resolution is _DERIVE_RESOLUTION:
+            resolution = Resolution.from_dpi(PrintService.resolution_tag_dpi(export_settings))
 
         # A target with no ICC profile (ACES/XYZ, or a stale custom name) can be neither
         # converted to nor tagged, so the file would carry untagged working-space pixels.
@@ -1184,6 +1204,7 @@ class ImageProcessor:
                 iccprofile=icc_bytes,
                 compression="zlib",
                 predictor=True,
+                **_tiff_resolution_kwargs(resolution, export_settings),
                 **meta_kwargs,
             )
             return output_buf.getvalue(), "tiff"
@@ -1204,6 +1225,8 @@ class ImageProcessor:
                 )
             output_buf = io.BytesIO()
             save_kwargs: Dict[str, Any] = {"format": "PNG", "compress_level": 6}
+            if resolution is not None:
+                save_kwargs["dpi"] = (resolution.x_dpi, resolution.y_dpi)
             if icc_bytes:
                 save_kwargs["icc_profile"] = icc_bytes
             if embed_plan is not None:
@@ -1281,7 +1304,7 @@ class ImageProcessor:
                     icc_input,
                 )
             output_buf = io.BytesIO()
-            self._save_to_pil_buffer(pil_img, output_buf, export_settings, icc_bytes)
+            self._save_to_pil_buffer(pil_img, output_buf, export_settings, icc_bytes, resolution)
             return output_buf.getvalue(), "jpg"
 
     def render_display_array(
@@ -1828,18 +1851,20 @@ class ImageProcessor:
         buf: io.BytesIO,
         export_settings,
         icc_bytes: Optional[bytes],
+        resolution: Optional[Resolution],
     ) -> None:
         """Encodes PIL image to byte stream."""
         fmt = "JPEG" if export_settings.export_fmt == ExportFormat.JPEG else "TIFF"
         quality = getattr(export_settings, "jpeg_quality", 95)
+        density = {"dpi": (resolution.x_dpi, resolution.y_dpi)} if resolution is not None else {}
         pil_img.save(
             buf,
             format=fmt,
             quality=quality,
             subsampling=0,
-            dpi=(export_settings.export_dpi, export_settings.export_dpi),
             icc_profile=icc_bytes,
             compression="tiff_lzw" if fmt == "TIFF" else None,
+            **density,
         )
 
     def release_source_cache(self) -> None:

@@ -23,6 +23,7 @@ import tifffile as _tifffile
 from negpy.features.flatfield.logic import apply_flatfield as _apply_flatfield_correction
 from negpy.features.retouch.models import IR_METHOD_OPENICE, RetouchConfig
 from negpy.features.flatfield.models import FlatFieldConfig
+from negpy.features.metadata.resolution import Resolution
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.process.models import ProcessConfig
 from negpy.features.process.sensor import apply_sensor_correction
@@ -930,11 +931,24 @@ def _linear_description(
     return f"NegPy Linear Output -- {', '.join(parts)}."
 
 
+# A linear dump resamples nothing, so it keeps the source's own resolution. This is
+# the fallback for a source that declares none: readers report tifffile's unit-less
+# default as 1 DPI.
+NOMINAL_DPI = 300
+
+
+def _linear_resolution(source_path: Optional[str]) -> "Resolution":
+    from negpy.features.metadata import resolution as resolution_source
+
+    return resolution_source.read_source(source_path) or Resolution.from_dpi(NOMINAL_DPI)
+
+
 def _write_tiff(
     f32: np.ndarray,
     dest,
     source_name: str,
     camera_wb: Optional[_CameraWB] = None,
+    resolution: Optional[Resolution] = None,
     source_path: Optional[str] = None,
     source_meta: Optional[_SourceMeta] = None,
     expansion: float = 1.0,
@@ -946,6 +960,7 @@ def _write_tiff(
     gamma_key: str = "linear",
 ) -> None:
     """Write a float32 buffer as an untagged 16-bit TIFF to *dest* (path or file-like)."""
+    res = resolution or _linear_resolution(source_path)
     u16 = _to_uint16_jit(np.ascontiguousarray(f32, dtype=np.float32))
     photometric = "rgb" if f32.ndim == 3 else "minisblack"
     description = _linear_description(
@@ -987,10 +1002,12 @@ def _write_tiff(
         datetime=dt,
         extratags=extratags or None,
         metadata=None,
+        resolution=(res.x, res.y),
+        resolutionunit=res.unit,
     )
 
 
-def _write_ir_tiff(ir: np.ndarray, dest) -> None:
+def _write_ir_tiff(ir: np.ndarray, dest, resolution: Optional[Resolution] = None) -> None:
     """Write a single-channel IR buffer as an untagged 16-bit grayscale TIFF."""
     u16 = _to_uint16_jit(np.ascontiguousarray(ir[:, :, np.newaxis] if ir.ndim == 2 else ir, dtype=np.float32))
     if u16.ndim == 3 and u16.shape[2] == 1:
@@ -998,6 +1015,7 @@ def _write_ir_tiff(ir: np.ndarray, dest) -> None:
     # No filename in the description: TIFF tag 270 is 7-bit ASCII only, and a
     # non-ASCII source name would make imwrite raise after the header is written.
     description = "NegPy Linear Output -- infrared channel."
+    res = resolution or Resolution.from_dpi(NOMINAL_DPI)
     try:
         _tifffile.imwrite(
             dest,
@@ -1006,6 +1024,8 @@ def _write_ir_tiff(ir: np.ndarray, dest) -> None:
             compression="zlib",
             predictor=True,
             description=description,
+            resolution=(res.x, res.y),
+            resolutionunit=res.unit,
         )
     except Exception:
         # The sidecar is a bonus artifact; never let it kill the export or leave
@@ -1020,7 +1040,9 @@ def _write_ir_jxl(ir: np.ndarray, dest, effort: int = 7) -> None:
     """Write a single-channel IR buffer as a lossless 16-bit grayscale JPEG XL.
 
     Unlike the RGB path (see _write_jxl), greyscale has no primaries field to get
-    wrong — transfer=LINEAR is the only tag asserted, and it's true.
+    wrong — transfer=LINEAR is the only tag asserted, and it's true. The sidecar is an
+    auxiliary data plane rather than a picture, so it carries no metadata box at all,
+    resolution included.
     """
     u16 = _to_uint16_jit(np.ascontiguousarray(ir[:, :, np.newaxis] if ir.ndim == 2 else ir, dtype=np.float32))
     if u16.ndim == 3 and u16.shape[2] == 1:
@@ -1049,6 +1071,7 @@ def _attach_jxl_provenance(
     source_path: Optional[str],
     source_meta: Optional[_SourceMeta],
     wb_applied: bool,
+    resolution: Optional[Resolution] = None,
 ) -> bytes:
     """Give the JPEG XL dump the same processing record and device metadata the TIFF
     one carries. The container holds it in boxes, so the encoder needs no say in it."""
@@ -1057,9 +1080,13 @@ def _attach_jxl_provenance(
     from negpy.features.metadata.writer import embed_jxl_boxes
 
     try:
+        res = resolution or _linear_resolution(source_path)
         zeroth: dict = {
             piexif.ImageIFD.ImageDescription: description.encode("ascii", "replace"),
             piexif.ImageIFD.Software: b"NegPy",
+            piexif.ImageIFD.XResolution: res.x,
+            piexif.ImageIFD.YResolution: res.y,
+            piexif.ImageIFD.ResolutionUnit: res.unit,
         }
         if source_meta is not None:
             if source_meta.make:
@@ -1093,6 +1120,7 @@ def _write_jxl(
     sensor_applied: bool = False,
     ice_applied: bool = False,
     gamma_key: str = "linear",
+    resolution: Optional[Resolution] = None,
 ) -> None:
     """Write a float32 buffer as a lossless 16-bit JPEG XL to *dest* (path or file-like).
 
@@ -1133,6 +1161,7 @@ def _write_jxl(
         source_path,
         source_meta,
         wb_applied,
+        resolution,
     )
     if hasattr(dest, "write"):
         dest.write(data)
@@ -1193,6 +1222,7 @@ def export_linear_output(
         ice_applied = True
     is_stitch = stitch is not None and stitch.stitch_enabled and stitch.stitch_paths
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    resolution = _linear_resolution(file_path)
 
     if output_format == "jxl":
         _write_jxl(
@@ -1210,6 +1240,7 @@ def export_linear_output(
             sensor_applied=apply_sensor or is_stitch,
             ice_applied=ice_applied,
             gamma_key=gamma_key,
+            resolution=resolution,
         )
     else:
         _write_tiff(
@@ -1226,6 +1257,7 @@ def export_linear_output(
             sensor_applied=apply_sensor or is_stitch,
             ice_applied=ice_applied,
             gamma_key=gamma_key,
+            resolution=resolution,
         )
 
     if ir is not None and not ice_applied:
@@ -1233,7 +1265,7 @@ def export_linear_output(
         if output_format == "jxl":
             _write_ir_jxl(ir, f"{stem}_ir.jxl", effort=jxl_effort)
         else:
-            _write_ir_tiff(ir, f"{stem}_ir.tiff")
+            _write_ir_tiff(ir, f"{stem}_ir.tiff", resolution=resolution)
 
 
 def export_linear_output_bytes(file_path: str, geometry: Optional[GeometryConfig] = None) -> tuple[bytes, str]:
