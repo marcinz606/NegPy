@@ -297,6 +297,12 @@ class PlustekBackend:
             def scan_progress(p: float) -> None:
                 _safe_progress(progress, 0.1 + 0.9 * p)
 
+            def on_status(status: str) -> None:
+                if status == "priming":
+                    _safe_progress(progress, 0.05, "Priming")
+                elif status == "scanning":
+                    _safe_progress(progress, 0.1, "Scanning")
+
             scan_area = None if geometry is not None else window
             rgb_image = scanner.scan(
                 resolution=dpi,
@@ -305,8 +311,10 @@ class PlustekBackend:
                 geometry=geometry,
                 progress=scan_progress,
                 cancel=cancel,
+                on_status=on_status,
                 multi_exposure=multi_exposure,
                 infrared=capture_ir,
+                me_exposure_mode="adaptive",
             )
             ir_plane = np.asarray(rgb_image.ir) if capture_ir and rgb_image.ir is not None else None
         except ScanCancelled as exc:
@@ -354,10 +362,10 @@ class PlustekBackend:
         if geo is None:
             from pyopticfilm.scan.bringup import (
                 bringup_scan_geometry,
-                is_opticfilm_8200i_se,
+                is_gl128_opticfilm,
             )
 
-            if is_opticfilm_8200i_se(scanner.model):
+            if is_gl128_opticfilm(scanner.model):
                 geo, _ = bringup_scan_geometry(scanner.model, dpi, profile="preview_safe")
         if geo is None:
             _safe_progress(progress, 0.1, "Calibrating")
@@ -394,14 +402,14 @@ class PlustekBackend:
         dpi: int,
         window: tuple[float, float, float, float] | None,
     ) -> object | None:
-        """Lab Full-window or crop geometry for SE (forced geometry into scan)."""
+        """Lab Full-window or crop geometry for GL128 scan-ready models (forced into scan)."""
         from pyopticfilm.scan.bringup import (
             bringup_scan_geometry,
             crop_scan_geometry,
-            is_opticfilm_8200i_se,
+            is_gl128_opticfilm,
         )
 
-        if not is_opticfilm_8200i_se(scanner.model):
+        if not is_gl128_opticfilm(scanner.model):
             return None
         if window is not None:
             geometry, _meta = crop_scan_geometry(scanner.model, dpi, window)
