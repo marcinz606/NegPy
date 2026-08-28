@@ -239,7 +239,7 @@ The bottom-left badge is grey, not red, because it reports what the frame *is* r
 
 Hover any thumbnail and the tooltip says the same thing in words, with the frame count: *HDR merge of 5 exposures*, *Stitched composite of 3 frames*.
 
-The right-click menu also offers **Copy/Paste Settings** (with or without normalization bounds), **Reset Settings**, **Apply settings…**, and per-frame export.
+The right-click menu also offers **Copy/Paste Settings** (with or without normalization bounds), **Reset Settings**, **Apply settings…**, and per-frame export. A copy that took the bounds lists them in the paste picker as **Normalization bounds**, ticked; untick it to paste the look and keep the frame's own bounds.
 
 ---
 

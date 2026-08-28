@@ -181,6 +181,20 @@ class TestPasteSettingsBounds(unittest.TestCase):
         self.session.apply_pasted_fields([])
         self.assertEqual(self._pasted_process().local_floors, _FLOORS)
 
+    def test_unticked_bounds_row_keeps_target_bounds(self):
+        self._copy_from(True)
+        self._set_target(local_floors=_OTHER_FLOORS, local_ceils=_CEILS, lock_bounds=True)
+        self.session.apply_pasted_fields([_MODE_ROW], include_bounds=False)
+        proc = self._pasted_process()
+        self.assertEqual(proc.local_floors, _OTHER_FLOORS)
+        self.assertTrue(proc.lock_bounds)
+
+    def test_unticked_bounds_row_with_no_rows_is_a_noop(self):
+        self._copy_from(True)
+        self._set_target()
+        self.session.apply_pasted_fields([], include_bounds=False)
+        self.session.update_config.assert_not_called()
+
     def test_plain_paste_keeps_target_bounds(self):
         self._copy_from(False)
         self._set_target(local_floors=_OTHER_FLOORS, local_ceils=_CEILS, lock_bounds=True)
