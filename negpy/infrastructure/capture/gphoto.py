@@ -234,6 +234,7 @@ def _safe_value(gp: Any, widget: Any) -> Optional[str]:
     # Even if there are choices, the current value might be unset / NULL pointer.
     try:
         import ctypes
+
         lib = ctypes.CDLL(None)
         get_val = getattr(lib, "gp_widget_get_value", None)
         if get_val and hasattr(widget, "this"):

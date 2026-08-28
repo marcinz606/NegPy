@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from PyQt6.QtWidgets import QApplication
 
 from negpy.desktop.controller import AppController
+from negpy.desktop.settings_catalog import SettingRow
 from negpy.desktop.session import AppState, DesktopSessionManager
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.process.models import ProcessConfig, invalidate_local_bounds
@@ -17,6 +18,9 @@ if not QApplication.instance():
 
 _FLOORS = (0.1, 0.2, 0.3)
 _CEILS = (0.8, 0.85, 0.9)
+_OTHER_FLOORS = (0.4, 0.5, 0.6)
+_MODE_ROW = SettingRow("Mode", "process", ("process_mode",))
+_BUFFER_ROW = SettingRow("Analysis Buffer", "process", ("analysis_buffer",))
 
 
 # ── Helper function ───────────────────────────────────────────────────────────
@@ -105,6 +109,116 @@ class TestCopySettingsBounds(unittest.TestCase):
             process=replace(self.session.state.config.process, analysis_buffer=0.99),
         )
         self.assertNotAlmostEqual(clipboard_proc.analysis_buffer, 0.99)
+
+
+class TestPasteSettingsBounds(unittest.TestCase):
+    """Paste must carry the bounds a copy-with-bounds put on the clipboard, and must
+    not touch the target's own bounds when the clipboard has none."""
+
+    def setUp(self):
+        mock_repo = MagicMock(spec=StorageRepository)
+        mock_repo.load_file_settings.return_value = None
+        mock_repo.load_file_settings_by_path.return_value = None
+        mock_repo.get_global_setting.return_value = None
+        mock_repo.get_max_history_index.return_value = 0
+        self.session = DesktopSessionManager(mock_repo)
+        self.session.state.current_file_hash = "hash1"
+        self.session.update_config = MagicMock()
+
+    def _copy_from(self, with_bounds: bool, **process_kwargs):
+        self.session.state.config = replace(
+            WorkspaceConfig(),
+            process=ProcessConfig(local_floors=_FLOORS, local_ceils=_CEILS, lock_bounds=True, **process_kwargs),
+        )
+        if with_bounds:
+            self.session.copy_settings_with_bounds()
+        else:
+            self.session.copy_settings()
+
+    def _set_target(self, **process_kwargs):
+        self.session.state.config = replace(WorkspaceConfig(), process=ProcessConfig(**process_kwargs))
+
+    def _pasted_process(self):
+        return self.session.update_config.call_args.args[0].process
+
+    def test_paste_applies_copied_bounds(self):
+        self._copy_from(True)
+        self._set_target()
+        self.session.apply_pasted_fields([_MODE_ROW])
+        proc = self._pasted_process()
+        self.assertEqual(proc.local_floors, _FLOORS)
+        self.assertEqual(proc.local_ceils, _CEILS)
+
+    def test_paste_applies_copied_lock_flag(self):
+        self._copy_from(True)
+        self._set_target()
+        self.session.apply_pasted_fields([_MODE_ROW])
+        self.assertTrue(self._pasted_process().lock_bounds)
+
+    def test_paste_carries_unlocked_bounds_without_locking(self):
+        self.session.state.config = replace(
+            WorkspaceConfig(),
+            process=ProcessConfig(local_floors=_FLOORS, local_ceils=_CEILS, lock_bounds=False),
+        )
+        self.session.copy_settings_with_bounds()
+        self._set_target()
+        self.session.apply_pasted_fields([_MODE_ROW])
+        proc = self._pasted_process()
+        self.assertEqual(proc.local_floors, _FLOORS)
+        self.assertFalse(proc.lock_bounds)
+
+    def test_pasted_bounds_survive_a_bounds_input_row(self):
+        self._copy_from(True, analysis_buffer=0.25)
+        self._set_target()
+        self.session.apply_pasted_fields([_BUFFER_ROW])
+        proc = self._pasted_process()
+        self.assertAlmostEqual(proc.analysis_buffer, 0.25)
+        self.assertEqual(proc.local_floors, _FLOORS)
+
+    def test_paste_with_bounds_and_no_rows_still_applies_bounds(self):
+        self._copy_from(True)
+        self._set_target()
+        self.session.apply_pasted_fields([])
+        self.assertEqual(self._pasted_process().local_floors, _FLOORS)
+
+    def test_unticked_bounds_row_keeps_target_bounds(self):
+        self._copy_from(True)
+        self._set_target(local_floors=_OTHER_FLOORS, local_ceils=_CEILS, lock_bounds=True)
+        self.session.apply_pasted_fields([_MODE_ROW], include_bounds=False)
+        proc = self._pasted_process()
+        self.assertEqual(proc.local_floors, _OTHER_FLOORS)
+        self.assertTrue(proc.lock_bounds)
+
+    def test_unticked_bounds_row_with_no_rows_is_a_noop(self):
+        self._copy_from(True)
+        self._set_target()
+        self.session.apply_pasted_fields([], include_bounds=False)
+        self.session.update_config.assert_not_called()
+
+    def test_plain_paste_keeps_target_bounds(self):
+        self._copy_from(False)
+        self._set_target(local_floors=_OTHER_FLOORS, local_ceils=_CEILS, lock_bounds=True)
+        self.session.apply_pasted_fields([_MODE_ROW])
+        proc = self._pasted_process()
+        self.assertEqual(proc.local_floors, _OTHER_FLOORS)
+        self.assertTrue(proc.lock_bounds)
+
+    def test_plain_paste_of_a_bounds_input_row_still_invalidates(self):
+        self._copy_from(False, analysis_buffer=0.25)
+        self._set_target(local_floors=_OTHER_FLOORS, local_ceils=_CEILS, lock_bounds=False)
+        self.session.apply_pasted_fields([_BUFFER_ROW])
+        self.assertEqual(self._pasted_process().local_floors, (0.0, 0.0, 0.0))
+
+    def test_plain_paste_of_no_rows_is_a_noop(self):
+        self._copy_from(False)
+        self._set_target()
+        self.session.apply_pasted_fields([])
+        self.session.update_config.assert_not_called()
+
+    def test_paste_without_clipboard_is_a_noop(self):
+        self._set_target()
+        self.session.apply_pasted_fields([_MODE_ROW])
+        self.session.update_config.assert_not_called()
 
 
 # ── Controller crop operations ────────────────────────────────────────────────

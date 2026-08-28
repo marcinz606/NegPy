@@ -1136,13 +1136,13 @@ class FileBrowser(QWidget):
         roll_targets = len([i for i in visible if i != src])
 
         source_cfg = self.session.state.config
-        show_bounds = _source_effective_bounds(source_cfg.process) is not None
+        bounds_mode = "axes" if _source_effective_bounds(source_cfg.process) is not None else ""
         dlg = GranularSettingsDialog(
             self,
             source_cfg,
             self._source_name(),
             show_scope=True,
-            show_bounds=show_bounds,
+            bounds_mode=bounds_mode,
             sel_count=sel_targets,
             roll_count=roll_targets,
         )

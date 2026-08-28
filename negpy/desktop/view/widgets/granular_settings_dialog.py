@@ -20,6 +20,10 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 
 
+def _triplet(values) -> str:
+    return " / ".join(f"{v:g}" for v in values)
+
+
 class GranularSettingsDialog(QDialog):
     """Per-setting picker for paste / apply-to-many. Lists one collapsible section
     per edit area, each setting with a checkbox and its value. Settings still at
@@ -34,7 +38,7 @@ class GranularSettingsDialog(QDialog):
         source_name: str,
         *,
         show_scope: bool = False,
-        show_bounds: bool = False,
+        bounds_mode: str = "",
         sel_count: int = 0,
         roll_count: int = 0,
         ask_name: bool = False,
@@ -52,6 +56,7 @@ class GranularSettingsDialog(QDialog):
         self._preselect_ids = preselect_ids
         self._bounds_luma: QCheckBox | None = None
         self._bounds_color: QCheckBox | None = None
+        self._bounds_local: QCheckBox | None = None
         self._name_edit: QLineEdit | None = None
         if show_current:
             self._scope = "current"
@@ -89,7 +94,7 @@ class GranularSettingsDialog(QDialog):
         if show_apply_mode:
             root.addLayout(self._build_mode_row())
         root.addLayout(self._build_checks_row())
-        root.addWidget(self._build_sections(source_cfg, show_bounds, exclude_sections), 1)
+        root.addWidget(self._build_sections(source_cfg, bounds_mode, exclude_sections), 1)
         root.addLayout(self._build_footer(ask_name))
 
         self._apply_visibility()
@@ -149,7 +154,7 @@ class GranularSettingsDialog(QDialog):
         row.addWidget(self._show_unchanged)
         return row
 
-    def _build_sections(self, source_cfg, show_bounds: bool, exclude_sections: frozenset[str] = frozenset()) -> QScrollArea:
+    def _build_sections(self, source_cfg, bounds_mode: str, exclude_sections: frozenset[str] = frozenset()) -> QScrollArea:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
@@ -175,9 +180,13 @@ class GranularSettingsDialog(QDialog):
             col.addWidget(section)
             self._sections.append((section, edited_count))
 
-        if show_bounds:
+        if bounds_mode == "axes":
             section = CollapsibleSection("Roll baseline", expanded=True)
             section.set_content(self._build_bounds_rows())
+            col.addWidget(section)
+        elif bounds_mode == "local":
+            section = CollapsibleSection("Normalization bounds", expanded=True)
+            section.set_content(self._build_local_bounds_row(source_cfg.process))
             col.addWidget(section)
 
         col.addStretch()
@@ -219,6 +228,23 @@ class GranularSettingsDialog(QDialog):
             col.addWidget(box)
         return body
 
+    def _build_local_bounds_row(self, process) -> QWidget:
+        """The source frame's own metered bounds, as one opt-out row: they are not
+        catalog fields, so they cannot be listed with the rest."""
+        body = QWidget()
+        row = QHBoxLayout(body)
+        row.setContentsMargins(0, 0, 0, 0)
+        label = "Copied frame's bounds" + (" (locked)" if process.lock_bounds else "")
+        self._bounds_local = QCheckBox(label)
+        self._bounds_local.setChecked(True)
+        self._bounds_local.stateChanged.connect(self._update_apply_enabled)
+        val = QLabel(f"{_triplet(process.local_floors)} → {_triplet(process.local_ceils)}")
+        val.setStyleSheet(f"color: {THEME.text_muted};")
+        row.addWidget(self._bounds_local)
+        row.addStretch()
+        row.addWidget(val)
+        return body
+
     def _build_footer(self, ask_name: bool = False) -> QHBoxLayout:
         row = QHBoxLayout()
         row.addStretch()
@@ -232,7 +258,7 @@ class GranularSettingsDialog(QDialog):
 
     def _all_boxes(self) -> list[QCheckBox]:
         boxes = [box for box, _row, _edited, _line in self._checks]
-        boxes += [b for b in (self._bounds_luma, self._bounds_color) if b is not None]
+        boxes += [b for b in (self._bounds_luma, self._bounds_color, self._bounds_local) if b is not None]
         return boxes
 
     def _on_section_toggled(self, _section, rows: tuple[SettingRow, ...], checked: bool) -> None:
@@ -268,7 +294,7 @@ class GranularSettingsDialog(QDialog):
         for box, _row, edited, _line in self._checks:
             if edited or show_all:
                 box.setChecked(checked)
-        for box in (self._bounds_luma, self._bounds_color):
+        for box in (self._bounds_luma, self._bounds_color, self._bounds_local):
             if box is not None:
                 box.setChecked(checked)
 
@@ -322,6 +348,9 @@ class GranularSettingsDialog(QDialog):
             self._bounds_color is not None and self._bounds_color.isChecked(),
         )
 
+    def paste_bounds(self) -> bool:
+        return self._bounds_local is not None and self._bounds_local.isChecked()
+
     def scope(self) -> str:
         return self._scope
 
@@ -337,9 +366,10 @@ def open_paste_dialog(parent, controller) -> None:
     state = controller.session.state
     if state.clipboard is None or not state.current_file_hash:
         return
-    dlg = GranularSettingsDialog(parent, state.clipboard, "clipboard", show_scope=False)
+    bounds_mode = "local" if state.clipboard.process.is_local_initialized else ""
+    dlg = GranularSettingsDialog(parent, state.clipboard, "clipboard", bounds_mode=bounds_mode)
     if dlg.exec() == QDialog.DialogCode.Accepted:
-        controller.session.apply_pasted_fields(dlg.selected())
+        controller.session.apply_pasted_fields(dlg.selected(), include_bounds=dlg.paste_bounds())
 
 
 def open_sticky_dialog(parent, controller) -> None:
