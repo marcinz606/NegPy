@@ -15,7 +15,12 @@ from negpy.infrastructure.scanners.base import (
     ScannerUnavailable,
     TransientScanError,
 )
-from negpy.infrastructure.scanners.params import ScanParams, clamp_frame_offset_mm
+from negpy.infrastructure.scanners.params import (
+    CANONICAL_DPI_STOPS,
+    ScanParams,
+    clamp_frame_offset_mm,
+    dpi_stops_in_range,
+)
 from negpy.infrastructure.scanners.result import ScanResult
 from negpy.kernel.system.logging import get_logger
 
@@ -34,8 +39,6 @@ _SOURCE_MAP: dict[str, ScanMode] = {
     "tpu": ScanMode.TRANSPARENCY,
     "film": ScanMode.TRANSPARENCY,
 }
-
-CANONICAL_DPI_STOPS = (75, 150, 300, 600, 1200, 2400, 3600, 4800, 6400, 7200, 9600)
 
 # Legacy SANE option py_names that expose a dedicated infrared channel/scan.
 # Their presence-only capability behavior predates Coolscan support.
@@ -158,9 +161,7 @@ def _detect_dpi(opt) -> tuple[int, ...]:
     if isinstance(constraint, list):
         return tuple(sorted(int(c) for c in constraint))
     if isinstance(constraint, tuple) and len(constraint) >= 2:
-        lo, hi = constraint[0], constraint[1]
-        dpi = tuple(s for s in CANONICAL_DPI_STOPS if lo <= s <= hi)
-        return dpi or tuple(CANONICAL_DPI_STOPS)
+        return dpi_stops_in_range(constraint[0], constraint[1])
     return CANONICAL_DPI_STOPS
 
 

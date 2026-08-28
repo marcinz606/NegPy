@@ -11,8 +11,9 @@ from PyQt6.QtWidgets import QWidget
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog, _guides, guide_markdown, has_guide
 
-# The Analysis read-out plus every section ControlsPanel builds. A key here with no
-# marker in the doc silently drops that panel's ⓘ, which nothing else would catch.
+# The Analysis read-out plus every section ControlsPanel builds, and the dialogs that carry
+# their own ⓘ. A key here with no marker in the doc silently drops that ⓘ, which nothing else
+# would catch.
 GUIDED_KEYS = (
     "analysis",
     "presets",
@@ -29,6 +30,8 @@ GUIDED_KEYS = (
     "toning",
     "retouch",
     "finish",
+    "scan_sane",
+    "scan_strip",
 )
 
 
@@ -77,7 +80,7 @@ def test_the_dialog_renders_markdown_for_every_panel(key: str) -> None:
 
 
 def test_the_info_button_is_opt_in() -> None:
-    """CollapsibleSection also backs the Export, Metadata and Scan sections, which have no guide."""
+    """CollapsibleSection also backs the Export and Metadata sections, which have no guide."""
     assert CollapsibleSection("Plain").info_btn is None
     assert CollapsibleSection("Analysis", info=True).info_btn is not None
 

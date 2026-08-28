@@ -40,6 +40,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+nkscan = ["nkscan>=0.9"]
 plustek = ["pyopticfilm>=1.2.0"]
 sane = ["python-sane>=2.9"]
 camera = ["gphoto2>=2.5 ; sys_platform != 'win32'"]
@@ -65,6 +66,10 @@ camera = [
 ]
 pieusb = [
     "pieusb>=0.3.7",
+]
+nkscan = [
+    # Nikon Coolscan over SCSI/USB. A Rust extension, shipped as wheels.
+    "nkscan>=0.9",
 ]
 
 [project.urls]

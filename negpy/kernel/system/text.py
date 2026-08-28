@@ -18,3 +18,13 @@ def count_of(count: int, singular: str, plural_form: str = "") -> str:
     to forget.
     """
     return f"{count} {plural(count, singular, plural_form)}"
+
+
+def human_bytes(n: float) -> str:
+    """A byte count in the largest unit that keeps it under 1024."""
+    size = float(n)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} GB"

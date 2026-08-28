@@ -342,6 +342,9 @@ dependencies = [
 camera = [
     { name = "gphoto2", marker = "sys_platform != 'win32'" },
 ]
+nkscan = [
+    { name = "nkscan" },
+]
 plustek = [
     { name = "pyopticfilm" },
 ]
@@ -360,6 +363,9 @@ dev = [
     { name = "ruff" },
     { name = "ty" },
 ]
+nkscan = [
+    { name = "nkscan" },
+]
 pieusb = [
     { name = "pieusb" },
 ]
@@ -376,6 +382,7 @@ requires-dist = [
     { name = "imagecodecs", specifier = "==2026.6.6" },
     { name = "imageio", specifier = "==2.37.3" },
     { name = "jinja2", specifier = "==3.1.6" },
+    { name = "nkscan", marker = "extra == 'nkscan'", specifier = ">=0.9" },
     { name = "numba", specifier = "==0.65.1" },
     { name = "numpy", specifier = "==2.4.4" },
     { name = "opencv-python-headless", specifier = "==4.13.0.92" },
@@ -391,7 +398,7 @@ requires-dist = [
     { name = "tifffile", specifier = "==2026.6.1" },
     { name = "wgpu", specifier = "==0.31.1" },
 ]
-provides-extras = ["plustek", "sane", "camera"]
+provides-extras = ["nkscan", "plustek", "sane", "camera"]
 
 [package.metadata.requires-dev]
 camera = [{ name = "gphoto2", marker = "sys_platform != 'win32'", specifier = ">=2.5" }]
@@ -402,9 +409,21 @@ dev = [
     { name = "ruff", specifier = "==0.14.10" },
     { name = "ty", specifier = ">=0.0.26" },
 ]
+nkscan = [{ name = "nkscan", specifier = ">=0.9" }]
 pieusb = [{ name = "pieusb", specifier = ">=0.3.7" }]
 plustek = [{ name = "pyopticfilm", specifier = ">=1.2.0" }]
 sane = [{ name = "python-sane", specifier = ">=2.9" }]
+
+[[package]]
+name = "nkscan"
+version = "0.9.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/33/4d/8b02d8e3a7ce1604f9d3b1ae94e31fac5850b7daaa484a81b2f8f78ab6e9/nkscan-0.9.0.tar.gz", hash = "sha256:b38d89afc0d6bfe3473294db587f58fa9fe8a9c6a9017561105a633d8cd355a8", size = 2804597, upload-time = "2026-08-24T01:28:37.411Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b6/50/483d48da107ac514b8fad9ca5caff4f1d20dc048f2a4e4822259d49c5ae2/nkscan-0.9.0-cp313-abi3-macosx_11_0_arm64.whl", hash = "sha256:1f7be405c2b601cdf942f4e87e8b16eb2a6702ae5c10dc145947c4e4cdaf7a49", size = 735425, upload-time = "2026-08-24T01:28:32.919Z" },
+    { url = "https://files.pythonhosted.org/packages/43/b7/92008b81db30187f1461d6fbdb8c313713001a40cdad82bbaba0bdbe19e7/nkscan-0.9.0-cp313-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f4c0550b73e18393461f9073d4ab75ecd9ff8ae2042ebb5c5028271eeeb1f10a", size = 836903, upload-time = "2026-08-24T01:28:34.506Z" },
+    { url = "https://files.pythonhosted.org/packages/1c/94/f53841c7168ebea01f16ab758714f70da348ef56b2e0204024babd56d358/nkscan-0.9.0-cp313-abi3-win_amd64.whl", hash = "sha256:dff231a33cbd3164c9d116b5bbf6ca9a7c070f8d386330833f89266a42ed7f08", size = 595336, upload-time = "2026-08-24T01:28:35.973Z" },
+]
 
 [[package]]
 name = "numba"

@@ -27,6 +27,12 @@ def _make_plustek() -> ScannerBackend:
     return PlustekBackend(calib_cache=calib_cache)
 
 
+def _make_nkscan() -> ScannerBackend:
+    from negpy.infrastructure.scanners.nkscan_backend import NkscanBackend
+
+    return NkscanBackend()
+
+
 def _make_pieusb() -> ScannerBackend:
     from negpy.infrastructure.scanners.pieusb_backend import PieusbBackend
 
@@ -38,6 +44,7 @@ DEFAULT_BACKEND_ID = "plustek" if sys.platform == "win32" else "sane"
 # id -> (display label, factory). Insertion order drives the sidebar dropdown. SANE is
 # Unix-only (python-sane); Windows ships Plustek USB and PIEUSB.
 BACKENDS: dict[str, tuple[str, Callable[[], ScannerBackend]]] = {
+    "nkscan": ("Nikon Coolscan (nkscan)", _make_nkscan),
     "plustek": ("pyOpticfilm (Plustek)", _make_plustek),
     "pieusb": ("PIEUSB", _make_pieusb),
 }

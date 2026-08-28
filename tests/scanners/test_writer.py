@@ -130,3 +130,54 @@ class TestDngWriter:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = write_dng_linear(result, os.path.join(tmpdir, "noext"))
             assert path.endswith(".dng")
+
+
+class TestHotFolderSeesOnlyFinishedScans:
+    """The output folder may be watched, and it indexes on extension alone."""
+
+    def test_the_tiff_being_written_is_not_offered_to_the_watcher(self, monkeypatch) -> None:
+        from negpy.infrastructure.filesystem.watcher import FolderWatchService
+
+        rgb = np.random.randint(0, 65535, (60, 80, 3), dtype=np.uint16)
+        ir = np.random.randint(0, 65535, (60, 80), dtype=np.uint16)
+        result = ScanResult(rgb=rgb, ir=ir, dpi=3600, device_model="TestScanner")
+        offered: list[str] = []
+        real_imwrite = tifffile.imwrite
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+
+            def watching_imwrite(file, data, **kwargs):
+                # Probe with the half-written file still on disk, before its rename.
+                real_imwrite(file, data, **kwargs)
+                found = FolderWatchService.scan_for_new_files(tmpdir, set())
+                assert os.path.abspath(str(file)) not in found
+                offered.extend(found)
+
+            monkeypatch.setattr(tifffile, "imwrite", watching_imwrite)
+            path = write_tiff_16bit(result, os.path.join(tmpdir, "scan_001"))
+
+            assert offered  # the probe ran, and only ever saw finished scans
+            assert FolderWatchService.scan_for_new_files(tmpdir, set()) == [os.path.abspath(path)]
+
+    def test_the_dng_being_written_is_not_offered_to_the_watcher(self, monkeypatch) -> None:
+        from negpy.infrastructure.filesystem.watcher import FolderWatchService
+
+        rgb = np.random.randint(0, 65535, (60, 80, 3), dtype=np.uint16)
+        result = ScanResult(rgb=rgb, ir=None, dpi=3600, device_model="TestScanner")
+        probes = 0
+        real_replace = os.replace
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+
+            def watching_replace(src, dst):
+                # The written file is complete here, but still under its part name.
+                nonlocal probes
+                probes += 1
+                assert FolderWatchService.scan_for_new_files(tmpdir, set()) == []
+                real_replace(src, dst)
+
+            monkeypatch.setattr(os, "replace", watching_replace)
+            path = write_dng_linear(result, os.path.join(tmpdir, "scan_002"))
+
+            assert probes == 1
+            assert FolderWatchService.scan_for_new_files(tmpdir, set()) == [os.path.abspath(path)]

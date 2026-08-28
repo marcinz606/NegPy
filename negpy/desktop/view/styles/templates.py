@@ -2,8 +2,8 @@ import dataclasses
 import html
 
 import qtawesome as qta
-from PyQt6.QtCore import QEvent
-from PyQt6.QtWidgets import QLabel, QPushButton, QWidget
+from PyQt6.QtCore import QEvent, Qt
+from PyQt6.QtWidgets import QLabel, QProgressBar, QPushButton, QStackedLayout, QWidget
 
 from negpy.desktop.view.styles.fonts import ui_font_family
 from negpy.desktop.view.styles.theme import THEME
@@ -116,6 +116,82 @@ class EditedDot(QLabel):
     def _reposition(self) -> None:
         parent = self.parent()
         self.move(parent.width() - self.width() - self._margin, self._margin)
+
+
+class StatusStrip(QWidget):
+    """One fixed-height row for a surface's transient state: the pass that is running, the
+    message it left behind, or the resting summary — whichever is current, in that order.
+
+    The height is reserved once, at construction. That is the whole point: a scan surface
+    that shows each of these in its own appearing row moves the button underneath them.
+    """
+
+    def __init__(self, parent: QWidget | None = None, lines: int = 2) -> None:
+        super().__init__(parent)
+        self._stack = QStackedLayout(self)
+        self._stack.setContentsMargins(0, 0, 0, 0)
+
+        self._summary = QLabel("")
+        self._summary.setWordWrap(True)
+        self._summary.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;")
+
+        self._message = QLabel("")
+        self._message.setWordWrap(True)
+        self._message.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;")
+
+        self._bar = QProgressBar()
+        self._bar.setRange(0, 100)
+        self._bar.setValue(0)
+
+        for w in (self._summary, self._message, self._bar):
+            self._stack.addWidget(w)
+        self._stack.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+
+        self.setFixedHeight(self._summary.fontMetrics().lineSpacing() * lines + THEME.space_lg)
+        self._running = False
+        self._show_current()
+
+    def set_summary(self, markup: str) -> None:
+        """The resting line. Rich text: callers weight the parts that matter."""
+        self._summary.setText(markup)
+        self._show_current()
+
+    def set_message(self, text: str) -> None:
+        """A result, a warning or an error. Empty falls back to the summary."""
+        self._message.setText(text)
+        self._message.setToolTip(text)  # the strip clips rather than grows; nothing is lost
+        self._show_current()
+
+    def message(self) -> str:
+        return self._message.text()
+
+    def showing(self) -> str:
+        """Which role the row currently carries: "progress" | "message" | "summary"."""
+        return {self._bar: "progress", self._message: "message"}.get(self._stack.currentWidget(), "summary")
+
+    def start_progress(self, fmt: str) -> None:
+        self._bar.setFormat(fmt)
+        self._bar.setValue(0)
+        self._running = True
+        self._show_current()
+
+    def set_progress(self, fmt: str, fraction: float) -> None:
+        self._bar.setFormat(fmt)
+        self._bar.setValue(int(max(0.0, min(1.0, fraction)) * 100))
+        self._running = True
+        self._show_current()
+
+    def stop_progress(self) -> None:
+        self._running = False
+        self._show_current()
+
+    def _show_current(self) -> None:
+        if self._running:
+            self._stack.setCurrentWidget(self._bar)
+        elif self._message.text():
+            self._stack.setCurrentWidget(self._message)
+        else:
+            self._stack.setCurrentWidget(self._summary)
 
 
 def section_subheader(text: str) -> QLabel:

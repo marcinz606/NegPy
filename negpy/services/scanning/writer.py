@@ -11,6 +11,12 @@ from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Extension for the file an atomic write goes to before its rename, the same one export and
+# the sidecar writer use. Deliberately not one a loader accepts: the output folder may be a
+# watched hot folder, which indexes on extension and would take a half-written scan for a
+# new asset.
+_PART_SUFFIX = ".part"
+
 
 def _to_uint16(arr: np.ndarray) -> np.ndarray:
     """Convert array to uint16. For uint8, replicate byte (x<<8 | x) so 8-bit
@@ -26,7 +32,7 @@ def _to_uint16(arr: np.ndarray) -> np.ndarray:
 def write_tiff_16bit(result: ScanResult, path: str) -> str:
     """Write ScanResult to 16-bit TIFF. IR written as sidecar `<basename>_IR.tif`.
 
-    Uses atomic write (write to .tmp then rename) to avoid partial files.
+    Uses atomic write (write to a part file, then rename) to avoid partial files.
     Returns final RGB path.
     """
     if not path.lower().endswith((".tif", ".tiff")):
@@ -34,7 +40,7 @@ def write_tiff_16bit(result: ScanResult, path: str) -> str:
 
     rgb = _to_uint16(result.rgb)
 
-    fd, tmp_path = tempfile.mkstemp(suffix=".tif", dir=os.path.dirname(path) or ".")
+    fd, tmp_path = tempfile.mkstemp(suffix=_PART_SUFFIX, dir=os.path.dirname(path) or ".")
     os.close(fd)
     try:
         tifffile.imwrite(tmp_path, rgb, photometric="rgb", compression="zlib", predictor=True)
@@ -48,7 +54,7 @@ def write_tiff_16bit(result: ScanResult, path: str) -> str:
         base = os.path.splitext(path)[0]
         ir_path = f"{base}_IR.tif"
         ir_data = _to_uint16(result.ir)
-        fd_ir, tmp_ir = tempfile.mkstemp(suffix=".tif", dir=os.path.dirname(ir_path) or ".")
+        fd_ir, tmp_ir = tempfile.mkstemp(suffix=_PART_SUFFIX, dir=os.path.dirname(ir_path) or ".")
         os.close(fd_ir)
         try:
             tifffile.imwrite(tmp_ir, ir_data, photometric="minisblack", compression="zlib", predictor=True)
@@ -64,7 +70,7 @@ def write_tiff_16bit(result: ScanResult, path: str) -> str:
         base = os.path.splitext(path)[0]
         valid_path = f"{base}_IR_VALID.tif"
         valid_data = np.asarray(result.ir_valid_mask).astype(np.uint8) * 255
-        fd_v, tmp_v = tempfile.mkstemp(suffix=".tif", dir=os.path.dirname(valid_path) or ".")
+        fd_v, tmp_v = tempfile.mkstemp(suffix=_PART_SUFFIX, dir=os.path.dirname(valid_path) or ".")
         os.close(fd_v)
         try:
             tifffile.imwrite(tmp_v, valid_data, photometric="minisblack", compression="zlib", predictor=True)
@@ -109,7 +115,7 @@ def write_dng_linear(result: ScanResult, path: str) -> str:
     ]
     payload = _encode_dng(full_array, extratags)
 
-    fd, tmp_path = tempfile.mkstemp(suffix=".dng", dir=os.path.dirname(path) or ".")
+    fd, tmp_path = tempfile.mkstemp(suffix=_PART_SUFFIX, dir=os.path.dirname(path) or ".")
     os.close(fd)
     try:
         with open(tmp_path, "wb") as fh:

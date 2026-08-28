@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.view.styles.theme import THEME
+from negpy.kernel.system.text import human_bytes
 
 # (stat key, display label). The order is the display order, and a separator sits between
 # the per-image group and the reusable-tooling group.
@@ -29,15 +30,6 @@ _TOOLING_ROWS = (
     ("library_roots", "Library folders"),
     ("app_preferences", "App preferences"),
 )
-
-
-def _human_bytes(n: int) -> str:
-    size = float(n)
-    for unit in ("B", "KB", "MB", "GB"):
-        if size < 1024 or unit == "GB":
-            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
-        size /= 1024
-    return f"{size:.1f} GB"
 
 
 class DatabaseDialog(QDialog):
@@ -175,7 +167,7 @@ class DatabaseDialog(QDialog):
         for key, lbl in self._value_labels.items():
             lbl.setText(f"{stats.get(key, 0):,}")
         db_bytes = stats.get("edits_db_bytes", 0) + stats.get("settings_db_bytes", 0)
-        self._size_label.setText(f"On disk: {_human_bytes(db_bytes)} databases + {_human_bytes(thumb_bytes)} thumbnails")
+        self._size_label.setText(f"On disk: {human_bytes(db_bytes)} databases + {human_bytes(thumb_bytes)} thumbnails")
         self._update_enabled(stats)
 
     def _update_enabled(self, stats: dict) -> None:
