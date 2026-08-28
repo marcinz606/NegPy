@@ -230,6 +230,23 @@ def _safe_value(gp: Any, widget: Any) -> Optional[str]:
     kind = widget.get_type()
     if kind in (gp.GP_WIDGET_RADIO, gp.GP_WIDGET_MENU) and widget.count_choices() == 0:
         return None
+
+    # Even if there are choices, the current value might be unset / NULL pointer.
+    try:
+        import ctypes
+        lib = ctypes.CDLL(None)
+        get_val = getattr(lib, "gp_widget_get_value", None)
+        if get_val and hasattr(widget, "this"):
+            get_val.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+            get_val.restype = ctypes.c_int
+            ptr = ctypes.c_void_p()
+            res = get_val(int(widget.this), ctypes.byref(ptr))
+            if res == 0 and not ptr:
+                logger.debug("gphoto2: widget %r returned a NULL pointer; safely returning None", widget.get_name())
+                return None
+    except Exception:
+        pass
+
     return widget.get_value()
 
 
