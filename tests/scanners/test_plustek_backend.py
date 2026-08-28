@@ -114,6 +114,10 @@ def _fake_scanner(*, progress_steps: int = 0, scan_error: Exception | None = Non
         cancel = kwargs.get("cancel")
         if cancel is not None and cancel.is_set():
             raise ScanCancelled("cancelled")
+        on_status = kwargs.get("on_status")
+        if on_status is not None:
+            on_status("priming")
+            on_status("scanning")
         progress = kwargs.get("progress")
         if progress is not None:
             for i in range(1, progress_steps + 1):
@@ -332,6 +336,32 @@ def test_multi_exposure_passthrough(monkeypatch):
         threading.Event(),
     )
     assert scanner.scan.call_args.kwargs.get("multi_exposure") is True
+    assert scanner.scan.call_args.kwargs.get("me_exposure_mode") == "adaptive"
+
+
+def test_colour_scan_passes_adaptive_me_mode(monkeypatch):
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner()
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    PlustekBackend().scan(_DEVICE_ID, _params(), lambda *_: None, threading.Event())
+    assert scanner.scan.call_args.kwargs.get("me_exposure_mode") == "adaptive"
+    assert scanner.scan.call_args.kwargs.get("on_status") is not None
+
+
+def test_on_status_reports_priming_then_scanning(monkeypatch):
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner()
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    phases: list[str] = []
+
+    def progress(fraction: float, phase: str = "Scanning") -> None:
+        phases.append(phase)
+
+    PlustekBackend().scan(_DEVICE_ID, _params(), progress, threading.Event())
+    assert "Priming" in phases
+    assert "Scanning" in phases
+    priming_i = phases.index("Priming")
+    assert "Scanning" in phases[priming_i + 1 :]
 
 
 def test_open_applies_quiet_usb_drain(monkeypatch):

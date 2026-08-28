@@ -601,12 +601,15 @@ class ScanSidebar(QWidget):
             self.ir_check.setChecked(False)
             self.ir_check.setToolTip("IR scanning not supported by this device")
 
-        # Multi-exposure (Plustek SE only today)
+        # Multi-exposure (Plustek GL128 scan-ready models)
         self.me_check.setVisible(bool(caps.multi_exposure))
         self.me_check.setEnabled(caps.multi_exposure)
         if caps.multi_exposure:
             self.me_check.setChecked(self._settings.multi_exposure)
-            self.me_check.setToolTip("Merge short and long color passes for more highlight and shadow detail. Takes longer.")
+            self.me_check.setToolTip(
+                "Merge short and long colour passes for more highlight and shadow detail. "
+                "The long pass exposure is chosen per frame. Takes longer."
+            )
         else:
             self.me_check.setChecked(False)
             self.me_check.setToolTip("Multi-exposure not supported by this device")

@@ -573,7 +573,7 @@ def test_a_sane_device_shows_none_of_them() -> None:
 
 
 def test_a_measured_strip_offers_a_frame_list_and_the_strip_dialog() -> None:
-    sidebar, _ = _sidebar(NKSCAN_DEVICE)
+    sidebar, _ = _sidebar(NKSCAN_DEVICE, settings={"backend": "nkscan"})
     assert sidebar.frame_spec_edit.isVisibleTo(sidebar) is True
     assert sidebar.scan_window_btn.text() == "Preview strip…"
 
@@ -617,7 +617,7 @@ def test_the_nkscan_options_persist() -> None:
 
 def test_a_measured_strip_says_what_scan_would_do_before_a_preview() -> None:
     """Nothing is cropped yet, and the summary quotes the size of one frame."""
-    sidebar, _ = _sidebar(NKSCAN_DEVICE)
+    sidebar, _ = _sidebar(NKSCAN_DEVICE, settings={"backend": "nkscan"})
     assert sidebar.scan_window_status.text().startswith("Full frame")
     assert _summary(sidebar).startswith("Whole strip")
 
