@@ -84,6 +84,19 @@ def camera_to_working_matrix(
     return np.ascontiguousarray(out, dtype=np.float32)
 
 
+def wb_only_cam_xyz(cam_xyz: Optional[Sequence[Sequence[float]]]) -> Optional[list]:
+    """A stand-in `cam_xyz` for a profiled source (a custom Input ICC in play): the
+    decode still skips the as-shot white balance and relies on `camera_to_working_matrix`
+    to fold it back in, but the ICC supplies its own primaries rotation, so the camera's
+    own must come out as identity. `_XYZ_TO_WORKING` sent through that function's own
+    forward/normalize/invert steps yields exactly identity, leaving only the fold. None
+    when there is no matrix to begin with — nothing to fold WB into.
+    """
+    if cam_xyz is None:
+        return None
+    return _XYZ_TO_WORKING.tolist()
+
+
 def apply_camera_matrix(img: np.ndarray, matrix: Optional[np.ndarray]) -> np.ndarray:
     """
     Camera primaries -> working space. A None matrix passes the buffer through.

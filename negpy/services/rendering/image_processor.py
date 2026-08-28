@@ -23,6 +23,7 @@ from negpy.domain.models import (
     ColorSpace,
 )
 from negpy.features.altprocess.models import AltProcess
+from negpy.features.process.capture_color import wb_only_cam_xyz
 from negpy.features.process.models import ProcessMode
 from negpy.features.process.logic import effective_linear_raw, linear_raw_token
 from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix, sensor_token
@@ -977,13 +978,13 @@ class ImageProcessor:
         )
         # Ensure both GPU and CPU paths use the same export settings.
         params = dc_replace(params, export=export_settings)
-        # A profiled source is already in the working space (see camera_to_working_matrix);
-        # an Input ICC also applying its own matrix at encode time would then correct
-        # primaries twice.
+        cam_xyz, camera_wb = self._cam_xyz_by_path.get(file_path, (None, None))
+        # An Input ICC supplies its own primaries rotation; the camera's own must come
+        # out as identity or the ICC's matrix at encode time corrects primaries twice.
+        # The decode still needs the white-balance fold, so cam_xyz stands in rather
+        # than nulling outright — see wb_only_cam_xyz.
         if params.export.icc_input_path:
-            cam_xyz, camera_wb = None, None
-        else:
-            cam_xyz, camera_wb = self._cam_xyz_by_path.get(file_path, (None, None))
+            cam_xyz = wb_only_cam_xyz(cam_xyz)
         target_cs = export_settings.export_color_space
         if target_cs == ColorSpace.SAME_AS_SOURCE.value:
             target_cs = source_cs

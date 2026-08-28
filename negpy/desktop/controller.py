@@ -49,7 +49,7 @@ from negpy.desktop.workers.library import LibrarySearchTask, LibrarySearchWorker
 from negpy.desktop.workers.hdr import HdrTask, HdrWorker
 from negpy.desktop.workers.stitch import StitchTask, StitchWorker
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, hdr_frame_paths, hdr_hash, hdr_name
-from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
+from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix, wb_only_cam_xyz
 from negpy.features.process.logic import effective_linear_raw, narrowband_profile_active, should_fold_camera_wb
 from negpy.features.stitch.models import stitch_hash, stitch_name
 from negpy.desktop.workers.capture_worker import (
@@ -3691,13 +3691,13 @@ class AppController(QObject):
         return None
 
     def _effective_cam_xyz(self) -> tuple[Optional[list], Optional[list]]:
-        """(cam_xyz, camera_wb) for the transparency transfer, or (None, None) with an
-        Input ICC active — see camera_to_working_matrix: a profiled source is already
-        in the working space, so re-deriving primaries from the raw's own matrix on top
-        of the user's profile would correct them twice."""
+        """(cam_xyz, camera_wb) for the transparency transfer. With an Input ICC active,
+        `cam_xyz` is stood in for: the decode still needs the white-balance fold, but the
+        camera's own primaries rotation would double up on the ICC's, see wb_only_cam_xyz."""
+        cam_xyz = self.state.preview_cam_xyz
         if self.effective_input_icc():
-            return None, None
-        return self.state.preview_cam_xyz, self.state.preview_camera_wb
+            cam_xyz = wb_only_cam_xyz(cam_xyz)
+        return cam_xyz, self.state.preview_camera_wb
 
     def display_transform_params(self, splash: bool = False, proofed: bool = True) -> tuple[str, Optional[bytes], Optional[tuple]]:
         """Everything the display transform needs for the current render, as
