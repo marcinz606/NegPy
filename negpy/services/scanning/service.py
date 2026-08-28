@@ -62,14 +62,32 @@ class ScannerService:
         """
         return self._get_backend().eject(device_id)
 
-    def open_roll(self, device: ScannerDevice, *, dpi: int) -> RollSession:
+    def detect_frames(self, device_id: str, *, film_format: str | None = None, film_type: str = "negative") -> int:
+        """How many frames the loaded film carries, 0 where the transport cannot measure it.
+
+        A feeder counts slots instead, and the caller has that from the device capabilities.
+        """
+        detect = getattr(self._get_backend(), "detect_frames", None)
+        return 0 if detect is None else int(detect(device_id, film_format=film_format, film_type=film_type))
+
+    def open_roll(
+        self,
+        device: ScannerDevice,
+        *,
+        dpi: int,
+        film_format: str | None = None,
+        film_type: str = "negative",
+    ) -> RollSession:
         """Open a strip for whole-roll preview.
 
-        Every backend reaches a strip one frame at a time today, so this always
-        wraps. A backend with a native whole-roll traversal supplies its own
-        RollSession instead, and this grows a branch then — not before.
+        A backend that reaches the whole strip natively supplies its own RollSession
+        through `open_roll`; the rest are wrapped one frame at a time.
         """
-        return PerFrameRollSession(self._get_backend(), device, dpi=dpi)
+        backend = self._get_backend()
+        native = getattr(backend, "open_roll", None)
+        if native is not None:
+            return native(device, dpi=dpi, film_format=film_format, film_type=film_type)
+        return PerFrameRollSession(backend, device, dpi=dpi)
 
     def run_scan(
         self,

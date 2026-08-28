@@ -28,7 +28,6 @@ class ScannerCapabilities:
     supported_depths: tuple[int, ...]
     sources: tuple[ScanMode, ...]
     max_area_mm: tuple[float, float]  # (width, height)
-    autofocus: bool = True
     auto_exposure: bool = False
     autofocus: bool = False
     #: Low-DPI full-window preview then interactive crop (Plustek SE).
@@ -43,6 +42,19 @@ class ScannerCapabilities:
     can_eject: bool = False
     frame_pitch_mm: float = 0.0  # feed-axis distance between frame positions; 0.0 = unknown
     exposure_time_us: tuple[int, int] | None = None  # (min, max) in microseconds
+    #: The transport removes dust itself, baked into what it returns.
+    hw_clean: bool = False
+    #: Frames are detected per strip, not addressed by index: the count is unknown until a
+    #: strip is measured, so the UI must grow its slots from what the preview reports.
+    roll_discovery: bool = False
+    #: Film formats the transport must be told, because it cannot measure the frame length
+    #: itself. Empty when the holder fixes it.
+    film_formats: tuple[str, ...] = ()
+    #: Film types the transport takes, as `params.FILM_TYPES` keys. Empty when it is told
+    #: nothing about the film and reads whatever is loaded.
+    film_types: tuple[str, ...] = ()
+    max_samples: int = 1  # per-line multi-sample bound; 1 = single read
+    superfine: bool = False  # one line per pass, slower, owes the host no registration
 
 
 @dataclass(frozen=True)

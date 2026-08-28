@@ -1,5 +1,21 @@
 # Change Log
 
+## 0.55.0
+
+- New: **Nikon Coolscan scanning through nkscan** — drives a Coolscan directly instead of through SANE: frame rectangles measured off the film in one pass, a native IR pass, native eject and the driver's own "ICE" dust removal, Samples, Superfine, Film type and Film format controls gated on what the unit advertises.
+- New: **OpticFilm 8100 V2 support** — the Scan tab is no longer pinned to the 8200i SE; controls follow each device, with multi-exposure on both and no IR channel on the 8100 V2. @TobbyTravel
+- Change: **GPU frames and tiled exports do less host work** — the meter reuses its prefiltered grid instead of re-partitioning it, and the paper buffer is skipped when there is no border to draw. Export bytes are unchanged.
+- Change: **Plustek Scan tab hides controls the pyopticfilm backend does not use.** @jboneng
+- Fix: **Camera connection no longer segfaults on unpopulated gphoto2 widgets** — a NULL value returned for a widget crashed the app. @fivedots
+- Fix: **Exports tag an absolute resolution** — TIFF and PNG read as 1 DPI in Preview and fell back to 72 in Photoshop; every format now tags the DPI its own long edge implies, and both metadata rewrite paths carry it through. @Icodextrin
+- Fix: **Linear Output no longer crashes on a camera DNG** — a stale early branch also skipped RGB triplets, flat-field, sensor correction and white balance. @Icodextrin
+- Fix: **Stale source-camera EXIF is stripped on export** — a camera's own ColorSpace tag and its source-relative preview pointers contradicted the file's real color tag, making strict readers report the export untagged and refuse to preview it. @thetalkingdrum
+- Fix: **Batch Analysis measures the assembled composite** — an RGB triplet or an HDR merge was measured on one exposure alone, which inverted the other channels to black and left a solid red roll. @seanharding
+- Fix: **Camera scanning keeps the PTP claim its identify probe wins** — releasing it let macOS's camera daemon take the interface for minutes, so the next live view or scan was refused; transient open failures are retried instead of reported. @light-sntchr
+- Fix: **The canvas HUD no longer lags one edit behind** — pills drawn from the config, such as the export color space, updated only on the next history-recording edit. @seanharding
+- Fix: **The Film Strip says when a filter, not a load failure, emptied it** — a persisted Sheet filter that matched nothing left a blank strip under a full frame count; the tally now reads "0 of 36 frames · Keepers filter". @seanharding
+- Fix: **The H&D chart no longer resizes on hover** — the probe row grew with a taller fallback font and took the pixels out of the chart.
+
 ## 0.54.0
 
 - New: **Metadata presets** — save any set of metadata fields as a named preset and apply it from the Metadata panel; gear presets are replaced and convert automatically, and a preset's values are editable in the library. @Icodextrin

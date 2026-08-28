@@ -359,6 +359,9 @@ This is not a pipeline stage. Every repair is baked into the **linear source bef
 
     B&W silver and Kodachrome block IR like dust does. Such frames are auto-detected, because the IR plane mirrors the image, and skipped.
 
+*   **ICE at scan time** (Scan tab, nkscan backend only):
+    The nkscan driver carries its own openICE port and can run it during the scan, on the scanner's own data. What it writes is already repaired, so no NegPy retouch stage sees the defects: the repair is baked into the file, not into an edit. Use it for speed on a batch; use the paths above where the repair has to stay editable.
+
 *   **IR removal, the OpenICE method** (`ir_method = "openice"`, `negpy/features/retouch/openice.py`):
     A second reconstruction for the same IR plane, ported from openICE (see `NOTICE.md`), a reverse-engineering of Nikon Scan's Digital ICE verified byte-exact against the original engine. It replaces steps 1–4 above wholesale, shares no code with them, and keeps the routed inpaint. It sits at the same point in the pipeline: the linear source before normalization.
 

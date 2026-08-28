@@ -85,7 +85,35 @@ def _sane_backend(
     return _make_backend(_ModuleWithDevice(dev, device_id)), device_id
 
 
-BACKENDS: list[tuple[str, _Factory]] = [("sane", _sane_backend)]
+# ── the nkscan entry ──────────────────────────────────────────────────────
+
+
+def _nkscan_backend(
+    *,
+    scan_error: Exception | None = None,
+    with_eject: bool = False,
+    film: bool = True,
+    progress_steps: int = 0,
+) -> tuple[Any, str]:
+    from tests.scanners import fake_nkscan
+
+    # nkscan drives film scanners only, so "no film source" is a unit it cannot open.
+    probe_error = None if film else fake_nkscan.DeviceNotFound("not a Coolscan")
+    translated = None
+    if scan_error is not None:
+        marker = "i/o" in str(scan_error).lower()
+        cls = fake_nkscan.TransportError if marker else fake_nkscan.MediaError
+        translated = cls(str(scan_error))
+    backend, _module = fake_nkscan.make_backend(
+        scan_error=translated,
+        with_eject=with_eject,
+        probe_error=probe_error,
+        progress_steps=progress_steps,
+    )
+    return backend, fake_nkscan.DEVICE_ID
+
+
+BACKENDS: list[tuple[str, _Factory]] = [("sane", _sane_backend), ("nkscan", _nkscan_backend)]
 
 pytestmark = pytest.mark.parametrize("name,make_backend", BACKENDS)
 

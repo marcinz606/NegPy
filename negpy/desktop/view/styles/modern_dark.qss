@@ -78,6 +78,44 @@ QPushButton:checked:hover {
     border: 1px solid @accent_secondary;
 }
 
+/* The Scan panel's commit button: the only control that moves the transport and
+   writes files, so it is the one filled button in the app. While a scan runs it
+   reads "Stop" and goes hollow — the same accent, but not an invitation. */
+QPushButton#scan_btn {
+    background-color: @accent_primary;
+    color: #FFFFFF;
+    border: 1px solid @accent_secondary;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+QPushButton#scan_btn:hover {
+    background-color: @accent_secondary;
+    border: 1px solid @accent_secondary;
+}
+
+QPushButton#scan_btn:pressed {
+    background-color: #8E1616;
+    color: #FFFFFF;
+}
+
+QPushButton#scan_btn:disabled {
+    background-color: #1A1414;
+    color: #666666;
+    border: 1px solid #2A1D1D;
+}
+
+QPushButton#scan_btn[scanning="true"] {
+    background-color: transparent;
+    color: @accent_secondary;
+    border: 1px solid @accent_primary;
+}
+
+QPushButton#scan_btn[scanning="true"]:hover {
+    background-color: #2A1D1D;
+    color: #FFFFFF;
+}
+
 QToolButton {
     background-color: transparent;
     border: 1px solid transparent;

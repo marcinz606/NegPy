@@ -42,13 +42,18 @@ def _device() -> ScannerDevice:
 class _FakeController(QObject):
     scan_roll_preview_ready = pyqtSignal(object)
     scan_roll_preview_finished = pyqtSignal()
+    scan_progress = pyqtSignal(float, str)
     scan_error = pyqtSignal(str)
     scan_cancelled = pyqtSignal()
 
     def __init__(self, *, raise_on_preview: bool = False) -> None:
         super().__init__()
         self.preview_reqs: list = []
+        self.cancels = 0
         self._raise = raise_on_preview
+
+    def cancel_scan(self) -> None:
+        self.cancels += 1
 
     def start_roll_preview(self, req) -> None:
         if self._raise:
@@ -89,7 +94,7 @@ def test_preview_result_shows_the_frame_and_clears_busy_state():
 
     assert dialog.preview_btn.isEnabled() is True
     assert dialog.label.has_frame()
-    assert dialog.status.text() == ""
+    assert dialog.status_strip.message() == ""
 
 
 def test_preview_failure_reports_status_and_clears_busy_state():
@@ -100,7 +105,7 @@ def test_preview_failure_reports_status_and_clears_busy_state():
     controller.deliver(error="carriage jammed")
 
     assert dialog.preview_btn.isEnabled() is True
-    assert "carriage jammed" in dialog.status.text()
+    assert "carriage jammed" in dialog.status_strip.message()
 
 
 def test_busy_scanner_reports_status_without_starting_preview():
@@ -109,7 +114,7 @@ def test_busy_scanner_reports_status_without_starting_preview():
 
     dialog._on_preview()
 
-    assert "busy" in dialog.status.text().lower()
+    assert "busy" in dialog.status_strip.message().lower()
     assert dialog.preview_btn.isEnabled() is True
 
 
@@ -156,3 +161,60 @@ def test_close_disconnects_preview_signals_without_error():
 
     # Disconnected: delivering a result now must not raise or touch the dialog.
     controller.deliver()
+
+
+def test_leaving_mid_preview_stops_the_transport():
+    controller = _FakeController()
+    dialog = QuickScanPreviewDialog(controller, _device())
+    dialog._on_preview()
+
+    dialog.accept()
+
+    assert controller.cancels == 1
+
+
+def test_stopping_a_running_preview_keeps_the_dialog_open():
+    controller = _FakeController()
+    dialog = QuickScanPreviewDialog(controller, _device())
+    dialog._on_preview()
+    assert dialog.cancel_btn.text() == "Stop preview"
+    assert dialog.ok_btn.isEnabled() is False
+
+    dialog.cancel_btn.click()
+
+    assert controller.cancels == 1
+    assert dialog.result() == 0
+
+
+def test_preview_progress_reaches_the_bar():
+    controller = _FakeController()
+    dialog = QuickScanPreviewDialog(controller, _device())
+    dialog._on_preview()
+
+    controller.scan_progress.emit(0.25, "Metering")
+
+    assert dialog.status_strip._bar.value() == 25
+    assert dialog.status_strip._bar.format() == "Metering… %p%"
+
+
+def test_reversal_film_previews_without_inversion():
+    controller = _FakeController()
+    dialog = QuickScanPreviewDialog(controller, _device(), film_type="positive")
+    dialog._on_preview()
+    rgb = np.zeros((4, 8, 3), dtype=np.uint8)
+    rgb[:, 4:, :] = 200
+
+    controller.deliver(rgb=rgb)
+
+    assert dialog.label.has_frame() is True
+    assert dialog._film_type == "positive"
+
+
+def test_the_exits_name_their_object_and_enter_scans() -> None:
+    """One grammar across the three preview dialogs: reset · Cancel · Apply <object> · Scan."""
+    dialog = QuickScanPreviewDialog(_FakeController(), _device())
+
+    assert dialog.clear_btn.text() == "Clear crop"
+    assert dialog.ok_btn.text() == "Apply window"
+    assert dialog.scan_btn.text().strip() == "Scan frame"
+    assert dialog.scan_btn.isDefault() is True

@@ -1,4 +1,5 @@
-from dataclasses import dataclass, field
+from collections.abc import Iterable
+from dataclasses import dataclass, field, fields
 
 from negpy.infrastructure.scanners.registry import DEFAULT_BACKEND_ID
 
@@ -21,8 +22,13 @@ class ScannerSettings:
     # Hardware scan exposure time in microseconds (SANE `scan-exposure-time`). None is the
     # scanner default. Only meaningful when the device exposes the option.
     exposure_time_us: int | None = None
-    frame_from: int = 1
-    frame_to: int = 1
+    # Let the transport remove dust itself, baked into the file it writes.
+    clean: bool = False
+    samples: int = 1
+    superfine: bool = False
+    # Frame length for a transport that measures the strip; None lets it decide.
+    film_format: str | None = None
+    film_type: str = "negative"
     output_folder: str = ""
     output_format: str = "TIFF"
     filename_pattern: str = '{{ date }}_{{ "%03d" % seq }}'
@@ -54,17 +60,69 @@ class ScannerSettings:
     def defaults(cls) -> "ScannerSettings":
         return cls()
 
+    @classmethod
+    def from_dict(cls, data: dict) -> "ScannerSettings":
+        """Build from a persisted blob, migrating and dropping keys this version dropped.
+
+        An unknown key must not throw: the whole blob would fall back to defaults and take
+        every unrelated preference with it.
+        """
+        data = dict(data)
+        first, last = data.pop("frame_from", None), data.pop("frame_to", None)
+        if not data.get("selected_frames") and isinstance(first, int) and isinstance(last, int) and (first, last) != (1, 1):
+            data["selected_frames"] = tuple(range(first, last + 1))
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in known})
+
 
 def resolve_batch_selection(
-    settings: ScannerSettings, frame_from: int, frame_to: int
+    settings: ScannerSettings, *, capacity: int | None = None, whole_strip: bool = False
 ) -> tuple[tuple[int, ...], dict[int, Rect], Rect | None]:
     """(frames, per-frame windows, base window) for a BatchRequest.
 
-    The strip-dialog selection wins when present; otherwise fall back to the
-    sidebar spinbox range with the single reused scan_window.
+    A named selection wins. With none, a transport that measures the film gets an empty tuple,
+    meaning every frame it finds; a feeder gets every slot it holds, because its own frame
+    count reads 0 and an empty tuple there would scan nothing.
     """
     if settings.selected_frames:
         frames = tuple(sorted(settings.selected_frames))
         windows = {f: settings.frame_windows[f] for f in frames if f in settings.frame_windows}
         return frames, windows, None
-    return tuple(range(frame_from, frame_to + 1)), {}, settings.scan_window
+    if whole_strip or capacity is None:
+        return (), {}, settings.scan_window
+    return tuple(range(1, capacity + 1)), {}, settings.scan_window
+
+
+def parse_frame_spec(text: str) -> tuple[int, ...]:
+    """Frame numbers from an operator's list: "1-6", "1,2,5", "1-3, 5". Empty means every frame.
+
+    Raises ValueError on anything else, so a typo cannot quietly scan the wrong film.
+    """
+    frames: set[int] = set()
+    for part in text.replace(" ", "").split(","):
+        if not part:
+            continue
+        first, sep, last = part.partition("-")
+        try:
+            lo = int(first)
+            hi = int(last) if sep else lo
+        except ValueError:
+            raise ValueError(f"Cannot read {part!r} as a frame number") from None
+        if lo < 1 or hi < lo:
+            raise ValueError(f"{part!r} is not a frame range")
+        frames.update(range(lo, hi + 1))
+    return tuple(sorted(frames))
+
+
+def format_frame_spec(frames: Iterable[int]) -> str:
+    """The compact form of a frame selection, contiguous runs collapsed: (1,2,3,5) → "1-3,5"."""
+    ordered = sorted(set(frames))
+    if not ordered:
+        return ""
+    runs: list[list[int]] = [[ordered[0], ordered[0]]]
+    for frame in ordered[1:]:
+        if frame == runs[-1][1] + 1:
+            runs[-1][1] = frame
+        else:
+            runs.append([frame, frame])
+    return ",".join(str(lo) if lo == hi else f"{lo}-{hi}" for lo, hi in runs)

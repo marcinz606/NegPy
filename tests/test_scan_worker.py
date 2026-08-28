@@ -64,9 +64,11 @@ class _ScanService:
 class _BatchService:
     """Records per-frame scans; returns a frame-numbered path from write_result."""
 
-    def __init__(self, *, fail_on: int | None = None, cancel_before: int | None = None) -> None:
+    def __init__(self, *, fail_on: int | None = None, cancel_before: int | None = None, detected: int = 0) -> None:
         self.fail_on = fail_on
         self.cancel_before = cancel_before
+        self.detected = detected
+        self.detect_calls: list[str | None] = []
         self.frames: list[int] = []
         self.written_seqs: list[int] = []
         self.windows: list = []
@@ -76,6 +78,10 @@ class _BatchService:
     def eject(self, device_id: str) -> bool:
         self.eject_calls.append(device_id)
         return True
+
+    def detect_frames(self, device_id: str, *, film_format: str | None = None, film_type: str = "negative") -> int:
+        self.detect_calls.append((film_format, film_type))
+        return self.detected
 
     def run_scan(self, device_id, params, progress, cancel):
         if self.cancel_before is not None and params.frame == self.cancel_before:
@@ -104,10 +110,10 @@ def _scan_request() -> ScanRequest:
     )
 
 
-def _batch_request(frames=(2, 3, 4), frame_windows=None) -> BatchRequest:
+def _batch_request(frames=(2, 3, 4), frame_windows=None, film_format=None) -> BatchRequest:
     return BatchRequest(
         device_id="coolscan3:test",
-        params=ScanParams(dpi=4_000, depth=16, capture_ir=False),
+        params=ScanParams(dpi=4_000, depth=16, capture_ir=False, film_format=film_format),
         output_folder="/tmp",
         filename_pattern='scan-{{ "%03d" % seq }}',
         output_format="TIFF",
@@ -146,7 +152,7 @@ def test_batch_applies_progressive_offset_per_frame_position() -> None:
     assert service.offsets == pytest.approx([1.2, 1.4, 1.6])
 
 
-def test_batch_negative_drift_floors_the_offset_at_zero() -> None:
+def test_batch_passes_a_negative_drift_through_to_the_backend() -> None:
     worker = ScanWorker()
     service = _BatchService()
     worker._service = service  # type: ignore[assignment]
@@ -162,7 +168,9 @@ def test_batch_negative_drift_floors_the_offset_at_zero() -> None:
 
     worker.run_batch(req)
 
-    assert service.offsets == pytest.approx([0.3, 0.05, 0.0])
+    # The floor belongs to the transport: a feeder clamps in its own backend
+    # (clamp_frame_offset_mm), and one that re-addresses an absolute frame may go negative.
+    assert service.offsets == pytest.approx([0.3, 0.05, -0.2])
 
 
 def test_list_devices_failure_emits_the_empty_list_before_the_error() -> None:
@@ -447,10 +455,11 @@ class _RollService:
         self.session = session or _FakeRollSession(slots_seen=[])
         self._open_error = open_error
 
-    def open_roll(self, device, *, dpi):
+    def open_roll(self, device, *, dpi, film_format=None, film_type="negative"):
         if self._open_error is not None:
             raise self._open_error
         self.dpi = dpi
+        self.film_format = film_format
         return self.session
 
 
@@ -540,3 +549,59 @@ def test_run_roll_preview_closes_the_session_when_a_slot_raises() -> None:
 
     assert errors == ["transport died"]
     assert session.closed is True
+
+
+# ── a batch that names no frames ──────────────────────────────────────────
+
+
+def test_a_batch_with_no_frames_scans_every_frame_on_the_film() -> None:
+    """A transport that measures the film has no frame range, so an empty request means all."""
+    worker = ScanWorker()
+    service = _BatchService(detected=3)
+    worker._service = service
+    done: list[list] = []
+    worker.batch_finished.connect(done.append)
+
+    worker.run_batch(_batch_request(frames=(), film_format="66"))
+
+    assert service.frames == [1, 2, 3]
+    assert service.detect_calls == [("66", "negative")]
+    assert len(done[0]) == 3
+
+
+def test_a_batch_with_no_frames_on_bare_film_is_an_error() -> None:
+    worker = ScanWorker()
+    worker._service = _BatchService(detected=0)
+    _finished, _cancelled, errors = _terminal_outcomes(worker)
+
+    worker.run_batch(_batch_request(frames=()))
+
+    assert errors and "No frames were detected" in errors[0]
+
+
+def test_a_named_frame_list_never_measures_the_film() -> None:
+    worker = ScanWorker()
+    service = _BatchService()
+    worker._service = service
+
+    worker.run_batch(_batch_request(frames=(2, 4)))
+
+    assert service.frames == [2, 4]
+    assert service.detect_calls == []
+
+
+def test_batch_progress_names_the_frame_and_its_position() -> None:
+    """A global percentage says nothing about how much film is left in the run."""
+    worker = ScanWorker()
+    worker._service = _BatchService()  # type: ignore[assignment]
+    seen: list[tuple[float, str]] = []
+    worker.progress.connect(lambda fraction, phase: seen.append((fraction, phase)))
+
+    worker.run_batch(_batch_request(frames=(2, 3, 4)))
+
+    assert [phase for _fraction, phase in seen] == [
+        "Frame 1 of 3 — Scanning",
+        "Frame 2 of 3 — Scanning",
+        "Frame 3 of 3 — Scanning",
+    ]
+    assert [fraction for fraction, _phase in seen] == pytest.approx([1 / 3, 2 / 3, 1.0])

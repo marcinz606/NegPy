@@ -238,3 +238,58 @@ class TestRenderScanFilename:
             service._backend = FakeBackend()
             with pytest.raises(ValueError, match="different basename"):
                 service.write_result(result, tmpdir, "fixed_name", "TIFF")
+
+
+class _NativeRollBackend(FakeBackend):
+    """A backend that reaches a whole strip itself, so the service must not wrap it."""
+
+    def __init__(self, devices: list[ScannerDevice]) -> None:
+        super().__init__(devices=devices)
+        self.roll_args: dict[str, object] = {}
+
+    def open_roll(self, device, *, dpi, film_format=None, film_type="negative") -> object:
+        self.roll_args = {"device": device, "dpi": dpi, "film_format": film_format, "film_type": film_type}
+        return self
+
+
+def test_open_roll_prefers_the_backend_own_strip_session(fake_device: ScannerDevice) -> None:
+    service = ScannerService()
+    backend = _NativeRollBackend([fake_device])
+    service._backend = backend
+
+    session = service.open_roll(fake_device, dpi=500, film_format="66")
+
+    assert session is backend
+    assert backend.roll_args == {"device": fake_device, "dpi": 500, "film_format": "66", "film_type": "negative"}
+
+
+def test_open_roll_wraps_a_backend_that_scans_one_frame_at_a_time(fake_device: ScannerDevice) -> None:
+    from negpy.infrastructure.scanners.per_frame_roll import PerFrameRollSession
+
+    service = ScannerService()
+    service._backend = FakeBackend(devices=[fake_device])
+
+    assert isinstance(service.open_roll(fake_device, dpi=500), PerFrameRollSession)
+
+
+class _MeasuringBackend(FakeBackend):
+    def detect_frames(self, device_id: str, *, film_format: str | None = None, film_type: str = "negative") -> int:
+        self.detect_args = (device_id, film_format, film_type)
+        return 4
+
+
+def test_detect_frames_asks_the_backend_that_can_measure(fake_device: ScannerDevice) -> None:
+    service = ScannerService()
+    backend = _MeasuringBackend([fake_device])
+    service._backend = backend
+
+    assert service.detect_frames("fake:001", film_format="135", film_type="positive") == 4
+    assert backend.detect_args == ("fake:001", "135", "positive")
+
+
+def test_a_backend_that_counts_slots_measures_nothing(fake_device: ScannerDevice) -> None:
+    """A feeder's capacity is a capability; the caller already has it."""
+    service = ScannerService()
+    service._backend = FakeBackend(devices=[fake_device])
+
+    assert service.detect_frames("fake:001") == 0
