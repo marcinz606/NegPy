@@ -759,6 +759,13 @@ class TestCameraRawSupport:
         assert abs(r - 398.0 / g_avg) < 1e-6
         assert abs(b - 873.0 / g_avg) < 1e-6
 
+    def test_normalize_wb_rgb_xtrans_zero_g2(self) -> None:
+        """A 3-color CFA reports G2 as 0; it must not drag the green normalizer down."""
+        r, g, b = _normalize_wb_rgb((676.0, 302.0, 458.0, 0.0))
+        assert g == 1.0
+        assert abs(r - 676.0 / 302.0) < 1e-6
+        assert abs(b - 458.0 / 302.0) < 1e-6
+
     def test_build_xmp_maketiff_format(self) -> None:
         wb = _CameraWB(
             as_shot=(398.0, 302.0, 873.0, 304.0),

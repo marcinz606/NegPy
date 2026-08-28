@@ -796,8 +796,14 @@ def _decode_stitch(
 
 
 def _normalize_wb_rgb(wb: tuple[float, float, float, float]) -> tuple[float, float, float]:
-    """Normalize RGGB multipliers to green=1, return (R, G, B)."""
-    g = (wb[1] + wb[3]) / 2.0 if (wb[1] + wb[3]) > 0 else 1.0
+    """Normalize RGGB multipliers to green=1, return (R, G, B).
+
+    A 3-color CFA (X-Trans and others) reports the second green multiplier as 0 rather
+    than a duplicate of the first; averaging it in as-is would halve the green normalizer
+    and double the R/B gains.
+    """
+    g2 = wb[3] if wb[3] > 0 else wb[1]
+    g = (wb[1] + g2) / 2.0 if (wb[1] + g2) > 0 else 1.0
     return (wb[0] / g, 1.0, wb[2] / g)
 
 
