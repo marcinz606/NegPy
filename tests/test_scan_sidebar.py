@@ -104,6 +104,7 @@ class _FakeController(QObject):
     scan_devices_ready = pyqtSignal(list)
     scan_progress = pyqtSignal(float, str)  # progress, phase name
     scan_finished = pyqtSignal(str)
+    scan_import_finished = pyqtSignal(str)
     scan_error = pyqtSignal(str)
     scan_cancelled = pyqtSignal()
     scan_frame_done = pyqtSignal(int, str)
@@ -197,11 +198,12 @@ def test_minimal_device_hides_coolscan_controls() -> None:
 
 def test_se_device_shows_prescan() -> None:
     sidebar, _ = _sidebar(SE_DEVICE, settings={"backend": "plustek"})
-    assert sidebar.prescan_widget.isVisibleTo(sidebar) is True
-    assert sidebar.prescan_label.isVisibleTo(sidebar) is True
+    assert sidebar.prescan_block.isVisibleTo(sidebar) is True
     assert sidebar.scan_window_widget.isVisibleTo(sidebar) is False
     assert sidebar.ir_check.isEnabled() is True
     assert sidebar.me_check.isEnabled() is True
+    assert sidebar.scan_options_row.isVisibleTo(sidebar) is True
+    assert sidebar.depth_combo.isVisibleTo(sidebar) is False
     assert sidebar.frame_range_widget.isVisibleTo(sidebar) is False
 
 
@@ -522,3 +524,58 @@ def test_lockout_scan_error_shows_message_box(monkeypatch) -> None:
 
     assert f"Error: {msg}" in sidebar.status_label.text()
     assert popped == [("Scan failed", msg)]
+
+
+def test_set_scanning_false_hides_and_zeroes_progress_bar() -> None:
+    sidebar, _ = _sidebar(SE_DEVICE, settings={"backend": "plustek"})
+    sidebar.set_scanning(True)
+    sidebar.progress_bar.setValue(87)
+    sidebar.set_scanning(False)
+    assert sidebar.progress_bar.isVisible() is False
+    assert sidebar.progress_bar.value() == 0
+    assert sidebar.progress_bar.maximum() == 100
+
+
+def test_set_progress_phase_indeterminate_uses_busy_range() -> None:
+    sidebar, _ = _sidebar(SE_DEVICE, settings={"backend": "plustek"})
+    sidebar._set_progress_phase(0.85, "Merging exposures", indeterminate=True)
+    assert sidebar.progress_bar.minimum() == 0
+    assert sidebar.progress_bar.maximum() == 0
+    assert sidebar.progress_bar.format() == "Merging exposures…"
+
+
+def test_prescan_block_sits_above_scan_button() -> None:
+    sidebar, _ = _sidebar(SE_DEVICE, settings={"backend": "plustek"})
+    layout = sidebar.layout()
+    prescan_idx = scan_idx = None
+    for i in range(layout.count()):
+        item = layout.itemAt(i)
+        if item is None:
+            continue
+        widget = item.widget()
+        if widget is sidebar.prescan_block:
+            prescan_idx = i
+        if widget is sidebar.scan_btn:
+            scan_idx = i
+    assert prescan_idx is not None
+    assert scan_idx is not None
+    assert prescan_idx < scan_idx
+
+
+def test_scan_finished_then_import_clears_busy_state() -> None:
+    sidebar, _ = _sidebar(SE_DEVICE, settings={"backend": "plustek"})
+    sidebar.set_scanning(True)
+    sidebar._on_scan_finished("/tmp/out/scan.tif")
+    assert sidebar._post_scan_busy is True
+    assert sidebar.scan_btn.isEnabled() is False
+    assert "Importing scan" in sidebar.progress_bar.format()
+    sidebar._on_scan_import_finished("/tmp/out/scan.tif")
+    assert sidebar._post_scan_busy is False
+    assert sidebar.progress_bar.isVisible() is False
+    assert sidebar.scan_btn.isEnabled() is True
+    assert sidebar.status_label.text() == "Scanned: scan.tif"
+
+
+def test_prescan_status_hints_full_window_before_crop() -> None:
+    sidebar, _ = _sidebar(SE_DEVICE, settings={"backend": "plustek"})
+    assert "Prescan" in sidebar.prescan_status.text()

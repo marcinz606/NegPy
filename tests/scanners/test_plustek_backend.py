@@ -334,6 +334,37 @@ def test_multi_exposure_passthrough(monkeypatch):
     assert scanner.scan.call_args.kwargs.get("multi_exposure") is True
 
 
+def test_multi_exposure_emits_merging_after_last_pass(monkeypatch):
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner(progress_steps=2)
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    seen: list[tuple[float, str]] = []
+    PlustekBackend().scan(
+        _DEVICE_ID,
+        _params(multi_exposure=True),
+        lambda value, phase="Scanning": seen.append((value, phase)),
+        threading.Event(),
+    )
+    phases = [phase for _, phase in seen]
+    assert "Merging exposures" in phases
+    assert "Saving" in phases
+
+
+def test_non_me_scan_skips_merging_phase(monkeypatch):
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner(progress_steps=2)
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    seen: list[tuple[float, str]] = []
+    PlustekBackend().scan(
+        _DEVICE_ID,
+        _params(multi_exposure=False),
+        lambda value, phase="Scanning": seen.append((value, phase)),
+        threading.Event(),
+    )
+    phases = [phase for _, phase in seen]
+    assert "Merging exposures" not in phases
+
+
 def test_open_applies_quiet_usb_drain(monkeypatch):
     _patch_enum(monkeypatch)
     scanner = _fake_scanner()

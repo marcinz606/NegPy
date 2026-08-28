@@ -295,7 +295,13 @@ class PlustekBackend:
             )
 
             def scan_progress(p: float) -> None:
-                _safe_progress(progress, 0.1 + 0.9 * p)
+                if multi_exposure:
+                    if p >= 1.0:
+                        _safe_progress(progress, 0.85, "Merging exposures")
+                    else:
+                        _safe_progress(progress, 0.10 + 0.72 * p)
+                else:
+                    _safe_progress(progress, 0.10 + 0.9 * p)
 
             scan_area = None if geometry is not None else window
             rgb_image = scanner.scan(
@@ -316,7 +322,10 @@ class PlustekBackend:
         except PlustekError as exc:
             raise RuntimeError(str(exc)) from exc
 
-        _safe_progress(progress, 1.0)
+        if multi_exposure:
+            _safe_progress(progress, 0.92, "Saving")
+        else:
+            _safe_progress(progress, 1.0)
         return ScanResult(
             rgb=np.asarray(rgb_image.rgb),
             ir=ir_plane,
@@ -354,10 +363,10 @@ class PlustekBackend:
         if geo is None:
             from pyopticfilm.scan.bringup import (
                 bringup_scan_geometry,
-                is_opticfilm_8200i_se,
+                is_gl128_opticfilm,
             )
 
-            if is_opticfilm_8200i_se(scanner.model):
+            if is_gl128_opticfilm(scanner.model):
                 geo, _ = bringup_scan_geometry(scanner.model, dpi, profile="preview_safe")
         if geo is None:
             _safe_progress(progress, 0.1, "Calibrating")
@@ -398,10 +407,10 @@ class PlustekBackend:
         from pyopticfilm.scan.bringup import (
             bringup_scan_geometry,
             crop_scan_geometry,
-            is_opticfilm_8200i_se,
+            is_gl128_opticfilm,
         )
 
-        if not is_opticfilm_8200i_se(scanner.model):
+        if not is_gl128_opticfilm(scanner.model):
             return None
         if window is not None:
             geometry, _meta = crop_scan_geometry(scanner.model, dpi, window)

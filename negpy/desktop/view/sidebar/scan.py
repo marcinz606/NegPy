@@ -35,6 +35,8 @@ class ScanSidebar(QWidget):
         self._settings: ScannerSettings = self._load_settings()
         self._devices: list[ScannerDevice] = []
         self._scanning = False
+        self._post_scan_busy = False
+        self._pending_scan_path = ""
         self._devices_loaded = False
         self._caps_autofocus = False
         self._caps_auto_exposure = False
@@ -143,12 +145,22 @@ class ScanSidebar(QWidget):
         self.depth_combo = QComboBox()
         self.depth_combo.setToolTip("Bit depth")
         depth_row.addWidget(self.depth_combo, 1)
-        depth_row.addWidget(self.ir_check)
-        depth_row.addWidget(self.me_check)
         self.depth_label = QLabel("Depth")
         self.form.addRow(self.depth_label, self.depth_row_widget)
+
+        self.scan_options_row = QWidget()
+        options_row = QHBoxLayout(self.scan_options_row)
+        options_row.setContentsMargins(0, 0, 0, 0)
+        options_row.addWidget(self.ir_check)
+        options_row.addWidget(self.me_check)
+        options_row.addStretch()
+        self.form.addRow(self.scan_options_row)
+        self._scan_options_in_depth_row = True
+        self._layout_scan_options(in_depth_row=True)
+
         self.depth_combo.setVisible(False)
         self.depth_label.setVisible(False)
+        self.scan_options_row.setVisible(False)
 
         # Spanning rows (no label column) so the checkboxes sit at the left edge.
         self.autofocus_check = QCheckBox("Autofocus")
@@ -218,25 +230,6 @@ class ScanSidebar(QWidget):
         self.scan_window_widget.setVisible(False)
         self.scan_window_status.setVisible(False)
 
-        # Prescan + crop (Plustek SE): low-DPI full window → interactive crop → scan_window.
-        self.prescan_widget = QWidget()
-        prescan_row = QHBoxLayout(self.prescan_widget)
-        prescan_row.setContentsMargins(0, 0, 0, 0)
-        self.prescan_btn = QPushButton("Prescan…")
-        self.prescan_btn.setToolTip("Scan a low-DPI preview and set the crop for the next scan")
-        self.prescan_clear_btn = QPushButton("Clear")
-        self.prescan_clear_btn.setFixedWidth(56)
-        self.prescan_clear_btn.setToolTip("Scan the full window instead of a crop")
-        prescan_row.addWidget(self.prescan_btn, 1)
-        prescan_row.addWidget(self.prescan_clear_btn)
-        self.prescan_label = QLabel("Prescan")
-        self.form.addRow(self.prescan_label, self.prescan_widget)
-        self.prescan_status = hint_label("")
-        self.form.addRow("", self.prescan_status)
-        self.prescan_label.setVisible(False)
-        self.prescan_widget.setVisible(False)
-        self.prescan_status.setVisible(False)
-
         self.fmt_combo = QComboBox()
         self.fmt_combo.addItems(["TIFF", "DNG"])
         self.fmt_combo.setToolTip("Output file format")
@@ -258,6 +251,30 @@ class ScanSidebar(QWidget):
         self.form.addRow("Filename", self.pattern_edit)
 
         layout.addLayout(self.form)
+
+        # Prescan + crop (Plustek): low-DPI full window → interactive crop → scan_window.
+        self.prescan_block = QWidget()
+        prescan_block_layout = QVBoxLayout(self.prescan_block)
+        prescan_block_layout.setContentsMargins(0, 0, 0, 0)
+        prescan_block_layout.setSpacing(4)
+        self.prescan_widget = QWidget()
+        prescan_row = QHBoxLayout(self.prescan_widget)
+        prescan_row.setContentsMargins(0, 0, 0, 0)
+        self.prescan_btn = QPushButton(" Prescan…")
+        self.prescan_btn.setObjectName("prescan_btn")
+        self.prescan_btn.setIcon(qta.icon("fa5s.crop-alt", color=THEME.text_primary))
+        self.prescan_btn.setMinimumHeight(36)
+        self.prescan_btn.setToolTip("Scan a low-DPI preview and set the crop for the next scan")
+        self.prescan_clear_btn = QPushButton("Clear")
+        self.prescan_clear_btn.setFixedWidth(56)
+        self.prescan_clear_btn.setToolTip("Scan the full window instead of a crop")
+        prescan_row.addWidget(self.prescan_btn, 1)
+        prescan_row.addWidget(self.prescan_clear_btn)
+        self.prescan_status = hint_label("")
+        prescan_block_layout.addWidget(self.prescan_widget)
+        prescan_block_layout.addWidget(self.prescan_status)
+        self.prescan_block.setVisible(False)
+        layout.addWidget(self.prescan_block)
 
         # ── PROGRESS ────────────────────────────────────────
         self.progress_bar = QProgressBar()
@@ -320,6 +337,7 @@ class ScanSidebar(QWidget):
         self.controller.scan_cancelled.connect(self._on_scan_cancelled)
         self.controller.scan_frame_done.connect(self._on_scan_frame_done)
         self.controller.scan_batch_finished.connect(self._on_scan_batch_finished)
+        self.controller.scan_import_finished.connect(self._on_scan_import_finished)
         self.controller.scan_ejected.connect(self._on_ejected)
         self.controller.scan_eject_error.connect(self._on_eject_error)
 
@@ -422,9 +440,7 @@ class ScanSidebar(QWidget):
             self.exposure_row_widget.setVisible(False)
             self.autofocus_check.setVisible(False)
             self.ae_check.setVisible(False)
-            self.prescan_label.setVisible(False)
-            self.prescan_widget.setVisible(False)
-            self.prescan_status.setVisible(False)
+            self.prescan_block.setVisible(False)
             self._caps_autofocus = False
             self._caps_auto_exposure = False
             return
@@ -435,7 +451,7 @@ class ScanSidebar(QWidget):
         self.ir_check.setEnabled(True)
         self.me_check.setEnabled(True)
         self.eject_btn.setVisible(caps.can_eject)
-        self.eject_btn.setEnabled(caps.can_eject and not self._scanning)
+        self.eject_btn.setEnabled(caps.can_eject and not self._is_busy())
         self.frame_label.setText(f"Frame: {caps.max_area_mm[0]:.0f} × {caps.max_area_mm[1]:.0f} mm")
         self.autofocus_check.setChecked(caps.autofocus)
         self.autofocus_check.setVisible(caps.autofocus)
@@ -486,6 +502,8 @@ class ScanSidebar(QWidget):
         show_depth = len(caps.supported_depths) > 1
         self.depth_combo.setVisible(show_depth)
         self.depth_label.setVisible(show_depth)
+        self.depth_row_widget.setVisible(show_depth)
+        self._layout_scan_options(in_depth_row=show_depth)
 
         # IR
         self.ir_check.setEnabled(caps.ir_channel)
@@ -577,10 +595,8 @@ class ScanSidebar(QWidget):
                 self.scan_window_btn.setToolTip("Preview the current holder position and set a crop window for the scan")
             self._update_scan_window_status()
 
-        show_prescan = bool(caps.prescan)
-        self.prescan_label.setVisible(show_prescan)
-        self.prescan_widget.setVisible(show_prescan)
-        self.prescan_status.setVisible(show_prescan)
+        show_prescan = bool(caps.prescan) and self._current_backend_id() == "plustek"
+        self.prescan_block.setVisible(show_prescan)
         if show_prescan:
             self._update_prescan_status()
 
@@ -702,7 +718,7 @@ class ScanSidebar(QWidget):
             else None
         )
         if area is None:
-            self.prescan_status.setText("Full window")
+            self.prescan_status.setText("Full window — use Prescan to set a crop")
         else:
             tl_x, tl_y, br_x, br_y = area
             self.prescan_status.setText(f"Crop {br_x - tl_x:.1f} × {br_y - tl_y:.1f} mm")
@@ -820,72 +836,147 @@ class ScanSidebar(QWidget):
 
     @pyqtSlot(float, str)
     def _on_scan_progress(self, progress: float, phase_name: str = "Scanning") -> None:
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setFormat(f"{phase_name}… %p%")
-        self.progress_bar.setValue(int(progress * 100))
+        self._set_progress_phase(progress, phase_name)
 
     @pyqtSlot(str)
     def _on_scan_finished(self, path: str) -> None:
-        self.set_scanning(False)
-        self.progress_bar.setVisible(False)
-        self.status_label.setText(f"Scanned: {path}")
+        self._enter_post_scan_import(path)
 
     @pyqtSlot(int, str)
     def _on_scan_frame_done(self, frame: int, path: str) -> None:
-        self.status_label.setText(f"Scanned frame {frame}: {path}")
+        import os
+
+        self.status_label.setText(f"Scanned frame {frame}: {os.path.basename(path)}")
 
     @pyqtSlot(list)
     def _on_scan_batch_finished(self, paths: list) -> None:
-        self.set_scanning(False)
-        self.progress_bar.setVisible(False)
         if paths:
+            self._enter_post_scan_import(paths[-1])
             self.status_label.setText(f"Batch complete: {count_of(len(paths), 'frame')}")
+        else:
+            self.set_scanning(False)
 
     @pyqtSlot()
     def _on_scan_cancelled(self) -> None:
+        self._post_scan_busy = False
+        self._pending_scan_path = ""
         self.set_scanning(False)
-        self.progress_bar.setVisible(False)
         self.status_label.setText("Scan stopped")
 
     @pyqtSlot(str)
     def _on_scan_error(self, msg: str) -> None:
+        self._post_scan_busy = False
+        self._pending_scan_path = ""
         self.set_scanning(False)
-        self.progress_bar.setVisible(False)
         text = msg or "Unknown scan error"
         self.status_label.setText(f"Error: {text}")
         # Unsupported pyOpticfilm models: status alone is easy to miss.
         if "cannot scan with pyOpticfilm" in text:
             QMessageBox.warning(self, "Scan failed", text)
 
+    @pyqtSlot(str)
+    def _on_scan_import_finished(self, path: str) -> None:
+        import os
+
+        self._post_scan_busy = False
+        self._pending_scan_path = ""
+        self.set_scanning(False)
+        if path:
+            self.status_label.setText(f"Scanned: {os.path.basename(path)}")
+
     @pyqtSlot(bool)
     def _on_ejected(self, triggered: bool) -> None:
         device = self._current_device()
-        self.eject_btn.setEnabled(bool(device and device.capabilities.can_eject) and not self._scanning)
+        self.eject_btn.setEnabled(bool(device and device.capabilities.can_eject) and not self._is_busy())
         self.status_label.setText("Film ejected" if triggered else "This device has no eject control")
 
     @pyqtSlot(str)
     def _on_eject_error(self, msg: str) -> None:
         device = self._current_device()
-        self.eject_btn.setEnabled(bool(device and device.capabilities.can_eject) and not self._scanning)
+        self.eject_btn.setEnabled(bool(device and device.capabilities.can_eject) and not self._is_busy())
         self.status_label.setText(f"Eject failed: {msg}")
 
     # ── state helpers ─────────────────────────────────────────────────
 
-    def set_scanning(self, active: bool) -> None:
-        self._scanning = active
+    _INDETERMINATE_PHASES = frozenset({"Merging exposures", "Saving", "Importing scan"})
+
+    def _is_busy(self) -> bool:
+        return self._scanning or self._post_scan_busy
+
+    def _layout_scan_options(self, *, in_depth_row: bool) -> None:
+        if in_depth_row == self._scan_options_in_depth_row:
+            return
+        depth_layout = self.depth_row_widget.layout()
+        options_layout = self.scan_options_row.layout()
+        for widget in (self.ir_check, self.me_check):
+            widget.setParent(None)
+        if in_depth_row:
+            depth_layout.addWidget(self.ir_check)
+            depth_layout.addWidget(self.me_check)
+            self.scan_options_row.setVisible(False)
+        else:
+            options_layout.insertWidget(0, self.ir_check)
+            options_layout.insertWidget(1, self.me_check)
+            self.scan_options_row.setVisible(True)
+        self._scan_options_in_depth_row = in_depth_row
+
+    def _reset_progress(self) -> None:
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFormat("Scanning… %p%")
+
+    def _set_progress_phase(self, fraction: float, phase: str, *, indeterminate: bool = False) -> None:
+        self.progress_bar.setVisible(True)
+        if indeterminate or phase in self._INDETERMINATE_PHASES:
+            self.progress_bar.setRange(0, 0)
+            self.progress_bar.setFormat(f"{phase}…")
+        else:
+            self.progress_bar.setRange(0, 100)
+            self.progress_bar.setFormat(f"{phase}… %p%")
+            self.progress_bar.setValue(int(max(0.0, min(1.0, fraction)) * 100))
+
+    def _enter_post_scan_import(self, path: str) -> None:
+        self._post_scan_busy = True
+        self._pending_scan_path = path
+        self._scanning = False
+        self._refresh_busy_controls()
+        self._set_progress_phase(0.0, "Importing scan", indeterminate=True)
+        self.status_label.setText("Importing scan…")
+
+    def _refresh_busy_controls(self) -> None:
         device = self._current_device()
-        self.backend_combo.setEnabled(not active)
-        self.eject_btn.setEnabled(bool(device and device.capabilities.can_eject) and not active)
-        if active:
+        busy = self._is_busy()
+        self.backend_combo.setEnabled(not busy)
+        self.device_combo.setEnabled(not busy and self._devices_loaded and bool(self._devices))
+        self.refresh_btn.setEnabled(not busy)
+        self.eject_btn.setEnabled(bool(device and device.capabilities.can_eject) and not busy)
+        self.prescan_btn.setEnabled(not busy)
+        self.prescan_clear_btn.setEnabled(not busy)
+        if self._scanning:
             self.scan_btn.setText(" Stop")
             self.scan_btn.setIcon(qta.icon("fa5s.stop", color=THEME.text_primary))
-            self.progress_bar.setVisible(True)
-            self.progress_bar.setValue(0)
-            self.prescan_btn.setEnabled(False)
+            self.scan_btn.setEnabled(True)
+        elif self._post_scan_busy:
+            self.scan_btn.setText(" Scan")
+            self.scan_btn.setIcon(qta.icon("fa5s.camera-retro", color=THEME.text_primary))
+            self.scan_btn.setEnabled(False)
         else:
             self.scan_btn.setText(" Scan")
             self.scan_btn.setIcon(qta.icon("fa5s.camera-retro", color=THEME.text_primary))
-            self.prescan_btn.setEnabled(True)
+            caps_ok = bool(device and device.capabilities.sources)
+            self.scan_btn.setEnabled(caps_ok)
+
+    def set_scanning(self, active: bool) -> None:
+        self._scanning = active
+        if not active and not self._post_scan_busy:
+            self._reset_progress()
+        self._refresh_busy_controls()
+        if active:
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setRange(0, 100)
+            self.progress_bar.setValue(0)
+            self.progress_bar.setFormat("Scanning… %p%")
 
     def _update_settings_from_ui(self) -> None:
         dpi_text = self.dpi_combo.currentData() or self.dpi_combo.currentText()

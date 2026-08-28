@@ -230,7 +230,19 @@ def test_progress_without_a_phase_is_reported_as_scanning() -> None:
 
     worker.run_scan(_scan_request())
 
-    assert seen == [(0.25, "Scanning"), (0.5, "Calibrating")]
+    assert seen == [(0.25, "Scanning"), (0.5, "Calibrating"), (0.95, "Saving")]
+
+
+def test_run_scan_emits_saving_before_write() -> None:
+    worker = ScanWorker()
+    worker._service = _ScanService()  # type: ignore[assignment]
+    seen: list[tuple[float, str]] = []
+    worker.progress.connect(lambda fraction, phase: seen.append((fraction, phase)))
+
+    worker.run_scan(_scan_request())
+
+    assert any(phase == "Saving" for _, phase in seen)
+    assert seen[-1] == (0.95, "Saving")
 
 
 def test_scan_worker_emits_cancelled_when_acquisition_returns_after_cancel() -> None:

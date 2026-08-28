@@ -157,8 +157,7 @@ class ScanWorker(QObject):
                     if self._cancel_event.is_set():
                         outcome = ("cancelled", None)
                     else:
-                        # Acquisition is complete now. Cancellation cannot abort an in-progress file write, and
-                        # it must never disguise a disk or encoder failure as a cleanly stopped scan.
+                        self.progress.emit(0.95, "Saving")
                         try:
                             path = service.write_result(
                                 result=result,
@@ -234,6 +233,7 @@ class ScanWorker(QObject):
                 if self._cancel_event.is_set():
                     outcome = ("cancelled", None)
                     break
+                self.progress.emit(0.95, "Saving")
                 try:
                     path = service.write_result(
                         result=result,

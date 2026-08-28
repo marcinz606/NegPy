@@ -336,6 +336,7 @@ class AppController(QObject):
     scan_devices_ready = pyqtSignal(list)
     scan_progress = pyqtSignal(float, str)  # progress, phase name
     scan_finished = pyqtSignal(str)
+    scan_import_finished = pyqtSignal(str)
     scan_error = pyqtSignal(str)
     scan_started = pyqtSignal()
     scan_cancelled = pyqtSignal()
@@ -1334,11 +1335,13 @@ class AppController(QObject):
                 # select_file emits load_file synchronously in the real session. Pop again
                 # as a fallback for alternate session implementations and tests.
                 self._pending_capture_imports.pop(pending_key, None)
+                self.scan_import_finished.emit(pending_scan)
                 self._pending_scanned_file = None
             elif pending_key in active_discovery_keys:
                 # This request finished without the intended primary asset. Drop only its
                 # metadata; a later capture may already be waiting in the FIFO queue.
                 self._pending_capture_imports.pop(pending_key, None)
+                self.scan_import_finished.emit("")
                 self._pending_scanned_file = None
         self._start_next_asset_discovery()
 
