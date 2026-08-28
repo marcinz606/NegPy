@@ -51,6 +51,39 @@ def test_apply_border_f32() -> None:
     assert np.allclose(res[50, 50], 1.0)
 
 
+def test_export_suppresses_camera_matrix_with_an_active_input_icc() -> None:
+    """A profiled source (custom Input ICC) is already in the working space (see
+    camera_to_working_matrix); also applying the raw's own embedded matrix at render
+    time would correct primaries twice (issue #991)."""
+    service = ImageProcessor()
+    file_path = "/fake/shot.raf"
+    matrix = [[0.7, -0.1, -0.07], [-0.56, 1.34, 0.24], [-0.15, 0.22, 0.73]]
+    service._cam_xyz_by_path[file_path] = (matrix, None)
+
+    img = np.full((4, 4, 3), 0.2, dtype=np.float32)
+    service._prepare_export_source = lambda *a, **k: (img, "sRGB", "token")
+
+    captured = {}
+
+    def fake_run_pipeline(*args, **kwargs):
+        captured.update(kwargs)
+        return img, {}
+
+    service.run_pipeline = fake_run_pipeline
+
+    params = WorkspaceConfig()
+
+    export_with_icc = ExportConfig(icc_input_path="/custom.icc")
+    service._render_export_buffer(file_path, params, export_with_icc, "hash", prefer_gpu=False)
+    assert captured["cam_xyz"] is None
+    assert captured["camera_wb"] is None
+
+    captured.clear()
+    export_without_icc = ExportConfig(icc_input_path=None)
+    service._render_export_buffer(file_path, params, export_without_icc, "hash", prefer_gpu=False)
+    assert captured["cam_xyz"] == matrix
+
+
 def test_image_service_tiff_export_format() -> None:
     """Verify that TIFF export produces a non-empty buffer and handles 16-bit correctly."""
     import io

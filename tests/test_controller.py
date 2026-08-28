@@ -544,6 +544,24 @@ class TestAppController(unittest.TestCase):
         state.icc_input_path = "/custom.icc"
         self.assertEqual(self.controller.effective_input_icc(), "/custom.icc")
 
+    def test_effective_cam_xyz_is_suppressed_by_an_active_input_icc(self):
+        """A profiled source is already in the working space (see
+        camera_to_working_matrix); the render must not also fold in the raw's own
+        embedded matrix, or a Slide render's primaries get corrected twice (#991)."""
+        state = self.controller.state
+        matrix = [[0.7, -0.1, -0.07], [-0.56, 1.34, 0.24], [-0.15, 0.22, 0.73]]
+        state.preview_cam_xyz = matrix
+        state.preview_camera_wb = [1.9, 1.0, 1.6]
+
+        cam_xyz, camera_wb = self.controller._effective_cam_xyz()
+        self.assertEqual(cam_xyz, matrix)
+        self.assertEqual(camera_wb, [1.9, 1.0, 1.6])
+
+        state.icc_input_path = "/custom.icc"
+        cam_xyz, camera_wb = self.controller._effective_cam_xyz()
+        self.assertIsNone(cam_xyz)
+        self.assertIsNone(camera_wb)
+
     def _export_icc_input(self, **process):
         state = self.controller.state
         state.current_file_path = "/tmp/shot.dng"

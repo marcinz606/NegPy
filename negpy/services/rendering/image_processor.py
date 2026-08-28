@@ -977,6 +977,13 @@ class ImageProcessor:
         )
         # Ensure both GPU and CPU paths use the same export settings.
         params = dc_replace(params, export=export_settings)
+        # A profiled source is already in the working space (see camera_to_working_matrix);
+        # an Input ICC also applying its own matrix at encode time would then correct
+        # primaries twice.
+        if params.export.icc_input_path:
+            cam_xyz, camera_wb = None, None
+        else:
+            cam_xyz, camera_wb = self._cam_xyz_by_path.get(file_path, (None, None))
         target_cs = export_settings.export_color_space
         if target_cs == ColorSpace.SAME_AS_SOURCE.value:
             target_cs = source_cs
@@ -1002,8 +1009,8 @@ class ImageProcessor:
                 scale_factor=export_scale,
                 bounds_override=bounds_override,
                 readback_metrics=False,
-                cam_xyz=self._cam_xyz_by_path.get(file_path, (None, None))[0],
-                camera_wb=self._cam_xyz_by_path.get(file_path, (None, None))[1],
+                cam_xyz=cam_xyz,
+                camera_wb=camera_wb,
                 source_hash=export_hash,
                 analysis_source_hash=export_hash,
             )
@@ -1017,8 +1024,8 @@ class ImageProcessor:
                 prefer_gpu=False,
                 wants_uv_grid=False,
                 skip_flatfield=True,  # f32_buffer already flat-fielded by _load_source_f32
-                cam_xyz=self._cam_xyz_by_path.get(file_path, (None, None))[0],
-                camera_wb=self._cam_xyz_by_path.get(file_path, (None, None))[1],
+                cam_xyz=cam_xyz,
+                camera_wb=camera_wb,
             )
             buffer = self._apply_scaling_and_border_f32(buffer, params, params.export)
             # Release full-res arrays pinned in the CPU stage cache.
