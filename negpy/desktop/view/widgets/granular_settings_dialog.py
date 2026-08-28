@@ -337,7 +337,8 @@ def open_paste_dialog(parent, controller) -> None:
     state = controller.session.state
     if state.clipboard is None or not state.current_file_hash:
         return
-    dlg = GranularSettingsDialog(parent, state.clipboard, "clipboard", show_scope=False)
+    name = "clipboard (with bounds)" if state.clipboard.process.is_local_initialized else "clipboard"
+    dlg = GranularSettingsDialog(parent, state.clipboard, name, show_scope=False)
     if dlg.exec() == QDialog.DialogCode.Accepted:
         controller.session.apply_pasted_fields(dlg.selected())
 

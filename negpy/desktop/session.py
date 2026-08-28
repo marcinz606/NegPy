@@ -1364,11 +1364,30 @@ class DesktopSessionManager(QObject):
         self.copy_settings(include_bounds=True)
 
     def apply_pasted_fields(self, rows) -> None:
-        """Overlay the picked clipboard settings onto the active frame."""
+        """Overlay the picked clipboard settings onto the active frame.
+
+        The per-frame bounds ride along when the clipboard holds them (only a copy
+        with bounds does; copy_settings strips them otherwise). They are written
+        after the rows because a pasted bounds-input field invalidates them.
+        """
         rows = list(rows)
-        if not rows or self.state.clipboard is None or not self.state.current_file_hash:
+        clip = self.state.clipboard
+        if clip is None or not self.state.current_file_hash:
             return
-        merged = apply_selected_fields(self.state.clipboard, self.state.config, rows)
+        bounds = clip.process.is_local_initialized
+        if not rows and not bounds:
+            return
+        merged = apply_selected_fields(clip, self.state.config, rows)
+        if bounds:
+            merged = replace(
+                merged,
+                process=replace(
+                    merged.process,
+                    local_floors=clip.process.local_floors,
+                    local_ceils=clip.process.local_ceils,
+                    lock_bounds=clip.process.lock_bounds,
+                ),
+            )
         self.update_config(merged, persist=True)
         self.settings_pasted.emit()
 

@@ -63,6 +63,7 @@ While a test strip or ring-around is up, `[` and `]` turn that proof's ladder in
 | `Ctrl + Z` | Undo last change |
 | `Ctrl + Y` | Redo change |
 | `Ctrl + C` | Copy settings from current image |
+| `Ctrl + Shift + C` | Copy settings with the frame's normalization bounds |
 | `Ctrl + V` | Paste settings to current image |
 | `Ctrl + ,` | Open Preferences |
 
