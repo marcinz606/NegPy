@@ -155,15 +155,81 @@ def _preload_libsane() -> None:
 
 
 def _detect_dpi(opt) -> tuple[int, ...]:
-    if "resolution" not in opt:
+    axis = tuple(sorted(_resolve_resampled_resolutions(opt).keys()))
+    plain: tuple[int, ...] | None = None
+    if "resolution" in opt:
+        constraint = opt["resolution"].constraint
+        # python-sane: list == enumerated values, tuple == (min, max, step) range.
+        if isinstance(constraint, list):
+            plain = tuple(sorted(int(c) for c in constraint))
+        elif isinstance(constraint, tuple) and len(constraint) >= 2:
+            plain = dpi_stops_in_range(constraint[0], constraint[1])
+        else:
+            plain = CANONICAL_DPI_STOPS
+    # Prefer the x/y-derived ladder whenever it reaches higher: some backends (confirmed on
+    # this project's reference Epson V500, over epkowa/interpreter) expose `resolution` as an
+    # artificially narrow convenience subset of the device's real native resolution — which,
+    # since one axis is typically CCD-pitch-limited and the other stepper-motor-step-limited,
+    # can only be reached by setting `x_resolution`/`y_resolution` independently. See
+    # _resolve_resampled_resolutions: a target whose exact value isn't native on both axes is
+    # still reachable by resampling the coarser axis up to match, so `axis` already covers (and
+    # supersedes) the plain square-intersection case, at no extra cost when they coincide.
+    if axis and (plain is None or max(axis) > max(plain)):
+        return axis
+    if plain is not None:
+        return plain
+    return axis  # () when the device has no resolution info of any kind.
+
+
+def _resolve_square_resolutions(opt) -> tuple[int, ...]:
+    """DPI values settable identically on both axes via `x_resolution`/`y_resolution`, with no
+    resampling needed. A strict subset of _resolve_resampled_resolutions's keys — kept as its
+    own function since "zero resampling" is occasionally the more precise thing to ask for.
+
+    Returns the sorted intersection of both axes' discrete value sets when both are present as
+    enumerated lists (not e.g. a plain min/max range). Empty when either option is absent, not
+    a discrete list, or the two axes' value sets don't overlap.
+    """
+    if "x_resolution" not in opt or "y_resolution" not in opt:
         return ()
-    constraint = opt["resolution"].constraint
-    # python-sane: list == enumerated values, tuple == (min, max, step) range.
-    if isinstance(constraint, list):
-        return tuple(sorted(int(c) for c in constraint))
-    if isinstance(constraint, tuple) and len(constraint) >= 2:
-        return dpi_stops_in_range(constraint[0], constraint[1])
-    return CANONICAL_DPI_STOPS
+    x_constraint = opt["x_resolution"].constraint
+    y_constraint = opt["y_resolution"].constraint
+    if not isinstance(x_constraint, list) or not isinstance(y_constraint, list):
+        return ()
+    x_values = {int(v) for v in x_constraint}
+    y_values = {int(v) for v in y_constraint}
+    return tuple(sorted(x_values & y_values))
+
+
+def _resolve_resampled_resolutions(opt) -> dict[int, int]:
+    """Target DPI -> native y_resolution to request, reaching resolutions beyond what either
+    axis alone (or their exact intersection) offers by resampling the slower axis up to match.
+
+    `x_resolution` is always requested at the exact target: on the reference device (Epson
+    V500, epkowa/interpreter) it is the sensor-pitch axis and has a native step at every target
+    worth offering. `y_resolution` — the carriage/stepper axis, whose native ladder can differ
+    from x's and even change shape between sources (confirmed: TPU mode drops 3200/6400 from
+    this device's y ladder entirely) — is requested at the largest native value not exceeding
+    the target, and the gap is resampled up in software afterward.
+
+    Deliberately upsample-only: interpolating in more rows than the stepper actually moved
+    is an honest resample of real data, never inventing detail a downsample would have thrown
+    away. Empty when either axis option is absent or not a discrete list. A target below the
+    y axis's own minimum has no native value to upsample from and is omitted, not clamped.
+    """
+    if "x_resolution" not in opt or "y_resolution" not in opt:
+        return {}
+    x_constraint = opt["x_resolution"].constraint
+    y_constraint = opt["y_resolution"].constraint
+    if not isinstance(x_constraint, list) or not isinstance(y_constraint, list):
+        return {}
+    y_values = sorted(int(v) for v in y_constraint)
+    result: dict[int, int] = {}
+    for x in sorted(int(v) for v in x_constraint):
+        native_y_candidates = [y for y in y_values if y <= x]
+        if native_y_candidates:
+            result[x] = max(native_y_candidates)
+    return result
 
 
 def _detect_depths(opt) -> tuple[int, ...]:
@@ -661,6 +727,23 @@ def _align_ir_to_rgb(rgb: np.ndarray, ir: np.ndarray) -> np.ndarray:
     return ir[y_idx][:, x_idx]
 
 
+def _resample_rows_to_dpi(array: np.ndarray, *, native_dpi: int, target_dpi: int) -> np.ndarray:
+    """Upsample only the row (y/carriage) axis so it represents target_dpi, leaving the column
+    (x/sensor) axis untouched — see _resolve_resampled_resolutions for why only y ever needs
+    this. Always an upsample (target_dpi > native_dpi is a precondition, enforced by the
+    caller): interpolating in more rows than the stepper actually moved is an honest resample
+    of real data, never inventing detail a downsample would have thrown away.
+
+    Bilinear (cv2's default): plenty for reconciling a mechanically-limited stepper axis
+    against a genuinely finer sensor axis. Not used anywhere IR is involved — see the
+    capture_ir guard at the call site — since _align_ir_to_rgb documents that even
+    interpolating IR data risks softening a thin dust defect's minimum.
+    """
+    target_rows = max(1, round(array.shape[0] * target_dpi / native_dpi))
+    width = array.shape[1]
+    return cv2.resize(array, (width, target_rows), interpolation=cv2.INTER_LINEAR)
+
+
 def _validate_inline_rgbi_parameters(
     *,
     frame_format,
@@ -1071,7 +1154,50 @@ class SaneBackend:
             if hasattr(dev, "opt") and "mode" in dev.opt:
                 dev.mode = "RGBI" if (ir_strategy == "rgbi" or ir_strategy == "rgbi-hw3") else "Color"
             dev.depth = params.depth
-            dev.resolution = params.dpi
+
+            # `resolution` alone is sometimes an artificially narrow convenience subset of what
+            # the device can actually do (confirmed on this project's reference Epson V500,
+            # epkowa/interpreter backend: `resolution` tops out at 1600dpi while the native
+            # per-axis ladders reach 6400). When the device exposes settable-per-axis resolution
+            # options, use those instead: `x_resolution` at the exact target (the sensor-pitch
+            # axis has a native step at every target worth offering), `y_resolution` at the
+            # nearest native value at or below it (the carriage/stepper axis, whose ladder can
+            # differ from x's and even lose top-end values depending on source — confirmed: this
+            # device's y ladder drops 3200/6400 entirely under the Transparency Unit). Any gap
+            # between the two is resampled up in software after the read, below. This is what
+            # _detect_dpi() offers in the UI, so an exact match is expected in normal use; fail
+            # loudly rather than silently substitute a nearby value if it's ever missing — a
+            # silent substitution here risks the same class of bug as setting resolution against
+            # stale geometry did earlier, since crop/window math downstream assumes the DPI
+            # actually applied.
+            resampled_dpis = _resolve_resampled_resolutions(option_map)
+            y_native_dpi: int | None = None
+            if resampled_dpis:
+                if params.dpi not in resampled_dpis:
+                    raise RuntimeError(
+                        f"{params.dpi}dpi is not reachable on this device's per-axis "
+                        f"resolution options; choose one of {sorted(resampled_dpis)}"
+                    )
+                y_native_dpi = resampled_dpis[params.dpi]
+                if y_native_dpi != params.dpi and params.capture_ir:
+                    # Resampling the y axis means resampling IR too, to keep the two aligned
+                    # for dust masking — but _align_ir_to_rgb documents that interpolating the
+                    # IR channel at all risks softening a thin dust defect's minimum below what
+                    # the detection pipeline's noise floor expects (a downsample case measured
+                    # there, 0.22 -> 0.31, "shattered"). Untested for the upsample case this is,
+                    # and not worth guessing on a precision-sensitive measurement: fail loudly
+                    # and let the caller pick a DPI native on both axes instead.
+                    raise RuntimeError(
+                        f"{params.dpi}dpi needs resampling the y axis from its native "
+                        f"{y_native_dpi}dpi, which is not supported together with IR capture. "
+                        f"Choose a DPI native on both axes for IR scans: "
+                        f"{_resolve_square_resolutions(option_map)}"
+                    )
+                dev.x_resolution = params.dpi
+                dev.y_resolution = y_native_dpi
+            else:
+                dev.resolution = params.dpi
+
 
             # Validate the complete requested option set before applying any of it, so a missing
             # option never leaves the feeder half-positioned.
@@ -1251,6 +1377,14 @@ class SaneBackend:
                     progress(1.0)
                 except Exception:
                     pass
+
+            # Upsample the carriage/stepper (y/row) axis to match the sensor (x/column) axis
+            # when the requested DPI needed native y < target — see _resolve_resampled_resolutions
+            # above. x is never resampled: on the reference device it always had a native step at
+            # the target already. IR capture together with a resampled DPI is rejected earlier
+            # (see the guard above), so only rgb_array is ever touched here.
+            if y_native_dpi is not None and y_native_dpi != params.dpi:
+                rgb_array = _resample_rows_to_dpi(rgb_array, native_dpi=y_native_dpi, target_dpi=params.dpi)
 
             if ir_array is not None and ir_valid_mask is None:
                 ir_valid_mask = np.ones(ir_array.shape[:2], dtype=np.bool_)

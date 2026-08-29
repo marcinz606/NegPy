@@ -318,6 +318,45 @@ class TestSplitRgbi:
         assert np.array_equal(ir, arr[:, :, 3])
 
 
+class TestResampleRowsToDpi:
+    """`_resample_rows_to_dpi`: upsample only the row (y) axis to represent a higher DPI,
+    leaving columns (x) untouched — the mechanism behind _resolve_resampled_resolutions."""
+
+    def test_upsamples_rows_by_the_dpi_ratio(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _resample_rows_to_dpi
+
+        arr = np.zeros((4, 10, 3), dtype=np.uint8)
+        out = _resample_rows_to_dpi(arr, native_dpi=2400, target_dpi=3200)
+
+        assert out.shape[0] == round(4 * 3200 / 2400)  # 5
+        assert out.shape[1] == 10  # columns untouched
+        assert out.shape[2] == 3
+
+    def test_preserves_dtype(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _resample_rows_to_dpi
+
+        arr = np.full((4, 4, 3), 1000, dtype=np.uint16)
+        out = _resample_rows_to_dpi(arr, native_dpi=2400, target_dpi=3200)
+
+        assert out.dtype == np.uint16
+
+    def test_works_on_2d_grayscale(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _resample_rows_to_dpi
+
+        arr = np.zeros((4, 10), dtype=np.uint8)
+        out = _resample_rows_to_dpi(arr, native_dpi=2400, target_dpi=3200)
+
+        assert out.shape == (5, 10)
+
+    def test_exact_multiple_matches_expected_row_count(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _resample_rows_to_dpi
+
+        arr = np.zeros((100, 10, 3), dtype=np.uint8)
+        out = _resample_rows_to_dpi(arr, native_dpi=1600, target_dpi=3200)
+
+        assert out.shape[0] == 200
+
+
 class TestScanExposureTimeCapability:
     """Detection of the SANE `scan-exposure-time` option (e.g. genesys)."""
 
@@ -418,3 +457,192 @@ class TestResolveFilmType:
         from negpy.infrastructure.scanners.sane_backend import _resolve_film_type
 
         assert _resolve_film_type({}, "negative") is None
+
+
+# Real values from `scanimage --help` on the project's reference Epson V500
+# (epkowa/interpreter backend): `--resolution` and `--x-resolution`/`--y-resolution` report
+# genuinely different, asymmetric native ladders.
+_V500_X_RESOLUTIONS = [100, 200, 400, 600, 800, 1200, 1600, 3200, 6400]
+_V500_Y_RESOLUTIONS = [80, 200, 320, 400, 600, 800, 1200, 1600, 2400, 3200, 4800, 6400]
+_V500_PLAIN_RESOLUTIONS = [200, 400, 800, 1600]
+
+
+class TestResolveSquareResolutions:
+    """`_resolve_square_resolutions`: DPI values settable identically on both axes, so pixels
+    stay square, when a device exposes `x_resolution`/`y_resolution` independently."""
+
+    def test_intersects_asymmetric_axis_ladders(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _resolve_square_resolutions
+
+        opt = {
+            "x_resolution": FakeOption(constraint=_V500_X_RESOLUTIONS),
+            "y_resolution": FakeOption(constraint=_V500_Y_RESOLUTIONS),
+        }
+        assert _resolve_square_resolutions(opt) == (200, 400, 600, 800, 1200, 1600, 3200, 6400)
+
+    def test_missing_either_axis_returns_empty(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _resolve_square_resolutions
+
+        assert _resolve_square_resolutions({"x_resolution": FakeOption(constraint=[100, 200])}) == ()
+        assert _resolve_square_resolutions({"y_resolution": FakeOption(constraint=[100, 200])}) == ()
+        assert _resolve_square_resolutions({}) == ()
+
+    def test_non_list_constraint_returns_empty(self) -> None:
+        """A plain (min, max, step) range would be unusual for this option, but must not raise."""
+        from negpy.infrastructure.scanners.sane_backend import _resolve_square_resolutions
+
+        opt = {
+            "x_resolution": FakeOption(constraint=(50, 6400, 1)),
+            "y_resolution": FakeOption(constraint=[100, 200]),
+        }
+        assert _resolve_square_resolutions(opt) == ()
+
+    def test_no_overlap_returns_empty(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _resolve_square_resolutions
+
+        opt = {
+            "x_resolution": FakeOption(constraint=[100, 300]),
+            "y_resolution": FakeOption(constraint=[200, 400]),
+        }
+        assert _resolve_square_resolutions(opt) == ()
+
+
+class TestDetectDpiPrefersRicherAxisLadder:
+    """_detect_dpi: prefer the x/y-derived ladder over `resolution` alone whenever it reaches
+    higher — this is the actual bug found on the V500, where `resolution` alone caps at
+    1600dpi despite the device supporting 6400dpi per axis."""
+
+    def test_v500_reports_up_to_6400_not_1600(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _detect_dpi
+
+        opt = {
+            "resolution": FakeOption(constraint=_V500_PLAIN_RESOLUTIONS),
+            "x_resolution": FakeOption(constraint=_V500_X_RESOLUTIONS),
+            "y_resolution": FakeOption(constraint=_V500_Y_RESOLUTIONS),
+        }
+        dpis = _detect_dpi(opt)
+        assert max(dpis) == 6400
+        # 100 is reachable too: x has a native 100 step, and y's minimum (80) is below it, so
+        # it's an upsample away — see _resolve_resampled_resolutions.
+        assert dpis == (100, 200, 400, 600, 800, 1200, 1600, 3200, 6400)
+
+
+    def test_falls_back_to_plain_resolution_when_axis_ladder_is_not_richer(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _detect_dpi
+
+        opt = {
+            "resolution": FakeOption(constraint=[100, 200, 300, 400, 600, 1200]),
+            "x_resolution": FakeOption(constraint=[100, 200]),
+            "y_resolution": FakeOption(constraint=[100, 200]),
+        }
+        assert _detect_dpi(opt) == (100, 200, 300, 400, 600, 1200)
+
+    def test_falls_back_to_plain_resolution_when_no_axis_options(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _detect_dpi
+
+        opt = {"resolution": FakeOption(constraint=[150, 300, 600, 1200])}
+        assert _detect_dpi(opt) == (150, 300, 600, 1200)
+
+    def test_uses_axis_ladder_when_resolution_option_is_absent(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _detect_dpi
+
+        opt = {
+            "x_resolution": FakeOption(constraint=_V500_X_RESOLUTIONS),
+            "y_resolution": FakeOption(constraint=_V500_Y_RESOLUTIONS),
+        }
+        assert max(_detect_dpi(opt)) == 6400
+
+    def test_no_resolution_info_at_all_returns_empty(self) -> None:
+        """Must stay empty, not CANONICAL_DPI_STOPS: pixel-geometry devices with no DPI info
+        fall back to a 35mm default area, which relies on this being falsy."""
+        from negpy.infrastructure.scanners.sane_backend import _detect_dpi
+
+        assert _detect_dpi({}) == ()
+
+
+# Real values from the reference V500 under the Transparency Unit specifically (not the plain
+# `scanimage --help` dump, which reads the Flatbed default): the y ladder actually loses its
+# top two steps (3200, 6400) under TPU, gaining a 9600 instead of them.
+_V500_TPU_X_RESOLUTIONS = [100, 200, 300, 400, 600, 800, 1200, 1600, 3200, 6400]
+_V500_TPU_Y_RESOLUTIONS = [120, 200, 320, 400, 600, 800, 1200, 1600, 2400, 4800, 9600]
+
+
+class TestResolveResampledResolutions:
+    """`_resolve_resampled_resolutions`: target DPI -> native y to request, reaching values
+    neither axis alone (nor their exact intersection) offers by upsampling y in software.
+
+    This is the actual case that motivated the function: under the reference V500's
+    Transparency Unit, y's native ladder drops 3200 and 6400 entirely, so the exact
+    intersection with x tops out at 1600 — but x itself has native 3200/6400 steps, and y's
+    2400 is a legitimate upsample source for a 3200 target.
+    """
+
+    def test_3200_target_upsamples_from_native_y_2400(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _resolve_resampled_resolutions
+
+        opt = {
+            "x_resolution": FakeOption(constraint=_V500_TPU_X_RESOLUTIONS),
+            "y_resolution": FakeOption(constraint=_V500_TPU_Y_RESOLUTIONS),
+        }
+        resolved = _resolve_resampled_resolutions(opt)
+        assert resolved[3200] == 2400
+
+    def test_exact_matches_need_no_resample(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _resolve_resampled_resolutions
+
+        opt = {
+            "x_resolution": FakeOption(constraint=_V500_TPU_X_RESOLUTIONS),
+            "y_resolution": FakeOption(constraint=_V500_TPU_Y_RESOLUTIONS),
+        }
+        resolved = _resolve_resampled_resolutions(opt)
+        for value in (200, 400, 600, 800, 1200, 1600):
+            assert resolved[value] == value
+
+    def test_6400_target_upsamples_from_native_y_4800(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _resolve_resampled_resolutions
+
+        opt = {
+            "x_resolution": FakeOption(constraint=_V500_TPU_X_RESOLUTIONS),
+            "y_resolution": FakeOption(constraint=_V500_TPU_Y_RESOLUTIONS),
+        }
+        assert _resolve_resampled_resolutions(opt)[6400] == 4800
+
+    def test_never_downsamples(self) -> None:
+        """A target below y's own minimum has nothing valid to upsample from and is omitted,
+        not clamped to the nearest-above value (that would be a downsample of y)."""
+        from negpy.infrastructure.scanners.sane_backend import _resolve_resampled_resolutions
+
+        opt = {
+            "x_resolution": FakeOption(constraint=[50, 100, 200]),
+            "y_resolution": FakeOption(constraint=[120, 200]),
+        }
+        resolved = _resolve_resampled_resolutions(opt)
+        assert 50 not in resolved  # below y's minimum (120): nothing to upsample from
+        assert 100 not in resolved  # same: 100 < 120
+        assert resolved[200] == 200
+
+    def test_missing_either_axis_returns_empty(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _resolve_resampled_resolutions
+
+        assert _resolve_resampled_resolutions({}) == {}
+        assert _resolve_resampled_resolutions({"x_resolution": FakeOption(constraint=[100])}) == {}
+
+    def test_v500_flatbed_ladder_matches_square_intersection_plus_extras(self) -> None:
+        """Under Flatbed (where y keeps its full ladder, per _V500_Y_RESOLUTIONS), resampling
+        should recover everything the exact intersection did, plus low-end values (100) that
+        square-intersection alone missed because 100 isn't in y's list, just below it (80)."""
+        from negpy.infrastructure.scanners.sane_backend import (
+            _resolve_resampled_resolutions,
+            _resolve_square_resolutions,
+        )
+
+        opt = {
+            "x_resolution": FakeOption(constraint=_V500_X_RESOLUTIONS),
+            "y_resolution": FakeOption(constraint=_V500_Y_RESOLUTIONS),
+        }
+        square = set(_resolve_square_resolutions(opt))
+        resampled = set(_resolve_resampled_resolutions(opt).keys())
+        assert square.issubset(resampled)
+        assert 100 in resampled and 100 not in square
+
+
