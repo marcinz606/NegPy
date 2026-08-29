@@ -175,10 +175,9 @@
           } \
             --set FONTCONFIG_FILE ${fontsConf}
 
-          install -Dm644 ${./negpy.desktop} $out/share/applications/negpy.desktop
-          substituteInPlace $out/share/applications/negpy.desktop \
-            --replace-fail "Exec=NegPy" "Exec=$out/bin/negpy" \
-            --replace-fail "Icon=icon" "Icon=negpy"
+          install -Dm644 ${./NegPy.desktop} $out/share/applications/NegPy.desktop
+          substituteInPlace $out/share/applications/NegPy.desktop \
+            --replace-fail "Exec=NegPy" "Exec=$out/bin/negpy"
           install -Dm644 ${./media/icons/icon.svg} $out/share/icons/hicolor/scalable/apps/negpy.svg
 
           runHook postInstall
