@@ -1226,7 +1226,11 @@ class ExportSidebar(BaseSidebar):
         conf = self.state.config.export
         return {
             "export_fmt": conf.export_fmt,
+            "export_bit_depth": conf.export_bit_depth,
             "jpeg_quality": conf.jpeg_quality,
+            "jpeg_progressive": conf.jpeg_progressive,
+            "tiff_compression": conf.tiff_compression,
+            "png_compress_level": conf.png_compress_level,
             "jxl_lossless": conf.jxl_lossless,
             "jxl_distance": conf.jxl_distance,
             "jxl_effort": conf.jxl_effort,
@@ -1265,7 +1269,11 @@ class ExportSidebar(BaseSidebar):
             persist=True,
             render=True,
             export_fmt=vals["export_fmt"],
+            export_bit_depth=vals["export_bit_depth"],
             jpeg_quality=vals["jpeg_quality"],
+            jpeg_progressive=vals["jpeg_progressive"],
+            tiff_compression=vals["tiff_compression"],
+            png_compress_level=vals["png_compress_level"],
             jxl_lossless=vals["jxl_lossless"],
             jxl_distance=vals["jxl_distance"],
             jxl_effort=vals["jxl_effort"],

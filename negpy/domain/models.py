@@ -52,6 +52,19 @@ class ExportResolutionMode(StrEnum):
     TARGET_PX = "target_px"
 
 
+class TiffCompression(StrEnum):
+    """Values are the literal ``tifffile`` compression arguments.
+
+    JXL-in-TIFF is deliberately absent: too few readers support the tag, and
+    lossless JXL is a standalone format here. A saved config naming it coerces
+    to ZIP.
+    """
+
+    NONE = "none"
+    LZW = "lzw"
+    ZIP = "zlib"
+
+
 _EnumT = TypeVar("_EnumT", bound=Enum)
 
 
@@ -121,7 +134,12 @@ class ExportConfig:
 
     export_path: str = field(default_factory=lambda: os.path.join(paths.get_default_user_dir(), "export"))
     export_fmt: ExportFormat = ExportFormat.JPEG
+    # 8 or 16. TIFF, PNG and JXL honour it; JPEG and WebP are 8-bit formats and ignore it.
+    export_bit_depth: int = 16
     jpeg_quality: int = 90
+    jpeg_progressive: bool = False
+    tiff_compression: TiffCompression = TiffCompression.ZIP
+    png_compress_level: int = 6  # zlib level 0-9, higher = slower/smaller
     jxl_lossless: bool = True
     jxl_distance: float = 1.0  # libjxl distance; only used when jxl_lossless is False
     jxl_effort: int = 7
@@ -171,6 +189,7 @@ class ExportConfig:
             coerce_enum(ExportResolutionMode, self.export_resolution_mode, ExportResolutionMode.ORIGINAL),
         )
         object.__setattr__(self, "output_mode", coerce_enum(ExportPresetOutputMode, self.output_mode, ExportPresetOutputMode.ABSOLUTE))
+        object.__setattr__(self, "tiff_compression", coerce_enum(TiffCompression, self.tiff_compression, TiffCompression.ZIP))
 
 
 @dataclass
@@ -187,7 +206,11 @@ class ExportPreset:
 
     # Format
     export_fmt: ExportFormat = ExportFormat.JPEG
+    export_bit_depth: int = 16
     jpeg_quality: int = 90
+    jpeg_progressive: bool = False
+    tiff_compression: TiffCompression = TiffCompression.ZIP
+    png_compress_level: int = 6
     jxl_lossless: bool = True
     jxl_distance: float = 1.0
     jxl_effort: int = 7
@@ -218,6 +241,7 @@ class ExportPreset:
         self.export_fmt = coerce_enum(ExportFormat, migrate_export_fmt(self.export_fmt), ExportFormat.JPEG)
         self.export_resolution_mode = coerce_enum(ExportResolutionMode, self.export_resolution_mode, ExportResolutionMode.ORIGINAL)
         self.output_mode = coerce_enum(ExportPresetOutputMode, self.output_mode, ExportPresetOutputMode.SAME_AS_SOURCE)
+        self.tiff_compression = coerce_enum(TiffCompression, self.tiff_compression, TiffCompression.ZIP)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -226,7 +250,11 @@ class ExportPreset:
             "enabled": self.enabled,
             "render_intent": self.render_intent,
             "export_fmt": self.export_fmt,
+            "export_bit_depth": self.export_bit_depth,
             "jpeg_quality": self.jpeg_quality,
+            "jpeg_progressive": self.jpeg_progressive,
+            "tiff_compression": self.tiff_compression,
+            "png_compress_level": self.png_compress_level,
             "jxl_lossless": self.jxl_lossless,
             "jxl_distance": self.jxl_distance,
             "jxl_effort": self.jxl_effort,
@@ -268,7 +296,11 @@ def preset_from_export_config(conf: ExportConfig, name: str = "Current settings"
         name=name,
         enabled=True,
         export_fmt=conf.export_fmt,
+        export_bit_depth=conf.export_bit_depth,
         jpeg_quality=conf.jpeg_quality,
+        jpeg_progressive=conf.jpeg_progressive,
+        tiff_compression=conf.tiff_compression,
+        png_compress_level=conf.png_compress_level,
         jxl_lossless=conf.jxl_lossless,
         jxl_distance=conf.jxl_distance,
         jxl_effort=conf.jxl_effort,
@@ -517,10 +549,13 @@ def flat_export_config(export: ExportConfig | ExportPreset) -> Any:
     downscaled when requested.
     """
     fmt = export.export_fmt
+    overrides: Dict[str, Any] = {}
     if fmt == ExportFormat.JXL and not export_blocked(fmt, export.export_color_space):
-        overrides: Dict[str, Any] = {"jxl_lossless": True}
+        overrides["jxl_lossless"] = True
     else:
-        overrides = {"export_fmt": ExportFormat.TIFF}
+        overrides["export_fmt"] = ExportFormat.TIFF
+    # A flat master is a 16-bit deliverable whatever the panel's Bit Depth says.
+    overrides["export_bit_depth"] = 16
     if export.export_resolution_mode not in (
         ExportResolutionMode.PRINT.value,
         ExportResolutionMode.TARGET_PX.value,

@@ -4352,6 +4352,7 @@ class AppController(QObject):
                         "gamma_key": self.state.linear_gamma_key,
                         "output_format": linear_fmt,
                         "jxl_effort": self.state.linear_jxl_effort,
+                        "tiff_compression": self.state.config.export.tiff_compression,
                     },
                 )
             )

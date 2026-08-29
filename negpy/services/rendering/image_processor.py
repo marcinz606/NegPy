@@ -1,16 +1,14 @@
 import os
-import io
 import ctypes
 import threading
 import cv2
 import rawpy
-import tifffile
 import imagecodecs
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace as dc_replace
 from functools import lru_cache
-from PIL import Image, ImageCms, PngImagePlugin
+from PIL import Image, ImageCms
 from typing import Callable, Tuple, Optional, Any, Dict, List, Sequence
 from negpy.kernel.system.logging import get_logger
 from negpy.kernel.system.config import APP_CONFIG
@@ -81,6 +79,7 @@ from negpy.infrastructure.loaders.helpers import (
 )
 from negpy.features.metadata.resolution import Resolution
 from negpy.services.export.print import PrintService
+from negpy.services.export.encoders import encode_jpeg, encode_jxl, encode_png, encode_tiff, encode_webp
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry, WORKING_COLOR_SPACE
 from negpy.infrastructure.display.icc_lut import DEFAULT_LUT_SIZE, apply_icc_u16_rgb, apply_matrix_trc_u8
 
@@ -143,14 +142,14 @@ def _use_half_size_decode(raw: Any, linear_raw: bool) -> bool:
 _DERIVE_RESOLUTION: Any = object()
 
 
-def _tiff_resolution_kwargs(resolution: Optional[Resolution], export_settings) -> Dict[str, Any]:
-    """TIFF cannot say "no resolution". Leaving these out makes tifffile write
+def _tiff_resolution(resolution: Optional[Resolution], export_settings) -> Resolution:
+    """TIFF cannot say "no resolution". Leaving the tags out makes tifffile write
     XResolution (1, 1) with ResolutionUnit NONE, which readers report as 1 DPI, so a
     file with nothing to preserve states the export's own resolution instead. Being
     unable to stay silent is not a licence to state something false."""
     if resolution is None:
-        resolution = Resolution.from_dpi(PrintService.resolution_tag_dpi(export_settings))
-    return {"resolution": (resolution.x, resolution.y), "resolutionunit": resolution.unit}
+        return Resolution.from_dpi(PrintService.resolution_tag_dpi(export_settings))
+    return resolution
 
 
 def _downsample_to_long_edge(buf: np.ndarray, long_px: int) -> np.ndarray:
@@ -1180,64 +1179,40 @@ class ImageProcessor:
         if bypassed:
             icc_input = None
 
-        if fmt == ExportFormat.TIFF:
-            if is_greyscale:
-                img_int = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=16)
-                img_out, icc_bytes = self._apply_color_management_u16_greyscale(
-                    img_int, working_color_space, color_space, icc_output, icc_input
-                )
-            else:
-                img_int = float_to_uint16(buffer)
-                img_out, icc_bytes = self._apply_color_management_u16(img_int, working_color_space, color_space, icc_output, icc_input)
+        # JPEG and WebP have no higher depth, so the setting cannot reach them.
+        depth = 8 if fmt in (ExportFormat.JPEG, ExportFormat.WEBP) else int(export_settings.export_bit_depth)
+        img_out, icc_bytes = self._export_pixels(buffer, depth, is_greyscale, working_color_space, color_space, icc_output, icc_input)
+        exif_bytes, xmp_bytes = (embed_plan[0], embed_plan[1]) if embed_plan is not None else (None, None)
 
+        if fmt == ExportFormat.TIFF:
             meta_kwargs = {}
             if embed_plan is not None:
                 from negpy.features.metadata.writer import tiff_metadata_kwargs
 
-                exif_bytes, xmp_bytes, fold = embed_plan
-                meta_kwargs = tiff_metadata_kwargs(exif_bytes, xmp_bytes, fold_user_comment=fold)
-            output_buf = io.BytesIO()
-            tifffile.imwrite(
-                output_buf,
-                img_out,
-                photometric="rgb" if img_out.ndim == 3 else "minisblack",
-                iccprofile=icc_bytes,
-                compression="zlib",
-                predictor=True,
-                **_tiff_resolution_kwargs(resolution, export_settings),
-                **meta_kwargs,
+                plan_exif, plan_xmp, fold = embed_plan
+                meta_kwargs = tiff_metadata_kwargs(plan_exif, plan_xmp, fold_user_comment=fold)
+            return (
+                encode_tiff(
+                    img_out,
+                    icc=icc_bytes,
+                    resolution=_tiff_resolution(resolution, export_settings),
+                    compression=export_settings.tiff_compression,
+                    **meta_kwargs,
+                ),
+                "tiff",
             )
-            return output_buf.getvalue(), "tiff"
         elif fmt == ExportFormat.PNG:
-            if is_greyscale:
-                # PIL "I;16" supports 16-bit greyscale, so keep full bit depth here.
-                img_int = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=16)
-                img_out, icc_bytes = self._apply_color_management_u16_greyscale(
-                    img_int, working_color_space, color_space, icc_output, icc_input
-                )
-                pil_img = Image.fromarray(img_out)
-            else:
-                # PIL has no 16-bit RGB mode, so RGB PNG is 8-bit and TIFF is the 16-bit
-                # lossless path. Mirror the JPEG branch for color management.
-                img_int = float_to_uint8(buffer)
-                pil_img, icc_bytes = self.apply_color_management(
-                    Image.fromarray(img_int), working_color_space, color_space, icc_output, icc_input
-                )
-            output_buf = io.BytesIO()
-            save_kwargs: Dict[str, Any] = {"format": "PNG", "compress_level": 6}
-            if resolution is not None:
-                save_kwargs["dpi"] = (resolution.x_dpi, resolution.y_dpi)
-            if icc_bytes:
-                save_kwargs["icc_profile"] = icc_bytes
-            if embed_plan is not None:
-                exif_bytes, xmp_bytes, _fold = embed_plan
-                save_kwargs["exif"] = exif_bytes
-                if xmp_bytes:
-                    pnginfo = PngImagePlugin.PngInfo()
-                    pnginfo.add_itxt("XML:com.adobe.xmp", xmp_bytes.decode("utf-8"), zip=False)
-                    save_kwargs["pnginfo"] = pnginfo
-            pil_img.save(output_buf, **save_kwargs)
-            return output_buf.getvalue(), "png"
+            return (
+                encode_png(
+                    img_out,
+                    icc=icc_bytes,
+                    resolution=resolution,
+                    level=export_settings.png_compress_level,
+                    exif=exif_bytes,
+                    xmp=xmp_bytes,
+                ),
+                "png",
+            )
         elif fmt == ExportFormat.JXL:
             tag = _JXL_COLOR.get(color_space)
             if tag is None:
@@ -1246,66 +1221,69 @@ class ImageProcessor:
                     "Use sRGB, P3 D65, Rec 2020, or Greyscale, or pick another format."
                 )
             photometric, primaries, transfer = tag
-            # 16-bit, color-managed to target; ICC discarded (libjxl tags enumeratively).
+            return (
+                encode_jxl(
+                    img_out,
+                    photometric=photometric,
+                    primaries=primaries,
+                    transfer=transfer,
+                    lossless=export_settings.jxl_lossless,
+                    distance=export_settings.jxl_distance,
+                    effort=export_settings.jxl_effort,
+                ),
+                "jxl",
+            )
+        elif fmt == ExportFormat.WEBP:
+            return (
+                encode_webp(
+                    img_out,
+                    icc=icc_bytes,
+                    lossless=export_settings.webp_lossless,
+                    quality=export_settings.webp_quality,
+                    method=export_settings.webp_method,
+                ),
+                "webp",
+            )
+        else:
+            return (
+                encode_jpeg(
+                    img_out,
+                    icc=icc_bytes,
+                    resolution=resolution,
+                    quality=export_settings.jpeg_quality,
+                    progressive=export_settings.jpeg_progressive,
+                ),
+                "jpg",
+            )
+
+    def _export_pixels(
+        self,
+        buffer: np.ndarray,
+        depth: int,
+        is_greyscale: bool,
+        working_color_space: str,
+        color_space: str,
+        icc_output: Optional[str],
+        icc_input: Optional[str],
+    ) -> Tuple[np.ndarray, Optional[bytes]]:
+        """Quantise a float buffer to *depth* and color-manage it to the target space.
+
+        Greyscale never goes through the RGB lcms transform: lcms refuses a
+        1-channel image against an RGB working profile, so both grey paths use the
+        synthetic re-encode instead.
+        """
+        if depth == 16:
             if is_greyscale:
                 img_int = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=16)
-                img_out, _icc = self._apply_color_management_u16_greyscale(img_int, working_color_space, color_space, icc_output, icc_input)
-            else:
-                img_int = float_to_uint16(buffer)
-                img_out, _icc = self._apply_color_management_u16(img_int, working_color_space, color_space, icc_output, icc_input)
-            bits = imagecodecs.jpegxl_encode(
-                np.ascontiguousarray(img_out),
-                bitspersample=16,
-                photometric=photometric,
-                primaries=primaries,
-                transfer=transfer,
-                lossless=export_settings.jxl_lossless,
-                distance=None if export_settings.jxl_lossless else export_settings.jxl_distance,
-                effort=export_settings.jxl_effort,
-                numthreads=0,  # all cores; single-threaded otherwise (~7x slower)
-            )
-            return bytes(bits), "jxl"
-        elif fmt == ExportFormat.WEBP:
-            # 8-bit only (WebP has no higher bit depth). Lossy or lossless via a
-            # flag; PIL embeds the ICC profile for any color space.
-            if is_greyscale:
-                # apply_color_management cannot transform an L image with the RGB working
-                # profile: lcms refuses it and the file lands untagged in the working TRC.
-                # Use the synthetic grey re-encode.
-                pil_img, icc_bytes = self._greyscale_to_pil_u8(buffer, working_color_space, color_space, icc_output, icc_input)
-            else:
-                pil_img, icc_bytes = self.apply_color_management(
-                    Image.fromarray(float_to_uint8(buffer)), working_color_space, color_space, icc_output, icc_input
-                )
-            if max(pil_img.size) > 16383:
-                raise ValueError("WebP max dimension is 16383 px; use TIFF/PNG for larger exports.")
-            output_buf = io.BytesIO()
-            save_kwargs: Dict[str, Any] = {
-                "format": "WEBP",
-                "lossless": export_settings.webp_lossless,
-                "quality": export_settings.webp_quality,
-                "method": export_settings.webp_method,
-            }
-            if icc_bytes:
-                save_kwargs["icc_profile"] = icc_bytes
-            pil_img.save(output_buf, **save_kwargs)
-            return output_buf.getvalue(), "webp"
+                return self._apply_color_management_u16_greyscale(img_int, working_color_space, color_space, icc_output, icc_input)
+            return self._apply_color_management_u16(float_to_uint16(buffer), working_color_space, color_space, icc_output, icc_input)
+        if is_greyscale:
+            pil_img, icc_bytes = self._greyscale_to_pil_u8(buffer, working_color_space, color_space, icc_output, icc_input)
         else:
-            if is_greyscale:
-                # Same constraint as the WebP branch: greyscale cannot go through the RGB
-                # CMS transform, so re-encode at 16-bit and downconvert.
-                pil_img, icc_bytes = self._greyscale_to_pil_u8(buffer, working_color_space, color_space, icc_output, icc_input)
-            else:
-                pil_img, icc_bytes = self.apply_color_management(
-                    Image.fromarray(float_to_uint8(buffer)),
-                    working_color_space,
-                    color_space,
-                    icc_output,
-                    icc_input,
-                )
-            output_buf = io.BytesIO()
-            self._save_to_pil_buffer(pil_img, output_buf, export_settings, icc_bytes, resolution)
-            return output_buf.getvalue(), "jpg"
+            pil_img, icc_bytes = self.apply_color_management(
+                Image.fromarray(float_to_uint8(buffer)), working_color_space, color_space, icc_output, icc_input
+            )
+        return np.asarray(pil_img), icc_bytes
 
     def render_display_array(
         self,
@@ -1844,28 +1822,6 @@ class ImageProcessor:
         except Exception as e:
             logger.warning("Soft-proof LUT build failed, falling back to the per-pixel transform", exc_info=e)
             return None
-
-    def _save_to_pil_buffer(
-        self,
-        pil_img: Image.Image,
-        buf: io.BytesIO,
-        export_settings,
-        icc_bytes: Optional[bytes],
-        resolution: Optional[Resolution],
-    ) -> None:
-        """Encodes PIL image to byte stream."""
-        fmt = "JPEG" if export_settings.export_fmt == ExportFormat.JPEG else "TIFF"
-        quality = getattr(export_settings, "jpeg_quality", 95)
-        density = {"dpi": (resolution.x_dpi, resolution.y_dpi)} if resolution is not None else {}
-        pil_img.save(
-            buf,
-            format=fmt,
-            quality=quality,
-            subsampling=0,
-            icc_profile=icc_bytes,
-            compression="tiff_lzw" if fmt == "TIFF" else None,
-            **density,
-        )
 
     def release_source_cache(self) -> None:
         """Drops the decoded-source and pre-correction caches (full-res arrays)."""

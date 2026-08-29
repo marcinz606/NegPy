@@ -27,6 +27,7 @@ from negpy.features.hdr.models import hdr_frame_paths
 from negpy.services.export.print import PrintService
 from negpy.services.export.templating import render_export_filename
 from negpy.services.export.contact_sheet import ContactSheetService
+from negpy.services.export.encoders import encode_jpeg
 
 
 def _protects_metadata(task: "ExportTask") -> bool:
@@ -397,6 +398,7 @@ class ExportWorker(QObject):
             os.makedirs(out_dir, exist_ok=True)
 
             sheet_icc = _srgb_icc_bytes()
+            delivery = tasks[0].export_settings if tasks else None
             for idx, sheet in enumerate(sheets):
                 suffix = "" if idx == 0 else f"_{idx + 1}"
                 path = os.path.join(out_dir, f"contact_sheet{suffix}.jpg")
@@ -409,7 +411,14 @@ class ExportWorker(QObject):
                 try:
                     with tempfile.NamedTemporaryFile(dir=out_dir, delete=False, suffix=".part") as tmp:
                         tmp_path = tmp.name
-                        sheet.save(tmp, format="JPEG", quality=95, subsampling=0, icc_profile=sheet_icc)
+                        tmp.write(
+                            encode_jpeg(
+                                np.asarray(sheet),
+                                icc=sheet_icc,
+                                quality=delivery.jpeg_quality if delivery else 95,
+                                progressive=bool(delivery.jpeg_progressive) if delivery else False,
+                            )
+                        )
                     os.replace(tmp_path, path)
                 except Exception as write_err:
                     if tmp_path is not None and os.path.exists(tmp_path):

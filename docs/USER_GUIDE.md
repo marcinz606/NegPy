@@ -807,7 +807,11 @@ The primary **Export** action. Its chevron menu picks the scope: current frame (
 
 ### Format / Size / Color / Destination
 
-*   **Format**: `JPEG`, `TIFF`, `PNG`, `JPEG XL`, or `WebP`, with quality or effort options per format. TIFF is always zlib-compressed. **JPEG XL supports only `sRGB`, `P3 D65`, `Rec 2020` or `Greyscale`** for Color Space: it tags color with compact enumerated values rather than an embedded ICC profile, and NegPy's JXL encoder cannot carry an arbitrary one, so `Adobe RGB`, `ProPhoto RGB` and a custom Output ICC are rejected with an error. Pick a supported space or a different format.
+*   **Format**: `JPEG`, `TIFF`, `PNG`, `JPEG XL`, or `WebP`, with quality or effort options per format. **JPEG XL supports only `sRGB`, `P3 D65`, `Rec 2020` or `Greyscale`** for Color Space: it tags color with compact enumerated values rather than an embedded ICC profile, and NegPy's JXL encoder cannot carry an arbitrary one, so `Adobe RGB`, `ProPhoto RGB` and a custom Output ICC are rejected with an error. Pick a supported space or a different format.
+*   **Bit Depth**: `8-bit` or `16-bit`, for TIFF, PNG and JPEG XL. JPEG and WebP are 8-bit formats and hide the row. A flat master is always 16-bit and hides it too.
+*   **Compression** (TIFF): `Uncompressed`, `LZW` or `ZIP`. All three are lossless; ZIP is usually the smallest.
+*   **Compression** (PNG): `0`–`9`. Lossless either way — higher is slower and smaller.
+*   **Progressive** (JPEG): render the image in passes while it downloads.
 *   **Color Space**: `Same as Source`, `sRGB`, `Adobe RGB`, `ProPhoto RGB`, `P3 D65`, `Rec 2020`, or `Greyscale` (true B&W output).
 *   **Input / Output ICC**: soft-proof against, and optionally embed, an ICC profile. Output is the destination profile (default); Input treats the profile as the source, for when a scan's profile is known but untagged. Not available for JPEG XL output; see the Format note above. Input overrides **primaries only** — the tone curve is always the pipeline's own, so a matrix-style profile's declared TRC is ignored (two profiles with identical primaries but different TRCs render identically); a LUT-style profile's own input curves are still honoured.
 *   **Paper Aspect Ratio**: final print ratio, or *Original* (no resize).
@@ -818,7 +822,7 @@ The primary **Export** action. Its chevron menu picks the scope: current frame (
 
 *   **Presets**: a checklist of export presets, each a saved Format/Size/Color/**Destination**/filename recipe. **Manage** edits them; **Export Presets** renders the frames with every enabled preset at once, and each preset uses **its own** destination, not the sidebar Destination above.
 *   **Sidecars**: **Save on export** writes a `.negpy` edit sidecar next to each source on every export; **Export sidecars** writes them for all visible frames now, and reports how many failed if a source folder is read-only. Edits always stay in the database too; sidecars are optional archival copies.
-*   **Contact Sheet**: render all visible frames into a single sheet. Choose a **Template** or set **Cell / Gap / Margin / Max tiles** by hand, pick an output **Path**, then press **Export contact sheet**.
+*   **Contact Sheet**: render all visible frames into a single sheet. Choose a **Template** or set **Cell / Gap / Margin / Max tiles** by hand, pick an output **Path**, then press **Export contact sheet**. The sheet is a JPEG at the **JPEG Quality** and **Progressive** settings above.
 *   **Preview** (affects the on-screen preview only, never the file):
     *   **Soft proof** (on by default): simulate the export color space and Output profile, so what you see matches what you get. Turn it off only to preview at full gamut.
     *   **Display**: the monitor profile the preview is shown through, auto-detected; pick one manually if detection fails.

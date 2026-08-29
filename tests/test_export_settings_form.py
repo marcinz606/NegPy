@@ -8,13 +8,18 @@ from negpy.domain.models import (
     ExportFormat,
     ExportPresetOutputMode,
     ExportResolutionMode,
+    TiffCompression,
 )
 
 
 def _values(**overrides) -> dict:
     base = {
         "export_fmt": ExportFormat.JPEG,
+        "export_bit_depth": 8,
         "jpeg_quality": 88,
+        "jpeg_progressive": True,
+        "tiff_compression": TiffCompression.LZW,
+        "png_compress_level": 3,
         "jxl_lossless": False,
         "jxl_distance": 2.0,
         "jxl_effort": 5,
@@ -235,3 +240,73 @@ def test_flat_mode_forces_jxl_lossless_and_hides_the_toggle(qapp):
     assert form.fmt_combo.currentData() == ExportFormat.JXL.value
     assert not form.jxl_lossless_check.isHidden()
     assert not form.jxl_distance_spin.isHidden()
+
+
+def test_tiff_compression_visible_only_for_tiff(qapp):
+    form = ExportSettingsForm()
+    form.load(_values(export_fmt=ExportFormat.JPEG))
+    assert not form._tiff_container.isVisible()
+    form.load(_values(export_fmt=ExportFormat.TIFF))
+    assert not form._tiff_container.isHidden()
+
+
+def test_png_compression_visible_only_for_png(qapp):
+    form = ExportSettingsForm()
+    form.load(_values(export_fmt=ExportFormat.TIFF))
+    assert not form._png_container.isVisible()
+    form.load(_values(export_fmt=ExportFormat.PNG))
+    assert not form._png_container.isHidden()
+
+
+def test_bit_depth_shown_only_where_the_format_has_a_choice(qapp):
+    form = ExportSettingsForm()
+    for fmt in (ExportFormat.TIFF, ExportFormat.PNG, ExportFormat.JXL):
+        form.load(_values(export_fmt=fmt, export_color_space=ColorSpace.SRGB.value))
+        assert not form._depth_container.isHidden(), fmt
+    for fmt in (ExportFormat.JPEG, ExportFormat.WEBP):
+        form.load(_values(export_fmt=fmt))
+        assert not form._depth_container.isVisible(), fmt
+
+
+def test_flat_mode_hides_the_bit_depth_row(qapp):
+    # flat_export_config() forces 16-bit, so the row would name a choice it overrides.
+    form = ExportSettingsForm()
+    form.load(_values(export_fmt=ExportFormat.TIFF))
+    form.set_flat_mode(True)
+    assert not form._depth_container.isVisible()
+
+
+def test_presets_dialog_keeps_every_format_setting(qapp):
+    """The dialog writes the form back field by field; a form key that is not a
+    preset field is a setting it silently discards."""
+    from negpy.desktop.view.widgets.export_presets_dialog import ExportPresetsDialog
+    from negpy.domain.models import ExportPreset
+
+    form = ExportSettingsForm()
+    form.load(_values())
+    assert not set(form.values()) - set(ExportPreset.__dataclass_fields__)
+
+    dialog = ExportPresetsDialog([ExportPreset(name="p")])
+    dialog.form.load(
+        _values(
+            export_fmt=ExportFormat.JXL,
+            export_color_space=ColorSpace.SRGB.value,
+            jxl_lossless=False,
+            jxl_distance=4.0,
+            jxl_effort=3,
+            export_bit_depth=8,
+            tiff_compression=TiffCompression.NONE,
+            png_compress_level=1,
+            jpeg_progressive=True,
+        )
+    )
+    preset = ExportPreset(name="p")
+    dialog._write_form_to_preset(preset)
+
+    assert preset.jxl_lossless is False
+    assert preset.jxl_distance == 4.0
+    assert preset.jxl_effort == 3
+    assert preset.export_bit_depth == 8
+    assert preset.tiff_compression == TiffCompression.NONE
+    assert preset.png_compress_level == 1
+    assert preset.jpeg_progressive is True

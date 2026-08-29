@@ -23,7 +23,9 @@ import tifffile as _tifffile
 from negpy.features.flatfield.logic import apply_flatfield as _apply_flatfield_correction
 from negpy.features.retouch.models import IR_METHOD_OPENICE, RetouchConfig
 from negpy.features.flatfield.models import FlatFieldConfig
+from negpy.domain.models import TiffCompression
 from negpy.features.metadata.resolution import Resolution
+from negpy.services.export.encoders import encode_tiff
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.process.models import ProcessConfig
 from negpy.features.process.sensor import apply_sensor_correction
@@ -943,6 +945,15 @@ def _linear_description(
 NOMINAL_DPI = 300
 
 
+def _write_bytes(dest, data: bytes) -> None:
+    """Write to a path or an already-open file-like *dest*."""
+    if hasattr(dest, "write"):
+        dest.write(data)
+    else:
+        with open(dest, "wb") as fh:
+            fh.write(data)
+
+
 def _linear_resolution(source_path: Optional[str]) -> "Resolution":
     from negpy.features.metadata import resolution as resolution_source
 
@@ -964,6 +975,7 @@ def _write_tiff(
     sensor_applied: bool = False,
     ice_applied: bool = False,
     gamma_key: str = "linear",
+    compression: TiffCompression = TiffCompression.ZIP,
 ) -> None:
     """Write a float32 buffer as an untagged 16-bit TIFF to *dest* (path or file-like)."""
     res = resolution or _linear_resolution(source_path)
@@ -997,23 +1009,25 @@ def _write_tiff(
         extratags = []
         dt = None
 
-    _tifffile.imwrite(
+    _write_bytes(
         dest,
-        u16,
-        photometric=photometric,
-        compression="zlib",
-        predictor=True,
-        description=description,
-        software="NegPy",
-        datetime=dt,
-        extratags=extratags or None,
-        metadata=None,
-        resolution=(res.x, res.y),
-        resolutionunit=res.unit,
+        encode_tiff(
+            u16,
+            resolution=res,
+            compression=compression,
+            photometric=photometric,
+            description=description,
+            software="NegPy",
+            datetime=dt,
+            extratags=extratags or None,
+            metadata=None,
+        ),
     )
 
 
-def _write_ir_tiff(ir: np.ndarray, dest, resolution: Optional[Resolution] = None) -> None:
+def _write_ir_tiff(
+    ir: np.ndarray, dest, resolution: Optional[Resolution] = None, compression: TiffCompression = TiffCompression.ZIP
+) -> None:
     """Write a single-channel IR buffer as an untagged 16-bit grayscale TIFF."""
     u16 = _to_uint16_jit(np.ascontiguousarray(ir[:, :, np.newaxis] if ir.ndim == 2 else ir, dtype=np.float32))
     if u16.ndim == 3 and u16.shape[2] == 1:
@@ -1023,15 +1037,9 @@ def _write_ir_tiff(ir: np.ndarray, dest, resolution: Optional[Resolution] = None
     description = "NegPy Linear Output -- infrared channel."
     res = resolution or Resolution.from_dpi(NOMINAL_DPI)
     try:
-        _tifffile.imwrite(
+        _write_bytes(
             dest,
-            u16,
-            photometric="minisblack",
-            compression="zlib",
-            predictor=True,
-            description=description,
-            resolution=(res.x, res.y),
-            resolutionunit=res.unit,
+            encode_tiff(u16, resolution=res, compression=compression, photometric="minisblack", description=description),
         )
     except Exception:
         # The sidecar is a bonus artifact; never let it kill the export or leave
@@ -1194,6 +1202,7 @@ def export_linear_output(
     gamma_key: str = "linear",
     output_format: str = "tiff",
     jxl_effort: int = 7,
+    tiff_compression: TiffCompression = TiffCompression.ZIP,
 ) -> None:
     """Decode *file_path* and write a linear 16-bit file to *output_path*.
 
@@ -1264,6 +1273,7 @@ def export_linear_output(
             ice_applied=ice_applied,
             gamma_key=gamma_key,
             resolution=resolution,
+            compression=tiff_compression,
         )
 
     if ir is not None and not ice_applied:
