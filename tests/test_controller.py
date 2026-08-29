@@ -544,6 +544,30 @@ class TestAppController(unittest.TestCase):
         state.icc_input_path = "/custom.icc"
         self.assertEqual(self.controller.effective_input_icc(), "/custom.icc")
 
+    def test_effective_cam_xyz_stands_in_for_an_active_input_icc(self):
+        """An active Input ICC supplies its own primaries rotation, so the camera's own
+        must come out as identity — but the decode still needs the white-balance fold
+        (#991), which nulling cam_xyz outright would also have dropped."""
+        import numpy as np
+
+        from negpy.features.process.capture_color import camera_to_working_matrix
+
+        state = self.controller.state
+        matrix = [[0.7, -0.1, -0.07], [-0.56, 1.34, 0.24], [-0.15, 0.22, 0.73]]
+        wb = [1.9, 1.0, 1.6]
+        state.preview_cam_xyz = matrix
+        state.preview_camera_wb = wb
+
+        cam_xyz, camera_wb = self.controller._effective_cam_xyz()
+        self.assertEqual(cam_xyz, matrix)
+        self.assertEqual(camera_wb, wb)
+
+        state.icc_input_path = "/custom.icc"
+        cam_xyz, camera_wb = self.controller._effective_cam_xyz()
+        self.assertNotEqual(cam_xyz, matrix)
+        self.assertEqual(camera_wb, wb)
+        np.testing.assert_allclose(camera_to_working_matrix(cam_xyz, wb), np.diag(np.array(wb) / wb[1]), atol=1e-5)
+
     def _export_icc_input(self, **process):
         state = self.controller.state
         state.current_file_path = "/tmp/shot.dng"

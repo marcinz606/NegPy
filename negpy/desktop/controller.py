@@ -49,7 +49,7 @@ from negpy.desktop.workers.library import LibrarySearchTask, LibrarySearchWorker
 from negpy.desktop.workers.hdr import HdrTask, HdrWorker
 from negpy.desktop.workers.stitch import StitchTask, StitchWorker
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, hdr_frame_paths, hdr_hash, hdr_name
-from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
+from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix, wb_only_cam_xyz
 from negpy.features.process.logic import effective_linear_raw, narrowband_profile_active, should_fold_camera_wb
 from negpy.features.stitch.models import stitch_hash, stitch_name
 from negpy.desktop.workers.capture_worker import (
@@ -2147,6 +2147,7 @@ class AppController(QObject):
         # A few seconds of renders, so tick the HUD or it reads as wedged.
         self.status_message_requested.emit(toast, 2500)
         self.status_progress_requested.emit(0, len(overrides))
+        cam_xyz, camera_wb = self._effective_cam_xyz()
         self.strip_requested.emit(
             TestStripTask(
                 buffer=self.state.preview_raw,
@@ -2159,8 +2160,8 @@ class AppController(QObject):
                 grid=grid,
                 gpu_enabled=self.state.gpu_enabled,
                 ir_buffer=self.state.preview_ir,
-                cam_xyz=self.state.preview_cam_xyz,
-                camera_wb=self.state.preview_camera_wb,
+                cam_xyz=cam_xyz,
+                camera_wb=camera_wb,
             )
         )
 
@@ -3689,6 +3690,15 @@ class AppController(QObject):
             return get_resource_path("icc/RGBScan.icc")
         return None
 
+    def _effective_cam_xyz(self) -> tuple[Optional[list], Optional[list]]:
+        """(cam_xyz, camera_wb) for the transparency transfer. With an Input ICC active,
+        `cam_xyz` is stood in for: the decode still needs the white-balance fold, but the
+        camera's own primaries rotation would double up on the ICC's, see wb_only_cam_xyz."""
+        cam_xyz = self.state.preview_cam_xyz
+        if self.effective_input_icc():
+            cam_xyz = wb_only_cam_xyz(cam_xyz)
+        return cam_xyz, self.state.preview_camera_wb
+
     def display_transform_params(self, splash: bool = False, proofed: bool = True) -> tuple[str, Optional[bytes], Optional[tuple]]:
         """Everything the display transform needs for the current render, as
         ``(color_space, monitor_icc_bytes, proof)``.
@@ -3828,6 +3838,7 @@ class AppController(QObject):
             memo_key = self._render_memo_key()
 
         dip = self.active_diptych()
+        cam_xyz, camera_wb = self._effective_cam_xyz()
         task = RenderTask(
             buffer=preview_raw,
             config=config_override if config_override is not None else self.state.config,
@@ -3843,8 +3854,8 @@ class AppController(QObject):
             interactive=interactive,
             # Mirrors should_update_thumb, minus its pending-task check.
             wants_thumbnail=(not interactive and not ephemeral and config_override is None and self.state.config is not self._thumb_config),
-            cam_xyz=self.state.preview_cam_xyz,
-            camera_wb=self.state.preview_camera_wb,
+            cam_xyz=cam_xyz,
+            camera_wb=camera_wb,
             diptych=dip[1] if dip is not None else None,
             split_x=dip[0]["split_x"] if dip is not None else 0.5,
             gutter_thickness=dip[0]["gutter_thickness"] if dip is not None else 0.0,
@@ -4352,6 +4363,7 @@ class AppController(QObject):
                         "gamma_key": self.state.linear_gamma_key,
                         "output_format": linear_fmt,
                         "jxl_effort": self.state.linear_jxl_effort,
+                        "tiff_compression": self.state.config.export.tiff_compression,
                     },
                 )
             )

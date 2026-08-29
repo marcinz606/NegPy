@@ -51,6 +51,45 @@ def test_apply_border_f32() -> None:
     assert np.allclose(res[50, 50], 1.0)
 
 
+def test_export_stands_in_camera_matrix_for_an_active_input_icc() -> None:
+    """An active Input ICC supplies its own primaries rotation, so the camera's own
+    must come out as identity — but the decode still needs the white-balance fold
+    (issue #991), which nulling cam_xyz outright would also have dropped."""
+    from negpy.features.process.capture_color import camera_to_working_matrix
+
+    service = ImageProcessor()
+    file_path = "/fake/shot.raf"
+    matrix = [[0.7, -0.1, -0.07], [-0.56, 1.34, 0.24], [-0.15, 0.22, 0.73]]
+    wb = [1.9, 1.0, 1.6]
+    service._cam_xyz_by_path[file_path] = (matrix, wb)
+
+    img = np.full((4, 4, 3), 0.2, dtype=np.float32)
+    service._prepare_export_source = lambda *a, **k: (img, "sRGB", "token")
+
+    captured = {}
+
+    def fake_run_pipeline(*args, **kwargs):
+        captured.update(kwargs)
+        return img, {}
+
+    service.run_pipeline = fake_run_pipeline
+
+    params = WorkspaceConfig()
+
+    export_with_icc = ExportConfig(icc_input_path="/custom.icc")
+    service._render_export_buffer(file_path, params, export_with_icc, "hash", prefer_gpu=False)
+    assert captured["cam_xyz"] != matrix
+    assert captured["camera_wb"] == wb
+    np.testing.assert_allclose(
+        camera_to_working_matrix(captured["cam_xyz"], captured["camera_wb"]), np.diag(np.array(wb) / wb[1]), atol=1e-5
+    )
+
+    captured.clear()
+    export_without_icc = ExportConfig(icc_input_path=None)
+    service._render_export_buffer(file_path, params, export_without_icc, "hash", prefer_gpu=False)
+    assert captured["cam_xyz"] == matrix
+
+
 def test_image_service_tiff_export_format() -> None:
     """Verify that TIFF export produces a non-empty buffer and handles 16-bit correctly."""
     import io

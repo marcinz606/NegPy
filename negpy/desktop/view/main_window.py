@@ -496,7 +496,7 @@ class MainWindow(QMainWindow):
         path = self.controller.printing_notes_target_path()
         if not path:
             return
-        if sheet.save(path, "JPEG", 95):
+        if sheet.save(path, "JPEG", self.controller.state.config.export.jpeg_quality):
             self.controller.set_status(f"Printing notes saved: {os.path.basename(path)}", 4000)
         else:
             self.controller.set_status(f"Could not write {path}", 4000)

@@ -30,6 +30,7 @@ from negpy.domain.models import (
     ExportFormat,
     ExportPresetOutputMode,
     ExportResolutionMode,
+    TiffCompression,
     export_blocked,
 )
 from negpy.infrastructure.display.color_mgmt import ColorService
@@ -108,17 +109,64 @@ class ExportSettingsForm(QWidget):
         fmt_row.addWidget(self.fmt_combo)
         format_box.addLayout(fmt_row)
 
+        self._depth_container = QWidget()
+        depth_row = QHBoxLayout(self._depth_container)
+        depth_row.setContentsMargins(0, 0, 0, 0)
+        depth_row.addWidget(self._row_label("Bit Depth"))
+        self.bit_depth_combo = QComboBox()
+        for label, data in (("8-bit", 8), ("16-bit", 16)):
+            self.bit_depth_combo.addItem(label, data)
+        self.bit_depth_combo.setToolTip("JPEG and WebP are 8-bit formats and ignore this")
+        constrain_combo(self.bit_depth_combo)
+        self.bit_depth_combo.currentIndexChanged.connect(self._on_changed)
+        depth_row.addWidget(self.bit_depth_combo)
+        format_box.addWidget(self._depth_container)
+
         self._quality_container = QWidget()
         quality_box = QVBoxLayout(self._quality_container)
         quality_box.setContentsMargins(0, 0, 0, 0)
         self.quality_spin = CompactSlider("JPEG Quality", 1, 100, 90, step=1, precision=1)
         self.quality_spin.valueChanged.connect(self._on_changed)
         quality_box.addWidget(self.quality_spin)
+        self.jpeg_progressive_check = QCheckBox("Progressive")
+        self.jpeg_progressive_check.setToolTip("Renders in passes while downloading; slightly smaller on large images")
+        self.jpeg_progressive_check.toggled.connect(self._on_changed)
+        quality_box.addWidget(self.jpeg_progressive_check)
         format_box.addWidget(self._quality_container)
 
+        self._build_tiff(format_box)
+        self._build_png(format_box)
         self._build_jxl(format_box)
         self._build_webp(format_box)
         root.addWidget(self._format_section)
+
+    def _build_tiff(self, root: QVBoxLayout) -> None:
+        self._tiff_container = QWidget()
+        tiff_row = QHBoxLayout(self._tiff_container)
+        tiff_row.setContentsMargins(0, 0, 0, 0)
+        tiff_row.addWidget(self._row_label("Compression"))
+        self.tiff_compression_combo = QComboBox()
+        for label, data in (
+            ("Uncompressed", TiffCompression.NONE),
+            ("LZW", TiffCompression.LZW),
+            ("ZIP", TiffCompression.ZIP),
+        ):
+            self.tiff_compression_combo.addItem(label, data)
+        self.tiff_compression_combo.setToolTip("All three are lossless; ZIP is usually the smallest")
+        constrain_combo(self.tiff_compression_combo)
+        self.tiff_compression_combo.currentIndexChanged.connect(self._on_changed)
+        tiff_row.addWidget(self.tiff_compression_combo)
+        root.addWidget(self._tiff_container)
+
+    def _build_png(self, root: QVBoxLayout) -> None:
+        self._png_container = QWidget()
+        png_box = QVBoxLayout(self._png_container)
+        png_box.setContentsMargins(0, 0, 0, 0)
+        self.png_level_spin = CompactSlider("Compression", 0, 9, 6, step=1, precision=1)
+        self.png_level_spin.setToolTip("Lossless either way: higher = slower, smaller file")
+        self.png_level_spin.valueChanged.connect(self._on_changed)
+        png_box.addWidget(self.png_level_spin)
+        root.addWidget(self._png_container)
 
     def _build_jxl(self, root: QVBoxLayout) -> None:
         self._jxl_container = QWidget()
@@ -364,11 +412,18 @@ class ExportSettingsForm(QWidget):
         if not self._loading:
             self.changed.emit()
 
-    def _on_fmt_changed(self, *_ignored: Any) -> None:
-        fmt = self.fmt_combo.currentData()
+    def _update_format_visibility(self, fmt: Any) -> None:
         self._quality_container.setVisible(fmt == ExportFormat.JPEG)
+        self._tiff_container.setVisible(fmt == ExportFormat.TIFF)
+        self._png_container.setVisible(fmt == ExportFormat.PNG)
         self._jxl_container.setVisible(fmt == ExportFormat.JXL)
         self._webp_container.setVisible(fmt == ExportFormat.WEBP)
+        # A flat master is always 16-bit, so the row would name a choice the export overrides.
+        depth_formats = (ExportFormat.TIFF, ExportFormat.PNG, ExportFormat.JXL)
+        self._depth_container.setVisible(fmt in depth_formats and not self._flat_mode)
+
+    def _on_fmt_changed(self, *_ignored: Any) -> None:
+        self._update_format_visibility(self.fmt_combo.currentData())
         self._apply_jxl_constraints()
         self._refresh_jxl_warning()
         self._on_changed()
@@ -538,19 +593,27 @@ class ExportSettingsForm(QWidget):
             fmt_idx = self.fmt_combo.findData(str(v["export_fmt"]))
             if fmt_idx >= 0:
                 self.fmt_combo.setCurrentIndex(fmt_idx)
+            depth_idx = self.bit_depth_combo.findData(int(v.get("export_bit_depth", 16)))
+            self.bit_depth_combo.setCurrentIndex(depth_idx if depth_idx >= 0 else 1)
+
             self.quality_spin.setValue(v.get("jpeg_quality", 90))
-            self._quality_container.setVisible(v["export_fmt"] == ExportFormat.JPEG)
+            self.jpeg_progressive_check.setChecked(v.get("jpeg_progressive", False))
+
+            comp_idx = self.tiff_compression_combo.findData(TiffCompression(v.get("tiff_compression", TiffCompression.ZIP)))
+            self.tiff_compression_combo.setCurrentIndex(comp_idx if comp_idx >= 0 else 0)
+
+            self.png_level_spin.setValue(v.get("png_compress_level", 6))
 
             self.jxl_lossless_check.setChecked(v.get("jxl_lossless", True))
             self.jxl_distance_spin.setValue(v.get("jxl_distance", 1.0))
             self.jxl_distance_spin.setEnabled(not v.get("jxl_lossless", True))
             self.jxl_effort_spin.setValue(v.get("jxl_effort", 7))
-            self._jxl_container.setVisible(v["export_fmt"] == ExportFormat.JXL)
 
             self.webp_quality_spin.setValue(v.get("webp_quality", 90))
             self.webp_lossless_check.setChecked(v.get("webp_lossless", False))
             self.webp_method_spin.setValue(v.get("webp_method", 4))
-            self._webp_container.setVisible(v["export_fmt"] == ExportFormat.WEBP)
+
+            self._update_format_visibility(v["export_fmt"])
 
             self._select_mode_button(v["export_resolution_mode"])
             self._update_mode_visibility(v["export_resolution_mode"])
@@ -586,7 +649,11 @@ class ExportSettingsForm(QWidget):
         out_idx = self.icc_output_combo.currentIndex()
         return {
             "export_fmt": self.fmt_combo.currentData(),
+            "export_bit_depth": int(self.bit_depth_combo.currentData()),
             "jpeg_quality": int(self.quality_spin.value()),
+            "jpeg_progressive": self.jpeg_progressive_check.isChecked(),
+            "tiff_compression": self.tiff_compression_combo.currentData(),
+            "png_compress_level": int(self.png_level_spin.value()),
             "jxl_lossless": self.jxl_lossless_check.isChecked(),
             "jxl_distance": self.jxl_distance_spin.value(),
             "jxl_effort": int(self.jxl_effort_spin.value()),

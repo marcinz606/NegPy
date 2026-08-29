@@ -61,9 +61,6 @@ DROPPED_KEYS: frozenset[str] = frozenset(
         # migration rewrites the edits it can reach; this drops the legacy key from
         # sidecars and presets that slip through. Those need the profile re-picked.
         "reference_path",
-        # TIFF-with-JXL-compression never shipped: too few readers support the tag.
-        # TIFF is zlib-only and lossless JXL stays a standalone format.
-        "tiff_compression",
         # Lith's bool became the alt_process enum it shares with Cyanotype
         # (migrate_flat_config reads it before this pop).
         "lith_enabled",
