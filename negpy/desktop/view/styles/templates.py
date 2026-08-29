@@ -170,12 +170,21 @@ class StatusStrip(QWidget):
         return {self._bar: "progress", self._message: "message"}.get(self._stack.currentWidget(), "summary")
 
     def start_progress(self, fmt: str) -> None:
+        self._bar.setRange(0, 100)
         self._bar.setFormat(fmt)
         self._bar.setValue(0)
         self._running = True
         self._show_current()
 
+    def set_progress_indeterminate(self, fmt: str) -> None:
+        self._bar.setRange(0, 0)
+        self._bar.setFormat(fmt)
+        self._running = True
+        self._show_current()
+
     def set_progress(self, fmt: str, fraction: float) -> None:
+        if self._bar.maximum() == 0:
+            self._bar.setRange(0, 100)
         self._bar.setFormat(fmt)
         self._bar.setValue(int(max(0.0, min(1.0, fraction)) * 100))
         self._running = True
@@ -183,6 +192,8 @@ class StatusStrip(QWidget):
 
     def stop_progress(self) -> None:
         self._running = False
+        self._bar.setRange(0, 100)
+        self._bar.setValue(0)
         self._show_current()
 
     def _show_current(self) -> None:

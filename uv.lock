@@ -388,7 +388,7 @@ requires-dist = [
     { name = "opencv-python-headless", specifier = "==4.13.0.92" },
     { name = "piexif", specifier = "==1.1.3" },
     { name = "pillow", specifier = "==12.2.0" },
-    { name = "pyopticfilm", marker = "extra == 'plustek'", specifier = ">=1.3.0" },
+    { name = "pyopticfilm", marker = "extra == 'plustek'", specifier = ">=1.3.1" },
     { name = "pyqt6", specifier = "==6.11.0" },
     { name = "pyqt6-charts", specifier = "==6.11.0" },
     { name = "pyserial", specifier = ">=3.5" },
@@ -411,7 +411,7 @@ dev = [
 ]
 nkscan = [{ name = "nkscan", specifier = ">=0.9" }]
 pieusb = [{ name = "pieusb", specifier = ">=0.3.7" }]
-plustek = [{ name = "pyopticfilm", specifier = ">=1.3.0" }]
+plustek = [{ name = "pyopticfilm", specifier = ">=1.3.1" }]
 sane = [{ name = "python-sane", specifier = ">=2.9" }]
 
 [[package]]
@@ -420,6 +420,7 @@ version = "0.9.0"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/33/4d/8b02d8e3a7ce1604f9d3b1ae94e31fac5850b7daaa484a81b2f8f78ab6e9/nkscan-0.9.0.tar.gz", hash = "sha256:b38d89afc0d6bfe3473294db587f58fa9fe8a9c6a9017561105a633d8cd355a8", size = 2804597, upload-time = "2026-08-24T01:28:37.411Z" }
 wheels = [
+    { url = "https://files.pythonhosted.org/packages/a3/c3/29574ec5e7dea0aac7f9fa65e4573711f0f0099bd8843146973fb09d151b/nkscan-0.9.0-cp313-abi3-macosx_10_12_x86_64.whl", hash = "sha256:c0cf978009af4f0ca2c59aa97926ba8e9d7291bf57fdef0247c9224c5587520d", size = 743459, upload-time = "2026-08-26T00:41:14.069Z" },
     { url = "https://files.pythonhosted.org/packages/b6/50/483d48da107ac514b8fad9ca5caff4f1d20dc048f2a4e4822259d49c5ae2/nkscan-0.9.0-cp313-abi3-macosx_11_0_arm64.whl", hash = "sha256:1f7be405c2b601cdf942f4e87e8b16eb2a6702ae5c10dc145947c4e4cdaf7a49", size = 735425, upload-time = "2026-08-24T01:28:32.919Z" },
     { url = "https://files.pythonhosted.org/packages/43/b7/92008b81db30187f1461d6fbdb8c313713001a40cdad82bbaba0bdbe19e7/nkscan-0.9.0-cp313-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f4c0550b73e18393461f9073d4ab75ecd9ff8ae2042ebb5c5028271eeeb1f10a", size = 836903, upload-time = "2026-08-24T01:28:34.506Z" },
     { url = "https://files.pythonhosted.org/packages/1c/94/f53841c7168ebea01f16ab758714f70da348ef56b2e0204024babd56d358/nkscan-0.9.0-cp313-abi3-win_amd64.whl", hash = "sha256:dff231a33cbd3164c9d116b5bbf6ca9a7c070f8d386330833f89266a42ed7f08", size = 595336, upload-time = "2026-08-24T01:28:35.973Z" },
@@ -686,16 +687,16 @@ wheels = [
 
 [[package]]
 name = "pyopticfilm"
-version = "1.3.0"
+version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "libusb-package", marker = "sys_platform == 'win32'" },
     { name = "numpy" },
     { name = "pyusb" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ad/0e/99cc5110555e6694b564cd8c7b680410a84d82aba16bd3007d0c44f8692a/pyopticfilm-1.3.0.tar.gz", hash = "sha256:00fc5f2d6e21977fc76f5d150c0c12e17ca2945208548ae89bcaecd76e3755d6", size = 122006, upload-time = "2026-08-27T17:28:09.122Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4a/1f/fbc132e93aba99f9c68294d2a21d49b097aaca0f97a29529277d97da5726/pyopticfilm-1.3.1.tar.gz", hash = "sha256:dd82ef5d019abbbce91841621c4238fbb439919099f13934d5eb92f7dab73df0", size = 130402, upload-time = "2026-08-29T17:46:25.541Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/18/eb/6363eb865ef2b69ffee5f52467bebe7a40ddd63b5ba81c9fab31bcca9ffb/pyopticfilm-1.3.0-py3-none-any.whl", hash = "sha256:8d9d3a857666677a9e4f0e0d41b79de60d599969040e68e7960648766a67f558", size = 154519, upload-time = "2026-08-27T17:28:07.797Z" },
+    { url = "https://files.pythonhosted.org/packages/a5/b6/861ffbf133e0c03c247330ba2d13288b940b038221091d11e963a3dc9193/pyopticfilm-1.3.1-py3-none-any.whl", hash = "sha256:cd7e2a81550886deb2aaafb96faae0bcd15305461c85767a568c93bd02d563ad", size = 163353, upload-time = "2026-08-29T17:46:23.954Z" },
 ]
 
 [[package]]
