@@ -1,5 +1,17 @@
 # Change Log
 
+## 0.56.0
+
+- New: **One Export profile control** — color spaces and imported ICC profiles in a single combo, so the ICC can no longer silently override a live-looking color-space choice; Import ICC copies a profile into `~/NegPy/icc` with no restart, Same as Source names the space it resolves to, and Soft Proof with its warning moves beside the profile it describes.
+- New: **TIFF, PNG and JPEG export options** — Bit Depth (8/16, for TIFF, PNG and JXL), TIFF Compression (Uncompressed/LZW/ZIP), PNG Compression (0-9) and JPEG Progressive; JPEG optimize is always on. RGB PNG now exports 16-bit by default.
+- Change: **Plustek backend updated to pyOpticfilm 1.3.** @jboneng
+- Fix: **Flatbed scanners switch to their transparency source before scanning** — a flatbed+TPU device ran every film scan in reflective mode with the lamp off, and probed its geometry against the flatbed area, so crops and requested DPI landed wrong. @dtrtuser
+- Fix: **Slide with an Input ICC no longer corrects primaries twice** — an active Input ICC replaces the raw's embedded camera matrix instead of stacking on it, matching negatives and narrowband. @thetalkingdrum
+- Fix: **Linear Output white balance on 3-color CFA sensors** — a missing second green multiplier (X-Trans and similar) doubled the red and blue gains and cast exports magenta. @thetalkingdrum
+- Fix: **HQ preview no longer crashes on integrated GPUs** — a large scan was handed to the GPU with no size budget; integrated adapters get a conservative cap and downsample with a status message instead. @TobbyTravel
+- Fix: **Enter stays on Scan in the live-view popup** — pressing Retake once made Enter keep retaking. @TobbyTravel
+- Fix: **Copy Settings + Bounds pastes its bounds** — the per-frame floors, ceils and lock state never reached the target and a pasted bounds field wiped the target's own; the paste picker now lists them as "Normalization bounds".
+
 ## 0.55.0
 
 - New: **Nikon Coolscan scanning through nkscan** — drives a Coolscan directly instead of through SANE: frame rectangles measured off the film in one pass, a native IR pass, native eject and the driver's own "ICE" dust removal, Samples, Superfine, Film type and Film format controls gated on what the unit advertises.
