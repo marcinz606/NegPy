@@ -551,6 +551,15 @@ def test_lockout_scan_error_shows_message_box(monkeypatch) -> None:
     assert popped == [("Scan failed", msg)]
 
 
+def test_indeterminate_scan_phase_uses_busy_progress_bar() -> None:
+    sidebar, _ = _sidebar(SE_DEVICE, settings={"backend": "plustek"})
+    sidebar._on_scan_progress(0.85, "Merging exposures")
+    bar = sidebar.status_strip._bar
+    assert bar.minimum() == 0
+    assert bar.maximum() == 0
+    assert bar.format() == "Merging exposures…"
+
+
 # ── nkscan-only controls ──────────────────────────────────────────────────
 
 

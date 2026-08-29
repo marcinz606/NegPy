@@ -97,7 +97,13 @@ def _patch_enum(monkeypatch, devices: list[UsbDeviceInfo] | None = None) -> None
     monkeypatch.setattr(f"{_BACKEND}.list_devices", lambda: list(devices))
 
 
-def _fake_scanner(*, progress_steps: int = 0, scan_error: Exception | None = None, rgb: np.ndarray | None = None):
+def _fake_scanner(
+    *,
+    progress_steps: int = 0,
+    me_fractions: list[float] | None = None,
+    scan_error: Exception | None = None,
+    rgb: np.ndarray | None = None,
+):
     from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
 
     if rgb is None:
@@ -120,8 +126,12 @@ def _fake_scanner(*, progress_steps: int = 0, scan_error: Exception | None = Non
             on_status("scanning")
         progress = kwargs.get("progress")
         if progress is not None:
-            for i in range(1, progress_steps + 1):
-                progress(i / progress_steps)
+            if me_fractions is not None:
+                for frac in me_fractions:
+                    progress(frac)
+            else:
+                for i in range(1, progress_steps + 1):
+                    progress(i / progress_steps)
         if scan_error is not None:
             raise scan_error
         out_rgb = rgb.copy()
@@ -362,6 +372,60 @@ def test_on_status_reports_priming_then_scanning(monkeypatch):
     assert "Scanning" in phases
     priming_i = phases.index("Priming")
     assert "Scanning" in phases[priming_i + 1 :]
+
+
+def test_me_scan_reports_preparing_then_long_pass(monkeypatch):
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner(me_fractions=[0.25, 0.5, 0.5, 0.75, 1.0])
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    seen: list[tuple[float, str]] = []
+
+    def progress(fraction: float, phase: str = "Scanning") -> None:
+        seen.append((fraction, phase))
+
+    PlustekBackend().scan(
+        _DEVICE_ID,
+        _params(multi_exposure=True),
+        progress,
+        threading.Event(),
+    )
+    phases = [phase for _, phase in seen]
+    assert "Preparing long exposure" in phases
+    assert phases.index("Preparing long exposure") < phases.index("Merging exposures")
+    assert phases.count("Scanning") >= 2
+
+
+def test_me_scan_reports_merging_at_completion(monkeypatch):
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner(me_fractions=[1.0])
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    phases: list[str] = []
+
+    def progress(_fraction: float, phase: str = "Scanning") -> None:
+        phases.append(phase)
+
+    PlustekBackend().scan(
+        _DEVICE_ID,
+        _params(multi_exposure=True),
+        progress,
+        threading.Event(),
+    )
+    assert "Merging exposures" in phases
+    assert "Preparing long exposure" not in phases
+
+
+def test_non_me_scan_skips_me_progress_phases(monkeypatch):
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner(progress_steps=4)
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    phases: list[str] = []
+
+    def progress(_fraction: float, phase: str = "Scanning") -> None:
+        phases.append(phase)
+
+    PlustekBackend().scan(_DEVICE_ID, _params(), progress, threading.Event())
+    assert "Preparing long exposure" not in phases
+    assert "Merging exposures" not in phases
 
 
 def test_open_applies_quiet_usb_drain(monkeypatch):

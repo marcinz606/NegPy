@@ -89,6 +89,47 @@ def _safe_progress(
         progress(max(0.0, min(1.0, float(value))), phase)
 
 
+def _gl128_me_pass_layout(*, capture_ir: bool, multi_exposure: bool) -> tuple[int, int] | None:
+    if not multi_exposure:
+        return None
+    n_early = 2 if capture_ir else 1
+    return n_early, n_early + 1
+
+
+def _make_scan_progress(
+    progress: Callable[[float, str], None] | None,
+    *,
+    multi_exposure: bool,
+    capture_ir: bool,
+) -> Callable[[float], None]:
+    layout = _gl128_me_pass_layout(capture_ir=capture_ir, multi_exposure=multi_exposure)
+    if layout is None:
+
+        def scan_progress(p: float) -> None:
+            _safe_progress(progress, 0.1 + 0.9 * p)
+
+        return scan_progress
+
+    n_early, n_pass = layout
+    plateau = n_early / n_pass
+    state = {"long_started": False}
+
+    def scan_progress(p: float) -> None:
+        frac = min(1.0, max(0.0, float(p)))
+        if frac >= 1.0 - 1e-9:
+            _safe_progress(progress, 0.85, "Merging exposures")
+            return
+        if frac > plateau + 1e-6:
+            state["long_started"] = True
+            _safe_progress(progress, 0.10 + 0.72 * frac, "Scanning")
+        elif abs(frac - plateau) < 1e-6 and not state["long_started"]:
+            _safe_progress(progress, 0.83, "Preparing long exposure")
+        else:
+            _safe_progress(progress, 0.10 + 0.72 * frac, "Scanning")
+
+    return scan_progress
+
+
 def _validate_params(params: ScanParams, *, model: Any | None = None) -> None:
     from pyopticfilm.device.model_8200i import MODEL_8200I
 
@@ -294,8 +335,11 @@ class PlustekBackend:
                 cancel=cancel,
             )
 
-            def scan_progress(p: float) -> None:
-                _safe_progress(progress, 0.1 + 0.9 * p)
+            scan_progress = _make_scan_progress(
+                progress,
+                multi_exposure=multi_exposure,
+                capture_ir=capture_ir,
+            )
 
             def on_status(status: str) -> None:
                 if status == "priming":
@@ -325,7 +369,8 @@ class PlustekBackend:
         except PlustekError as exc:
             raise RuntimeError(str(exc)) from exc
 
-        _safe_progress(progress, 1.0)
+        if not multi_exposure:
+            _safe_progress(progress, 1.0)
         return ScanResult(
             rgb=np.asarray(rgb_image.rgb),
             ir=ir_plane,

@@ -57,6 +57,8 @@ def estimated_frame_bytes(
 class ScanSidebar(QWidget):
     """Scanner control panel — replaces the originally planned modal ScanDialog."""
 
+    _INDETERMINATE_SCAN_PHASES = frozenset({"Preparing long exposure", "Merging exposures"})
+
     def __init__(self, controller) -> None:
         super().__init__()
         self.controller = controller
@@ -1119,7 +1121,10 @@ class ScanSidebar(QWidget):
 
     @pyqtSlot(float, str)
     def _on_scan_progress(self, progress: float, phase_name: str = "Scanning") -> None:
-        self.status_strip.set_progress(f"{phase_name}… %p%", progress)
+        if phase_name in self._INDETERMINATE_SCAN_PHASES:
+            self.status_strip.set_progress_indeterminate(f"{phase_name}…")
+        else:
+            self.status_strip.set_progress(f"{phase_name}… %p%", progress)
 
     @pyqtSlot(str)
     def _on_scan_finished(self, path: str) -> None:
