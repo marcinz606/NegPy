@@ -897,7 +897,7 @@ Capture film directly into NegPy. Two collapsible sections:
 
     Every control here follows what the unit reports. An LS-50 shows neither Samples nor Superfine: it reads one CCD line at a time whatever you ask, and it ignores repeated reads of a line, so both stay hidden and a setting saved from another scanner is never sent to it.
 
-    The driver is the optional **nkscan** package (0.9 or newer), which ships as a wheel: install it with `uv sync --group nkscan` or `pip install negpy[nkscan]`. On Linux a Coolscan on USB needs a udev rule for Nikon (vendor `04b0`), and one on FireWire/SCSI needs the `sg` kernel module.
+    The driver is the optional **nkscan** package (0.9 or newer), which ships as a wheel: If running from source install it with `uv sync --group nkscan` or `pip install negpy[nkscan]`. On Linux a Coolscan on USB needs a udev rule for Nikon (vendor `04b0`), and one on FireWire/SCSI needs the `sg` kernel module.
 
     **SANE scan window**: on a roll/strip feeder (a live frame count reported), **Preview strip…** previews every frame, sets a per-frame window, and picks which frames to scan. On a SANE device with a single manual holder and no feeder, the button reads **Preview…** instead: it previews just the current holder position and lets you drag one crop window, reused for the next scan (the pyOpticfilm backend's equivalent is **Prescan**, above). Either way, the window narrows the scanner's own hardware scan area — the real scan only reads that region, rather than reading the full frame (holder margins and film rebate included) and cropping in software afterward.
 
