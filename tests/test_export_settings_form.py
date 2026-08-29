@@ -88,23 +88,20 @@ def test_jxl_switches_same_as_source_to_srgb(qapp):
     form = ExportSettingsForm()
     form.load(_values(export_fmt=ExportFormat.TIFF, export_color_space=ColorSpace.SAME_AS_SOURCE.value))
     form.fmt_combo.setCurrentText(ExportFormat.JXL)
-    assert form.color_space_combo.currentText() == ColorSpace.SRGB.value
+    assert form.export_profile_combo.currentData() == ColorSpace.SRGB.value
     assert not form.is_export_blocked()
 
 
-def test_jxl_greys_unsupported_color_spaces_and_disables_output_icc(qapp):
+def test_jxl_greys_unsupported_export_profiles(qapp):
+    """Custom ICC entries fall out by the same rule as an untaggable space: their
+    payload is a path, which is never in JXL_TAGGABLE_SPACES."""
     form = ExportSettingsForm()
     form.load(_values(export_fmt=ExportFormat.JXL, export_color_space=ColorSpace.SRGB.value))
 
-    model = form.color_space_combo.model()
-    for i in range(form.color_space_combo.count()):
-        space = form.color_space_combo.itemText(i)
-        supported = space in JXL_TAGGABLE_SPACES
-        assert model.item(i).isEnabled() == supported, space
-
-    # Custom output ICC override would mistag — forced off and disabled for JXL.
-    assert not form.icc_output_combo.isEnabled()
-    assert form.icc_output_combo.currentIndex() == 0
+    model = form.export_profile_combo.model()
+    for i in range(form.export_profile_combo.count()):
+        data = form.export_profile_combo.itemData(i)
+        assert model.item(i).isEnabled() == (data in JXL_TAGGABLE_SPACES), form.export_profile_combo.itemText(i)
 
 
 def test_jxl_switches_unsupported_current_space_to_srgb(qapp):
@@ -112,17 +109,54 @@ def test_jxl_switches_unsupported_current_space_to_srgb(qapp):
     form.load(_values(export_fmt=ExportFormat.JPEG, export_color_space=ColorSpace.ADOBE_RGB.value))
     # Switching to JXL while on an unsupported space snaps to sRGB.
     form.fmt_combo.setCurrentText(ExportFormat.JXL)
-    assert form.color_space_combo.currentText() == ColorSpace.SRGB.value
+    assert form.export_profile_combo.currentData() == ColorSpace.SRGB.value
     assert not form.is_export_blocked()
 
 
-def test_leaving_jxl_re_enables_color_spaces_and_output_icc(qapp):
+def test_leaving_jxl_re_enables_every_export_profile(qapp):
     form = ExportSettingsForm()
     form.load(_values(export_fmt=ExportFormat.JXL, export_color_space=ColorSpace.SRGB.value))
     form.fmt_combo.setCurrentText(ExportFormat.TIFF)
-    model = form.color_space_combo.model()
-    assert all(model.item(i).isEnabled() for i in range(form.color_space_combo.count()))
-    assert form.icc_output_combo.isEnabled()
+    model = form.export_profile_combo.model()
+    assert all(model.item(i).isEnabled() for i in range(form.export_profile_combo.count()))
+
+
+def test_export_profile_round_trips_a_custom_icc(qapp, tmp_path):
+    """One combo carries both destinations. An ICC pick sets icc_output_path and must
+    leave export_color_space alone: it is what the row falls back to when the profile
+    is deselected or has gone missing."""
+    icc = str(tmp_path / "Paper.icc")
+    form = ExportSettingsForm()
+    form.load(_values(export_color_space=ColorSpace.ADOBE_RGB.value))
+    form.export_profile_combo.addItem("Paper.icc", icc)
+
+    form.export_profile_combo.setCurrentIndex(form.export_profile_combo.findData(icc))
+    out = form.values()
+    assert out["icc_output_path"] == icc
+    assert out["export_color_space"] == ColorSpace.ADOBE_RGB.value
+
+    form.export_profile_combo.setCurrentIndex(form.export_profile_combo.findData(ColorSpace.REC2020.value))
+    out = form.values()
+    assert out["icc_output_path"] is None
+    assert out["export_color_space"] == ColorSpace.REC2020.value
+
+
+def test_export_profile_falls_back_when_the_icc_is_gone(qapp):
+    form = ExportSettingsForm()
+    form.load(_values(export_color_space=ColorSpace.PROPHOTO.value, icc_output_path="/nowhere/deleted.icc"))
+    out = form.values()
+    assert out["icc_output_path"] is None
+    assert out["export_color_space"] == ColorSpace.PROPHOTO.value
+
+
+def test_same_as_source_names_the_space_it_resolves_to(qapp):
+    """'Same as Source' showing nothing is what read as 'NegPy ignored my profile'."""
+    form = ExportSettingsForm()
+    form.load(_values(export_color_space=ColorSpace.SAME_AS_SOURCE.value))
+    form.set_source_space("Adobe RGB")
+    idx = form.export_profile_combo.findData(ColorSpace.SAME_AS_SOURCE.value)
+    assert form.export_profile_combo.itemText(idx) == "Same as Source (Adobe RGB)"
+    assert form.values()["export_color_space"] == ColorSpace.SAME_AS_SOURCE.value
 
 
 def test_destination_subfields_track_output_mode(qapp):

@@ -1,5 +1,6 @@
 import io
 import os
+import shutil
 from functools import lru_cache
 from typing import Any, Optional, Tuple
 
@@ -232,3 +233,32 @@ class ColorService:
                 if f.lower().endswith((".icc", ".icm"))
             ]
         return sorted(built_in_icc + user_icc)
+
+
+def import_icc_profile(src_path: str, dest_dir: str) -> str:
+    """Copy a user-supplied ICC profile into *dest_dir* and return the stored path.
+
+    Raises ValueError when the file is not a profile lcms can open. A name already
+    taken by different bytes is stored beside it as "name (2).icc" rather than
+    overwriting; identical bytes reuse the file already there.
+    """
+    try:
+        ImageCms.getOpenProfile(src_path)
+    except Exception as e:
+        raise ValueError(f"Not a readable ICC profile: {e}") from e
+
+    with open(src_path, "rb") as f:
+        payload = f.read()
+
+    stem, ext = os.path.splitext(os.path.basename(src_path))
+    candidate = os.path.join(dest_dir, f"{stem}{ext}")
+    n = 2
+    while os.path.exists(candidate):
+        with open(candidate, "rb") as f:
+            if f.read() == payload:
+                return candidate
+        candidate = os.path.join(dest_dir, f"{stem} ({n}){ext}")
+        n += 1
+
+    shutil.copy2(src_path, candidate)
+    return candidate

@@ -64,6 +64,7 @@ class ExportSidebar(BaseSidebar):
         self.form = ExportSettingsForm()
         self.form.load(self._config_to_form_values())
         self.layout.addWidget(self.form)
+        self._add_proof_controls()
 
         self._add_presets_section()
         self._add_sidecars_section()
@@ -942,27 +943,36 @@ class ExportSidebar(BaseSidebar):
         self.flat_peek_btn.setChecked(active)
         self.flat_peek_btn.blockSignals(False)
 
-    # --- Preview (soft proof + monitor profile, preview only) ----------------
+    # --- Proof controls (preview only, parked in the form's COLOR block) ------
+
+    def _add_proof_controls(self) -> None:
+        """Soft proof and its warning, beside the Export profile they describe.
+
+        The warning has to sit here rather than in the collapsed Preview section: it
+        explains a preview that does not match the export, and a collapsed hint cannot.
+        """
+        self.soft_proof_checkbox = QCheckBox("Proof on screen (preview matches export)")
+        self.soft_proof_checkbox.setChecked(self.state.soft_proof_enabled)
+        self.soft_proof_checkbox.setToolTip(
+            "Simulate the Export profile (incl. paper/printer) and Input ICC in the preview, so "
+            "what you see matches what you'll get. Preview only — the export is unaffected either "
+            "way. Turn off only to preview at full gamut regardless of the export target."
+        )
+        self.form.add_color_widget(self.soft_proof_checkbox)
+
+        self.proof_mismatch_label = hint_label("Soft proof is off — preview won't show the export's color clipping", kind="warning")
+        self.form.add_color_widget(self.proof_mismatch_label)
+        self._refresh_proof_mismatch_warning()
+
+    # --- Preview (monitor profile, preview only) -----------------------------
 
     def _add_preview_section(self) -> None:
-        # Preview-only controls, with no effect on export. Collapsed by default and parked below
-        # the export action, so it does not split the form from Export.
+        # Preview-only, with no effect on export. Collapsed by default and parked below the
+        # export action, so it does not split the form from Export.
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(6)
-
-        # Soft proof, on by default so the preview is true to the export. When off, the Output and
-        # Input ICC and the export color space affect the export only, so exported colors may
-        # differ from what is shown.
-        self.soft_proof_checkbox = QCheckBox("Soft proof (preview matches export)")
-        self.soft_proof_checkbox.setChecked(self.state.soft_proof_enabled)
-        self.soft_proof_checkbox.setToolTip(
-            "Simulate the export color space and Output profile (incl. paper/printer) in the "
-            "preview, so what you see matches what you'll get. Turn off only to preview at full "
-            "gamut regardless of the export target."
-        )
-        content_layout.addWidget(self.soft_proof_checkbox)
 
         # Display: monitor profile the preview is shown on (preview only, not export).
         self.display_spaces = [
@@ -989,12 +999,6 @@ class ExportSidebar(BaseSidebar):
         self.display_detected_label = hint_label("")
         content_layout.addWidget(self.display_detected_label)
         self._refresh_display_info()
-
-        # Warns when the preview will not reflect the export's gamut clamp: soft proof off, and
-        # an export space narrower than the working space.
-        self.proof_mismatch_label = hint_label("Soft proof is off — preview won't show the export's color clipping", kind="warning")
-        content_layout.addWidget(self.proof_mismatch_label)
-        self._refresh_proof_mismatch_warning()
 
         repo = self.controller.session.repo
         expanded = bool(repo.get_global_setting("section_expanded_export_preview", default=False))
@@ -1321,11 +1325,10 @@ class ExportSidebar(BaseSidebar):
         preview can't be trusted to predict the exported colors."""
         from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 
-        export_cs = self.form.values()["export_color_space"]
-        mismatch = (
-            not self.soft_proof_checkbox.isChecked() and export_cs != ColorSpace.SAME_AS_SOURCE.value and export_cs != WORKING_COLOR_SPACE
-        )
-        self.proof_mismatch_label.setVisible(mismatch)
+        vals = self.form.values()
+        export_cs = vals["export_color_space"]
+        retargets = bool(vals["icc_output_path"]) or export_cs not in (ColorSpace.SAME_AS_SOURCE.value, WORKING_COLOR_SPACE)
+        self.proof_mismatch_label.setVisible(not self.soft_proof_checkbox.isChecked() and retargets)
 
     def _refresh_export_enabled(self) -> None:
         """Disable the Export action when the current format/color-space pairing
@@ -1350,6 +1353,7 @@ class ExportSidebar(BaseSidebar):
         self.block_signals(True)
         try:
             self.form.load(self._config_to_form_values())
+            self.form.set_source_space(self.state.source_cs)
             self.soft_proof_checkbox.setChecked(self.state.soft_proof_enabled)
             override = self.state.monitor_profile_override
             self.display_combo.setCurrentText(override if override in self.display_spaces else "As detected")
