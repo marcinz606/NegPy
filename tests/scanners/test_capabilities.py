@@ -360,3 +360,61 @@ class TestScanExposureTimeCapability:
             "plustek:libusb:001:008",
         )
         assert caps.exposure_time_us is None
+
+
+class TestResolveTransparencySource:
+    """`_resolve_transparency_source`: which `source` constraint value to switch to before a
+    scan, on a flatbed+TPU device that defaults to reflective flatbed."""
+
+    def test_epson_style_returns_transparency_unit(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _resolve_transparency_source
+
+        opt = {"source": FakeOption(constraint=["Flatbed", "Transparency Unit"])}
+        assert _resolve_transparency_source(opt) == "Transparency Unit"
+
+    def test_no_transparency_choice_returns_none(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _resolve_transparency_source
+
+        opt = {"source": FakeOption(constraint=["Flatbed", "ADF"])}
+        assert _resolve_transparency_source(opt) is None
+
+    def test_no_source_option_returns_none(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _resolve_transparency_source
+
+        assert _resolve_transparency_source({}) is None
+
+    def test_non_list_constraint_returns_none(self) -> None:
+        """Range-typed `source` would be unusual, but must not raise."""
+        from negpy.infrastructure.scanners.sane_backend import _resolve_transparency_source
+
+        opt = {"source": FakeOption(constraint=(0, 1, 1))}
+        assert _resolve_transparency_source(opt) is None
+
+
+class TestResolveFilmType:
+    """`_resolve_film_type`: which SANE `film_type` value matches NegPy's own
+    negative/positive concept (film_reads_positive), for devices that separate the two."""
+
+    def test_negative_stock_matches_negative_film(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _resolve_film_type
+
+        opt = {"film_type": FakeOption(constraint=["Positive Film", "Negative Film"])}
+        assert _resolve_film_type(opt, "negative") == "Negative Film"
+
+    def test_reversal_stock_matches_positive_film(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _resolve_film_type
+
+        opt = {"film_type": FakeOption(constraint=["Positive Film", "Negative Film"])}
+        assert _resolve_film_type(opt, "positive") == "Positive Film"
+        assert _resolve_film_type(opt, "kodachrome") == "Positive Film"
+
+    def test_mono_negative_matches_negative_film(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _resolve_film_type
+
+        opt = {"film_type": FakeOption(constraint=["Positive Film", "Negative Film"])}
+        assert _resolve_film_type(opt, "mono") == "Negative Film"
+
+    def test_no_film_type_option_returns_none(self) -> None:
+        from negpy.infrastructure.scanners.sane_backend import _resolve_film_type
+
+        assert _resolve_film_type({}, "negative") is None
