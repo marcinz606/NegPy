@@ -110,3 +110,52 @@ def test_automatic_import_returns_classifier_result_from_public_process(qapp):
 
     dpm.assert_called_once_with(raw)
     assert finished[0][5] == ProcessMode.E6
+
+
+def test_vram_capped_emits_when_metadata_flags_it(qapp):
+    """A capped HQ load (see preview_manager._load_from_open_raw) fires vram_capped
+    alongside finished, so the controller can surface a status message instead of
+    the load silently coming back smaller than requested."""
+    from negpy.desktop.workers.render import PreviewLoadTask, PreviewLoadWorker
+
+    service = MagicMock()
+    raw = np.ones((4, 4, 3), dtype=np.float32)
+    service.load_linear_preview.return_value = (raw, (4, 4), {"vram_capped_long_edge": 6144})
+    worker = PreviewLoadWorker(service)
+    capped = []
+    worker.vram_capped.connect(lambda *args: capped.append(args))
+    task = PreviewLoadTask(
+        file_path="big.tif",
+        workspace_color_space="Adobe RGB",
+        use_camera_wb=False,
+        use_splash=False,
+        full_resolution=True,
+        detect_mode=False,
+    )
+
+    worker.process(task)
+
+    assert capped == [("big.tif", 6144)]
+
+
+def test_vram_capped_does_not_emit_when_uncapped(qapp):
+    from negpy.desktop.workers.render import PreviewLoadTask, PreviewLoadWorker
+
+    service = MagicMock()
+    raw = np.ones((4, 4, 3), dtype=np.float32)
+    service.load_linear_preview.return_value = (raw, (4, 4), {})
+    worker = PreviewLoadWorker(service)
+    capped = []
+    worker.vram_capped.connect(lambda *args: capped.append(args))
+    task = PreviewLoadTask(
+        file_path="small.tif",
+        workspace_color_space="Adobe RGB",
+        use_camera_wb=False,
+        use_splash=False,
+        full_resolution=True,
+        detect_mode=False,
+    )
+
+    worker.process(task)
+
+    assert capped == []

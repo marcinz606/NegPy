@@ -18,9 +18,11 @@ from negpy.infrastructure.loaders.helpers import (
     get_best_demosaic_algorithm,
     is_xtrans,
 )
+from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb, uint16_to_float32
 from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.system.config import APP_CONFIG
+from negpy.kernel.system.override import effective_max_texture_size
 from negpy.features.flatfield.logic import apply_flatfield, flatfield_token
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.retouch.logic import downsample_ir
@@ -213,7 +215,27 @@ class PreviewManager:
             h_orig, w_orig = (h_p, w_p)
         t_resize0 = time.perf_counter()
         max_res = APP_CONFIG.preview_render_size
-        if max(h_p, w_p) > max_res and not full_resolution:
+        # A full-resolution (HQ) load skips the preview_render_size cap above, but the decoded
+        # buffer still has to land in a GPU texture. On an integrated GPU sharing VRAM with
+        # system RAM, an uncapped multi-thousand-pixel buffer can exceed what the driver can
+        # actually submit -- radv/amdgpu reports "not enough memory for command submission" and
+        # wgpu-native aborts the process (a Rust panic across the FFI boundary, not a catchable
+        # Python exception). Cap the HQ load too, so this degrades to a smaller preview instead.
+        vram_cap = effective_max_texture_size(APP_CONFIG, GPUDevice.get()) if full_resolution else None
+        if vram_cap is not None and max(h_p, w_p) > vram_cap:
+            scale = vram_cap / max(h_p, w_p)
+            target_w = int(w_p * scale)
+            target_h = int(h_p * scale)
+            preview_raw = ensure_image(
+                cv2.resize(
+                    full_linear,
+                    (target_w, target_h),
+                    interpolation=cv2.INTER_AREA,
+                )
+            )
+            metadata["vram_capped_long_edge"] = vram_cap
+            log("preview vram_cap applied: %dx%d -> %dx%d", w_p, h_p, target_w, target_h)
+        elif max(h_p, w_p) > max_res and not full_resolution:
             scale = max_res / max(h_p, w_p)
             target_w = int(w_p * scale)
             target_h = int(h_p * scale)

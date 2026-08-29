@@ -854,6 +854,9 @@ class PreviewLoadWorker(QObject):
     finished = pyqtSignal(str, object, object, str, object, str, object)
     splash = pyqtSignal(str, object, object)  # (file_path, buffer, dims) — first paint
     error = pyqtSignal(str)
+    # (file_path, applied long-edge cap px): an HQ load exceeded the GPU's VRAM budget
+    # and was downsampled instead of crashing. Emitted alongside `finished`.
+    vram_capped = pyqtSignal(str, int)
     # (file_path, message): the error carries no path, so badge attribution needs this
     load_failed = pyqtSignal(str, str)
 
@@ -898,6 +901,9 @@ class PreviewLoadWorker(QObject):
                     (time.perf_counter() - t0) * 1000,
                     task.file_path,
                 )
+                capped = metadata.get("vram_capped_long_edge")
+                if capped:
+                    self.vram_capped.emit(task.file_path, int(capped))
                 self.finished.emit(
                     task.file_path, raw, dims, source_cs, ir_preview, detected_mode, (metadata.get("cam_xyz"), metadata.get("camera_wb"))
                 )
@@ -921,6 +927,9 @@ class PreviewLoadWorker(QObject):
                     (time.perf_counter() - t0) * 1000,
                     task.file_path,
                 )
+                capped = metadata.get("vram_capped_long_edge")
+                if capped:
+                    self.vram_capped.emit(task.file_path, int(capped))
                 self.finished.emit(
                     task.file_path, raw, dims, source_cs, ir_preview, detected_mode, (metadata.get("cam_xyz"), metadata.get("camera_wb"))
                 )
@@ -944,6 +953,9 @@ class PreviewLoadWorker(QObject):
                     (time.perf_counter() - t0) * 1000,
                     task.file_path,
                 )
+                capped = metadata.get("vram_capped_long_edge")
+                if capped:
+                    self.vram_capped.emit(task.file_path, int(capped))
                 self.finished.emit(
                     task.file_path, raw, dims, source_cs, ir_preview, detected_mode, (metadata.get("cam_xyz"), metadata.get("camera_wb"))
                 )
@@ -980,6 +992,9 @@ class PreviewLoadWorker(QObject):
                 (time.perf_counter() - t0) * 1000,
                 task.file_path,
             )
+            capped = metadata.get("vram_capped_long_edge")
+            if capped:
+                self.vram_capped.emit(task.file_path, int(capped))
             self.finished.emit(
                 task.file_path, raw, dims, source_cs, ir_preview, detected_mode, (metadata.get("cam_xyz"), metadata.get("camera_wb"))
             )
