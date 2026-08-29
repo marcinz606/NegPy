@@ -20,6 +20,7 @@ from negpy.infrastructure.scanners.params import (
     ScanParams,
     clamp_frame_offset_mm,
     dpi_stops_in_range,
+    film_reads_positive,
 )
 from negpy.infrastructure.scanners.result import ScanResult
 from negpy.kernel.system.logging import get_logger
@@ -440,6 +441,44 @@ def _has_usable_option(opt, name: str) -> bool:
     every non-default value SaneBackend.scan() then refuses.
     """
     return name in opt and _option_is_usable(opt[name])
+
+
+def _resolve_transparency_source(opt) -> str | None:
+    """Return the device's `source` constraint value that maps to ScanMode.TRANSPARENCY.
+
+    Reuses _SOURCE_MAP (already used for capability detection) so the two stay in sync.
+    None when the device has no `source` option or no transparency-mapped choice — e.g.
+    dedicated film scanners with no flatbed to switch away from.
+    """
+    if "source" not in opt:
+        return None
+    constraint = opt["source"].constraint
+    if not isinstance(constraint, list):
+        return None
+    for value in constraint:
+        stripped = str(value).strip().lower()
+        base = stripped.split("(")[0].strip() if "(" in stripped else stripped
+        if _SOURCE_MAP.get(base) == ScanMode.TRANSPARENCY:
+            return str(value)
+    return None
+
+
+def _resolve_film_type(opt, film_type: str) -> str | None:
+    """Return the device's `film_type` constraint value matching NegPy's negative/positive
+    concept, via the same reversal-stock logic used for exposure math (film_reads_positive).
+    None when the device has no `film_type` option or no matching choice.
+    """
+    if "film_type" not in opt:
+        return None
+    constraint = opt["film_type"].constraint
+    if not isinstance(constraint, list):
+        return None
+    wants_positive = film_reads_positive(film_type)
+    keyword = "positive" if wants_positive else "negative"
+    for value in constraint:
+        if keyword in str(value).strip().lower():
+            return str(value)
+    return None
 
 
 def _detect_auto_exposure(opt) -> bool:
@@ -995,8 +1034,40 @@ class SaneBackend:
             if params.capture_ir and ir_strategy is None:
                 raise RuntimeError("IR capture requested but the device exposes no usable infrared mechanism")
 
+            # caps.sources (Negative/Positive/Transparency) only gates the Scan button in the
+            # UI today — nothing actually switches the device's `source` away from its power-on
+            # default. On a flatbed+TPU device (Epson V-series etc.) that default is the
+            # reflective flatbed lamp/calibration, which run against a translucent negative
+            # produces badly blown highlights: light passes through the film, bounces off the
+            # lid's reflective backing, and returns through the film a second time before the
+            # sensor sees it. Switch to the transparency source whenever the device has one, and
+            # set film_type to match, before every scan (options can reset between opens/passes,
+            # so this is unconditional rather than "only if not already set"). This must happen
+            # before mode/depth/resolution are set below: switching source re-ranges other
+            # options on this backend (confirmed for the geometry options, tl_x/br_x/etc.), and
+            # setting resolution first would apply it against the wrong (Flatbed) option state,
+            # only to have it silently reset once source switches.
+            option_map = dev.opt if hasattr(dev, "opt") else {}
+            transparency_source = _resolve_transparency_source(option_map)
+            if transparency_source is not None:
+                try:
+                    dev.source = transparency_source
+                except Exception as e:
+                    raise RuntimeError(f"Could not set source={transparency_source!r}: {e}") from e
+                # Re-read: switching source can change which options (film_type, color
+                # correction, resolution, etc.) become active/inactive or reset their value.
+                option_map = dev.opt if hasattr(dev, "opt") else {}
+
+            film_type_value = _resolve_film_type(option_map, params.film_type)
+            if film_type_value is not None:
+                try:
+                    dev.film_type = film_type_value
+                except Exception as e:
+                    raise RuntimeError(f"Could not set film_type={film_type_value!r}: {e}") from e
+
             # Not every backend has a `mode` option, and coolscan3 exposes none, so touch only the
-            # options the device has.
+            # options the device has. Set after source/film_type above, since those can reset
+            # depth/resolution to backend defaults on this device.
             if hasattr(dev, "opt") and "mode" in dev.opt:
                 dev.mode = "RGBI" if (ir_strategy == "rgbi" or ir_strategy == "rgbi-hw3") else "Color"
             dev.depth = params.depth
@@ -1273,8 +1344,26 @@ class SaneBackend:
                 logger.warning(f"Could not set SANE pieusb option {name}={val}: {e}")
 
     def _detect_caps(self, dev, device_id: str = "") -> ScannerCapabilities:
-        """Read dev.opt to build ScannerCapabilities."""
+        """Read dev.opt to build ScannerCapabilities.
+
+        Switches to the transparency source first, when the device has one, so geometry
+        (max_area_mm, and therefore the crop-window coordinate space) reflects what a real
+        film scan will actually see. On a flatbed+TPU device (Epson V-series etc.) the two
+        sources cover physically different areas — this device's flatbed platen is
+        215.9x297.2mm but its transparency unit is only 68.6x237.0mm — so probing with the
+        power-on default (Flatbed) reports the wrong area and any crop window computed
+        against it lands on the wrong, badly undersized region once the real scan switches
+        source. Best-effort: falls back to whatever source the device already had if the
+        switch fails, rather than aborting capability detection entirely.
+        """
         opt = dev.opt if hasattr(dev, "opt") else {}
+        transparency_source = _resolve_transparency_source(opt)
+        if transparency_source is not None:
+            try:
+                dev.source = transparency_source
+                opt = dev.opt if hasattr(dev, "opt") else {}
+            except Exception as e:
+                logger.warning(f"Could not switch {device_id!r} to {transparency_source!r} for capability probe: {e}")
         return _caps_from_options(opt, device_id)
 
     @staticmethod
