@@ -1,8 +1,8 @@
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import qtawesome as qta
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QSpinBox,
@@ -33,10 +34,17 @@ from negpy.domain.models import (
     TiffCompression,
     export_blocked,
 )
-from negpy.infrastructure.display.color_mgmt import ColorService
+from negpy.infrastructure.display.color_mgmt import ColorService, import_icc_profile
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
+from negpy.kernel.system.config import APP_CONFIG
 
 _LABEL_WIDTH = 90
+_EXPORT_SPACES = frozenset(EXPORT_COLOR_SPACES)
+
+
+def _select_data(combo: QComboBox, data: Any) -> None:
+    idx = combo.findData(data)
+    combo.setCurrentIndex(max(idx, 0))
 
 
 def _coerce_output_mode(mode: Any) -> ExportPresetOutputMode:
@@ -71,6 +79,9 @@ class ExportSettingsForm(QWidget):
         self._loading = False
         self._flat_mode = False
         self._linear_mode = False
+        # Retained while an ICC profile is selected, so switching back to a space restores
+        # the last one rather than a default.
+        self._export_space = ColorSpace.SRGB.value
         self._init_ui()
 
     @staticmethod
@@ -298,45 +309,129 @@ class ExportSettingsForm(QWidget):
         root.setSpacing(10)
         parent.addWidget(self._color_section)
 
-        root.addWidget(section_subheader("COLOR"))
+        header_row = QHBoxLayout()
+        header_row.addWidget(section_subheader("COLOR MANAGEMENT"))
+        header_row.addStretch()
+        self.icc_import_btn = QPushButton()
+        self.icc_import_btn.setIcon(qta.icon("fa5s.folder-open", color=THEME.text_primary))
+        self.icc_import_btn.setFixedWidth(40)
+        self.icc_import_btn.setToolTip(f"Import an ICC profile into {APP_CONFIG.user_icc_dir}")
+        self.icc_import_btn.clicked.connect(self._import_icc)
+        header_row.addWidget(self.icc_import_btn, alignment=Qt.AlignmentFlag.AlignBottom)
+        root.addLayout(header_row)
 
-        # Drop bundled profiles already backed by a color-space enum, so the ICC lists do not
-        # duplicate the color-space selector.
-        enum_mapped = {ColorSpaceRegistry.get_icc_path(cs.value) for cs in ColorSpace}
-        enum_mapped.discard(None)
-        custom_profiles = [p for p in ColorService.get_available_profiles() if p not in enum_mapped]
+        root.addWidget(hint_label("Processing is scene-linear (Adobe RGB primaries)"))
 
-        self._icc_input_profiles = ["None"] + custom_profiles
         input_row = QHBoxLayout()
         input_row.addWidget(self._row_label("Input ICC"))
         self.input_combo = QComboBox()
-        self.input_combo.addItems([os.path.basename(p) for p in self._icc_input_profiles])
         constrain_combo(self.input_combo)
-        self.input_combo.setToolTip("Source/input ICC profile")
+        self.input_combo.setToolTip("Treat the source as this profile, for a scan whose profile is known but untagged")
         self.input_combo.currentIndexChanged.connect(self._on_changed)
         input_row.addWidget(self.input_combo)
         root.addLayout(input_row)
 
-        cs_row = QHBoxLayout()
-        cs_row.addWidget(self._row_label("Color space"))
-        self.color_space_combo = QComboBox()
-        self.color_space_combo.addItems(EXPORT_COLOR_SPACES)
-        constrain_combo(self.color_space_combo)
-        self.color_space_combo.currentTextChanged.connect(self._on_changed)
-        self.color_space_combo.currentTextChanged.connect(self._refresh_jxl_warning)
-        cs_row.addWidget(self.color_space_combo)
-        root.addLayout(cs_row)
+        # One destination, one control: a custom ICC overrides a color space everywhere
+        # downstream (encode_export, effective_output_icc), so offering both as separate
+        # rows shows a live-looking selector that the other one silently voids.
+        profile_row = QHBoxLayout()
+        profile_row.addWidget(self._row_label("Export profile"))
+        self.export_profile_combo = QComboBox()
+        constrain_combo(self.export_profile_combo)
+        self.export_profile_combo.setToolTip(
+            "Color space the exported file is converted to and tagged with. Pick an imported "
+            "ICC profile to target a printer or paper instead."
+        )
+        self.export_profile_combo.currentIndexChanged.connect(self._on_export_profile_changed)
+        profile_row.addWidget(self.export_profile_combo)
+        root.addLayout(profile_row)
 
-        self._icc_output_profiles = ["None"] + custom_profiles
-        output_row = QHBoxLayout()
-        output_row.addWidget(self._row_label("Output ICC"))
-        self.icc_output_combo = QComboBox()
-        self.icc_output_combo.addItems([os.path.basename(p) for p in self._icc_output_profiles])
-        constrain_combo(self.icc_output_combo)
-        self.icc_output_combo.setToolTip("Custom output ICC profile (overrides color space)")
-        self.icc_output_combo.currentIndexChanged.connect(self._on_changed)
-        output_row.addWidget(self.icc_output_combo)
-        root.addLayout(output_row)
+        self._color_extra = QVBoxLayout()
+        self._color_extra.setContentsMargins(0, 0, 0, 0)
+        self._color_extra.setSpacing(6)
+        root.addLayout(self._color_extra)
+
+        self._reload_icc_profiles()
+
+    def add_color_widget(self, widget: QWidget) -> None:
+        """Park a caller's widget at the foot of the COLOR block. The sidebar's soft-proof
+        toggle and its warning belong beside the profile they describe; the presets dialog
+        adds nothing."""
+        self._color_extra.addWidget(widget)
+
+    def _reload_icc_profiles(self, select: Optional[str] = None) -> None:
+        """Rebuild both ICC lists from disk, restoring the selections by payload.
+
+        Signals stay blocked throughout, so the caller decides whether the rebuild
+        counts as a user edit.
+        """
+        # Drop bundled profiles already backed by a color-space enum, so an ICC entry never
+        # duplicates a space entry.
+        enum_mapped = {ColorSpaceRegistry.get_icc_path(cs.value) for cs in ColorSpace}
+        enum_mapped.discard(None)
+        custom = [p for p in ColorService.get_available_profiles() if p not in enum_mapped]
+
+        prev_input = self.input_combo.currentData()
+        prev_profile = select or self.export_profile_combo.currentData() or ColorSpace.SRGB.value
+
+        self.input_combo.blockSignals(True)
+        self.export_profile_combo.blockSignals(True)
+        try:
+            self.input_combo.clear()
+            self.input_combo.addItem("None", None)
+            self.export_profile_combo.clear()
+            for cs in EXPORT_COLOR_SPACES:
+                self.export_profile_combo.addItem(cs, cs)
+            if custom:
+                self.export_profile_combo.insertSeparator(self.export_profile_combo.count())
+            for path in custom:
+                name = os.path.basename(path)
+                self.input_combo.addItem(name, path)
+                self.export_profile_combo.addItem(name, path)
+            _select_data(self.input_combo, prev_input)
+            _select_data(self.export_profile_combo, prev_profile)
+        finally:
+            self.input_combo.blockSignals(False)
+            self.export_profile_combo.blockSignals(False)
+
+    def set_source_space(self, color_space: str) -> None:
+        """Name the space `Same as Source` resolves to, so it does not read as
+        'NegPy ignored my profile'. Item lookups go by payload, not text."""
+        idx = self.export_profile_combo.findData(ColorSpace.SAME_AS_SOURCE.value)
+        if idx >= 0:
+            label = ColorSpace.SAME_AS_SOURCE.value
+            self.export_profile_combo.setItemText(idx, f"{label} ({color_space})" if color_space else label)
+
+    def _on_export_profile_changed(self) -> None:
+        data = self.export_profile_combo.currentData()
+        if data in _EXPORT_SPACES:
+            self._export_space = data
+        self._refresh_jxl_warning()
+        self._on_changed()
+
+    def _import_icc(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Import ICC profile", "", "ICC profiles (*.icc *.icm)")
+        if not path:
+            return
+        # ColorSpaceRegistry prefers a user file named after a space, so such an import
+        # replaces that bundled profile everywhere instead of adding a choice.
+        stem = os.path.splitext(os.path.basename(path))[0]
+        if stem in _EXPORT_SPACES:
+            confirm = QMessageBox.question(
+                self,
+                "Replace a built-in space?",
+                f"A profile named '{stem}' replaces NegPy's own {stem} profile everywhere, "
+                "instead of appearing as a separate choice. Import anyway?",
+            )
+            if confirm != QMessageBox.StandardButton.Yes:
+                return
+        try:
+            stored = import_icc_profile(path, APP_CONFIG.user_icc_dir)
+        except (ValueError, OSError) as e:
+            QMessageBox.warning(self, "Import failed", str(e))
+            return
+        self._reload_icc_profiles(select=stored)
+        self._on_export_profile_changed()
 
     # --- DESTINATION ---------------------------------------------------------
 
@@ -429,23 +524,19 @@ class ExportSettingsForm(QWidget):
         self._on_changed()
 
     def _apply_jxl_constraints(self) -> None:
-        """For JXL, grey out color spaces it can't tag and disable the output ICC
-        override (a custom profile would land pixels in an un-enumerable space while
-        we still tag enumeratively — a silent mistag)."""
+        """For JXL, grey out every export profile it can't tag. Custom ICC entries fall out
+        by the same rule: a custom profile would land pixels in an un-enumerable space while
+        we still tag enumeratively — a silent mistag."""
         is_jxl = self.fmt_combo.currentData() == ExportFormat.JXL
 
-        model = self.color_space_combo.model()
-        for i in range(self.color_space_combo.count()):
+        model = self.export_profile_combo.model()
+        for i in range(self.export_profile_combo.count()):
             item = model.item(i)
             if item is not None:
-                supported = self.color_space_combo.itemText(i) in JXL_TAGGABLE_SPACES
+                supported = self.export_profile_combo.itemData(i) in JXL_TAGGABLE_SPACES
                 item.setEnabled(supported or not is_jxl)
-        if is_jxl and self.color_space_combo.currentText() not in JXL_TAGGABLE_SPACES:
-            self.color_space_combo.setCurrentText(ColorSpace.SRGB.value)
-
-        if is_jxl:
-            self.icc_output_combo.setCurrentIndex(0)  # None — no custom output profile
-        self.icc_output_combo.setEnabled(not is_jxl)
+        if is_jxl and self.export_profile_combo.currentData() not in JXL_TAGGABLE_SPACES:
+            _select_data(self.export_profile_combo, ColorSpace.SRGB.value)
 
         # flat_export_config() always forces jxl_lossless=True for a flat master, so hide the
         # lossy toggle and distance rather than show a control the export silently overrides.
@@ -463,13 +554,13 @@ class ExportSettingsForm(QWidget):
         """True when the current JXL + color space pairing can't be tagged."""
         if self._flat_mode:
             return False
-        return export_blocked(self.fmt_combo.currentData(), self.color_space_combo.currentText())
+        return export_blocked(self.fmt_combo.currentData(), self.export_profile_combo.currentData() or "")
 
     def _refresh_jxl_warning(self) -> None:
         blocked = self.is_export_blocked()
         if blocked:
             self.jxl_cs_warning.setText(
-                f"JPEG XL can't tag {self.color_space_combo.currentText()} — "
+                f"JPEG XL can't tag {self.export_profile_combo.currentText()} — "
                 "choose sRGB, P3 D65, Rec 2020, or Greyscale, or a different format."
             )
         self.jxl_cs_warning.setVisible(blocked)
@@ -623,11 +714,13 @@ class ExportSettingsForm(QWidget):
             self.target_px_input.setValue(v["export_target_long_edge_px"])
             self.ratio_combo.setCurrentText(v["paper_aspect_ratio"])
 
-            in_path = v.get("icc_input_path")
-            self.input_combo.setCurrentText(os.path.basename(in_path) if in_path else "None")
-            self.color_space_combo.setCurrentText(v["export_color_space"])
+            self._export_space = v["export_color_space"]
+            _select_data(self.input_combo, v.get("icc_input_path"))
             out_path = v.get("icc_output_path")
-            self.icc_output_combo.setCurrentText(os.path.basename(out_path) if out_path else "None")
+            # A stale path (the profile was deleted) falls back to the color space.
+            if not (out_path and self.export_profile_combo.findData(out_path) >= 0):
+                out_path = None
+            _select_data(self.export_profile_combo, out_path or v["export_color_space"])
 
             mode = _coerce_output_mode(v.get("output_mode"))
             idx = self.output_mode_combo.findData(mode)
@@ -645,8 +738,8 @@ class ExportSettingsForm(QWidget):
 
     def values(self) -> Dict[str, Any]:
         """Read all rows back into a dict of shared field values."""
-        in_idx = self.input_combo.currentIndex()
-        out_idx = self.icc_output_combo.currentIndex()
+        profile = self.export_profile_combo.currentData()
+        is_space = profile in _EXPORT_SPACES
         return {
             "export_fmt": self.fmt_combo.currentData(),
             "export_bit_depth": int(self.bit_depth_combo.currentData()),
@@ -670,7 +763,7 @@ class ExportSettingsForm(QWidget):
             "output_path": self.abspath_edit.text(),
             "filename_pattern": self.filename_edit.text(),
             "overwrite": self.overwrite_check.isChecked(),
-            "export_color_space": self.color_space_combo.currentText(),
-            "icc_input_path": self._icc_input_profiles[in_idx] if in_idx > 0 else None,
-            "icc_output_path": self._icc_output_profiles[out_idx] if out_idx > 0 else None,
+            "export_color_space": profile if is_space else self._export_space,
+            "icc_input_path": self.input_combo.currentData(),
+            "icc_output_path": None if is_space else profile,
         }

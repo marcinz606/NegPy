@@ -590,10 +590,7 @@ class MainWindow(QMainWindow):
         w, h = self.state.original_res
         res_str = f"{w} x {h} px"
 
-        cs = self.state.config.export.export_color_space
-        if cs == "Same as Source":
-            cs = self.state.source_cs or "Same as Source"
-        mode_str = f"{self.state.config.process.process_mode} | {cs}"
+        mode_str = str(self.state.config.process.process_mode)
         edits_str = f"Edits: {self.state.undo_index}"
 
         tool_label = self.TOOL_LABELS.get(self.state.active_tool, "")
