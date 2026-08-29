@@ -579,6 +579,52 @@ def test_restored_session_still_groups_the_files_it_did_not_know_about(tmp_path,
     assert out[1]["green_path"].endswith("f2_g.raw"), "the loose exposures were grouped"
 
 
+def test_restored_triplet_consumes_its_exposures_from_the_roll(tmp_path):
+    """Where the green and blue files are in the list too -- a capture, or a stitch
+    dissolved back into triplet parts -- they belong to the frame, not to the roll."""
+    from negpy.desktop.workers.render import AssetDiscoveryWorker
+
+    names = ["f1_r.raw", "f1_g.raw", "f1_b.raw"]
+    for n in names:
+        (tmp_path / n).write_bytes(n.encode())
+    assets = [{"name": n, "path": str(tmp_path / n), "hash": n} for n in names]
+    triplets = {str(tmp_path / "f1_r.raw"): [str(tmp_path / "f1_g.raw"), str(tmp_path / "f1_b.raw")]}
+
+    out = AssetDiscoveryWorker()._attach_restored_triplets(assets, triplets)
+    assert [a["name"] for a in out] == ["f1_r (RGB)"]
+
+
+def test_a_captured_triplet_assembles_even_with_nothing_to_match_on(tmp_path, monkeypatch):
+    """A frame with no structure -- clear leader, an unexposed frame, a lens cap --
+    gives the content test nothing to correlate, so no floor can admit it. The capture
+    knows the three files are one frame, so it says so instead of asking."""
+    from negpy.desktop.workers.render import AssetDiscoveryTask, AssetDiscoveryWorker
+    from negpy.features.rgbscan import logic
+
+    names = ["f1_r.raw", "f1_g.raw", "f1_b.raw"]
+    for n in names:
+        (tmp_path / n).write_bytes(n.encode() * 64)
+    flat = np.zeros((40, 60), dtype=np.float32)  # a uniform frame z-scores to nothing
+    monkeypatch.setattr(logic, "probe_frame", lambda path: logic.FrameProbe(means=(1.0, 1.0, 1.0), signature=flat))
+    monkeypatch.setattr(logic, "capture_timestamp", lambda path: "")
+    paths = [str(tmp_path / n) for n in names]
+
+    worker = AssetDiscoveryWorker()
+    seen: list = []
+    worker.finished.connect(seen.append)
+
+    def discover(restore_triplets):
+        worker.process(
+            AssetDiscoveryTask(paths=list(paths), supported_extensions=(".raw",), rgb_scan=True, restore_triplets=restore_triplets)
+        )
+        return seen.pop()
+
+    assert len(discover(None)) == 3, "derived from the pixels, a blank frame cannot be grouped"
+
+    out = discover({paths[0]: [paths[1], paths[2]]})
+    assert [a["name"] for a in out] == ["f1_r (RGB)"]
+
+
 def test_grouping_leaves_an_assembled_asset_alone(tmp_path, monkeypatch):
     """An asset that already carries green and blue is not re-examined: its exposures
     are not in the file list, so chunking would mix it into its neighbours."""

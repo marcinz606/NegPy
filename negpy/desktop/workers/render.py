@@ -698,19 +698,25 @@ class AssetDiscoveryWorker(QObject):
         return out
 
     def _attach_restored_triplets(self, assets: list, triplets: dict) -> list:
-        """Re-attach saved green/blue exposures to restored red assets (no reclassification)."""
+        """Re-attach known green/blue exposures to their red asset (no reclassification).
+
+        A session manifest holds the red path alone, but a capture hands over all three,
+        so the two exposures that became part of a frame are dropped from the roll.
+        """
         import os
 
         out = []
+        parts: set = set()
         for a in assets:
             gb = triplets.get(a["path"])
             if gb and gb[0] and gb[1] and os.path.exists(gb[0]) and os.path.exists(gb[1]):
                 base = os.path.splitext(a["name"])[0]
                 align = bool(gb[2]) if len(gb) > 2 else True
                 out.append({**a, "name": f"{base} (RGB)", "green_path": gb[0], "blue_path": gb[1], "align": align})
+                parts.update({gb[0], gb[1]})
             else:
                 out.append(a)
-        return out
+        return _without_parts(out, parts)
 
     def _attach_restored_stitches(self, assets: list, stitches: dict) -> list:
         """Re-attach saved stitch registrations to restored primary assets (no re-registration).
