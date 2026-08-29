@@ -20,12 +20,17 @@ _SIG_WIDTH = 96
 # background outside it are identical in every exposure of every frame, so scoring
 # the whole capture correlates two unrelated scenes on their shared surround.
 _SIG_INTERIOR = 0.6
+# Signal floor before the log, in raw levels. Block averages this low carry no structure,
+# only read noise, and without a floor the log turns it into the loudest edges in the map.
+_SIG_FLOOR = 1.0
 # Floor a triplet's three exposures must clear. A backstop, not the discriminator:
 # how well one scene scores across channels varies with how much texture it has, so
 # no single value separates a real triplet from a confusable one on every roll. The
 # ranking test does that. This only has to reject the unrelated, which is what a
-# folder too small for a ranking to mean anything falls back on.
-MIN_TRIPLET_AFFINITY = 0.35
+# folder too small for a ranking to mean anything falls back on. Set well under the
+# weakest real triplet rather than just under the strongest confusable one: a folder
+# large enough to hold a confuser is also large enough for the ranking to catch it.
+MIN_TRIPLET_AFFINITY = 0.25
 
 # Strongest channel over the next, above which a file was lit by one narrowband color.
 # Well clear of both: white light leaves the three channels within a small factor,
@@ -65,26 +70,27 @@ def _channel_means(mosaic: np.ndarray, colors: np.ndarray, black: float) -> Tupl
     return mean_of(0), mean_of(1, 3), mean_of(2)
 
 
-def _scene_signature(mosaic: np.ndarray) -> np.ndarray:
-    """Edge structure of the frame interior, as a z-scored gradient map.
+def _scene_signature(mosaic: np.ndarray, black: float) -> np.ndarray:
+    """Edge structure of the frame interior, as a z-scored gradient map of density.
 
     Block-averaged straight off the mosaic: at this scale a whole CFA cell per block
-    reads as luminance, so no demosaic is needed. Structure rather than tone, because
-    two exposures of one frame are the same scene through different narrowband light
-    and share their edges, not their levels.
+    reads as luminance, so no demosaic is needed. The gradient is taken in log space
+    on the black-subtracted signal, because a linear gradient weights each edge by the
+    local level: one scene then measures differently in a bright exposure and a dark
+    one, and a triplet's blue exposure sits several stops below its red.
     """
     h, w = mosaic.shape[:2]
     block = max(2, (w // _SIG_WIDTH) & ~1)  # even, so every block covers whole CFA cells
     hh, ww = (h // block) * block, (w // block) * block
     if hh < block or ww < block:
         return np.zeros((1, 1), dtype=np.float32)
-    small = mosaic[:hh, :ww].reshape(hh // block, block, ww // block, block).mean(axis=(1, 3))
+    small = mosaic[:hh, :ww].reshape(hh // block, block, ww // block, block).mean(axis=(1, 3)) - black
 
     sh, sw = small.shape
     dh, dw = int(sh * (1.0 - _SIG_INTERIOR) / 2), int(sw * (1.0 - _SIG_INTERIOR) / 2)
     interior = small[dh : sh - dh, dw : sw - dw]
 
-    gy, gx = np.gradient(interior)
+    gy, gx = np.gradient(np.log(np.clip(interior, _SIG_FLOOR, None)))
     return _zscore(np.hypot(gx, gy)).astype(np.float32)
 
 
@@ -109,7 +115,7 @@ def probe_frame(path: str) -> FrameProbe:
         mosaic = raw.raw_image_visible.astype(np.float32)
         colors = raw.raw_colors_visible
         black = float(np.mean(raw.black_level_per_channel))
-        return FrameProbe(means=_channel_means(mosaic, colors, black), signature=_scene_signature(mosaic))
+        return FrameProbe(means=_channel_means(mosaic, colors, black), signature=_scene_signature(mosaic, black))
 
 
 def probe_channel_means(path: str) -> Tuple[float, float, float]:

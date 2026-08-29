@@ -16,6 +16,7 @@ from negpy.features.rgbscan.logic import (
     classify_channel,
     frame_affinity,
     capture_ordered,
+    MIN_TRIPLET_AFFINITY,
     group_triplets,
     merge_rgb_triplet,
     probe_channel_means,
@@ -159,6 +160,64 @@ def _triplet_sigs(scene_seed):
         f"g{scene_seed}": _scene_sig(scene_seed, 0.6),
         f"b{scene_seed}": _scene_sig(scene_seed, 0.3),
     }
+
+
+def _exposure(density, contrast, gain, black=256.0, scale=4000.0):
+    """One narrowband exposure of a scene, as raw levels.
+
+    ``density`` is the scene in density units; a channel sees it through its own
+    ``contrast`` and ``gain``, which is what makes two exposures of one frame differ
+    by more than a scale factor.
+    """
+    return (gain * scale * 10.0 ** (-contrast * density) + black).astype(np.float32)
+
+
+def _density_scene(seed, h=384, w=512):
+    """A scene spanning the full density range, so the channels really do land at
+    different levels. Blurred noise on its own varies too little to tell the two
+    signatures apart."""
+    rng = np.random.default_rng(seed)
+    scene = cv2.GaussianBlur(rng.random((h, w), dtype=np.float32), (0, 0), 8.0)
+    scene -= scene.min()
+    return scene / scene.max()
+
+
+def test_scene_signature_survives_a_channel_density_difference():
+    """One scene through two channel transfers differs by a scale factor in density,
+    which the z-score removes, so two exposures agree however far apart their levels
+    sit. A gradient on the levels themselves weights each edge by the local signal
+    and cannot.
+    """
+    from negpy.features.rgbscan.logic import _scene_signature
+
+    scene = _density_scene(1)
+    red = _scene_signature(_exposure(scene, contrast=0.5, gain=1.0), 256.0)
+    blue = _scene_signature(_exposure(scene, contrast=1.9, gain=0.05), 256.0)
+    assert frame_affinity(red, blue) > 0.95
+
+
+def test_scene_signature_still_separates_two_scenes():
+    """The density signature must not agree with everything it is shown."""
+    from negpy.features.rgbscan.logic import _scene_signature
+
+    one = _scene_signature(_exposure(_density_scene(1), contrast=0.6, gain=1.0), 256.0)
+    two = _scene_signature(_exposure(_density_scene(2), contrast=1.8, gain=0.08), 256.0)
+    assert frame_affinity(one, two) < MIN_TRIPLET_AFFINITY
+
+
+def test_scene_signature_dark_exposure_clears_the_floor():
+    """A whole triplet, weakest pair included, on a scene whose blue exposure lands
+    several stops below its red: the shape of every C-41 trichrome frame."""
+    from negpy.features.rgbscan.logic import _scene_signature
+
+    scene = _density_scene(3)
+    sigs = {
+        "r": _scene_signature(_exposure(scene, contrast=0.5, gain=1.0), 256.0),
+        "g": _scene_signature(_exposure(scene, contrast=1.1, gain=0.3), 256.0),
+        "b": _scene_signature(_exposure(scene, contrast=1.9, gain=0.05), 256.0),
+    }
+    items = [("r", RED), ("g", GREEN), ("b", BLUE)]
+    assert group_triplets(items, sigs)[0].ok
 
 
 def test_frame_affinity_separates_same_scene_from_different():
@@ -412,6 +471,35 @@ def test_real_sample_classification(fname, expected):
     if not os.path.exists(path):
         pytest.skip(f"sample {fname} not present")
     assert classify_channel(probe_channel_means(path)) == expected
+
+
+_TRIPLET_SAMPLES = {  # frame -> its three exposures, one C-41 trichrome capture each
+    "Frame007": (
+        "2026-08-r35s-5161_Frame007_R.ORF",
+        "2026-08-r35s-5161_Frame007_G.ORF",
+        "2026-08-r35s-5161_Frame007_B.ORF",
+    ),
+    "Frame026": (
+        "2026-08-r35s-5161_Frame026_R.ORF",
+        "2026-08-r35s-5161_Frame026_G.ORF",
+        "2026-08-r35s-5161_Frame026_B.ORF",
+    ),
+}
+
+
+@pytest.mark.parametrize("frame,files", _TRIPLET_SAMPLES.items())
+def test_real_trichrome_triplet_groups(frame, files):
+    """Real C-41 trichrome frames whose blue exposure sits several stops below their
+    red: the weakest pair a genuine triplet has to clear."""
+    paths = [os.path.join("samples", f) for f in files]
+    if not all(os.path.exists(p) for p in paths):
+        pytest.skip(f"trichrome samples for {frame} not present")
+    from negpy.features.rgbscan.logic import probe_frame
+
+    probes = {p: probe_frame(p) for p in paths}
+    items = [(p, classify_channel(probes[p].means)) for p in paths]
+    assert {ch for _, ch in items} == {RED, GREEN, BLUE}
+    assert group_triplets(items, {p: probes[p].signature for p in paths})[0].ok
 
 
 def test_preview_merge_pulls_green_blue_from_their_files():
