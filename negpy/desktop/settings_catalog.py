@@ -258,7 +258,11 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
     )),
     ("Export", (
         _row("Format", "export", "export_fmt", sticky=True),
+        _row("Bit Depth", "export", "export_bit_depth", sticky=True),
         _row("JPEG Quality", "export", "jpeg_quality", sticky=True),
+        _row("JPEG Progressive", "export", "jpeg_progressive", sticky=True),
+        _row("TIFF Compression", "export", "tiff_compression", sticky=True),
+        _row("PNG Compression", "export", "png_compress_level", sticky=True),
         _row("JXL Lossless", "export", "jxl_lossless", sticky=True),
         _row("JXL Distance", "export", "jxl_distance", sticky=True),
         _row("JXL Effort", "export", "jxl_effort", sticky=True),

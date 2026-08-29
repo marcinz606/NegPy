@@ -234,25 +234,13 @@ class ExportPresetsDialog(QDialog):
         self._emit_changed()
 
     def _write_form_to_preset(self, preset: ExportPreset) -> None:
-        vals = self.form.values()
-        preset.export_fmt = vals["export_fmt"]
-        preset.jpeg_quality = vals["jpeg_quality"]
-        preset.webp_quality = vals["webp_quality"]
-        preset.webp_lossless = vals["webp_lossless"]
-        preset.webp_method = vals["webp_method"]
-        preset.export_resolution_mode = vals["export_resolution_mode"]
-        preset.export_print_size = vals["export_print_size"]
-        preset.export_dpi = vals["export_dpi"]
-        preset.export_target_long_edge_px = vals["export_target_long_edge_px"]
-        preset.paper_aspect_ratio = vals["paper_aspect_ratio"]
-        preset.output_mode = vals["output_mode"]
-        preset.output_subfolder = vals["output_subfolder"]
-        preset.output_path = vals["output_path"]
-        preset.filename_pattern = vals["filename_pattern"] or "{{ original_name }}"
-        preset.overwrite = vals["overwrite"]
-        preset.export_color_space = vals["export_color_space"]
-        preset.icc_input_path = vals["icc_input_path"]
-        preset.icc_output_path = vals["icc_output_path"]
+        """Every form key that names a preset field, so a row added to the form
+        cannot be left behind here. id/name/enabled/render_intent are not form
+        keys and stay as they are."""
+        for key, value in self.form.values().items():
+            if key in ExportPreset.__dataclass_fields__:
+                setattr(preset, key, value)
+        preset.filename_pattern = preset.filename_pattern or "{{ original_name }}"
 
     # Preset actions
 

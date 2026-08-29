@@ -2,7 +2,15 @@ import json
 import logging
 import unittest
 from dataclasses import replace
-from negpy.domain.models import AspectRatio, ExportConfig, ExportFormat, ExportPreset, ExportResolutionMode, WorkspaceConfig
+from negpy.domain.models import (
+    AspectRatio,
+    ExportConfig,
+    ExportFormat,
+    ExportPreset,
+    ExportResolutionMode,
+    TiffCompression,
+    WorkspaceConfig,
+)
 from negpy.features.process.models import ProcessMode
 from negpy.kernel.caching.logic import calculate_config_hash
 
@@ -220,6 +228,19 @@ class TestConfigDeserialization(unittest.TestCase):
         # and saved export presets, neither of which goes through from_flat_dict.
         self.assertEqual(ExportConfig(export_fmt="DNG").export_fmt, ExportFormat.TIFF)
         self.assertEqual(ExportPreset.from_dict({"export_fmt": "DNG"}).export_fmt, ExportFormat.TIFF)
+
+    def test_legacy_tiff_compression_value_coerces_to_zip(self):
+        # The key was dropped while TIFF was zlib-only. It is a live setting again,
+        # so a saved edit naming the never-shipped JXL codec must land on ZIP
+        # instead of being popped or raising.
+        config = WorkspaceConfig.from_flat_dict({"tiff_compression": "jxl"})
+        self.assertEqual(config.export.tiff_compression, TiffCompression.ZIP)
+        self.assertEqual(ExportConfig(tiff_compression="jxl").tiff_compression, TiffCompression.ZIP)
+        self.assertEqual(ExportPreset.from_dict({"tiff_compression": "jxl"}).tiff_compression, TiffCompression.ZIP)
+
+    def test_tiff_compression_round_trips(self):
+        config = WorkspaceConfig.from_flat_dict({"tiff_compression": "lzw"})
+        self.assertEqual(config.export.tiff_compression, TiffCompression.LZW)
 
     def test_crop_rect_survives_db_roundtrip_as_tuple(self):
         """Manual crop saved to JSON reloads as a list, making the frozen
