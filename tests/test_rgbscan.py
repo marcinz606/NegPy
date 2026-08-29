@@ -536,6 +536,64 @@ def test_attach_restored_triplets_rebuilds_asset(tmp_path):
     assert out[0]["name"].endswith("(RGB)")
 
 
+def _fake_probes(monkeypatch, channels):
+    """Stand in for the raw read: ``channels`` maps basename -> R/G/B, and every file
+    of one frame (same basename prefix before the last "_") shares a signature."""
+    from negpy.features.rgbscan import logic
+
+    def probe(path):
+        name = os.path.basename(path)
+        scene = name.rsplit("_", 1)[0]
+        return logic.FrameProbe(
+            means=tuple(3.0 if i == channels[name] else 1.0 for i in range(3)),
+            signature=_scene_sig(sum(ord(c) for c in scene)),
+        )
+
+    monkeypatch.setattr(logic, "probe_frame", probe)
+    monkeypatch.setattr(logic, "capture_timestamp", lambda path: "")
+
+
+def test_restored_session_still_groups_the_files_it_did_not_know_about(tmp_path, monkeypatch):
+    """A restore re-attaches the triplets it saved; anything else in the manifest is
+    still grouped, or a file left loose in one session could never come back."""
+    from negpy.desktop.workers.render import AssetDiscoveryTask, AssetDiscoveryWorker
+
+    names = ["f1_r.raw", "f1_g.raw", "f1_b.raw", "f2_r.raw", "f2_g.raw", "f2_b.raw"]
+    for n in names:
+        (tmp_path / n).write_bytes(n.encode() * 64)
+    _fake_probes(monkeypatch, {n: {"r": RED, "g": GREEN, "b": BLUE}[n[-5]] for n in names})
+
+    # Frame 1 was assembled last session, so only its red is in the manifest. Frame 2
+    # was left loose, so all three of its exposures are.
+    paths = [str(tmp_path / n) for n in ("f1_r.raw", "f2_r.raw", "f2_g.raw", "f2_b.raw")]
+    triplets = {str(tmp_path / "f1_r.raw"): [str(tmp_path / "f1_g.raw"), str(tmp_path / "f1_b.raw")]}
+
+    worker = AssetDiscoveryWorker()
+    seen: list = []
+    worker.finished.connect(seen.append)
+    worker.process(AssetDiscoveryTask(paths=paths, supported_extensions=(".raw",), rgb_scan=True, restore_triplets=triplets))
+
+    out = sorted(seen.pop(), key=lambda a: a["name"])
+    assert [a["name"] for a in out] == ["f1_r (RGB)", "f2_r (RGB)"]
+    assert out[0]["green_path"].endswith("f1_g.raw"), "the restored triplet keeps its saved exposures"
+    assert out[1]["green_path"].endswith("f2_g.raw"), "the loose exposures were grouped"
+
+
+def test_grouping_leaves_an_assembled_asset_alone(tmp_path, monkeypatch):
+    """An asset that already carries green and blue is not re-examined: its exposures
+    are not in the file list, so chunking would mix it into its neighbours."""
+    from negpy.desktop.workers.render import AssetDiscoveryWorker
+
+    names = ["f2_r.raw", "f2_g.raw", "f2_b.raw"]
+    _fake_probes(monkeypatch, {n: {"r": RED, "g": GREEN, "b": BLUE}[n[-5]] for n in names})
+    assembled = {"name": "f1_r (RGB)", "path": "/f1_r.raw", "hash": "h1", "green_path": "/f1_g.raw", "blue_path": "/f1_b.raw"}
+    loose = [{"name": n, "path": str(tmp_path / n), "hash": n} for n in names]
+
+    out = AssetDiscoveryWorker()._group_rgb_triplets([assembled, *loose])
+    assert [a["name"] for a in out] == ["f1_r (RGB)", "f2_r (RGB)"]
+    assert out[0] is assembled
+
+
 def test_config_roundtrip_preserves_rgbscan():
     cfg = WorkspaceConfig()
     cfg = type(cfg)(**{**cfg.__dict__, "rgbscan": RgbScanConfig(enabled=True, green_path="/g", blue_path="/b")})
