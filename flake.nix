@@ -69,6 +69,10 @@
       # autoPatchelf (uv2nix's default wheel path) works better than the fallback.
       pillow = fromNixpkgs "pillow" prev.pillow;
 
+      # python-sane is an sdist (no PyPI wheels): it compiles against libsane at
+      # build time, so it needs nixpkgs' sane-backends rather than autoPatchelf.
+      python-sane = fromNixpkgs "sane" prev.python-sane;
+
       pyqt6-sip = fromNixpkgs "pyqt6-sip" prev.pyqt6-sip;
       pyqt6 = hacks.nixpkgsPrebuilt {
         from = python3Packages.pyqt6;
@@ -139,61 +143,83 @@
 
     pythonSets = forAllSystems (system: mkPythonSet nixpkgs.legacyPackages.${system});
 
-    mkNegpy = pkgs: pythonSet: let
-      venv = pythonSet.mkVirtualEnv "negpy-env" workspace.deps.default;
-      # modern_dark.qss requests "Inter"; bundle it via fontconfig rather than
-      # relying on it being installed system-wide, same as upstream's AppImage.
-      fontsConf = pkgs.makeFontsConf {fontDirectories = [pkgs.inter];};
-    in
-      pkgs.stdenv.mkDerivation {
-        pname = "negpy";
-        version = lib.trim (builtins.readFile ./VERSION);
-        dontUnpack = true;
-        dontBuild = true;
+    # Mirrors release.yml's `uv sync --all-groups` for Linux: every optional
+    # scan backend ships by default. sane/camera get override flags because,
+    # like upstream's per-OS group exclusions (no sane on Windows, no camera
+    # group on win32), they need a system SANE/libgphoto2 install rather than
+    # being pure-Python. nkscan has no aarch64-linux wheel — like upstream,
+    # which only builds Linux on x86_64 — so it's included by platform, not a flag.
+    mkNegpy = pkgs: pythonSet:
+      lib.makeOverridable (
+        {
+          withSane ? true,
+          withCamera ? true,
+        }: let
+          extras = {
+            negpy =
+              ["plustek" "pieusb"]
+              ++ lib.optionals withSane ["sane"]
+              ++ lib.optionals withCamera ["camera"]
+              ++ lib.optionals (pkgs.stdenv.hostPlatform.system == "x86_64-linux") ["nkscan"];
+          };
+          venv = pythonSet.mkVirtualEnv "negpy-env" extras;
+          # modern_dark.qss requests "Inter"; bundle it via fontconfig rather than
+          # relying on it being installed system-wide, same as upstream's AppImage.
+          fontsConf = pkgs.makeFontsConf {fontDirectories = [pkgs.inter];};
+        in
+          pkgs.stdenv.mkDerivation {
+            pname = "negpy";
+            version = lib.trim (builtins.readFile ./VERSION);
+            dontUnpack = true;
+            dontBuild = true;
 
-        nativeBuildInputs = [
-          pkgs.makeWrapper
-          pkgs.qt6.wrapQtAppsHook
-        ];
-        buildInputs = [pkgs.qt6.qtbase];
-        # We wrap by hand below so we control both the Qt env and LD_LIBRARY_PATH
-        # on the same wrapProgram call; wrapQtAppsHook only supplies qtWrapperArgs.
-        dontWrapQtApps = true;
+            nativeBuildInputs = [
+              pkgs.makeWrapper
+              pkgs.qt6.wrapQtAppsHook
+            ];
+            buildInputs = [pkgs.qt6.qtbase];
+            # We wrap by hand below so we control both the Qt env and LD_LIBRARY_PATH
+            # on the same wrapProgram call; wrapQtAppsHook only supplies qtWrapperArgs.
+            dontWrapQtApps = true;
 
-        installPhase = ''
-          runHook preInstall
+            installPhase = ''
+              runHook preInstall
 
-          mkdir -p $out/bin
-          makeWrapper ${venv}/bin/python $out/bin/negpy \
-            --add-flags "-m negpy.desktop.main" \
-            "''${qtWrapperArgs[@]}" \
-            --prefix LD_LIBRARY_PATH : ${
-            lib.makeLibraryPath [
-              pkgs.vulkan-loader
-              pkgs.libGL
-            ]
-          } \
-            --set FONTCONFIG_FILE ${fontsConf}
+              mkdir -p $out/bin
+              makeWrapper ${venv}/bin/python $out/bin/negpy \
+                --add-flags "-m negpy.desktop.main" \
+                "''${qtWrapperArgs[@]}" \
+                --prefix LD_LIBRARY_PATH : ${
+                lib.makeLibraryPath (
+                  [pkgs.vulkan-loader pkgs.libGL]
+                  # sane_backend.py dlopens libsane.so.1 itself, ahead of importing
+                  # the _sane extension, so it needs the loader search path — rpath
+                  # on the extension module isn't consulted for that call.
+                  ++ lib.optionals withSane [pkgs.sane-backends]
+                )
+              } \
+                --set FONTCONFIG_FILE ${fontsConf}
 
-          install -Dm644 ${./NegPy.desktop} $out/share/applications/NegPy.desktop
-          substituteInPlace $out/share/applications/NegPy.desktop \
-            --replace-fail "Exec=NegPy" "Exec=$out/bin/negpy"
-          install -Dm644 ${./media/icons/icon.svg} $out/share/icons/hicolor/scalable/apps/negpy.svg
+              install -Dm644 ${./NegPy.desktop} $out/share/applications/NegPy.desktop
+              substituteInPlace $out/share/applications/NegPy.desktop \
+                --replace-fail "Exec=NegPy" "Exec=$out/bin/negpy"
+              install -Dm644 ${./media/icons/icon.svg} $out/share/icons/hicolor/scalable/apps/negpy.svg
 
-          runHook postInstall
-        '';
+              runHook postInstall
+            '';
 
-        meta = {
-          description = "Tool for processing film negatives with film-physics simulation";
-          homepage = "https://github.com/marcinz606/NegPy";
-          license = lib.licenses.gpl3Only;
-          mainProgram = "negpy";
-          platforms = lib.platforms.linux;
-        };
-      };
+            meta = {
+              description = "Tool for processing film negatives with film-physics simulation";
+              homepage = "https://github.com/marcinz606/NegPy";
+              license = lib.licenses.gpl3Only;
+              mainProgram = "negpy";
+              platforms = lib.platforms.linux;
+            };
+          }
+      );
   in {
     packages = forAllSystems (system: {
-      default = mkNegpy nixpkgs.legacyPackages.${system} pythonSets.${system};
+      default = mkNegpy nixpkgs.legacyPackages.${system} pythonSets.${system} {};
     });
 
     apps = forAllSystems (system: {
