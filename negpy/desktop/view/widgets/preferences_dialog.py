@@ -105,7 +105,8 @@ NUMBER_ROWS: tuple[NumberRow, ...] = (
         16384,
         1024,
         " px",
-        "Largest GPU texture dimension. 0 lets the hardware decide.",
+        "Largest GPU texture dimension, including HQ preview loads. 0 lets the hardware "
+        "decide (a lower default applies automatically on integrated GPUs).",
     ),
 )
 

@@ -17,6 +17,13 @@ PREVIEW_SIZE_MIN = 512
 PREVIEW_SIZE_MAX = 8192
 PREVIEW_SIZE_DEFAULT = 1600
 
+# Default long-edge texture cap applied on integrated GPUs when max_texture_size is
+# left at "auto". Integrated GPUs share VRAM with system RAM and wgpu's public API
+# limits (e.g. max-buffer-size) reflect generic device limits, not real available
+# memory, so an uncapped full-resolution load can exceed what the driver can actually
+# submit and crash the app. Discrete GPUs are unaffected and stay uncapped.
+INTEGRATED_GPU_TEXTURE_CAP_DEFAULT = 6144
+
 
 _DEFAULT_TOML_LINUX_WIN = """\
 # NegPy Override Configuration
@@ -50,8 +57,10 @@ qt_platform = "auto"
 # defaults to false while crash reports are investigated. Uncomment to force.
 # cpu_parallel = true
 
-# Cap GPU texture dimensions in pixels.
-# "auto" lets wgpu/hardware decide the maximum. Set a number (e.g. 4096) to cap it.
+# Cap GPU texture dimensions in pixels, including the HQ/full-resolution preview load.
+# "auto" lets wgpu/hardware decide the maximum -- except on an integrated GPU, where NegPy
+# applies a conservative default (currently 6144px) since shared VRAM can't be queried
+# reliably up front. Set a number (e.g. 4096) to override either default.
 max_texture_size = "auto"
 
 # Long edge of the interactive preview, in pixels. Higher is a sharper canvas at 100%
@@ -269,6 +278,21 @@ def apply(cfg: OverrideConfig, app_config: AppConfig) -> None:
 
     if cfg.render_memo_max_entries is not None:
         app_config.render_memo_max_entries = cfg.render_memo_max_entries
+
+
+def effective_max_texture_size(app_config: AppConfig, gpu: Any) -> int | None:
+    """The texture-size budget to enforce for a full-resolution GPU load.
+
+    An explicit max_texture_size (override.toml or Preferences) always wins. Absent
+    that, an integrated GPU gets a conservative default since its real available
+    VRAM can't be queried reliably. A discrete GPU stays uncapped ("auto"), i.e.
+    returns None.
+    """
+    if app_config.max_texture_size is not None:
+        return app_config.max_texture_size
+    if gpu is not None and getattr(gpu, "is_integrated", False):
+        return INTEGRATED_GPU_TEXTURE_CAP_DEFAULT
+    return None
 
 
 # The [performance] numbers a user can also set in Preferences, saved under these exact key

@@ -50,6 +50,17 @@ class GPUDevice:
         return self.device is not None
 
     @property
+    def is_integrated(self) -> bool:
+        """True for an integrated GPU sharing VRAM with system RAM, where a
+        large scan's actual submittable memory can't be queried up front."""
+        if not self.adapter:
+            return False
+        try:
+            return str(self.adapter.info.get("adapter_type", "")) == "IntegratedGPU"
+        except Exception:
+            return False
+
+    @property
     def backend_name(self) -> Optional[str]:
         if not self.adapter:
             return None

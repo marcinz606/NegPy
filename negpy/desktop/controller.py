@@ -684,6 +684,7 @@ class AppController(QObject):
         self.preview_load_requested.connect(self.preview_load_worker.process)
         self.preview_load_worker.splash.connect(self._on_splash_preview)
         self.preview_load_worker.finished.connect(self._on_preview_loaded)
+        self.preview_load_worker.vram_capped.connect(self._on_hq_preview_vram_capped)
         self.preview_load_worker.error.connect(self._on_render_error)
         self.preview_load_worker.load_failed.connect(self._on_preview_load_failed)
 
@@ -1657,6 +1658,17 @@ class AppController(QObject):
                 f["decode_failed"] = message
                 self.session.asset_model.refresh()
                 return
+
+    def _on_hq_preview_vram_capped(self, file_path: str, capped_long_edge: int) -> None:
+        """An HQ load exceeded the GPU's VRAM budget and was downsampled instead of
+        crashing (see preview_manager._load_from_open_raw). Non-blocking — the user can
+        keep working at the reduced resolution or raise max_texture_size in Preferences."""
+        if self._requested_file_path != file_path:
+            return
+        self.set_status(
+            f"Scan too large for available GPU memory — showing a {capped_long_edge}px preview instead of full resolution.",
+            5000,
+        )
 
     def _on_preview_loaded(
         self,

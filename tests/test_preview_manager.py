@@ -60,6 +60,95 @@ def test_load_linear_preview_downscales_to_preview_render_size() -> None:
     assert buf.dtype == np.float32
 
 
+def test_load_linear_preview_hq_downscales_to_vram_cap_on_integrated_gpu() -> None:
+    """full_resolution=True on an integrated GPU still gets capped, unlike the uncapped
+    full-res path — this is the fix for the OOM crash on large scans on shared-VRAM GPUs."""
+    h, w = 8000, 6000
+    data = np.full((h, w, 3), 0.5, dtype=np.float32)
+    ctx = NonStandardFileWrapper(data)
+    fake_cfg = SimpleNamespace(
+        preview_render_size=1600,
+        max_texture_size=None,
+        canvas_zoom_min=0.25,
+        canvas_zoom_max=8.0,
+        preview_cache_max_entries=8,
+        preview_cache_max_bytes=10**9,
+    )
+    fake_gpu = SimpleNamespace(is_integrated=True)
+
+    with (
+        patch("negpy.services.rendering.preview_manager.loader_factory") as lf,
+        patch("negpy.services.rendering.preview_manager.APP_CONFIG", fake_cfg),
+        patch("negpy.services.rendering.preview_manager.GPUDevice") as gpu_device_cls,
+    ):
+        gpu_device_cls.get.return_value = fake_gpu
+        lf.get_loader.return_value = (ctx, {"color_space": "Adobe RGB"})
+        buf, dims, out_meta = PreviewManager().load_linear_preview("/fake/path.tif", full_resolution=True)
+
+    assert dims == (8000, 6000)
+    assert max(buf.shape[0], buf.shape[1]) == 6144
+    assert out_meta["vram_capped_long_edge"] == 6144
+
+
+def test_load_linear_preview_hq_explicit_max_texture_size_wins_over_integrated_default() -> None:
+    """An explicit max_texture_size (override.toml/Preferences) takes precedence over the
+    integrated-GPU default."""
+    h, w = 8000, 6000
+    data = np.full((h, w, 3), 0.5, dtype=np.float32)
+    ctx = NonStandardFileWrapper(data)
+    fake_cfg = SimpleNamespace(
+        preview_render_size=1600,
+        max_texture_size=2048,
+        canvas_zoom_min=0.25,
+        canvas_zoom_max=8.0,
+        preview_cache_max_entries=8,
+        preview_cache_max_bytes=10**9,
+    )
+    fake_gpu = SimpleNamespace(is_integrated=True)
+
+    with (
+        patch("negpy.services.rendering.preview_manager.loader_factory") as lf,
+        patch("negpy.services.rendering.preview_manager.APP_CONFIG", fake_cfg),
+        patch("negpy.services.rendering.preview_manager.GPUDevice") as gpu_device_cls,
+    ):
+        gpu_device_cls.get.return_value = fake_gpu
+        lf.get_loader.return_value = (ctx, {"color_space": "Adobe RGB"})
+        buf, _, out_meta = PreviewManager().load_linear_preview("/fake/path.tif", full_resolution=True)
+
+    assert max(buf.shape[0], buf.shape[1]) == 2048
+    assert out_meta["vram_capped_long_edge"] == 2048
+
+
+def test_load_linear_preview_hq_uncapped_on_discrete_gpu() -> None:
+    """A discrete GPU (not integrated) with no explicit max_texture_size stays uncapped,
+    matching the pre-fix full-resolution behavior."""
+    h, w = 8000, 6000
+    data = np.full((h, w, 3), 0.5, dtype=np.float32)
+    ctx = NonStandardFileWrapper(data)
+    fake_cfg = SimpleNamespace(
+        preview_render_size=1600,
+        max_texture_size=None,
+        canvas_zoom_min=0.25,
+        canvas_zoom_max=8.0,
+        preview_cache_max_entries=8,
+        preview_cache_max_bytes=10**9,
+    )
+    fake_gpu = SimpleNamespace(is_integrated=False)
+
+    with (
+        patch("negpy.services.rendering.preview_manager.loader_factory") as lf,
+        patch("negpy.services.rendering.preview_manager.APP_CONFIG", fake_cfg),
+        patch("negpy.services.rendering.preview_manager.GPUDevice") as gpu_device_cls,
+    ):
+        gpu_device_cls.get.return_value = fake_gpu
+        lf.get_loader.return_value = (ctx, {"color_space": "Adobe RGB"})
+        buf, dims, out_meta = PreviewManager().load_linear_preview("/fake/path.tif", full_resolution=True)
+
+    assert dims == (8000, 6000)
+    assert max(buf.shape[0], buf.shape[1]) == 8000
+    assert "vram_capped_long_edge" not in out_meta
+
+
 def test_load_linear_preview_fast_path_line_and_half() -> None:
     """Default (non-HQ) raw: LINEAR + half_size."""
     rgb_u16 = np.zeros((32, 24, 3), dtype=np.uint16)

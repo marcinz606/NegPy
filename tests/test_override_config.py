@@ -3,10 +3,12 @@ import os
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from negpy.domain.types import AppConfig
 from negpy.kernel.system.override import (
+    INTEGRATED_GPU_TEXTURE_CAP_DEFAULT,
     PREVIEW_SIZE_MAX,
     PREVIEW_SIZE_MIN,
     OverrideConfig,
@@ -14,6 +16,7 @@ from negpy.kernel.system.override import (
     _platform_defaults,
     apply,
     apply_stored,
+    effective_max_texture_size,
     load_or_create,
     toml_pinned_keys,
 )
@@ -428,3 +431,27 @@ class TestStoredPreferences(unittest.TestCase):
             toml_pinned_keys(OverrideConfig(preview_render_size=1024, max_texture_size=2048)),
             {"preview_render_size", "max_texture_size"},
         )
+
+
+class TestEffectiveMaxTextureSize(unittest.TestCase):
+    """Precedence for the HQ-preview VRAM cap: explicit override > integrated-GPU
+    default > uncapped."""
+
+    def test_explicit_override_wins(self):
+        app = _make_app_config(max_texture_size=4096)
+        gpu = SimpleNamespace(is_integrated=True)
+        self.assertEqual(effective_max_texture_size(app, gpu), 4096)
+
+    def test_integrated_gpu_gets_conservative_default(self):
+        app = _make_app_config(max_texture_size=None)
+        gpu = SimpleNamespace(is_integrated=True)
+        self.assertEqual(effective_max_texture_size(app, gpu), INTEGRATED_GPU_TEXTURE_CAP_DEFAULT)
+
+    def test_discrete_gpu_stays_uncapped(self):
+        app = _make_app_config(max_texture_size=None)
+        gpu = SimpleNamespace(is_integrated=False)
+        self.assertIsNone(effective_max_texture_size(app, gpu))
+
+    def test_no_gpu_stays_uncapped(self):
+        app = _make_app_config(max_texture_size=None)
+        self.assertIsNone(effective_max_texture_size(app, None))

@@ -944,7 +944,7 @@ Settings for the whole application, not for one photo. Open them from the canvas
 *   **Preview cache** and **Preview cache limit**: how many recently-viewed photos stay decoded in memory, and the memory ceiling for them. Lower both on a machine with little RAM.
 *   **HQ buffers**: full-resolution HQ preview buffers kept in memory. Each is large — a 60 MP scan is about 700 MB — and keeping the previous frame makes going back instant.
 *   **Rendered frames**: rendered frames held for navigating back with no re-render.
-*   **GPU texture cap**: largest GPU texture dimension. 0 lets the hardware decide; set it to 4096 if exports run the card out of memory.
+*   **GPU texture cap**: largest GPU texture dimension, including HQ preview loads. 0 lets the hardware decide — except on an integrated GPU, where a conservative default applies automatically to avoid a VRAM crash; set it to 4096 if exports run the card out of memory.
 
 Every row from **Preview size** down is read at startup, so a change needs a restart. A value set in `override.toml` wins over these, and its row is greyed out and says so.
 
