@@ -80,3 +80,36 @@ def test_migration_no_legacy_table_just_sets_flag(tmp_path, monkeypatch):
     migrate_legacy_flatfield_profiles(repo)
     assert repo.get_global_setting("flatfield_migrated_v2") is True
     assert FlatFieldProfiles.list_profiles() == []
+
+
+def test_migration_closes_the_connection_it_opens(legacy_repo, monkeypatch):
+    """The migration must close its connection, not merely commit it.
+
+    ``sqlite3.connect()`` used directly as a context manager commits on exit but never
+    closes, so each run leaked a connection. Reverting the ``closing()`` wrapper leaves
+    every other test in this file green, because the migration's observable effects are
+    identical either way -- only the leak differs. This asserts the close itself, and
+    the commit alongside it so the ``, conn`` half cannot be dropped either.
+    """
+    edits_db = legacy_repo.edits_db_path
+    real_connect = sqlite3.connect
+    opened = []
+
+    def tracking_connect(database, *args, **kwargs):
+        conn = real_connect(database, *args, **kwargs)
+        if str(database) == str(edits_db):
+            opened.append(conn)
+        return conn
+
+    monkeypatch.setattr(sqlite3, "connect", tracking_connect)
+    migrate_legacy_flatfield_profiles(legacy_repo)
+    monkeypatch.undo()
+
+    assert opened, "migration opened no connection to the edits DB"
+    for conn in opened:
+        with pytest.raises(sqlite3.ProgrammingError):
+            conn.execute("SELECT 1")
+
+    # The commit still has to happen: the legacy table is gone on a fresh connection.
+    with closing(sqlite3.connect(edits_db)) as check:
+        assert check.execute("SELECT name FROM sqlite_master WHERE name='flatfield_profiles'").fetchone() is None
