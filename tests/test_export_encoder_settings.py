@@ -174,6 +174,28 @@ def test_encode_tiff_omits_the_predictor_when_uncompressed():
     assert encode_tiff(arr, compression=TiffCompression.NONE)
 
 
+@pytest.mark.parametrize("progressive", [False, True])
+def test_encode_jpeg_survives_an_image_that_encodes_larger_than_its_buffer(progressive):
+    """optimize and progressive make PIL buffer the whole frame into `w*h + MAXBLOCK`.
+    Incompressible pixels encode past that, which used to fail the save outright."""
+    arr = (np.random.default_rng(1).random((600, 800, 3)) * 255).astype(np.uint8)
+
+    bits = encode_jpeg(arr, quality=90, progressive=progressive)
+
+    img = Image.open(io.BytesIO(bits))
+    img.load()
+    assert img.size == (800, 600)
+    assert bool(img.info.get("progressive")) is progressive
+
+
+def test_encode_jpeg_restores_the_pil_block_size():
+    from PIL import ImageFile
+
+    before = ImageFile.MAXBLOCK
+    encode_jpeg((np.random.default_rng(2).random((600, 800, 3)) * 255).astype(np.uint8), progressive=True)
+    assert ImageFile.MAXBLOCK == before
+
+
 def test_encode_jpeg_stays_8bit_and_optimized():
     arr = np.full((16, 16, 3), 128, dtype=np.uint8)
     assert Image.open(io.BytesIO(encode_jpeg(arr, quality=90))).format == "JPEG"

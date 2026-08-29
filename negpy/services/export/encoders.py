@@ -7,19 +7,26 @@ encode through here so a format setting cannot reach one path and miss another.
 
 import io
 import struct
+import threading
 import zlib
 from typing import Any, Dict, Optional
 
 import imagecodecs
 import numpy as np
 import tifffile
-from PIL import Image, PngImagePlugin
+from PIL import Image, ImageFile, PngImagePlugin
 
 from negpy.domain.models import TiffCompression
 from negpy.features.metadata.resolution import Resolution
 
 _PNG_METRE = 1  # pHYs unit specifier
 _INCH_PER_METRE = 39.3701
+
+# optimize and progressive make PIL encode the whole frame into one buffer sized
+# `w*h + ImageFile.MAXBLOCK`, which a large noisy scan overflows: the save then fails
+# with "broken data stream when writing image file". MAXBLOCK is module-global, so the
+# raise is serialised and restored around the encode.
+_MAXBLOCK_LOCK = threading.Lock()
 
 
 def encode_tiff(
@@ -104,7 +111,15 @@ def encode_jpeg(
         kwargs["icc_profile"] = icc
     if resolution is not None:
         kwargs["dpi"] = (resolution.x_dpi, resolution.y_dpi)
-    Image.fromarray(arr).save(buf, **kwargs)
+    img = Image.fromarray(arr)
+    with _MAXBLOCK_LOCK:
+        prev = ImageFile.MAXBLOCK
+        # 3x the pixel count covers a JPEG that encodes larger than its own raw size.
+        setattr(ImageFile, "MAXBLOCK", max(prev, 3 * img.size[0] * img.size[1]))
+        try:
+            img.save(buf, **kwargs)
+        finally:
+            setattr(ImageFile, "MAXBLOCK", prev)
     return buf.getvalue()
 
 
