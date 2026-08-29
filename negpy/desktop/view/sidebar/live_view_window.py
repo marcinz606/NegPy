@@ -213,6 +213,12 @@ class LiveViewWindow(QDialog):
         self.scan_btn.clicked.connect(lambda: self.scanRequested.emit())
         self.retake_btn.clicked.connect(lambda: self.retakeRequested.emit())
 
+        # Pin Scan as the dialog's permanent default button. Without this, Qt hands "default"
+        # status to whichever autoDefault button was clicked most recently, so pressing Retake
+        # once made Enter keep retaking until Scan was clicked again to reclaim it (issue #997).
+        self.scan_btn.setDefault(True)
+        self.retake_btn.setAutoDefault(False)
+
         # Keyboard shortcuts while the pop-up is focused. There are no text fields here, so
         # letter keys are safe. The buttons respect their gated state.
         for key, btn in (("S", self.scan_btn), ("R", self.retake_btn)):

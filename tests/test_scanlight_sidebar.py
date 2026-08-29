@@ -104,6 +104,16 @@ def test_live_view_popup_has_capture_toolbar():
     assert not hasattr(w.lv_window, "mag_btn")  # magnifier button removed (click-to-magnify)
 
 
+def test_scan_button_stays_the_enter_key_default():
+    # Regression for issue #997: clicking Retake must not steal Qt's implicit
+    # default-button status from Scan, or Enter keeps retaking afterwards.
+    w = _sidebar()
+    assert w.lv_window.scan_btn.isDefault()
+    assert not w.lv_window.retake_btn.autoDefault()
+    w.lv_window.retake_btn.click()
+    assert w.lv_window.scan_btn.isDefault()
+
+
 def test_magnifier_click_aims_camera_and_maps_to_grid():
     w = _sidebar()
     w.lv_btn.blockSignals(True)
