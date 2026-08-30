@@ -714,6 +714,12 @@ QCheckBox::indicator:focus, QRadioButton::indicator:focus {
     border-color: @accent_secondary;
 }
 
+/* The ring grows inward: a 2px border on a 12px content box would make the
+   handle 16px wide while the groove clamps its height, so it reads as an egg. */
 QSlider::handle:horizontal:focus {
     border: 2px solid #FFFFFF;
+    width: 8px;
+    height: 8px;
+    margin: -3px 0;
+    border-radius: 6px;
 }
