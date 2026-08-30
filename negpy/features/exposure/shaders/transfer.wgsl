@@ -23,6 +23,9 @@ struct TransferUniforms {
     zone: vec4<f32>,
     // x = width of the black taper, in density; yzw unused.
     zone_taper: vec4<f32>,
+    // Cast Removal affine on density: per-channel gain and offset (w lane unused).
+    cast_gain: vec4<f32>,
+    cast_offset: vec4<f32>,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -67,6 +70,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     var res: vec3<f32>;
     for (var ch = 0; ch < 3; ch++) {
         var d = norm[ch] * params.density_range;
+
+        // Cast Removal: the channel's neutral refs onto green's. First, so every
+        // control below shapes the corrected signal.
+        d = d * params.cast_gain[ch] + params.cast_offset[ch];
 
         d = d - params.exposure_offset + params.cmy[ch] * params.density_range;
         d = params.pivot + (d - params.pivot) * params.contrast;

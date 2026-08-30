@@ -203,6 +203,9 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # Curvature clamp (fraction of slope, <0.5): keeps the per-channel core
     # monotonic on [0,1].
     "neutral_axis_curv_max_ratio": 0.45,
+    # Gain clamp for the transparency-path affine cast solve (and its reciprocal):
+    # bounds the correction when green's midtone and shadow refs sit close together.
+    "cast_affine_gain_limit": 2.0,
     # Percentile of scene luminance sampled as the raw metered anchor.
     "anchor_meter_percentile": 50.0,
     # Safety band around assumed_anchor that clamps the auto-metered result.

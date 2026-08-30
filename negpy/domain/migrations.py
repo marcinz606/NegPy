@@ -18,6 +18,10 @@ content hash) and ``services/assets/flatfield_migration.py`` (legacy profile tab
 
 from typing import Any, Dict
 
+#: MUST equal ``ExposureConfig.cast_removal_strength``'s default. Mirrored rather than
+#: imported to keep this module dependency-free; test_migrations.py asserts they agree.
+_SHIPPED_CAST_STRENGTH = 0.5
+
 # Old field name → new field name.
 KEY_RENAMES: Dict[str, str] = {
     "export_border_size": "border_size",
@@ -169,6 +173,14 @@ def migrate_flat_config(data: Dict[str, Any]) -> Dict[str, Any]:
 
     if "export_fmt" in data:
         data["export_fmt"] = migrate_export_fmt(str(data["export_fmt"]))
+
+    # Cast Removal reached slides after every slide edit was already saved carrying the
+    # shipped default. On a transparency the control corrects a faded original's
+    # crossover, which is a deliberate act, so a saved slide starts at 0 and renders as
+    # it always did. A value the user chose is left alone.
+    if str(data.get("process_mode", "")) in ("Transparency", "E-6"):
+        if float(data.get("cast_removal_strength", _SHIPPED_CAST_STRENGTH)) == _SHIPPED_CAST_STRENGTH:
+            data["cast_removal_strength"] = 0.0
 
     for key in DROPPED_KEYS:
         data.pop(key, None)

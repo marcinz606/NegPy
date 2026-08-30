@@ -108,7 +108,7 @@ class DarkroomEngine:
 
         def run_base(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
             img_in = GeometryProcessor(settings.geometry, distortion_k1).process(img_in, ctx)
-            return NormalizationProcessor(settings.process).process(img_in, ctx)
+            return NormalizationProcessor(settings.process, settings.exposure.cast_removal_strength).process(img_in, ctx)
 
         # While the crop tool shows the full uncropped frame, the crop-selection fields
         # (crop_rect, autocrop_offset) only feed context.active_roi, which is itself unused
@@ -155,6 +155,8 @@ class DarkroomEngine:
             settings.process.crosstalk_process,
             settings.process.lock_bounds,
             distortion_k1,
+            # The transparency branch meters its neutral axis only when Cast Removal is on.
+            settings.exposure.cast_removal_strength > 0.0,
             # Auto Density metering reads retuned targets from EXPOSURE_CONSTANTS, which no config
             # hash sees, so the revision keys them in. Re-running base sets pipeline_changed, so the
             # exposure stage follows.

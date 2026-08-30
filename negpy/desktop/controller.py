@@ -114,7 +114,13 @@ from negpy.features.geometry.processor import CropProcessor, GeometryProcessor
 from negpy.domain.interfaces import PipelineContext
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig
-from negpy.features.process.models import ProcessConfig, ProcessMode, invalidate_local_bounds, scan_setup_values
+from negpy.features.process.models import (
+    ProcessConfig,
+    ProcessMode,
+    cast_removal_for_mode,
+    invalidate_local_bounds,
+    scan_setup_values,
+)
 from negpy.services.assets.thumbnails import asset_thumbnail_key
 from negpy.kernel.system.paths import get_resource_path
 from negpy.features.retouch.logic import downsample_ir, trace_scratch
@@ -1763,7 +1769,15 @@ class AppController(QObject):
             process_mode=ProcessMode(detected_mode),
             **invalidate_local_bounds(self.state.config.process),
         )
-        self.state.config = replace(self.state.config, process=new_proc)
+        exp = self.state.config.exposure
+        self.state.config = replace(
+            self.state.config,
+            process=new_proc,
+            exposure=replace(
+                exp,
+                cast_removal_strength=cast_removal_for_mode(ProcessMode(detected_mode), exp.cast_removal_strength),
+            ),
+        )
         self.state.is_dirty = True
 
     def toggle_autodetect(self, enabled: bool) -> None:

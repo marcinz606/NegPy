@@ -14,6 +14,7 @@ from negpy.features.exposure.logic import (
     filtration_offsets,
     flat_curve_params,
     grade_coupled_shape,
+    neutral_axis_affine,
     split_grade_deltas,
     local_ev_scale,
     local_grade_factor_map,
@@ -39,6 +40,7 @@ from negpy.features.exposure.normalization import (
     unmix_log_image,
 )
 from negpy.features.exposure.transfer import (
+    TRANSFER_DENSITY_RANGE,
     apply_transfer_curve,
     is_transparency_transfer,
     transfer_bounds,
@@ -58,8 +60,11 @@ class NormalizationProcessor:
     Converts linear RAW to normalized log-density.
     """
 
-    def __init__(self, config: ProcessConfig):
+    def __init__(self, config: ProcessConfig, cast_strength: float = 0.0):
         self.config = config
+        # The transparency branch meters nothing else, so its neutral axis is measured
+        # only when Cast Removal can use it. `base_key` in engine.py carries the gate.
+        self.cast_strength = cast_strength
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         epsilon = 1e-6
@@ -178,8 +183,9 @@ class NormalizationProcessor:
 
         res = normalize_log_image(img_log, bounds)
 
-        # Neutral axis for the two-point Cast Removal gray balance (C-41 only).
-        if context.process_mode == ProcessMode.C41:
+        # Neutral axis for the two-point Cast Removal gray balance. Colour only: B&W
+        # collapses to one density and has no channels to balance.
+        if context.process_mode != ProcessMode.BW:
             context.metrics["neutral_axis_refs"] = measure_neutral_axis_from_log(prefiltered, pre_trim_bounds, None, 0.0)
 
         # Per-frame exposure anchor, measured against the same final bounds the image is
@@ -218,10 +224,22 @@ class NormalizationProcessor:
         # Honoured here too: a rig-calibrated matrix is a capture correction like Hue Trim, and
         # the mode gate keeps a negative's profile from touching a slide. Inert at the shipped
         # default, so the as-captured render is unperturbed.
-        img_log = unmix_log_image(img_log, effective_crosstalk_matrix(self.config, context.process_mode))
+        unmix = effective_crosstalk_matrix(self.config, context.process_mode)
+        img_log = unmix_log_image(img_log, unmix)
         floors, ceils = transfer_bounds()
         bounds = LogNegativeBounds(floors=floors, ceils=ceils)
         res = normalize_log_image(img_log, bounds)
+
+        # Cast Removal's neutral axis, metered on the working-space log image the curve
+        # itself consumes — the camera matrix above is a colour transform, so a meter run
+        # ahead of it would read a different space than the GPU's.
+        if self.cast_strength > 0.0 and context.process_mode != ProcessMode.BW:
+            an_roi, an_buffer = resolve_analysis_region(
+                linear.shape, context.active_roi, self.config.analysis_buffer, self.config.analysis_rect
+            )
+            context.metrics["neutral_axis_refs"] = measure_neutral_axis_from_log(
+                unmix_log_image(prefilter_log_grid(linear, an_roi, an_buffer), unmix), bounds, None, 0.0
+            )
 
         context.metrics["log_bounds"] = bounds
         context.metrics["log_bounds_base"] = bounds
@@ -426,15 +444,27 @@ class PhotometricProcessor:
         Transparency transfer: the exact inverse of the fixed-bounds normalization,
         deviated only by what the user has actually moved.
 
-        None of the print's automatic grading runs — auto density, auto contrast and
-        cast removal all read the frame to decide a look, which is the opposite of
-        starting from the capture.
+        Auto density and auto contrast do not run — they read the frame to decide a look,
+        which is the opposite of starting from the capture. Cast Removal does, but starts
+        at 0 on a slide: what it corrects here is a faded original's crossover, and a
+        deliberate colour cast is the photograph.
         """
         exposure_offset, contrast, toe3, sh3 = transfer_curve_params(self.config)
+        final_bounds = context.metrics.get("final_bounds")
         cmy_offsets = filtration_offsets(
             (self.config.wb_cyan, self.config.wb_magenta, self.config.wb_yellow),
-            context.metrics.get("final_bounds"),
+            final_bounds,
         )
+        # Shadow refs stay out: the P98 tie is calibrated for a negative. With no neutral
+        # axis this solves to the identity and the capture passes through.
+        strength, _shadow_refs_norm, neutral_axis_norm = cast_solve_inputs(
+            final_bounds,
+            None,
+            context.metrics.get("neutral_axis_refs"),
+            self.config.cast_removal_strength,
+        )
+        cast_gain, cast_offset_norm = neutral_axis_affine(neutral_axis_norm, strength)
+        cast_offset = tuple(o * TRANSFER_DENSITY_RANGE for o in cast_offset_norm)
 
         is_bw = context.process_mode == ProcessMode.BW
         if is_bw:
@@ -453,6 +483,8 @@ class PhotometricProcessor:
             sw3,
             shadow_density=self.config.shadow_density,
             highlight_density=self.config.highlight_density,
+            cast_gain=cast_gain,
+            cast_offset=cast_offset,
         )
 
         if is_bw:

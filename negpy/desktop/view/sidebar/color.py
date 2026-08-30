@@ -87,12 +87,12 @@ class ColorSidebar(BaseSidebar):
 
         self.cast_removal_slider = CompactSlider("Cast Removal", 0.0, 1.0, conf.cast_removal_strength)
         self.cast_removal_slider.setToolTip(
-            "Cast Removal: neutralizes the color cast a negative leaves in the print — balances each "
-            "color layer so greys stay neutral from deep shadows through highlights. 0 = off, 1 = full."
-            "<br><br>Color Negative only, and hidden elsewhere: it defeats the orange mask, a manufactured cast "
-            "that is not part of the picture. A slide has no mask — its cast IS the photograph — so "
-            "solving for a neutral axis there would remove the light you shot in. For a slide use "
-            "Temperature and the CMY sliders, or Hue Trim for an odd light source."
+            "Cast Removal: balances each color layer against the frame's own greys, so neutrals stay "
+            "neutral from deep shadows through highlights. 0 = off, 1 = full."
+            "<br><br>On a color negative it defeats the orange mask and starts at 0.5. On a slide it "
+            "starts at 0 and corrects a faded original's crossover — a slide's cast can be the "
+            "photograph, so ask for it rather than getting it. Hidden for B&W Negative, which "
+            "collapses to one density and has no layers to balance."
         )
         self.layout.addWidget(self.cast_removal_slider)
 
@@ -224,13 +224,12 @@ class ColorSidebar(BaseSidebar):
 
             self.pick_wb_btn.setChecked(self.state.active_tool == ToolMode.WB_PICK)
             self.cast_removal_slider.setValue(conf.cast_removal_strength)
-            # C-41 only, in the render as well as here: the solve needs the shadow and neutral-axis
-            # refs, and both meters are gated to C-41 (processor.py, and `needs_refs` in
-            # gpu_engine.py). Everywhere else the slider moved a value that never reached the
-            # arithmetic. Safe to hide rather than merely disable, since it is already inert.
+            # Colour only, in the render as well as here: B&W collapses to a single density
+            # before the curve, so the solve has nothing to balance and the slider would move
+            # a value that never reaches the arithmetic. Safe to hide rather than disable.
             from negpy.features.process.models import ProcessMode
 
-            self.cast_removal_slider.setVisible(self.state.config.process.process_mode == ProcessMode.C41)
+            self.cast_removal_slider.setVisible(self.state.config.process.process_mode != ProcessMode.BW)
         finally:
             self.block_signals(False)
 

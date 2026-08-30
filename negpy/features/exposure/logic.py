@@ -1073,6 +1073,53 @@ def per_channel_curve_params(
     return (s0, s1, s2), (p0, p1, p2), (0.0, 0.0, 0.0)
 
 
+def neutral_axis_affine(
+    neutral_axis_norm: Any,
+    strength: float,
+) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+    """
+    Per-channel (gain, offset) on normalized density that lands each channel's neutral
+    refs on green's — Cast Removal for the transparency transfer, which has no per-channel
+    slope to re-solve. Green is identity, and so is a missing axis or zero strength.
+
+    The clamped-deviation convention matches per_channel_curve_params, so `strength` means
+    the same thing on both curves: green's ref moves a fraction of the way toward the
+    channel's own, and that moved point is what maps onto green.
+    """
+    unit = ((1.0, 1.0, 1.0), (0.0, 0.0, 0.0))
+    if strength <= 0.0 or neutral_axis_norm is None:
+        return unit
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    mid_norm, sh_norm = neutral_axis_norm[0], neutral_axis_norm[1]
+    c = EXPOSURE_CONSTANTS
+    limit = float(c["midtone_cast_max_offset"])
+    gain_max = float(c["cast_affine_gain_limit"])
+    epsilon = 1e-6
+
+    m_g, s_g = float(mid_norm[1]), float(sh_norm[1])
+    clamp_dev = lambda g, v: g + min(max(strength * (v - g), -limit), limit)  # noqa: E731
+
+    gains, offsets = [], []
+    for ch in range(3):
+        if ch == 1:
+            gains.append(1.0)
+            offsets.append(0.0)
+            continue
+        u_m = clamp_dev(m_g, float(mid_norm[ch]))
+        u_s = clamp_dev(s_g, float(sh_norm[ch]))
+        du = u_m - u_s
+        if abs(du) < epsilon:
+            gains.append(1.0)
+            offsets.append(0.0)
+            continue
+        gain = min(max((m_g - s_g) / du, 1.0 / gain_max), gain_max)
+        # Offset re-solved after the clamp, so the midtone stays exact.
+        gains.append(gain)
+        offsets.append(m_g - gain * u_m)
+    return (gains[0], gains[1], gains[2]), (offsets[0], offsets[1], offsets[2])
+
+
 def filtration_offsets(wb_cmy: Tuple[float, float, float], bounds: Any) -> Tuple[float, float, float]:
     """
     WB sliders as normalized-space offsets: slider · cmy_max_density is an

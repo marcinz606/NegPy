@@ -24,6 +24,23 @@ class ProcessMode(StrEnum):
 _LEGACY_MODES = {"C41": ProcessMode.C41, "B&W": ProcessMode.BW, "E-6": ProcessMode.E6}
 
 
+def cast_removal_for_mode(mode: str, strength: float) -> float:
+    """The Cast Removal strength `mode` starts at, given the strength carried in.
+
+    A transparency starts at 0 and a negative at the shipped default: on a negative the
+    control defeats the orange mask, which is never part of the picture, while on a slide
+    it corrects a faded original's crossover — a deliberate act, since a slide's cast can
+    be the photograph. Only the other mode's default is rewritten, so a strength the user
+    chose survives a mode switch.
+    """
+    from negpy.features.exposure.models import ExposureConfig
+
+    default = float(ExposureConfig.cast_removal_strength)
+    if mode == ProcessMode.E6:
+        return 0.0 if strength == default else strength
+    return default if strength == 0.0 else strength
+
+
 # Built-in fallback crosstalk matrix (row-major 3x3) used when no profile is baked.
 DEFAULT_CROSSTALK_MATRIX = (1.0, -0.05, -0.02, -0.04, 1.0, -0.08, -0.01, -0.1, 1.0)
 
