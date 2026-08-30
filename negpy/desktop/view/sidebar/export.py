@@ -981,12 +981,12 @@ class ExportSidebar(BaseSidebar):
         self.proof_condition_combo.setToolTip("A saved printer and paper set-up: profile, intent and simulation toggles in one pick")
         self.proof_save_btn = QToolButton()
         self.proof_save_btn.setIcon(qta.icon("fa5s.save", color="#aaa"))
-        self.proof_save_btn.setToolTip("Save the current proof set-up as a named condition")
+        self.proof_save_btn.setToolTip("Save the current proof set-up as a named preset")
         self.proof_delete_btn = QToolButton()
         self.proof_delete_btn.setIcon(qta.icon("fa5s.trash", color="#aaa"))
-        self.proof_delete_btn.setToolTip("Delete the selected condition")
+        self.proof_delete_btn.setToolTip("Delete the selected preset")
         cond_row = QHBoxLayout()
-        cond_label = field_label("Condition")
+        cond_label = field_label("Preset")
         cond_label.setFixedWidth(90)
         cond_row.addWidget(cond_label)
         cond_row.addWidget(self.proof_condition_combo, 1)
@@ -1165,7 +1165,7 @@ class ExportSidebar(BaseSidebar):
         self._refresh_proof_mismatch_warning()
 
     def _on_save_proof_condition(self) -> None:
-        name, ok = QInputDialog.getText(self, "Save proof condition", "Name (printer and paper):")
+        name, ok = QInputDialog.getText(self, "Save proof preset", "Name (printer and paper):")
         name = name.strip()
         if not (ok and name):
             return
