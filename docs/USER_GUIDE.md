@@ -486,8 +486,8 @@ Where the frame gets its final shape: what is inside the print, and whether it s
 
 Corrects uneven illumination (vignetting or falloff) from your copy-stand or scanner light, using a reference shot of the bare light source.
 
-*   **Flatfield Correction**: apply the active reference to this image, enabled once a profile exists.
-*   **Reference Profile** dropdown + **Add…** / **Delete**: pick a reference image and save it as a named profile. **Add…** reads the reference once and bakes its correction into the profile, so you can then move, rename or delete the original reference file without affecting your edits. The profile is self-contained, stored in NegPy's own `flatfield` folder like sensor and crosstalk profiles. **Delete** asks first: the baked gain map cannot be recovered, and every frame using the profile loses its correction.
+*   **Profile** dropdown, with **+** and **trash** beside it: pick a reference image and save it as a named profile. **+** reads the reference once and bakes its correction into the profile, so you can then move, rename or delete the original reference file without affecting your edits. The profile is self-contained, stored in NegPy's own `flatfield` folder like sensor and crosstalk profiles. **Trash** asks first: the baked gain map cannot be recovered, and every frame using the profile loses its correction.
+*   **Apply Flat Field**: apply the active reference to this image, enabled once a profile exists.
 
 ---
 
