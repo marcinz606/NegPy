@@ -78,13 +78,15 @@ _ALT_MODE = {AltProcess.NONE: 0, AltProcess.LITH: 1, AltProcess.CYANOTYPE: 2}
 # Hardware constants
 UNIFORM_ALIGNMENT_DEFAULT = 256
 TILE_SIZE = 2048
-# An integrated GPU shares system RAM as VRAM with no submittable-memory query
-# available up front (see GPUDevice.is_integrated). A full-size 2048px tile's
-# intermediate textures across the pipeline's stages can be enough to blow that
-# tight, unqueryable budget and take the whole process down via wgpu-native's
-# panic-on-device-lost (uncatchable across the FFI boundary). Halving the tile
-# roughly quarters the live per-tile texture footprint.
-TILE_SIZE_INTEGRATED_GPU = 1024
+# Some GPUs -- typically an older or memory-constrained integrated one, sharing system
+# RAM as VRAM with no submittable-memory query available up front -- can have a tight
+# enough budget that a full-size 2048px tile's intermediate textures blow it and take
+# the whole process down via wgpu-native's panic-on-device-lost (uncatchable across the
+# FFI boundary). Halving the tile roughly quarters the live per-tile texture footprint.
+# Gated behind AppConfig.low_vram_export_tiling (Preferences/override.toml) rather than
+# GPUDevice.is_integrated: plenty of integrated GPUs (Apple Silicon, AMD's higher-end
+# APUs) have ample real VRAM and don't need -- or want -- the export slowed down for it.
+TILE_SIZE_LOW_VRAM = 1024
 TILE_HALO = 32
 TILING_THRESHOLD_PX = 12_000_000
 HISTOGRAM_BINS = 256
@@ -2261,13 +2263,14 @@ class GPUEngine:
             halo = max(halo, int(np.ceil(max(5.0, 25.0 * scale_factor))))
         halo = min(halo, 512)
 
-        # An integrated GPU gets a smaller tile (see TILE_SIZE_INTEGRATED_GPU) and
-        # skips the one-tile-ahead pipelining below: on a tight, unqueryable VRAM
-        # budget, keeping two tiles' worth of textures/buffers live at once is the
-        # difference between fitting and a device-lost abort. Discrete GPUs keep
-        # both the full tile size and the overlap for throughput.
-        is_integrated = self.gpu.is_integrated
-        tile_size = TILE_SIZE_INTEGRATED_GPU if is_integrated else TILE_SIZE
+        # Opt-in (AppConfig.low_vram_export_tiling, off by default): a smaller tile
+        # (see TILE_SIZE_LOW_VRAM) and skipping the one-tile-ahead pipelining below --
+        # on a tight, unqueryable VRAM budget, keeping two tiles' worth of
+        # textures/buffers live at once is the difference between fitting and a
+        # device-lost abort. Left off, exports keep both the full tile size and the
+        # overlap for throughput.
+        low_vram = APP_CONFIG.low_vram_export_tiling
+        tile_size = TILE_SIZE_LOW_VRAM if low_vram else TILE_SIZE
 
         # The queue serializes tile N's staging copy ahead of tile N+1's passes, so
         # deferring the map_sync by one tile is safe and overlaps the wait.
@@ -2304,7 +2307,7 @@ class GPUEngine:
                     contrast_mask_override=global_mask,
                 )
                 handle = self._submit_readback(tile_res, slot=tile_index % 2)
-                if is_integrated:
+                if low_vram:
                     self._resolve_readback(handle, full_source_res[ty : ty + th, tx : tx + tw], (oy, ox))
                 else:
                     if pending is not None:

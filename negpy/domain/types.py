@@ -47,6 +47,10 @@ class AppConfig:
     # Multi-core Numba kernels on the CPU pipeline. None = the platform default, on
     # everywhere except macOS. True/False = an explicit override.toml choice.
     cpu_parallel: bool | None = None
+    # Smaller tiles and no readback pipelining in the tiled export path, at the cost of
+    # export speed. Off by default -- a user opts in from Preferences or override.toml
+    # when their specific GPU (typically an older/weaker integrated one) needs it.
+    low_vram_export_tiling: bool = False
     # Preview buffer LRU (decoded float preview before render pipeline)
     preview_cache_max_entries: int = 8
     preview_cache_max_bytes: int = 1_200_000_000

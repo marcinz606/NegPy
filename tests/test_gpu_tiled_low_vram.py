@@ -1,21 +1,24 @@
-"""Integrated GPUs get a smaller tile and no readback pipelining in
-`_process_tiled` (see gpu_engine.TILE_SIZE_INTEGRATED_GPU): a full 2048px tile's
-live intermediate textures, doubled up by the one-tile-ahead readback overlap,
-can exceed an iGPU's tight, unqueryable VRAM budget and abort the process via
-wgpu-native's panic-on-device-lost (see issue #738). This must not change the
-tiled export's output, only how much GPU memory is live at once getting there.
+"""With AppConfig.low_vram_export_tiling on, `_process_tiled` uses a smaller tile
+and skips readback pipelining (see gpu_engine.TILE_SIZE_LOW_VRAM): a full 2048px
+tile's live intermediate textures, doubled up by the one-tile-ahead readback
+overlap, can exceed a tight, unqueryable VRAM budget (typically an older or
+memory-constrained integrated GPU) and abort the process via wgpu-native's
+panic-on-device-lost (see issue #738). Off by default -- opt in from Preferences
+or override.toml. This must not change the tiled export's output, only how much
+GPU memory is live at once getting there.
 """
 
 import unittest
 from dataclasses import replace
-from unittest.mock import PropertyMock, patch
+from unittest.mock import patch
 
 import numpy as np
 
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.process.models import ProcessMode
 from negpy.infrastructure.gpu.device import GPUDevice
-from negpy.services.rendering.gpu_engine import GPUEngine, TILE_SIZE, TILE_SIZE_INTEGRATED_GPU
+from negpy.kernel.system.config import APP_CONFIG
+from negpy.services.rendering.gpu_engine import GPUEngine, TILE_SIZE, TILE_SIZE_LOW_VRAM
 
 
 def _negative(h: int, w: int) -> np.ndarray:
@@ -39,16 +42,18 @@ def _base() -> WorkspaceConfig:
 
 
 @unittest.skipUnless(GPUDevice.get().is_available, "GPU not available")
-class TestGpuTiledIntegratedGpu(unittest.TestCase):
+class TestGpuTiledLowVram(unittest.TestCase):
     def setUp(self):
         self.engine = GPUEngine()
         # Wider than either tile size, so both branches actually span multiple tiles.
         self.img = _negative(300, 2400)
+        self._prev_low_vram = APP_CONFIG.low_vram_export_tiling
 
     def tearDown(self):
         self.engine.destroy_all()
+        APP_CONFIG.low_vram_export_tiling = self._prev_low_vram
 
-    def _tile_count(self, is_integrated: bool) -> int:
+    def _tile_count(self, low_vram: bool) -> int:
         calls = 0
         real = self.engine.process_to_texture
 
@@ -57,35 +62,33 @@ class TestGpuTiledIntegratedGpu(unittest.TestCase):
             calls += 1
             return real(*args, **kwargs)
 
-        with patch.object(GPUDevice, "is_integrated", new_callable=PropertyMock) as mock_integrated:
-            mock_integrated.return_value = is_integrated
+        with patch.object(APP_CONFIG, "low_vram_export_tiling", low_vram):
             with patch.object(self.engine, "process_to_texture", side_effect=counting):
                 self.engine._process_tiled(self.img, _base(), scale_factor=1.0)
         return calls
 
-    def test_integrated_gpu_uses_smaller_tile(self):
+    def test_low_vram_uses_smaller_tile(self):
         # One extra call is the preview-sized metering pass shared by both branches;
         # what should differ is how many tiles that leaves for the crop itself.
-        discrete_tiles = self._tile_count(is_integrated=False) - 1
-        integrated_tiles = self._tile_count(is_integrated=True) - 1
+        default_tiles = self._tile_count(low_vram=False) - 1
+        low_vram_tiles = self._tile_count(low_vram=True) - 1
         self.assertGreater(
-            integrated_tiles,
-            discrete_tiles,
-            "Integrated GPU did not split the export into more, smaller tiles",
+            low_vram_tiles,
+            default_tiles,
+            "low_vram_export_tiling did not split the export into more, smaller tiles",
         )
         self.assertEqual(TILE_SIZE, 2048)
-        self.assertLess(TILE_SIZE_INTEGRATED_GPU, TILE_SIZE)
+        self.assertLess(TILE_SIZE_LOW_VRAM, TILE_SIZE)
 
-    def test_integrated_gpu_output_matches_discrete_tiling(self):
+    def test_low_vram_output_matches_default_tiling(self):
         """Smaller tiles and no pipelining must not change what gets exported."""
         settings = _base()
-        with patch.object(GPUDevice, "is_integrated", new_callable=PropertyMock) as mock_integrated:
-            mock_integrated.return_value = False
-            discrete, _ = self.engine._process_tiled(self.img, settings, scale_factor=1.0)
-            mock_integrated.return_value = True
-            integrated, _ = self.engine._process_tiled(self.img, settings, scale_factor=1.0)
-        self.assertEqual(discrete.shape, integrated.shape)
-        self.assertLess(float(np.abs(discrete - integrated).mean()), 0.0005)
+        with patch.object(APP_CONFIG, "low_vram_export_tiling", False):
+            default, _ = self.engine._process_tiled(self.img, settings, scale_factor=1.0)
+        with patch.object(APP_CONFIG, "low_vram_export_tiling", True):
+            low_vram, _ = self.engine._process_tiled(self.img, settings, scale_factor=1.0)
+        self.assertEqual(default.shape, low_vram.shape)
+        self.assertLess(float(np.abs(default - low_vram).mean()), 0.0005)
 
 
 if __name__ == "__main__":

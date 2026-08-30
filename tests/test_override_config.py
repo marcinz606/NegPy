@@ -138,6 +138,18 @@ class TestOverrideConfigParsing(unittest.TestCase):
         cfg = _parse({})
         self.assertIsNone(cfg.force_hq_preview)
 
+    def test_parse_low_vram_export_tiling_true(self):
+        cfg = _parse({"performance": {"low_vram_export_tiling": True}})
+        self.assertTrue(cfg.low_vram_export_tiling)
+
+    def test_parse_low_vram_export_tiling_false(self):
+        cfg = _parse({"performance": {"low_vram_export_tiling": False}})
+        self.assertFalse(cfg.low_vram_export_tiling)
+
+    def test_parse_low_vram_export_tiling_absent_yields_none(self):
+        cfg = _parse({})
+        self.assertIsNone(cfg.low_vram_export_tiling)
+
     def test_parse_empty_dict_returns_all_defaults(self):
         cfg = _parse({})
         self.assertEqual(cfg.backend, "auto")
@@ -374,6 +386,18 @@ class TestApplyOverride(unittest.TestCase):
         app_config = _make_app_config()
         apply(cfg, app_config)
         self.assertIsNone(app_config.force_hq_preview)
+
+    def test_low_vram_export_tiling_true_propagated(self):
+        cfg = OverrideConfig(low_vram_export_tiling=True)
+        app_config = _make_app_config()
+        apply(cfg, app_config)
+        self.assertTrue(app_config.low_vram_export_tiling)
+
+    def test_low_vram_export_tiling_none_leaves_app_config_unchanged(self):
+        cfg = OverrideConfig(low_vram_export_tiling=None)
+        app_config = _make_app_config(low_vram_export_tiling=False)
+        apply(cfg, app_config)
+        self.assertFalse(app_config.low_vram_export_tiling)
 
 
 if __name__ == "__main__":
