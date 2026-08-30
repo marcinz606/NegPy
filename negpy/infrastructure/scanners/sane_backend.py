@@ -1198,7 +1198,6 @@ class SaneBackend:
             else:
                 dev.resolution = params.dpi
 
-
             # Validate the complete requested option set before applying any of it, so a missing
             # option never leaves the feeder half-positioned.
             option_map = dev.opt if hasattr(dev, "opt") else {}

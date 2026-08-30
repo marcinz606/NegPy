@@ -526,7 +526,6 @@ class TestDetectDpiPrefersRicherAxisLadder:
         # it's an upsample away — see _resolve_resampled_resolutions.
         assert dpis == (100, 200, 400, 600, 800, 1200, 1600, 3200, 6400)
 
-
     def test_falls_back_to_plain_resolution_when_axis_ladder_is_not_richer(self) -> None:
         from negpy.infrastructure.scanners.sane_backend import _detect_dpi
 
@@ -644,5 +643,3 @@ class TestResolveResampledResolutions:
         resampled = set(_resolve_resampled_resolutions(opt).keys())
         assert square.issubset(resampled)
         assert 100 in resampled and 100 not in square
-
-
