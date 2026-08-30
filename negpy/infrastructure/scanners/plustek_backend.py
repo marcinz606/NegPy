@@ -346,7 +346,7 @@ class PlustekBackend:
                     _safe_progress(progress, 0.05, "Priming")
                 elif status == "scanning":
                     _safe_progress(progress, 0.1, "Scanning")
-                # "prime_skipped" only when gl128_prime=False (debug); NegPy keeps default priming.
+                # "prime_skipped" when gl128_prime is off (default on both GL128 models).
 
             scan_area = None if geometry is not None else window
             rgb_image = scanner.scan(
