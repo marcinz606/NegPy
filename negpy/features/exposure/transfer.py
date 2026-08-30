@@ -202,15 +202,20 @@ def apply_transfer_curve(
     density_range: float = TRANSFER_DENSITY_RANGE,
     shadow_density: float = 0.0,
     highlight_density: float = 0.0,
+    cast_gain: Tuple[float, float, float] = (1.0, 1.0, 1.0),
+    cast_offset: Tuple[float, float, float] = (0.0, 0.0, 0.0),
 ) -> ImageBuffer:
     """
     Normalized log density -> scene-linear positive.
 
-    With exposure_offset/cmy at 0, contrast 1 and both knees 0, the scene stage is an
-    exact identity: D = density_range * n inverts the normalization, and 10**-D returns
-    the capture. Every term below is written to vanish at its neutral value, so that is
-    exact in float32, not approximate. The baseline gain and `display_rendering` then
-    always apply — they are how the scene is shown, not an adjustment of it.
+    With exposure_offset/cmy at 0, contrast 1, both knees 0 and the cast affine at
+    (1, 0), the scene stage is an exact identity: D = density_range * n inverts the
+    normalization, and 10**-D returns the capture. Every term below is written to vanish
+    at its neutral value, so that is exact in float32, not approximate. The baseline gain
+    and `display_rendering` then always apply — they are how the scene is shown, not an
+    adjustment of it.
+
+    `cast_offset` arrives already scaled by density_range (see neutral_axis_affine).
     """
     c = TRANSFER_CONSTANTS
     base_width = float(c["transfer_knee_width"])
@@ -224,6 +229,11 @@ def apply_transfer_curve(
     out = np.empty_like(n)
     for ch in range(3):
         d = n[:, :, ch] * np.float32(density_range)
+
+        # Cast Removal: the channel's neutral refs onto green's. First, so every control
+        # below shapes the corrected signal.
+        if cast_gain[ch] != 1.0 or cast_offset[ch] != 0.0:
+            d = d * np.float32(cast_gain[ch]) + np.float32(cast_offset[ch])
 
         if exposure_offset != 0.0 or cmy_offsets[ch] != 0.0:
             # cmy_offsets arrive in normalized space, because filtration_offsets divides by the

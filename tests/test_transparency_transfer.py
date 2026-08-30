@@ -32,7 +32,7 @@ from negpy.features.exposure.transfer import (
     transfer_widths,
 )
 from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
-from negpy.features.process.models import ProcessConfig, ProcessMode
+from negpy.features.process.models import ProcessConfig, ProcessMode, cast_removal_for_mode
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 
 # A real camera's XYZ->cam matrix (Nikon Z6/Z7-class), so the color maths is exercised
@@ -47,7 +47,13 @@ CAM_XYZ = [
 def _e6_config(normalize=False, **exposure_overrides):
     cfg = DEFAULT_WORKSPACE_CONFIG
     process = replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=normalize)
-    exposure = replace(cfg.exposure, **exposure_overrides) if exposure_overrides else cfg.exposure
+    # The strength a slide actually starts at — the same rewrite every route into E-6
+    # applies. Without it these read the negative's default, which no slide ever carries.
+    overrides = {
+        "cast_removal_strength": cast_removal_for_mode(ProcessMode.E6, cfg.exposure.cast_removal_strength),
+        **exposure_overrides,
+    }
+    exposure = replace(cfg.exposure, **overrides)
     return replace(cfg, process=process, exposure=exposure)
 
 
@@ -65,7 +71,7 @@ def _run_stages(image, cfg, cam_xyz=CAM_XYZ, camera_wb=None):
         camera_wb=camera_wb,
         wants_uv_grid=False,
     )
-    norm = NormalizationProcessor(cfg.process).process(image, ctx)
+    norm = NormalizationProcessor(cfg.process, cfg.exposure.cast_removal_strength).process(image, ctx)
     return np.asarray(PhotometricProcessor(cfg.exposure, cfg.local, cfg.process).process(norm, ctx)), ctx
 
 
@@ -535,6 +541,37 @@ class TestGpuTransferParity(unittest.TestCase):
             highlight_density=0.3,
         )
         self._assert_parity(*self._both(settings))
+
+    def test_cast_removal_matches(self):
+        """Cast Removal reaches this curve as a per-channel affine the shader mirrors in
+        its own uniform lanes. The wedge spans the meter's three luma bands, which the
+        gradient the other parity cases use does not — without that there is no axis and
+        this would pass for the wrong reason."""
+        rng = np.random.default_rng(11)
+        v = np.geomspace(5e-4, 0.9, 64 * 64).astype(np.float32).reshape(64, 64)
+        img = np.stack([v, v * 0.82, v * 0.62], axis=-1)
+        img = np.ascontiguousarray(img + rng.uniform(0, 1e-4, img.shape).astype(np.float32))
+
+        from negpy.services.rendering.image_processor import ImageProcessor
+
+        processor = ImageProcessor()
+        if processor.engine_gpu is None:
+            self.skipTest("GPU engine not initialised")
+
+        def _pair(strength):
+            settings = _e6_config(cast_removal_strength=strength)
+            settings = replace(settings, geometry=replace(settings.geometry, autocrop_offset=0))
+            return (
+                self._render(processor, settings, img, prefer_gpu=False),
+                self._render(processor, settings, img, prefer_gpu=True),
+            )
+
+        cpu_on, gpu_on = _pair(1.0)
+        self._assert_parity(cpu_on, gpu_on)
+
+        # Guard the guard: the solve must actually be moving the render.
+        cpu_off, _ = _pair(0.0)
+        self.assertGreater(float(np.abs(cpu_on - cpu_off).max()), 0.01)
 
     def test_zone_black_taper_matches(self):
         """The taper rides a uniform lane the shader did not have. Asserted against a

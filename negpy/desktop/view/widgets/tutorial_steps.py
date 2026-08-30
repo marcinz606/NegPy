@@ -509,7 +509,8 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "shadows through highlights rather than at one point only.<br><br>"
                 "Its strength adapts per frame to how confidently the neutral greys read. "
                 "Clean greys get the full correction and few-neutral scenes get a gentler one, "
-                "and the slider (default 0.5) trims on top. 0 turns it off."
+                "and the slider trims on top. 0 turns it off. It starts at 0.5 on a color negative "
+                "and at 0 on a slide, where a cast can be the photograph."
             ),
             target=_cast_removal,
             section_attr="color_section",

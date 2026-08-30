@@ -47,9 +47,10 @@ def _render(img: np.ndarray, cast_removal: bool, mode: str = ProcessMode.C41) ->
     cfg = WorkspaceConfig()
     process = replace(cfg.process, analysis_buffer=0.0)
     ctx = PipelineContext(scale_factor=1.0, original_size=img.shape[:2], process_mode=mode)
-    norm = NormalizationProcessor(process).process(img, ctx)
-    exp = replace(cfg.exposure, cast_removal_strength=1.0 if cast_removal else 0.0)
-    return PhotometricProcessor(exp).process(norm, ctx)
+    strength = 1.0 if cast_removal else 0.0
+    norm = NormalizationProcessor(process, strength).process(img, ctx)
+    exp = replace(cfg.exposure, cast_removal_strength=strength)
+    return PhotometricProcessor(exp, process_config=process).process(norm, ctx)
 
 
 def _neutral_ab(out: np.ndarray) -> tuple[float, float]:
@@ -83,11 +84,14 @@ class TestMidtoneNeutral(unittest.TestCase):
         self.assertLess(abs(b_on), 1.0)
         self.assertTrue(np.allclose(on, off, atol=5e-3))
 
-    def test_e6_noop(self):
-        # E-6 measures no neutral axis -> falls back to the single shared curve.
+    def test_a_frame_with_no_measurable_axis_is_a_noop(self):
+        """No neutral axis means no correction, on either curve. This fixture is a
+        negative, so read as a transparency its tones miss the meter's luma bands
+        entirely — the render must then be untouched rather than guess.
+        (The slide correction itself is exercised in test_slide_cast_removal.py.)"""
         img = _negative(green_log=-0.22)
-        off = _render(img, cast_removal=False, mode="E6")
-        on = _render(img, cast_removal=True, mode="E6")
+        off = _render(img, cast_removal=False, mode=ProcessMode.E6)
+        on = _render(img, cast_removal=True, mode=ProcessMode.E6)
         self.assertTrue(np.allclose(on, off, atol=1e-6))
 
 

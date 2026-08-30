@@ -86,27 +86,28 @@ def test_temperature_lock_is_per_region(qapp):
     assert key == "wb_temp_lock_highlight"
 
 
-def test_cast_removal_is_c41_only(qapp):
-    """The slider is hidden outside C-41 because the render ignores it there — the solve
-    needs the shadow and neutral-axis refs, and both meters are gated to C-41."""
+def test_cast_removal_is_colour_only(qapp):
+    """Both colour processes solve against a neutral axis, so both show the slider. B&W
+    collapses to one density before the curve and has nothing to balance."""
     controller, sidebar = _sidebar()
-    cfg = controller.state.config
 
-    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.C41))
-    sidebar.sync_ui()
-    assert not sidebar.cast_removal_slider.isHidden()
-
-    for mode in (ProcessMode.E6, ProcessMode.BW):
+    for mode in (ProcessMode.C41, ProcessMode.E6):
         cfg = controller.state.config
         controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=mode))
         sidebar.sync_ui()
-        assert sidebar.cast_removal_slider.isHidden(), mode
+        assert not sidebar.cast_removal_slider.isHidden(), mode
+
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.BW))
+    sidebar.sync_ui()
+    assert sidebar.cast_removal_slider.isHidden()
 
 
-def test_cast_removal_hidden_exactly_where_the_render_ignores_it(qapp):
-    """Pins the two halves together: hiding it anywhere the render still honours it would
-    strand a live setting, and leaving it visible where the render ignores it is the dead
-    control this fixes. Asserted against the render, not a repeated mode list."""
+def test_cast_removal_reaches_the_render_wherever_it_is_visible(qapp):
+    """Pins the two halves together: a visible slider that the render ignores is a dead
+    control, and a hidden one the render honours strands a live setting. Asserted against
+    the render, not a repeated mode list. The frame carries greys across the meter's three
+    luma bands, so every mode that *can* solve does."""
     import numpy as np
 
     from negpy.domain.models import WorkspaceConfig
@@ -114,9 +115,9 @@ def test_cast_removal_hidden_exactly_where_the_render_ignores_it(qapp):
 
     controller, sidebar = _sidebar()
     rng = np.random.default_rng(4)
-    grad = np.linspace(0.05, 0.9, 48, dtype=np.float32)
-    img = np.stack([np.repeat(grad[None, :], 48, 0)] * 3, -1) * np.array([1.0, 0.9, 0.78], np.float32)
-    img = np.ascontiguousarray(img + rng.uniform(0, 0.01, (48, 48, 3)).astype(np.float32))
+    v = np.geomspace(5e-4, 0.9, 64 * 64).astype(np.float32).reshape(64, 64)
+    img = np.stack([v, v * 0.9, v * 0.78], -1)
+    img = np.ascontiguousarray(img + rng.uniform(0, 1e-4, img.shape).astype(np.float32))
 
     for mode, normalize in ((ProcessMode.C41, True), (ProcessMode.E6, True), (ProcessMode.E6, False), (ProcessMode.BW, True)):
         s = WorkspaceConfig()

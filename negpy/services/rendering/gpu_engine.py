@@ -58,7 +58,7 @@ from negpy.features.exposure.transfer import (
     transfer_widths,
     zone_geometry,
 )
-from negpy.features.process.capture_color import camera_to_working_matrix
+from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
 from negpy.features.process.logic import should_fold_camera_wb
 from negpy.features.process.models import ProcessMode, per_channel_point_offsets
 from negpy.infrastructure.gpu.device import GPUDevice
@@ -239,7 +239,7 @@ class GPUEngine:
             "geometry": 64,
             "normalization": 160,
             "exposure": 336,
-            "transfer": 144,
+            "transfer": 176,
             "clahe_u": 32,
             "lab": 96,
             "lith": 64,
@@ -560,12 +560,11 @@ class GPUEngine:
             )
 
         analysis_t0 = time.perf_counter()
-        needs_refs = (
-            shadow_refs_override is None
-            and not tiling_mode
-            and settings.exposure.cast_removal_strength > 0.0
-            and settings.process.process_mode == ProcessMode.C41
-        )
+        cast_on = settings.exposure.cast_removal_strength > 0.0 and not tiling_mode
+        # The P98 shadow tie is calibrated for a negative, so it stays Color Negative only.
+        needs_refs = shadow_refs_override is None and cast_on and settings.process.process_mode == ProcessMode.C41
+        # The neutral axis runs on both colour processes; B&W has no channels to balance.
+        needs_axis = neutral_axis_override is None and cast_on and settings.process.process_mode != ProcessMode.BW
         _roll_luma = settings.process.use_luma_average and settings.process.is_locked_initialized
         _roll_color = settings.process.use_color_average and settings.process.is_locked_initialized
         needs_bounds_analysis = not (bounds_override or (_roll_luma and _roll_color) or settings.process.is_local_initialized)
@@ -576,11 +575,22 @@ class GPUEngine:
         needs_textural = textural_range_override is None and not tiling_mode and settings.exposure.auto_normalize_contrast
 
         prefiltered = None
+        cam_prefiltered = None
         sorted_grid = None
         scan_clip_fractions = None
         analysis_source = None
         unmix_m = effective_crosstalk_matrix(settings.process, settings.process.process_mode)
-        if needs_bounds_analysis or needs_refs or needs_anchor or needs_textural:
+        # The transparency curve reads working space, so its meter must too: the same
+        # camera matrix NormalizationProcessor._process_transparency applies, on the grid.
+        transfer = is_transparency_transfer(settings.process.process_mode, settings.process.e6_normalize)
+        cam_m = (
+            camera_to_working_matrix(
+                cam_xyz, camera_wb if should_fold_camera_wb(settings.process, settings.exposure.render_intent) else None
+            )
+            if transfer
+            else None
+        )
+        if needs_bounds_analysis or needs_refs or needs_axis or needs_anchor or needs_textural:
             # Keyed without the clip sliders: a clip drag reuses the grid and
             # re-runs only the percentile analysis.
             p = settings.process
@@ -595,6 +605,7 @@ class GPUEngine:
                     p.crosstalk_matrix,
                     p.crosstalk_process,
                     p.process_mode,
+                    None if cam_m is None else tuple(np.asarray(cam_m).ravel().tolist()),
                 )
                 if analysis_source_hash is not None and not tiling_mode
                 else None
@@ -602,6 +613,7 @@ class GPUEngine:
             if prefilter_key is not None and self._prefilter_cache is not None and self._prefilter_cache[0] == prefilter_key:
                 prefiltered, scan_clip_fractions = self._prefilter_cache[1], self._prefilter_cache[2]
                 sorted_grid = self._prefilter_cache[3]
+                cam_prefiltered = self._prefilter_cache[4]
             else:
                 # Use views to avoid copying the full-res image; crop to ROI first.
                 analysis_source = img
@@ -635,8 +647,16 @@ class GPUEngine:
                 # Unmixed like the CPU path so every meter reads the unmixed film.
                 prefiltered = unmix_log_image(prefilter_log_grid(analysis_source, None, an_buffer), unmix_m)
                 scan_clip_fractions = measure_clip_fractions(analysis_source, None, an_buffer)
+                if transfer:
+                    # No camera matrix (a scanner TIFF) means the buffer is already in
+                    # working space, so the shared grid is the working-space grid.
+                    cam_prefiltered = (
+                        prefiltered
+                        if cam_m is None
+                        else unmix_log_image(prefilter_log_grid(apply_camera_matrix(analysis_source, cam_m), None, an_buffer), unmix_m)
+                    )
                 if prefilter_key is not None:
-                    self._prefilter_cache = (prefilter_key, prefiltered, scan_clip_fractions, None)
+                    self._prefilter_cache = (prefilter_key, prefiltered, scan_clip_fractions, None, cam_prefiltered)
             if analysis_key is not None:
                 self._clip_cache = (analysis_key, scan_clip_fractions)
         elif analysis_key is not None and self._clip_cache is not None and self._clip_cache[0] == analysis_key:
@@ -651,7 +671,7 @@ class GPUEngine:
                 sorted_grid = sorted_channel_grid(prefiltered)
                 cache = self._prefilter_cache
                 if cache is not None and cache[1] is prefiltered:
-                    self._prefilter_cache = (cache[0], cache[1], cache[2], sorted_grid)
+                    self._prefilter_cache = (cache[0], cache[1], cache[2], sorted_grid, cache[4])
             return sorted_grid
 
         def _analyze_bounds() -> LogNegativeBounds:
@@ -677,10 +697,14 @@ class GPUEngine:
         if needs_refs and prefiltered is not None:
             shadow_refs = measure_shadow_refs_from_log(prefiltered, None, 0.0, sorted_grid=_sorted())
 
-        # Neutral axis for the two-point Cast Removal; normalized at consumption.
+        # Neutral axis for the two-point Cast Removal; normalized at consumption. The
+        # transparency curve renders through the fixed window, so the axis is measured
+        # against it and on the working-space grid the curve consumes.
         neutral_axis_refs = neutral_axis_override
-        if needs_refs and prefiltered is not None:
-            neutral_axis_refs = measure_neutral_axis_from_log(prefiltered, bounds, None, 0.0)
+        axis_grid = cam_prefiltered if transfer else prefiltered
+        if needs_axis and axis_grid is not None:
+            axis_bounds = LogNegativeBounds(*transfer_bounds()) if transfer else bounds
+            neutral_axis_refs = measure_neutral_axis_from_log(axis_grid, axis_bounds, None, 0.0)
 
         metered_anchor = metered_anchor_override
         if needs_anchor and prefiltered is not None:
@@ -1380,6 +1404,7 @@ class GPUEngine:
             _reference_linear_value,
             cast_solve_inputs,
             filtration_offsets,
+            neutral_axis_affine,
             per_channel_dye_separation,
             per_channel_toe_shoulder,
             grade_coupled_shape,
@@ -1402,6 +1427,16 @@ class GPUEngine:
             LogNegativeBounds(floors=adj_floors, ceils=adj_ceils),
         )
         t_sh_c, t_hi_c, t_zone_k = zone_geometry()
+        # Cast Removal on the transparency curve: a per-channel affine on density, since
+        # this curve has no per-channel slope to re-solve. Shadow refs stay out — the P98
+        # tie is calibrated for a negative. Identity when there is no axis.
+        t_strength, _t_shadow, t_axis = cast_solve_inputs(
+            LogNegativeBounds(adj_floors, adj_ceils),
+            None,
+            neutral_axis_refs,
+            settings.exposure.cast_removal_strength,
+        )
+        t_cast_gain, t_cast_off = neutral_axis_affine(t_axis, t_strength)
         tr_data = (
             struct.pack(
                 "ffffffff",
@@ -1427,6 +1462,14 @@ class GPUEngine:
                 float(t_hi_c),
             )
             + struct.pack("ffff", float(ZONE_BLACK_TAPER), 0.0, 0.0, 0.0)
+            + struct.pack("ffff", t_cast_gain[0], t_cast_gain[1], t_cast_gain[2], 0.0)
+            + struct.pack(
+                "ffff",
+                t_cast_off[0] * TRANSFER_DENSITY_RANGE,
+                t_cast_off[1] * TRANSFER_DENSITY_RANGE,
+                t_cast_off[2] * TRANSFER_DENSITY_RANGE,
+                0.0,
+            )
         )
         from negpy.features.exposure.papers import (
             compose_density_matrices,
@@ -2198,9 +2241,22 @@ class GPUEngine:
 
         global_shadow_refs = None
         global_neutral_axis = None
-        if settings.exposure.cast_removal_strength > 0.0 and settings.process.process_mode == ProcessMode.C41:
-            global_shadow_refs = measure_shadow_refs_from_log(_prefiltered(), None, 0.0, sorted_grid=_sorted())
-            global_neutral_axis = measure_neutral_axis_from_log(_prefiltered(), global_bounds, None, 0.0)
+        if settings.exposure.cast_removal_strength > 0.0 and settings.process.process_mode != ProcessMode.BW:
+            if settings.process.process_mode == ProcessMode.C41:
+                global_shadow_refs = measure_shadow_refs_from_log(_prefiltered(), None, 0.0, sorted_grid=_sorted())
+            if is_transparency_transfer(settings.process.process_mode, settings.process.e6_normalize):
+                # Working space and the fixed window, as the transparency curve reads them.
+                cam_m = camera_to_working_matrix(
+                    cam_xyz, camera_wb if should_fold_camera_wb(settings.process, settings.exposure.render_intent) else None
+                )
+                axis_grid = (
+                    _prefiltered()
+                    if cam_m is None
+                    else unmix_log_image(prefilter_log_grid(apply_camera_matrix(_analysis_img(), cam_m), meter_roi, meter_buffer), unmix_m)
+                )
+                global_neutral_axis = measure_neutral_axis_from_log(axis_grid, LogNegativeBounds(*transfer_bounds()), None, 0.0)
+            else:
+                global_neutral_axis = measure_neutral_axis_from_log(_prefiltered(), global_bounds, None, 0.0)
 
         global_metered_anchor = None
         if settings.exposure.auto_exposure:
