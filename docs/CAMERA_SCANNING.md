@@ -104,7 +104,10 @@ preset's channel only, because the Scanlight cannot light it together with RGB.
 **Scan.** Pick an output folder and a preset, then press **Scan** for each frame. Files
 land in a per-roll subfolder, auto-numbered, and are imported and merged automatically, so
 the inverted positive appears a moment after the shutter. **Retake** re-shoots the current
-frame without advancing the counter.
+frame without advancing the counter. The **Delay between exposures** control adds a pause
+between red/green/blue captures so older bodies can finish flushing the previous shot before
+the next one arrives; this avoids the USB/PTP lockups that some cameras trigger when they are
+bombarded with a new capture command too quickly.
 
 **Narrowband Scan.** Scans lit by narrowband RGB LEDs render more saturated than
 white-light scans, because each channel samples its dye near the absorption peak and the

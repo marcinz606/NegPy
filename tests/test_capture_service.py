@@ -6,6 +6,7 @@ import threading
 import pytest
 
 from negpy.infrastructure.capture.base import CaptureSettings
+from negpy.infrastructure.capture.settings import ScanlightSettings
 from negpy.services.capture.service import CaptureError, CaptureService
 
 
@@ -63,6 +64,12 @@ def _settings(tmp_path, **kw):
     return CaptureSettings(**base)
 
 
+def test_capture_defaults_to_zero_inter_exposure_delay(tmp_path):
+    settings = _settings(tmp_path)
+    assert settings.inter_exposure_delay_s == 0.0
+    assert ScanlightSettings().inter_exposure_delay_ms == 0
+
+
 def test_capture_triplet_sequence_and_filenames(tmp_path):
     light, cam = FakeLight(), FakeCamera()
     svc = CaptureService(light, cam, sleep=lambda _s: None)
@@ -113,6 +120,16 @@ def test_capture_triplet_reports_each_channel(tmp_path):
     channels = []
     svc.capture_triplet(_settings(tmp_path), on_channel=channels.append)
     assert channels == ["R", "G", "B"]
+
+
+def test_capture_triplet_waits_between_channels(tmp_path):
+    light, cam = FakeLight(), FakeCamera()
+    sleeps = []
+    svc = CaptureService(light, cam, sleep=lambda s: sleeps.append(s))
+
+    svc.capture_triplet(_settings(tmp_path, settle_s=0.2, inter_exposure_delay_s=2.5))
+
+    assert sleeps == [0.2, 2.5, 0.2, 2.5, 0.2]
 
 
 def test_capture_triplet_turns_light_off_on_error(tmp_path):

@@ -38,6 +38,7 @@ class CaptureRequest:
     output_folder: str
     levels: tuple[int, int, int]
     settle_s: float = 0.4
+    inter_exposure_delay_s: float = 0.0
     port: str = ""
     shutters: tuple[str, str, str] = ("", "", "")
     white_mode: bool = False
@@ -263,6 +264,7 @@ class CaptureWorker(QObject):
                 output_folder=req.output_folder,
                 levels=req.levels,
                 settle_s=req.settle_s,
+                inter_exposure_delay_s=req.inter_exposure_delay_s,
                 shutters=_shutters_or_none(req.shutters),
                 iso=req.iso or None,  # force the preset's exposure on the body before each shot
                 aperture=req.aperture or None,

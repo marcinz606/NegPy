@@ -219,6 +219,9 @@ class CaptureService:
                 if progress is not None:
                     progress((i + 1) / len(CAPTURE_ORDER))
 
+                if i < len(CAPTURE_ORDER) - 1:
+                    self._sleep(settings.inter_exposure_delay_s)
+
             if cancel is not None and cancel.is_set():
                 raise CaptureError("capture cancelled")
             paths = _promote_triplet(staged_paths, settings.output_folder)
