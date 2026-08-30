@@ -3812,9 +3812,9 @@ class AppController(QObject):
     def reset_proof_condition(self) -> None:
         """The None preset: proof the export target, simulate nothing.
 
-        Not "proofing off" — the proof still runs, it just shows the export's own gamut
-        rather than a sheet of paper's limits. It is the baseline every named preset is a
-        departure from, and the state a frame should be judged in before a paper is chosen.
+        Not "proofing off": the proof still runs, it just shows the export's own gamut
+        rather than a sheet of paper's limits. Every named preset is a departure from this,
+        and it is the state a frame should be judged in before a paper is chosen.
         """
         st = self.state
         st.soft_proof_enabled = True

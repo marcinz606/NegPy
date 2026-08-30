@@ -81,7 +81,7 @@ def _scan_clip_row(scan_clip: Optional[Tuple[float, float, float]]) -> Optional[
 
 
 def _repair_row(repair: Optional[Tuple[float, float, float]]) -> Optional[StatRow]:
-    """Returns None when nothing was repaired — the row only appears once a route fired."""
+    """None when nothing was repaired: the row only appears once a route has fired."""
     if repair is None:
         return None
     parts = [f"{label} {frac * 100:.2f}%" for label, frac in zip(("IR", "dust", "painted"), repair) if frac > 0.0]
@@ -91,8 +91,8 @@ def _repair_row(repair: Optional[Tuple[float, float, float]]) -> Optional[StatRo
 
 
 def _gamut_row(gamut: Optional[float]) -> Optional[StatRow]:
-    """Returns None when nothing is being proofed — with no output profile there is no
-    gamut to be outside of."""
+    """None when nothing is being proofed: with no output profile there is no gamut to be
+    outside of."""
     if gamut is None:
         return None
     return StatRow("Gamut", f"{gamut * 100:.1f}% unprintable", warn=gamut > _GAMUT_WARN)

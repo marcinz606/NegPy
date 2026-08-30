@@ -90,13 +90,11 @@ from negpy.infrastructure.display.icc_lut import DEFAULT_LUT_SIZE, apply_icc_u16
 # Preview soft-proof LUT grid. Finer than the display LUT because the proof clips at the
 # output gamut boundary, and interpolating across that kink is where the error is.
 PROOF_LUT_SIZE = 65
-# 8-bit round-trip displacement below which a color counts as printable. The round trip
-# passes through an 8-bit device intermediate, and a v4 LUT profile's own interpolation
-# moves an in-gamut color on its own: against a destination that cannot clip anything
-# (sRGB into Rec2020) that noise reaches 14 levels, while colors a narrower destination
-# really clips (Adobe RGB into sRGB) move far further. Sitting on the noise ceiling costs
-# the colors just barely outside and buys no false alarms, which is the right bias for a
-# warning.
+# 8-bit round-trip displacement below which a color counts as printable. A v4 LUT
+# profile's own interpolation moves an in-gamut color: against a destination that cannot
+# clip anything the noise reaches 14 levels, while genuinely clipped colors move much
+# further. Sitting on the noise ceiling misses colors just barely outside and raises no
+# false alarms, which is the right bias for a warning.
 GAMUT_ROUND_TRIP_TOLERANCE = 14
 
 # Mid grey for the gamut warning: neutral, so it reads as "no color here" against any
@@ -1759,12 +1757,11 @@ class ImageProcessor:
         otherwise it would leak output-space numbers to the screen and shift per output
         space (issue #243). The caller shows the result raw (no further display transform).
 
-        The four proof settings shape the print branch only, and the defaults are what it
-        did before they were controls. ``paper_white`` is the absolute proof intent, which
-        is what puts the paper's own tint and its lifted black on screen; ``ink_black``
-        drops black-point compensation so the paper's real D-max shows instead of being
-        mapped onto display black. Both are simulations of the print's *limits*, so they
-        make a picture that looks worse and is more true.
+        The four proof settings shape the print branch only. ``paper_white`` is the
+        absolute proof intent, which puts the paper's own tint and its lifted black on
+        screen; ``ink_black`` drops black-point compensation so the paper's real D-max
+        shows instead of being mapped onto display black. Both simulate the print's limits,
+        so both make the picture look worse and read truer.
         """
         try:
             from negpy.infrastructure.display.color_mgmt import open_profile_from_bytes
@@ -1862,9 +1859,9 @@ class ImageProcessor:
         the print-profile / export-space / GRAY branches cannot drift from it. Export
         keeps the exact per-pixel transform.
 
-        This is the whole reason a proof control is cheap: the transform runs once per
-        condition over ``size**3`` nodes and the result is a texture the canvas samples,
-        so nothing here is per-frame or per-pixel work.
+        This is why a proof control is cheap: the transform runs once per condition over
+        ``size**3`` nodes and the result is a texture the canvas samples, so no part of it
+        is per-frame or per-pixel work.
         """
         try:
             axis = np.linspace(0, 255, size).round().astype(np.uint8)
@@ -1905,17 +1902,14 @@ class ImageProcessor:
     ) -> Optional[np.ndarray]:
         """(N, N, N) boolean grid: True where the output profile cannot print that color.
 
-        Measured by round-tripping the identity grid source -> output -> source under
-        relative colorimetric with no black-point compensation. An in-gamut color comes
-        back where it started; an out-of-gamut one was clipped to the gamut surface on the
-        way out and cannot return, so the round-trip displacement is the gamut test. This
-        is the standard check because it needs nothing from the profile but the transform
-        it already publishes, and Pillow exposes no alarm-code API to read lcms's own
-        gamut flag.
+        Round-trips the identity grid source -> output -> source, relative colorimetric
+        with no black-point compensation. An in-gamut color returns where it started; one
+        clipped to the gamut surface on the way out cannot. Pillow exposes no alarm-code
+        API for lcms's own gamut flag, so the displacement is the test.
 
-        Grid centres, not corners: a corner node sits exactly on the boundary, where the
-        round trip is a coin toss. A GRAY destination returns None — every chromatic color
-        fails a mono profile, which is not the question this read-out asks.
+        Grid centres, not corners: a corner node sits on the boundary, where the round trip
+        is a coin toss. A GRAY destination returns None, since every chromatic color fails
+        a mono profile and that is not the question being asked.
         """
         try:
             if not (output_icc_path and os.path.exists(output_icc_path)):

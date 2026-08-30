@@ -968,7 +968,7 @@ class ExportSidebar(BaseSidebar):
         It has to sit here rather than in the collapsed Soft Proof section: it explains a
         preview that does not match the export, and a collapsed hint cannot.
         """
-        self.proof_mismatch_label = hint_label("Soft proof is off — preview won't show the export's color clipping", kind="warning")
+        self.proof_mismatch_label = hint_label("Soft proof is off, so the preview won't show the export's color clipping", kind="warning")
         self.form.add_color_widget(self.proof_mismatch_label)
 
     def _add_soft_proof_section(self) -> None:
@@ -1019,7 +1019,7 @@ class ExportSidebar(BaseSidebar):
         constrain_combo(self.proof_profile_combo)
         self.proof_profile_combo.setToolTip(
             "What the preview is proofed through. Follows the Export profile unless you name a "
-            "printer or paper here — set one to proof a print while exporting something else."
+            "printer or paper here. Set one to proof a print while exporting something else."
         )
         col.addLayout(self._proof_row("Profile", self.proof_profile_combo))
 
@@ -1045,7 +1045,7 @@ class ExportSidebar(BaseSidebar):
         self.proof_paper_white_checkbox = QCheckBox("Simulate paper white")
         self.proof_paper_white_checkbox.setToolTip(
             "Show the paper's own white instead of the screen's. The picture goes dimmer and takes "
-            "the paper's tint — that is the print you will hold. Give your eyes a moment to adapt."
+            "the paper's tint, which is the print you will hold. Give your eyes a moment to adapt."
         )
         col.addWidget(self.proof_paper_white_checkbox)
 
@@ -1544,7 +1544,7 @@ class ExportSidebar(BaseSidebar):
         export_cs = vals["export_color_space"]
         retargets = bool(vals["icc_output_path"]) or export_cs not in (ColorSpace.SAME_AS_SOURCE.value, WORKING_COLOR_SPACE)
         if not self.soft_proof_checkbox.isChecked():
-            self.proof_mismatch_label.setText("Soft proof is off — preview won't show the export's color clipping")
+            self.proof_mismatch_label.setText("Soft proof is off, so the preview won't show the export's color clipping")
             self.proof_mismatch_label.setVisible(retargets)
             return
         detached = bool(self.state.proof_icc_path)

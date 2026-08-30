@@ -17,8 +17,8 @@ DENSITY_HIST_RANGE = (-0.1, 1.1)
 OUTPUT_HIST_BINS = 256
 
 # Joint RGB histogram: 32 bins per axis, mirrored as the array length and BINS constant
-# in color_hist.wgsl. The marginal RGBL histogram cannot answer a gamut question — a
-# color is in or out of gamut as a triple, not per channel — so the joint one exists.
+# in color_hist.wgsl. A color is in or out of gamut as a triple rather than per channel,
+# which is what the marginal RGBL histogram cannot answer.
 COLOR_HIST_BINS = 32
 
 # Full-res exports run through the same normalization stage, so cap the cost.

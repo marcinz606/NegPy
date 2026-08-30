@@ -5,7 +5,7 @@
 
 const BINS = 32.0;
 
-// Working-space OETF (Adobe RGB: pure 563/256 gamma) — mirrors output_encode.wgsl.
+// Working-space OETF (Adobe RGB: pure 563/256 gamma). Mirrors output_encode.wgsl.
 fn oetf_encode(c: vec3<f32>) -> vec3<f32> {
     let x = clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
     return pow(x, vec3<f32>(0.45470693));
