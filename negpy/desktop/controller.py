@@ -220,9 +220,9 @@ def _autocrop_fingerprint(config: WorkspaceConfig, workspace_color_space: str) -
         str(geometry.autocrop_ratio),
         int(geometry.autocrop_offset),
         round(float(geometry.autocrop_rebate_trim), 4),
+        round(float(geometry.distortion_k1), 9),
         bool(flatfield.apply),
         str(flatfield.profile_id),
-        round(float(flatfield.k1), 9),
         bool(config.process.linear_raw),
         bool(rgbscan.enabled),
         str(rgbscan.green_path),
@@ -3166,15 +3166,14 @@ class AppController(QObject):
     def set_active_flatfield_profile(self, profile_id: str) -> None:
         """
         Selects the globally active flat-field reference profile (or clears it when
-        ``profile_id`` is empty). Stamps its id + rig distortion onto the current
-        image and re-renders.
+        ``profile_id`` is empty). Stamps its id onto the current image and re-renders.
         """
         from negpy.services.assets.flatfield import FlatFieldProfiles
 
         self.session.repo.save_global_setting("flatfield_active_profile", profile_id or "")
         prof = FlatFieldProfiles.get(profile_id) if profile_id else None
         pid = prof.id if prof else ""
-        new_ff = replace(self.state.config.flatfield, profile_id=pid, apply=bool(pid), k1=prof.k1 if prof else 0.0)
+        new_ff = replace(self.state.config.flatfield, profile_id=pid, apply=bool(pid))
         self.session.update_config(replace(self.state.config, flatfield=new_ff), persist=True)
         self.request_render()
 
@@ -3221,20 +3220,6 @@ class AppController(QObject):
         """
         new_ff = replace(self.state.config.flatfield, apply=enabled)
         self.session.update_config(replace(self.state.config, flatfield=new_ff), persist=True)
-        self.request_render()
-
-    def set_flatfield_k1(self, k1: float) -> None:
-        """
-        Sets the rig's radial distortion. Saved into the active flat-field profile (so it
-        applies to every frame on that rig), not the per-image recipe.
-        """
-        new_ff = replace(self.state.config.flatfield, k1=k1)
-        self.session.update_config(replace(self.state.config, flatfield=new_ff), persist=True)
-        active = self.session.repo.get_global_setting("flatfield_active_profile") or ""
-        if active:
-            from negpy.services.assets.flatfield import FlatFieldProfiles
-
-            FlatFieldProfiles.set_k1(active, k1)
         self.request_render()
 
     # ── Scanner integration ───────────────────────────────────────────
@@ -4157,7 +4142,6 @@ class AppController(QObject):
         if source is None:
             return
         geometry = self.state.config.geometry
-        flatfield = self.state.config.flatfield
         original = self.state.original_res if any(self.state.original_res) else source.shape[:2]
         context = PipelineContext(
             original_size=(original[0], original[1]),
@@ -4167,7 +4151,7 @@ class AppController(QObject):
             crop_preview_full=self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW),
             wants_uv_grid=False,
         )
-        img = GeometryProcessor(geometry, flatfield.k1 if flatfield.apply else 0.0).process(source, context)
+        img = GeometryProcessor(geometry).process(source, context)
         if not context.crop_preview_full:
             img = CropProcessor(geometry).process(img, context)
         fold_wb = should_fold_camera_wb(self.state.config.process, self.state.config.exposure.render_intent)

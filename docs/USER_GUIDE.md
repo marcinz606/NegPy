@@ -479,6 +479,8 @@ Where the frame gets its final shape: what is inside the print, and whether it s
 
     Both replicate a wedge along the squeezed edge, as Fine Rotation does; crop it off. Crop before correcting if you can, because the meters read the corrected frame: on an uncropped scan a big correction pulls rebate and surround into the metered area and the print darkens.
 
+*   **Distortion Correction** (-0.100 to 0.100, in steps of 0.001): radial lens distortion. Positive corrects barrel, negative pincushion. Use the film rebate as a straight-edge reference. Corrected before Tilt and Swing.
+
 <!-- panel:flatfield -->
 ### 5.2 Flat Field: even out the light
 
@@ -486,7 +488,6 @@ Corrects uneven illumination (vignetting or falloff) from your copy-stand or sca
 
 *   **Flatfield Correction**: apply the active reference to this image, enabled once a profile exists.
 *   **Reference Profile** dropdown + **Add…** / **Delete**: pick a reference image and save it as a named profile. **Add…** reads the reference once and bakes its correction into the profile, so you can then move, rename or delete the original reference file without affecting your edits. The profile is self-contained, stored in NegPy's own `flatfield` folder like sensor and crosstalk profiles. **Delete** asks first: the baked gain map cannot be recovered, and every frame using the profile loses its correction.
-*   **Distortion** (-0.25 to 0.25): radial lens-distortion correction for the rig, saved with the profile. Use the film rebate as a straight-edge reference.
 
 ---
 

@@ -866,6 +866,7 @@ class ControlsPanel(QWidget):
                 geo.autocrop_mode != _geo.autocrop_mode,
                 geo.autocrop_offset != _geo.autocrop_offset,
                 geo.autocrop_rebate_trim != _geo.autocrop_rebate_trim,
+                geo.distortion_k1 != _geo.distortion_k1,
             ]
         )
 
@@ -906,7 +907,6 @@ class ControlsPanel(QWidget):
             [
                 ff.apply != _ff.apply,
                 ff.profile_id != _ff.profile_id,
-                ff.k1 != _ff.k1,
             ]
         )
 

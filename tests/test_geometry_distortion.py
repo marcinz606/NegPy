@@ -13,7 +13,7 @@ from negpy.features.geometry.logic import (
 from negpy.infrastructure.gpu.device import GPUDevice
 
 # Slider range; the model must be well-behaved (no fold-over) across it.
-_K1_RANGE = [-0.25, -0.1, -0.02, 0.02, 0.1, 0.25]
+_K1_RANGE = [-0.1, -0.02, -0.001, 0.001, 0.02, 0.1]
 
 
 def test_zero_k1_is_identity():
@@ -161,7 +161,7 @@ def test_uv_grid_and_point_mapper_are_consistent(k1):
 
 
 @pytest.mark.skipif(not GPUDevice.get().is_available, reason="GPU not available")
-@pytest.mark.parametrize("k1", [-0.12, 0.12])
+@pytest.mark.parametrize("k1", [-0.08, 0.08])
 def test_cpu_gpu_distortion_parity(k1):
     """The radial model lives in two places (apply_radial_distortion / transform.wgsl);
     they must agree or GPU previews drift from CPU exports."""
@@ -180,8 +180,7 @@ def test_cpu_gpu_distortion_parity(k1):
     img = np.ascontiguousarray(img + rng.uniform(0, 0.01, img.shape).astype(np.float32))
 
     base = WorkspaceConfig()
-    # apply=True gates the distortion; empty reference_path makes the photometric flat a no-op.
-    settings = dataclasses.replace(base, flatfield=dataclasses.replace(base.flatfield, apply=True, k1=k1))
+    settings = dataclasses.replace(base, geometry=dataclasses.replace(base.geometry, distortion_k1=k1))
 
     def render(prefer_gpu):
         result, _ = processor.run_pipeline(

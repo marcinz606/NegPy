@@ -102,12 +102,10 @@ class DarkroomEngine:
         if settings.geometry.crop_rect:
             logger.debug(f"Engine process with crop_rect: {settings.geometry.crop_rect}")
 
-        # Folded into the base stage like fine_rotation, not into source_hash, so the slider
-        # re-renders without re-decoding the RAW.
-        distortion_k1 = settings.flatfield.k1 if settings.flatfield.apply else 0.0
+        distortion_k1 = settings.geometry.distortion_k1
 
         def run_base(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
-            img_in = GeometryProcessor(settings.geometry, distortion_k1).process(img_in, ctx)
+            img_in = GeometryProcessor(settings.geometry).process(img_in, ctx)
             return NormalizationProcessor(settings.process, settings.exposure.cast_removal_strength).process(img_in, ctx)
 
         # While the crop tool shows the full uncropped frame, the crop-selection fields

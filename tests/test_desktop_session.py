@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from dataclasses import replace
 
@@ -301,6 +302,21 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
         config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
         self.assertEqual(config.exposure.cast_removal_strength, 0.0)
+
+    def test_legacy_rig_k1_seeds_geometry_once(self):
+        """Distortion left the flat-field profile; a rig that still carries one must not
+        lose it, and must not override a frame's own value."""
+        prof = SimpleNamespace(id="rig-a", k1=-0.05)
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: (
+            "rig-a" if key == "flatfield_active_profile" else default
+        )
+        with patch("negpy.desktop.session.FlatFieldProfiles.get", return_value=prof):
+            seeded = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
+            own = WorkspaceConfig(geometry=replace(WorkspaceConfig().geometry, distortion_k1=0.012))
+            kept = self.session._apply_sticky_settings(own, only_global=False)
+
+        self.assertEqual(seeded.geometry.distortion_k1, -0.05)
+        self.assertEqual(kept.geometry.distortion_k1, 0.012)
 
     def test_paper_black_carries_to_new_files(self):
         """Sticky must carry an explicit value over the file's base."""

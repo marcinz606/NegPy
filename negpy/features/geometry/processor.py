@@ -16,9 +16,8 @@ class GeometryProcessor:
     Rotates and detects crop.
     """
 
-    def __init__(self, config: GeometryConfig, distortion_k1: float = 0.0):
+    def __init__(self, config: GeometryConfig):
         self.config = config
-        self.distortion_k1 = distortion_k1
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         img = image
@@ -35,8 +34,8 @@ class GeometryProcessor:
         if self.config.fine_rotation != 0.0:
             img = apply_fine_rotation(img, self.config.fine_rotation)
 
-        if self.distortion_k1 != 0.0:
-            img = apply_radial_distortion(img, self.distortion_k1)
+        if self.config.distortion_k1 != 0.0:
+            img = apply_radial_distortion(img, self.config.distortion_k1)
 
         # Last in the forward chain: a plane projectivity cannot be fitted to a frame that
         # still carries barrel distortion.
@@ -51,7 +50,7 @@ class GeometryProcessor:
             "converge_h": self.config.converge_h,
         }
         # Downstream coordinate mappers (retouch/local) need the same correction.
-        context.metrics["distortion_k1"] = self.distortion_k1
+        context.metrics["distortion_k1"] = self.config.distortion_k1
 
         # Drawn or detected, the rect is already in crop_rect: ImageProcessor resolves
         # detection before the engines, never here.

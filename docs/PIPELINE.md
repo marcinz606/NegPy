@@ -8,7 +8,7 @@ Here is what happens to your image. We apply these steps in order, passing the b
 **Code**: `negpy.features.geometry`
 
 *   **Rotation**: we spin the image array in 90° steps and fine-tune with affine transformations, using bilinear interpolation so it stays sharp.
-*   **Lens distortion**: a radial $k_1$ coefficient, a rig property mirrored from the active flat-field profile (`flatfield.k1`), corrected in the same resample.
+*   **Lens distortion**: a radial $k_1$ coefficient (`geometry.distortion_k1`, ±0.10), corrected in the same resample.
 *   **Tilt and Swing** (`geometry.converge_v` / `converge_h`, ±15%): perspective correction, named for the enlarger movements. Tilt about a horizontal axis straightens converging verticals, swing about a vertical axis converging horizontals: the plane-to-plane projectivity a tilted easel realises (Hartley & Zisserman §2.3). Runs last in the forward chain, after $k_1$, since a projectivity cannot be fitted to a barrel-distorted frame. The unit is per-cent of the frame, not tilt degrees, because convergence is $(H/2)\sin\tau / D$ and no magnification or focal length is modelled. Output keeps the canvas size and replicates the wedge, as fine rotation does.
 
     `keystone_matrix_normalized` is the single definition of the quad; the pixel-space matrix and the GPU's inverse both derive from it. Every reader of geometry carries the correction: the uv grid, `map_coords_to_geometry`, autocrop's replay and detection key, and the GPU's analysis replay, whose meters must read the frame the print stage gets. Off-frame card-edge handles need `CoordinateMapping` to fit the grid projectively.

@@ -13,7 +13,3 @@ class FlatFieldConfig:
     # machines: the render path resolves the gain by this id, so the original reference image
     # can be moved or deleted without breaking the correction.
     profile_id: str = ""
-    # Radial lens-distortion coefficient. A rig property, so it is mirrored from the active
-    # profile, re-seeded on load, and consumed by the geometry stage. Not owned by the
-    # per-image edit.
-    k1: float = 0.0

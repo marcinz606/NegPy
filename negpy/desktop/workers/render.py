@@ -1160,8 +1160,7 @@ class BatchAutoCropWorker(QObject):
                 scale_factor=1.0,
                 process_mode=config.process.process_mode,
             )
-            distortion_k1 = config.flatfield.k1 if config.flatfield.apply else 0.0
-            transformed = GeometryProcessor(detection_geometry, distortion_k1).process(corrected, context)
+            transformed = GeometryProcessor(detection_geometry).process(corrected, context)
             if self._cancel_requested(generation):
                 return None
             return detect_crop_candidate(

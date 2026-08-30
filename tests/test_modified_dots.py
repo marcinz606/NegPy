@@ -32,7 +32,7 @@ def test_flat_field_edits_light_their_section(qapp):
     assert panel.flatfield_section.modified_count == 0
 
     cfg = controller.state.config
-    controller.state.config = replace(cfg, flatfield=replace(cfg.flatfield, apply=True, k1=-0.02))
+    controller.state.config = replace(cfg, flatfield=replace(cfg.flatfield, apply=True, profile_id="rig-1"))
     panel._sync_modified_dots()
 
     assert panel.flatfield_section.modified_count == 2
@@ -67,7 +67,7 @@ def test_calibration_reset_button_restores_its_fields(qapp):
 def test_flat_field_reset_button_restores_its_section(qapp):
     controller, panel = _panel()
     cfg = controller.state.config
-    controller.state.config = replace(cfg, flatfield=replace(cfg.flatfield, apply=True, k1=-0.02))
+    controller.state.config = replace(cfg, flatfield=replace(cfg.flatfield, apply=True, profile_id="rig-1"))
 
     panel.flatfield_section.reset_requested.emit()
 

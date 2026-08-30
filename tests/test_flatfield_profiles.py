@@ -49,15 +49,11 @@ def test_list_profiles_sorted_by_name(store_dir):
     assert [n for _, n in FlatFieldProfiles.list_profiles()] == ["alpha", "Zeta"]
 
 
-def test_set_k1_preserves_gain_and_token(store_dir):
-    pid = FlatFieldProfiles.import_gain(_gain(), name="rig", k1=0.0)
-    _, tok_before = FlatFieldProfiles.load_gain(pid)
-
-    FlatFieldProfiles.set_k1(pid, 0.12)
-    gain_after, tok_after = FlatFieldProfiles.load_gain(pid)
+def test_legacy_k1_still_readable(store_dir):
+    # A rig profile written before distortion moved to GeometryConfig; session.py seeds
+    # the geometry field from it once.
+    pid = FlatFieldProfiles.import_gain(_gain(), name="rig", k1=0.12)
     assert FlatFieldProfiles.get(pid).k1 == 0.12
-    assert np.array_equal(gain_after, _gain())  # gain untouched by a k1 edit
-    assert tok_after == tok_before  # so the render cache is not invalidated
 
 
 def test_delete_and_missing(store_dir):
