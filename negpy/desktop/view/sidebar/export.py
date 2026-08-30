@@ -38,9 +38,13 @@ from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.widgets.export_settings_form import ExportSettingsForm, constrain_combo
 from negpy.desktop.view.widgets.split_button import make_split_button
-from negpy.domain.models import PROOF_INTENT_LABELS, ColorSpace, preset_display_name
+from negpy.domain.models import PROOF_INTENT_LABELS, ColorSpace, ProofIntent, preset_display_name
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
 from negpy.services.export.contact_sheet_templates import ContactSheetLayout, ContactSheetTemplates
+
+# The built-in baseline in the proof-preset combo. Empty rather than None so a saved preset
+# can never collide with it: a name is required and cannot be blank.
+_PROOF_PRESET_NONE = ""
 
 
 class ExportSidebar(BaseSidebar):
@@ -978,7 +982,10 @@ class ExportSidebar(BaseSidebar):
         # Saved printer x paper conditions.
         self.proof_condition_combo = QComboBox()
         constrain_combo(self.proof_condition_combo)
-        self.proof_condition_combo.setToolTip("A saved printer and paper set-up: profile, intent and simulation toggles in one pick")
+        self.proof_condition_combo.setToolTip(
+            "A saved printer and paper set-up: profile, intent and simulation toggles in one pick. "
+            "None proofs the export target and simulates no paper."
+        )
         self.proof_save_btn = QToolButton()
         self.proof_save_btn.setIcon(qta.icon("fa5s.save", color="#aaa"))
         self.proof_save_btn.setToolTip("Save the current proof set-up as a named preset")
@@ -1125,11 +1132,33 @@ class ExportSidebar(BaseSidebar):
     def _reload_proof_conditions(self) -> None:
         self.proof_condition_combo.blockSignals(True)
         self.proof_condition_combo.clear()
-        self.proof_condition_combo.addItem("—", None)
+        self.proof_condition_combo.addItem("None", _PROOF_PRESET_NONE)
         for cond in self.state.proof_conditions:
             self.proof_condition_combo.addItem(cond["name"], cond["name"])
         self.proof_condition_combo.blockSignals(False)
         self.proof_delete_btn.setEnabled(bool(self.state.proof_conditions))
+        self._select_matching_preset()
+
+    def _select_matching_preset(self) -> None:
+        """Point the combo at whichever preset the current settings are, so it cannot claim
+        a set-up that has since been edited. Blank when they match none of them."""
+        st = self.state
+        current = (st.proof_icc_path, st.proof_intent, st.proof_black_point, st.proof_paper_white, st.proof_ink_black)
+        match = _PROOF_PRESET_NONE if current == (None, ProofIntent.RELATIVE_COLORIMETRIC.value, False, False, False) else None
+        for cond in st.proof_conditions:
+            saved = (
+                cond.get("icc"),
+                cond.get("intent"),
+                bool(cond.get("black_point", False)),
+                bool(cond.get("paper_white", False)),
+                bool(cond.get("ink_black", False)),
+            )
+            if saved == current:
+                match = cond["name"]
+                break
+        self.proof_condition_combo.blockSignals(True)
+        self.proof_condition_combo.setCurrentIndex(self.proof_condition_combo.findData(match) if match is not None else -1)
+        self.proof_condition_combo.blockSignals(False)
 
     def _sync_proof_controls(self) -> None:
         st = self.state
@@ -1158,6 +1187,7 @@ class ExportSidebar(BaseSidebar):
             self.proof_gamut_checkbox,
         ):
             w.setEnabled(st.soft_proof_enabled)
+        self._select_matching_preset()
         self._refresh_proof_mismatch_warning()
 
     def _on_proof_profile_changed(self) -> None:
@@ -1170,8 +1200,9 @@ class ExportSidebar(BaseSidebar):
         if not (ok and name):
             return
         self.controller.save_proof_condition(name)
+        # The reload re-points the combo by value, and the preset just saved is the current
+        # settings by construction, so it lands on the new entry without a second signal.
         self._reload_proof_conditions()
-        self.proof_condition_combo.setCurrentText(name)
 
     def _on_delete_proof_condition(self) -> None:
         name = self.proof_condition_combo.currentData()
@@ -1181,10 +1212,13 @@ class ExportSidebar(BaseSidebar):
         self._reload_proof_conditions()
 
     def _on_proof_condition_selected(self) -> None:
+        """None is a preset like any other, not an empty selection: it proofs the export
+        target and simulates nothing."""
         name = self.proof_condition_combo.currentData()
-        if not name:
-            return
-        self.controller.apply_proof_condition(name)
+        if name == _PROOF_PRESET_NONE:
+            self.controller.reset_proof_condition()
+        else:
+            self.controller.apply_proof_condition(name)
         self._reload_proof_profiles()
         self._sync_proof_controls()
 

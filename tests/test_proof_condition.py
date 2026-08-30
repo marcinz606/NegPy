@@ -52,6 +52,21 @@ class TestProofCondition(unittest.TestCase):
         self.assertEqual(set(PROOF_INTENT_LABELS), {i.value for i in ProofIntent})
 
 
+class TestNonePresetBaseline(unittest.TestCase):
+    """The None preset has to be a fixed point: applying it must land on a set-up the
+    preset box then recognises as None, or picking it blanks the box it just filled."""
+
+    def test_a_fresh_session_is_the_baseline(self):
+        from negpy.desktop.session import AppState
+
+        st = AppState()
+        self.assertTrue(st.soft_proof_enabled)
+        self.assertIsNone(st.proof_icc_path)
+        self.assertEqual(st.proof_intent, ProofIntent.RELATIVE_COLORIMETRIC.value)
+        for field in ("proof_black_point", "proof_paper_white", "proof_ink_black", "proof_gamut_warning"):
+            self.assertFalse(getattr(st, field), field)
+
+
 @unittest.skipUnless(_have_cmyk(), "no printer-class profile available")
 class TestProofLut(unittest.TestCase):
     def setUp(self):

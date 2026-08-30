@@ -3809,8 +3809,29 @@ class AppController(QObject):
         self.session.save_icc_prefs()
         self.config_updated.emit()
 
+    def reset_proof_condition(self) -> None:
+        """The None preset: proof the export target, simulate nothing.
+
+        Not "proofing off" — the proof still runs, it just shows the export's own gamut
+        rather than a sheet of paper's limits. It is the baseline every named preset is a
+        departure from, and the state a frame should be judged in before a paper is chosen.
+        """
+        st = self.state
+        st.soft_proof_enabled = True
+        st.proof_icc_path = None
+        # The intent is part of the baseline too, or None would not match itself and the
+        # preset box would go blank the moment you picked it.
+        st.proof_intent = ProofIntent.RELATIVE_COLORIMETRIC.value
+        st.proof_black_point = False
+        st.proof_paper_white = False
+        st.proof_ink_black = False
+        st.proof_gamut_warning = False
+        self.session.save_icc_prefs()
+        self.config_updated.emit()
+        self.request_render()
+
     def apply_proof_condition(self, name: str) -> None:
-        """Load a saved condition. The gamut warning is deliberately not part of one: it is
+        """Load a saved preset. The gamut warning is deliberately not part of one: it is
         a way of looking at the frame, not a property of the printer and paper."""
         entry = next((c for c in self.state.proof_conditions if c.get("name") == name), None)
         if entry is None:
@@ -3819,8 +3840,8 @@ class AppController(QObject):
         icc = entry.get("icc")
         st.proof_icc_path = icc if icc and os.path.exists(icc) else None
         st.proof_intent = entry.get("intent") if entry.get("intent") in PROOF_INTENT_LABELS else ProofIntent.RELATIVE_COLORIMETRIC.value
-        st.proof_black_point = bool(entry.get("black_point", True))
-        st.proof_paper_white = bool(entry.get("paper_white", True))
+        st.proof_black_point = bool(entry.get("black_point", False))
+        st.proof_paper_white = bool(entry.get("paper_white", False))
         st.proof_ink_black = bool(entry.get("ink_black", False))
         self.session.save_icc_prefs()
         self.config_updated.emit()

@@ -116,8 +116,10 @@ class AppState:
     # could be set on its own.
     proof_icc_path: Optional[str] = None
     proof_intent: str = ProofIntent.RELATIVE_COLORIMETRIC.value
-    proof_black_point: bool = True
-    proof_paper_white: bool = True
+    # Off by default: these simulate a sheet of paper's limits, and no paper is named until
+    # a proof profile is. See AppController.reset_proof_condition, the None preset.
+    proof_black_point: bool = False
+    proof_paper_white: bool = False
     proof_ink_black: bool = False
     proof_gamut_warning: bool = False
     # Saved printer x paper conditions: [{"name": str, "icc": str|None, "intent": str, ...}].
