@@ -48,3 +48,28 @@ def test_calibration_fields_are_not_double_counted_in_process(qapp):
 
     assert panel.sensor_section.modified_count == 1
     assert panel.process_section.modified_count == 0
+
+
+def test_calibration_reset_button_restores_its_fields(qapp):
+    """The header's reset button was shown by the count above but never connected, so it
+    was a control that did nothing."""
+    controller, panel = _panel()
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, crosstalk_strength=0.4, hue_trim=3.0))
+
+    panel.sensor_section.reset_requested.emit()
+
+    applied = controller.apply_config.call_args[0][0]
+    assert applied.process.crosstalk_strength == cfg.process.crosstalk_strength
+    assert applied.process.hue_trim == cfg.process.hue_trim
+
+
+def test_flat_field_reset_button_restores_its_section(qapp):
+    controller, panel = _panel()
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, flatfield=replace(cfg.flatfield, apply=True, k1=-0.02))
+
+    panel.flatfield_section.reset_requested.emit()
+
+    applied = controller.apply_config.call_args[0][0]
+    assert applied.flatfield == cfg.flatfield

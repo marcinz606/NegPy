@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.kernel.system.text import count_of, plural
 from negpy.desktop.converters import ImageConverter
-from negpy.desktop.view.styles.templates import StatusStrip
+from negpy.desktop.view.styles.templates import StatusStrip, pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.scan_preview_common import RollPreviewSignalsMixin, preview_positive
 from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog, has_guide
@@ -250,7 +250,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self._strip = strip
         self._empty_hint = QLabel("Press Detect frames to measure the strip" if self._discovers else "Preview a frame to set its window")
         self._empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_hint.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_lg}px; padding: 48px;")
+        self._empty_hint.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_base}px; padding: 48px;")
         strip.addWidget(self._empty_hint, 0, 0, 1, _TILES_PER_ROW)
         self._initial_windows = initial_windows
         self._initial_selected = initial_selected
@@ -297,7 +297,9 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         btns.addWidget(self.ok_btn)
         self.scan_btn = QPushButton(qta.icon("fa5s.play", color=THEME.text_primary), " Scan")
         self.scan_btn.setToolTip("Scan the ticked frames now with the current settings")
+        self.scan_btn.setProperty("primary", True)
         self.scan_btn.clicked.connect(self._on_scan_clicked)
+        pin_dialog_default(None, self.clear_btn, self.cancel_btn, self.ok_btn, self.scan_btn)
         btns.addWidget(self.scan_btn)
         layout.addLayout(btns)
 

@@ -79,7 +79,6 @@ class LocationPickerDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Capture location")
         self.setMinimumSize(560, 560)
-        self.setStyleSheet(f"QDialog {{ background: {THEME.bg_dark}; }}")
 
         # The pool is owned by the dialog, so closing it joins any running lookup before the
         # signal object goes away. done() drops the queue first to keep that join short.

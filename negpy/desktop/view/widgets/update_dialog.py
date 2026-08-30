@@ -174,7 +174,7 @@ class UpdateDialog(QDialog):
 
         self.status = QLabel("")
         self.status.setWordWrap(True)
-        self.status.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_xs}px;")
+        self.status.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;")
         self.status.setVisible(False)
         root.addWidget(self.status)
 

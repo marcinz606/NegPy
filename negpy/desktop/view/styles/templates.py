@@ -8,6 +8,11 @@ from PyQt6.QtWidgets import QLabel, QProgressBar, QPushButton, QStackedLayout, Q
 from negpy.desktop.view.styles.fonts import ui_font_family
 from negpy.desktop.view.styles.theme import THEME
 
+# One width for every icon-only button, so mixed rows keep a common right edge.
+ICON_BUTTON_WIDTH = 36
+# Label column beside a combo or entry, wide enough for the longest field name in a form.
+FIELD_LABEL_WIDTH = 90
+
 _default_btn_height: int | None = None
 
 
@@ -18,11 +23,12 @@ def load_stylesheet() -> str:
     qss_path = get_resource_path("negpy/desktop/view/styles/modern_dark.qss")
     with open(qss_path, "r", encoding="utf-8") as f:
         qss = f.read()
-    # Longest token name first so a shorter one can't clobber its prefix.
+    # Longest token name first so a shorter one can't clobber its prefix. Ints substitute
+    # bare, so a size token is written with its unit attached: `font-size: @font_size_basepx`.
     for f_ in sorted(dataclasses.fields(THEME), key=lambda f_: -len(f_.name)):
         value = getattr(THEME, f_.name)
-        if isinstance(value, str):
-            qss = qss.replace(f"@{f_.name}", value)
+        if isinstance(value, (str, int)):
+            qss = qss.replace(f"@{f_.name}", str(value))
     # QSS url() cannot resolve relative paths reliably across dev and frozen runs, so bake in
     # the absolute icon path, with forward slashes for Qt.
     check_icon = get_resource_path("media/icons/checkbox_check.svg").replace("\\", "/")
@@ -40,6 +46,38 @@ def default_button_height() -> int:
         ref.setIcon(qta.icon("fa5s.circle"))
         _default_btn_height = ref.sizeHint().height()
     return _default_btn_height
+
+
+def pin_dialog_default(default: QPushButton | None, *others: QPushButton) -> None:
+    """Give a hand-rolled dialog footer one Enter target and one filled button.
+
+    Qt hands "default" to whichever autoDefault button was clicked last, so pressing Enter
+    repeats that button instead of the dialog's action until another is clicked (issue #997).
+    Every button that is not the default has to opt out. Pass default=None where the footer
+    swaps its default at runtime and only the opt-out is wanted.
+    """
+    if default is not None:
+        default.setDefault(True)
+        default.setAutoDefault(True)
+        default.setProperty("primary", True)
+    for btn in others:
+        btn.setAutoDefault(False)
+
+
+def icon_button(icon_name: str, tooltip: str, width: int | None = ICON_BUTTON_WIDTH) -> QPushButton:
+    """Icon-only button, sized to sit flush beside toggles and text buttons.
+
+    width=None leaves it stretchable, for rows that size their buttons by layout stretch.
+    Module-level so the panels that are not BaseSidebar subclasses share the one look.
+    """
+    btn = QPushButton()
+    btn.setIcon(qta.icon(icon_name, color=THEME.text_primary, color_disabled=THEME.text_muted))
+    btn.setStyleSheet("QPushButton {padding: 6px;}")
+    if width is not None:
+        btn.setFixedWidth(width)
+    btn.setFixedHeight(default_button_height())
+    btn.setToolTip(wrap_tooltip(tooltip))
+    return btn
 
 
 def wrap_tooltip(text: str, footer: str = "") -> str:
@@ -77,7 +115,7 @@ def set_hint_kind(lbl: QLabel, kind: str) -> None:
 
 def pane_header_qss() -> str:
     """Bold mini-header for dialog panes (preset list / gear library columns)."""
-    return f"color: {THEME.text_muted}; font-size: 10px; font-weight: bold; letter-spacing: 1px;"
+    return f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px; font-weight: bold; letter-spacing: 1px;"
 
 
 def dialog_pane_qss() -> str:
@@ -209,8 +247,8 @@ def section_subheader(text: str) -> QLabel:
     """Small all-caps label for section grouping in sidebars."""
     lbl = QLabel(text.upper())
     lbl.setStyleSheet(
-        f"font-size: {THEME.font_size_xs}px; "
-        f"color: {THEME.text_muted}; "
+        f"font-size: {THEME.font_size_small}px; "
+        f"color: {THEME.text_hint}; "
         f"font-weight: {THEME.weight_semibold}; "
         f"margin-top: {THEME.space_xl}px;"
     )

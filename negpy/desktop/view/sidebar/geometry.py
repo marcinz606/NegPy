@@ -1,35 +1,21 @@
 from dataclasses import replace
 
-import qtawesome as qta
 from PyQt6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
-    QPushButton,
 )
 
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.canvas.crop_guides import GUIDE_LABELS, ORIENTATION_COUNT, CropGuide
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import EditedDot, default_button_height, field_label, section_subheader
-from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_label, section_subheader, wrap_tooltip
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.domain.models import CROP_RATIO_CHOICES, canonical_crop_ratio
 from negpy.features.geometry.logic import has_manual_crop
 from negpy.features.geometry.models import FINE_ROTATION_LIMIT, AutocropMode
 from negpy.features.process.models import invalidate_local_bounds
-
-
-class CropToolButton(QPushButton):
-    """Checkable button with a small corner dot indicating an active crop."""
-
-    def __init__(self, text: str = "") -> None:
-        super().__init__(text)
-        self._dot = EditedDot(self)
-
-    def set_crop_active(self, active: bool) -> None:
-        self._dot.set_active(active)
 
 
 class GeometrySidebar(BaseSidebar):
@@ -58,6 +44,7 @@ class GeometrySidebar(BaseSidebar):
         self.ratio_combo.addItems([r.value for r in CROP_RATIO_CHOICES])
         self.ratio_combo.setCurrentText(canonical_crop_ratio(conf.autocrop_ratio))
         self.ratio_combo.setPlaceholderText("Select Ratio...")
+        self.ratio_combo.setToolTip(wrap_tooltip("Aspect ratio the auto crop and the crop tool snap to"))
         ratio_row.addWidget(self.ratio_combo, 1)
 
         self.detect_ratio_btn = self._icon_action("fa5s.crosshairs", "Detect closest aspect ratio from the film frame")
@@ -66,13 +53,9 @@ class GeometrySidebar(BaseSidebar):
         self.layout.addLayout(ratio_row)
 
         btn_row = QHBoxLayout()
-        self.manual_crop_btn = CropToolButton(" Crop")
-        self.manual_crop_btn.setCheckable(True)
-        self.manual_crop_btn.setIcon(qta.icon("fa5s.crop-alt", color=THEME.text_primary, color_on="#FFFFFF"))
+        self.manual_crop_btn = self._labeled_toggle("fa5s.crop-alt", " Crop", False, "Draw the crop by hand on the canvas")
 
-        self.clear_crop_btn = QPushButton(" Reset")
-        self.clear_crop_btn.setIcon(qta.icon("fa5s.undo", color=THEME.text_primary))
-        self.clear_crop_btn.setToolTip("Reset crop: clear the manual crop and disable auto crop")
+        self.clear_crop_btn = self._labeled_action("fa5s.undo", " Reset", "Reset crop: clear the manual crop and disable auto crop")
 
         btn_row.addWidget(self.manual_crop_btn, 1)
         btn_row.addWidget(self.clear_crop_btn, 1)
@@ -123,7 +106,7 @@ class GeometrySidebar(BaseSidebar):
             conf.autocrop_rebate_trim * 100.0,
             step=5.0,
             precision=1,
-            unit=" %",
+            unit="%",
         )
         self.rebate_trim_slider.setToolTip(
             "How far into the detected rebate auto crop cuts: 0% stops at the film edge, "
@@ -138,17 +121,13 @@ class GeometrySidebar(BaseSidebar):
 
         # Auto crop actions: apply to this frame, or to the whole roll.
         auto_row = QHBoxLayout()
-        self.reset_crop_btn = CropToolButton(" Auto")
-        self.reset_crop_btn.setCheckable(True)
-        self.reset_crop_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary, color_on="#FFFFFF", color_disabled=THEME.text_muted))
-        self.reset_crop_btn.setFixedHeight(default_button_height())
+        self.reset_crop_btn = self._labeled_toggle("fa5s.magic", " Auto", False, "Find the frame edges and crop to them")
 
-        self.auto_crop_all_btn = QPushButton(" Batch Autocrop")
-        self.auto_crop_all_btn.setIcon(qta.icon("fa5s.layer-group", color=THEME.text_primary, color_disabled=THEME.text_muted))
-        self.auto_crop_all_btn.setFixedHeight(default_button_height())
-        self.auto_crop_all_btn.setToolTip(
+        self.auto_crop_all_btn = self._labeled_action(
+            "fa5s.layer-group",
+            " Batch Autocrop",
             "Analyze all visible landscape frames as one roll. Confident frames calibrate weak ones; "
-            "manual and ambiguous crops are preserved. Runs before Batch Analysis."
+            "manual and ambiguous crops are preserved. Runs before Batch Analysis.",
         )
         self.auto_crop_all_btn.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
         auto_row.addWidget(self.reset_crop_btn, 1)
@@ -158,8 +137,8 @@ class GeometrySidebar(BaseSidebar):
         self.layout.addWidget(section_subheader("ALIGNMENT"))
 
         align_row = QHBoxLayout()
-        self.straighten_btn = self._tool_toggle("fa5s.ruler", "", "")
-        self.straighten_btn.setFixedWidth(36)
+        self.straighten_btn = self._tool_toggle("fa5s.ruler", "", "Draw a line along a horizon or edge to level the frame")
+        self.straighten_btn.setFixedWidth(ICON_BUTTON_WIDTH)
 
         # The slider shows the photographer's convention, where positive is clockwise on screen.
         # Internally geometry.fine_rotation keeps the cv2/warp convention, where positive is
@@ -301,8 +280,8 @@ class GeometrySidebar(BaseSidebar):
             self.manual_crop_btn.setChecked(self.state.active_tool == ToolMode.CROP_MANUAL)
             self.straighten_btn.setChecked(self.state.active_tool == ToolMode.STRAIGHTEN)
             self.reset_crop_btn.setChecked(conf.crop_from_auto)
-            self.manual_crop_btn.set_crop_active(has_manual_crop(conf))
-            self.reset_crop_btn.set_crop_active(conf.crop_from_auto)
+            self.manual_crop_btn.edited_dot.set_active(has_manual_crop(conf))
+            self.reset_crop_btn.edited_dot.set_active(conf.crop_from_auto)
             self.auto_crop_all_btn.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
             self.rebate_trim_slider.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
         finally:

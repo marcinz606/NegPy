@@ -12,7 +12,7 @@ _TOAST_MIN_WIDTH = 320
 _TOAST_PADDING = 40
 
 _PILL_QSS = (
-    f"color: {THEME.text_secondary}; font-size: {THEME.font_size_xs}px; font-weight: 500; "
+    f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px; font-weight: 500; "
     "background-color: rgba(0, 0, 0, 140); border-radius: 4px; padding: 2px 8px;"
 )
 
@@ -20,7 +20,7 @@ _PILL_QSS = (
 # announces app activity, so it uses bigger type, near-white on a solid dark plate with
 # an outline, and reads against any canvas brightness.
 _TOAST_QSS = (
-    f"color: {THEME.text_primary}; font-size: {THEME.font_size_lg}px; font-weight: 600; "
+    f"color: {THEME.text_primary}; font-size: {THEME.font_size_title}px; font-weight: 600; "
     "background-color: rgba(10, 10, 10, 225); border: 1px solid rgba(255, 255, 255, 55); "
     "border-radius: 6px; padding: 7px 18px;"
 )

@@ -69,7 +69,6 @@ class GranularSettingsDialog(QDialog):
             self.setWindowTitle("Save Preset")
         else:
             self.setWindowTitle("Paste Settings" if not show_scope else "Apply Settings")
-        self.setStyleSheet(f"QDialog {{ background: {THEME.bg_dark}; }}")
         self.resize(420, 620)
 
         root = QVBoxLayout(self)
@@ -209,7 +208,7 @@ class GranularSettingsDialog(QDialog):
             box.stateChanged.connect(self._refresh_section_states)
             self._checks.append((box, row, edited, line))
             val = QLabel(value)
-            val.setStyleSheet(f"color: {THEME.text_muted};")
+            val.setStyleSheet(f"color: {THEME.text_hint};")
             val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             line_layout.addWidget(box)
             line_layout.addStretch()
@@ -239,7 +238,7 @@ class GranularSettingsDialog(QDialog):
         self._bounds_local.setChecked(True)
         self._bounds_local.stateChanged.connect(self._update_apply_enabled)
         val = QLabel(f"{_triplet(process.local_floors)} → {_triplet(process.local_ceils)}")
-        val.setStyleSheet(f"color: {THEME.text_muted};")
+        val.setStyleSheet(f"color: {THEME.text_hint};")
         row.addWidget(self._bounds_local)
         row.addStretch()
         row.addWidget(val)

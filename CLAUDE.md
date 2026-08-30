@@ -79,10 +79,50 @@ their logic and shaders stay in `features/lith/` and `features/cyanotype/`.
 2. Add a field to `WorkspaceConfig`; update `to_dict`/`from_flat_dict` (watch flat-namespace collisions)
 3. Insert a `_run_stage(...)` call in `DarkroomEngine.process()`
 4. For GPU: add a WGSL shader, wire it into `GPUEngine` (shader path + stage index + change detection), and add the feature's `shaders/` dir to `build.py` (`--add-data`)
-5. Add a sidebar and register it in `ControlsPanel`; mark its `docs/USER_GUIDE.md` section with `<!-- panel:<key> -->` above the heading (`<key>` = the `_make_section` key) — that marker is what puts the ⓘ guide on the header
+5. Add a sidebar and register it in `ControlsPanel`, building every control from the factories in **UI conventions** below; mark its `docs/USER_GUIDE.md` section with `<!-- panel:<key> -->` above the heading (`<key>` = the `_make_section` key) — that marker is what puts the ⓘ guide on the header
 6. If it adds a toggle/tool/action, add a `REGISTRY` entry in `shortcut_registry.py` plus its action-map entry in `keyboard_shortcuts.py`
 7. Add unit tests; if the feature has both CPU and GPU paths, add a parity test (pattern: `test_gpu_curve_parity.py`)
 8. Document it: the panel and its controls in `docs/USER_GUIDE.md`, the stage's behaviour and math in `docs/PIPELINE.md`
+
+## UI conventions
+
+**A new control reuses an existing one. It never introduces a new look.** Find the closest
+control already in the app, call the same factory with the same tokens, and copy nothing. A
+new size, colour, width, spacing value, button shape or toggle idiom needs the user's
+agreement first — the panels sit in one tab stack, so a private look is visible beside the
+shared one.
+
+- **Controls come from a factory**, never from a bare `QPushButton` + `setStyleSheet`:
+  `BaseSidebar._tool_toggle` (icon-only or icon+label toggle), `_labeled_toggle` (checkable,
+  carries an `edited_dot`), `_labeled_action` (its one-shot twin), `templates.icon_button` /
+  `_icon_action` (icon-only action), `templates.field_label` (label beside a combo/entry),
+  `templates.hint_label` (a line of help under a control), `section_subheader` (grouping),
+  `CollapsibleSection` (a panel section, and the only reset affordance), `CompactSlider`
+  (slider with a hidden spin readout). Booleans in a panel are toggle buttons; `QCheckBox` is
+  for a list of options in a form.
+- **Type**: four size tokens in `styles/theme.py` — `font_size_small` (12, caption/hint),
+  `font_size_base` (13, body and the QSS global), `font_size_header` (14, section),
+  `font_size_title` (16, dialog title), plus `font_size_display` for the wordmark. All in px;
+  the sheet reads them as `@font_size_basepx`. Never a literal size in a stylesheet string.
+- **Colour**: `text_primary` body, `text_secondary` secondary copy, `text_hint` captions and
+  hints, `warn_amber` advisories, `channel_red` errors. `text_muted` is the **disabled** grey
+  — 2.6:1 on the panel, so never on text a user has to read. Every other colour is a token in
+  `theme.py` too; a literal hex in a widget is a bug.
+- **Geometry**: `ICON_BUTTON_WIDTH`, `FIELD_LABEL_WIDTH`, `default_button_height()` and the
+  `THEME.space_*` scale. A row that needs a width already has one.
+- **Slider metadata**: unit in `unit=` (`"%"`, `" st"`, `" px"` — space before a word, none
+  before a symbol), never in the label; decimals from `step`/`precision`.
+- **Dialogs**: a hand-rolled footer calls `templates.pin_dialog_default(default, *others)` —
+  it pins Enter, opts the rest out of `autoDefault` and marks the one filled button. Cancel
+  sits before the action. Do not re-declare the dialog background; the sheet paints it.
+- **Labels**: control names Title Case ("Toe Width", "Paper White"); a label beside a
+  combo/entry sentence case ("Film stock", "Input gamma"). Same concept, same words in every
+  panel — grep for the words before writing a new label.
+- **Tooltips**: every control gets one, through `wrap_tooltip()` so it wraps. A shortcut-bearing
+  widget is tooltipped in `controls_panel.apply_shortcut_tooltips()` only; a local `setToolTip`
+  there is overwritten.
+
+If no existing control fits, say so and propose the addition — do not ship a one-off.
 
 ## Style
 

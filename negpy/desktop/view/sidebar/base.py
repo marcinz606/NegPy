@@ -5,7 +5,15 @@ import qtawesome as qta
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QComboBox, QPushButton, QWidget, QVBoxLayout
 from negpy.desktop.controller import AppController
-from negpy.desktop.view.styles.templates import EditedDot, default_button_height, labeled_toggle_qss, tool_toggle_qss, wrap_tooltip
+from negpy.desktop.view.styles.templates import (
+    ICON_BUTTON_WIDTH,
+    EditedDot,
+    default_button_height,
+    icon_button,
+    labeled_toggle_qss,
+    tool_toggle_qss,
+    wrap_tooltip,
+)
 from negpy.desktop.view.styles.theme import THEME
 
 
@@ -81,27 +89,26 @@ class BaseSidebar(QWidget):
         btn.setChecked(checked)
         return btn
 
-    def _icon_action(self, icon_name: str, tooltip: str, width: int | None = 36) -> QPushButton:
-        """Icon-only one-shot action button, sized to sit flush beside toggles.
-
-        width=None leaves it stretchable, for rows that size their buttons by layout stretch.
-        """
-        btn = QPushButton()
+    def _labeled_action(self, icon_name: str, label: str, tooltip: str) -> QPushButton:
+        """One-shot action with an icon and a label; the non-checkable twin of _labeled_toggle."""
+        btn = QPushButton(label)
         btn.setIcon(qta.icon(icon_name, color=THEME.text_primary, color_disabled=THEME.text_muted))
-        btn.setStyleSheet("QPushButton {padding: 6px;}")
-        if width is not None:
-            btn.setFixedWidth(width)
+        btn.setStyleSheet(labeled_toggle_qss())
         btn.setFixedHeight(default_button_height())
         btn.setToolTip(wrap_tooltip(tooltip))
         return btn
+
+    def _icon_action(self, icon_name: str, tooltip: str, width: int | None = ICON_BUTTON_WIDTH) -> QPushButton:
+        return icon_button(icon_name, tooltip, width)
 
     def _labeled_toggle(self, icon_name: str, label: str, checked: bool, tooltip: str) -> QPushButton:
         """Labeled checkable button (icon + text), styled like Pick WB / Linear RAW."""
         btn = QPushButton(label)
         btn.setCheckable(True)
         btn.setChecked(checked)
-        btn.setIcon(qta.icon(icon_name, color=THEME.text_primary, color_disabled=THEME.text_muted))
+        btn.setIcon(qta.icon(icon_name, color=THEME.text_primary, color_on="#FFFFFF", color_disabled=THEME.text_muted))
         btn.setStyleSheet(labeled_toggle_qss())
+        btn.setFixedHeight(default_button_height())
         btn.setToolTip(wrap_tooltip(tooltip))
         btn.edited_dot = EditedDot(btn)
         return btn

@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.view.sidebar.calibration_window import CalibrationWindow
 from negpy.desktop.view.sidebar.live_view_window import LiveViewWindow, SettingStepper
-from negpy.desktop.view.styles.templates import section_subheader
+from negpy.desktop.view.styles.templates import icon_button as _icon_button, section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.capture.gphoto import default_settings_path
 from negpy.infrastructure.capture.settings import ScanlightSettings, WhiteCaptureMode
@@ -40,9 +40,6 @@ from negpy.services.capture.calibration import REFERENCE_LEVELS, SHUTTER_CANDIDA
 from negpy.services.capture.presets import PresetStore, ScanlightPreset, framing_levels
 
 _CHANNEL_COLORS = {"R": "#E24B4A", "G": "#639922", "B": "#378ADD", "W": "#B4B2A9"}
-
-# Amber for advisory state, the same tone the LED-temperature readout warms to.
-_WARN_COLOR = "#C8922E"
 
 # One source for the over/under advice, shown on both surfaces of an aborted calibration:
 # the calibration window's status line and the pop-up.
@@ -207,7 +204,7 @@ class ScanlightSidebar(QWidget):
         slider.setValue(value)
         readout = QLabel(str(value))
         readout.setFixedWidth(28)
-        readout.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
+        readout.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
         row.addWidget(tag)
         row.addWidget(slider, 1)
         row.addWidget(readout)
@@ -235,7 +232,7 @@ class ScanlightSidebar(QWidget):
 
         # Persistent hint listing what's still missing before you can scan (task 5).
         self.gate_hint = QLabel("")
-        self.gate_hint.setStyleSheet(f"color: #C8922E; font-size: {THEME.font_size_small}px;")
+        self.gate_hint.setStyleSheet(f"color: {THEME.warn_amber}; font-size: {THEME.font_size_small}px;")
         self.gate_hint.setWordWrap(True)
         layout.addWidget(self.gate_hint)
 
@@ -249,18 +246,18 @@ class ScanlightSidebar(QWidget):
             "See docs/CAMERA_SCANNING.md."
         )
         self._setup_hint.setWordWrap(True)
-        self._setup_hint.setStyleSheet(f"color: #C8922E; font-size: {THEME.font_size_small}px;")
+        self._setup_hint.setStyleSheet(f"color: {THEME.warn_amber}; font-size: {THEME.font_size_small}px;")
         self._setup_hint.setVisible(not self._gphoto_available())
         layout.addWidget(self._setup_hint)
         self._conn_hint = QLabel("Connect the camera by USB, in PC Remote mode — it's detected automatically.")
         self._conn_hint.setWordWrap(True)
-        self._conn_hint.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
+        self._conn_hint.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
         layout.addWidget(self._conn_hint)
         status_row = QHBoxLayout()
         self.cam_status = QLabel()
         self.light_status = QLabel()
         self.light_temp = QLabel()  # live LED temperature next to the light status (heat monitoring)
-        self.light_temp.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
+        self.light_temp.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
         self.light_temp.hide()  # stay hidden until a reading arrives — an empty label still paints a dark #0D0D0D box
         status_row.addWidget(self.cam_status)
         status_row.addWidget(self.light_status)
@@ -273,7 +270,7 @@ class ScanlightSidebar(QWidget):
         # sits with the connection status. The light poll hides it in RGB mode.
         self._rgb_hint = QLabel("You can also connect the Scanlight to scan in RGB.")
         self._rgb_hint.setWordWrap(True)
-        self._rgb_hint.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
+        self._rgb_hint.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
         self._rgb_hint.setVisible(False)
         layout.addWidget(self._rgb_hint)
         # Connection and scan status live with the connection area, not as a strip between
@@ -284,7 +281,7 @@ class ScanlightSidebar(QWidget):
         self.progress_bar.setFormat("Capturing… %p%")
         layout.addWidget(self.progress_bar)
         self.status_label = QLabel("")
-        self.status_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
+        self.status_label.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
         self.status_label.setWordWrap(True)
         self.status_label.setVisible(False)
         layout.addWidget(self.status_label)
@@ -296,8 +293,7 @@ class ScanlightSidebar(QWidget):
         folder_row = QHBoxLayout()
         self.folder_edit = QLineEdit(self._settings.output_folder)
         self.folder_edit.setPlaceholderText("Hot folder…")
-        self.folder_browse = QPushButton("…")
-        self.folder_browse.setFixedWidth(32)
+        self.folder_browse = _icon_button("fa5s.folder-open", "Browse for output folder")
         folder_row.addWidget(self.folder_edit)
         folder_row.addWidget(self.folder_browse)
         out_form.addRow("Folder", folder_row)
@@ -321,15 +317,11 @@ class ScanlightSidebar(QWidget):
             "Pick a saved film-stock preset (RGB levels + ISO + shutter + aperture, shown read-only), a "
             "built-in white-light mode, or “Create a manual preset…” to build one by hand"
         )
-        self.preset_new_btn = QPushButton(qta.icon("fa5s.plus", color=THEME.text_secondary), "")
-        self.preset_new_btn.setFixedWidth(32)
-        self.preset_new_btn.setToolTip("Create a preset by calibrating on the film base (auto-meters the exposure)")
-        self.preset_save_btn = QPushButton(qta.icon("fa5s.save", color=THEME.text_secondary), "")
-        self.preset_save_btn.setFixedWidth(32)
-        self.preset_save_btn.setToolTip("Name and save the manual preset you're building (only while in manual-preset mode)")
-        self.preset_del_btn = QPushButton(qta.icon("fa5s.trash", color=THEME.text_secondary), "")
-        self.preset_del_btn.setFixedWidth(32)
-        self.preset_del_btn.setToolTip("Delete the selected preset")
+        self.preset_new_btn = _icon_button("fa5s.plus", "Create a preset by calibrating on the film base (auto-meters the exposure)")
+        self.preset_save_btn = _icon_button(
+            "fa5s.save", "Name and save the manual preset you're building (only while in manual-preset mode)"
+        )
+        self.preset_del_btn = _icon_button("fa5s.trash", "Delete the selected preset")
         preset_row.addWidget(self.preset_combo, 1)
         preset_row.addWidget(self.preset_new_btn)
         preset_row.addWidget(self.preset_save_btn)
@@ -338,7 +330,7 @@ class ScanlightSidebar(QWidget):
         # A one-line note about the current preset, right under the dropdown instead of up in
         # the camera status line. Hidden when it has nothing to say.
         self.preset_hint = QLabel("")
-        self.preset_hint.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
+        self.preset_hint.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
         self.preset_hint.setWordWrap(True)
         self.preset_hint.setVisible(False)
         rgb.addWidget(self.preset_hint)
@@ -374,7 +366,7 @@ class ScanlightSidebar(QWidget):
             _stepper.activated.connect(lambda _i, w=_which, s=_stepper: self._on_sidebar_exposure_changed(w, s))
             _row = QHBoxLayout()
             _tag = QLabel(_tag_text)
-            _tag.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
+            _tag.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
             _row.addWidget(_tag)
             _row.addStretch(1)
             _row.addWidget(_stepper)
@@ -1488,7 +1480,7 @@ class ScanlightSidebar(QWidget):
         RGB-only bodies (v1-v3) have no temperature sensor and report a bogus 0 °C, so hide it there
         (no white channel is our proxy for those models)."""
         if isinstance(temp, (int, float)) and self._light_has_white:
-            color = _WARN_COLOR if temp >= 55 else THEME.text_muted  # amber once it's getting warm
+            color = THEME.warn_amber if temp >= 55 else THEME.text_hint  # amber once it's getting warm
             self.light_temp.setStyleSheet(f"color: {color}; font-size: {THEME.font_size_small}px;")
             self.light_temp.setText(f"{temp:.0f} °C")
             self.light_temp.show()
@@ -1512,11 +1504,11 @@ class ScanlightSidebar(QWidget):
                 "a cloud sync client for example, holds it through the system camera daemon. Quit that app or "
                 "unplug the cable. NegPy reconnects by itself."
             )
-            self._conn_hint.setStyleSheet(f"color: {_WARN_COLOR}; font-size: {THEME.font_size_small}px;")
+            self._conn_hint.setStyleSheet(f"color: {THEME.warn_amber}; font-size: {THEME.font_size_small}px;")
             self._conn_hint.setVisible(True)
             return
         self._conn_hint.setText("Connect the camera by USB, in PC Remote mode — it's detected automatically.")
-        self._conn_hint.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
+        self._conn_hint.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
         short = "Camera (USB)" if ok else "Camera"
         if ok:
             detail = f"Camera: {model} (USB)" if model else "Camera connected (USB)"

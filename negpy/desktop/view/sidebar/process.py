@@ -5,7 +5,6 @@ import qtawesome as qta
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QHBoxLayout,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -204,12 +203,11 @@ class ProcessSidebar(BaseSidebar):
         self.render_ev_slider.valueCommitted.connect(lambda v: self.controller.set_hdr_anchor_ev(float(v)))
         self.render_ev_slider.setVisible(False)
 
-        self.normalize_e6_btn = QPushButton(" Normalize")
-        self.normalize_e6_btn.setCheckable(True)
-        self.normalize_e6_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary))
-        self.normalize_e6_btn.setChecked(conf.e6_normalize)
-        self.normalize_e6_btn.setToolTip(
-            wrap_tooltip(
+        self.normalize_e6_btn = self._labeled_toggle(
+            "fa5s.magic",
+            " Normalize",
+            conf.e6_normalize,
+            (
                 "Normalize: stretch the histogram to the full dynamic range, metered per frame, "
                 "and print it through the paper model. This is a rescue tool for <b>faded or "
                 "expired slides</b>, where the dyes have lost their range and a per-frame stretch "
@@ -219,7 +217,7 @@ class ProcessSidebar(BaseSidebar):
                 "and a fixed exposure window — so it opens looking like it does in any raw converter, "
                 "and a bracketed set stays a bracketed set. Print controls give way to a plain "
                 "transfer curve (Density, Grade, Toe, Shoulder)."
-            )
+            ),
         )
         self.layout.addWidget(self.normalize_e6_btn)
         self.layout.addWidget(self.render_ev_slider)

@@ -257,7 +257,7 @@ class ShortcutEditorDialog(QDialog):
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(8)
 
-        header_style = f"color: {THEME.text_muted}; font-size: {THEME.font_size_xs}px; font-weight: {THEME.weight_semibold};"
+        header_style = f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px; font-weight: {THEME.weight_semibold};"
         for col, label in enumerate(("Action", "Default", "Shortcut", "Step")):
             hdr = QLabel(label)
             hdr.setStyleSheet(header_style)

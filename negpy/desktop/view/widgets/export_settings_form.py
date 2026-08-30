@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from negpy.desktop.view.styles.templates import hint_label, labeled_toggle_qss, section_subheader
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, labeled_toggle_qss, section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.domain.models import (
@@ -259,7 +259,7 @@ class ExportSettingsForm(QWidget):
         print_inner = QHBoxLayout(self._print_container)
         print_inner.setContentsMargins(0, 0, 0, 0)
         vbox_size = QVBoxLayout()
-        vbox_size.addWidget(QLabel('Size <span style="color: #666666; font-size: 10px;">cm</span>'))
+        vbox_size.addWidget(QLabel(f'Size <span style="color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;">cm</span>'))
         self.size_input = QDoubleSpinBox()
         self.size_input.setRange(1.0, 500.0)
         self.size_input.setValue(30.0)
@@ -280,7 +280,9 @@ class ExportSettingsForm(QWidget):
         self._target_px_container = QWidget()
         target_px_inner = QVBoxLayout(self._target_px_container)
         target_px_inner.setContentsMargins(0, 0, 0, 0)
-        target_px_inner.addWidget(QLabel('Long edge <span style="color: #666666; font-size: 10px;">px</span>'))
+        target_px_inner.addWidget(
+            QLabel(f'Long edge <span style="color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;">px</span>')
+        )
         self.target_px_input = QSpinBox()
         self.target_px_input.setRange(256, 32768)
         self.target_px_input.setValue(2000)
@@ -314,7 +316,7 @@ class ExportSettingsForm(QWidget):
         header_row.addStretch()
         self.icc_import_btn = QPushButton()
         self.icc_import_btn.setIcon(qta.icon("fa5s.folder-open", color=THEME.text_primary))
-        self.icc_import_btn.setFixedWidth(40)
+        self.icc_import_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.icc_import_btn.setToolTip(f"Import an ICC profile into {APP_CONFIG.user_icc_dir}")
         self.icc_import_btn.clicked.connect(self._import_icc)
         header_row.addWidget(self.icc_import_btn, alignment=Qt.AlignmentFlag.AlignBottom)
@@ -468,7 +470,7 @@ class ExportSettingsForm(QWidget):
         self.abspath_edit.textChanged.connect(self._on_changed)
         self.abspath_browse_btn = QPushButton()
         self.abspath_browse_btn.setIcon(qta.icon("fa5s.folder-open", color=THEME.text_primary))
-        self.abspath_browse_btn.setFixedWidth(40)
+        self.abspath_browse_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.abspath_browse_btn.setToolTip("Choose export folder")
         self.abspath_browse_btn.clicked.connect(self._browse_output_path)
         ap_inner.addWidget(self.abspath_edit)

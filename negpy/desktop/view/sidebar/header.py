@@ -73,7 +73,9 @@ class SidebarHeader(QWidget):
             )
 
         name_label = QLabel("NegPy")
-        name_label.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {THEME.text_primary}; margin-left: 5px;")
+        name_label.setStyleSheet(
+            f"font-size: {THEME.font_size_display}px; font-weight: bold; color: {THEME.text_primary}; margin-left: 5px;"
+        )
 
         header.addWidget(icon_label)
         header.addWidget(name_label)
@@ -81,7 +83,7 @@ class SidebarHeader(QWidget):
 
         self.ver_label = QLabel(f"v{get_app_version()}")
         self.ver_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.ver_label.setStyleSheet(f"font-size: 14px; color: {THEME.text_secondary}; font-weight: bold;")
+        self.ver_label.setStyleSheet(f"font-size: {THEME.font_size_header}px; color: {THEME.text_secondary}; font-weight: bold;")
 
         self.update_button = QToolButton()
         self.update_button.setAutoRaise(True)

@@ -121,7 +121,7 @@ class LibraryTree(QWidget):
         self.empty_label = QLabel("Add a folder to browse your library")
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty_label.setWordWrap(True)
-        self.empty_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 10px;")
+        self.empty_label.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
         layout.addWidget(self.empty_label)
 
     # --- roots -------------------------------------------------------------

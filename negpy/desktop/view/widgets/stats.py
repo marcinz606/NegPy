@@ -73,9 +73,9 @@ class DensitometerRow(QWidget):
         grid.setHorizontalSpacing(8)
         grid.setColumnStretch(1, 1)
         name = QLabel("Probe")
-        name.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_xs}px;")
+        name.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;")
         self._value = QLabel(_PROBE_EMPTY)
-        self._value.setStyleSheet(f"color: {THEME.text_primary}; font-size: {THEME.font_size_xs}px;")
+        self._value.setStyleSheet(f"color: {THEME.text_primary}; font-size: {THEME.font_size_small}px;")
         self._value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         grid.addWidget(name, 0, 0)
         grid.addWidget(self._value, 0, 1)
@@ -112,9 +112,9 @@ class ZonePlacementRows(QWidget):
         col = QVBoxLayout(self)
         col.setContentsMargins(4, 0, 4, 0)
         col.setSpacing(2)
-        name_css = f"color: {THEME.text_secondary}; font-size: {THEME.font_size_xs}px;"
-        value_css = f"color: {THEME.text_primary}; font-size: {THEME.font_size_xs}px;"
-        warn_css = f"color: {THEME.accent_secondary}; font-size: {THEME.font_size_xs}px;"
+        name_css = f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;"
+        value_css = f"color: {THEME.text_primary}; font-size: {THEME.font_size_small}px;"
+        warn_css = f"color: {THEME.accent_secondary}; font-size: {THEME.font_size_small}px;"
 
         self._targets: dict = {}
         self._rows: List[QWidget] = []
@@ -231,9 +231,9 @@ class NegativeStatsWidget(QWidget):
         grid.setVerticalSpacing(2)
         grid.setColumnStretch(1, 1)
 
-        name_css = f"color: {THEME.text_secondary}; font-size: {THEME.font_size_xs}px;"
-        self._value_css = f"color: {THEME.text_primary}; font-size: {THEME.font_size_xs}px;"
-        self._warn_css = f"color: {THEME.accent_secondary}; font-size: {THEME.font_size_xs}px;"
+        name_css = f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;"
+        self._value_css = f"color: {THEME.text_primary}; font-size: {THEME.font_size_small}px;"
+        self._warn_css = f"color: {THEME.accent_secondary}; font-size: {THEME.font_size_small}px;"
 
         self._names: List[QLabel] = []
         self._values: List[QLabel] = []

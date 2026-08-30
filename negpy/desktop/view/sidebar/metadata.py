@@ -191,6 +191,7 @@ class MetadataSidebar(BaseSidebar):
 
         proc.addWidget(field_label("Format"))
         self.format_combo = QComboBox()
+        self.format_combo.setToolTip(wrap_tooltip("Film format written to the frame's metadata"))
         self.format_combo.addItems(FORMAT_OPTIONS)
         self.format_combo.setCurrentText(format_label(conf.format))
         proc.addWidget(self.format_combo)
@@ -938,11 +939,13 @@ class MetadataSidebar(BaseSidebar):
 
         self.preview_empty.setText("Select gear or enter process metadata to see a preview.")
         self.preview_empty.setVisible(not sections)
-        mono = f"font-family: {mono_font_family()}; font-size: {THEME.font_size_xs}px;"
+        mono = f"font-family: {mono_font_family()}; font-size: {THEME.font_size_small}px;"
 
         for title, rows in sections:
             header = QLabel(title)
-            header.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_xs}px; font-weight: {THEME.weight_semibold};")
+            header.setStyleSheet(
+                f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px; font-weight: {THEME.weight_semibold};"
+            )
             self.preview_rows.addWidget(header)
             for label, value in rows:
                 row = QWidget()
@@ -950,7 +953,7 @@ class MetadataSidebar(BaseSidebar):
                 row_layout.setContentsMargins(0, 0, 0, 0)
                 row_layout.setSpacing(6)
                 lbl = QLabel(label)
-                lbl.setStyleSheet(f"color: {THEME.text_muted}; {mono}")
+                lbl.setStyleSheet(f"color: {THEME.text_hint}; {mono}")
                 lbl.setFixedWidth(110)
                 val = QLabel(value)
                 val.setWordWrap(True)

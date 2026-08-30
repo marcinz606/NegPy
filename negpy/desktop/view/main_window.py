@@ -101,8 +101,8 @@ class _EmptyStateOverlay(QWidget):
         self.load_btn = QPushButton("Load some scans to get started")
         self.load_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.load_btn.setStyleSheet(
-            f"QPushButton {{ background: transparent; color: {THEME.text_muted}; "
-            f"border: none; font-size: 15px; padding: 4px 8px; }}"
+            f"QPushButton {{ background: transparent; color: {THEME.text_secondary}; "
+            f"border: none; font-size: {THEME.font_size_header}px; padding: 4px 8px; }}"
             f"QPushButton:hover {{ color: {THEME.text_primary}; text-decoration: underline; }}"
         )
         self.load_btn.clicked.connect(self._show_load_menu)
@@ -112,9 +112,9 @@ class _EmptyStateOverlay(QWidget):
         self.tour_btn.setFixedWidth(140)
         self.tour_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.tour_btn.setStyleSheet(
-            f"QPushButton {{ background: transparent; color: {THEME.text_muted}; "
+            f"QPushButton {{ background: transparent; color: {THEME.text_hint}; "
             f"border: 1px solid {THEME.border_primary}; border-radius: 3px; "
-            f"padding: 5px 14px; font-size: 12px; }}"
+            f"padding: 5px 14px; font-size: {THEME.font_size_small}px; }}"
             f"QPushButton:hover {{ color: {THEME.text_primary}; }}"
         )
         self.tour_btn.clicked.connect(self.tour_requested)

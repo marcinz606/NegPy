@@ -730,9 +730,9 @@ The paper margin takes the mat color, so it runs into the border with no seam.
 **Border:**
 
 *   **Width** (0.0 to 2.5): border thickness as a fraction of the image. 0 is no border.
-*   **Bottom weight** (1.0 to 2.0): thickens the bottom border, for window-mat proportions.
+*   **Bottom Weight** (1.0 to 2.0): thickens the bottom border, for window-mat proportions.
 *   **Color swatch**: click to pick any border color.
-*   **Paper white**: tint the border with the toned paper-white instead of the picked color.
+*   **Paper White**: tint the border with the toned paper-white instead of the picked color.
 
 ---
 

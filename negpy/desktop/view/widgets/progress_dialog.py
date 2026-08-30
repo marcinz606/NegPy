@@ -56,7 +56,7 @@ class ProgressDialog(QDialog):
         root.addLayout(header)
 
         self._file_label = QLabel("")
-        self._file_label.setStyleSheet(f"font-size: {THEME.font_size_xs}px; color: {THEME.text_secondary};")
+        self._file_label.setStyleSheet(f"font-size: {THEME.font_size_small}px; color: {THEME.text_secondary};")
         root.addWidget(self._file_label)
 
         self._bar = QProgressBar()
@@ -70,7 +70,7 @@ class ProgressDialog(QDialog):
 
         footer = QHBoxLayout()
         self._count = QLabel("")
-        self._count.setStyleSheet(f"font-size: {THEME.font_size_xs}px; color: {THEME.text_muted};")
+        self._count.setStyleSheet(f"font-size: {THEME.font_size_small}px; color: {THEME.text_hint};")
         footer.addWidget(self._count)
         footer.addStretch(1)
 

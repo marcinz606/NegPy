@@ -249,7 +249,7 @@ class ShortcutsOverlay(QDialog):
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(8)
 
-        header_style = f"color: {THEME.text_muted}; font-size: {THEME.font_size_xs}px; font-weight: {THEME.weight_semibold};"
+        header_style = f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px; font-weight: {THEME.weight_semibold};"
         for col, label in enumerate(("Action", "Default", "Shortcut", "Step")):
             hdr = QLabel(label)
             hdr.setStyleSheet(header_style)
@@ -272,7 +272,7 @@ class ShortcutsOverlay(QDialog):
             border: 1px solid {THEME.border_primary};
             border-radius: 3px;
             font-family: {mono_font_family()};
-            font-size: 11px;
+            font-size: {THEME.font_size_small}px;
             padding: 2px 6px;
         """)
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)

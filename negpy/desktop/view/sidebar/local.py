@@ -4,7 +4,7 @@ import qtawesome as qta
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.session import ToolMode
-from negpy.desktop.view.styles.templates import field_label_qss
+from negpy.desktop.view.styles.templates import field_label
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.local.models import MaskShape
 
@@ -92,11 +92,12 @@ class LocalSidebar(BaseSidebar):
             "midtone holds, so this changes its contrast without moving its overall density."
         )
 
-        self.invert_btn = QPushButton("Invert")
-        self.invert_btn.setCheckable(True)
-        self.invert_btn.setToolTip(
+        self.invert_btn = self._labeled_toggle(
+            "fa5s.exchange-alt",
+            " Invert",
+            False,
             "Act everywhere except inside the selected mask — the card itself instead of the hole "
-            "cut in it. Burn the surround and hold the face, in one mask."
+            "cut in it. Burn the surround and hold the face, in one mask.",
         )
 
         slider_row = QHBoxLayout()
@@ -106,8 +107,7 @@ class LocalSidebar(BaseSidebar):
         self.layout.addWidget(self.feather_slider)
         self.layout.addWidget(self.invert_btn)
 
-        self.mask_count_label = QLabel("0 masks")
-        self.mask_count_label.setStyleSheet(field_label_qss())
+        self.mask_count_label = field_label("0 masks")
         self.layout.addWidget(self.mask_count_label)
 
         self.layout.addStretch()

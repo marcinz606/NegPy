@@ -51,6 +51,12 @@ _COLOR_FIELDS = (
     "highlight_yellow",
     "cast_removal_strength",
 )
+_SENSOR_FIELDS = (
+    "sensor_profile",
+    "crosstalk_profile",
+    "crosstalk_strength",
+    "hue_trim",
+)
 _TONE_FIELDS = (
     "density",
     "grade",
@@ -361,6 +367,8 @@ class ControlsPanel(QWidget):
         self.local_section.reset_requested.connect(lambda: self.controller.session.reset_section("local"))
         self.finish_section.reset_requested.connect(lambda: self.controller.session.reset_section("finish"))
         self.roll_section.reset_requested.connect(self.controller.clear_roll_baseline)
+        self.sensor_section.reset_requested.connect(self._reset_sensor_fields)
+        self.flatfield_section.reset_requested.connect(self._reset_flatfield)
 
     def apply_shortcut_tooltips(self) -> None:
         """Single source for every shortcut-bearing widget tooltip — re-run on each
@@ -763,6 +771,22 @@ class ControlsPanel(QWidget):
         self._last_histogram_buf = buf
         self.tone_histogram.update_data(buf)
         self.color_histogram.update_data(buf)
+
+    def _reset_sensor_fields(self) -> None:
+        """Calibration's fields live on ProcessConfig, so its reset is scoped to them."""
+        from dataclasses import replace
+
+        cfg = self.controller.state.config
+        new_proc = replace(cfg.process, **{f: getattr(_DEFAULT_PROCESS, f) for f in _SENSOR_FIELDS})
+        # apply_config, not update_config: unmix and hue trim are source bakes, so the source
+        # has to be decoded again.
+        self.controller.apply_config(replace(cfg, process=new_proc), persist=True)
+
+    def _reset_flatfield(self) -> None:
+        from dataclasses import replace
+
+        cfg = self.controller.state.config
+        self.controller.apply_config(replace(cfg, flatfield=FlatFieldConfig()), persist=True)
 
     def _reset_exposure_fields(self, fields) -> None:
         """Reset only the given ExposureConfig fields to defaults (scoped section reset)."""

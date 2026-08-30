@@ -11,7 +11,7 @@ from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
 from negpy.desktop.converters import ImageConverter
-from negpy.desktop.view.styles.templates import StatusStrip
+from negpy.desktop.view.styles.templates import StatusStrip, pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.scan_preview_common import RollPreviewSignalsMixin, preview_positive
 from negpy.desktop.view.widgets.scan_window_label import ScanWindowLabel
@@ -86,10 +86,10 @@ class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self.ok_btn.clicked.connect(self.accept)
         btns.addWidget(self.ok_btn)
         self.scan_btn = QPushButton(qta.icon("fa5s.play", color=THEME.text_primary), " Scan frame")
-        self.scan_btn.setDefault(True)
         self.scan_btn.setToolTip("Scan now with the current settings")
         self.scan_btn.clicked.connect(self._on_scan_clicked)
         btns.addWidget(self.scan_btn)
+        pin_dialog_default(self.scan_btn, self.clear_btn, self.cancel_btn, self.ok_btn)
         layout.addLayout(btns)
 
         self._connect_preview_signals()

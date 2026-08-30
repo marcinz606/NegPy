@@ -3,9 +3,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QListWidget,
     QListWidgetItem,
-    QPushButton,
 )
-import qtawesome as qta
 from negpy.desktop.settings_catalog import (
     CATALOG,
     preset_config,
@@ -14,7 +12,6 @@ from negpy.desktop.settings_catalog import (
 )
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import wrap_tooltip
-from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog
 from negpy.domain.models import WorkspaceConfig
 from negpy.services.assets.presets import Presets, is_valid_preset_name
@@ -40,23 +37,13 @@ class PresetsSidebar(BaseSidebar):
         self.layout.addWidget(self.preset_list)
 
         row = QHBoxLayout()
-        self.apply_btn = QPushButton(" Apply")
-        self.apply_btn.setIcon(qta.icon("fa5s.check", color=THEME.text_primary))
-        self.apply_btn.setToolTip("Apply the selected preset to the current image (or double-click a preset)")
+        self.apply_btn = self._labeled_action(
+            "fa5s.check", " Apply", "Apply the selected preset to the current image (or double-click a preset)"
+        )
+        self.save_btn = self._labeled_action("fa5s.save", " Save…", "Pick which of the current settings to store as a new preset")
 
-        self.save_btn = QPushButton(" Save…")
-        self.save_btn.setIcon(qta.icon("fa5s.save", color=THEME.text_primary))
-        self.save_btn.setToolTip("Pick which of the current settings to store as a new preset")
-
-        self.edit_btn = QPushButton()
-        self.edit_btn.setIcon(qta.icon("fa5s.pen", color=THEME.text_primary))
-        self.edit_btn.setToolTip("Edit the selected preset — rename it or change which settings it stores")
-        self.edit_btn.setFixedWidth(32)
-
-        self.delete_btn = QPushButton()
-        self.delete_btn.setIcon(qta.icon("fa5s.trash", color=THEME.text_primary))
-        self.delete_btn.setToolTip("Delete the selected preset")
-        self.delete_btn.setFixedWidth(32)
+        self.edit_btn = self._icon_action("fa5s.pen", "Edit the selected preset — rename it or change which settings it stores")
+        self.delete_btn = self._icon_action("fa5s.trash", "Delete the selected preset")
 
         row.addWidget(self.apply_btn, stretch=1)
         row.addWidget(self.save_btn, stretch=1)
