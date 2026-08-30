@@ -8,11 +8,14 @@ class ThemeConfig:
     Centralized UI styling constants.
     """
 
-    # Fonts (families are resolved at runtime in styles/fonts.py)
-    font_size_base: int = 13
+    # Fonts (families are resolved at runtime in styles/fonts.py). Four roles, in px:
+    # small = caption/hint, base = body (also the QSS global), header = section, title = dialog.
+    # display is the sidebar wordmark alone.
     font_size_small: int = 12
+    font_size_base: int = 13
     font_size_header: int = 14
     font_size_title: int = 16
+    font_size_display: int = 24
 
     # Colors
     bg_dark: str = "#0D0D0D"
@@ -23,8 +26,12 @@ class ThemeConfig:
     border_color: str = "#333333"
     text_primary: str = "#D4D4D4"
     text_secondary: str = "#A0A0A0"
+    # hint = readable secondary copy (4.9:1 on bg_panel); muted = disabled widgets only, and
+    # too dim (2.6:1) for text a user must read.
+    text_hint: str = "#808080"
     text_muted: str = "#555555"
     text_unit: str = "#666666"
+    warn_amber: str = "#C79A3A"
     accent_primary: str = "#B71C1C"
     accent_secondary: str = "#C62828"
 
@@ -54,10 +61,6 @@ class ThemeConfig:
     weight_medium: int = 500
     weight_semibold: int = 600
     weight_bold: int = 700
-
-    # Font sizes (font_size_xs for status/captions, font_size_lg for toast)
-    font_size_xs: int = 11
-    font_size_lg: int = 15
 
     # Channel colors (histogram)
     channel_red: str = "#D32F2F"

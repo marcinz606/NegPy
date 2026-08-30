@@ -185,7 +185,7 @@ class LiveViewWindow(QDialog):
         ):
             tag = QLabel(tag_text)
             tag.setAlignment(Qt.AlignmentFlag.AlignHCenter)  # label sits centred above its value
-            tag.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
+            tag.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
             stepper.setToolTip(tip)
             col = QVBoxLayout()  # label stacked over the ‹ value › stepper (clearer than side-by-side)
             col.setSpacing(2)
@@ -206,7 +206,7 @@ class LiveViewWindow(QDialog):
         self._flash_token = 0
 
         self.status = QLabel("")
-        self.status.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
+        self.status.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
 

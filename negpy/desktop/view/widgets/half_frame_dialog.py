@@ -313,7 +313,7 @@ class HalfFrameDialog(QDialog):
             "Drag the green rectangle to crop. Drag the orange line to set the split. Use the slider to thicken the cut band (the physical black separator)."
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"color: {THEME.text_muted};")
+        hint.setStyleSheet(f"color: {THEME.text_hint};")
         layout.addWidget(hint)
 
         gutter_row = QHBoxLayout()

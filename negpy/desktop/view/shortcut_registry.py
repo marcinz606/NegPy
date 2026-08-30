@@ -9,6 +9,7 @@ from negpy.desktop.view.slider_shortcut_groups import (
     SLIDER_GROUP_BY_ID,
     SliderShortcutGroup,
 )
+from negpy.desktop.view.styles.theme import THEME
 
 
 @dataclass(frozen=True)
@@ -372,7 +373,7 @@ def tooltip_with_shortcut(text: str, action_ids: str | Iterable[str] | None = No
     # on inline <span> elements, where background and padding render but the outline does not,
     # and honours it on table cells, so the chips must be <td>s.
     cells = [
-        f'<td style="border:1px solid #5A5A5A;background:#242424;color:#C8C8C8;padding:1px 6px;font-size:10px;">{display_key(key)}</td>'
+        f'<td style="border:1px solid #5A5A5A;background:#242424;color:#C8C8C8;padding:1px 6px;font-size:{THEME.font_size_small}px;">{display_key(key)}</td>'
         for key in keys
     ]
     # The " & " separator sits in its own borderless cell, so it does not inherit a keycap

@@ -80,7 +80,7 @@ class TutorialOverlay(QWidget):
         layout.setSpacing(10)
 
         self._counter = QLabel()
-        self._counter.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_xs}px;")
+        self._counter.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
         layout.addWidget(self._counter)
 
         self._title_lbl = QLabel()
@@ -99,7 +99,7 @@ class TutorialOverlay(QWidget):
         layout.addWidget(self._body_lbl)
 
         self._hint_lbl = QLabel("Enter / → to advance  ·  ← to go back  ·  Esc to dismiss")
-        self._hint_lbl.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_xs}px;")
+        self._hint_lbl.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
         layout.addWidget(self._hint_lbl)
 
         btn_row = QHBoxLayout()
@@ -127,7 +127,7 @@ class TutorialOverlay(QWidget):
         if accent:
             bg, fg, border, hover = THEME.accent_primary, "#FFFFFF", "none", THEME.accent_secondary
         elif muted:
-            bg, fg, border, hover = "transparent", THEME.text_muted, "none", THEME.bg_panel
+            bg, fg, border, hover = "transparent", THEME.text_hint, "none", THEME.bg_panel
         else:
             bg, fg, border, hover = "transparent", THEME.text_primary, f"1px solid {THEME.border_primary}", THEME.bg_panel
         return (

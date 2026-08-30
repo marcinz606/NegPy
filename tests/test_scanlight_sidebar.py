@@ -13,6 +13,7 @@ import pytest
 from PyQt6.QtWidgets import QApplication
 
 from negpy.desktop.view.sidebar.scanlight import ScanlightSidebar
+from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.capture.settings import ScanlightSettings, WhiteCaptureMode
 from negpy.services.capture.presets import ScanlightPreset
 
@@ -533,7 +534,7 @@ def test_poll_camera_claimed_by_another_app_says_so_and_gates(monkeypatch):
     assert "camera daemon" in w._conn_hint.text()
     assert "background app" in w._conn_hint.text()
     assert "Preview" not in w._conn_hint.text()
-    assert "#C8922E" in w._conn_hint.styleSheet()
+    assert THEME.warn_amber in w._conn_hint.styleSheet()
     # The claim clearing (next successful open / re-plug) restores the normal green dot
     # and puts the hint line back to its plug-in nudge (hidden while a camera is present).
     w._on_poll_status(_poll(usb_ok=True, usb_model="ILCE-7CM2"))

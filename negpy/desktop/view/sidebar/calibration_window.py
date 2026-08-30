@@ -64,7 +64,7 @@ class CalibrationWindow(QDialog):
         ):
             tag = QLabel(tag_text)
             tag.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-            tag.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
+            tag.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
             stepper.setToolTip(tip)
             col = QVBoxLayout()
             col.setSpacing(2)
@@ -77,7 +77,7 @@ class CalibrationWindow(QDialog):
             "Set the ISO and aperture you'll scan with. Changing either afterwards throws off every scan made with this preset."
         )
         self.consistency_hint.setWordWrap(True)
-        self.consistency_hint.setStyleSheet(f"color: #C8922E; font-size: {THEME.font_size_small}px;")
+        self.consistency_hint.setStyleSheet(f"color: {THEME.warn_amber}; font-size: {THEME.font_size_small}px;")
         layout.addWidget(self.consistency_hint)
 
         self.progress = QProgressBar()
@@ -86,7 +86,7 @@ class CalibrationWindow(QDialog):
         layout.addWidget(self.progress)
 
         self.status = QLabel("Click the clear film base (crosshair), name the stock, then Calibrate & Save.")
-        self.status.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
+        self.status.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
 

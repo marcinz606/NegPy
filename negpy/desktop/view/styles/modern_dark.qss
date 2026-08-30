@@ -6,7 +6,7 @@ QWidget {
     background-color: #0D0D0D;
     color: #D4D4D4;
     font-family: "__UI_FONT__";
-    font-size: 10pt;
+    font-size: @font_size_basepx;
 }
 
 QLabel {
@@ -400,23 +400,23 @@ QWidget#collapsible_content_body {
     background: transparent;
 }
 
-/* Hint labels (templates.hint_label): small informational text under controls.
-   Colors: #555555 = text_muted, #C79A3A = warning amber, #D32F2F = channel_red. */
+/* Hint labels (templates.hint_label): informational text under controls. text_hint, not
+   text_muted — muted is the disabled-widget grey and too dim to read as copy. */
 QLabel[hint="muted"] {
-    color: #555555;
-    font-size: 11px;
+    color: @text_hint;
+    font-size: @font_size_smallpx;
     border: none;
 }
 
 QLabel[hint="warning"] {
-    color: #C79A3A;
-    font-size: 11px;
+    color: @warn_amber;
+    font-size: @font_size_smallpx;
     border: none;
 }
 
 QLabel[hint="error"] {
-    color: #D32F2F;
-    font-size: 11px;
+    color: @channel_red;
+    font-size: @font_size_smallpx;
     border: none;
 }
 
@@ -454,7 +454,7 @@ QFrame#shortcut_editor_row[highlighted="true"] {
 }
 
 QLabel#update_label {
-    font-size: 12px;
+    font-size: @font_size_smallpx;
     color: #558B2F;
     font-weight: bold;
     padding: 5px;

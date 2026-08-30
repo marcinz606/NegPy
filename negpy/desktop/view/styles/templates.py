@@ -18,11 +18,12 @@ def load_stylesheet() -> str:
     qss_path = get_resource_path("negpy/desktop/view/styles/modern_dark.qss")
     with open(qss_path, "r", encoding="utf-8") as f:
         qss = f.read()
-    # Longest token name first so a shorter one can't clobber its prefix.
+    # Longest token name first so a shorter one can't clobber its prefix. Ints substitute
+    # bare, so a size token is written with its unit attached: `font-size: @font_size_basepx`.
     for f_ in sorted(dataclasses.fields(THEME), key=lambda f_: -len(f_.name)):
         value = getattr(THEME, f_.name)
-        if isinstance(value, str):
-            qss = qss.replace(f"@{f_.name}", value)
+        if isinstance(value, (str, int)):
+            qss = qss.replace(f"@{f_.name}", str(value))
     # QSS url() cannot resolve relative paths reliably across dev and frozen runs, so bake in
     # the absolute icon path, with forward slashes for Qt.
     check_icon = get_resource_path("media/icons/checkbox_check.svg").replace("\\", "/")
@@ -77,7 +78,7 @@ def set_hint_kind(lbl: QLabel, kind: str) -> None:
 
 def pane_header_qss() -> str:
     """Bold mini-header for dialog panes (preset list / gear library columns)."""
-    return f"color: {THEME.text_muted}; font-size: 10px; font-weight: bold; letter-spacing: 1px;"
+    return f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px; font-weight: bold; letter-spacing: 1px;"
 
 
 def dialog_pane_qss() -> str:
@@ -209,8 +210,8 @@ def section_subheader(text: str) -> QLabel:
     """Small all-caps label for section grouping in sidebars."""
     lbl = QLabel(text.upper())
     lbl.setStyleSheet(
-        f"font-size: {THEME.font_size_xs}px; "
-        f"color: {THEME.text_muted}; "
+        f"font-size: {THEME.font_size_small}px; "
+        f"color: {THEME.text_hint}; "
         f"font-weight: {THEME.weight_semibold}; "
         f"margin-top: {THEME.space_xl}px;"
     )

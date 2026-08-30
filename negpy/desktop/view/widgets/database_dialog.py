@@ -66,7 +66,7 @@ class DatabaseDialog(QDialog):
         root.addLayout(self._grid)
 
         self._size_label = QLabel("")
-        self._size_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_xs}px;")
+        self._size_label.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
         root.addWidget(self._size_label)
 
         note = QLabel(
@@ -75,7 +75,7 @@ class DatabaseDialog(QDialog):
             "and can restore an edit when that image is reloaded."
         )
         note.setWordWrap(True)
-        note.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_xs}px;")
+        note.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
         root.addWidget(note)
 
         root.addLayout(self._build_footer())

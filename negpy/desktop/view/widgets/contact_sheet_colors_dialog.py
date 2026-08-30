@@ -262,7 +262,7 @@ class _TargetRow(QWidget):
         # Hex readout (right-aligned, read-only)
         painter.setPen(QColor(THEME.text_secondary))
         hex_font = QFont(mono_font_family())
-        hex_font.setPixelSize(THEME.font_size_xs)
+        hex_font.setPixelSize(THEME.font_size_small)
         painter.setFont(hex_font)
         painter.drawText(
             QRectF(0, 0, self.width() - 12, self.height()),

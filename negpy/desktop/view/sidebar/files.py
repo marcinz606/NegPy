@@ -581,7 +581,7 @@ class FileBrowser(QWidget):
         layout.addLayout(search_row)
 
         self.tally_label = QLabel("")
-        self.tally_label.setStyleSheet(f"color: {THEME.text_secondary}; font-size: 10px;")
+        self.tally_label.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;")
         self.tally_label.setVisible(False)
 
         self.list_view = ThumbnailGridView(target_cell=self.thumb_size_slider.value())
@@ -600,7 +600,7 @@ class FileBrowser(QWidget):
         self.empty_label.setWordWrap(True)
         self.empty_label.setTextFormat(Qt.TextFormat.RichText)
         self.empty_label.setOpenExternalLinks(False)
-        self.empty_label.setStyleSheet(f"color: {THEME.text_secondary}; font-size: 11px;")
+        self.empty_label.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;")
         self.empty_label.setVisible(False)
         self.empty_label.linkActivated.connect(lambda _: self._clear_frame_filters())
 

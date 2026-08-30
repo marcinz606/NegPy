@@ -232,7 +232,7 @@ class SlippyMapWidget(QWidget):
 
     def _paint_attribution(self, painter: QPainter) -> None:
         font = QFont(painter.font())
-        font.setPointSize(8)
+        font.setPixelSize(THEME.font_size_small)
         painter.setFont(font)
         metrics = painter.fontMetrics()
         width = metrics.horizontalAdvance(_ATTRIBUTION) + 8

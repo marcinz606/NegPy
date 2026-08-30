@@ -250,7 +250,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self._strip = strip
         self._empty_hint = QLabel("Press Detect frames to measure the strip" if self._discovers else "Preview a frame to set its window")
         self._empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_hint.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_lg}px; padding: 48px;")
+        self._empty_hint.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_base}px; padding: 48px;")
         strip.addWidget(self._empty_hint, 0, 0, 1, _TILES_PER_ROW)
         self._initial_windows = initial_windows
         self._initial_selected = initial_selected
