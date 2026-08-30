@@ -191,6 +191,7 @@ class MetadataSidebar(BaseSidebar):
 
         proc.addWidget(field_label("Format"))
         self.format_combo = QComboBox()
+        self.format_combo.setToolTip(wrap_tooltip("Film format written to the frame's metadata"))
         self.format_combo.addItems(FORMAT_OPTIONS)
         self.format_combo.setCurrentText(format_label(conf.format))
         proc.addWidget(self.format_combo)

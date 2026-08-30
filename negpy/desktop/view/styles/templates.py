@@ -8,6 +8,11 @@ from PyQt6.QtWidgets import QLabel, QProgressBar, QPushButton, QStackedLayout, Q
 from negpy.desktop.view.styles.fonts import ui_font_family
 from negpy.desktop.view.styles.theme import THEME
 
+# One width for every icon-only button, so mixed rows keep a common right edge.
+ICON_BUTTON_WIDTH = 36
+# Label column beside a combo or entry, wide enough for the longest field name in a form.
+FIELD_LABEL_WIDTH = 90
+
 _default_btn_height: int | None = None
 
 
@@ -41,6 +46,22 @@ def default_button_height() -> int:
         ref.setIcon(qta.icon("fa5s.circle"))
         _default_btn_height = ref.sizeHint().height()
     return _default_btn_height
+
+
+def icon_button(icon_name: str, tooltip: str, width: int | None = ICON_BUTTON_WIDTH) -> QPushButton:
+    """Icon-only button, sized to sit flush beside toggles and text buttons.
+
+    width=None leaves it stretchable, for rows that size their buttons by layout stretch.
+    Module-level so the panels that are not BaseSidebar subclasses share the one look.
+    """
+    btn = QPushButton()
+    btn.setIcon(qta.icon(icon_name, color=THEME.text_primary, color_disabled=THEME.text_muted))
+    btn.setStyleSheet("QPushButton {padding: 6px;}")
+    if width is not None:
+        btn.setFixedWidth(width)
+    btn.setFixedHeight(default_button_height())
+    btn.setToolTip(wrap_tooltip(tooltip))
+    return btn
 
 
 def wrap_tooltip(text: str, footer: str = "") -> str:

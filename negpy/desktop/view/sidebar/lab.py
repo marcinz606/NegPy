@@ -1,7 +1,7 @@
-from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel
+from PyQt6.QtWidgets import QComboBox, QHBoxLayout
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import section_subheader
+from negpy.desktop.view.styles.templates import field_label, section_subheader
 from negpy.features.lab.models import SharpenMethod
 from negpy.features.process.models import ProcessMode
 
@@ -31,7 +31,7 @@ class LabSidebar(BaseSidebar):
         self.layout.addWidget(section_subheader("SHARPEN"))
 
         method_row = QHBoxLayout()
-        method_row.addWidget(QLabel("Method"))
+        method_row.addWidget(field_label("Method"))
         self.sharpen_method_combo = QComboBox()
         self.sharpen_method_combo.addItem("Unsharp Mask", SharpenMethod.USM.value)
         self.sharpen_method_combo.addItem("Deconvolution", SharpenMethod.RL.value)
@@ -43,7 +43,7 @@ class LabSidebar(BaseSidebar):
         self.layout.addWidget(self.sharpen_slider)
 
         row_sharpen = QHBoxLayout()
-        self.sharpen_radius_slider = CompactSlider("Radius (px)", 0.5, 3.0, conf.sharpen_radius)
+        self.sharpen_radius_slider = CompactSlider("Radius", 0.5, 3.0, conf.sharpen_radius, unit=" px")
         self.sharpen_masking_slider = CompactSlider("Masking", 0.0, 1.0, conf.sharpen_masking)
         row_sharpen.addWidget(self.sharpen_radius_slider)
         row_sharpen.addWidget(self.sharpen_masking_slider)

@@ -2,7 +2,7 @@ from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QColorDialog, QHBoxLayout, QPushButton
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import default_button_height, section_subheader
+from negpy.desktop.view.styles.templates import default_button_height, section_subheader, wrap_tooltip
 from negpy.desktop.view.widgets.sliders import CompactSlider
 
 
@@ -55,7 +55,10 @@ class FinishSidebar(BaseSidebar):
 
         row2 = QHBoxLayout()
         self.border_slider = CompactSlider("Width", 0.0, 2.5, conf.border_size)
-        self.bottom_weight_slider = CompactSlider("Bottom weight", 1.0, 2.0, conf.border_bottom_weight)
+        self.bottom_weight_slider = CompactSlider("Bottom Weight", 1.0, 2.0, conf.border_bottom_weight)
+        self.bottom_weight_slider.setToolTip(
+            wrap_tooltip("Thicken the bottom border relative to the other three, the window-mat proportion.")
+        )
         row2.addWidget(self.border_slider)
         row2.addWidget(self.bottom_weight_slider)
         self.layout.addLayout(row2)
@@ -67,7 +70,7 @@ class FinishSidebar(BaseSidebar):
         self._update_color_btn(conf.border_color)
 
         self.match_paper_btn = self._small_toggle(
-            "fa5s.file", "Paper white", conf.border_match_paper, "Tint the mat with the toned paper white instead of the picked color"
+            "fa5s.file", "Paper White", conf.border_match_paper, "Tint the mat with the toned paper white instead of the picked color"
         )
         row3.addWidget(self.color_btn, 1)
         row3.addWidget(self.match_paper_btn, 1)

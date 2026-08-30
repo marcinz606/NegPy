@@ -69,7 +69,7 @@ class AltProcessSidebar(BaseSidebar):
         col = QVBoxLayout(block)
         col.setContentsMargins(0, 0, 0, 0)
 
-        self.exposure_slider = CompactSlider("Exposure", 0.0, 5.0, conf.lith_exposure, step=0.1, unit=" stops")
+        self.exposure_slider = CompactSlider("Exposure", 0.0, 5.0, conf.lith_exposure, step=0.1, unit=" st")
         self.exposure_slider.setToolTip(
             "Print over-exposure. Lith printing runs on two to four stops more light than a normal print: "
             "more light gives warmer, more colorful highlights and softer gradation"
@@ -113,7 +113,7 @@ class AltProcessSidebar(BaseSidebar):
         sens_row.addWidget(self.sensitizer_combo, stretch=1)
         col.addLayout(sens_row)
 
-        self.cyano_exposure_slider = CompactSlider("Exposure", -2.0, 4.0, conf.cyano_exposure, step=0.1, unit=" stops")
+        self.cyano_exposure_slider = CompactSlider("Exposure", -2.0, 4.0, conf.cyano_exposure, step=0.1, unit=" st")
         self.cyano_exposure_slider.setToolTip(
             "Time under the UV source. More light drives more of the scale into Prussian blue; less leaves the print pale and high-key"
         )

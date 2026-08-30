@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from negpy.desktop.view.styles.templates import hint_label, labeled_toggle_qss, section_subheader
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, labeled_toggle_qss, section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.domain.models import (
@@ -316,7 +316,7 @@ class ExportSettingsForm(QWidget):
         header_row.addStretch()
         self.icc_import_btn = QPushButton()
         self.icc_import_btn.setIcon(qta.icon("fa5s.folder-open", color=THEME.text_primary))
-        self.icc_import_btn.setFixedWidth(40)
+        self.icc_import_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.icc_import_btn.setToolTip(f"Import an ICC profile into {APP_CONFIG.user_icc_dir}")
         self.icc_import_btn.clicked.connect(self._import_icc)
         header_row.addWidget(self.icc_import_btn, alignment=Qt.AlignmentFlag.AlignBottom)
@@ -470,7 +470,7 @@ class ExportSettingsForm(QWidget):
         self.abspath_edit.textChanged.connect(self._on_changed)
         self.abspath_browse_btn = QPushButton()
         self.abspath_browse_btn.setIcon(qta.icon("fa5s.folder-open", color=THEME.text_primary))
-        self.abspath_browse_btn.setFixedWidth(40)
+        self.abspath_browse_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.abspath_browse_btn.setToolTip("Choose export folder")
         self.abspath_browse_btn.clicked.connect(self._browse_output_path)
         ap_inner.addWidget(self.abspath_edit)

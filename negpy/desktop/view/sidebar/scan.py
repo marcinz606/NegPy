@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.kernel.system.text import count_of, human_bytes
 from negpy.desktop.view.sidebar.base import install_wheel_guards
-from negpy.desktop.view.styles.templates import StatusStrip, hint_label, section_subheader
+from negpy.desktop.view.styles.templates import StatusStrip, hint_label, icon_button as _icon_button, section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice
 from negpy.infrastructure.scanners.params import FILM_TYPES, FilmType, film_passes_infrared
@@ -139,15 +139,8 @@ class ScanSidebar(QWidget):
         self.device_combo.setToolTip("Select scanner")
         self.device_combo.addItem("Detecting scanners…", None)
 
-        self.refresh_btn = QPushButton()
-        self.refresh_btn.setIcon(qta.icon("fa5s.redo", color=THEME.text_secondary))
-        self.refresh_btn.setToolTip("Refresh device list")
-        self.refresh_btn.setFixedWidth(32)
-
-        self.eject_btn = QPushButton()
-        self.eject_btn.setIcon(qta.icon("fa5s.eject", color=THEME.text_secondary))
-        self.eject_btn.setToolTip("Eject film")
-        self.eject_btn.setFixedWidth(32)
+        self.refresh_btn = _icon_button("fa5s.redo", "Refresh device list")
+        self.eject_btn = _icon_button("fa5s.eject", "Eject film")
         self.eject_btn.setVisible(False)
 
         device_row.addWidget(self.device_combo, 1)
@@ -326,9 +319,7 @@ class ScanSidebar(QWidget):
         self.folder_edit = QLineEdit()
         self.folder_edit.setPlaceholderText("Output folder…")
         self.folder_edit.setToolTip("Directory for scanned files")
-        self.browse_btn = QPushButton("…")
-        self.browse_btn.setFixedWidth(32)
-        self.browse_btn.setToolTip("Browse for output folder")
+        self.browse_btn = _icon_button("fa5s.folder-open", "Browse for output folder")
         folder_row.addWidget(self.folder_edit)
         folder_row.addWidget(self.browse_btn)
         self.form.addRow("Folder", folder_row)

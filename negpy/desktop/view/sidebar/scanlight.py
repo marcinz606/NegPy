@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.view.sidebar.calibration_window import CalibrationWindow
 from negpy.desktop.view.sidebar.live_view_window import LiveViewWindow, SettingStepper
-from negpy.desktop.view.styles.templates import section_subheader
+from negpy.desktop.view.styles.templates import icon_button as _icon_button, section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.capture.gphoto import default_settings_path
 from negpy.infrastructure.capture.settings import ScanlightSettings, WhiteCaptureMode
@@ -293,8 +293,7 @@ class ScanlightSidebar(QWidget):
         folder_row = QHBoxLayout()
         self.folder_edit = QLineEdit(self._settings.output_folder)
         self.folder_edit.setPlaceholderText("Hot folder…")
-        self.folder_browse = QPushButton("…")
-        self.folder_browse.setFixedWidth(32)
+        self.folder_browse = _icon_button("fa5s.folder-open", "Browse for output folder")
         folder_row.addWidget(self.folder_edit)
         folder_row.addWidget(self.folder_browse)
         out_form.addRow("Folder", folder_row)
@@ -318,15 +317,11 @@ class ScanlightSidebar(QWidget):
             "Pick a saved film-stock preset (RGB levels + ISO + shutter + aperture, shown read-only), a "
             "built-in white-light mode, or “Create a manual preset…” to build one by hand"
         )
-        self.preset_new_btn = QPushButton(qta.icon("fa5s.plus", color=THEME.text_secondary), "")
-        self.preset_new_btn.setFixedWidth(32)
-        self.preset_new_btn.setToolTip("Create a preset by calibrating on the film base (auto-meters the exposure)")
-        self.preset_save_btn = QPushButton(qta.icon("fa5s.save", color=THEME.text_secondary), "")
-        self.preset_save_btn.setFixedWidth(32)
-        self.preset_save_btn.setToolTip("Name and save the manual preset you're building (only while in manual-preset mode)")
-        self.preset_del_btn = QPushButton(qta.icon("fa5s.trash", color=THEME.text_secondary), "")
-        self.preset_del_btn.setFixedWidth(32)
-        self.preset_del_btn.setToolTip("Delete the selected preset")
+        self.preset_new_btn = _icon_button("fa5s.plus", "Create a preset by calibrating on the film base (auto-meters the exposure)")
+        self.preset_save_btn = _icon_button(
+            "fa5s.save", "Name and save the manual preset you're building (only while in manual-preset mode)"
+        )
+        self.preset_del_btn = _icon_button("fa5s.trash", "Delete the selected preset")
         preset_row.addWidget(self.preset_combo, 1)
         preset_row.addWidget(self.preset_new_btn)
         preset_row.addWidget(self.preset_save_btn)

@@ -25,12 +25,15 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.widgets.contact_sheet_colors_dialog import ContactSheetColorsDialog
 from negpy.desktop.view.styles.templates import (
+    FIELD_LABEL_WIDTH,
+    ICON_BUTTON_WIDTH,
     default_button_height,
     field_label,
     hint_label,
     labeled_toggle_qss,
     section_subheader,
     set_hint_kind,
+    wrap_tooltip,
 )
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.styles.theme import THEME
@@ -251,7 +254,7 @@ class ExportSidebar(BaseSidebar):
 
         template_row = QHBoxLayout()
         template_label = field_label("Template")
-        template_label.setFixedWidth(90)
+        template_label.setFixedWidth(FIELD_LABEL_WIDTH)
         template_row.addWidget(template_label)
         self.cs_template_combo = QComboBox()
         constrain_combo(self.cs_template_combo)
@@ -265,7 +268,7 @@ class ExportSidebar(BaseSidebar):
         self.cs_delete_template_btn = QPushButton()
         self.cs_delete_template_btn.setIcon(qta.icon("fa5s.trash", color=THEME.text_primary))
         self.cs_delete_template_btn.setToolTip("Delete the selected template (Default can't be deleted)")
-        self.cs_delete_template_btn.setFixedWidth(32)
+        self.cs_delete_template_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         template_row.addWidget(self.cs_delete_template_btn)
 
         self.cs_save_template_btn = QPushButton(" Save as template")
@@ -301,7 +304,7 @@ class ExportSidebar(BaseSidebar):
 
         colors_row = QHBoxLayout()
         colors_label = field_label("Colors")
-        colors_label.setFixedWidth(90)
+        colors_label.setFixedWidth(FIELD_LABEL_WIDTH)
         colors_row.addWidget(colors_label)
         self.cs_colors_btn = QPushButton(" Choose…")
         self.cs_colors_btn.setToolTip("Background and label colors")
@@ -319,7 +322,7 @@ class ExportSidebar(BaseSidebar):
 
         cs_path_row = QHBoxLayout()
         cs_path_label = field_label("Path")
-        cs_path_label.setFixedWidth(90)
+        cs_path_label.setFixedWidth(FIELD_LABEL_WIDTH)
         cs_path_row.addWidget(cs_path_label)
         self.cs_output_path_edit = QLineEdit(conf.contact_sheet_output_path)
         self.cs_output_path_edit.setPlaceholderText("Uses export destination")
@@ -329,7 +332,7 @@ class ExportSidebar(BaseSidebar):
         self.cs_output_path_edit.textChanged.connect(lambda _: self.update_timer.start())
         self.cs_output_path_browse_btn = QPushButton()
         self.cs_output_path_browse_btn.setIcon(qta.icon("fa5s.folder-open", color=THEME.text_primary))
-        self.cs_output_path_browse_btn.setFixedWidth(40)
+        self.cs_output_path_browse_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.cs_output_path_browse_btn.setToolTip("Choose contact sheet output folder")
         self.cs_output_path_browse_btn.clicked.connect(self._browse_contact_sheet_output_path)
         cs_path_row.addWidget(self.cs_output_path_edit)
@@ -573,21 +576,27 @@ class ExportSidebar(BaseSidebar):
         intent_row.setSpacing(4)
         self.intent_print_btn = QPushButton("Print")
         self.intent_flat_btn = QPushButton("Flat")
+        self.intent_print_btn.setToolTip(wrap_tooltip("Export the print as you see it, with the full NegPy look applied."))
         self.intent_flat_btn.setToolTip(
-            "Export a flat, neutral, low-contrast master that keeps maximum tonal and color "
-            "information for editing in Lightroom, Darktable or Photoshop. Skips the creative "
-            "print look (auto density/grade, cast removal, lab effects, toning, vignette) and "
-            "writes a wide-gamut, high-bit-depth file. Your in-app preview is unaffected."
+            wrap_tooltip(
+                "Export a flat, neutral, low-contrast master that keeps maximum tonal and color "
+                "information for editing in Lightroom, Darktable or Photoshop. Skips the creative "
+                "print look (auto density/grade, cast removal, lab effects, toning, vignette) and "
+                "writes a wide-gamut, high-bit-depth file. Your in-app preview is unaffected."
+            )
         )
         self.intent_linear_btn = QPushButton("Linear")
         self.intent_linear_btn.setToolTip(
-            "Export the raw decoded sensor data as an untagged 16-bit TIFF, before any "
-            "NegPy processing (no normalization, exposure, lab, toning, color management). "
-            "Supported for Pakon RAW and LinearRaw DNG (SilverFast/VueScan) files."
+            wrap_tooltip(
+                "Export the raw decoded sensor data as an untagged 16-bit TIFF, before any "
+                "NegPy processing (no normalization, exposure, lab, toning, color management). "
+                "Supported for Pakon RAW and LinearRaw DNG (SilverFast/VueScan) files."
+            )
         )
         for btn in (self.intent_print_btn, self.intent_flat_btn, self.intent_linear_btn):
             btn.setCheckable(True)
             btn.setStyleSheet(labeled_toggle_qss())
+            btn.setFixedHeight(default_button_height())
             intent_row.addWidget(btn)
         self.intent_btn_group = QButtonGroup(self)
         self.intent_btn_group.setExclusive(True)
@@ -994,7 +1003,7 @@ class ExportSidebar(BaseSidebar):
         self.proof_delete_btn.setToolTip("Delete the selected preset")
         cond_row = QHBoxLayout()
         cond_label = field_label("Preset")
-        cond_label.setFixedWidth(90)
+        cond_label.setFixedWidth(FIELD_LABEL_WIDTH)
         cond_row.addWidget(cond_label)
         cond_row.addWidget(self.proof_condition_combo, 1)
         cond_row.addWidget(self.proof_save_btn)
@@ -1102,7 +1111,7 @@ class ExportSidebar(BaseSidebar):
     def _proof_row(label: str, widget: QWidget) -> QHBoxLayout:
         row = QHBoxLayout()
         name = field_label(label)
-        name.setFixedWidth(90)
+        name.setFixedWidth(FIELD_LABEL_WIDTH)
         row.addWidget(name)
         row.addWidget(widget)
         return row
