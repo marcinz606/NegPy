@@ -19,12 +19,14 @@ from negpy.domain.models import (
     ExportFormat,
     ExportResolutionMode,
     ColorSpace,
+    ProofIntent,
 )
 from negpy.features.altprocess.models import AltProcess
 from negpy.features.process.capture_color import wb_only_cam_xyz
 from negpy.features.process.models import ProcessMode
 from negpy.features.process.logic import effective_linear_raw, linear_raw_token
 from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix, sensor_token
+from negpy.features.exposure.analysis import COLOR_HIST_BINS
 from negpy.features.exposure.models import RenderIntent
 from negpy.features.flatfield.logic import apply_flatfield, flatfield_token
 from negpy.features.geometry.logic import autocrop_detection_key, resolve_autocrop_rect
@@ -46,6 +48,7 @@ from negpy.features.retouch.logic import (
     lines_to_score,
     manual_bake_token,
     repair_components,
+    repair_coverage,
     route_wide_defects,
     strokes_to_score,
 )
@@ -87,6 +90,23 @@ from negpy.infrastructure.display.icc_lut import DEFAULT_LUT_SIZE, apply_icc_u16
 # Preview soft-proof LUT grid. Finer than the display LUT because the proof clips at the
 # output gamut boundary, and interpolating across that kink is where the error is.
 PROOF_LUT_SIZE = 65
+# 8-bit round-trip displacement below which a color counts as printable. A v4 LUT
+# profile's own interpolation moves an in-gamut color: against a destination that cannot
+# clip anything the noise reaches 14 levels, while genuinely clipped colors move much
+# further. Sitting on the noise ceiling misses colors just barely outside and raises no
+# false alarms, which is the right bias for a warning.
+GAMUT_ROUND_TRIP_TOLERANCE = 14
+
+# Mid grey for the gamut warning: neutral, so it reads as "no color here" against any
+# picture, and mid, so it stays visible in both a shadow and a highlight.
+GAMUT_WARNING_COLOR = np.float32(0.5)
+
+# ProofIntent -> the lcms intent it names.
+_PROOF_INTENTS = {
+    ProofIntent.PERCEPTUAL.value: ImageCms.Intent.PERCEPTUAL,
+    ProofIntent.RELATIVE_COLORIMETRIC.value: ImageCms.Intent.RELATIVE_COLORIMETRIC,
+    ProofIntent.SATURATION.value: ImageCms.Intent.SATURATION,
+}
 
 logger = get_logger(__name__)
 
@@ -570,8 +590,9 @@ class ImageProcessor:
             context.metrics["autocrop_resolved_key"] = resolved_crop[1]
         # Display-overlay data: the detection-scale set that was repaired. Absent when
         # detection is off, so the overlay draws nothing.
-        if detected_dust is not None:
-            context.metrics["detected_dust_mask"] = detected_dust < 1.0
+        dust_mask = detected_dust < 1.0 if detected_dust is not None else None
+        if dust_mask is not None:
+            context.metrics["detected_dust_mask"] = dust_mask
         # Overlay wash over the inpainted hairs (they emit no stroke capsules).
         if hair_masks:
             context.metrics["hair_inpaint_masks"] = hair_masks
@@ -580,6 +601,13 @@ class ImageProcessor:
             context.metrics["ir_degenerate"] = ir_degenerate
             if ir_corrected_mask is not None:
                 context.metrics["ir_corrected_mask"] = ir_corrected_mask
+        # Read-out of how much of the scan each route rewrote. Costs a reduction per live
+        # mask; a scan with nothing repaired passes None and costs nothing.
+        context.metrics["repair_fractions"] = repair_coverage(
+            ir_corrected_mask if want_ir else None,
+            dust_mask,
+            hair_masks,
+        )
 
         if self._is_flat(settings) or crop_preview_full:
             # The crop tool's "show full uncropped frame" preview needs one CPU render per
@@ -1715,16 +1743,25 @@ class ImageProcessor:
         input_icc_path: Optional[str],
         output_icc_path: Optional[str],
         monitor_icc_bytes: Optional[bytes] = None,
+        intent: str = ProofIntent.RELATIVE_COLORIMETRIC.value,
+        black_point: bool = True,
+        paper_white: bool = True,
+        ink_black: bool = False,
     ) -> Image.Image:
         """Soft-proof the preview into display space.
 
-        For a paper/printer output profile, simulate the print on screen (paper white +
-        ink) via a proof transform. For an export color space, do a gamut-only proof
-        (relative colorimetric + BPC) ending at the display. ``display`` is the monitor
-        profile when detected (``monitor_icc_bytes``), else sRGB. The output always
-        lands in display space — otherwise it would leak output-space numbers to the
-        screen and shift per output space (issue #243). The caller shows the result raw
-        (no further display transform).
+        For a paper/printer output profile, simulate the print on screen via a proof
+        transform. For an export color space, do a gamut-only proof (relative colorimetric
+        + BPC) ending at the display. ``display`` is the monitor profile when detected
+        (``monitor_icc_bytes``), else sRGB. The output always lands in display space —
+        otherwise it would leak output-space numbers to the screen and shift per output
+        space (issue #243). The caller shows the result raw (no further display transform).
+
+        The four proof settings shape the print branch only. ``paper_white`` is the
+        absolute proof intent, which puts the paper's own tint and its lifted black on
+        screen; ``ink_black`` drops black-point compensation so the paper's real D-max
+        shows instead of being mapped onto display black. Both simulate the print's limits,
+        so both make the picture look worse and read truer.
         """
         try:
             from negpy.infrastructure.display.color_mgmt import open_profile_from_bytes
@@ -1750,15 +1787,18 @@ class ImageProcessor:
                 # transform. Relative-colorimetric source to paper, then
                 # absolute-colorimetric paper to display, so paper white and Dmax show.
                 # Handles RGB and CMYK paper profiles.
+                flags = ImageCms.Flags.SOFTPROOFING
+                if black_point and not ink_black:
+                    flags |= ImageCms.Flags.BLACKPOINTCOMPENSATION
                 proof = ImageCms.buildProofTransform(
                     p_src,
                     p_display,
                     p_dst,
                     "RGB",
                     "RGB",
-                    renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC,
-                    proofRenderingIntent=ImageCms.Intent.ABSOLUTE_COLORIMETRIC,
-                    flags=ImageCms.Flags.SOFTPROOFING,
+                    renderingIntent=_PROOF_INTENTS.get(intent, ImageCms.Intent.RELATIVE_COLORIMETRIC),
+                    proofRenderingIntent=(ImageCms.Intent.ABSOLUTE_COLORIMETRIC if paper_white else ImageCms.Intent.RELATIVE_COLORIMETRIC),
+                    flags=flags,
                 )
                 result = ImageCms.applyTransform(pil_img, proof)
                 return result if result is not None else pil_img
@@ -1807,12 +1847,21 @@ class ImageProcessor:
         output_icc_path: Optional[str],
         monitor_icc_bytes: Optional[bytes] = None,
         size: int = PROOF_LUT_SIZE,
+        intent: str = ProofIntent.RELATIVE_COLORIMETRIC.value,
+        black_point: bool = True,
+        paper_white: bool = True,
+        ink_black: bool = False,
+        gamut_warning: bool = False,
     ) -> Optional[np.ndarray]:
         """``soft_proof_preview`` baked into an (N,N,N,3) LUT, for the preview only.
 
         Built by pushing the identity grid through ``soft_proof_preview`` itself, so
         the print-profile / export-space / GRAY branches cannot drift from it. Export
         keeps the exact per-pixel transform.
+
+        This is why a proof control is cheap: the transform runs once per condition over
+        ``size**3`` nodes and the result is a texture the canvas samples, so no part of it
+        is per-frame or per-pixel work.
         """
         try:
             axis = np.linspace(0, 255, size).round().astype(np.uint8)
@@ -1824,11 +1873,78 @@ class ImageProcessor:
                 input_icc_path,
                 output_icc_path,
                 monitor_icc_bytes,
+                intent=intent,
+                black_point=black_point,
+                paper_white=paper_white,
+                ink_black=ink_black,
             )
             lut = np.asarray(proofed, dtype=np.float32).reshape(size, size, size, 3) / 255.0
+            if gamut_warning:
+                # The warning is painted into the LUT the canvas already samples, so it
+                # needs no shader and cannot diverge between the GPU and CPU display paths.
+                # The sampler is trilinear, so the mark fades out over about one grid cell
+                # rather than stopping at a hard edge.
+                out = ImageProcessor.gamut_lut(working_color_space, input_icc_path, output_icc_path, size=size)
+                if out is not None and out.shape == lut.shape[:3]:
+                    lut = lut.copy()
+                    lut[out] = GAMUT_WARNING_COLOR
             return np.ascontiguousarray(lut)
         except Exception as e:
             logger.warning("Soft-proof LUT build failed, falling back to the per-pixel transform", exc_info=e)
+            return None
+
+    @staticmethod
+    def gamut_lut(
+        working_color_space: str,
+        input_icc_path: Optional[str],
+        output_icc_path: Optional[str],
+        size: int = COLOR_HIST_BINS,
+    ) -> Optional[np.ndarray]:
+        """(N, N, N) boolean grid: True where the output profile cannot print that color.
+
+        Round-trips the identity grid source -> output -> source, relative colorimetric
+        with no black-point compensation. An in-gamut color returns where it started; one
+        clipped to the gamut surface on the way out cannot. Pillow exposes no alarm-code
+        API for lcms's own gamut flag, so the displacement is the test.
+
+        Grid centres, not corners: a corner node sits on the boundary, where the round trip
+        is a coin toss. A GRAY destination returns None, since every chromatic color fails
+        a mono profile and that is not the question being asked.
+        """
+        try:
+            if not (output_icc_path and os.path.exists(output_icc_path)):
+                # Without an output profile the destination falls back to the working space,
+                # an identity that nothing can be outside of. That is not an answer, it is
+                # the absence of a question.
+                return None
+            p_src = ImageProcessor._resolve_src_profile(working_color_space, input_icc_path)
+            p_dst = ImageProcessor._resolve_dst_profile(working_color_space, output_icc_path)
+            if p_dst is None:
+                return None
+            dst_space = (getattr(p_dst.profile, "xcolor_space", "RGB ") or "RGB ").strip()
+            if dst_space == "GRAY":
+                return None
+            axis = ((np.arange(size) + 0.5) / size * 255.0).round().astype(np.uint8)
+            r, g, b = np.meshgrid(axis, axis, axis, indexing="ij")
+            grid = np.ascontiguousarray(np.stack((r, g, b), axis=-1)).reshape(size, size * size, 3)
+
+            img = Image.fromarray(grid, mode="RGB")
+            to_out = ImageCms.profileToProfile(
+                img,
+                p_src,
+                p_dst,
+                renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC,
+                outputMode=dst_space if dst_space == "CMYK" else "RGB",
+            )
+            if to_out is None:
+                return None
+            back = ImageCms.profileToProfile(to_out, p_dst, p_src, renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC, outputMode="RGB")
+            if back is None:
+                return None
+            delta = np.abs(np.asarray(back, dtype=np.int16) - grid.astype(np.int16)).max(axis=-1)
+            return np.ascontiguousarray((delta > GAMUT_ROUND_TRIP_TOLERANCE).reshape((size, size, size)))
+        except Exception as e:
+            logger.warning("Gamut LUT build failed; the printability read-out stays off", exc_info=e)
             return None
 
     def release_source_cache(self) -> None:

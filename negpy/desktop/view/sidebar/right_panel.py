@@ -458,8 +458,21 @@ class RightPanel(QWidget):
                 clip_low,
                 clip_high,
                 scan_clip=metrics.get("scan_clip_fractions"),
+                repair=metrics.get("repair_fractions"),
+                gamut=self._gamut_fraction(metrics),
             )
         )
+
+    def _gamut_fraction(self, metrics: Dict[str, Any]) -> Any:
+        """Share of the frame the proofed output profile cannot print, or None when
+        nothing is being proofed to. The engine measures the frame's colors and knows
+        nothing about profiles; the gamut mask is built here, where the ICC lives."""
+        from negpy.features.exposure.analysis import gamut_fraction
+        from negpy.infrastructure.display.color_mgmt import get_gamut_lut
+
+        _display_cs, _monitor, proof = self.controller.display_transform_params()
+        lut = get_gamut_lut(self.controller.state.workspace_color_space, proof)
+        return gamut_fraction(metrics.get("histogram_color"), lut)
 
     def _update_step_wedge(self, config: Any, process_mode: Any, slope: float, pivot: float, metrics: Dict[str, Any]) -> None:
         """21 known log exposures through the same curve the chart just plotted, so the wedge

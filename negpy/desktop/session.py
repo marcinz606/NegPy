@@ -19,7 +19,7 @@ from negpy.desktop.sticky import (
     sticky_snapshot,
 )
 from negpy.desktop.view.canvas.crop_guides import CropGuide
-from negpy.domain.models import ExportPreset, WorkspaceConfig
+from negpy.domain.models import PROOF_INTENT_LABELS, ExportPreset, ProofIntent, WorkspaceConfig
 from negpy.features.exposure.models import apply_targets
 from negpy.features.process.models import invalidate_local_bounds
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
@@ -110,6 +110,20 @@ class AppState:
     # Soft-proof toggle: when off, Output/Input ICC affect the export only. On by default,
     # so the preview matches the export.
     soft_proof_enabled: bool = True
+    # What the proof simulates. Preview-only, app-level rather than per-edit: a proof is a
+    # property of the printer and paper in the room, not of the photograph.
+    # None = proof through the Export profile, which is what it did before the proof target
+    # could be set on its own.
+    proof_icc_path: Optional[str] = None
+    proof_intent: str = ProofIntent.RELATIVE_COLORIMETRIC.value
+    # Off by default: these simulate a sheet of paper's limits, and no paper is named until
+    # a proof profile is. See AppController.reset_proof_condition, the None preset.
+    proof_black_point: bool = False
+    proof_paper_white: bool = False
+    proof_ink_black: bool = False
+    proof_gamut_warning: bool = False
+    # Saved printer x paper conditions: [{"name": str, "icc": str|None, "intent": str, ...}].
+    proof_conditions: list = field(default_factory=list)
 
     # Hardware Acceleration
     gpu_enabled: bool = True
@@ -671,6 +685,19 @@ class DesktopSessionManager(QObject):
         saved_soft_proof = self.repo.get_global_setting("soft_proof_enabled")
         if saved_soft_proof is not None:
             self.state.soft_proof_enabled = bool(saved_soft_proof)
+        saved_proof_icc = self.repo.get_global_setting("proof_icc_path")
+        if saved_proof_icc and os.path.exists(saved_proof_icc):
+            self.state.proof_icc_path = saved_proof_icc
+        saved_intent = self.repo.get_global_setting("proof_intent")
+        if saved_intent in PROOF_INTENT_LABELS:
+            self.state.proof_intent = saved_intent
+        for key in ("proof_black_point", "proof_paper_white", "proof_ink_black", "proof_gamut_warning"):
+            saved = self.repo.get_global_setting(key)
+            if saved is not None:
+                setattr(self.state, key, bool(saved))
+        saved_conditions = self.repo.get_global_setting("proof_conditions")
+        if isinstance(saved_conditions, list):
+            self.state.proof_conditions = [c for c in saved_conditions if isinstance(c, dict) and c.get("name")]
 
         saved_flat_output = self.repo.get_global_setting("flat_output")
         if saved_flat_output is not None:
@@ -784,6 +811,13 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting("icc_output_path", self.state.icc_output_path)
         self.repo.save_global_setting("monitor_profile_override", self.state.monitor_profile_override)
         self.repo.save_global_setting("soft_proof_enabled", self.state.soft_proof_enabled)
+        self.repo.save_global_setting("proof_icc_path", self.state.proof_icc_path)
+        self.repo.save_global_setting("proof_intent", self.state.proof_intent)
+        self.repo.save_global_setting("proof_black_point", self.state.proof_black_point)
+        self.repo.save_global_setting("proof_paper_white", self.state.proof_paper_white)
+        self.repo.save_global_setting("proof_ink_black", self.state.proof_ink_black)
+        self.repo.save_global_setting("proof_gamut_warning", self.state.proof_gamut_warning)
+        self.repo.save_global_setting("proof_conditions", self.state.proof_conditions)
 
     def save_export_presets(self) -> None:
         """Persists current export presets."""

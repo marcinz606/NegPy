@@ -10,7 +10,7 @@ import numpy as np
 import wgpu  # type: ignore
 
 from negpy.domain.models import AspectRatio, ExportResolutionMode, WorkspaceConfig
-from negpy.features.exposure.analysis import DENSITY_HIST_BINS
+from negpy.features.exposure.analysis import COLOR_HIST_BINS, DENSITY_HIST_BINS
 from negpy.features.finish.logic import carrier_profiles
 from negpy.features.finish.processor import carrier_width_px
 from negpy.features.exposure import models as exposure_models
@@ -81,13 +81,15 @@ TILE_SIZE = 2048
 TILE_HALO = 32
 TILING_THRESHOLD_PX = 12_000_000
 HISTOGRAM_BINS = 256
-# Metrics buffer layout in u32 words: RGBL output histogram (metrics.wgsl), then the RGBL
-# density histogram (density_hist.wgsl). 256 B-aligned offsets, mirrored as WGSL array
-# lengths. Append-only.
+# Metrics buffer layout in u32 words: RGBL output histogram (metrics.wgsl), the RGBL
+# density histogram (density_hist.wgsl), then the joint RGB histogram (color_hist.wgsl).
+# 256 B-aligned offsets, mirrored as WGSL array lengths. Append-only.
 _METRICS_HIST_WORDS = HISTOGRAM_BINS * 4
 _METRICS_DENSITY_BASE = 1024
 _METRICS_DENSITY_WORDS = DENSITY_HIST_BINS * 4  # R, G, B, Luma
-METRICS_BUFFER_SIZE = (_METRICS_DENSITY_BASE + _METRICS_DENSITY_WORDS) * 4
+_METRICS_COLOR_BASE = 1536  # first 256 B-aligned word past the density slice
+_METRICS_COLOR_WORDS = COLOR_HIST_BINS**3
+METRICS_BUFFER_SIZE = (_METRICS_COLOR_BASE + _METRICS_COLOR_WORDS) * 4
 
 # Per-frame metrics clear; write_buffer copies at call time, so sharing is safe.
 _METRICS_ZEROS = np.zeros(METRICS_BUFFER_SIZE // 4, dtype=np.uint32)
@@ -210,6 +212,7 @@ class GPUEngine:
             "finish": get_resource_path(os.path.join("negpy", "features", "finish", "shaders", "finish.wgsl")),
             "metrics": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "metrics.wgsl")),
             "density_hist": get_resource_path(os.path.join("negpy", "features", "exposure", "shaders", "density_hist.wgsl")),
+            "color_hist": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "color_hist.wgsl")),
             "layout": get_resource_path(os.path.join("negpy", "features", "toning", "shaders", "layout.wgsl")),
         }
         self._pipelines: Dict[str, Any] = {}
@@ -1217,6 +1220,26 @@ class GPUEngine:
                 crop_w,
                 crop_h,
             )
+            # Joint RGB bins for the printability read-out. Same content texture as the
+            # marginal histogram, and profile-free: the engine never learns which output
+            # profile is being proofed to, the CPU dots this against the gamut LUT.
+            self._dispatch_pass(
+                enc,
+                "color_hist",
+                [
+                    (0, tex_toning.view),
+                    (
+                        1,
+                        {
+                            "buffer": self._buffers["metrics"].buffer,
+                            "offset": _METRICS_COLOR_BASE * 4,
+                            "size": _METRICS_COLOR_WORDS * 4,
+                        },
+                    ),
+                ],
+                crop_w,
+                crop_h,
+            )
 
         # Output transform: scene-linear to display-encoded, so every consumer reads
         # encoded data.
@@ -1260,6 +1283,11 @@ class GPUEngine:
             metrics["histogram_density"] = (
                 raw_metrics[_METRICS_DENSITY_BASE : _METRICS_DENSITY_BASE + _METRICS_DENSITY_WORDS]
                 .reshape((4, DENSITY_HIST_BINS))
+                .astype(np.float64)
+            )
+            metrics["histogram_color"] = (
+                raw_metrics[_METRICS_COLOR_BASE : _METRICS_COLOR_BASE + _METRICS_COLOR_WORDS]
+                .reshape((COLOR_HIST_BINS,) * 3)
                 .astype(np.float64)
             )
             try:
@@ -2020,7 +2048,7 @@ class GPUEngine:
         if not self.gpu.device:
             raise RuntimeError("GPU device lost")
 
-        wg_x, wg_y = (16, 16) if pipeline_name in ["autocrop", "metrics", "clahe_hist", "density_hist"] else (8, 8)
+        wg_x, wg_y = (16, 16) if pipeline_name in ["autocrop", "metrics", "clahe_hist", "density_hist", "color_hist"] else (8, 8)
 
         cache_key = (pipeline_name, tuple(_binding_identity(idx, res) for idx, res in bindings))
         bind_group = self._bind_group_cache.get(cache_key)

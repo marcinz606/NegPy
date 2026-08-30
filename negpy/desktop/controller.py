@@ -59,11 +59,14 @@ from negpy.desktop.workers.capture_worker import (
     LiveViewRequest,
 )
 from negpy.domain.models import (
+    PROOF_INTENT_LABELS,
     ColorSpace,
     ExportFormat,
     ExportPreset,
     ExportPresetOutputMode,
     ExportResolutionMode,
+    ProofCondition,
+    ProofIntent,
     WorkspaceConfig,
     canonical_crop_ratio,
     export_blocked,
@@ -1442,16 +1445,15 @@ class AppController(QObject):
         import json
 
         config = self.state.config if config is None else config
-        proofing = self.state.soft_proof_enabled
-        narrowband = self.state.config.process.narrowband_scan
         parts = (
             json.dumps(config.to_dict(), sort_keys=True, default=str),
             self.state.hq_preview,
             self.state.workspace_color_space,
             self.state.gpu_enabled,
-            proofing,
-            self.effective_input_icc() if (proofing or narrowband) else None,
-            self.effective_output_icc() if proofing else None,
+            self.state.soft_proof_enabled,
+            # The whole condition, so every proof control is part of the identity. Naming
+            # the profiles alone would memo-hit across a change of intent or paper white.
+            self.proof_profiles(),
             hashlib.md5(self.state.monitor_icc_bytes).hexdigest() if self.state.monitor_icc_bytes else "",
         )
         return hashlib.md5(repr(parts).encode()).hexdigest()
@@ -3702,9 +3704,14 @@ class AppController(QObject):
         self.request_asset_discovery(list(paths), restore_triplets=triplet)
 
     def effective_output_icc(self) -> Optional[str]:
-        """Output profile the preview proofs through: a custom override, else the
-        profile for the selected export color space. None means no proof (Same as Source)."""
+        """Profile the *export* converts to and tags with: a custom override, else the
+        profile for the selected export color space."""
         return self.state.icc_output_path or ColorSpaceRegistry.get_icc_path(self.state.config.export.export_color_space)
+
+    def effective_proof_icc(self) -> Optional[str]:
+        """Profile the preview proofs through. Falls back to the export target, so the
+        proof answers "what will the file look like" until a print is named explicitly."""
+        return self.state.proof_icc_path or self.effective_output_icc()
 
     def effective_input_icc(self, process: Optional[ProcessConfig] = None) -> Optional[str]:
         """Source profile for color management: an explicit Input ICC wins; else the
@@ -3748,8 +3755,8 @@ class AppController(QObject):
         proof = self.proof_profiles() if proofed else None
         return self.state.workspace_color_space, self.state.monitor_icc_bytes, proof
 
-    def proof_profiles(self) -> Optional[tuple]:
-        """``(input_icc, output_icc)`` for the preview proof, or None when off.
+    def proof_profiles(self) -> Optional[ProofCondition]:
+        """The `ProofCondition` the preview simulates, or None when off.
 
         Narrowband Scan supplies an implicit *input* profile whether or not the
         soft-proof toggle is on; the output profile only applies with the toggle.
@@ -3758,10 +3765,92 @@ class AppController(QObject):
         if not (proofing or narrowband_profile_active(self.state.config.process)):
             return None
         icc_input = self.effective_input_icc()
-        icc_output = self.effective_output_icc() if proofing else None
+        icc_output = self.effective_proof_icc() if proofing else None
         if not (icc_input or icc_output):
             return None
-        return icc_input, icc_output
+        st = self.state
+        return ProofCondition(
+            icc_input,
+            icc_output,
+            st.proof_intent,
+            st.proof_black_point,
+            st.proof_paper_white,
+            st.proof_ink_black,
+            # A warning drawn into the display LUT would describe a gamut nothing is being
+            # proofed to when the output leg is absent.
+            st.proof_gamut_warning and bool(icc_output),
+        )
+
+    def set_proof_field(self, name: str, value: Any) -> None:
+        """Set one proof-condition field, persist it and re-render.
+
+        One setter for all of them: each is an independent app-level preference that
+        reaches the render only by changing the display LUT's cache key.
+        """
+        if getattr(self.state, name) == value:
+            return
+        setattr(self.state, name, value)
+        self.session.save_icc_prefs()
+        self.request_render()
+
+    def save_proof_condition(self, name: str) -> None:
+        """Store the current proof settings under `name`, replacing a condition of the
+        same name."""
+        entry = {
+            "name": name,
+            "icc": self.state.proof_icc_path,
+            "intent": self.state.proof_intent,
+            "black_point": self.state.proof_black_point,
+            "paper_white": self.state.proof_paper_white,
+            "ink_black": self.state.proof_ink_black,
+        }
+        others = [c for c in self.state.proof_conditions if c.get("name") != name]
+        self.state.proof_conditions = sorted([*others, entry], key=lambda c: c["name"].lower())
+        self.session.save_icc_prefs()
+        self.config_updated.emit()
+
+    def delete_proof_condition(self, name: str) -> None:
+        self.state.proof_conditions = [c for c in self.state.proof_conditions if c.get("name") != name]
+        self.session.save_icc_prefs()
+        self.config_updated.emit()
+
+    def reset_proof_condition(self) -> None:
+        """The None preset: proof the export target, simulate nothing.
+
+        Not "proofing off": the proof still runs, it just shows the export's own gamut
+        rather than a sheet of paper's limits. Every named preset is a departure from this,
+        and it is the state a frame should be judged in before a paper is chosen.
+        """
+        st = self.state
+        st.soft_proof_enabled = True
+        st.proof_icc_path = None
+        # The intent is part of the baseline too, or None would not match itself and the
+        # preset box would go blank the moment you picked it.
+        st.proof_intent = ProofIntent.RELATIVE_COLORIMETRIC.value
+        st.proof_black_point = False
+        st.proof_paper_white = False
+        st.proof_ink_black = False
+        st.proof_gamut_warning = False
+        self.session.save_icc_prefs()
+        self.config_updated.emit()
+        self.request_render()
+
+    def apply_proof_condition(self, name: str) -> None:
+        """Load a saved preset. The gamut warning is deliberately not part of one: it is
+        a way of looking at the frame, not a property of the printer and paper."""
+        entry = next((c for c in self.state.proof_conditions if c.get("name") == name), None)
+        if entry is None:
+            return
+        st = self.state
+        icc = entry.get("icc")
+        st.proof_icc_path = icc if icc and os.path.exists(icc) else None
+        st.proof_intent = entry.get("intent") if entry.get("intent") in PROOF_INTENT_LABELS else ProofIntent.RELATIVE_COLORIMETRIC.value
+        st.proof_black_point = bool(entry.get("black_point", False))
+        st.proof_paper_white = bool(entry.get("paper_white", False))
+        st.proof_ink_black = bool(entry.get("ink_black", False))
+        self.session.save_icc_prefs()
+        self.config_updated.emit()
+        self.request_render()
 
     def proof_active(self) -> bool:
         """True when the preview should soft-proof: the toggle is on and an input or
@@ -3769,7 +3858,7 @@ class AppController(QObject):
         profile. Off → preview is the edit on the monitor."""
         if self.effective_input_icc() and narrowband_profile_active(self.state.config.process):
             return True
-        return self.state.soft_proof_enabled and bool(self.state.icc_input_path or self.effective_output_icc())
+        return self.state.soft_proof_enabled and bool(self.state.icc_input_path or self.effective_proof_icc())
 
     def set_soft_proof(self, enabled: bool) -> None:
         """Toggle preview soft-proofing through the Output/Input ICC (preview only)."""
@@ -3777,6 +3866,7 @@ class AppController(QObject):
             return
         self.state.soft_proof_enabled = enabled
         self.session.save_icc_prefs()
+        self.config_updated.emit()
         self.request_render()
 
     def _apply_monitor_profile(self) -> None:

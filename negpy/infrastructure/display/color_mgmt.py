@@ -78,9 +78,12 @@ def get_display_lut(
     if proof is not None:
         # Deferred: image_processor owns the proof's branch selection and imports this module
         # itself.
-        from negpy.services.rendering.image_processor import ImageProcessor
+        from negpy.services.rendering.image_processor import ImageProcessor, PROOF_LUT_SIZE
 
-        return ImageProcessor.soft_proof_lut(working_color_space, proof[0], proof[1], dst_bytes)
+        # A plain pair still works: the extra fields take the defaults that reproduce the
+        # behaviour from before they were controls.
+        rest = tuple(proof)[2:]
+        return ImageProcessor.soft_proof_lut(working_color_space, proof[0], proof[1], dst_bytes, PROOF_LUT_SIZE, *rest)
     if working_color_space == ColorSpace.SRGB.value and dst_bytes is None:
         return None
     try:
@@ -97,6 +100,24 @@ def get_display_lut(
     except Exception as e:
         logger.warning("Failed to build display LUT for %s", working_color_space, exc_info=e)
         return None
+
+
+@lru_cache(maxsize=8)
+def get_gamut_lut(
+    working_color_space: str,
+    proof: Optional[Tuple[Optional[str], Optional[str]]] = None,
+) -> Optional[np.ndarray]:
+    """Boolean (N, N, N) grid of the colors the proof's output profile cannot print.
+
+    None when nothing is being proofed to, so the printability read-out stays off rather
+    than describing a gamut nobody asked about. Cached per profile pair, like the display
+    LUT: building it is an ICC round trip over the whole grid, not per-frame work.
+    """
+    if proof is None or not proof[1]:
+        return None
+    from negpy.services.rendering.image_processor import ImageProcessor
+
+    return ImageProcessor.gamut_lut(working_color_space, proof[0], proof[1])
 
 
 def apply_display_transform(

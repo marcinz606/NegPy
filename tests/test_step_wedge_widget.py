@@ -116,6 +116,7 @@ def test_the_tooltip_reads_the_step_and_its_density() -> None:
 def _panel_stub(flat_peek: bool) -> MagicMock:
     panel = MagicMock()
     panel._clip_fracs = (None, None)
+    panel._gamut_fraction.return_value = None
     panel.controller.state.flat_peek = flat_peek
     panel.controller.state.negative_peek = False
     panel.controller.session.state.config = WorkspaceConfig()

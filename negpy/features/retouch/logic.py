@@ -1121,3 +1121,28 @@ def hair_bake_token(retouch) -> str:
     hair is actually detected). Distinct params → distinct inpainted source."""
     r = retouch
     return f"|hair{int(r.dust_remove)}_{round(float(r.dust_threshold), 3)}_{int(r.dust_size)}_{int(r.ir_dust_remove)}_{round(float(r.ir_threshold), 3)}"
+
+
+def repair_coverage(
+    ir_mask: Optional[np.ndarray],
+    dust_mask: Optional[np.ndarray],
+    hair_masks: Optional[List[np.ndarray]],
+) -> Tuple[float, float, float]:
+    """(ir, dust, painted) share of the scan each repair route rewrote.
+
+    Each mask is measured against its own grid: detection, IR and the manual routes run
+    at different resolutions, and a fraction is scale-free. Same-grid hair masks overlap
+    by design (a routed IR defect is also a hair), so they union rather than sum; across
+    grids the largest stands in, which cannot understate the coverage."""
+
+    def _frac(mask: Optional[np.ndarray]) -> float:
+        arr = np.asarray(mask) if mask is not None else None
+        return float(np.count_nonzero(arr) / arr.size) if arr is not None and arr.size else 0.0
+
+    by_shape: dict = {}
+    for m in hair_masks or []:
+        arr = np.asarray(m).astype(bool)
+        prev = by_shape.get(arr.shape)
+        by_shape[arr.shape] = arr if prev is None else (prev | arr)
+    painted = max((_frac(u) for u in by_shape.values()), default=0.0)
+    return _frac(ir_mask), _frac(dust_mask), painted

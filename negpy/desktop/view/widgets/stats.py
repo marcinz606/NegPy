@@ -22,6 +22,19 @@ _TOOLTIPS = {
         "scene shadows sit near sensor white — clipping there destroys base/shadow separation. Fix at capture: "
         "expose the scan lower. Turns red above 1%."
     ),
+    "Gamut": (
+        "Share of the frame the soft-proofed output profile cannot print. The Clipping row says a "
+        "tone ran off the end of the paper; this says a color is outside what the profile can make, "
+        "so it will be pulled to the nearest one it can. Appears only while soft proofing to an "
+        "output profile. Quantized to a 32-step color grid, so it answers how much of the frame, not "
+        "which pixel. Turns red above 2%."
+    ),
+    "Repair": (
+        "Share of the scan each repair route rewrote: IR Restore, detected dust, and painted heals "
+        "(strokes, scratches and routed hairs). Measured over the whole scan, border included. "
+        "Appears only once a route fires; turns red above 5%, where a route is repairing the "
+        "picture rather than the dust on it."
+    ),
 }
 
 
@@ -208,7 +221,7 @@ class ZonePlacementRows(QWidget):
 class NegativeStatsWidget(QWidget):
     """Compact numerical read-out of the negative under the Analysis charts."""
 
-    _ROWS = 4
+    _ROWS = 6
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -237,15 +250,20 @@ class NegativeStatsWidget(QWidget):
 
     def update_stats(self, rows: List[StatRow]) -> None:
         for i in range(self._ROWS):
-            if i < len(rows):
-                row = rows[i]
-                tip = _TOOLTIPS.get(row.name, "")
-                self._names[i].setText(row.name)
-                self._values[i].setText(row.value)
-                self._values[i].setStyleSheet(self._warn_css if row.warn else self._value_css)
-                # Tooltip on the whole row (hover anywhere shows it).
-                self._names[i].setToolTip(tip)
-                self._values[i].setToolTip(tip)
-            else:
+            # Unused rows hide rather than blank: an empty QLabel still claims its font
+            # height, and the Analysis chart above absorbs every pixel a row takes.
+            used = i < len(rows)
+            self._names[i].setVisible(used)
+            self._values[i].setVisible(used)
+            if not used:
                 self._names[i].setText("")
                 self._values[i].setText("")
+                continue
+            row = rows[i]
+            tip = _TOOLTIPS.get(row.name, "")
+            self._names[i].setText(row.name)
+            self._values[i].setText(row.value)
+            self._values[i].setStyleSheet(self._warn_css if row.warn else self._value_css)
+            # Tooltip on the whole row (hover anywhere shows it).
+            self._names[i].setToolTip(tip)
+            self._values[i].setToolTip(tip)

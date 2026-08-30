@@ -16,6 +16,11 @@ DENSITY_HIST_RANGE = (-0.1, 1.1)
 # Mirrors metrics.wgsl / HISTOGRAM_BINS in gpu_engine.py.
 OUTPUT_HIST_BINS = 256
 
+# Joint RGB histogram: 32 bins per axis, mirrored as the array length and BINS constant
+# in color_hist.wgsl. A color is in or out of gamut as a triple rather than per channel,
+# which is what the marginal RGBL histogram cannot answer.
+COLOR_HIST_BINS = 32
+
 # Full-res exports run through the same normalization stage, so cap the cost.
 _MAX_HIST_SAMPLES = 2_000_000
 
@@ -37,6 +42,42 @@ def output_histogram(buffer: Any) -> Optional[np.ndarray]:
     rows = [np.histogram(buffer[..., c], bins=OUTPUT_HIST_BINS, range=(0, 1))[0] for c in range(3)]
     rows.append(np.histogram(lum, bins=OUTPUT_HIST_BINS, range=(0, 1))[0])
     return np.stack(rows).astype(float)
+
+
+def color_histogram(buffer: Any) -> Optional[np.ndarray]:
+    """(32, 32, 32) joint RGB counts from an H×W×3 encoded buffer, or a ready grid
+    passed through. CPU counterpart of color_hist.wgsl."""
+    if buffer is None:
+        return None
+    buffer = np.asarray(buffer)
+    if buffer.ndim == 3 and buffer.shape == (COLOR_HIST_BINS,) * 3:
+        return buffer.astype(float)
+    if buffer.ndim != 3 or buffer.shape[-1] != 3:
+        return None
+    step = max(1, round(np.sqrt(buffer.shape[0] * buffer.shape[1] / _MAX_HIST_SAMPLES)))
+    if step > 1:
+        buffer = buffer[::step, ::step]
+    q = np.clip((np.asarray(buffer, dtype=np.float32) * COLOR_HIST_BINS).astype(np.int32), 0, COLOR_HIST_BINS - 1)
+    flat = (q[..., 0] * COLOR_HIST_BINS + q[..., 1]) * COLOR_HIST_BINS + q[..., 2]
+    counts = np.bincount(flat.ravel(), minlength=COLOR_HIST_BINS**3)
+    return counts.reshape((COLOR_HIST_BINS,) * 3).astype(float)
+
+
+def gamut_fraction(color_hist: Any, out_of_gamut: Any) -> Optional[float]:
+    """Share of the frame the output profile cannot print, from the joint histogram and a
+    boolean (32, 32, 32) gamut mask. None when either is missing.
+
+    Quantized to the histogram grid, so a color one bin inside the boundary counts as
+    printable. It answers "how much of this frame", not "is this pixel".
+    """
+    if color_hist is None or out_of_gamut is None:
+        return None
+    hist = np.asarray(color_hist, dtype=np.float64)
+    mask = np.asarray(out_of_gamut, dtype=bool)
+    if hist.shape != mask.shape:
+        return None
+    total = float(hist.sum())
+    return float(hist[mask].sum() / total) if total > 0 else None
 
 
 def output_clip_fractions(bins: np.ndarray) -> Tuple[float, float]:
