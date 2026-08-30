@@ -144,11 +144,15 @@ class PreviewManager:
 
         use_fast = (not full_resolution) and (not isinstance(raw, NonStandardFileWrapper))
         if use_fast:
-            demosaic = rawpy.DemosaicAlgorithm.LINEAR
             # half_size aliases the X-Trans 6x6 CFA into a channel-ratio cast that shows in
             # linear decodes. Bayer 2x2 averages cleanly and camera-WB previews tolerate it, so
             # only linear X-Trans decodes full-res and lets the cv2 downsample below handle it.
-            post_kw: dict = {} if (is_xtrans(raw) and not use_camera_wb) else {"half_size": True}
+            xtrans_full = is_xtrans(raw) and not use_camera_wb
+            post_kw: dict = {} if xtrans_full else {"half_size": True}
+            # That decode is the one preview that interpolates a 6x6 CFA, where LINEAR aliases
+            # far worse than the render it stands in for. PPG is LibRaw's spelling of 1-pass
+            # Markesteijn on X-Trans -- it tracks the 3-pass render at half the cost of matching it.
+            demosaic = rawpy.DemosaicAlgorithm.PPG if xtrans_full else rawpy.DemosaicAlgorithm.LINEAR
         else:
             demosaic = get_best_demosaic_algorithm(raw)
             post_kw = {}
@@ -394,13 +398,9 @@ class PreviewManager:
         try:
             ctx_mgr, _meta = loader_factory.get_loader(file_path, linear_raw=True)
             with ctx_mgr as raw:
-                if isinstance(raw, NonStandardFileWrapper):
-                    demosaic = get_best_demosaic_algorithm(raw)
-                    post_kw: dict = {}
-                else:
-                    demosaic = rawpy.DemosaicAlgorithm.LINEAR
-                    # half_size casts X-Trans channel ratios and skews detection. Bayer is fine.
-                    post_kw = {} if is_xtrans(raw) else {"half_size": True}
+                demosaic = rawpy.DemosaicAlgorithm.LINEAR
+                # half_size casts X-Trans channel ratios and skews detection. Bayer is fine.
+                post_kw: dict = {} if (isinstance(raw, NonStandardFileWrapper) or is_xtrans(raw)) else {"half_size": True}
                 rgb = raw.postprocess(
                     gamma=(1, 1),
                     no_auto_bright=True,

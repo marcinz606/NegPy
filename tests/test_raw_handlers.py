@@ -30,19 +30,15 @@ class TestRawHandlers(unittest.TestCase):
             self.assertEqual(processed.dtype, np.uint16)
             self.assertAlmostEqual(np.mean(processed), 32767, delta=100)
 
-    def test_xtrans_full_res_uses_dht_not_vng(self):
-        # VNG produces dot/maze artifacts on X-Trans's 6x6 CFA in high-contrast
-        # regions (see issue #272). DHT is the LGPL-clean algorithm built for X-Trans.
+    def test_xtrans_stays_above_ppg_for_3_pass_markesteijn(self):
+        # LibRaw reads this only as a pass count for a 6x6 CFA: PPG or below drops
+        # Markesteijn to 1 pass, which brings back dot/maze artifacts (see issue #272).
         raw = _FakeRaw(rawpy.RawType.Flat, block_size=6)
-        self.assertEqual(get_best_demosaic_algorithm(raw, for_preview=False), rawpy.DemosaicAlgorithm.DHT)
+        self.assertGreater(get_best_demosaic_algorithm(raw).value, rawpy.DemosaicAlgorithm.PPG.value)
 
-    def test_xtrans_preview_uses_linear(self):
-        raw = _FakeRaw(rawpy.RawType.Flat, block_size=6)
-        self.assertEqual(get_best_demosaic_algorithm(raw, for_preview=True), rawpy.DemosaicAlgorithm.LINEAR)
-
-    def test_bayer_full_res_uses_ahd(self):
+    def test_bayer_uses_ahd(self):
         raw = _FakeRaw(rawpy.RawType.Flat, block_size=2)
-        self.assertEqual(get_best_demosaic_algorithm(raw, for_preview=False), rawpy.DemosaicAlgorithm.AHD)
+        self.assertEqual(get_best_demosaic_algorithm(raw), rawpy.DemosaicAlgorithm.AHD)
 
     def test_is_xtrans(self):
         self.assertTrue(is_xtrans(_FakeRaw(rawpy.RawType.Flat, block_size=6)))

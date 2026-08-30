@@ -218,7 +218,8 @@ def test_load_linear_preview_hq_uses_best_demosaic_no_half() -> None:
 
 @pytest.mark.parametrize("cfa_block", [2, 6])
 def test_load_linear_preview_hq_demosaic_xtrans_vs_bayer(cfa_block: int) -> None:
-    """HQ: X-Trans (6) uses DHT; Bayer (2) uses AHD."""
+    """HQ: AHD for both. On a 6x6 CFA LibRaw substitutes Markesteijn and reads the value
+    only as a pass count, so what matters there is that it stays above PPG (3-pass)."""
     rgb_u16 = np.ones((32, 32, 3), dtype=np.uint16) * 128
 
     raw = MagicMock()
@@ -239,20 +240,27 @@ def test_load_linear_preview_hq_demosaic_xtrans_vs_bayer(cfa_block: int) -> None
         PreviewManager().load_linear_preview("/fake/path.dng", full_resolution=True)
 
     _, kwargs = raw.postprocess.call_args
-    expected = rawpy.DemosaicAlgorithm.DHT if cfa_block == 6 else rawpy.DemosaicAlgorithm.AHD
-    assert kwargs["demosaic_algorithm"] == expected
+    assert kwargs["demosaic_algorithm"] == rawpy.DemosaicAlgorithm.AHD
+    if cfa_block == 6:
+        assert kwargs["demosaic_algorithm"].value > rawpy.DemosaicAlgorithm.PPG.value
 
 
 @pytest.mark.parametrize(
-    "cfa_block,use_camera_wb,half_expected",
+    "cfa_block,use_camera_wb,half_expected,demosaic_expected",
     [
-        (6, False, False),  # X-Trans + linear: half_size aliases the 6x6 CFA → skip it
-        (6, True, True),  # X-Trans + camera WB: tolerated, keep the fast path
-        (2, False, True),  # Bayer: 2x2 averages cleanly → keep half_size
+        # X-Trans + linear: half_size aliases the 6x6 CFA → skip it, so this decode is the one
+        # preview that interpolates. PPG is LibRaw's cue for 1-pass Markesteijn there; LINEAR
+        # would alias far worse than the render it stands in for.
+        (6, False, False, rawpy.DemosaicAlgorithm.PPG),
+        (6, True, True, rawpy.DemosaicAlgorithm.LINEAR),  # X-Trans + camera WB: tolerated, keep the fast path
+        (2, False, True, rawpy.DemosaicAlgorithm.LINEAR),  # Bayer: 2x2 averages cleanly → keep half_size
     ],
 )
-def test_load_linear_preview_fast_half_size_gated_on_xtrans_linear(cfa_block: int, use_camera_wb: bool, half_expected: bool) -> None:
-    """Fast preview always uses LINEAR; half_size is dropped only for linear X-Trans decodes."""
+def test_load_linear_preview_fast_half_size_gated_on_xtrans_linear(
+    cfa_block: int, use_camera_wb: bool, half_expected: bool, demosaic_expected: object
+) -> None:
+    """half_size is dropped only for linear X-Trans decodes, which then demosaic properly.
+    Under half_size libraw skips interpolation, so the algorithm there is moot."""
     rgb_u16 = np.ones((32, 32, 3), dtype=np.uint16) * 128
 
     raw = MagicMock()
@@ -273,7 +281,7 @@ def test_load_linear_preview_fast_half_size_gated_on_xtrans_linear(cfa_block: in
         PreviewManager().load_linear_preview("/fake/path.dng", color_space="Adobe RGB", use_camera_wb=use_camera_wb, full_resolution=False)
 
     _, kwargs = raw.postprocess.call_args
-    assert kwargs["demosaic_algorithm"] == rawpy.DemosaicAlgorithm.LINEAR
+    assert kwargs["demosaic_algorithm"] == demosaic_expected
     assert (kwargs.get("half_size") is True) == half_expected
 
 
