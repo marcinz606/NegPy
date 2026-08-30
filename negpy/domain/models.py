@@ -3,7 +3,7 @@ import os
 import uuid
 
 from dataclasses import dataclass, field, asdict, replace
-from typing import Dict, Any, Optional, TypeVar
+from typing import Dict, Any, NamedTuple, Optional, TypeVar
 from enum import Enum, StrEnum
 from negpy.features.process.models import ProcessConfig
 from negpy.features.exposure.models import ExposureConfig, RenderIntent
@@ -83,6 +83,46 @@ def coerce_enum(enum_cls: type[_EnumT], value: Any, default: _EnumT) -> _EnumT:
 class ICCMode(Enum):
     OUTPUT = "Output"
     INPUT = "Input"
+
+
+class ProofIntent(StrEnum):
+    """ICC rendering intent for the soft proof's source-to-paper leg.
+
+    Not `RenderIntent`, which is NegPy's own PRINT/FLAT master mode and reaches no ICC
+    transform. Values are the lcms intent numbers as strings, so a saved condition reads
+    plainly and survives a round trip through the settings table.
+    """
+
+    PERCEPTUAL = "perceptual"
+    RELATIVE_COLORIMETRIC = "relative"
+    SATURATION = "saturation"
+
+
+PROOF_INTENT_LABELS: dict[str, str] = {
+    ProofIntent.PERCEPTUAL.value: "Perceptual",
+    ProofIntent.RELATIVE_COLORIMETRIC.value: "Relative Colorimetric",
+    ProofIntent.SATURATION.value: "Saturation",
+}
+
+
+class ProofCondition(NamedTuple):
+    """What the preview proof simulates, as one hashable value.
+
+    It is an `lru_cache` key for the display and gamut LUTs and part of the render memo
+    key, so every field must stay hashable and comparable. The first two entries keep the
+    positions the old ``(input_icc, output_icc)`` tuple had, so callers that only index
+    still work.
+
+    Defaults reproduce the behaviour that was hard-coded before these became controls.
+    """
+
+    input_icc: Optional[str] = None
+    output_icc: Optional[str] = None
+    intent: str = ProofIntent.RELATIVE_COLORIMETRIC.value
+    black_point: bool = True
+    paper_white: bool = True
+    ink_black: bool = False
+    gamut_warning: bool = False
 
 
 class ColorSpace(Enum):

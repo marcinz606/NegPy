@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSpinBox,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -37,7 +38,8 @@ from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.widgets.export_settings_form import ExportSettingsForm, constrain_combo
 from negpy.desktop.view.widgets.split_button import make_split_button
-from negpy.domain.models import ColorSpace, preset_display_name
+from negpy.domain.models import PROOF_INTENT_LABELS, ColorSpace, preset_display_name
+from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
 from negpy.services.export.contact_sheet_templates import ContactSheetLayout, ContactSheetTemplates
 
 
@@ -66,11 +68,11 @@ class ExportSidebar(BaseSidebar):
         self.layout.addWidget(self.form)
         self._add_proof_controls()
 
+        self._add_soft_proof_section()
         self._add_presets_section()
         self._add_sidecars_section()
         self._add_contact_sheet_section()
         self._add_printing_notes_section()
-        self._add_preview_section()
         self._sync_flat_enabled()
 
         self.layout.addStretch()
@@ -86,7 +88,18 @@ class ExportSidebar(BaseSidebar):
         self.form.changed.connect(self._refresh_export_enabled)
 
         self.soft_proof_checkbox.toggled.connect(self.controller.set_soft_proof)
-        self.soft_proof_checkbox.toggled.connect(self._refresh_proof_mismatch_warning)
+        self.soft_proof_checkbox.toggled.connect(lambda _: self._sync_proof_controls())
+        self.proof_profile_combo.currentIndexChanged.connect(self._on_proof_profile_changed)
+        self.proof_intent_combo.currentIndexChanged.connect(
+            lambda: self.controller.set_proof_field("proof_intent", self.proof_intent_combo.currentData())
+        )
+        self.proof_bpc_checkbox.toggled.connect(lambda v: self.controller.set_proof_field("proof_black_point", v))
+        self.proof_paper_white_checkbox.toggled.connect(lambda v: self.controller.set_proof_field("proof_paper_white", v))
+        self.proof_ink_black_checkbox.toggled.connect(lambda v: self.controller.set_proof_field("proof_ink_black", v))
+        self.proof_gamut_checkbox.toggled.connect(lambda v: self.controller.set_proof_field("proof_gamut_warning", v))
+        self.proof_save_btn.clicked.connect(self._on_save_proof_condition)
+        self.proof_delete_btn.clicked.connect(self._on_delete_proof_condition)
+        self.proof_condition_combo.currentIndexChanged.connect(self._on_proof_condition_selected)
         self.display_combo.currentIndexChanged.connect(self._on_display_changed)
         self.controller.monitor_profile_changed.connect(self._refresh_display_info)
 
@@ -943,38 +956,108 @@ class ExportSidebar(BaseSidebar):
         self.flat_peek_btn.setChecked(active)
         self.flat_peek_btn.blockSignals(False)
 
-    # --- Proof controls (preview only, parked in the form's COLOR block) ------
+    # --- Soft Proof (preview only) -------------------------------------------
 
     def _add_proof_controls(self) -> None:
-        """Soft proof and its warning, beside the Export profile they describe.
+        """The proof mismatch warning, beside the Export profile it describes.
 
-        The warning has to sit here rather than in the collapsed Preview section: it
-        explains a preview that does not match the export, and a collapsed hint cannot.
+        It has to sit here rather than in the collapsed Soft Proof section: it explains a
+        preview that does not match the export, and a collapsed hint cannot.
         """
-        self.soft_proof_checkbox = QCheckBox("Proof on screen (preview matches export)")
-        self.soft_proof_checkbox.setChecked(self.state.soft_proof_enabled)
-        self.soft_proof_checkbox.setToolTip(
-            "Simulate the Export profile (incl. paper/printer) and Input ICC in the preview, so "
-            "what you see matches what you'll get. Preview only — the export is unaffected either "
-            "way. Turn off only to preview at full gamut regardless of the export target."
-        )
-        self.form.add_color_widget(self.soft_proof_checkbox)
-
         self.proof_mismatch_label = hint_label("Soft proof is off — preview won't show the export's color clipping", kind="warning")
         self.form.add_color_widget(self.proof_mismatch_label)
-        self._refresh_proof_mismatch_warning()
 
-    # --- Preview (monitor profile, preview only) -----------------------------
-
-    def _add_preview_section(self) -> None:
-        # Preview-only, with no effect on export. Collapsed by default and parked below the
-        # export action, so it does not split the form from Export.
+    def _add_soft_proof_section(self) -> None:
+        """Everything the proof simulates, in one place: what it prints on, how the colors
+        are fitted, which of the paper's limits are shown, and the screen it is judged on."""
         content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(6)
+        col = QVBoxLayout(content)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(6)
 
-        # Display: monitor profile the preview is shown on (preview only, not export).
+        # Saved printer x paper conditions.
+        self.proof_condition_combo = QComboBox()
+        constrain_combo(self.proof_condition_combo)
+        self.proof_condition_combo.setToolTip("A saved printer and paper set-up: profile, intent and simulation toggles in one pick")
+        self.proof_save_btn = QToolButton()
+        self.proof_save_btn.setIcon(qta.icon("fa5s.save", color="#aaa"))
+        self.proof_save_btn.setToolTip("Save the current proof set-up as a named condition")
+        self.proof_delete_btn = QToolButton()
+        self.proof_delete_btn.setIcon(qta.icon("fa5s.trash", color="#aaa"))
+        self.proof_delete_btn.setToolTip("Delete the selected condition")
+        cond_row = QHBoxLayout()
+        cond_label = field_label("Condition")
+        cond_label.setFixedWidth(90)
+        cond_row.addWidget(cond_label)
+        cond_row.addWidget(self.proof_condition_combo, 1)
+        cond_row.addWidget(self.proof_save_btn)
+        cond_row.addWidget(self.proof_delete_btn)
+        col.addLayout(cond_row)
+
+        self.soft_proof_checkbox = QCheckBox("Proof on screen")
+        self.soft_proof_checkbox.setChecked(self.state.soft_proof_enabled)
+        self.soft_proof_checkbox.setToolTip(
+            tooltip_with_shortcut(
+                "Simulate the proof profile and Input ICC in the preview, so what you see matches "
+                "what you'll get. Preview only — the export is unaffected either way. Turn off to "
+                "preview at full gamut.",
+                "toggle_soft_proof",
+            )
+        )
+        col.addWidget(self.soft_proof_checkbox)
+
+        # Proof profile: defaults to the export target, so the proof answers "what will the
+        # file look like" until a print is named.
+        self.proof_profile_combo = QComboBox()
+        constrain_combo(self.proof_profile_combo)
+        self.proof_profile_combo.setToolTip(
+            "What the preview is proofed through. Follows the Export profile unless you name a "
+            "printer or paper here — set one to proof a print while exporting something else."
+        )
+        col.addLayout(self._proof_row("Profile", self.proof_profile_combo))
+
+        self.proof_intent_combo = QComboBox()
+        constrain_combo(self.proof_intent_combo)
+        for value, label in PROOF_INTENT_LABELS.items():
+            self.proof_intent_combo.addItem(label, value)
+        self.proof_intent_combo.setToolTip(
+            "How colors the paper cannot make are fitted into what it can. Relative Colorimetric "
+            "keeps in-gamut colors exact and clips the rest to the edge; Perceptual squeezes the "
+            "whole picture inward so the relationships between colors survive, which a printer "
+            "profile carries its own table for. Saturation favours vividness over accuracy."
+        )
+        col.addLayout(self._proof_row("Intent", self.proof_intent_combo))
+
+        self.proof_bpc_checkbox = QCheckBox("Black point compensation")
+        self.proof_bpc_checkbox.setToolTip(
+            "Scale the darkest tone in the picture onto the darkest the paper can make, instead of "
+            "clipping everything below it. Off is only useful for judging what falls off the bottom."
+        )
+        col.addWidget(self.proof_bpc_checkbox)
+
+        self.proof_paper_white_checkbox = QCheckBox("Simulate paper white")
+        self.proof_paper_white_checkbox.setToolTip(
+            "Show the paper's own white instead of the screen's. The picture goes dimmer and takes "
+            "the paper's tint — that is the print you will hold. Give your eyes a moment to adapt."
+        )
+        col.addWidget(self.proof_paper_white_checkbox)
+
+        self.proof_ink_black_checkbox = QCheckBox("Simulate ink black")
+        self.proof_ink_black_checkbox.setToolTip(
+            "Show the paper's real deepest black rather than mapping it onto the screen's. Shadows "
+            "lift and lose separation, which is what the print does."
+        )
+        col.addWidget(self.proof_ink_black_checkbox)
+
+        self.proof_gamut_checkbox = QCheckBox("Gamut warning")
+        self.proof_gamut_checkbox.setToolTip(
+            "Flatten every color the profile cannot print to grey, so the unprintable areas are "
+            "visible rather than merely counted. The Analysis panel's Gamut row counts them."
+        )
+        col.addWidget(self.proof_gamut_checkbox)
+
+        # The monitor is the other half of the proof chain: a proof judged on an unknown
+        # screen is not a proof.
         self.display_spaces = [
             ColorSpace.SRGB.value,
             ColorSpace.P3_D65.value,
@@ -989,23 +1072,121 @@ class ExportSidebar(BaseSidebar):
         self.display_combo.setToolTip("Monitor profile the preview is displayed on (affects preview only, not export)")
         override = self.state.monitor_profile_override
         self.display_combo.setCurrentText(override if override in self.display_spaces else "As detected")
-        disp_row = QHBoxLayout()
-        disp_label = field_label("Display")
-        disp_label.setFixedWidth(90)
-        disp_row.addWidget(disp_label)
-        disp_row.addWidget(self.display_combo)
-        content_layout.addLayout(disp_row)
+        col.addLayout(self._proof_row("Display", self.display_combo))
 
         self.display_detected_label = hint_label("")
-        content_layout.addWidget(self.display_detected_label)
+        col.addWidget(self.display_detected_label)
         self._refresh_display_info()
 
         repo = self.controller.session.repo
-        expanded = bool(repo.get_global_setting("section_expanded_export_preview", default=False))
-        section = CollapsibleSection("Preview", expanded=expanded, icon=qta.icon("fa5s.eye", color="#aaa"))
-        section.set_content(content)
-        section.expanded_changed.connect(lambda checked: repo.save_global_setting("section_expanded_export_preview", checked))
-        self.layout.addWidget(section)
+        expanded = bool(repo.get_global_setting("section_expanded_soft_proof", default=False))
+        self._soft_proof_section = CollapsibleSection("Soft Proof", expanded=expanded, icon=qta.icon("fa5s.print", color="#aaa"), info=True)
+        self._soft_proof_section.setToolTip("Simulate the print on screen: profile, intent and the paper's limits. Preview only.")
+        self._soft_proof_section.set_content(content)
+        self._soft_proof_section.expanded_changed.connect(lambda checked: repo.save_global_setting("section_expanded_soft_proof", checked))
+        self._soft_proof_section.info_requested.connect(self._show_soft_proof_help)
+        self.layout.addWidget(self._soft_proof_section)
+
+        self._reload_proof_profiles()
+        self._reload_proof_conditions()
+        self._sync_proof_controls()
+
+    @staticmethod
+    def _proof_row(label: str, widget: QWidget) -> QHBoxLayout:
+        row = QHBoxLayout()
+        name = field_label(label)
+        name.setFixedWidth(90)
+        row.addWidget(name)
+        row.addWidget(widget)
+        return row
+
+    def _show_soft_proof_help(self) -> None:
+        from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog
+
+        SectionHelpDialog("soft_proof", "Soft Proof", self).exec()
+
+    def _reload_proof_profiles(self) -> None:
+        """Imported ICC profiles only: proofing through a working-space profile answers no
+        question the unproofed preview does not already answer."""
+        from negpy.infrastructure.display.color_mgmt import ColorService
+
+        current = self.state.proof_icc_path
+        self.proof_profile_combo.blockSignals(True)
+        self.proof_profile_combo.clear()
+        self.proof_profile_combo.addItem("Use Export profile", None)
+        mapped = {ColorSpaceRegistry.get_icc_path(cs.value) for cs in ColorSpace}
+        for path in ColorService.get_available_profiles():
+            if path not in mapped:
+                self.proof_profile_combo.addItem(os.path.basename(path), path)
+        idx = self.proof_profile_combo.findData(current)
+        self.proof_profile_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.proof_profile_combo.blockSignals(False)
+
+    def _reload_proof_conditions(self) -> None:
+        self.proof_condition_combo.blockSignals(True)
+        self.proof_condition_combo.clear()
+        self.proof_condition_combo.addItem("—", None)
+        for cond in self.state.proof_conditions:
+            self.proof_condition_combo.addItem(cond["name"], cond["name"])
+        self.proof_condition_combo.blockSignals(False)
+        self.proof_delete_btn.setEnabled(bool(self.state.proof_conditions))
+
+    def _sync_proof_controls(self) -> None:
+        st = self.state
+        for widget, value in (
+            (self.soft_proof_checkbox, st.soft_proof_enabled),
+            (self.proof_bpc_checkbox, st.proof_black_point),
+            (self.proof_paper_white_checkbox, st.proof_paper_white),
+            (self.proof_ink_black_checkbox, st.proof_ink_black),
+            (self.proof_gamut_checkbox, st.proof_gamut_warning),
+        ):
+            widget.blockSignals(True)
+            widget.setChecked(bool(value))
+            widget.blockSignals(False)
+        self.proof_intent_combo.blockSignals(True)
+        idx = self.proof_intent_combo.findData(st.proof_intent)
+        self.proof_intent_combo.setCurrentIndex(max(0, idx))
+        self.proof_intent_combo.blockSignals(False)
+
+        # Everything below the toggle describes a simulation that is not running.
+        for w in (
+            self.proof_profile_combo,
+            self.proof_intent_combo,
+            self.proof_bpc_checkbox,
+            self.proof_paper_white_checkbox,
+            self.proof_ink_black_checkbox,
+            self.proof_gamut_checkbox,
+        ):
+            w.setEnabled(st.soft_proof_enabled)
+        self._refresh_proof_mismatch_warning()
+
+    def _on_proof_profile_changed(self) -> None:
+        self.controller.set_proof_field("proof_icc_path", self.proof_profile_combo.currentData())
+        self._refresh_proof_mismatch_warning()
+
+    def _on_save_proof_condition(self) -> None:
+        name, ok = QInputDialog.getText(self, "Save proof condition", "Name (printer and paper):")
+        name = name.strip()
+        if not (ok and name):
+            return
+        self.controller.save_proof_condition(name)
+        self._reload_proof_conditions()
+        self.proof_condition_combo.setCurrentText(name)
+
+    def _on_delete_proof_condition(self) -> None:
+        name = self.proof_condition_combo.currentData()
+        if not name:
+            return
+        self.controller.delete_proof_condition(name)
+        self._reload_proof_conditions()
+
+    def _on_proof_condition_selected(self) -> None:
+        name = self.proof_condition_combo.currentData()
+        if not name:
+            return
+        self.controller.apply_proof_condition(name)
+        self._reload_proof_profiles()
+        self._sync_proof_controls()
 
     # --- Edit sidecars -------------------------------------------------------
 
@@ -1320,15 +1501,21 @@ class ExportSidebar(BaseSidebar):
             set_hint_kind(self.display_detected_label, "muted")
 
     def _refresh_proof_mismatch_warning(self) -> None:
-        """Show a hint when soft proof is off and export will clamp to a
-        narrower/different color space than the preview is shown in, so the
-        preview can't be trusted to predict the exported colors."""
+        """Show a hint when the preview cannot be trusted to predict the exported colors:
+        either nothing is being proofed, or the proof is aimed at a different profile than
+        the export writes, which is a deliberate set-up rather than a mistake."""
         from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 
         vals = self.form.values()
         export_cs = vals["export_color_space"]
         retargets = bool(vals["icc_output_path"]) or export_cs not in (ColorSpace.SAME_AS_SOURCE.value, WORKING_COLOR_SPACE)
-        self.proof_mismatch_label.setVisible(not self.soft_proof_checkbox.isChecked() and retargets)
+        if not self.soft_proof_checkbox.isChecked():
+            self.proof_mismatch_label.setText("Soft proof is off — preview won't show the export's color clipping")
+            self.proof_mismatch_label.setVisible(retargets)
+            return
+        detached = bool(self.state.proof_icc_path)
+        self.proof_mismatch_label.setText("Proofing a different profile than the export writes")
+        self.proof_mismatch_label.setVisible(detached)
 
     def _refresh_export_enabled(self) -> None:
         """Disable the Export action when the current format/color-space pairing
@@ -1354,7 +1541,7 @@ class ExportSidebar(BaseSidebar):
         try:
             self.form.load(self._config_to_form_values())
             self.form.set_source_space(self.state.source_cs)
-            self.soft_proof_checkbox.setChecked(self.state.soft_proof_enabled)
+            self._sync_proof_controls()
             override = self.state.monitor_profile_override
             self.display_combo.setCurrentText(override if override in self.display_spaces else "As detected")
             self._refresh_display_info()
@@ -1400,6 +1587,13 @@ class ExportSidebar(BaseSidebar):
     def block_signals(self, blocked: bool) -> None:
         widgets = [
             self.soft_proof_checkbox,
+            self.proof_condition_combo,
+            self.proof_profile_combo,
+            self.proof_intent_combo,
+            self.proof_bpc_checkbox,
+            self.proof_paper_white_checkbox,
+            self.proof_ink_black_checkbox,
+            self.proof_gamut_checkbox,
             self.display_combo,
             self.cs_cell_px_input,
             self.cs_gap_input,

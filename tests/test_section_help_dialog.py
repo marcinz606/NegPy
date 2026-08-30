@@ -11,9 +11,9 @@ from PyQt6.QtWidgets import QWidget
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog, _guides, guide_markdown, has_guide
 
-# The Analysis read-out plus every section ControlsPanel builds, and the dialogs that carry
-# their own ⓘ. A key here with no marker in the doc silently drops that ⓘ, which nothing else
-# would catch.
+# The Analysis read-out, every section ControlsPanel builds, the Export tab's own guided
+# section, and the dialogs that carry their own ⓘ. A key here with no marker in the doc
+# silently drops that ⓘ, which nothing else would catch.
 GUIDED_KEYS = (
     "analysis",
     "presets",
@@ -30,6 +30,7 @@ GUIDED_KEYS = (
     "toning",
     "retouch",
     "finish",
+    "soft_proof",
     "scan_sane",
     "scan_strip",
 )

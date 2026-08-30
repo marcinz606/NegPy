@@ -78,9 +78,12 @@ def get_display_lut(
     if proof is not None:
         # Deferred: image_processor owns the proof's branch selection and imports this module
         # itself.
-        from negpy.services.rendering.image_processor import ImageProcessor
+        from negpy.services.rendering.image_processor import ImageProcessor, PROOF_LUT_SIZE
 
-        return ImageProcessor.soft_proof_lut(working_color_space, proof[0], proof[1], dst_bytes)
+        # A plain pair still works: the extra fields take the defaults that reproduce the
+        # behaviour from before they were controls.
+        rest = tuple(proof)[2:]
+        return ImageProcessor.soft_proof_lut(working_color_space, proof[0], proof[1], dst_bytes, PROOF_LUT_SIZE, *rest)
     if working_color_space == ColorSpace.SRGB.value and dst_bytes is None:
         return None
     try:

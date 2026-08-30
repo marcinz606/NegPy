@@ -19,6 +19,7 @@ from negpy.domain.models import (
     ExportFormat,
     ExportResolutionMode,
     ColorSpace,
+    ProofIntent,
 )
 from negpy.features.altprocess.models import AltProcess
 from negpy.features.process.capture_color import wb_only_cam_xyz
@@ -97,6 +98,17 @@ PROOF_LUT_SIZE = 65
 # the colors just barely outside and buys no false alarms, which is the right bias for a
 # warning.
 GAMUT_ROUND_TRIP_TOLERANCE = 14
+
+# Mid grey for the gamut warning: neutral, so it reads as "no color here" against any
+# picture, and mid, so it stays visible in both a shadow and a highlight.
+GAMUT_WARNING_COLOR = np.float32(0.5)
+
+# ProofIntent -> the lcms intent it names.
+_PROOF_INTENTS = {
+    ProofIntent.PERCEPTUAL.value: ImageCms.Intent.PERCEPTUAL,
+    ProofIntent.RELATIVE_COLORIMETRIC.value: ImageCms.Intent.RELATIVE_COLORIMETRIC,
+    ProofIntent.SATURATION.value: ImageCms.Intent.SATURATION,
+}
 
 logger = get_logger(__name__)
 
@@ -1733,16 +1745,26 @@ class ImageProcessor:
         input_icc_path: Optional[str],
         output_icc_path: Optional[str],
         monitor_icc_bytes: Optional[bytes] = None,
+        intent: str = ProofIntent.RELATIVE_COLORIMETRIC.value,
+        black_point: bool = True,
+        paper_white: bool = True,
+        ink_black: bool = False,
     ) -> Image.Image:
         """Soft-proof the preview into display space.
 
-        For a paper/printer output profile, simulate the print on screen (paper white +
-        ink) via a proof transform. For an export color space, do a gamut-only proof
-        (relative colorimetric + BPC) ending at the display. ``display`` is the monitor
-        profile when detected (``monitor_icc_bytes``), else sRGB. The output always
-        lands in display space — otherwise it would leak output-space numbers to the
-        screen and shift per output space (issue #243). The caller shows the result raw
-        (no further display transform).
+        For a paper/printer output profile, simulate the print on screen via a proof
+        transform. For an export color space, do a gamut-only proof (relative colorimetric
+        + BPC) ending at the display. ``display`` is the monitor profile when detected
+        (``monitor_icc_bytes``), else sRGB. The output always lands in display space —
+        otherwise it would leak output-space numbers to the screen and shift per output
+        space (issue #243). The caller shows the result raw (no further display transform).
+
+        The four proof settings shape the print branch only, and the defaults are what it
+        did before they were controls. ``paper_white`` is the absolute proof intent, which
+        is what puts the paper's own tint and its lifted black on screen; ``ink_black``
+        drops black-point compensation so the paper's real D-max shows instead of being
+        mapped onto display black. Both are simulations of the print's *limits*, so they
+        make a picture that looks worse and is more true.
         """
         try:
             from negpy.infrastructure.display.color_mgmt import open_profile_from_bytes
@@ -1768,15 +1790,18 @@ class ImageProcessor:
                 # transform. Relative-colorimetric source to paper, then
                 # absolute-colorimetric paper to display, so paper white and Dmax show.
                 # Handles RGB and CMYK paper profiles.
+                flags = ImageCms.Flags.SOFTPROOFING
+                if black_point and not ink_black:
+                    flags |= ImageCms.Flags.BLACKPOINTCOMPENSATION
                 proof = ImageCms.buildProofTransform(
                     p_src,
                     p_display,
                     p_dst,
                     "RGB",
                     "RGB",
-                    renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC,
-                    proofRenderingIntent=ImageCms.Intent.ABSOLUTE_COLORIMETRIC,
-                    flags=ImageCms.Flags.SOFTPROOFING,
+                    renderingIntent=_PROOF_INTENTS.get(intent, ImageCms.Intent.RELATIVE_COLORIMETRIC),
+                    proofRenderingIntent=(ImageCms.Intent.ABSOLUTE_COLORIMETRIC if paper_white else ImageCms.Intent.RELATIVE_COLORIMETRIC),
+                    flags=flags,
                 )
                 result = ImageCms.applyTransform(pil_img, proof)
                 return result if result is not None else pil_img
@@ -1825,12 +1850,21 @@ class ImageProcessor:
         output_icc_path: Optional[str],
         monitor_icc_bytes: Optional[bytes] = None,
         size: int = PROOF_LUT_SIZE,
+        intent: str = ProofIntent.RELATIVE_COLORIMETRIC.value,
+        black_point: bool = True,
+        paper_white: bool = True,
+        ink_black: bool = False,
+        gamut_warning: bool = False,
     ) -> Optional[np.ndarray]:
         """``soft_proof_preview`` baked into an (N,N,N,3) LUT, for the preview only.
 
         Built by pushing the identity grid through ``soft_proof_preview`` itself, so
         the print-profile / export-space / GRAY branches cannot drift from it. Export
         keeps the exact per-pixel transform.
+
+        This is the whole reason a proof control is cheap: the transform runs once per
+        condition over ``size**3`` nodes and the result is a texture the canvas samples,
+        so nothing here is per-frame or per-pixel work.
         """
         try:
             axis = np.linspace(0, 255, size).round().astype(np.uint8)
@@ -1842,8 +1876,21 @@ class ImageProcessor:
                 input_icc_path,
                 output_icc_path,
                 monitor_icc_bytes,
+                intent=intent,
+                black_point=black_point,
+                paper_white=paper_white,
+                ink_black=ink_black,
             )
             lut = np.asarray(proofed, dtype=np.float32).reshape(size, size, size, 3) / 255.0
+            if gamut_warning:
+                # The warning is painted into the LUT the canvas already samples, so it
+                # needs no shader and cannot diverge between the GPU and CPU display paths.
+                # The sampler is trilinear, so the mark fades out over about one grid cell
+                # rather than stopping at a hard edge.
+                out = ImageProcessor.gamut_lut(working_color_space, input_icc_path, output_icc_path, size=size)
+                if out is not None and out.shape == lut.shape[:3]:
+                    lut = lut.copy()
+                    lut[out] = GAMUT_WARNING_COLOR
             return np.ascontiguousarray(lut)
         except Exception as e:
             logger.warning("Soft-proof LUT build failed, falling back to the per-pixel transform", exc_info=e)
