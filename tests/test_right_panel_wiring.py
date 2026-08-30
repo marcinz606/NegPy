@@ -16,6 +16,8 @@ def _panel_stub(last_metrics: dict) -> MagicMock:
     panel.controller.state.flat_peek = False
     panel.controller.state.negative_peek = True
     panel._clip_fracs = (None, None)
+    # Nothing is being soft-proofed in these stubs, so the printability row is absent.
+    panel._gamut_fraction.return_value = None
     return panel
 
 

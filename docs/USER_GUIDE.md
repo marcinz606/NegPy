@@ -306,12 +306,14 @@ Pins are proofs, not edits. They go on any other edit and when you change frames
 
 #### Negative stats
 
-The four numeric rows at the bottom. Each has the same explanation on hover, and each measures the negative rather than your edit:
+The numeric rows at the bottom. Each has the same explanation on hover, and each measures the scan rather than your edit. The first three are always there; the last two appear only when they have something to say:
 
 *   **Negative**: the negative itself, as a relative density range (luminance) plus its development character against a nominal frame: flat (≈N−1), normal, contrasty (≈N+1). It is a relative scale, comparable across a roll, and a heuristic from this scan's normalized bounds rather than a calibrated densitometer reading.
 *   **Exposure**: where the frame's midtone sits, in stops from neutral; positive is brighter (high-key), negative darker (low-key). Approximate, read off the metered midtone.
 *   **Clipping**: share of pixels crushed to black (shadows) or blown to white (highlights), worst channel. Turns red above 1%.
 *   **Scan clip**: share of source-scan pixels at or above sensor white, per channel. In a negative scan the film base and scene shadows sit near sensor white, so clipping there destroys base and shadow separation, and no edit can undo it. Fix it at capture: expose the scan lower. Turns red above 1%.
+*   **Repair**: share of the scan each repair route rewrote — IR Restore, detected dust, and painted heals. It appears only once a route fires. The overlay shows you *where* a repair landed; this says how much, which is how you catch a threshold set so low that the repair is redrawing the picture instead of the dust on it. Measured over the whole scan, border included. Turns red above 5%.
+*   **Gamut**: share of the frame the soft-proofed output profile cannot print, shown only while you are proofing to one. Clipping says a tone ran off the end of the paper; this says a color is outside what the profile can make, so printing pulls it to the nearest one it can. Zero is the normal reading. Turns red above 2%.
 
 ---
 

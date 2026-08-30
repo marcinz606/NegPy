@@ -25,6 +25,7 @@ from negpy.features.process.capture_color import wb_only_cam_xyz
 from negpy.features.process.models import ProcessMode
 from negpy.features.process.logic import effective_linear_raw, linear_raw_token
 from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix, sensor_token
+from negpy.features.exposure.analysis import COLOR_HIST_BINS
 from negpy.features.exposure.models import RenderIntent
 from negpy.features.flatfield.logic import apply_flatfield, flatfield_token
 from negpy.features.geometry.logic import autocrop_detection_key, resolve_autocrop_rect
@@ -46,6 +47,7 @@ from negpy.features.retouch.logic import (
     lines_to_score,
     manual_bake_token,
     repair_components,
+    repair_coverage,
     route_wide_defects,
     strokes_to_score,
 )
@@ -87,6 +89,14 @@ from negpy.infrastructure.display.icc_lut import DEFAULT_LUT_SIZE, apply_icc_u16
 # Preview soft-proof LUT grid. Finer than the display LUT because the proof clips at the
 # output gamut boundary, and interpolating across that kink is where the error is.
 PROOF_LUT_SIZE = 65
+# 8-bit round-trip displacement below which a color counts as printable. The round trip
+# passes through an 8-bit device intermediate, and a v4 LUT profile's own interpolation
+# moves an in-gamut color on its own: against a destination that cannot clip anything
+# (sRGB into Rec2020) that noise reaches 14 levels, while colors a narrower destination
+# really clips (Adobe RGB into sRGB) move far further. Sitting on the noise ceiling costs
+# the colors just barely outside and buys no false alarms, which is the right bias for a
+# warning.
+GAMUT_ROUND_TRIP_TOLERANCE = 14
 
 logger = get_logger(__name__)
 
@@ -570,8 +580,9 @@ class ImageProcessor:
             context.metrics["autocrop_resolved_key"] = resolved_crop[1]
         # Display-overlay data: the detection-scale set that was repaired. Absent when
         # detection is off, so the overlay draws nothing.
-        if detected_dust is not None:
-            context.metrics["detected_dust_mask"] = detected_dust < 1.0
+        dust_mask = detected_dust < 1.0 if detected_dust is not None else None
+        if dust_mask is not None:
+            context.metrics["detected_dust_mask"] = dust_mask
         # Overlay wash over the inpainted hairs (they emit no stroke capsules).
         if hair_masks:
             context.metrics["hair_inpaint_masks"] = hair_masks
@@ -580,6 +591,13 @@ class ImageProcessor:
             context.metrics["ir_degenerate"] = ir_degenerate
             if ir_corrected_mask is not None:
                 context.metrics["ir_corrected_mask"] = ir_corrected_mask
+        # Read-out of how much of the scan each route rewrote. Costs a reduction per live
+        # mask; a scan with nothing repaired passes None and costs nothing.
+        context.metrics["repair_fractions"] = repair_coverage(
+            ir_corrected_mask if want_ir else None,
+            dust_mask,
+            hair_masks,
+        )
 
         if self._is_flat(settings) or crop_preview_full:
             # The crop tool's "show full uncropped frame" preview needs one CPU render per
@@ -1829,6 +1847,63 @@ class ImageProcessor:
             return np.ascontiguousarray(lut)
         except Exception as e:
             logger.warning("Soft-proof LUT build failed, falling back to the per-pixel transform", exc_info=e)
+            return None
+
+    @staticmethod
+    def gamut_lut(
+        working_color_space: str,
+        input_icc_path: Optional[str],
+        output_icc_path: Optional[str],
+        size: int = COLOR_HIST_BINS,
+    ) -> Optional[np.ndarray]:
+        """(N, N, N) boolean grid: True where the output profile cannot print that color.
+
+        Measured by round-tripping the identity grid source -> output -> source under
+        relative colorimetric with no black-point compensation. An in-gamut color comes
+        back where it started; an out-of-gamut one was clipped to the gamut surface on the
+        way out and cannot return, so the round-trip displacement is the gamut test. This
+        is the standard check because it needs nothing from the profile but the transform
+        it already publishes, and Pillow exposes no alarm-code API to read lcms's own
+        gamut flag.
+
+        Grid centres, not corners: a corner node sits exactly on the boundary, where the
+        round trip is a coin toss. A GRAY destination returns None — every chromatic color
+        fails a mono profile, which is not the question this read-out asks.
+        """
+        try:
+            if not (output_icc_path and os.path.exists(output_icc_path)):
+                # Without an output profile the destination falls back to the working space,
+                # an identity that nothing can be outside of. That is not an answer, it is
+                # the absence of a question.
+                return None
+            p_src = ImageProcessor._resolve_src_profile(working_color_space, input_icc_path)
+            p_dst = ImageProcessor._resolve_dst_profile(working_color_space, output_icc_path)
+            if p_dst is None:
+                return None
+            dst_space = (getattr(p_dst.profile, "xcolor_space", "RGB ") or "RGB ").strip()
+            if dst_space == "GRAY":
+                return None
+            axis = ((np.arange(size) + 0.5) / size * 255.0).round().astype(np.uint8)
+            r, g, b = np.meshgrid(axis, axis, axis, indexing="ij")
+            grid = np.ascontiguousarray(np.stack((r, g, b), axis=-1)).reshape(size, size * size, 3)
+
+            img = Image.fromarray(grid, mode="RGB")
+            to_out = ImageCms.profileToProfile(
+                img,
+                p_src,
+                p_dst,
+                renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC,
+                outputMode=dst_space if dst_space == "CMYK" else "RGB",
+            )
+            if to_out is None:
+                return None
+            back = ImageCms.profileToProfile(to_out, p_dst, p_src, renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC, outputMode="RGB")
+            if back is None:
+                return None
+            delta = np.abs(np.asarray(back, dtype=np.int16) - grid.astype(np.int16)).max(axis=-1)
+            return np.ascontiguousarray((delta > GAMUT_ROUND_TRIP_TOLERANCE).reshape((size, size, size)))
+        except Exception as e:
+            logger.warning("Gamut LUT build failed; the printability read-out stays off", exc_info=e)
             return None
 
     def release_source_cache(self) -> None:

@@ -9,7 +9,7 @@ from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.exposure.analysis import output_histogram, proof_grid, rotate_grid, strip_mosaic
+from negpy.features.exposure.analysis import color_histogram, output_histogram, proof_grid, rotate_grid, strip_mosaic
 from negpy.features.flatfield.logic import apply_flatfield
 from negpy.features.hdr.models import HdrConfig, hdr_active
 from negpy.features.geometry.batch_autocrop import CropEvidence, detect_crop_candidate, resolve_roll_crops
@@ -290,6 +290,7 @@ class RenderWorker(QObject):
             # CPU renders have no in-shader histogram; bin the float output here.
             if task.readback_metrics and "histogram_raw" not in metrics and isinstance(result, np.ndarray):
                 metrics["histogram_raw"] = output_histogram(result)
+                metrics["histogram_color"] = color_histogram(result)
 
             # The soft proof is not baked in: it rides the display LUT, so a GPU texture reaches
             # the canvas shader without a readback.

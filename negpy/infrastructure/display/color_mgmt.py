@@ -99,6 +99,24 @@ def get_display_lut(
         return None
 
 
+@lru_cache(maxsize=8)
+def get_gamut_lut(
+    working_color_space: str,
+    proof: Optional[Tuple[Optional[str], Optional[str]]] = None,
+) -> Optional[np.ndarray]:
+    """Boolean (N, N, N) grid of the colors the proof's output profile cannot print.
+
+    None when nothing is being proofed to, so the printability read-out stays off rather
+    than describing a gamut nobody asked about. Cached per profile pair, like the display
+    LUT: building it is an ICC round trip over the whole grid, not per-frame work.
+    """
+    if proof is None or not proof[1]:
+        return None
+    from negpy.services.rendering.image_processor import ImageProcessor
+
+    return ImageProcessor.gamut_lut(working_color_space, proof[0], proof[1])
+
+
 def apply_display_transform(
     buffer: np.ndarray,
     working_color_space: str,
