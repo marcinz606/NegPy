@@ -84,6 +84,30 @@ their logic and shaders stay in `features/lith/` and `features/cyanotype/`.
 7. Add unit tests; if the feature has both CPU and GPU paths, add a parity test (pattern: `test_gpu_curve_parity.py`)
 8. Document it: the panel and its controls in `docs/USER_GUIDE.md`, the stage's behaviour and math in `docs/PIPELINE.md`
 
+## UI conventions
+
+One look, from the shared layer — never a per-panel copy of it.
+
+- **Type**: four size tokens in `styles/theme.py` — `font_size_small` (12, caption/hint),
+  `font_size_base` (13, body and the QSS global), `font_size_header` (14, section),
+  `font_size_title` (16, dialog title), plus `font_size_display` for the wordmark. All in px;
+  the sheet reads them as `@font_size_basepx`. No literal size in a stylesheet string.
+- **Text color**: `text_primary` body, `text_secondary` secondary copy, `text_hint` captions
+  and hints, `warn_amber` advisories. `text_muted` is the **disabled** grey — 2.6:1 on the
+  panel, so never on text a user has to read.
+- **Controls**: build them with the factories, not by hand — `BaseSidebar._tool_toggle`
+  (icon-only or icon+label toggle), `_labeled_toggle` (checkable, carries an `edited_dot`),
+  `_labeled_action` (its one-shot twin), `templates.icon_button` / `_icon_action` (icon-only
+  action), `templates.field_label` (label beside a combo/entry), `CompactSlider` (slider with
+  a hidden spin readout; the unit goes in `unit=`, never in the label).
+  Sizes come from `ICON_BUTTON_WIDTH`, `FIELD_LABEL_WIDTH` and `default_button_height()`.
+- **Dialogs**: a hand-rolled footer calls `templates.pin_dialog_default(default, *others)` —
+  it pins Enter, opts the rest out of `autoDefault` and marks the one filled button. Cancel
+  sits before the action. Do not re-declare the dialog background; the sheet paints it.
+- **Labels**: control names Title Case ("Toe Width", "Paper White"); a label beside a
+  combo/entry sentence case ("Film stock", "Input gamma"). Same concept, same words in every
+  panel.
+
 ## Style
 
 - Use **ASD-STE100 Simplified Technical English**
