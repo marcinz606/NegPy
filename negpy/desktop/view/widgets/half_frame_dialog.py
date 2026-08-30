@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from negpy.desktop.view.styles.templates import pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 
 _HANDLE_TOL = 0.04
@@ -337,14 +338,14 @@ class HalfFrameDialog(QDialog):
         self._reset_btn.setIcon(qta.icon("fa5s.undo", color=THEME.text_primary))
         self._reset_btn.clicked.connect(self._on_reset)
         btn_row.addWidget(self._reset_btn)
-        self._ok_btn = QPushButton("Apply")
-        self._ok_btn.setObjectName("scan_btn")
-        self._ok_btn.setIcon(qta.icon("fa5s.check", color=THEME.text_primary))
-        self._ok_btn.clicked.connect(self.accept)
-        btn_row.addWidget(self._ok_btn)
         self._cancel_btn = QPushButton("Cancel")
         self._cancel_btn.clicked.connect(self.reject)
         btn_row.addWidget(self._cancel_btn)
+        self._ok_btn = QPushButton("Apply")
+        self._ok_btn.setIcon(qta.icon("fa5s.check", color=THEME.text_primary))
+        self._ok_btn.clicked.connect(self.accept)
+        btn_row.addWidget(self._ok_btn)
+        pin_dialog_default(self._ok_btn, self._auto_btn, self._reset_btn, self._cancel_btn)
         layout.addLayout(btn_row)
 
         self._preview_rgb = preview_rgb

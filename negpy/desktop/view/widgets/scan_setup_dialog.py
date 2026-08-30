@@ -43,7 +43,6 @@ class ScanSetupDialog(QDialog):
         self._light = str((saved or {}).get("light") or "white")
 
         self.setWindowTitle("Scanning Setup")
-        self.setStyleSheet(f"QDialog {{ background: {THEME.bg_dark}; }}")
         self.setMinimumWidth(460)
 
         root = QVBoxLayout(self)

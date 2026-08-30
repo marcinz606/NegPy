@@ -69,7 +69,6 @@ class GranularSettingsDialog(QDialog):
             self.setWindowTitle("Save Preset")
         else:
             self.setWindowTitle("Paste Settings" if not show_scope else "Apply Settings")
-        self.setStyleSheet(f"QDialog {{ background: {THEME.bg_dark}; }}")
         self.resize(420, 620)
 
         root = QVBoxLayout(self)

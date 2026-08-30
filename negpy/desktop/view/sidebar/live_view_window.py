@@ -15,6 +15,7 @@ from PyQt6.QtGui import QCursor, QKeySequence, QShortcut
 from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QPushButton, QToolButton, QVBoxLayout, QWidget
 
 from negpy.desktop.view.sidebar.roi_image import RoiImageLabel
+from negpy.desktop.view.styles.templates import pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.floating_panel import float_over_app
 
@@ -216,8 +217,7 @@ class LiveViewWindow(QDialog):
         # Pin Scan as the dialog's permanent default button. Without this, Qt hands "default"
         # status to whichever autoDefault button was clicked most recently, so pressing Retake
         # once made Enter keep retaking until Scan was clicked again to reclaim it (issue #997).
-        self.scan_btn.setDefault(True)
-        self.retake_btn.setAutoDefault(False)
+        pin_dialog_default(self.scan_btn, self.retake_btn)
 
         # Keyboard shortcuts while the pop-up is focused. There are no text fields here, so
         # letter keys are safe. The buttons respect their gated state.

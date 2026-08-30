@@ -139,7 +139,6 @@ class PreferencesDialog(QDialog):
         self._spins: dict[str, QSpinBox] = {}
 
         self.setWindowTitle("Preferences")
-        self.setStyleSheet(f"QDialog {{ background: {THEME.bg_dark}; }}")
         self.resize(700, 720)
         self._init_ui()
 

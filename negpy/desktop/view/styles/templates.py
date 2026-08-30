@@ -48,6 +48,22 @@ def default_button_height() -> int:
     return _default_btn_height
 
 
+def pin_dialog_default(default: QPushButton | None, *others: QPushButton) -> None:
+    """Give a hand-rolled dialog footer one Enter target and one filled button.
+
+    Qt hands "default" to whichever autoDefault button was clicked last, so pressing Enter
+    repeats that button instead of the dialog's action until another is clicked (issue #997).
+    Every button that is not the default has to opt out. Pass default=None where the footer
+    swaps its default at runtime and only the opt-out is wanted.
+    """
+    if default is not None:
+        default.setDefault(True)
+        default.setAutoDefault(True)
+        default.setProperty("primary", True)
+    for btn in others:
+        btn.setAutoDefault(False)
+
+
 def icon_button(icon_name: str, tooltip: str, width: int | None = ICON_BUTTON_WIDTH) -> QPushButton:
     """Icon-only button, sized to sit flush beside toggles and text buttons.
 

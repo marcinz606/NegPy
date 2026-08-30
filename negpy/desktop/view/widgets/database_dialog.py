@@ -48,7 +48,6 @@ class DatabaseDialog(QDialog):
         self.controller = controller
         self.setWindowTitle("Manage Database")
         self.setMinimumWidth(420)
-        self.setStyleSheet(f"QDialog {{ background: {THEME.bg_dark}; }}")
 
         root = QVBoxLayout(self)
         root.setContentsMargins(THEME.space_2xl, THEME.space_2xl, THEME.space_2xl, THEME.space_2xl)

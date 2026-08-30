@@ -359,7 +359,6 @@ class ContactSheetColorsDialog(QDialog):
         self._syncing = False
 
         self.setWindowTitle("Contact Sheet Colors")
-        self.setStyleSheet(f"QDialog {{ background: {THEME.bg_dark}; }}")
         self.setFixedWidth(328)
 
         root = QVBoxLayout(self)

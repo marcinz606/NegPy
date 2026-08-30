@@ -60,7 +60,6 @@ class FavouritesDialog(QDialog):
         self._defaults = [slider_id for slider_id in defaults if slider_id in known] if defaults is not None else None
 
         self.setWindowTitle(title)
-        self.setStyleSheet(f"QDialog {{ background: {THEME.bg_dark}; }}")
         self.resize(620, 560)
 
         root = QVBoxLayout(self)

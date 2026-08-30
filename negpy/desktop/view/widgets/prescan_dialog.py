@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.converters import ImageConverter
-from negpy.desktop.view.styles.templates import StatusStrip
+from negpy.desktop.view.styles.templates import StatusStrip, pin_dialog_default
 from negpy.desktop.view.widgets.scan_window_label import ScanWindowLabel
 from negpy.desktop.workers.scan_worker import PrescanRequest
 from negpy.infrastructure.scanners.base import ScannerDevice
@@ -100,6 +100,7 @@ class PrescanCropDialog(QDialog):
         row.addWidget(self._cancel_btn)
         row.addWidget(self._ok_btn)
         row.addWidget(self._scan_btn)
+        pin_dialog_default(self._scan_btn, self._clear_btn, self._cancel_btn, self._ok_btn)
         root.addLayout(row)
 
         self._retry_btn.clicked.connect(self._start_prescan)
@@ -178,7 +179,6 @@ class PrescanCropDialog(QDialog):
             self._label.set_window(image_rect)
         self._ok_btn.setEnabled(True)
         self._scan_btn.setEnabled(True)
-        self._scan_btn.setDefault(True)
         self._strip.set_message("Drag the rectangle to set the scan crop")
 
     def _on_prescan_error(self, message: str) -> None:
