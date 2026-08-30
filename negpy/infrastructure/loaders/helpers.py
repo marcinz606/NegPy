@@ -201,45 +201,26 @@ class NonStandardFileWrapper:
         return (data * 255.0).astype(np.uint8)
 
 
-def get_best_demosaic_algorithm(raw: Any, for_preview: bool = False) -> Any:
-    """
-    Selects optimal demosaicing algorithm based on sensor type and CFA pattern.
-    Exclusively uses algorithms packaged in the standard permissive (LGPL) rawpy build.
+def get_best_demosaic_algorithm(raw: Any) -> Any:
+    """AHD for a mosaiced sensor, LINEAR for anything that arrives de-mosaiced.
 
-    When for_preview=True, selects faster algorithms appropriate for downsampled
-    preview rendering (PPG for Bayer, LINEAR for X-Trans).
+    Only algorithms in the permissive (LGPL) rawpy build are used. On a 6x6 X-Trans CFA
+    this never reaches ahd_interpolate: LibRaw routes filters==9 to Markesteijn ahead of
+    the quality dispatch, 3-pass above PPG and 1-pass at PPG or below. Every value above
+    PPG renders the same image, so the choice only has to stay above PPG.
     """
-    selected_algo = rawpy.DemosaicAlgorithm.LINEAR
-
     if isinstance(raw, NonStandardFileWrapper):
-        return selected_algo
+        return rawpy.DemosaicAlgorithm.LINEAR
 
     try:
-        # Stacked sensors (Linear DNG, Foveon, sRAW)
-        if raw.raw_type == rawpy.RawType.Stack:
-            selected_algo = rawpy.DemosaicAlgorithm.LINEAR
-
-        # Flat sensors (Bayer, X-Trans)
-        elif raw.raw_type == rawpy.RawType.Flat:
-            cfa_block_size = raw.raw_pattern.shape[0]
-
-            if cfa_block_size == 6:
-                # A 6x6 block means a Fujifilm X-Trans sensor. LINEAR is much faster than DHT and its
-                # artifacts are invisible at preview scale. VNG was used before, but it produces dot and
-                # maze artifacts on X-Trans's 6x6 pattern in high-contrast regions (see #272). DHT was
-                # added to dcraw and LibRaw specifically to handle X-Trans, and is also LGPL-clean.
-                selected_algo = rawpy.DemosaicAlgorithm.LINEAR if for_preview else rawpy.DemosaicAlgorithm.DHT
-
-            elif cfa_block_size == 2:
-                # A 2x2 block means a standard Bayer sensor. PPG is faster than AHD with negligible
-                # quality difference at preview scale.
-                selected_algo = rawpy.DemosaicAlgorithm.PPG if for_preview else rawpy.DemosaicAlgorithm.AHD
-
+        # A 2x2 CFA block is Bayer, 6x6 is X-Trans. Anything else (Stack: Linear DNG, Foveon,
+        # sRAW) arrives de-mosaiced and only LINEAR is meaningful.
+        if raw.raw_type == rawpy.RawType.Flat and raw.raw_pattern.shape[0] in (2, 6):
+            return rawpy.DemosaicAlgorithm.AHD
     except (AttributeError, ValueError) as e:
         logger.exception(f"Failed to determine sensor CFA pattern: {e}. Falling back to LINEAR.")
-        selected_algo = rawpy.DemosaicAlgorithm.LINEAR
 
-    return selected_algo
+    return rawpy.DemosaicAlgorithm.LINEAR
 
 
 def is_xtrans(raw: Any) -> bool:
