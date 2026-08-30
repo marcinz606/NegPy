@@ -316,8 +316,7 @@ class GPUEngine:
         last = self._last_settings
         if last.geometry != settings.geometry:
             return 0
-        # k1 lives in flatfield config but is applied in the geometry pass (stage 0).
-        if last.flatfield.apply != settings.flatfield.apply or last.flatfield.k1 != settings.flatfield.k1:
+        if last.flatfield.apply != settings.flatfield.apply:
             return 0
         if last.process != settings.process or last.exposure != settings.exposure:
             return 1
@@ -491,7 +490,7 @@ class GPUEngine:
         assert device is not None
 
         h, w = img.shape[:2]
-        k1_eff = settings.flatfield.k1 if settings.flatfield.apply else 0.0
+        k1_eff = settings.geometry.distortion_k1
         source_tex = self._get_intermediate_texture(
             w,
             h,
@@ -1358,7 +1357,7 @@ class GPUEngine:
         # scale_s uses the post-rotation dims the geometry pass emits. Zeroed for tiled
         # export below, where geometry runs on the CPU instead.
         w_rot, h_rot = full_dims
-        k1_eff = settings.flatfield.k1 if settings.flatfield.apply else 0.0
+        k1_eff = settings.geometry.distortion_k1
         scale_s = compute_distortion_scale(k1_eff, w_rot, h_rot) if k1_eff != 0.0 else 1.0
         g_data = struct.pack(
             "ifii",
@@ -2148,7 +2147,7 @@ class GPUEngine:
         h, w = img.shape[:2]
 
         # Tiles apply geometry on the CPU (shader uniform zeroed), so distortion too.
-        k1_eff = settings.flatfield.k1 if settings.flatfield.apply else 0.0
+        k1_eff = settings.geometry.distortion_k1
 
         img_rot = img
         if settings.geometry.rotation != 0:

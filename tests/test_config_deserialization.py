@@ -198,6 +198,14 @@ class TestConfigDeserialization(unittest.TestCase):
         back = WorkspaceConfig.from_flat_dict({"autocrop_offset": 2})
         self.assertEqual(back.geometry.autocrop_rebate_trim, 1.0)
 
+    def test_legacy_flatfield_k1_lands_on_geometry(self):
+        config = WorkspaceConfig.from_flat_dict({"k1": 0.015})
+        self.assertEqual(config.geometry.distortion_k1, 0.015)
+
+    def test_legacy_flatfield_k1_does_not_warn(self):
+        with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):
+            WorkspaceConfig.from_flat_dict({"k1": 0.015})
+
     def test_legacy_use_original_res_does_not_warn(self):
         data = {"use_original_res": False}
         with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):

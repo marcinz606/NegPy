@@ -597,7 +597,7 @@ def clone_slider(src: CompactSlider) -> CompactSlider:
     if cls is KelvinSlider:
         return KelvinSlider(label)
     if cls is CompactSlider:
-        return CompactSlider(
+        clone = CompactSlider(
             label,
             src._min,
             src._max,
@@ -609,6 +609,9 @@ def clone_slider(src: CompactSlider) -> CompactSlider:
             unit=src.spin.suffix(),
             inverted=src.slider.invertedAppearance(),
         )
+        # Decimals are not a constructor argument, so a fine slider would drop back to 2.
+        clone.spin.setDecimals(src.spin.decimals())
+        return clone
     raise TypeError(f"clone_slider: unhandled slider class {cls.__name__}")
 
 

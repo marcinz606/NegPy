@@ -167,6 +167,16 @@ class GeometrySidebar(BaseSidebar):
         converge_row.addWidget(self.converge_h_slider)
         self.layout.addLayout(converge_row)
 
+        self.distortion_slider = CompactSlider(
+            "Distortion Correction", -0.10, 0.10, conf.distortion_k1, step=0.001, precision=1000, has_neutral=True
+        )
+        # Nothing derives the readout's decimals from `precision`, so a 0.001 step needs both.
+        self.distortion_slider.spin.setDecimals(3)
+        self.distortion_slider.setToolTip(
+            "Radial lens distortion. Positive corrects barrel, negative pincushion. Use the film rebate as a straight reference."
+        )
+        self.layout.addWidget(self.distortion_slider)
+
     def cycle_guide(self) -> None:
         self.guide_combo.setCurrentIndex((self.guide_combo.currentIndex() + 1) % self.guide_combo.count())
 
@@ -209,7 +219,13 @@ class GeometrySidebar(BaseSidebar):
             lambda v: self.update_config_section("geometry", render=True, persist=True, readback_metrics=True, fine_rotation=-v)
         )
 
-        for slider, field in ((self.converge_v_slider, "converge_v"), (self.converge_h_slider, "converge_h")):
+        self.distortion_slider.valueChanged.connect(lambda _v: self.controller.show_rotation_guide())
+
+        for slider, field in (
+            (self.converge_v_slider, "converge_v"),
+            (self.converge_h_slider, "converge_h"),
+            (self.distortion_slider, "distortion_k1"),
+        ):
             slider.valueChanged.connect(
                 lambda v, f=field: self.update_config_section("geometry", render=True, persist=False, readback_metrics=False, **{f: v})
             )
@@ -276,6 +292,7 @@ class GeometrySidebar(BaseSidebar):
             self.fine_rot_slider.setValue(-conf.fine_rotation)
             self.converge_v_slider.setValue(conf.converge_v)
             self.converge_h_slider.setValue(conf.converge_h)
+            self.distortion_slider.setValue(conf.distortion_k1)
 
             self.manual_crop_btn.setChecked(self.state.active_tool == ToolMode.CROP_MANUAL)
             self.straighten_btn.setChecked(self.state.active_tool == ToolMode.STRAIGHTEN)
@@ -298,6 +315,7 @@ class GeometrySidebar(BaseSidebar):
         self.fine_rot_slider.blockSignals(blocked)
         self.converge_v_slider.blockSignals(blocked)
         self.converge_h_slider.blockSignals(blocked)
+        self.distortion_slider.blockSignals(blocked)
         self.manual_crop_btn.blockSignals(blocked)
         self.straighten_btn.blockSignals(blocked)
         self.reset_crop_btn.blockSignals(blocked)

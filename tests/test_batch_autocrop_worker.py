@@ -2,7 +2,6 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
-import pytest
 
 import negpy.desktop.workers.render as render_workers
 from negpy.desktop.workers.render import (
@@ -127,19 +126,14 @@ def test_batch_autocrop_uses_asset_rgb_triplet_paths(qapp, monkeypatch) -> None:
     ]
 
 
-@pytest.mark.parametrize(("flatfield_enabled", "expected_k1"), [(True, 0.23), (False, 0.0)])
-def test_batch_autocrop_applies_flatfield_and_crop_free_geometry(
-    qapp,
-    monkeypatch,
-    flatfield_enabled: bool,
-    expected_k1: float,
-) -> None:
+def test_batch_autocrop_applies_flatfield_and_crop_free_geometry(qapp, monkeypatch) -> None:
     base = WorkspaceConfig()
     geometry = replace(
         base.geometry,
         rotation=1,
         fine_rotation=2.5,
         flip_horizontal=True,
+        distortion_k1=0.023,
         crop_rect=(0.1, 0.2, 0.8, 0.9),
         crop_from_auto=True,
         autocrop_offset=17,
@@ -148,9 +142,8 @@ def test_batch_autocrop_applies_flatfield_and_crop_free_geometry(
     )
     flatfield = replace(
         base.flatfield,
-        apply=flatfield_enabled,
+        apply=True,
         profile_id="rig-1",
-        k1=0.23,
     )
     config = replace(base, geometry=geometry, flatfield=flatfield)
     preview = _PreviewService()
@@ -162,9 +155,8 @@ def test_batch_autocrop_applies_flatfield_and_crop_free_geometry(
         return image + 1.0
 
     class _GeometryProcessor:
-        def __init__(self, received_geometry, distortion_k1):
+        def __init__(self, received_geometry):
             captured["geometry"] = received_geometry
-            captured["distortion_k1"] = distortion_k1
 
         def process(self, image, context):
             captured["geometry_input"] = image.copy()
@@ -192,7 +184,7 @@ def test_batch_autocrop_applies_flatfield_and_crop_free_geometry(
     assert captured["geometry"].rotation == 1
     assert captured["geometry"].fine_rotation == 2.5
     assert captured["geometry"].flip_horizontal is True
-    assert captured["distortion_k1"] == expected_k1
+    assert captured["geometry"].distortion_k1 == 0.023
     assert np.allclose(captured["geometry_input"], 1.5)
     assert np.allclose(captured["detected_image"], 3.5)
     assert captured["target_ratio"] == "4:3"

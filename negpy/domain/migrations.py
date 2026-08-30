@@ -44,6 +44,8 @@ KEY_RENAMES: Dict[str, str] = {
     # An old save with True and no rect lands armed, so it resolves on the next render.
     "manual_crop_rect": "crop_rect",
     "auto_crop_enabled": "crop_from_auto",
+    # Lens distortion moved from the rig's flat-field profile to the per-image geometry.
+    "k1": "distortion_k1",
 }
 
 # Fields removed over time. Old saves still carry them, so drop them silently and

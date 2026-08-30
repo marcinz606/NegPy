@@ -138,20 +138,6 @@ class FlatFieldProfiles:
         return sorted(out, key=lambda t: t[1].lower())
 
     @staticmethod
-    def set_k1(profile_id: str, k1: float) -> None:
-        """Rewrite a profile's rig distortion in place, preserving its baked gain."""
-        data = FlatFieldProfiles._read(profile_id, ("gain", "name", "source"))
-        if data is None or "gain" not in data:
-            return
-        FlatFieldProfiles._write(
-            profile_id,
-            np.ascontiguousarray(data["gain"], dtype=np.float32),
-            name=str(data["name"]) if "name" in data else profile_id,
-            k1=k1,
-            source=str(data["source"]) if "source" in data else "",
-        )
-
-    @staticmethod
     def delete(profile_id: str) -> None:
         try:
             os.remove(FlatFieldProfiles._path_for_id(profile_id))
