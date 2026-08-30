@@ -232,3 +232,9 @@ def test_facts_for_edited_asset_reads_capture_date_and_place():
     facts = facts_for({"name": "a.nef", "mtime": 0.0}, config)
     assert facts["shot"] == "1998-07-14 16:30"
     assert facts["place"] == "tokyo tokyo japan"
+
+
+def test_backslash_is_a_path_separator_not_an_escape():
+    r"""A Windows path survives tokenizing: a \ separates path parts, it does not escape."""
+    assert parse_query(r"path:roll12\img_0042") == [Term("path", ":", r"roll12\img_0042")]
+    assert _hits(r"path:roll12\img_0042", path=r"c:\photos\roll12\img_0042.nef") is True

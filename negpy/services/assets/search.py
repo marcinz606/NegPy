@@ -37,11 +37,21 @@ def parse_query(text: str) -> list[Term]:
     if not text:
         return []
     try:
-        tokens = shlex.split(text)
+        tokens = _tokenize(text)
     except ValueError:
         # Half-typed quote: the box is live, so fall back rather than reject.
         tokens = text.split()
     return [t for t in (_term(tok) for tok in tokens) if t is not None]
+
+
+def _tokenize(text: str) -> list[str]:
+    """Whitespace split that keeps quoted phrases. Escapes are off: a backslash is a path
+    separator on Windows, so `path:roll12\\img` has to reach the matcher intact."""
+    lexer = shlex.shlex(text, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    lexer.escape = ""
+    return list(lexer)
 
 
 def _term(token: str) -> Optional[Term]:
