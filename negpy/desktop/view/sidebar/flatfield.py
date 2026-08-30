@@ -1,6 +1,5 @@
 import os
 
-import qtawesome as qta
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QApplication,
@@ -8,13 +7,11 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QInputDialog,
-    QPushButton,
 )
 
 from negpy.desktop.view.confirm import confirm_delete_named
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import section_subheader
-from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.styles.templates import field_label, hint_label
 from negpy.desktop.view.widgets.file_dialogs import last_open_folder, pick_start_dir
 
 _NONE_LABEL = "— None —"
@@ -28,32 +25,28 @@ class FlatFieldSidebar(BaseSidebar):
     """
 
     def _init_ui(self) -> None:
+        row = QHBoxLayout()
+        row.addWidget(field_label("Profile"))
+        self.profile_combo = QComboBox()
+        self.profile_combo.setToolTip("Saved flat-field reference profiles (scan of the bare light source)")
+        row.addWidget(self.profile_combo, 1)
+
+        self.add_btn = self._icon_action("fa5s.plus", "Pick a reference image and save it as a named profile")
+        self.delete_btn = self._icon_action("fa5s.trash", "Remove the selected profile")
+        row.addWidget(self.add_btn)
+        row.addWidget(self.delete_btn)
+        self.layout.addLayout(row)
+
+        self.hint = hint_label("Add a scan of the bare light source to enable.")
+        self.layout.addWidget(self.hint)
+
         self.enable_btn = self._small_toggle(
             "fa5s.lightbulb",
-            "Flatfield Correction",
+            "Apply Flat Field",
             False,
             "Apply the active flat-field reference to this image",
         )
         self.layout.addWidget(self.enable_btn)
-
-        self.layout.addWidget(section_subheader("REFERENCE PROFILE"))
-
-        self.profile_combo = QComboBox()
-        self.profile_combo.setToolTip("Saved flat-field reference profiles (scan of the bare light source)")
-        self.layout.addWidget(self.profile_combo)
-
-        actions = QHBoxLayout()
-        self.add_btn = QPushButton(" Add…")
-        self.add_btn.setIcon(qta.icon("fa5s.plus", color=THEME.text_primary))
-        self.add_btn.setToolTip("Pick a reference image and save it as a named profile")
-
-        self.delete_btn = QPushButton(" Delete")
-        self.delete_btn.setIcon(qta.icon("fa5s.trash", color=THEME.text_primary))
-        self.delete_btn.setToolTip("Remove the selected profile")
-
-        actions.addWidget(self.add_btn)
-        actions.addWidget(self.delete_btn)
-        self.layout.addLayout(actions)
 
         self.layout.addStretch()
         self._refresh_profiles()
@@ -128,6 +121,7 @@ class FlatFieldSidebar(BaseSidebar):
 
             self.enable_btn.setChecked(conf.apply)
             self.enable_btn.setEnabled(bool(conf.profile_id))
+            self.hint.setVisible(not conf.profile_id)
         finally:
             self.block_signals(False)
 
