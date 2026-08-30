@@ -54,7 +54,9 @@ def _hydrate_and_load(controller, path, process_mode, *, autodetect=True):
 def test_rgb_triplet_enables_merge_and_discovers():
     c = _run(["r.ARW", "g.ARW", "b.ARW"], rgb_mode=True, white_mode=False)
     c.session.repo.save_global_setting.assert_any_call("rgbscan_mode", True)  # triplet → merge ON
-    c.request_asset_discovery.assert_called_once_with(["r.ARW", "g.ARW", "b.ARW"])
+    # The capture knows its own triplet, so discovery is handed it rather than asked to
+    # re-derive it from the pixels -- which can only ever refuse a frame it should keep.
+    c.request_asset_discovery.assert_called_once_with(["r.ARW", "g.ARW", "b.ARW"], restore_triplets={"r.ARW": ["g.ARW", "b.ARW"]})
     assert c._pending_scanned_file == "r.ARW"  # red is primary → auto-selected after discovery
 
 
@@ -70,13 +72,13 @@ def test_rgb_triplet_import_defaults_to_c41_without_autodetect():
 def test_normal_single_scan_leaves_merge_off():
     c = _run(["frame.ARW"], rgb_mode=False)
     c.session.repo.save_global_setting.assert_any_call("rgbscan_mode", False)  # single RAW → no merge
-    c.request_asset_discovery.assert_called_once_with(["frame.ARW"])
+    c.request_asset_discovery.assert_called_once_with(["frame.ARW"], restore_triplets=None)
 
 
 def test_white_slide_leaves_merge_off():
     c = _run(["slide.ARW"], rgb_mode=True, white_mode=True, white_process_mode="auto")
     c.session.repo.save_global_setting.assert_any_call("rgbscan_mode", False)  # one white exposure → no merge
-    c.request_asset_discovery.assert_called_once_with(["slide.ARW"])
+    c.request_asset_discovery.assert_called_once_with(["slide.ARW"], restore_triplets=None)
 
 
 def test_explicit_e6_applies_to_import_after_hydration_without_detection():

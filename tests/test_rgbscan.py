@@ -16,6 +16,7 @@ from negpy.features.rgbscan.logic import (
     classify_channel,
     frame_affinity,
     capture_ordered,
+    MIN_TRIPLET_AFFINITY,
     group_triplets,
     merge_rgb_triplet,
     probe_channel_means,
@@ -159,6 +160,64 @@ def _triplet_sigs(scene_seed):
         f"g{scene_seed}": _scene_sig(scene_seed, 0.6),
         f"b{scene_seed}": _scene_sig(scene_seed, 0.3),
     }
+
+
+def _exposure(density, contrast, gain, black=256.0, scale=4000.0):
+    """One narrowband exposure of a scene, as raw levels.
+
+    ``density`` is the scene in density units; a channel sees it through its own
+    ``contrast`` and ``gain``, which is what makes two exposures of one frame differ
+    by more than a scale factor.
+    """
+    return (gain * scale * 10.0 ** (-contrast * density) + black).astype(np.float32)
+
+
+def _density_scene(seed, h=384, w=512):
+    """A scene spanning the full density range, so the channels really do land at
+    different levels. Blurred noise on its own varies too little to tell the two
+    signatures apart."""
+    rng = np.random.default_rng(seed)
+    scene = cv2.GaussianBlur(rng.random((h, w), dtype=np.float32), (0, 0), 8.0)
+    scene -= scene.min()
+    return scene / scene.max()
+
+
+def test_scene_signature_survives_a_channel_density_difference():
+    """One scene through two channel transfers differs by a scale factor in density,
+    which the z-score removes, so two exposures agree however far apart their levels
+    sit. A gradient on the levels themselves weights each edge by the local signal
+    and cannot.
+    """
+    from negpy.features.rgbscan.logic import _scene_signature
+
+    scene = _density_scene(1)
+    red = _scene_signature(_exposure(scene, contrast=0.5, gain=1.0), 256.0)
+    blue = _scene_signature(_exposure(scene, contrast=1.9, gain=0.05), 256.0)
+    assert frame_affinity(red, blue) > 0.95
+
+
+def test_scene_signature_still_separates_two_scenes():
+    """The density signature must not agree with everything it is shown."""
+    from negpy.features.rgbscan.logic import _scene_signature
+
+    one = _scene_signature(_exposure(_density_scene(1), contrast=0.6, gain=1.0), 256.0)
+    two = _scene_signature(_exposure(_density_scene(2), contrast=1.8, gain=0.08), 256.0)
+    assert frame_affinity(one, two) < MIN_TRIPLET_AFFINITY
+
+
+def test_scene_signature_dark_exposure_clears_the_floor():
+    """A whole triplet, weakest pair included, on a scene whose blue exposure lands
+    several stops below its red: the shape of every C-41 trichrome frame."""
+    from negpy.features.rgbscan.logic import _scene_signature
+
+    scene = _density_scene(3)
+    sigs = {
+        "r": _scene_signature(_exposure(scene, contrast=0.5, gain=1.0), 256.0),
+        "g": _scene_signature(_exposure(scene, contrast=1.1, gain=0.3), 256.0),
+        "b": _scene_signature(_exposure(scene, contrast=1.9, gain=0.05), 256.0),
+    }
+    items = [("r", RED), ("g", GREEN), ("b", BLUE)]
+    assert group_triplets(items, sigs)[0].ok
 
 
 def test_frame_affinity_separates_same_scene_from_different():
@@ -414,6 +473,35 @@ def test_real_sample_classification(fname, expected):
     assert classify_channel(probe_channel_means(path)) == expected
 
 
+_TRIPLET_SAMPLES = {  # frame -> its three exposures, one C-41 trichrome capture each
+    "Frame007": (
+        "2026-08-r35s-5161_Frame007_R.ORF",
+        "2026-08-r35s-5161_Frame007_G.ORF",
+        "2026-08-r35s-5161_Frame007_B.ORF",
+    ),
+    "Frame026": (
+        "2026-08-r35s-5161_Frame026_R.ORF",
+        "2026-08-r35s-5161_Frame026_G.ORF",
+        "2026-08-r35s-5161_Frame026_B.ORF",
+    ),
+}
+
+
+@pytest.mark.parametrize("frame,files", _TRIPLET_SAMPLES.items())
+def test_real_trichrome_triplet_groups(frame, files):
+    """Real C-41 trichrome frames whose blue exposure sits several stops below their
+    red: the weakest pair a genuine triplet has to clear."""
+    paths = [os.path.join("samples", f) for f in files]
+    if not all(os.path.exists(p) for p in paths):
+        pytest.skip(f"trichrome samples for {frame} not present")
+    from negpy.features.rgbscan.logic import probe_frame
+
+    probes = {p: probe_frame(p) for p in paths}
+    items = [(p, classify_channel(probes[p].means)) for p in paths]
+    assert {ch for _, ch in items} == {RED, GREEN, BLUE}
+    assert group_triplets(items, {p: probes[p].signature for p in paths})[0].ok
+
+
 def test_preview_merge_pulls_green_blue_from_their_files():
     """Preview path must merge the triplet, not show the red exposure alone (color, not gray)."""
     if not all(os.path.exists(os.path.join("samples", f)) for f in _SAMPLES):
@@ -446,6 +534,110 @@ def test_attach_restored_triplets_rebuilds_asset(tmp_path):
     assert out[0]["green_path"] == str(g)
     assert out[0]["blue_path"] == str(b)
     assert out[0]["name"].endswith("(RGB)")
+
+
+def _fake_probes(monkeypatch, channels):
+    """Stand in for the raw read: ``channels`` maps basename -> R/G/B, and every file
+    of one frame (same basename prefix before the last "_") shares a signature."""
+    from negpy.features.rgbscan import logic
+
+    def probe(path):
+        name = os.path.basename(path)
+        scene = name.rsplit("_", 1)[0]
+        return logic.FrameProbe(
+            means=tuple(3.0 if i == channels[name] else 1.0 for i in range(3)),
+            signature=_scene_sig(sum(ord(c) for c in scene)),
+        )
+
+    monkeypatch.setattr(logic, "probe_frame", probe)
+    monkeypatch.setattr(logic, "capture_timestamp", lambda path: "")
+
+
+def test_restored_session_still_groups_the_files_it_did_not_know_about(tmp_path, monkeypatch):
+    """A restore re-attaches the triplets it saved; anything else in the manifest is
+    still grouped, or a file left loose in one session could never come back."""
+    from negpy.desktop.workers.render import AssetDiscoveryTask, AssetDiscoveryWorker
+
+    names = ["f1_r.raw", "f1_g.raw", "f1_b.raw", "f2_r.raw", "f2_g.raw", "f2_b.raw"]
+    for n in names:
+        (tmp_path / n).write_bytes(n.encode() * 64)
+    _fake_probes(monkeypatch, {n: {"r": RED, "g": GREEN, "b": BLUE}[n[-5]] for n in names})
+
+    # Frame 1 was assembled last session, so only its red is in the manifest. Frame 2
+    # was left loose, so all three of its exposures are.
+    paths = [str(tmp_path / n) for n in ("f1_r.raw", "f2_r.raw", "f2_g.raw", "f2_b.raw")]
+    triplets = {str(tmp_path / "f1_r.raw"): [str(tmp_path / "f1_g.raw"), str(tmp_path / "f1_b.raw")]}
+
+    worker = AssetDiscoveryWorker()
+    seen: list = []
+    worker.finished.connect(seen.append)
+    worker.process(AssetDiscoveryTask(paths=paths, supported_extensions=(".raw",), rgb_scan=True, restore_triplets=triplets))
+
+    out = sorted(seen.pop(), key=lambda a: a["name"])
+    assert [a["name"] for a in out] == ["f1_r (RGB)", "f2_r (RGB)"]
+    assert out[0]["green_path"].endswith("f1_g.raw"), "the restored triplet keeps its saved exposures"
+    assert out[1]["green_path"].endswith("f2_g.raw"), "the loose exposures were grouped"
+
+
+def test_restored_triplet_consumes_its_exposures_from_the_roll(tmp_path):
+    """Where the green and blue files are in the list too -- a capture, or a stitch
+    dissolved back into triplet parts -- they belong to the frame, not to the roll."""
+    from negpy.desktop.workers.render import AssetDiscoveryWorker
+
+    names = ["f1_r.raw", "f1_g.raw", "f1_b.raw"]
+    for n in names:
+        (tmp_path / n).write_bytes(n.encode())
+    assets = [{"name": n, "path": str(tmp_path / n), "hash": n} for n in names]
+    triplets = {str(tmp_path / "f1_r.raw"): [str(tmp_path / "f1_g.raw"), str(tmp_path / "f1_b.raw")]}
+
+    out = AssetDiscoveryWorker()._attach_restored_triplets(assets, triplets)
+    assert [a["name"] for a in out] == ["f1_r (RGB)"]
+
+
+def test_a_captured_triplet_assembles_even_with_nothing_to_match_on(tmp_path, monkeypatch):
+    """A frame with no structure -- clear leader, an unexposed frame, a lens cap --
+    gives the content test nothing to correlate, so no floor can admit it. The capture
+    knows the three files are one frame, so it says so instead of asking."""
+    from negpy.desktop.workers.render import AssetDiscoveryTask, AssetDiscoveryWorker
+    from negpy.features.rgbscan import logic
+
+    names = ["f1_r.raw", "f1_g.raw", "f1_b.raw"]
+    for n in names:
+        (tmp_path / n).write_bytes(n.encode() * 64)
+    flat = np.zeros((40, 60), dtype=np.float32)  # a uniform frame z-scores to nothing
+    monkeypatch.setattr(logic, "probe_frame", lambda path: logic.FrameProbe(means=(1.0, 1.0, 1.0), signature=flat))
+    monkeypatch.setattr(logic, "capture_timestamp", lambda path: "")
+    paths = [str(tmp_path / n) for n in names]
+
+    worker = AssetDiscoveryWorker()
+    seen: list = []
+    worker.finished.connect(seen.append)
+
+    def discover(restore_triplets):
+        worker.process(
+            AssetDiscoveryTask(paths=list(paths), supported_extensions=(".raw",), rgb_scan=True, restore_triplets=restore_triplets)
+        )
+        return seen.pop()
+
+    assert len(discover(None)) == 3, "derived from the pixels, a blank frame cannot be grouped"
+
+    out = discover({paths[0]: [paths[1], paths[2]]})
+    assert [a["name"] for a in out] == ["f1_r (RGB)"]
+
+
+def test_grouping_leaves_an_assembled_asset_alone(tmp_path, monkeypatch):
+    """An asset that already carries green and blue is not re-examined: its exposures
+    are not in the file list, so chunking would mix it into its neighbours."""
+    from negpy.desktop.workers.render import AssetDiscoveryWorker
+
+    names = ["f2_r.raw", "f2_g.raw", "f2_b.raw"]
+    _fake_probes(monkeypatch, {n: {"r": RED, "g": GREEN, "b": BLUE}[n[-5]] for n in names})
+    assembled = {"name": "f1_r (RGB)", "path": "/f1_r.raw", "hash": "h1", "green_path": "/f1_g.raw", "blue_path": "/f1_b.raw"}
+    loose = [{"name": n, "path": str(tmp_path / n), "hash": n} for n in names]
+
+    out = AssetDiscoveryWorker()._group_rgb_triplets([assembled, *loose])
+    assert [a["name"] for a in out] == ["f1_r (RGB)", "f2_r (RGB)"]
+    assert out[0] is assembled
 
 
 def test_config_roundtrip_preserves_rgbscan():

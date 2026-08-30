@@ -3694,7 +3694,12 @@ class AppController(QObject):
                 capture_frame=capture_frame,
             )
         self._pending_scanned_file = paths[0]
-        self.request_asset_discovery(list(paths))
+        # The capture shot these three exposures for one frame, in red/green/blue order
+        # (CaptureResult.paths), so hand discovery the triplet instead of asking it to
+        # re-derive one it already knows. Deriving it can only refuse a frame it should
+        # have kept: a blank or untextured frame gives the content test nothing to match.
+        triplet = {paths[0]: [paths[1], paths[2]]} if rgb and not white and len(paths) == 3 else None
+        self.request_asset_discovery(list(paths), restore_triplets=triplet)
 
     def effective_output_icc(self) -> Optional[str]:
         """Output profile the preview proofs through: a custom override, else the

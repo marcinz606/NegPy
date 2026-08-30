@@ -632,7 +632,7 @@ class AssetDiscoveryWorker(QObject):
 
         if task.restore_triplets:
             valid_assets = self._attach_restored_triplets(valid_assets, task.restore_triplets)
-        elif task.rgb_scan and valid_assets:
+        if task.rgb_scan and valid_assets:
             valid_assets = self._group_rgb_triplets(valid_assets)
 
         if task.restore_stitches and valid_assets:
@@ -698,19 +698,25 @@ class AssetDiscoveryWorker(QObject):
         return out
 
     def _attach_restored_triplets(self, assets: list, triplets: dict) -> list:
-        """Re-attach saved green/blue exposures to restored red assets (no reclassification)."""
+        """Re-attach known green/blue exposures to their red asset (no reclassification).
+
+        A session manifest holds the red path alone, but a capture hands over all three,
+        so the two exposures that became part of a frame are dropped from the roll.
+        """
         import os
 
         out = []
+        parts: set = set()
         for a in assets:
             gb = triplets.get(a["path"])
             if gb and gb[0] and gb[1] and os.path.exists(gb[0]) and os.path.exists(gb[1]):
                 base = os.path.splitext(a["name"])[0]
                 align = bool(gb[2]) if len(gb) > 2 else True
                 out.append({**a, "name": f"{base} (RGB)", "green_path": gb[0], "blue_path": gb[1], "align": align})
+                parts.update({gb[0], gb[1]})
             else:
                 out.append(a)
-        return out
+        return _without_parts(out, parts)
 
     def _attach_restored_stitches(self, assets: list, stitches: dict) -> list:
         """Re-attach saved stitch registrations to restored primary assets (no re-registration).
@@ -786,7 +792,12 @@ class AssetDiscoveryWorker(QObject):
         """Classify each file by dominant channel and merge consecutive R/G/B triplets
         into one asset (red is primary; green/blue ride along). A chunk that does not
         hold one of each channel, or whose three exposures do not show the same frame,
-        is left alone: its files stay individual and can be paired by hand."""
+        is left alone: its files stay individual and can be paired by hand.
+
+        An asset that already carries its green and blue exposures keeps them and is
+        not re-examined. Grouping runs beside a restore, not instead of it, so files
+        the restore knew nothing about still get their chance.
+        """
         import os
 
         from negpy.features.rgbscan.logic import (
@@ -797,6 +808,11 @@ class AssetDiscoveryWorker(QObject):
             looks_narrowband,
             probe_frame,
         )
+
+        assembled = [a for a in assets if a.get("green_path") and a.get("blue_path")]
+        assets = [a for a in assets if not (a.get("green_path") and a.get("blue_path"))]
+        if not assets:
+            return assembled
 
         by_path = {a["path"]: a for a in assets}
         ordered = sorted(by_path, key=lambda p: os.path.basename(p).lower())
@@ -810,7 +826,7 @@ class AssetDiscoveryWorker(QObject):
         items = [(p, classify_channel(pr.means)) for p, pr in zip(ordered, probes) if pr is not None]
         signatures = {p: pr.signature for p, pr in zip(ordered, probes) if pr is not None}
 
-        result = []
+        result = list(assembled)
         grouped = set()
         incomplete = mismatched = 0
         for t in group_triplets(items, signatures):
