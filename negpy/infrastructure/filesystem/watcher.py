@@ -18,6 +18,11 @@ class FolderWatchService:
         if not os.path.exists(folder_path):
             return []
 
+        # existing_paths can carry either separator convention (Qt's file dialogs always
+        # return forward slashes; os.path.abspath below always returns the OS-native form),
+        # and Windows paths are case-insensitive, so compare normcased keys, not raw strings.
+        existing_keys = {os.path.normcase(os.path.abspath(p)) for p in existing_paths}
+
         new_files = []
         try:
             with os.scandir(folder_path) as it:
@@ -26,7 +31,7 @@ class FolderWatchService:
                         ext = os.path.splitext(entry.name)[1].lower()
                         if ext in cls.SUPPORTED_EXTS and not is_ir_sidecar_path(entry.path):
                             full_path = os.path.abspath(entry.path)
-                            if full_path not in existing_paths:
+                            if os.path.normcase(full_path) not in existing_keys:
                                 new_files.append(full_path)
         except Exception:
             pass
