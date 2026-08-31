@@ -40,22 +40,32 @@ review, not an automatic edit.
 
 4. **Drop housekeeping commits** — no changelog line for: README/badge edits, changelog typo fixes, merge/revert/"rogue file" cleanups, pure internal log-noise fixes, version bumps.
 
-5. **Drop fixes and tweaks to a feature added in the same range** — a bug that
-   never reached a build is not news. Fold anything the user should know into
-   the feature's own `New:` bullet and write no `Fix:` line. Check every `Fix:`
-   candidate against the range's `New:` bullets before keeping it, and check
-   the entries already in the section too, not only the new commits.
+5. **One bullet per feature, never one per commit.** A feature built over
+   several commits — the feature, then its fixes, follow-ups and polish — gets a
+   single bullet describing the shipped state. Fold anything the user should
+   know into that bullet and write no extra `Fix:` or `Change:` line: a bug that
+   never reached a build is not news. Group the range's commits by feature
+   first, then write. Check every candidate bullet against the range's other
+   bullets *and* the entries already in the section, not only the new commits.
+
+   The same holds for a fix to an existing panel or control touched more than
+   once in the range: one bullet naming the end state, not a line per commit.
 
 6. **Check what's already documented** — the top `##` section may already hold a few entries. Merge into it; don't duplicate.
 
-7. **Write one bullet per remaining commit** in the house style (below), grouped New → Change → Fix.
+7. **Write one bullet per feature** in the house style (below), grouped New → Change → Fix.
 
 8. **Show the draft in the reply.** On approval, insert into `docs/CHANGELOG.md` under the target `## X.X.X` heading (create it if absent), merged with any entries already there.
+
+9. **Set `VERSION` to the requested version** — the repo-root `VERSION` file holds
+   the bare number (`0.56.0`, no `v`, trailing newline). Write it in the same
+   change as the accepted changelog entry.
 
 ## House style
 
 (Established preference — see the user's changelog-style memory.)
 
+- **One entry per feature**, not per commit — the shipped state, with its in-cycle fixes folded in.
 - **One line per entry**, no explanatory paragraphs: `Prefix: **bold lead** — terse clause naming what was done.` Skip the failure-mode/root-cause narrative even on fixes. The long multi-sentence bullets in old sections are **not** the target.
 - Prefix each with `New:` / `Change:` / `Fix:` (use `Change/Fix:` if genuinely both). Group in that order.
 - **No PR/issue numbers** (`(#604)`) — user-facing notes, not a dev index.
