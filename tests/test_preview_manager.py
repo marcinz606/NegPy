@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 import rawpy
 
+from negpy.features.process.models import DemosaicMode
 from negpy.infrastructure.loaders.tiff_loader import NonStandardFileWrapper
 from negpy.services.rendering.preview_manager import PreviewManager
 
@@ -471,3 +472,34 @@ def test_output_dimensions_from_raw_sizes_not_postprocessed_shape() -> None:
         _buf, dims, _ = PreviewManager().load_linear_preview("/fake/path.dng")
 
     assert dims == (32, 24)
+
+
+def test_explicit_demosaic_drops_half_size() -> None:
+    """A chosen algorithm decodes full-size: libraw ignores it while binning 2x2 quads."""
+    rgb_u16 = np.zeros((32, 24, 3), dtype=np.uint16)
+
+    raw = MagicMock()
+    raw.raw_type = rawpy.RawType.Flat
+    raw.raw_pattern = np.zeros((2, 2), dtype=np.uint8)
+    raw.sizes = SimpleNamespace(raw_height=32, raw_width=24, iheight=32, iwidth=24)
+    raw.postprocess = MagicMock(return_value=rgb_u16)
+
+    class _Ctx:
+        def __enter__(self) -> MagicMock:
+            return raw
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    with patch("negpy.services.rendering.preview_manager.loader_factory") as lf:
+        lf.get_loader.return_value = (_Ctx(), {"color_space": "Adobe RGB"})
+        PreviewManager().load_linear_preview(
+            "/fake/path.dng",
+            color_space="Adobe RGB",
+            use_camera_wb=False,
+            demosaic=DemosaicMode.VNG,
+        )
+
+    _, kwargs = raw.postprocess.call_args
+    assert kwargs["demosaic_algorithm"] == rawpy.DemosaicAlgorithm.VNG
+    assert "half_size" not in kwargs

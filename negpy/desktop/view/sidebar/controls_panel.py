@@ -25,6 +25,7 @@ from negpy.desktop.view.sidebar.presets import PresetsSidebar
 from negpy.desktop.view.sidebar.flatfield import FlatFieldSidebar
 from negpy.desktop.view.sidebar.process import ProcessSidebar
 from negpy.desktop.view.sidebar.roll import RollAnalysisSidebar
+from negpy.desktop.view.sidebar.demosaic import DemosaicSidebar
 from negpy.desktop.view.sidebar.sensor import SensorSidebar
 from negpy.desktop.view.sidebar.color import ColorSidebar
 from negpy.desktop.view.sidebar.tone import ToneSidebar
@@ -50,6 +51,10 @@ _COLOR_FIELDS = (
     "highlight_magenta",
     "highlight_yellow",
     "cast_removal_strength",
+)
+_DEMOSAIC_FIELDS = (
+    "demosaic_preview",
+    "demosaic_export",
 )
 _SENSOR_FIELDS = (
     "sensor_profile",
@@ -177,6 +182,14 @@ class ControlsPanel(QWidget):
             icon=qta.icon("fa5s.vials", color=icon_color),
         )
 
+        self.demosaic_sidebar = DemosaicSidebar(self.controller)
+        self.demosaic_section = self._make_section(
+            "Demosaic",
+            "demosaic",
+            self.demosaic_sidebar,
+            icon=qta.icon("mdi6.grid", color=icon_color),
+        )
+
         self.roll_sidebar = RollAnalysisSidebar(self.controller)
         self.roll_section = self._make_section(
             "Roll Analysis",
@@ -260,9 +273,9 @@ class ControlsPanel(QWidget):
             (
                 "setup",
                 "fa5s.cogs",
-                "Setup — Calibration, Normalization, Roll Analysis, Presets",
-                [self.sensor_section, self.process_section, self.roll_section, self.presets_section],
-                ["sensor_section", "process_section", "roll_section"],
+                "Setup — Calibration, Demosaic, Normalization, Roll Analysis, Presets",
+                [self.sensor_section, self.demosaic_section, self.process_section, self.roll_section, self.presets_section],
+                ["sensor_section", "demosaic_section", "process_section", "roll_section"],
             ),
             (
                 "geometry",
@@ -368,6 +381,7 @@ class ControlsPanel(QWidget):
         self.finish_section.reset_requested.connect(lambda: self.controller.session.reset_section("finish"))
         self.roll_section.reset_requested.connect(self.controller.clear_roll_baseline)
         self.sensor_section.reset_requested.connect(self._reset_sensor_fields)
+        self.demosaic_section.reset_requested.connect(lambda: self._reset_process_fields(_DEMOSAIC_FIELDS))
         self.flatfield_section.reset_requested.connect(self._reset_flatfield)
 
     def apply_shortcut_tooltips(self) -> None:
@@ -761,6 +775,7 @@ class ControlsPanel(QWidget):
         self.presets_sidebar.sync_ui()
         self.flatfield_sidebar.sync_ui()
         self.sensor_sidebar.sync_ui()
+        self.demosaic_sidebar.sync_ui()
         self._sync_modified_dots()
 
     def _update_histogram(self) -> None:
@@ -773,13 +788,15 @@ class ControlsPanel(QWidget):
         self.color_histogram.update_data(buf)
 
     def _reset_sensor_fields(self) -> None:
-        """Calibration's fields live on ProcessConfig, so its reset is scoped to them."""
+        self._reset_process_fields(_SENSOR_FIELDS)
+
+    def _reset_process_fields(self, fields) -> None:
+        """Calibration and Demosaic both live on ProcessConfig, so each reset is scoped to its
+        own fields. apply_config, not update_config: every one is a decode or a source bake."""
         from dataclasses import replace
 
         cfg = self.controller.state.config
-        new_proc = replace(cfg.process, **{f: getattr(_DEFAULT_PROCESS, f) for f in _SENSOR_FIELDS})
-        # apply_config, not update_config: unmix and hue trim are source bakes, so the source
-        # has to be decoded again.
+        new_proc = replace(cfg.process, **{f: getattr(_DEFAULT_PROCESS, f) for f in fields})
         self.controller.apply_config(replace(cfg, process=new_proc), persist=True)
 
     def _reset_flatfield(self) -> None:
@@ -890,8 +907,9 @@ class ControlsPanel(QWidget):
             ]
         )
 
-        # Calibration's four fields live on ProcessConfig but belong to their own section, so they
-        # are counted here and left out of process_count above.
+        # Calibration's and Demosaic's fields live on ProcessConfig but belong to their own
+        # sections, so they are counted here and left out of process_count above.
+        demosaic_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _DEMOSAIC_FIELDS)
         sensor_count = sum(
             [
                 proc.sensor_profile != _proc.sensor_profile,
@@ -952,6 +970,7 @@ class ControlsPanel(QWidget):
         self.retouch_section.set_modified(retouch_count)
         # Presets and the two Scan sections stay out: they own no WorkspaceConfig fields.
         self.sensor_section.set_modified(sensor_count)
+        self.demosaic_section.set_modified(demosaic_count)
         self.flatfield_section.set_modified(flatfield_count)
         self.local_section.set_modified(len(cfg.local.masks))
         self.finish_section.set_modified(finish_count)

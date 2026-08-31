@@ -24,6 +24,25 @@ class ProcessMode(StrEnum):
 _LEGACY_MODES = {"C41": ProcessMode.C41, "B&W": ProcessMode.BW, "E-6": ProcessMode.E6}
 
 
+class DemosaicMode(StrEnum):
+    """CFA interpolation, mapped to rawpy in loaders/helpers.py. AUTO keeps NegPy's own
+    choice per path. Availability is asked of rawpy at runtime, never assumed here."""
+
+    AUTO = "Auto"
+    LINEAR = "Linear"
+    VNG = "VNG"
+    PPG = "PPG"
+    AHD = "AHD"
+    DCB = "DCB"
+    DHT = "DHT"
+    AAHD = "AAHD"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "DemosaicMode":
+        """A value this build cannot run, or a stale one, decodes as AUTO rather than raising."""
+        return cls.AUTO
+
+
 def cast_removal_for_mode(mode: str, strength: float) -> float:
     """The Cast Removal strength `mode` starts at, given the strength carried in.
 
@@ -56,6 +75,9 @@ class ProcessConfig:
     # Correct narrowband RGB camera scans via the bundled RGBScan input profile
     # (applied at preview soft-proof / export; an explicit Input ICC overrides it).
     narrowband_scan: bool = False
+    # See loaders/helpers.get_best_demosaic_algorithm for what AUTO resolves to on each path.
+    demosaic_preview: DemosaicMode = DemosaicMode.AUTO
+    demosaic_export: DemosaicMode = DemosaicMode.AUTO
     analysis_buffer: float = 0.05
     # Optional freehand analysis region, normalized in the transformed (display)
     # image, the same space as the manual crop rect. When set it is the exact area the

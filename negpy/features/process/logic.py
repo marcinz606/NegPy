@@ -50,6 +50,12 @@ def linear_raw_token(process: ProcessConfig, render_intent: Optional[str] = None
     return f"|lr:{int(effective_linear_raw(process, render_intent))}"
 
 
+def demosaic_token(mode: str) -> str:
+    """CFA-interpolation identity for a cache key. Preview and export choose separately, so
+    the caller passes the mode for its own path."""
+    return f"|dm:{mode}"
+
+
 def should_fold_camera_wb(process: ProcessConfig, render_intent: Optional[str] = None) -> bool:
     """Whether `camera_to_working_matrix` should fold the as-shot multipliers back in.
 

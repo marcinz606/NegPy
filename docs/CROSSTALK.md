@@ -58,7 +58,7 @@ sing is the one you tuned on your own light and camera.
 
 Two related controls sit in the same panel and are *not* substitutes. The **sensor** matrix
 corrects the camera in the linear capture. **Hue Trim** rotates hue for an odd light
-spectrum. See [USER_GUIDE.md](USER_GUIDE.md) §4.2.
+spectrum. See [USER_GUIDE.md](USER_GUIDE.md) §4.1.
 
 > ### What the bundled matrices actually are
 >

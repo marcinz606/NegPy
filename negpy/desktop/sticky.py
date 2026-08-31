@@ -38,6 +38,8 @@ EXPORT_REMAINDER: frozenset[str] = frozenset(ExportConfig.__dataclass_fields__) 
 ALWAYS_STICKY_PROCESS: tuple[tuple[str, str], ...] = (
     ("last_linear_raw", "linear_raw"),
     ("last_narrowband_scan", "narrowband_scan"),
+    ("last_demosaic_preview", "demosaic_preview"),
+    ("last_demosaic_export", "demosaic_export"),
 )
 
 

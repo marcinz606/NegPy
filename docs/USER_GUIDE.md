@@ -374,8 +374,17 @@ The film's dyes each absorb outside their own band, but they are not the only ca
 
 *   **Hue Trim** (-30° to 30°, default 0): rotates every hue by a fixed angle, to undo the rotation an unusual scanning light imposes. Narrowband LED and odd-phosphor panels sample the dyes away from where the film expects, which turns *every* color by roughly the same angle, so yellows read orange and greens go olive, while neutrals are left alone. That is why white balance cannot fix it: the error is a rotation, not a cast, so there is no grey to correct. Judge it on a subject whose color you know (foliage, a clear blue sky, skin), and leave it at 0 for an ordinary broadband light. The setting is **sticky**, because a light source is a property of your rig, so it carries to the next file until you change it. Neutrals are untouched, so it never disturbs the color-balance clip in **Normalization**.
 
+<!-- panel:demosaic -->
+### 4.2 Demosaic: turning the sensor mosaic into pixels
+
+A color sensor records one color per photosite behind a mosaic filter, and an algorithm fills in the other two. Which one you pick decides how sharp the result looks and how it treats film grain. Preview and export are chosen separately, and both are sticky.
+
+Bayer and X-Trans RAW only: a scanner TIFF, a Pakon scan or a linear DNG arrives already de-mosaiced. Only the algorithms your LibRaw build compiled in are listed.
+
+*   **Preview** / **Export** (default **Auto** for both): *Auto* keeps NegPy's own choice, a fast half-size decode on screen and AHD for export. For the preview, Auto and Linear are the fastest; the others decode at full size. **AHD** is LibRaw's balanced default, **VNG** the smooth one, **PPG** fast with clean edges, **DCB** and **DHT** chase fine detail, and **AAHD** softens edges to suppress artifacts.
+
 <!-- panel:process -->
-### 4.2 Normalization: negative → positive
+### 4.3 Normalization: negative → positive
 
 How the negative is measured and normalized into a positive. The film mode that decides *which* conversion runs sits above the panels (§4), and how the scan is decoded lives in **Calibration** (§4.1).
 
@@ -421,7 +430,7 @@ How the negative is measured and normalized into a positive. The film mode that 
     **Narrowband** and **Single-Shot Narrowband Calibration** are greyed out for *any* transparency, Normalize or not; see [Narrowband and slides](#narrowband-and-slides). Reproducing a slide's appearance is a colorimetric problem, and narrowband illumination samples the spectrum at three isolated wavelengths, so the inter-band overlap the eye integrates is never measured, which is the same reason narrowband scans render oversaturated and hue-rotated. No input profile recovers what was never sampled, and the bundled one describes negative dyes besides.
 
 <!-- panel:roll -->
-### 4.3 Roll Analysis: a consistent look across the roll
+### 4.4 Roll Analysis: a consistent look across the roll
 
 Meter the whole roll once and share the baseline, so frames from the same film match.
 
@@ -436,7 +445,7 @@ Meter the whole roll once and share the baseline, so frames from the same film m
 *   **Delete**: remove the selected roll (it asks first). The frames keep their current look; only the saved baseline goes.
 
 <!-- panel:presets -->
-### 4.4 Presets
+### 4.5 Presets
 
 Save and recall a complete edit, the full workspace, by name.
 
@@ -959,7 +968,7 @@ Settings for the whole application, not for one photo. Open them from the canvas
 ### Performance
 
 *   **GPU acceleration**: render the pipeline on the GPU. The active backend is named below the row. Off falls back to the CPU pipeline, which is slower but produces the same image.
-*   **Multi-core CPU rendering**: see §4.2. It takes effect at once, with no restart.
+*   **Multi-core CPU rendering**: see §4.3. It takes effect at once, with no restart.
 *   **Preview size** (512 to 8192 px): long edge of the interactive canvas. Higher is sharper at 100% zoom, and costs proportionally more VRAM and CPU per frame, so lower the cache limit and the rendered-frame count to match. RAW files decode at half sensor size for the preview, so there is nothing to gain past half the long edge of your scan.
 *   **Preview cache** and **Preview cache limit**: how many recently-viewed photos stay decoded in memory, and the memory ceiling for them. Lower both on a machine with little RAM.
 *   **HQ buffers**: full-resolution HQ preview buffers kept in memory. Each is large (a 60 MP scan is about 700 MB), and keeping the previous frame makes going back instant.

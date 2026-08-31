@@ -8,7 +8,8 @@ import tifffile
 
 from negpy.infrastructure.loaders.factory import LoaderFactory
 from negpy.infrastructure.loaders.tiff_loader import NonStandardFileWrapper
-from negpy.infrastructure.loaders.helpers import get_best_demosaic_algorithm, is_xtrans
+from negpy.features.process.models import DemosaicMode
+from negpy.infrastructure.loaders.helpers import get_best_demosaic_algorithm, is_xtrans, supported_demosaic_modes
 
 
 class _FakeRaw:
@@ -39,6 +40,34 @@ class TestRawHandlers(unittest.TestCase):
     def test_bayer_uses_ahd(self):
         raw = _FakeRaw(rawpy.RawType.Flat, block_size=2)
         self.assertEqual(get_best_demosaic_algorithm(raw), rawpy.DemosaicAlgorithm.AHD)
+
+    def test_explicit_mode_wins_on_a_cfa(self):
+        raw = _FakeRaw(rawpy.RawType.Flat, block_size=2)
+        self.assertEqual(get_best_demosaic_algorithm(raw, DemosaicMode.VNG), rawpy.DemosaicAlgorithm.VNG)
+        self.assertEqual(get_best_demosaic_algorithm(raw, DemosaicMode.DHT), rawpy.DemosaicAlgorithm.DHT)
+
+    def test_explicit_mode_ignored_without_a_cfa(self):
+        # Nothing to interpolate: a de-mosaiced source and the numpy wrapper both stay LINEAR.
+        self.assertEqual(
+            get_best_demosaic_algorithm(_FakeRaw(rawpy.RawType.Stack, block_size=2), DemosaicMode.DHT),
+            rawpy.DemosaicAlgorithm.LINEAR,
+        )
+        wrapper = NonStandardFileWrapper(np.zeros((4, 4, 3), dtype=np.float32))
+        self.assertEqual(get_best_demosaic_algorithm(wrapper, DemosaicMode.DHT), rawpy.DemosaicAlgorithm.LINEAR)
+
+    def test_unknown_mode_falls_back_to_auto(self):
+        raw = _FakeRaw(rawpy.RawType.Flat, block_size=2)
+        # AMAZE and friends are absent from a permissive libraw build; a stored one must not raise.
+        self.assertEqual(get_best_demosaic_algorithm(raw, "AMAZE"), rawpy.DemosaicAlgorithm.AHD)
+
+    def test_supported_modes_are_offerable(self):
+        modes = supported_demosaic_modes()
+        self.assertIn(DemosaicMode.AUTO, modes)
+        self.assertIn(DemosaicMode.AHD, modes)
+        for mode in modes:
+            if mode is DemosaicMode.AUTO:
+                continue
+            self.assertTrue(getattr(rawpy.DemosaicAlgorithm, mode.name).isSupported, mode)
 
     def test_is_xtrans(self):
         self.assertTrue(is_xtrans(_FakeRaw(rawpy.RawType.Flat, block_size=6)))

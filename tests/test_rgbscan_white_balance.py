@@ -55,7 +55,7 @@ def test_triplet_render_decode_pins_every_exposure_neutral(tmp_path):
     processor = ImageProcessor()
     calls: list = []
 
-    def fake_decode(path, linear_raw, fast=False, wb_override=None):
+    def fake_decode(path, linear_raw, fast=False, wb_override=None, demosaic="Auto"):
         calls.append((path, wb_override))
         return np.zeros((4, 4, 3), dtype=np.uint16), {"cam_xyz": None, "camera_wb": [1.9, 1.0, 1.55]}
 
@@ -78,7 +78,7 @@ def test_triplet_render_ignores_the_primarys_own_camera_wb_downstream(tmp_path):
         open(p, "wb").close()
 
     processor = ImageProcessor()
-    processor._decode_sensor_rgb = lambda path, linear_raw, fast=False, wb_override=None: (
+    processor._decode_sensor_rgb = lambda path, linear_raw, fast=False, wb_override=None, demosaic="Auto": (
         np.zeros((4, 4, 3), dtype=np.uint16),
         {"cam_xyz": [[1, 0, 0], [0, 1, 0], [0, 0, 1]], "camera_wb": [1.9, 1.0, 1.55]},
     )
@@ -132,7 +132,7 @@ def test_preview_merge_decodes_every_exposure_neutral(tmp_path):
     pm = PreviewManager()
     calls: list = []
 
-    def fake_preview(path, color_space=None, use_camera_wb=False, full_resolution=False, file_hash=None):
+    def fake_preview(path, color_space=None, use_camera_wb=False, full_resolution=False, file_hash=None, demosaic="Auto"):
         calls.append((path, use_camera_wb))
         return np.zeros((4, 4, 3), dtype=np.float32), (4, 4), {"camera_wb": [1.9, 1.0, 1.55]}
 

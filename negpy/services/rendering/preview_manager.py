@@ -33,6 +33,7 @@ from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.features.stitch.logic import stitch_composite
 from negpy.features.stitch.models import StitchConfig, stitch_token
 from negpy.kernel.system.logging import get_logger
+from negpy.features.process.models import DemosaicMode
 from negpy.services.rendering.preview_cache import PreviewBufferCache, PreviewCacheKey
 
 logger = get_logger(__name__)
@@ -129,6 +130,7 @@ class PreviewManager:
         file_hash: str | None,
         log_timings: bool = False,
         half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None = None,
+        demosaic: str = DemosaicMode.AUTO,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """
         Decode and resize a linear preview from an already-open raw object.
@@ -142,7 +144,11 @@ class PreviewManager:
         t_decode = time.perf_counter()
         log = logger.info if log_timings else logger.debug
 
-        use_fast = (not full_resolution) and (not isinstance(raw, NonStandardFileWrapper))
+        # An explicit algorithm decodes full-size: libraw bins 2x2 quads for half_size and never
+        # reaches the interpolator, so the fast path would ignore the choice.
+        # Through the enum: an unrecognised persisted value resolves to AUTO and must take the
+        # fast path, not a full-size decode ending on the same algorithm.
+        use_fast = (not full_resolution) and (not isinstance(raw, NonStandardFileWrapper)) and DemosaicMode(demosaic) == DemosaicMode.AUTO
         if use_fast:
             # half_size aliases the X-Trans 6x6 CFA into a channel-ratio cast that shows in
             # linear decodes. Bayer 2x2 averages cleanly and camera-WB previews tolerate it, so
@@ -152,9 +158,9 @@ class PreviewManager:
             # That decode is the one preview that interpolates a 6x6 CFA, where LINEAR aliases
             # far worse than the render it stands in for. PPG is LibRaw's spelling of 1-pass
             # Markesteijn on X-Trans -- it tracks the 3-pass render at half the cost of matching it.
-            demosaic = rawpy.DemosaicAlgorithm.PPG if xtrans_full else rawpy.DemosaicAlgorithm.LINEAR
+            demosaic_algo = rawpy.DemosaicAlgorithm.PPG if xtrans_full else rawpy.DemosaicAlgorithm.LINEAR
         else:
-            demosaic = get_best_demosaic_algorithm(raw)
+            demosaic_algo = get_best_demosaic_algorithm(raw, demosaic)
             post_kw = {}
 
         # Read the full-resolution dims before postprocess: libraw mutates
@@ -172,7 +178,7 @@ class PreviewManager:
             user_wb=user_wb,
             output_bps=16,
             output_color=rawpy.ColorSpace.raw,
-            demosaic_algorithm=demosaic,
+            demosaic_algorithm=demosaic_algo,
             user_flip=0,
             **post_kw,
         )
@@ -285,6 +291,7 @@ class PreviewManager:
                 use_camera_wb=use_camera_wb,
                 workspace_color_space=color_space,
                 full_resolution=full_resolution,
+                demosaic=demosaic,
                 half=half_slice[0] if half_slice else 0,
                 split_x=half_slice[1] if half_slice else 0.5,
                 crop_rect=half_slice[2] if half_slice else None,
@@ -323,6 +330,7 @@ class PreviewManager:
         file_hash: str | None = None,
         log_timings: bool = False,
         half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None = None,
+        demosaic: str = DemosaicMode.AUTO,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """
         Loads linear RGB, downsamples for display.
@@ -341,6 +349,7 @@ class PreviewManager:
                 use_camera_wb=use_camera_wb,
                 workspace_color_space=color_space,
                 full_resolution=full_resolution,
+                demosaic=demosaic,
                 half=half_slice[0] if half_slice else 0,
                 split_x=half_slice[1] if half_slice else 0.5,
                 crop_rect=half_slice[2] if half_slice else None,
@@ -362,6 +371,7 @@ class PreviewManager:
                     use_camera_wb=use_camera_wb,
                     workspace_color_space=color_space,
                     full_resolution=full_resolution,
+                    demosaic=demosaic,
                     half=half_slice[0] if half_slice else 0,
                     split_x=half_slice[1] if half_slice else 0.5,
                     crop_rect=half_slice[2] if half_slice else None,
@@ -384,6 +394,7 @@ class PreviewManager:
                 file_hash,
                 log_timings,
                 half_slice=half_slice,
+                demosaic=demosaic,
             )
         log(
             "load-timing load_linear_preview %.0fms (decode %.0fms + open)",
@@ -426,6 +437,7 @@ class PreviewManager:
         use_camera_wb: bool = False,
         full_resolution: bool = False,
         file_hash: str | None = None,
+        demosaic: str = DemosaicMode.AUTO,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """Merge a narrowband R/G/B triplet into one linear preview: red channel from the
         red shot, green from green, blue from blue. The merged result is cached, so re-visiting
@@ -448,14 +460,15 @@ class PreviewManager:
                 use_camera_wb=use_camera_wb,
                 workspace_color_space=color_space,
                 full_resolution=full_resolution,
+                demosaic=demosaic,
             )
             hit = self._cache.get(merged_key)
             if hit is not None:
                 return hit  # cache hit — caller must not mutate this buffer
 
-        red_out, dims, meta = self.load_linear_preview(red_path, color_space, False, full_resolution, file_hash)
-        green_out, _, _ = self.load_linear_preview(green_path, color_space, False, full_resolution, None)
-        blue_out, _, _ = self.load_linear_preview(blue_path, color_space, False, full_resolution, None)
+        red_out, dims, meta = self.load_linear_preview(red_path, color_space, False, full_resolution, file_hash, demosaic=demosaic)
+        green_out, _, _ = self.load_linear_preview(green_path, color_space, False, full_resolution, None, demosaic=demosaic)
+        blue_out, _, _ = self.load_linear_preview(blue_path, color_space, False, full_resolution, None, demosaic=demosaic)
 
         red = np.asarray(red_out, dtype=np.float32)
 
@@ -485,6 +498,7 @@ class PreviewManager:
         use_camera_wb: bool = False,
         full_resolution: bool = False,
         file_hash: str | None = None,
+        demosaic: str = DemosaicMode.AUTO,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """Merge a bracket into one linear preview, in the reference frame's exposure units.
 
@@ -503,6 +517,7 @@ class PreviewManager:
                 use_camera_wb=use_camera_wb,
                 workspace_color_space=color_space,
                 full_resolution=full_resolution,
+                demosaic=demosaic,
             )
             hit = self._cache.get(merged_key)
             if hit is not None:
@@ -513,11 +528,15 @@ class PreviewManager:
                 scaled = apply_render_exposure(np.asarray(raw_c, dtype=np.float32), list(ratios), anchor)
                 return ensure_image(scaled), dims_c, meta_c
 
-        ref_out, dims, meta = self.load_linear_preview(reference_path, color_space, use_camera_wb, full_resolution, file_hash)
+        ref_out, dims, meta = self.load_linear_preview(
+            reference_path, color_space, use_camera_wb, full_resolution, file_hash, demosaic=demosaic
+        )
         ref = np.asarray(ref_out, dtype=np.float32)
 
         def _load(path: str) -> np.ndarray:
-            arr = np.asarray(self.load_linear_preview(path, color_space, use_camera_wb, full_resolution, None)[0], dtype=np.float32)
+            arr = np.asarray(
+                self.load_linear_preview(path, color_space, use_camera_wb, full_resolution, None, demosaic=demosaic)[0], dtype=np.float32
+            )
             if arr.shape[:2] != ref.shape[:2]:
                 # Preview sizing rounds per file, so a pixel or two between frames of one
                 # bracket is ordinary and resampling is right. A different *aspect* is not: a
@@ -548,6 +567,7 @@ class PreviewManager:
         full_resolution: bool = False,
         file_hash: str | None = None,
         flatfield_profile_id: str = "",
+        demosaic: str = DemosaicMode.AUTO,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """Assemble a stitch composite at preview scale by replaying the stored
         registration. Flat-field is applied per part here (a composite canvas must
@@ -566,6 +586,7 @@ class PreviewManager:
                     use_camera_wb=use_camera_wb,
                     workspace_color_space=color_space,
                     full_resolution=full_resolution,
+                    demosaic=demosaic,
                 )
                 hit = self._cache.get(key)
                 if hit is not None:
@@ -578,9 +599,11 @@ class PreviewManager:
             # file_hash=None: the composite hash is not the parts' content hash.
             if green and blue:
                 part_rgb = RgbScanConfig(enabled=True, green_path=green, blue_path=blue, align=stitch.stitch_align)
-                out, _, part_meta = self.load_linear_preview_rgb(path, part_rgb, color_space, use_camera_wb, full_resolution, None)
+                out, _, part_meta = self.load_linear_preview_rgb(
+                    path, part_rgb, color_space, use_camera_wb, full_resolution, None, demosaic=demosaic
+                )
             else:
-                out, _, part_meta = self.load_linear_preview(path, color_space, use_camera_wb, full_resolution, None)
+                out, _, part_meta = self.load_linear_preview(path, color_space, use_camera_wb, full_resolution, None, demosaic=demosaic)
             parts.append(apply_flatfield(np.asarray(out, dtype=np.float32), flatfield))
             irs.append(part_meta.get("ir_preview"))
             if i == 0:
@@ -603,6 +626,7 @@ class PreviewManager:
         file_hash: str | None = None,
         log_timings: bool = False,
         half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None = None,
+        demosaic: str = DemosaicMode.AUTO,
     ) -> Tuple[Optional[Tuple[ImageBuffer, Dimensions]], Tuple[ImageBuffer, Dimensions, dict]]:
         """
         Open the RAW file once and return both the splash preview and the linear
@@ -623,6 +647,7 @@ class PreviewManager:
                 use_camera_wb=use_camera_wb,
                 workspace_color_space=color_space,
                 full_resolution=full_resolution,
+                demosaic=demosaic,
                 half=half_slice[0] if half_slice else 0,
                 split_x=half_slice[1] if half_slice else 0.5,
                 crop_rect=half_slice[2] if half_slice else None,
@@ -648,6 +673,7 @@ class PreviewManager:
                     use_camera_wb=use_camera_wb,
                     workspace_color_space=color_space,
                     full_resolution=full_resolution,
+                    demosaic=demosaic,
                     half=half_slice[0] if half_slice else 0,
                     split_x=half_slice[1] if half_slice else 0.5,
                     crop_rect=half_slice[2] if half_slice else None,
@@ -674,6 +700,7 @@ class PreviewManager:
                 file_hash,
                 log_timings,
                 half_slice=half_slice,
+                demosaic=demosaic,
             )
         log(
             "load-timing load_splash_and_linear %.0fms (decode %.0fms + open)",

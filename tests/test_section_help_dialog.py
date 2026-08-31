@@ -18,6 +18,7 @@ GUIDED_KEYS = (
     "analysis",
     "presets",
     "sensor",
+    "demosaic",
     "process",
     "roll",
     "geometry",
