@@ -248,3 +248,10 @@ def test_preview_cache_survives_concurrent_access():
     assert errors == []
     assert len(cache._order) == len(set(cache._order))
     assert set(cache._order) == set(cache._data)
+
+
+def test_demosaic_scopes_the_cache_key() -> None:
+    """A different algorithm decodes different pixels, so it must not hit the same entry."""
+    auto = PreviewCacheKey(file_hash="h", use_camera_wb=False, workspace_color_space="Adobe RGB", full_resolution=False)
+    vng = PreviewCacheKey(file_hash="h", use_camera_wb=False, workspace_color_space="Adobe RGB", full_resolution=False, demosaic="VNG")
+    assert auto.as_tuple() != vng.as_tuple()

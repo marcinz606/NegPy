@@ -27,7 +27,7 @@ from negpy.domain.models import TiffCompression
 from negpy.features.metadata.resolution import Resolution
 from negpy.services.export.encoders import encode_tiff
 from negpy.features.geometry.models import GeometryConfig
-from negpy.features.process.models import ProcessConfig
+from negpy.features.process.models import DemosaicMode, ProcessConfig
 from negpy.features.process.sensor import apply_sensor_correction
 from negpy.features.hdr.logic import merge_bracket
 from negpy.features.hdr.models import HdrConfig, hdr_active
@@ -348,6 +348,7 @@ def _decode_linear(
 ) -> tuple[np.ndarray, Optional[np.ndarray], Optional[_CameraWB], _SourceMeta]:
     """Decode to an oriented float32 buffer. Returns (rgb, ir_or_none, camera_wb_or_none, source_meta)."""
     wb_blocked = bool(wb_bake_block_reason(rgbscan, process))
+    demosaic = process.demosaic_export if process is not None else DemosaicMode.AUTO
     if stitch is not None and stitch.stitch_enabled and stitch.stitch_paths:
         rgb, ir, wb, meta = _decode_stitch(file_path, stitch, geometry, flatfield, process)
         if apply_wb and not wb_blocked and wb is not None:
@@ -357,7 +358,7 @@ def _decode_linear(
     # bracket of anything but plain camera RAW would export as its unmerged reference frame:
     # the canvas merged, the file did not, and nothing said so.
     if hdr is not None and hdr_active(hdr):
-        rgb, wb, meta = _decode_hdr(file_path, hdr, geometry, expansion=expansion, gamma_key=gamma_key)
+        rgb, wb, meta = _decode_hdr(file_path, hdr, geometry, expansion=expansion, gamma_key=gamma_key, process=process)
         if apply_flatfield and flatfield is not None:
             rgb = _apply_flatfield_correction(rgb, flatfield)
         if apply_sensor and process is not None and process.sensor_matrix is not None:
@@ -387,14 +388,14 @@ def _decode_linear(
         return rgb, ir, None, meta
     if _is_camera_raw(file_path):
         if rgbscan is not None and is_rgb_triplet(rgbscan):
-            rgb, ir, wb, meta = _decode_camera_raw_triplet(file_path, rgbscan, geometry)
+            rgb, ir, wb, meta = _decode_camera_raw_triplet(file_path, rgbscan, geometry, demosaic)
             if apply_flatfield and flatfield is not None:
                 rgb = _apply_flatfield_correction(rgb, flatfield)
             if apply_wb and not wb_blocked and wb is not None:
                 rgb = _apply_white_balance(rgb, wb)
             return rgb, ir, wb, meta
         meta = _read_source_meta_tiff(file_path)
-        rgb, ir, wb, decode_meta = _decode_camera_raw(file_path, geometry)
+        rgb, ir, wb, decode_meta = _decode_camera_raw(file_path, geometry, demosaic)
         merged = _SourceMeta(
             make=meta.make or decode_meta.make,
             model=meta.model or decode_meta.model,
@@ -615,7 +616,7 @@ def _decode_dng(
     return rgb, ir
 
 
-def _decode_camera_raw_buffer(file_path: str) -> tuple[np.ndarray, _CameraWB, _SourceMeta]:
+def _decode_camera_raw_buffer(file_path: str, demosaic: str = DemosaicMode.AUTO) -> tuple[np.ndarray, _CameraWB, _SourceMeta]:
     """Decode a camera RAW to an oriented float32 buffer without applying user geometry.
 
     Returns (f32, camera_wb, source_meta).  EXIF orientation *is* applied (lossless,
@@ -628,7 +629,7 @@ def _decode_camera_raw_buffer(file_path: str) -> tuple[np.ndarray, _CameraWB, _S
     )
     ts = raw.other.timestamp
     dt_str = ts.strftime("%Y:%m:%d %H:%M:%S") if ts else None
-    algo = get_best_demosaic_algorithm(raw)
+    algo = get_best_demosaic_algorithm(raw, demosaic)
     rgb = raw.postprocess(
         gamma=(1, 1),
         no_auto_bright=True,
@@ -648,8 +649,10 @@ def _decode_camera_raw_buffer(file_path: str) -> tuple[np.ndarray, _CameraWB, _S
     return f32, wb, meta
 
 
-def _decode_camera_raw(file_path: str, geometry: Optional[GeometryConfig] = None) -> tuple[np.ndarray, None, _CameraWB, _SourceMeta]:
-    f32, wb, meta = _decode_camera_raw_buffer(file_path)
+def _decode_camera_raw(
+    file_path: str, geometry: Optional[GeometryConfig] = None, demosaic: str = DemosaicMode.AUTO
+) -> tuple[np.ndarray, None, _CameraWB, _SourceMeta]:
+    f32, wb, meta = _decode_camera_raw_buffer(file_path, demosaic)
     if geometry is not None:
         f32 = _apply_user_geometry(f32, geometry)
     return f32, None, wb, meta
@@ -661,6 +664,7 @@ def _decode_hdr(
     geometry: Optional[GeometryConfig] = None,
     expansion: Optional[float] = None,
     gamma_key: str = "linear",
+    process: Optional[ProcessConfig] = None,
 ) -> tuple[np.ndarray, Optional[_CameraWB], _SourceMeta]:
     """Decode a bracket and merge it into one buffer, in the reference frame's units.
 
@@ -674,11 +678,12 @@ def _decode_hdr(
     bracket held all at once is several GB.
     """
 
-    reference_f32, _, wb, meta = _decode_linear(file_path, expansion=expansion, gamma_key=gamma_key)
+    # `process` rides along for the demosaic choice only; corrections stay after the merge.
+    reference_f32, _, wb, meta = _decode_linear(file_path, expansion=expansion, gamma_key=gamma_key, process=process)
 
     def _decode(path: str) -> np.ndarray:
         # The reference is already decoded; only the siblings are pulled, one at a time.
-        return reference_f32 if path == file_path else _decode_linear(path, expansion=expansion, gamma_key=gamma_key)[0]
+        return reference_f32 if path == file_path else _decode_linear(path, expansion=expansion, gamma_key=gamma_key, process=process)[0]
 
     file_meta = _read_source_meta_tiff(file_path)
     merged_meta = _SourceMeta(
@@ -693,10 +698,10 @@ def _decode_hdr(
 
 
 def _decode_camera_raw_triplet(
-    file_path: str, rgbscan: RgbScanConfig, geometry: Optional[GeometryConfig] = None
+    file_path: str, rgbscan: RgbScanConfig, geometry: Optional[GeometryConfig] = None, demosaic: str = DemosaicMode.AUTO
 ) -> tuple[np.ndarray, None, Optional[_CameraWB], _SourceMeta]:
     """Decode three narrowband exposures and merge into one RGB buffer."""
-    primary_f32, wb, meta = _decode_camera_raw_buffer(file_path)
+    primary_f32, wb, meta = _decode_camera_raw_buffer(file_path, demosaic)
     file_meta = _read_source_meta_tiff(file_path)
     merged_meta = _SourceMeta(
         make=file_meta.make or meta.make,
@@ -709,7 +714,7 @@ def _decode_camera_raw_triplet(
     def _decode(path: str) -> np.ndarray:
         if path in cache:
             return cache[path]
-        buf, _, _ = _decode_camera_raw_buffer(path)
+        buf, _, _ = _decode_camera_raw_buffer(path, demosaic)
         cache[path] = buf
         return buf
 
@@ -738,22 +743,23 @@ def _decode_stitch_part(
     with narrowband exposures).
     """
     is_triplet = rgbscan is not None and is_rgb_triplet(rgbscan)
+    demosaic = process.demosaic_export if process is not None else DemosaicMode.AUTO
 
     if is_triplet:
-        primary_f32, _, _ = _decode_camera_raw_buffer(file_path)
+        primary_f32, _, _ = _decode_camera_raw_buffer(file_path, demosaic)
         cache: dict[str, np.ndarray] = {file_path: primary_f32}
 
         def _decode(path: str) -> np.ndarray:
             if path in cache:
                 return cache[path]
-            buf, _, _ = _decode_camera_raw_buffer(path)
+            buf, _, _ = _decode_camera_raw_buffer(path, demosaic)
             cache[path] = buf
             return buf
 
         f32 = merge_rgb_triplet(_decode, file_path, rgbscan.green_path, rgbscan.blue_path, align=rgbscan.align)
         f32 = np.clip(f32, 0.0, 1.0)  # see _decode_camera_raw_triplet: the warp can ring past 1.0
     else:
-        f32, _, _ = _decode_camera_raw_buffer(file_path)
+        f32, _, _ = _decode_camera_raw_buffer(file_path, demosaic)
 
     if flatfield is not None:
         f32 = _apply_flatfield_correction(f32, flatfield)
@@ -774,7 +780,7 @@ def _decode_stitch(
     has_triplets = stitch_has_triplets(stitch)
 
     primary_meta = _read_source_meta_tiff(file_path)
-    _, wb, decode_meta = _decode_camera_raw_buffer(file_path)
+    _, wb, decode_meta = _decode_camera_raw_buffer(file_path, process.demosaic_export if process is not None else DemosaicMode.AUTO)
     merged_meta = _SourceMeta(
         make=primary_meta.make or decode_meta.make,
         model=primary_meta.model or decode_meta.model,

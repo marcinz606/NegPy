@@ -916,7 +916,8 @@ class DesktopSessionManager(QObject):
         for legacy_key, attr in ALWAYS_STICKY_PROCESS:
             val = self.repo.get_global_setting(legacy_key)
             if val is not None:
-                new_process = replace(new_process, **{attr: bool(val)})
+                # No cast: the store round-trips JSON, and these rows are not all booleans.
+                new_process = replace(new_process, **{attr: val})
         return replace(config, process=new_process)
 
     def _persist_sticky_settings(self, config: WorkspaceConfig) -> None:
@@ -933,6 +934,8 @@ class DesktopSessionManager(QObject):
                 "last_export_config": asdict(config.export),
                 "last_linear_raw": config.process.linear_raw,
                 "last_narrowband_scan": config.process.narrowband_scan,
+                "last_demosaic_preview": str(config.process.demosaic_preview),
+                "last_demosaic_export": str(config.process.demosaic_export),
             }
         )
 

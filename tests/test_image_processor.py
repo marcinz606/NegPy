@@ -96,9 +96,9 @@ def test_use_half_size_decode_rules(monkeypatch) -> None:
     assert not ip._use_half_size_decode(wrapper, linear_raw=False)
 
 
-def _fake_decode_recorder(calls):
-    def fake(file_path, linear_raw, fast=False, wb_override=None):
-        calls.append(fast)
+def _fake_decode_recorder(calls, record=None):
+    def fake(file_path, linear_raw, fast=False, wb_override=None, demosaic="Auto"):
+        calls.append(fast if record is None else record(fast, demosaic))
         return np.zeros((4, 4, 3), dtype=np.uint16), {"orientation": 1, "color_space": "sRGB"}
 
     return fake
@@ -117,6 +117,22 @@ def test_load_source_f32_cache_key_separates_fast_decode(monkeypatch) -> None:
     # A full-res consumer (real export) must not reuse the half-size buffer.
     service._load_source_f32("/nonexistent/a.raw", cfg, fast_decode=False)
     assert calls == [True, False]
+
+
+def test_load_source_f32_cache_key_separates_the_export_demosaic(monkeypatch) -> None:
+    from dataclasses import replace
+
+    from negpy.features.process.models import DemosaicMode
+
+    service = ImageProcessor()
+    calls: list = []
+    monkeypatch.setattr(service, "_decode_sensor_rgb", _fake_decode_recorder(calls, record=lambda fast, demosaic: demosaic))
+    cfg = WorkspaceConfig()
+
+    service._load_source_f32("/nonexistent/a.raw", cfg)
+    vng = replace(cfg, process=replace(cfg.process, demosaic_export=DemosaicMode.VNG))
+    service._load_source_f32("/nonexistent/a.raw", vng)
+    assert calls == [DemosaicMode.AUTO, DemosaicMode.VNG]
 
 
 def test_load_source_f32_never_fast_decodes_rgbscan_triplets(monkeypatch, tmp_path) -> None:

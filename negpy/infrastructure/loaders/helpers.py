@@ -8,6 +8,7 @@ import rawpy
 from PIL import Image, ImageCms
 
 from negpy.domain.models import ColorSpace
+from negpy.features.process.models import DemosaicMode
 from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
 from negpy.kernel.image.logic import ensure_rgb
 from negpy.kernel.system.logging import get_logger
@@ -201,13 +202,30 @@ class NonStandardFileWrapper:
         return (data * 255.0).astype(np.uint8)
 
 
-def get_best_demosaic_algorithm(raw: Any) -> Any:
-    """AHD for a mosaiced sensor, LINEAR for anything that arrives de-mosaiced.
+_DEMOSAIC_ALGORITHMS: dict[str, Any] = {
+    DemosaicMode.LINEAR: rawpy.DemosaicAlgorithm.LINEAR,
+    DemosaicMode.VNG: rawpy.DemosaicAlgorithm.VNG,
+    DemosaicMode.PPG: rawpy.DemosaicAlgorithm.PPG,
+    DemosaicMode.AHD: rawpy.DemosaicAlgorithm.AHD,
+    DemosaicMode.DCB: rawpy.DemosaicAlgorithm.DCB,
+    DemosaicMode.DHT: rawpy.DemosaicAlgorithm.DHT,
+    DemosaicMode.AAHD: rawpy.DemosaicAlgorithm.AAHD,
+}
 
-    Only algorithms in the permissive (LGPL) rawpy build are used. On a 6x6 X-Trans CFA
-    this never reaches ahd_interpolate: LibRaw routes filters==9 to Markesteijn ahead of
-    the quality dispatch, 3-pass above PPG and 1-pass at PPG or below. Every value above
-    PPG renders the same image, so the choice only has to stay above PPG.
+
+def supported_demosaic_modes() -> list:
+    """AUTO plus every algorithm this libraw build compiled in. The GPL demosaic packs
+    (AMAZE, LMMSE, VCD) are absent from a permissive build and render as something else."""
+    return [DemosaicMode.AUTO] + [m for m, algo in _DEMOSAIC_ALGORITHMS.items() if algo.isSupported]
+
+
+def get_best_demosaic_algorithm(raw: Any, mode: str = DemosaicMode.AUTO) -> Any:
+    """The user's `mode` where it is meaningful, else AHD for a mosaiced sensor and LINEAR
+    for anything that arrives de-mosaiced.
+
+    A source with no CFA has nothing to interpolate, so the mode is ignored there. On a 6x6
+    X-Trans CFA no value reaches ahd_interpolate either: LibRaw routes filters==9 to
+    Markesteijn ahead of the quality dispatch, 3-pass above PPG and 1-pass at PPG or below.
     """
     if isinstance(raw, NonStandardFileWrapper):
         return rawpy.DemosaicAlgorithm.LINEAR
@@ -216,6 +234,9 @@ def get_best_demosaic_algorithm(raw: Any) -> Any:
         # A 2x2 CFA block is Bayer, 6x6 is X-Trans. Anything else (Stack: Linear DNG, Foveon,
         # sRAW) arrives de-mosaiced and only LINEAR is meaningful.
         if raw.raw_type == rawpy.RawType.Flat and raw.raw_pattern.shape[0] in (2, 6):
+            chosen = _DEMOSAIC_ALGORITHMS.get(DemosaicMode(mode))
+            if chosen is not None and chosen.isSupported:
+                return chosen
             return rawpy.DemosaicAlgorithm.AHD
     except (AttributeError, ValueError) as e:
         logger.exception(f"Failed to determine sensor CFA pattern: {e}. Falling back to LINEAR.")

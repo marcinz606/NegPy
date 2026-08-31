@@ -1636,6 +1636,7 @@ class AppController(QObject):
                 hdr=hdr,
                 flatfield_profile_id=flatfield.profile_id if (stitch.stitch_enabled and flatfield.apply) else "",
                 half_slice=half_info,
+                demosaic=self.state.config.process.demosaic_preview,
             )
         )
 
@@ -1754,6 +1755,9 @@ class AppController(QObject):
                         use_splash=False,
                         for_cache_warm=True,
                         half_slice=neighbour_half,
+                        # Falls back to the open frame's value, which is what sticky hands an
+                        # unedited neighbour. Warming the other key would decode twice.
+                        demosaic=saved.process.demosaic_preview if saved else self.state.config.process.demosaic_preview,
                     )
                 )
 

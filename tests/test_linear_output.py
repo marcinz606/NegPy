@@ -900,7 +900,7 @@ class TestTripletExport:
     def _patch_decode(self, paths: tuple[str, str, str], bufs: dict[str, np.ndarray]):
         mapping = {paths[0]: bufs["r"], paths[1]: bufs["g"], paths[2]: bufs["b"]}
 
-        def fake_decode(path: str):
+        def fake_decode(path: str, demosaic="Auto"):
             return mapping[path], _MOCK_WB, _MOCK_META
 
         return mock.patch(
@@ -1084,7 +1084,7 @@ class TestStitchExport:
     """Linear Output with stitch composites."""
 
     def _patch_decode(self, path_to_buf: dict[str, np.ndarray]):
-        def fake_decode(path: str):
+        def fake_decode(path: str, demosaic="Auto"):
             return path_to_buf[path], _MOCK_WB, _MOCK_META
 
         return mock.patch(
@@ -1251,7 +1251,7 @@ class TestLinearCorrections:
     """Tests for optional per-step corrections (WB, flatfield, sensor)."""
 
     def _patch_decode(self, path_to_buf: dict[str, np.ndarray]):
-        def fake_decode(path: str):
+        def fake_decode(path: str, demosaic="Auto"):
             return path_to_buf[path], _MOCK_WB, _MOCK_META
 
         return mock.patch(

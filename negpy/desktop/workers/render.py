@@ -15,6 +15,7 @@ from negpy.features.hdr.models import HdrConfig, hdr_active
 from negpy.features.geometry.batch_autocrop import CropEvidence, detect_crop_candidate, resolve_roll_crops
 from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix
 from negpy.features.process.logic import effective_linear_raw
+from negpy.features.process.models import DemosaicMode
 from negpy.infrastructure.loaders.helpers import unsupported_raw_reason
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.stitch.models import StitchConfig, stitch_active
@@ -188,6 +189,7 @@ class PreviewLoadTask:
     stitch: StitchConfig = StitchConfig()  # composite: non-primary parts + stored registration
     hdr: HdrConfig = HdrConfig()  # bracket: the other exposures, merged with file_path (the reference)
     flatfield_profile_id: str = ""  # per-part flat-field profile for stitch previews
+    demosaic: str = DemosaicMode.AUTO  # CFA interpolation for the preview decode
     half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None = (
         None  # (half, split_x, crop_rect, gutter_thickness)
     )
@@ -892,6 +894,7 @@ class PreviewLoadWorker(QObject):
                     full_resolution=task.full_resolution,
                     file_hash=task.file_hash,
                     half_slice=task.half_slice,
+                    demosaic=task.demosaic,
                 )
             except Exception as e:
                 logger.debug("Preview cache warm failed for %s: %s", task.file_path, e)
@@ -909,6 +912,7 @@ class PreviewLoadWorker(QObject):
                     full_resolution=task.full_resolution,
                     file_hash=task.file_hash,
                     flatfield_profile_id=task.flatfield_profile_id,
+                    demosaic=task.demosaic,
                 )
                 source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
                 ir_preview = metadata.get("ir_preview")
@@ -935,6 +939,7 @@ class PreviewLoadWorker(QObject):
                     use_camera_wb=task.use_camera_wb,
                     full_resolution=task.full_resolution,
                     file_hash=task.file_hash,
+                    demosaic=task.demosaic,
                 )
                 source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
                 ir_preview = metadata.get("ir_preview")
@@ -961,6 +966,7 @@ class PreviewLoadWorker(QObject):
                     use_camera_wb=task.use_camera_wb,
                     full_resolution=task.full_resolution,
                     file_hash=task.file_hash,
+                    demosaic=task.demosaic,
                 )
                 source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
                 ir_preview = metadata.get("ir_preview")
@@ -987,6 +993,7 @@ class PreviewLoadWorker(QObject):
                     file_hash=task.file_hash,
                     log_timings=True,
                     half_slice=task.half_slice,
+                    demosaic=task.demosaic,
                 )
                 if sp is not None:
                     sbuf, sdims = sp
@@ -1000,6 +1007,7 @@ class PreviewLoadWorker(QObject):
                     file_hash=task.file_hash,
                     log_timings=True,
                     half_slice=task.half_slice,
+                    demosaic=task.demosaic,
                 )
             source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
             ir_preview = metadata.get("ir_preview")
@@ -1070,6 +1078,7 @@ def decode_asset_preview(
         "use_camera_wb": not effective_linear_raw(config.process, config.exposure.render_intent),
         "full_resolution": False,
         "file_hash": base_hash(file_info.get("hash")),  # halves share one decode
+        "demosaic": config.process.demosaic_preview,
     }
     hdr = config.hdr
     if hdr.hdr_enabled and hdr.hdr_paths:

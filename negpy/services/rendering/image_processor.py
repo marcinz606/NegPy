@@ -23,8 +23,8 @@ from negpy.domain.models import (
 )
 from negpy.features.altprocess.models import AltProcess
 from negpy.features.process.capture_color import wb_only_cam_xyz
-from negpy.features.process.models import ProcessMode
-from negpy.features.process.logic import effective_linear_raw, linear_raw_token
+from negpy.features.process.models import DemosaicMode, ProcessMode
+from negpy.features.process.logic import demosaic_token, effective_linear_raw, linear_raw_token
 from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix, sensor_token
 from negpy.features.exposure.analysis import COLOR_HIST_BINS
 from negpy.features.exposure.models import RenderIntent
@@ -671,7 +671,12 @@ class ImageProcessor:
         raise ValueError(f"Unsupported bit depth: {bit_depth}")
 
     def _decode_sensor_rgb(
-        self, file_path: str, linear_raw: bool, fast: bool = False, wb_override: Optional[Sequence[float]] = None
+        self,
+        file_path: str,
+        linear_raw: bool,
+        fast: bool = False,
+        wb_override: Optional[Sequence[float]] = None,
+        demosaic: str = DemosaicMode.AUTO,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Decode one RAW to sensor-native (output_color=raw), linear uint16 RGB.
 
@@ -687,7 +692,7 @@ class ImageProcessor:
         """
         ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=linear_raw)
         with ctx_mgr as raw:
-            algo = get_best_demosaic_algorithm(raw)
+            algo = get_best_demosaic_algorithm(raw, demosaic)
             user_wb = [1, 1, 1, 1] if linear_raw else (list(wb_override) if wb_override is not None else None)
             post_kw: Dict[str, Any] = {"half_size": True} if fast and _use_half_size_decode(raw, linear_raw) else {}
             rgb = raw.postprocess(
@@ -737,6 +742,7 @@ class ImageProcessor:
             hdr_token(params.hdr),
             flatfield_token(params.flatfield),
             sensor_token(params.process),
+            demosaic_token(params.process.demosaic_export),
             fast_decode,
         )
         if cache_key == self._source_cache_key and self._source_cache_value is not None:
@@ -774,6 +780,7 @@ class ImageProcessor:
         `hdr` cleared, so it cannot: it passes the pin in from outside.
         """
         linear_raw = effective_linear_raw(params.process, params.exposure.render_intent)
+        demosaic = params.process.demosaic_export
         rgbcfg = params.rgbscan
         # A bracket wins over a triplet. The UI refuses the two together, and the export
         # decode branches in this order, so an asset carrying both must not assemble
@@ -792,13 +799,18 @@ class ImageProcessor:
                     raise FileNotFoundError(f"RGB-scan {label} exposure not found: {path}")
             siblings = [p for p in dict.fromkeys((rgbcfg.green_path, rgbcfg.blue_path)) if p != file_path]
             with ThreadPoolExecutor(max_workers=1 + len(siblings)) as pool:
-                primary_future = pool.submit(self._decode_sensor_rgb, file_path, linear_raw, fast=fast_decode, wb_override=_NEUTRAL_WB)
+                primary_future = pool.submit(
+                    self._decode_sensor_rgb, file_path, linear_raw, fast=fast_decode, wb_override=_NEUTRAL_WB, demosaic=demosaic
+                )
                 decoded = dict(
-                    zip(siblings, pool.map(lambda p: self._decode_sensor_rgb(p, linear_raw, wb_override=_NEUTRAL_WB)[0], siblings))
+                    zip(
+                        siblings,
+                        pool.map(lambda p: self._decode_sensor_rgb(p, linear_raw, wb_override=_NEUTRAL_WB, demosaic=demosaic)[0], siblings),
+                    )
                 )
                 rgb, metadata = primary_future.result()
         else:
-            rgb, metadata = self._decode_sensor_rgb(file_path, linear_raw, fast=fast_decode, wb_override=wb_override)
+            rgb, metadata = self._decode_sensor_rgb(file_path, linear_raw, fast=fast_decode, wb_override=wb_override, demosaic=demosaic)
         # No embedded profile (scanner-raw linear, sensor-native RAW) means the buffer is
         # already in the working space, so "Same as Source" exports without converting.
         source_cs = str(metadata.get("color_space") or WORKING_COLOR_SPACE)
@@ -841,7 +853,10 @@ class ImageProcessor:
                     zip(
                         hdr_siblings,
                         pool.map(
-                            lambda p: self._decode_sensor_rgb(p, linear_raw, fast=fast_decode, wb_override=bracket_wb)[0], hdr_siblings
+                            lambda p: self._decode_sensor_rgb(p, linear_raw, fast=fast_decode, wb_override=bracket_wb, demosaic=demosaic)[
+                                0
+                            ],
+                            hdr_siblings,
                         ),
                     )
                 )
@@ -942,6 +957,7 @@ class ImageProcessor:
             + hdr_token(params.hdr)
             + linear_raw_token(params.process, params.exposure.render_intent)
             + sensor_token(params.process)
+            + demosaic_token(params.process.demosaic_export)
             + ir_bake_token(params.retouch, ir_full is not None)
             + manual_bake_token(params.retouch)
             + luma_bake_token(params.retouch)

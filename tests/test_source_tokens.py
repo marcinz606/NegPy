@@ -16,6 +16,7 @@ from negpy.features.hdr.models import HdrConfig, hdr_token
 from negpy.features.rgbscan.logic import rgbscan_token
 from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.features.stitch.models import StitchConfig, stitch_token
+from negpy.features.process.models import DemosaicMode
 from negpy.services.rendering.source_identity import source_token
 
 
@@ -146,6 +147,14 @@ class SourceToken(unittest.TestCase):
         self.assertNotEqual(plain, source_token(replace(base, process=replace(base.process, linear_raw=not base.process.linear_raw))))
         merged = replace(base, hdr=HdrConfig(hdr_enabled=True, hdr_paths=(__file__,), hdr_ratios=(1.0, 2.0)))
         self.assertNotEqual(plain, source_token(merged))
+
+    def test_preview_demosaic_forces_a_decode_but_the_export_one_does_not(self):
+        """Only the preview choice changes the buffer on screen; folding the export choice in
+        would re-decode the open frame every time an export setting moved."""
+        base = WorkspaceConfig()
+        plain = source_token(base)
+        self.assertNotEqual(plain, source_token(replace(base, process=replace(base.process, demosaic_preview=DemosaicMode.VNG))))
+        self.assertEqual(plain, source_token(replace(base, process=replace(base.process, demosaic_export=DemosaicMode.VNG))))
 
     def test_a_render_only_setting_does_not_force_a_decode(self):
         """The token decides re-decode vs re-render, so a stage's control must not appear
