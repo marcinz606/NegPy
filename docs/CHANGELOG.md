@@ -1,5 +1,19 @@
 # Change Log
 
+## 0.57.0
+
+- New: **Demosaic panel** — pick the CFA interpolation for preview and export separately, under Calibration; the list is built from what your libraw build supports and Auto keeps the previous behavior.
+- New: **Soft Proof section on the Export tab** — printer and paper presets, rendering intent, black point compensation, simulate paper white and simulate ink black, a gamut warning, and the monitor profile; the proof profile follows the Export profile or can be set on its own, so you can proof a print while exporting a web JPEG.
+- New: **Printability and Repair read-outs in Analysis** — the share of the frame the proof profile cannot print, and the share of the scan each repair route (IR, dust, painted) rewrote.
+- New: **Cast Removal on transparencies** — the slider now works on slides, for faded E-6 originals with a shadow/highlight crossover; slides start at 0, negatives at 0.5.
+- New: **Scanners reach their native per-axis resolution** — DPI values a device offers only on x are now usable, with y resampled up after the read; IR capture still refuses a DPI that needs resampling. @dtrtuser
+- Change: **Lens distortion is a per-image control** — moved out of the flat-field profile into Alignment beside Tilt and Swing, so a rig with no profile can use it; finer 0.001 steps over ±0.10.
+- Change: **UI consistency pass** — one font scale, readable hint text, one control family and one button width across the panels, radio buttons and a focus ring in dialogs, and one Enter target per dialog footer; Flat Field is rebuilt on the shared panel layout and the Calibration and Flat Field resets are connected.
+- Fix: **Trichrome triplets assemble reliably** — frame agreement is scored in density rather than linear levels, so exposures several stops apart are no longer refused; a restored session groups the files it left loose, and a capture hands its own three exposures to discovery, so a frame with no detail in it still stacks. @seanharding
+- Fix: **Plustek multi-exposure scan alignment** — pyOpticfilm updated to 1.3.3. @jboneng
+- Fix: **Hot folder no longer re-imports open files on Windows** — paths were compared raw, so a different separator or letter case read as a new file. @MohammedAlkindi
+- Fix: **`path:` search queries match on Windows** — backslashes were stripped as escapes before the matcher saw them, so a documented query returned nothing. @MohammedAlkindi
+
 ## 0.56.0
 
 - New: **One Export profile control** — color spaces and imported ICC profiles in a single combo, so the ICC can no longer silently override a live-looking color-space choice; Import ICC copies a profile into `~/NegPy/icc` with no restart, Same as Source names the space it resolves to, and Soft Proof with its warning moves beside the profile it describes.
