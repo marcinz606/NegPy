@@ -4,7 +4,7 @@ QMainWindow {
 
 QWidget {
     background-color: #0D0D0D;
-    color: #D4D4D4;
+    color: @text_primary;
     font-family: "__UI_FONT__";
     font-size: @font_size_basepx;
 }
@@ -47,7 +47,7 @@ QGroupBox::title {
 
 QPushButton {
     background-color: transparent;
-    color: #D4D4D4;
+    color: @text_primary;
     border: 1px solid transparent;
     border-radius: 4px;
     padding: 6px 12px;
@@ -101,7 +101,7 @@ QPushButton#scan_btn:pressed {
 
 QPushButton#scan_btn:disabled {
     background-color: #1A1414;
-    color: #666666;
+    color: @text_unit;
     border: 1px solid #2A1D1D;
 }
 
@@ -214,7 +214,7 @@ QTabWidget::pane {
 
 QTabBar::tab {
     background-color: #161616;
-    color: #A0A0A0;
+    color: @text_secondary;
     padding: 8px 12px;
     border: 1px solid #333333;
     border-top-left-radius: 4px;
@@ -235,7 +235,7 @@ QTabBar::tab:hover:!selected {
 
 QComboBox, QLineEdit, QDoubleSpinBox, QSpinBox, QTextEdit {
     background-color: #0A0A0A;
-    color: #D4D4D4;
+    color: @text_primary;
     border: 1px solid #1A1A1A;
     border-radius: 4px;
     padding: 4px;
@@ -247,7 +247,7 @@ QComboBox:focus, QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QTextEdi
 }
 
 QComboBox:disabled, QLineEdit:disabled, QDoubleSpinBox:disabled, QSpinBox:disabled, QTextEdit:disabled {
-    color: #555555;
+    color: @text_muted;
     border: 1px solid #1A1A1A;
 }
 
@@ -266,7 +266,7 @@ QComboBox QAbstractItemView {
 
 QComboBox QAbstractItemView::item {
     background-color: transparent;
-    color: #D4D4D4;
+    color: @text_primary;
     border: none;
     border-radius: 3px;
     padding: 5px 12px;
@@ -281,8 +281,8 @@ QComboBox QAbstractItemView::item:hover {
     border: none;
 }
 
-QPushButton:disabled, QToolButton:disabled { color: #555555; }
-QCheckBox:disabled { color: #555555; }
+QPushButton:disabled, QToolButton:disabled { color: @text_muted; }
+QCheckBox:disabled { color: @text_muted; }
 
 QStatusBar {
     background-color: @accent_primary;
@@ -353,7 +353,7 @@ QMenu {
 
 QMenu::item {
     background-color: transparent;
-    color: #D4D4D4;
+    color: @text_primary;
     padding: 5px 24px 5px 12px;
     border-radius: 3px;
 }
@@ -364,7 +364,7 @@ QMenu::item:selected {
 }
 
 QMenu::item:disabled {
-    color: #555555;
+    color: @text_muted;
 }
 
 QMenu::separator {
@@ -377,7 +377,7 @@ QMenu::separator {
    rich-text keycap chips sit on a consistent backdrop. */
 QToolTip {
     background-color: #161616;
-    color: #D4D4D4;
+    color: @text_primary;
     border: 1px solid #333333;
     border-radius: 4px;
     padding: 4px 6px;
@@ -482,7 +482,7 @@ QPushButton[primary="true"]:pressed, QToolButton[primary="true"]:pressed {
 QPushButton[primary="true"]:disabled, QToolButton[primary="true"]:disabled {
     background-color: transparent;
     border: 1px solid #262626;
-    color: #555555;
+    color: @text_muted;
 }
 
 /* Right-panel tab strip (see sidebar/right_panel.py). */
@@ -544,7 +544,7 @@ QListWidget#preset_list {
 
 QListWidget#preset_list::item {
     padding: 8px;
-    color: #D4D4D4;
+    color: @text_primary;
 }
 
 QListWidget#preset_list::item:selected {
@@ -555,12 +555,12 @@ QListWidget#preset_list::item:selected {
 /* Searchable gear combo (widgets/searchable_gear_combo.py): inline arrow + completer popup. */
 QToolButton#gear_combo_arrow {
     border: none;
-    color: #A0A0A0;
+    color: @text_secondary;
     background: transparent;
 }
 
 QToolButton#gear_combo_arrow:hover {
-    color: #D4D4D4;
+    color: @text_primary;
 }
 
 /* QCompleter views — the QMenu/combo rules above don't reach them; mirror them.
@@ -568,7 +568,7 @@ QToolButton#gear_combo_arrow:hover {
 QAbstractItemView#gear_combo_popup,
 QAbstractItemView#shortcut_editor_search_popup {
     background: #161616;
-    color: #D4D4D4;
+    color: @text_primary;
     border: 1px solid #333333;
     border-radius: 4px;
     padding: 4px;
@@ -700,7 +700,7 @@ QRadioButton::indicator:disabled {
 }
 
 QRadioButton:disabled {
-    color: #555555;
+    color: @text_muted;
 }
 
 /* Keyboard focus. A styled QPushButton loses Fusion's focus rect, so tabbing through a

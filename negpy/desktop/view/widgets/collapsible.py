@@ -144,9 +144,9 @@ class CollapsibleSection(QWidget):
 
     def _update_chevron(self, expanded: bool) -> None:
         if expanded:
-            self.chevron_label.setPixmap(qta.icon("fa5s.chevron-down", color="#A0A0A0").pixmap(12, 12))
+            self.chevron_label.setPixmap(qta.icon("fa5s.chevron-down", color=THEME.text_secondary).pixmap(12, 12))
         else:
-            self.chevron_label.setPixmap(qta.icon("fa5s.chevron-right", color="#A0A0A0").pixmap(12, 12))
+            self.chevron_label.setPixmap(qta.icon("fa5s.chevron-right", color=THEME.text_secondary).pixmap(12, 12))
 
     def set_modified(self, count: int) -> None:
         """Append count to title when non-zero; show reset button."""
