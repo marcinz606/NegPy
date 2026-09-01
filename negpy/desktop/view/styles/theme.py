@@ -24,13 +24,13 @@ class ThemeConfig:
     bg_status_bar: str = "#0a0a0a"
     border_primary: str = "#262626"
     border_color: str = "#333333"
-    text_primary: str = "#D4D4D4"
-    text_secondary: str = "#A0A0A0"
-    # hint = readable secondary copy (4.9:1 on bg_panel); muted = disabled widgets only, and
-    # too dim (2.6:1) for text a user must read.
-    text_hint: str = "#808080"
-    text_muted: str = "#555555"
-    text_unit: str = "#666666"
+    text_primary: str = "#E4E4E4"
+    text_secondary: str = "#B4B4B4"
+    # hint = readable secondary copy (6.4:1 on bg_panel); muted = disabled widgets only, and
+    # too dim (3.6:1) for text a user must read.
+    text_hint: str = "#949494"
+    text_muted: str = "#6B6B6B"
+    text_unit: str = "#7C7C7C"
     warn_amber: str = "#C79A3A"
     accent_primary: str = "#B71C1C"
     accent_secondary: str = "#C62828"
