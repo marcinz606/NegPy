@@ -312,6 +312,27 @@ class PreferencesDialog(QDialog):
         grid.addWidget(hint_label(f"{os.cpu_count() or '?'} cores available. Applies at once, no restart."), row, 0, 1, 2)
         row += 1
 
+        self.low_vram_tiling_box = self._add_checkbox(
+            grid,
+            row,
+            "Reduce export memory use",
+            APP_CONFIG.low_vram_export_tiling,
+            "Use smaller tiles and less pipelining during export, at some cost to export speed. "
+            "Turn this on if exporting crashes on your GPU (typically an older or "
+            "memory-constrained integrated one).",
+        )
+        if "low_vram_export_tiling" in self._pinned:
+            self.low_vram_tiling_box.setEnabled(False)
+            self.low_vram_tiling_box.setToolTip("Set in override.toml, which wins over this dialog")
+        else:
+            self.low_vram_tiling_box.toggled.connect(self._on_low_vram_tiling_changed)
+        row += 1
+        note = "Applies to the next export started, no restart needed." + (
+            " Set in override.toml." if "low_vram_export_tiling" in self._pinned else ""
+        )
+        grid.addWidget(hint_label(note), row, 0, 1, 2)
+        row += 1
+
         for spec in NUMBER_ROWS:
             grid.addWidget(field_label(spec.label), row, 0)
             spin = QSpinBox()
@@ -406,6 +427,10 @@ class PreferencesDialog(QDialog):
             5000,
         )
 
+    def _on_low_vram_tiling_changed(self, checked: bool) -> None:
+        APP_CONFIG.low_vram_export_tiling = bool(checked)
+        self.repo.save_global_setting("low_vram_export_tiling", bool(checked))
+
     def _open_shortcut_editor(self) -> None:
         manager = getattr(self._window, "shortcut_manager", None)
         if manager is not None:
@@ -458,7 +483,11 @@ def _pinned_keys() -> set[str]:
     path = APP_CONFIG.override_toml_path
     if not path or not os.path.exists(path):
         return set()
-    return toml_pinned_keys(load_or_create(path))
+    cfg = load_or_create(path)
+    pinned = toml_pinned_keys(cfg)
+    if cfg.low_vram_export_tiling is not None:
+        pinned = pinned | {"low_vram_export_tiling"}
+    return pinned
 
 
 def _canvas_colors():

@@ -57,6 +57,11 @@ qt_platform = "auto"
 # defaults to false while crash reports are investigated. Uncomment to force.
 # cpu_parallel = true
 
+# Smaller tiles and no readback pipelining during export, at some cost to export speed.
+# Off by default. Turn on if exporting crashes on your GPU (typically an older or
+# memory-constrained integrated one) -- also available in Preferences.
+# low_vram_export_tiling = true
+
 # Cap GPU texture dimensions in pixels, including the HQ/full-resolution preview load.
 # "auto" lets wgpu/hardware decide the maximum -- except on an integrated GPU, where NegPy
 # applies a conservative default (currently 6144px) since shared VRAM can't be queried
@@ -100,6 +105,7 @@ class OverrideConfig:
     qt_platform: str = "auto"
     force_hq_preview: bool | None = None
     cpu_parallel: bool | None = None
+    low_vram_export_tiling: bool | None = None
     max_texture_size: int | None = None
     preview_render_size: int | None = None
     preview_cache_max_bytes: int | None = None
@@ -167,6 +173,9 @@ def _parse(data: dict) -> OverrideConfig:
     raw_par = performance.get("cpu_parallel")
     cpu_parallel: bool | None = bool(raw_par) if isinstance(raw_par, bool) else None
 
+    raw_low_vram = performance.get("low_vram_export_tiling")
+    low_vram_tiling: bool | None = bool(raw_low_vram) if isinstance(raw_low_vram, bool) else None
+
     raw_tex = performance.get("max_texture_size")
     max_tex: int | None = int(raw_tex) if isinstance(raw_tex, int) and raw_tex > 0 else None
 
@@ -195,6 +204,7 @@ def _parse(data: dict) -> OverrideConfig:
         qt_platform=qt_platform,
         force_hq_preview=force_hq,
         cpu_parallel=cpu_parallel,
+        low_vram_export_tiling=low_vram_tiling,
         max_texture_size=max_tex,
         preview_render_size=prev_size,
         preview_cache_max_bytes=cache_b,
@@ -260,6 +270,9 @@ def apply(cfg: OverrideConfig, app_config: AppConfig) -> None:
 
     if cfg.cpu_parallel is not None:
         app_config.cpu_parallel = cfg.cpu_parallel
+
+    if cfg.low_vram_export_tiling is not None:
+        app_config.low_vram_export_tiling = cfg.low_vram_export_tiling
 
     if cfg.preview_render_size is not None:
         size = min(PREVIEW_SIZE_MAX, max(PREVIEW_SIZE_MIN, cfg.preview_render_size))

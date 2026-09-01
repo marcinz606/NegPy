@@ -222,6 +222,12 @@ def main() -> None:
         # file's own apply() above, and still before QApplication reads any of them.
         apply_stored_override(override_cfg, APP_CONFIG, repo.get_global_setting)
 
+        # Opt-in smaller-tile/no-pipelining export path: override.toml wins if set, else the
+        # saved Preferences checkbox, else off. Not a STORED_PERF_KEYS entry since apply_stored
+        # skips bool values (see its docstring).
+        if override_cfg.low_vram_export_tiling is None:
+            APP_CONFIG.low_vram_export_tiling = bool(repo.get_global_setting("low_vram_export_tiling", False))
+
         # Multi-core Numba kernels: override.toml, then the saved setting, then the platform
         # default (off on macOS). Read before the flags below are overwritten.
         prev_clean_exit = bool(repo.get_global_setting("clean_shutdown", True))

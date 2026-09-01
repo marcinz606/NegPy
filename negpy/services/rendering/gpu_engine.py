@@ -78,6 +78,15 @@ _ALT_MODE = {AltProcess.NONE: 0, AltProcess.LITH: 1, AltProcess.CYANOTYPE: 2}
 # Hardware constants
 UNIFORM_ALIGNMENT_DEFAULT = 256
 TILE_SIZE = 2048
+# Some GPUs -- typically an older or memory-constrained integrated one, sharing system
+# RAM as VRAM with no submittable-memory query available up front -- can have a tight
+# enough budget that a full-size 2048px tile's intermediate textures blow it and take
+# the whole process down via wgpu-native's panic-on-device-lost (uncatchable across the
+# FFI boundary). Halving the tile roughly quarters the live per-tile texture footprint.
+# Gated behind AppConfig.low_vram_export_tiling (Preferences/override.toml) rather than
+# GPUDevice.is_integrated: plenty of integrated GPUs (Apple Silicon, AMD's higher-end
+# APUs) have ample real VRAM and don't need -- or want -- the export slowed down for it.
+TILE_SIZE_LOW_VRAM = 1024
 TILE_HALO = 32
 TILING_THRESHOLD_PX = 12_000_000
 HISTOGRAM_BINS = 256
@@ -2337,13 +2346,22 @@ class GPUEngine:
             halo = max(halo, int(np.ceil(max(5.0, 25.0 * scale_factor))))
         halo = min(halo, 512)
 
+        # Opt-in (AppConfig.low_vram_export_tiling, off by default): a smaller tile
+        # (see TILE_SIZE_LOW_VRAM) and skipping the one-tile-ahead pipelining below --
+        # on a tight, unqueryable VRAM budget, keeping two tiles' worth of
+        # textures/buffers live at once is the difference between fitting and a
+        # device-lost abort. Left off, exports keep both the full tile size and the
+        # overlap for throughput.
+        low_vram = APP_CONFIG.low_vram_export_tiling
+        tile_size = TILE_SIZE_LOW_VRAM if low_vram else TILE_SIZE
+
         # The queue serializes tile N's staging copy ahead of tile N+1's passes, so
         # deferring the map_sync by one tile is safe and overlaps the wait.
         pending: Optional[tuple] = None
         tile_index = 0
-        for ty in range(0, crop_h, TILE_SIZE):
-            for tx in range(0, crop_w, TILE_SIZE):
-                tw, th = min(TILE_SIZE, crop_w - tx), min(TILE_SIZE, crop_h - ty)
+        for ty in range(0, crop_h, tile_size):
+            for tx in range(0, crop_w, tile_size):
+                tw, th = min(tile_size, crop_w - tx), min(tile_size, crop_h - ty)
                 ix1, iy1 = max(0, x1 + tx - halo), max(0, y1 + ty - halo)
                 ix2, iy2 = (
                     min(w_rot, x1 + tx + tw + halo),
@@ -2372,10 +2390,13 @@ class GPUEngine:
                     contrast_mask_override=global_mask,
                 )
                 handle = self._submit_readback(tile_res, slot=tile_index % 2)
-                if pending is not None:
-                    p_handle, p_ty, p_tx, p_th, p_tw, p_oy, p_ox = pending
-                    self._resolve_readback(p_handle, full_source_res[p_ty : p_ty + p_th, p_tx : p_tx + p_tw], (p_oy, p_ox))
-                pending = (handle, ty, tx, th, tw, oy, ox)
+                if low_vram:
+                    self._resolve_readback(handle, full_source_res[ty : ty + th, tx : tx + tw], (oy, ox))
+                else:
+                    if pending is not None:
+                        p_handle, p_ty, p_tx, p_th, p_tw, p_oy, p_ox = pending
+                        self._resolve_readback(p_handle, full_source_res[p_ty : p_ty + p_th, p_tx : p_tx + p_tw], (p_oy, p_ox))
+                    pending = (handle, ty, tx, th, tw, oy, ox)
                 tile_index += 1
         if pending is not None:
             p_handle, p_ty, p_tx, p_th, p_tw, p_oy, p_ox = pending
