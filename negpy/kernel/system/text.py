@@ -24,7 +24,11 @@ def human_bytes(n: float) -> str:
     """A byte count in the largest unit that keeps it under 1024."""
     size = float(n)
     for unit in ("B", "KB", "MB", "GB"):
-        if size < 1024 or unit == "GB":
+        # Compare the number as it will be shown. 1023.95 KB is displayed as
+        # "1024.0 KB", which is not under 1024, so the rounded value decides
+        # the unit rather than the raw one.
+        shown = round(size) if unit == "B" else round(size, 1)
+        if shown < 1024 or unit == "GB":
             return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
         size /= 1024
     return f"{size:.1f} GB"
