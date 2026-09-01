@@ -1038,7 +1038,7 @@ class FileBrowser(QWidget):
 
         new_files = FolderWatchService.scan_for_new_files(folder_path, existing)
         if new_files:
-            self.controller.request_asset_discovery(new_files)
+            self.controller.request_asset_discovery(new_files, hot_folder=True)
 
     def prompt_add_files(self) -> None:
         """Public entry point: also driven by the canvas empty state."""

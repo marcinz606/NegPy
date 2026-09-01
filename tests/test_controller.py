@@ -22,6 +22,7 @@ from negpy.domain.models import (
     WorkspaceConfig,
 )
 from negpy.infrastructure.scanners.params import ScanParams
+from negpy.services.assets.thumbnails import asset_thumbnail_key
 from negpy.services.rendering.preview_manager import PreviewManager
 
 if not QApplication.instance():
@@ -2103,6 +2104,102 @@ class TestDiscoveryProgressPopup(unittest.TestCase):
         self.mock_session_manager.select_file.assert_called_with(1)
         self.assertIn(os.path.normcase(os.path.abspath(first_paths[0])), self.controller._pending_capture_imports)
         self.assertNotIn(os.path.normcase(os.path.abspath(second_paths[0])), self.controller._pending_capture_imports)
+
+
+class TestHotFolderSequenceState(unittest.TestCase):
+    """`hot_folder_sequence_active` spans a hot-folder-triggered discovery through its
+    thumbnail phase, and only that phase — a manual request never claims it, and every
+    early exit (discovery error, no assets found, nothing to thumbnail, thumbnail error)
+    releases it without waiting for `_on_thumbnails_finished`."""
+
+    def setUp(self):
+        self.mock_session_manager = MagicMock(spec=DesktopSessionManager)
+        self.mock_session_manager.state = AppState()
+        self.mock_session_manager.repo = MagicMock()
+        self.mock_session_manager.repo.get_global_setting.return_value = False
+        self.mock_session_manager.asset_model = MagicMock()
+        self.mock_session_manager.asset_model.visible_actual_indices_ordered.return_value = []
+        self.mock_session_manager.add_files.side_effect = lambda _paths, validated_info=None: (
+            self.mock_session_manager.state.uploaded_files.extend(validated_info or [])
+        )
+
+        with (
+            patch("negpy.desktop.controller.RenderWorker") as mock_rw_class,
+            patch("negpy.desktop.controller.PreviewManager") as mock_pm_class,
+        ):
+            mock_rw_class.return_value = MagicMock()
+            mock_pm_class.return_value = MagicMock(spec=PreviewManager)
+            self.controller = AppController(self.mock_session_manager)
+
+    def tearDown(self):
+        import gc
+
+        for thread in [
+            self.controller.render_thread,
+            self.controller.export_thread,
+            self.controller.thumb_thread,
+            self.controller.norm_thread,
+            self.controller.discovery_thread,
+            self.controller.preview_load_thread,
+            self.controller.scan_thread,
+        ]:
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                thread.wait()
+        del self.controller
+        gc.collect()
+
+    def test_manual_discovery_never_claims_the_sequence(self):
+        self.assertFalse(self.controller.hot_folder_sequence_active)
+        self.controller.request_asset_discovery(["/manual.dng"])
+        self.assertFalse(self.controller.hot_folder_sequence_active, "a manual request must not claim the hot-folder sequence")
+
+    def test_hot_folder_sequence_spans_discovery_and_thumbnails(self):
+        self.assertFalse(self.controller.hot_folder_sequence_active)
+
+        self.controller.request_asset_discovery(["/hot.dng"], hot_folder=True)
+        self.assertTrue(self.controller.hot_folder_sequence_active, "a hot-folder discovery must claim the sequence")
+
+        self.controller.generate_missing_thumbnails = MagicMock(
+            side_effect=lambda: self.controller._begin_batch("thumbnails", "Generating thumbnails", abortable=False)
+        )
+        self.controller._on_discovery_finished([{"name": "hot", "path": "/hot.dng", "hash": "h1"}])
+        self.assertTrue(self.controller.hot_folder_sequence_active, "must stay claimed through the thumbnail phase")
+
+        self.controller._on_thumbnails_finished({})
+        self.assertFalse(self.controller.hot_folder_sequence_active, "must release once thumbnails finish")
+
+    def test_hot_folder_sequence_clears_on_discovery_error(self):
+        self.controller.request_asset_discovery(["/hot.dng"], hot_folder=True)
+        self.assertTrue(self.controller.hot_folder_sequence_active)
+        self.controller._on_discovery_batch_error("boom")
+        self.assertFalse(self.controller.hot_folder_sequence_active)
+
+    def test_hot_folder_sequence_clears_when_no_assets_found(self):
+        self.controller.request_asset_discovery(["/hot.dng"], hot_folder=True)
+        self.assertTrue(self.controller.hot_folder_sequence_active)
+        self.controller._on_discovery_finished([])
+        self.assertFalse(self.controller.hot_folder_sequence_active)
+
+    def test_hot_folder_sequence_clears_when_thumbnails_already_cached(self):
+        asset = {"name": "hot", "path": "/hot.dng", "hash": "h1"}
+        self.mock_session_manager.state.thumbnails[asset_thumbnail_key(asset)] = object()
+
+        self.controller.request_asset_discovery(["/hot.dng"], hot_folder=True)
+        self.assertTrue(self.controller.hot_folder_sequence_active)
+        self.controller._on_discovery_finished([asset])
+        self.assertFalse(self.controller.hot_folder_sequence_active, "nothing to thumbnail is itself the end of the sequence")
+
+    def test_hot_folder_sequence_clears_on_thumbnail_error(self):
+        self.controller.request_asset_discovery(["/hot.dng"], hot_folder=True)
+        self.controller.generate_missing_thumbnails = MagicMock(
+            side_effect=lambda: self.controller._begin_batch("thumbnails", "Generating thumbnails", abortable=False)
+        )
+        self.controller._on_discovery_finished([{"name": "hot", "path": "/hot.dng", "hash": "h1"}])
+        self.assertTrue(self.controller.hot_folder_sequence_active)
+
+        self.controller._on_thumbnail_batch_error("boom")
+        self.assertFalse(self.controller.hot_folder_sequence_active)
 
 
 class TestBatchAnalysisFiltering(unittest.TestCase):
