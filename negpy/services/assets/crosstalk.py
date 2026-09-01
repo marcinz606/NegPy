@@ -220,8 +220,25 @@ class CrosstalkProfiles:
 
     @staticmethod
     def path_for_name(name: str) -> str:
-        """Filesystem path a user profile with this display name would use."""
-        return os.path.join(APP_CONFIG.crosstalk_dir, f"{slugify(name, 'crosstalk')}.toml")
+        """Filesystem path a user profile with this display name would use.
+
+        Steps past a file that already holds a different display name: two names can
+        slugify to the same stem, and saving one profile must not overwrite another."""
+        directory = APP_CONFIG.crosstalk_dir
+        listing = sorted(os.listdir(directory)) if os.path.isdir(directory) else []
+        for fname in listing:
+            if not fname.endswith(".toml"):
+                continue
+            existing = os.path.join(directory, fname)
+            parsed = CrosstalkProfiles._parse_file(existing)
+            if parsed is not None and (parsed[0] or fname[:-5]) == name:
+                return existing
+        base = slugify(name, "crosstalk")
+        for stem in (base, *(f"{base}_{i}" for i in range(2, 1000))):
+            free = os.path.join(directory, f"{stem}.toml")
+            if not os.path.isfile(free):
+                return free
+        return os.path.join(directory, f"{base}.toml")
 
     @staticmethod
     def save(name: str, matrix: List[float], profile_type: str = CrosstalkType.TUNED, process: Optional[str] = None) -> str:

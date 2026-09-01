@@ -161,3 +161,12 @@ def test_sidebar_sync_rebuilds_combo_after_save(qapp, tmp_path):
     SensorProfiles.save("New Rig", [1, 0, 0, 0, 1, 0, 0, 0, 1])
     sidebar.sync_ui()
     assert [sidebar.sensor_combo.itemText(i) for i in range(sidebar.sensor_combo.count())] == ["None", "New Rig"]
+
+
+def test_two_names_sharing_a_slug_stay_two_profiles(tmp_path):
+    """Names that slugify to the same stem stay separate profiles."""
+    SensorProfiles.save("Rig A", [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0])
+    SensorProfiles.save("Rig-A", [2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 2.0])
+
+    assert SensorProfiles.get_matrix("Rig A") == [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+    assert SensorProfiles.get_matrix("Rig-A") == [2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 2.0]
