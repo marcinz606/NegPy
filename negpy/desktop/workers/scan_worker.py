@@ -61,6 +61,8 @@ class BatchRequest:
     # Feed-axis drift (mm/frame): frame N scans at frame_offset_mm + (N-1) * modifier,
     # floored at 0.
     frame_offset_modifier_mm: float = 0.0
+    # Per-frame correction (mm) on top of that ramp; an absent key means none.
+    frame_offsets: dict[int, float] = field(default_factory=dict)
 
 
 class ScanWorker(QObject):
@@ -223,7 +225,7 @@ class ScanWorker(QObject):
                 window = req.frame_windows.get(frame, req.params.window)
                 # No floor here: a transport that cannot back up clamps in its own backend, and
                 # one that re-addresses an absolute frame may legitimately go negative.
-                offset = req.params.frame_offset_mm + (frame - 1) * req.frame_offset_modifier_mm
+                offset = req.params.frame_offset_mm + (frame - 1) * req.frame_offset_modifier_mm + req.frame_offsets.get(frame, 0.0)
                 frame_params = dataclasses.replace(req.params, frame=frame, window=window, frame_offset_mm=offset)
                 base = index / total
 

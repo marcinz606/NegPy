@@ -889,3 +889,59 @@ def test_a_saved_negative_offset_comes_back_as_it_was() -> None:
     dialog = StripPreviewDialog(_FakeController(), _discovery_device(), initial_offset=-1.5)
     assert dialog.frame_offset() == -1.5
     assert dialog.offset_label.text() == "-1.5 mm"
+
+
+# ── the per-frame offset slider ───────────────────────────────────────────
+
+
+def test_a_tile_slider_corrects_its_own_frame_only() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(3), initial_offset=2.0)
+
+    dialog._tiles[2].offset_slider.setValue(-5)  # tenths of a mm
+
+    assert dialog._raw_offset_for_frame(1) == pytest.approx(2.0)
+    assert dialog._raw_offset_for_frame(2) == pytest.approx(1.5)
+    assert dialog._raw_offset_for_frame(3) == pytest.approx(2.0)
+
+
+def test_a_tile_slider_moves_that_tiles_band_and_no_other() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(3), initial_offset=4.0)
+
+    dialog._tiles[2].offset_slider.setValue(19)  # +1.9 mm
+
+    ((first, _),) = dialog._tiles[1].label._offset_indicators
+    ((second, _),) = dialog._tiles[2].label._offset_indicators
+    assert first == pytest.approx(4.0 / 38.0, abs=1e-3)
+    assert second == pytest.approx(5.9 / 38.0, abs=1e-3)
+
+
+def test_frame_offsets_reports_the_corrected_frames_only() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(3))
+
+    dialog._tiles[3].offset_slider.setValue(7)
+
+    assert dialog.frame_offsets() == {3: 0.7}
+
+
+def test_a_saved_correction_comes_back_on_its_tile() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(3), initial_frame_offsets={2: -0.8})
+
+    assert dialog._tiles[2].offset_slider.value() == -8
+    assert dialog.frame_offsets() == {2: -0.8}
+
+
+def test_double_clicking_a_tile_slider_clears_its_correction() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(3), initial_frame_offsets={1: 1.2})
+
+    dialog._tiles[1].offset_slider.mouseDoubleClickEvent(None)
+
+    assert dialog.frame_offsets() == {}
+
+
+def test_the_preview_request_carries_the_per_frame_correction() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _device(3), initial_offset=1.0, initial_frame_offsets={2: 0.9})
+
+    dialog._on_preview_all()
+
+    assert controller.preview_reqs[0].offsets[2] == pytest.approx(1.9 / 38.0, abs=1e-4)
