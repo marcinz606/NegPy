@@ -161,6 +161,14 @@ def _dms(value: float) -> tuple[tuple[int, int], tuple[int, int], tuple[int, int
     minutes_full = (total - degrees) * 60.0
     minutes = int(minutes_full)
     seconds = round((minutes_full - minutes) * 60.0 * 100.0)
+    # Rounding the hundredths can carry seconds to 60.00, an invalid GPS
+    # rational; fold that carry into minutes, and minutes into degrees.
+    if seconds >= 6000:
+        seconds -= 6000
+        minutes += 1
+    if minutes >= 60:
+        minutes -= 60
+        degrees += 1
     return (degrees, 1), (minutes, 1), (int(seconds), 100)
 
 

@@ -111,6 +111,16 @@ class TestGps:
         assert lat.startswith("35,40.57") and lat.endswith("N")
         assert lon.startswith("139,39.01") and lon.endswith("W")
 
+    def test_seconds_do_not_round_up_to_sixty(self) -> None:
+        # 45 degrees plus exactly one arc-minute. Float error puts the fractional
+        # minute so close to 1.0 that the raw seconds computation rounds to 60.00,
+        # an invalid GPS rational that should instead have carried into minutes.
+        gps = exif_gps_rationals(45.016666666666666, 0.0)
+        degrees, minutes, seconds = gps[piexif.GPSIFD.GPSLatitude]
+        assert seconds[0] / seconds[1] < 60.0
+        assert minutes[0] < 60
+        assert (degrees[0], minutes[0], seconds[0]) == (45, 1, 0)
+
 
 class TestTileMath:
     @pytest.mark.parametrize("zoom", [2, 8, 18])
