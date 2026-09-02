@@ -840,6 +840,7 @@ class ScanSidebar(QWidget):
                 initial_selected=self._settings.selected_frames,
                 initial_offset=self._settings.frame_offset_mm,
                 initial_offset_modifier=self._settings.frame_offset_modifier_mm,
+                initial_frame_offsets=self._settings.frame_offsets,
                 film_format=self._film_format(),
                 film_type=self._film_type(),
                 parent=self,
@@ -851,6 +852,7 @@ class ScanSidebar(QWidget):
                     selected_frames=dialog.selected_frames(),
                     frame_offset_mm=dialog.frame_offset(),
                     frame_offset_modifier_mm=dialog.frame_offset_modifier(),
+                    frame_offsets=dialog.frame_offsets(),
                 )
                 self._update_scan_window_status()
                 if dialog.scan_requested():
@@ -1095,6 +1097,7 @@ class ScanSidebar(QWidget):
                         frames=frames,
                         frame_windows=frame_windows,
                         frame_offset_modifier_mm=self._settings.frame_offset_modifier_mm,
+                        frame_offsets=self._settings.frame_offsets,
                     )
                 )
             else:
@@ -1162,9 +1165,9 @@ class ScanSidebar(QWidget):
             return
         # Frames and their crops describe the piece of film that just came out; the next strip
         # is a different one, and silently reusing them scans the wrong frames.
-        stale = bool(self._settings.selected_frames or self._settings.frame_windows)
+        stale = bool(self._settings.selected_frames or self._settings.frame_windows or self._settings.frame_offsets)
         if stale:
-            self.settings = replace(self._settings, selected_frames=(), frame_windows={})
+            self.settings = replace(self._settings, selected_frames=(), frame_windows={}, frame_offsets={})
             self._update_scan_window_status()
             self._update_summary()
         self.status_strip.set_message("Film ejected — frame selection cleared" if stale else "Film ejected")

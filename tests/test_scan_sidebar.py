@@ -483,6 +483,17 @@ def test_scan_carries_offset_and_drift_into_the_batch_request() -> None:
     assert req.frame_offset_modifier_mm == 0.2
 
 
+def test_scan_carries_the_per_frame_corrections_into_the_batch_request() -> None:
+    sidebar, controller = _sidebar(LS50_DEVICE)
+    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.settings = replace(sidebar._settings, frame_offsets={2: -0.4})
+
+    sidebar._on_scan()
+
+    _kind, req = controller.started[0]
+    assert req.frame_offsets == {2: -0.4}
+
+
 def test_eject_button_calls_controller() -> None:
     sidebar, controller = _sidebar(FULL_DEVICE)
     sidebar._on_eject()
@@ -946,6 +957,15 @@ def test_ejecting_drops_the_frame_selection_of_the_film_that_left() -> None:
     assert sidebar.settings.selected_frames == ()
     assert sidebar.settings.frame_windows == {}
     assert "frame selection cleared" in sidebar.status_strip.message()
+
+
+def test_ejecting_drops_the_per_frame_corrections_of_the_film_that_left() -> None:
+    # A per-frame correction registers one strip's own boundaries; the next strip has its own.
+    sidebar, _ = _sidebar(FULL_DEVICE, settings={"frame_offsets": {"2": 0.4}})
+
+    sidebar._on_ejected(True)
+
+    assert sidebar.settings.frame_offsets == {}
 
 
 def test_ejecting_keeps_the_registration_offsets() -> None:

@@ -152,6 +152,27 @@ def test_batch_applies_progressive_offset_per_frame_position() -> None:
     assert service.offsets == pytest.approx([1.2, 1.4, 1.6])
 
 
+def test_batch_adds_a_per_frame_correction_on_top_of_the_ramp() -> None:
+    worker = ScanWorker()
+    service = _BatchService()
+    worker._service = service  # type: ignore[assignment]
+    req = BatchRequest(
+        device_id="coolscan3:test",
+        params=ScanParams(dpi=4_000, depth=16, capture_ir=False, frame_offset_mm=1.0),
+        output_folder="/tmp",
+        filename_pattern='scan-{{ "%03d" % seq }}',
+        output_format="TIFF",
+        frames=(2, 3, 4),
+        frame_offset_modifier_mm=0.2,
+        frame_offsets={3: -0.5},
+    )
+
+    worker.run_batch(req)
+
+    # Only frame 3 moves; a frame with no entry keeps base + drift.
+    assert service.offsets == pytest.approx([1.2, 0.9, 1.6])
+
+
 def test_batch_passes_a_negative_drift_through_to_the_backend() -> None:
     worker = ScanWorker()
     service = _BatchService()
