@@ -358,7 +358,6 @@ def strokes_to_score(
         return None
 
     h, w = img.shape[:2]
-    dens = _density(img)
     score = np.ones((h, w), dtype=np.float32)
     # Brush size is a DIAMETER at HEAL_SIZE_REF scale, so the painted footprint matches the
     # cursor at any render resolution (overlay._brush_screen_radius draws size/(2*REF)).
@@ -390,7 +389,7 @@ def strokes_to_score(
         if not cover.any():
             continue
 
-        crop = dens[y0:y1, x0:x1]
+        crop = _density(img[y0:y1, x0:x1])
         detail = cv2.blur(crop - cv2.blur(crop, (win, win)), (3, 3))
         # MAD about zero over the whole crop, so the defect stays a minority in its own
         # noise estimate. 0.6745 is the half-normal median, which turns it into a σ.
@@ -448,6 +447,20 @@ def scratch_detect_bar(slider: float) -> float:
     return _SCRATCH_Z_LOOSE + (_SCRATCH_Z_TIGHT - _SCRATCH_Z_LOOSE) * s
 
 
+# Rows the ridge response at one row can see: the broad Gaussian's kernel plus the noise
+# window's half width. A band computed with this margin matches the whole-frame response.
+_SCRATCH_RIDGE_REACH = 128
+
+
+def _scratch_ridge_rows(img: ImageBuffer, r0: int, r1: int) -> Tuple[np.ndarray, int]:
+    """``_scratch_ridge`` for rows ``[r0, r1)`` only, computed on a band with enough margin
+    that those rows equal the whole-frame response. Returns ``(ridge, band_start)``: the
+    array covers ``[band_start, band_end)``, a superset of the request."""
+    h = img.shape[0]
+    a, b = max(0, r0 - _SCRATCH_RIDGE_REACH), min(h, r1 + _SCRATCH_RIDGE_REACH)
+    return _scratch_ridge(img[a:b]), a
+
+
 def _scratch_ridge(img: ImageBuffer) -> np.ndarray:
     """Cross-section ridge response of ``img``, in units of the *local* noise.
 
@@ -486,12 +499,18 @@ def trace_scratch(img: ImageBuffer, nx: float, ny: float, threshold: float = 0.5
     h, w = img.shape[:2]
     cx, cy = float(nx) * w, float(ny) * h
     bar = scratch_detect_bar(threshold)
-    z = _scratch_ridge(img)
     y0 = max(0, int(cy) - _SCRATCH_SEARCH_ROWS)
     y1 = min(h, int(cy) + _SCRATCH_SEARCH_ROWS)
     if y1 - y0 < 3:
         return None
-    band = np.ascontiguousarray(z[y0:y1])
+    scale = film_scale((h, w))
+    max_half = max(1, int(round(0.5 * _SCRATCH_WIDTH_MAX * scale)))
+    # The band grown below reads the sheared frame ±max_half around the line, and a shear
+    # of the steepest slope moves rows by slope·w across the width: only that many rows of
+    # ridge are needed, and the frame is a full-resolution buffer on hover.
+    reach = max_half + int(math.ceil(_SCRATCH_SLOPE_MAX * w)) + 2
+    z, z0 = _scratch_ridge_rows(img, y0 - reach, y1 + reach)
+    band = np.ascontiguousarray(z[y0 - z0 : y1 - z0])
     pull = np.exp(-0.5 * ((np.arange(y0, y1) - cy) / _SCRATCH_CLICK_PULL) ** 2)
 
     best: Optional[Tuple[float, float, int, np.ndarray]] = None
@@ -515,9 +534,7 @@ def trace_scratch(img: ImageBuffer, nx: float, ny: float, threshold: float = 0.5
     x0, x1 = float(cols[0]), float(cols[-1])
     row = y0 + k
     # For the guide only: the repair grows its own band per column.
-    scale = film_scale((h, w))
-    max_half = max(1, int(round(0.5 * _SCRATCH_WIDTH_MAX * scale)))
-    grown = _grow_band(_shear_rows(z, slope, cx, w), row, cols, max_half, float(np.sign(along.mean()) or 1.0), bar)
+    grown = _grow_band(_shear_rows(z, slope, cx, w), row - z0, cols, max_half, float(np.sign(along.mean()) or 1.0), bar)
     width = float(np.clip(2.0 * float(np.median(grown.sum(axis=0))) / max(scale, 1e-6), _SCRATCH_WIDTH_MIN, _SCRATCH_WIDTH_MAX))
     return (x0 / w, (row + slope * (x0 - cx)) / h, x1 / w, (row + slope * (x1 - cx)) / h, width)
 
@@ -556,7 +573,6 @@ def lines_to_score(img: ImageBuffer, lines: List[Tuple], threshold: float = 0.5)
         return None
     h, w = img.shape[:2]
     bar = scratch_detect_bar(threshold)
-    z = _scratch_ridge(img)
     scale = film_scale((h, w))
     mask = np.zeros((h, w), dtype=np.uint8)
     touched = False
@@ -570,10 +586,14 @@ def lines_to_score(img: ImageBuffer, lines: List[Tuple], threshold: float = 0.5)
         # ``width`` is only what the guide drew. The band is re-grown from the scratch here,
         # so it follows a scratch that widens and ignores the traced resolution.
         max_half = max(1, int(round(0.5 * _SCRATCH_WIDTH_MAX * scale)))
-        sheared = _shear_rows(z, slope, x0, w)
         row = int(round(y0))
         if not 0 <= row < h:
             continue
+        # Ridge on the rows the sheared band reads, not the frame (see trace_scratch).
+        reach = max_half + int(math.ceil(abs(slope) * max(x0, w - x0))) + 2
+        z, z0 = _scratch_ridge_rows(img, row - reach, row + reach + 1)
+        sheared = _shear_rows(z, slope, x0, w)
+        row -= z0
         along = sheared[row]
         sign = np.sign(along.mean()) or 1.0
         on = (along * sign > bar).astype(np.float32)
@@ -924,19 +944,20 @@ def route_wide_defects(score: np.ndarray, *, budget: Optional[float] = _IR_ROUTE
     if not at_floor.any():
         return None
     n_lbl, labels, stats, _ = cv2.connectedComponentsWithStats(at_floor, connectivity=8)
-    routed = np.zeros_like(at_floor)
     scale = _ir_detect_scale(score)
     radius = int(round(_IR_ROUTE_RADIUS * scale))
     side = 2 * radius - 1
+    routed = np.zeros_like(at_floor)
     hit = False
     for i in range(1, n_lbl):
         bw, bh = int(stats[i, cv2.CC_STAT_WIDTH]), int(stats[i, cv2.CC_STAT_HEIGHT])
         if min(bw, bh) < side:  # can't contain a side² solid → radius under the bar
             continue
         x0, y0 = int(stats[i, cv2.CC_STAT_LEFT]), int(stats[i, cv2.CC_STAT_TOP])
-        sub = np.pad((labels[y0 : y0 + bh, x0 : x0 + bw] == i).astype(np.uint8), 1)
-        if float(cv2.distanceTransform(sub, cv2.DIST_C, 3).max()) >= radius:
-            routed[labels == i] = 1
+        own = labels[y0 : y0 + bh, x0 : x0 + bw] == i
+        if float(cv2.distanceTransform(np.pad(own.astype(np.uint8), 1), cv2.DIST_C, 3).max()) >= radius:
+            # Written inside the bounding box: a hand-placed score arrives at full resolution.
+            routed[y0 : y0 + bh, x0 : x0 + bw][own] = 1
             hit = True
     if not hit:
         return None

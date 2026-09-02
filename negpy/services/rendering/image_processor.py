@@ -566,6 +566,7 @@ class ImageProcessor:
             + hdr_token(settings.hdr)
             + linear_raw_token(settings.process, settings.exposure.render_intent)
             + sensor_token(settings.process)
+            + demosaic_token(settings.process.demosaic_preview)
             + ir_bake_token(settings.retouch, ir_buffer is not None)
             + manual_bake_token(settings.retouch)
             + luma_bake_token(settings.retouch)
@@ -973,6 +974,8 @@ class ImageProcessor:
         f32_buffer, ir_full = self._slice_half_source(
             f32_buffer, ir_full, half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness
         )
+        # Same shape as run_pipeline's base_hash, so an export of a frame previewed at full
+        # resolution with the same demosaic finds every bake already in the caches.
         detect_key = (
             source_hash
             + flatfield_token(params.flatfield)
