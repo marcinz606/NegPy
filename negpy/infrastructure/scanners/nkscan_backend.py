@@ -361,8 +361,10 @@ class NkscanBackend:
         report = _progress_bridge(progress, cancel)
         rect = self._resolve_frame(session, device_id, params, report)
         optical = int(session.capabilities.optical_dpi)
+        detected = rect
         rect = _shift_frame(rect, _offset_units(params.frame_offset_mm, optical))
         rect = _crop_frame(rect, params.window)
+        logger.info("Frame %s detected %s, scanning %s (%+0.2f mm)", params.frame, detected, rect, params.frame_offset_mm)
         with self._mapped_errors():
             result = self.scan_frame(
                 session,
