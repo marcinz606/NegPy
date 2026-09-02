@@ -227,6 +227,7 @@ class ScanWorker(QObject):
                 # one that re-addresses an absolute frame may legitimately go negative.
                 offset = req.params.frame_offset_mm + (frame - 1) * req.frame_offset_modifier_mm + req.frame_offsets.get(frame, 0.0)
                 frame_params = dataclasses.replace(req.params, frame=frame, window=window, frame_offset_mm=offset)
+                logger.info("Batch frame %d at %+.2f mm on the feed axis", frame, offset)
                 base = index / total
 
                 # The frame's position in the run rides on the phase string: a batch's global
