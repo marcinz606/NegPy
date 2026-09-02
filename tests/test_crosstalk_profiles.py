@@ -226,3 +226,29 @@ def test_legacy_process_names_still_match_their_mode(tmp_path, monkeypatch):
     flat = [n for _h, names in CrosstalkProfiles.grouped_profiles(ProcessMode.E6) for n in names]
     assert flat == ["Old Slide"]
     assert CrosstalkProfiles.grouped_profiles(ProcessMode.C41) == [("Built-in", [CrosstalkProfiles.DEFAULT_NAME])]
+
+
+def test_two_names_sharing_a_slug_stay_two_profiles(tmp_path, monkeypatch):
+    """Names that slugify to the same stem stay separate profiles."""
+    monkeypatch.setattr(APP_CONFIG, "crosstalk_dir", str(tmp_path))
+
+    CrosstalkProfiles.save("Portra 400", [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0])
+    CrosstalkProfiles.save("Portra-400", [2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 2.0])
+
+    found = CrosstalkProfiles.scan_user()
+    assert sorted(found) == ["Portra 400", "Portra-400"]
+    assert found["Portra 400"][0] == 1.0
+    assert found["Portra-400"][0] == 2.0
+
+
+def test_saving_again_keeps_the_profile_in_its_own_file(tmp_path, monkeypatch):
+    """A profile keeps the file it already has, so a later save is not stranded behind a stale copy."""
+    monkeypatch.setattr(APP_CONFIG, "crosstalk_dir", str(tmp_path))
+
+    CrosstalkProfiles.save("Portra 400", [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0])
+    CrosstalkProfiles.save("Portra-400", [2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 2.0])
+    CrosstalkProfiles.delete("Portra 400")
+    CrosstalkProfiles.save("Portra-400", [9.0, 0.0, 0.0, 0.0, 9.0, 0.0, 0.0, 0.0, 9.0])
+
+    assert len(list(tmp_path.glob("*.toml"))) == 1
+    assert CrosstalkProfiles.scan_user()["Portra-400"][0] == 9.0
