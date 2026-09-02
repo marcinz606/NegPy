@@ -42,6 +42,9 @@ class ScannerSettings:
     # switch to a sorted tuple of pairs if that ever changes.
     frame_windows: dict[int, Rect] = field(default_factory=dict)
     selected_frames: tuple[int, ...] = ()
+    # Per-frame feed-axis correction (mm), added on top of frame_offset_mm + drift. An absent
+    # key means no correction for that frame.
+    frame_offsets: dict[int, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         # JSON round-trips tuples as lists and dict keys as strings; coerce back.
@@ -55,6 +58,8 @@ class ScannerSettings:
             )
         if isinstance(self.selected_frames, list):
             object.__setattr__(self, "selected_frames", tuple(self.selected_frames))
+        if isinstance(self.frame_offsets, dict):
+            object.__setattr__(self, "frame_offsets", {int(k): float(v) for k, v in self.frame_offsets.items()})
 
     @classmethod
     def defaults(cls) -> "ScannerSettings":
