@@ -42,7 +42,9 @@ _CUT_NOTICE = "Offset cuts into the frame"
 # (pitch - frame) discards that much picture off the frame tail.
 _FRAME_LEN_MM = 36.0
 _PREVIEW_FALLBACK_DPI = 500  # only when the device reports no DPI list at all
-_MAX_MEASURED_OFFSET_TENTHS = 25  # ±2.5 mm, in the slider's tenths of a millimetre
+# ±10 mm, in the slider's tenths of a millimetre. A feeder's own range is already 0..10 mm,
+# and a measured boundary can sit several millimetres off the picture, so the two match.
+_MAX_MEASURED_OFFSET_TENTHS = 100
 _TILE_H = 140  # default tile height; width follows the device aspect
 _TILE_H_MIN, _TILE_H_MAX = 90, 340  # what the size slider spans
 _GRID_MARGIN = 36  # dialog width the strip grid does not get: frame, scrollbar, padding

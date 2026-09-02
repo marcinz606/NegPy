@@ -894,11 +894,13 @@ def test_a_feeder_still_counts_the_frames_it_previews() -> None:
 
 
 def test_the_offset_is_a_boundary_correction_not_a_way_to_the_next_frame() -> None:
+    # 10 mm reaches a badly placed boundary and still stops far short of the ~36 mm pitch.
     measured = StripPreviewDialog(_FakeController(), _discovery_device())
-    assert (measured.offset_slider.minimum(), measured.offset_slider.maximum()) == (-25, 25)
+    assert (measured.offset_slider.minimum(), measured.offset_slider.maximum()) == (-100, 100)
 
-    measured.offset_slider.setValue(400)
-    assert measured.frame_offset() == 2.5
+    measured.offset_slider.setValue(4000)
+    assert measured.frame_offset() == 10.0
+    assert measured.frame_offset() < measured._frame_pitch()
 
 
 def test_a_saved_negative_offset_comes_back_as_it_was() -> None:
@@ -1169,3 +1171,21 @@ def test_a_feeder_is_left_alone_because_previewing_it_costs_a_pass_per_frame() -
     dialog.show()
 
     assert controller.preview_reqs == []
+
+
+def test_the_offset_sliders_reach_a_boundary_several_millimetres_out() -> None:
+    """A measured boundary can sit well off the picture, and the slider has to reach it.
+
+    Observed on a real strip: gaps of 876 and 1339 stage units (5.6 mm and 8.5 mm) at 4000 dpi,
+    which a +-2.5 mm control could not cut.
+    """
+    dialog = StripPreviewDialog(_FakeController(), _discovery_device())
+    ctl = _FakeController()
+    grown = StripPreviewDialog(ctl, _device(3))
+
+    assert dialog.offset_slider.minimum() == -100 and dialog.offset_slider.maximum() == 100
+    # A feeder cannot back up, and its forward reach is unchanged.
+    assert grown.offset_slider.minimum() == 0 and grown.offset_slider.maximum() == 100
+    tile = grown._tiles[1].offset_slider
+    tile.setValue(85)
+    assert grown.frame_offsets() == {1: 8.5}
