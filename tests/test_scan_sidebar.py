@@ -1035,3 +1035,8 @@ def test_the_chosen_format_reaches_the_batch_request() -> None:
 
     _kind, req = controller.started[0]
     assert req.output_format == "TIFF (mono)"
+
+
+def test_the_strip_tile_height_survives_the_dialog() -> None:
+    sidebar, _ = _sidebar(FULL_DEVICE, settings={"strip_tile_height": 260})
+    assert sidebar.settings.strip_tile_height == 260
