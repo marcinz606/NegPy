@@ -17,6 +17,9 @@ from typing import Optional, Tuple
 
 import cv2
 import numpy as np
+from numba import prange  # type: ignore
+
+from negpy.kernel.system.parallel import parallel_njit
 
 from negpy.kernel.system.logging import get_logger
 
@@ -314,40 +317,139 @@ def _normconv(num: np.ndarray, conf: np.ndarray, k: np.ndarray) -> np.ndarray:
     return _filter(num, k) / conf
 
 
-def _reconstruct_tile(d_rgb: np.ndarray, gate: np.ndarray, w: np.ndarray, cal: IceCalibration) -> np.ndarray:
-    """Reconstruction core (§6-§7): start from the coarsest confidence-weighted average
-    with the stolen light added back, then restore each detail band that beats the local
-    IR contrast at its own scale."""
+def _band_planes(d_rgb: np.ndarray, gate: np.ndarray, w: np.ndarray) -> tuple:
+    """The convolved planes the band kernel reads: per scale the confidence sum, the
+    confidence-normalized gate (§6) and the unnormalized weighted density, plus the IR
+    contrast envelope of each detail band (§7b)."""
     conf = [np.maximum(_filter(w, k), 1e-6) for k in (_K9, _K5, _K3)]
-    p = [_normconv(w * gate, c, k) for c, k in zip(conf, (_K9, _K5, _K3))] + [gate]
+    p = [_filter(w * gate, k) / c for c, k in zip(conf, (_K9, _K5, _K3))] + [gate]
     wd = d_rgb * w[..., None]
-
-    lo_prev = _normconv(wd, conf[0], _K9)
-    # §7a: the local IR deficit is the light the defect stole; γ converts it to density.
-    acc = lo_prev + _COEF[:, 0] * (cal.ir_ref - p[0])[..., None]
-
-    band_conf = (
-        np.clip(_CONF_GAIN_B0 * conf[1], 0.0, 1.0),
-        np.maximum(conf[2], 0.0),
-        w * w,
-    )
+    f_wd = [_filter(wd, k) for k in (_K9, _K5, _K3)]
+    env = []
     for b in range(3):
-        l_cur = d_rgb if b == 2 else _normconv(wd, conf[b + 1], (_K5, _K3)[b])
-        detail = (l_cur - lo_prev) * _STAGE_GAIN
-        lo_prev = l_cur
-        # §7b: the IR's own contrast at this scale is what dust would look like here.
         delta = p[b + 1] - p[b]
-        hi, lo = cv2.dilate(delta, _CROSS), cv2.erode(delta, _CROSS)
-        a_hi, a_lo = _COEF[:, 1 + 2 * b], _COEF[:, 2 + 2 * b]
-        # On an entirely-negative band the coefficients swap, so the larger one always
-        # scales whichever edge sits further from zero.
-        neg = ((hi < 0.0) & (lo < 0.0))[..., None]
-        hi_t = np.where(neg, a_lo, a_hi) * hi[..., None]
-        lo_t = np.where(neg, a_hi, a_lo) * lo[..., None]
-        # Dead zone: detail within the IR contrast is dust, and detail beyond it is picture.
-        resid = np.where(detail > hi_t, detail - hi_t, np.where(detail < lo_t, detail - lo_t, 0.0))
-        acc += resid * band_conf[b][..., None]
-    return acc
+        env.append((cv2.dilate(delta, _CROSS), cv2.erode(delta, _CROSS)))
+    return conf, p[0], f_wd, env
+
+
+@parallel_njit(cache=True)
+def _band_kernel(
+    d_rgb,
+    src,
+    w,
+    hopeless,
+    c9,
+    c5,
+    c3,
+    p0,
+    f9,
+    f5,
+    f3,
+    hi0,
+    lo0,
+    hi1,
+    lo1,
+    hi2,
+    lo2,
+    coef,
+    dither_amp,
+    ir_ref,
+    row0,
+    s,
+    e,
+    out,
+    trigger,
+    weight,
+):
+    """§6-§8 per pixel for the band's core rows [s, e): confidence-weighted base with the
+    stolen light added back, three detail bands gated by the IR contrast, dither, and the
+    fill-only write. Same float32 operation order as the array form it replaced."""
+    f32 = np.float32
+    gain = f32(_STAGE_GAIN)
+    lo_band, hi_band = f32(_DITHER_LO), f32(_DITHER_HI)
+    env_k = f32(_DITHER_ENV)
+    m = f32(_M)
+    inv_k = f32(1.0) / f32(_K)
+    inv_m = f32(1.0) / m
+    width = d_rgb.shape[1]
+    for y in prange(s, e):
+        for x in range(width):
+            wv = w[y, x]
+            bc0 = min(max(f32(_CONF_GAIN_B0) * c5[y, x], f32(0.0)), f32(1.0))
+            bc1 = max(c3[y, x], f32(0.0))
+            bc2 = wv * wv
+            h0, l0 = hi0[y, x], lo0[y, x]
+            h1, l1 = hi1[y, x], lo1[y, x]
+            h2, l2 = hi2[y, x], lo2[y, x]
+            neg0 = h0 < f32(0.0) and l0 < f32(0.0)
+            neg1 = h1 < f32(0.0) and l1 < f32(0.0)
+            neg2 = h2 < f32(0.0) and l2 < f32(0.0)
+            ir_def = f32(ir_ref) - p0[y, x]
+            acc0 = f32(0.0)
+            acc1 = f32(0.0)
+            acc2 = f32(0.0)
+            for c in range(3):
+                lo_prev = f9[y, x, c] / c9[y, x]
+                acc = lo_prev + coef[c, 0] * ir_def
+                # band 0: K5 average against the K9 base
+                l_cur = f5[y, x, c] / c5[y, x]
+                detail = (l_cur - lo_prev) * gain
+                lo_prev = l_cur
+                hi_t = (coef[c, 2] if neg0 else coef[c, 1]) * h0
+                lo_t = (coef[c, 1] if neg0 else coef[c, 2]) * l0
+                resid = detail - hi_t if detail > hi_t else (detail - lo_t if detail < lo_t else f32(0.0))
+                acc += resid * bc0
+                # band 1: K3 average against K5
+                l_cur = f3[y, x, c] / c3[y, x]
+                detail = (l_cur - lo_prev) * gain
+                lo_prev = l_cur
+                hi_t = (coef[c, 4] if neg1 else coef[c, 3]) * h1
+                lo_t = (coef[c, 3] if neg1 else coef[c, 4]) * l1
+                resid = detail - hi_t if detail > hi_t else (detail - lo_t if detail < lo_t else f32(0.0))
+                acc += resid * bc1
+                # band 2: the pixel itself against K3
+                l_cur = d_rgb[y, x, c]
+                detail = (l_cur - lo_prev) * gain
+                hi_t = (coef[c, 6] if neg2 else coef[c, 5]) * h2
+                lo_t = (coef[c, 5] if neg2 else coef[c, 6]) * l2
+                resid = detail - hi_t if detail > hi_t else (detail - lo_t if detail < lo_t else f32(0.0))
+                acc += resid * bc2
+                if c == 0:
+                    acc0 = acc
+                elif c == 1:
+                    acc1 = acc
+                else:
+                    acc2 = acc
+            keep = wv >= f32(1.0) or hopeless[y, x] or acc0 <= f32(0.0) or acc1 <= f32(0.0) or acc2 <= f32(0.0)
+            oy = y - s
+            trigger[oy, x] = hopeless[y, x]
+            weight[oy, x] = wv
+            iy = np.uint32(np.uint32(row0 + y) * np.uint32(0x165667B1))
+            ix = np.uint32(np.uint32(x) * np.uint32(0x27D4EB2D))
+            for c in range(3):
+                acc = acc0 if c == 0 else (acc1 if c == 1 else acc2)
+                # §8 dither: coordinate-hashed uniform draw, parabolic envelope across the band.
+                ic = np.uint32(np.uint32(c) * np.uint32(0x9E3779B9))
+                k = np.uint32(iy ^ ix ^ ic)
+                k = np.uint32(k ^ (k >> np.uint32(15)))
+                k = np.uint32(k * np.uint32(0x2C1B3C6D))
+                k = np.uint32(k ^ (k >> np.uint32(13)))
+                k = np.uint32(k * np.uint32(0x297A2D39))
+                k = np.uint32(k ^ (k >> np.uint32(16)))
+                u = f32(k >> np.uint32(8)) * f32(2.0**-24) - f32(0.5)
+                envv = env_k * (hi_band - acc) * (acc - lo_band)
+                d = envv * u * (dither_amp[c] * acc)
+                in_band = acc > lo_band and acc < hi_band
+                if not (in_band and acc + d > lo_band and acc + d < hi_band):
+                    d = f32(0.0)
+                acc_d = acc + d
+                lift = f32(0.0) if keep else max(acc_d - d_rgb[y, x, c], f32(0.0))
+                if lift > f32(0.0):
+                    dd = d_rgb[y, x, c] + lift
+                    dd = min(max(dd, f32(0.0)), m)
+                    out[oy, x, c] = np.expm1(dd * inv_k) * inv_m
+                else:
+                    out[oy, x, c] = src[y, x, c]
 
 
 def _uniform(row0: int, shape: Tuple[int, int]) -> np.ndarray:
@@ -390,6 +492,7 @@ def reconstruct(img: np.ndarray, ir: np.ndarray, cal: IceCalibration) -> Tuple[n
     ``trigger`` marks defects too wide to rebuild (for the inpaint router); ``weight`` is 1
     on intact film and drops under a defect (for the overlay). Banded because the pyramid
     holds a dozen full planes live at once; bands overlap by _HALO so seams carry nothing.
+    Per band the convolutions run in cv2 and everything per-pixel in one numba pass.
     """
     src = np.ascontiguousarray(img, dtype=np.float32)
     h, w_px = src.shape[:2]
@@ -406,26 +509,39 @@ def reconstruct(img: np.ndarray, ir: np.ndarray, cal: IceCalibration) -> Tuple[n
         y1 = min(h, y0 + _BAND_ROWS)
         a, b = max(0, y0 - _HALO), min(h, y1 + _HALO)
         ir_t = ir[a:b]
-        d_rgb = density(src[a:b])
+        band_src = src[a:b]
+        d_rgb = density(band_src)
         gate, w = _gate_and_weight(d_rgb, density(ir_t), ir_t >= _DEAD_FLOOR, cal)
         hopeless = _giveup_trigger(gate, cal.dust_floor)
-        acc = _reconstruct_tile(d_rgb, gate, w, cal)
-        # Already clean, wider than the window, or a non-positive reconstruction. Tested on the
-        # bare accumulator, because ICE's positivity guard runs before the dither is added.
-        keep = (w >= 1.0) | hopeless | (acc <= 0.0).any(axis=-1)
-        acc = acc + _dither(acc, a)
-        # "Only fill, never darken": a defect steals light, so a repair may only lighten.
-        # Written at full strength wherever w < 1, as ICE does. A confidence ramp here looks
-        # like cheap insurance against mottling and is not: dust sits at the weight floor only
-        # once it is deep, so the ramp costs shallow specks most of their repair.
-        lift = np.where(keep[..., None], 0.0, np.maximum(acc - d_rgb, 0.0))
-        s, e = y0 - a, y1 - a
-        # Verbatim where nothing was lifted: the density round-trip is not bit-exact in
-        # float32, and an untouched pixel must come out byte-identical.
-        touched = lift[s:e] > 0.0
-        out[y0:y1] = np.where(touched, density_inv(d_rgb[s:e] + lift[s:e]), src[y0:y1])
-        trigger[y0:y1] = hopeless[s:e]
-        weight[y0:y1] = w[s:e]
+        conf, p0, f_wd, env = _band_planes(d_rgb, gate, w)
+        _band_kernel(
+            d_rgb,
+            band_src,
+            w,
+            hopeless,
+            conf[0],
+            conf[1],
+            conf[2],
+            np.ascontiguousarray(p0, dtype=np.float32),
+            f_wd[0],
+            f_wd[1],
+            f_wd[2],
+            env[0][0],
+            env[0][1],
+            env[1][0],
+            env[1][1],
+            env[2][0],
+            env[2][1],
+            _COEF,
+            np.ascontiguousarray(_DITHER_AMP, dtype=np.float32),
+            float(cal.ir_ref),
+            a,
+            y0 - a,
+            y1 - a,
+            out[y0:y1],
+            trigger[y0:y1],
+            weight[y0:y1],
+        )
     return out, trigger, weight
 
 

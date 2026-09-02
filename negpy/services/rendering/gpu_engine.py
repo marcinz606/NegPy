@@ -64,6 +64,7 @@ from negpy.features.process.models import ProcessMode, per_channel_point_offsets
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUBuffer, GPUTexture
 from negpy.infrastructure.gpu.shader_loader import ShaderLoader
+from negpy.kernel.image.logic import rgba_to_rgb_into
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.logging import get_logger
 from negpy.kernel.system.paths import get_resource_path
@@ -2028,12 +2029,11 @@ class GPUEngine:
             raw = np.frombuffer(read_buf.read_mapped(copy=False), dtype=np.uint8).reshape((h, prb))
             valid = raw[:, : w * 16]
             # The texture is already display-encoded (output_encode pass).
-            result = valid.view(np.float32).reshape((h, w, 4))[:, :, :3]
+            rgba = valid.view(np.float32).reshape((h, w, 4))
             if dest is None:
-                return result.copy()
+                return np.ascontiguousarray(rgba[:, :, :3])
             oy, ox = crop if crop is not None else (0, 0)
-            dh, dw = dest.shape[:2]
-            dest[:] = result[oy : oy + dh, ox : ox + dw]
+            rgba_to_rgb_into(rgba, dest, oy, ox)
             return None
         finally:
             read_buf.unmap()
@@ -2129,7 +2129,15 @@ class GPUEngine:
         rot = settings.geometry.rotation % 4
         w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)
         if w_rot > max_tex or h_rot > max_tex or (w * h > TILING_THRESHOLD_PX):
-            return self._process_tiled(img, settings, scale_factor, bounds_override=bounds_override, cam_xyz=cam_xyz, camera_wb=camera_wb)
+            return self._process_tiled(
+                img,
+                settings,
+                scale_factor,
+                bounds_override=bounds_override,
+                cam_xyz=cam_xyz,
+                camera_wb=camera_wb,
+                readback_metrics=readback_metrics,
+            )
         tex_final, metrics = self.process_to_texture(
             img,
             settings,
@@ -2151,6 +2159,7 @@ class GPUEngine:
         bounds_override: Optional[Any] = None,
         cam_xyz: Optional[list] = None,
         camera_wb: Optional[list] = None,
+        readback_metrics: bool = True,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Processes ultra-high resolution images using memory-efficient tiling."""
         h, w = img.shape[:2]
@@ -2201,7 +2210,9 @@ class GPUEngine:
         # This render meters the whole frame for the tiles; the CLAHE CDF it leaves behind
         # is the one they share. Taken from here rather than from the last preview, which
         # may belong to another image or to settings the export has since moved past.
-        _, metrics_ref = self.process_to_texture(img_small, settings, scale_factor=scale_factor, cam_xyz=cam_xyz, camera_wb=camera_wb)
+        _, metrics_ref = self.process_to_texture(
+            img_small, settings, scale_factor=scale_factor, cam_xyz=cam_xyz, camera_wb=camera_wb, readback_metrics=readback_metrics
+        )
 
         global_cdfs = self._readback_clahe_cdf()
 
@@ -2325,7 +2336,7 @@ class GPUEngine:
             self._mask_tex_key = None
 
         paper_w, paper_h, content_w, content_h, off_x, off_y, _ = self._calculate_layout_dims(settings, crop_w, crop_h, None)
-        full_source_res = np.zeros((crop_h, crop_w, 3), dtype=np.float32)
+        full_source_res = np.empty((crop_h, crop_w, 3), dtype=np.float32)
 
         # Defect repairs are baked into the source before the engine, so no stage here
         # samples beyond its own pixel for them and the halo owes them nothing.

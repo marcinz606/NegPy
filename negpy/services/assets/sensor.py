@@ -1,8 +1,8 @@
 import os
-import tomllib
 from typing import List, Optional
 
 from negpy.kernel.system.config import APP_CONFIG
+from negpy.services.assets.toml_cache import load_toml_cached
 from negpy.services.assets.naming import escape_toml_string, slugify
 
 NONE_NAME = "None"
@@ -43,8 +43,9 @@ class SensorProfiles:
     def _parse_file(path: str) -> Optional[tuple]:
         """Parses a .toml file to (name, flat 9-float list), or None if invalid."""
         try:
-            with open(path, "rb") as f:
-                data = tomllib.load(f)
+            data = load_toml_cached(path)
+            if data is None:
+                return None
             rows = data.get("matrix")
             if not isinstance(rows, list) or len(rows) != 3:
                 return None

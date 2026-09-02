@@ -111,6 +111,28 @@ _PROOF_INTENTS = {
 logger = get_logger(__name__)
 
 
+_CMS_STRIPS = 16
+
+
+def _cms_transform_strips(img_u16: np.ndarray, src_bytes: bytes, dst_bytes: bytes) -> np.ndarray:
+    """lcms2 relative-colorimetric transform on row strips in parallel. lcms is per-pixel and
+    imagecodecs releases the GIL, so the strips are exact and scale with cores."""
+    kwargs = dict(colorspace="RGB", outcolorspace="RGB", intent=1, flags=0x2000)  # BLACKPOINTCOMPENSATION
+    h = img_u16.shape[0]
+    n = min(_CMS_STRIPS, os.cpu_count() or 1, h)
+    if n <= 1:
+        return imagecodecs.cms_transform(img_u16, src_bytes, dst_bytes, **kwargs)
+    out = np.empty_like(img_u16)
+
+    def run(i: int) -> None:
+        a, b = i * h // n, (i + 1) * h // n
+        out[a:b] = imagecodecs.cms_transform(img_u16[a:b], src_bytes, dst_bytes, **kwargs)
+
+    with ThreadPoolExecutor(max_workers=n) as ex:
+        list(ex.map(run, range(n)))
+    return out
+
+
 @lru_cache(maxsize=16)
 def _read_icc_bytes(path: str) -> bytes:
     with open(path, "rb") as f:
@@ -337,7 +359,9 @@ class ImageProcessor:
             return img, None, False, None
         if ret.ir_method == IR_METHOD_OPENICE:
             return self._ir_bake_openice(img, ir_buffer, ret, source_key)
-        ratio_det, gain_det, degenerate, _ = self._ir_ratio_gain(ir_buffer, img, source_key)
+        # The ratio and gain do not depend on the threshold or the attenuation toggle, so their
+        # cache is keyed without the IR token and survives a slider drag.
+        ratio_det, gain_det, degenerate, _ = self._ir_ratio_gain(ir_buffer, img, source_key.replace(ir_bake_token(ret, True), ""))
         if degenerate:
             return img, None, True, None
         key = (source_key, round(float(ret.ir_threshold), 6), bool(ret.ir_attenuation), img.shape)
@@ -542,6 +566,7 @@ class ImageProcessor:
             + hdr_token(settings.hdr)
             + linear_raw_token(settings.process, settings.exposure.render_intent)
             + sensor_token(settings.process)
+            + demosaic_token(settings.process.demosaic_preview)
             + ir_bake_token(settings.retouch, ir_buffer is not None)
             + manual_bake_token(settings.retouch)
             + luma_bake_token(settings.retouch)
@@ -949,6 +974,8 @@ class ImageProcessor:
         f32_buffer, ir_full = self._slice_half_source(
             f32_buffer, ir_full, half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness
         )
+        # Same shape as run_pipeline's base_hash, so an export of a frame previewed at full
+        # resolution with the same demosaic finds every bake already in the caches.
         detect_key = (
             source_hash
             + flatfield_token(params.flatfield)
@@ -1659,15 +1686,7 @@ class ImageProcessor:
                 return img_u16, self._get_target_icc_bytes(color_space, output_icc_path)
 
             try:
-                result = imagecodecs.cms_transform(
-                    np.ascontiguousarray(img_u16),
-                    src_bytes,
-                    dst_bytes,
-                    colorspace="RGB",
-                    outcolorspace="RGB",
-                    intent=1,  # RELATIVE_COLORIMETRIC
-                    flags=0x2000,  # BLACKPOINTCOMPENSATION (matches PIL's value)
-                )
+                result = _cms_transform_strips(np.ascontiguousarray(img_u16), src_bytes, dst_bytes)
             except ImportError as e:
                 self._log_cms_codec_dlopen_error()
                 logger.warning(
@@ -1933,7 +1952,8 @@ class ImageProcessor:
                 # an identity that nothing can be outside of. That is not an answer, it is
                 # the absence of a question.
                 return None
-            p_src = ImageProcessor._resolve_src_profile(working_color_space, input_icc_path)
+            p_work = ImageProcessor._resolve_src_profile(working_color_space, None)
+            p_src = p_work if not (input_icc_path and os.path.exists(input_icc_path)) else ImageCms.getOpenProfile(input_icc_path)
             p_dst = ImageProcessor._resolve_dst_profile(working_color_space, output_icc_path)
             if p_dst is None:
                 return None
@@ -1954,10 +1974,19 @@ class ImageProcessor:
             )
             if to_out is None:
                 return None
-            back = ImageCms.profileToProfile(to_out, p_dst, p_src, renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC, outputMode="RGB")
+            # An Input ICC is a source-only profile (an input-class profile has no B2A table),
+            # so the return leg lands in the working space and the grid is carried there too.
+            back = ImageCms.profileToProfile(to_out, p_dst, p_work, renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC, outputMode="RGB")
             if back is None:
                 return None
-            delta = np.abs(np.asarray(back, dtype=np.int16) - grid.astype(np.int16)).max(axis=-1)
+            ref = (
+                grid
+                if p_work is p_src
+                else np.asarray(
+                    ImageCms.profileToProfile(img, p_src, p_work, renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC, outputMode="RGB")
+                )
+            )
+            delta = np.abs(np.asarray(back, dtype=np.int16) - ref.astype(np.int16)).max(axis=-1)
             return np.ascontiguousarray((delta > GAMUT_ROUND_TRIP_TOLERANCE).reshape((size, size, size)))
         except Exception as e:
             logger.warning("Gamut LUT build failed; the printability read-out stays off", exc_info=e)

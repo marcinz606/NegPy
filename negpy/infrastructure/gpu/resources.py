@@ -2,6 +2,7 @@ import threading
 from typing import Optional
 
 import numpy as np
+from negpy.kernel.image.logic import rgb_to_rgba_into
 import wgpu  # type: ignore
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.kernel.system.logging import get_logger
@@ -67,7 +68,7 @@ class GPUTexture:
         if self._rgba_scratch is None or self._rgba_scratch.shape != shape:
             self._rgba_scratch = np.empty(shape, dtype=np.float32)
             self._rgba_scratch[:, :, 3] = 1.0
-        np.copyto(self._rgba_scratch[:, :, :3], data)
+        rgb_to_rgba_into(np.ascontiguousarray(data), self._rgba_scratch)
         return self._rgba_scratch
 
     def readback_region(self, x: int, y: int, rw: int, rh: int) -> np.ndarray:

@@ -477,8 +477,18 @@ class MetadataSidebar(BaseSidebar):
         self._gear_library = GearProfiles.load_library()
         library = self._gear_library
 
+        # Rebuilding five combo models per file switch is the panel's main sync cost, so a combo
+        # is only reloaded when the library or its selection changed.
+        seen = self.__dict__.setdefault("_gear_combo_keys", {})
+
         def should_refresh(combo: SearchableGearCombo) -> bool:
-            return force or not combo.is_editing()
+            if not force and combo.is_editing():
+                return False
+            key = (id(library), self._gear_selected_id(combo, conf))
+            if not force and seen.get(id(combo)) == key:
+                return False
+            seen[id(combo)] = key
+            return True
 
         if should_refresh(self.camera_combo):
             self.camera_combo.set_gear_items(
@@ -514,6 +524,15 @@ class MetadataSidebar(BaseSidebar):
                 conf.scanning_id or "",
                 lambda setup: setup.resolved_display_name,
             )
+
+    def _gear_selected_id(self, combo: SearchableGearCombo, conf) -> str:
+        return {
+            id(self.camera_combo): conf.camera_id,
+            id(self.lens_combo): conf.lens_id,
+            id(self.film_stock_combo): conf.film_stock_id,
+            id(self.process_combo): conf.process_id,
+            id(self.scan_setup_combo): conf.scanning_id,
+        }.get(id(combo)) or ""
 
     def _on_process_selected(self, *_args) -> None:
         self._dirty = False

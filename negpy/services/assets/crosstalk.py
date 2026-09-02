@@ -1,11 +1,11 @@
 import os
-import tomllib
 from enum import StrEnum
 from typing import List, Optional
 
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.paths import get_resource_path
 from negpy.services.assets.naming import escape_toml_string, slugify
+from negpy.services.assets.toml_cache import load_toml_cached
 
 # Renamed from "Default"
 DEFAULT_NAME = "Generic C41"
@@ -83,8 +83,9 @@ class CrosstalkProfiles:
 
         `type` is read separately by `_scan_types`: callers unpack this tuple positionally."""
         try:
-            with open(path, "rb") as f:
-                data = tomllib.load(f)
+            data = load_toml_cached(path)
+            if data is None:
+                return None
             rows = data.get("matrix")
             if not isinstance(rows, list) or len(rows) != 3:
                 return None
@@ -105,11 +106,10 @@ class CrosstalkProfiles:
     @staticmethod
     def _parse_type(path: str) -> str:
         """The profile's `type`, lowercased; "" when absent or unreadable."""
-        try:
-            with open(path, "rb") as f:
-                raw = tomllib.load(f).get("type")
-        except Exception:
+        data = load_toml_cached(path)
+        if data is None:
             return ""
+        raw = data.get("type")
         return raw.strip().lower() if isinstance(raw, str) else ""
 
     @staticmethod
@@ -147,10 +147,8 @@ class CrosstalkProfiles:
             for fname in os.listdir(directory):
                 if not fname.endswith(".toml"):
                     continue
-                try:
-                    with open(os.path.join(directory, fname), "rb") as f:
-                        data = tomllib.load(f)
-                except Exception:
+                data = load_toml_cached(os.path.join(directory, fname))
+                if data is None:
                     continue
                 raw_name = data.get("name")
                 name = raw_name.strip() if isinstance(raw_name, str) and raw_name.strip() else fname[:-5]
