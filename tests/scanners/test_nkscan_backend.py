@@ -515,3 +515,19 @@ def test_the_films_the_backend_names_are_films_the_extension_knows() -> None:
     backend, _ = make_backend()
     for film in FILM_TYPES:
         assert backend.locks_white_balance(film) == nkscan.Capabilities.locks_white_balance(film)
+
+
+def test_a_per_frame_offset_slides_only_the_feed_axis_of_the_frame_asked_for() -> None:
+    """The rect handed to nkscan must move by the film distance the operator dialled, on the
+    feed axis alone, and keep the frame's own extent."""
+    shift = round(0.7 * 4000 / 25.4)  # 0.7 mm at the fake's optical dpi
+    for frame, offset_mm, expected in ((3, 0.0, 0), (3, 0.7, shift), (3, -0.7, -shift), (1, 0.7, shift)):
+        backend, module = make_backend()
+        _scan(backend, dataclasses.replace(_PARAMS, frame=frame, frame_offset_mm=offset_mm))
+
+        rect = module.opened[-1].scans[-1]["frame"]
+        detected = FRAMES[frame - 1]
+        assert rect[0] - detected[0] == expected
+        assert rect[2] - detected[2] == expected
+        assert (rect[1], rect[3]) == (detected[1], detected[3])  # across-film edges untouched
+        assert rect[2] - rect[0] == detected[2] - detected[0]  # the frame keeps its length
