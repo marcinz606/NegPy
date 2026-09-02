@@ -242,6 +242,7 @@ class _DiscoveryRequest:
     rgb_scan: bool
     half_frame: bool
     half_frame_profile: Optional[dict] = None  # {crop_rect, split_x, gutter_thickness}
+    hot_folder: bool = False
 
 
 def baseline_compare_config(config: WorkspaceConfig) -> WorkspaceConfig:
@@ -416,6 +417,12 @@ class AppController(QObject):
         self._active_batch_abortable = False
         self._batch_serial = 0
         self._active_batch_token: Optional[int] = None
+        # True from the moment a hot-folder-triggered discovery claims the batch lane
+        # until its thumbnail phase ends, including every early exit (discovery error,
+        # no assets found, nothing to thumbnail, thumbnail error) — not merely whether
+        # the Hot Folder toggle is checked, which says nothing about what triggered
+        # the batch currently running.
+        self._hot_folder_sequence_active = False
         self._autocrop_batch_token: Optional[int] = None
         self._autocrop_dispatched = 0
         self._autocrop_preflight_skipped = 0
@@ -807,6 +814,7 @@ class AppController(QObject):
     def _on_thumbnails_finished(self, new_thumbs: Dict[str, Any]) -> None:
         self.status_progress_requested.emit(0, 0)
         self._end_batch("thumbnails")
+        self._hot_folder_sequence_active = False
         broken = self._apply_thumbnails(new_thumbs)
 
         requested = getattr(self, "_thumb_requested", [])
@@ -828,6 +836,12 @@ class AppController(QObject):
         self.session.asset_model.refresh()
 
     # --- Batch progress popup -------------------------------------------------
+
+    @property
+    def hot_folder_sequence_active(self) -> bool:
+        """True while the currently active (or just-finished-discovery, pre-thumbnail)
+        batch belongs to a hot-folder-triggered discovery-through-thumbnails sequence."""
+        return self._hot_folder_sequence_active
 
     def _begin_batch(self, owner: str, title: str, abortable: bool) -> Optional[int]:
         """Claim the shared batch lane and return its generation token."""
@@ -876,9 +890,11 @@ class AppController(QObject):
 
     def _on_discovery_batch_error(self, _message: str) -> None:
         self._discovery_running = False
+        self._hot_folder_sequence_active = False
         self._end_batch("discovery")
 
     def _on_thumbnail_batch_error(self, _message: str) -> None:
+        self._hot_folder_sequence_active = False
         self._on_batch_error("thumbnails")
 
     def _on_normalization_cancelled(self) -> None:
@@ -927,6 +943,7 @@ class AppController(QObject):
         replace_existing: bool = False,
         reselect_path: Optional[str] = None,
         announce_rgb: bool = False,
+        hot_folder: bool = False,
     ) -> None:
         """
         Starts asynchronous discovery of supported assets.
@@ -939,6 +956,10 @@ class AppController(QObject):
         `announce_rgb` allows the modal report when RGB Scan assembles nothing. Set it
         where the user just asked for this folder or just turned the mode on; leaving it
         off is what keeps a restored session from opening a dialog nobody asked for.
+
+        `hot_folder` marks this request as coming from the Hot Folder poll, not from a
+        user action — it drives `hot_folder_sequence_active`, which is what the batch
+        popup checks, rather than whether the toggle happens to be on.
         """
         self._announce_rgb = announce_rgb
         request = _DiscoveryRequest(
@@ -950,6 +971,7 @@ class AppController(QObject):
             rgb_scan=bool(self.session.repo.get_global_setting("rgbscan_mode", False)),
             half_frame=bool(self.session.repo.get_global_setting("half_frame_mode", False)),
             half_frame_profile=self.half_frame_profile(),
+            hot_folder=hot_folder,
         )
         if self._discovery_running:
             self._pending_asset_discoveries.append(request)
@@ -967,7 +989,12 @@ class AppController(QObject):
 
         from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
 
+        # Must be set before _begin_batch: it emits batch_started synchronously, and
+        # the view reads this to decide whether to suppress the popup for it.
+        previous_hot_folder_sequence = self._hot_folder_sequence_active
+        self._hot_folder_sequence_active = request.hot_folder
         if self._begin_batch("discovery", "Hashing files", abortable=False) is None:
+            self._hot_folder_sequence_active = previous_hot_folder_sequence
             self._pending_asset_discoveries.insert(0, request)
             return
         self._discovery_running = True
@@ -1299,6 +1326,10 @@ class AppController(QObject):
             self.session.state.rendered_thumbnails.clear()
             self.session.add_files([], validated_info=valid_assets)
             self.generate_missing_thumbnails()
+            if self._active_batch != "thumbnails":
+                # Nothing to thumbnail — no batch claimed, so no _on_thumbnails_finished
+                # will arrive later to release a hot-folder sequence. End it here.
+                self._hot_folder_sequence_active = False
             idx = None
             if reselect_path:
                 # Guard on a set path: `None in (path, green_path, blue_path)` matches any
@@ -1325,6 +1356,10 @@ class AppController(QObject):
             first_new_idx = len(self.session.state.uploaded_files)
             self.session.add_files([], validated_info=valid_assets)
             self.generate_missing_thumbnails()
+            if self._active_batch != "thumbnails":
+                # Nothing to thumbnail — no batch claimed, so no _on_thumbnails_finished
+                # will arrive later to release a hot-folder sequence. End it here.
+                self._hot_folder_sequence_active = False
             if pending_scan and self._select_file_by_path(pending_scan):
                 selected_pending_scan = True
             elif auto_open and not self.state.current_file_path and len(self.session.state.uploaded_files) > first_new_idx:
@@ -1337,6 +1372,7 @@ class AppController(QObject):
         else:
             self.set_status("NO SUPPORTED ASSETS FOUND", 3000)
             self.status_progress_requested.emit(0, 0)
+            self._hot_folder_sequence_active = False
 
         if pending_scan:
             pending_key = _capture_import_key(pending_scan)

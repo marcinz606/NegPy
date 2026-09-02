@@ -99,5 +99,52 @@ class TestDropEvent(unittest.TestCase):
         stub.controller.request_asset_discovery.assert_called_once_with(["/tmp/scan.dng"], auto_open=True)
 
 
+class TestBatchStartedPopupSuppression(unittest.TestCase):
+    """The popup is suppressed by sequence identity (did THIS batch come from the
+    hot-folder poll), never by whether the Hot Folder toggle happens to be checked."""
+
+    def _stub(self, hot_folder_sequence_active: bool, hot_folder_checked: bool = True):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        controller = MagicMock()
+        controller.hot_folder_sequence_active = hot_folder_sequence_active
+        return SimpleNamespace(
+            controller=controller,
+            progress_dialog=MagicMock(),
+            session_panel=SimpleNamespace(
+                file_browser=SimpleNamespace(hot_folder_btn=SimpleNamespace(isChecked=lambda: hot_folder_checked))
+            ),
+        )
+
+    def test_manual_import_shows_popup_even_when_hot_folder_checked(self):
+        from negpy.desktop.view.main_window import MainWindow
+
+        stub = self._stub(hot_folder_sequence_active=False, hot_folder_checked=True)
+
+        MainWindow._on_batch_started(stub, "Hashing files", False)
+
+        stub.progress_dialog.start.assert_called_once_with("Hashing files", False)
+
+    def test_hot_folder_sequence_silent_for_discovery_and_thumbnails(self):
+        from negpy.desktop.view.main_window import MainWindow
+
+        stub = self._stub(hot_folder_sequence_active=True, hot_folder_checked=True)
+
+        MainWindow._on_batch_started(stub, "Hashing files", False)
+        MainWindow._on_batch_started(stub, "Generating thumbnails", False)
+
+        stub.progress_dialog.start.assert_not_called()
+
+    def test_abortable_batch_always_shows_even_mid_hot_folder_sequence(self):
+        from negpy.desktop.view.main_window import MainWindow
+
+        stub = self._stub(hot_folder_sequence_active=True, hot_folder_checked=True)
+
+        MainWindow._on_batch_started(stub, "Exporting", True)
+
+        stub.progress_dialog.start.assert_called_once_with("Exporting", True)
+
+
 if __name__ == "__main__":
     unittest.main()

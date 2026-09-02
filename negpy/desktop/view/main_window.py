@@ -481,8 +481,13 @@ class MainWindow(QMainWindow):
     def _on_batch_started(self, title: str, abortable: bool) -> None:
         """Hot Folder polls every 2 s, so its per-frame import batches (the only
         non-abortable ones) would pop the dialog on every capture. The HUD status
-        line still reports those; abortable batches always show the popup."""
-        if not abortable and self.session_panel.file_browser.hot_folder_btn.isChecked():
+        line still reports those; abortable batches always show the popup.
+
+        Suppression keys off which sequence actually owns this batch
+        (`hot_folder_sequence_active`), not whether the toggle happens to be
+        checked — a manual Add Files/Add Folder/drop while Hot Folder is on must
+        still show progress."""
+        if not abortable and self.controller.hot_folder_sequence_active:
             return
         self.progress_dialog.start(title, abortable)
 
