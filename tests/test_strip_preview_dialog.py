@@ -741,10 +741,10 @@ def test_a_measured_strip_crop_needs_no_axis_swap() -> None:
 # ── picking the frames to scan ────────────────────────────────────────────
 
 
-def test_an_undetected_strip_says_what_to_press() -> None:
+def test_an_unmeasured_strip_says_it_is_working_rather_than_what_to_press() -> None:
     dialog = StripPreviewDialog(_FakeController(), _discovery_device())
     assert dialog._empty_hint.isVisibleTo(dialog) is True
-    assert "Detect frames" in dialog._empty_hint.text()
+    assert "Finding the frames" in dialog._empty_hint.text()
     assert dialog.selection_label.text() == "none yet"
 
 
@@ -1135,3 +1135,37 @@ def test_a_detected_strip_overrides_the_saved_correction() -> None:
     dialog._tiles[2].offset_slider.setValue(-9)
 
     assert dialog.frame_offsets() == {2: -0.9}
+
+
+# ── finding the frames as the dialog opens ────────────────────────────────
+
+
+def test_a_measured_strip_finds_its_frames_as_it_opens() -> None:
+    """Every per-frame control lives on a tile, so an empty dialog offers nothing to adjust."""
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device())
+    assert controller.preview_reqs == []  # nothing before it is on screen
+
+    dialog.show()
+
+    assert len(controller.preview_reqs) == 1
+
+
+def test_it_only_finds_them_once_however_often_the_dialog_is_shown() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device())
+
+    dialog.show()
+    dialog.hide()
+    dialog.show()
+
+    assert len(controller.preview_reqs) == 1
+
+
+def test_a_feeder_is_left_alone_because_previewing_it_costs_a_pass_per_frame() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _device(6))
+
+    dialog.show()
+
+    assert controller.preview_reqs == []
