@@ -626,3 +626,27 @@ def test_batch_progress_names_the_frame_and_its_position() -> None:
         "Frame 3 of 3 — Scanning",
     ]
     assert [fraction for fraction, _phase in seen] == pytest.approx([1 / 3, 2 / 3, 1.0])
+
+
+def test_the_batch_logs_the_offset_each_frame_was_scanned_at(caplog) -> None:
+    """Whether a per-frame correction reached the scan must be answerable from the log."""
+    import logging
+
+    worker = ScanWorker()
+    service = _BatchService()
+    worker._service = service  # type: ignore[assignment]
+    req = BatchRequest(
+        device_id="coolscan3:test",
+        params=ScanParams(dpi=4_000, depth=16, capture_ir=False, frame_offset_mm=1.0),
+        output_folder="/tmp",
+        filename_pattern='scan-{{ "%03d" % seq }}',
+        output_format="TIFF",
+        frames=(1, 2),
+        frame_offsets={2: -0.5},
+    )
+
+    with caplog.at_level(logging.INFO):
+        worker.run_batch(req)
+
+    assert "Batch frame 1 at +1.00 mm" in caplog.text
+    assert "Batch frame 2 at +0.50 mm" in caplog.text
