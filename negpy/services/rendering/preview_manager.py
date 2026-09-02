@@ -281,6 +281,13 @@ class PreviewManager:
                 metadata["ir_preview"] = ir_full.astype(np.float32, copy=False)
         else:
             metadata["ir_preview"] = None
+        # Optical dust detection reads a min-pooled plane for the same reason the IR does;
+        # only here does the full-res visible exist to pool from. None when the preview is
+        # the decoded buffer itself: the pipeline pools that on its own.
+        ph, pw = preview_raw.shape[:2]
+        metadata["detect_preview"] = (
+            downsample_ir(full_linear, APP_CONFIG.preview_render_size, dims=(pw, ph)) if (ph, pw) != (h_p, w_p) else None
+        )
         del full_linear  # in the resize branch this frees the full-res buffer early
 
         out = ensure_image(preview_raw)

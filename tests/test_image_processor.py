@@ -357,3 +357,33 @@ def test_run_pipeline_skip_flatfield(monkeypatch) -> None:
     calls.clear()
     service.run_pipeline(img, WorkspaceConfig(), "h", render_size_ref=512, prefer_gpu=False, readback_metrics=False, skip_flatfield=True)
     assert len(calls) == 0
+
+
+def test_detection_downsample_keeps_a_small_speck(monkeypatch) -> None:
+    """The detection plane follows the buffer like the IR plane does (at most 1.5x under
+    it) and is min-pooled: a speck two source px wide survives the downsample at its own
+    depth instead of averaging into the grain."""
+    import negpy.services.rendering.image_processor as ip
+
+    monkeypatch.setattr(ip.APP_CONFIG, "preview_render_size", 400)
+    img = np.full((800, 1200, 3), 0.18, np.float32)
+    img[400:402, 600:602] = 0.005
+    small = ip._detection_downsample(img)
+    assert max(small.shape[:2]) == 800
+    assert float(small.min()) < 0.02
+
+
+def test_detect_luma_reads_the_prepared_plane(monkeypatch) -> None:
+    from dataclasses import replace
+
+    import negpy.services.rendering.image_processor as ip
+    from negpy.features.retouch.models import RetouchConfig
+
+    rng = np.random.default_rng(1)
+    plane = (np.full((160, 160, 3), 0.18) * (1.0 + rng.normal(0, 0.02, (160, 160, 3)))).astype(np.float32)
+    plane[80:83, 80:83] = 0.005
+    clean = (np.full((160, 160, 3), 0.18) * (1.0 + rng.normal(0, 0.02, (160, 160, 3)))).astype(np.float32)
+    service = ip.ImageProcessor()
+    cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=True, dust_threshold=0.66, dust_size=4))
+    score, _ = service._detect_luma(cfg, clean, "s", detect_buffer=plane)
+    assert score is not None and score[80:83, 80:83].max() < 1.0, "the speck is read from the plane, not the buffer"
