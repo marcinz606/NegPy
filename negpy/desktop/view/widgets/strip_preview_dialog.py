@@ -87,7 +87,7 @@ def _display_to_scan_rect(rect):
 # One line of orientation. Offset and Drift explain themselves on their own sliders, where
 # the hand already is, and the ⓘ carries the rest.
 _FEEDER_HELP = "Preview a frame, drag on it to crop, and tick the frames to scan."
-_DISCOVERY_HELP = "Detect the frames, untick what you do not want, drag on a tile to crop it."
+_DISCOVERY_HELP = "Untick what you do not want, drag on a tile to crop it, slide under a tile to shift it."
 
 _OFFSET_TIP = (
     "Slides every frame along the film to clear the inter-frame gap. Frames shift left as it "
@@ -164,6 +164,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         mm = self._caps.max_area_mm
         self._tile_aspect = (mm[1] / mm[0]) if (mm and len(mm) > 1 and mm[0]) else 1.5
         self._previewing = False
+        self._detected_on_open = False
         self._failed_frames: list[int] = []
         self._scan_now = False  # set when the user chooses "Scan" over "Use"
         initial_windows = initial_windows or {}
@@ -269,7 +270,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self._tiles: dict[int, _Tile] = {}
         self._tiles_wired = False
         self._strip = strip
-        self._empty_hint = QLabel("Press Detect frames to measure the strip" if self._discovers else "Preview a frame to set its window")
+        self._empty_hint = QLabel("Finding the frames on the strip…" if self._discovers else "Preview a frame to set its window")
         self._empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_hint.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_base}px; padding: 48px;")
         strip.addWidget(self._empty_hint, 0, 0, 1, _TILES_PER_ROW)
@@ -449,6 +450,20 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._relayout()
+
+    def showEvent(self, event) -> None:
+        """Find the frames as the dialog opens, once.
+
+        A measured strip has no tiles until it is measured, and every per-frame control lives
+        on a tile, so an operator reopening this dialog to adjust one had nothing to adjust.
+        The rects and the strip pass are cached until the film is ejected, so this is free for
+        every open after the first.
+        """
+        super().showEvent(event)
+        self._relayout()
+        if self._discovers and not self._detected_on_open:
+            self._detected_on_open = True
+            self._on_preview_all()
 
     def _tile_size(self) -> tuple[int, int]:
         return int(self._tile_h * self._tile_aspect), self._tile_h
