@@ -1,6 +1,7 @@
 from collections.abc import Iterable
 from dataclasses import dataclass, field, fields
 
+from negpy.infrastructure.scanners.params import DEFAULT_ME_BRACKETS, MultiExposureMode
 from negpy.infrastructure.scanners.registry import DEFAULT_BACKEND_ID
 
 Rect = tuple[float, float, float, float]
@@ -16,7 +17,9 @@ class ScannerSettings:
     dpi: int = 3600
     depth: int = 16
     capture_ir: bool = False
-    multi_exposure: bool = False
+    multi_exposure_mode: str = MultiExposureMode.OFF.value
+    # Exposures to merge in MultiExposureMode.N_EXPOSURE (2-9); ignored in every other mode.
+    me_brackets: int = DEFAULT_ME_BRACKETS
     autofocus: bool = True
     auto_exposure: bool = False
     # Hardware scan exposure time in microseconds (SANE `scan-exposure-time`). None is the
@@ -68,6 +71,14 @@ class ScannerSettings:
         every unrelated preference with it.
         """
         data = dict(data)
+        # Pre-N-bracket blobs only ever had one multi-exposure behavior (today's "dynamic"):
+        # a checked box meant exactly that, unchecked meant none.
+        if "multi_exposure_mode" not in data and "multi_exposure" in data:
+            data["multi_exposure_mode"] = (
+                MultiExposureMode.DYNAMIC.value if data.pop("multi_exposure") else MultiExposureMode.OFF.value
+            )
+        if data.get("multi_exposure_mode") not in set(MultiExposureMode):
+            data["multi_exposure_mode"] = MultiExposureMode.OFF.value
         first, last = data.pop("frame_from", None), data.pop("frame_to", None)
         if not data.get("selected_frames") and isinstance(first, int) and isinstance(last, int) and (first, last) != (1, 1):
             data["selected_frames"] = tuple(range(first, last + 1))

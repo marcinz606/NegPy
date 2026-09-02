@@ -139,3 +139,28 @@ def test_an_unset_saved_frame_range_selects_nothing():
 def test_a_key_this_version_dropped_keeps_the_rest_of_the_blob():
     restored = ScannerSettings.from_dict({"gone_in_this_version": True, "output_folder": "/scans"})
     assert restored.output_folder == "/scans"
+
+
+def test_legacy_multi_exposure_true_migrates_to_dynamic_mode():
+    restored = ScannerSettings.from_dict({"multi_exposure": True})
+    assert restored.multi_exposure_mode == "dynamic"
+
+
+def test_legacy_multi_exposure_false_migrates_to_off_mode():
+    restored = ScannerSettings.from_dict({"multi_exposure": False})
+    assert restored.multi_exposure_mode == "off"
+
+
+def test_a_blob_with_multi_exposure_mode_already_set_is_not_double_migrated():
+    restored = ScannerSettings.from_dict({"multi_exposure": True, "multi_exposure_mode": "fixed_fast"})
+    assert restored.multi_exposure_mode == "fixed_fast"
+
+
+def test_an_unknown_multi_exposure_mode_falls_back_to_off():
+    restored = ScannerSettings.from_dict({"multi_exposure_mode": "some_future_mode"})
+    assert restored.multi_exposure_mode == "off"
+
+
+def test_me_brackets_has_a_sane_starting_point_above_the_minimum():
+    """3, not 2 — at 2 brackets Multi-Pass wouldn't differ from Dynamic/Fixed."""
+    assert ScannerSettings.defaults().me_brackets == 3

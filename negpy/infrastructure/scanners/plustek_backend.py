@@ -19,7 +19,13 @@ from negpy.infrastructure.scanners.base import (
     ScannerUnavailable,
     TransientScanError,
 )
-from negpy.infrastructure.scanners.params import ScanMode, ScanParams
+from negpy.infrastructure.scanners.params import (
+    MAX_ME_BRACKETS,
+    MIN_ME_BRACKETS,
+    MultiExposureMode,
+    ScanMode,
+    ScanParams,
+)
 from pyopticfilm.asic.gl128 import DEFAULT_IMAGE_USB_PACE_S
 from pyopticfilm.device.select import model_for_device, model_is_scan_ready
 from pyopticfilm.exceptions import (
@@ -60,6 +66,10 @@ def _caps_for(model: Any) -> ScannerCapabilities:
         prescan_mirror_x=bool(getattr(model, "mirror_x", False)) if prescan_ready else False,
         prescan_default_crop=default_frame_crop_norm(model) if prescan_ready else None,
         multi_exposure=bool(getattr(model, "scan_ready", False) and getattr(model, "exposure_long", None)),
+        # Every scan-ready GL128 model that supports ME at all supports the full N-bracket
+        # range pyopticfilm validates (2-9) — pyopticfilm has no per-model bracket-count limit.
+        me_n_exposure=bool(getattr(model, "scan_ready", False) and getattr(model, "exposure_long", None)),
+        me_max_brackets=MAX_ME_BRACKETS if getattr(model, "scan_ready", False) and getattr(model, "exposure_long", None) else MIN_ME_BRACKETS,
         adapter_frame_capacity=None,
         adapter_frame_control=False,
         can_eject=False,
@@ -89,10 +99,11 @@ def _safe_progress(
         progress(max(0.0, min(1.0, float(value))), phase)
 
 
-def _gl128_me_pass_layout(*, capture_ir: bool, multi_exposure: bool) -> tuple[int, int] | None:
+def _gl128_me_pass_layout(*, capture_ir: bool, multi_exposure: bool, n_brackets: int = 2) -> tuple[int, int] | None:
     if not multi_exposure:
         return None
-    n_early = 2 if capture_ir else 1
+    ir_extra = 1 if capture_ir else 0
+    n_early = ir_extra + max(1, n_brackets - 1)
     return n_early, n_early + 1
 
 
@@ -101,8 +112,9 @@ def _make_scan_progress(
     *,
     multi_exposure: bool,
     capture_ir: bool,
+    n_brackets: int = 2,
 ) -> Callable[[float], None]:
-    layout = _gl128_me_pass_layout(capture_ir=capture_ir, multi_exposure=multi_exposure)
+    layout = _gl128_me_pass_layout(capture_ir=capture_ir, multi_exposure=multi_exposure, n_brackets=n_brackets)
     if layout is None:
 
         def scan_progress(p: float) -> None:
@@ -110,27 +122,31 @@ def _make_scan_progress(
 
         return scan_progress
 
-    n_early, n_pass = layout
-    plateau = n_early / n_pass
-    state = {"long_started": False}
+    _n_early, n_pass = layout
+    ir_extra = 1 if capture_ir else 0
+    # Fraction-of-whole-scan point where each bracket after the first begins capturing.
+    # At n_brackets == 2 this is the single short→long boundary, unchanged from before.
+    boundaries = [(ir_extra + i) / n_pass for i in range(1, n_brackets)]
+    state = {"passed": 0}
 
     def scan_progress(p: float) -> None:
         frac = min(1.0, max(0.0, float(p)))
         if frac >= 1.0 - 1e-9:
             _safe_progress(progress, 0.85, "Merging exposures")
             return
-        if frac > plateau + 1e-6:
-            state["long_started"] = True
-            _safe_progress(progress, 0.10 + 0.72 * frac, "Scanning")
-        elif abs(frac - plateau) < 1e-6 and not state["long_started"]:
-            _safe_progress(progress, 0.83, "Preparing long exposure")
+        passed = state["passed"]
+        if passed < len(boundaries) and frac > boundaries[passed] + 1e-6:
+            state["passed"] = passed = passed + 1
+        if passed < len(boundaries) and abs(frac - boundaries[passed]) < 1e-6:
+            label = "Preparing long exposure" if n_brackets == 2 else "Preparing next exposure"
+            _safe_progress(progress, 0.10 + 0.72 * frac, label)
         else:
             _safe_progress(progress, 0.10 + 0.72 * frac, "Scanning")
 
     return scan_progress
 
 
-def _validate_params(params: ScanParams, *, model: Any | None = None) -> None:
+def _validate_params(params: ScanParams, *, model: Any | None = None, caps: ScannerCapabilities | None = None) -> None:
     from pyopticfilm.device.model_8200i import MODEL_8200I
 
     dpi = int(params.dpi)
@@ -154,8 +170,16 @@ def _validate_params(params: ScanParams, *, model: Any | None = None) -> None:
         raise RuntimeError("Autofocus requested but the device has no autofocus option")
     if params.capture_ir and model is not None and getattr(model, "supports_infrared", None) is False:
         raise RuntimeError(f"{getattr(model, 'model', 'device')} does not support infrared")
-    if params.multi_exposure and model is not None and not getattr(model, "exposure_long", None):
+    mode = params.multi_exposure_mode
+    if mode != MultiExposureMode.OFF and model is not None and not getattr(model, "exposure_long", None):
         raise RuntimeError(f"{getattr(model, 'model', 'device')} does not support multi-exposure")
+    if mode == MultiExposureMode.N_EXPOSURE:
+        if not (MIN_ME_BRACKETS <= params.me_brackets <= MAX_ME_BRACKETS):
+            raise RuntimeError(
+                f"me_brackets={params.me_brackets} out of range ({MIN_ME_BRACKETS}-{MAX_ME_BRACKETS})"
+            )
+        if caps is not None and not caps.me_n_exposure:
+            raise RuntimeError(f"{getattr(model, 'model', 'device')} does not support N-Exposure mode")
 
 
 class PlustekSession:
@@ -314,10 +338,19 @@ class PlustekBackend:
             if sys.platform != "win32":
                 msg += " Try Backend → SANE if that backend lists this scanner."
             raise RuntimeError(msg)
-        _validate_params(params, model=scanner.model)
+        caps = _caps_for(scanner.model)
+        _validate_params(params, model=scanner.model, caps=caps)
         dpi = int(params.dpi)
         capture_ir = bool(params.capture_ir)
-        multi_exposure = bool(params.multi_exposure)
+        me_mode = params.multi_exposure_mode
+        multi_exposure = me_mode != MultiExposureMode.OFF
+        # None defers to Model.me_default_exposure_mode (pyopticfilm PR #47) for N_EXPOSURE and
+        # for OFF (irrelevant there); Dynamic/Fixed Fast pin the mode explicitly, as before.
+        me_exposure_mode = {
+            MultiExposureMode.DYNAMIC: "adaptive",
+            MultiExposureMode.FIXED_FAST: "fixed",
+        }.get(me_mode)
+        n_brackets = params.me_brackets if me_mode == MultiExposureMode.N_EXPOSURE else MIN_ME_BRACKETS
         window = params.window
         geometry = self._default_scan_geometry(scanner, dpi=dpi, window=window)
 
@@ -339,6 +372,7 @@ class PlustekBackend:
                 progress,
                 multi_exposure=multi_exposure,
                 capture_ir=capture_ir,
+                n_brackets=n_brackets,
             )
 
             def on_status(status: str) -> None:
@@ -359,7 +393,8 @@ class PlustekBackend:
                 on_status=on_status,
                 multi_exposure=multi_exposure,
                 infrared=capture_ir,
-                me_exposure_mode="adaptive",
+                me_exposure_mode=me_exposure_mode,
+                n_brackets=n_brackets,
             )
             ir_plane = np.asarray(rgb_image.ir) if capture_ir and rgb_image.ir is not None else None
         except ScanCancelled as exc:
