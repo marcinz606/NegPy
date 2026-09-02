@@ -19,7 +19,7 @@ class ScanRequest:
     params: ScanParams
     output_folder: str
     filename_pattern: str
-    output_format: str  # "TIFF" or "DNG"
+    output_format: str  # one of settings.OUTPUT_FORMATS
 
 
 @dataclass(frozen=True)

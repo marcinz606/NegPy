@@ -1,4 +1,4 @@
-"""Tests for TIFF and DNG output writers."""
+"""Tests for the TIFF output writer."""
 
 import os
 import tempfile
@@ -7,7 +7,7 @@ import numpy as np
 import tifffile
 
 from negpy.infrastructure.scanners.result import ScanResult
-from negpy.services.scanning.writer import write_dng_linear, write_tiff_16bit
+from negpy.services.scanning.writer import write_tiff_16bit
 
 
 class TestTiffWriter:
@@ -83,55 +83,6 @@ class TestTiffWriter:
             assert readback.dtype == np.uint16
 
 
-class TestDngWriter:
-    def test_writes_linear_dng(self) -> None:
-        rgb = np.random.randint(0, 65535, (200, 300, 3), dtype=np.uint16)
-        result = ScanResult(rgb=rgb, ir=None, dpi=3600, device_model="TestScanner")
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = write_dng_linear(result, os.path.join(tmpdir, "test_scan"))
-            assert os.path.exists(path)
-            assert path.endswith(".dng")
-
-            readback = tifffile.imread(path)
-            assert readback.shape == (200, 300, 3)
-            assert readback.dtype == np.uint16
-            np.testing.assert_array_equal(readback, rgb)
-
-            with tifffile.TiffFile(path) as tf:
-                tags = tf.pages[0].tags
-                assert int(tags["PhotometricInterpretation"].value) == 34892  # LinearRaw
-                assert tuple(tags["DNGVersion"].value) == (1, 4, 0, 0)
-                assert int(tags["SamplesPerPixel"].value) == 3
-                # 3 plain color samples, no ExtraSamples (matches pidng); marking color
-                # planes as extra makes some raw processors mis-demosaic the file.
-                assert tags.get("ExtraSamples") is None
-
-    def test_writes_dng_with_ir(self) -> None:
-        rgb = np.random.randint(0, 65535, (100, 150, 3), dtype=np.uint16)
-        ir = np.random.randint(0, 65535, (100, 150), dtype=np.uint16)
-        result = ScanResult(rgb=rgb, ir=ir, dpi=3600, device_model="TestScanner")
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = write_dng_linear(result, os.path.join(tmpdir, "test_ir"))
-            assert os.path.exists(path)
-
-            readback = tifffile.imread(path)
-            assert readback.shape == (100, 150, 4)
-            np.testing.assert_array_equal(readback[:, :, :3], rgb)
-            np.testing.assert_array_equal(readback[:, :, 3], ir)
-            with tifffile.TiffFile(path) as tf:
-                assert int(tf.pages[0].tags["SamplesPerPixel"].value) == 4
-
-    def test_adds_dng_extension(self) -> None:
-        rgb = np.random.randint(0, 65535, (50, 50, 3), dtype=np.uint16)
-        result = ScanResult(rgb=rgb, ir=None, dpi=300, device_model="T")
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = write_dng_linear(result, os.path.join(tmpdir, "noext"))
-            assert path.endswith(".dng")
-
-
 class TestHotFolderSeesOnlyFinishedScans:
     """The output folder may be watched, and it indexes on extension alone."""
 
@@ -159,25 +110,37 @@ class TestHotFolderSeesOnlyFinishedScans:
             assert offered  # the probe ran, and only ever saw finished scans
             assert FolderWatchService.scan_for_new_files(tmpdir, set()) == [os.path.abspath(path)]
 
-    def test_the_dng_being_written_is_not_offered_to_the_watcher(self, monkeypatch) -> None:
-        from negpy.infrastructure.filesystem.watcher import FolderWatchService
 
-        rgb = np.random.randint(0, 65535, (60, 80, 3), dtype=np.uint16)
+class TestMonoTiff:
+    def test_writes_one_grey_plane(self) -> None:
+        rgb = np.random.randint(0, 65535, (40, 60, 3), dtype=np.uint16)
         result = ScanResult(rgb=rgb, ir=None, dpi=3600, device_model="TestScanner")
-        probes = 0
-        real_replace = os.replace
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            path = write_tiff_16bit(result, os.path.join(tmpdir, "mono"), mono=True)
 
-            def watching_replace(src, dst):
-                # The written file is complete here, but still under its part name.
-                nonlocal probes
-                probes += 1
-                assert FolderWatchService.scan_for_new_files(tmpdir, set()) == []
-                real_replace(src, dst)
+            readback = tifffile.imread(path)
+            assert readback.shape == (40, 60)
+            assert readback.dtype == np.uint16
+            with tifffile.TiffFile(path) as tf:
+                assert int(tf.pages[0].tags["PhotometricInterpretation"].value) == 1  # minisblack
 
-            monkeypatch.setattr(os, "replace", watching_replace)
-            path = write_dng_linear(result, os.path.join(tmpdir, "scan_002"))
+    def test_the_grey_plane_is_the_mean_of_the_three(self) -> None:
+        rgb = np.array([[[0, 0, 0], [10, 11, 12], [65535, 65535, 65535], [1, 2, 2]]], dtype=np.uint16)
+        result = ScanResult(rgb=rgb, ir=None, dpi=3600, device_model="TestScanner")
 
-            assert probes == 1
-            assert FolderWatchService.scan_for_new_files(tmpdir, set()) == [os.path.abspath(path)]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = write_tiff_16bit(result, os.path.join(tmpdir, "mean"), mono=True)
+            readback = tifffile.imread(path)
+
+        # Rounded, not floored: 5/3 reads 2, and the top of the range does not wrap.
+        assert readback.tolist() == [[0, 11, 65535, 2]]
+
+    def test_the_ir_sidecar_still_comes_out_beside_it(self) -> None:
+        rgb = np.random.randint(0, 65535, (20, 30, 3), dtype=np.uint16)
+        ir = np.random.randint(0, 65535, (20, 30), dtype=np.uint16)
+        result = ScanResult(rgb=rgb, ir=ir, dpi=3600, device_model="TestScanner")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = write_tiff_16bit(result, os.path.join(tmpdir, "mono_ir"), mono=True)
+            assert os.path.exists(path.replace(".tif", "_IR.tif"))

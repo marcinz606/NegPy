@@ -1018,3 +1018,20 @@ def test_a_film_that_blocks_infrared_leaves_the_control_visible_to_explain_itsel
 
     assert sidebar.ir_check.isVisibleTo(sidebar) is True
     assert sidebar.ir_check.isEnabled() is False
+
+
+def test_the_format_combo_offers_the_mono_tiff() -> None:
+    sidebar, _ = _sidebar(FULL_DEVICE)
+    offered = [sidebar.fmt_combo.itemText(i) for i in range(sidebar.fmt_combo.count())]
+    assert offered == ["TIFF", "TIFF (mono)"]
+
+
+def test_the_chosen_format_reaches_the_batch_request() -> None:
+    sidebar, controller = _sidebar(LS50_DEVICE)
+    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.fmt_combo.setCurrentText("TIFF (mono)")
+
+    sidebar._on_scan()
+
+    _kind, req = controller.started[0]
+    assert req.output_format == "TIFF (mono)"
