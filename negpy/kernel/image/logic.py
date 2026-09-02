@@ -93,6 +93,30 @@ def uint8_to_float32(img: np.ndarray) -> np.ndarray:
     return res
 
 
+@njit(cache=True)
+def rgb_to_rgba_into(src: np.ndarray, dst: np.ndarray) -> None:
+    """Copies the three colour planes of ``src`` into the RGBA ``dst``; alpha is left as is.
+    numpy cannot vectorise a 3-of-4 strided copy, so a texture upload spent longer here than
+    on the GPU."""
+    h, w = src.shape[0], src.shape[1]
+    for y in range(h):
+        for x in range(w):
+            dst[y, x, 0] = src[y, x, 0]
+            dst[y, x, 1] = src[y, x, 1]
+            dst[y, x, 2] = src[y, x, 2]
+
+
+@njit(cache=True)
+def rgba_to_rgb_into(src: np.ndarray, dst: np.ndarray, oy: int, ox: int) -> None:
+    """Writes the RGB of ``src[oy:oy+h, ox:ox+w]`` into the (h, w, 3) ``dst``."""
+    h, w = dst.shape[0], dst.shape[1]
+    for y in range(h):
+        for x in range(w):
+            dst[y, x, 0] = src[oy + y, ox + x, 0]
+            dst[y, x, 1] = src[oy + y, ox + x, 1]
+            dst[y, x, 2] = src[oy + y, ox + x, 2]
+
+
 @njit(cache=True, fastmath=True)
 def uint16_to_float32(img: np.ndarray) -> np.ndarray:
     """

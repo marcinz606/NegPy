@@ -111,6 +111,28 @@ _PROOF_INTENTS = {
 logger = get_logger(__name__)
 
 
+_CMS_STRIPS = 16
+
+
+def _cms_transform_strips(img_u16: np.ndarray, src_bytes: bytes, dst_bytes: bytes) -> np.ndarray:
+    """lcms2 relative-colorimetric transform on row strips in parallel. lcms is per-pixel and
+    imagecodecs releases the GIL, so the strips are exact and scale with cores."""
+    kwargs = dict(colorspace="RGB", outcolorspace="RGB", intent=1, flags=0x2000)  # BLACKPOINTCOMPENSATION
+    h = img_u16.shape[0]
+    n = min(_CMS_STRIPS, os.cpu_count() or 1, h)
+    if n <= 1:
+        return imagecodecs.cms_transform(img_u16, src_bytes, dst_bytes, **kwargs)
+    out = np.empty_like(img_u16)
+
+    def run(i: int) -> None:
+        a, b = i * h // n, (i + 1) * h // n
+        out[a:b] = imagecodecs.cms_transform(img_u16[a:b], src_bytes, dst_bytes, **kwargs)
+
+    with ThreadPoolExecutor(max_workers=n) as ex:
+        list(ex.map(run, range(n)))
+    return out
+
+
 @lru_cache(maxsize=16)
 def _read_icc_bytes(path: str) -> bytes:
     with open(path, "rb") as f:
@@ -1659,15 +1681,7 @@ class ImageProcessor:
                 return img_u16, self._get_target_icc_bytes(color_space, output_icc_path)
 
             try:
-                result = imagecodecs.cms_transform(
-                    np.ascontiguousarray(img_u16),
-                    src_bytes,
-                    dst_bytes,
-                    colorspace="RGB",
-                    outcolorspace="RGB",
-                    intent=1,  # RELATIVE_COLORIMETRIC
-                    flags=0x2000,  # BLACKPOINTCOMPENSATION (matches PIL's value)
-                )
+                result = _cms_transform_strips(np.ascontiguousarray(img_u16), src_bytes, dst_bytes)
             except ImportError as e:
                 self._log_cms_codec_dlopen_error()
                 logger.warning(

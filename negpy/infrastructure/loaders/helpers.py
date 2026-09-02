@@ -16,8 +16,31 @@ from negpy.kernel.system.logging import get_logger
 logger = get_logger(__name__)
 
 
+# (path) -> (mtime_ns, size, exif). A navigation reads the same file's EXIF for the metadata panel
+# and again for the orientation tag; a RAW parse is tens of ms, a large TIFF hundreds.
+_exif_cache: dict[str, tuple[int, int, Optional[dict]]] = {}
+_EXIF_CACHE_MAX = 64
+
+
 def read_exif_from_file(file_path: str) -> Optional[dict]:
-    """Read EXIF data from a file as a piexif-format dict. Returns None on failure."""
+    """Read EXIF data from a file as a piexif-format dict. Returns None on failure.
+    Callers get their own copy, so mutating the result never leaks into a later read."""
+    import copy
+
+    try:
+        st = os.stat(file_path)
+    except OSError:
+        return _read_exif_uncached(file_path)
+    hit = _exif_cache.get(file_path)
+    if hit is None or hit[0] != st.st_mtime_ns or hit[1] != st.st_size:
+        if len(_exif_cache) >= _EXIF_CACHE_MAX:
+            _exif_cache.clear()
+        hit = (st.st_mtime_ns, st.st_size, _read_exif_uncached(file_path))
+        _exif_cache[file_path] = hit
+    return copy.deepcopy(hit[2])
+
+
+def _read_exif_uncached(file_path: str) -> Optional[dict]:
     import piexif
 
     # Try piexif first (works for JPEG, TIFF)

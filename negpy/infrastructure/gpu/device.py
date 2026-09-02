@@ -1,6 +1,7 @@
 import threading
 from typing import Optional
 import wgpu  # type: ignore
+from negpy.infrastructure.gpu.cffi_warm import warm_wgpu_cffi_types
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
@@ -32,6 +33,7 @@ class GPUDevice:
 
     def _initialize(self) -> None:
         try:
+            warm_wgpu_cffi_types()
             self.adapter = wgpu.gpu.request_adapter_sync(power_preference="high-performance")
             if self.adapter:
                 self.device = self.adapter.request_device_sync()

@@ -34,6 +34,10 @@ logger = get_logger(__name__)
 # workqueue threading layer: concurrent parallel-kernel entry aborts the process.
 _invocation_gate = threading.Lock()
 
+# Below this many elements a kernel runs the serial variant and skips the gate: the GUI thread's
+# chart and wedge curves must not wait behind the render thread's full-frame kernels.
+SERIAL_MAX_ELEMENTS = 1 << 16
+
 
 def default_cpu_parallel(platform: str = sys.platform) -> bool:
     """Platform policy: parallel kernels on, except macOS (pending verification)."""
@@ -110,7 +114,15 @@ class _DualDispatcher:
         self.__name__ = getattr(py_func, "__name__", "kernel")
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        if _parallel_enabled:
+        if _parallel_enabled and _first_array_size(args) >= SERIAL_MAX_ELEMENTS:
             with _invocation_gate:
                 return self.parallel(*args, **kwargs)
         return self.serial(*args, **kwargs)
+
+
+def _first_array_size(args: tuple) -> int:
+    for a in args:
+        size = getattr(a, "size", None)
+        if isinstance(size, int):
+            return size
+    return SERIAL_MAX_ELEMENTS

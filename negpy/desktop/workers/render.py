@@ -219,8 +219,10 @@ class RenderWorker(QObject):
 
     @pyqtSlot(object)
     def cleanup(self, retain: object = None) -> None:
-        """Evacuates transient GPU resources; ``retain`` is handed to its new owner."""
-        self._processor.cleanup(retain=retain)
+        """Evacuates transient GPU resources; ``retain`` is handed to its new owner.
+        No gc.collect: the pool eviction frees the textures and a full collection per file
+        switch is dead time on the navigation path."""
+        self._processor.cleanup(collect=False, retain=retain)
 
     def destroy_all(self) -> None:
         """Full teardown of processing resources."""

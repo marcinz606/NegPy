@@ -45,7 +45,8 @@ def test_platform_policy():
 
 
 def test_dispatch_uses_selected_variant():
-    arr = np.arange(64, dtype=np.float32)
+    # At or above SERIAL_MAX_ELEMENTS; smaller inputs always take the serial variant.
+    arr = np.arange(par.SERIAL_MAX_ELEMENTS, dtype=np.float32)
 
     par.set_parallel_enabled(False)
     np.testing.assert_array_equal(_double(arr), arr * 2.0)
