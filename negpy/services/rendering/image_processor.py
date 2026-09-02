@@ -1947,7 +1947,8 @@ class ImageProcessor:
                 # an identity that nothing can be outside of. That is not an answer, it is
                 # the absence of a question.
                 return None
-            p_src = ImageProcessor._resolve_src_profile(working_color_space, input_icc_path)
+            p_work = ImageProcessor._resolve_src_profile(working_color_space, None)
+            p_src = p_work if not (input_icc_path and os.path.exists(input_icc_path)) else ImageCms.getOpenProfile(input_icc_path)
             p_dst = ImageProcessor._resolve_dst_profile(working_color_space, output_icc_path)
             if p_dst is None:
                 return None
@@ -1968,10 +1969,19 @@ class ImageProcessor:
             )
             if to_out is None:
                 return None
-            back = ImageCms.profileToProfile(to_out, p_dst, p_src, renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC, outputMode="RGB")
+            # An Input ICC is a source-only profile (an input-class profile has no B2A table),
+            # so the return leg lands in the working space and the grid is carried there too.
+            back = ImageCms.profileToProfile(to_out, p_dst, p_work, renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC, outputMode="RGB")
             if back is None:
                 return None
-            delta = np.abs(np.asarray(back, dtype=np.int16) - grid.astype(np.int16)).max(axis=-1)
+            ref = (
+                grid
+                if p_work is p_src
+                else np.asarray(
+                    ImageCms.profileToProfile(img, p_src, p_work, renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC, outputMode="RGB")
+                )
+            )
+            delta = np.abs(np.asarray(back, dtype=np.int16) - ref.astype(np.int16)).max(axis=-1)
             return np.ascontiguousarray((delta > GAMUT_ROUND_TRIP_TOLERANCE).reshape((size, size, size)))
         except Exception as e:
             logger.warning("Gamut LUT build failed; the printability read-out stays off", exc_info=e)

@@ -71,6 +71,15 @@ class TestGamutLut(unittest.TestCase):
         read-out carries a false floor."""
         self.assertEqual(float(_lut("Adobe RGB").mean()), 0.0)
 
+    def test_an_input_class_source_profile_still_builds(self):
+        # RGBScan.icc is the implicit Narrowband Scan input profile: source-only, no B2A
+        # table, so the round trip must land in the working space rather than back in it.
+        from negpy.kernel.system.paths import get_resource_path
+
+        mask = ImageProcessor.gamut_lut("Adobe RGB", get_resource_path("icc/RGBScan.icc"), ColorSpaceRegistry.get_icc_path("sRGB"))
+        self.assertIsNotNone(mask)
+        self.assertGreater(float(mask.mean()), 0.0)
+
     def test_a_wider_destination_clips_nothing(self):
         self.assertEqual(float(ImageProcessor.gamut_lut("sRGB", None, ColorSpaceRegistry.get_icc_path("Rec 2020")).mean()), 0.0)
 
