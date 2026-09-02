@@ -131,9 +131,8 @@ def _peek_linear_dng_rgb(file_path: str) -> Optional[Tuple[np.ndarray, Optional[
 def _peek_linearraw_4ch(file_path: str) -> Optional[Tuple[np.ndarray, np.ndarray]]:
     """Inspect a DNG. If it carries 4 linear samples (RGB + IR), return (rgb, ir) as float32 [0,1].
 
-    NegPy's own `write_dng_linear` produces a single-IFD DNG; VueScan and Adobe-style DNGs
-    put the full-res data in a SubIFD behind a reduced-resolution thumbnail IFD0 — both are
-    checked. Returns None for camera DNGs (Bayer, 3-channel, etc.) so rawpy can handle them.
+    A single-IFD DNG carries the data in IFD0; VueScan and Adobe-style DNGs put the full-res
+    data in a SubIFD behind a reduced-resolution thumbnail IFD0 — both are checked. Returns None for camera DNGs (Bayer, 3-channel, etc.) so rawpy can handle them.
     """
     if not _is_dng(file_path):
         return None

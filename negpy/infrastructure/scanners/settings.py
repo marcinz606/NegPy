@@ -5,6 +5,12 @@ from negpy.infrastructure.scanners.registry import DEFAULT_BACKEND_ID
 
 Rect = tuple[float, float, float, float]
 
+#: Written as one 16-bit grey plane instead of three. Film that carries a single record
+#: (a B&W negative) reads the same off one plane, at a third of the size.
+MONO_TIFF = "TIFF (mono)"
+#: What the Format combo offers, in order.
+OUTPUT_FORMATS = ("TIFF", MONO_TIFF)
+
 
 @dataclass(frozen=True)
 class ScannerSettings:
@@ -73,6 +79,9 @@ class ScannerSettings:
         every unrelated preference with it.
         """
         data = dict(data)
+        # DNG output is retired; a saved one lands on TIFF, the other 16-bit master.
+        if str(data.get("output_format", "")).upper() == "DNG":
+            data["output_format"] = "TIFF"
         first, last = data.pop("frame_from", None), data.pop("frame_to", None)
         if not data.get("selected_frames") and isinstance(first, int) and isinstance(last, int) and (first, last) != (1, 1):
             data["selected_frames"] = tuple(range(first, last + 1))

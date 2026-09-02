@@ -23,7 +23,7 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice
 from negpy.infrastructure.scanners.params import FILM_TYPES, FilmType, film_passes_infrared
 from negpy.infrastructure.scanners.registry import DEFAULT_BACKEND_ID, backend_choices
-from negpy.infrastructure.scanners.settings import ScannerSettings
+from negpy.infrastructure.scanners.settings import OUTPUT_FORMATS, ScannerSettings
 
 
 _SAMPLE_COUNTS = (1, 2, 4, 8, 16)
@@ -311,8 +311,8 @@ class ScanSidebar(QWidget):
         self.form.addRow(self.output_header)
 
         self.fmt_combo = QComboBox()
-        self.fmt_combo.addItems(["TIFF", "DNG"])
-        self.fmt_combo.setToolTip("Output file format")
+        self.fmt_combo.addItems(list(OUTPUT_FORMATS))
+        self.fmt_combo.setToolTip("Output file format. Mono writes one grey plane instead of three, for film with a single record.")
         self.form.addRow("Format", self.fmt_combo)
 
         folder_row = QHBoxLayout()

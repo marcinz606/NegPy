@@ -134,12 +134,14 @@ class ScannerService:
         """
         from datetime import date as dt_date
 
-        from negpy.services.scanning.writer import write_dng_linear, write_tiff_16bit
+        from negpy.infrastructure.scanners.settings import MONO_TIFF
+        from negpy.services.scanning.writer import write_tiff_16bit
 
         os.makedirs(output_folder, exist_ok=True)
 
+        fmt = output_format.upper()
         date_str = dt_date.today().strftime("%Y%m%d")
-        ext = ".dng" if output_format.upper() == "DNG" else ".tif"
+        ext = ".tif"
 
         require_sequence_varying_scan_filename(filename_pattern, date_str)
 
@@ -151,9 +153,6 @@ class ScannerService:
                 break
             current += 1
 
-        if output_format.upper() == "DNG":
-            rgb_path = write_dng_linear(result, rgb_path)
-        else:
-            rgb_path = write_tiff_16bit(result, rgb_path)
+        rgb_path = write_tiff_16bit(result, rgb_path, mono=fmt == MONO_TIFF.upper())
 
         return rgb_path
