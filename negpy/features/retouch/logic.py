@@ -184,6 +184,8 @@ _HAIR_DILATE_PX = 1
 _HAIR_INPAINT_RADIUS = 3
 _HAIR_INPAINT_GAMMA = 2.2
 _HAIR_RANGE_SAMPLE_PX = 1 << 20  # clean pixels sampled for a crop's encode range
+_HAIR_TILE_PX = 1024  # inpaint tile; the solver walks whatever image it is handed
+_HAIR_TILE_HALO = 32  # px of neighbourhood a tile's core fill can see
 _HAIR_INPAINT_PAD = 16
 
 
@@ -779,9 +781,10 @@ def _fill_supports(buffer_long_edge: int, factor: float) -> Tuple[int, ...]:
     return tuple(dict.fromkeys([int(round(_IR_FILL_SCALES[0] * film)) | 1] + fine))
 
 
-def _borrow_clean_grain(src: np.ndarray, clean: np.ndarray, sigma: float, idx: np.ndarray) -> np.ndarray:
+def _borrow_clean_grain(src: np.ndarray, clean: np.ndarray, sigma: float, idx: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """Detail of the nearest clean pixel, high-passed at ``sigma``, for the flat pixel
-    indices ``idx`` only: an (N, 3) array, N = len(idx).
+    indices ``idx`` only: an (N, 3) array, N = len(idx), plus the ``sigma`` blur of ``src``
+    it was measured against, for a caller that needs the same low-pass again.
 
     Real film rather than synthesized noise: the donor is the closest pixel the IR score calls
     clean, so it carries the same emulsion, density and scanner noise as the hole it fills.
@@ -801,7 +804,7 @@ def _borrow_clean_grain(src: np.ndarray, clean: np.ndarray, sigma: float, idx: n
     mirrored = np.clip(2 * ny - py, 0, h - 1) * w + np.clip(2 * nx - px, 0, w - 1)
     take = np.where(clean.ravel()[mirrored], mirrored, nearest)
     blur = cv2.GaussianBlur(src, (0, 0), sigma)
-    return src.reshape(-1, 3)[take] - blur.reshape(-1, 3)[take]
+    return src.reshape(-1, 3)[take] - blur.reshape(-1, 3)[take], blur
 
 
 def apply_score_repair(
@@ -840,14 +843,18 @@ def apply_score_repair(
     sigma = max(1.0, factor)
     clean = score >= _IR_WRITE_HI
     idx = np.flatnonzero(~clean)
+    blur_src: Optional[np.ndarray] = None
     if clean.any() and idx.size:
-        out.reshape(-1, 3)[idx] += a.reshape(-1, 1)[idx] * _borrow_clean_grain(src, clean, sigma, idx)
+        grain, blur_src = _borrow_clean_grain(src, clean, sigma, idx)
+        out.reshape(-1, 3)[idx] += a.reshape(-1, 1)[idx] * grain
     # Original-floor rule: dust is dark in negative transmittance, so repairs only lighten.
     # Compared on the low-frequency deficit, because per pixel the rule is a half-wave
     # rectifier that keeps the fill's grain peaks, clips its troughs and leaves the repair
     # bright and half-textured. Under the same ramp, so an untouched pixel stays identical.
     if floor:
-        _add_floor_deficit(out, a, cv2.GaussianBlur(src, (0, 0), sigma), cv2.GaussianBlur(out, (0, 0), sigma))
+        if blur_src is None:
+            blur_src = cv2.GaussianBlur(src, (0, 0), sigma)
+        _add_floor_deficit(out, a, blur_src, cv2.GaussianBlur(out, (0, 0), sigma))
     else:
         np.maximum(out, 0.0, out=out)
     return ensure_image(out)
@@ -1188,30 +1195,45 @@ def apply_hair_inpaint(
         lo = float(np.percentile(ctx, 0.5)) if ctx.size else 0.0
         hi = float(np.percentile(ctx, 99.5)) if ctx.size else 1.0
         span = max(hi - lo, 1e-4)
-        enc = np.empty(crop.shape, dtype=np.uint8)
-        _hair_encode(crop, np.float32(lo), np.float32(1.0 / span), enc)
-        filled = cv2.inpaint(enc, sub_m, radius, cv2.INPAINT_NS)
-        # ...but keep only this component, alpha-feathered across the dilate band: full fill
-        # on the detected defect, ramp over the skirt. A neighbour clipped by the bbox fills
-        # badly here and gets its own padded crop anyway. dilate_px=0 means no feather.
-        mb = labels[y0:y1, x0:x1] == i
-        d = cv2.distanceTransform(mb.astype(np.uint8), cv2.DIST_C, 3)
-        sel = np.flatnonzero(mb)
-        a = np.minimum(d.ravel()[sel] / float(dilate_px + 1), 1.0)[:, None]
-        # The fill is 8-bit, so its decode is a 256-entry table; only the component's own
-        # pixels are decoded and written, addressed flat in the frame (the crop view is not
-        # contiguous, so a reshape of it would write to a copy).
+        # The fill is 8-bit, so its decode is a 256-entry table.
         dec_lut = ((np.arange(256, dtype=np.float32) / 255.0) ** _HAIR_INPAINT_GAMMA) * span + lo
-        dec = dec_lut[filled.reshape(-1, 3)[sel]]
-        crop_px = crop.reshape(-1, 3)[sel]
-        ry, rx = np.divmod(sel, x1 - x0)
-        out.reshape(-1, 3)[(y0 + ry) * w + (x0 + rx)] = crop_px * (1.0 - a) + dec * a
+        ch, cw = crop.shape[:2]
+        # The inpaint walks the whole image it is handed, and a hair joining specks can make
+        # this crop the frame: tile it, skip tiles without this component, keep a halo so
+        # the fill at a tile's core sees the same neighbourhood.
+        for ty0 in range(0, ch, _HAIR_TILE_PX):
+            for tx0 in range(0, cw, _HAIR_TILE_PX):
+                ty1, tx1 = min(ch, ty0 + _HAIR_TILE_PX), min(cw, tx0 + _HAIR_TILE_PX)
+                if not (labels[y0 + ty0 : y0 + ty1, x0 + tx0 : x0 + tx1] == i).any():
+                    continue
+                ay0, ay1 = max(0, ty0 - _HAIR_TILE_HALO), min(ch, ty1 + _HAIR_TILE_HALO)
+                ax0, ax1 = max(0, tx0 - _HAIR_TILE_HALO), min(cw, tx1 + _HAIR_TILE_HALO)
+                tile = np.ascontiguousarray(crop[ay0:ay1, ax0:ax1])
+                enc = np.empty(tile.shape, dtype=np.uint8)
+                _hair_encode(tile, np.float32(lo), np.float32(1.0 / span), enc)
+                filled = cv2.inpaint(enc, np.ascontiguousarray(sub_m[ay0:ay1, ax0:ax1]), radius, cv2.INPAINT_NS)
+                # ...but keep only this component, alpha-feathered across the dilate band: full
+                # fill on the detected defect, ramp over the skirt. A neighbour clipped by the
+                # bbox fills badly here and gets its own padded crop anyway. dilate_px=0 means
+                # no feather. Only the tile's core is written; the halo belongs to its neighbours.
+                mb = labels[y0 + ay0 : y0 + ay1, x0 + ax0 : x0 + ax1] == i
+                d = cv2.distanceTransform(mb.astype(np.uint8), cv2.DIST_C, 3)
+                core = np.zeros(mb.shape, dtype=bool)
+                core[ty0 - ay0 : ty1 - ay0, tx0 - ax0 : tx1 - ax0] = True
+                sel = np.flatnonzero(mb & core)
+                a = np.minimum(d.ravel()[sel] / float(dilate_px + 1), 1.0)[:, None]
+                # Written flat into the frame: the crop view is not contiguous, so a reshape
+                # of it would write to a copy.
+                dec = dec_lut[filled.reshape(-1, 3)[sel]]
+                tile_px = tile.reshape(-1, 3)[sel]
+                ry, rx = np.divmod(sel, ax1 - ax0)
+                out.reshape(-1, 3)[(y0 + ay0 + ry) * w + (x0 + ax0 + rx)] = tile_px * (1.0 - a) + dec * a
     # Navier-Stokes propagates a smooth field, so the fill lands grainless. See
     # apply_score_repair, which fills the same kind of hole by a different route.
     idx = np.flatnonzero(m)
     clean = m == 0
     if clean.any() and idx.size:
-        out.reshape(-1, 3)[idx] += _borrow_clean_grain(src, clean, max(1.0, factor), idx)
+        out.reshape(-1, 3)[idx] += _borrow_clean_grain(src, clean, max(1.0, factor), idx)[0]
     return out
 
 
