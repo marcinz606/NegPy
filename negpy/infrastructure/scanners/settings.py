@@ -51,6 +51,9 @@ class ScannerSettings:
     # Per-frame feed-axis correction (mm), added on top of frame_offset_mm + drift. An absent
     # key means no correction for that frame.
     frame_offsets: dict[int, float] = field(default_factory=dict)
+    # Height in px of one tile in the strip preview. Tile width follows the device aspect, and
+    # the grid reflows to whatever fits the dialog.
+    strip_tile_height: int = 140
 
     def __post_init__(self) -> None:
         # JSON round-trips tuples as lists and dict keys as strings; coerce back.

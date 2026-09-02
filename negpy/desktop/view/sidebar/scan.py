@@ -840,6 +840,7 @@ class ScanSidebar(QWidget):
                 initial_offset=self._settings.frame_offset_mm,
                 initial_offset_modifier=self._settings.frame_offset_modifier_mm,
                 initial_frame_offsets=self._settings.frame_offsets,
+                initial_tile_height=self._settings.strip_tile_height,
                 film_format=self._film_format(),
                 film_type=self._film_type(),
                 parent=self,
@@ -852,6 +853,7 @@ class ScanSidebar(QWidget):
                     frame_offset_mm=dialog.frame_offset(),
                     frame_offset_modifier_mm=dialog.frame_offset_modifier(),
                     frame_offsets=dialog.frame_offsets(),
+                    strip_tile_height=dialog.tile_height(),
                 )
                 self._update_scan_window_status()
                 if dialog.scan_requested():
