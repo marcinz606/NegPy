@@ -1572,6 +1572,7 @@ class AppController(QObject):
 
         self.state.preview_raw = None
         self.state.preview_ir = None
+        self.state.preview_detect = None
         self.state.has_ir = False
         self.state.original_res = (0, 0)
         if self.state.negative_peek:
@@ -1688,6 +1689,7 @@ class AppController(QObject):
         ir_preview: Any,
         detected_mode: str,
         cam_matrix: Any = None,
+        detect_preview: Any = None,
     ) -> None:
         for f in self.state.uploaded_files:
             if f["path"] == file_path and f.pop("decode_failed", None) is not None:
@@ -1707,6 +1709,8 @@ class AppController(QObject):
         self.state.preview_proxy = _interactive_proxy(raw)
         self.state.preview_ir = ir_preview
         self.state.preview_ir_proxy = _interactive_ir_proxy(ir_preview, self.state.preview_proxy)
+        self.state.preview_detect = detect_preview
+        self.state.preview_detect_proxy = _interactive_ir_proxy(detect_preview, self.state.preview_proxy)
         self.state.has_ir = ir_preview is not None
         if not self.state.has_ir and self.state.dust_overlay_mode == "ir":
             self.state.dust_overlay_mode = "off"
@@ -2192,6 +2196,7 @@ class AppController(QObject):
                 grid=grid,
                 gpu_enabled=self.state.gpu_enabled,
                 ir_buffer=self.state.preview_ir,
+                detect_buffer=self.state.preview_detect,
                 cam_xyz=cam_xyz,
                 camera_wb=camera_wb,
             )
@@ -3930,10 +3935,12 @@ class AppController(QObject):
         # proxy would show softer pixels on one side of the divider.
         interactive = not readback_metrics and not compare_capture
         ir_buffer = self.state.preview_ir
+        detect_buffer = self.state.preview_detect
         if interactive and self.state.preview_proxy is not None:
             preview_raw = self.state.preview_proxy
-            # The IR plane must follow the image it is read against.
+            # The IR and detection planes must follow the image they are read against.
             ir_buffer = self.state.preview_ir_proxy
+            detect_buffer = self.state.preview_detect_proxy
 
         target_size = float(APP_CONFIG.preview_render_size)
         if self.state.hq_preview:
@@ -3957,6 +3964,7 @@ class AppController(QObject):
             gpu_enabled=self.state.gpu_enabled,
             readback_metrics=readback_metrics,
             ir_buffer=ir_buffer,
+            detect_buffer=detect_buffer,
             crop_preview_full=crop_preview_full,
             ephemeral=ephemeral,
             memo_key=memo_key,

@@ -40,6 +40,7 @@ class RenderTask:
     gpu_enabled: bool = True
     readback_metrics: bool = True
     ir_buffer: Optional[np.ndarray] = None
+    detect_buffer: Optional[np.ndarray] = None
     # True while the crop tool is active: show the full uncropped frame instead of
     # the final crop.
     crop_preview_full: bool = False
@@ -81,6 +82,7 @@ class TestStripTask:
     grid: tuple
     gpu_enabled: bool = True
     ir_buffer: Optional[np.ndarray] = None
+    detect_buffer: Optional[np.ndarray] = None
     # Decoder XYZ->camera matrix for this source; only the transparency transfer reads it.
     cam_xyz: Optional[list] = None
     # As-shot WB multipliers, needed only when the buffer was decoded without WB.
@@ -246,6 +248,9 @@ class RenderWorker(QObject):
             ir = None
             if task.ir_buffer is not None:
                 ir = np.ascontiguousarray(slice_half(task.ir_buffer, n, task.split_x, gutter_thickness=task.gutter_thickness))
+            detect = None
+            if task.detect_buffer is not None:
+                detect = np.ascontiguousarray(slice_half(task.detect_buffer, n, task.split_x, gutter_thickness=task.gutter_thickness))
             out, metrics = self._processor.run_pipeline(
                 buffer,
                 config,
@@ -254,6 +259,7 @@ class RenderWorker(QObject):
                 prefer_gpu=task.gpu_enabled,
                 readback_metrics=task.readback_metrics and n == 1,
                 ir_buffer=ir,
+                detect_buffer=detect,
                 crop_preview_full=task.crop_preview_full,
                 cam_xyz=task.cam_xyz,
                 camera_wb=task.camera_wb,
@@ -286,6 +292,7 @@ class RenderWorker(QObject):
                     prefer_gpu=task.gpu_enabled,
                     readback_metrics=task.readback_metrics,
                     ir_buffer=task.ir_buffer,
+                    detect_buffer=task.detect_buffer,
                     crop_preview_full=task.crop_preview_full,
                     cam_xyz=task.cam_xyz,
                     camera_wb=task.camera_wb,
@@ -348,6 +355,7 @@ class RenderWorker(QObject):
                     prefer_gpu=task.gpu_enabled,
                     readback_metrics=False,
                     ir_buffer=task.ir_buffer,
+                    detect_buffer=task.detect_buffer,
                     wants_uv_grid=False,
                     cam_xyz=task.cam_xyz,
                     camera_wb=task.camera_wb,
@@ -871,8 +879,8 @@ class PreviewLoadWorker(QObject):
     Keeps the UI thread free during slow I/O and demosaicing.
     """
 
-    # (file_path, raw, dims, source_cs, ir_preview, detected_mode, (cam_xyz, camera_wb))
-    finished = pyqtSignal(str, object, object, str, object, str, object)
+    # (file_path, raw, dims, source_cs, ir_preview, detected_mode, (cam_xyz, camera_wb), detect_preview)
+    finished = pyqtSignal(str, object, object, str, object, str, object, object)
     splash = pyqtSignal(str, object, object)  # (file_path, buffer, dims) — first paint
     error = pyqtSignal(str)
     # (file_path, applied long-edge cap px): an HQ load exceeded the GPU's VRAM budget
@@ -928,7 +936,14 @@ class PreviewLoadWorker(QObject):
                 if capped:
                     self.vram_capped.emit(task.file_path, int(capped))
                 self.finished.emit(
-                    task.file_path, raw, dims, source_cs, ir_preview, detected_mode, (metadata.get("cam_xyz"), metadata.get("camera_wb"))
+                    task.file_path,
+                    raw,
+                    dims,
+                    source_cs,
+                    ir_preview,
+                    detected_mode,
+                    (metadata.get("cam_xyz"), metadata.get("camera_wb")),
+                    metadata.get("detect_preview"),
                 )
                 return
             if hdr_active(task.hdr):
@@ -955,7 +970,14 @@ class PreviewLoadWorker(QObject):
                 if capped:
                     self.vram_capped.emit(task.file_path, int(capped))
                 self.finished.emit(
-                    task.file_path, raw, dims, source_cs, ir_preview, detected_mode, (metadata.get("cam_xyz"), metadata.get("camera_wb"))
+                    task.file_path,
+                    raw,
+                    dims,
+                    source_cs,
+                    ir_preview,
+                    detected_mode,
+                    (metadata.get("cam_xyz"), metadata.get("camera_wb")),
+                    metadata.get("detect_preview"),
                 )
                 return
             if is_rgb_triplet(task.rgbscan):
@@ -982,7 +1004,14 @@ class PreviewLoadWorker(QObject):
                 if capped:
                     self.vram_capped.emit(task.file_path, int(capped))
                 self.finished.emit(
-                    task.file_path, raw, dims, source_cs, ir_preview, detected_mode, (metadata.get("cam_xyz"), metadata.get("camera_wb"))
+                    task.file_path,
+                    raw,
+                    dims,
+                    source_cs,
+                    ir_preview,
+                    detected_mode,
+                    (metadata.get("cam_xyz"), metadata.get("camera_wb")),
+                    metadata.get("detect_preview"),
                 )
                 return
             if task.use_splash and not task.full_resolution:
@@ -1023,7 +1052,14 @@ class PreviewLoadWorker(QObject):
             if capped:
                 self.vram_capped.emit(task.file_path, int(capped))
             self.finished.emit(
-                task.file_path, raw, dims, source_cs, ir_preview, detected_mode, (metadata.get("cam_xyz"), metadata.get("camera_wb"))
+                task.file_path,
+                raw,
+                dims,
+                source_cs,
+                ir_preview,
+                detected_mode,
+                (metadata.get("cam_xyz"), metadata.get("camera_wb")),
+                metadata.get("detect_preview"),
             )
         except Exception as e:
             logger.exception(f"Asset load failed: {task.file_path}")

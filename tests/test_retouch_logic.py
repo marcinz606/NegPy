@@ -1,13 +1,17 @@
 import json
 
+import cv2
+
 import numpy as np
 
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.retouch.logic import (
     _IR_SCORE_FLOOR,
+    _IR_WRITE_HI,
     apply_hair_inpaint,
     apply_score_repair,
     compute_dust_stats,
+    detect_bar,
     detect_luma_score,
     film_scale,
     hair_bake_token,
@@ -268,6 +272,74 @@ def test_detected_specks_repair_end_to_end():
     assert score is not None
     out = np.asarray(repair_components(img, score))
     assert out[80:83, 80:83].mean() > 0.1, "speck not rebuilt"
+
+
+def _marked(img, thr=0.66, size=4):
+    score, hair = detect_luma_score(img, thr, size)
+    mark = np.zeros(img.shape[:2], bool)
+    if score is not None:
+        mark |= score < _IR_WRITE_HI
+    if hair is not None:
+        mark |= hair > 0
+    return mark
+
+
+def test_detect_luma_score_covers_the_speck_footprint():
+    """The mark covers the whole speck, not its brightest pixel."""
+    img = _dusty_source()
+    img[80:87, 80:87] = 0.005
+    assert _marked(img)[80:87, 80:87].mean() >= 0.9
+
+
+def test_detect_luma_score_joins_a_hair_into_one_component():
+    img = _dusty_source(h=200, w=200)
+    img[80:83, 80:83] = 0.18
+    img[100:102, 40:120] = 0.02
+    score, hair = detect_luma_score(img, 0.66, 4)
+    assert hair is not None, "an 80 px hair routes to inpaint"
+    n, _ = cv2.connectedComponents(hair.astype(np.uint8), connectivity=8)
+    assert n == 2, "one hair, one component"
+    assert hair[100:102, 45:115].all()
+    assert score is None or not (score[100:102, 40:120] < 1.0).any(), "the hair is not also a speck"
+
+
+def test_detect_bar_is_monotonic():
+    assert detect_bar(0.0) < detect_bar(0.5) < detect_bar(1.0)
+
+
+def test_lower_threshold_marks_more_and_the_deepest_speck_always():
+    img = _dusty_source(h=200, w=200)
+    img[80:83, 80:83] = 0.18
+    for y, level in ((40, 0.005), (100, 0.06), (160, 0.11)):
+        img[y : y + 3, 100:103] = level
+    counts = [int(_marked(img, thr).sum()) for thr in (0.3, 0.66, 0.9)]
+    assert counts[0] >= counts[1] >= counts[2] > 0
+    for thr in (0.3, 0.66, 0.9):
+        assert _marked(img, thr)[40:43, 100:103].any(), f"deepest speck lost at {thr}"
+
+
+def test_detect_luma_score_grainy_clean_frame_is_empty():
+    rng = np.random.default_rng(3)
+    grain = cv2.GaussianBlur(rng.normal(0, 0.06, (240, 240, 3)).astype(np.float32), (0, 0), 0.8)
+    img = np.clip(0.18 * (1.0 + grain), 0.001, None).astype(np.float32)
+    assert detect_luma_score(img, 0.66, 4) == (None, None)
+
+
+def test_texture_protects_a_compact_mark_but_not_a_hair():
+    """The same speck marks on flat film and not inside busy image structure; a hair-shaped
+    mark is exempt from that bar."""
+    rng = np.random.default_rng(5)
+    img = _dusty_source(h=200, w=200)
+    img[80:83, 80:83] = 0.18
+    blocks = rng.uniform(0.85, 1.18, (25, 13)).repeat(8, axis=0).repeat(8, axis=1)
+    img[:, 100:, :] *= blocks[:, :100, None]
+    img[60:65, 40:45] = 0.05  # speck on flat film
+    img[60:65, 150:155] = 0.05  # same speck inside the structure
+    img[140:142, 110:190] = 0.005  # hair across the structure
+    mark = _marked(img)
+    assert mark[60:65, 40:45].any()
+    assert not mark[55:70, 145:160].any()
+    assert mark[140:142, 120:180].mean() > 0.8
 
 
 def test_detect_luma_score_precomputed_stats_equivalent():

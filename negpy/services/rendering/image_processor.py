@@ -206,14 +206,32 @@ def _downsample_to_long_edge(buf: np.ndarray, long_px: int) -> np.ndarray:
 
 
 def _detection_downsample(buf: np.ndarray) -> np.ndarray:
-    """Dust detection always runs at preview scale so preview and export produce
-    the identical region set (WYSIWYG) and full-res export detection stays cheap."""
-    h, w = buf.shape[:2]
-    long_edge = max(h, w)
-    if long_edge <= APP_CONFIG.preview_render_size:
-        return buf
-    s = APP_CONFIG.preview_render_size / long_edge
-    return cv2.resize(buf, (max(1, int(round(w * s))), max(1, int(round(h * s)))), interpolation=cv2.INTER_AREA)
+    """The plane optical dust detection reads: min-pooled like the IR plane, since a speck
+    is a minimum in transmittance that area averaging dilutes below the grain, and at the
+    resolution the IR path detects at for a buffer this size (``ir_detect_target``)."""
+    return downsample_ir(buf, ir_detect_target(max(buf.shape[:2]), APP_CONFIG.preview_render_size))
+
+
+def _without_ir(score: Optional[np.ndarray], hairs: List[np.ndarray], ir_mask: np.ndarray) -> Tuple[Optional[np.ndarray], List[np.ndarray]]:
+    """Optical detections with the IR-corrected pixels released to clean."""
+    out_score = None
+    if score is not None:
+        covered = _resize_mask(ir_mask, score.shape[:2])
+        out_score = np.where(covered, np.float32(1.0), score).astype(np.float32)
+        if not (out_score < 1.0).any():
+            out_score = None
+    out_hairs = []
+    for m in hairs:
+        kept = np.where(_resize_mask(ir_mask, m.shape[:2]), 0, m).astype(m.dtype)
+        if kept.any():
+            out_hairs.append(kept)
+    return out_score, out_hairs
+
+
+def _resize_mask(mask: np.ndarray, shape: Tuple[int, int]) -> np.ndarray:
+    if mask.shape[:2] == tuple(shape):
+        return mask > 0
+    return cv2.resize(mask.astype(np.uint8), (shape[1], shape[0]), interpolation=cv2.INTER_NEAREST) > 0
 
 
 def _part_params(params: WorkspaceConfig, index: int) -> WorkspaceConfig:
@@ -416,24 +434,27 @@ class ImageProcessor:
         settings: WorkspaceConfig,
         img: np.ndarray,
         source_key: str,
+        detect_buffer: Optional[np.ndarray] = None,
     ) -> Tuple[Optional[np.ndarray], List[np.ndarray]]:
         """Source-space luma dust detection → ``(detection-scale score, hair masks)``.
-        IR defects never come through here — _ir_bake repairs those."""
+        ``detect_buffer`` is a min-pooled plane prepared at load for a preview buffer that
+        arrives area-averaged; a full-resolution buffer min-pools itself."""
         ret = settings.retouch
         if self._is_flat(settings) or not ret.dust_remove:
             return None, []
 
+        small = detect_buffer if detect_buffer is not None else _detection_downsample(img)
         key = (
             source_key,
             round(float(ret.dust_threshold), 6),
             int(ret.dust_size),
             settings.process.process_mode,
+            small.shape,
         )
         if key == self._retouch_detect_key and self._retouch_detect_value is not None:
             return self._retouch_detect_value
 
-        small = _detection_downsample(img)
-        stats_key = (source_key, int(ret.dust_size))
+        stats_key = (source_key, int(ret.dust_size), small.shape)
         if stats_key == self._dust_stats_key and self._dust_stats_value is not None:
             stats = self._dust_stats_value
         else:
@@ -512,6 +533,7 @@ class ImageProcessor:
         prefer_gpu: bool = True,
         readback_metrics: bool = True,
         ir_buffer: Optional[np.ndarray] = None,
+        detect_buffer: Optional[np.ndarray] = None,
         crop_preview_full: bool = False,
         wants_uv_grid: bool = True,
         skip_flatfield: bool = False,
@@ -579,7 +601,10 @@ class ImageProcessor:
             img, ir_corrected_mask, ir_degenerate, ir_routed = self._ir_bake(img, ir_buffer, settings, base_hash)
 
             orig_ret = settings.retouch
-            detected_dust, hair_masks = self._detect_luma(settings, img, base_hash)
+            detected_dust, hair_masks = self._detect_luma(settings, img, base_hash, detect_buffer)
+            if ir_corrected_mask is not None and (detected_dust is not None or hair_masks):
+                # What IR already repaired is not repaired again from the visible.
+                detected_dust, hair_masks = _without_ir(detected_dust, hair_masks, ir_corrected_mask)
             img = self._luma_bake(img, detected_dust, base_hash + hair_bake_token(orig_ret))
             img, manual_routed = self._manual_bake(img, settings, base_hash)
             extra = [m for m in (ir_routed, manual_routed) if m is not None]

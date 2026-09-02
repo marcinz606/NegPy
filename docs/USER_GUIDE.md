@@ -688,9 +688,9 @@ Spotting, the way it was done with a brush on the finished print. There are thre
 
 An **Overlay** button cycles the detection overlay (Off → Marked → IR) so you can see what is being caught: green for what Optical Removal found, magenta for IR and for defects sent to the structure-following fill.
 
-**Optical Removal** finds specks on the visible scan by local contrast, with no IR needed:
+**Optical Removal** finds specks and hairs on the visible scan by local contrast, with no IR needed:
 
-*   Toggle **Optical Removal** on, then set **Threshold** (0.01 to 1.0; lower catches more, at the risk of false positives) and **Size** (3 to 8 px; max spot radius).
+*   Toggle **Optical Removal** on, then set **Threshold** (0.01 to 1.0; lower catches more, at the risk of false positives) and **Size** (3 to 8 px; max spot radius). A mark covers the whole speck or hair, not just its darkest point. The bar is measured against the film's own grain, so the same setting means the same thing on any scan, and it rises inside busy image detail, where a thin dark line cannot be told from a hair; dust on textured film may need a lower Threshold, or the IR or Heal tools.
 
 **IR Removal** uses the scanner's infrared channel to remove dust invisible to the color dyes, and is enabled only when the scan carries an IR plane.
 

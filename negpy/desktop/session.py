@@ -91,6 +91,10 @@ class AppState:
     # IR plane matched to preview_proxy. The pipeline reads the IR against whichever
     # image it is given, and a mismatched pair mis-corrects silently.
     preview_ir_proxy: Optional[Any] = None
+    # Min-pooled visible plane for optical dust detection, and its proxy twin. None when the
+    # preview is the decoded buffer itself.
+    preview_detect: Optional[Any] = None
+    preview_detect_proxy: Optional[Any] = None
     has_ir: bool = False
     ir_degenerate: bool = False  # IR plane carries image content (B&W/Kodachrome) → IR restore disabled
     original_res: tuple[int, int] = (0, 0)
@@ -1584,6 +1588,7 @@ class DesktopSessionManager(QObject):
         self.state.current_file_hash = None
         self.state.preview_raw = None
         self.state.preview_ir = None
+        self.state.preview_detect = None
         self.state.has_ir = False
         self.state.config = WorkspaceConfig()
         self._config_dirty = False
