@@ -531,3 +531,15 @@ def test_a_per_frame_offset_slides_only_the_feed_axis_of_the_frame_asked_for() -
         assert rect[2] - detected[2] == expected
         assert (rect[1], rect[3]) == (detected[1], detected[3])  # across-film edges untouched
         assert rect[2] - rect[0] == detected[2] - detected[0]  # the frame keeps its length
+
+
+def test_the_scan_logs_the_detected_and_the_shifted_rect(caplog) -> None:
+    """Which rect a frame was actually scanned at has to be readable without the file."""
+    import logging
+
+    backend, _module = make_backend()
+    with caplog.at_level(logging.INFO):
+        _scan(backend, dataclasses.replace(_PARAMS, frame=2, frame_offset_mm=1.0))
+
+    assert "detected (10742, 0, 16410, 3945)" in caplog.text
+    assert "+1.00 mm" in caplog.text
