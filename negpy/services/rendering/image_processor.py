@@ -359,7 +359,9 @@ class ImageProcessor:
             return img, None, False, None
         if ret.ir_method == IR_METHOD_OPENICE:
             return self._ir_bake_openice(img, ir_buffer, ret, source_key)
-        ratio_det, gain_det, degenerate, _ = self._ir_ratio_gain(ir_buffer, img, source_key)
+        # The ratio and gain do not depend on the threshold or the attenuation toggle, so their
+        # cache is keyed without the IR token and survives a slider drag.
+        ratio_det, gain_det, degenerate, _ = self._ir_ratio_gain(ir_buffer, img, source_key.replace(ir_bake_token(ret, True), ""))
         if degenerate:
             return img, None, True, None
         key = (source_key, round(float(ret.ir_threshold), 6), bool(ret.ir_attenuation), img.shape)
