@@ -527,7 +527,7 @@ The paper's response. A **Global / R / G / B** selector at the top scopes most c
 **Automatic helpers**, on by default. They do per-frame work so you do not have to, and turning them off lets the negative print honestly.
 
 *   **Auto Density**: meters each frame's midtone and anchors print brightness there, so dense and flat negatives land consistently.
-*   **Auto Grade**: aims each frame at a contrast target instead of printing the negative's own range, so dense negatives stop printing over-contrasty and flat ones stop printing muddy.
+*   **Auto Grade**: picks the grade from each frame's textural density range, partially, so dense negatives stop printing over-contrasty and flat ones stop printing muddy.
 *   **Set Targets** (sliders icon): tune the exact brightness and contrast the two helpers aim for. Applies to every frame and is remembered between sessions.
 
 **Test strip** (grid icon, or `Shift+T`): prints the frame as a 5×5 grid, with Print Density rising left to right and ISO-R Grade softening top to bottom, so the diagonals read light-to-dark and soft-to-hard like a split-filter test strip. Both ladders are absolute and centred on their defaults, so the settings you already have are one of the patches. Each patch is a real render of the part of the frame it covers; click one to keep it. `Escape` or a second press clears it, and any edit drops it.

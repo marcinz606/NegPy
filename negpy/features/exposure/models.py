@@ -206,8 +206,16 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # Gain clamp for the transparency-path affine cast solve (and its reciprocal):
     # bounds the correction when green's midtone and shadow refs sit close together.
     "cast_affine_gain_limit": 2.0,
-    # Percentile of scene luminance sampled as the raw metered anchor.
-    "anchor_meter_percentile": 50.0,
+    # Activity gate shared by the anchor and textural-range meters: the grid is tiled
+    # into sectors of 2x2 blocks of activity_block cells, and a sector votes only if
+    # its block means span more than this log10 density (about a third of a stop on a
+    # colour negative), so rebate, sky and walls drop out. Below activity_min_fraction
+    # of sectors passing, every cell votes.
+    "activity_block": 8,
+    "activity_gate_density": 0.05,
+    "activity_min_fraction": 0.05,
+    # Per-tail percentile trim of the textured-cell window the anchor is placed from.
+    "anchor_trim_clip": 5.0,
     # Safety band around assumed_anchor that clamps the auto-metered result.
     "anchor_meter_band": 0.12,
     # Auto Density: fraction of the distance from assumed_anchor toward the
@@ -218,12 +226,18 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # (this * toe_height) constant against the perceptual toe_height.
     "toe_grade_strength": 0.15 * 0.35 / 0.90,
     "shoulder_grade_strength": 0.12,
-    # Auto Grade: effective_range = auto_grade_target * blend(nominal, measured_ratio).
-    "auto_grade_target": 0.65,
-    # Auto Grade adaptation strength: 0 = fixed grade, 1 = full slope normalization.
-    "auto_grade_strength": 0.5,
-    # floor_ceil/textural ratio of a normal negative; the Auto Grade blend anchor.
-    "auto_grade_nominal_ratio": 2.0,
+    # Auto Grade: effective_range = K * floor_ceil * ((1 - s) + s * nominal / textural).
+    "auto_grade_target": 0.85,
+    # Auto Grade adaptation strength s: 0 = fixed paper, 1 = every frame's textural
+    # range prints alike. Alkofer (US 4,731,671) corrects 60-80% toward the norm.
+    "auto_grade_strength": 0.4,
+    # Cap on the textural range's print span, as a multiple of a normal negative's.
+    "auto_grade_max_overfill": 1.2,
+    # Textural (P10-P90) density range of a normal negative, log10 D: the norm the
+    # grade is shrunk toward.
+    "auto_grade_nominal_range": 0.9,
+    # floor_ceil/textural ratio of a normal negative; sizes the unmetered fallback.
+    "auto_grade_nominal_ratio": 1.5,
     # Percentile margin for the "textural" scene range (rejects speculars and dust).
     "textural_range_clip": 10.0,
     # Flat / digital-intermediate master (RenderIntent.FLAT). A log-video master:
@@ -256,7 +270,7 @@ TUNABLE_TARGETS: Dict[str, Tuple[float, float]] = {
     "anchor_target_density": (0.4, 1.1),
     "anchor_meter_strength": (0.0, 1.0),
     "anchor_meter_band": (0.0, 0.4),
-    "auto_grade_target": (0.3, 0.8),
+    "auto_grade_target": (0.4, 1.2),
     "auto_grade_strength": (0.0, 1.0),
 }
 DEFAULT_TARGETS: Dict[str, float] = {k: float(EXPOSURE_CONSTANTS[k]) for k in TUNABLE_TARGETS}

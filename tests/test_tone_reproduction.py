@@ -97,16 +97,13 @@ class TestToneReproduction(unittest.TestCase):
     1.45, rising monotonically toward the shadows (no mid-tone bell), and deep
     shadow reaching near paper black. The envelope is asserted for scenes whose
     range is at least the patent's 1.5 classification threshold; the flat scene
-    only has to be bell-free. The lower bound is asserted on the average scene
-    only: Auto Grade maps a wider negative into the same print span, so the
-    contrasty scene sits under 1.0 by design. Mid-grey placement is not
+    only has to be bell-free. Mid-grey placement is not
     asserted: it depends on where a negative's bounds sit around
     `assumed_anchor`, an empirical prior this synthetic cannot supply.
     """
 
     SPREADS = {"flat": 1.2, "normal": 2.2, "contrasty": 2.8}
     ENVELOPE_MIN_SPREAD = 1.5
-    AVERAGE_SCENE = "normal"
 
     @classmethod
     def setUpClass(cls):
@@ -125,8 +122,7 @@ class TestToneReproduction(unittest.TestCase):
                 band = (d_s >= 0.6) & (d_s <= min(1.45, deepest))
                 lo = ENVELOPE_A - TOL
                 hi = ENVELOPE_A + ENVELOPE_SLOPE * d_s[band] + TOL
-                if name == self.AVERAGE_SCENE:
-                    self.assertTrue(np.all(gamma[band] >= lo), f"gamma below {lo}: {gamma[band].round(3)}")
+                self.assertTrue(np.all(gamma[band] >= lo), f"gamma below {lo}: {gamma[band].round(3)}")
                 self.assertTrue(np.all(gamma[band] <= hi), f"gamma above envelope: {gamma[band].round(3)} > {hi.round(3)}")
 
     def test_gamma_has_no_midtone_bell(self):

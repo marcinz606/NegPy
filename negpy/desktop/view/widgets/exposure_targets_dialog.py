@@ -37,7 +37,7 @@ _GROUPS = (
     ),
     (
         "AUTO GRADE",
-        "Auto Grade pulls each frame's contrast toward a target instead of printing the negative's own density range, so dense negatives stop printing over-contrasty and flat ones stop printing muddy.",
+        "Auto Grade picks each frame's grade from its textural density range, partially, so dense negatives stop printing over-contrasty and flat ones stop printing muddy.",
         (
             (
                 "auto_grade_target",
@@ -47,8 +47,8 @@ _GROUPS = (
             (
                 "auto_grade_strength",
                 "Adaptation Strength",
-                "How strongly the grade follows each scene's own range. 0 is a fixed grade "
-                "for every frame; 1 fully normalizes them to the same contrast.",
+                "How far the grade is pulled toward a normal negative's textural range. 0 prints "
+                "every frame on one fixed paper; 1 prints every frame's detail range alike.",
             ),
         ),
     ),

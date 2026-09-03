@@ -26,25 +26,26 @@ def _context(density_range):
 
 
 class TestAutoNormalizeContrast(unittest.TestCase):
-    """Auto contrast: the curve must be image-independent (range ignored)."""
+    """Auto Grade: paper grade follows the negative's textural density scale, partially."""
 
-    def _run(self, exposure, density_range):
+    def _run(self, exposure, density_range, textural=None):
         ctx = _context(density_range)
+        if textural is not None:
+            ctx.metrics["textural_range"] = textural
         img = np.full((8, 8, 3), 0.4, dtype=np.float32)
         return PhotometricProcessor(exposure).process(img, ctx)
 
-    def test_slope_independent_of_range_when_on(self):
-        # Dense (large range) and flat (small range) negatives must get the
-        # same slope when auto contrast is on — that is the whole point.
+    def test_wider_textural_scale_prints_softer(self):
+        # Same normalized tone, same bounds: the frame whose detail spans more density
+        # gets a softer grade (Ilford/Kodak: ISO R follows the negative density range).
         exp = ExposureConfig(auto_normalize_contrast=True)
-        dense = self._run(exp, 2.4)
-        flat = self._run(exp, 0.7)
-        np.testing.assert_array_almost_equal(dense, flat)
+        contrasty = self._run(exp, 1.6, textural=1.3)
+        normal = self._run(exp, 1.6, textural=0.9)
+        self.assertFalse(np.allclose(contrasty, normal))
 
-    def test_matches_fixed_reference_slope(self):
+    def test_no_textural_falls_back_to_fixed_reference(self):
         exp = ExposureConfig(auto_normalize_contrast=True)
         on = self._run(exp, 2.4)
-        # Fixed-reference slope == grade_to_slope(grade, None).
         ref_exp = ExposureConfig(auto_normalize_contrast=False)
         ref = self._run(ref_exp, None)
         np.testing.assert_array_almost_equal(on, ref)
@@ -57,46 +58,70 @@ class TestAutoNormalizeContrast(unittest.TestCase):
 
 
 class TestEffectiveGradeRange(unittest.TestCase):
+    """
+    effective = K * lum_range * ((1 - s) + s * nominal / textural): the paper gamma is
+    shrunk toward the population norm (Alkofer, US 4,731,671), so the printed textural
+    range is a blend of the frame's own and a normal negative's.
+    """
+
+    def _with(self, **over):
+        import contextlib
+
+        @contextlib.contextmanager
+        def cm():
+            orig = {k: EXPOSURE_CONSTANTS[k] for k in over}
+            EXPOSURE_CONSTANTS.update(over)
+            try:
+                yield
+            finally:
+                EXPOSURE_CONSTANTS.update(orig)
+
+        return cm()
+
     def test_physical_returns_floor_ceil(self):
         self.assertEqual(effective_grade_range(False, 1.7, 0.9), 1.7)
         self.assertIsNone(effective_grade_range(False, None, 0.9))
 
-    def test_auto_damped_printed_contrast(self):
-        # effective = K * (nominal + strength * (ratio - nominal)).
+    def test_auto_blends_toward_population_norm(self):
         k = EXPOSURE_CONSTANTS["auto_grade_target"]
-        nominal = EXPOSURE_CONSTANTS["auto_grade_nominal_ratio"]
-        strength = EXPOSURE_CONSTANTS["auto_grade_strength"]
-        ratio = 1.6 / 0.8
-        expected = k * (nominal + strength * (ratio - nominal))
-        self.assertAlmostEqual(effective_grade_range(True, 1.6, 0.8), expected, places=6)
+        nominal = EXPOSURE_CONSTANTS["auto_grade_nominal_range"]
+        s = EXPOSURE_CONSTANTS["auto_grade_strength"]
+        expected = k * 1.6 * ((1.0 - s) + s * nominal / 1.2)
+        self.assertAlmostEqual(effective_grade_range(True, 1.6, 1.2), expected, places=6)
 
-    def test_auto_strength_zero_is_fixed(self):
-        # strength 0 collapses to the nominal default regardless of ratio.
-        import negpy.features.exposure.logic as logic_mod
+    def test_normal_negative_is_target_times_range(self):
+        nominal = EXPOSURE_CONSTANTS["auto_grade_nominal_range"]
+        k = EXPOSURE_CONSTANTS["auto_grade_target"]
+        self.assertAlmostEqual(effective_grade_range(True, 1.8, nominal), k * 1.8, places=6)
 
-        orig = EXPOSURE_CONSTANTS["auto_grade_strength"]
-        EXPOSURE_CONSTANTS["auto_grade_strength"] = 0.0
-        try:
-            self.assertAlmostEqual(effective_grade_range(True, 2.4, 0.6), logic_mod.default_grade_range(), places=6)
-        finally:
-            EXPOSURE_CONSTANTS["auto_grade_strength"] = orig
+    def test_strength_zero_is_a_fixed_paper(self):
+        # The grade tracks the negative exactly like Auto Grade off, scaled by K.
+        with self._with(auto_grade_strength=0.0):
+            k = EXPOSURE_CONSTANTS["auto_grade_target"]
+            self.assertAlmostEqual(effective_grade_range(True, 2.4, 0.6), k * 2.4, places=6)
+            self.assertAlmostEqual(effective_grade_range(True, 2.4, 1.0), k * 2.4, places=6)
 
-    def test_auto_constant_for_constant_ratio(self):
-        # A normal frame's floor_ceil/textural ratio is what sets contrast, not
-        # the absolute range: same ratio -> same effective range (no swing).
-        a = effective_grade_range(True, 1.6, 0.8)  # ratio 2.0
-        b = effective_grade_range(True, 2.4, 1.2)  # ratio 2.0
-        self.assertAlmostEqual(a, b, places=6)
+    def test_strength_one_prints_every_textural_range_alike(self):
+        # Full normalization: slope * textural / lum_range is the same for every frame.
+        with self._with(auto_grade_strength=1.0):
+            a = effective_grade_range(True, 1.6, 0.8)
+            b = effective_grade_range(True, 2.4, 1.5)
+            self.assertAlmostEqual(a * 0.8 / 1.6, b * 1.5 / 2.4, places=6)
 
-    def test_auto_speculars_boost_not_soften(self):
-        # Speculars inflate floor_ceil while textural stays put -> higher effective
-        # range (more slope), recovering compressed midtones instead of softening.
-        clean = effective_grade_range(True, 1.6, 0.8)
-        specular = effective_grade_range(True, 2.4, 0.8)
-        self.assertGreater(specular, clean)
+    def test_wider_textural_softens_narrower_hardens(self):
+        normal = effective_grade_range(True, 1.6, 0.9)
+        self.assertLess(effective_grade_range(True, 1.6, 1.3), normal)
+        self.assertGreater(effective_grade_range(True, 1.6, 0.5), normal)
+
+    def test_overfill_is_capped(self):
+        # A textural range far past the norm (a rebate-polluted meter, an extreme scene)
+        # cannot print past auto_grade_max_overfill of a normal negative's print span.
+        k = EXPOSURE_CONSTANTS["auto_grade_target"]
+        nominal = EXPOSURE_CONSTANTS["auto_grade_nominal_range"]
+        cap = EXPOSURE_CONSTANTS["auto_grade_max_overfill"]
+        self.assertAlmostEqual(effective_grade_range(True, 2.4, 2.0), k * 2.4 * (nominal / 2.0) * cap, places=6)
 
     def test_auto_degenerate_flat_is_capped(self):
-        # Near-zero textural can't divide to infinity; capped for the slope clamp.
         self.assertLessEqual(effective_grade_range(True, 1.6, 0.0), 3.5 + 1e-6)
 
     def test_auto_no_textural_falls_back_to_default(self):
@@ -143,6 +168,16 @@ class TestMeasureAnchor(unittest.TestCase):
         self.assertAlmostEqual(self._measure(-0.9), expected(0.55), places=4)  # within band
         self.assertNotAlmostEqual(self._measure(-1.2), self._measure(-0.9), places=3)
 
+    def test_statistic_is_mean_and_midpoint_of_trimmed_window(self):
+        # Boyack & Juenger (US 5,724,456): place the average of the trimmed window's mean
+        # and its midpoint, not the median. Columns 0.2/0.8/0.2/0.5 normalized: median
+        # 0.35, mean 0.425, P5-P95 midpoint 0.5 -> 0.4625.
+        assumed = EXPOSURE_CONSTANTS["assumed_anchor"]
+        strength = EXPOSURE_CONSTANTS["anchor_meter_strength"]
+        cols = np.array([-1.6, -0.4, -1.6, -1.0], dtype=np.float32)[np.arange(64) % 4]
+        img = np.repeat(cols[None, :, None], 64, axis=0).repeat(3, axis=2)
+        self.assertAlmostEqual(measure_anchor_from_log(img, self.BOUNDS), assumed + strength * (0.4625 - assumed), places=4)
+
     def test_partial_preserves_key(self):
         # A low-key (dark) frame's anchor leans dark but is pulled toward assumed
         # (not all the way to the raw median), by a fixed fraction of the distance.
@@ -172,6 +207,41 @@ class TestMeasureAnchor(unittest.TestCase):
         band = EXPOSURE_CONSTANTS["anchor_meter_band"]
         assumed = EXPOSURE_CONSTANTS["assumed_anchor"]
         self.assertTrue(assumed - band - 1e-6 <= a <= assumed + band + 1e-6)
+
+
+def _bordered_texture(levels, border, size=128, inner=96):
+    """Textured interior (columns cycling over `levels`) inside a flat border, like a
+    frame inside its rebate. Cells are pixels here: no block median runs at this size,
+    and the interior sits on the gate's sector grid."""
+    img = np.full((size, size, 3), border, dtype=np.float32)
+    o = (size - inner) // 2
+    cols = np.array(levels, dtype=np.float32)[np.arange(inner) % len(levels)]
+    img[o : o + inner, o : o + inner, :] = cols[None, :, None]
+    return img
+
+
+class TestActivityGate(unittest.TestCase):
+    """Both meters read textured cells only, so a flat rebate, border or sky does not vote."""
+
+    BOUNDS = LogNegativeBounds(floors=(-2.0, -2.0, -2.0), ceils=(0.0, 0.0, 0.0))
+
+    def test_textural_range_ignores_flat_border(self):
+        img = _bordered_texture([-1.5, -1.0, -0.5], border=-0.1)
+        self.assertAlmostEqual(measure_textural_range_from_log(img), 1.0, places=2)
+
+    def test_anchor_ignores_flat_border(self):
+        assumed = EXPOSURE_CONSTANTS["assumed_anchor"]
+        strength = EXPOSURE_CONSTANTS["anchor_meter_strength"]
+        img = _bordered_texture([-1.5, -1.0, -0.5], border=-0.1)
+        # Interior normalizes to 0.25/0.5/0.75; the border alone would read 0.95.
+        self.assertAlmostEqual(measure_anchor_from_log(img, self.BOUNDS), assumed + strength * (0.5 - assumed), places=2)
+
+    def test_flat_frame_falls_back_to_every_cell(self):
+        img = np.full((128, 128, 3), -1.2, dtype=np.float32)
+        assumed = EXPOSURE_CONSTANTS["assumed_anchor"]
+        strength = EXPOSURE_CONSTANTS["anchor_meter_strength"]
+        self.assertAlmostEqual(measure_anchor_from_log(img, self.BOUNDS), assumed + strength * (0.4 - assumed), places=4)
+        self.assertAlmostEqual(measure_textural_range_from_log(img), 0.0, places=5)
 
 
 class TestAutoTogglesAcrossModes(unittest.TestCase):

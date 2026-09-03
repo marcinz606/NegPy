@@ -668,11 +668,11 @@ def apply_flat_curve(
 
 
 def default_grade_range() -> float:
-    """Fallback density range when none is measured: auto_grade_target * nominal ratio."""
+    """Fallback density range when none is measured: a normal negative's, scaled by K."""
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
     c = EXPOSURE_CONSTANTS
-    return float(c["auto_grade_target"]) * float(c["auto_grade_nominal_ratio"])
+    return float(c["auto_grade_target"]) * float(c["auto_grade_nominal_ratio"]) * float(c["auto_grade_nominal_range"])
 
 
 def grade_to_slope(grade: float, density_range: Optional[float]) -> float:
@@ -832,10 +832,12 @@ def effective_grade_range(
     textural_range: Optional[float],
 ) -> Optional[float]:
     """
-    Range fed to grade_to_slope. Auto Grade off: the measured floor-to-ceil range.
-    Auto Grade on: hold printed midtone contrast partially constant, damping the
-    floor_ceil/textural ratio toward the nominal frame:
-    effective = target * (nominal + strength * (ratio - nominal)).
+    Range fed to grade_to_slope. Auto Grade off: the measured floor-to-ceil range, a
+    fixed paper. Auto Grade on: the paper gamma follows the negative's textural density
+    scale, shrunk toward a normal negative's (Alkofer, US 4,731,671):
+    effective = K * floor_ceil * ((1 - s) + s * nominal / textural),
+    so the printed textural range is (1 - s) of the frame's own plus s of the norm,
+    capped at max_overfill of the norm's print span.
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
@@ -849,10 +851,13 @@ def effective_grade_range(
         # Degenerate (near-flat) frame: let grade_to_slope's clamp cap the boost.
         return 3.5
     k = float(c["auto_grade_target"])
-    nominal = float(c["auto_grade_nominal_ratio"])
+    q = float(c["auto_grade_nominal_range"]) / measured
     strength = float(c["auto_grade_strength"])
-    ratio = abs(float(floor_ceil_range)) / measured
-    return k * (nominal + strength * (ratio - nominal))
+    # The print span of the textural range is capped at max_overfill of a normal
+    # negative's: a grade whose paper range is far shorter than the negative's clips
+    # both ends (the ISO R rule read as a floor on softness).
+    factor = min((1.0 - strength) + strength * q, q * float(c["auto_grade_max_overfill"]))
+    return k * abs(float(floor_ceil_range)) * factor
 
 
 def _reference_linear_value(d_min: float = 0.0, paper: Optional[PaperProfile] = None) -> float:
