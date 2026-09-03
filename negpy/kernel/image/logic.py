@@ -2,7 +2,9 @@ import hashlib
 import os
 from typing import Any, Optional
 import numpy as np
-from numba import njit, prange  # type: ignore
+from numba import prange  # type: ignore
+
+from negpy.kernel.system.jit import njit
 from negpy.kernel.system.parallel import parallel_njit
 from negpy.domain.types import LUMA_R, LUMA_G, LUMA_B
 from negpy.kernel.image.validation import ensure_image

@@ -4,7 +4,8 @@ from typing import TYPE_CHECKING, Optional, Tuple
 
 import cv2
 import numpy as np
-from numba import njit  # type: ignore
+
+from negpy.kernel.system.jit import njit
 
 from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R, ImageBuffer
 from negpy.features.process.models import ProcessMode
