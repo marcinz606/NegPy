@@ -145,7 +145,7 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # each a smooth softplus bound. The sliders set roll-off *height*; the
     # *_sharpness_base / width set sharpness.
     # a_sh = toe_sharpness_base * width_ref / toe_width (shoulder is the same).
-    "toe_sharpness_base": 4.0,
+    "toe_sharpness_base": 6.0,
     "shoulder_sharpness_base": 3.0,
     # Reference width that normalises both sharpness coefficients.
     "toeshoulder_width_ref": 2.5,
@@ -219,7 +219,7 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "toe_grade_strength": 0.15 * 0.35 / 0.90,
     "shoulder_grade_strength": 0.12,
     # Auto Grade: effective_range = auto_grade_target * blend(nominal, measured_ratio).
-    "auto_grade_target": 0.6,
+    "auto_grade_target": 0.65,
     # Auto Grade adaptation strength: 0 = fixed grade, 1 = full slope normalization.
     "auto_grade_strength": 0.5,
     # floor_ceil/textural ratio of a normal negative; the Auto Grade blend anchor.
@@ -239,7 +239,7 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # v += gamma*width*tanh((v - v_star)/width), easing to zero toward the toe and
     # shoulder, like a real paper curve. Anchor-preserving.
     # Extra midtone gamma at the centre (0 disables the S-shape).
-    "paper_midtone_gamma": 0.15,
+    "paper_midtone_gamma": 0.05,
     # Density half-width over which that boost eases to the tails.
     "paper_gamma_width": 0.6,
     # Chroma (RMS dye-density spread above paper base) that Separation Damping

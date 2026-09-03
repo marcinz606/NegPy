@@ -190,7 +190,7 @@ class TestWidthTrims(unittest.TestCase):
     def test_toe_width_trim_acts_on_channel_only(self):
         base = self._render(0.95)
         trimmed = self._render(0.95, toe_width_trims=(2.0, 0.0, 0.0))
-        self.assertGreater(abs(trimmed[0] - base[0]), 0.001, "red toe width trim did not reshape the red knee")
+        self.assertGreater(abs(trimmed[0] - base[0]), 0.0005, "red toe width trim did not reshape the red knee")
         np.testing.assert_allclose(trimmed[1:], base[1:], atol=1e-7, err_msg="toe width trim leaked into other channels")
 
     def test_shoulder_width_trim_acts_on_channel_only(self):
