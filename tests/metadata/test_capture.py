@@ -121,6 +121,15 @@ class TestGps:
         assert minutes[0] < 60
         assert (degrees[0], minutes[0], seconds[0]) == (45, 1, 0)
 
+    def test_xmp_minutes_do_not_round_up_to_sixty(self) -> None:
+        # 52 degrees minus a hair. The fractional-minute computation lands so close
+        # to 60 that formatting to four decimal places rounds it up to "60.0000", an
+        # invalid XMP GPSLatitude/GPSLongitude minute that should instead carry into
+        # degrees, the same shape as the EXIF seconds carry above.
+        lat, lon = xmp_gps(51.9999995, -51.9999995)
+        assert lat == "52,0.0000N"
+        assert lon == "52,0.0000W"
+
 
 class TestTileMath:
     @pytest.mark.parametrize("zoom", [2, 8, 18])
