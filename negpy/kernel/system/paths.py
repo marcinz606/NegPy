@@ -1,6 +1,7 @@
 import os
-import sys
 import subprocess
+import sys
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -22,20 +23,23 @@ def get_resource_path(relative_path: str) -> str:
     return os.path.normpath(os.path.join(base_path, relative_path))
 
 
-def _usable_user_dir(base: Path) -> Optional[str]:
+def _usable_user_dir(base: Path, *, probe_write: bool = False) -> Optional[str]:
     """
     The NegPy dir under `base` if `base` is usable, else None.
 
-    When `base` already exists this touches nothing (the app creates its
-    subdirectories at startup). When it's missing, creatability has to be proven
-    by actually creating — a registered-but-absent folder is indistinguishable
-    from a creatable one until CreateDirectory runs.
+    Existing directories retain the old read-only resolution behaviour unless
+    ``probe_write`` is requested. Windows uses that probe because Controlled
+    Folder Access can leave Documents readable while denying writes from the
+    frozen executable.
     """
     target = base / "NegPy"
     try:
-        if os.path.isdir(base):
+        if os.path.isdir(base) and not probe_write:
             return str(target.absolute())
         os.makedirs(target, exist_ok=True)
+        if probe_write:
+            with tempfile.NamedTemporaryFile(prefix=".negpy-write-test-", dir=target):
+                pass
         return str(target.absolute())
     except OSError:
         return None
@@ -108,9 +112,19 @@ def get_default_user_dir() -> str:
     # most often a OneDrive-backed Documents after OneDrive is unlinked, signed out or not yet
     # synced. Trusting it blindly made the startup os.makedirs die with WinError 2 (#441).
     # Validate the candidate and fall back to plain local locations that always exist.
-    candidates = list(dict.fromkeys([docs_dir, home / "Documents", home]))
+    candidates = [docs_dir, home / "Documents"]
+    if sys.platform == "win32":
+        # Application data belongs here when Windows protects Documents from
+        # unsigned/frozen applications. Keep it ahead of the home-directory
+        # fallback so a successful recovery uses the standard Windows location.
+        local_app_data = os.getenv("LOCALAPPDATA")
+        if local_app_data:
+            candidates.append(Path(local_app_data))
+    candidates.append(home)
+
+    candidates = list(dict.fromkeys(candidates))
     for base in candidates:
-        usable = _usable_user_dir(base)
+        usable = _usable_user_dir(base, probe_write=sys.platform == "win32")
         if usable is not None:
             return usable
 

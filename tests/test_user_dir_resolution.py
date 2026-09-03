@@ -7,6 +7,7 @@ signed out (issue #441: startup makedirs died with WinError 2).
 import os
 from pathlib import Path
 
+from negpy.kernel.system import paths
 from negpy.kernel.system.paths import _usable_user_dir, get_default_user_dir
 
 
@@ -14,8 +15,15 @@ def test_usable_dir_existing_base_returns_without_creating(tmp_path):
     result = _usable_user_dir(tmp_path)
 
     assert result == str((tmp_path / "NegPy").absolute())
-    # Base exists, so resolution must not touch the filesystem.
     assert not (tmp_path / "NegPy").exists()
+
+
+def test_usable_dir_existing_base_creates_and_probes_target_when_requested(tmp_path):
+    result = _usable_user_dir(tmp_path, probe_write=True)
+
+    assert result == str((tmp_path / "NegPy").absolute())
+    assert (tmp_path / "NegPy").is_dir()
+    assert list((tmp_path / "NegPy").iterdir()) == []
 
 
 def test_usable_dir_missing_but_creatable_base_creates(tmp_path):
@@ -34,6 +42,18 @@ def test_usable_dir_uncreatable_base_returns_none(tmp_path):
     # A path under a regular file can never be created — mirrors the broken
     # OneDrive case where CreateDirectory fails on the registered path.
     assert _usable_user_dir(blocker / "Documents") is None
+
+
+def test_usable_dir_existing_but_unwritable_target_returns_none(tmp_path, monkeypatch):
+    target = tmp_path / "NegPy"
+    target.mkdir()
+
+    def denied(*args, **kwargs):
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr(paths.tempfile, "NamedTemporaryFile", denied)
+
+    assert _usable_user_dir(tmp_path, probe_write=True) is None
 
 
 def test_env_override_wins(monkeypatch, tmp_path):
@@ -72,7 +92,7 @@ def test_broken_documents_falls_back_to_home(monkeypatch, tmp_path):
     assert Path(result).is_dir()
 
 
-def test_existing_documents_used_without_side_effects(monkeypatch, tmp_path):
+def test_existing_documents_is_used_without_side_effects(monkeypatch, tmp_path):
     docs = tmp_path / "Docs"
     docs.mkdir()
 
@@ -84,3 +104,29 @@ def test_existing_documents_used_without_side_effects(monkeypatch, tmp_path):
 
     assert result == str((docs / "NegPy").absolute())
     assert not (docs / "NegPy").exists()
+
+
+def test_protected_windows_documents_falls_back_to_local_app_data(monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    local_app_data = tmp_path / "LocalAppData"
+    calls = []
+
+    def usable(base, *, probe_write=False):
+        base = Path(base)
+        calls.append((base, probe_write))
+        if base == local_app_data:
+            return str((base / "NegPy").absolute())
+        return None
+
+    monkeypatch.delenv("NEGPY_USER_DIR", raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(local_app_data))
+    monkeypatch.setattr("sys.platform", "win32")
+    monkeypatch.setattr(os.path, "expanduser", lambda p: str(home) if p == "~" else p)
+    monkeypatch.setattr(paths, "_usable_user_dir", usable)
+
+    result = get_default_user_dir()
+
+    assert result == str((local_app_data / "NegPy").absolute())
+    assert (local_app_data, True) in calls
+    assert all(probe_write for _base, probe_write in calls)
+    assert all(base != home for base, _probe_write in calls)
