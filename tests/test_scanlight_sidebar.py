@@ -27,6 +27,12 @@ def _sidebar():
     return ScanlightSidebar(ctrl)
 
 
+def test_construction_does_not_show_orphan_hint(top_level_show_spy):
+    _sidebar()
+
+    assert top_level_show_spy.events == []
+
+
 def _poll(usb_ok=False, usb_model="", light_ok=True, light_detail="fw", usb_claimed_elsewhere=False):
     return {
         "usb_ok": usb_ok,

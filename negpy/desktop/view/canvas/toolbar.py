@@ -122,6 +122,11 @@ class ActionToolbar(QWidget):
 
         row_layout = QHBoxLayout()
         row_layout.setSpacing(6)
+        # Install the row on its container before adding/showing controls in
+        # _rebuild_row(). A layout with no parent cannot reparent its widgets;
+        # setVisible(True) then exposes every control as a tiny top-level window
+        # during startup on Windows.
+        v_layout.addLayout(row_layout)
 
         icon_color = THEME.text_primary
         icon_size = QSize(16, 16)
@@ -429,7 +434,6 @@ class ActionToolbar(QWidget):
         self._item_ids = load_toolbar_items(self.session.repo)
         self._rebuild_row()
 
-        v_layout.addLayout(row_layout)
         # Size the pill to its controls; don't stretch it across the canvas.
         main_layout.addWidget(container, 0, Qt.AlignmentFlag.AlignCenter)
 
