@@ -190,7 +190,13 @@ def xmp_gps(lat: float, lon: float) -> tuple[str, str]:
     def one(value: float, positive: str, negative: str) -> str:
         total = abs(value)
         degrees = int(total)
-        minutes = (total - degrees) * 60.0
+        minutes = round((total - degrees) * 60.0, 4)
+        # Rounding to four decimals can carry minutes to 60.0000, an invalid XMP
+        # rational; fold that carry into degrees, same shape as the EXIF seconds
+        # carry in _dms().
+        if minutes >= 60.0:
+            minutes -= 60.0
+            degrees += 1
         return f"{degrees},{minutes:.4f}{positive if value >= 0 else negative}"
 
     return one(lat, "N", "S"), one(lon, "E", "W")
