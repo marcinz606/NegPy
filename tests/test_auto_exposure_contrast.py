@@ -8,6 +8,8 @@ from negpy.features.exposure.logic import (
     compute_pivot,
     effective_grade_range,
     grade_to_slope,
+    auto_highlight_from_metrics,
+    highlight_hold_offset,
     per_channel_curve_params,
     shadow_reach_slope,
 )
@@ -15,6 +17,7 @@ from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
     measure_anchor_from_log,
+    measure_highlight_point_from_log,
     measure_shadow_point_from_log,
     measure_textural_range_from_log,
 )
@@ -339,3 +342,52 @@ class TestMeasureShadowPoint(unittest.TestCase):
         # Interior normalizes to 0.25/0.5/0.75; the flat border at 0.95 must not vote.
         img = _bordered_texture([-1.5, -1.0, -0.5], border=-0.1)
         self.assertAlmostEqual(measure_shadow_point_from_log(img, self.BOUNDS), 0.75, places=2)
+
+
+class TestHighlightHold(unittest.TestCase):
+    """Auto Grade's soft-exposure half: the brightest textured tone must hold
+    highlight_hold_density instead of printing paper white. One-sided burn via the
+    highlight zone offset; never brightens."""
+
+    ANCHOR = 0.46
+    SLOPE = 3.0
+
+    def _pivot(self):
+        return compute_pivot(self.SLOPE, 1.0, anchor=self.ANCHOR)
+
+    def test_tone_at_paper_white_is_burned_to_hold_density(self):
+        hd = highlight_hold_offset(self.SLOPE, self._pivot(), 0.05)
+        self.assertGreater(hd, 0.0)
+        curve = CharacteristicCurve(self.SLOPE, self._pivot(), midtone_gamma=0.0, highlight_density=hd)
+        self.assertAlmostEqual(float(curve(np.array([0.05]))[0]), EXPOSURE_CONSTANTS["highlight_hold_density"], places=2)
+
+    def test_tone_already_holding_is_untouched(self):
+        self.assertEqual(highlight_hold_offset(self.SLOPE, self._pivot(), 0.40), 0.0)
+
+    def test_offset_is_capped(self):
+        self.assertEqual(highlight_hold_offset(self.SLOPE, self._pivot(), -1.0), EXPOSURE_CONSTANTS["highlight_hold_max"])
+
+    def test_zero_target_disables(self):
+        saved = EXPOSURE_CONSTANTS["highlight_hold_density"]
+        EXPOSURE_CONSTANTS["highlight_hold_density"] = 0.0
+        try:
+            self.assertEqual(highlight_hold_offset(self.SLOPE, self._pivot(), 0.05), 0.0)
+        finally:
+            EXPOSURE_CONSTANTS["highlight_hold_density"] = saved
+
+    def test_metrics_helper_follows_auto_grade_toggle(self):
+        metrics = {"norm_density_range": 1.2, "metered_anchor": self.ANCHOR, "highlight_point": 0.05}
+        on = auto_highlight_from_metrics(ExposureConfig(auto_normalize_contrast=True), ProcessMode.C41, metrics)
+        off = auto_highlight_from_metrics(ExposureConfig(auto_normalize_contrast=False), ProcessMode.C41, metrics)
+        self.assertGreater(on, 0.0)
+        self.assertEqual(off, 0.0)
+        self.assertEqual(auto_highlight_from_metrics(ExposureConfig(), ProcessMode.C41, {}), 0.0)
+
+
+class TestMeasureHighlightPoint(unittest.TestCase):
+    BOUNDS = LogNegativeBounds(floors=(-2.0, -2.0, -2.0), ceils=(0.0, 0.0, 0.0))
+
+    def test_reads_bright_tail_of_textured_cells(self):
+        # Interior normalizes to 0.25/0.5/0.75; the flat border at 0.95 must not vote.
+        img = _bordered_texture([-1.5, -1.0, -0.5], border=-0.1)
+        self.assertAlmostEqual(measure_highlight_point_from_log(img, self.BOUNDS), 0.25, places=2)

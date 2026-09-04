@@ -33,12 +33,12 @@ def _c41_negative_densities(stops: np.ndarray, gamma: float = 0.55) -> np.ndarra
     return np.where(stops >= -3.5, d, gamma * (-2.5) * LG2 - 0.32 * LG2 + 0.15 * (stops + 3.5) * LG2)
 
 
-def _scene_densities(spread: float) -> tuple[np.ndarray, float]:
+def _scene_densities(spread: float) -> tuple[np.ndarray, float, float]:
     """
     Patch grid of scene densities: log-uniform over `spread` about mid-grey (the
     meter's assumption that a scene integrates to grey), with a few specular and
     deep-shadow patches beyond it and the grey strip laid into the top row.
-    Returns the grid and its deepest textural scene density.
+    Returns the grid and its deepest and brightest textural scene densities.
     """
     rng = np.random.default_rng(7)
     below = above = spread / 2.0
@@ -48,7 +48,7 @@ def _scene_densities(spread: float) -> tuple[np.ndarray, float]:
     d[tails] = rng.uniform(MID_GREY_DENSITY - above - TAIL, MID_GREY_DENSITY + below + TAIL, size=int(tails.sum()))
     d[0, :] = MID_GREY_DENSITY
     d[0, : len(STRIP)] = STRIP
-    return d, MID_GREY_DENSITY + below
+    return d, MID_GREY_DENSITY + below, MID_GREY_DENSITY - above
 
 
 def _negative_scan(scene: np.ndarray) -> np.ndarray:
@@ -59,9 +59,10 @@ def _negative_scan(scene: np.ndarray) -> np.ndarray:
     return np.repeat(np.repeat(img, PATCH, axis=0), PATCH, axis=1)
 
 
-def _print_densities(spread: float) -> tuple[np.ndarray, np.ndarray, float]:
-    """Run the default Normalization + Print path; return (D_scene, D_print, deepest scene density)."""
-    scene, deepest = _scene_densities(spread)
+def _print_densities(spread: float) -> tuple[np.ndarray, np.ndarray, float, float]:
+    """Run the default Normalization + Print path; return (D_scene, D_print, deepest and
+    brightest textural scene densities)."""
+    scene, deepest, brightest = _scene_densities(spread)
     img = _negative_scan(scene)
     config = WorkspaceConfig()
     ctx = PipelineContext(scale_factor=1.0, original_size=img.shape[:2], process_mode=ProcessMode.C41)
@@ -77,7 +78,7 @@ def _print_densities(spread: float) -> tuple[np.ndarray, np.ndarray, float]:
             f"spread={spread} range={m['norm_density_range']:.3f} textural={m['textural_range']:.3f} "
             f"anchor={m['metered_anchor']:.3f} slope={m['print_slopes'][1]:.3f}"
         )
-    return STRIP, d_print, deepest
+    return STRIP, d_print, deepest, brightest
 
 
 def _report(name: str, d_s: np.ndarray, d_p: np.ndarray, gamma: np.ndarray) -> None:
@@ -110,13 +111,13 @@ class TestToneReproduction(unittest.TestCase):
     def setUpClass(cls):
         cls.runs = {}
         for name, spread in cls.SPREADS.items():
-            d_s, d_p, deepest = _print_densities(spread)
+            d_s, d_p, deepest, brightest = _print_densities(spread)
             gamma = np.gradient(d_p, d_s)
-            cls.runs[name] = (d_s, d_p, gamma, deepest)
+            cls.runs[name] = (d_s, d_p, gamma, deepest, brightest)
             _report(name, d_s, d_p, gamma)
 
     def test_gamma_inside_preferred_envelope(self):
-        for name, (d_s, _, gamma, deepest) in self.runs.items():
+        for name, (d_s, _, gamma, deepest, _) in self.runs.items():
             if self.SPREADS[name] < self.ENVELOPE_MIN_SPREAD:
                 continue
             with self.subTest(scene=name):
@@ -127,20 +128,28 @@ class TestToneReproduction(unittest.TestCase):
                 self.assertTrue(np.all(gamma[band] <= hi), f"gamma above envelope: {gamma[band].round(3)} > {hi.round(3)}")
 
     def test_gamma_has_no_midtone_bell(self):
-        for name, (d_s, d_p, gamma, deepest) in self.runs.items():
+        for name, (d_s, d_p, gamma, deepest, _) in self.runs.items():
             with self.subTest(scene=name):
                 band = (d_s >= 0.3) & (d_s <= min(1.45, deepest)) & (d_p < TOE_ONSET)
                 drops = np.diff(gamma[band])
                 self.assertGreaterEqual(float(drops.min()), -TOL, f"gamma falls toward shadows: {gamma[band].round(3)}")
 
     def test_textural_shadow_reaches_black(self):
-        for name, (d_s, d_p, _, deepest) in self.runs.items():
+        for name, (d_s, d_p, _, deepest, _) in self.runs.items():
             with self.subTest(scene=name):
                 at_deepest = float(np.interp(deepest, d_s, d_p))
                 self.assertGreaterEqual(at_deepest, EXPOSURE_CONSTANTS["shadow_reach_density"] - 0.1)
 
+    def test_textural_highlight_holds_tone(self):
+        for name, (d_s, d_p, _, _, brightest) in self.runs.items():
+            if brightest < 0.0:
+                continue  # the textural top is a specular, above diffuse white
+            with self.subTest(scene=name):
+                at_brightest = float(np.interp(brightest, d_s, d_p))
+                self.assertGreaterEqual(at_brightest, EXPOSURE_CONSTANTS["highlight_hold_density"] - 0.02)
+
     def test_deep_shadow_reaches_near_paper_black(self):
-        for name, (_, d_p, _, _) in self.runs.items():
+        for name, (_, d_p, _, _, _) in self.runs.items():
             with self.subTest(scene=name):
                 self.assertGreaterEqual(float(d_p[-1]), TOE_ONSET)
                 self.assertLessEqual(float(d_p[-1]), float(EXPOSURE_CONSTANTS["d_max"]))

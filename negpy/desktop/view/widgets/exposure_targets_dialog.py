@@ -56,6 +56,12 @@ _GROUPS = (
                 "Print density the darkest textured tones must reach. The grade only goes harder "
                 "for it, so a flat negative still prints a black. Lower for softer shadows.",
             ),
+            (
+                "highlight_hold_density",
+                "Highlight Hold",
+                "Print density the brightest textured tones must keep, so a sunlit wall or sky holds "
+                "tone instead of printing paper white. 0 turns it off.",
+            ),
         ),
     ),
 )

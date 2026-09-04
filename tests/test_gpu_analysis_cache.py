@@ -73,42 +73,44 @@ class TestFillAndUpdate(unittest.TestCase):
     # Cache layout: (bounds, shadow_refs, anchor, textural, neutral_axis).
 
     def test_empty_cache_is_a_miss(self):
-        self.assertEqual(_fill_analysis_overrides(None, self.KEY, None, None, None, None, None, None), (None, None, None, None, None, None))
+        self.assertEqual(
+            _fill_analysis_overrides(None, self.KEY, None, None, None, None, None, None, None), (None, None, None, None, None, None, None)
+        )
 
     def test_matching_key_fills_none_overrides(self):
-        cache = (self.KEY, "B", "R", 0.5, 2.0, "N", 0.9)
+        cache = (self.KEY, "B", "R", 0.5, 2.0, "N", 0.9, 0.1)
         self.assertEqual(
-            _fill_analysis_overrides(cache, self.KEY, None, None, None, None, None, None),
-            ("B", "R", 0.5, 2.0, "N", 0.9),
+            _fill_analysis_overrides(cache, self.KEY, None, None, None, None, None, None, None),
+            ("B", "R", 0.5, 2.0, "N", 0.9, 0.1),
         )
 
     def test_caller_overrides_win(self):
-        cache = (self.KEY, "B", "R", 0.5, 2.0, "N", 0.9)
+        cache = (self.KEY, "B", "R", 0.5, 2.0, "N", 0.9, 0.1)
         self.assertEqual(
-            _fill_analysis_overrides(cache, self.KEY, "CALLER", None, 9.0, None, "N2", None),
-            ("CALLER", "R", 9.0, 2.0, "N2", 0.9),
+            _fill_analysis_overrides(cache, self.KEY, "CALLER", None, 9.0, None, "N2", None, None),
+            ("CALLER", "R", 9.0, 2.0, "N2", 0.9, 0.1),
         )
 
     def test_key_mismatch_is_a_miss(self):
-        cache = (("other", "k"), "B", "R", 0.5, 2.0, "N", 0.9)
+        cache = (("other", "k"), "B", "R", 0.5, 2.0, "N", 0.9, 0.1)
         self.assertEqual(
-            _fill_analysis_overrides(cache, self.KEY, None, None, None, None, None, None), (None, None, None, None, None, None)
+            _fill_analysis_overrides(cache, self.KEY, None, None, None, None, None, None, None), (None, None, None, None, None, None, None)
         )
 
     def test_update_stores_under_key(self):
-        cache = _update_analysis_cache(None, self.KEY, "B", "R", 0.5, 2.0, "N", 0.9)
-        self.assertEqual(cache, (self.KEY, "B", "R", 0.5, 2.0, "N", 0.9))
+        cache = _update_analysis_cache(None, self.KEY, "B", "R", 0.5, 2.0, "N", 0.9, 0.1)
+        self.assertEqual(cache, (self.KEY, "B", "R", 0.5, 2.0, "N", 0.9, 0.1))
 
     def test_update_merges_none_keeps_old(self):
-        cache = (self.KEY, "B", "R", 0.5, 2.0, "N", 0.9)
+        cache = (self.KEY, "B", "R", 0.5, 2.0, "N", 0.9, 0.1)
         # New frame computed only the anchor; the rest (incl. neutral axis) stay cached.
-        merged = _update_analysis_cache(cache, self.KEY, None, None, 0.7, None, None, None)
-        self.assertEqual(merged, (self.KEY, "B", "R", 0.7, 2.0, "N", 0.9))
+        merged = _update_analysis_cache(cache, self.KEY, None, None, 0.7, None, None, None, None)
+        self.assertEqual(merged, (self.KEY, "B", "R", 0.7, 2.0, "N", 0.9, 0.1))
 
     def test_update_resets_on_key_change(self):
-        cache = (self.KEY, "B", "R", 0.5, 2.0, "N", 0.9)
-        merged = _update_analysis_cache(cache, ("new", "k"), "B2", None, None, None, None, None)
-        self.assertEqual(merged, (("new", "k"), "B2", None, None, None, None, None))
+        cache = (self.KEY, "B", "R", 0.5, 2.0, "N", 0.9, 0.1)
+        merged = _update_analysis_cache(cache, ("new", "k"), "B2", None, None, None, None, None, None)
+        self.assertEqual(merged, (("new", "k"), "B2", None, None, None, None, None, None))
 
 
 # --------------------------------------------------------------------------- #

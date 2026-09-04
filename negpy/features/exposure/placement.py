@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 from negpy.features.exposure.analysis import zone_of_encoded
-from negpy.features.exposure.logic import curve_params_from_metrics, print_curve, print_curve_output
+from negpy.features.exposure.logic import auto_highlight_from_metrics, curve_params_from_metrics, print_curve, print_curve_output
 
 DENSITY_RANGE = (0.0, 2.0)  # mirrors the Print Density slider
 
@@ -72,7 +72,8 @@ class PlacementSolution:
 def predicted_zone(exposure: Any, process_mode: Optional[str], metrics: Any, val_luma: float) -> float:
     """Zone the achromatic print curve puts `val_luma` on under `exposure`."""
     slopes, pivots, curvs = curve_params_from_metrics(exposure, process_mode, metrics)
-    curve = print_curve(exposure, slopes[1], pivots[1], process_mode, curvature=curvs[1])
+    hl = exposure.highlight_density + auto_highlight_from_metrics(exposure, process_mode, metrics)
+    curve = print_curve(exposure, slopes[1], pivots[1], process_mode, curvature=curvs[1], highlight_density=hl)
     enc = float(print_curve_output(curve, [val_luma])[0])
     return float(zone_of_encoded(enc))
 

@@ -27,6 +27,7 @@ from negpy.features.exposure.normalization import (
     measure_shadow_refs_from_log,
     effective_crosstalk_matrix,
     unmix_log_image,
+    measure_highlight_point_from_log,
     measure_shadow_point_from_log,
     measure_textural_range_from_log,
     prefilter_log_grid,
@@ -162,11 +163,11 @@ def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str) ->
     )
 
 
-def _fill_analysis_overrides(cache, key, bounds, refs, anchor, textural, neutral, shadow):
+def _fill_analysis_overrides(cache, key, bounds, refs, anchor, textural, neutral, shadow, highlight):
     """Fill the None overrides from the cache when its key matches; caller overrides win."""
     if cache is None or cache[0] != key:
-        return bounds, refs, anchor, textural, neutral, shadow
-    _, cb, cr, ca, ct, cn, cs = cache
+        return bounds, refs, anchor, textural, neutral, shadow, highlight
+    _, cb, cr, ca, ct, cn, cs, ch = cache
     return (
         bounds if bounds is not None else cb,
         refs if refs is not None else cr,
@@ -174,15 +175,16 @@ def _fill_analysis_overrides(cache, key, bounds, refs, anchor, textural, neutral
         textural if textural is not None else ct,
         neutral if neutral is not None else cn,
         shadow if shadow is not None else cs,
+        highlight if highlight is not None else ch,
     )
 
 
-def _update_analysis_cache(cache, key, bounds, refs, anchor, textural, neutral, shadow):
+def _update_analysis_cache(cache, key, bounds, refs, anchor, textural, neutral, shadow, highlight):
     """Store the resolved analysis under key, merging (a frame may compute only a subset)."""
     if cache is None or cache[0] != key:
-        cb = cr = ca = ct = cn = cs = None
+        cb = cr = ca = ct = cn = cs = ch = None
     else:
-        _, cb, cr, ca, ct, cn, cs = cache
+        _, cb, cr, ca, ct, cn, cs, ch = cache
     return (
         key,
         bounds if bounds is not None else cb,
@@ -191,6 +193,7 @@ def _update_analysis_cache(cache, key, bounds, refs, anchor, textural, neutral, 
         textural if textural is not None else ct,
         neutral if neutral is not None else cn,
         shadow if shadow is not None else cs,
+        highlight if highlight is not None else ch,
     )
 
 
@@ -476,6 +479,7 @@ class GPUEngine:
         textural_range_override: Optional[float] = None,
         neutral_axis_override: Optional[tuple] = None,
         shadow_point_override: Optional[float] = None,
+        highlight_point_override: Optional[float] = None,
         apply_layout: bool = True,
         render_size_ref: Optional[float] = None,
         source_hash: Optional[str] = None,
@@ -566,6 +570,7 @@ class GPUEngine:
                 textural_range_override,
                 neutral_axis_override,
                 shadow_point_override,
+                highlight_point_override,
             ) = _fill_analysis_overrides(
                 self._analysis_cache,
                 analysis_key,
@@ -575,6 +580,7 @@ class GPUEngine:
                 textural_range_override,
                 neutral_axis_override,
                 shadow_point_override,
+                highlight_point_override,
             )
 
         analysis_t0 = time.perf_counter()
@@ -592,6 +598,7 @@ class GPUEngine:
         needs_anchor = metered_anchor_override is None and not tiling_mode and (settings.exposure.auto_exposure or readback_metrics)
         needs_textural = textural_range_override is None and not tiling_mode and settings.exposure.auto_normalize_contrast
         needs_shadow = shadow_point_override is None and not tiling_mode and settings.exposure.auto_normalize_contrast
+        needs_highlight = highlight_point_override is None and not tiling_mode and settings.exposure.auto_normalize_contrast
 
         prefiltered = None
         cam_prefiltered = None
@@ -609,7 +616,7 @@ class GPUEngine:
             if transfer
             else None
         )
-        if needs_bounds_analysis or needs_refs or needs_axis or needs_anchor or needs_textural or needs_shadow:
+        if needs_bounds_analysis or needs_refs or needs_axis or needs_anchor or needs_textural or needs_shadow or needs_highlight:
             # Keyed without the clip sliders: a clip drag reuses the grid and
             # re-runs only the percentile analysis.
             p = settings.process
@@ -737,6 +744,10 @@ class GPUEngine:
         if needs_shadow and prefiltered is not None:
             shadow_point = measure_shadow_point_from_log(prefiltered, anchor_bounds, None, 0.0)
 
+        highlight_point = highlight_point_override
+        if needs_highlight and prefiltered is not None:
+            highlight_point = measure_highlight_point_from_log(prefiltered, anchor_bounds, None, 0.0)
+
         if analysis_key is not None:
             self._analysis_cache = _update_analysis_cache(
                 self._analysis_cache,
@@ -747,6 +758,7 @@ class GPUEngine:
                 textural_range,
                 neutral_axis_refs,
                 shadow_point,
+                highlight_point,
             )
 
         # Same helper, same pre-geometry array as the CPU engine, so the two mask alike.
@@ -838,6 +850,7 @@ class GPUEngine:
             textural_range=textural_range,
             neutral_axis_refs=neutral_axis_refs,
             shadow_point=shadow_point,
+            highlight_point=highlight_point,
             unmix=unmix_m,
             cam_xyz=cam_xyz,
             camera_wb=camera_wb,
@@ -1300,6 +1313,7 @@ class GPUEngine:
             "contrast_mask_centre": mask_centre,
             "textural_range": textural_range,
             "shadow_point": shadow_point,
+            "highlight_point": highlight_point,
             "scan_clip_fractions": scan_clip_fractions,
             # Raw cast refs so the chart can re-solve the exact render curves.
             "shadow_log_refs": shadow_refs,
@@ -1379,6 +1393,7 @@ class GPUEngine:
             Tuple[Tuple[float, float, float], Tuple[float, float, float], Optional[Tuple[float, float, float]], float]
         ] = None,
         shadow_point: Optional[float] = None,
+        highlight_point: Optional[float] = None,
         unmix: Optional[np.ndarray] = None,
         cam_xyz: Optional[list] = None,
         camera_wb: Optional[list] = None,
@@ -1468,6 +1483,7 @@ class GPUEngine:
             grade_coupled_shape,
             local_ev_scale,
             paper_dmin_rgb,
+            highlight_hold_offset,
             per_channel_curve_params,
             per_channel_midtone_gamma,
             per_channel_widths,
@@ -1567,6 +1583,11 @@ class GPUEngine:
             neutral_axis_norm=neutral_axis_norm,
             grade_trims=(exp.grade_trim_red, exp.grade_trim_green, exp.grade_trim_blue),
             shadow_point=shadow_point,
+        )
+        hl_auto = (
+            highlight_hold_offset(slopes[1], pivots[1], highlight_point, d_min=d_min, paper=paper)
+            if exp.auto_normalize_contrast and highlight_point is not None
+            else 0.0
         )
         cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
         _toe_eff, _shoulder_eff = grade_coupled_shape(slopes[1], exp.toe, exp.shoulder)
@@ -1680,7 +1701,7 @@ class GPUEngine:
                 # and d_min_rgb.w, Split Grade the split_sh/split_hi rows past 256B.
                 1.0 if not exp.paper_black else 0.0,
             )
-            + struct.pack("ffff", dmin_rgb[0], dmin_rgb[1], dmin_rgb[2], exp.highlight_density)
+            + struct.pack("ffff", dmin_rgb[0], dmin_rgb[1], dmin_rgb[2], exp.highlight_density + hl_auto)
             # Dye-row w-lanes carry the per-channel midtone gamma (Snap).
             + struct.pack("ffff", dye_rows[0, 0], dye_rows[0, 1], dye_rows[0, 2], _mg3[0])
             + struct.pack("ffff", dye_rows[1, 0], dye_rows[1, 1], dye_rows[1, 2], _mg3[1])
@@ -2333,9 +2354,11 @@ class GPUEngine:
 
         global_textural_range = None
         global_shadow_point = None
+        global_highlight_point = None
         if settings.exposure.auto_normalize_contrast:
             global_textural_range = measure_textural_range_from_log(_prefiltered(), None, 0.0)
             global_shadow_point = measure_shadow_point_from_log(_prefiltered(), global_anchor_bounds, None, 0.0)
+            global_highlight_point = measure_highlight_point_from_log(_prefiltered(), global_anchor_bounds, None, 0.0)
 
         global_mask = None
         if settings.exposure.contrast_mask != 0.0:
@@ -2415,6 +2438,7 @@ class GPUEngine:
                     textural_range_override=global_textural_range,
                     neutral_axis_override=global_neutral_axis,
                     shadow_point_override=global_shadow_point,
+                    highlight_point_override=global_highlight_point,
                     global_offset=(ix1, iy1),
                     full_dims=(w_rot, h_rot),
                     clahe_cdf_override=global_cdfs,

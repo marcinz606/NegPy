@@ -520,6 +520,25 @@ def measure_shadow_point_from_log(
     return float(np.percentile(lum, float(EXPOSURE_CONSTANTS["shadow_reach_percentile"])))
 
 
+def measure_highlight_point_from_log(
+    img_log: ImageBuffer,
+    bounds: LogNegativeBounds,
+    roi: Optional[tuple[int, int, int, int]] = None,
+    analysis_buffer: float = 0.0,
+) -> float:
+    """Normalized luma of the textured bright tail (highlight_hold_percentile), the tone
+    Auto Grade's highlight hold keeps off paper white."""
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    if roi:
+        y1, y2, x1, x2 = roi
+        img_log = img_log[y1:y2, x1:x2]
+    if analysis_buffer > 0:
+        img_log = get_analysis_crop(img_log, analysis_buffer)
+    lum = _textured_norm_luma(_block_median_grid(img_log), bounds)
+    return float(np.percentile(lum, float(EXPOSURE_CONSTANTS["highlight_hold_percentile"])))
+
+
 def measure_anchor_from_log(
     img_log: ImageBuffer,
     bounds: LogNegativeBounds,

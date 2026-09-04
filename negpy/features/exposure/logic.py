@@ -383,6 +383,7 @@ def print_curve(
     shadow_grade_delta: Optional[float] = None,
     highlight_grade_delta: Optional[float] = None,
     curvature: float = 0.0,
+    highlight_density: Optional[float] = None,
 ) -> CharacteristicCurve:
     """The achromatic print curve for `exposure` at `slope`/`pivot`. Each None argument takes
     the grade-coupled, trim-free value; a per-layer trace passes its own. Single source of
@@ -409,7 +410,7 @@ def print_curve(
         midtone_gamma=effective_midtone_gamma(None, exposure.midtone_gamma) if midtone_gamma is None else midtone_gamma,
         bpc=not exposure.paper_black,
         shadow_density=exposure.shadow_density,
-        highlight_density=exposure.highlight_density,
+        highlight_density=exposure.highlight_density if highlight_density is None else highlight_density,
         shadow_grade_delta=sg[0] if shadow_grade_delta is None else shadow_grade_delta,
         highlight_grade_delta=hg[0] if highlight_grade_delta is None else highlight_grade_delta,
         curvature=curvature,
@@ -891,6 +892,42 @@ def shadow_reach_slope(slope: float, anchor: float, shadow_point: float, d_min: 
     v_black = _reference_linear_value(d_min, paper, target=float(c["shadow_reach_density"]))
     needed = (v_black - _reference_linear_value(d_min, paper)) / span
     return float(min(max(slope, needed), float(c["slope_max"])))
+
+
+def highlight_hold_offset(
+    slope: float, pivot: float, highlight_point: float, d_min: float = 0.0, paper: Optional[PaperProfile] = None
+) -> float:
+    """
+    Auto Grade's soft exposure: the highlight zone burn (a highlight_density term) that
+    lands the textured bright tail at `highlight_point` on highlight_hold_density when the
+    straight line would print it brighter. Solved against the kernel's own zone weight at
+    that tone, so the burn stays under the shoulder. Never lifts; 0 when the tone holds.
+    """
+    c = effective_constants(paper)
+    target = float(c["highlight_hold_density"])
+    if target <= 0.0:
+        return 0.0
+    v = float(slope) * (float(highlight_point) - float(pivot))
+    v_hold = _reference_linear_value(d_min, paper, target=target)
+    if v >= v_hold:
+        return 0.0
+    z_hi = float(c["anchor_target_density"]) + float(c["zone_density_highlight_offset"])
+    w = 1.0 - _fast_sigmoid(float(c["zone_density_sharpness"]) * (v - z_hi))
+    return float(min((v_hold - v) / max(w, 1e-6), float(c["highlight_hold_max"])))
+
+
+def auto_highlight_from_metrics(exposure: Any, process_mode: Optional[str], metrics: Any) -> float:
+    """The highlight hold burn the render applied, re-derived from the published metrics
+    (companion of curve_params_from_metrics for the chart, wedge and zone placement)."""
+    from negpy.features.exposure.papers import effective_paper_profile
+
+    point = metrics.get("highlight_point")
+    if not exposure.auto_normalize_contrast or point is None:
+        return 0.0
+    profile = effective_paper_profile(exposure.paper_profile, process_mode)
+    d_min = profile.d_min if exposure.paper_dmin else 0.0
+    slopes, pivots, _ = curve_params_from_metrics(exposure, process_mode, metrics)
+    return highlight_hold_offset(slopes[1], pivots[1], float(point), d_min=d_min, paper=profile)
 
 
 def compute_pivot(

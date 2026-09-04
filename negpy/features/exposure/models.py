@@ -245,6 +245,12 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # only ever goes harder for it (Gindele, US 7,113,649).
     "shadow_reach_percentile": 99.0,
     "shadow_reach_density": 1.9,
+    # Auto Grade highlight hold, the soft-exposure half of a split-grade print: the bright
+    # tail of the textured cells (this percentile) must print at least this density, met by
+    # an automatic highlight zone burn (never a lift), capped at highlight_hold_max. 0 = off.
+    "highlight_hold_percentile": 2.0,
+    "highlight_hold_density": 0.10,
+    "highlight_hold_max": 0.5,
     # Flat / digital-intermediate master (RenderIntent.FLAT). A log-video master:
     # the normalized log signal becomes the code value directly, with no 10^-D
     # decode and no sRGB OETF, so it stays flat and fully invertible.
@@ -278,6 +284,7 @@ TUNABLE_TARGETS: Dict[str, Tuple[float, float]] = {
     "auto_grade_target": (0.4, 1.2),
     "auto_grade_strength": (0.0, 1.0),
     "shadow_reach_density": (1.4, 2.2),
+    "highlight_hold_density": (0.0, 0.4),
 }
 DEFAULT_TARGETS: Dict[str, float] = {k: float(EXPOSURE_CONSTANTS[k]) for k in TUNABLE_TARGETS}
 
