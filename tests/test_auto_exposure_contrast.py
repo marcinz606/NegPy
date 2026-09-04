@@ -8,11 +8,14 @@ from negpy.features.exposure.logic import (
     compute_pivot,
     effective_grade_range,
     grade_to_slope,
+    per_channel_curve_params,
+    shadow_reach_slope,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
     measure_anchor_from_log,
+    measure_shadow_point_from_log,
     measure_textural_range_from_log,
 )
 from negpy.features.exposure.processor import PhotometricProcessor
@@ -297,3 +300,42 @@ class TestAnchorPivotRoundTrip(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestShadowReach(unittest.TestCase):
+    """Auto Grade floor: the textured dark tail must print at shadow_reach_density
+    (Gindele, US 7,113,649; Ajewole, US 5,046,118). One-sided: only ever harder."""
+
+    ANCHOR = 0.46
+
+    def test_short_shadow_raises_slope_until_tail_prints_black(self):
+        k = shadow_reach_slope(2.5, self.ANCHOR, 0.8)
+        self.assertGreater(k, 2.5)
+        curve = CharacteristicCurve(k, compute_pivot(k, 1.0, anchor=self.ANCHOR), midtone_gamma=0.0)
+        self.assertAlmostEqual(float(curve(np.array([0.8]))[0]), EXPOSURE_CONSTANTS["shadow_reach_density"], places=2)
+
+    def test_tail_already_black_keeps_slope(self):
+        self.assertEqual(shadow_reach_slope(6.0, self.ANCHOR, 0.9), 6.0)
+
+    def test_clamped_to_slope_max(self):
+        self.assertEqual(shadow_reach_slope(2.5, self.ANCHOR, self.ANCHOR + 0.01), EXPOSURE_CONSTANTS["slope_max"])
+
+    def test_tail_at_or_above_anchor_keeps_slope(self):
+        self.assertEqual(shadow_reach_slope(2.5, self.ANCHOR, self.ANCHOR), 2.5)
+        self.assertEqual(shadow_reach_slope(2.5, self.ANCHOR, 0.3), 2.5)
+
+    def test_curve_params_apply_reach_only_with_auto_grade(self):
+        on = per_channel_curve_params(115.0, 1.0, True, 0.0, 1.2, None, 0.9, anchor=self.ANCHOR, shadow_point=0.7)
+        off = per_channel_curve_params(115.0, 1.0, False, 0.0, 1.2, None, 0.9, anchor=self.ANCHOR, shadow_point=0.7)
+        plain = per_channel_curve_params(115.0, 1.0, True, 0.0, 1.2, None, 0.9, anchor=self.ANCHOR)
+        self.assertGreater(on[0][1], plain[0][1])
+        self.assertEqual(off[0][1], per_channel_curve_params(115.0, 1.0, False, 0.0, 1.2, None, 0.9, anchor=self.ANCHOR)[0][1])
+
+
+class TestMeasureShadowPoint(unittest.TestCase):
+    BOUNDS = LogNegativeBounds(floors=(-2.0, -2.0, -2.0), ceils=(0.0, 0.0, 0.0))
+
+    def test_reads_dark_tail_of_textured_cells(self):
+        # Interior normalizes to 0.25/0.5/0.75; the flat border at 0.95 must not vote.
+        img = _bordered_texture([-1.5, -1.0, -0.5], border=-0.1)
+        self.assertAlmostEqual(measure_shadow_point_from_log(img, self.BOUNDS), 0.75, places=2)

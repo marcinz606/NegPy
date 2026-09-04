@@ -21,6 +21,7 @@ ENVELOPE_SLOPE = 0.35
 TOL = 0.05
 TAIL = 1.5 * LG2
 TAIL_FRACTION = 0.03
+TOE_ONSET = 1.75  # print density where the paper toe starts to roll the gradient off
 
 
 def _c41_negative_densities(stops: np.ndarray, gamma: float = 0.55) -> np.ndarray:
@@ -126,16 +127,22 @@ class TestToneReproduction(unittest.TestCase):
                 self.assertTrue(np.all(gamma[band] <= hi), f"gamma above envelope: {gamma[band].round(3)} > {hi.round(3)}")
 
     def test_gamma_has_no_midtone_bell(self):
-        for name, (d_s, _, gamma, deepest) in self.runs.items():
+        for name, (d_s, d_p, gamma, deepest) in self.runs.items():
             with self.subTest(scene=name):
-                band = (d_s >= 0.3) & (d_s <= min(1.45, deepest))
+                band = (d_s >= 0.3) & (d_s <= min(1.45, deepest)) & (d_p < TOE_ONSET)
                 drops = np.diff(gamma[band])
                 self.assertGreaterEqual(float(drops.min()), -TOL, f"gamma falls toward shadows: {gamma[band].round(3)}")
+
+    def test_textural_shadow_reaches_black(self):
+        for name, (d_s, d_p, _, deepest) in self.runs.items():
+            with self.subTest(scene=name):
+                at_deepest = float(np.interp(deepest, d_s, d_p))
+                self.assertGreaterEqual(at_deepest, EXPOSURE_CONSTANTS["shadow_reach_density"] - 0.1)
 
     def test_deep_shadow_reaches_near_paper_black(self):
         for name, (_, d_p, _, _) in self.runs.items():
             with self.subTest(scene=name):
-                self.assertGreaterEqual(float(d_p[-1]), 1.75)
+                self.assertGreaterEqual(float(d_p[-1]), TOE_ONSET)
                 self.assertLessEqual(float(d_p[-1]), float(EXPOSURE_CONSTANTS["d_max"]))
 
 

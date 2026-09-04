@@ -463,6 +463,7 @@ def curve_params_from_metrics(
         paper=profile,
         neutral_axis_norm=neutral_axis_norm,
         grade_trims=(exposure.grade_trim_red, exposure.grade_trim_green, exposure.grade_trim_blue),
+        shadow_point=metrics.get("shadow_point"),
     )
 
 
@@ -860,20 +861,36 @@ def effective_grade_range(
     return k * abs(float(floor_ceil_range)) * factor
 
 
-def _reference_linear_value(d_min: float = 0.0, paper: Optional[PaperProfile] = None) -> float:
+def _reference_linear_value(d_min: float = 0.0, paper: Optional[PaperProfile] = None, target: Optional[float] = None) -> float:
     """
-    Straight-line density value v* that the base shoulder+toe bounds map onto the
-    target density (anchor_target_density). The reference tone is placed here so it
+    Straight-line density value v* that the base shoulder+toe bounds map onto `target`
+    (default anchor_target_density). The reference tone is placed here so it
     prints at target, and the paper S-curve is centred here so the anchor is
     preserved. Closed form via inverse softplus at the base toe/shoulder sharpness.
     """
     c = effective_constants(paper)
-    t = float(c["anchor_target_density"])
+    t = float(c["anchor_target_density"]) if target is None else float(target)
     d_max = float(c["d_max"])
     a_hl = float(c["shoulder_sharpness_base"])  # highlight (lower) bound
     a_sh = float(c["toe_sharpness_base"])  # shadow (upper) bound
     v1 = d_max - _inv_softplus_np(a_sh * (d_max - t)) / a_sh
     return float(d_min + _inv_softplus_np(a_hl * (v1 - d_min)) / a_hl)
+
+
+def shadow_reach_slope(slope: float, anchor: float, shadow_point: float, d_min: float = 0.0, paper: Optional[PaperProfile] = None) -> float:
+    """
+    Auto Grade floor on the slope: the textured dark tail at `shadow_point` must print
+    at least shadow_reach_density while the anchor stays at its target, so the slope
+    is raised to the straight line through both when the grade alone falls short
+    (Gindele, US 7,113,649; Ajewole, US 5,046,118). Never lowered.
+    """
+    c = effective_constants(paper)
+    span = float(shadow_point) - float(anchor)
+    if span <= 1e-6:
+        return slope
+    v_black = _reference_linear_value(d_min, paper, target=float(c["shadow_reach_density"]))
+    needed = (v_black - _reference_linear_value(d_min, paper)) / span
+    return float(min(max(slope, needed), float(c["slope_max"])))
 
 
 def compute_pivot(
@@ -966,6 +983,7 @@ def per_channel_curve_params(
     paper: Optional[PaperProfile] = None,
     neutral_axis_norm: Any = None,
     grade_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    shadow_point: Optional[float] = None,
 ) -> Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float]]:
     """
     Per-channel (slopes, pivots, curvatures); single source of truth for CPU/GPU/chart.
@@ -993,6 +1011,9 @@ def per_channel_curve_params(
     slope_max = float(c["slope_max"])
     r_eff = effective_grade_range(auto_normalize_contrast, lum_range, textural_range)
     base_slope = grade_to_slope(grade, r_eff)
+    if auto_normalize_contrast and shadow_point is not None:
+        ref = float(c["assumed_anchor"]) if anchor is None else float(anchor)
+        base_slope = shadow_reach_slope(base_slope, ref, shadow_point, d_min=d_min, paper=paper)
 
     epsilon = 1e-6
 

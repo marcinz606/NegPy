@@ -488,6 +488,38 @@ def _textured_cells(lum: np.ndarray) -> np.ndarray:
     return core[mask]
 
 
+def _textured_norm_luma(grid: ImageBuffer, bounds: LogNegativeBounds) -> np.ndarray:
+    """Luma of the grid normalized against `bounds`, textured cells only."""
+    epsilon = 1e-6
+    norm = np.empty_like(grid)
+    for ch in range(3):
+        f = bounds.floors[ch]
+        denom = bounds.ceils[ch] - f
+        if abs(denom) < epsilon:
+            denom = epsilon if denom >= 0 else -epsilon
+        norm[:, :, ch] = (grid[:, :, ch] - f) / denom
+    return _textured_cells(LUMA_R * norm[:, :, 0] + LUMA_G * norm[:, :, 1] + LUMA_B * norm[:, :, 2])
+
+
+def measure_shadow_point_from_log(
+    img_log: ImageBuffer,
+    bounds: LogNegativeBounds,
+    roi: Optional[tuple[int, int, int, int]] = None,
+    analysis_buffer: float = 0.0,
+) -> float:
+    """Normalized luma of the textured dark tail (shadow_reach_percentile), the tone
+    Auto Grade's shadow reach prints at paper black."""
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    if roi:
+        y1, y2, x1, x2 = roi
+        img_log = img_log[y1:y2, x1:x2]
+    if analysis_buffer > 0:
+        img_log = get_analysis_crop(img_log, analysis_buffer)
+    lum = _textured_norm_luma(_block_median_grid(img_log), bounds)
+    return float(np.percentile(lum, float(EXPOSURE_CONSTANTS["shadow_reach_percentile"])))
+
+
 def measure_anchor_from_log(
     img_log: ImageBuffer,
     bounds: LogNegativeBounds,
@@ -510,24 +542,13 @@ def measure_anchor_from_log(
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
-    epsilon = 1e-6
     if roi:
         y1, y2, x1, x2 = roi
         img_log = img_log[y1:y2, x1:x2]
     if analysis_buffer > 0:
         img_log = get_analysis_crop(img_log, analysis_buffer)
 
-    img_log = _block_median_grid(img_log)
-
-    norm = np.empty_like(img_log)
-    for ch in range(3):
-        f = bounds.floors[ch]
-        denom = bounds.ceils[ch] - f
-        if abs(denom) < epsilon:
-            denom = epsilon if denom >= 0 else -epsilon
-        norm[:, :, ch] = (img_log[:, :, ch] - f) / denom
-
-    lum = _textured_cells(LUMA_R * norm[:, :, 0] + LUMA_G * norm[:, :, 1] + LUMA_B * norm[:, :, 2])
+    lum = _textured_norm_luma(_block_median_grid(img_log), bounds)
     clip = float(EXPOSURE_CONSTANTS["anchor_trim_clip"])
     lo, hi = np.percentile(lum, [clip, 100.0 - clip])
     inner = lum[(lum >= lo) & (lum <= hi)]

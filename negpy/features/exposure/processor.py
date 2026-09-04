@@ -31,6 +31,7 @@ from negpy.features.exposure.normalization import (
     measure_clip_fractions,
     measure_neutral_axis_from_log,
     measure_shadow_refs_from_log,
+    measure_shadow_point_from_log,
     measure_textural_range_from_log,
     normalize_log_image,
     prefilter_log_grid,
@@ -194,6 +195,7 @@ class NormalizationProcessor:
         anchor_bounds = luma_source_bounds(self.config, base_bounds)
         context.metrics["metered_anchor"] = measure_anchor_from_log(prefiltered, anchor_bounds, None, 0.0)
         context.metrics["textural_range"] = measure_textural_range_from_log(prefiltered, None, 0.0)
+        context.metrics["shadow_point"] = measure_shadow_point_from_log(prefiltered, anchor_bounds, None, 0.0)
 
         context.metrics["final_bounds"] = bounds
         context.metrics["normalized_log"] = res
@@ -318,6 +320,7 @@ class PhotometricProcessor:
             paper=paper,
             neutral_axis_norm=neutral_axis_norm,
             grade_trims=(self.config.grade_trim_red, self.config.grade_trim_green, self.config.grade_trim_blue),
+            shadow_point=context.metrics.get("shadow_point"),
         )
         context.metrics["print_slopes"] = slopes
 

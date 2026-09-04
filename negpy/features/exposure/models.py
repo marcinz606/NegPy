@@ -240,6 +240,11 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "auto_grade_nominal_ratio": 1.5,
     # Percentile margin for the "textural" scene range (rejects speculars and dust).
     "textural_range_clip": 10.0,
+    # Auto Grade shadow reach: the dark tail of the textured cells (this percentile of
+    # the normalized luma) must print at least this straight-line density; the grade
+    # only ever goes harder for it (Gindele, US 7,113,649).
+    "shadow_reach_percentile": 99.0,
+    "shadow_reach_density": 1.9,
     # Flat / digital-intermediate master (RenderIntent.FLAT). A log-video master:
     # the normalized log signal becomes the code value directly, with no 10^-D
     # decode and no sRGB OETF, so it stays flat and fully invertible.
@@ -272,6 +277,7 @@ TUNABLE_TARGETS: Dict[str, Tuple[float, float]] = {
     "anchor_meter_band": (0.0, 0.4),
     "auto_grade_target": (0.4, 1.2),
     "auto_grade_strength": (0.0, 1.0),
+    "shadow_reach_density": (1.4, 2.2),
 }
 DEFAULT_TARGETS: Dict[str, float] = {k: float(EXPOSURE_CONSTANTS[k]) for k in TUNABLE_TARGETS}
 

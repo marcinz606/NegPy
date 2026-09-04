@@ -50,6 +50,12 @@ _GROUPS = (
                 "How far the grade is pulled toward a normal negative's textural range. 0 prints "
                 "every frame on one fixed paper; 1 prints every frame's detail range alike.",
             ),
+            (
+                "shadow_reach_density",
+                "Shadow Reach",
+                "Print density the darkest textured tones must reach. The grade only goes harder "
+                "for it, so a flat negative still prints a black. Lower for softer shadows.",
+            ),
         ),
     ),
 )
