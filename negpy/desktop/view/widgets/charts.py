@@ -193,6 +193,7 @@ class PhotometricCurveWidget(QWidget):
         process_mode: str | None = None,
         flat: bool = False,
         mask_centre: float | None = None,
+        highlight_density: float | None = None,
     ) -> None:
         from negpy.features.exposure.logic import (
             _expit,
@@ -259,6 +260,7 @@ class PhotometricCurveWidget(QWidget):
                 toe_width=tw_ch,
                 shoulder_width=sw_ch,
                 midtone_gamma=mg_ch,
+                highlight_density=highlight_density,
                 shadow_grade_delta=sg_ch,
                 highlight_grade_delta=hg_ch,
                 curvature=curv_ch,

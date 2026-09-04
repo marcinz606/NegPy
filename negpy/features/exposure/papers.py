@@ -91,6 +91,7 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
     # ── B&W (tonal only) ──────────────────────────────────────────────────────
     "ilford_mg_rc": PaperProfile(
         label="Ilford Multigrade RC",
+        toe_sharpness_base=4.0,
         kind="bw",
         # Neutral VC workhorse; Dmax ~2.1, normal contrast.
         d_max=2.10,
@@ -123,6 +124,7 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
     ),
     "foma_fomabrom": PaperProfile(
         label="Foma Fomabrom Variant",
+        toe_sharpness_base=4.0,
         kind="bw",
         # Neutral baryta, Dmax 2.0.
         d_max=2.0,
@@ -152,6 +154,7 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
     ),
     "fuji_crystal": PaperProfile(
         label="Fujicolor Crystal Archive",
+        toe_sharpness_base=4.0,
         kind="ra4",
         # No published curve, so this is a rough estimate: brilliant whites, vivid blue and
         # green, a slightly cool base. The tint is a per-channel density offset, where positive

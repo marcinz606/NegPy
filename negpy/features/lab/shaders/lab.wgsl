@@ -28,6 +28,8 @@ const SHARPEN_GATE_HI = 0.33;
 const SHARPEN_OVERSHOOT_LIGHT = 1.0;
 const SHARPEN_OVERSHOOT_DARK = 2.0;
 const SHARPEN_MASK_T_HI = 10.0;
+const SHARPEN_SHADOW_FLOOR = 1.0 / 3.0;
+const SHARPEN_SHADOW_L_HI = 35.0;
 const RL_EPS = 1e-6;
 
 // Adobe RGB (1998) -> XYZ D65 luminance row (Yn=1) — mirrors LUM_R/LUM_G/LUM_B in
@@ -35,6 +37,11 @@ const RL_EPS = 1e-6;
 const WORKING_LUMA_COEFFS = vec3<f32>(0.2973769, 0.6273491, 0.0752741);
 
 // CIELAB L* from linear luminance Y (D65, Yn=1) — mirrors _lab_l_from_y in logic.py.
+// Mirrors sharpen_shadow_gain in logic.py: gain rolls off toward paper black.
+fn sharpen_shadow_gain(l: f32) -> f32 {
+    return SHARPEN_SHADOW_FLOOR + (1.0 - SHARPEN_SHADOW_FLOOR) * smoothstep(0.0, SHARPEN_SHADOW_L_HI, l);
+}
+
 fn lab_l_from_y(y_in: f32) -> f32 {
     var y = max(y_in, 0.0);
     if (y > 0.008856) { y = pow(y, 1.0 / 3.0); } else { y = (7.787 * y) + (16.0 / 116.0); }
@@ -367,7 +374,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let current_lab = rgb_to_lab(color);
         let diff = current_lab.x - blur_l;
         let gate = smoothstep(SHARPEN_GATE_LO, SHARPEN_GATE_HI, abs(diff));
-        var gain = params.sharpen * 2.5 * gate;
+        var gain = params.sharpen * 2.5 * gate * sharpen_shadow_gain(current_lab.x);
 
         // Local 3x3 stats over the original L* (sharpen_tex.y), clamped coords —
         // matches the CPU's BORDER_REPLICATE erode/dilate and boxed gradient.
@@ -410,7 +417,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         // is (deconvolved Y, observed Y); apply the luminance ratio to RGB
         // (chroma-preserving), gated by the shared edge mask over L*(obs).
         let d = textureLoad(sharpen_tex, coords, 0);
-        var gain = params.sharpen;
+        var gain = params.sharpen * sharpen_shadow_gain(lab_l_from_y(d.y));
         if (params.sharpen_masking > 0.0) {
             var grad_box = 0.0;
             for (var j = -1; j <= 1; j++) {

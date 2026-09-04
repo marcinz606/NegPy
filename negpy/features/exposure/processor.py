@@ -18,6 +18,7 @@ from negpy.features.exposure.logic import (
     split_grade_deltas,
     local_ev_scale,
     local_grade_factor_map,
+    highlight_hold_offset,
     per_channel_curve_params,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig, RenderIntent
@@ -28,9 +29,11 @@ from negpy.features.exposure.normalization import (
     luma_source_bounds,
     luminance_density_range,
     measure_anchor_from_log,
+    measure_highlight_point_from_log,
     measure_clip_fractions,
     measure_neutral_axis_from_log,
     measure_shadow_refs_from_log,
+    measure_shadow_point_from_log,
     measure_textural_range_from_log,
     normalize_log_image,
     prefilter_log_grid,
@@ -194,6 +197,8 @@ class NormalizationProcessor:
         anchor_bounds = luma_source_bounds(self.config, base_bounds)
         context.metrics["metered_anchor"] = measure_anchor_from_log(prefiltered, anchor_bounds, None, 0.0)
         context.metrics["textural_range"] = measure_textural_range_from_log(prefiltered, None, 0.0)
+        context.metrics["shadow_point"] = measure_shadow_point_from_log(prefiltered, anchor_bounds, None, 0.0)
+        context.metrics["highlight_point"] = measure_highlight_point_from_log(prefiltered, anchor_bounds, None, 0.0)
 
         context.metrics["final_bounds"] = bounds
         context.metrics["normalized_log"] = res
@@ -318,8 +323,15 @@ class PhotometricProcessor:
             paper=paper,
             neutral_axis_norm=neutral_axis_norm,
             grade_trims=(self.config.grade_trim_red, self.config.grade_trim_green, self.config.grade_trim_blue),
+            shadow_point=context.metrics.get("shadow_point"),
         )
         context.metrics["print_slopes"] = slopes
+        hl_point = context.metrics.get("highlight_point")
+        hl_auto = (
+            highlight_hold_offset(slopes[1], pivots[1], hl_point, d_min=d_min, paper=paper)
+            if self.config.auto_normalize_contrast and hl_point is not None
+            else 0.0
+        )
 
         cmy_max = EXPOSURE_CONSTANTS["cmy_max_density"]
         cmy_offsets = filtration_offsets(
@@ -415,7 +427,7 @@ class PhotometricProcessor:
                 self.config.shoulder_width_trim_blue,
             ),
             shadow_density=self.config.shadow_density,
-            highlight_density=self.config.highlight_density,
+            highlight_density=self.config.highlight_density + hl_auto,
             shadow_grade_deltas=sg_deltas,
             highlight_grade_deltas=hg_deltas,
             # B&W collapses to luminance before this call, with all channels equal, so the matrix is

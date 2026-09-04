@@ -51,11 +51,12 @@ class TestGradeTargetsTakeEffect(TargetsTestCase):
         apply_targets({"auto_grade_target": DEFAULT_TARGETS["auto_grade_target"] * 2})
         self.assertAlmostEqual(float(effective_grade_range(True, 1.6, 0.8) or 0.0), base * 2, places=6)
 
-    def test_adaptation_strength_zero_ignores_the_scene(self):
+    def test_adaptation_strength_zero_is_a_fixed_paper(self):
+        # The textural range no longer votes: the grade tracks the negative's range alone.
         apply_targets({"auto_grade_strength": 0.0})
         flat = float(effective_grade_range(True, 1.2, 1.0) or 0.0)
         dense = float(effective_grade_range(True, 2.8, 0.6) or 0.0)
-        self.assertAlmostEqual(flat, dense, places=6)
+        self.assertAlmostEqual(flat / 1.2, dense / 2.8, places=6)
 
 
 class TestDensityTargetsTakeEffect(TargetsTestCase):

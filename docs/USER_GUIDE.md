@@ -527,7 +527,7 @@ The paper's response. A **Global / R / G / B** selector at the top scopes most c
 **Automatic helpers**, on by default. They do per-frame work so you do not have to, and turning them off lets the negative print honestly.
 
 *   **Auto Density**: meters each frame's midtone and anchors print brightness there, so dense and flat negatives land consistently.
-*   **Auto Grade**: aims each frame at a contrast target instead of printing the negative's own range, so dense negatives stop printing over-contrasty and flat ones stop printing muddy.
+*   **Auto Grade**: picks the grade from each frame's textural density range, partially, so dense negatives stop printing over-contrasty and flat ones stop printing muddy; it then goes harder if needed so the darkest textured tones still reach a black (Shadow Reach in Set Targets), and burns the brightest textured tones just enough to keep them off paper white (Highlight Hold).
 *   **Set Targets** (sliders icon): tune the exact brightness and contrast the two helpers aim for. Applies to every frame and is remembered between sessions.
 
 **Test strip** (grid icon, or `Shift+T`): prints the frame as a 5×5 grid, with Print Density rising left to right and ISO-R Grade softening top to bottom, so the diagonals read light-to-dark and soft-to-hard like a split-filter test strip. Both ladders are absolute and centred on their defaults, so the settings you already have are one of the patches. Each patch is a real render of the part of the frame it covers; click one to keep it. `Escape` or a second press clears it, and any edit drops it.
@@ -614,7 +614,7 @@ Mimics what a lab scanner (Frontier or Noritsu) does automatically. Color contro
 *   **Method**: *Unsharp Mask* (boosts edge contrast) or *Deconvolution* (Richardson-Lucy, which reverses the scanner's optical blur; set Radius to the scan's blur width).
 *   **Sharpening** (0.0 to 1.0): amount, on the L (lightness) channel so there are no color halos.
 *   **Radius** (0.5 to 3.0 px): blur width in output pixels, small for fine grain and larger for soft scans. Sharpening acts on the pixels of the exported file, so a fit-to-window preview shows less of it than the export carries; judge it at 1:1 with the loupe or at 100% zoom.
-*   **Masking** (0.0 to 1.0): restrict sharpening to edges, which protects flat areas like sky, skin and grain.
+*   **Masking** (0.0 to 1.0): restrict sharpening to edges, which protects flat areas like sky, skin and grain. Independently of it, both methods sharpen the deepest shadows at a third of the amount, since that is where negative grain is coarsest.
 
 **Detail:**
 

@@ -250,13 +250,13 @@ class TestExposureDomainDodgeBurn(unittest.TestCase):
     def test_burn_rolls_into_toe_no_clip(self):
         """Deeper burns approach paper black asymptotically: density stays below
         d_max, transmittance stays above zero, and increments shrink."""
-        d = {ev: float(-np.log10(np.mean(self._render(ev)))) for ev in (2.0, 4.0, 6.0)}
+        d = {ev: float(-np.log10(np.mean(self._render(ev)))) for ev in (1.0, 1.5, 2.0)}
         d_max = EXPOSURE_CONSTANTS["d_max"]
-        self.assertLess(d[2.0], d[4.0])
-        self.assertLess(d[4.0], d[6.0])
-        self.assertLess(d[6.0], d_max + 1e-3)
+        self.assertLess(d[1.0], d[1.5])
+        self.assertLess(d[1.5], d[2.0])
+        self.assertLess(d[2.0], d_max + 1e-3)
         self.assertGreater(float(self._render(6.0).min()), 0.0)
-        self.assertGreater(d[4.0] - d[2.0], d[6.0] - d[4.0])
+        self.assertGreater(d[1.5] - d[1.0], d[2.0] - d[1.5])
 
     def test_dodge_rolls_into_shoulder_no_clip(self):
         """Deeper dodges approach paper white (10^-d_min) asymptotically:

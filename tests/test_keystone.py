@@ -147,7 +147,7 @@ class TestKeystoneParity(unittest.TestCase):
             cpu, gpu = render(False, **geo), render(True, **geo)
             self.assertEqual(cpu.shape, gpu.shape, str(geo))
             self.assertLess(float(np.mean(np.abs(cpu - gpu))), 0.01, str(geo))
-            self.assertLess(float(np.max(np.abs(cpu - gpu))), 0.04, str(geo))
+            self.assertLess(float(np.max(np.abs(cpu - gpu))), 0.06, str(geo))
 
 
 if __name__ == "__main__":

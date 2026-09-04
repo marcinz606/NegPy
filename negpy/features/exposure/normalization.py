@@ -462,6 +462,83 @@ def luminance_density_range(bounds: LogNegativeBounds) -> float:
     return float(LUMA_R * rr + LUMA_G * rg + LUMA_B * rb)
 
 
+def _textured_cells(lum: np.ndarray) -> np.ndarray:
+    """
+    Cells of the prefiltered luma grid that carry detail. The grid is tiled into
+    sectors of 2x2 blocks of activity_block cells; a sector votes when its four block
+    means span more than activity_gate_density (Boyack & Juenger, US 5,724,456). Block
+    means average grain out, and a flat sector beside a textured one stays out because
+    only its own blocks are compared. Falls back to every cell when too few pass.
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    c = EXPOSURE_CONSTANTS
+    b = int(c["activity_block"])
+    h, w = lum.shape
+    hs, ws = (h // (2 * b)) * 2 * b, (w // (2 * b)) * 2 * b
+    if hs == 0 or ws == 0:
+        return lum.ravel()
+    core = lum[:hs, :ws]
+    blocks = core.reshape(hs // b, b, ws // b, b).mean(axis=(1, 3))
+    sectors = blocks.reshape(hs // (2 * b), 2, ws // (2 * b), 2)
+    active = (sectors.max(axis=(1, 3)) - sectors.min(axis=(1, 3))) > float(c["activity_gate_density"])
+    if active.mean() < float(c["activity_min_fraction"]):
+        return lum.ravel()
+    mask = np.repeat(np.repeat(active, 2 * b, axis=0), 2 * b, axis=1)
+    return core[mask]
+
+
+def _textured_norm_luma(grid: ImageBuffer, bounds: LogNegativeBounds) -> np.ndarray:
+    """Luma of the grid normalized against `bounds`, textured cells only."""
+    epsilon = 1e-6
+    norm = np.empty_like(grid)
+    for ch in range(3):
+        f = bounds.floors[ch]
+        denom = bounds.ceils[ch] - f
+        if abs(denom) < epsilon:
+            denom = epsilon if denom >= 0 else -epsilon
+        norm[:, :, ch] = (grid[:, :, ch] - f) / denom
+    return _textured_cells(LUMA_R * norm[:, :, 0] + LUMA_G * norm[:, :, 1] + LUMA_B * norm[:, :, 2])
+
+
+def measure_shadow_point_from_log(
+    img_log: ImageBuffer,
+    bounds: LogNegativeBounds,
+    roi: Optional[tuple[int, int, int, int]] = None,
+    analysis_buffer: float = 0.0,
+) -> float:
+    """Normalized luma of the textured dark tail (shadow_reach_percentile), the tone
+    Auto Grade's shadow reach prints at paper black."""
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    if roi:
+        y1, y2, x1, x2 = roi
+        img_log = img_log[y1:y2, x1:x2]
+    if analysis_buffer > 0:
+        img_log = get_analysis_crop(img_log, analysis_buffer)
+    lum = _textured_norm_luma(_block_median_grid(img_log), bounds)
+    return float(np.percentile(lum, float(EXPOSURE_CONSTANTS["shadow_reach_percentile"])))
+
+
+def measure_highlight_point_from_log(
+    img_log: ImageBuffer,
+    bounds: LogNegativeBounds,
+    roi: Optional[tuple[int, int, int, int]] = None,
+    analysis_buffer: float = 0.0,
+) -> float:
+    """Normalized luma of the textured bright tail (highlight_hold_percentile), the tone
+    Auto Grade's highlight hold keeps off paper white."""
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    if roi:
+        y1, y2, x1, x2 = roi
+        img_log = img_log[y1:y2, x1:x2]
+    if analysis_buffer > 0:
+        img_log = get_analysis_crop(img_log, analysis_buffer)
+    lum = _textured_norm_luma(_block_median_grid(img_log), bounds)
+    return float(np.percentile(lum, float(EXPOSURE_CONSTANTS["highlight_hold_percentile"])))
+
+
 def measure_anchor_from_log(
     img_log: ImageBuffer,
     bounds: LogNegativeBounds,
@@ -470,8 +547,10 @@ def measure_anchor_from_log(
 ) -> float:
     """
     Per-frame exposure anchor: where this negative's midtone sits in [0, 1],
-    replacing the fixed assumed_anchor. Block-median prefiltered (speculars/dust
-    rejected).
+    replacing the fixed assumed_anchor. Read over the textured cells of the
+    block-median grid, as the mean of the trimmed window and its midpoint averaged
+    (Boyack & Juenger, US 5,724,456), so a skewed histogram is placed by its
+    detail-bearing span rather than by its median.
 
     Partial metering: the anchor moves only anchor_meter_strength of the way from
     assumed_anchor toward the metered median, so a deliberately low-key (dark) or
@@ -482,26 +561,17 @@ def measure_anchor_from_log(
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
-    epsilon = 1e-6
     if roi:
         y1, y2, x1, x2 = roi
         img_log = img_log[y1:y2, x1:x2]
     if analysis_buffer > 0:
         img_log = get_analysis_crop(img_log, analysis_buffer)
 
-    img_log = _block_median_grid(img_log)
-
-    norm = np.empty_like(img_log)
-    for ch in range(3):
-        f = bounds.floors[ch]
-        denom = bounds.ceils[ch] - f
-        if abs(denom) < epsilon:
-            denom = epsilon if denom >= 0 else -epsilon
-        norm[:, :, ch] = (img_log[:, :, ch] - f) / denom
-
-    lum = LUMA_R * norm[:, :, 0] + LUMA_G * norm[:, :, 1] + LUMA_B * norm[:, :, 2]
-    p = float(EXPOSURE_CONSTANTS["anchor_meter_percentile"])
-    measured = float(np.percentile(lum, p))
+    lum = _textured_norm_luma(_block_median_grid(img_log), bounds)
+    clip = float(EXPOSURE_CONSTANTS["anchor_trim_clip"])
+    lo, hi = np.percentile(lum, [clip, 100.0 - clip])
+    inner = lum[(lum >= lo) & (lum <= hi)]
+    measured = 0.5 * (float(inner.mean()) + 0.5 * (float(lo) + float(hi)))
 
     assumed = float(EXPOSURE_CONSTANTS["assumed_anchor"])
     strength = float(EXPOSURE_CONSTANTS["anchor_meter_strength"])
@@ -545,7 +615,7 @@ def measure_textural_range_from_log(
 
     img_log = _block_median_grid(img_log)
 
-    lum = LUMA_R * img_log[:, :, 0] + LUMA_G * img_log[:, :, 1] + LUMA_B * img_log[:, :, 2]
+    lum = _textured_cells(LUMA_R * img_log[:, :, 0] + LUMA_G * img_log[:, :, 1] + LUMA_B * img_log[:, :, 2])
     clip = float(EXPOSURE_CONSTANTS["textural_range_clip"])
     lo, hi = np.percentile(lum, [clip, 100.0 - clip])
     return float(abs(hi - lo))
