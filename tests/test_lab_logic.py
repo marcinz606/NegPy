@@ -9,6 +9,7 @@ from negpy.features.lab.logic import (
     apply_glow_and_halation,
     apply_output_sharpening,
     apply_rl_sharpening,
+    sharpen_shadow_gain,
     apply_saturation,
     gaussian_kernel_1d,
     rl_iterations,
@@ -618,3 +619,46 @@ class SharpenScaleTests(unittest.TestCase):
 
         self.assertGreater(fine_gain, 1.2)
         self.assertGreater(fine_gain, coarse_gain)
+
+
+def _textured_patch(l_mean: float, amp: float = 3.0, size: int = 48) -> np.ndarray:
+    """Period-10 L* stripes around l_mean, as working RGB: coarse enough for the
+    σ=1 blur to leave a difference and for the halo clamp to stay out of the way."""
+    xx = np.arange(size, dtype=np.float32)[None, :]
+    lstar = (l_mean + amp * np.sin(2.0 * np.pi * xx / 10.0)).repeat(size, axis=0).astype(np.float32)
+    lab = np.stack([lstar, np.zeros_like(lstar), np.zeros_like(lstar)], axis=-1)
+    return np.clip(lab_to_rgb_working(lab), 0.0, 1.0).astype(np.float32)
+
+
+def _l_contrast_gain(fn, img, **kw) -> float:
+    l_in = rgb_to_lab_working(img)[..., 0]
+    l_out = rgb_to_lab_working(fn(img, amount=1.0, **kw).astype(np.float32))[..., 0]
+    c = slice(8, -8)
+    return float(np.std(l_out[c, c]) / np.std(l_in[c, c]))
+
+
+class TestSharpenShadowGain(unittest.TestCase):
+    """Sharpening gain rolls off toward paper black, where the thin negative's grain
+    lives (Gallagher & Gindele, US 7,228,004)."""
+
+    def test_ramp_shape(self):
+        from negpy.features.lab.logic import SHARPEN_SHADOW_FLOOR, SHARPEN_SHADOW_L_HI
+
+        lstar = np.array([0.0, 0.5 * SHARPEN_SHADOW_L_HI, SHARPEN_SHADOW_L_HI, 100.0], dtype=np.float32)
+        g = sharpen_shadow_gain(lstar)
+        self.assertAlmostEqual(float(g[0]), SHARPEN_SHADOW_FLOOR, places=5)
+        self.assertTrue(SHARPEN_SHADOW_FLOOR < float(g[1]) < 1.0)
+        self.assertAlmostEqual(float(g[2]), 1.0, places=5)
+        self.assertAlmostEqual(float(g[3]), 1.0, places=5)
+
+    def test_usm_sharpens_deep_shadow_texture_less(self):
+        dark = _l_contrast_gain(apply_output_sharpening, _textured_patch(6.0))
+        light = _l_contrast_gain(apply_output_sharpening, _textured_patch(60.0))
+        self.assertGreater(light, 1.3)
+        self.assertLess((dark - 1.0) / (light - 1.0), 0.6)
+
+    def test_rl_sharpens_deep_shadow_texture_less(self):
+        dark = _l_contrast_gain(apply_rl_sharpening, _textured_patch(6.0), radius=1.0)
+        light = _l_contrast_gain(apply_rl_sharpening, _textured_patch(60.0), radius=1.0)
+        self.assertGreater(light, 1.15)
+        self.assertLess((dark - 1.0) / (light - 1.0), 0.6)

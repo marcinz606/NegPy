@@ -91,6 +91,10 @@ SHARPEN_GATE_HI = 0.33
 SHARPEN_OVERSHOOT_LIGHT = 1.0
 SHARPEN_OVERSHOOT_DARK = 2.0
 SHARPEN_MASK_T_HI = 10.0
+# Gain rolls off toward paper black, where the thin negative's grain lives: floor at
+# L* 0, full gain from SHARPEN_SHADOW_L_HI up (Gallagher & Gindele, US 7,228,004).
+SHARPEN_SHADOW_FLOOR = 1.0 / 3.0
+SHARPEN_SHADOW_L_HI = 35.0
 
 
 def gaussian_kernel_1d(sigma: float) -> np.ndarray:
@@ -134,6 +138,12 @@ def _edge_mask(l_chan: np.ndarray, masking: float) -> np.ndarray:
     return _smoothstep(0.5 * t, t, grad)
 
 
+def sharpen_shadow_gain(l_chan: np.ndarray) -> np.ndarray:
+    """Per-pixel sharpen gain multiplier from L*; mirrors sharpen_shadow_gain in lab.wgsl."""
+    f = np.float32(SHARPEN_SHADOW_FLOOR)
+    return f + (np.float32(1.0) - f) * _smoothstep(0.0, SHARPEN_SHADOW_L_HI, l_chan)
+
+
 def rl_iterations(radius: float) -> int:
     """Deterministic RL iteration count from the user radius (not the scaled σ),
     so preview and export run identical counts. Shared by CPU and GPU."""
@@ -164,7 +174,7 @@ def apply_output_sharpening(
     l_blur = cv2.sepFilter2D(l_chan, -1, k, k, borderType=cv2.BORDER_REFLECT_101)
 
     diff = l_chan - l_blur
-    gain = np.float32(amount * 2.5) * _smoothstep(SHARPEN_GATE_LO, SHARPEN_GATE_HI, np.abs(diff))
+    gain = np.float32(amount * 2.5) * _smoothstep(SHARPEN_GATE_LO, SHARPEN_GATE_HI, np.abs(diff)) * sharpen_shadow_gain(l_chan)
 
     if masking > 0.0:
         gain = gain * _edge_mask(l_chan, masking)
@@ -215,9 +225,10 @@ def apply_rl_sharpening(
         est = est * corr
 
     ratio = est / np.maximum(obs, np.float32(RL_EPS))
-    gain = np.float32(amount)
+    l_obs = _lab_l_from_y(obs)
+    gain = np.float32(amount) * sharpen_shadow_gain(l_obs)
     if masking > 0.0:
-        gain = gain * _edge_mask(_lab_l_from_y(obs), masking)
+        gain = gain * _edge_mask(l_obs, masking)
 
     factor = np.maximum(np.float32(1.0) + (ratio - np.float32(1.0)) * gain, 0.0)
     out = rgb * factor[..., np.newaxis]

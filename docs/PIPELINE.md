@@ -451,10 +451,11 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
     **Unsharp Mask**, on the Lightness channel ($L$) in LAB space, with halo suppression (`lab_sharpen_h/v.wgsl`):
 
     $$L_{diff} = L - \text{blur}(L, \sigma), \qquad \sigma = \text{radius}$$
-    $$\text{gain} = \text{amount} \cdot 2.5 \cdot \text{smoothstep}(0.25, 0.33, |L_{diff}|) \cdot m$$
+    $$\text{gain} = \text{amount} \cdot 2.5 \cdot \text{smoothstep}(0.25, 0.33, |L_{diff}|) \cdot m \cdot g(L)$$
     $$L_{final} = \text{clamp}\big(L + L_{diff}\cdot\text{gain},\; L_{min}-2,\; L_{max}+1\big)$$
     *   **Radius** (px): blur $\sigma$, in output pixels. Acutance belongs to the pixels being written, so the preview under-represents it at fit-to-window; judge sharpening at 1:1.
     *   **Masking** ($m$): edge mask from the boxed $|\nabla L|$, $\text{smoothstep}(0.5t, t, |\nabla L|)$ with $t = 10\cdot\text{masking}$. It protects flat areas (sky, skin, grain), and is off at 0.
+    *   **Shadow gain** ($g(L)$, fixed): $\tfrac{1}{3} + \tfrac{2}{3}\,\text{smoothstep}(0, 35, L)$. The deepest print tones come from the thinnest negative, where grain is largest relative to signal, so sharpening rolls off toward paper black and is at full strength from $L^{\ast}$ 35 up (Gallagher & Gindele, US 7,228,004). Both methods apply it; Deconvolution reads $L^{\ast}$ of the observed $Y$.
     *   A smoothstep noise gate over $[0.25, 0.33]$ replaces a hard threshold, sized against $|L_{diff}|$ at a 1 px radius, which tops out near 1.0. The overshoot clamp to the local $3\times3$ range ($L_{min}, L_{max}$) kills halos, tighter above (+1) than below (−2) because $L^{\ast}$-domain USM exaggerates light halos.
 
     **Deconvolution**, Richardson-Lucy on linear luminance $Y$ with a Gaussian PSF, reversing the scanner's optical blur (`rl_*.wgsl`). It runs on $Y$, not $L^{\ast}$, because optical blur is physical, so the model must live in linear light.

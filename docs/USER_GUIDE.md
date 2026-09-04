@@ -614,7 +614,7 @@ Mimics what a lab scanner (Frontier or Noritsu) does automatically. Color contro
 *   **Method**: *Unsharp Mask* (boosts edge contrast) or *Deconvolution* (Richardson-Lucy, which reverses the scanner's optical blur; set Radius to the scan's blur width).
 *   **Sharpening** (0.0 to 1.0): amount, on the L (lightness) channel so there are no color halos.
 *   **Radius** (0.5 to 3.0 px): blur width in output pixels, small for fine grain and larger for soft scans. Sharpening acts on the pixels of the exported file, so a fit-to-window preview shows less of it than the export carries; judge it at 1:1 with the loupe or at 100% zoom.
-*   **Masking** (0.0 to 1.0): restrict sharpening to edges, which protects flat areas like sky, skin and grain.
+*   **Masking** (0.0 to 1.0): restrict sharpening to edges, which protects flat areas like sky, skin and grain. Independently of it, both methods sharpen the deepest shadows at a third of the amount, since that is where negative grain is coarsest.
 
 **Detail:**
 
