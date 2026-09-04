@@ -59,6 +59,11 @@ class _AppStyle(QProxyStyle):
     def styleHint(self, hint, option=None, widget=None, returnData=None):
         if hint == QStyle.StyleHint.SH_ToolTip_WakeUpDelay:
             return self._TOOLTIP_WAKEUP_MS
+        if hint == QStyle.StyleHint.SH_Button_FocusPolicy:
+            # QAbstractButton reads this once, at construction. Click focus would leave the
+            # sheet's focus border on every button the user last pressed, which reads as a
+            # toggle stuck on; tabbing still reaches them.
+            return int(Qt.FocusPolicy.TabFocus.value)
         if hint == QStyle.StyleHint.SH_UnderlineShortcut and sys.platform == "darwin":
             # Qt's own standard-button text carries the mnemonic ("&Yes"), but macOS has no mnemonic
             # convention, so QKeySequence::mnemonic() returns empty there and nothing is ever bound.
