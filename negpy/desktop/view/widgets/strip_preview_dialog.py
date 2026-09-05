@@ -6,7 +6,7 @@ Read after ``exec()`` via ``selected_frames()`` / ``frame_windows()`` /
 """
 
 import qtawesome as qta
-from PyQt6.QtCore import Qt, pyqtSlot
+from PyQt6.QtCore import Qt, QTimer, pyqtSlot
 from PyQt6.QtGui import QPixmap, QTransform
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -53,6 +53,9 @@ _TILES_PER_ROW = 6  # columns assumed before the grid has a width to measure
 # A transport that measures the strip reports its frame count only as previews arrive, so ask
 # for a roll's worth and keep the tiles it answers with.
 _DISCOVERY_SLOTS = 40
+# Stillness before a moved offset re-cuts its tiles out of the strip pass. Long enough that a
+# drag makes one request, short enough that the pixels follow the hand.
+_RECUT_DELAY_MS = 250
 
 # A coolscan3 raster is portrait, with the feed axis vertical, so rotate each preview -90°
 # and the frame reads landscape. QTransform().rotate(-90) maps a scan point (fx, fy) to
@@ -96,7 +99,7 @@ _OFFSET_TIP = (
     "grows; the shaded band is film past the frame boundary the transport cannot deliver, so "
     "offset past the gap costs frame tail."
 )
-_DRIFT_TIP = "Adds progressively more (or less) offset per frame position, for a strip whose gaps creep. Re-preview to refresh the pixels."
+_DRIFT_TIP = "Adds progressively more (or less) offset per frame position, for a strip whose gaps creep."
 _TILE_OFFSET_TIP = "Corrects this frame alone, on top of Offset and Drift. Double-click to reset."
 _SIZE_TIP = "Tile size. The grid reflows to whatever fits the dialog. Double-click to reset."
 
@@ -167,6 +170,13 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self._tile_aspect = (mm[1] / mm[0]) if (mm and len(mm) > 1 and mm[0]) else 1.5
         self._previewing = False
         self._detected_on_open = False
+        # A measured strip is already in memory, so a moved offset re-reads the film instead of
+        # sliding the pixels already on show: the tile is the film the scan takes.
+        self._recutting = False
+        self._recut = QTimer(self)
+        self._recut.setSingleShot(True)
+        self._recut.setInterval(_RECUT_DELAY_MS)
+        self._recut.timeout.connect(self._recut_moved_tiles)
         self._failed_frames: list[int] = []
         self._scan_now = False  # set when the user chooses "Scan" over "Use"
         initial_windows = initial_windows or {}
@@ -603,6 +613,8 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self.offset_label.setText(f"{self.frame_offset():.1f} mm")
         self.drift_label.setText(f"{self.frame_offset_modifier():+.2f} mm/frame")
         self._refresh_offset_indicators()
+        if self._discovers and self._tiles:
+            self._recut.start()
 
     def _tile_coverage(self, tile: _Tile) -> tuple[float, float]:
         """Span a raster previewed at x occupies when the slider reads y: (x − y, 1 − y).
@@ -685,7 +697,32 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         slots = _DISCOVERY_SLOTS if self._discovers else self._capacity
         self._start_preview(tuple(range(1, slots + 1)))
 
-    def _start_preview(self, slots: tuple[int, ...]) -> None:
+    def done(self, result: int) -> None:
+        """A pending re-cut outlives nothing: the timer holds this dialog."""
+        self._recut.stop()
+        super().done(result)
+
+    def _recut_moved_tiles(self) -> None:
+        """Re-read the frames whose offset no longer matches the pixels on show.
+
+        Cutting a tile out of the strip pass costs no scanning, so a nudged frame shows the film
+        the scan will take rather than a slide of the film it took.
+        """
+        if self._previewing:
+            self._recut.start()
+            return
+        pitch = self._frame_pitch()
+        if not pitch:
+            return
+        moved = tuple(
+            frame
+            for frame, tile in sorted(self._tiles.items())
+            if abs(self._raw_offset_for_frame(frame) / pitch - (tile.previewed_offset or 0.0)) > 1e-4
+        )
+        if moved:
+            self._start_preview(moved, message=f"Re-cutting {count_of(len(moved), 'frame')}…")
+
+    def _start_preview(self, slots: tuple[int, ...], *, message: str | None = None) -> None:
         if self._previewing:
             return
         self._failed_frames = []
@@ -706,8 +743,11 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
             self.status_strip.set_message(f"Scanner busy — {e}")
             return
         self._previewing = True
+        self._recutting = message is not None
         self._set_previewing(True)
-        if self._discovers and len(slots) > 1:
+        if message is not None:
+            self.status_strip.set_message(message)
+        elif self._discovers and len(slots) > 1:
             # The slot count asked for is a roll's worth, not what the strip holds.
             self.status_strip.set_message("Measuring the strip…")
         else:
@@ -745,7 +785,8 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
     def _on_preview_finished(self) -> None:
         self._previewing = False
         self._set_previewing(False)
-        if self._discovers and not self._failed_frames:
+        recut, self._recutting = self._recutting, False
+        if self._discovers and not self._failed_frames and not recut:
             found = len(self._tiles)
             self.status_strip.set_message(
                 f"{count_of(found, 'frame')} detected — check the framing before scanning."
