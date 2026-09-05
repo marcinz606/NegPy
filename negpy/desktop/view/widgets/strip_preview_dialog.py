@@ -483,10 +483,26 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
     # ── result getters ────────────────────────────────────────────────
 
     def selected_frames(self) -> tuple[int, ...]:
+        """Ticked frames, or what was saved where the strip was never measured.
+
+        A dialog whose detection was stopped has no tiles to read, and an empty answer there
+        would drop a selection the operator made on a previous pass.
+        """
+        if not self._tiles:
+            return self._initial_selected
         return tuple(sorted(f for f, t in self._tiles.items() if t.checkbox.isChecked()))
 
     def frame_windows(self) -> dict:
-        return {f: self._to_scan(t.label.window()) for f, t in self._tiles.items() if t.label.window() is not None}
+        """Per-frame crops. A frame with no tile keeps whatever was saved for it, as
+        ``frame_offsets`` does, so a stopped detection cannot erase the lot."""
+        merged = dict(self._initial_windows)
+        for frame, tile in self._tiles.items():
+            window = tile.label.window()
+            if window is None:
+                merged.pop(frame, None)  # cleared on a tile the operator could see is deliberate
+            else:
+                merged[frame] = self._to_scan(window)
+        return merged
 
     def _to_display(self, rect):
         return _scan_to_display_rect(rect) if self._rotation else rect
