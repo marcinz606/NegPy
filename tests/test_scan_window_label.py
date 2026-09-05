@@ -127,6 +127,8 @@ def test_the_frame_boundary_is_outlined_once_there_is_a_frame() -> None:
     """The offset is measured from the frame edge, so that edge has to be visible."""
     from PyQt6.QtGui import QColor
 
+    from negpy.desktop.view.styles.theme import THEME
+
     label = ScanWindowLabel()
     label.setFixedSize(120, 80)
     black = QPixmap(120, 80)
@@ -139,9 +141,8 @@ def test_the_frame_boundary_is_outlined_once_there_is_a_frame() -> None:
 
     on_edge = shot.pixelColor(rect.left(), rect.top() + rect.height() // 2)
     inside = shot.pixelColor(rect.left() + rect.width() // 2, rect.top() + rect.height() // 2)
-    # A neutral line over the black frame, with the picture itself left alone.
-    assert on_edge.red() == on_edge.green() == on_edge.blue()
-    assert on_edge.red() > inside.red() + 40
+    # The house red, undiluted, with the picture itself left alone.
+    assert on_edge.name() == QColor(THEME.accent_primary).name()
     assert inside.red() == 0
 
 
