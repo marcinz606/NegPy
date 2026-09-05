@@ -124,8 +124,7 @@ class CollapsibleSection(QWidget):
         else:
             self.main_layout.addWidget(self.toggle_button)
 
-        # Set a parent before applying the initial visibility.
-        self.content_area = QFrame(self)
+        self.content_area = QFrame()
         self.content_area.setObjectName("collapsible_content")
         self.content_layout = QVBoxLayout(self.content_area)
         self.content_layout.setContentsMargins(THEME.space_xl, 4, THEME.space_xl, 8)  # same inset as header

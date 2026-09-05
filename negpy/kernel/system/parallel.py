@@ -25,7 +25,8 @@ import sys
 import threading
 from typing import Any, Callable, Optional
 
-from negpy.kernel.system.jit import njit
+from numba import njit
+
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)

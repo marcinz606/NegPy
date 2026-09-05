@@ -8,6 +8,10 @@ This guide is for new users. It explains what each control does and when to reac
 
 ## 1. The Big Picture
 
+### Protected data folders on Windows
+
+If Windows blocks writes to NegPy's default data folder, NegPy offers to copy your edits, settings and presets to a new folder under `%LOCALAPPDATA%\NegPy`. Close other NegPy instances before accepting. Original files and exported images stay in place; caches are rebuilt. NegPy remembers the new location in `data-location.json` and keeps using it even if Documents becomes writable. An explicit `NEGPY_USER_DIR` takes priority and is never replaced automatically. If copying fails, NegPy reports the error without selecting an incomplete copy.
+
 ### Screen layout
 
 *   **Left, the film strip**: your loaded frames as a contact sheet, plus import, sorting and triage tools.

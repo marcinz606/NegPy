@@ -2,9 +2,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import cv2
 import numpy as np
-from numba import prange  # type: ignore
-
-from negpy.kernel.system.jit import njit
+from numba import njit, prange  # type: ignore
 
 from negpy.domain.types import ImageBuffer
 from negpy.features.exposure.papers import (

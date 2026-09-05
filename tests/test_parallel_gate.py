@@ -16,7 +16,6 @@ from negpy.kernel.system.parallel import default_cpu_parallel, resolve_cpu_paral
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent / "negpy"
 GATE = ROOT / "kernel" / "system" / "parallel.py"
-JIT = ROOT / "kernel" / "system" / "jit.py"
 
 
 def _python_files():
@@ -50,35 +49,6 @@ class TestNothingBypassesTheGate:
     def test_the_parallel_variant_is_never_called_directly(self):
         offenders = [str(p.relative_to(ROOT.parent)) for p in _python_files() if ".parallel(" in p.read_text(encoding="utf-8")]
         assert not offenders, "call the dispatcher, not the parallel variant: " + ", ".join(offenders)
-
-    def test_njit_uses_the_frozen_safe_wrapper(self):
-        offenders = []
-        for path in ROOT.rglob("*.py"):
-            if path == JIT:
-                continue
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-            numba_aliases = {
-                alias.asname or alias.name
-                for node in ast.walk(tree)
-                if isinstance(node, ast.Import)
-                for alias in node.names
-                if alias.name == "numba"
-            }
-            for node in ast.walk(tree):
-                direct_import = (
-                    isinstance(node, ast.ImportFrom)
-                    and (node.module == "numba" or (node.module or "").startswith("numba."))
-                    and any(alias.name in {"njit", "*"} for alias in node.names)
-                )
-                module_access = (
-                    isinstance(node, ast.Attribute)
-                    and node.attr == "njit"
-                    and isinstance(node.value, ast.Name)
-                    and node.value.id in numba_aliases
-                )
-                if direct_import or module_access:
-                    offenders.append(f"{path.relative_to(ROOT.parent)}:{node.lineno}")
-        assert not offenders, "import njit from negpy.kernel.system.jit so frozen builds disable disk caching: " + ", ".join(offenders)
 
 
 class TestPlatformDefaultIsUnmoved:

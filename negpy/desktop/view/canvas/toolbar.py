@@ -122,8 +122,6 @@ class ActionToolbar(QWidget):
 
         row_layout = QHBoxLayout()
         row_layout.setSpacing(6)
-        # The layout must have a parent before _rebuild_row() shows its controls.
-        v_layout.addLayout(row_layout)
 
         icon_color = THEME.text_primary
         icon_size = QSize(16, 16)
@@ -431,6 +429,7 @@ class ActionToolbar(QWidget):
         self._item_ids = load_toolbar_items(self.session.repo)
         self._rebuild_row()
 
+        v_layout.addLayout(row_layout)
         # Size the pill to its controls; don't stretch it across the canvas.
         main_layout.addWidget(container, 0, Qt.AlignmentFlag.AlignCenter)
 
