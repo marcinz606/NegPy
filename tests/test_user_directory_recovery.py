@@ -1,6 +1,8 @@
 import json
+import os
 from pathlib import Path
 import runpy
+import shutil
 import sqlite3
 import sys
 from types import SimpleNamespace
@@ -70,20 +72,53 @@ def test_copy_preserves_data_without_copying_cache_or_exports(locations):
     assert before == {str(p.relative_to(source)): p.read_bytes() for p in source.rglob("*") if p.is_file()}
 
 
-def test_backup_includes_committed_wal_data(locations):
+def test_backup_includes_committed_wal_data(locations, tmp_path):
     source, _ = locations
-    connection = sqlite3.connect(source / "edits.db")
+    live = tmp_path / "live.db"
+    connection = sqlite3.connect(live)
     try:
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("CREATE TABLE example (value TEXT)")
         connection.execute("INSERT INTO example VALUES ('wal edit')")
         connection.commit()
-        assert (source / "edits.db-wal").stat().st_size > 0
-        target = data.recover_user_directory(source)
-        assert _value(target / "edits.db") == "wal edit"
-        assert not (target / "edits.db-wal").exists()
+        assert Path(str(live) + "-wal").stat().st_size > 0
+        shutil.copyfile(live, source / "edits.db")
+        shutil.copyfile(Path(str(live) + "-wal"), source / "edits.db-wal")
     finally:
         connection.close()
+    before = {p.name: p.read_bytes() for p in source.iterdir()}
+    target = data.recover_user_directory(source)
+    assert _value(target / "edits.db") == "wal edit"
+    assert not (target / "edits.db-wal").exists()
+    assert before == {p.name: p.read_bytes() for p in source.iterdir()}
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows sharing flags")
+def test_open_database_writer_prevents_recovery(locations):
+    source, root = locations
+    connection = sqlite3.connect(source / "edits.db")
+    try:
+        connection.execute("CREATE TABLE example (value TEXT)")
+        connection.commit()
+        with pytest.raises(OSError, match="Close other NegPy"):
+            data.recover_user_directory(source)
+        assert not (root / "data-location.json").exists()
+    finally:
+        connection.close()
+
+
+def test_sqlite_never_opens_the_protected_source(monkeypatch, locations):
+    source, _ = locations
+    _database(source / "edits.db", "keep")
+    connect = sqlite3.connect
+
+    def guarded_connect(database, *args, **kwargs):
+        assert str(source) not in str(database), "SQLite must not create sidecars in the source"
+        return connect(database, *args, **kwargs)
+
+    monkeypatch.setattr(data.sqlite3, "connect", guarded_connect)
+    target = data.recover_user_directory(source)
+    assert _value(target / "edits.db") == "keep"
 
 
 def test_read_only_source_files_become_writable_copies(locations):

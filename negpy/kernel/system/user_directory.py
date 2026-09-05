@@ -1,13 +1,12 @@
 """Persistent Windows data-directory recovery without modifying the source data."""
 
-from contextlib import closing
+from contextlib import closing, contextmanager, ExitStack
 import json
 import os
 from pathlib import Path
 import shutil
 import sqlite3
 import tempfile
-import time
 
 
 _DATABASES = {"edits.db", "settings.db"}
@@ -59,16 +58,62 @@ def ensure_writable(path: Path) -> None:
                 pass
 
 
+@contextmanager
+def _locked_database_file(path: Path):
+    if os.name != "nt":
+        with path.open("rb") as content:
+            yield content
+        return
+    import ctypes
+    from ctypes import wintypes
+    import msvcrt
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel.CreateFileW
+    create_file.argtypes = (
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    )
+    create_file.restype = wintypes.HANDLE
+    # Read access with FILE_SHARE_READ denies existing and new writers until the copy is complete.
+    handle = create_file(str(path), 0x80000000, 1, None, 3, 0, None)
+    if handle == ctypes.c_void_p(-1).value:
+        error = ctypes.get_last_error()
+        if error in (32, 33):
+            raise OSError(f"Database in use: {path}. Close other NegPy instances and try again.")
+        raise ctypes.WinError(error)
+    try:
+        descriptor = msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
+    except BaseException:
+        kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
+        kernel.CloseHandle(handle)
+        raise
+    with os.fdopen(descriptor, "rb") as content:
+        yield content
+
+
 def _backup_database(source: Path, target: Path) -> None:
-    started = time.monotonic()
-
-    def progress(status: int, remaining: int, total: int) -> None:
-        if status in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) and time.monotonic() - started > 5:
-            raise OSError("A data database is busy. Close other NegPy instances and try again.")
-
-    with closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True, timeout=5)) as original:
-        with closing(sqlite3.connect(target)) as copied:
-            original.backup(copied, pages=256, progress=progress)
+    # SQLite opens only the private snapshot; protected sources need no WAL/SHM writes.
+    with tempfile.TemporaryDirectory(prefix="database-", dir=target.parent) as temporary:
+        snapshot = Path(temporary) / source.name
+        with ExitStack() as locks:
+            for suffix in ("", "-wal", "-journal"):
+                try:
+                    content = locks.enter_context(_locked_database_file(Path(str(source) + suffix)))
+                except FileNotFoundError:
+                    if suffix:
+                        continue
+                    raise
+                with Path(str(snapshot) + suffix).open("wb") as copied:
+                    shutil.copyfileobj(content, copied)
+        with closing(sqlite3.connect(snapshot)) as original:
+            with closing(sqlite3.connect(target)) as copied_db:
+                original.backup(copied_db)
 
 
 def _copy_entry(source: Path, target: Path) -> None:
