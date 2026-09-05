@@ -20,7 +20,6 @@ from negpy.features.geometry.logic import translate_normalized_rect
 
 _HANDLE_TOL = 0.03  # corner grab radius, fraction of frame
 _HANDLE_PX = 5  # drawn handle half-size, widget px
-_FRAME_EDGE_ALPHA = 150  # the frame outline reads against the picture without competing with the crop
 
 
 class ScanWindowLabel(QLabel):
@@ -210,9 +209,7 @@ class ScanWindowLabel(QLabel):
                 painter.drawLine(x, draw_rect.top(), x, draw_rect.bottom())
             # Last, so neither the offset band nor a crop drawn to the edge dims it: this is the
             # boundary the offset is measured from, and it has to stay readable on any frame.
-            boundary = QColor(THEME.text_secondary)
-            boundary.setAlpha(_FRAME_EDGE_ALPHA)
-            painter.setPen(QPen(boundary, 1))
+            painter.setPen(QPen(QColor(THEME.accent_primary), 1))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(draw_rect.adjusted(0, 0, -1, -1))
         else:

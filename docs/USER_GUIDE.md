@@ -945,7 +945,7 @@ Camera scanning needs the optional `python-gphoto2` dependency (`pip install gph
 Every preview dialog ends the same way: **Cancel**, then **Apply** (keep the framing and go back to the panel) and **Scan** (start the scan from here). The Apply button names what it keeps: **Apply framing** on a strip, **Apply window** on a single holder, **Apply crop** after a Prescan.
 
 *   **Cropping**: drag on a previewed frame. A corner resizes, inside moves. Each frame keeps its own window, and **Clear crops** drops the lot.
-*   **Frame outline**: a thin grey box marks the detected frame on every previewed tile. That box is the boundary Offset, Drift and the per-frame slider are measured from, so it stays visible under the shaded band and any crop drawn to the edge.
+*   **Frame outline**: a thin red box marks the detected frame on every previewed tile. That box is the boundary Offset, Drift and the per-frame slider are measured from, so it stays visible under the shaded band and any crop drawn to the edge.
 *   **Offset**: slides every frame along the film to clear the inter-frame gap. Frames shift left as it grows, live. The shaded band on the right is film past the frame boundary the transport cannot deliver, so offset past the gap costs frame tail. A feeder cannot back up, so there it only goes one way.
 *   **Drift**: adds progressively more (or less) offset per frame position, for a strip whose gaps creep along its length. Re-preview to refresh the pixels.
 *   **Per-frame offset**: the slider under each tile corrects that frame alone, on top of Offset and Drift, for a boundary that sits off on its own. Its reading is in the tooltip; double-click resets it.
