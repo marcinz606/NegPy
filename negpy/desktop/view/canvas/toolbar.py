@@ -122,10 +122,7 @@ class ActionToolbar(QWidget):
 
         row_layout = QHBoxLayout()
         row_layout.setSpacing(6)
-        # Install the row on its container before adding/showing controls in
-        # _rebuild_row(). A layout with no parent cannot reparent its widgets;
-        # setVisible(True) then exposes every control as a tiny top-level window
-        # during startup on Windows.
+        # The layout must have a parent before _rebuild_row() shows its controls.
         v_layout.addLayout(row_layout)
 
         icon_color = THEME.text_primary

@@ -53,12 +53,30 @@ class TestNothingBypassesTheGate:
 
     def test_njit_uses_the_frozen_safe_wrapper(self):
         offenders = []
-        for path in _python_files():
+        for path in ROOT.rglob("*.py"):
             if path == JIT:
                 continue
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            numba_aliases = {
+                alias.asname or alias.name
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Import)
+                for alias in node.names
+                if alias.name == "numba"
+            }
             for node in ast.walk(tree):
-                if isinstance(node, ast.ImportFrom) and node.module == "numba" and any(alias.name == "njit" for alias in node.names):
+                direct_import = (
+                    isinstance(node, ast.ImportFrom)
+                    and (node.module == "numba" or (node.module or "").startswith("numba."))
+                    and any(alias.name in {"njit", "*"} for alias in node.names)
+                )
+                module_access = (
+                    isinstance(node, ast.Attribute)
+                    and node.attr == "njit"
+                    and isinstance(node.value, ast.Name)
+                    and node.value.id in numba_aliases
+                )
+                if direct_import or module_access:
                     offenders.append(f"{path.relative_to(ROOT.parent)}:{node.lineno}")
         assert not offenders, "import njit from negpy.kernel.system.jit so frozen builds disable disk caching: " + ", ".join(offenders)
 

@@ -248,8 +248,7 @@ class ScanlightSidebar(QWidget):
         self._setup_hint.setWordWrap(True)
         self._setup_hint.setStyleSheet(f"color: {THEME.warn_amber}; font-size: {THEME.font_size_small}px;")
         layout.addWidget(self._setup_hint)
-        # The layout supplies the parent. Apply visibility afterwards so a
-        # visible hint never appears briefly as a standalone startup window.
+        # Set visibility only after the layout has parented the label.
         self._setup_hint.setVisible(not self._gphoto_available())
         self._conn_hint = QLabel("Connect the camera by USB, in PC Remote mode — it's detected automatically.")
         self._conn_hint.setWordWrap(True)
