@@ -1,5 +1,21 @@
 # Change Log
 
+## 0.58.0
+
+- New: **Print tone grounded in the photofinishing literature** — the default print envelope, Auto Grade and Auto Density were retuned against published preferred-reproduction data; both meters now read textured parts of the frame only, so rebate, sky and flat walls no longer set grade or exposure. **Retune your Auto Grade and Auto Density targets** — existing frames on the automatic helpers will print differently.
+- New: **Shadow Reach and Highlight Hold** — two Set Targets tunables that place the ends of the print automatically: the darkest textured tone is held to a minimum print density, and the brightest gets an automatic highlight burn so it keeps tone instead of going paper white. Either can be turned off with 0.
+- New: **Low VRAM export tiling** — a Preferences option (Performance) that halves the tile size and drops readback pipelining for tiled exports, for integrated GPUs that ran out of shared memory mid-export. @TobbyTravel
+- Change: **Optical Removal rebuilt** — the detector was measured against the IR channel and rewritten: a local-noise threshold instead of an absolute one, min-pooled detection at full detail, and seed-and-grow so a mark covers the whole speck and a hair joins into one piece. It now finds many times more of what IR sees; on strongly textured film some marks are given up to protect image detail.
+- Change: **Sharpening rolls off in the deep shadows** — both sharpen methods reduce gain toward paper black, where grain is coarsest relative to detail.
+- Change: **Faster startup, navigation and export** — the first render and window build are quicker, switching files no longer stalls the interface, and tiled export, 16-bit TIFF encoding and the IR/dust bakes are several times faster. An export after a full-resolution preview reuses that preview's detection and repair work.
+- Change: **Brighter interface text** — every text color moved a step brighter, disabled text most of all, and the stylesheet now takes its colors from the theme instead of its own copies.
+- Fix: **Printability read-out with a source-only input ICC** — narrowband scans with soft proof on lost the read-out and logged an error.
+- Fix: **Toggle buttons no longer draw a focus outline.**
+- Fix: **Two film or sensor profiles with similar names** — "Portra 400" and "Portra-400" resolved to the same file, so saving one destroyed the other. @MohammedAlkindi
+- Fix: **Batch progress during Hot Folder** — a manual Add Files or Add Folder import ran with no progress dialog while the Hot Folder toggle was on. @MohammedAlkindi
+- Fix: **GPS coordinates in exported metadata** — rounded seconds and minutes now carry into minutes and degrees. @MohammedAlkindi
+- Fix: **File sizes pick the right unit** — a size just under a threshold showed as "1024.0 KB". @MohammedAlkindi
+
 ## 0.57.0
 
 - New: **Demosaic panel** — pick the CFA interpolation for preview and export separately, under Calibration; the list is built from what your libraw build supports and Auto keeps the previous behavior.
