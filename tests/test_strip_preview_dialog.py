@@ -1280,3 +1280,34 @@ def test_a_re_cut_does_not_report_the_strip_as_freshly_detected() -> None:
 
     assert dialog.status_strip.message() == ""
 
+
+def test_a_stopped_detection_does_not_erase_the_saved_framing() -> None:
+    """Accepting before any tile exists must keep what a previous pass set, not wipe it."""
+    controller = _FakeController()
+    dialog = StripPreviewDialog(
+        controller,
+        _discovery_device(),
+        initial_windows={2: (0.1, 0.1, 0.9, 0.9)},
+        initial_selected=(2, 3),
+        initial_frame_offsets={2: 0.4},
+    )
+    assert dialog._tiles == {}
+
+    windows, selected, offsets = dialog.frame_windows(), dialog.selected_frames(), dialog.frame_offsets()
+    _dispose(dialog)
+
+    assert windows == {2: (0.1, 0.1, 0.9, 0.9)}
+    assert selected == (2, 3)
+    assert offsets == {2: 0.4}
+
+
+def test_clearing_a_crop_on_a_tile_drops_the_saved_one() -> None:
+    controller = _FakeController()
+    dialog = _measured(controller, initial_windows={2: (0.1, 0.1, 0.9, 0.9)})
+    assert dialog.frame_windows() == {2: (0.1, 0.1, 0.9, 0.9)}
+
+    dialog._tiles[2].label.clear_window()
+    windows = dialog.frame_windows()
+    _dispose(dialog)
+
+    assert windows == {}
