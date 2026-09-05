@@ -1189,3 +1189,94 @@ def test_the_offset_sliders_reach_a_boundary_several_millimetres_out() -> None:
     tile = grown._tiles[1].offset_slider
     tile.setValue(85)
     assert grown.frame_offsets() == {1: 8.5}
+
+
+# ── re-cutting a nudged frame out of the strip pass ────────────────────────
+
+
+def _measured(controller, slots=(1, 2, 3), **kwargs):
+    """A dialog over a measured strip with its tiles already cut at offset 0."""
+    dialog = StripPreviewDialog(controller, _discovery_device(), **kwargs)
+    controller.deliver_all(slots)
+    controller.preview_reqs.clear()
+    return dialog
+
+
+def _dispose(dialog) -> None:
+    """Close and destroy a dialog: a timer left armed on a collected one crashes teardown."""
+    dialog.reject()
+    dialog.deleteLater()
+    QApplication.processEvents()
+
+
+def test_a_moved_frame_offset_re_cuts_that_frame_alone() -> None:
+    controller = _FakeController()
+    dialog = _measured(controller)
+
+    dialog._tiles[2].offset_slider.setValue(15)
+    dialog._recut_moved_tiles()
+    _dispose(dialog)
+
+    assert [r.slots for r in controller.preview_reqs] == [(2,)]
+    assert controller.preview_reqs[0].offsets[2] == pytest.approx(1.5 / 36.0, abs=1e-4)
+
+
+def test_the_global_offset_re_cuts_every_tile() -> None:
+    controller = _FakeController()
+    dialog = _measured(controller)
+
+    dialog.offset_slider.setValue(20)
+    dialog._recut_moved_tiles()
+    _dispose(dialog)
+
+    assert [r.slots for r in controller.preview_reqs] == [(1, 2, 3)]
+
+
+def test_an_offset_the_tiles_were_already_cut_at_re_cuts_nothing() -> None:
+    controller = _FakeController()
+    dialog = _measured(controller)
+
+    dialog._recut_moved_tiles()
+    _dispose(dialog)
+
+    assert controller.preview_reqs == []
+
+
+def test_moving_an_offset_arms_the_re_cut() -> None:
+    controller = _FakeController()
+    dialog = _measured(controller)
+
+    dialog._tiles[1].offset_slider.setValue(4)
+    armed = dialog._recut.isActive()
+    _dispose(dialog)
+
+    assert armed
+    assert not dialog._recut.isActive()  # closing takes the pending re-cut with it
+
+
+def test_a_feeder_never_re_cuts_its_tiles() -> None:
+    """Only a measured strip has the pass in memory; a feeder would have to scan again."""
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _device(3))
+    controller.deliver_all((1, 2, 3))
+    controller.preview_reqs.clear()
+
+    dialog._tiles[1].offset_slider.setValue(6)
+    armed = dialog._recut.isActive()
+    _dispose(dialog)
+
+    assert not armed
+
+
+def test_a_re_cut_does_not_report_the_strip_as_freshly_detected() -> None:
+    controller = _FakeController()
+    dialog = _measured(controller)
+
+    dialog._tiles[3].offset_slider.setValue(-9)
+    dialog._recut_moved_tiles()
+    assert dialog.status_strip.message().startswith("Re-cutting")
+    controller.deliver_all((3,))
+    _dispose(dialog)
+
+    assert dialog.status_strip.message() == ""
+
