@@ -35,7 +35,7 @@ NegPy is a film-negative processing desktop app (PyQt6 + WebGPU). Images flow th
 
 Edits persist in SQLite (`edits.db`, keyed by content hash), optionally mirrored to `.negpy` JSON sidecars next to sources. DB wins; a loaded sidecar is promoted into the DB (`negpy/services/assets/sidecar.py`, `session.py`).
 
-On Windows, `desktop.py` runs data-folder recovery before importing app configuration. An approved recovery copies persistent data, backs up SQLite databases, and commits a location record under Local AppData. The record takes priority over Documents; `NEGPY_USER_DIR` takes priority over the record.
+On Windows, `desktop.py` checks data-folder access before importing app configuration. If the default folder is blocked, a native dialog suggests Local AppData and lets the user click the path to choose another folder. No data is copied. The selected path is saved under Local AppData and takes priority over Documents; `NEGPY_USER_DIR` takes priority over the record.
 
 **Migrations** (`negpy/domain/migrations.py`) — every legacy fixup for persisted configs lives here, not inline in `from_flat_dict`: `KEY_RENAMES` (renamed fields), `DROPPED_KEYS` (removed fields, dropped without the unknown-key warning), `RETIRED_EXPORT_FORMATS`, and `migrate_flat_config()` for value rewrites. Renaming/removing a config field or retiring an enum value means one entry here. Two exceptions stay in their dataclasses because they must run on *every* construction, not just on load: `ExposureConfig.__post_init__` (legacy grade → ISO R, `cast_removal` bool → strength) and the tuple-rehydrating `__post_init__`s. The module imports nothing from `models.py` (which imports it) — use string literals.
 
