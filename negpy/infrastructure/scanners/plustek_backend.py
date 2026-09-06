@@ -119,13 +119,16 @@ def _make_scan_progress(
         if frac >= 1.0 - 1e-9:
             _safe_progress(progress, 0.85, "Merging exposures")
             return
-        if frac > plateau + 1e-6:
-            state["long_started"] = True
-            _safe_progress(progress, 0.10 + 0.72 * frac, "Scanning")
-        elif abs(frac - plateau) < 1e-6 and not state["long_started"]:
-            _safe_progress(progress, 0.83, "Preparing long exposure")
+        # 0.10-0.85 mirrors the acquisition span used below; the leftover 0.15 is
+        # reserved for the host-side merge/makeup work after the last pass lands,
+        # which reports no incremental progress of its own.
+        value = 0.10 + 0.75 * frac
+        if abs(frac - plateau) < 1e-6 and not state["long_started"]:
+            _safe_progress(progress, value, "Preparing long exposure")
         else:
-            _safe_progress(progress, 0.10 + 0.72 * frac, "Scanning")
+            if frac > plateau + 1e-6:
+                state["long_started"] = True
+            _safe_progress(progress, value, "Scanning")
 
     return scan_progress
 

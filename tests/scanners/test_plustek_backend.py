@@ -395,6 +395,26 @@ def test_me_scan_reports_preparing_then_long_pass(monkeypatch):
     assert phases.count("Scanning") >= 2
 
 
+def test_me_scan_progress_does_not_regress_at_long_pass_boundary(monkeypatch):
+    """Reported fractions never decrease across the short/long pass boundary."""
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner(me_fractions=[0.25, 0.5, 0.5, 0.6, 0.75, 1.0])
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    seen: list[tuple[float, str]] = []
+
+    def progress(fraction: float, phase: str = "Scanning") -> None:
+        seen.append((fraction, phase))
+
+    PlustekBackend().scan(
+        _DEVICE_ID,
+        _params(multi_exposure=True),
+        progress,
+        threading.Event(),
+    )
+    scanning_or_preparing = [v for v, phase in seen if phase in ("Scanning", "Preparing long exposure")]
+    assert scanning_or_preparing == sorted(scanning_or_preparing)
+
+
 def test_me_scan_reports_merging_at_completion(monkeypatch):
     _patch_enum(monkeypatch)
     scanner = _fake_scanner(me_fractions=[1.0])
