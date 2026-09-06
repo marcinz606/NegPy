@@ -87,6 +87,12 @@ def test_the_info_button_is_opt_in() -> None:
     assert CollapsibleSection("Analysis", info=True).info_btn is not None
 
 
+def test_expanded_section_does_not_show_orphan_content(top_level_show_spy) -> None:
+    CollapsibleSection("Analysis", expanded=True)
+
+    assert top_level_show_spy.events == []
+
+
 def test_the_guide_is_parented_to_the_section_not_the_panel() -> None:
     """Qt centres a dialog on parent.window(). ControlsPanel is never added to a layout —
     only its pages are — so as the parent it centres the guide on a phantom window at 0,0
