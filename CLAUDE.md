@@ -35,6 +35,8 @@ NegPy is a film-negative processing desktop app (PyQt6 + WebGPU). Images flow th
 
 Edits persist in SQLite (`edits.db`, keyed by content hash), optionally mirrored to `.negpy` JSON sidecars next to sources. DB wins; a loaded sidecar is promoted into the DB (`negpy/services/assets/sidecar.py`, `session.py`).
 
+On Windows, `desktop.py` checks data-folder access before importing app configuration. If the default folder is blocked, a native dialog suggests Local AppData and lets the user click the path to choose another folder. No data is copied. The selected path is saved under Local AppData and takes priority over Documents; `NEGPY_USER_DIR` takes priority over the record.
+
 **Migrations** (`negpy/domain/migrations.py`) — every legacy fixup for persisted configs lives here, not inline in `from_flat_dict`: `KEY_RENAMES` (renamed fields), `DROPPED_KEYS` (removed fields, dropped without the unknown-key warning), `RETIRED_EXPORT_FORMATS`, and `migrate_flat_config()` for value rewrites. Renaming/removing a config field or retiring an enum value means one entry here. Two exceptions stay in their dataclasses because they must run on *every* construction, not just on load: `ExposureConfig.__post_init__` (legacy grade → ISO R, `cast_removal` bool → strength) and the tuple-rehydrating `__post_init__`s. The module imports nothing from `models.py` (which imports it) — use string literals.
 
 Migrations that rewrite *rows* rather than a config payload need a repository, so they stay out of that dependency-free module and live beside their feature: `services/assets/hash_migration.py` (edits saved under a superseded content hash — see the identity note below) and `services/assets/flatfield_migration.py` (the retired profile table).

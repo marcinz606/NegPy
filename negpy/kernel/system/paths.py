@@ -52,6 +52,11 @@ def get_default_user_dir() -> str:
     docs_dir: Optional[Path] = None
 
     if sys.platform == "win32":
+        from negpy.kernel.system.user_directory import saved_user_directory
+
+        saved = saved_user_directory()
+        if saved is not None:
+            return str(saved)
         try:
             import ctypes
             from ctypes import wintypes

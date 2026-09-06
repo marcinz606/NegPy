@@ -1,7 +1,6 @@
 import sys
 import io
 import faulthandler
-from negpy.desktop.main import main
 
 
 def init_streams():
@@ -22,6 +21,12 @@ def init_streams():
 
 if __name__ == "__main__":
     init_streams()
+    from negpy.desktop.startup import prepare_user_directory
+
+    if not prepare_user_directory():
+        sys.exit(1)
+    from negpy.desktop.main import main
+
     try:
         faulthandler.enable()
     except Exception:
