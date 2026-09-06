@@ -176,6 +176,14 @@ def test_the_offset_and_the_window_both_reach_the_scan() -> None:
 # ── result ────────────────────────────────────────────────────────────────
 
 
+def test_the_detected_table_goes_back_to_the_unit_with_every_scan() -> None:
+    # A perforation-framed unit honours its frame table only as a whole, and the fine scan
+    # runs in a session that never measured the strip.
+    backend, module = make_backend()
+    _scan(backend, dataclasses.replace(_PARAMS, frame=2, frame_offset_mm=3.0))
+    assert module.opened[-1].scans[0]["frames"] == list(FRAMES)
+
+
 def test_the_planes_come_back_as_one_rgb_array() -> None:
     backend, _ = make_backend()
     result = _scan(backend)

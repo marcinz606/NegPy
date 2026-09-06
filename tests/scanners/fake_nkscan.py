@@ -239,6 +239,7 @@ class FakeSession:
         lock_white_balance: bool = True,
         exposures: dict[str, int] | None = None,
         progress: Callable[..., Any] | None = None,
+        frames: list[tuple[int, int, int, int]] | None = None,
     ) -> FakeScanResult:
         module = self._module
         # A unit whose CCD reads one line at a time refuses the fast ordering, in the recipe
@@ -259,6 +260,7 @@ class FakeSession:
                 "clean": clean,
                 "lock_white_balance": lock_white_balance,
                 "exposures": exposures,
+                "frames": frames,
             }
         )
         for step in range(1, module.progress_steps + 1):
