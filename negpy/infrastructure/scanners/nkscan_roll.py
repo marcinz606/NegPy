@@ -144,6 +144,7 @@ class NkscanRollSession:
                 lock_white_balance=self._backend.locks_white_balance(self._film_type),
                 exposures=self._exposures,
                 progress=_progress_bridge(None, cancel),
+                frames=self._backend.frames(self._device.id),
             )
         if self._exposures is None:
             self._exposures = dict(result.exposures)
