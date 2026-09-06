@@ -10,12 +10,15 @@ from negpy.desktop.session import ToolMode
 from negpy.desktop.view.canvas.crop_guides import GUIDE_LABELS, ORIENTATION_COUNT, CropGuide
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_label, section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_label, hint_label, section_subheader, wrap_tooltip
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.domain.models import CROP_RATIO_CHOICES, canonical_crop_ratio
 from negpy.features.geometry.logic import has_manual_crop
 from negpy.features.geometry.models import FINE_ROTATION_LIMIT, AutocropMode
 from negpy.features.process.models import invalidate_local_bounds
+from negpy.features.lens.models import LensMetadata
+from negpy.infrastructure.loaders.lens_metadata import read_lens_metadata
+from negpy.services.rendering.lens import metadata_lens_enabled
 
 
 class GeometrySidebar(BaseSidebar):
@@ -176,6 +179,39 @@ class GeometrySidebar(BaseSidebar):
             "Radial lens distortion. Positive corrects barrel, negative pincushion. Use the film rebate as a straight reference."
         )
         self.layout.addWidget(self.distortion_slider)
+        self.metadata_lens_btn = self._labeled_toggle(
+            "fa5s.camera",
+            "From metadata",
+            conf.lens_from_metadata,
+            "Apply embedded scanning-lens correction. Replaces manual distortion.",
+        )
+        self.lens_hint = hint_label("")
+        self.lens_hint.setWordWrap(True)
+        self.layout.addWidget(self.metadata_lens_btn)
+        self.layout.addWidget(self.lens_hint)
+
+    def _set_metadata_lens(self, enabled: bool) -> None:
+        if enabled and not self.metadata_lens_btn.isEnabled():
+            return
+        self.update_config_section("geometry", persist=True, lens_from_metadata=enabled)
+
+    def _sync_metadata_lens(self) -> None:
+        config = self.state.config
+        lens = read_lens_metadata(self.state.current_file_path)
+        if self.state.preview_lens_path == self.state.current_file_path and self.state.preview_lens is not None:
+            lens = self.state.preview_lens
+        requested = replace(config, geometry=replace(config.geometry, lens_from_metadata=True))
+        if not metadata_lens_enabled(requested):
+            lens = LensMetadata(reason="Embedded lens correction is unavailable for composites.")
+        if self.state.has_ir:
+            lens = LensMetadata(reason="Embedded lens correction is unavailable for RGB+IR sources.")
+        enabled = config.geometry.lens_from_metadata
+        self.metadata_lens_btn.setChecked(enabled)
+        self.metadata_lens_btn.setEnabled(lens.available or enabled)
+        self.metadata_lens_btn.edited_dot.set_active(enabled)
+        state = "Active" if enabled and lens.available else "Available" if lens.available else "Unavailable"
+        self.lens_hint.setText(f"{state}: {lens.description}")
+        self.distortion_slider.setEnabled(not enabled)
 
     def cycle_guide(self) -> None:
         self.guide_combo.setCurrentIndex((self.guide_combo.currentIndex() + 1) % self.guide_combo.count())
@@ -185,6 +221,7 @@ class GeometrySidebar(BaseSidebar):
         self.guide_orient_btn.setEnabled(ORIENTATION_COUNT.get(CropGuide(guide), 1) > 1 if guide else False)
 
     def _connect_signals(self) -> None:
+        self.metadata_lens_btn.toggled.connect(self._set_metadata_lens)
         self.guide_combo.currentIndexChanged.connect(lambda _i: self.controller.set_crop_guide(self.guide_combo.currentData()))
         self.guide_combo.currentIndexChanged.connect(lambda _i: self._sync_guide_orient_btn())
         self.guide_orient_btn.clicked.connect(self.controller.cycle_crop_guide_orientation)
@@ -293,6 +330,7 @@ class GeometrySidebar(BaseSidebar):
             self.converge_v_slider.setValue(conf.converge_v)
             self.converge_h_slider.setValue(conf.converge_h)
             self.distortion_slider.setValue(conf.distortion_k1)
+            self._sync_metadata_lens()
 
             self.manual_crop_btn.setChecked(self.state.active_tool == ToolMode.CROP_MANUAL)
             self.straighten_btn.setChecked(self.state.active_tool == ToolMode.STRAIGHTEN)
@@ -316,6 +354,7 @@ class GeometrySidebar(BaseSidebar):
         self.converge_v_slider.blockSignals(blocked)
         self.converge_h_slider.blockSignals(blocked)
         self.distortion_slider.blockSignals(blocked)
+        self.metadata_lens_btn.blockSignals(blocked)
         self.manual_crop_btn.blockSignals(blocked)
         self.straighten_btn.blockSignals(blocked)
         self.reset_crop_btn.blockSignals(blocked)

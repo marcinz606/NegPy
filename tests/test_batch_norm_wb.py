@@ -18,7 +18,9 @@ class _FakePreviewService:
     def __init__(self) -> None:
         self.calls: dict[str, bool] = {}
 
-    def load_linear_preview(self, path, color_space, use_camera_wb, full_resolution, file_hash, demosaic="Auto"):
+    def load_linear_preview(
+        self, path, color_space, use_camera_wb, full_resolution, file_hash, demosaic="Auto", lens_from_metadata=False, lens_flatfield=None
+    ):
         self.calls[file_hash] = use_camera_wb
         raw = np.full((8, 8, 3), 0.5, dtype=np.float32)
         return raw, (8, 8), {}

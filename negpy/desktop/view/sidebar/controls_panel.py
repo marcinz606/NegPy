@@ -397,6 +397,12 @@ class ControlsPanel(QWidget):
         ret = self.retouch_sidebar
         ton = self.toning_sidebar
         fin = self.finish_sidebar
+        geo.metadata_lens_btn.setToolTip(
+            tooltip_with_shortcut(
+                "Apply embedded scanning-lens distortion and lateral CA correction. Replaces manual distortion.",
+                "lens_from_metadata",
+            )
+        )
 
         col.pick_wb_btn.setToolTip(
             tooltip_with_shortcut(
@@ -884,6 +890,7 @@ class ControlsPanel(QWidget):
                 geo.autocrop_offset != _geo.autocrop_offset,
                 geo.autocrop_rebate_trim != _geo.autocrop_rebate_trim,
                 geo.distortion_k1 != _geo.distortion_k1,
+                geo.lens_from_metadata != _geo.lens_from_metadata,
             ]
         )
 

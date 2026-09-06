@@ -23,6 +23,7 @@ class PreviewCacheKey:
     split_x: float = 0.5
     crop_rect: tuple[float, float, float, float] | None = None
     gutter_thickness: float = 0.0
+    lens_token: str = ""
 
     def as_tuple(self) -> Hashable:
         return (
@@ -35,6 +36,7 @@ class PreviewCacheKey:
             round(self.split_x, 6),
             self.crop_rect,
             round(self.gutter_thickness, 6),
+            self.lens_token,
         )
 
 

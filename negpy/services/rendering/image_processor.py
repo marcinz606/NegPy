@@ -29,6 +29,7 @@ from negpy.features.process.sensor import apply_sensor_correction, effective_sen
 from negpy.features.exposure.analysis import COLOR_HIST_BINS
 from negpy.features.exposure.models import RenderIntent
 from negpy.features.flatfield.logic import apply_flatfield, flatfield_token
+from negpy.services.rendering.lens import lens_decode_token, metadata_lens_enabled, prepare_lens_source
 from negpy.features.geometry.logic import autocrop_detection_key, resolve_autocrop_rect
 from negpy.features.retouch.logic import (
     apply_hair_inpaint,
@@ -554,6 +555,7 @@ class ImageProcessor:
             source_hash,
             img.shape,
             skip_flatfield,
+            metadata_lens_enabled(settings),
             flatfield_token(settings.flatfield),
             sensor_token(settings.process),
             rgbscan_token(settings.rgbscan),
@@ -564,7 +566,7 @@ class ImageProcessor:
             img = self._precorrect_value
         else:
             source = img
-            if not skip_flatfield and not settings.stitch.stitch_enabled:
+            if not skip_flatfield and not settings.stitch.stitch_enabled and not metadata_lens_enabled(settings):
                 img = apply_flatfield(img, settings.flatfield)
             # Sensor unmix is a source pre-correction like flat-field. skip_flatfield buffers
             # come from _load_source_f32, which already applied it. Triplet composites take
@@ -583,6 +585,7 @@ class ImageProcessor:
         base_hash = (
             source_hash
             + flatfield_token(settings.flatfield)
+            + lens_decode_token(metadata_lens_enabled(settings), settings.flatfield)
             + rgbscan_token(settings.rgbscan)
             + stitch_token(settings.stitch)
             + hdr_token(settings.hdr)
@@ -786,6 +789,7 @@ class ImageProcessor:
         cache_key = (
             file_path,
             mtime,
+            lens_decode_token(metadata_lens_enabled(params), params.flatfield),
             effective_linear_raw(params.process, params.exposure.render_intent),
             rgbscan_token(params.rgbscan),
             stitch_token(params.stitch),
@@ -927,7 +931,10 @@ class ImageProcessor:
 
         orientation = metadata.get("orientation", 1)
         f32_buffer = apply_exif_orientation(f32_buffer, orientation)
-        f32_buffer = apply_flatfield(f32_buffer, params.flatfield)
+        if metadata_lens_enabled(params):
+            f32_buffer = prepare_lens_source(f32_buffer, metadata, params.flatfield)
+        else:
+            f32_buffer = apply_flatfield(f32_buffer, params.flatfield)
         if not is_triplet:
             f32_buffer = apply_sensor_correction(f32_buffer, effective_sensor_matrix(params.process))
         if ir_full is not None:
@@ -1004,6 +1011,7 @@ class ImageProcessor:
         detect_key = (
             source_hash
             + flatfield_token(params.flatfield)
+            + lens_decode_token(metadata_lens_enabled(params), params.flatfield)
             + rgbscan_token(params.rgbscan)
             + stitch_token(params.stitch)
             + hdr_token(params.hdr)
@@ -1455,6 +1463,7 @@ class ImageProcessor:
             detect_key = (
                 source_hash
                 + flatfield_token(params.flatfield)
+                + lens_decode_token(metadata_lens_enabled(params), params.flatfield)
                 + rgbscan_token(params.rgbscan)
                 + stitch_token(params.stitch)
                 + hdr_token(params.hdr)

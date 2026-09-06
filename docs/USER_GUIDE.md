@@ -493,6 +493,7 @@ Where the frame gets its final shape: what is inside the print, and whether it s
     Both replicate a wedge along the squeezed edge, as Fine Rotation does; crop it off. Crop before correcting if you can, because the meters read the corrected frame: on an uncropped scan a big correction pulls rebate and surround into the metered area and the print darkens.
 
 *   **Distortion Correction** (-0.100 to 0.100, in steps of 0.001): radial lens distortion. Positive corrects barrel, negative pincushion. Use the film rebate as a straight-edge reference. Corrected before Tilt and Swing.
+*   **From metadata**: use the source file's embedded scanning-lens correction; replaces manual distortion. The readout shows available/active distortion and lateral chromatic aberration, or why correction is unavailable. Supports Sony ARW coefficients and DNG WarpRectilinear (including DNG 1.7 containers); other DNG warp types, composites and RGB+IR are unsupported. Lens names and camera on/off flags alone do not enable it. Choose this before cropping or retouching; crop off replicated edge pixels if needed. The mode is saved with the edit, while each file supplies its own coefficients.
 
 <!-- panel:flatfield -->
 ### 5.2 Flat Field: even out the light

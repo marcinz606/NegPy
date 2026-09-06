@@ -47,6 +47,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "manual_crop": ShortcutEntry("Shift+C", "Toggle manual crop", "Tools"),
     "crop_guide_next": ShortcutEntry("O", "Next crop guide overlay", "Geometry"),
     "crop_guide_orient": ShortcutEntry("Shift+O", "Rotate crop guide orientation", "Geometry"),
+    "lens_from_metadata": ShortcutEntry("", "Lens correction from embedded metadata", "Geometry"),
     "auto_crop": ShortcutEntry("Shift+A", "Toggle autocrop", "Geometry"),
     "pick_dust": ShortcutEntry("Shift+D", "Toggle heal tool", "Tools"),
     "pick_scratch": ShortcutEntry("Shift+S", "Toggle scratch tool", "Tools"),
