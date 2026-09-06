@@ -9,6 +9,7 @@ closes and until the film moves.
 
 from __future__ import annotations
 
+import inspect
 import threading
 from collections.abc import Callable
 from contextlib import contextmanager, suppress
@@ -361,8 +362,10 @@ class NkscanBackend:
         report = _progress_bridge(progress, cancel)
         rect = self._resolve_frame(session, device_id, params, report)
         optical = int(session.capabilities.optical_dpi)
+        detected = rect
         rect = _shift_frame(rect, _offset_units(params.frame_offset_mm, optical))
         rect = _crop_frame(rect, params.window)
+        logger.info("Frame %s detected %s, scanning %s (%+0.2f mm)", params.frame, detected, rect, params.frame_offset_mm)
         with self._mapped_errors():
             result = self.scan_frame(
                 session,
@@ -375,6 +378,7 @@ class NkscanBackend:
                 lock_white_balance=self.locks_white_balance(params.film_type),
                 exposures=exposures,
                 progress=report,
+                frames=self._frames.get(device_id),
             )
         if cancel.is_set():
             raise RuntimeError("Scan cancelled")
@@ -388,14 +392,20 @@ class NkscanBackend:
         rect: tuple[int, int, int, int],
         *,
         superfine: bool = False,
+        frames: list[tuple[int, int, int, int]] | None = None,
         **options: Any,
     ) -> Any:
         """One pass over `rect`. Every scan goes through here, previews included.
 
         A unit whose CCD cannot read its lines at once — the LS-50 cannot — has only the
         superfine ordering, and asking for the fast one is refused before the stage moves.
+        `frames` is the detected table: a unit that positions the film by it honours it only
+        as a whole, so a session that did not measure the strip is handed it back before a
+        shifted or cropped rect can land where it asks. Older bindings take no such argument.
         """
         want = bool(superfine) or not bool(session.capabilities.multi_line)
+        if frames and "frames" in inspect.signature(session.scan_frame).parameters:
+            options["frames"] = [tuple(int(v) for v in rect) for rect in frames]
         return session.scan_frame(rect, superfine=want, **options)
 
     def locks_white_balance(self, film_type: str) -> bool:

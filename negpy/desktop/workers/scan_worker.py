@@ -19,7 +19,7 @@ class ScanRequest:
     params: ScanParams
     output_folder: str
     filename_pattern: str
-    output_format: str  # "TIFF" or "DNG"
+    output_format: str  # one of settings.OUTPUT_FORMATS
 
 
 @dataclass(frozen=True)
@@ -61,6 +61,8 @@ class BatchRequest:
     # Feed-axis drift (mm/frame): frame N scans at frame_offset_mm + (N-1) * modifier,
     # floored at 0.
     frame_offset_modifier_mm: float = 0.0
+    # Per-frame correction (mm) on top of that ramp; an absent key means none.
+    frame_offsets: dict[int, float] = field(default_factory=dict)
 
 
 class ScanWorker(QObject):
@@ -223,8 +225,9 @@ class ScanWorker(QObject):
                 window = req.frame_windows.get(frame, req.params.window)
                 # No floor here: a transport that cannot back up clamps in its own backend, and
                 # one that re-addresses an absolute frame may legitimately go negative.
-                offset = req.params.frame_offset_mm + (frame - 1) * req.frame_offset_modifier_mm
+                offset = req.params.frame_offset_mm + (frame - 1) * req.frame_offset_modifier_mm + req.frame_offsets.get(frame, 0.0)
                 frame_params = dataclasses.replace(req.params, frame=frame, window=window, frame_offset_mm=offset)
+                logger.info("Batch frame %d at %+.2f mm on the feed axis", frame, offset)
                 base = index / total
 
                 # The frame's position in the run rides on the phase string: a batch's global

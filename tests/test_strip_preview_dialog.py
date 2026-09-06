@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import QApplication
 
 from negpy.desktop.view.widgets.scan_preview_common import preview_positive
 from negpy.desktop.view.widgets.strip_preview_dialog import (
+    _TILE_H_MAX,
     StripPreviewDialog,
     _display_to_scan_rect,
     _scan_to_display_rect,
@@ -44,6 +45,21 @@ def _device(capacity: int) -> ScannerDevice:
         can_eject=True,
     )
     return ScannerDevice(id="coolscan3:usb:libusb:001:050", vendor="Nikon", model="LS-50", capabilities=caps)
+
+
+def _discovery_device() -> ScannerDevice:
+    """A transport that measures the strip: no capacity, tiles grow from the previews."""
+    caps = ScannerCapabilities(
+        ir_channel=False,
+        supported_dpi=(4000,),
+        supported_depths=(16,),
+        sources=(ScanMode.NEGATIVE,),
+        max_area_mm=(25.0, 38.0),
+        adapter_frame_capacity=None,
+        roll_discovery=True,
+        can_eject=True,
+    )
+    return ScannerDevice(id="nkscan:usb:001", vendor="Nikon", model="LS-50", capabilities=caps)
 
 
 class _FakeController(QObject):
@@ -712,23 +728,26 @@ def test_a_feeder_raster_turns_landscape() -> None:
     assert (pixmap.width(), pixmap.height()) == (24, 8)
 
 
-def test_a_measured_strip_crop_needs_no_axis_swap() -> None:
+def test_a_measured_strip_crop_maps_display_x_to_the_feed_and_display_top_to_the_sensor_end() -> None:
+    # A measured strip's tile arrives landscape, so it is not rotated, but the backend's window
+    # still has y along the feed and x along the sensor, whose high addresses are the top of the
+    # tile: the same transform a rotated feeder tile needs. Measured on an LS-50 over nkscan.
     controller = _FakeController()
     dialog = StripPreviewDialog(controller, _discovery_device())
     dialog._on_preview_all()
     controller.deliver_all((1,))
-    dialog._tiles[1].label.set_window((0.1, 0.2, 0.5, 0.6))
+    dialog._tiles[1].label.set_window((0.0, 0.0, 0.5, 0.3))  # top-left: first half of the feed
 
-    assert dialog.frame_windows()[1] == (0.1, 0.2, 0.5, 0.6)
+    assert dialog.frame_windows()[1] == pytest.approx((0.7, 0.0, 1.0, 0.5))
 
 
 # ── picking the frames to scan ────────────────────────────────────────────
 
 
-def test_an_undetected_strip_says_what_to_press() -> None:
+def test_an_unmeasured_strip_says_it_is_working_rather_than_what_to_press() -> None:
     dialog = StripPreviewDialog(_FakeController(), _discovery_device())
     assert dialog._empty_hint.isVisibleTo(dialog) is True
-    assert "Detect frames" in dialog._empty_hint.text()
+    assert "Finding the frames" in dialog._empty_hint.text()
     assert dialog.selection_label.text() == "none yet"
 
 
@@ -878,14 +897,420 @@ def test_a_feeder_still_counts_the_frames_it_previews() -> None:
 
 
 def test_the_offset_is_a_boundary_correction_not_a_way_to_the_next_frame() -> None:
+    # 10 mm reaches a badly placed boundary and still stops far short of the ~36 mm pitch.
     measured = StripPreviewDialog(_FakeController(), _discovery_device())
-    assert (measured.offset_slider.minimum(), measured.offset_slider.maximum()) == (-25, 25)
+    assert (measured.offset_slider.minimum(), measured.offset_slider.maximum()) == (-100, 100)
 
-    measured.offset_slider.setValue(400)
-    assert measured.frame_offset() == 2.5
+    measured.offset_slider.setValue(4000)
+    assert measured.frame_offset() == 10.0
+    assert measured.frame_offset() < measured._frame_pitch()
 
 
 def test_a_saved_negative_offset_comes_back_as_it_was() -> None:
     dialog = StripPreviewDialog(_FakeController(), _discovery_device(), initial_offset=-1.5)
     assert dialog.frame_offset() == -1.5
     assert dialog.offset_label.text() == "-1.5 mm"
+
+
+# ── the per-frame offset slider ───────────────────────────────────────────
+
+
+def test_a_tile_slider_corrects_its_own_frame_only() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(3), initial_offset=2.0)
+
+    dialog._tiles[2].offset_slider.setValue(-5)  # tenths of a mm
+
+    assert dialog._raw_offset_for_frame(1) == pytest.approx(2.0)
+    assert dialog._raw_offset_for_frame(2) == pytest.approx(1.5)
+    assert dialog._raw_offset_for_frame(3) == pytest.approx(2.0)
+
+
+def test_a_tile_slider_moves_that_tiles_band_and_no_other() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(3), initial_offset=4.0)
+
+    dialog._tiles[2].offset_slider.setValue(19)  # +1.9 mm
+
+    ((first, _),) = dialog._tiles[1].label._offset_indicators
+    ((second, _),) = dialog._tiles[2].label._offset_indicators
+    assert first == pytest.approx(4.0 / 38.0, abs=1e-3)
+    assert second == pytest.approx(5.9 / 38.0, abs=1e-3)
+
+
+def test_frame_offsets_reports_the_corrected_frames_only() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(3))
+
+    dialog._tiles[3].offset_slider.setValue(7)
+
+    assert dialog.frame_offsets() == {3: 0.7}
+
+
+def test_a_saved_correction_comes_back_on_its_tile() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(3), initial_frame_offsets={2: -0.8})
+
+    assert dialog._tiles[2].offset_slider.value() == -8
+    assert dialog.frame_offsets() == {2: -0.8}
+
+
+def test_double_clicking_a_tile_slider_clears_its_correction() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(3), initial_frame_offsets={1: 1.2})
+
+    dialog._tiles[1].offset_slider.mouseDoubleClickEvent(None)
+
+    assert dialog.frame_offsets() == {}
+
+
+def test_the_preview_request_carries_the_per_frame_correction() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _device(3), initial_offset=1.0, initial_frame_offsets={2: 0.9})
+
+    dialog._on_preview_all()
+
+    assert controller.preview_reqs[0].offsets[2] == pytest.approx(1.9 / 38.0, abs=1e-4)
+
+
+# ── the tile size slider ──────────────────────────────────────────────────
+
+
+def test_tiles_start_at_the_saved_size() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(3), initial_tile_height=220)
+
+    assert dialog.size_slider.value() == 220
+    assert dialog._tiles[1].label.height() == 220
+    assert dialog.tile_height() == 220
+
+
+def test_a_saved_size_outside_the_slider_is_clamped() -> None:
+    assert StripPreviewDialog(_FakeController(), _device(2), initial_tile_height=10_000).tile_height() == 340
+    assert StripPreviewDialog(_FakeController(), _device(2), initial_tile_height=1).tile_height() == 90
+
+
+def test_moving_the_slider_resizes_every_tile_and_its_offset_slider() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(3))
+
+    dialog.size_slider.setValue(300)
+
+    for tile in dialog._tiles.values():
+        assert tile.label.height() == 300
+        assert tile.label.width() == tile.offset_slider.width()
+
+
+def _cell(dialog, frame: int) -> tuple[int, int]:
+    grid = dialog._strip
+    return grid.getItemPosition(grid.indexOf(dialog._tiles[frame].widget))[:2]
+
+
+def test_the_grid_reflows_to_the_columns_that_fit() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(12))
+    tile_w = dialog._tile_size()[0]
+
+    dialog.resize(6 * (tile_w + 4) + 36, 600)
+    dialog._relayout(force=True)
+    assert dialog._cols == 6
+    assert _cell(dialog, 7) == (1, 0)
+
+    dialog.resize(2 * (tile_w + 4) + 36, 600)
+    dialog._relayout(force=True)
+    assert dialog._cols == 2
+    assert _cell(dialog, 7) == (3, 0)
+
+
+def test_a_strip_area_narrower_than_one_tile_still_shows_a_column() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(3))
+
+    dialog.resize(60, 600)
+    dialog._relayout(force=True)
+
+    assert dialog._cols == 1
+
+
+def test_bigger_tiles_reflow_into_fewer_columns_at_a_fixed_width() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(12))
+    dialog.resize(6 * (dialog._tile_size()[0] + 4) + 36, 600)
+    dialog._relayout(force=True)
+    assert dialog._cols == 6
+
+    dialog.size_slider.setValue(_TILE_H_MAX)
+
+    assert dialog._cols < 6
+
+
+def test_resizing_the_tiles_does_not_rescan() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _device(3))
+
+    dialog.size_slider.setValue(320)
+
+    assert controller.preview_reqs == []
+
+
+def test_reflowing_does_not_accumulate_layout_items() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(6))
+    before = dialog._strip.count()
+
+    for width in (400, 900, 400, 1200):
+        dialog.resize(width, 600)
+        dialog._relayout(force=True)
+
+    assert dialog._strip.count() == before
+
+
+# ── the per-frame offset, end to end ──────────────────────────────────────
+
+
+def test_the_preview_and_the_scan_land_on_the_same_millimetres() -> None:
+    """The tile the operator judges must be the film the batch then scans.
+
+    Preview speaks fractions of a pitch and the scan speaks millimetres, so the two halves
+    are only equivalent if base, drift and the per-frame correction compose the same way.
+    """
+
+    from negpy.desktop.workers.scan_worker import BatchRequest, ScanWorker
+    from negpy.infrastructure.scanners.params import ScanParams
+
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _device(5), initial_offset=1.0, initial_offset_modifier=0.2)
+    dialog._tiles[3].offset_slider.setValue(-7)  # -0.7 mm on frame 3 alone
+
+    dialog._on_preview_all()
+    pitch = 38.0  # _device's max_area_mm[1]
+    previewed = [controller.preview_reqs[0].offsets[f] * pitch for f in (1, 2, 3, 4, 5)]
+
+    scanned: list[float] = []
+
+    class _Service:
+        def run_scan(self, device_id, params, progress, cancel):
+            scanned.append(params.frame_offset_mm)
+            return object()
+
+        def write_result(self, **_kwargs):
+            return "/tmp/frame.tif"
+
+        def eject(self, *_args, **_kwargs):
+            return True
+
+    worker = ScanWorker()
+    worker._service = _Service()  # type: ignore[assignment]
+    worker.run_batch(
+        BatchRequest(
+            device_id="coolscan3:test",
+            params=ScanParams(dpi=4000, depth=16, capture_ir=False, frame_offset_mm=dialog.frame_offset()),
+            output_folder="/tmp",
+            filename_pattern='{{ date }}_{{ "%03d" % seq }}',
+            output_format="TIFF",
+            frames=(1, 2, 3, 4, 5),
+            frame_offset_modifier_mm=dialog.frame_offset_modifier(),
+            frame_offsets=dialog.frame_offsets(),
+        )
+    )
+
+    assert scanned == pytest.approx([1.0, 1.2, 0.7, 1.6, 1.8])
+    assert scanned == pytest.approx(previewed)
+
+
+def test_a_feeder_says_which_control_it_clamped() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(6), initial_offset=0.5)
+
+    dialog._tiles[2].offset_slider.setValue(-20)  # drives frame 2 below the transport's floor
+    dialog._refresh_offset_indicators()
+
+    assert dialog._offset_for_frame(2) == 0.0  # the feeder cannot back up
+    assert "frame 2" in dialog.status_strip.message()
+    assert "own slider" in dialog.status_strip.message()
+
+
+def test_accepting_without_detecting_keeps_the_saved_corrections() -> None:
+    """A measured strip opens with no tiles, and must not erase what was saved for them."""
+    dialog = StripPreviewDialog(_FakeController(), _discovery_device(), initial_frame_offsets={3: -0.7})
+
+    assert dialog._tiles == {}
+    assert dialog.frame_offsets() == {3: -0.7}
+
+
+def test_a_tile_the_operator_reset_drops_its_saved_correction() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(4), initial_frame_offsets={2: 0.5, 3: -0.4})
+
+    dialog._tiles[2].offset_slider.setValue(0)  # deliberately cleared, with the tile in view
+
+    assert dialog.frame_offsets() == {3: -0.4}
+
+
+def test_a_detected_strip_overrides_the_saved_correction() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(4), initial_frame_offsets={2: 0.5})
+
+    dialog._tiles[2].offset_slider.setValue(-9)
+
+    assert dialog.frame_offsets() == {2: -0.9}
+
+
+# ── finding the frames as the dialog opens ────────────────────────────────
+
+
+def test_a_measured_strip_finds_its_frames_as_it_opens() -> None:
+    """Every per-frame control lives on a tile, so an empty dialog offers nothing to adjust."""
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device())
+    assert controller.preview_reqs == []  # nothing before it is on screen
+
+    dialog.show()
+
+    assert len(controller.preview_reqs) == 1
+
+
+def test_it_only_finds_them_once_however_often_the_dialog_is_shown() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device())
+
+    dialog.show()
+    dialog.hide()
+    dialog.show()
+
+    assert len(controller.preview_reqs) == 1
+
+
+def test_a_feeder_is_left_alone_because_previewing_it_costs_a_pass_per_frame() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _device(6))
+
+    dialog.show()
+
+    assert controller.preview_reqs == []
+
+
+def test_the_offset_sliders_reach_a_boundary_several_millimetres_out() -> None:
+    """A measured boundary can sit well off the picture, and the slider has to reach it.
+
+    Observed on a real strip: gaps of 876 and 1339 stage units (5.6 mm and 8.5 mm) at 4000 dpi,
+    which a +-2.5 mm control could not cut.
+    """
+    dialog = StripPreviewDialog(_FakeController(), _discovery_device())
+    ctl = _FakeController()
+    grown = StripPreviewDialog(ctl, _device(3))
+
+    assert dialog.offset_slider.minimum() == -100 and dialog.offset_slider.maximum() == 100
+    # A feeder cannot back up, and its forward reach is unchanged.
+    assert grown.offset_slider.minimum() == 0 and grown.offset_slider.maximum() == 100
+    tile = grown._tiles[1].offset_slider
+    tile.setValue(85)
+    assert grown.frame_offsets() == {1: 8.5}
+
+
+# ── re-cutting a nudged frame out of the strip pass ────────────────────────
+
+
+def _measured(controller, slots=(1, 2, 3), **kwargs):
+    """A dialog over a measured strip with its tiles already cut at offset 0."""
+    dialog = StripPreviewDialog(controller, _discovery_device(), **kwargs)
+    controller.deliver_all(slots)
+    controller.preview_reqs.clear()
+    return dialog
+
+
+def _dispose(dialog) -> None:
+    """Close and destroy a dialog: a timer left armed on a collected one crashes teardown."""
+    dialog.reject()
+    dialog.deleteLater()
+    QApplication.processEvents()
+
+
+def test_a_moved_frame_offset_re_cuts_that_frame_alone() -> None:
+    controller = _FakeController()
+    dialog = _measured(controller)
+
+    dialog._tiles[2].offset_slider.setValue(15)
+    dialog._recut_moved_tiles()
+    _dispose(dialog)
+
+    assert [r.slots for r in controller.preview_reqs] == [(2,)]
+    assert controller.preview_reqs[0].offsets[2] == pytest.approx(1.5 / 36.0, abs=1e-4)
+
+
+def test_the_global_offset_re_cuts_every_tile() -> None:
+    controller = _FakeController()
+    dialog = _measured(controller)
+
+    dialog.offset_slider.setValue(20)
+    dialog._recut_moved_tiles()
+    _dispose(dialog)
+
+    assert [r.slots for r in controller.preview_reqs] == [(1, 2, 3)]
+
+
+def test_an_offset_the_tiles_were_already_cut_at_re_cuts_nothing() -> None:
+    controller = _FakeController()
+    dialog = _measured(controller)
+
+    dialog._recut_moved_tiles()
+    _dispose(dialog)
+
+    assert controller.preview_reqs == []
+
+
+def test_moving_an_offset_arms_the_re_cut() -> None:
+    controller = _FakeController()
+    dialog = _measured(controller)
+
+    dialog._tiles[1].offset_slider.setValue(4)
+    armed = dialog._recut.isActive()
+    _dispose(dialog)
+
+    assert armed
+    assert not dialog._recut.isActive()  # closing takes the pending re-cut with it
+
+
+def test_a_feeder_never_re_cuts_its_tiles() -> None:
+    """Only a measured strip has the pass in memory; a feeder would have to scan again."""
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _device(3))
+    controller.deliver_all((1, 2, 3))
+    controller.preview_reqs.clear()
+
+    dialog._tiles[1].offset_slider.setValue(6)
+    armed = dialog._recut.isActive()
+    _dispose(dialog)
+
+    assert not armed
+
+
+def test_a_re_cut_does_not_report_the_strip_as_freshly_detected() -> None:
+    controller = _FakeController()
+    dialog = _measured(controller)
+
+    dialog._tiles[3].offset_slider.setValue(-9)
+    dialog._recut_moved_tiles()
+    assert dialog.status_strip.message().startswith("Re-cutting")
+    controller.deliver_all((3,))
+    _dispose(dialog)
+
+    assert dialog.status_strip.message() == ""
+
+
+def test_a_stopped_detection_does_not_erase_the_saved_framing() -> None:
+    """Accepting before any tile exists must keep what a previous pass set, not wipe it."""
+    controller = _FakeController()
+    dialog = StripPreviewDialog(
+        controller,
+        _discovery_device(),
+        initial_windows={2: (0.1, 0.1, 0.9, 0.9)},
+        initial_selected=(2, 3),
+        initial_frame_offsets={2: 0.4},
+    )
+    assert dialog._tiles == {}
+
+    windows, selected, offsets = dialog.frame_windows(), dialog.selected_frames(), dialog.frame_offsets()
+    _dispose(dialog)
+
+    assert windows == {2: (0.1, 0.1, 0.9, 0.9)}
+    assert selected == (2, 3)
+    assert offsets == {2: 0.4}
+
+
+def test_clearing_a_crop_on_a_tile_drops_the_saved_one() -> None:
+    controller = _FakeController()
+    dialog = _measured(controller, initial_windows={2: (0.1, 0.1, 0.9, 0.9)})
+    assert dialog.frame_windows()[2] == pytest.approx((0.1, 0.1, 0.9, 0.9))
+
+    dialog._tiles[2].label.clear_window()
+    windows = dialog.frame_windows()
+    _dispose(dialog)
+
+    assert windows == {}

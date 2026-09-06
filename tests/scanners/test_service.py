@@ -224,6 +224,25 @@ class TestRenderScanFilename:
             assert os.path.exists(path2)
             assert path1 != path2
 
+    def test_the_mono_format_writes_one_plane_and_keeps_the_tif_extension(self) -> None:
+        import tempfile
+
+        import numpy as np
+        import tifffile
+
+        from negpy.infrastructure.scanners.result import ScanResult
+        from negpy.infrastructure.scanners.settings import MONO_TIFF
+
+        result = ScanResult(rgb=np.zeros((8, 8, 3), dtype=np.uint16), ir=None, dpi=300, device_model="Test")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            service = ScannerService()
+            service._backend = FakeBackend()
+            path = service.write_result(result, tmpdir, '{{ date }}_{{ "%03d" % seq }}', MONO_TIFF)
+
+            assert path.endswith(".tif")
+            assert tifffile.imread(path).shape == (8, 8)
+
     def test_write_refuses_a_pattern_that_does_not_vary_with_sequence(self) -> None:
         import tempfile
 

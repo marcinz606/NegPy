@@ -1,4 +1,4 @@
-"""Scanner TIFFs must decode identically to their LinearRaw DNG twins."""
+"""How a scanner TIFF is encoded, and what the loader makes of it."""
 
 import os
 import tempfile
@@ -11,9 +11,7 @@ from negpy.domain.models import ColorSpace
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper
 from negpy.infrastructure.loaders.tiff_loader import TiffLoader
-from negpy.infrastructure.scanners.result import ScanResult
 from negpy.kernel.image.logic import srgb_to_linear
-from negpy.services.scanning.writer import write_dng_linear, write_tiff_16bit
 
 
 def _rgb16(seed: int = 0) -> np.ndarray:
@@ -78,34 +76,6 @@ class TestTiffEncodingAssumptions:
             f32, metadata = _load(path, linear_raw=True)
             np.testing.assert_allclose(f32, data.astype(np.float32) / 255.0, atol=1e-7)
             assert metadata["color_space"] is None
-
-
-class TestScanRoundTripParity:
-    def test_tiff_and_dng_decode_identically(self) -> None:
-        from negpy.services.rendering.image_processor import ImageProcessor
-
-        result = ScanResult(rgb=_rgb16(), ir=None, dpi=3600, device_model="TestScanner")
-        proc = ImageProcessor()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tif_path = write_tiff_16bit(result, os.path.join(tmpdir, "pair"))
-            dng_path = write_dng_linear(result, os.path.join(tmpdir, "pair"))
-            tif_rgb, _ = proc._decode_sensor_rgb(tif_path, linear_raw=True)
-            dng_rgb, _ = proc._decode_sensor_rgb(dng_path, linear_raw=True)
-        np.testing.assert_array_equal(tif_rgb, dng_rgb)
-
-    def test_tiff_and_dng_agree_on_same_as_source_target(self) -> None:
-        """The twins must also export alike, not just decode alike."""
-        from negpy.services.rendering.image_processor import ImageProcessor
-
-        result = ScanResult(rgb=_rgb16(), ir=None, dpi=3600, device_model="TestScanner")
-        proc = ImageProcessor()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tif_path = write_tiff_16bit(result, os.path.join(tmpdir, "pair"))
-            dng_path = write_dng_linear(result, os.path.join(tmpdir, "pair"))
-            _, tif_meta = proc._decode_sensor_rgb(tif_path, linear_raw=True)
-            _, dng_meta = proc._decode_sensor_rgb(dng_path, linear_raw=True)
-        assert tif_meta.get("color_space") is None
-        assert dng_meta.get("color_space") is None
 
 
 class TestUncharacterisedSourceResolvesToWorkingSpace:

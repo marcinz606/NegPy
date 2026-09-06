@@ -9,6 +9,7 @@ from PyQt6.QtCore import QPoint, QRect, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QMouseEvent, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QLabel, QSizePolicy
 
+from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.scan_window_geometry import (
     Rect,
     hit_corner,
@@ -206,6 +207,11 @@ class ScanWindowLabel(QLabel):
                     painter.drawRect(QRect(x, draw_rect.top(), max(0, draw_rect.right() - x), draw_rect.height()))
                 painter.setPen(pen)
                 painter.drawLine(x, draw_rect.top(), x, draw_rect.bottom())
+            # Last, so neither the offset band nor a crop drawn to the edge dims it: this is the
+            # boundary the offset is measured from, and it has to stay readable on any frame.
+            painter.setPen(QPen(QColor(THEME.accent_primary), 1))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(draw_rect.adjusted(0, 0, -1, -1))
         else:
             painter.fillRect(self.rect(), QColor("#0D0D0F"))
         painter.end()

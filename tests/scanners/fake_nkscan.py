@@ -152,14 +152,13 @@ class FakeNkscanModule:
     def strip_pass(self) -> dict[str, np.ndarray] | None:
         """The whole-strip pass, laid out the way the unit delivers one.
 
-        Columns are feed addresses from the axis start, at the same resolution as the rows,
-        which span the adapter opening. Each frame's band carries its own slot number, so a
-        test can tell which part of the strip a tile was cut from.
+        A column is one line pitch of film, counted from the axis start, the same way the unit
+        lays one out. Each frame's band carries its own slot number, so a test can tell which
+        part of the strip a tile was cut from.
         """
         if not self.thumbnail or not self.frames:
             return None
-        top, left, _bottom, right = self.frames[0]
-        scale = (right - left) / self.rows
+        scale = round(self.caps.optical_dpi / self.caps.thumbnail_dpi[0])
         cols = int(max(f[2] for f in self.frames) / scale) + self.strip_slack
         plane = np.zeros((self.rows, cols), np.uint16)
         for slot, (top, _l, bottom, _r) in enumerate(self.frames, 1):
@@ -240,6 +239,7 @@ class FakeSession:
         lock_white_balance: bool = True,
         exposures: dict[str, int] | None = None,
         progress: Callable[..., Any] | None = None,
+        frames: list[tuple[int, int, int, int]] | None = None,
     ) -> FakeScanResult:
         module = self._module
         # A unit whose CCD reads one line at a time refuses the fast ordering, in the recipe
@@ -260,6 +260,7 @@ class FakeSession:
                 "clean": clean,
                 "lock_white_balance": lock_white_balance,
                 "exposures": exposures,
+                "frames": frames,
             }
         )
         for step in range(1, module.progress_steps + 1):
