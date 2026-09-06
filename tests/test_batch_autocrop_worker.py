@@ -28,6 +28,8 @@ class _PreviewService:
         full_resolution,
         file_hash,
         demosaic="Auto",
+        lens_from_metadata=False,
+        lens_flatfield=None,
     ):
         self.linear_calls.append(
             {
@@ -200,10 +202,10 @@ def test_batch_autocrop_per_file_failure_does_not_abort_roll(qapp, monkeypatch) 
     base = WorkspaceConfig()
 
     class _FailFirstPreview(_PreviewService):
-        def load_linear_preview(self, file_path, color_space, use_camera_wb, full_resolution, file_hash, demosaic="Auto"):
+        def load_linear_preview(self, file_path, color_space, use_camera_wb, full_resolution, file_hash, demosaic="Auto", **kwargs):
             if file_hash == "hash-bad":
                 raise RuntimeError("broken preview")
-            return super().load_linear_preview(file_path, color_space, use_camera_wb, full_resolution, file_hash, demosaic)
+            return super().load_linear_preview(file_path, color_space, use_camera_wb, full_resolution, file_hash, demosaic, **kwargs)
 
     preview = _FailFirstPreview()
     worker = BatchAutoCropWorker(preview)

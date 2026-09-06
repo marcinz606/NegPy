@@ -26,6 +26,7 @@ from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.hdr.logic import resolve_anchor, seed_shadow_density
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, HdrConfig, hdr_frame_paths
 from negpy.features.stitch.models import StitchConfig
+from negpy.features.lens.models import LensMetadata
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG
@@ -84,6 +85,9 @@ class AppState:
     # None for sources that carry no camera matrix (scanner TIFF, JPEG).
     preview_cam_xyz: Optional[list] = None
     preview_camera_wb: Optional[list] = None
+    preview_lens: Optional[LensMetadata] = None
+    preview_lens_path: str = ""
+    preview_lens_token: str = ""
     # Preview-resolution stand-in for preview_raw while HQ is on. Interactive frames render
     # against it. None when preview_raw is already small enough.
     preview_proxy: Optional[Any] = None

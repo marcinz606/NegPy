@@ -25,6 +25,7 @@ from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.override import effective_max_texture_size
 from negpy.features.flatfield.logic import apply_flatfield, flatfield_token
 from negpy.features.flatfield.models import FlatFieldConfig
+from negpy.services.rendering.lens import lens_decode_token, prepare_lens_source
 from negpy.features.retouch.logic import downsample_ir
 from negpy.features.hdr.logic import apply_render_exposure, merge_providers, resolve_anchor
 from negpy.features.hdr.models import HdrConfig, hdr_merge_token
@@ -134,6 +135,8 @@ class PreviewManager:
         log_timings: bool = False,
         half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None = None,
         demosaic: str = DemosaicMode.AUTO,
+        lens_from_metadata: bool = False,
+        lens_flatfield: FlatFieldConfig = FlatFieldConfig(),
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """
         Decode and resize a linear preview from an already-open raw object.
@@ -199,6 +202,8 @@ class PreviewManager:
         # Bake EXIF orientation into the buffer (postprocess runs with user_flip=0).
         orientation = metadata.get("orientation", 1)
         full_linear = apply_exif_orientation(uint16_to_float32(np.ascontiguousarray(rgb)), orientation)
+        if lens_from_metadata:
+            full_linear = prepare_lens_source(full_linear, metadata, lens_flatfield)
         del rgb  # release the uint16 decode buffer before the resize/copy peak
         ir_full = metadata.get("ir")
         if ir_full is not None:
@@ -302,6 +307,7 @@ class PreviewManager:
                 workspace_color_space=color_space,
                 full_resolution=full_resolution,
                 demosaic=demosaic,
+                lens_token=lens_decode_token(lens_from_metadata, lens_flatfield),
                 half=half_slice[0] if half_slice else 0,
                 split_x=half_slice[1] if half_slice else 0.5,
                 crop_rect=half_slice[2] if half_slice else None,
@@ -341,6 +347,8 @@ class PreviewManager:
         log_timings: bool = False,
         half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None = None,
         demosaic: str = DemosaicMode.AUTO,
+        lens_from_metadata: bool = False,
+        lens_flatfield: FlatFieldConfig = FlatFieldConfig(),
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """
         Loads linear RGB, downsamples for display.
@@ -360,6 +368,7 @@ class PreviewManager:
                 workspace_color_space=color_space,
                 full_resolution=full_resolution,
                 demosaic=demosaic,
+                lens_token=lens_decode_token(lens_from_metadata, lens_flatfield),
                 half=half_slice[0] if half_slice else 0,
                 split_x=half_slice[1] if half_slice else 0.5,
                 crop_rect=half_slice[2] if half_slice else None,
@@ -382,6 +391,7 @@ class PreviewManager:
                     workspace_color_space=color_space,
                     full_resolution=full_resolution,
                     demosaic=demosaic,
+                    lens_token=lens_decode_token(lens_from_metadata, lens_flatfield),
                     half=half_slice[0] if half_slice else 0,
                     split_x=half_slice[1] if half_slice else 0.5,
                     crop_rect=half_slice[2] if half_slice else None,
@@ -405,6 +415,8 @@ class PreviewManager:
                 log_timings,
                 half_slice=half_slice,
                 demosaic=demosaic,
+                lens_from_metadata=lens_from_metadata,
+                lens_flatfield=lens_flatfield,
             )
         log(
             "load-timing load_linear_preview %.0fms (decode %.0fms + open)",
@@ -637,6 +649,8 @@ class PreviewManager:
         log_timings: bool = False,
         half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None = None,
         demosaic: str = DemosaicMode.AUTO,
+        lens_from_metadata: bool = False,
+        lens_flatfield: FlatFieldConfig = FlatFieldConfig(),
     ) -> Tuple[Optional[Tuple[ImageBuffer, Dimensions]], Tuple[ImageBuffer, Dimensions, dict]]:
         """
         Open the RAW file once and return both the splash preview and the linear
@@ -658,6 +672,7 @@ class PreviewManager:
                 workspace_color_space=color_space,
                 full_resolution=full_resolution,
                 demosaic=demosaic,
+                lens_token=lens_decode_token(lens_from_metadata, lens_flatfield),
                 half=half_slice[0] if half_slice else 0,
                 split_x=half_slice[1] if half_slice else 0.5,
                 crop_rect=half_slice[2] if half_slice else None,
@@ -684,6 +699,7 @@ class PreviewManager:
                     workspace_color_space=color_space,
                     full_resolution=full_resolution,
                     demosaic=demosaic,
+                    lens_token=lens_decode_token(lens_from_metadata, lens_flatfield),
                     half=half_slice[0] if half_slice else 0,
                     split_x=half_slice[1] if half_slice else 0.5,
                     crop_rect=half_slice[2] if half_slice else None,
@@ -698,7 +714,7 @@ class PreviewManager:
         log = logger.info if log_timings else logger.debug
         splash_result: Optional[Tuple[ImageBuffer, Dimensions]] = None
         with ctx_mgr as raw:
-            if not full_resolution:
+            if not full_resolution and not lens_from_metadata:
                 splash_result = self._try_splash_from_open_raw(raw, file_path, half_slice=half_slice)
             linear_result = self._load_from_open_raw(
                 raw,
@@ -711,6 +727,8 @@ class PreviewManager:
                 log_timings,
                 half_slice=half_slice,
                 demosaic=demosaic,
+                lens_from_metadata=lens_from_metadata,
+                lens_flatfield=lens_flatfield,
             )
         log(
             "load-timing load_splash_and_linear %.0fms (decode %.0fms + open)",

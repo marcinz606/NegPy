@@ -139,6 +139,7 @@ from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.logging import get_logger
 from negpy.services.rendering.preview_manager import PreviewManager
 from negpy.services.rendering.source_identity import source_token
+from negpy.services.rendering.lens import lens_decode_token, metadata_lens_enabled
 from negpy.services.view.coordinate_mapping import CoordinateMapping
 
 logger = get_logger(__name__)
@@ -221,6 +222,7 @@ def _autocrop_fingerprint(config: WorkspaceConfig, workspace_color_space: str) -
         int(geometry.autocrop_offset),
         round(float(geometry.autocrop_rebate_trim), 4),
         round(float(geometry.distortion_k1), 9),
+        bool(geometry.lens_from_metadata),
         bool(flatfield.apply),
         str(flatfield.profile_id),
         bool(config.process.linear_raw),
@@ -1674,6 +1676,8 @@ class AppController(QObject):
                 flatfield_profile_id=flatfield.profile_id if (stitch.stitch_enabled and flatfield.apply) else "",
                 half_slice=half_info,
                 demosaic=self.state.config.process.demosaic_preview,
+                lens_from_metadata=metadata_lens_enabled(self.state.config),
+                lens_flatfield=self.state.config.flatfield,
             )
         )
 
@@ -1741,7 +1745,10 @@ class AppController(QObject):
         if ir_preview is not None:
             ir_preview, _ = self._split_active_half(ir_preview, None)
         self.state.preview_raw = raw
-        self.state.preview_cam_xyz, self.state.preview_camera_wb = cam_matrix or (None, None)
+        self.state.preview_cam_xyz, self.state.preview_camera_wb = cam_matrix[:2] if cam_matrix else (None, None)
+        self.state.preview_lens = cam_matrix[2] if cam_matrix and len(cam_matrix) > 2 else None
+        self.state.preview_lens_path = file_path
+        self.state.preview_lens_token = cam_matrix[3] if cam_matrix and len(cam_matrix) > 3 else ""
         self.state.preview_proxy = _interactive_proxy(raw)
         self.state.preview_ir = ir_preview
         self.state.preview_ir_proxy = _interactive_ir_proxy(ir_preview, self.state.preview_proxy)
@@ -1798,6 +1805,8 @@ class AppController(QObject):
                         # Falls back to the open frame's value, which is what sticky hands an
                         # unedited neighbour. Warming the other key would decode twice.
                         demosaic=saved.process.demosaic_preview if saved else self.state.config.process.demosaic_preview,
+                        lens_from_metadata=metadata_lens_enabled(saved or self.state.config),
+                        lens_flatfield=(saved or self.state.config).flatfield,
                     )
                 )
 
@@ -3942,6 +3951,10 @@ class AppController(QObject):
         before/after split instead of being displayed.
         """
         self._render_debounce.stop()
+        lens_token = lens_decode_token(metadata_lens_enabled(self.state.config), self.state.config.flatfield)
+        if not ephemeral and self.state.current_file_path and lens_token != self.state.preview_lens_token:
+            self.load_file(self.state.current_file_path, preserve_zoom=True)
+            return
 
         # Any direct render exits the flat preview-peek.
         if config_override is None and self.state.flat_peek:

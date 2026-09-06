@@ -11,6 +11,8 @@ from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.analysis import color_histogram, output_histogram, proof_grid, rotate_grid, strip_mosaic
 from negpy.features.flatfield.logic import apply_flatfield
+from negpy.features.flatfield.models import FlatFieldConfig
+from negpy.services.rendering.lens import lens_decode_token, metadata_lens_enabled
 from negpy.features.hdr.models import HdrConfig, hdr_active
 from negpy.features.geometry.batch_autocrop import CropEvidence, detect_crop_candidate, resolve_roll_crops
 from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix
@@ -191,6 +193,8 @@ class PreviewLoadTask:
     stitch: StitchConfig = StitchConfig()  # composite: non-primary parts + stored registration
     hdr: HdrConfig = HdrConfig()  # bracket: the other exposures, merged with file_path (the reference)
     flatfield_profile_id: str = ""  # per-part flat-field profile for stitch previews
+    lens_from_metadata: bool = False
+    lens_flatfield: FlatFieldConfig = FlatFieldConfig()
     demosaic: str = DemosaicMode.AUTO  # CFA interpolation for the preview decode
     half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None = (
         None  # (half, split_x, crop_rect, gutter_thickness)
@@ -905,6 +909,8 @@ class PreviewLoadWorker(QObject):
                     file_hash=task.file_hash,
                     half_slice=task.half_slice,
                     demosaic=task.demosaic,
+                    lens_from_metadata=task.lens_from_metadata,
+                    lens_flatfield=task.lens_flatfield,
                 )
             except Exception as e:
                 logger.debug("Preview cache warm failed for %s: %s", task.file_path, e)
@@ -942,7 +948,12 @@ class PreviewLoadWorker(QObject):
                     source_cs,
                     ir_preview,
                     detected_mode,
-                    (metadata.get("cam_xyz"), metadata.get("camera_wb")),
+                    (
+                        metadata.get("cam_xyz"),
+                        metadata.get("camera_wb"),
+                        metadata.get("lens_correction"),
+                        lens_decode_token(task.lens_from_metadata, task.lens_flatfield),
+                    ),
                     metadata.get("detect_preview"),
                 )
                 return
@@ -976,7 +987,12 @@ class PreviewLoadWorker(QObject):
                     source_cs,
                     ir_preview,
                     detected_mode,
-                    (metadata.get("cam_xyz"), metadata.get("camera_wb")),
+                    (
+                        metadata.get("cam_xyz"),
+                        metadata.get("camera_wb"),
+                        metadata.get("lens_correction"),
+                        lens_decode_token(task.lens_from_metadata, task.lens_flatfield),
+                    ),
                     metadata.get("detect_preview"),
                 )
                 return
@@ -1010,7 +1026,12 @@ class PreviewLoadWorker(QObject):
                     source_cs,
                     ir_preview,
                     detected_mode,
-                    (metadata.get("cam_xyz"), metadata.get("camera_wb")),
+                    (
+                        metadata.get("cam_xyz"),
+                        metadata.get("camera_wb"),
+                        metadata.get("lens_correction"),
+                        lens_decode_token(task.lens_from_metadata, task.lens_flatfield),
+                    ),
                     metadata.get("detect_preview"),
                 )
                 return
@@ -1025,6 +1046,8 @@ class PreviewLoadWorker(QObject):
                     log_timings=True,
                     half_slice=task.half_slice,
                     demosaic=task.demosaic,
+                    lens_from_metadata=task.lens_from_metadata,
+                    lens_flatfield=task.lens_flatfield,
                 )
                 if sp is not None:
                     sbuf, sdims = sp
@@ -1039,6 +1062,8 @@ class PreviewLoadWorker(QObject):
                     log_timings=True,
                     half_slice=task.half_slice,
                     demosaic=task.demosaic,
+                    lens_from_metadata=task.lens_from_metadata,
+                    lens_flatfield=task.lens_flatfield,
                 )
             source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
             ir_preview = metadata.get("ir_preview")
@@ -1058,7 +1083,12 @@ class PreviewLoadWorker(QObject):
                 source_cs,
                 ir_preview,
                 detected_mode,
-                (metadata.get("cam_xyz"), metadata.get("camera_wb")),
+                (
+                    metadata.get("cam_xyz"),
+                    metadata.get("camera_wb"),
+                    metadata.get("lens_correction"),
+                    lens_decode_token(task.lens_from_metadata, task.lens_flatfield),
+                ),
                 metadata.get("detect_preview"),
             )
         except Exception as e:
@@ -1124,7 +1154,13 @@ def decode_asset_preview(
     elif rgbscan.enabled and rgbscan.green_path and rgbscan.blue_path:
         raw, _, _ = preview_service.load_linear_preview_rgb(file_info["path"], rgbscan, workspace_color_space, **common)
     else:
-        raw, _, _ = preview_service.load_linear_preview(file_info["path"], workspace_color_space, **common)
+        raw, _, _ = preview_service.load_linear_preview(
+            file_info["path"],
+            workspace_color_space,
+            lens_from_metadata=metadata_lens_enabled(config),
+            lens_flatfield=config.flatfield,
+            **common,
+        )
     return slice_for_asset(raw, file_info)
 
 
@@ -1195,7 +1231,7 @@ class BatchAutoCropWorker(QObject):
                 return None
 
             config = frame.config
-            corrected = apply_flatfield(raw, config.flatfield)
+            corrected = raw if metadata_lens_enabled(config) else apply_flatfield(raw, config.flatfield)
             detection_geometry = replace(
                 config.geometry,
                 crop_rect=None,
