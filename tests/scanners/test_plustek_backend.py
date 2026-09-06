@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from negpy.infrastructure.scanners.base import ScannerUnavailable, TransientScanError
-from negpy.infrastructure.scanners.params import ScanParams
+from negpy.infrastructure.scanners.params import MultiExposureMode, ScanParams
 from negpy.infrastructure.scanners.result import ScanResult
 
 pytest.importorskip("pyopticfilm")
@@ -341,21 +341,80 @@ def test_multi_exposure_passthrough(monkeypatch):
     monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
     PlustekBackend().scan(
         _DEVICE_ID,
-        _params(multi_exposure=True),
+        _params(multi_exposure_mode=MultiExposureMode.DYNAMIC),
         lambda *_: None,
         threading.Event(),
     )
     assert scanner.scan.call_args.kwargs.get("multi_exposure") is True
     assert scanner.scan.call_args.kwargs.get("me_exposure_mode") == "adaptive"
+    assert scanner.scan.call_args.kwargs.get("n_brackets") == 2
 
 
 def test_colour_scan_passes_adaptive_me_mode(monkeypatch):
     _patch_enum(monkeypatch)
     scanner = _fake_scanner()
     monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
-    PlustekBackend().scan(_DEVICE_ID, _params(), lambda *_: None, threading.Event())
+    PlustekBackend().scan(
+        _DEVICE_ID,
+        _params(multi_exposure_mode=MultiExposureMode.DYNAMIC),
+        lambda *_: None,
+        threading.Event(),
+    )
     assert scanner.scan.call_args.kwargs.get("me_exposure_mode") == "adaptive"
     assert scanner.scan.call_args.kwargs.get("on_status") is not None
+
+
+def test_off_mode_defers_exposure_mode_to_model_default(monkeypatch):
+    """OFF is a no-op path — me_exposure_mode is irrelevant, so it must not be hardcoded."""
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner()
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    PlustekBackend().scan(_DEVICE_ID, _params(), lambda *_: None, threading.Event())
+    assert scanner.scan.call_args.kwargs.get("multi_exposure") is False
+    assert scanner.scan.call_args.kwargs.get("me_exposure_mode") is None
+
+
+def test_fixed_fast_mode_pins_exposure_mode(monkeypatch):
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner()
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    PlustekBackend().scan(
+        _DEVICE_ID,
+        _params(multi_exposure_mode=MultiExposureMode.FIXED_FAST),
+        lambda *_: None,
+        threading.Event(),
+    )
+    assert scanner.scan.call_args.kwargs.get("multi_exposure") is True
+    assert scanner.scan.call_args.kwargs.get("me_exposure_mode") == "fixed"
+    assert scanner.scan.call_args.kwargs.get("n_brackets") == 2
+
+
+def test_n_exposure_mode_passes_bracket_count(monkeypatch):
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner()
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    PlustekBackend().scan(
+        _DEVICE_ID,
+        _params(multi_exposure_mode=MultiExposureMode.N_EXPOSURE, me_brackets=5),
+        lambda *_: None,
+        threading.Event(),
+    )
+    assert scanner.scan.call_args.kwargs.get("multi_exposure") is True
+    assert scanner.scan.call_args.kwargs.get("me_exposure_mode") is None
+    assert scanner.scan.call_args.kwargs.get("n_brackets") == 5
+
+
+def test_n_exposure_rejects_out_of_range_bracket_count(monkeypatch):
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner()
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    with pytest.raises(RuntimeError, match="me_brackets"):
+        PlustekBackend().scan(
+            _DEVICE_ID,
+            _params(multi_exposure_mode=MultiExposureMode.N_EXPOSURE, me_brackets=10),
+            lambda *_: None,
+            threading.Event(),
+        )
 
 
 def test_on_status_reports_priming_then_scanning(monkeypatch):
@@ -385,7 +444,7 @@ def test_me_scan_reports_preparing_then_long_pass(monkeypatch):
 
     PlustekBackend().scan(
         _DEVICE_ID,
-        _params(multi_exposure=True),
+        _params(multi_exposure_mode=MultiExposureMode.DYNAMIC),
         progress,
         threading.Event(),
     )
@@ -406,12 +465,35 @@ def test_me_scan_reports_merging_at_completion(monkeypatch):
 
     PlustekBackend().scan(
         _DEVICE_ID,
-        _params(multi_exposure=True),
+        _params(multi_exposure_mode=MultiExposureMode.DYNAMIC),
         progress,
         threading.Event(),
     )
     assert "Merging exposures" in phases
     assert "Preparing long exposure" not in phases
+
+
+def test_n_exposure_scan_reports_preparing_next_exposure(monkeypatch):
+    """More than 2 brackets: every mid-scan boundary reports the generic label, not the
+    2-bracket-specific "Preparing long exposure" (there's no longer a single 'long' pass)."""
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner(me_fractions=[0.25, 0.5, 0.75, 1.0])
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    seen: list[tuple[float, str]] = []
+
+    def progress(fraction: float, phase: str = "Scanning") -> None:
+        seen.append((fraction, phase))
+
+    PlustekBackend().scan(
+        _DEVICE_ID,
+        _params(multi_exposure_mode=MultiExposureMode.N_EXPOSURE, me_brackets=4),
+        progress,
+        threading.Event(),
+    )
+    phases = [phase for _, phase in seen]
+    assert phases.count("Preparing next exposure") >= 2
+    assert "Preparing long exposure" not in phases
+    assert phases[-1] == "Merging exposures" or "Merging exposures" in phases
 
 
 def test_non_me_scan_skips_me_progress_phases(monkeypatch):

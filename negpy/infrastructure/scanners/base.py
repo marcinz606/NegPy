@@ -37,6 +37,10 @@ class ScannerCapabilities:
     prescan_mirror_x: bool = False
     prescan_default_crop: tuple[float, float, float, float] | None = None
     multi_exposure: bool = False
+    #: Whether the device supports MultiExposureMode.N_EXPOSURE (2+ brackets, not just short+long).
+    me_n_exposure: bool = False
+    #: Highest me_brackets value the device accepts; only meaningful when me_n_exposure is True.
+    me_max_brackets: int = 2
     adapter_frame_capacity: int | None = None  # transport capacity bound, not an exposure count
     adapter_frame_control: bool = False
     can_eject: bool = False

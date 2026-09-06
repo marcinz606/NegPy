@@ -8,12 +8,39 @@ class ScanMode(StrEnum):
     TRANSPARENCY = "Transparency"
 
 
+class MultiExposureMode(StrEnum):
+    """How many exposures to capture per frame and how the top one is chosen.
+
+    OFF: one exposure, the fast path. DYNAMIC: short+long merged, long exposure picked per
+    frame from image content (today's only multi-exposure behavior). FIXED_FAST: short+long
+    merged, long exposure pinned to a fixed, per-model-validated value instead of chosen per
+    frame. N_EXPOSURE: 2-9 exposures merged for lower noise, at a roughly proportional
+    increase in scan time (see ScanParams.me_brackets).
+    """
+
+    OFF = "off"
+    DYNAMIC = "dynamic"
+    FIXED_FAST = "fixed_fast"
+    N_EXPOSURE = "n_exposure"
+
+
+#: Bracket count is meaningful only in MultiExposureMode.N_EXPOSURE; every backend that
+#: supports it validates against this same range (mirrors pyopticfilm's own scan() bound).
+MIN_ME_BRACKETS = 2
+MAX_ME_BRACKETS = 9
+#: Starting point when a user first turns on Multi-Pass — comfortably past the 2-exposure
+#: floor (where it wouldn't differ from Dynamic/Fixed) without defaulting to the slow end.
+DEFAULT_ME_BRACKETS = 3
+
+
 @dataclass(frozen=True)
 class ScanParams:
     dpi: int
     depth: int
     capture_ir: bool
-    multi_exposure: bool = False
+    multi_exposure_mode: MultiExposureMode = MultiExposureMode.OFF
+    # Exposures to merge in MultiExposureMode.N_EXPOSURE (2-9); ignored in every other mode.
+    me_brackets: int = MIN_ME_BRACKETS
     # Normalized (x1,y1,x2,y2) window 0..1; backend maps to device units (coolscan3 int px).
     window: tuple[float, float, float, float] | None = None
     # coolscan3 `subframe` (mm), applied to every frame. 0 = scanner default.
