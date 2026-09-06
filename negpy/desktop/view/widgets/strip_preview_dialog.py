@@ -504,11 +504,14 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
                 merged[frame] = self._to_scan(window)
         return merged
 
+    # Both rasters are shown with the feed axis along display x and the sensor's high addresses
+    # at the top, so one rect transform serves both; the rotation only says which raster had to
+    # be turned to get there.
     def _to_display(self, rect):
-        return _scan_to_display_rect(rect) if self._rotation else rect
+        return _scan_to_display_rect(rect)
 
     def _to_scan(self, rect):
-        return _display_to_scan_rect(rect) if self._rotation else rect
+        return _display_to_scan_rect(rect)
 
     def tile_height(self) -> int:
         return int(self.size_slider.value())

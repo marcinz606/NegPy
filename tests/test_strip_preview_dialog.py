@@ -728,14 +728,17 @@ def test_a_feeder_raster_turns_landscape() -> None:
     assert (pixmap.width(), pixmap.height()) == (24, 8)
 
 
-def test_a_measured_strip_crop_needs_no_axis_swap() -> None:
+def test_a_measured_strip_crop_maps_display_x_to_the_feed_and_display_top_to_the_sensor_end() -> None:
+    # A measured strip's tile arrives landscape, so it is not rotated, but the backend's window
+    # still has y along the feed and x along the sensor, whose high addresses are the top of the
+    # tile: the same transform a rotated feeder tile needs. Measured on an LS-50 over nkscan.
     controller = _FakeController()
     dialog = StripPreviewDialog(controller, _discovery_device())
     dialog._on_preview_all()
     controller.deliver_all((1,))
-    dialog._tiles[1].label.set_window((0.1, 0.2, 0.5, 0.6))
+    dialog._tiles[1].label.set_window((0.0, 0.0, 0.5, 0.3))  # top-left: first half of the feed
 
-    assert dialog.frame_windows()[1] == (0.1, 0.2, 0.5, 0.6)
+    assert dialog.frame_windows()[1] == pytest.approx((0.7, 0.0, 1.0, 0.5))
 
 
 # ── picking the frames to scan ────────────────────────────────────────────
@@ -1304,7 +1307,7 @@ def test_a_stopped_detection_does_not_erase_the_saved_framing() -> None:
 def test_clearing_a_crop_on_a_tile_drops_the_saved_one() -> None:
     controller = _FakeController()
     dialog = _measured(controller, initial_windows={2: (0.1, 0.1, 0.9, 0.9)})
-    assert dialog.frame_windows() == {2: (0.1, 0.1, 0.9, 0.9)}
+    assert dialog.frame_windows()[2] == pytest.approx((0.1, 0.1, 0.9, 0.9))
 
     dialog._tiles[2].label.clear_window()
     windows = dialog.frame_windows()
