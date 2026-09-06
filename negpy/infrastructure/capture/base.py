@@ -66,6 +66,7 @@ class CaptureSettings:
     output_folder: str
     levels: tuple[int, int, int]  # (r, g, b) LED levels, 0-255
     settle_s: float = 0.4
+    inter_exposure_delay_s: float = 0.0
     min_raw_bytes: int = 8 * 1024 * 1024
     max_raw_bytes: int = 200 * 1024 * 1024
     shutters: Optional[tuple[Optional[str], Optional[str], Optional[str]]] = None

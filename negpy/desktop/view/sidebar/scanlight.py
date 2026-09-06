@@ -253,6 +253,26 @@ class ScanlightSidebar(QWidget):
         self._conn_hint.setWordWrap(True)
         self._conn_hint.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
         layout.addWidget(self._conn_hint)
+
+        self.inter_exposure_delay_row = QWidget()
+        self.inter_exposure_delay_layout = QHBoxLayout(self.inter_exposure_delay_row)
+        self.inter_exposure_delay_layout.setContentsMargins(0, 0, 0, 0)
+        self.inter_exposure_delay_layout.setSpacing(6)
+        self.inter_exposure_delay_slider = QSlider(Qt.Orientation.Horizontal)
+        self.inter_exposure_delay_slider.setRange(0, 5000)
+        self.inter_exposure_delay_slider.setSingleStep(100)
+        self.inter_exposure_delay_slider.setValue(self._settings.inter_exposure_delay_ms)
+        self.inter_exposure_delay_slider.setToolTip(
+            "Wait this long between successive trichrome channel exposures so the camera can flush the previous shot."
+        )
+        self.inter_exposure_delay_value = QLabel(f"{self._settings.inter_exposure_delay_ms} ms")
+        self.inter_exposure_delay_value.setMinimumWidth(64)
+        self.inter_exposure_delay_value.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
+        self.inter_exposure_delay_label = QLabel("Delay between exposures")
+        self.inter_exposure_delay_layout.addWidget(self.inter_exposure_delay_label)
+        self.inter_exposure_delay_layout.addWidget(self.inter_exposure_delay_slider, 1)
+        self.inter_exposure_delay_layout.addWidget(self.inter_exposure_delay_value)
+        layout.addWidget(self.inter_exposure_delay_row)
         status_row = QHBoxLayout()
         self.cam_status = QLabel()
         self.light_status = QLabel()
@@ -394,6 +414,8 @@ class ScanlightSidebar(QWidget):
         self.preset_del_btn.clicked.connect(self._on_preset_delete)
         # Typing an invalid path greys Scan immediately (with the reason), not on the next click.
         self.folder_edit.editingFinished.connect(self._apply_gating)
+        self.inter_exposure_delay_slider.valueChanged.connect(self._update_inter_exposure_delay_label)
+        self.inter_exposure_delay_slider.valueChanged.connect(self._update_settings_from_ui)
         for w in (self.roll_edit, self.folder_edit):
             w.editingFinished.connect(self._update_settings_from_ui)
 
@@ -1330,6 +1352,7 @@ class ScanlightSidebar(QWidget):
             output_folder=roll_folder,
             levels=(s.r_level, s.g_level, s.b_level),
             settle_s=_LED_SETTLE_S,
+            inter_exposure_delay_s=s.inter_exposure_delay_ms / 1000.0,
             port=s.port,
             # Normal mode has no calibrated shutter or white level: the operator sets the exposure
             # with the live-view steppers, so leave the shutter blank and the camera keeps its own.
@@ -1660,6 +1683,9 @@ class ScanlightSidebar(QWidget):
         self.lv_window.set_scanning(active)
         self._apply_gating()  # a running scan locks the "+" calibration button
 
+    def _update_inter_exposure_delay_label(self) -> None:
+        self.inter_exposure_delay_value.setText(f"{self.inter_exposure_delay_slider.value()} ms")
+
     def _update_settings_from_ui(self) -> None:
         # white_mode / white_process_mode are set by preset selection, not by widgets. Exposure
         # comes from the steppers only while building a manual preset. Otherwise it is the preset
@@ -1676,6 +1702,7 @@ class ScanlightSidebar(QWidget):
             g_level=self.g_slider.value(),
             b_level=self.b_slider.value(),
             w_level=self.w_slider.value(),
+            inter_exposure_delay_ms=self.inter_exposure_delay_slider.value(),
             shutter_r=shutter,
             shutter_g=shutter,
             shutter_b=shutter,
