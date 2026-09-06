@@ -5,6 +5,7 @@
 - New: **Print tone grounded in the photofinishing literature** — the default print envelope, Auto Grade and Auto Density were retuned against published preferred-reproduction data; both meters now read textured parts of the frame only, so rebate, sky and flat walls no longer set grade or exposure. **Retune your Auto Grade and Auto Density targets** — existing frames on the automatic helpers will print differently.
 - New: **Shadow Reach and Highlight Hold** — two Set Targets tunables that place the ends of the print automatically: the darkest textured tone is held to a minimum print density, and the brightest gets an automatic highlight burn so it keeps tone instead of going paper white. Either can be turned off with 0.
 - New: **Low VRAM export tiling** — a Preferences option (Performance) that halves the tile size and drops readback pipelining for tiled exports, for integrated GPUs that ran out of shared memory mid-export. @TobbyTravel
+- New: **Windows startup falls back to a writable data folder** — when the default data folder is blocked, a dialog offers Local AppData or lets you pick another folder; nothing is copied, the choice is remembered. @hsnilsson
 - Change: **Optical Removal rebuilt** — the detector was measured against the IR channel and rewritten: a local-noise threshold instead of an absolute one, min-pooled detection at full detail, and seed-and-grow so a mark covers the whole speck and a hair joins into one piece. It now finds many times more of what IR sees; on strongly textured film some marks are given up to protect image detail.
 - Change: **Sharpening rolls off in the deep shadows** — both sharpen methods reduce gain toward paper black, where grain is coarsest relative to detail.
 - Change: **Faster startup, navigation and export** — the first render and window build are quicker, switching files no longer stalls the interface, and tiled export, 16-bit TIFF encoding and the IR/dust bakes are several times faster. An export after a full-resolution preview reuses that preview's detection and repair work.
@@ -15,6 +16,8 @@
 - Fix: **Batch progress during Hot Folder** — a manual Add Files or Add Folder import ran with no progress dialog while the Hot Folder toggle was on. @MohammedAlkindi
 - Fix: **GPS coordinates in exported metadata** — rounded seconds and minutes now carry into minutes and degrees. @MohammedAlkindi
 - Fix: **File sizes pick the right unit** — a size just under a threshold showed as "1024.0 KB". @MohammedAlkindi
+- Fix: **Startup no longer flashes small unparented windows** — toolbar, scan light and section-help widgets parent correctly before showing. @hsnilsson
+- Fix: **Optional inter-exposure delay for trichrome capture** — some older USB/PTP cameras need a pause between red/green/blue captures; default stays zero. @matthoosier
 
 ## 0.57.0
 
