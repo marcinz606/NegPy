@@ -75,11 +75,10 @@ class ProcessConfig:
     # Correct narrowband RGB camera scans via the bundled RGBScan input profile
     # (applied at preview soft-proof / export; an explicit Input ICC overrides it).
     narrowband_scan: bool = False
-    # On the Transparency as-captured transfer, the loader normally treats the source as
-    # literal linear data, matching a raw scanner/camera capture whose camera matrix folds
-    # its own white balance back in. This source is already a finished positive instead, so
-    # its own embedded profile (or the untagged-8-bit/sRGB fallback) decides the decode.
-    # See effective_linear_raw.
+    # On the Transparency as-captured transfer the loader reads the source as literal linear
+    # data, for a raw capture whose camera matrix folds its own white balance back in. A
+    # finished positive decodes on its embedded profile instead (sRGB when untagged), and
+    # skips the baseline lift and filmic curve. See effective_linear_raw.
     positive_source: bool = False
     # See loaders/helpers.get_best_demosaic_algorithm for what AUTO resolves to on each path.
     demosaic_preview: DemosaicMode = DemosaicMode.AUTO

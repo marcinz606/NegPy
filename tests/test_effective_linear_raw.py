@@ -52,7 +52,7 @@ class TestEffectiveLinearRaw:
 
 class TestPositiveSource:
     """A Transparency source can be an already-finished positive (a scanned print, an
-    exported TIFF) rather than a raw scanner/camera capture. Positive Source exempts it
+    exported TIFF) rather than a raw scanner/camera capture. Positive exempts it
     from the forced literal-linear read so its own embedded profile decides the decode.
     """
 
@@ -60,7 +60,7 @@ class TestPositiveSource:
         assert not effective_linear_raw(cfg(ProcessMode.E6, normalize=False, positive_source=True))
 
     def test_the_linear_raw_flag_still_wins(self):
-        """An explicit request for literal linear data overrides Positive Source too."""
+        """An explicit request for literal linear data overrides Positive too."""
         assert effective_linear_raw(cfg(ProcessMode.E6, normalize=False, linear_raw=True, positive_source=True))
 
     def test_has_no_effect_off_the_transfer_path(self):

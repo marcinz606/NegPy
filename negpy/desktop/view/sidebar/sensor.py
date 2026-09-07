@@ -55,22 +55,6 @@ class SensorSidebar(BaseSidebar):
         self.capture_hint.setVisible(False)  # text and tooltip are set per film process in sync_ui
         self.layout.addWidget(self.capture_hint)
 
-        self.positive_source_btn = self._small_toggle(
-            "fa5s.image",
-            "Positive Source",
-            conf.positive_source,
-            "This Transparency is already a finished positive, not a raw scanner or camera "
-            "capture — decode its own embedded profile (the sRGB assumption if it has none) "
-            "instead of reading it as literal linear data, and skip the fixed +0.7 EV lift "
-            "and filmic highlight roll-off a raw capture needs, so the Print sliders shape "
-            "the capture directly. Only applies to an as-captured transfer (Normalize off); "
-            "a Transparency with Normalize on already decodes on its own profile.",
-        )
-        self.layout.addWidget(self.positive_source_btn)
-        self.positive_source_hint = hint_label("Only applies to an as-captured transparency.")
-        self.positive_source_hint.setVisible(False)
-        self.layout.addWidget(self.positive_source_hint)
-
         self.layout.addWidget(section_subheader("SINGLE-SHOT NARROWBAND CALIBRATION"))
 
         row = QHBoxLayout()
@@ -247,7 +231,6 @@ class SensorSidebar(BaseSidebar):
     def _connect_signals(self) -> None:
         self.linear_raw_btn.toggled.connect(self._on_linear_raw_toggled)
         self.narrowband_scan_btn.toggled.connect(self._on_narrowband_scan_toggled)
-        self.positive_source_btn.toggled.connect(self._on_positive_source_toggled)
         self.scan_setup_btn.clicked.connect(self._open_scan_setup)
 
         self.sensor_combo.currentTextChanged.connect(self._on_sensor_profile_changed)
@@ -278,21 +261,6 @@ class SensorSidebar(BaseSidebar):
 
     def _on_narrowband_scan_toggled(self, checked: bool) -> None:
         self.update_config_section("process", narrowband_scan=checked, persist=True, render=True)
-
-    def _on_positive_source_toggled(self, checked: bool) -> None:
-        from dataclasses import replace
-
-        new_config = replace(
-            self.state.config,
-            process=replace(
-                self.state.config.process,
-                positive_source=checked,
-                **invalidate_local_bounds(self.state.config.process),
-            ),
-        )
-        # Changes the decode like Linear RAW does: apply_config re-decodes and suppresses
-        # the bounds analysis over the stale buffer.
-        self.controller.apply_config(new_config, persist=True)
 
     def _open_scan_setup(self) -> None:
         from negpy.desktop.view.main_window import MainWindow
@@ -417,7 +385,6 @@ class SensorSidebar(BaseSidebar):
         try:
             self.linear_raw_btn.setChecked(conf.linear_raw)
             self.narrowband_scan_btn.setChecked(conf.narrowband_scan)
-            self.positive_source_btn.setChecked(conf.positive_source)
             # Three reasons, three gates. Narrowband is refused for any transparency, because the
             # bundled profile describes narrowband capture of negative dyes. Linear RAW is inert
             # on the *transfer*, where the camera matrix folds the as-shot multipliers back in
@@ -434,8 +401,6 @@ class SensorSidebar(BaseSidebar):
             self.linear_raw_btn.setEnabled(not transfer and not triplet)
             self.scan_setup_btn.setEnabled(not e6)
             self.capture_hint.setVisible(e6 or triplet)
-            self.positive_source_btn.setEnabled(transfer)
-            self.positive_source_hint.setVisible(not transfer)
             if e6:
                 self.capture_hint.setText(
                     "Narrowband is not used for slides." if not transfer else "Not applied to an as-captured transparency."
@@ -502,7 +467,6 @@ class SensorSidebar(BaseSidebar):
         for w in (
             self.linear_raw_btn,
             self.narrowband_scan_btn,
-            self.positive_source_btn,
             self.sensor_combo,
             self.crosstalk_combo,
             self.crosstalk_strength_slider,

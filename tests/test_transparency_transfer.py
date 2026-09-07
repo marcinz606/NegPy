@@ -186,7 +186,7 @@ class TestIdentityAtDefaults(unittest.TestCase):
 
 
 class TestPositiveSourceSkipsDisplayRendering(unittest.TestCase):
-    """A Positive Source frame is already a finished image, not a raw capture below the
+    """A Positive frame is already a finished image, not a raw capture below the
     sensor's white level, so the baseline gain and filmic display_rendering — both
     otherwise unconditional on this path — must not run."""
 
@@ -669,7 +669,7 @@ class TestGpuTransferParity(unittest.TestCase):
 
     def test_positive_source_matches(self):
         """The gain and display_rendering skip must agree bit-for-bit-ish on both engines,
-        or Positive Source would look different in the live preview than in an export."""
+        or Positive would look different in the live preview than in an export."""
         settings = _e6_config(positive_source=True, density=1.4, toe=0.5)
         cpu, gpu = self._both(settings)
         self._assert_parity(cpu, gpu)

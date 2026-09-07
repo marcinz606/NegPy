@@ -22,7 +22,7 @@ struct TransferUniforms {
     // Zone Density: (shadow ΔD, highlight ΔD, shadow centre, highlight centre).
     zone: vec4<f32>,
     // x = width of the black taper, in density. y = positive_source (nonzero skips
-    // display_rendering below, for an already-finished source). zw unused.
+    // display_rendering below). zw unused.
     zone_taper: vec4<f32>,
     // Cast Removal affine on density: per-channel gain and offset (w lane unused).
     cast_gain: vec4<f32>,
@@ -104,8 +104,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
 
         // Baseline + display rendering last: the controls above shape the scene. A
-        // positive source skips both (baseline_gain is already 1.0 host-side) and passes
-        // the scene through unshaped, matching transfer.py::apply_transfer_curve.
+        // positive source skips both (baseline_gain arrives as 1.0), matching
+        // transfer.py::apply_transfer_curve.
         let scene = pow(10.0, -d) * params.baseline_gain;
         if (params.zone_taper.y != 0.0) {
             res[ch] = oetf_encode(clamp(scene, 0.0, 1.0));

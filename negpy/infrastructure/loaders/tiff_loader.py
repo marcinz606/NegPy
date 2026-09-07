@@ -169,15 +169,14 @@ class TiffLoader(IImageLoader):
             color_space = identify_color_space_from_icc(icc_bytes)
             if color_space is None and (img.dtype == np.uint8 or positive_source):
                 # Untagged 8-bit is display-encoded in practice. Untagged 16-bit is scanner-raw
-                # linear, which no ColorSpace names, so it stays None here too — unless the
-                # caller says this source is a positive, not raw, in which case the ambiguity
-                # is already resolved and it gets the same assumption as untagged 8-bit.
+                # linear, which no ColorSpace names, so it stays None; a positive source has
+                # resolved that ambiguity and takes the 8-bit assumption.
                 color_space = ColorSpace.SRGB.value
             if color_space == ColorSpace.SRGB.value:
                 f32 = srgb_to_linear(f32)
             elif color_space == ColorSpace.ADOBE_RGB.value:
                 # Adobe RGB's TRC is the working space's own gamma, so its decode is the
-                # inverse of the pipeline's own OETF encode — no separate curve needed.
+                # inverse of the pipeline OETF encode.
                 f32 = working_oetf_decode(f32)
         metadata = {
             "orientation": read_orientation(file_path),

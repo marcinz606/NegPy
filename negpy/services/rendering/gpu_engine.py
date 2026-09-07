@@ -1511,9 +1511,8 @@ class GPUEngine:
             settings.exposure.cast_removal_strength,
         )
         t_cast_gain, t_cast_off = neutral_axis_affine(t_axis, t_strength)
-        # A positive source is already a finished image, not a raw capture below the
-        # sensor's white level: skip the baseline gain and let the shader skip
-        # display_rendering too (see the zone_taper.y lane below), matching transfer.py.
+        # A finished positive skips the baseline gain, and the zone_taper.y lane below tells
+        # the shader to skip display_rendering too. Matches transfer.py.
         t_positive_source = bool(settings.process.positive_source)
         t_baseline_gain = 1.0 if t_positive_source else 2.0 ** float(tc["transfer_baseline_ev"])
         tr_data = (

@@ -32,9 +32,8 @@ def effective_linear_raw(process: ProcessConfig, render_intent: Optional[str] = 
     absorb the difference: that bracket's shortest link solved to 0.75 EV instead of 1.00,
     which prints as contour rings around a blown highlight.
 
-    `positive_source` exempts the forced case: that source is a finished positive, not a
-    raw capture with a camera matrix to fold multipliers back in, so it decodes on its own
-    embedded profile like any other mode instead of being read as literal linear data.
+    `positive_source` exempts the forced case: a finished positive has no camera matrix to
+    fold multipliers back in, so it decodes on its own embedded profile like any other mode.
     """
     from negpy.features.exposure.transfer import is_transparency_transfer
 

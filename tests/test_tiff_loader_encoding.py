@@ -153,7 +153,7 @@ class TestTiffEncodingAssumptions:
 
 class TestPositiveSourceOnTheTransferPath:
     """An already-positive TIFF loaded as Transparency (Normalize off) is not a raw
-    scanner capture: Positive Source must reach the loader through effective_linear_raw
+    scanner capture: Positive must reach the loader through effective_linear_raw
     so its sRGB tag decodes instead of being read as literal linear data."""
 
     def test_positive_source_reaches_the_srgb_decode(self) -> None:

@@ -49,7 +49,7 @@ def _sidebar(linear_raw=True, profile=_NAME, sensor_matrix=_MATRIX):
 
 def test_sidebar_builds_with_all_controls():
     w = _sidebar()
-    for attr in ("sensor_combo", "calibrate_sensor_btn", "sensor_hint", "capture_hint", "positive_source_btn", "positive_source_hint"):
+    for attr in ("sensor_combo", "calibrate_sensor_btn", "sensor_hint", "capture_hint"):
         assert hasattr(w, attr), attr
 
 
@@ -196,28 +196,6 @@ def test_capture_row_stays_visible_and_greys_out_per_reason():
     assert w.capture_hint.isHidden()
 
 
-def test_positive_source_only_live_on_the_transfer_path():
-    """Meaningless anywhere else: it only changes what the loader does on the E-6
-    as-captured transfer, so it grays out everywhere that render path is not active."""
-    w = _sidebar(linear_raw=True)
-    w.sync_ui()
-    assert not w.positive_source_btn.isEnabled()
-    assert not w.positive_source_hint.isHidden()
-
-    _to_mode(w, process_mode=ProcessMode.E6, e6_normalize=False)
-    assert w.positive_source_btn.isEnabled()
-    assert w.positive_source_hint.isHidden()
-
-    # Normalize on: a metered stretch, not the transfer, so it goes inert again.
-    _to_mode(w, e6_normalize=True)
-    assert not w.positive_source_btn.isEnabled()
-    assert not w.positive_source_hint.isHidden()
-
-    _to_mode(w, process_mode=ProcessMode.C41)
-    assert not w.positive_source_btn.isEnabled()
-    assert not w.positive_source_hint.isHidden()
-
-
 def test_linear_raw_locks_for_an_rgb_scan_triplet():
     """Every triplet exposure decodes neutral regardless of this toggle (see
     tests/test_rgbscan_white_balance.py), so it locks rather than sitting live with no
@@ -274,8 +252,3 @@ def test_capture_toggles_reach_the_controller():
     w.linear_raw_btn.setChecked(True)
     (cfg,), _kw = w.controller.apply_config.call_args
     assert cfg.process.linear_raw is True
-
-    _to_mode(w, process_mode=ProcessMode.E6, e6_normalize=False)
-    w.positive_source_btn.setChecked(True)
-    (cfg,), _kw = w.controller.apply_config.call_args
-    assert cfg.process.positive_source is True
