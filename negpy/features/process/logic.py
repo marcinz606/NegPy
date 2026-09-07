@@ -25,6 +25,10 @@ def effective_linear_raw(process: ProcessConfig, render_intent: Optional[str] = 
     matrix have to agree: apply white balance at both, or at neither. Splitting them tints
     the render by the raw green-to-red ratio, which is roughly 2:1.
 
+    It answers for white balance only. Whether a *tagged* source file is read through
+    its declared encoding or as literal linear data stays with the stored flag, which the
+    loader reads on its own.
+
     It matters most to a bracket. `use_camera_wb` applies each *file's* own multipliers, and
     a camera left on auto white balance records different ones per frame — on a real
     8-frame slide bracket the darkest frame's B/G came out 1.41 against ~1.8-2.1 for the
@@ -43,11 +47,10 @@ def linear_raw_token(process: ProcessConfig, render_intent: Optional[str] = None
     """Decode-mode identity, folded into the render source hash so the auto-meter
     re-runs when Linear RAW toggles (the decode changes the source pixels).
 
-    Keyed on the *effective* value: the transfer path decodes without white balance
-    whatever the stored flag says, so keying on the flag alone would serve a buffer decoded
-    the other way.
+    Keyed on both values, because the two decide different parts of the decode
+    (`effective_linear_raw`), and either one alone would serve a buffer decoded the other way.
     """
-    return f"|lr:{int(effective_linear_raw(process, render_intent))}"
+    return f"|lr:{int(effective_linear_raw(process, render_intent))}{int(process.linear_raw)}"
 
 
 def demosaic_token(mode: str) -> str:

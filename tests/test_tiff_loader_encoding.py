@@ -1,5 +1,6 @@
 """Scanner TIFFs must decode identically to their LinearRaw DNG twins."""
 
+import dataclasses
 import os
 import tempfile
 
@@ -10,6 +11,7 @@ from PIL import ImageCms
 from negpy.domain.models import ColorSpace
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper
+from negpy.features.process.logic import effective_linear_raw
 from negpy.infrastructure.loaders.tiff_loader import TiffLoader
 from negpy.infrastructure.scanners.result import ScanResult
 from negpy.kernel.image.logic import srgb_to_linear
@@ -78,6 +80,66 @@ class TestTiffEncodingAssumptions:
             f32, metadata = _load(path, linear_raw=True)
             np.testing.assert_allclose(f32, data.astype(np.float32) / 255.0, atol=1e-7)
             assert metadata["color_space"] is None
+
+
+class TestTransparencyPathKeepsFileEncoding:
+    """Linear RAW is forced on for an E-6 slide so the decode and the camera matrix agree
+    on white balance. That is a claim about white balance, not about whether the file's
+    pixels are gamma-encoded, so a tagged TIFF must still decode through its tag."""
+
+    @staticmethod
+    def _tagged_srgb_tiff(tmpdir: str) -> tuple[str, np.ndarray]:
+        icc = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+        data = _rgb16()
+        path = os.path.join(tmpdir, "slide.tif")
+        tifffile.imwrite(path, data, photometric="rgb", extratags=[(34675, 7, len(icc), icc, True)])
+        return path, data
+
+    def test_export_decode_degammas_a_tagged_slide(self) -> None:
+        from negpy.services.rendering.image_processor import ImageProcessor
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path, data = self._tagged_srgb_tiff(tmpdir)
+            rgb, _ = ImageProcessor()._decode_sensor_rgb(path, linear_raw=True, source_linear=False)
+        expected = srgb_to_linear(data.astype(np.float32) / 65535.0)
+        np.testing.assert_allclose(rgb.astype(np.float32) / 65535.0, expected, atol=2.0 / 65535.0)
+
+    def test_export_source_decode_asks_the_stored_flag(self) -> None:
+        """The wiring, not just the parameter: an E-6 config with Linear RAW off must
+        reach the loader with the encoding gate open."""
+        from negpy.domain.models import WorkspaceConfig
+        from negpy.features.process.models import ProcessMode
+        from negpy.services.rendering.image_processor import ImageProcessor
+
+        params = dataclasses.replace(
+            WorkspaceConfig(),
+            process=dataclasses.replace(WorkspaceConfig().process, process_mode=ProcessMode.E6),
+        )
+        assert effective_linear_raw(params.process, params.exposure.render_intent), "E-6 must force the neutral decode"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path, data = self._tagged_srgb_tiff(tmpdir)
+            f32, _ir, _cs = ImageProcessor()._load_source_f32(path, params)
+        expected = srgb_to_linear(data.astype(np.float32) / 65535.0)
+        np.testing.assert_allclose(np.asarray(f32, dtype=np.float32), expected, atol=2.0 / 65535.0)
+
+    def test_preview_decode_does_not_read_white_balance_as_encoding(self) -> None:
+        from negpy.services.rendering.preview_manager import PreviewManager
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path, data = self._tagged_srgb_tiff(tmpdir)
+            buf, _dims, meta = PreviewManager().load_linear_preview(path, use_camera_wb=False, full_resolution=True)
+        assert meta["color_space"] == ColorSpace.SRGB.value
+        expected = srgb_to_linear(data.astype(np.float32) / 65535.0)
+        np.testing.assert_allclose(np.asarray(buf, dtype=np.float32), expected, atol=2.0 / 65535.0)
+
+    def test_preview_still_honours_the_toggle(self) -> None:
+        from negpy.services.rendering.preview_manager import PreviewManager
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path, data = self._tagged_srgb_tiff(tmpdir)
+            buf, _dims, meta = PreviewManager().load_linear_preview(path, use_camera_wb=False, full_resolution=True, source_linear=True)
+        assert meta["color_space"] is None
+        np.testing.assert_allclose(np.asarray(buf, dtype=np.float32), data.astype(np.float32) / 65535.0, atol=2.0 / 65535.0)
 
 
 class TestScanRoundTripParity:

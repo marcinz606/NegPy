@@ -1654,6 +1654,7 @@ class AppController(QObject):
                 file_path=file_path,
                 workspace_color_space=self.state.workspace_color_space,
                 use_camera_wb=not effective_linear_raw(self.state.config.process, self.state.config.exposure.render_intent),
+                source_linear=self.state.config.process.linear_raw,
                 full_resolution=self.state.hq_preview,
                 # The half suffix distinguishes the two halves' preview caches now
                 # that the slice happens pre-downsample (each half is its own buffer).
@@ -1788,6 +1789,7 @@ class AppController(QObject):
                         file_path=path,
                         workspace_color_space=self.state.workspace_color_space,
                         use_camera_wb=not linear_raw,
+                        source_linear=bool(saved.process.linear_raw) if saved else False,
                         # Half-size only: a full-res HQ neighbour evicts the active buffer.
                         # The cache key separates resolutions.
                         full_resolution=False,

@@ -134,6 +134,7 @@ class PreviewManager:
         log_timings: bool = False,
         half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None = None,
         demosaic: str = DemosaicMode.AUTO,
+        source_linear: bool = False,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """
         Decode and resize a linear preview from an already-open raw object.
@@ -306,6 +307,7 @@ class PreviewManager:
                 split_x=half_slice[1] if half_slice else 0.5,
                 crop_rect=half_slice[2] if half_slice else None,
                 gutter_thickness=half_slice[3] if half_slice else 0.0,
+                source_linear=source_linear,
             )
             # The cache entry aliases the returned buffer, under the same read-only contract as
             # a cache hit, so there is no defensive copy. On HQ loads that copy was a large part
@@ -341,6 +343,7 @@ class PreviewManager:
         log_timings: bool = False,
         half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None = None,
         demosaic: str = DemosaicMode.AUTO,
+        source_linear: bool = False,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """
         Loads linear RGB, downsamples for display.
@@ -348,6 +351,9 @@ class PreviewManager:
 
         ``half_slice``: (half, split_x, crop_rect, gutter_thickness) — slice the
         half before the preview downsample so analysis matches export.
+
+        ``source_linear`` is the loader's only encoding input, never ``use_camera_wb``
+        (see `effective_linear_raw`).
         """
         t_all = time.perf_counter()
         log = logger.info if log_timings else logger.debug
@@ -364,13 +370,14 @@ class PreviewManager:
                 split_x=half_slice[1] if half_slice else 0.5,
                 crop_rect=half_slice[2] if half_slice else None,
                 gutter_thickness=half_slice[3] if half_slice else 0.0,
+                source_linear=source_linear,
             )
             hit = self._cache.get(ck)
             if hit is not None:
                 logger.debug("preview cache hit %.3fs for %s", time.perf_counter() - t_all, file_path)
                 return hit  # cache hit — caller must not mutate this buffer
 
-        ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=not use_camera_wb)
+        ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=source_linear)
 
         if color_space is None:
             color_space = metadata.get("color_space") or WORKING_COLOR_SPACE
@@ -386,6 +393,7 @@ class PreviewManager:
                     split_x=half_slice[1] if half_slice else 0.5,
                     crop_rect=half_slice[2] if half_slice else None,
                     gutter_thickness=half_slice[3] if half_slice else 0.0,
+                    source_linear=source_linear,
                 )
                 hit = self._cache.get(ck)
                 if hit is not None:
@@ -405,6 +413,7 @@ class PreviewManager:
                 log_timings,
                 half_slice=half_slice,
                 demosaic=demosaic,
+                source_linear=source_linear,
             )
         log(
             "load-timing load_linear_preview %.0fms (decode %.0fms + open)",
@@ -413,11 +422,13 @@ class PreviewManager:
         )
         return out, dims, meta
 
-    def decode_for_detection(self, file_path: str) -> Optional[ImageBuffer]:
+    def decode_for_detection(self, file_path: str, source_linear: bool = False) -> Optional[ImageBuffer]:
         """No-WB linear decode for autodetect only — skips the preview resize/orient/cache
-        (detect_process_mode downsamples), so it costs just the demosaic. Mirrors the fast path."""
+        (detect_process_mode downsamples), so it costs just the demosaic. Mirrors the fast path.
+        ``source_linear`` must match the preview decode's, or detection classifies a tagged
+        file on pixels the render never sees."""
         try:
-            ctx_mgr, _meta = loader_factory.get_loader(file_path, linear_raw=True)
+            ctx_mgr, _meta = loader_factory.get_loader(file_path, linear_raw=source_linear)
             with ctx_mgr as raw:
                 demosaic = rawpy.DemosaicAlgorithm.LINEAR
                 # half_size casts X-Trans channel ratios and skews detection. Bayer is fine.
@@ -448,6 +459,7 @@ class PreviewManager:
         full_resolution: bool = False,
         file_hash: str | None = None,
         demosaic: str = DemosaicMode.AUTO,
+        source_linear: bool = False,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """Merge a narrowband R/G/B triplet into one linear preview: red channel from the
         red shot, green from green, blue from blue. The merged result is cached, so re-visiting
@@ -471,14 +483,16 @@ class PreviewManager:
                 workspace_color_space=color_space,
                 full_resolution=full_resolution,
                 demosaic=demosaic,
+                source_linear=source_linear,
             )
             hit = self._cache.get(merged_key)
             if hit is not None:
                 return hit  # cache hit — caller must not mutate this buffer
 
-        red_out, dims, meta = self.load_linear_preview(red_path, color_space, False, full_resolution, file_hash, demosaic=demosaic)
-        green_out, _, _ = self.load_linear_preview(green_path, color_space, False, full_resolution, None, demosaic=demosaic)
-        blue_out, _, _ = self.load_linear_preview(blue_path, color_space, False, full_resolution, None, demosaic=demosaic)
+        part = {"full_resolution": full_resolution, "demosaic": demosaic, "source_linear": source_linear}
+        red_out, dims, meta = self.load_linear_preview(red_path, color_space, False, file_hash=file_hash, **part)
+        green_out, _, _ = self.load_linear_preview(green_path, color_space, False, **part)
+        blue_out, _, _ = self.load_linear_preview(blue_path, color_space, False, **part)
 
         red = np.asarray(red_out, dtype=np.float32)
 
@@ -509,6 +523,7 @@ class PreviewManager:
         full_resolution: bool = False,
         file_hash: str | None = None,
         demosaic: str = DemosaicMode.AUTO,
+        source_linear: bool = False,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """Merge a bracket into one linear preview, in the reference frame's exposure units.
 
@@ -528,6 +543,7 @@ class PreviewManager:
                 workspace_color_space=color_space,
                 full_resolution=full_resolution,
                 demosaic=demosaic,
+                source_linear=source_linear,
             )
             hit = self._cache.get(merged_key)
             if hit is not None:
@@ -539,13 +555,16 @@ class PreviewManager:
                 return ensure_image(scaled), dims_c, meta_c
 
         ref_out, dims, meta = self.load_linear_preview(
-            reference_path, color_space, use_camera_wb, full_resolution, file_hash, demosaic=demosaic
+            reference_path, color_space, use_camera_wb, full_resolution, file_hash, demosaic=demosaic, source_linear=source_linear
         )
         ref = np.asarray(ref_out, dtype=np.float32)
 
         def _load(path: str) -> np.ndarray:
             arr = np.asarray(
-                self.load_linear_preview(path, color_space, use_camera_wb, full_resolution, None, demosaic=demosaic)[0], dtype=np.float32
+                self.load_linear_preview(
+                    path, color_space, use_camera_wb, full_resolution, None, demosaic=demosaic, source_linear=source_linear
+                )[0],
+                dtype=np.float32,
             )
             if arr.shape[:2] != ref.shape[:2]:
                 # Preview sizing rounds per file, so a pixel or two between frames of one
@@ -578,6 +597,7 @@ class PreviewManager:
         file_hash: str | None = None,
         flatfield_profile_id: str = "",
         demosaic: str = DemosaicMode.AUTO,
+        source_linear: bool = False,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """Assemble a stitch composite at preview scale by replaying the stored
         registration. Flat-field is applied per part here (a composite canvas must
@@ -597,6 +617,7 @@ class PreviewManager:
                     workspace_color_space=color_space,
                     full_resolution=full_resolution,
                     demosaic=demosaic,
+                    source_linear=source_linear,
                 )
                 hit = self._cache.get(key)
                 if hit is not None:
@@ -610,10 +631,12 @@ class PreviewManager:
             if green and blue:
                 part_rgb = RgbScanConfig(enabled=True, green_path=green, blue_path=blue, align=stitch.stitch_align)
                 out, _, part_meta = self.load_linear_preview_rgb(
-                    path, part_rgb, color_space, use_camera_wb, full_resolution, None, demosaic=demosaic
+                    path, part_rgb, color_space, use_camera_wb, full_resolution, None, demosaic=demosaic, source_linear=source_linear
                 )
             else:
-                out, _, part_meta = self.load_linear_preview(path, color_space, use_camera_wb, full_resolution, None, demosaic=demosaic)
+                out, _, part_meta = self.load_linear_preview(
+                    path, color_space, use_camera_wb, full_resolution, None, demosaic=demosaic, source_linear=source_linear
+                )
             parts.append(apply_flatfield(np.asarray(out, dtype=np.float32), flatfield))
             irs.append(part_meta.get("ir_preview"))
             if i == 0:
@@ -637,6 +660,7 @@ class PreviewManager:
         log_timings: bool = False,
         half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None = None,
         demosaic: str = DemosaicMode.AUTO,
+        source_linear: bool = False,
     ) -> Tuple[Optional[Tuple[ImageBuffer, Dimensions]], Tuple[ImageBuffer, Dimensions, dict]]:
         """
         Open the RAW file once and return both the splash preview and the linear
@@ -662,6 +686,7 @@ class PreviewManager:
                 split_x=half_slice[1] if half_slice else 0.5,
                 crop_rect=half_slice[2] if half_slice else None,
                 gutter_thickness=half_slice[3] if half_slice else 0.0,
+                source_linear=source_linear,
             )
             hit = self._cache.get(ck)
             if hit is not None:
@@ -669,7 +694,7 @@ class PreviewManager:
                 return None, hit  # no splash on cache hit — linear is already fast
 
         try:
-            ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=not use_camera_wb)
+            ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=source_linear)
         except Exception as e:
             logger.debug("preview load_splash_and_linear open failed: %s", e)
             raise
@@ -688,6 +713,7 @@ class PreviewManager:
                     split_x=half_slice[1] if half_slice else 0.5,
                     crop_rect=half_slice[2] if half_slice else None,
                     gutter_thickness=half_slice[3] if half_slice else 0.0,
+                    source_linear=source_linear,
                 )
                 hit = self._cache.get(ck)
                 if hit is not None:
@@ -711,6 +737,7 @@ class PreviewManager:
                 log_timings,
                 half_slice=half_slice,
                 demosaic=demosaic,
+                source_linear=source_linear,
             )
         log(
             "load-timing load_splash_and_linear %.0fms (decode %.0fms + open)",

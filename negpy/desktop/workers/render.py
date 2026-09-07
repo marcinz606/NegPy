@@ -179,6 +179,7 @@ class PreviewLoadTask:
     file_path: str
     workspace_color_space: str
     use_camera_wb: bool
+    source_linear: bool = False  # Linear RAW as stored (see effective_linear_raw)
     full_resolution: bool = False
     file_hash: str | None = None
     use_splash: bool = True
@@ -901,6 +902,7 @@ class PreviewLoadWorker(QObject):
                     task.file_path,
                     task.workspace_color_space,
                     use_camera_wb=task.use_camera_wb,
+                    source_linear=task.source_linear,
                     full_resolution=task.full_resolution,
                     file_hash=task.file_hash,
                     half_slice=task.half_slice,
@@ -919,6 +921,7 @@ class PreviewLoadWorker(QObject):
                     task.stitch,
                     task.workspace_color_space,
                     use_camera_wb=task.use_camera_wb,
+                    source_linear=task.source_linear,
                     full_resolution=task.full_resolution,
                     file_hash=task.file_hash,
                     flatfield_profile_id=task.flatfield_profile_id,
@@ -954,6 +957,7 @@ class PreviewLoadWorker(QObject):
                     task.hdr,
                     task.workspace_color_space,
                     use_camera_wb=task.use_camera_wb,
+                    source_linear=task.source_linear,
                     full_resolution=task.full_resolution,
                     file_hash=task.file_hash,
                     demosaic=task.demosaic,
@@ -988,6 +992,7 @@ class PreviewLoadWorker(QObject):
                     task.rgbscan,
                     task.workspace_color_space,
                     use_camera_wb=task.use_camera_wb,
+                    source_linear=task.source_linear,
                     full_resolution=task.full_resolution,
                     file_hash=task.file_hash,
                     demosaic=task.demosaic,
@@ -1020,6 +1025,7 @@ class PreviewLoadWorker(QObject):
                     task.file_path,
                     task.workspace_color_space,
                     use_camera_wb=task.use_camera_wb,
+                    source_linear=task.source_linear,
                     full_resolution=task.full_resolution,
                     file_hash=task.file_hash,
                     log_timings=True,
@@ -1034,6 +1040,7 @@ class PreviewLoadWorker(QObject):
                     task.file_path,
                     task.workspace_color_space,
                     use_camera_wb=task.use_camera_wb,
+                    source_linear=task.source_linear,
                     full_resolution=task.full_resolution,
                     file_hash=task.file_hash,
                     log_timings=True,
@@ -1081,7 +1088,7 @@ class PreviewLoadWorker(QObject):
                 scan = raw
             else:
                 # Camera WB hides the C41 mask, so re-decode without WB. Lean: detect downsamples.
-                scan = self._preview_service.decode_for_detection(task.file_path)
+                scan = self._preview_service.decode_for_detection(task.file_path, source_linear=task.source_linear)
             mode = str(detect_process_mode(scan))
             logger.info(
                 "load-timing detect %.0fms mode=%s (re_decode=%s) %s",
@@ -1114,6 +1121,7 @@ def decode_asset_preview(
     rgbscan = config.rgbscan
     common = {
         "use_camera_wb": not effective_linear_raw(config.process, config.exposure.render_intent),
+        "source_linear": config.process.linear_raw,
         "full_resolution": False,
         "file_hash": base_hash(file_info.get("hash")),  # halves share one decode
         "demosaic": config.process.demosaic_preview,

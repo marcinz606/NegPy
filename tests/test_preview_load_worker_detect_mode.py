@@ -43,7 +43,7 @@ def test_detect_mode_camera_wb_redecodes_no_wb(qapp):
 
     assert result == "c41"
     # Camera WB hides the C41 mask → a lean no-WB decode is run for detection.
-    service.decode_for_detection.assert_called_once_with("/fake/path.dng")
+    service.decode_for_detection.assert_called_once_with("/fake/path.dng", source_linear=False)
     service.load_linear_preview.assert_not_called()
     # Classified the freshly re-decoded no-WB buffer, not the camera-WB one.
     assert dpm.call_args[0][0] is rescan
