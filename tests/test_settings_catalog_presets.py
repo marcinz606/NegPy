@@ -31,6 +31,16 @@ def test_crosstalk_row_bundles_fields():
     assert set(data) == {"crosstalk_strength", "crosstalk_profile", "crosstalk_matrix"}
 
 
+def test_positive_source_row_is_catalogued():
+    """Regression: a source-decode toggle with no catalog row can't be copied, cloned
+    onto a selection, or saved into a preset — Positive needs one to batch onto
+    a roll of already-positive frames rather than being set one frame at a time."""
+    base = WorkspaceConfig()
+    cfg = replace(base, process=replace(base.process, positive_source=True))
+    data = selected_flat_dict(cfg, [_row("Positive")])
+    assert data == {"positive_source": True}
+
+
 def test_overlay_apply_preserves_unrelated_edits():
     base = WorkspaceConfig()
     cfg = replace(base, lab=replace(base.lab, saturation=1.4))

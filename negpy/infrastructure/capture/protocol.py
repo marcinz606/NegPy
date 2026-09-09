@@ -81,13 +81,15 @@ def decode_fw_version(data: bytes) -> tuple[int, int]:
 
 
 # Known Scanlight hardware IDs, from HW_VERSION_ID in jackw01's firmware (config.h). The
-# family shares this wire protocol, so NegPy drives any of them identically.
-HARDWARE_NAMES = {0: "Big Scanlight", 1: "Scanlight v4"}
+# family shares this wire protocol, so NegPy drives any of them identically. v4a and v4b
+# are PCB revisions 26a901a and 26a901b of the one v4 body, named as upstream names their
+# firmware binaries (sl4a, sl4b); only v4b has focus support.
+HARDWARE_NAMES = {0: "Big Scanlight", 1: "Scanlight v4a", 2: "Scanlight v2/v3", 3: "Scanlight v4b"}
 
 # Models with a dedicated white LED. The white channel arrived with the v4, so the Big
-# Scanlight (0) and v4 (1) have it. The earlier v1, v2 and v3 are RGB-only, as is any id
-# we do not recognise; a future white-capable model would be added here.
-_WHITE_CAPABLE_HW = frozenset({0, 1})
+# Scanlight (0) and both v4 revisions (1, 3) have it. The earlier v1, v2 and v3 are
+# RGB-only, as is any id we do not recognise; a future white-capable model is added here.
+_WHITE_CAPABLE_HW = frozenset({0, 1, 3})
 
 
 def describe_hardware(hw_id: int) -> str:

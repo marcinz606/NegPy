@@ -30,11 +30,11 @@ class LoaderFactory:
         self._jxl = JxlLoader()
         self._rawpy = RawpyLoader()
 
-    def get_loader(self, file_path: str, linear_raw: bool = False) -> Tuple[ContextManager[Any], dict]:
+    def get_loader(self, file_path: str, linear_raw: bool = False, positive_source: bool = False) -> Tuple[ContextManager[Any], dict]:
         ext = os.path.splitext(file_path)[1].lower()
 
         if ext in SUPPORTED_TIFF_EXTENSIONS:
-            return self._tiff.load(file_path, linear_raw=linear_raw)
+            return self._tiff.load(file_path, linear_raw=linear_raw, positive_source=positive_source)
 
         if ext in SUPPORTED_JPEG_EXTENSIONS:
             return self._jpeg.load(file_path)

@@ -75,7 +75,7 @@ def test_off_turns_every_channel_down(light):
 
 
 def test_get_fw_version_reads_the_device_reply(light):
-    word = (1 << 16) | 2  # hw=1 (Scanlight v4), fw=2
+    word = (1 << 16) | 2  # hw=1 (Scanlight v4a), fw=2
     threading.Timer(0.02, lambda: light.serial.feed(proto.D2H_FW_VERSION, word.to_bytes(4, "big"))).start()
     assert light.get_fw_version(timeout=2.0) == (2, 1)
 

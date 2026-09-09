@@ -388,9 +388,10 @@ class SensorSidebar(BaseSidebar):
             # Three reasons, three gates. Narrowband is refused for any transparency, because the
             # bundled profile describes narrowband capture of negative dyes. Linear RAW is inert
             # on the *transfer*, where the camera matrix folds the as-shot multipliers back in
-            # (with Normalize on it still decides the decode, so it stays live there), and on an
-            # RGB-scan triplet, where a narrowband exposure has no full-spectrum scene for a WB
-            # gain to describe in the first place — every exposure decodes neutral regardless.
+            # (with Normalize on, or Positive on, it decides the decode again, so it stays live
+            # there), and on an RGB-scan triplet, where a narrowband exposure has no full-spectrum
+            # scene for a WB gain to describe in the first place — every exposure decodes neutral
+            # regardless.
             from negpy.features.exposure.transfer import is_transparency_transfer
             from negpy.features.rgbscan.models import is_rgb_triplet
 
@@ -398,7 +399,7 @@ class SensorSidebar(BaseSidebar):
             transfer = is_transparency_transfer(conf.process_mode, conf.e6_normalize)
             triplet = is_rgb_triplet(self.state.config.rgbscan)
             self.narrowband_scan_btn.setEnabled(not e6)
-            self.linear_raw_btn.setEnabled(not transfer and not triplet)
+            self.linear_raw_btn.setEnabled((not transfer or conf.positive_source) and not triplet)
             self.scan_setup_btn.setEnabled(not e6)
             self.capture_hint.setVisible(e6 or triplet)
             if e6:
@@ -412,8 +413,14 @@ class SensorSidebar(BaseSidebar):
                         "for film that is not there. Its real payoffs — defeating the orange mask, clean "
                         "separation before a high-gain inversion — belong to negatives."
                         + (
-                            " Linear RAW is inert here too: the camera matrix folds the as-shot multipliers "
-                            "back in, so the render is the same either way."
+                            (
+                                " Linear RAW is live again here too: with Positive on, it decides the decode "
+                                "once more, so checking it reads the file as literal linear data and defeats "
+                                "Positive's own read of it."
+                                if conf.positive_source
+                                else " Linear RAW is inert here too: the camera matrix folds the as-shot "
+                                "multipliers back in, so the render is the same either way."
+                            )
                             if transfer
                             else " Linear RAW still applies, and stays live."
                         )

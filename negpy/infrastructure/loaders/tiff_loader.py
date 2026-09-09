@@ -5,7 +5,7 @@ import tifffile
 from typing import Any, ContextManager, Optional, Tuple
 from negpy.domain.interfaces import IImageLoader
 from negpy.domain.models import ColorSpace
-from negpy.kernel.image.logic import srgb_to_linear, uint8_to_float32, uint16_to_float32
+from negpy.kernel.image.logic import srgb_to_linear, uint8_to_float32, uint16_to_float32, working_oetf_decode
 from negpy.infrastructure.loaders.constants import IR_SIDECAR_SUFFIXES, SUPPORTED_TIFF_EXTENSIONS
 from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, identify_color_space_from_icc, read_orientation
 from negpy.infrastructure.loaders.ir_planes import find_ir_plane, normalize_ir_to_float32
@@ -128,7 +128,7 @@ class TiffLoader(IImageLoader):
     (either as a 4th sample with ExtraSamples=UNSPECIFIED, or via a `_IR.tif` sidecar).
     """
 
-    def load(self, file_path: str, linear_raw: bool = False) -> Tuple[ContextManager[Any], dict]:
+    def load(self, file_path: str, linear_raw: bool = False, positive_source: bool = False) -> Tuple[ContextManager[Any], dict]:
         img = iio.imread(file_path)
         ir: Optional[np.ndarray] = None
         ir_valid_mask: Optional[np.ndarray] = None
@@ -167,12 +167,17 @@ class TiffLoader(IImageLoader):
         color_space = None
         if not linear_raw:
             color_space = identify_color_space_from_icc(icc_bytes)
-            if color_space is None and img.dtype == np.uint8:
-                # Untagged 8-bit is display-encoded in practice. Untagged 16-bit is scanner-raw linear,
-                # which no ColorSpace names, so it stays None.
+            if color_space is None and (img.dtype == np.uint8 or positive_source):
+                # Untagged 8-bit is display-encoded in practice. Untagged 16-bit is scanner-raw
+                # linear, which no ColorSpace names, so it stays None; a positive source has
+                # resolved that ambiguity and takes the 8-bit assumption.
                 color_space = ColorSpace.SRGB.value
             if color_space == ColorSpace.SRGB.value:
                 f32 = srgb_to_linear(f32)
+            elif color_space == ColorSpace.ADOBE_RGB.value:
+                # Adobe RGB's TRC is the working space's own gamma, so its decode is the
+                # inverse of the pipeline OETF encode.
+                f32 = working_oetf_decode(f32)
         metadata = {
             "orientation": read_orientation(file_path),
             "color_space": color_space,

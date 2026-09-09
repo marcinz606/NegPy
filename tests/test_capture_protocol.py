@@ -49,15 +49,19 @@ def test_channel_rgb_lights_only_one_channel():
 def test_describe_hardware_known_and_unknown():
     # HW_VERSION_ID values from jackw01's firmware config.h.
     assert proto.describe_hardware(0) == "Big Scanlight"
-    assert proto.describe_hardware(1) == "Scanlight v4"
+    assert proto.describe_hardware(2) == "Scanlight v2/v3"
+    # The two v4 PCB revisions are named apart: 1 is 26a901a, 3 is 26a901b.
+    assert proto.describe_hardware(1) == "Scanlight v4a"
+    assert proto.describe_hardware(3) == "Scanlight v4b"
     # An id we don't have a name for falls back to the raw value (no crash, no mislabel).
     assert proto.describe_hardware(7) == "hw7"
 
 
 def test_has_white_channel():
-    # Only the Big Scanlight (0) and v4 (1) have a dedicated white LED.
+    # The Big Scanlight (0) and both v4 revisions (1, 3) have a dedicated white LED.
     assert proto.has_white_channel(0) is True
     assert proto.has_white_channel(1) is True
+    assert proto.has_white_channel(3) is True
     # v1-v3 (and any unrecognised id) are RGB-only.
     assert proto.has_white_channel(2) is False
     assert proto.has_white_channel(7) is False

@@ -100,6 +100,7 @@ def _fmt_gear(values: tuple) -> str:
 CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
     ("Process", (
         _row("Mode", "process", "process_mode", sticky=True),
+        _row("Positive", "process", "positive_source", sticky=True),
         _row("Analysis Buffer", "process", "analysis_buffer", sticky=True),
         _row("Range", "process", "luma_range_clip", sticky=True),
         _row("Color", "process", "color_range_clip", sticky=True),

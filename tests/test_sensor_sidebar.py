@@ -196,6 +196,23 @@ def test_capture_row_stays_visible_and_greys_out_per_reason():
     assert w.capture_hint.isHidden()
 
 
+def test_linear_raw_unlocks_on_the_transfer_with_positive_source_on():
+    """Positive on the transfer makes effective_linear_raw read the stored flag again
+    (see effective_linear_raw), so a stale Linear RAW left on from a real scan would
+    silently defeat Positive's own decode. Must be live, not greyed, so the user can see
+    and clear it — the old \"inert either way\" reasoning stopped being true."""
+    w = _sidebar(linear_raw=True)
+    _to_mode(w, process_mode=ProcessMode.E6, e6_normalize=False)
+    assert not w.linear_raw_btn.isEnabled()
+
+    _to_mode(w, positive_source=True)
+    assert w.linear_raw_btn.isEnabled()
+    assert w.linear_raw_btn.isChecked()
+
+    _to_mode(w, positive_source=False)
+    assert not w.linear_raw_btn.isEnabled()
+
+
 def test_linear_raw_locks_for_an_rgb_scan_triplet():
     """Every triplet exposure decodes neutral regardless of this toggle (see
     tests/test_rgbscan_white_balance.py), so it locks rather than sitting live with no

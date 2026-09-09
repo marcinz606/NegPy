@@ -179,6 +179,7 @@ class PreviewLoadTask:
     file_path: str
     workspace_color_space: str
     use_camera_wb: bool
+    positive_source: bool = False
     full_resolution: bool = False
     file_hash: str | None = None
     use_splash: bool = True
@@ -905,6 +906,7 @@ class PreviewLoadWorker(QObject):
                     file_hash=task.file_hash,
                     half_slice=task.half_slice,
                     demosaic=task.demosaic,
+                    positive_source=task.positive_source,
                 )
             except Exception as e:
                 logger.debug("Preview cache warm failed for %s: %s", task.file_path, e)
@@ -1025,6 +1027,7 @@ class PreviewLoadWorker(QObject):
                     log_timings=True,
                     half_slice=task.half_slice,
                     demosaic=task.demosaic,
+                    positive_source=task.positive_source,
                 )
                 if sp is not None:
                     sbuf, sdims = sp
@@ -1039,6 +1042,7 @@ class PreviewLoadWorker(QObject):
                     log_timings=True,
                     half_slice=task.half_slice,
                     demosaic=task.demosaic,
+                    positive_source=task.positive_source,
                 )
             source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
             ir_preview = metadata.get("ir_preview")
@@ -1124,7 +1128,9 @@ def decode_asset_preview(
     elif rgbscan.enabled and rgbscan.green_path and rgbscan.blue_path:
         raw, _, _ = preview_service.load_linear_preview_rgb(file_info["path"], rgbscan, workspace_color_space, **common)
     else:
-        raw, _, _ = preview_service.load_linear_preview(file_info["path"], workspace_color_space, **common)
+        raw, _, _ = preview_service.load_linear_preview(
+            file_info["path"], workspace_color_space, positive_source=config.process.positive_source, **common
+        )
     return slice_for_asset(raw, file_info)
 
 

@@ -204,6 +204,7 @@ def apply_transfer_curve(
     highlight_density: float = 0.0,
     cast_gain: Tuple[float, float, float] = (1.0, 1.0, 1.0),
     cast_offset: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    positive_source: bool = False,
 ) -> ImageBuffer:
     """
     Normalized log density -> scene-linear positive.
@@ -212,8 +213,8 @@ def apply_transfer_curve(
     (1, 0), the scene stage is an exact identity: D = density_range * n inverts the
     normalization, and 10**-D returns the capture. Every term below is written to vanish
     at its neutral value, so that is exact in float32, not approximate. The baseline gain
-    and `display_rendering` then always apply — they are how the scene is shown, not an
-    adjustment of it.
+    and `display_rendering` then apply: they are how a raw capture is shown, not an
+    adjustment of it. `positive_source` skips both and passes the scene through unshaped.
 
     `cast_offset` arrives already scaled by density_range (see neutral_axis_affine).
     """
@@ -264,7 +265,11 @@ def apply_transfer_curve(
         out[:, :, ch] = np.power(np.float32(10.0), -d, dtype=np.float32)
 
     # Baseline and display rendering last, so the controls above shape the scene and this
-    # only decides how the scene is shown.
+    # only decides how the scene is shown. A finished positive sits nowhere below a sensor
+    # white level, so neither belongs: it passes through at scene scale, clipped to the
+    # same range display_rendering outputs.
+    if positive_source:
+        return ensure_image(np.clip(out, 0.0, 1.0))
     gain = np.float32(2.0 ** float(c["transfer_baseline_ev"]))
     return ensure_image(display_rendering(out * gain))
 

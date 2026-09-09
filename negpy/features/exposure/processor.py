@@ -497,6 +497,7 @@ class PhotometricProcessor:
             highlight_density=self.config.highlight_density,
             cast_gain=cast_gain,
             cast_offset=cast_offset,
+            positive_source=self.process_config.positive_source,
         )
 
         if is_bw:

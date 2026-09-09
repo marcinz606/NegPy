@@ -44,9 +44,9 @@ CAM_XYZ = [
 ]
 
 
-def _e6_config(normalize=False, **exposure_overrides):
+def _e6_config(normalize=False, positive_source=False, **exposure_overrides):
     cfg = DEFAULT_WORKSPACE_CONFIG
-    process = replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=normalize)
+    process = replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=normalize, positive_source=positive_source)
     # The strength a slide actually starts at — the same rewrite every route into E-6
     # applies. Without it these read the negative's default, which no slide ever carries.
     overrides = {
@@ -183,6 +183,53 @@ class TestIdentityAtDefaults(unittest.TestCase):
         self.assertIsNone(camera_to_working_matrix(None))
         self.assertIsNone(camera_to_working_matrix([[0.0] * 3] * 3))
         self.assertIsNone(camera_to_working_matrix([[1.0, 0.0, 0.0], [2.0, 0.0, 0.0], [3.0, 0.0, 0.0]]))
+
+
+class TestPositiveSourceSkipsDisplayRendering(unittest.TestCase):
+    """A Positive frame is already a finished image, not a raw capture below the
+    sensor's white level, so the baseline gain and filmic display_rendering — both
+    otherwise unconditional on this path — must not run."""
+
+    def test_output_is_the_bare_scene_not_the_rendered_one(self):
+        img = _ramp()
+        norm = normalize_log_image(np.log10(np.clip(img, 1e-6, None)).astype(np.float32), LogNegativeBounds(*transfer_bounds()))
+        cfg = _e6_config(positive_source=True)
+        offset, contrast, toe3, sh3 = transfer_curve_params(cfg.exposure)
+        tw3, sw3 = transfer_widths(cfg.exposure)
+        out = np.asarray(apply_transfer_curve(norm, offset, contrast, toe3, sh3, (0.0, 0.0, 0.0), tw3, sw3, positive_source=True))
+        rel = np.abs(out - img) / np.maximum(img, 1e-9)
+        self.assertLess(float(rel.max()), 1e-4)
+
+        # Guard the guard: without the flag, the same inputs still take the baseline +
+        # filmic path (this is TestIdentityAtDefaults' own assertion, restated so a
+        # regression here fails loudly next to the fix it is guarding).
+        rendered = np.asarray(apply_transfer_curve(norm, offset, contrast, toe3, sh3, (0.0, 0.0, 0.0), tw3, sw3, positive_source=False))
+        self.assertGreater(float(np.abs(rendered - img).max()), 0.01)
+
+    def test_pipeline_level_matches_a_bare_ODT_free_encode(self):
+        rng = np.random.default_rng(29)
+        img = (rng.random((16, 16, 3)) * 0.3 + 0.02).astype(np.float32)
+        out, _ = _run_stages(img, _e6_config(positive_source=True), cam_xyz=None)
+        rel = np.abs(np.asarray(out) - img) / np.maximum(img, 1e-9)
+        self.assertLess(float(rel.max()), 1e-4)
+
+    def test_default_is_off_and_unaffected_frames_keep_the_camera_render(self):
+        self.assertFalse(ProcessConfig().positive_source)
+
+    def test_stays_off_the_print_path_and_off_normalize_on(self):
+        """Only the as-captured transfer reads it; nowhere else may be affected."""
+        rng = np.random.default_rng(5)
+        img = (rng.random((16, 16, 3)) * 0.3 + 0.02).astype(np.float32)
+        for base_cfg in (
+            _e6_config(normalize=True),
+            replace(_e6_config(), process=replace(_e6_config().process, process_mode=ProcessMode.C41)),
+        ):
+            with self.subTest(process_mode=base_cfg.process.process_mode, normalize=base_cfg.process.e6_normalize):
+                on = replace(base_cfg, process=replace(base_cfg.process, positive_source=True))
+                off = replace(base_cfg, process=replace(base_cfg.process, positive_source=False))
+                out_on, _ = _run_stages(img, on)
+                out_off, _ = _run_stages(img, off)
+                self.assertLess(float(np.abs(np.asarray(out_on) - np.asarray(out_off)).max()), 1e-6)
 
 
 class TestExposureFaithfulness(unittest.TestCase):
@@ -619,6 +666,18 @@ class TestGpuTransferParity(unittest.TestCase):
             flat_cpu, flat_gpu = both("off")
         self.assertGreater(float(np.abs(cpu - flat_cpu).max()), 0.01, "taper inert on the CPU")
         self.assertGreater(float(np.abs(gpu - flat_gpu).max()), 0.01, "taper inert on the GPU")
+
+    def test_positive_source_matches(self):
+        """The gain and display_rendering skip must agree bit-for-bit-ish on both engines,
+        or Positive would look different in the live preview than in an export."""
+        settings = _e6_config(positive_source=True, density=1.4, toe=0.5)
+        cpu, gpu = self._both(settings)
+        self._assert_parity(cpu, gpu)
+
+        # Guard the guard: the flag must actually change the render on both engines.
+        off_cpu, off_gpu = self._both(_e6_config(density=1.4, toe=0.5))
+        self.assertGreater(float(np.abs(cpu - off_cpu).max()), 0.01, "positive_source inert on the CPU")
+        self.assertGreater(float(np.abs(gpu - off_gpu).max()), 0.01, "positive_source inert on the GPU")
 
     def test_zone_density_matches(self):
         """Zone Density rides a uniform lane the transfer shader did not have. Asserted on
