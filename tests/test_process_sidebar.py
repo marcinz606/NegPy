@@ -141,3 +141,34 @@ def test_lock_bounds_sits_in_the_analysis_row_and_hides_on_the_transparency_tran
     controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=False))
     sidebar.sync_ui()
     assert sidebar.lock_bounds_btn.isHidden()
+
+
+def test_positive_sits_beside_normalize_and_only_lives_on_the_transfer_path(qapp):
+    """Both are slide-only, so Positive hides with Normalize and greys out when the
+    metered stretch takes over, which decodes on the source's own profile anyway."""
+    controller, sidebar = _sidebar()
+    sidebar.sync_ui()
+    assert sidebar.positive_source_btn.isHidden()
+
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=False))
+    sidebar.sync_ui()
+    assert not sidebar.positive_source_btn.isHidden()
+    assert sidebar.positive_source_btn.isEnabled()
+
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, e6_normalize=True))
+    sidebar.sync_ui()
+    assert not sidebar.positive_source_btn.isHidden()
+    assert not sidebar.positive_source_btn.isEnabled()
+
+
+def test_positive_toggle_reaches_the_controller(qapp):
+    controller, sidebar = _sidebar()
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=False))
+    sidebar.sync_ui()
+
+    sidebar.positive_source_btn.setChecked(True)
+    (new_cfg,), _kw = controller.apply_config.call_args
+    assert new_cfg.process.positive_source is True

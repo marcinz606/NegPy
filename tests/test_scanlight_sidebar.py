@@ -27,6 +27,14 @@ def _sidebar():
     return ScanlightSidebar(ctrl)
 
 
+@pytest.mark.parametrize("gphoto_available", [False, True])
+def test_construction_does_not_show_orphan_hint(top_level_show_spy, monkeypatch, gphoto_available):
+    monkeypatch.setattr(ScanlightSidebar, "_gphoto_available", staticmethod(lambda: gphoto_available))
+    _sidebar()
+
+    assert top_level_show_spy.events == []
+
+
 def _poll(usb_ok=False, usb_model="", light_ok=True, light_detail="fw", usb_claimed_elsewhere=False):
     return {
         "usb_ok": usb_ok,

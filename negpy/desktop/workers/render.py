@@ -181,6 +181,7 @@ class PreviewLoadTask:
     file_path: str
     workspace_color_space: str
     use_camera_wb: bool
+    positive_source: bool = False
     full_resolution: bool = False
     file_hash: str | None = None
     use_splash: bool = True
@@ -911,6 +912,7 @@ class PreviewLoadWorker(QObject):
                     demosaic=task.demosaic,
                     lens_from_metadata=task.lens_from_metadata,
                     lens_flatfield=task.lens_flatfield,
+                    positive_source=task.positive_source,
                 )
             except Exception as e:
                 logger.debug("Preview cache warm failed for %s: %s", task.file_path, e)
@@ -1048,6 +1050,7 @@ class PreviewLoadWorker(QObject):
                     demosaic=task.demosaic,
                     lens_from_metadata=task.lens_from_metadata,
                     lens_flatfield=task.lens_flatfield,
+                    positive_source=task.positive_source,
                 )
                 if sp is not None:
                     sbuf, sdims = sp
@@ -1064,6 +1067,7 @@ class PreviewLoadWorker(QObject):
                     demosaic=task.demosaic,
                     lens_from_metadata=task.lens_from_metadata,
                     lens_flatfield=task.lens_flatfield,
+                    positive_source=task.positive_source,
                 )
             source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
             ir_preview = metadata.get("ir_preview")
@@ -1159,6 +1163,7 @@ def decode_asset_preview(
             workspace_color_space,
             lens_from_metadata=metadata_lens_enabled(config),
             lens_flatfield=config.flatfield,
+            positive_source=config.process.positive_source,
             **common,
         )
     return slice_for_asset(raw, file_info)

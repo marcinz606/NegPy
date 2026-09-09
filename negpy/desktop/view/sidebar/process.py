@@ -219,7 +219,23 @@ class ProcessSidebar(BaseSidebar):
                 "transfer curve (Density, Grade, Toe, Shoulder)."
             ),
         )
-        self.layout.addWidget(self.normalize_e6_btn)
+        self.positive_source_btn = self._labeled_toggle(
+            "fa5s.image",
+            " Positive",
+            conf.positive_source,
+            (
+                "This Transparency is a finished positive, not a raw scanner or camera capture. "
+                "Decodes its embedded profile (sRGB if it has none) instead of reading it as "
+                "literal linear data, and skips the exposure lift and filmic roll-off a raw "
+                "capture needs, so the Print sliders shape the image directly.<br><br>"
+                "Only applies to an as-captured transfer: with Normalize on, the metered stretch "
+                "already decodes on the source's own profile."
+            ),
+        )
+        transfer_row = QHBoxLayout()
+        transfer_row.addWidget(self.normalize_e6_btn, 1)
+        transfer_row.addWidget(self.positive_source_btn, 1)
+        self.layout.addLayout(transfer_row)
         self.layout.addWidget(self.render_ev_slider)
 
         # Disabled widgets get no hover, so the detail hangs off the hint, not the button.
@@ -274,6 +290,7 @@ class ProcessSidebar(BaseSidebar):
         self.black_point_slider.valueCommitted.connect(lambda v: self._on_black_point_changed(v, persist=True))
 
         self.normalize_e6_btn.toggled.connect(self._on_normalize_e6_toggled)
+        self.positive_source_btn.toggled.connect(self._on_positive_source_toggled)
         self.sync_ui()
 
     def _on_white_point_changed(self, val: float, persist: bool = True) -> None:
@@ -310,6 +327,21 @@ class ProcessSidebar(BaseSidebar):
             persist=True,
             **invalidate_local_bounds(self.state.config.process),
         )
+
+    def _on_positive_source_toggled(self, checked: bool) -> None:
+        from dataclasses import replace
+
+        new_config = replace(
+            self.state.config,
+            process=replace(
+                self.state.config.process,
+                positive_source=checked,
+                **invalidate_local_bounds(self.state.config.process),
+            ),
+        )
+        # Changes the decode like Linear RAW does: apply_config re-decodes and suppresses
+        # the bounds analysis over the stale buffer.
+        self.controller.apply_config(new_config, persist=True)
 
     def _on_analysis_region_toggled(self, checked: bool) -> None:
         self.controller.set_active_tool(ToolMode.ANALYSIS_DRAW if checked else ToolMode.NONE)
@@ -394,6 +426,12 @@ class ProcessSidebar(BaseSidebar):
             self.normalize_e6_btn.setChecked(conf.e6_normalize)
             self.normalize_e6_btn.setEnabled(not merged)
 
+            # Only the as-captured transfer reads it: with Normalize on the stretch already
+            # decodes on the source's own profile.
+            self.positive_source_btn.setVisible(is_e6)
+            self.positive_source_btn.setChecked(conf.positive_source)
+            self.positive_source_btn.setEnabled(transfer)
+
             # Only a merge has a render exposure to choose, and only the transfer path uses a fixed
             # window for it to mean anything against.
             self.render_ev_slider.setVisible(merged and transfer)
@@ -466,6 +504,7 @@ class ProcessSidebar(BaseSidebar):
             self.white_point_slider,
             self.black_point_slider,
             self.normalize_e6_btn,
+            self.positive_source_btn,
         ]
         for w in widgets:
             w.blockSignals(blocked)

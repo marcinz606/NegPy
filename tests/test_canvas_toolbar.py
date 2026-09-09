@@ -47,6 +47,12 @@ def _row_order(tb: ActionToolbar) -> list[str]:
     return [by_widget[w] for i in range(layout.count()) if (w := layout.itemAt(i).widget()) in by_widget]
 
 
+def test_construction_does_not_show_orphan_controls(top_level_show_spy):
+    _make_toolbar()
+
+    assert top_level_show_spy.events == []
+
+
 class TestCanvasToolbarResponsive(unittest.TestCase):
     def test_pill_width_never_exceeds_budget(self):
         tb = _make_toolbar()

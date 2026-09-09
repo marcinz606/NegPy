@@ -730,6 +730,7 @@ class ImageProcessor:
         fast: bool = False,
         wb_override: Optional[Sequence[float]] = None,
         demosaic: str = DemosaicMode.AUTO,
+        positive_source: bool = False,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Decode one RAW to sensor-native (output_color=raw), linear uint16 RGB.
 
@@ -743,7 +744,7 @@ class ImageProcessor:
 
         Returns (rgb_uint16, loader_metadata).
         """
-        ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=linear_raw)
+        ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=linear_raw, positive_source=positive_source)
         with ctx_mgr as raw:
             algo = get_best_demosaic_algorithm(raw, demosaic)
             user_wb = [1, 1, 1, 1] if linear_raw else (list(wb_override) if wb_override is not None else None)
@@ -854,17 +855,35 @@ class ImageProcessor:
             siblings = [p for p in dict.fromkeys((rgbcfg.green_path, rgbcfg.blue_path)) if p != file_path]
             with ThreadPoolExecutor(max_workers=1 + len(siblings)) as pool:
                 primary_future = pool.submit(
-                    self._decode_sensor_rgb, file_path, linear_raw, fast=fast_decode, wb_override=_NEUTRAL_WB, demosaic=demosaic
+                    self._decode_sensor_rgb,
+                    file_path,
+                    linear_raw,
+                    fast=fast_decode,
+                    wb_override=_NEUTRAL_WB,
+                    demosaic=demosaic,
+                    positive_source=params.process.positive_source,
                 )
                 decoded = dict(
                     zip(
                         siblings,
-                        pool.map(lambda p: self._decode_sensor_rgb(p, linear_raw, wb_override=_NEUTRAL_WB, demosaic=demosaic)[0], siblings),
+                        pool.map(
+                            lambda p: self._decode_sensor_rgb(
+                                p, linear_raw, wb_override=_NEUTRAL_WB, demosaic=demosaic, positive_source=params.process.positive_source
+                            )[0],
+                            siblings,
+                        ),
                     )
                 )
                 rgb, metadata = primary_future.result()
         else:
-            rgb, metadata = self._decode_sensor_rgb(file_path, linear_raw, fast=fast_decode, wb_override=wb_override, demosaic=demosaic)
+            rgb, metadata = self._decode_sensor_rgb(
+                file_path,
+                linear_raw,
+                fast=fast_decode,
+                wb_override=wb_override,
+                demosaic=demosaic,
+                positive_source=params.process.positive_source,
+            )
         # No embedded profile (scanner-raw linear, sensor-native RAW) means the buffer is
         # already in the working space, so "Same as Source" exports without converting.
         source_cs = str(metadata.get("color_space") or WORKING_COLOR_SPACE)
@@ -907,9 +926,14 @@ class ImageProcessor:
                     zip(
                         hdr_siblings,
                         pool.map(
-                            lambda p: self._decode_sensor_rgb(p, linear_raw, fast=fast_decode, wb_override=bracket_wb, demosaic=demosaic)[
-                                0
-                            ],
+                            lambda p: self._decode_sensor_rgb(
+                                p,
+                                linear_raw,
+                                fast=fast_decode,
+                                wb_override=bracket_wb,
+                                demosaic=demosaic,
+                                positive_source=params.process.positive_source,
+                            )[0],
                             hdr_siblings,
                         ),
                     )

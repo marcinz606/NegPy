@@ -30,6 +30,7 @@ class _PreviewService:
         demosaic="Auto",
         lens_from_metadata=False,
         lens_flatfield=None,
+        positive_source=False,  # noqa: ARG002 — accepted, not asserted on
     ):
         self.linear_calls.append(
             {

@@ -380,3 +380,82 @@ def test_history_or_reset_reloads_pixels_when_metadata_mode_changes(enabled):
     controller = SimpleNamespace(state=state, _render_debounce=MagicMock(), load_file=MagicMock())
     AppController.request_render(controller)
     controller.load_file.assert_called_once_with("scan.arw", preserve_zoom=True)
+
+
+@pytest.mark.parametrize("splash", [False, True])
+@pytest.mark.parametrize("color_space", [None, "Adobe RGB"])
+def test_positive_source_and_lens_mode_have_independent_preview_cache_entries(tmp_path, monkeypatch, splash, color_space):
+    from negpy.infrastructure.loaders import factory
+    from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper
+    from negpy.services.rendering.image_processor import ImageProcessor
+    from negpy.services.rendering.preview_manager import PreviewManager
+
+    path = str(tmp_path / "source.arw")
+    ramp = np.tile(np.linspace(0.1, 0.7, 120, dtype=np.float32), (80, 1))
+    image = np.repeat(ramp[..., None], 3, axis=2)
+    lens = LensMetadata("Sony", (SonyWarp((-1000,) * 16),))
+
+    def get_loader(file_path, *, linear_raw=False, positive_source=False):
+        pixels = image * (0.5 if positive_source else 1.0)
+        return NonStandardFileWrapper(pixels), {"orientation": 1, "color_space": "Adobe RGB", "lens_correction": lens}
+
+    monkeypatch.setattr(factory.loader_factory, "get_loader", get_loader)
+    monkeypatch.setattr("negpy.services.rendering.preview_manager.APP_CONFIG.preview_cache_max_full_res_entries", 4)
+    manager = PreviewManager()
+    processor = ImageProcessor()
+    load = manager.load_splash_and_linear if splash else manager.load_linear_preview
+    outputs = {}
+    for positive, enabled in [(False, False), (False, True), (True, False), (True, True)] * 2:
+        result = load(
+            path,
+            color_space=color_space,
+            use_camera_wb=False,
+            full_resolution=True,
+            file_hash="source",
+            positive_source=positive,
+            lens_from_metadata=enabled,
+        )
+        preview = result[1][0] if splash else result[0]
+        config = WorkspaceConfig()
+        config = replace(
+            config,
+            geometry=GeometryConfig(lens_from_metadata=enabled),
+            process=replace(config.process, linear_raw=True, positive_source=positive),
+        )
+        exported, _, _ = processor._load_source_f32(path, config)
+        np.testing.assert_allclose(preview, exported, atol=1e-6)
+        if (positive, enabled) in outputs:
+            assert preview is outputs[positive, enabled]
+        outputs[positive, enabled] = preview
+    assert not np.array_equal(outputs[False, False], outputs[False, True])
+    assert not np.array_equal(outputs[False, True], outputs[True, True])
+
+
+@pytest.mark.parametrize("mode", ["linear", "splash", "warm"])
+def test_preview_worker_forwards_positive_source_and_lens_settings(mode):
+    from negpy.desktop.workers.render import PreviewLoadTask, PreviewLoadWorker
+
+    service = MagicMock()
+    result = (np.full((8, 12, 3), 0.5, np.float32), (8, 12), {})
+    service.load_linear_preview.return_value = result
+    service.load_splash_and_linear.return_value = (None, result)
+    task = PreviewLoadTask(
+        file_path="source.arw",
+        workspace_color_space="Adobe RGB",
+        use_camera_wb=False,
+        positive_source=True,
+        lens_from_metadata=True,
+        lens_flatfield=FlatFieldConfig(apply=True, profile_id="gain"),
+        use_splash=mode == "splash",
+        for_cache_warm=mode == "warm",
+    )
+    worker = PreviewLoadWorker(service)
+    errors = []
+    worker.error.connect(errors.append)
+    worker.process(task)
+    call = service.load_splash_and_linear if mode == "splash" else service.load_linear_preview
+    assert call.call_count == 1
+    assert call.call_args.kwargs["positive_source"] is True
+    assert call.call_args.kwargs["lens_from_metadata"] is True
+    assert call.call_args.kwargs["lens_flatfield"] == task.lens_flatfield
+    assert not errors

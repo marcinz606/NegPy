@@ -29,6 +29,28 @@ def qapp():
     app.processEvents()
 
 
+@pytest.fixture
+def top_level_show_spy(qapp):
+    """Record widgets exposed as unowned top-level windows during construction."""
+    from PyQt6.QtCore import QEvent, QObject
+    from PyQt6.QtWidgets import QWidget
+
+    class _Spy(QObject):
+        def __init__(self):
+            super().__init__()
+            self.events: list[tuple[str, str]] = []
+
+        def eventFilter(self, a0, a1) -> bool:
+            if a1 is not None and a1.type() == QEvent.Type.Show and isinstance(a0, QWidget) and a0.isWindow() and a0.parentWidget() is None:
+                self.events.append((type(a0).__name__, a0.objectName()))
+            return False
+
+    spy = _Spy()
+    qapp.installEventFilter(spy)
+    yield spy
+    qapp.removeEventFilter(spy)
+
+
 class FakeRepo:
     """Real global-setting storage; everything else a sidebar pokes (flat-field profiles,
     presets, …) falls through to a MagicMock."""

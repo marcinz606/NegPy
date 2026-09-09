@@ -16,8 +16,8 @@ from negpy.features.process.logic import effective_linear_raw, linear_raw_token,
 from negpy.features.process.models import ProcessConfig, ProcessMode
 
 
-def cfg(mode=ProcessMode.C41, normalize=False, linear_raw=False) -> ProcessConfig:
-    return replace(ProcessConfig(), process_mode=mode, e6_normalize=normalize, linear_raw=linear_raw)
+def cfg(mode=ProcessMode.C41, normalize=False, linear_raw=False, positive_source=False) -> ProcessConfig:
+    return replace(ProcessConfig(), process_mode=mode, e6_normalize=normalize, linear_raw=linear_raw, positive_source=positive_source)
 
 
 class TestEffectiveLinearRaw:
@@ -48,6 +48,31 @@ class TestEffectiveLinearRaw:
         transfer = cfg(ProcessMode.E6, normalize=False, linear_raw=False)
         assert linear_raw_token(transfer) == linear_raw_token(cfg(ProcessMode.C41, linear_raw=True))
         assert linear_raw_token(transfer) != linear_raw_token(cfg(ProcessMode.C41, linear_raw=False))
+
+
+class TestPositiveSource:
+    """A Transparency source can be an already-finished positive (a scanned print, an
+    exported TIFF) rather than a raw scanner/camera capture. Positive exempts it
+    from the forced literal-linear read so its own embedded profile decides the decode.
+    """
+
+    def test_exempts_the_transfer_path(self):
+        assert not effective_linear_raw(cfg(ProcessMode.E6, normalize=False, positive_source=True))
+
+    def test_the_linear_raw_flag_still_wins(self):
+        """An explicit request for literal linear data overrides Positive too."""
+        assert effective_linear_raw(cfg(ProcessMode.E6, normalize=False, linear_raw=True, positive_source=True))
+
+    def test_has_no_effect_off_the_transfer_path(self):
+        """Nowhere else reads positive_source, so it must not change a metered E-6 render
+        or either negative path."""
+        assert not effective_linear_raw(cfg(ProcessMode.E6, normalize=True, positive_source=True))
+        assert not effective_linear_raw(cfg(ProcessMode.C41, positive_source=True))
+        assert not effective_linear_raw(cfg(ProcessMode.BW, positive_source=True))
+
+    def test_default_is_off(self):
+        """A frame with no saved value must keep today's forced-linear transfer decode."""
+        assert not ProcessConfig().positive_source
 
 
 class TestNarrowbandProfileActive:

@@ -137,6 +137,7 @@ class PreviewManager:
         demosaic: str = DemosaicMode.AUTO,
         lens_from_metadata: bool = False,
         lens_flatfield: FlatFieldConfig = FlatFieldConfig(),
+        positive_source: bool = False,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """
         Decode and resize a linear preview from an already-open raw object.
@@ -312,6 +313,7 @@ class PreviewManager:
                 split_x=half_slice[1] if half_slice else 0.5,
                 crop_rect=half_slice[2] if half_slice else None,
                 gutter_thickness=half_slice[3] if half_slice else 0.0,
+                positive_source=positive_source,
             )
             # The cache entry aliases the returned buffer, under the same read-only contract as
             # a cache hit, so there is no defensive copy. On HQ loads that copy was a large part
@@ -349,6 +351,7 @@ class PreviewManager:
         demosaic: str = DemosaicMode.AUTO,
         lens_from_metadata: bool = False,
         lens_flatfield: FlatFieldConfig = FlatFieldConfig(),
+        positive_source: bool = False,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """
         Loads linear RGB, downsamples for display.
@@ -373,13 +376,14 @@ class PreviewManager:
                 split_x=half_slice[1] if half_slice else 0.5,
                 crop_rect=half_slice[2] if half_slice else None,
                 gutter_thickness=half_slice[3] if half_slice else 0.0,
+                positive_source=positive_source,
             )
             hit = self._cache.get(ck)
             if hit is not None:
                 logger.debug("preview cache hit %.3fs for %s", time.perf_counter() - t_all, file_path)
                 return hit  # cache hit — caller must not mutate this buffer
 
-        ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=not use_camera_wb)
+        ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=not use_camera_wb, positive_source=positive_source)
 
         if color_space is None:
             color_space = metadata.get("color_space") or WORKING_COLOR_SPACE
@@ -396,6 +400,7 @@ class PreviewManager:
                     split_x=half_slice[1] if half_slice else 0.5,
                     crop_rect=half_slice[2] if half_slice else None,
                     gutter_thickness=half_slice[3] if half_slice else 0.0,
+                    positive_source=positive_source,
                 )
                 hit = self._cache.get(ck)
                 if hit is not None:
@@ -417,6 +422,7 @@ class PreviewManager:
                 demosaic=demosaic,
                 lens_from_metadata=lens_from_metadata,
                 lens_flatfield=lens_flatfield,
+                positive_source=positive_source,
             )
         log(
             "load-timing load_linear_preview %.0fms (decode %.0fms + open)",
@@ -651,6 +657,7 @@ class PreviewManager:
         demosaic: str = DemosaicMode.AUTO,
         lens_from_metadata: bool = False,
         lens_flatfield: FlatFieldConfig = FlatFieldConfig(),
+        positive_source: bool = False,
     ) -> Tuple[Optional[Tuple[ImageBuffer, Dimensions]], Tuple[ImageBuffer, Dimensions, dict]]:
         """
         Open the RAW file once and return both the splash preview and the linear
@@ -677,6 +684,7 @@ class PreviewManager:
                 split_x=half_slice[1] if half_slice else 0.5,
                 crop_rect=half_slice[2] if half_slice else None,
                 gutter_thickness=half_slice[3] if half_slice else 0.0,
+                positive_source=positive_source,
             )
             hit = self._cache.get(ck)
             if hit is not None:
@@ -684,7 +692,7 @@ class PreviewManager:
                 return None, hit  # no splash on cache hit — linear is already fast
 
         try:
-            ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=not use_camera_wb)
+            ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=not use_camera_wb, positive_source=positive_source)
         except Exception as e:
             logger.debug("preview load_splash_and_linear open failed: %s", e)
             raise
@@ -704,6 +712,7 @@ class PreviewManager:
                     split_x=half_slice[1] if half_slice else 0.5,
                     crop_rect=half_slice[2] if half_slice else None,
                     gutter_thickness=half_slice[3] if half_slice else 0.0,
+                    positive_source=positive_source,
                 )
                 hit = self._cache.get(ck)
                 if hit is not None:
@@ -729,6 +738,7 @@ class PreviewManager:
                 demosaic=demosaic,
                 lens_from_metadata=lens_from_metadata,
                 lens_flatfield=lens_flatfield,
+                positive_source=positive_source,
             )
         log(
             "load-timing load_splash_and_linear %.0fms (decode %.0fms + open)",
