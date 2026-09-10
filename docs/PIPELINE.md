@@ -2,8 +2,6 @@
 
 Here is what happens to your image. We apply these steps in order, passing the buffer from one stage to the next.
 
-CPU export does not retain the interactive stage cache. Linear DNG normalization uses row blocks with float64 arithmetic and float32 output. CPU saturation and unsharp masking also use row blocks; sharpening includes neighboring rows for filter support. Short tail blocks include preceding rows to retain the full frame's Numba kernel selection. These blocks do not reduce image resolution or change stage order.
-
 **Color handling: no input colorspace.** NegPy works on **linear RGB straight from the raw decode** (`output_color=raw`, `gamma=(1,1)`, unity white balance): the sensor's own channels, never converted through camera primaries into a colorimetric space. Channel balance is handled in film terms instead: independent per-channel normalization bounds in §2, spectral crosstalk unmix, and cast removal in §3. Adobe RGB (1998) is an *assumed boundary profile*, not an input characterisation (`WORKING_COLOR_SPACE` in `infrastructure/display/color_spaces.py`): stages that need a perceptual model (CLAHE, Lab, Toning) compute CIELAB from the linear data using Adobe RGB primaries and D65, and the Adobe RGB TRC is applied as the final engine step. Colorspace primaries are applied only on the way **out**. The preview is color-managed from the working profile to the display profile, and export converts to the selected target space and embeds its ICC profile. Every decode also passes `adjust_maximum_thr=0.0`, pinning the scale to the camera's white level instead of LibRaw's per-frame maximum, so a whole roll decodes on one shared scale.
 
 ## 1. Geometry (Straighten & Crop)
