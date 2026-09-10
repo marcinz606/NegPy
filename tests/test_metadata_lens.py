@@ -1,5 +1,6 @@
 import struct
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -12,8 +13,9 @@ from negpy.desktop.view.sidebar.geometry import GeometrySidebar
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.geometry.models import GeometryConfig
-from negpy.features.lens.logic import _dng_maps, _sony_maps, apply_lens
-from negpy.features.lens.models import IDENTITY, LensMetadata, RectilinearWarp, SonyWarp
+from negpy.features.lens.logic import apply_lens
+from negpy.features.lens.models import LensMetadata, LensWarp
+from negpy.features.lens.warps import IDENTITY, RectilinearWarp, SonyWarp
 from negpy.infrastructure.loaders.lens_metadata import bind_decode, parse_opcodes, read_lens_metadata
 from negpy.kernel.image.logic import apply_exif_orientation
 from negpy.services.rendering.lens import lens_decode_token, metadata_lens_enabled, prepare_lens_source
@@ -128,7 +130,7 @@ def test_metadata_cache_tracks_file_revision(tmp_path):
 def test_dng_coordinate_map_matches_spec_with_offset_center_and_tangential_terms():
     warp = RectilinearWarp(((1, -0.03, 0.01, 0, 0.001, -0.002),), (0.4, 0.6))
     lens = LensMetadata("DNG", (warp,), active_area=(10, 20, 110, 220), buffer_area=(15, 25, 105, 215))
-    mx, my = _dng_maps(lens, warp, (90, 190, 3), 0, 90, 0)
+    mx, my = warp.remap(lens, (90, 190, 3), 0, 90, 0)
     x, y = 170, 75
     cx, cy = 20 + 0.4 * 199, 10 + 0.6 * 99
     radius = np.hypot(max(cx - 20, 219 - cx), max(cy - 10, 109 - cy))
@@ -144,7 +146,7 @@ def test_dng_coordinate_map_matches_spec_with_offset_center_and_tangential_terms
 def test_sony_known_scale_and_ca_units():
     warp = SonyWarp((-819.2,) * 16, (2097.152,) * 16, (-2097.152,) * 16)
     for channel, ca in enumerate((1.001, 1.0, 0.999)):
-        mx, my = _sony_maps(warp, (80, 120, 3), 0, 80, channel)
+        mx, my = warp.remap(LensMetadata(), (80, 120, 3), 0, 80, channel)
         assert mx[10, 15] == pytest.approx(60 + (15 - 60) * 0.95 * ca, abs=1e-5)
         assert my[10, 15] == pytest.approx(40 + (10 - 40) * 0.95 * ca, abs=1e-5)
 
@@ -459,3 +461,76 @@ def test_preview_worker_forwards_positive_source_and_lens_settings(mode):
     assert call.call_args.kwargs["lens_from_metadata"] is True
     assert call.call_args.kwargs["lens_flatfield"] == task.lens_flatfield
     assert not errors
+
+
+@pytest.mark.parametrize("orientation", [1, 6])
+def test_registered_reader_and_structural_warp_use_shared_rendering(tmp_path, monkeypatch, orientation):
+    from negpy.infrastructure.loaders import lens_metadata as reader
+
+    calls = []
+    reads = []
+
+    @dataclass(frozen=True)
+    class OffsetWarp:
+        offsets: tuple[int, ...]
+
+        @property
+        def has_distortion(self) -> bool:
+            return self.offsets[1] != 0
+
+        @property
+        def has_ca(self) -> bool:
+            return self.offsets[0] != self.offsets[1] or self.offsets[2] != self.offsets[1]
+
+        def remap(self, lens, shape, start, stop, channel):
+            calls.append((lens, shape, start, stop, channel))
+            y, x = np.mgrid[start:stop, : shape[1]].astype(np.float32)
+            return x + self.offsets[channel], y
+
+    def read_offsets(file_path: str) -> LensMetadata:
+        reads.append(file_path)
+        offsets = tuple(int(v) for v in Path(file_path).read_text().split(","))
+        warp: LensWarp = OffsetWarp(offsets)
+        return LensMetadata("Offset reader", (warp,))
+
+    path = tmp_path / "source.CUSTOM"
+    path.write_text("2,1,-1")
+    monkeypatch.setitem(reader._READERS, ".custom", read_offsets)
+    lens = read_lens_metadata(str(path))
+    assert read_lens_metadata(str(path)) is lens
+    assert reads == [str(path)]
+    assert lens.description == "Offset reader: distortion + lateral CA"
+
+    image = np.random.default_rng(7).uniform(0.1, 0.9, (521, 35, 3)).astype(np.float32)
+    expected = np.stack([image[:, np.clip(np.arange(35) + shift, 0, 34), ch] for ch, shift in enumerate((2, 1, -1))], axis=-1)
+    oriented = apply_exif_orientation(image, orientation)
+    result = apply_lens(oriented, lens, orientation)
+    np.testing.assert_array_equal(result, apply_exif_orientation(expected, orientation))
+    assert all(context is lens and shape == image.shape for context, shape, *_ in calls)
+    assert [(start, stop, channel) for _, _, start, stop, channel in calls] == [
+        (start, min(start + 256, 521), channel) for channel in range(3) for start in range(0, 521, 256)
+    ]
+
+
+@pytest.mark.parametrize(
+    "warp, distortion, ca",
+    [
+        (RectilinearWarp((IDENTITY,)), False, False),
+        (RectilinearWarp((IDENTITY,) * 3), False, False),
+        (RectilinearWarp(((1, -0.1, 0, 0, 0, 0),)), True, False),
+        (RectilinearWarp(((1.01, 0, 0, 0, 0, 0), IDENTITY, IDENTITY)), False, True),
+        (SonyWarp(), False, False),
+        (SonyWarp((0,) * 16, (0,) * 16, (0,) * 16), False, False),
+        (SonyWarp(distortion=(100,) * 16), True, False),
+        (SonyWarp(ca_red=(100,) * 16, ca_blue=(-100,) * 16), False, True),
+        (SonyWarp((100,) * 16, (100,) * 16, (-100,) * 16), True, True),
+    ],
+)
+def test_warp_capabilities_drive_availability(warp: LensWarp, distortion, ca):
+    lens = LensMetadata("Test", (warp,))
+    assert lens.distortion is distortion
+    assert lens.ca is ca
+    assert lens.available is (distortion or ca)
+    if not lens.available:
+        image = np.full((16, 24, 3), 0.5, np.float32)
+        assert apply_lens(image, lens) is image

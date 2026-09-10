@@ -1,26 +1,27 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
+from typing import Protocol
+
+import numpy as np
 
 
-IDENTITY = (1.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+class LensWarp(Protocol):
+    @property
+    def has_distortion(self) -> bool: ...
 
+    @property
+    def has_ca(self) -> bool: ...
 
-@dataclass(frozen=True)
-class RectilinearWarp:
-    coefficients: tuple[tuple[float, ...], ...]
-    center: tuple[float, float] = (0.5, 0.5)
-
-
-@dataclass(frozen=True)
-class SonyWarp:
-    distortion: tuple[float, ...] = ()
-    ca_red: tuple[float, ...] = ()
-    ca_blue: tuple[float, ...] = ()
+    def remap(self, lens: LensMetadata, shape: tuple[int, ...], start: int, stop: int, channel: int) -> tuple[np.ndarray, np.ndarray]:
+        """Return float32 inverse x/y maps for one channel and rows [start, stop)."""
+        ...
 
 
 @dataclass(frozen=True)
 class LensMetadata:
     source: str = ""
-    warps: tuple[RectilinearWarp | SonyWarp, ...] = ()
+    warps: tuple[LensWarp, ...] = ()
     reason: str = "No embedded lens correction data."
     # DNG opcodes use the active image, before DefaultCrop and EXIF orientation.
     active_area: tuple[int, int, int, int] | None = None
@@ -28,19 +29,11 @@ class LensMetadata:
 
     @property
     def distortion(self) -> bool:
-        return any(
-            any(w.distortion) if isinstance(w, SonyWarp) else w.coefficients[0 if len(w.coefficients) == 1 else 1] != IDENTITY
-            for w in self.warps
-        )
+        return any(warp.has_distortion for warp in self.warps)
 
     @property
     def ca(self) -> bool:
-        return any(
-            any(w.ca_red) or any(w.ca_blue)
-            if isinstance(w, SonyWarp)
-            else len(w.coefficients) == 3 and (w.coefficients[0] != w.coefficients[1] or w.coefficients[2] != w.coefficients[1])
-            for w in self.warps
-        )
+        return any(warp.has_ca for warp in self.warps)
 
     @property
     def available(self) -> bool:

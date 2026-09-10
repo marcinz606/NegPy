@@ -2,15 +2,17 @@
 
 import os
 import struct
+from collections.abc import Callable
 from dataclasses import replace
-from functools import lru_cache
+from functools import lru_cache, partial
 from itertools import islice
 from typing import Any
 
 import numpy as np
 import tifffile
 
-from negpy.features.lens.models import IDENTITY, LensMetadata, RectilinearWarp, SonyWarp
+from negpy.features.lens.models import LensMetadata
+from negpy.features.lens.warps import IDENTITY, RectilinearWarp, SonyWarp
 
 _MAX_OPCODE_BYTES = 4 * 1024 * 1024
 
@@ -122,32 +124,43 @@ def _read_dng(page: Any) -> LensMetadata:
     return LensMetadata("DNG WarpRectilinear", parse_opcodes(bytes(opcode.value)), "Embedded DNG warp is an identity.", area, buffer_area)
 
 
+def _read_tiff(file_path: str, parse_page: Callable[[Any], LensMetadata]) -> LensMetadata:
+    with tifffile.TiffFile(file_path) as tif:
+        pages = list(islice(tif.pages, 16))
+        for parent in tuple(pages):
+            if parent.pages is not None:
+                pages.extend(islice(parent.pages, 16))
+        raw_pages = [p for p in pages if int(p.photometric) in (32803, 34892) and p.samplesperpixel in (1, 3)]
+        if not raw_pages:
+            return LensMetadata(reason="No supported RAW image plane; rendered images are not corrected again.")
+        page = max(raw_pages, key=lambda p: p.imagewidth * p.imagelength)
+        return parse_page(page)
+
+
+_READERS: dict[str, Callable[[str], LensMetadata]] = {
+    ".arw": partial(_read_tiff, parse_page=_read_sony),
+    ".dng": partial(_read_tiff, parse_page=_read_dng),
+}
+
+
 def read_lens_metadata(file_path: str | None) -> LensMetadata:
     """Inspect source metadata without decoding pixels; cache against the file revision."""
     if not file_path:
-        return LensMetadata(reason="Load a Sony ARW or DNG file.")
-    if os.path.splitext(file_path)[1].lower() not in (".arw", ".dng"):
-        return LensMetadata(reason="Embedded correction supports Sony ARW and DNG WarpRectilinear.")
+        return LensMetadata(reason="Load a source file to check for embedded lens correction data.")
+    reader = _READERS.get(os.path.splitext(file_path)[1].lower())
+    if reader is None:
+        return LensMetadata(reason="Embedded lens correction is not supported for this file type.")
     try:
         stat = os.stat(file_path)
-        return _read_cached(os.path.abspath(file_path), stat.st_mtime_ns, stat.st_size)
+        return _read_cached(os.path.abspath(file_path), stat.st_mtime_ns, stat.st_size, reader)
     except OSError:
         return LensMetadata(reason="Cannot read source lens metadata.")
 
 
 @lru_cache(maxsize=128)
-def _read_cached(file_path: str, mtime_ns: int, size: int) -> LensMetadata:
+def _read_cached(file_path: str, mtime_ns: int, size: int, reader: Callable[[str], LensMetadata]) -> LensMetadata:
     try:
-        with tifffile.TiffFile(file_path) as tif:
-            pages = list(islice(tif.pages, 16))
-            for parent in tuple(pages):
-                if parent.pages is not None:
-                    pages.extend(islice(parent.pages, 16))
-            raw_pages = [p for p in pages if int(p.photometric) in (32803, 34892) and p.samplesperpixel in (1, 3)]
-            if not raw_pages:
-                return LensMetadata(reason="No supported RAW image plane; rendered images are not corrected again.")
-            page = max(raw_pages, key=lambda p: p.imagewidth * p.imagelength)
-            return _read_dng(page) if file_path.lower().endswith(".dng") else _read_sony(page)
+        return reader(file_path)
     except ValueError as exc:
         return LensMetadata(reason=str(exc))
     except (OSError, TypeError, struct.error, IndexError, OverflowError, ZeroDivisionError):
