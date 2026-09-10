@@ -918,7 +918,15 @@ def film_scale(shape: Tuple[int, int]) -> float:
     return max(1.0, max(shape) / _IR_DETECT_REF)
 
 
-def repair_components(img: ImageBuffer, score_det: np.ndarray, *, floor: bool = True, factor: Optional[float] = None) -> ImageBuffer:
+def repair_components(
+    img: ImageBuffer,
+    score_det: np.ndarray,
+    *,
+    floor: bool = True,
+    factor: Optional[float] = None,
+    base_out: Optional[np.ndarray] = None,
+    dirty: Optional[np.ndarray] = None,
+) -> ImageBuffer:
     """``apply_score_repair`` per defect, each in its own padded crop.
 
     The fill is four convolutions over whatever buffer it is handed. That is right for an
@@ -926,6 +934,14 @@ def repair_components(img: ImageBuffer, score_det: np.ndarray, *, floor: bool = 
     painted strokes or detected specks this serves — at export resolution it would filter
     a hundred megapixels to repair a dozen. The support ladder and the mask's upsample
     factor still come from the whole frame, so a crop repairs exactly as it would there.
+
+    ``base_out``/``dirty`` support an incremental re-bake, for a session that adds one
+    stroke at a time: with both given, a component that contains no ``dirty`` pixel is
+    copied from ``base_out`` unchanged rather than re-filled, since neither its score nor
+    its source pixels moved since that buffer was made. ``dirty=None`` (every caller but
+    the painted-strokes bake) fills every component, matching the non-incremental result
+    exactly — the manual-bake caller reads ``base_out`` itself when nothing is dirty at
+    all, so an all-False mask never has to be passed in here.
     """
     h, w = img.shape[:2]
     if score_det.shape[:2] == (h, w):
@@ -934,22 +950,28 @@ def repair_components(img: ImageBuffer, score_det: np.ndarray, *, floor: bool = 
     else:
         factor = max(h / score_det.shape[0], w / score_det.shape[1])
         score = cv2.resize(score_det, (w, h), interpolation=cv2.INTER_LINEAR)
+        if dirty is not None and dirty.shape[:2] != (h, w):
+            dirty = cv2.resize(dirty.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST) > 0
     m = (score < 1.0).astype(np.uint8)
     if not m.any():
         return img
     n_lbl, labels, stats, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
-    # Past this many, cropping costs more than the whole-frame convolutions it avoids.
+    # Past this many, cropping costs more than the whole-frame convolutions it avoids —
+    # and more than reusing base_out row by row, so this path stays non-incremental.
     if n_lbl - 1 > _REPAIR_MAX_COMPONENTS:
         return apply_score_repair(img, score, floor=floor, factor=factor)
     src = np.ascontiguousarray(img, dtype=np.float32)
-    out = src.copy()
+    out = np.ascontiguousarray(base_out, dtype=np.float32).copy() if base_out is not None else src.copy()
     # Reach of the coarsest support, so every crop holds the clean film the fill averages.
     pad = max(_fill_supports(max(h, w), factor))
     for i in range(1, n_lbl):
         bx, by = int(stats[i, cv2.CC_STAT_LEFT]), int(stats[i, cv2.CC_STAT_TOP])
+        cw, ch = int(stats[i, cv2.CC_STAT_WIDTH]), int(stats[i, cv2.CC_STAT_HEIGHT])
+        if dirty is not None and not dirty[by : by + ch, bx : bx + cw][labels[by : by + ch, bx : bx + cw] == i].any():
+            continue  # untouched since base_out was made: its fill there is already correct
         x0, y0 = max(0, bx - pad), max(0, by - pad)
-        x1 = min(w, bx + int(stats[i, cv2.CC_STAT_WIDTH]) + pad)
-        y1 = min(h, by + int(stats[i, cv2.CC_STAT_HEIGHT]) + pad)
+        x1 = min(w, bx + cw + pad)
+        y1 = min(h, by + ch + pad)
         sub = apply_score_repair(src[y0:y1, x0:x1], score[y0:y1, x0:x1], floor=floor, long_edge=max(h, w), factor=factor)
         # This component only: a neighbour clipped by the crop repairs badly here and gets
         # its own padded crop anyway.

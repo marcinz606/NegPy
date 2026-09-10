@@ -300,6 +300,22 @@ class ImageProcessor:
         self._luma_value: Optional[np.ndarray] = None
         self._manual_key: Optional[tuple] = None
         self._manual_value: Optional[tuple] = None
+        # Incremental baseline for _manual_bake: the (score, out) reached by the strokes/
+        # spots/lines baked so far, so painting one more stroke costs that stroke alone
+        # rather than redoing every earlier one. Reset whenever the new state is not a
+        # strict append of this baseline (an undo, an edit, a new source).
+        # Identity, not source_key: source_key folds in manual_bake_token, a hash of the
+        # whole stroke list, so it changes on every single stroke by design (it also
+        # invalidates the GPU/CPU engine's uploaded source) and could never match here.
+        # Nothing upstream of the manual bake reads the strokes, so the same decoded
+        # buffer object recurs across a painting session; identity is what to key on.
+        self._manual_inc_img: Optional[np.ndarray] = None
+        self._manual_inc_heal_strokes: tuple = ()
+        self._manual_inc_dust_spots: tuple = ()
+        self._manual_inc_lines: tuple = ()
+        self._manual_inc_threshold: Optional[float] = None
+        self._manual_inc_score: Optional[np.ndarray] = None
+        self._manual_inc_out: Optional[np.ndarray] = None
         # The OpenICE method's whole result, on its own slot. The two IR methods share no
         # state, so whichever loses can be deleted without unpicking the other.
         self._ice_key: Optional[tuple] = None
@@ -488,40 +504,109 @@ class ImageProcessor:
         so this runs before geometry and needs no mapping. Returns the buffer and the mask of
         defects too wide for the fill, for the caller to inpaint."""
         ret = settings.retouch
-        lines = getattr(ret, "scratch_lines", [])
-        if self._is_flat(settings) or not (ret.manual_heal_strokes or ret.manual_dust_spots or lines):
+        lines = tuple(getattr(ret, "scratch_lines", []))
+        heal_strokes = tuple(ret.manual_heal_strokes)
+        dust_spots = tuple(ret.manual_dust_spots)
+        threshold = getattr(ret, "scratch_threshold", 0.5)
+        if self._is_flat(settings) or not (heal_strokes or dust_spots or lines):
             return img, None
         key = (source_key, img.shape)
         if key == self._manual_key and self._manual_value is not None:
             return self._manual_value
+
+        self._slow_step("repairing dust")
+        score, out = self._manual_bake_incremental(img, heal_strokes, dust_spots, lines, threshold)
+        if score is None:
+            value: Tuple[np.ndarray, Optional[np.ndarray]] = (img, None)
+        else:
+            value = (out, route_wide_defects(score, budget=None))
+        self._manual_key = key
+        self._manual_value = value
+        return value
+
+    def _manual_bake_incremental(
+        self,
+        img: np.ndarray,
+        heal_strokes: tuple,
+        dust_spots: tuple,
+        lines: tuple,
+        threshold: float,
+    ) -> Tuple[Optional[np.ndarray], np.ndarray]:
+        """(combined_score, filled_buffer) for the current strokes/spots/lines.
+
+        A painted session is almost always additive — one more stroke on top of the ones
+        already there — so when every list is a strict extension of what was baked last
+        time (same source image, same scratch threshold), only the *new* entries run
+        through detection, and `repair_components` only re-fills the connected components
+        they actually touch; everything else is copied from the previous fill unchanged.
+        Repainting from scratch costs the same as before either way: undoing past the
+        cached baseline, or a fresh source, falls back to it below.
+        """
+        can_extend = (
+            self._manual_inc_img is img
+            and threshold == self._manual_inc_threshold
+            and heal_strokes[: len(self._manual_inc_heal_strokes)] == self._manual_inc_heal_strokes
+            and dust_spots[: len(self._manual_inc_dust_spots)] == self._manual_inc_dust_spots
+            and lines[: len(self._manual_inc_lines)] == self._manual_inc_lines
+            and self._manual_inc_score is not None
+        )
+        if can_extend:
+            new_strokes = heal_strokes[len(self._manual_inc_heal_strokes) :]
+            new_spots = dust_spots[len(self._manual_inc_dust_spots) :]
+            new_lines = lines[len(self._manual_inc_lines) :]
+            base_score = self._manual_inc_score
+            base_out = self._manual_inc_out
+        else:
+            new_strokes, new_spots, new_lines = heal_strokes, dust_spots, lines
+            base_score, base_out = None, None
+
         # One pass for both hand-placed sources: whichever calls a pixel more damaged wins,
         # and the fill sees every hole at once.
         parts = [
             s
             for s in (
-                strokes_to_score(img, ret.manual_heal_strokes, ret.manual_dust_spots),
-                lines_to_score(img, lines, getattr(ret, "scratch_threshold", 0.5)),
+                strokes_to_score(img, new_strokes, new_spots),
+                lines_to_score(img, new_lines, threshold),
             )
             if s is not None
         ]
-        score = parts[0] if len(parts) == 1 else (np.minimum(*parts) if parts else None)
-        if score is None:
-            value: Tuple[np.ndarray, Optional[np.ndarray]] = (img, None)
+        delta = parts[0] if len(parts) == 1 else (np.minimum(*parts) if parts else None)
+
+        if base_score is None:
+            score = delta
+            dirty = None  # nothing cached yet: repair_components fills every component
+        elif delta is None:
+            # The new entries alone found nothing worth repairing (clean film, or a stroke
+            # too faint) — the bake is unchanged from the cached baseline.
+            score, dirty = base_score, np.zeros(base_score.shape, dtype=bool)
         else:
-            self._slow_step("repairing dust")
+            score = np.minimum(base_score, delta)
+            dirty = delta < 1.0
+
+        if score is None:
+            out = img
+        elif base_out is not None and not dirty.any():
+            out = base_out
+        else:
             # floor=False: a scratch has lost emulsion and reads brighter than the film
             # around it, so a painted repair must be free to darken as well as lighten.
             # Film-footprint supports, not the buffer's own pixels: a painted score arrives
             # at full buffer resolution, where the fill's fine rungs sit at grain scale,
             # entirely inside the defect. Their candidate is then the defect's own value and
             # the repair only half-lands. The IR path measures its score coarse instead.
-            value = (
-                np.asarray(repair_components(img, score, floor=False, factor=film_scale(img.shape[:2]))),
-                route_wide_defects(score, budget=None),
-            )
-        self._manual_key = key
-        self._manual_value = value
-        return value
+            # dirty=None here means "nothing cached to reuse", not "nothing changed" — the
+            # None-vs-empty-array distinction repair_components relies on to skip the whole
+            # incremental path when there is no base_out to reuse from.
+            out = np.asarray(repair_components(img, score, floor=False, factor=film_scale(img.shape[:2]), base_out=base_out, dirty=dirty))
+
+        self._manual_inc_img = img
+        self._manual_inc_heal_strokes = heal_strokes
+        self._manual_inc_dust_spots = dust_spots
+        self._manual_inc_lines = lines
+        self._manual_inc_threshold = threshold
+        self._manual_inc_score = score
+        self._manual_inc_out = out
+        return score, out
 
     def run_pipeline(
         self,
