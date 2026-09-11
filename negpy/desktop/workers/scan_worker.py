@@ -284,7 +284,7 @@ class ScanWorker(QObject):
 
     def _whole_strip(self, service: ScannerService, req: BatchRequest) -> list[int]:
         """Every frame on the loaded film, for a request that named none."""
-        count = service.detect_frames(req.device_id, film_format=req.params.film_format, film_type=req.params.film_type)
+        count = service.detect_frames(req.device_id, film_format=req.params.film_format)
         if count <= 0:
             raise RuntimeError("No frames were detected on the loaded film")
         return list(range(1, count + 1))
