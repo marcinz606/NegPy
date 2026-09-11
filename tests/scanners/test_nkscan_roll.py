@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from negpy.infrastructure.scanners.base import ScannerDevice
-from negpy.infrastructure.scanners.nkscan_roll import NkscanRollSession, thumbnail_scale
+from negpy.infrastructure.scanners.nkscan_roll import NkscanRollSession
 from tests.scanners import fake_nkscan
 from tests.scanners.fake_nkscan import DEVICE_ID, FRAMES, make_backend
 
@@ -233,26 +233,8 @@ def test_ejecting_forgets_the_strip_pass_because_that_film_is_gone() -> None:
     assert backend.strip_pass(device.id) is None
 
 
-def test_a_thumbnail_column_is_a_whole_line_pitch() -> None:
-    """The pitch is a whole number of addresses, and the reported resolution rounds it down.
-
-    An LS-50 answers 97 dpi for a 4000 dpi unit, where the pitch it actually laid the pass out
-    with is 41: every frame top a real strip reported was an exact multiple of it. Carrying the
-    unrounded 41.24, or a scale taken across the film instead, walks the tile off the film it
-    names, further with every frame down the strip.
-    """
-    assert thumbnail_scale(4000, 97) == 41.0
-    assert thumbnail_scale(4000, 250) == 16.0
-    assert thumbnail_scale(4000, 0) == 0.0
-    assert thumbnail_scale(0, 97) == 0.0
-
-    # Tops an LS-50 measured on a real strip, which the pitch has to divide exactly.
-    for top in (246, 6109, 12013, 17917, 23821, 29725):
-        assert top % int(thumbnail_scale(4000, 97)) == 0
-
-
 def test_a_tile_is_cut_at_the_address_the_scan_will_use() -> None:
-    """The tile and the fine scan must name the same film, or the operator judges the wrong one."""
+    """The tile uses the column pitch the pass measured, not optical over thumbnail dpi."""
     backend, module = make_backend()
     device = backend.list_devices()[0]
     session = backend.open_roll(device, dpi=500)
@@ -261,7 +243,7 @@ def test_a_tile_is_cut_at_the_address_the_scan_will_use() -> None:
     finally:
         session.close()
 
-    scale = int(round(module.caps.optical_dpi / module.caps.thumbnail_dpi[0]))
+    scale = module.addresses_per_column
     strip = backend.strip_pass(device.id)
     assert strip is not None
     for preview, (slot, rect) in zip(previews, enumerate(module.frames, 1)):

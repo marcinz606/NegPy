@@ -176,14 +176,6 @@ def test_the_offset_and_the_window_both_reach_the_scan() -> None:
 # ── result ────────────────────────────────────────────────────────────────
 
 
-def test_the_detected_table_goes_back_to_the_unit_with_every_scan() -> None:
-    # A perforation-framed unit honours its frame table only as a whole, and the fine scan
-    # runs in a session that never measured the strip.
-    backend, module = make_backend()
-    _scan(backend, dataclasses.replace(_PARAMS, frame=2, frame_offset_mm=3.0))
-    assert module.opened[-1].scans[0]["frames"] == list(FRAMES)
-
-
 def test_the_planes_come_back_as_one_rgb_array() -> None:
     backend, _ = make_backend()
     result = _scan(backend)
@@ -466,19 +458,6 @@ def test_every_other_film_keeps_its_factory_balance() -> None:
 # ── what is on the film ───────────────────────────────────────────────────
 
 
-def test_reversal_film_is_measured_the_other_way_round() -> None:
-    """Unexposed slide film develops to maximum density, a negative to its base."""
-    backend, module = make_backend()
-    session = backend.open_session(DEVICE_ID)
-    backend.discover_frames(module.opened[-1], DEVICE_ID, film_format=None, film_type="positive")
-    assert module.opened[-1].polarities == [True]
-
-    backend.forget_frames(DEVICE_ID)
-    backend.discover_frames(module.opened[-1], DEVICE_ID, film_format=None, film_type="mono")
-    assert module.opened[-1].polarities == [True, False]
-    session.close()
-
-
 def test_ir_on_black_and_white_is_refused_before_the_unit_moves() -> None:
     backend, module = make_backend()
     with pytest.raises(RuntimeError, match="B&W negative blocks infrared"):
@@ -526,8 +505,7 @@ def test_the_films_the_backend_names_are_films_the_extension_knows() -> None:
 
 
 def test_a_per_frame_offset_slides_only_the_feed_axis_of_the_frame_asked_for() -> None:
-    """The rect handed to nkscan must move by the film distance the operator dialled, on the
-    feed axis alone, and keep the frame's own extent."""
+    """The rect moves by the dialled distance on the feed axis only."""
     shift = round(0.7 * 4000 / 25.4)  # 0.7 mm at the fake's optical dpi
     for frame, offset_mm, expected in ((3, 0.0, 0), (3, 0.7, shift), (3, -0.7, -shift), (1, 0.7, shift)):
         backend, module = make_backend()

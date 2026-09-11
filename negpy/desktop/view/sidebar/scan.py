@@ -312,7 +312,7 @@ class ScanSidebar(QWidget):
 
         self.fmt_combo = QComboBox()
         self.fmt_combo.addItems(list(OUTPUT_FORMATS))
-        self.fmt_combo.setToolTip("Output file format. Mono writes one grey plane instead of three, for film with a single record.")
+        self.fmt_combo.setToolTip("Output file format. Mono writes one grey plane, for film with a single record.")
         self.form.addRow("Format", self.fmt_combo)
 
         folder_row = QHBoxLayout()

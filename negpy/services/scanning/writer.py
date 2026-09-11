@@ -28,11 +28,10 @@ def _to_uint16(arr: np.ndarray) -> np.ndarray:
 
 
 def _to_grey(rgb: np.ndarray) -> np.ndarray:
-    """One plane from three, by their mean.
+    """The rounded mean of the three planes.
 
-    Film with a single record is metered with its channels locked, so the three planes are one
-    density read three times and their mean is the least noisy of them. Summing in uint32 keeps
-    the accumulator off the source dtype; `(s + 1) // 3` rounds rather than floors.
+    Single-record film is metered with locked channels, so the planes are one density read three
+    times. The sum is uint32 so a uint16 source cannot overflow.
     """
     if rgb.ndim == 2:
         return rgb

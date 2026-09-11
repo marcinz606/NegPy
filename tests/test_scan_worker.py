@@ -79,8 +79,8 @@ class _BatchService:
         self.eject_calls.append(device_id)
         return True
 
-    def detect_frames(self, device_id: str, *, film_format: str | None = None, film_type: str = "negative") -> int:
-        self.detect_calls.append((film_format, film_type))
+    def detect_frames(self, device_id: str, *, film_format: str | None = None) -> int:
+        self.detect_calls.append(film_format)
         return self.detected
 
     def run_scan(self, device_id, params, progress, cancel):
@@ -586,7 +586,7 @@ def test_a_batch_with_no_frames_scans_every_frame_on_the_film() -> None:
     worker.run_batch(_batch_request(frames=(), film_format="66"))
 
     assert service.frames == [1, 2, 3]
-    assert service.detect_calls == [("66", "negative")]
+    assert service.detect_calls == ["66"]
     assert len(done[0]) == 3
 
 

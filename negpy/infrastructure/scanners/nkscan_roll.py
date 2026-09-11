@@ -26,18 +26,6 @@ logger = get_logger(__name__)
 _PREVIEW_DEPTH_DPI = 0  # the strip pass has its own resolution; nothing chooses it
 
 
-def thumbnail_scale(optical_dpi: int, thumbnail_dpi: int) -> float:
-    """Stage addresses per thumbnail column.
-
-    A column is one line pitch of film and the pass starts at the axis origin, so a column is
-    a feed address. The pitch is a whole number of addresses; the resolution the unit reports
-    for the pass is that pitch rounded down, so the trip back through it has to round.
-    """
-    if optical_dpi <= 0 or thumbnail_dpi <= 0:
-        return 0.0
-    return float(round(optical_dpi / thumbnail_dpi))
-
-
 def slice_frame(strip: np.ndarray, rect: tuple[int, int, int, int], scale: float) -> np.ndarray | None:
     """The frame's own pixels out of the strip pass, or None when it falls outside.
 
@@ -120,16 +108,11 @@ class NkscanRollSession:
         rect = self._rect(slot)
         strip = self.thumbnail
         if strip is not None:
-            tile = slice_frame(strip, rect, self._scale())
+            tile = slice_frame(strip, rect, self._backend.addresses_per_column(self._device.id) or 0.0)
             if tile is not None:
                 return tile
             logger.info("Slot %s falls outside the strip pass; scanning it instead", slot)
         return self._scan_preview(rect, cancel)
-
-    def _scale(self) -> float:
-        caps = self._session.capabilities
-        dpi = tuple(caps.thumbnail_dpi)
-        return thumbnail_scale(int(caps.optical_dpi), int(dpi[0]) if dpi else 0)
 
     def _scan_preview(self, rect: tuple[int, int, int, int], cancel: threading.Event) -> np.ndarray:
         """A pass of one frame, for a mechanism that measured the film without a strip pass."""
@@ -144,7 +127,6 @@ class NkscanRollSession:
                 lock_white_balance=self._backend.locks_white_balance(self._film_type),
                 exposures=self._exposures,
                 progress=_progress_bridge(None, cancel),
-                frames=self._backend.frames(self._device.id),
             )
         if self._exposures is None:
             self._exposures = dict(result.exposures)
@@ -157,7 +139,6 @@ class NkscanRollSession:
                 self._session,
                 self._device.id,
                 film_format=self._film_format,
-                film_type=self._film_type,
                 progress=_progress_bridge(None, cancel),
             )
             frames = self._backend.frames(self._device.id)

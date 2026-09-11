@@ -729,9 +729,8 @@ def test_a_feeder_raster_turns_landscape() -> None:
 
 
 def test_a_measured_strip_crop_maps_display_x_to_the_feed_and_display_top_to_the_sensor_end() -> None:
-    # A measured strip's tile arrives landscape, so it is not rotated, but the backend's window
-    # still has y along the feed and x along the sensor, whose high addresses are the top of the
-    # tile: the same transform a rotated feeder tile needs. Measured on an LS-50 over nkscan.
+    # The tile is not rotated, but the backend window has y along the feed and x along the
+    # sensor, high addresses at the top: the same transform a feeder tile needs.
     controller = _FakeController()
     dialog = StripPreviewDialog(controller, _discovery_device())
     dialog._on_preview_all()
@@ -1058,11 +1057,7 @@ def test_reflowing_does_not_accumulate_layout_items() -> None:
 
 
 def test_the_preview_and_the_scan_land_on_the_same_millimetres() -> None:
-    """The tile the operator judges must be the film the batch then scans.
-
-    Preview speaks fractions of a pitch and the scan speaks millimetres, so the two halves
-    are only equivalent if base, drift and the per-frame correction compose the same way.
-    """
+    """Preview (fractions of a pitch) and scan (mm) compose base, drift and correction alike."""
 
     from negpy.desktop.workers.scan_worker import BatchRequest, ScanWorker
     from negpy.infrastructure.scanners.params import ScanParams
@@ -1177,11 +1172,7 @@ def test_a_feeder_is_left_alone_because_previewing_it_costs_a_pass_per_frame() -
 
 
 def test_the_offset_sliders_reach_a_boundary_several_millimetres_out() -> None:
-    """A measured boundary can sit well off the picture, and the slider has to reach it.
-
-    Observed on a real strip: gaps of 876 and 1339 stage units (5.6 mm and 8.5 mm) at 4000 dpi,
-    which a +-2.5 mm control could not cut.
-    """
+    """A measured boundary can sit several millimetres off the picture."""
     dialog = StripPreviewDialog(_FakeController(), _discovery_device())
     ctl = _FakeController()
     grown = StripPreviewDialog(ctl, _device(3))

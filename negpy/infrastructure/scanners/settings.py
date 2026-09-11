@@ -5,8 +5,7 @@ from negpy.infrastructure.scanners.registry import DEFAULT_BACKEND_ID
 
 Rect = tuple[float, float, float, float]
 
-#: Written as one 16-bit grey plane instead of three. Film that carries a single record
-#: (a B&W negative) reads the same off one plane, at a third of the size.
+#: One 16-bit grey plane, for film with a single record such as a B&W negative.
 MONO_TIFF = "TIFF (mono)"
 #: What the Format combo offers, in order.
 OUTPUT_FORMATS = ("TIFF", MONO_TIFF)
@@ -48,11 +47,9 @@ class ScannerSettings:
     # switch to a sorted tuple of pairs if that ever changes.
     frame_windows: dict[int, Rect] = field(default_factory=dict)
     selected_frames: tuple[int, ...] = ()
-    # Per-frame feed-axis correction (mm), added on top of frame_offset_mm + drift. An absent
-    # key means no correction for that frame.
+    # Per-frame feed-axis correction (mm) on top of frame_offset_mm + drift.
     frame_offsets: dict[int, float] = field(default_factory=dict)
-    # Height in px of one tile in the strip preview. Tile width follows the device aspect, and
-    # the grid reflows to whatever fits the dialog.
+    # Strip preview tile height (px); the width follows the device aspect.
     strip_tile_height: int = 140
 
     def __post_init__(self) -> None:
@@ -82,7 +79,7 @@ class ScannerSettings:
         every unrelated preference with it.
         """
         data = dict(data)
-        # DNG output is retired; a saved one lands on TIFF, the other 16-bit master.
+        # A saved DNG output format loads as TIFF.
         if str(data.get("output_format", "")).upper() == "DNG":
             data["output_format"] = "TIFF"
         first, last = data.pop("frame_from", None), data.pop("frame_to", None)
