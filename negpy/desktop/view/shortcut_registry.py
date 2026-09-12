@@ -63,7 +63,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "toggle_grain_focuser": ShortcutEntry("Shift+L", "Grain focuser loupe", "Tools"),
     "toggle_printing_notes": ShortcutEntry("Shift+N", "Printing notes (dodge/burn map + print recipe)", "Tools"),
     "toggle_soft_proof": ShortcutEntry("Shift+P", "Soft proof the print on screen", "Tools"),
-    "cancel_tool": ShortcutEntry("Esc", "Cancel active tool (first press clears in-progress points)", "Tools"),
+    "cancel_tool": ShortcutEntry("Esc", "Leave the current view (peek, split, strip) or cancel the active tool", "Tools"),
     "cyan_dec": ShortcutEntry("", "Cyan down", "Exposure"),
     "cyan_inc": ShortcutEntry("", "Cyan up", "Exposure"),
     "magenta_down": ShortcutEntry("D", "Magenta down", "Exposure"),

@@ -188,6 +188,9 @@ def test_context_cancel_two_stage() -> None:
     controller, window = MagicMock(), MagicMock()
     controller.state.test_strip = False
     controller.state.test_strip_pending = False
+    controller.state.negative_peek = False
+    controller.state.flat_peek = False
+    controller.state.compare_mode = False
     controller.state.grain_focuser = False
     controller.state.zone_arm_target = None
     controller.state.zone_pins = []
@@ -207,6 +210,9 @@ def test_context_cancel_dismisses_a_test_strip_before_any_tool() -> None:
 
     controller, window = MagicMock(), MagicMock()
     controller.state.test_strip_pending = False
+    controller.state.negative_peek = False
+    controller.state.flat_peek = False
+    controller.state.compare_mode = False
     controller.state.grain_focuser = False
     window.canvas.overlay.cancel_in_progress.return_value = True
 
@@ -233,6 +239,9 @@ def test_context_cancel_closes_the_grain_focuser_before_any_tool() -> None:
     controller, window = MagicMock(), MagicMock()
     controller.state.test_strip = False
     controller.state.test_strip_pending = False
+    controller.state.negative_peek = False
+    controller.state.flat_peek = False
+    controller.state.compare_mode = False
     controller.state.grain_focuser = True
     window.canvas.overlay.cancel_in_progress.return_value = True
 
@@ -289,3 +298,49 @@ def test_fresh_crop_draw_keeps_immediate_feel() -> None:
     overlay.mouseReleaseEvent(_mouse_event(QEvent.Type.MouseButtonRelease, QPointF(20, 20), Qt.MouseButton.NoButton))
 
     assert len(emitted) == 1
+
+
+def test_context_cancel_leaves_a_view_that_owns_the_canvas_before_any_tool() -> None:
+    """A peek and the split are views the user is inside, so Esc is how you get out: the
+    toggle that opened one sits in a toolbar the user has to go back and find."""
+    from unittest.mock import MagicMock
+
+    from negpy.desktop.view.keyboard_shortcuts import _context_cancel
+
+    def _fixture():
+        controller, window = MagicMock(), MagicMock()
+        controller.state.test_strip = False
+        controller.state.test_strip_pending = False
+        controller.state.negative_peek = False
+        controller.state.flat_peek = False
+        controller.state.compare_mode = False
+        controller.state.grain_focuser = False
+        window.canvas.overlay.cancel_in_progress.return_value = True
+        return controller, window
+
+    controller, window = _fixture()
+    controller.state.negative_peek = True
+    _context_cancel(controller, window)
+    controller.toggle_negative_peek.assert_called_once_with(force=False)
+    window.canvas.overlay.cancel_in_progress.assert_not_called()
+    controller.cancel_active_tool.assert_not_called()
+
+    controller, window = _fixture()
+    controller.state.flat_peek = True
+    _context_cancel(controller, window)
+    controller.toggle_flat_peek.assert_called_once_with(force=False)
+    controller.cancel_active_tool.assert_not_called()
+
+    controller, window = _fixture()
+    controller.state.compare_mode = True
+    _context_cancel(controller, window)
+    controller.toggle_compare.assert_called_once_with()
+    controller.cancel_active_tool.assert_not_called()
+
+    # The strip still outranks them: it is the one that replaces the frame entirely.
+    controller, window = _fixture()
+    controller.state.test_strip = True
+    controller.state.negative_peek = True
+    _context_cancel(controller, window)
+    controller.toggle_test_strip.assert_called_once_with(force=False)
+    controller.toggle_negative_peek.assert_not_called()
