@@ -36,7 +36,7 @@ from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.stitch.logic import stitch_composite
 from negpy.features.stitch.models import StitchConfig, stitch_has_triplets
 from negpy.infrastructure.loaders.constants import SUPPORTED_JPEG_EXTENSIONS, SUPPORTED_RAW_EXTENSIONS, SUPPORTED_TIFF_EXTENSIONS
-from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, get_best_demosaic_algorithm, read_orientation
+from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, read_orientation, resolve_demosaic
 from negpy.infrastructure.loaders.pakon_loader import PakonLoader
 from negpy.infrastructure.loaders.fff_loader import is_flextight_fff
 from negpy.infrastructure.loaders.nef_loader import is_coolscan_nef
@@ -66,6 +66,9 @@ class _SourceMeta:
     make: Optional[str] = None
     model: Optional[str] = None
     datetime: Optional[str] = None
+    # Resolved CFA interpolation label (e.g. "AHD", "Markesteijn 3-pass"), or None for a
+    # source with no CFA. Set only by a camera-RAW decode; carried through every merge.
+    demosaic: Optional[str] = None
 
 
 def _read_source_meta_tiff(file_path: str) -> _SourceMeta:
@@ -400,6 +403,7 @@ def _decode_linear(
             make=meta.make or decode_meta.make,
             model=meta.model or decode_meta.model,
             datetime=meta.datetime or decode_meta.datetime,
+            demosaic=decode_meta.demosaic,
         )
         if apply_flatfield and flatfield is not None:
             rgb = _apply_flatfield_correction(rgb, flatfield)
@@ -629,7 +633,7 @@ def _decode_camera_raw_buffer(file_path: str, demosaic: str = DemosaicMode.AUTO)
     )
     ts = raw.other.timestamp
     dt_str = ts.strftime("%Y:%m:%d %H:%M:%S") if ts else None
-    algo = get_best_demosaic_algorithm(raw, demosaic)
+    algo, label = resolve_demosaic(raw, demosaic)
     rgb = raw.postprocess(
         gamma=(1, 1),
         no_auto_bright=True,
@@ -645,7 +649,7 @@ def _decode_camera_raw_buffer(file_path: str, demosaic: str = DemosaicMode.AUTO)
     f32 = uint16_to_float32(rgb)
     orientation = read_orientation(file_path)
     f32 = apply_exif_orientation(f32, orientation)
-    meta = _SourceMeta(datetime=dt_str)
+    meta = _SourceMeta(datetime=dt_str, demosaic=label)
     return f32, wb, meta
 
 
@@ -690,6 +694,7 @@ def _decode_hdr(
         make=file_meta.make or meta.make,
         model=file_meta.model or meta.model,
         datetime=file_meta.datetime or meta.datetime,
+        demosaic=meta.demosaic,
     )
     f32 = merge_bracket(_decode, file_path, hdr)
     if geometry is not None:
@@ -707,6 +712,7 @@ def _decode_camera_raw_triplet(
         make=file_meta.make or meta.make,
         model=file_meta.model or meta.model,
         datetime=file_meta.datetime or meta.datetime,
+        demosaic=meta.demosaic,
     )
 
     cache: dict[str, np.ndarray] = {file_path: primary_f32}
@@ -785,6 +791,7 @@ def _decode_stitch(
         make=primary_meta.make or decode_meta.make,
         model=primary_meta.model or decode_meta.model,
         datetime=primary_meta.datetime or decode_meta.datetime,
+        demosaic=decode_meta.demosaic,
     )
 
     parts: list[np.ndarray] = []
@@ -920,6 +927,7 @@ def _linear_description(
     sensor_applied: bool,
     ice_applied: bool,
     gamma_key: str,
+    demosaic: Optional[str] = None,
 ) -> str:
     """The processing record both linear writers stamp on their output."""
     parts = [f"source: {source_format or source_name}"]
@@ -930,6 +938,8 @@ def _linear_description(
     if gamma_key != "linear":
         gamma_labels = dict(TIFF_GAMMA_OPTIONS)
         parts.append(f"linearized from {gamma_labels.get(gamma_key, gamma_key)}")
+    if demosaic:
+        parts.append(f"demosaic: {demosaic}")
     if camera_wb is not None:
         r, g, b = _normalize_wb_rgb(camera_wb.as_shot)
         if wb_applied:
@@ -997,6 +1007,7 @@ def _write_tiff(
         sensor_applied,
         ice_applied,
         gamma_key,
+        demosaic=source_meta.demosaic if source_meta is not None else None,
     )
 
     extratags: list[tuple] = []
@@ -1176,6 +1187,7 @@ def _write_jxl(
             sensor_applied,
             ice_applied,
             gamma_key,
+            demosaic=source_meta.demosaic if source_meta is not None else None,
         ),
         camera_wb,
         source_path,
@@ -1290,14 +1302,16 @@ def export_linear_output(
             _write_ir_tiff(ir, f"{stem}_ir.tiff", resolution=resolution)
 
 
-def export_linear_output_bytes(file_path: str, geometry: Optional[GeometryConfig] = None) -> tuple[bytes, str]:
+def export_linear_output_bytes(
+    file_path: str, geometry: Optional[GeometryConfig] = None, process: Optional[ProcessConfig] = None
+) -> tuple[bytes, str]:
     """Like export_linear_output but returns (tiff_bytes, filename_stem) for in-memory use.
 
     IR is not included in the returned bytes (use export_linear_output for IR).
     """
     eff = _effective_expansion(file_path, None)
     fmt = _source_format_label(file_path)
-    f32, _ir, camera_wb, meta = _decode_linear(file_path, geometry)
+    f32, _ir, camera_wb, meta = _decode_linear(file_path, geometry, process=process)
     buf = io.BytesIO()
     _write_tiff(f32, buf, os.path.basename(file_path), camera_wb, source_path=file_path, source_meta=meta, expansion=eff, source_format=fmt)
     stem = os.path.splitext(os.path.basename(file_path))[0]
