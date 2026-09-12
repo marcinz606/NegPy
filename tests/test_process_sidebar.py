@@ -172,3 +172,42 @@ def test_positive_toggle_reaches_the_controller(qapp):
     sidebar.positive_source_btn.setChecked(True)
     (new_cfg,), _kw = controller.apply_config.call_args
     assert new_cfg.process.positive_source is True
+
+
+def test_highlight_reconstruction_hidden_off_e6(qapp):
+    controller, sidebar = _sidebar()
+    sidebar.sync_ui()
+    for btn in sidebar.highlight_btns:
+        assert btn.isHidden()
+
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6))
+    sidebar.sync_ui()
+    for btn in sidebar.highlight_btns:
+        assert not btn.isHidden()
+
+
+def test_highlight_reconstruction_buckets_an_unnamed_level_under_reconstruct(qapp):
+    """Any stored level besides 0 or 2 is some Reconstruct level (3-9); the exclusive group
+    must not end up with nothing checked."""
+    controller, sidebar = _sidebar()
+    off_btn, blend_btn, reconstruct_btn = sidebar.highlight_btns
+
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, highlight_reconstruction=7))
+    sidebar.sync_ui()
+    assert reconstruct_btn.isChecked()
+    assert not off_btn.isChecked() and not blend_btn.isChecked()
+
+
+def test_highlight_reconstruction_click_reaches_the_controller(qapp):
+    controller, sidebar = _sidebar()
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6))
+    sidebar.sync_ui()
+
+    _off_btn, blend_btn, _reconstruct_btn = sidebar.highlight_btns
+    blend_btn.setChecked(True)
+    (new_cfg,), kw = controller.apply_config.call_args
+    assert new_cfg.process.highlight_reconstruction == 2
+    assert kw["persist"] is True

@@ -41,6 +41,32 @@ _MODES = (
     (ProcessMode.E6, " Slide", "#4FB0D8", "Transparency — slide / reversal film"),
 )
 
+# Highlight Reconstruction bar: rawpy's HighlightMode, collapsed to the three settings worth
+# choosing between (see effective_highlight_reconstruction) — Reconstruct pinned to libraw's
+# own default level rather than exposing all seven numbered levels.
+_HIGHLIGHT_LEVELS = (
+    (
+        0,
+        " Off",
+        "Off (default) — libraw's Clip. A blown highlight stays flat white, or magenta if one channel clipped before the others.",
+    ),
+    (
+        2,
+        " Blend",
+        "Blend — recovers a plausible neutral color in a clipped highlight from the channels "
+        "that are not clipped. Good for a genuinely neutral highlight: a sun disc, sky, chrome, "
+        "a glass reflection, where the channels clip in close proportion.",
+    ),
+    (
+        5,
+        " Reconstruct",
+        "Reconstruct — libraw's own default reconstruction, more aggressive than Blend. Can "
+        "misjudge a highlight that was a saturated color rather than a near-neutral one (a neon "
+        "sign, a colored light source), since a clipped channel alone cannot tell the two apart. "
+        "Judge it on the actual frame.",
+    ),
+)
+
 
 def _luma_range_slider_to_value(pos: float) -> float:
     if pos >= 0:
@@ -61,6 +87,17 @@ def _color_slider_to_value(pos: float) -> float:
     ln = math.log10(_COLOR_CLIP_NEUTRAL)
     end = math.log10(_COLOR_CLIP_MAX if pos >= 0 else _COLOR_CLIP_MIN)
     return math.pow(10, ln + (abs(pos) / 100.0) * (end - ln))
+
+
+def _highlight_bucket(level: int) -> int:
+    """Which of the three exposed buttons a stored value belongs under. Off and Blend are
+    exact; any other nonzero value is some Reconstruct level (3-9), so it buckets there —
+    the same "an unrecognised value still lands somewhere sane" idea as DemosaicMode's
+    `_missing_`, since nothing here should leave the exclusive group with no button checked.
+    """
+    if level == 2:
+        return 1
+    return 2 if level else 0
 
 
 def _color_value_to_slider(v: float) -> float:
@@ -238,6 +275,18 @@ class ProcessSidebar(BaseSidebar):
         self.layout.addLayout(transfer_row)
         self.layout.addWidget(self.render_ev_slider)
 
+        self.highlight_btns = []
+        self.highlight_btn_group = QButtonGroup(self)
+        self.highlight_btn_group.setExclusive(True)
+        highlight_row = QHBoxLayout()
+        checked_bucket = _highlight_bucket(conf.highlight_reconstruction)
+        for i, (level, label, tip) in enumerate(_HIGHLIGHT_LEVELS):
+            btn = self._labeled_toggle("fa5s.sun", label, i == checked_bucket, tip)
+            self.highlight_btn_group.addButton(btn, i)
+            highlight_row.addWidget(btn, 1)
+            self.highlight_btns.append(btn)
+        self.layout.addLayout(highlight_row)
+
         # Disabled widgets get no hover, so the detail hangs off the hint, not the button.
         self.normalize_merged_hint = hint_label("Not applied to a merged bracket.")
         self.normalize_merged_hint.setToolTip(
@@ -291,6 +340,7 @@ class ProcessSidebar(BaseSidebar):
 
         self.normalize_e6_btn.toggled.connect(self._on_normalize_e6_toggled)
         self.positive_source_btn.toggled.connect(self._on_positive_source_toggled)
+        self.highlight_btn_group.idToggled.connect(lambda i, checked: self._on_highlight_reconstruction_changed(i) if checked else None)
         self.sync_ui()
 
     def _on_white_point_changed(self, val: float, persist: bool = True) -> None:
@@ -342,6 +392,10 @@ class ProcessSidebar(BaseSidebar):
         # Changes the decode like Linear RAW does: apply_config re-decodes and suppresses
         # the bounds analysis over the stale buffer.
         self.controller.apply_config(new_config, persist=True)
+
+    def _on_highlight_reconstruction_changed(self, bucket: int) -> None:
+        level, _label, _tip = _HIGHLIGHT_LEVELS[bucket]
+        self.update_config_section("process", highlight_reconstruction=level, render=True, persist=True)
 
     def _on_analysis_region_toggled(self, checked: bool) -> None:
         self.controller.set_active_tool(ToolMode.ANALYSIS_DRAW if checked else ToolMode.NONE)
@@ -432,6 +486,14 @@ class ProcessSidebar(BaseSidebar):
             self.positive_source_btn.setChecked(conf.positive_source)
             self.positive_source_btn.setEnabled(transfer)
 
+            # Reconstruction only means anything against a slide's own blown highlights (see
+            # effective_highlight_reconstruction); hidden rather than greyed, matching Normalize
+            # and Positive right above it.
+            checked_bucket = _highlight_bucket(conf.highlight_reconstruction)
+            for i, btn in enumerate(self.highlight_btns):
+                btn.setVisible(is_e6)
+                btn.setChecked(i == checked_bucket)
+
             # Only a merge has a render exposure to choose, and only the transfer path uses a fixed
             # window for it to mean anything against.
             self.render_ev_slider.setVisible(merged and transfer)
@@ -505,6 +567,8 @@ class ProcessSidebar(BaseSidebar):
             self.black_point_slider,
             self.normalize_e6_btn,
             self.positive_source_btn,
+            self.highlight_btn_group,
+            *self.highlight_btns,
         ]
         for w in widgets:
             w.blockSignals(blocked)
