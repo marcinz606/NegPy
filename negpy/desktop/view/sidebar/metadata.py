@@ -295,7 +295,7 @@ class MetadataSidebar(BaseSidebar):
 
         # ── EXPOSURE ─────────────────────────────────────────────────────
         exp_body, exp = self._card_body()
-        exp.addWidget(hint_label("Optional original capture exposure — click 🔓 to edit"))
+        exp.addWidget(hint_label("Optional original capture exposure — click the lock to edit"))
 
         self.exposure_label = field_label("Exposure")
         exp.addWidget(self.exposure_label)

@@ -30,7 +30,7 @@ class CalibrationWindow(QDialog):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("New preset — calibrate on the film base")
+        self.setWindowTitle("New Preset — Calibrate on the Film Base")
         self.setModal(False)
         float_over_app(self)
         self.resize(820, 680)

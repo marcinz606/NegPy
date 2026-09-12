@@ -109,7 +109,7 @@ class RightPanel(QWidget):
             (page["key"], page["icon_name"], page["tooltip"], page["widget"], page["sections"]) for page in self.controls_panel.pages
         ]
         tab_specs += [
-            ("favourites", "fa5s.star", "Favourites", self.favourites_sidebar, []),
+            ("favourites", "fa5s.star", "Favorites", self.favourites_sidebar, []),
             ("history", "fa5s.history", "History", self.history_panel, []),
             ("export", "fa5s.file-export", "Export", self.export_sidebar, []),
             ("metadata", "fa5s.tags", "Metadata", self.metadata_sidebar, []),

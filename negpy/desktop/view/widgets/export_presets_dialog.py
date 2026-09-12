@@ -149,7 +149,7 @@ class ExportPresetsDialog(QDialog):
         # Name & enabled
         row = QHBoxLayout()
         self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("Preset name")
+        self.name_edit.setPlaceholderText("Preset Name")
         self.name_edit.textChanged.connect(self._on_name_changed)
         self.enabled_check = QCheckBox("Enabled")
         self.enabled_check.stateChanged.connect(self._on_enabled_changed)
@@ -260,8 +260,8 @@ class ExportPresetsDialog(QDialog):
 
     def _show_add_menu(self) -> None:
         menu = QMenu(self)
-        menu.addAction("Print preset", self._add_print_preset)
-        menu.addAction("Flat master preset", self._add_flat_preset)
+        menu.addAction("Print Preset", self._add_print_preset)
+        menu.addAction("Flat Master Preset", self._add_flat_preset)
         menu.exec(self.add_btn.mapToGlobal(self.add_btn.rect().bottomLeft()))
 
     def _append_preset(self, preset: ExportPreset) -> None:

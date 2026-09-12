@@ -50,7 +50,7 @@ class RollAnalysisSidebar(BaseSidebar):
         self.layout.addWidget(section_subheader("ROLL"))
 
         self.roll_combo = QComboBox()
-        self.roll_combo.setPlaceholderText("Select Roll...")
+        self.roll_combo.setPlaceholderText("Select Roll…")
         self.roll_combo.setToolTip("Previously saved roll normalization baselines")
         self._refresh_rolls()
         self.layout.addWidget(self.roll_combo)

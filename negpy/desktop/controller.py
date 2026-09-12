@@ -3222,7 +3222,7 @@ class AppController(QObject):
         token = self._begin_batch("normalization", "Analyzing roll", abortable=True)
         if token is None:
             return
-        self.set_status("Starting Batch Normalization...")
+        self.set_status("Starting Batch Normalization…")
         task = NormalizationTask(
             frames=[NormalizationInput(file_info=a, config=self._config_for_batch_asset(a)) for a in visible_files],
             workspace_color_space=self.state.workspace_color_space,
@@ -3375,7 +3375,7 @@ class AppController(QObject):
             self.set_status("Flat Field: could not read that reference image", 3000, kind="error")
             return
         self.set_active_flatfield_profile(profile_id)
-        self.set_status(f"Flat-field profile '{name}' saved", 2000)
+        self.set_status(f"Flat Field profile '{name}' saved", 2000)
 
     def delete_flatfield_profile(self, profile_id: str) -> None:
         """
@@ -4872,7 +4872,7 @@ class AppController(QObject):
 
         presets = self._enabled_presets()
         if not presets:
-            QMessageBox.information(None, "No presets enabled", "Enable at least one export preset in the Export panel.")
+            QMessageBox.information(None, "No Presets Enabled", "Enable at least one export preset in the Export panel.")
             return
 
         if not self._validate_preset_paths(presets):
@@ -5036,7 +5036,7 @@ class AppController(QObject):
                 None,
                 "Export",
                 f"JPEG XL can't tag the selected color space ({names}).\n"
-                "Choose sRGB, P3 D65, Rec 2020 or Greyscale, or a different format.",
+                "Choose sRGB, P3 D65, Rec 2020 or Grayscale, or a different format.",
             )
             return
 
@@ -5103,10 +5103,10 @@ class AppController(QObject):
         box = QMessageBox()
         box.setIcon(QMessageBox.Icon.Warning)
         if n == 1:
-            box.setWindowTitle("File already exists")
+            box.setWindowTitle("File Already Exists")
             box.setText(f"“{os.path.basename(conflicts[0])}” already exists in the export folder.")
         else:
-            box.setWindowTitle("Files already exist")
+            box.setWindowTitle("Files Already Exist")
             box.setText(f"{count_of(n, 'file')} already {plural(n, 'exists', 'exist')} in the export destination.")
         box.setInformativeText(f"{names}\n\nOverwrite, save with a new name, or cancel?")
 

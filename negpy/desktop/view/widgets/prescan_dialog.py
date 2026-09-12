@@ -60,7 +60,7 @@ class PrescanCropDialog(QDialog):
         self._busy = False
         self._scan_now = False  # set when the user chooses Scan over Apply crop
 
-        self.setWindowTitle("Prescan — set crop")
+        self.setWindowTitle("Prescan — Set Crop")
         self.setModal(True)
         self.resize(720, 560)
 
@@ -85,14 +85,14 @@ class PrescanCropDialog(QDialog):
         root.addWidget(self._label, 1)
 
         row = QHBoxLayout()
-        self._clear_btn = QPushButton("Clear crop")
+        self._clear_btn = QPushButton("Clear Crop")
         self._clear_btn.setToolTip("Scan the full window instead of a crop")
         self._clear_btn.setEnabled(False)
         self._cancel_btn = QPushButton("Cancel")
-        self._ok_btn = QPushButton("Apply crop")
+        self._ok_btn = QPushButton("Apply Crop")
         self._ok_btn.setToolTip("Keep this crop and return to the Scan panel")
         self._ok_btn.setEnabled(False)
-        self._scan_btn = QPushButton("Scan frame")
+        self._scan_btn = QPushButton("Scan Frame")
         self._scan_btn.setToolTip("Scan now with the current settings")
         self._scan_btn.setEnabled(False)
         row.addWidget(self._clear_btn)

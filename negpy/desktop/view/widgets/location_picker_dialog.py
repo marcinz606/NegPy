@@ -77,7 +77,7 @@ class LocationPickerDialog(QDialog):
         parent=None,
     ):
         super().__init__(parent)
-        self.setWindowTitle("Capture location")
+        self.setWindowTitle("Capture Location")
         self.setMinimumSize(560, 560)
 
         # The pool is owned by the dialog, so closing it joins any running lookup before the
@@ -171,7 +171,7 @@ class LocationPickerDialog(QDialog):
             # place would claim the frame was shot where it was digitized.
             self.map_view.set_center(*center)
             self.map_view.set_zoom(8)
-            self.status_label.setText("Centred on the scan file's coordinates.")
+            self.status_label.setText("Centered on the scan file's coordinates.")
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802 - Qt override
         """Return in the search field searches; without this the dialog's OK button takes it."""

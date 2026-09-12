@@ -46,7 +46,7 @@ class LocalSidebar(BaseSidebar):
             "fa5s.circle",
             "Oval",
             "Burn through a hole in the card, or dodge with a wand: drag out an oval. Its three "
-            "handles move it (centre) and set each axis, so it can be stretched and tilted.",
+            "handles move it (center) and set each axis, so it can be stretched and tilted.",
         )
         self.gradient_btn = self._tool_toggle(
             "fa5s.grip-lines",

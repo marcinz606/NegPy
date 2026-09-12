@@ -211,7 +211,7 @@ class SensorSidebar(BaseSidebar):
     }
 
     def _apply_gate(self, conf) -> None:
-        """Grey the sensor unmix and show "None" while it cannot be applied, saying why.
+        """Gray the sensor unmix and show "None" while it cannot be applied, saying why.
 
         Display-only: conf.sensor_profile is left alone, so the selection comes back intact
         after a Linear RAW or film-process round-trip. Crosstalk and Hue Trim depend on

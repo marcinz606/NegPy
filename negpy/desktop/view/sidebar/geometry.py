@@ -43,7 +43,7 @@ class GeometrySidebar(BaseSidebar):
         # shape twice.
         self.ratio_combo.addItems([r.value for r in CROP_RATIO_CHOICES])
         self.ratio_combo.setCurrentText(canonical_crop_ratio(conf.autocrop_ratio))
-        self.ratio_combo.setPlaceholderText("Select Ratio...")
+        self.ratio_combo.setPlaceholderText("Select Ratio…")
         self.ratio_combo.setToolTip(wrap_tooltip("Aspect ratio the auto crop and the crop tool snap to"))
         ratio_row.addWidget(self.ratio_combo, 1)
 

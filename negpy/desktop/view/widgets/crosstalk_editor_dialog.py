@@ -253,7 +253,7 @@ class CrosstalkEditorDialog(QDialog):
 
         save_row = QHBoxLayout()
         save_row.addStretch()
-        self.save_btn = QPushButton(" Save to disk")
+        self.save_btn = QPushButton(" Save to Disk")
         self.save_btn.setIcon(qta.icon("fa5s.save", color=THEME.text_primary))
         self.save_btn.setToolTip("Write this profile as a .toml in the NegPy/crosstalk folder so it's reusable")
         self.save_btn.clicked.connect(self._on_save)

@@ -385,7 +385,7 @@ class ControlsPanel(QWidget):
 
         col.pick_wb_btn.setToolTip(
             tooltip_with_shortcut(
-                "Activate eyedropper — click a neutral grey pixel to auto-compute white balance offsets",
+                "Activate eyedropper — click a neutral gray pixel to auto-compute white balance offsets",
                 "pick_wb",
             )
         )
@@ -577,7 +577,7 @@ class ControlsPanel(QWidget):
                 "Linear chroma scale (CIELAB a*/b*) after the print is decoded — a retouching move, "
                 "applied evenly to every tone. Dye Separation in Tone is the density-space equivalent: "
                 "it works on the print's dye densities, so it stays in step with the paper and the curve. "
-                "1.0 = unchanged, 0 = greyscale, 2.0 = double",
+                "1.0 = unchanged, 0 = grayscale, 2.0 = double",
                 ["saturation_inc", "saturation_dec"],
             )
         )

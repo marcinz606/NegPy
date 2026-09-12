@@ -27,12 +27,12 @@ CYANOTYPE_CONSTANTS: Dict[str, Any] = {
     "brown_dir": (9.0, 20.0),
     # Hue path.
     # Density fractions u = D/d_max of the four (a*, b*) anchors: rag paper, the green
-    # highlight stain (Prussian blue mixed with the residual yellow sensitiser, which Ware
+    # highlight stain (Prussian blue mixed with the residual yellow sensitizer, which Ware
     # describes on both formulas), mid blue, Prussian blue.
     "path_u": (0.00, 0.15, 0.55, 1.00),
 }
 
-# Per-sensitiser Dmax and hue path. Ware's densitometry puts classic (Herschel) Dmax well
+# Per-sensitizer Dmax and hue path. Ware's densitometry puts classic (Herschel) Dmax well
 # below a good modern print on the red channel, Prussian blue's absorption peak, and the
 # new (Ware) process holds far more pigment through the wash, so it goes deeper and
 # cleaner.
@@ -53,7 +53,7 @@ def sensitizer_constants(sensitizer: str) -> Dict[str, Any]:
 
 
 def _hue_path(u: np.ndarray, path: Sequence[Sequence[float]]) -> Tuple[np.ndarray, np.ndarray]:
-    """(a*, b*) along the sensitiser's density hue path, clamped outside the anchors."""
+    """(a*, b*) along the sensitizer's density hue path, clamped outside the anchors."""
     xp = np.asarray(CYANOTYPE_CONSTANTS["path_u"], dtype=np.float32)
     a = np.interp(u, xp, np.asarray([p[0] for p in path], dtype=np.float32)).astype(np.float32)
     b = np.interp(u, xp, np.asarray([p[1] for p in path], dtype=np.float32)).astype(np.float32)
@@ -74,14 +74,14 @@ def apply_cyanotype(
 
     The iron processes have no development stage to snatch: the print is fixed by
     how much UV got through the negative and by how long a density range the
-    sensitiser can hold. That range is the contrast control — Ware measures ~1.0
+    sensitizer can hold. That range is the contrast control — Ware measures ~1.0
     to 1.2 for the traditional formula against ~2.4 for the new one, and his
     Simple Cyanotype ships as three variants at 1.8 / 2.3 / 2.7. Within it the
     midtones compress, so the mid gamma runs below one.
 
     Color is Prussian blue, which absorbs around 700nm and so carries most of its
     density in red: the print never goes black, it goes blue, and the highlights
-    print green where the residual yellow sensitiser mixes into the blue. Bleach
+    print green where the residual yellow sensitizer mixes into the blue. Bleach
     then tannin is the standard toning pair — washing soda strips the pigment
     highlights-first, tannic acid re-develops the iron as a brown tannate.
 

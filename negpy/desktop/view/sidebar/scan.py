@@ -169,7 +169,7 @@ class ScanSidebar(QWidget):
         self.form = QFormLayout()
         self.form.setSpacing(6)
 
-        self.film_header = section_subheader("Film")
+        self.film_header = section_subheader("FILM")
         self.form.addRow(self.film_header)
 
         # What is on the film: it decides which way the frame boundaries read on a strip, and
@@ -190,7 +190,7 @@ class ScanSidebar(QWidget):
         self.film_format_label.setVisible(False)
         self.format_combo.setVisible(False)
 
-        self.quality_header = section_subheader("Quality")
+        self.quality_header = section_subheader("QUALITY")
         self.form.addRow(self.quality_header)
 
         self.dpi_combo = QComboBox()
@@ -264,12 +264,12 @@ class ScanSidebar(QWidget):
         self.exposure_label.setVisible(False)
         self.exposure_row_widget.setVisible(False)
 
-        self.framing_header = section_subheader("Framing")
+        self.framing_header = section_subheader("FRAMING")
         self.form.addRow(self.framing_header)
 
         # Which frames the batch scans, for roll and strip feeders only.
         self.frame_spec_edit = QLineEdit()
-        self.frame_spec_edit.setPlaceholderText("All frames")
+        self.frame_spec_edit.setPlaceholderText("All Frames")
         self.frame_spec_edit.setToolTip("Frames to scan: 1-6 or 1,2,5. Empty scans every frame.")
         self.frame_spec_label = QLabel("Frames")
         self.form.addRow(self.frame_spec_label, self.frame_spec_edit)
@@ -308,7 +308,7 @@ class ScanSidebar(QWidget):
         self.prescan_widget.setVisible(False)
         self.prescan_status.setVisible(False)
 
-        self.output_header = section_subheader("Output")
+        self.output_header = section_subheader("OUTPUT")
         self.form.addRow(self.output_header)
 
         self.fmt_combo = QComboBox()
@@ -601,7 +601,7 @@ class ScanSidebar(QWidget):
         if caps.multi_exposure:
             self.me_check.setChecked(self._settings.multi_exposure)
             self.me_check.setToolTip(
-                "Merge short and long colour passes for more highlight and shadow detail. "
+                "Merge short and long color passes for more highlight and shadow detail. "
                 "The long pass exposure is chosen per frame. Takes longer."
             )
         else:
@@ -1149,7 +1149,7 @@ class ScanSidebar(QWidget):
         self.status_strip.set_message(f"Error: {text}")
         # Unsupported pyOpticfilm models: status alone is easy to miss.
         if "cannot scan with pyOpticfilm" in text:
-            QMessageBox.warning(self, "Scan failed", text)
+            QMessageBox.warning(self, "Scan Failed", text)
 
     @pyqtSlot(bool)
     def _on_ejected(self, triggered: bool) -> None:

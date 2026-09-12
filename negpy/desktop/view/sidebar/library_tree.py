@@ -55,7 +55,7 @@ class LibraryTree(QWidget):
     """
 
     folders_activated = pyqtSignal(list)  # paths to open — one folder, or a whole selection
-    folders_appended = pyqtSignal(list)  # "Add to session": load without replacing
+    folders_appended = pyqtSignal(list)  # "Add to Session": load without replacing
     roots_changed = pyqtSignal()
 
     def __init__(self, controller):
@@ -303,13 +303,13 @@ class LibraryTree(QWidget):
             path = item.data(0, _PATH_ROLE)
             selected = self.selected_paths()
             paths = selected if path in selected and len(selected) > 1 else [path]
-            label = f"Open {len(paths)} folders" if len(paths) > 1 else "Open folder"
+            label = f"Open {len(paths)} folders" if len(paths) > 1 else "Open Folder"
             menu.addAction(label).triggered.connect(lambda: self.folders_activated.emit(paths))
-            menu.addAction("Add to session").triggered.connect(lambda: self.folders_appended.emit(paths))
+            menu.addAction("Add to Session").triggered.connect(lambda: self.folders_appended.emit(paths))
             menu.addSeparator()
             if item.data(0, _IS_ROOT_ROLE):
-                menu.addAction("Remove from library").triggered.connect(lambda: self.remove_root(path))
-        menu.addAction("Add library folder…").triggered.connect(lambda: self.add_root())
+                menu.addAction("Remove from Library").triggered.connect(lambda: self.remove_root(path))
+        menu.addAction("Add Library Folder…").triggered.connect(lambda: self.add_root())
         menu.addAction("Refresh").triggered.connect(self._on_refresh)
         menu.exec(self.tree.viewport().mapToGlobal(pos))
 

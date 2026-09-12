@@ -107,7 +107,7 @@ class _EmptyStateOverlay(QWidget):
         self.load_btn.clicked.connect(self._show_load_menu)
         layout.addWidget(self.load_btn, alignment=Qt.AlignmentFlag.AlignHCenter)
 
-        self.tour_btn = QPushButton("Take the tour")
+        self.tour_btn = QPushButton("Take the Tour")
         self.tour_btn.setFixedWidth(140)
         self.tour_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.tour_btn.setStyleSheet(
@@ -121,8 +121,8 @@ class _EmptyStateOverlay(QWidget):
 
     def _show_load_menu(self) -> None:
         menu = QMenu(self)
-        menu.addAction("Add files…").triggered.connect(self.add_files_requested)
-        menu.addAction("Add folder…").triggered.connect(self.add_folder_requested)
+        menu.addAction("Add Files…").triggered.connect(self.add_files_requested)
+        menu.addAction("Add Folder…").triggered.connect(self.add_folder_requested)
         menu.exec(self.load_btn.mapToGlobal(self.load_btn.rect().bottomLeft()))
 
     def eventFilter(self, obj, event) -> bool:

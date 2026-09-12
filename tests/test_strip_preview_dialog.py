@@ -237,7 +237,7 @@ def test_both_exits_name_what_they_do_and_enter_scans_once_frames_are_ticked() -
     """ "Use" named nothing, and held the default — so Enter walked back after framing."""
     dialog = StripPreviewDialog(_FakeController(), _device(3))
 
-    assert dialog.ok_btn.text() == "Apply framing"
+    assert dialog.ok_btn.text() == "Apply Framing"
     assert dialog.scan_btn.text().strip() == "Scan 3 frames"
     assert dialog.scan_btn.isDefault() is True
     assert dialog.ok_btn.isDefault() is False
@@ -772,7 +772,7 @@ def test_stopping_a_running_preview_cancels_it_and_keeps_the_dialog_open() -> No
     controller = _FakeController()
     dialog = StripPreviewDialog(controller, _discovery_device())
     dialog._on_preview_all()
-    assert dialog.cancel_btn.text() == "Stop preview"
+    assert dialog.cancel_btn.text() == "Stop Preview"
 
     dialog.cancel_btn.click()
 

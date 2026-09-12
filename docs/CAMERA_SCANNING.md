@@ -18,7 +18,7 @@ per channel. NegPy's **Trichrome Scan** merge sub-pixel-aligns the three RAWs an
 frame before inversion.
 
 Three shots beat one because a single broadband exposure lets each dye layer contaminate
-the neighbouring channels. The green Bayer filter is the broadest of the three, so it
+the neighboring channels. The green Bayer filter is the broadest of the three, so it
 catches leakage from the red and the blue light at once. One narrow band at a time removes
 that crosstalk by construction, and every channel gets the full dynamic range of the sensor
 instead of sharing it.
@@ -76,7 +76,7 @@ camera's *hardware* focus magnifier at that spot. Click again to return to the f
 In white-light and normal (camera-only) scanning, you can set ISO, shutter and aperture
 live from the toolbar. With a calibrated RGB preset those controls are hidden and locked to
 the preset instead (see **Presets**), so the scan cannot drift. A control the body cannot
-offer is greyed out. Aperture on a lens with no electronic diaphragm is the usual case, and
+offer is grayed out. Aperture on a lens with no electronic diaphragm is the usual case, and
 that is most enlarging and macro glass.
 
 **Calibrate (RGB mode).** Set the ISO and the aperture you will scan with. Press **+**
@@ -150,7 +150,7 @@ is film-dye crosstalk, which the density-domain **Crosstalk** matrix handles (se
 | Live view is black | The body dropped out of PC Remote, or the lens cap is on. | Power-cycle the camera. |
 | The scan window opens with **"no live view"** instead of a preview | libgphoto2's entry for this body has no preview capability. Either the body genuinely lacks it (Sony a6000), or it is connected in MTP mode, where no body has it. | If the message names MTP, set the camera's USB mode to **PC Remote** and reconnect. If not, this is expected. Scanning works normally, but you must set framing and focus on the camera, and calibration is unavailable because it aims through the live view. |
 | Capture says the camera returned JPEG instead of RAW | The camera's image-quality setting is JPEG, or RAW+JPEG selected the processed file. | Set image quality to **RAW only**, then retry. |
-| The aperture stepper is greyed out | The lens has no electronic diaphragm. | Expected. Set the aperture on the lens itself. |
+| The aperture stepper is grayed out | The lens has no electronic diaphragm. | Expected. Set the aperture on the lens itself. |
 | A setting snaps back to its old value | Property writes are asynchronous, so the body needs a moment. | NegPy polls until the value lands and logs a warning if it never does. If it never does, that setting is not writable in the body's current mode. Try **M**. |
 | The Scanlight is not detected | Wrong USB-C port. | The Scanlight has two ports and only one carries data. The other is power only. Use the data port. |
 

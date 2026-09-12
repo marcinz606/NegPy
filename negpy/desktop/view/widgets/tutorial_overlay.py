@@ -109,7 +109,7 @@ class TutorialOverlay(QWidget):
         self._prev_btn.clicked.connect(self._prev)
         self._prev_btn.setStyleSheet(self._btn_qss(accent=False, muted=False))
 
-        self._skip_btn = QPushButton("Skip tour")
+        self._skip_btn = QPushButton("Skip Tour")
         self._skip_btn.clicked.connect(self.dismiss)
         self._skip_btn.setStyleSheet(self._btn_qss(accent=False, muted=True))
 

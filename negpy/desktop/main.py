@@ -98,7 +98,7 @@ def _install_exception_hook() -> None:
 
             QMessageBox.critical(
                 None,
-                "NegPy hit an error",
+                "NegPy Hit an Error",
                 f"Something went wrong and was logged:\n\n{exc_type.__name__}: {exc_value}\n\n"
                 f"The app kept running. If it keeps happening, please attach the log file "
                 f"({os.path.join(BASE_USER_DIR, 'negpy.log')}) to a bug report on GitHub.",
@@ -175,7 +175,7 @@ def _offer_to_disable_cpu_parallel(repo, parent) -> None:
 
     box = QMessageBox(parent)
     box.setIcon(QMessageBox.Icon.Warning)
-    box.setWindowTitle("NegPy closed unexpectedly")
+    box.setWindowTitle("NegPy Closed Unexpectedly")
     box.setText("The last session ended unexpectedly with multi-core CPU rendering turned on.")
     box.setInformativeText(
         "That setting is the most likely cause. Turning it off costs some speed on merges "

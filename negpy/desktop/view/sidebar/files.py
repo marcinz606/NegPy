@@ -428,7 +428,7 @@ class FileBrowser(QWidget):
         self.add_folder_btn.setToolTip("Add folder")
         self.unload_btn = QToolButton()
         self.unload_btn.setIcon(qta.icon("fa5s.times-circle", color=THEME.text_primary))
-        self.unload_btn.setToolTip("Clear all")
+        self.unload_btn.setToolTip("Clear All…")
 
         self.hot_folder_btn = QToolButton()
         self.hot_folder_btn.setCheckable(True)
@@ -453,16 +453,16 @@ class FileBrowser(QWidget):
         self._update_half_frame_style(self.half_frame_btn.isChecked())
 
         # One button for every half-frame action, rather than one icon apiece: the menu
-        # is rebuilt on each open, so "Unsplit diptych" only enables for the active frame's
+        # is rebuilt on each open, so "Unsplit Diptych" only enables for the active frame's
         # diptych state without a separate sync path.
         self.half_frame_menu_btn = QToolButton()
         self.half_frame_menu_btn.setIcon(qta.icon("mdi.tune-variant", color=THEME.text_primary))
         self.half_frame_menu_btn.setToolTip("Half Frame actions — adjust a split, auto-detect every frame, or unsplit a diptych")
         self.half_frame_menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         half_frame_menu = QMenu(self.half_frame_menu_btn)
-        half_frame_menu.addAction("Adjust split…").triggered.connect(self._on_half_frame_adjust)
-        half_frame_menu.addAction("Auto-detect all splits").triggered.connect(self._on_half_frame_auto_all)
-        self._unsplit_diptych_action = half_frame_menu.addAction("Unsplit diptych")
+        half_frame_menu.addAction("Adjust Split…").triggered.connect(self._on_half_frame_adjust)
+        half_frame_menu.addAction("Auto-detect All Splits").triggered.connect(self._on_half_frame_auto_all)
+        self._unsplit_diptych_action = half_frame_menu.addAction("Unsplit Diptych")
         self._unsplit_diptych_action.triggered.connect(self.prompt_undiptych)
         half_frame_menu.aboutToShow.connect(self._sync_half_frame_menu)
         self.half_frame_menu_btn.setMenu(half_frame_menu)
@@ -479,9 +479,9 @@ class FileBrowser(QWidget):
         sheet_menu = QMenu(self.sheet_btn)
         self._sheet_group = QActionGroup(self)
         self._sheet_group.setExclusive(True)
-        self.act_sheet_all = sheet_menu.addAction("All frames")
-        self.act_sheet_keepers = sheet_menu.addAction("Keepers only")
-        self.act_sheet_unrejected = sheet_menu.addAction("Hide rejected")
+        self.act_sheet_all = sheet_menu.addAction("All Frames")
+        self.act_sheet_keepers = sheet_menu.addAction("Keepers Only")
+        self.act_sheet_unrejected = sheet_menu.addAction("Hide Rejected")
         for act in (self.act_sheet_all, self.act_sheet_keepers, self.act_sheet_unrejected):
             act.setCheckable(True)
             self._sheet_group.addAction(act)
@@ -541,7 +541,7 @@ class FileBrowser(QWidget):
             (self.library_btn, "Library"),
             (self.add_files_btn, "Add files"),
             (self.add_folder_btn, "Add folder"),
-            (self.unload_btn, "Clear all"),
+            (self.unload_btn, "Clear All…"),
             (None, None),
             (self.hot_folder_btn, "Hot Folder"),
             (self.rgb_scan_btn, "Trichrome Scan"),
@@ -745,7 +745,7 @@ class FileBrowser(QWidget):
         n = image_count
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Question)
-        box.setWindowTitle("Load roll")
+        box.setWindowTitle("Load Roll")
         box.setText(f"Load {n} image{'s' if n != 1 else ''} from “{label}”?")
         box.setInformativeText("They are hashed and thumbnailed on load, which takes a moment on a large roll.")
         remember = QCheckBox("Always load without asking")
@@ -795,7 +795,7 @@ class FileBrowser(QWidget):
         if len(self.session.state.selected_indices) > 1:
             self.unload_btn.setToolTip("Clear selected")
         else:
-            self.unload_btn.setToolTip("Clear all")
+            self.unload_btn.setToolTip("Clear All…")
 
     def _sync_half_frame_menu(self) -> None:
         state = self.session.state
@@ -929,7 +929,7 @@ class FileBrowser(QWidget):
         if model.sheet_filter == "keepers":
             names.append("Keepers")
         elif model.sheet_filter == "unrejected":
-            names.append("Hide rejected")
+            names.append("Hide Rejected")
         return names
 
     def _update_tally(self) -> None:
@@ -1217,10 +1217,10 @@ class FileBrowser(QWidget):
         """Mirrors the panel toolbar's add/clear tools, for a right click on empty space."""
         icon_color = THEME.text_primary
         menu = QMenu(self)
-        menu.addAction(qta.icon("fa5s.file-import", color=icon_color), "Add files…").triggered.connect(self.prompt_add_files)
-        menu.addAction(qta.icon("fa5s.folder-plus", color=icon_color), "Add folder…").triggered.connect(self.prompt_add_folder)
+        menu.addAction(qta.icon("fa5s.file-import", color=icon_color), "Add Files…").triggered.connect(self.prompt_add_files)
+        menu.addAction(qta.icon("fa5s.folder-plus", color=icon_color), "Add Folder…").triggered.connect(self.prompt_add_folder)
         menu.addSeparator()
-        clear = menu.addAction(qta.icon("fa5s.times-circle", color=icon_color), "Clear all")
+        clear = menu.addAction(qta.icon("fa5s.times-circle", color=icon_color), "Clear All…")
         clear.triggered.connect(self._on_clear_all)
         clear.setEnabled(bool(self.session.state.uploaded_files))
         return menu
@@ -1231,9 +1231,9 @@ class FileBrowser(QWidget):
 
         menu = QMenu(self)
         if multi:
-            menu.addAction("Export selected frames").triggered.connect(lambda: self.controller.request_export_selected())
+            menu.addAction("Export Selected Frames").triggered.connect(lambda: self.controller.request_export_selected())
         else:
-            menu.addAction("Export current frame").triggered.connect(lambda: self.controller.request_export())
+            menu.addAction("Export Current Frame").triggered.connect(lambda: self.controller.request_export())
         menu.addSeparator()
         menu.addAction(label_with_shortcut("Copy Settings", "copy")).triggered.connect(self.session.copy_settings)
         menu.addAction(label_with_shortcut("Copy Settings + Bounds", "copy_with_bounds")).triggered.connect(
@@ -1255,10 +1255,10 @@ class FileBrowser(QWidget):
         act_reject.setChecked(bool(targets) and all(state.uploaded_files[i].get("excluded") for i in targets))
         act_reject.triggered.connect(lambda: self.session.toggle_mark("excluded"))
         menu.addSeparator()
-        menu.addAction("Apply settings…").triggered.connect(self._open_apply_dialog)
+        menu.addAction("Apply Settings…").triggered.connect(self._open_apply_dialog)
         if multi:
             menu.addSeparator()
-            menu.addAction("Stitch selected frames").triggered.connect(lambda: self.controller.request_stitch_selected())
+            menu.addAction("Stitch Selected Frames").triggered.connect(lambda: self.controller.request_stitch_selected())
             self._add_hdr_merge_action(menu, state)
         else:
             menu.addSeparator()
@@ -1268,20 +1268,20 @@ class FileBrowser(QWidget):
                 menu.addAction("Unstitch").triggered.connect(lambda: self.controller.request_unstitch())
             if active.get("hdr_paths"):
                 self._add_hdr_anchor_menu(menu, active)
-                menu.addAction("Unmerge exposures").triggered.connect(lambda: self.controller.request_unmerge_hdr())
+                menu.addAction("Unmerge Exposures").triggered.connect(lambda: self.controller.request_unmerge_hdr())
             if active.get("diptych"):
-                menu.addAction("Unsplit diptych").triggered.connect(self.prompt_undiptych)
+                menu.addAction("Unsplit Diptych").triggered.connect(self.prompt_undiptych)
             if active.get("half"):
                 from negpy.services.assets.half_frame import base_hash
 
                 base = base_hash(active.get("hash"))
-                menu.addAction("Adjust split for this frame…").triggered.connect(
+                menu.addAction("Adjust Split for This Frame…").triggered.connect(
                     lambda: self._on_adjust_half_frame_split(active["path"], base)
                 )
                 if base and self.controller.half_frame_override(base) is not None:
-                    menu.addAction("Reset split to roll default").triggered.connect(lambda: self._on_reset_half_frame_split(base))
+                    menu.addAction("Reset Split to Roll Default").triggered.connect(lambda: self._on_reset_half_frame_split(base))
         menu.addSeparator()
-        unload_label = "Unload Selected" if multi else "Unload"
+        unload_label = "Unload Selected…" if multi else "Unload…"
         menu.addAction(unload_label).triggered.connect(self._on_remove_from_menu)
         return menu
 
@@ -1289,7 +1289,7 @@ class FileBrowser(QWidget):
         """Confirm before the halves' edits go, then hand the frame back as one plain scan."""
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Warning)
-        box.setWindowTitle("Unsplit diptych")
+        box.setWindowTitle("Unsplit Diptych")
         box.setText("Turn this diptych back into one plain frame?")
         box.setInformativeText("Both halves' edits are deleted. Splitting the scan again starts from defaults.")
         unsplit = box.addButton("Unsplit", QMessageBox.ButtonRole.AcceptRole)
@@ -1320,7 +1320,7 @@ class FileBrowser(QWidget):
             mode = ProcessMode(assets[idx].get("process_mode") or mode)
         if mode == ProcessMode.C41:
             return
-        act = menu.addAction("Merge exposures (HDR)")
+        act = menu.addAction("Merge Exposures (HDR)")
         if mode == ProcessMode.BW:
             act.setEnabled(False)
             act.setToolTip("Merging is for transparencies; black-and-white reversal film is not supported yet")
@@ -1347,7 +1347,7 @@ class FileBrowser(QWidget):
             return  # only the reference is reachable: every entry would be the same picture
         current = str(asset.get("hdr_anchor", "") or "")
         sub = menu.addMenu("Render exposure")
-        auto = sub.addAction("Bracket middle (auto)")
+        auto = sub.addAction("Bracket Middle (Auto)")
         auto.setCheckable(True)
         auto.setChecked(not current)
         auto.triggered.connect(lambda: self.controller.set_hdr_anchor(""))

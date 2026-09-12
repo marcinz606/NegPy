@@ -46,9 +46,9 @@ class FavouritesDialog(QDialog):
         choices: list[tuple[str, str, str]],
         selected: list[str],
         *,
-        title: str = "Edit Favourites",
-        chosen_header: str = "FAVOURITES",
-        hint: str = "Drag to reorder. Favourites mirror the real controls — editing one here is the same as editing it in its own panel.",
+        title: str = "Edit Favorites",
+        chosen_header: str = "FAVORITES",
+        hint: str = "Drag to reorder. Favorites mirror the real controls — editing one here is the same as editing it in its own panel.",
         defaults: list[str] | None = None,
     ):
         super().__init__(parent)

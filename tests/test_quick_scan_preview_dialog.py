@@ -177,7 +177,7 @@ def test_stopping_a_running_preview_keeps_the_dialog_open():
     controller = _FakeController()
     dialog = QuickScanPreviewDialog(controller, _device())
     dialog._on_preview()
-    assert dialog.cancel_btn.text() == "Stop preview"
+    assert dialog.cancel_btn.text() == "Stop Preview"
     assert dialog.ok_btn.isEnabled() is False
 
     dialog.cancel_btn.click()
@@ -214,7 +214,7 @@ def test_the_exits_name_their_object_and_enter_scans() -> None:
     """One grammar across the three preview dialogs: reset · Cancel · Apply <object> · Scan."""
     dialog = QuickScanPreviewDialog(_FakeController(), _device())
 
-    assert dialog.clear_btn.text() == "Clear crop"
-    assert dialog.ok_btn.text() == "Apply window"
-    assert dialog.scan_btn.text().strip() == "Scan frame"
+    assert dialog.clear_btn.text() == "Clear Crop"
+    assert dialog.ok_btn.text() == "Apply Window"
+    assert dialog.scan_btn.text().strip() == "Scan Frame"
     assert dialog.scan_btn.isDefault() is True

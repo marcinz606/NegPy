@@ -13,7 +13,7 @@ class DescriptionFieldsDialog(QDialog):
 
     def __init__(self, selected: object, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Description fields")
+        self.setWindowTitle("Description Fields")
         self.setMinimumWidth(320)
 
         root = QVBoxLayout(self)

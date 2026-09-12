@@ -667,7 +667,7 @@ class ImageCanvas(QWidget):
         act_sticky_zoom.setChecked(self.state.sticky_zoom)
         act_sticky_zoom.toggled.connect(self._controller.session.set_sticky_zoom)  # type: ignore[union-attr]
         menu.addSeparator()
-        act_unload = menu.addAction("Unload")
+        act_unload = menu.addAction("Unload…")
         act_unload.triggered.connect(self._unload_current_file)
         menu.exec(event.globalPos())
 

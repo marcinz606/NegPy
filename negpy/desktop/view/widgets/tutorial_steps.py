@@ -179,7 +179,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             target=_triage,
         ),
         TutorialStep(
-            title="Flat-Field Correction",
+            title="Flat Field Correction",
             body=(
                 "Corrects uneven illumination, meaning vignetting or falloff from your light "
                 "source or scanner, using a reference scan of the bare light.<br><br>"
@@ -305,10 +305,10 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "<b>Hue Trim</b> is for the light source. An unusual lamp turns <i>every</i> color "
                 "by roughly the same angle, so yellows read orange and greens go olive while "
                 "neutrals stay put. White balance cannot fix that, because a rotation is not a "
-                "cast and there is no grey to correct. Judge it on something whose color you know, "
+                "cast and there is no gray to correct. Judge it on something whose color you know, "
                 "and leave it at 0 for an ordinary broadband light. It is sticky, since a light "
                 "source is a property of your rig.<br><br>"
-                "Narrowband and Single-Shot Narrowband Calibration are greyed out on <b>Transparency</b>: both "
+                "Narrowband and Single-Shot Narrowband Calibration are grayed out on <b>Transparency</b>: both "
                 "describe negative dyes, which a slide does not have. Hue Trim still applies."
             ),
             target=_calibration,
@@ -466,13 +466,13 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "single dye layer. Pick R, G or B and Grade, the Split Grades, Toe, Shoulder, "
                 "the Widths and Snap all retarget to that layer, their labels gaining an "
                 "<b>R</b>, <b>G</b> or <b>B</b>. Grade and the Widths swap to dedicated trim "
-                "sliders centred on zero, because you are nudging that layer away from the shared "
+                "sliders centered on zero, because you are nudging that layer away from the shared "
                 "curve, not setting it from scratch.<br><br>"
                 "Color filtration can only <i>shift</i> a layer's curve; trims change its "
                 "<i>shape</i>. That fixes crossover casts that differ between shadows, mids and "
                 "highlights, the correction a real color darkroom never had. The H&D chart "
                 "draws the diverged per-layer curves live.<br><br>"
-                "What is not per-layer greys out while a channel is selected: Print Density, "
+                "What is not per-layer grays out while a channel is selected: Print Density, "
                 "the zone densities, the autos and the paper toggles are properties of the "
                 "print, not of one emulsion. A dot on a channel button marks a layer you have "
                 "already trimmed, so casts you fixed weeks ago stay findable. The whole "
@@ -499,16 +499,16 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             section_attr="color_section",
         ),
         TutorialStep(
-            title="Cast Removal: Neutral Greys End to End",
+            title="Cast Removal: Neutral Grays End to End",
             body=(
                 "A negative's color cast is not constant. It varies with density, so a "
                 "midtone-only white balance leaves shadows and highlights drifting "
                 "off-color.<br><br>"
                 "<b>Cast Removal</b> measures each channel's deep-shadow reference and gives "
-                "it its own slope, pivoting on the midtone, so greys read neutral from deep "
+                "it its own slope, pivoting on the midtone, so grays read neutral from deep "
                 "shadows through highlights rather than at one point only.<br><br>"
-                "Its strength adapts per frame to how confidently the neutral greys read. "
-                "Clean greys get the full correction and few-neutral scenes get a gentler one, "
+                "Its strength adapts per frame to how confidently the neutral grays read. "
+                "Clean grays get the full correction and few-neutral scenes get a gentler one, "
                 "and the slider trims on top. 0 turns it off. It starts at 0.5 on a color negative "
                 "and at 0 on a slide, where a cast can be the photograph."
             ),
@@ -596,9 +596,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "through an olive transition to neutral blacks.<br><br>"
                 "<b>Cyanotype</b> is contact-printed in UV onto paper brushed with iron salts. "
                 "There is no silver and no development to time: the image is Prussian blue, so "
-                "the print never goes black, it goes blue. <b>Sensitiser</b> picks the classic "
+                "the print never goes black, it goes blue. <b>Sensitizer</b> picks the classic "
                 "Herschel mix or Ware's deeper modern formula, <b>Exposure</b> is time under UV, "
-                "and <b>Exposure Scale</b> is the density range the sensitiser can hold, which is "
+                "and <b>Exposure Scale</b> is the density range the sensitizer can hold, which is "
                 "the contrast control. <b>Bleach</b> strips pigment highlights-first, and "
                 "<b>Tannin</b> re-develops the bleached iron brown, so a partial bleach leaves a "
                 "split blue-brown.<br><br>"
@@ -626,7 +626,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "mids and highlights while the deep shadows keep their black.<br><br>"
                 "An alternative process changes what is available: with <b>Lith</b> on, only "
                 "Selenium and Gold stay enabled, and both bite harder on lith's fine silver. "
-                "With <b>Cyanotype</b> on, all six grey out, because a cyanotype holds no silver "
+                "With <b>Cyanotype</b> on, all six gray out, because a cyanotype holds no silver "
                 "for a bath to react with. Split Toning keeps working in every case."
             ),
             target=_toning,

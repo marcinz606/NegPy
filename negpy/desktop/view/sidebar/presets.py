@@ -135,12 +135,12 @@ class PresetsSidebar(BaseSidebar):
         from PyQt6.QtWidgets import QMessageBox
 
         if not is_valid_preset_name(name):
-            QMessageBox.warning(self, "Preset name", 'A preset name cannot contain / \\ : * ? " < > | or start or end with a dot.')
+            QMessageBox.warning(self, "Preset Name", 'A preset name cannot contain / \\ : * ? " < > | or start or end with a dot.')
             return False
         if name.casefold() == replacing.casefold() or not replacing or not Presets.exists(name):
             return True
         return (
-            QMessageBox.question(self, "Replace preset", f"A preset named '{name}' already exists. Replace it?")
+            QMessageBox.question(self, "Replace Preset", f"A preset named '{name}' already exists. Replace it?")
             == QMessageBox.StandardButton.Yes
         )
 

@@ -419,7 +419,7 @@ class ExportSettingsForm(QWidget):
         if stem in _EXPORT_SPACES:
             confirm = QMessageBox.question(
                 self,
-                "Replace a built-in space?",
+                "Replace Built-in Space",
                 f"A profile named '{stem}' replaces NegPy's own {stem} profile everywhere, "
                 "instead of appearing as a separate choice. Import anyway?",
             )
@@ -428,7 +428,7 @@ class ExportSettingsForm(QWidget):
         try:
             stored = import_icc_profile(path, APP_CONFIG.user_icc_dir)
         except (ValueError, OSError) as e:
-            QMessageBox.warning(self, "Import failed", str(e))
+            QMessageBox.warning(self, "Import Failed", str(e))
             return
         self._reload_icc_profiles(select=stored)
         self._on_export_profile_changed()
@@ -478,7 +478,7 @@ class ExportSettingsForm(QWidget):
         filename_row = QHBoxLayout()
         filename_row.addWidget(self._row_label("Filename"))
         self.filename_edit = QLineEdit()
-        self.filename_edit.setPlaceholderText("Filename Pattern...")
+        self.filename_edit.setPlaceholderText("Filename Pattern…")
         self.filename_edit.setToolTip(
             "Jinja2 template. Variables:\n"
             "{{ original_name }}, {{ colorspace }}, {{ format }},\n"
@@ -561,7 +561,7 @@ class ExportSettingsForm(QWidget):
         if blocked:
             self.jxl_cs_warning.setText(
                 f"JPEG XL can't tag {self.export_profile_combo.currentText()} — "
-                "choose sRGB, P3 D65, Rec 2020, or Greyscale, or a different format."
+                "choose sRGB, P3 D65, Rec 2020, or Grayscale, or a different format."
             )
         self.jxl_cs_warning.setVisible(blocked)
 

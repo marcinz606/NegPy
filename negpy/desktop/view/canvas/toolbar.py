@@ -230,7 +230,7 @@ class ActionToolbar(QWidget):
         self.btn_negative_peek.setIcon(qta.icon("fa5s.film", color=icon_color))
         self.btn_negative_peek.setToolTip(
             tooltip_with_shortcut(
-                "Peek negative — show the source as it was loaded, un-inverted and unedited, at your crop and rotation (no colour management)",
+                "Peek negative — show the source as it was loaded, un-inverted and unedited, at your crop and rotation (no color management)",
                 "toggle_negative_peek",
             )
         )
@@ -296,7 +296,7 @@ class ActionToolbar(QWidget):
         self._ov_negative_peek_action.setCheckable(True)
         self._ov_negative_peek_action.setToolTip(
             tooltip_with_shortcut(
-                "Peek negative — show the source as it was loaded, un-inverted and unedited, at your crop and rotation (no colour management)",
+                "Peek negative — show the source as it was loaded, un-inverted and unedited, at your crop and rotation (no color management)",
                 "toggle_negative_peek",
             )
         )
@@ -354,7 +354,7 @@ class ActionToolbar(QWidget):
         )
         reset_settings_action.setToolTip("Discard all edits and return this image to its default look")
         overflow_menu.addSeparator()
-        unload_action = overflow_menu.addAction(qta.icon("fa5s.times-circle", color=icon_color), "Unload", self._on_overflow_unload)
+        unload_action = overflow_menu.addAction(qta.icon("fa5s.times-circle", color=icon_color), "Unload…", self._on_overflow_unload)
         unload_action.setToolTip("Remove this image from the session (its saved edit is kept)")
         overflow_menu.addSeparator()
 
@@ -366,7 +366,7 @@ class ActionToolbar(QWidget):
         prefs_action.setToolTip("Interface, performance and storage settings for the whole app")
         overflow_menu.addSeparator()
 
-        tour_action = overflow_menu.addAction(qta.icon("fa5s.map-signs", color=icon_color), "Take the tour", self._show_tour)
+        tour_action = overflow_menu.addAction(qta.icon("fa5s.map-signs", color=icon_color), "Take the Tour", self._show_tour)
         tour_action.setToolTip("Replay the guided feature tour")
         shortcuts_action = overflow_menu.addAction(
             qta.icon("fa5s.keyboard", color=icon_color), "Keyboard Shortcuts  ?", self._show_shortcuts

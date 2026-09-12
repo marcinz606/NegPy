@@ -661,8 +661,8 @@ class ExportSidebar(BaseSidebar):
         self.linear_wb_checkbox.toggled.connect(self._on_linear_correction_changed)
         box.addWidget(self.linear_wb_checkbox)
 
-        self.linear_flatfield_checkbox = QCheckBox("Apply flatfield")
-        self.linear_flatfield_checkbox.setToolTip("Apply the flatfield gain correction")
+        self.linear_flatfield_checkbox = QCheckBox("Apply Flat Field")
+        self.linear_flatfield_checkbox.setToolTip("Apply the Flat Field gain correction")
         self.linear_flatfield_checkbox.setChecked(self.state.linear_apply_flatfield)
         self.linear_flatfield_checkbox.setVisible(False)
         self.linear_flatfield_checkbox.toggled.connect(self._on_linear_correction_changed)
@@ -856,9 +856,9 @@ class ExportSidebar(BaseSidebar):
         has_flatfield = bool(self.state.config.flatfield.apply and self.state.config.flatfield.profile_id)
         self.linear_flatfield_checkbox.setEnabled(has_flatfield)
         if not has_flatfield:
-            self.linear_flatfield_checkbox.setToolTip("No flatfield profile configured")
+            self.linear_flatfield_checkbox.setToolTip("No Flat Field profile configured")
         else:
-            self.linear_flatfield_checkbox.setToolTip("Apply the flatfield gain correction")
+            self.linear_flatfield_checkbox.setToolTip("Apply the Flat Field gain correction")
 
         has_matrix = self.state.config.process.sensor_matrix is not None
         self.linear_sensor_checkbox.setEnabled(has_matrix)
@@ -1031,7 +1031,7 @@ class ExportSidebar(BaseSidebar):
 
         self.proof_gamut_checkbox = QCheckBox("Gamut warning")
         self.proof_gamut_checkbox.setToolTip(
-            "Flatten every color the profile cannot print to grey, so the unprintable areas are "
+            "Flatten every color the profile cannot print to gray, so the unprintable areas are "
             "visible rather than merely counted. The Analysis panel's Gamut row counts them."
         )
         col.addWidget(self.proof_gamut_checkbox)
@@ -1222,12 +1222,12 @@ class ExportSidebar(BaseSidebar):
     # itself triggers an export. key -> (menu label, button label, tooltip)
     _EXPORT_SCOPES = {
         "current": (
-            "Export current frame",
+            "Export Current Frame",
             " Export Current Frame",
             "Export the current frame with the settings below",
         ),
         "selected": (
-            "Export selected frames",
+            "Export Selected Frames",
             " Export Selected",
             "Export the selected filmstrip frames using the settings below",
         ),
@@ -1247,12 +1247,12 @@ class ExportSidebar(BaseSidebar):
 
     _PRESET_SCOPES = {
         "current": (
-            "Export current frame",
+            "Export Current Frame",
             " Export Presets",
             "Export the current frame with every enabled preset",
         ),
         "selected": (
-            "Export selected frames",
+            "Export Selected Frames",
             " Export Presets (selected)",
             "Export the selected filmstrip frames with every enabled preset",
         ),

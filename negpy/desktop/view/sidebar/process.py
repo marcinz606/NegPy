@@ -89,7 +89,7 @@ class ProcessSidebar(BaseSidebar):
         self.autodetect_btn = self._small_toggle("mdi6.auto-fix", "", False, "Auto-detect the film process on load")
         self.autodetect_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         header_row = QHBoxLayout()
-        header_row.addWidget(section_subheader("Process"))
+        header_row.addWidget(section_subheader("PROCESS"))
         header_row.addStretch(1)
         header_row.addWidget(self.autodetect_btn)
         mode_col.addLayout(header_row)
@@ -182,7 +182,7 @@ class ProcessSidebar(BaseSidebar):
         # happen to have been shot. The menu still offers those and writes a frame name; this
         # writes a value and wins. 0 = the reference, the brightest unclipped frame, which is the
         # most a merge can open at. output_scale clamps above it.
-        self.render_ev_slider = CompactSlider("Render Exposure", -4.0, 0.0, 0.0, step=0.05, unit=" EV")
+        self.render_ev_slider = CompactSlider("Render Exposure", -4.0, 0.0, 0.0, step=0.05, unit=" st")
         self.render_ev_slider.setToolTip(
             wrap_tooltip(
                 "Which exposure a merged bracket renders at, in stops below the reference frame. "

@@ -133,6 +133,11 @@ shared one.
 - **Labels**: control names Title Case ("Toe Width", "Paper White"); a label beside a
   combo/entry sentence case ("Film stock", "Input gamma"). Same concept, same words in every
   panel — grep for the words before writing a new label.
+- **Copy**: American spelling in every user-visible string and in `docs/` (Color, gray, center,
+  Favorites, sensitizer). Buttons, menu items, dialog titles and message-box titles are Title
+  Case; a message-box title is the feature name. An item that opens a dialog, a picker or a
+  confirmation ends in `…` (the character, never three dots). The feature is "Flat Field" in
+  copy. One unit per quantity: stops are `" st"`, ISO-R points `" R"`. No emoji in copy.
 - **Tooltips**: every control gets one, through `wrap_tooltip()` so it wraps. A shortcut-bearing
   widget is tooltipped in `controls_panel.apply_shortcut_tooltips()` only; a local `setToolTip`
   there is overwritten.

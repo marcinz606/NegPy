@@ -328,7 +328,7 @@ class ScanlightSidebar(QWidget):
         rgb.setContentsMargins(0, 0, 0, 0)
         rgb.setSpacing(10)
 
-        rgb.addWidget(section_subheader("PRESET  ·  film stock / light"))
+        rgb.addWidget(section_subheader("PRESET"))
         preset_row = QHBoxLayout()
         self.preset_combo = QComboBox()
         self.preset_combo.setToolTip(
@@ -351,7 +351,7 @@ class ScanlightSidebar(QWidget):
         self.preset_hint.setVisible(False)
         rgb.addWidget(self.preset_hint)
 
-        rgb.addWidget(section_subheader("LIGHT  ·  level / shutter"))
+        rgb.addWidget(section_subheader("LIGHT"))
         self._light_layout = QVBoxLayout()
         self._light_layout.setSpacing(6)
         rgb.addLayout(self._light_layout)
@@ -1246,7 +1246,7 @@ class ScanlightSidebar(QWidget):
             self._exposure_popup.close()
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Warning)
-        box.setWindowTitle("Calibration stopped")
+        box.setWindowTitle("Calibration Stopped")
         box.setText(f"“{name}” was not saved — the film base is {label}.")
         box.setInformativeText(f"{cause} {fix[0].upper()}{fix[1:]}.")
         box.show()

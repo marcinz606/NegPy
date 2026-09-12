@@ -170,7 +170,7 @@ class ZonePlacementRows(QWidget):
 
         buttons = QHBoxLayout()
         buttons.setContentsMargins(0, 2, 0, 2)
-        self.apply_btn = QPushButton("Place zones")
+        self.apply_btn = QPushButton("Place Zones")
         self.apply_btn.setProperty("primary", True)
         self.apply_btn.setToolTip("Commit the solved print (Enter)")
         self.apply_btn.clicked.connect(self.apply_clicked.emit)

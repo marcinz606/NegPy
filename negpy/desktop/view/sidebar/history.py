@@ -85,7 +85,7 @@ class HistoryPanel(BaseSidebar):
         if not (ok and name):
             return
         if name in session.work_prints():
-            replace = QMessageBox.question(self, "Replace work print", f"“{name}” already exists. Replace it?")
+            replace = QMessageBox.question(self, "Replace Work Print", f"“{name}” already exists. Replace it?")
             if replace != QMessageBox.StandardButton.Yes:
                 return
         session.save_work_print(name)
@@ -98,7 +98,7 @@ class HistoryPanel(BaseSidebar):
         if item is None:
             return
         menu = QMenu(self)
-        export_action = menu.addAction("Export this version…")
+        export_action = menu.addAction("Export This Version…")
         if menu.exec(self.list.mapToGlobal(pos)) is export_action:
             self.controller.export_history_step(item.data(_INDEX_ROLE))
 
@@ -108,9 +108,9 @@ class HistoryPanel(BaseSidebar):
             return
         name = item.text()
         menu = QMenu(self)
-        export_action = menu.addAction("Export this version…")
+        export_action = menu.addAction("Export This Version…")
         rename_action = menu.addAction("Rename…")
-        delete_action = menu.addAction("Delete")
+        delete_action = menu.addAction("Delete…")
         chosen = menu.exec(self.work_prints.mapToGlobal(pos))
         if chosen is export_action:
             self.controller.export_work_print(name)

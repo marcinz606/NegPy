@@ -86,7 +86,7 @@ class GranularSettingsDialog(QDialog):
 
         if ask_name:
             self._name_edit = QLineEdit()
-            self._name_edit.setPlaceholderText("Preset name")
+            self._name_edit.setPlaceholderText("Preset Name")
             self._name_edit.textChanged.connect(self._update_apply_enabled)
             root.addWidget(self._name_edit)
         if show_scope:
