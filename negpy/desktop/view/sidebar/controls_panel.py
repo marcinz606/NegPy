@@ -6,6 +6,7 @@ from PyQt6.QtCore import QTimer, pyqtSignal
 
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
+from negpy.desktop.view.styles.templates import wrap_tooltip
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection, make_section
 from negpy.desktop.view.widgets.charts import MiniHistogramWidget, MiniRGBHistogramWidget
 from negpy.desktop.view.styles.theme import THEME
@@ -374,6 +375,17 @@ class ControlsPanel(QWidget):
         rebind to re-render the key chips. Don't set these locally in the sidebars:
         this pass overwrites them."""
         col = self.color_sidebar
+        for btn, action_id in (
+            (self.retouch_sidebar.auto_dust_btn, "toggle_optical_removal"),
+            (self.retouch_sidebar.ir_dust_btn, "toggle_ir_removal"),
+            (self.flatfield_sidebar.enable_btn, "toggle_flat_field"),
+            (self.geometry_sidebar.auto_crop_all_btn, "batch_autocrop"),
+            (self.tone_sidebar.auto_density_btn, "toggle_auto_density"),
+            (self.tone_sidebar.auto_grade_btn, "toggle_auto_grade"),
+            (self.presets_sidebar.apply_btn, "preset_apply"),
+            (self.presets_sidebar.save_btn, "preset_save"),
+        ):
+            btn.setToolTip(wrap_tooltip(tooltip_with_shortcut(btn.plain_tooltip, action_id)))
         exp = self.tone_sidebar
         geo = self.geometry_sidebar
         lab = self.lab_sidebar

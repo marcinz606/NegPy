@@ -11,6 +11,11 @@ if TYPE_CHECKING:
     from negpy.desktop.view.main_window import MainWindow
 
 
+def _k(action_id: str) -> str:
+    """The action's current key, bold, so a rebind never leaves the tour teaching a dead key."""
+    return f"<b>{display_key(key_for(action_id))}</b>"
+
+
 def build(window: "MainWindow") -> list[TutorialStep]:
     """Return the ordered list of tutorial steps for *window*."""
 
@@ -166,8 +171,8 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         TutorialStep(
             title="Keep & Reject: Culling the Roll",
             body=(
-                "Cull the roll where you see it, on the contact sheet. <b>K</b> marks a frame as a "
-                "keeper (a small check badge); <b>Shift+X</b> rejects it (a cross badge, and the "
+                f"Cull the roll where you see it, on the contact sheet. {_k('toggle_keep')} marks a frame as a "
+                f"keeper (a small check badge); {_k('toggle_reject')} rejects it (a cross badge, and the "
                 "thumbnail dims).<br><br>"
                 "Rejected frames stay on the sheet, and nothing is deleted or moved, but they drop "
                 "out of batch exports and sidecar writes, so a reject cannot sneak into a "
@@ -197,7 +202,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "<b>Fine Rot</b> straightens tilted scans, and <b>Detect Aspect Ratio</b> snaps "
                 "to the nearest standard ratio.<br><br>"
                 "The <b>Guide</b> dropdown swaps the overlay grid: Thirds, Phi Grid, Diagonals, "
-                "Golden Spiral and more (<b>O</b> cycles guides, <b>Shift+O</b> flips "
+                f"Golden Spiral and more ({_k('crop_guide_next')} cycles guides, {_k('crop_guide_orient')} flips "
                 "orientation). Four <b>rotation handles</b> just outside the crop box spin "
                 "the frame freehand (±45°), composing with Fine Rot for fine-tuning.<br><br>"
                 "Crop matters for more than framing, because the conversion <b>meters what is "
@@ -490,7 +495,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "The <b>Temperature</b> slider re-dials the filter pack along the warm-to-cool "
                 "axis. Magenta and Yellow move together in the right ratio while your "
                 "green-magenta tint stays put. Travel is mired-linear (equal drag, equal "
-                "perceived shift), <b>T</b>/<b>G</b> nudge it, and the thermometer button "
+                f"perceived shift), {_k('temp_warm')}/{_k('temp_cool')} nudge it, and the thermometer button "
                 "locks the temperature for the whole roll.<br><br>"
                 "<b>Pick WB</b>: click a neutral area in the preview and the filtration is "
                 "calculated for you."
@@ -752,7 +757,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "It replaces the print curve with a true log encoding and skips the creative "
                 "stages, so there is no print look, no effects, no toning and no vignette. The "
                 "color space follows your export selection. <b>Preview Flat</b> peeks at the "
-                "master on the canvas, also on the toolbar and on <b>|</b>, and "
+                f"master on the canvas, also on the toolbar and on {_k('toggle_flat_peek')}, and "
                 "<b>Roll Baseline</b> keeps flat masters consistent across a roll. Standard "
                 "<b>Print</b> output is unaffected."
             ),
@@ -763,11 +768,11 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             title="You're all set!",
             body=(
                 "That is the core workflow. A few more things worth knowing:<br><br>"
-                "• Press <b>?</b> or use the ⋯ menu for keyboard shortcuts.<br>"
+                f"• Press {_k('show_shortcuts')} or use the ⋯ menu for keyboard shortcuts.<br>"
                 "• Canvas tools share one grammar: the first <b>Esc</b> clears the points "
-                "you are placing, the second puts the tool down. <b>Shift+S</b> Scratch, "
-                "<b>Shift+B</b> Dodge &amp; Burn, <b>Shift+R</b> Analysis Region, "
-                "<b>|</b> flat-master peek.<br>"
+                f"you are placing, the second puts the tool down. {_k('pick_scratch')} Scratch, "
+                f"{_k('local_draw')} Dodge &amp; Burn, {_k('analysis_draw')} Analysis Region, "
+                f"{_k('toggle_flat_peek')} flat-master peek.<br>"
                 "• Scanning with a tethered camera? The <b>Camera Scanning</b> section on the "
                 "Scan tab drives the body and Scanlight directly (macOS/Linux). See "
                 "<code>docs/CAMERA_SCANNING.md</code>.<br>"

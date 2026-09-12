@@ -73,7 +73,7 @@ their logic and shaders stay in `features/lith/` and `features/cyanotype/`.
 - Workers (`negpy/desktop/workers/`) — heavy work in QThread-backed objects, Qt-signal communication
 - Sidebars (`negpy/desktop/view/sidebar/<name>.py`) — one per feature, registered in `ControlsPanel`, synced on `config_updated`
 - **Shortcuts** (`negpy/desktop/view/shortcut_registry.py`) — `REGISTRY` is the single source of truth for every binding: one `ShortcutEntry(default_key, description, category)` per action id. Dispatch is the matching entry in the action map in `keyboard_shortcuts.py`. The registry also feeds the shortcut editor, the `?` overlay and `tooltip_with_shortcut()`, so a binding added here shows up in all three for free.
-  **Any new user-facing toggle, tool or action gets a registry entry** — leave `default_key` empty rather than inventing a conflicting one if no obvious key is free. Check for collisions before picking: the same key on two actions makes Qt fire `activatedAmbiguously` and both go dead.
+  **Any new user-facing toggle, tool or action gets a registry entry** — leave `default_key` empty rather than inventing a conflicting one if no obvious key is free. Check for collisions before picking: the same key on two actions makes Qt fire `activatedAmbiguously` and both go dead. `docs/KEYBOARD.md`'s tables are generated from the registry: run `uv run python -m negpy.desktop.view.keyboard_doc` after a registry change (`tests/test_keyboard_doc.py` fails on drift). Copy that names a key (tutorial, toolbar labels) reads it through `key_for`/`label_with_shortcut`, never as a literal.
 
 ## Adding a new feature
 

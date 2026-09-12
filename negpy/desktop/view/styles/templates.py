@@ -97,6 +97,7 @@ def tool_toggle(icon_name: str, label: str, tooltip: str) -> QPushButton:
     btn.setStyleSheet(tool_toggle_qss(icon_only=not label))
     btn.setFixedHeight(default_button_height())
     btn.setToolTip(wrap_tooltip(tooltip))
+    btn.plain_tooltip = tooltip
     btn.edited_dot = EditedDot(btn)
     return btn
 
@@ -111,6 +112,7 @@ def labeled_toggle(icon_name: str, label: str, checked: bool, tooltip: str) -> Q
     btn.setStyleSheet(labeled_toggle_qss())
     btn.setFixedHeight(default_button_height())
     btn.setToolTip(wrap_tooltip(tooltip))
+    btn.plain_tooltip = tooltip
     btn.edited_dot = EditedDot(btn)
     return btn
 
@@ -126,6 +128,7 @@ def labeled_action(icon_name: str, label: str, tooltip: str, primary: bool = Fal
     btn.setStyleSheet(labeled_toggle_qss())
     btn.setFixedHeight(default_button_height())
     btn.setToolTip(wrap_tooltip(tooltip))
+    btn.plain_tooltip = tooltip
     return btn
 
 
