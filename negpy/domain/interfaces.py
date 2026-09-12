@@ -36,6 +36,7 @@ class PipelineContext:
     # As-shot WB multipliers, folded into the camera matrix when the buffer was decoded
     # without white balance (Linear RAW). None when WB was applied at decode.
     camera_wb: Optional[list] = None
+    cache_stages: bool = True
 
 
 class IImageSource(Protocol):
