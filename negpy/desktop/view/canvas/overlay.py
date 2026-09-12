@@ -2717,7 +2717,7 @@ class CanvasOverlay(QWidget):
                 hud = getattr(self.parent(), "hud", None)
                 if hud is not None and not self._crop_redraw_hint_shown:
                     self._crop_redraw_hint_shown = True
-                    hud.showMessage("drag outside the box to redraw the crop", timeout=2500)
+                    hud.showMessage("Drag outside the box to redraw the crop", timeout=2500)
                 self._end_crop_drag()
                 self.update()
                 event.accept()

@@ -336,7 +336,7 @@ class AppController(QObject):
     zoom_requested = pyqtSignal(float)
     zoom_changed = pyqtSignal(float)
     _render_cleanup_requested = pyqtSignal(object)  # texture to spare, or None
-    status_message_requested = pyqtSignal(str, int)
+    status_message_requested = pyqtSignal(str, int, str)
     status_progress_requested = pyqtSignal(int, int)
     batch_started = pyqtSignal(str, bool)  # title, abortable
     batch_progress = pyqtSignal(int, int, str)  # current, total, label
@@ -635,8 +635,9 @@ class AppController(QObject):
             return None
         return (float(val[0]), float(val[1]), float(val[2]))
 
-    def set_status(self, message: str, timeout: int = 0) -> None:
-        self.status_message_requested.emit(message, timeout)
+    def set_status(self, message: str, timeout: int = 0, kind: str = "info") -> None:
+        """kind: "info" | "warning" | "error" — the HUD colours the toast by it."""
+        self.status_message_requested.emit(message, timeout, kind)
 
     def _connect_signals(self) -> None:
         self.render_requested.connect(self.render_worker.process)
@@ -654,7 +655,6 @@ class AppController(QObject):
         self.export_worker.progress.connect(self._on_batch_progress)
         self.export_worker.finished.connect(self._on_export_finished)
         self.export_worker.cancelled.connect(self._on_export_batch_cancelled)
-        self.export_worker.error.connect(self._on_render_error)
         self.export_worker.error.connect(self._on_export_task_error)
 
         self.stitch_requested.connect(self.stitch_worker.run)
@@ -675,14 +675,12 @@ class AppController(QObject):
         self.thumb_worker.partial.connect(self._apply_thumbnails)
         self.thumb_worker.finished.connect(self._on_thumbnails_finished)
         self.thumb_worker.rendered_finished.connect(self._on_rendered_thumbnail)
-        self.thumb_worker.error.connect(self._on_render_error)
         self.thumb_worker.error.connect(self._on_thumbnail_batch_error)
 
         self.normalization_requested.connect(self.norm_worker.process)
         self.norm_worker.progress.connect(self._on_normalization_progress)
         self.norm_worker.finished.connect(self._on_normalization_finished)
         self.norm_worker.cancelled.connect(self._on_normalization_cancelled)
-        self.norm_worker.error.connect(self._on_render_error)
         self.norm_worker.error.connect(self._on_normalization_error)
 
         self.batch_autocrop_requested.connect(self.batch_autocrop_worker.process)
@@ -694,7 +692,6 @@ class AppController(QObject):
         self.asset_discovery_requested.connect(self.discovery_worker.process)
         self.discovery_worker.progress.connect(self._on_discovery_progress)
         self.discovery_worker.finished.connect(self._on_discovery_finished)
-        self.discovery_worker.error.connect(self._on_render_error)
         self.discovery_worker.error.connect(self._on_discovery_batch_error)
         self.discovery_worker.rgb_grouped.connect(self._on_rgb_grouped)
         self.auto_detect_all_splits_requested.connect(self.discovery_worker.process_auto_detect_all_splits)
@@ -702,7 +699,7 @@ class AppController(QObject):
         self.library_search_requested.connect(self.library_worker.search)
         self.library_worker.progress.connect(self._on_library_walk_progress)
         self.library_worker.finished.connect(self._on_library_search_finished)
-        self.library_worker.error.connect(self._on_render_error)
+        self.library_worker.error.connect(self._on_library_search_error)
 
         self.preview_load_requested.connect(self.preview_load_worker.process)
         self.preview_load_worker.splash.connect(self._on_splash_preview)
@@ -773,7 +770,7 @@ class AppController(QObject):
             if self._begin_batch("thumbnails", "Generating thumbnails", abortable=False) is None:
                 return
             self._thumb_requested = [asset_thumbnail_key(f) for f in missing]
-            self.set_status("GENERATING THUMBNAILS...")
+            self.set_status("Generating thumbnails…")
             # Copies, carrying each frame's stored film process. The source decode cannot
             # tell a slide from a negative reliably, and inverting a positive is what put
             # negatives in the filmstrip. They are copies because these dicts cross to a
@@ -790,7 +787,7 @@ class AppController(QObject):
         self.generate_missing_thumbnails()
 
     def _on_thumbnail_progress(self, current: int, total: int, name: str) -> None:
-        self.set_status(f"THUMBNAIL {current}/{total}: {name}")
+        self.set_status(f"Thumbnail {current}/{total}: {name}")
         self.status_progress_requested.emit(current, total)
         self.batch_progress.emit(current, total, name)
 
@@ -866,7 +863,7 @@ class AppController(QObject):
     def _batch_busy(self, requested: str) -> bool:
         if self._active_batch is None:
             return False
-        self.set_status(f"Cannot start {requested} while {self._active_batch_title} is running", 3000)
+        self.set_status(f"Cannot start {requested} while {self._active_batch_title} is running", 3000, kind="warning")
         return True
 
     def _end_batch(self, owner: str, token: Optional[int] = None) -> bool:
@@ -895,20 +892,23 @@ class AppController(QObject):
         owner = self._active_batch if self._active_batch in ("export", "contact_sheet") else "export"
         self._on_batch_cancelled(owner)
 
-    def _on_discovery_batch_error(self, _message: str) -> None:
+    def _on_discovery_batch_error(self, message: str) -> None:
         self._discovery_running = False
         self._hot_folder_sequence_active = False
         self._end_batch("discovery")
+        self._report_worker_error("Import", message)
 
-    def _on_thumbnail_batch_error(self, _message: str) -> None:
+    def _on_thumbnail_batch_error(self, message: str) -> None:
         self._hot_folder_sequence_active = False
         self._on_batch_error("thumbnails")
+        self._report_worker_error("Thumbnails", message)
 
     def _on_normalization_cancelled(self) -> None:
         self._on_batch_cancelled("normalization")
 
-    def _on_normalization_error(self, _message: str) -> None:
+    def _on_normalization_error(self, message: str) -> None:
         self._on_batch_error("normalization")
+        self._report_worker_error("Batch analysis", message)
 
     def _on_batch_error(self, owner: str) -> None:
         self._end_batch(owner)
@@ -1010,7 +1010,7 @@ class AppController(QObject):
         self._replace_after_discovery = request.replace_existing
         self._reselect_after_discovery = request.reselect_path
         self._active_discovery_keys = frozenset(_capture_import_key(path) for path in request.paths)
-        self.set_status("SCANNING FOR ASSETS...")
+        self.set_status("Scanning for assets…")
         stitches, merges = restore_maps(self.session.repo)
         task = AssetDiscoveryTask(
             paths=list(request.paths),
@@ -1072,7 +1072,7 @@ class AppController(QObject):
         if not roots:
             self.set_status("Add a library folder first", 4000)
             return
-        self.set_status("SEARCHING LIBRARY...")
+        self.set_status("Searching library…")
         self.library_search_requested.emit(
             LibrarySearchTask(
                 roots=roots,
@@ -1084,7 +1084,7 @@ class AppController(QObject):
         )
 
     def _on_library_walk_progress(self, walked: int) -> None:
-        self.set_status(f"SEARCHING LIBRARY... {walked} files")
+        self.set_status(f"Searching library… {walked} files")
 
     def _on_library_search_finished(self, paths: List[str]) -> None:
         self.library_search_finished.emit(len(paths))
@@ -1292,7 +1292,7 @@ class AppController(QObject):
                 return None
             buf = np.asarray(img)
         except Exception as e:
-            self.set_status(f"Could not load preview: {e}")
+            self.set_status(f"Could not load preview: {e}", kind="error")
             return None
 
         old_geom = self._half_frame_geometry_for(file_hash, file_path)
@@ -1379,7 +1379,7 @@ class AppController(QObject):
         )
 
     def _on_discovery_progress(self, current: int, total: int, name: str) -> None:
-        self.set_status(f"HASHING {current}/{total}: {name}")
+        self.set_status(f"Hashing {current}/{total}: {name}")
         self.status_progress_requested.emit(current, total)
         self.batch_progress.emit(current, total, name)
 
@@ -1515,7 +1515,7 @@ class AppController(QObject):
                 target = next((i for i in ordered if i in new_indices), first_new_idx)
                 self.session.select_file(target)
         else:
-            self.set_status("NO SUPPORTED ASSETS FOUND", 3000)
+            self.set_status("No supported assets found", 3000, kind="warning")
             self.status_progress_requested.emit(0, 0)
             self._hot_folder_sequence_active = False
 
@@ -2359,7 +2359,7 @@ class AppController(QObject):
         self.state.test_strip_pending = True
         self.test_strip_changed.emit(False)
         # A few seconds of renders, so tick the HUD or it reads as wedged.
-        self.status_message_requested.emit(toast, 2500)
+        self.set_status(toast, 2500)
         self.status_progress_requested.emit(0, len(overrides))
         cam_xyz, camera_wb = self._effective_cam_xyz()
         self.strip_requested.emit(
@@ -2419,7 +2419,7 @@ class AppController(QObject):
         self.state.test_strip_content_rect = content_rect
         self.test_strip_changed.emit(True)
         label = "Ring-around" if self.state.test_strip_kind == "color" else "Test strip"
-        self.status_message_requested.emit(f"{label} ready — click a patch to keep it", 4000)
+        self.set_status(f"{label} ready — click a patch to keep it", 4000)
 
     def rotate_test_strip(self, direction: int) -> bool:
         """Turn the ladder rather than the image while a proof is on the canvas; True = consumed.
@@ -2780,7 +2780,7 @@ class AppController(QObject):
         self._autocrop_cancel_requested = False
         self.status_progress_requested.emit(0, 0)
         logger.error("Auto Crop All failed: %s", message)
-        self.set_status(f"Auto Crop All failed: {message}", 5000)
+        self.set_status(f"Auto Crop All failed: {message}", 5000, kind="error")
 
     def detect_aspect_ratio(self) -> None:
         img = self.state.preview_raw
@@ -2910,7 +2910,7 @@ class AppController(QObject):
         rx, ry = CoordinateMapping.map_click_to_raw(nx, ny, uv_grid)
         line = trace_scratch(preview, rx, ry, self.state.config.retouch.scratch_threshold)
         if line is None:
-            self.status_message_requested.emit("No scratch found there — click directly on the line", 3000)
+            self.set_status("No scratch found there — click directly on the line", 3000, kind="warning")
             return
         self.session.update_config(
             replace(
@@ -3275,7 +3275,7 @@ class AppController(QObject):
         )
         self.session.update_config(replace(self.state.config, process=new_process), persist=True)
 
-        self.set_status("batch analysis complete", timeout=3000)
+        self.set_status("Batch analysis complete", timeout=3000)
         self.status_progress_requested.emit(0, 0)
         self.request_render()
 
@@ -3372,7 +3372,7 @@ class AppController(QObject):
 
         profile_id = FlatFieldProfiles.create(name, path)
         if profile_id is None:
-            self.set_status("Flat-field: could not read that reference image", 3000)
+            self.set_status("Flat Field: could not read that reference image", 3000, kind="error")
             return
         self.set_active_flatfield_profile(profile_id)
         self.set_status(f"Flat-field profile '{name}' saved", 2000)
@@ -3520,7 +3520,7 @@ class AppController(QObject):
 
     def _on_stitch_error(self, message: str) -> None:
         self._end_batch("stitch")
-        self.set_status(message, 6000)
+        self.set_status(message, 6000, kind="error")
 
     def request_unstitch(self) -> None:
         """Dissolve the active stitched composite back into its part frames.
@@ -3636,7 +3636,7 @@ class AppController(QObject):
 
     def _on_hdr_error(self, message: str) -> None:
         self._end_batch("hdr")
-        self.set_status(message, 6000)
+        self.set_status(message, 6000, kind="error")
 
     def apply_config(self, config: WorkspaceConfig, persist: bool = False, readback_metrics: bool = True) -> None:
         """Adopt `config` and repaint by whichever route the change actually needs.
@@ -5213,7 +5213,7 @@ class AppController(QObject):
 
         if metrics.get("gpu_fallback") and not self._gpu_fallback_notified:
             self._gpu_fallback_notified = True
-            self.set_status("GPU acceleration failed — using CPU", 5000)
+            self.set_status("GPU acceleration failed — using CPU", 5000, kind="warning")
 
         # A render already in flight when the peek went on would otherwise repaint over it.
         if self.state.negative_peek:
@@ -5355,14 +5355,24 @@ class AppController(QObject):
     def _on_render_error(self, message: str) -> None:
         self.state.is_processing = self._is_rendering = False
         self._busy_toast = False  # the failure message below replaces the toast
-        logger.error(f"Worker failure: {message}")
-        self.set_status(f"Failed to load file: {message}", 5000)
+        logger.error(f"Render failure: {message}")
+        self.set_status(f"Failed to load file: {message}", 5000, kind="error")
         self.load_failed.emit()
 
         self._dispatch_pending_render()
 
-    def _on_export_task_error(self, _message: str) -> None:
+    def _on_export_task_error(self, message: str) -> None:
         self._export_failures += 1
+        self._report_worker_error("Export", message)
+
+    def _report_worker_error(self, source: str, message: str) -> None:
+        """A background job failed. Names the job and leaves the canvas alone: only a failed
+        load of the shown frame (_on_render_error) may blank it."""
+        logger.error(f"{source} failed: {message}")
+        self.set_status(f"{source} failed: {message}", 6000, kind="error")
+
+    def _on_library_search_error(self, message: str) -> None:
+        self._report_worker_error("Library search", message)
 
     def _on_export_finished(self) -> None:
         elapsed = time.time() - self._export_start_time

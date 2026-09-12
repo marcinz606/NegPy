@@ -249,7 +249,7 @@ class TestAppController(unittest.TestCase):
         """A slow render step holds its toast open; the finished frame clears it, and a
         toast nobody claimed is left alone."""
         msgs = []
-        self.controller.status_message_requested.connect(lambda text, timeout: msgs.append(text))
+        self.controller.status_message_requested.connect(lambda text, *_: msgs.append(text))
 
         self.controller._on_render_busy("removing IR dust")
         self.assertEqual(msgs, ["removing IR dust"])
@@ -258,6 +258,24 @@ class TestAppController(unittest.TestCase):
 
         self.controller._clear_busy_toast()
         self.assertEqual(len(msgs), 2, "nothing pending — an unrelated toast stays up")
+
+    def test_export_failure_does_not_blank_the_canvas(self):
+        """An export, thumbnail or search failure names its job and leaves the shown frame
+        alone; only a failed load of that frame may clear the canvas."""
+        msgs = []
+        cleared = []
+        self.controller.status_message_requested.connect(lambda text, _ms, kind: msgs.append((text, kind)))
+        self.controller.load_failed.connect(lambda: cleared.append(True))
+
+        self.controller._on_export_task_error("disk full")
+        self.controller._on_library_search_error("permission denied")
+        self.assertEqual(cleared, [])
+        self.assertEqual(msgs[0], ("Export failed: disk full", "error"))
+        self.assertEqual(msgs[1], ("Library search failed: permission denied", "error"))
+
+        self.controller._on_render_error("decode boom")
+        self.assertEqual(cleared, [True])
+        self.assertEqual(msgs[-1], ("Failed to load file: decode boom", "error"))
 
     def test_load_file_emits_zoom_reset(self):
         """Test that loading a file normally resets the zoom."""

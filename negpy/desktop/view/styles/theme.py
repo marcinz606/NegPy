@@ -55,6 +55,9 @@ class ThemeConfig:
     surface_overlay: str = "rgba(13,13,13,0.88)"
     surface_overlay_strong: str = "rgba(26,26,26,0.82)"
     surface_overlay_hover: str = "rgba(34,34,34,0.88)"
+    # Canvas toast / loading chip plate. Integer alpha: QSS float alpha is not reliably parsed.
+    surface_toast: str = "rgba(10, 10, 10, 225)"
+    border_toast: str = "rgba(255, 255, 255, 55)"
 
     # Font weight scale
     weight_regular: int = 400

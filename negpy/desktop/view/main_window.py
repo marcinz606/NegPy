@@ -403,7 +403,7 @@ class MainWindow(QMainWindow):
         self.toolbar.btn_toggle_right.setChecked(True)
         self.controller.session.repo.save_global_setting("panel_left_visible", True)
         self.controller.session.repo.save_global_setting("panel_right_visible", True)
-        self.canvas.hud.showMessage("panel layout reset", timeout=1500)
+        self.canvas.hud.showMessage("Panel layout reset", timeout=1500)
 
     def _connect_signals(self) -> None:
         """Wire controller and view."""
@@ -448,8 +448,8 @@ class MainWindow(QMainWindow):
 
         self.controller.export_progress.connect(self._on_export_progress)
         self.controller.export_finished.connect(self._on_export_finished)
-        self.controller.session.settings_copied.connect(lambda: self.canvas.hud.showMessage("settings copied", timeout=1500))
-        self.controller.session.settings_pasted.connect(lambda: self.canvas.hud.showMessage("settings pasted", timeout=1500))
+        self.controller.session.settings_copied.connect(lambda: self.canvas.hud.showMessage("Settings copied", timeout=1500))
+        self.controller.session.settings_pasted.connect(lambda: self.canvas.hud.showMessage("Settings pasted", timeout=1500))
         self.controller.session.settings_synced.connect(lambda msg: self.canvas.hud.showMessage(msg, timeout=2500))
         self.controller.tool_sync_requested.connect(self._sync_tool_buttons)
         self.controller.config_updated.connect(self.canvas.overlay.update)
@@ -504,7 +504,7 @@ class MainWindow(QMainWindow):
         if sheet.save(path, "JPEG", self.controller.state.config.export.jpeg_quality):
             self.controller.set_status(f"Printing notes saved: {os.path.basename(path)}", 4000)
         else:
-            self.controller.set_status(f"Could not write {path}", 4000)
+            self.controller.set_status(f"Could not write {path}", 4000, kind="error")
 
     def _display_buffer_for_canvas(self, buffer):
         if isinstance(buffer, GPUTexture):
@@ -523,6 +523,8 @@ class MainWindow(QMainWindow):
     def _on_load_failed(self) -> None:
         self.loading_overlay.stop()
         self.canvas.clear()
+        # With nothing else open, a black canvas after the toast expires is a dead end.
+        self.empty_state.setVisible(not self.state.uploaded_files)
 
     def _on_session_emptied(self) -> None:
         """Last file was unloaded/cleared: blank the viewer (the removed image must
@@ -610,14 +612,14 @@ class MainWindow(QMainWindow):
 
     def _on_export_progress(self, current: int, total: int, filename: str) -> None:
         self.canvas.hud.set_progress(current, total)
-        self.canvas.hud.showMessage(f"Exporting {filename} ({current}/{total})...")
+        self.canvas.hud.showMessage(f"Exporting {filename} ({current}/{total})…")
 
     def _on_export_finished(self, elapsed: float, failed: int) -> None:
         self.canvas.hud.hide_progress()
-        msg = f"export complete in {elapsed:.2f}s"
+        msg = f"Export complete in {elapsed:.2f}s"
         if failed:
             msg += f" — {failed} failed"
-        self.canvas.hud.showMessage(msg, timeout=6000 if failed else 3000)
+        self.canvas.hud.showMessage(msg, timeout=6000 if failed else 3000, kind="warning" if failed else "info")
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -633,7 +635,7 @@ class MainWindow(QMainWindow):
             return
         from negpy.features.exposure.densitometer import zone_roman
 
-        self.canvas.hud.showMessage(f"click the photo to place zone {zone_roman(float(zone))}", timeout=3000)
+        self.canvas.hud.showMessage(f"Click the photo to place zone {zone_roman(float(zone))}", timeout=3000)
 
     def _sync_tool_buttons(self) -> None:
         """Updates toggle button states to match active_tool."""

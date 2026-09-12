@@ -100,7 +100,7 @@ class ShortcutManager:
             # A window-wide QShortcut fires from any tab, so the gating a mouse gets for free on a
             # disabled or mode-hidden control has to be applied here by hand.
             if not slider.isEnabled() or hidden_by_gating(slider):
-                self.window.controller.set_status(f"{_slider_name(slider, group)} not available", 1500)
+                self.window.controller.set_status(f"{_slider_name(slider, group)} not available", 1500, kind="warning")
                 return
             step = slider_step_for(group.id, self.slider_steps)
             slider.adjust_by(step * sign_for_action(action_id))

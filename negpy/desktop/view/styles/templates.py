@@ -113,6 +113,17 @@ def set_hint_kind(lbl: QLabel, kind: str) -> None:
     style.polish(lbl)
 
 
+def toast_qss(kind: str = "info") -> str:
+    """Canvas toast and loading chip: title type on a solid dark plate that reads over any canvas.
+    kind: "info" | "warning" | "error" picks the text colour, the same three as hint_label."""
+    color = {"warning": THEME.warn_amber, "error": THEME.channel_red}.get(kind, THEME.text_primary)
+    return (
+        f"color: {color}; font-size: {THEME.font_size_title}px; font-weight: {THEME.weight_semibold}; "
+        f"background-color: {THEME.surface_toast}; border: 1px solid {THEME.border_toast}; "
+        f"border-radius: {THEME.radius_lg}px; padding: 7px 18px;"
+    )
+
+
 def pane_header_qss() -> str:
     """Bold mini-header for dialog panes (preset list / gear library columns)."""
     return f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px; font-weight: bold; letter-spacing: 1px;"
