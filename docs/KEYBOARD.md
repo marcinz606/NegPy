@@ -43,8 +43,10 @@ Numpad keys can be bound separately from the number row (for example `Num+9` and
 | `Shift + R` | Toggle Analysis Region draw |
 | `Shift + T` | Print the density × grade test strip |
 | `Shift + F` | Print the color ring-around (M/Y filtration) |
-| `\|` | Peek flat scan (digital intermediate preview) |
-| `Esc` | First press clears in-progress points. Second press puts the tool down |
+| `M` | Peek flat scan (digital intermediate preview) |
+| `N` | Peek negative (the source as it was loaded) |
+| `\` | Before/after split against the auto baseline |
+| `Esc` | Leaves whatever has the canvas (peek, before/after split, test strip). Otherwise clears in-progress points, then puts the tool down |
 
 ## Geometry and orientation
 | Key | Action |

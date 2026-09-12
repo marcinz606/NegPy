@@ -246,3 +246,33 @@ class TestControllerKeepsTheSplit(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPeekBadge(unittest.TestCase):
+    """A peek replaces the print with something that is not one. The badge is what says so
+    on the canvas itself; the toolbar toggle that opened it is off at the edge of the view."""
+
+    @staticmethod
+    def _painted(**flags) -> QPixmap:
+        overlay = _overlay(compare_mode=False, before=False)
+        for name, value in flags.items():
+            setattr(overlay.state, name, value)
+        pixmap = QPixmap(W, H)
+        pixmap.fill()
+        painter = QPainter(pixmap)
+        overlay._draw_ui(painter)
+        painter.end()
+        return pixmap
+
+    @staticmethod
+    def _badge_pixels(pixmap: QPixmap) -> int:
+        """Non-white pixels in the badge's corner of an otherwise blank canvas."""
+        image = pixmap.toImage()
+        return sum(1 for y in range(12, 34) for x in range(12, 120) if image.pixelColor(x, y).lightness() < 200)
+
+    def test_each_peek_paints_a_badge(self):
+        self.assertGreater(self._badge_pixels(self._painted(negative_peek=True)), 100)
+        self.assertGreater(self._badge_pixels(self._painted(flat_peek=True)), 100)
+
+    def test_the_plain_edit_paints_none(self):
+        self.assertEqual(self._badge_pixels(self._painted()), 0)

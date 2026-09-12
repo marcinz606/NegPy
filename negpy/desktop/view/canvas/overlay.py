@@ -737,6 +737,10 @@ class CanvasOverlay(QWidget):
         if self._compare_split_active() and content_aligned:
             self._draw_compare_split(painter)
 
+        # Exclusive with the split above, so the two badges cannot land on each other.
+        if self.state.negative_peek or self.state.flat_peek:
+            self._draw_peek_badge(painter)
+
         # Last: the glass sits over everything else and claims no content rect, so it stays out
         # of the exclusion ladder above. It is suppressed wherever something else replaced the
         # frame with a *different* QImage than `_qimage` holds (the test strip's mosaic, the raw
@@ -827,17 +831,27 @@ class CanvasOverlay(QWidget):
         painter.drawText(knob, Qt.AlignmentFlag.AlignCenter, "◂▸")
 
         if x - target.left() > 92:
-            self._draw_compare_label(painter, "BEFORE", target.left() + 12, target.top() + 12)
+            self._draw_view_badge(painter, "BEFORE", target.left() + 12, target.top() + 12)
         if target.right() - x > 92:
-            self._draw_compare_label(painter, "AFTER", target.right() - 80, target.top() + 12)
+            self._draw_view_badge(painter, "AFTER", target.right() - 80, target.top() + 12)
 
-    def _draw_compare_label(self, painter: QPainter, text: str, x: float, y: float) -> None:
-        badge = QRectF(x, y, 68, 22)
+    def _draw_view_badge(self, painter: QPainter, text: str, x: float, y: float, width: float = 68.0) -> None:
+        badge = QRectF(x, y, width, 22)
         painter.setBrush(QColor(0, 0, 0, 170))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(badge, 4, 4)
         painter.setPen(QColor(THEME.accent_primary))
         painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, text)
+
+    def _draw_peek_badge(self, painter: QPainter) -> None:
+        """Name the peek on the canvas. A peek replaces the print with something that is not
+        one, and the only other thing that says so is a toolbar button off at the edge."""
+        text = "NEGATIVE" if self.state.negative_peek else "FLAT SCAN"
+        rect = self._content_view_rect()
+        if rect.isEmpty():
+            return
+        width = painter.fontMetrics().horizontalAdvance(text) + 24.0
+        self._draw_view_badge(painter, text, rect.left() + 12, rect.top() + 12, width)
 
     def _draw_brush(self, painter: QPainter) -> None:
         radius = self._brush_screen_radius(self.state.config.retouch.manual_dust_size)

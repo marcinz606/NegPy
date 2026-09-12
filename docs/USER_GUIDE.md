@@ -24,11 +24,13 @@ If Windows blocks writes to NegPy's default data folder, NegPy suggests `%LOCALA
 
 The canvas toolbar's **◑** button (or `\`) splits the canvas in two. Left of the divider is the auto baseline: the same frame with the same film process, crop and rotation, but with every creative control (exposure, tone, Lab, dodge/burn, toning, retouch and finishing) back at its default. Right of it is your edit. Drag the divider to move the split, or grab its knob in the middle.
 
-The split stays up while you work, so a slider moves the after side against a fixed reference. Press `\` again, or move to another frame, to close it. Peek Negative, Peek Flat Scan and the test strip take the canvas over, so they close it too.
+The split stays up while you work, so a slider moves the after side against a fixed reference. Press `\` or `Esc`, or move to another frame, to close it. Peek Negative, Peek Flat Scan and the test strip take the canvas over, so they close it too.
 
 ### Peek Negative
 
 The canvas toolbar's film button (or `N`) shows the scan as it was loaded: the negative, un-inverted, with no metering, no film-base normalization and none of your edits. Use it to judge the scan rather than the print: whether the frame is thin or dense, what color the mask really is, whether the scanner clipped. It changes nothing and closes as soon as you touch a control. Your crop, rotation and flip still apply, so the frame stays where you put it. The frame is color managed, so a C-41 mask is as orange here as in the file, and Linear RAW does not change how it looks, except on a narrowband capture, where white balance never applies at all (there is no full-spectrum scene for it to describe), so Linear RAW on shows the true neutral scan and off shows the camera's own (meaningless) as-shot cast. The soft proof stays off: this is the scan, not a print.
+
+While either peek is up the canvas carries a **NEGATIVE** or **FLAT SCAN** badge in its top corner, and the menu item shows a checkmark, so a view you left on is never mistaken for a broken render. `Esc` leaves whichever view has the canvas — either peek, the before/after split, or a test strip.
 
 ### The workflow (and the order things happen)
 
