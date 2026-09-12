@@ -14,7 +14,7 @@ from negpy.features.flatfield.logic import apply_flatfield
 from negpy.features.hdr.models import HdrConfig, hdr_active
 from negpy.features.geometry.batch_autocrop import CropEvidence, detect_crop_candidate, resolve_roll_crops
 from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix
-from negpy.features.process.logic import effective_highlight_reconstruction, effective_linear_raw
+from negpy.features.process.logic import effective_highlight_reconstruction, effective_linear_raw, highlight_reconstruction_bakes_wb
 from negpy.features.process.models import DemosaicMode
 from negpy.infrastructure.loaders.helpers import unsupported_raw_reason
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
@@ -189,6 +189,7 @@ class PreviewLoadTask:
     use_camera_wb: bool
     positive_source: bool = False
     highlight_mode: int = 0
+    bake_camera_wb: bool = False
     full_resolution: bool = False
     file_hash: str | None = None
     use_splash: bool = True
@@ -941,6 +942,7 @@ class PreviewLoadWorker(QObject):
                     demosaic=task.demosaic,
                     positive_source=task.positive_source,
                     highlight_mode=task.highlight_mode,
+                    bake_camera_wb=task.bake_camera_wb,
                 )
             except Exception as e:
                 logger.debug("Preview cache warm failed for %s: %s", task.file_path, e)
@@ -960,6 +962,7 @@ class PreviewLoadWorker(QObject):
                     flatfield_profile_id=task.flatfield_profile_id,
                     demosaic=task.demosaic,
                     highlight_mode=task.highlight_mode,
+                    bake_camera_wb=task.bake_camera_wb,
                 )
                 source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
                 ir_preview = metadata.get("ir_preview")
@@ -995,6 +998,7 @@ class PreviewLoadWorker(QObject):
                     file_hash=task.file_hash,
                     demosaic=task.demosaic,
                     highlight_mode=task.highlight_mode,
+                    bake_camera_wb=task.bake_camera_wb,
                 )
                 source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
                 ir_preview = metadata.get("ir_preview")
@@ -1065,6 +1069,7 @@ class PreviewLoadWorker(QObject):
                     demosaic=task.demosaic,
                     positive_source=task.positive_source,
                     highlight_mode=task.highlight_mode,
+                    bake_camera_wb=task.bake_camera_wb,
                 )
                 if sp is not None:
                     sbuf, sdims = sp
@@ -1081,6 +1086,7 @@ class PreviewLoadWorker(QObject):
                     demosaic=task.demosaic,
                     positive_source=task.positive_source,
                     highlight_mode=task.highlight_mode,
+                    bake_camera_wb=task.bake_camera_wb,
                 )
             source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
             ir_preview = metadata.get("ir_preview")
@@ -1162,6 +1168,8 @@ def decode_asset_preview(
     }
     hdr = config.hdr
     if hdr.hdr_enabled and hdr.hdr_paths:
+        # No bake_camera_wb: the preview HDR path has no per-frame white-balance pinning
+        # (unlike export), so an active reconstruction stays on the neutral decode here.
         raw, _, _ = preview_service.load_linear_preview_hdr(
             file_info["path"], hdr, workspace_color_space, highlight_mode=effective_highlight_reconstruction(config.process), **common
         )
@@ -1175,6 +1183,7 @@ def decode_asset_preview(
             workspace_color_space,
             positive_source=config.process.positive_source,
             highlight_mode=effective_highlight_reconstruction(config.process),
+            bake_camera_wb=highlight_reconstruction_bakes_wb(config.process, config.exposure.render_intent),
             **common,
         )
     return slice_for_asset(raw, file_info)

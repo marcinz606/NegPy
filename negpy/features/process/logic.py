@@ -71,9 +71,16 @@ def should_fold_camera_wb(process: ProcessConfig, render_intent: Optional[str] =
     milder version of the correct fix, it is the wrong correction: there is no scene white
     balance for the fold to reconstruct, whatever the camera happened to read.
 
+    Also false whenever `highlight_reconstruction_bakes_wb` is true: the decode already
+    carries the real white balance in that case, and folding it again would double-apply
+    it — the same "decode and matrix must agree" rule this function exists for in the
+    first place.
+
     Every site that folds `camera_wb` into the capture matrix must ask this one question,
     the same way every decode asks `effective_linear_raw`.
     """
+    if highlight_reconstruction_bakes_wb(process, render_intent):
+        return False
     return effective_linear_raw(process, render_intent) and not process.narrowband_scan
 
 
@@ -109,6 +116,50 @@ def highlight_reconstruction_token(process: ProcessConfig) -> str:
     the stored one can be nonzero off the E-6 path, where it never reaches the decode.
     """
     return f"|hr:{effective_highlight_reconstruction(process)}"
+
+
+def highlight_reconstruction_bakes_wb(process: ProcessConfig, render_intent: Optional[str] = None) -> bool:
+    """Whether an active reconstruction should decode with the real white balance baked
+    in, instead of the transfer path's usual neutral decode plus downstream matrix fold.
+
+    Libraw's own reconstruction reads its decode's per-channel multipliers (`pre_mul`) to
+    decide what counts as clipped. On a neutral decode those are all `1.0`, so its clip
+    threshold sits at the raw ADC ceiling and essentially never fires — the clipping
+    reconstruction targets only exists after NegPy's own camera-matrix white-balance fold
+    runs, downstream of where libraw already decided there was nothing to do. Baking the
+    real white balance in at decode time is the only way reconstruction sees what actually
+    clips.
+
+    Only overrides the *default* reason for a neutral decode: being on the transfer path
+    itself (`is_transparency_transfer`). An explicit Linear RAW request stays neutral
+    regardless — that toggle is the user asking for it directly, and reconstruction must
+    not reach around it. `positive_source` has no camera matrix to fold in the first
+    place, so there is nothing to bake either. False whenever
+    `effective_highlight_reconstruction` resolves to 0, including the E-6-with-Normalize
+    path, which already decodes with real white balance and needs no override.
+
+    Every site that decides whether to bake real white balance into a decode must ask
+    this one question, the same discipline `effective_linear_raw` and
+    `should_fold_camera_wb` are held to.
+    """
+    if process.linear_raw or process.positive_source:
+        return False
+    if not effective_highlight_reconstruction(process):
+        return False
+    from negpy.features.exposure.transfer import is_transparency_transfer
+
+    return is_transparency_transfer(process.process_mode, process.e6_normalize, render_intent)
+
+
+def highlight_reconstruction_bakes_wb_token(process: ProcessConfig, render_intent: Optional[str] = None) -> str:
+    """Cache-key identity for `highlight_reconstruction_bakes_wb`, distinct from
+    `linear_raw_token`: an explicit Linear RAW request and the transfer path's own default
+    neutral decode both read as `effective_linear_raw() == True`, so `linear_raw_token`
+    alone cannot tell a config where reconstruction bakes white balance in apart from one
+    where it stays neutral because the user asked for it — yet the two decode differently
+    once reconstruction is active. See `highlight_reconstruction_bakes_wb`.
+    """
+    return f"|hrwb:{int(highlight_reconstruction_bakes_wb(process, render_intent))}"
 
 
 def narrowband_profile_active(process: ProcessConfig) -> bool:

@@ -136,6 +136,7 @@ class PreviewManager:
         demosaic: str = DemosaicMode.AUTO,
         positive_source: bool = False,
         highlight_mode: int = 0,
+        bake_camera_wb: bool = False,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """
         Decode and resize a linear preview from an already-open raw object.
@@ -145,9 +146,14 @@ class PreviewManager:
         the half-frame slice is applied to the full-res decode BEFORE the preview
         downsample so analysis sees the same pixels export analyzes (slice then
         downsample), not whole-scan-averaged pixels (downsample then slice).
+
+        ``bake_camera_wb`` applies this file's own white balance even on a path that
+        otherwise decodes neutral — resolved by the caller via
+        ``highlight_reconstruction_bakes_wb``, this method never re-derives the gate.
         """
         t_decode = time.perf_counter()
         log = logger.info if log_timings else logger.debug
+        use_camera_wb = use_camera_wb or bake_camera_wb
 
         # An explicit algorithm decodes full-size: libraw bins 2x2 quads for half_size and never
         # reaches the interpolator, so the fast path would ignore the choice.
@@ -311,6 +317,7 @@ class PreviewManager:
                 gutter_thickness=half_slice[3] if half_slice else 0.0,
                 positive_source=positive_source,
                 highlight_mode=highlight_mode,
+                bake_camera_wb=bake_camera_wb,
             )
             # The cache entry aliases the returned buffer, under the same read-only contract as
             # a cache hit, so there is no defensive copy. On HQ loads that copy was a large part
@@ -348,6 +355,7 @@ class PreviewManager:
         demosaic: str = DemosaicMode.AUTO,
         positive_source: bool = False,
         highlight_mode: int = 0,
+        bake_camera_wb: bool = False,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """
         Loads linear RGB, downsamples for display.
@@ -373,6 +381,7 @@ class PreviewManager:
                 gutter_thickness=half_slice[3] if half_slice else 0.0,
                 positive_source=positive_source,
                 highlight_mode=highlight_mode,
+                bake_camera_wb=bake_camera_wb,
             )
             hit = self._cache.get(ck)
             if hit is not None:
@@ -397,6 +406,7 @@ class PreviewManager:
                     gutter_thickness=half_slice[3] if half_slice else 0.0,
                     positive_source=positive_source,
                     highlight_mode=highlight_mode,
+                    bake_camera_wb=bake_camera_wb,
                 )
                 hit = self._cache.get(ck)
                 if hit is not None:
@@ -418,6 +428,7 @@ class PreviewManager:
                 demosaic=demosaic,
                 positive_source=positive_source,
                 highlight_mode=highlight_mode,
+                bake_camera_wb=bake_camera_wb,
             )
         log(
             "load-timing load_linear_preview %.0fms (decode %.0fms + open)",
@@ -523,6 +534,7 @@ class PreviewManager:
         file_hash: str | None = None,
         demosaic: str = DemosaicMode.AUTO,
         highlight_mode: int = 0,
+        bake_camera_wb: bool = False,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """Merge a bracket into one linear preview, in the reference frame's exposure units.
 
@@ -543,6 +555,7 @@ class PreviewManager:
                 full_resolution=full_resolution,
                 demosaic=demosaic,
                 highlight_mode=highlight_mode,
+                bake_camera_wb=bake_camera_wb,
             )
             hit = self._cache.get(merged_key)
             if hit is not None:
@@ -554,14 +567,28 @@ class PreviewManager:
                 return ensure_image(scaled), dims_c, meta_c
 
         ref_out, dims, meta = self.load_linear_preview(
-            reference_path, color_space, use_camera_wb, full_resolution, file_hash, demosaic=demosaic, highlight_mode=highlight_mode
+            reference_path,
+            color_space,
+            use_camera_wb,
+            full_resolution,
+            file_hash,
+            demosaic=demosaic,
+            highlight_mode=highlight_mode,
+            bake_camera_wb=bake_camera_wb,
         )
         ref = np.asarray(ref_out, dtype=np.float32)
 
         def _load(path: str) -> np.ndarray:
             arr = np.asarray(
                 self.load_linear_preview(
-                    path, color_space, use_camera_wb, full_resolution, None, demosaic=demosaic, highlight_mode=highlight_mode
+                    path,
+                    color_space,
+                    use_camera_wb,
+                    full_resolution,
+                    None,
+                    demosaic=demosaic,
+                    highlight_mode=highlight_mode,
+                    bake_camera_wb=bake_camera_wb,
                 )[0],
                 dtype=np.float32,
             )
@@ -597,6 +624,7 @@ class PreviewManager:
         flatfield_profile_id: str = "",
         demosaic: str = DemosaicMode.AUTO,
         highlight_mode: int = 0,
+        bake_camera_wb: bool = False,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """Assemble a stitch composite at preview scale by replaying the stored
         registration. Flat-field is applied per part here (a composite canvas must
@@ -617,6 +645,7 @@ class PreviewManager:
                     full_resolution=full_resolution,
                     demosaic=demosaic,
                     highlight_mode=highlight_mode,
+                    bake_camera_wb=bake_camera_wb,
                 )
                 hit = self._cache.get(key)
                 if hit is not None:
@@ -634,7 +663,14 @@ class PreviewManager:
                 )
             else:
                 out, _, part_meta = self.load_linear_preview(
-                    path, color_space, use_camera_wb, full_resolution, None, demosaic=demosaic, highlight_mode=highlight_mode
+                    path,
+                    color_space,
+                    use_camera_wb,
+                    full_resolution,
+                    None,
+                    demosaic=demosaic,
+                    highlight_mode=highlight_mode,
+                    bake_camera_wb=bake_camera_wb,
                 )
             parts.append(apply_flatfield(np.asarray(out, dtype=np.float32), flatfield))
             irs.append(part_meta.get("ir_preview"))
@@ -661,6 +697,7 @@ class PreviewManager:
         demosaic: str = DemosaicMode.AUTO,
         positive_source: bool = False,
         highlight_mode: int = 0,
+        bake_camera_wb: bool = False,
     ) -> Tuple[Optional[Tuple[ImageBuffer, Dimensions]], Tuple[ImageBuffer, Dimensions, dict]]:
         """
         Open the RAW file once and return both the splash preview and the linear
@@ -688,6 +725,7 @@ class PreviewManager:
                 gutter_thickness=half_slice[3] if half_slice else 0.0,
                 positive_source=positive_source,
                 highlight_mode=highlight_mode,
+                bake_camera_wb=bake_camera_wb,
             )
             hit = self._cache.get(ck)
             if hit is not None:
@@ -716,6 +754,7 @@ class PreviewManager:
                     gutter_thickness=half_slice[3] if half_slice else 0.0,
                     positive_source=positive_source,
                     highlight_mode=highlight_mode,
+                    bake_camera_wb=bake_camera_wb,
                 )
                 hit = self._cache.get(ck)
                 if hit is not None:
@@ -741,6 +780,7 @@ class PreviewManager:
                 demosaic=demosaic,
                 positive_source=positive_source,
                 highlight_mode=highlight_mode,
+                bake_camera_wb=bake_camera_wb,
             )
         log(
             "load-timing load_splash_and_linear %.0fms (decode %.0fms + open)",

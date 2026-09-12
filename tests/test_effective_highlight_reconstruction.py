@@ -9,12 +9,33 @@ from dataclasses import replace
 import pytest
 
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.process.logic import effective_highlight_reconstruction, highlight_reconstruction_token
+from negpy.features.process.logic import (
+    effective_highlight_reconstruction,
+    highlight_reconstruction_bakes_wb,
+    highlight_reconstruction_bakes_wb_token,
+    highlight_reconstruction_token,
+    linear_raw_token,
+)
 from negpy.features.process.models import ProcessConfig, ProcessMode
 
 
-def cfg(mode=ProcessMode.C41, level=0, narrowband_scan=False) -> ProcessConfig:
-    return replace(ProcessConfig(), process_mode=mode, highlight_reconstruction=level, narrowband_scan=narrowband_scan)
+def cfg(
+    mode=ProcessMode.C41,
+    level=0,
+    narrowband_scan=False,
+    e6_normalize=False,
+    positive_source=False,
+    linear_raw=False,
+) -> ProcessConfig:
+    return replace(
+        ProcessConfig(),
+        process_mode=mode,
+        highlight_reconstruction=level,
+        narrowband_scan=narrowband_scan,
+        e6_normalize=e6_normalize,
+        positive_source=positive_source,
+        linear_raw=linear_raw,
+    )
 
 
 class TestEffectiveHighlightReconstruction:
@@ -49,6 +70,56 @@ class TestEffectiveHighlightReconstruction:
         never reaches the decode."""
         assert highlight_reconstruction_token(cfg(ProcessMode.C41, 5)) == highlight_reconstruction_token(cfg(ProcessMode.C41, 0))
         assert highlight_reconstruction_token(cfg(ProcessMode.E6, 5)) != highlight_reconstruction_token(cfg(ProcessMode.E6, 0))
+
+
+class TestHighlightReconstructionBakesWb:
+    """The transfer path ('as captured', Normalize off) decodes neutral and folds white
+    balance back in downstream. Libraw's own reconstruction reads the decode's per-channel
+    multipliers to decide what is clipped, which are all 1.0 on that neutral decode, so its
+    threshold sits at the raw ADC ceiling and the clipping this feature targets — which only
+    exists after the downstream fold — is invisible to it. An active reconstruction on that
+    path must bake the real white balance in instead, and skip the fold to match.
+    """
+
+    def test_off_by_default(self):
+        assert not highlight_reconstruction_bakes_wb(cfg())
+
+    def test_off_when_reconstruction_itself_is_off(self):
+        assert not highlight_reconstruction_bakes_wb(cfg(ProcessMode.E6, level=0))
+
+    def test_on_for_the_default_transfer_path_with_reconstruction_active(self):
+        assert highlight_reconstruction_bakes_wb(cfg(ProcessMode.E6, level=5))
+
+    def test_the_explicit_linear_raw_toggle_is_never_overridden(self):
+        """The critical case: an explicit request for neutral data must stay neutral,
+        even with reconstruction on and everything else identical to the True case above."""
+        assert not highlight_reconstruction_bakes_wb(cfg(ProcessMode.E6, level=5, linear_raw=True))
+
+    def test_off_for_a_positive_source(self):
+        """No camera matrix to fold in the first place, so nothing to bake either."""
+        assert not highlight_reconstruction_bakes_wb(cfg(ProcessMode.E6, level=5, positive_source=True))
+
+    def test_off_with_normalize_on(self):
+        """That path already decodes with real white balance and needs no override."""
+        assert not highlight_reconstruction_bakes_wb(cfg(ProcessMode.E6, level=5, e6_normalize=True))
+
+    @pytest.mark.parametrize("mode", [ProcessMode.C41, ProcessMode.BW])
+    def test_off_on_a_negative(self, mode):
+        assert not highlight_reconstruction_bakes_wb(cfg(mode, level=5))
+
+    def test_off_under_narrowband(self):
+        assert not highlight_reconstruction_bakes_wb(cfg(ProcessMode.E6, level=5, narrowband_scan=True))
+
+    def test_token_catches_what_linear_raw_token_alone_would_miss(self):
+        """The explicit Linear RAW toggle and the transfer path's own default neutral
+        decode both read as effective_linear_raw()==True, so linear_raw_token cannot tell
+        a config that bakes white balance in apart from one that stays neutral because the
+        user asked for it — yet the two decode differently once reconstruction is active.
+        """
+        default_transfer = cfg(ProcessMode.E6, level=5)
+        explicit_linear_raw = cfg(ProcessMode.E6, level=5, linear_raw=True)
+        assert linear_raw_token(default_transfer) == linear_raw_token(explicit_linear_raw)
+        assert highlight_reconstruction_bakes_wb_token(default_transfer) != highlight_reconstruction_bakes_wb_token(explicit_linear_raw)
 
 
 class TestSourceIdentity:
@@ -95,3 +166,16 @@ class TestDecodeAsksTheGate:
         # pattern as use_camera_wb); the gate is asked where the value originates.
         assert "effective_highlight_reconstruction" in inspect.getsource(controller)
         assert "effective_highlight_reconstruction" in inspect.getsource(render)
+
+    def test_every_decode_path_asks_whether_to_bake_white_balance(self):
+        """Unlike the level itself, preview_manager.py DOES ask this one directly — it
+        decides use_camera_wb locally rather than only forwarding a precomputed flag."""
+        import inspect
+
+        from negpy.desktop import controller
+        from negpy.desktop.workers import render
+        from negpy.services.rendering import image_processor as ip
+        from negpy.services.rendering import preview_manager
+
+        for module in (ip, preview_manager, controller, render):
+            assert "highlight_reconstruction_bakes_wb" in inspect.getsource(module)

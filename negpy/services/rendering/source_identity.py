@@ -12,7 +12,12 @@ field served the previous buffer for a setting the user had just changed.
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.flatfield.logic import flatfield_token
 from negpy.features.hdr.models import hdr_token
-from negpy.features.process.logic import demosaic_token, effective_highlight_reconstruction, effective_linear_raw
+from negpy.features.process.logic import (
+    demosaic_token,
+    effective_highlight_reconstruction,
+    effective_linear_raw,
+    highlight_reconstruction_bakes_wb,
+)
 from negpy.features.rgbscan.logic import rgbscan_token
 from negpy.features.stitch.models import stitch_token
 
@@ -25,6 +30,9 @@ def source_token(config: WorkspaceConfig) -> str:
         # Reconstruction level, resolved through the same gate the decode reads — changes
         # the decoded numbers on a slide's blown highlights.
         f"|hr{effective_highlight_reconstruction(config.process)}",
+        # Whether that reconstruction bakes real white balance into the decode instead of
+        # folding it downstream — changes the decoded numbers too, see should_fold_camera_wb.
+        f"|hrwb{int(highlight_reconstruction_bakes_wb(config.process, config.exposure.render_intent))}",
         # Preview only: folding the export choice in would re-decode the open frame whenever
         # an export setting moved.
         demosaic_token(config.process.demosaic_preview),

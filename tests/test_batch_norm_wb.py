@@ -19,7 +19,16 @@ class _FakePreviewService:
         self.calls: dict[str, bool] = {}
 
     def load_linear_preview(
-        self, path, color_space, use_camera_wb, full_resolution, file_hash, demosaic="Auto", positive_source=False, highlight_mode=0
+        self,
+        path,
+        color_space,
+        use_camera_wb,
+        full_resolution,
+        file_hash,
+        demosaic="Auto",
+        positive_source=False,
+        highlight_mode=0,
+        bake_camera_wb=False,
     ):
         self.calls[file_hash] = use_camera_wb
         raw = np.full((8, 8, 3), 0.5, dtype=np.float32)

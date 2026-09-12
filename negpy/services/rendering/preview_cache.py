@@ -25,6 +25,7 @@ class PreviewCacheKey:
     gutter_thickness: float = 0.0
     positive_source: bool = False
     highlight_mode: int = 0
+    bake_camera_wb: bool = False
 
     def as_tuple(self) -> Hashable:
         return (
@@ -39,6 +40,7 @@ class PreviewCacheKey:
             round(self.gutter_thickness, 6),
             self.positive_source,
             self.highlight_mode,
+            self.bake_camera_wb,
         )
 
 
