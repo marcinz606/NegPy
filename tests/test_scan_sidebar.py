@@ -483,6 +483,17 @@ def test_scan_carries_offset_and_drift_into_the_batch_request() -> None:
     assert req.frame_offset_modifier_mm == 0.2
 
 
+def test_scan_carries_the_per_frame_corrections_into_the_batch_request() -> None:
+    sidebar, controller = _sidebar(LS50_DEVICE)
+    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.settings = replace(sidebar._settings, frame_offsets={2: -0.4})
+
+    sidebar._on_scan()
+
+    _kind, req = controller.started[0]
+    assert req.frame_offsets == {2: -0.4}
+
+
 def test_eject_button_calls_controller() -> None:
     sidebar, controller = _sidebar(FULL_DEVICE)
     sidebar._on_eject()
@@ -948,6 +959,15 @@ def test_ejecting_drops_the_frame_selection_of_the_film_that_left() -> None:
     assert "frame selection cleared" in sidebar.status_strip.message()
 
 
+def test_ejecting_drops_the_per_frame_corrections_of_the_film_that_left() -> None:
+    # A per-frame correction registers one strip's own boundaries; the next strip has its own.
+    sidebar, _ = _sidebar(FULL_DEVICE, settings={"frame_offsets": {"2": 0.4}})
+
+    sidebar._on_ejected(True)
+
+    assert sidebar.settings.frame_offsets == {}
+
+
 def test_ejecting_keeps_the_registration_offsets() -> None:
     # Offset and drift belong to the transport's own registration, not to one strip.
     sidebar, _ = _sidebar(FULL_DEVICE, settings={"selected_frames": [1], "frame_offset_mm": 1.5, "frame_offset_modifier_mm": 0.2})
@@ -998,3 +1018,25 @@ def test_a_film_that_blocks_infrared_leaves_the_control_visible_to_explain_itsel
 
     assert sidebar.ir_check.isVisibleTo(sidebar) is True
     assert sidebar.ir_check.isEnabled() is False
+
+
+def test_the_format_combo_offers_the_mono_tiff() -> None:
+    sidebar, _ = _sidebar(FULL_DEVICE)
+    offered = [sidebar.fmt_combo.itemText(i) for i in range(sidebar.fmt_combo.count())]
+    assert offered == ["TIFF", "TIFF (mono)"]
+
+
+def test_the_chosen_format_reaches_the_batch_request() -> None:
+    sidebar, controller = _sidebar(LS50_DEVICE)
+    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.fmt_combo.setCurrentText("TIFF (mono)")
+
+    sidebar._on_scan()
+
+    _kind, req = controller.started[0]
+    assert req.output_format == "TIFF (mono)"
+
+
+def test_the_strip_tile_height_survives_the_dialog() -> None:
+    sidebar, _ = _sidebar(FULL_DEVICE, settings={"strip_tile_height": 260})
+    assert sidebar.settings.strip_tile_height == 260

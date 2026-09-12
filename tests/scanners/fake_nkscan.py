@@ -93,6 +93,7 @@ class FakeDevice:
 class FakeDiscovery:
     frames: list[tuple[int, int, int, int]]
     thumbnail: dict[str, np.ndarray] | None = None
+    addresses_per_column: float | None = None
 
 
 @dataclass(frozen=True)
@@ -120,6 +121,8 @@ class FakeNkscanModule:
     cols: int = 6
     thumbnail: bool = True
     strip_slack: int = 4  # columns past the last frame; negative pushes frames off the pass
+    # Not the caps' 4000 / 250, as on a real pass.
+    addresses_per_column: float = 16.3
     scan_error: Exception | None = None
     discover_error: Exception | None = None
     open_error: Exception | None = None
@@ -150,20 +153,14 @@ class FakeNkscanModule:
         return [FakeDevice(location=loc) for loc in self.locations]
 
     def strip_pass(self) -> dict[str, np.ndarray] | None:
-        """The whole-strip pass, laid out the way the unit delivers one.
-
-        Columns are feed addresses from the axis start, at the same resolution as the rows,
-        which span the adapter opening. Each frame's band carries its own slot number, so a
-        test can tell which part of the strip a tile was cut from.
-        """
+        """The whole-strip pass. Each frame's band holds its slot number, so a tile shows where it was cut."""
         if not self.thumbnail or not self.frames:
             return None
-        top, left, _bottom, right = self.frames[0]
-        scale = (right - left) / self.rows
-        cols = int(max(f[2] for f in self.frames) / scale) + self.strip_slack
+        scale = self.addresses_per_column
+        cols = round(max(f[2] for f in self.frames) / scale) + self.strip_slack
         plane = np.zeros((self.rows, cols), np.uint16)
         for slot, (top, _l, bottom, _r) in enumerate(self.frames, 1):
-            plane[:, int(top / scale) : int(bottom / scale)] = slot
+            plane[:, round(top / scale) : round(bottom / scale)] = slot
         return {c: plane.copy() for c in ("red", "green", "blue")}
 
     @property
@@ -186,7 +183,6 @@ class FakeSession:
         self.loads = 0
         self.ejects = 0
         self.discoveries: list[str | None] = []
-        self.polarities: list[bool] = []
         self.scans: list[dict[str, Any]] = []
         module.opened.append(self)
 
@@ -217,17 +213,20 @@ class FakeSession:
     def discover_frames(
         self,
         format: str | None = None,  # noqa: A002 - the binding's own name
-        positive: bool = False,
         progress: Callable[..., Any] | None = None,
     ) -> FakeDiscovery:
         module = self._module
         self.discoveries.append(format)
-        self.polarities.append(positive)
         if progress is not None:
             progress("discover", 0, 1, 1)
         if module.discover_error is not None:
             raise module.discover_error
-        return FakeDiscovery(frames=list(module.frames), thumbnail=module.strip_pass())
+        thumbnail = module.strip_pass()
+        return FakeDiscovery(
+            frames=list(module.frames),
+            thumbnail=thumbnail,
+            addresses_per_column=module.addresses_per_column if thumbnail else None,
+        )
 
     def scan_frame(
         self,

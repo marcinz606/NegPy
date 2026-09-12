@@ -382,7 +382,7 @@ requires-dist = [
     { name = "imagecodecs", specifier = "==2026.6.6" },
     { name = "imageio", specifier = "==2.37.3" },
     { name = "jinja2", specifier = "==3.1.6" },
-    { name = "nkscan", marker = "extra == 'nkscan'", specifier = ">=0.9" },
+    { name = "nkscan", marker = "extra == 'nkscan'", specifier = ">=0.10" },
     { name = "numba", specifier = "==0.65.1" },
     { name = "numpy", specifier = "==2.4.4" },
     { name = "opencv-python-headless", specifier = "==4.13.0.92" },
@@ -409,21 +409,21 @@ dev = [
     { name = "ruff", specifier = "==0.14.10" },
     { name = "ty", specifier = ">=0.0.26" },
 ]
-nkscan = [{ name = "nkscan", specifier = ">=0.9" }]
+nkscan = [{ name = "nkscan", specifier = ">=0.10" }]
 pieusb = [{ name = "pieusb", specifier = ">=0.3.7" }]
 plustek = [{ name = "pyopticfilm", specifier = ">=1.3.3" }]
 sane = [{ name = "python-sane", specifier = ">=2.9" }]
 
 [[package]]
 name = "nkscan"
-version = "0.9.0"
+version = "0.10.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/33/4d/8b02d8e3a7ce1604f9d3b1ae94e31fac5850b7daaa484a81b2f8f78ab6e9/nkscan-0.9.0.tar.gz", hash = "sha256:b38d89afc0d6bfe3473294db587f58fa9fe8a9c6a9017561105a633d8cd355a8", size = 2804597, upload-time = "2026-08-24T01:28:37.411Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f7/cc/4642272d170d374924e2cc9f94486da83fa4fceec2b5b5911983b805a469/nkscan-0.10.0.tar.gz", hash = "sha256:57079bcf7dd97ae2e0f4f4ea04ea74126103af2f3433b99a09414254bae5ee74", size = 2808736, upload-time = "2026-09-04T19:13:45.82Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a3/c3/29574ec5e7dea0aac7f9fa65e4573711f0f0099bd8843146973fb09d151b/nkscan-0.9.0-cp313-abi3-macosx_10_12_x86_64.whl", hash = "sha256:c0cf978009af4f0ca2c59aa97926ba8e9d7291bf57fdef0247c9224c5587520d", size = 743459, upload-time = "2026-08-26T00:41:14.069Z" },
-    { url = "https://files.pythonhosted.org/packages/b6/50/483d48da107ac514b8fad9ca5caff4f1d20dc048f2a4e4822259d49c5ae2/nkscan-0.9.0-cp313-abi3-macosx_11_0_arm64.whl", hash = "sha256:1f7be405c2b601cdf942f4e87e8b16eb2a6702ae5c10dc145947c4e4cdaf7a49", size = 735425, upload-time = "2026-08-24T01:28:32.919Z" },
-    { url = "https://files.pythonhosted.org/packages/43/b7/92008b81db30187f1461d6fbdb8c313713001a40cdad82bbaba0bdbe19e7/nkscan-0.9.0-cp313-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f4c0550b73e18393461f9073d4ab75ecd9ff8ae2042ebb5c5028271eeeb1f10a", size = 836903, upload-time = "2026-08-24T01:28:34.506Z" },
-    { url = "https://files.pythonhosted.org/packages/1c/94/f53841c7168ebea01f16ab758714f70da348ef56b2e0204024babd56d358/nkscan-0.9.0-cp313-abi3-win_amd64.whl", hash = "sha256:dff231a33cbd3164c9d116b5bbf6ca9a7c070f8d386330833f89266a42ed7f08", size = 595336, upload-time = "2026-08-24T01:28:35.973Z" },
+    { url = "https://files.pythonhosted.org/packages/12/76/b68a6941616ff9e41343cebc4374bc8721a511ff472ea8c98f711bc49000/nkscan-0.10.0-cp313-abi3-macosx_10_12_x86_64.whl", hash = "sha256:5c6accfb802f9f851aa9a65a15b46be802a49f8fc642d07b8d5a540b6f8e30c2", size = 750584, upload-time = "2026-09-04T19:13:39.924Z" },
+    { url = "https://files.pythonhosted.org/packages/a7/21/3c19378359b85a768d57fb2020377a31c39b9ad71d143ed77eb70a3cbbce/nkscan-0.10.0-cp313-abi3-macosx_11_0_arm64.whl", hash = "sha256:1de8491669add3e35e5dc6ed8928193b49bbbb5024f121de55977321dcd93975", size = 733790, upload-time = "2026-09-04T19:13:41.346Z" },
+    { url = "https://files.pythonhosted.org/packages/28/6b/7362d7eb671a132923f454e74815457853bf74484774dd7a3f40084b45cd/nkscan-0.10.0-cp313-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a46bbce25224e57f491ba326a8346f496fb4028262f30adc9f8eb3621b31ae7d", size = 842336, upload-time = "2026-09-04T19:13:42.799Z" },
+    { url = "https://files.pythonhosted.org/packages/98/eb/9e25d21a957bee0c1e9c2d0513b935354688fc497d3b75bed2830902eb74/nkscan-0.10.0-cp313-abi3-win_amd64.whl", hash = "sha256:67184353e2a25e2be5d8fd32b335a43006178041e61db20c4baea2528c3da19f", size = 602004, upload-time = "2026-09-04T19:13:44.414Z" },
 ]
 
 [[package]]

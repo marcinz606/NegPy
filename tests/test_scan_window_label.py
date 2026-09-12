@@ -110,3 +110,48 @@ def test_crop_rect_round_trips_through_widget_pixels_under_an_offset() -> None:
     back = label._rect_in_widget((fx, fy, fx, fy), draw)
 
     assert abs(back.left() - point.x()) <= 1
+
+
+def _render(label: ScanWindowLabel):
+    from PyQt6.QtGui import QImage, QPainter
+
+    shot = QImage(label.width(), label.height(), QImage.Format.Format_RGB32)
+    shot.fill(0)
+    painter = QPainter(shot)
+    label.render(painter)
+    painter.end()
+    return shot
+
+
+def test_the_frame_boundary_is_outlined_once_there_is_a_frame() -> None:
+    """The offset is measured from the frame edge, so that edge has to be visible."""
+    from PyQt6.QtGui import QColor
+
+    from negpy.desktop.view.styles.theme import THEME
+
+    label = ScanWindowLabel()
+    label.setFixedSize(120, 80)
+    black = QPixmap(120, 80)
+    black.fill(QColor("#000000"))
+    label.set_frame(black)
+
+    shot = _render(label)
+    rect = label._display()
+    assert rect is not None
+
+    on_edge = shot.pixelColor(rect.left(), rect.top() + rect.height() // 2)
+    inside = shot.pixelColor(rect.left() + rect.width() // 2, rect.top() + rect.height() // 2)
+    # The house red, undiluted, with the picture itself left alone.
+    assert on_edge.name() == QColor(THEME.accent_primary).name()
+    assert inside.red() == 0
+
+
+def test_an_empty_tile_is_not_outlined() -> None:
+    """Nothing was detected there, so there is no boundary to mark."""
+    label = ScanWindowLabel()
+    label.setFixedSize(120, 80)
+
+    shot = _render(label)
+
+    assert label._display() is None
+    assert shot.pixelColor(0, 40).red() == shot.pixelColor(60, 40).red()

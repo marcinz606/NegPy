@@ -6,7 +6,7 @@ Read after ``exec()`` via ``selected_frames()`` / ``frame_windows()`` /
 """
 
 import qtawesome as qta
-from PyQt6.QtCore import Qt, pyqtSlot
+from PyQt6.QtCore import Qt, QTimer, pyqtSlot
 from PyQt6.QtGui import QPixmap, QTransform
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -42,12 +42,18 @@ _CUT_NOTICE = "Offset cuts into the frame"
 # (pitch - frame) discards that much picture off the frame tail.
 _FRAME_LEN_MM = 36.0
 _PREVIEW_FALLBACK_DPI = 500  # only when the device reports no DPI list at all
-_MAX_MEASURED_OFFSET_TENTHS = 25  # ±2.5 mm, in the slider's tenths of a millimetre
-_TILE_H = 140  # constant tile height; width follows the device aspect
-_TILES_PER_ROW = 6  # one SA-21 strip per row; roll adapters (up to 40 frames) wrap below
+# ±10 mm in tenths: a measured boundary can sit several millimetres off the picture.
+_MAX_MEASURED_OFFSET_TENTHS = 100
+_TILE_H = 140  # default tile height; width follows the device aspect
+_TILE_H_MIN, _TILE_H_MAX = 90, 340  # what the size slider spans
+_GRID_MARGIN = 36  # dialog width the strip grid does not get: frame, scrollbar, padding
+_TILE_SLIDER_H = 18  # the per-frame offset slider under each tile
+_TILES_PER_ROW = 6  # columns assumed before the grid has a width to measure
 # A transport that measures the strip reports its frame count only as previews arrive, so ask
 # for a roll's worth and keep the tiles it answers with.
 _DISCOVERY_SLOTS = 40
+# Pause after an offset moves before its tiles are re-cut, so one drag makes one request.
+_RECUT_DELAY_MS = 250
 
 # A coolscan3 raster is portrait, with the feed axis vertical, so rotate each preview -90°
 # and the frame reads landscape. QTransform().rotate(-90) maps a scan point (fx, fy) to
@@ -84,14 +90,16 @@ def _display_to_scan_rect(rect):
 # One line of orientation. Offset and Drift explain themselves on their own sliders, where
 # the hand already is, and the ⓘ carries the rest.
 _FEEDER_HELP = "Preview a frame, drag on it to crop, and tick the frames to scan."
-_DISCOVERY_HELP = "Detect the frames, untick what you do not want, drag on a tile to crop it."
+_DISCOVERY_HELP = "Untick what you do not want, drag on a tile to crop it, slide under a tile to shift it."
 
 _OFFSET_TIP = (
     "Slides every frame along the film to clear the inter-frame gap. Frames shift left as it "
     "grows; the shaded band is film past the frame boundary the transport cannot deliver, so "
     "offset past the gap costs frame tail."
 )
-_DRIFT_TIP = "Adds progressively more (or less) offset per frame position, for a strip whose gaps creep. Re-preview to refresh the pixels."
+_DRIFT_TIP = "Adds progressively more (or less) offset per frame position, for a strip whose gaps creep."
+_TILE_OFFSET_TIP = "Corrects this frame alone, on top of Offset and Drift. Double-click to reset."
+_SIZE_TIP = "Tile size. The grid reflows to whatever fits the dialog. Double-click to reset."
 
 
 class _ResetSlider(QSlider):
@@ -108,12 +116,21 @@ class _ResetSlider(QSlider):
 class _Tile:
     """One strip position: its preview label and include box."""
 
-    def __init__(self, frame: int, label: ScanWindowLabel, checkbox: QCheckBox, preview_btn: QPushButton, widget: QWidget) -> None:
+    def __init__(
+        self,
+        frame: int,
+        label: ScanWindowLabel,
+        checkbox: QCheckBox,
+        preview_btn: QPushButton,
+        offset_slider: "_ResetSlider",
+        widget: QWidget,
+    ) -> None:
         self.frame = frame
         self.previewed_offset: float | None = None  # offset the shown preview was scanned at
         self.label = label
         self.checkbox = checkbox
         self.preview_btn = preview_btn
+        self.offset_slider = offset_slider
         self.widget = widget
 
 
@@ -128,6 +145,8 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         initial_selected=None,
         initial_offset: float = 0.0,
         initial_offset_modifier: float = 0.0,
+        initial_frame_offsets: dict[int, float] | None = None,
+        initial_tile_height: int = _TILE_H,
         film_format: str | None = None,
         film_type: str = "negative",
         parent=None,
@@ -144,20 +163,32 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self._rotation = 0 if self._discovers else _DISPLAY_ROTATION_DEG
         self._capacity = 0 if self._discovers else max(1, self._caps.adapter_frame_capacity or 1)
         # Landscape tile aspect (W/H) from the rotated raster: the feed axis (max_area_mm[1])
-        # becomes horizontal. Tiles are constant-size at this aspect.
+        # becomes horizontal. Every tile keeps this aspect; the size slider drives the height.
         mm = self._caps.max_area_mm
         self._tile_aspect = (mm[1] / mm[0]) if (mm and len(mm) > 1 and mm[0]) else 1.5
         self._previewing = False
+        self._detected_on_open = False
+        # On a measured strip a moved offset re-cuts the tile from the strip pass, not slides its pixels.
+        self._recutting = False
+        self._recut = QTimer(self)
+        self._recut.setSingleShot(True)
+        self._recut.setInterval(_RECUT_DELAY_MS)
+        self._recut.timeout.connect(self._recut_moved_tiles)
         self._failed_frames: list[int] = []
         self._scan_now = False  # set when the user chooses "Scan" over "Use"
         initial_windows = initial_windows or {}
         initial_selected = tuple(initial_selected or ())
+        self._initial_frame_offsets = dict(initial_frame_offsets or {})
+        self._tile_h = max(_TILE_H_MIN, min(_TILE_H_MAX, int(initial_tile_height)))
+        # Columns the grid is currently laid out in, and the stretch cells pinning it top-left.
+        self._cols = _TILES_PER_ROW
+        self._stretch: tuple[int, int] | None = None
         self.setWindowTitle("Preview strip — set a window per frame")
         self.setModal(True)
         tile_w, tile_h = self._tile_size()
         cols = min(self._capacity or _TILES_PER_ROW, _TILES_PER_ROW)
         rows = max(1, -(-self._capacity // _TILES_PER_ROW))
-        self.resize(cols * (tile_w + 4) + 36, min(rows, 3) * (tile_h + 4) + 260)
+        self.resize(cols * (tile_w + 4) + _GRID_MARGIN, min(rows, 3) * (tile_h + _TILE_SLIDER_H + 4) + 260)
 
         layout = QVBoxLayout(self)
 
@@ -248,7 +279,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self._tiles: dict[int, _Tile] = {}
         self._tiles_wired = False
         self._strip = strip
-        self._empty_hint = QLabel("Press Detect frames to measure the strip" if self._discovers else "Preview a frame to set its window")
+        self._empty_hint = QLabel("Finding the frames on the strip…" if self._discovers else "Preview a frame to set its window")
         self._empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_hint.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_base}px; padding: 48px;")
         strip.addWidget(self._empty_hint, 0, 0, 1, _TILES_PER_ROW)
@@ -256,9 +287,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self._initial_selected = initial_selected
         for frame in range(1, self._capacity + 1):
             self._ensure_tile(frame)
-        # Pin the grid top-left so a partial last row doesn't spread across the viewport.
-        strip.setColumnStretch(cols, 1)
-        strip.setRowStretch(rows, 1)
+        self._relayout(force=True)
         self._scroll.setWidget(container)
         layout.addWidget(self._scroll, 1)
 
@@ -288,6 +317,16 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self.clear_btn.clicked.connect(self._on_clear_all)
         btns.addWidget(self.clear_btn)
         btns.addStretch()
+        self.size_slider = _ResetSlider(_TILE_H)
+        self.size_slider.setRange(_TILE_H_MIN, _TILE_H_MAX)
+        self.size_slider.setSingleStep(10)
+        self.size_slider.setPageStep(40)
+        self.size_slider.setFixedWidth(120)
+        self.size_slider.setValue(self._tile_h)
+        self.size_slider.setToolTip(_SIZE_TIP)
+        btns.addWidget(QLabel("Size"))
+        btns.addWidget(self.size_slider)
+        btns.addSpacing(16)
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.clicked.connect(self._on_cancel_clicked)
         btns.addWidget(self.cancel_btn)
@@ -310,6 +349,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self._tiles_wired = True
         self.offset_slider.valueChanged.connect(self._on_offset_changed)
         self.drift_slider.valueChanged.connect(self._on_offset_changed)
+        self.size_slider.valueChanged.connect(self._on_tile_size_changed)
         self._on_offset_changed(self.offset_slider.value())
         self._update_ok_enabled()
 
@@ -325,10 +365,10 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self._tiles[frame] = tile
         self._capacity = max(self._capacity, frame)
         self._empty_hint.setVisible(False)
-        self._strip.addWidget(tile.widget, (frame - 1) // _TILES_PER_ROW, (frame - 1) % _TILES_PER_ROW)
         if self._tiles_wired:
             tile.checkbox.toggled.connect(self._update_ok_enabled)
             self._update_ok_enabled()
+        self._relayout(force=True)
         return tile
 
     def _build_tile(self, frame: int, initial_window, checked: bool) -> _Tile:
@@ -367,24 +407,106 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         oh.addWidget(preview_btn)
         grid.addWidget(overlay, 0, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
-        return _Tile(frame, label, checkbox, preview_btn, widget)
+        offset_slider = _ResetSlider()
+        offset_slider.setRange(-_MAX_MEASURED_OFFSET_TENTHS, _MAX_MEASURED_OFFSET_TENTHS)
+        offset_slider.setFixedSize(self._tile_size()[0], _TILE_SLIDER_H)
+        # Set before connecting, so building a tile does not refresh a half-built dialog.
+        offset_slider.setValue(int(round(self._initial_frame_offsets.get(frame, 0.0) * 10)))
+        offset_slider.valueChanged.connect(lambda _v, f=frame: self._on_tile_offset_changed(f))
+        grid.addWidget(offset_slider, 1, 0)
+
+        tile = _Tile(frame, label, checkbox, preview_btn, offset_slider, widget)
+        self._set_tile_offset_tooltip(tile)
+        return tile
+
+    def _fitting_columns(self) -> int:
+        """Tiles that fit across the strip area, at least one."""
+        tile_w = self._tile_size()[0]
+        # Before show, the viewport has a Qt default width, so measure the dialog instead.
+        viewport = self._scroll.viewport()
+        width = viewport.width() if (self.isVisible() and viewport is not None) else self.width() - _GRID_MARGIN
+        available = width - 4  # the grid's own left/right margins
+        if available < tile_w:
+            return 1
+        return max(1, (available + 4) // (tile_w + 4))  # 4 = grid spacing
+
+    def _relayout(self, *, force: bool = False) -> None:
+        """Re-place every tile at the current column count. A no-op while it has not changed."""
+        cols = self._fitting_columns()
+        if cols == self._cols and not force:
+            return
+        self._cols = cols
+        for frame in sorted(self._tiles):
+            tile = self._tiles[frame]
+            self._strip.removeWidget(tile.widget)
+            self._strip.addWidget(tile.widget, (frame - 1) // cols, (frame - 1) % cols)
+        # Remove first: re-adding a widget the grid holds leaves a second, stale item.
+        self._strip.removeWidget(self._empty_hint)
+        self._strip.addWidget(self._empty_hint, 0, 0, 1, cols)
+        # Pin the grid top-left. Release the previous pin, or an occupied cell keeps stretching.
+        if self._stretch is not None:
+            self._strip.setColumnStretch(self._stretch[0], 0)
+            self._strip.setRowStretch(self._stretch[1], 0)
+        rows = max(1, -(-len(self._tiles) // cols))
+        self._strip.setColumnStretch(cols, 1)
+        self._strip.setRowStretch(rows, 1)
+        self._stretch = (cols, rows)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._relayout()
+
+    def showEvent(self, event) -> None:
+        """Find the frames once, as the dialog opens: every per-frame control lives on a tile."""
+        super().showEvent(event)
+        self._relayout()
+        if self._discovers and not self._detected_on_open:
+            self._detected_on_open = True
+            self._on_preview_all()
 
     def _tile_size(self) -> tuple[int, int]:
-        return int(_TILE_H * self._tile_aspect), _TILE_H
+        return int(self._tile_h * self._tile_aspect), self._tile_h
 
     # ── result getters ────────────────────────────────────────────────
 
     def selected_frames(self) -> tuple[int, ...]:
+        """Ticked frames, or the saved selection while there are no tiles."""
+        if not self._tiles:
+            return self._initial_selected
         return tuple(sorted(f for f, t in self._tiles.items() if t.checkbox.isChecked()))
 
     def frame_windows(self) -> dict:
-        return {f: self._to_scan(t.label.window()) for f, t in self._tiles.items() if t.label.window() is not None}
+        """Per-frame crops. A frame with no tile keeps its saved crop."""
+        merged = dict(self._initial_windows)
+        for frame, tile in self._tiles.items():
+            window = tile.label.window()
+            if window is None:
+                merged.pop(frame, None)
+            else:
+                merged[frame] = self._to_scan(window)
+        return merged
 
+    # Both rasters show the feed along display x and high sensor addresses at the top, so one
+    # transform serves both.
     def _to_display(self, rect):
-        return _scan_to_display_rect(rect) if self._rotation else rect
+        return _scan_to_display_rect(rect)
 
     def _to_scan(self, rect):
-        return _display_to_scan_rect(rect) if self._rotation else rect
+        return _display_to_scan_rect(rect)
+
+    def tile_height(self) -> int:
+        return int(self.size_slider.value())
+
+    def frame_offsets(self) -> dict[int, float]:
+        """Non-zero per-frame corrections. A frame with no tile keeps its saved correction."""
+        merged = dict(self._initial_frame_offsets)
+        for frame, tile in self._tiles.items():
+            value = tile.offset_slider.value() / 10.0
+            if value:
+                merged[frame] = value
+            else:
+                merged.pop(frame, None)
+        return merged
 
     def frame_offset(self) -> float:
         return self.offset_slider.value() / 10.0
@@ -396,11 +518,16 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         """Feed-axis frame pitch (mm) — the length a tile represents. 0.0 when unknown."""
         return effective_pitch_mm(self._caps)
 
+    def _frame_delta(self, frame: int) -> float:
+        """This frame's own correction. A slot with no tile yet contributes nothing."""
+        tile = self._tiles.get(frame)
+        return tile.offset_slider.value() / 10.0 if tile else self._initial_frame_offsets.get(frame, 0.0)
+
     def _raw_offset_for_frame(self, frame: int) -> float:
-        return self.frame_offset() + (frame - 1) * self.frame_offset_modifier()
+        return self.frame_offset() + (frame - 1) * self.frame_offset_modifier() + self._frame_delta(frame)
 
     def _offset_for_frame(self, frame: int) -> float:
-        """Effective offset for a frame position: base + (N-1)·drift.
+        """Effective offset for a frame position: base + (N-1)·drift + the frame's own correction.
 
         A feeder is floored at 0 and held short of one pitch: it cannot back up, and the scan
         blacks out at the frame boundary. A measured strip re-addresses the frame instead, so
@@ -459,10 +586,30 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
             self.status_strip.stop_progress()
         self._update_ok_enabled()
 
+    def _set_tile_offset_tooltip(self, tile: _Tile) -> None:
+        tile.offset_slider.setToolTip(f"Frame {tile.frame}: {tile.offset_slider.value() / 10.0:+.1f} mm. {_TILE_OFFSET_TIP}")
+
+    def _on_tile_offset_changed(self, frame: int) -> None:
+        tile = self._tiles.get(frame)
+        if tile is not None:
+            self._set_tile_offset_tooltip(tile)
+        self._on_offset_changed(0)
+
+    def _on_tile_size_changed(self, value: int) -> None:
+        """Resize every tile in place. The label letterboxes its kept pixmap, so nothing rescans."""
+        self._tile_h = int(value)
+        size = self._tile_size()
+        for tile in self._tiles.values():
+            tile.label.setFixedSize(*size)
+            tile.offset_slider.setFixedWidth(size[0])
+        self._relayout(force=True)
+
     def _on_offset_changed(self, _value: int) -> None:
         self.offset_label.setText(f"{self.frame_offset():.1f} mm")
         self.drift_label.setText(f"{self.frame_offset_modifier():+.2f} mm/frame")
         self._refresh_offset_indicators()
+        if self._discovers and self._tiles:
+            self._recut.start()
 
     def _tile_coverage(self, tile: _Tile) -> tuple[float, float]:
         """Span a raster previewed at x occupies when the slider reads y: (x − y, 1 − y).
@@ -519,13 +666,15 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
                 tile.label.set_coverage(self._tile_coverage(tile))
         if clamped:
             frames = ", ".join(str(f) for f in clamped)
-            self.status_strip.set_message(f"{_CLAMP_NOTICE} on {plural(len(clamped), 'frame')} {frames} — reduce Offset or Drift.")
+            self.status_strip.set_message(
+                f"{_CLAMP_NOTICE} on {plural(len(clamped), 'frame')} {frames} — reduce Offset, Drift or that frame's own slider."
+            )
         elif cut:
             frames = ", ".join(str(f) for f, _ in cut)
             worst = max(loss for _, loss in cut)
             self.status_strip.set_message(
                 f"{_CUT_NOTICE} on {plural(len(cut), 'frame')} {frames} — up to {worst:.1f} mm of picture lost off the "
-                f"frame tail; reduce Offset, or re-feed the strip for a better registration."
+                f"frame tail; reduce Offset or that frame's own slider, or re-feed the strip for a better registration."
             )
         elif self.status_strip.message().startswith((_CLAMP_NOTICE, _CUT_NOTICE)):
             self.status_strip.set_message("")
@@ -543,7 +692,28 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         slots = _DISCOVERY_SLOTS if self._discovers else self._capacity
         self._start_preview(tuple(range(1, slots + 1)))
 
-    def _start_preview(self, slots: tuple[int, ...]) -> None:
+    def done(self, result: int) -> None:
+        """Stop a pending re-cut: its timer holds this dialog."""
+        self._recut.stop()
+        super().done(result)
+
+    def _recut_moved_tiles(self) -> None:
+        """Re-cut, from the strip pass, the tiles whose offset no longer matches their pixels."""
+        if self._previewing:
+            self._recut.start()
+            return
+        pitch = self._frame_pitch()
+        if not pitch:
+            return
+        moved = tuple(
+            frame
+            for frame, tile in sorted(self._tiles.items())
+            if abs(self._raw_offset_for_frame(frame) / pitch - (tile.previewed_offset or 0.0)) > 1e-4
+        )
+        if moved:
+            self._start_preview(moved, message=f"Re-cutting {count_of(len(moved), 'frame')}…")
+
+    def _start_preview(self, slots: tuple[int, ...], *, message: str | None = None) -> None:
         if self._previewing:
             return
         self._failed_frames = []
@@ -564,8 +734,11 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
             self.status_strip.set_message(f"Scanner busy — {e}")
             return
         self._previewing = True
+        self._recutting = message is not None
         self._set_previewing(True)
-        if self._discovers and len(slots) > 1:
+        if message is not None:
+            self.status_strip.set_message(message)
+        elif self._discovers and len(slots) > 1:
             # The slot count asked for is a roll's worth, not what the strip holds.
             self.status_strip.set_message("Measuring the strip…")
         else:
@@ -603,7 +776,8 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
     def _on_preview_finished(self) -> None:
         self._previewing = False
         self._set_previewing(False)
-        if self._discovers and not self._failed_frames:
+        recut, self._recutting = self._recutting, False
+        if self._discovers and not self._failed_frames and not recut:
             found = len(self._tiles)
             self.status_strip.set_message(
                 f"{count_of(found, 'frame')} detected — check the framing before scanning."

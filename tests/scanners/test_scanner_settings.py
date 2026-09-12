@@ -139,3 +139,14 @@ def test_an_unset_saved_frame_range_selects_nothing():
 def test_a_key_this_version_dropped_keeps_the_rest_of_the_blob():
     restored = ScannerSettings.from_dict({"gone_in_this_version": True, "output_folder": "/scans"})
     assert restored.output_folder == "/scans"
+
+
+def test_per_frame_offsets_round_trip_through_json_string_keys():
+    restored = ScannerSettings.from_dict({"frame_offsets": {"2": 0.4, "5": -0.3}})
+    assert restored.frame_offsets == {2: 0.4, 5: -0.3}
+
+
+def test_a_saved_dng_output_format_lands_on_tiff():
+    # DNG output is retired; the saved preference must not survive as an unknown format.
+    assert ScannerSettings.from_dict({"output_format": "DNG"}).output_format == "TIFF"
+    assert ScannerSettings.from_dict({"output_format": "TIFF (mono)"}).output_format == "TIFF (mono)"

@@ -29,7 +29,6 @@ from negpy.infrastructure.scanners.params import (
     ScanParams,
     dpi_stops_in_range,
     film_passes_infrared,
-    film_reads_positive,
 )
 from negpy.infrastructure.scanners.result import ScanResult
 from negpy.kernel.system.logging import get_logger
@@ -241,6 +240,7 @@ class NkscanBackend:
         # re-previewing a strip after a nudge must not cost another read of the film.
         self._frames: dict[str, list[tuple[int, int, int, int]]] = {}
         self._strips: dict[str, np.ndarray] = {}
+        self._columns: dict[str, float] = {}
         self._lock = threading.Lock()
 
     # ── enumeration ───────────────────────────────────────────────────
@@ -361,8 +361,10 @@ class NkscanBackend:
         report = _progress_bridge(progress, cancel)
         rect = self._resolve_frame(session, device_id, params, report)
         optical = int(session.capabilities.optical_dpi)
+        detected = rect
         rect = _shift_frame(rect, _offset_units(params.frame_offset_mm, optical))
         rect = _crop_frame(rect, params.window)
+        logger.info("Frame %s detected %s, scanning %s (%+0.2f mm)", params.frame, detected, rect, params.frame_offset_mm)
         with self._mapped_errors():
             result = self.scan_frame(
                 session,
@@ -425,24 +427,20 @@ class NkscanBackend:
         device_id: str,
         *,
         film_format: str | None,
-        film_type: str = "negative",
         progress: Callable[..., bool] | None = None,
     ) -> Any:
         """Measure the loaded film, cache the rects, and return nkscan's Discovery."""
         with self._mapped_errors():
-            discovery = session.discover_frames(
-                format=film_format,
-                positive=film_reads_positive(film_type),
-                progress=progress,
-            )
+            discovery = session.discover_frames(format=film_format, progress=progress)
         self._frames[device_id] = [tuple(int(v) for v in rect) for rect in discovery.frames]
         thumbnail = getattr(discovery, "thumbnail", None)
         if thumbnail:
             self._strips[device_id] = _stack_rgb(thumbnail)
+            self._columns[device_id] = float(discovery.addresses_per_column)
         logger.info("Detected %d frames on %s", len(self._frames[device_id]), device_id)
         return discovery
 
-    def detect_frames(self, device_id: str, *, film_format: str | None = None, film_type: str = "negative") -> int:
+    def detect_frames(self, device_id: str, *, film_format: str | None = None) -> int:
         """How many frames the loaded film carries, measuring it only if that is not known.
 
         A strip previewed a moment ago is already measured, so this usually costs nothing.
@@ -454,12 +452,12 @@ class NkscanBackend:
             held = self._sessions.get(device_id)
         if held is not None:
             with self._mapped_errors():
-                self.discover_frames(held._session, device_id, film_format=film_format, film_type=film_type)
+                self.discover_frames(held._session, device_id, film_format=film_format)
             return len(self._frames.get(device_id, ()))
         session, _model = self._open(device_id)
         try:
             with self._mapped_errors():
-                self.discover_frames(session, device_id, film_format=film_format, film_type=film_type)
+                self.discover_frames(session, device_id, film_format=film_format)
         finally:
             with suppress(Exception):
                 session.close()
@@ -472,6 +470,10 @@ class NkscanBackend:
         """The whole-strip read the frames were measured on, where the mechanism took one."""
         return self._strips.get(device_id)
 
+    def addresses_per_column(self, device_id: str) -> float | None:
+        """Feed addresses one column of the strip pass spans, as that pass measured it."""
+        return self._columns.get(device_id)
+
     def set_frame(self, device_id: str, slot: int, rect: tuple[int, int, int, int]) -> None:
         """Replace one detected rect, so a nudge in the preview reaches the fine scan."""
         frames = self._frames.get(device_id)
@@ -482,6 +484,7 @@ class NkscanBackend:
         """Drop the cached rects and the pass they came from: that film has moved."""
         self._frames.pop(device_id, None)
         self._strips.pop(device_id, None)
+        self._columns.pop(device_id, None)
 
     def _resolve_frame(
         self,
@@ -496,7 +499,6 @@ class NkscanBackend:
                 session,
                 device_id,
                 film_format=params.film_format,
-                film_type=params.film_type,
                 progress=report,
             )
             frames = self._frames.get(device_id)

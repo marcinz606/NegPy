@@ -79,8 +79,8 @@ class _BatchService:
         self.eject_calls.append(device_id)
         return True
 
-    def detect_frames(self, device_id: str, *, film_format: str | None = None, film_type: str = "negative") -> int:
-        self.detect_calls.append((film_format, film_type))
+    def detect_frames(self, device_id: str, *, film_format: str | None = None) -> int:
+        self.detect_calls.append(film_format)
         return self.detected
 
     def run_scan(self, device_id, params, progress, cancel):
@@ -150,6 +150,27 @@ def test_batch_applies_progressive_offset_per_frame_position() -> None:
 
     # Drift follows the physical frame position (N-1), not the enumeration order.
     assert service.offsets == pytest.approx([1.2, 1.4, 1.6])
+
+
+def test_batch_adds_a_per_frame_correction_on_top_of_the_ramp() -> None:
+    worker = ScanWorker()
+    service = _BatchService()
+    worker._service = service  # type: ignore[assignment]
+    req = BatchRequest(
+        device_id="coolscan3:test",
+        params=ScanParams(dpi=4_000, depth=16, capture_ir=False, frame_offset_mm=1.0),
+        output_folder="/tmp",
+        filename_pattern='scan-{{ "%03d" % seq }}',
+        output_format="TIFF",
+        frames=(2, 3, 4),
+        frame_offset_modifier_mm=0.2,
+        frame_offsets={3: -0.5},
+    )
+
+    worker.run_batch(req)
+
+    # Only frame 3 moves; a frame with no entry keeps base + drift.
+    assert service.offsets == pytest.approx([1.2, 0.9, 1.6])
 
 
 def test_batch_passes_a_negative_drift_through_to_the_backend() -> None:
@@ -565,7 +586,7 @@ def test_a_batch_with_no_frames_scans_every_frame_on_the_film() -> None:
     worker.run_batch(_batch_request(frames=(), film_format="66"))
 
     assert service.frames == [1, 2, 3]
-    assert service.detect_calls == [("66", "negative")]
+    assert service.detect_calls == ["66"]
     assert len(done[0]) == 3
 
 
@@ -605,3 +626,27 @@ def test_batch_progress_names_the_frame_and_its_position() -> None:
         "Frame 3 of 3 — Scanning",
     ]
     assert [fraction for fraction, _phase in seen] == pytest.approx([1 / 3, 2 / 3, 1.0])
+
+
+def test_the_batch_logs_the_offset_each_frame_was_scanned_at(caplog) -> None:
+    """Whether a per-frame correction reached the scan must be answerable from the log."""
+    import logging
+
+    worker = ScanWorker()
+    service = _BatchService()
+    worker._service = service  # type: ignore[assignment]
+    req = BatchRequest(
+        device_id="coolscan3:test",
+        params=ScanParams(dpi=4_000, depth=16, capture_ir=False, frame_offset_mm=1.0),
+        output_folder="/tmp",
+        filename_pattern='scan-{{ "%03d" % seq }}',
+        output_format="TIFF",
+        frames=(1, 2),
+        frame_offsets={2: -0.5},
+    )
+
+    with caplog.at_level(logging.INFO):
+        worker.run_batch(req)
+
+    assert "Batch frame 1 at +1.00 mm" in caplog.text
+    assert "Batch frame 2 at +0.50 mm" in caplog.text
