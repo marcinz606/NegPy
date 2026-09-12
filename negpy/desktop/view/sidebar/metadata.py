@@ -25,7 +25,7 @@ from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_label, hint_label, wrap_tooltip
 from negpy.desktop.view.styles.fonts import mono_font_family
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.collapsible import CollapsibleSection
+from negpy.desktop.view.widgets.collapsible import CollapsibleSection, make_section
 from negpy.desktop.view.widgets.description_fields_dialog import DescriptionFieldsDialog
 from negpy.desktop.view.widgets.gear_library_dialog import GearLibraryDialog
 from negpy.desktop.view.widgets.location_picker_dialog import LocationPickerDialog
@@ -331,8 +331,7 @@ class MetadataSidebar(BaseSidebar):
         self.preview_empty = hint_label("Select gear or enter process metadata to see a preview.")
         preview_layout.addWidget(self.preview_empty)
 
-        self.preview_section = CollapsibleSection("Metadata preview", expanded=True)
-        self.preview_section.set_content(self.preview_content)
+        self.preview_section = self._card("Metadata Preview", "preview", self.preview_content, "fa5s.eye")
         self.layout.addWidget(self.preview_section)
 
         # After every card: the tooltips it fills in span all of them.
@@ -347,13 +346,7 @@ class MetadataSidebar(BaseSidebar):
         return body, layout
 
     def _card(self, title: str, key: str, content: QWidget, icon_name: str) -> CollapsibleSection:
-        repo = self.controller.session.repo
-        setting = f"section_expanded_metadata_{key}"
-        expanded = bool(repo.get_global_setting(setting, default=True))
-        section = CollapsibleSection(title, expanded=expanded, icon=qta.icon(icon_name, color="#aaa"))
-        section.set_content(content)
-        section.expanded_changed.connect(lambda checked, s=setting: repo.save_global_setting(s, checked))
-        return section
+        return make_section(self.controller.session.repo, title, f"metadata_{key}", content, icon_name, default_expanded=True)
 
     def _make_exif_field(self, key: str, layout: QVBoxLayout) -> QLineEdit:
         row = QHBoxLayout()

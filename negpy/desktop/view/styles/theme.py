@@ -81,15 +81,12 @@ class ThemeConfig:
     sidebar_expanded_defaults: Dict[str, bool] = field(
         default_factory=lambda: {
             "analysis": True,
-            "presets": False,
-            "exposure": True,
+            "process": True,
+            "color": True,
+            "tone": True,
             "geometry": True,
             "lab": True,
-            "altproc": False,
-            "toning": False,
             "retouch": True,
-            "icc": False,
-            "export": True,
         }
     )
 

@@ -81,7 +81,7 @@ their logic and shaders stay in `features/lith/` and `features/cyanotype/`.
 2. Add a field to `WorkspaceConfig`; update `to_dict`/`from_flat_dict` (watch flat-namespace collisions)
 3. Insert a `_run_stage(...)` call in `DarkroomEngine.process()`
 4. For GPU: add a WGSL shader, wire it into `GPUEngine` (shader path + stage index + change detection), and add the feature's `shaders/` dir to `build.py` (`--add-data`)
-5. Add a sidebar and register it in `ControlsPanel`, building every control from the factories in **UI conventions** below; mark its `docs/USER_GUIDE.md` section with `<!-- panel:<key> -->` above the heading (`<key>` = the `_make_section` key) — that marker is what puts the ⓘ guide on the header
+5. Add a sidebar and register it in `ControlsPanel`, building every control from the factories in **UI conventions** below. Every section comes from `widgets/collapsible.make_section(repo, title, key, content, icon_name, default_expanded)`: it persists `section_expanded_<key>` and shows the ⓘ guide iff `docs/USER_GUIDE.md` has `<!-- panel:<key> -->` above a heading, so mark the panel's section there
 6. If it adds a toggle/tool/action, add a `REGISTRY` entry in `shortcut_registry.py` plus its action-map entry in `keyboard_shortcuts.py`
 7. Add unit tests; if the feature has both CPU and GPU paths, add a parity test (pattern: `test_gpu_curve_parity.py`)
 8. Document it: the panel and its controls in `docs/USER_GUIDE.md`, the stage's behaviour and math in `docs/PIPELINE.md`

@@ -52,7 +52,7 @@ from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettings
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
 from negpy.infrastructure.loaders.helpers import get_supported_raw_wildcards
 from negpy.desktop.view.sidebar.library_tree import LibraryTree
-from negpy.desktop.view.widgets.collapsible import CollapsibleSection
+from negpy.desktop.view.widgets.collapsible import CollapsibleSection, make_section
 from negpy.desktop.view.widgets.file_dialogs import last_open_folder, pick_start_dir
 from negpy.services.assets.library import folder_counts
 
@@ -635,7 +635,7 @@ class FileBrowser(QWidget):
         self.empty_label.linkActivated.connect(lambda _: self._clear_frame_filters())
 
         self.library_tree = LibraryTree(self.controller)
-        self.library_section = self._make_section("Library", "fa5s.folder-open", self.library_tree, "library_section_expanded")
+        self.library_section = self._make_section("Library", "library", "fa5s.folder-open", self.library_tree)
 
         frames = QWidget()
         frames_layout = QVBoxLayout(frames)
@@ -644,7 +644,7 @@ class FileBrowser(QWidget):
         frames_layout.addWidget(self.tally_label)
         frames_layout.addWidget(self.list_view, 1)
         frames_layout.addWidget(self.empty_label, 1)
-        self.frames_section = self._make_section("Film Strip", "fa5s.film", frames, "frames_section_expanded")
+        self.frames_section = self._make_section("Film Strip", "frames", "fa5s.film", frames)
 
         layout.addWidget(self.library_section)
         layout.addWidget(self.frames_section)
@@ -657,16 +657,10 @@ class FileBrowser(QWidget):
         saved_sheet = self.session.repo.get_global_setting("sheet_filter") or "all"
         self._apply_sheet_filter(str(saved_sheet), save=False)
 
-    def _make_section(self, title: str, icon: str, content: QWidget, setting: str) -> CollapsibleSection:
-        saved = self.session.repo.get_global_setting(setting)
-        section = CollapsibleSection(title, expanded=True if saved is None else bool(saved), icon=qta.icon(icon, color=THEME.text_muted))
-        section.set_content(content)
-        section.expanded_changed.connect(lambda on, key=setting: self._on_section_toggled(key, on))
+    def _make_section(self, title: str, key: str, icon: str, content: QWidget) -> CollapsibleSection:
+        section = make_section(self.session.repo, title, key, content, icon, default_expanded=True)
+        section.expanded_changed.connect(lambda _on: self._rebalance_sections())
         return section
-
-    def _on_section_toggled(self, setting: str, expanded: bool) -> None:
-        self.session.repo.save_global_setting(setting, expanded)
-        self._rebalance_sections()
 
     def _rebalance_sections(self) -> None:
         """Expanded sections share the panel; a collapsed one keeps only its header.

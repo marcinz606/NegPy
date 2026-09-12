@@ -79,12 +79,14 @@ A menu shows a key only when that key uses `⌘`. A shortcut bound to a plain ke
 
 ---
 
+<!-- panel:frames -->
 ## 2. Film strip (left panel)
 
 The header shows the NegPy logo and version. The **↻** button beside the version number asks GitHub for a newer release on demand; it becomes a green **⬇** when one is out. When a newer release is out, a green **⬇ Update Available** line also appears under the version; click either to read what changed and let NegPy install it ([§15](#15-updating-negpy)). The chevron at the header's top-right folds the branding away to give the frames more room.
 
 Below the header: the toolbar, the search box, and two collapsible sections. **Library** holds the folders your scans live in; **Film Strip** holds the frames you have open. Click either heading to fold it away; the one still open takes the whole panel. NegPy remembers which were open.
 
+<!-- panel:library -->
 ### Your library
 
 The **Library** section is a folder tree of the places your scans live. Press **+** to add a folder, and point it at the one big `Scans` directory you keep everything under, subfolders and all. **↻** re-reads it from disk. Each row shows what is inside it ("36 photos", "2 folders"), and subfolders are read when you expand them.
@@ -844,10 +846,29 @@ The primary **Export** action. Its chevron menu picks the scope: current frame (
 
 ### Collapsible sections
 
-*   **Presets**: a checklist of export presets, each a saved Format/Size/Color Management/**Destination**/filename recipe. **Manage** edits them; **Export Presets** renders the frames with every enabled preset at once, and each preset uses **its own** destination, not the sidebar Destination above.
-*   **Sidecars**: **Save on export** writes a `.negpy` edit sidecar next to each source on every export; **Export sidecars** writes them for all visible frames now, and reports how many failed if a source folder is read-only. Edits always stay in the database too; sidecars are optional archival copies.
-*   **Contact Sheet**: render all visible frames into a single sheet. Choose a **Template** or set **Cell / Gap / Margin / Max tiles** by hand, pick an output **Path**, then press **Export contact sheet**. The sheet is a JPEG at the **JPEG Quality** and **Progressive** settings above.
-*   **Soft Proof**: simulate the print on screen. See below.
+<!-- panel:export_presets -->
+#### Presets
+
+A checklist of export presets, each a saved Format/Size/Color Management/**Destination**/filename recipe. **Manage** edits them; **Export Presets** renders the frames with every enabled preset at once, and each preset uses **its own** destination, not the sidebar Destination above.
+
+<!-- panel:printing_notes -->
+#### Printing Notes
+
+The printer's record for this frame: the dodge/burn map with every mask outlined and numbered, and a recipe card with paper, density, grade, filtration and the burn list. **Preview** shows it on the canvas (also **Shift+N**); **Export** writes it as an image beside the print. The conventions it draws with are described under Dodge & Burn.
+
+<!-- panel:export_sidecars -->
+#### Sidecars
+
+**Save on export** writes a `.negpy` edit sidecar next to each source on every export; **Export sidecars** writes them for all visible frames now, and reports how many failed if a source folder is read-only. Edits always stay in the database too; sidecars are optional archival copies.
+
+<!-- panel:contact_sheet -->
+#### Contact Sheet
+
+Render all visible frames into a single sheet. Choose a **Template** or set **Cell / Gap / Margin / Max tiles** by hand, pick an output **Path**, then press **Export contact sheet**. The sheet is a JPEG at the **JPEG Quality** and **Progressive** settings above.
+
+#### Soft Proof
+
+Simulate the print on screen. See below.
 
 <!-- panel:soft_proof -->
 ### Soft Proof
@@ -877,23 +898,31 @@ Every export format carries it: JPEG, TIFF, PNG, JPEG XL and WebP. A TIFF holds 
 *   **Protect original metadata**: copy the source file's EXIF/XMP to exports unchanged, adding nothing. When it is on, the fields below are ignored and the source's resolution is copied exactly: the same numbers, axes and unit, whether the source states it in EXIF or in its own header, even where the export was resized. A source that declares no resolution stays that way in every format that can leave it out. TIFF cannot, so it states the export's own resolution rather than the unit-less value readers report as 1 DPI.
 *   **Sync custom metadata to all files in batch export**: batch and preset exports write this frame's capture, gear and process values to every file, instead of each file's own.
 
-**Metadata Presets**: a saved set of metadata values, stored in `~/NegPy/presets/metadata/`, separate from the edit presets on the Setup tab:
+<!-- panel:metadata_presets -->
+### Metadata Presets
+
+A saved set of metadata values, stored in `~/NegPy/presets/metadata/`, separate from the edit presets on the Setup tab:
 
 *   **Preset** + **Load**: write the selected preset's fields onto this frame. Only the fields the preset stores change; everything else on the frame stays. Hover the field for a list of what a preset holds.
 *   **Manage…**: the library, with a page each for **Cameras**, **Lenses**, **Film Stocks**, **Process**, **Scanning** and **Presets**. A Process entry is a development recipe (developer, dilution, push/pull, time and temperature); a Scanning entry is a digitizing setup. On the Presets page, **+** stores the current frame's metadata under a name you pick, the **pen** renames a preset or changes which fields it stores, and **copy** and **trash** duplicate and delete. The fields a preset stores are then editable in place: swap its camera, lens, film stock, saved process or saved setup, or retype a developer, dilution, push, time, temperature, scanning note, roll or exposure. No frame needs to be open. Picking from the library refills everything read from it; typing over a filled value unlinks the pick. A stored capture date, place, description-field set or flag is shown but not editable here, being a per-frame decision. **Notes** is free text. Starter data seeds into `~/NegPy/gear/` on first launch.
 
 Gear travels as one unit: camera, lens, film stock, the film format and every other value read from them. So a loaded preset fills the dropdowns below and the exported EXIF with the same pick, and a preset for a 120 stock cannot leave the frame claiming 35mm. Picking a film stock sets the format either way, so set a frame format such as `6×7` after choosing the stock. The frame number is never stored in a preset.
 
-**Analog Gear** (searchable; type in any field to filter the library):
+<!-- panel:metadata_gear -->
+### Analog Gear
+
+Searchable; type in any field to filter the library.
 
 *   **Camera / Lens / Film stock**: pick from your library. Empty means not set. **Clear** empties all three.
 
-**Capture:**
+<!-- panel:metadata_capture -->
+### Capture
 
 *   **Date**: when the frame was shot. Give only what you know: `1998`, `1998-07`, `1998-07-14` or `1998-07-14 16:30`, with an optional offset such as `+02:00`. An impossible date turns the field red and is not saved. EXIF `DateTimeOriginal` pads the missing parts; XMP `photoshop:DateCreated` keeps the truncated form and `negpy:CaptureDatePrecision` names it. The scan file's own timestamp moves to `DateTimeDigitized`.
 *   **Place**: the capture location. The map-pin button opens a map to search a place name, click a position or paste coordinates, the ✕ beside it empties the place, and the field itself accepts a pasted coordinate pair or an OpenStreetMap/Google Maps link. Coordinates are written to the EXIF GPS tags and XMP `exif:GPS*`, the names to XMP `photoshop:City`/`State`/`Country`; a TIFF carries the location in XMP only, and a place you set replaces the source file's GPS block whole, rather than leaving its altitude or heading beside your coordinates. A geotagged source with no place set here keeps its own coordinates on export, and the map opens centred on them. Where the frame was digitized is a starting view, never the capture place. Zoom the map with its **+** / **−** buttons, a scroll wheel or a trackpad pinch, and drag to pan. Opening the map contacts OpenStreetMap; typing coordinates needs no network.
 
-**Process:**
+<!-- panel:metadata_process -->
+### Process
 
 *   **Saved process**: pick a development recipe from the library to fill Developer, Dilution, Push / Pull, Time and Temperature. Typing over any of them unlinks it, so the picker never names a value that is gone.
 *   **Format**: `—` (not set), `35mm`, `120`, `4×5`, `8×10`, `110`, or `Other` with a free-text field.
@@ -902,52 +931,69 @@ Gear travels as one unit: camera, lens, film stock, the film format and every ot
 *   **Time** and **Temp (°C)**: development time as `9:30` or plain minutes, and the temperature it ran at. An unreadable time turns the field red and is not saved. Both are written to XMP as `negpy:DevelopmentTime` and `negpy:DevelopmentTemperature`, and searchable as `devtime:` (minutes) and `temp:`.
 *   **Clear**: empties the saved process and everything it fills: developer, dilution, push/pull, time and temperature. Format stays, since the film stock sets it.
 
-**Scanning:**
+<!-- panel:metadata_scanning -->
+### Scanning
 
 *   **Saved setup**: pick a digitizing setup from the library to fill Scanning. Typing over it unlinks it.
 *   **Scanning**: scan method or notes. EXIF `Software` is always `NegPy`.
 *   **Clear**: empties the saved setup and the scanning note. Roll and Frame stay, since the scan stamps them rather than the setup.
 *   **Roll / Frame**: Scanlight capture roll name and frame number, stamped automatically on capture and editable here. Available in export filename templates as `{{ roll }}` and `{{ frame }}`, and written to XMP as `negpy:CaptureRoll` and `negpy:CaptureFrame` when set. Not the Roll Analysis normalization name.
 
-**Exposure**: optional original shutter, aperture and ISO. Click the lock to edit a free-text string, for example `1/125s f/2.8 ISO 400`.
+<!-- panel:metadata_exposure -->
+### Exposure
 
-**Metadata preview**: a live view of exactly what will be embedded, grouped by capture, scan, process and file. The Scan group shows the source file's own timestamp and coordinates, so you can see what you are replacing. **Description…** opens a checklist of which fields join into EXIF `ImageDescription`. The defaults are camera, lens, film stock and ISO; format, developer, push/pull and scanning are off until you enable them. Confirming **Description…** sets that frame's selection and becomes the sticky default for other frames that do not have their own, so the last confirm on the roll wins. Sync metadata and Sync settings can also copy a frame's selection with the rest of the metadata.
+Optional original shutter, aperture and ISO. Click the lock to edit a free-text string, for example `1/125s f/2.8 ISO 400`.
+
+<!-- panel:metadata_preview -->
+### Metadata Preview
+
+A live view of exactly what will be embedded, grouped by capture, scan, process and file. The Scan group shows the source file's own timestamp and coordinates, so you can see what you are replacing. **Description…** opens a checklist of which fields join into EXIF `ImageDescription`. The defaults are camera, lens, film stock and ISO; format, developer, push/pull and scanning are off until you enable them. Confirming **Description…** sets that frame's selection and becomes the sticky default for other frames that do not have their own, so the last confirm on the roll wins. Sync metadata and Sync settings can also copy a frame's selection with the rest of the metadata.
 
 When you set capture gear, it is written to standard EXIF, and the digitizing rig is preserved separately in `negpy:Scan*` XMP tags. Leave gear unset and your scanner or DSLR stays visible in EXIF instead.
 
 ---
 
-<!-- panel:scan_sane -->
 ## 13. Scan tab
 
-Capture film directly into NegPy. Two collapsible sections:
+Capture film directly into NegPy. Two collapsible sections.
 
-*   **Scanner**: drive a film scanner. Choose a **Backend**: **SANE** (Linux/macOS; Coolscans and other SANE devices), **Nikon Coolscan (nkscan)** (a direct driver for Nikon Coolscans on Linux, Windows and macOS) or **pyOpticfilm (Plustek)** (OpticFilm 8200i SE and 8100 V2; Windows, macOS and Linux). Controls are grouped in the order you decide them: **Film** (what is on the film), **Quality** (resolution, depth, extra passes), **Framing** (which frames, and the window) and and **Output** (format, folder, filename template). A group's header disappears with the whole group when the device has nothing in it. **Frames** takes the frames to scan as a list: `1-6`, `1,2,5`, or empty for every frame on the film. The strip preview writes its picks there, so a selection can be changed without previewing again. The line above **Scan** says what pressing it will do: how many frames, at what resolution, which extra passes and roughly how much disk it takes. **Depth** appears only when the device offers more than one bit depth, so it is hidden for the OpticFilm 8200i SE, which is 16-bit only. **Autofocus** and hardware **Auto-exposure** appear only when the connected device reports them, so typically on Coolscans and not on the OpticFilm 8200i SE. **Prescan** appears for devices that support a low-DPI full-window preview, such as the OpticFilm 8200i SE: run the preview, drag a crop rectangle, and the next Scan uses that hardware ROI. When the scanner exposes a `scan-exposure-time` option, as some genesys devices do, an **Exposure** slider appears; set it to override the scanner's default exposure time, and the value shows in µs, ms or s as appropriate. A device without the option hides the slider, so a saved value never breaks a different scanner.
+<!-- panel:scan_sane -->
+### Film Scanner
 
-    **pyOpticfilm (Plustek)** notes: the **OpticFilm 8200i SE** (`07b3:1825`) and the **8100 V2** (`07b3:1824`) are scan-ready. Other OpticFilm models may appear in the device list but cannot scan until pyopticfilm marks them ready; on Linux and macOS, switch Backend to **SANE** if that backend lists the scanner. Use **Prescan** to grab a 1200 dpi full-window preview, set a crop, then leave with **Apply crop** or **Scan frame**. Either way the next scan reads that hardware ROI at the chosen DPI, not a software crop. **Multi-exposure** (8200i SE, 8100 V2; off by default) merges short and long colour passes for more highlight and shadow detail; the long pass exposure is chosen per frame, and the scan takes longer than a normal pass. Scans from pyopticfilm 1.1.2 onward match SilverFast orientation; rescans older files if left-right matters.
+Drive a film scanner. Choose a **Backend**: **SANE** (Linux/macOS; Coolscans and other SANE devices), **Nikon Coolscan (nkscan)** (a direct driver for Nikon Coolscans on Linux, Windows and macOS) or **pyOpticfilm (Plustek)** (OpticFilm 8200i SE and 8100 V2; Windows, macOS and Linux). Controls are grouped in the order you decide them: **Film** (what is on the film), **Quality** (resolution, depth, extra passes), **Framing** (which frames, and the window) and and **Output** (format, folder, filename template). A group's header disappears with the whole group when the device has nothing in it. **Frames** takes the frames to scan as a list: `1-6`, `1,2,5`, or empty for every frame on the film. The strip preview writes its picks there, so a selection can be changed without previewing again. The line above **Scan** says what pressing it will do: how many frames, at what resolution, which extra passes and roughly how much disk it takes. **Depth** appears only when the device offers more than one bit depth, so it is hidden for the OpticFilm 8200i SE, which is 16-bit only. **Autofocus** and hardware **Auto-exposure** appear only when the connected device reports them, so typically on Coolscans and not on the OpticFilm 8200i SE. **Prescan** appears for devices that support a low-DPI full-window preview, such as the OpticFilm 8200i SE: run the preview, drag a crop rectangle, and the next Scan uses that hardware ROI. When the scanner exposes a `scan-exposure-time` option, as some genesys devices do, an **Exposure** slider appears; set it to override the scanner's default exposure time, and the value shows in µs, ms or s as appropriate. A device without the option hides the slider, so a saved value never breaks a different scanner.
 
-    With **IR** checked, colour and infrared come back in one scan pass; pyopticfilm aligns the IR plane to the colour frame. Color scans apply ASIC shading measured at home before the film feed, the same order as SilverFast, so the strip may stay loaded. The table is cached per DPI, so later scans only re-upload it.
+**pyOpticfilm (Plustek)** notes: the **OpticFilm 8200i SE** (`07b3:1825`) and the **8100 V2** (`07b3:1824`) are scan-ready. Other OpticFilm models may appear in the device list but cannot scan until pyopticfilm marks them ready; on Linux and macOS, switch Backend to **SANE** if that backend lists the scanner. Use **Prescan** to grab a 1200 dpi full-window preview, set a crop, then leave with **Apply crop** or **Scan frame**. Either way the next scan reads that hardware ROI at the chosen DPI, not a software crop. **Multi-exposure** (8200i SE, 8100 V2; off by default) merges short and long colour passes for more highlight and shadow detail; the long pass exposure is chosen per frame, and the scan takes longer than a normal pass. Scans from pyopticfilm 1.1.2 onward match SilverFast orientation; rescans older files if left-right matters.
 
-    The default Full window includes a little holder chrome top and bottom; host-path scans clamp those near-white margins to the film highlight so auto exposure is not skewed. Raise **Analysis Buffer** or crop if a frame still looks off. Autofocus and hardware Auto-exposure controls stay hidden, because the SE does not report those capabilities. On Windows, bind the device to **WinUSB** with Zadig before use, since the stock vendor or SilverFast driver conflicts. The driver is the optional **pyopticfilm** package: install it with `uv sync --group plustek` or `pip install negpy[plustek]`; Windows release builds bundle it. See [PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md).
+With **IR** checked, colour and infrared come back in one scan pass; pyopticfilm aligns the IR plane to the colour frame. Color scans apply ASIC shading measured at home before the film feed, the same order as SilverFast, so the strip may stay loaded. The table is cached per DPI, so later scans only re-upload it.
 
-    **Nikon Coolscan (nkscan)** notes: the driver talks to the scanner directly, so it needs no SANE backend. It measures the loaded film instead of counting frames: **Preview strip…** reads the whole strip in one pass, finds every frame on it, and cuts every tile out of that same pass. The tiles appear as the frames turn up, and there is no preview resolution to choose. Check the framing before scanning; a measured boundary can be nudged with **Offset** (±2.5 mm, either way, since the frame is re-addressed rather than fed past) and **Drift**, and because the tile comes out of the strip pass, a nudge re-frames without going back to the scanner. **Scan** with nothing picked scans every frame on the strip, measuring it first if no preview has. To scan a subset, type it in **Frames**, or untick frames in **Preview strip…**. Each tile carries its own tick, **All** and **None** move the lot, and the count next to them says how many will be scanned. Either way the selection shows in **Frames**, and ejecting the film clears it, since the frames and their crops describe the piece of film that just came out. **Offset** and **Drift** survive an eject, because they register the transport rather than one strip. Four controls appear only on this backend:
+The default Full window includes a little holder chrome top and bottom; host-path scans clamp those near-white margins to the film highlight so auto exposure is not skewed. Raise **Analysis Buffer** or crop if a frame still looks off. Autofocus and hardware Auto-exposure controls stay hidden, because the SE does not report those capabilities. On Windows, bind the device to **WinUSB** with Zadig before use, since the stock vendor or SilverFast driver conflicts. The driver is the optional **pyopticfilm** package: install it with `uv sync --group plustek` or `pip install negpy[plustek]`; Windows release builds bundle it. See [PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md).
 
-    *   **ICE**: remove dust and scratches with the infrared channel while scanning. Permanent, because it is baked into the file, unlike the Retouch panel's IR Restore, which stays editable. Color film only: silver grain blocks infrared, so the mask on a black-and-white negative is the picture again. **ICE** and **IR** exclude each other, because they read the same pass: ticking one unticks the other. Tick **IR** to keep the plane and clean the file later in Retouch, **ICE** to have the scanner do it now.
-    *   **Samples**: reads per line the scanner averages (1–16). Higher settings cut shadow noise and cost proportionally more time.
-    *   **Superfine**: read one line per pass. Slower, and free of the line registration the faster three-line mode owes the host.
-    *   **Film**: what is on the film. Color negative, B&W negative, Slide or Kodachrome. It decides three things: which way the frame boundaries read when the strip is measured, whether IR and ICE are offered at all (B&W and Kodachrome stop infrared with silver and dyes, so the mask comes back as the picture rather than the dust on it), and how the frame is metered. A color negative is metered one channel at a time, which takes the orange mask off before the converter instead of quantizing the blue record through it; every other film keeps its factory balance, because there the cast is the picture.
-    *   **Film format**: the frame length on the loaded film (135, 66, 645 and so on). Leave it on **Auto** where the holder narrows it, and set it for loose film in a masked carrier. It appears only where the transport measures the film to find its frames. A holder with its own frame table fixes the format, so there is nothing to choose.
+**Nikon Coolscan (nkscan)** notes: the driver talks to the scanner directly, so it needs no SANE backend. It measures the loaded film instead of counting frames: **Preview strip…** reads the whole strip in one pass, finds every frame on it, and cuts every tile out of that same pass. The tiles appear as the frames turn up, and there is no preview resolution to choose. Check the framing before scanning; a measured boundary can be nudged with **Offset** (±2.5 mm, either way, since the frame is re-addressed rather than fed past) and **Drift**, and because the tile comes out of the strip pass, a nudge re-frames without going back to the scanner. **Scan** with nothing picked scans every frame on the strip, measuring it first if no preview has. To scan a subset, type it in **Frames**, or untick frames in **Preview strip…**. Each tile carries its own tick, **All** and **None** move the lot, and the count next to them says how many will be scanned. Either way the selection shows in **Frames**, and ejecting the film clears it, since the frames and their crops describe the piece of film that just came out. **Offset** and **Drift** survive an eject, because they register the transport rather than one strip. Four controls appear only on this backend:
 
-    Every control here follows what the unit reports. An LS-50 shows neither Samples nor Superfine: it reads one CCD line at a time whatever you ask, and it ignores repeated reads of a line, so both stay hidden and a setting saved from another scanner is never sent to it.
+*   **ICE**: remove dust and scratches with the infrared channel while scanning. Permanent, because it is baked into the file, unlike the Retouch panel's IR Restore, which stays editable. Color film only: silver grain blocks infrared, so the mask on a black-and-white negative is the picture again. **ICE** and **IR** exclude each other, because they read the same pass: ticking one unticks the other. Tick **IR** to keep the plane and clean the file later in Retouch, **ICE** to have the scanner do it now.
+*   **Samples**: reads per line the scanner averages (1–16). Higher settings cut shadow noise and cost proportionally more time.
+*   **Superfine**: read one line per pass. Slower, and free of the line registration the faster three-line mode owes the host.
+*   **Film**: what is on the film. Color negative, B&W negative, Slide or Kodachrome. It decides three things: which way the frame boundaries read when the strip is measured, whether IR and ICE are offered at all (B&W and Kodachrome stop infrared with silver and dyes, so the mask comes back as the picture rather than the dust on it), and how the frame is metered. A color negative is metered one channel at a time, which takes the orange mask off before the converter instead of quantizing the blue record through it; every other film keeps its factory balance, because there the cast is the picture.
+*   **Film format**: the frame length on the loaded film (135, 66, 645 and so on). Leave it on **Auto** where the holder narrows it, and set it for loose film in a masked carrier. It appears only where the transport measures the film to find its frames. A holder with its own frame table fixes the format, so there is nothing to choose.
 
-    The driver is the optional **nkscan** package (0.9 or newer), which ships as a wheel: If running from source install it with `uv sync --group nkscan` or `pip install negpy[nkscan]`. On Linux a Coolscan on USB needs a udev rule for Nikon (vendor `04b0`), and one on FireWire/SCSI needs the `sg` kernel module.
+Every control here follows what the unit reports. An LS-50 shows neither Samples nor Superfine: it reads one CCD line at a time whatever you ask, and it ignores repeated reads of a line, so both stay hidden and a setting saved from another scanner is never sent to it.
 
-    **SANE scan window**: on a roll/strip feeder (a live frame count reported), **Preview strip…** previews every frame, sets a per-frame window, and picks which frames to scan. On a SANE device with a single manual holder and no feeder, the button reads **Preview…** instead: it previews just the current holder position and lets you drag one crop window, reused for the next scan (the pyOpticfilm backend's equivalent is **Prescan**, above). Either way, the window narrows the scanner's own hardware scan area, so the real scan only reads that region, rather than reading the full frame (holder margins and film rebate included) and cropping in software afterward.
+The driver is the optional **nkscan** package (0.9 or newer), which ships as a wheel: If running from source install it with `uv sync --group nkscan` or `pip install negpy[nkscan]`. On Linux a Coolscan on USB needs a udev rule for Nikon (vendor `04b0`), and one on FireWire/SCSI needs the `sg` kernel module.
 
-    A preview holds the scanner for the whole pass, so while one runs a progress bar tracks it, **Cancel** reads **Stop preview**, which abandons the pass and keeps the tiles already in hand, and the **Apply** and **Scan** exits stay dark until the pass ends. Previews read the way the **Film** setting says: negative stock is inverted, Slide and Kodachrome are not.
-*   **Camera Scanning**: DSLR or mirrorless copy-stand capture (macOS/Linux). It auto-connects the camera over USB in PC-Remote mode. With a NegPy **Scanlight** connected it captures narrowband R/G/B triplets from saved film-stock presets; without one it does a single white-light exposure. A **Live View** window helps you frame and focus. Captured frames land in the hot folder and flow straight into Trichrome Scan mode.
+**SANE scan window**: on a roll/strip feeder (a live frame count reported), **Preview strip…** previews every frame, sets a per-frame window, and picks which frames to scan. On a SANE device with a single manual holder and no feeder, the button reads **Preview…** instead: it previews just the current holder position and lets you drag one crop window, reused for the next scan (the pyOpticfilm backend's equivalent is **Prescan**, above). Either way, the window narrows the scanner's own hardware scan area, so the real scan only reads that region, rather than reading the full frame (holder margins and film rebate included) and cropping in software afterward.
 
-Camera scanning needs the optional `python-gphoto2` dependency (`pip install gphoto2`; no Windows build). See [CAMERA_SCANNING.md](CAMERA_SCANNING.md).
+A preview holds the scanner for the whole pass, so while one runs a progress bar tracks it, **Cancel** reads **Stop preview**, which abandons the pass and keeps the tiles already in hand, and the **Apply** and **Scan** exits stay dark until the pass ends. Previews read the way the **Film** setting says: negative stock is inverted, Slide and Kodachrome are not.
+<!-- panel:scan_rgb -->
+### Camera Scanning
+
+DSLR or mirrorless copy-stand capture (macOS/Linux). Put the camera in **PC Remote** mode and plug it in over USB; NegPy detects it on its own. With a NegPy **Scanlight** connected it captures narrowband R/G/B triplets from saved film-stock presets; without one it takes a single white-light exposure. Captured frames land in the hot folder and flow straight into Trichrome Scan mode.
+
+*   **Live View & Scan**: frame and focus. Click the image to aim the camera's focus magnifier at that spot, click again for the full frame. In white-light and camera-only scanning, ISO, shutter and aperture are set live from the toolbar; a calibrated RGB preset locks them instead, so the scan cannot drift.
+*   **Preset**: a selected preset shows its RGB levels, ISO, shutter and aperture read-only, and the scan forces that exposure before every frame. **+** calibrates a new one: place the small rectangle on clear film base (the rebate between frames), name it and run it. It solves one shutter plus a per-channel LED level so each channel lands just under clipping; if the target is out of reach it stops and says which way to adjust, and saves nothing. **Create a manual preset…** unlocks the sliders and steppers to dial one in by hand.
+*   **Scan** and **Retake**: **Scan** shoots the frame into a per-roll subfolder, auto-numbered, and imports it; **Retake** re-shoots without advancing the counter. **Delay between exposures** pauses between the R, G and B captures for bodies that lock up when the next command arrives too soon.
+*   **Narrowband**: RGB-lit scans render more saturated than white-light ones. The **Narrowband** toggle in the Normalization panel corrects this with the bundled input profile.
+
+Camera scanning needs the optional `python-gphoto2` dependency (`pip install gphoto2`; no Windows build). CAMERA_SCANNING.md has the setup, the macOS camera-daemon note and troubleshooting.
 
 <!-- panel:scan_strip -->
 ### Strip preview

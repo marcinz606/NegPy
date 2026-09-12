@@ -37,7 +37,7 @@ from negpy.desktop.view.styles.templates import (
 )
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.collapsible import CollapsibleSection
+from negpy.desktop.view.widgets.collapsible import make_section
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.widgets.export_settings_form import ExportSettingsForm, constrain_combo
 from negpy.desktop.view.widgets.split_button import make_split_button
@@ -182,11 +182,7 @@ class ExportSidebar(BaseSidebar):
         preset_btn_row.addWidget(self.export_presets_group, 1)
         content_layout.addLayout(preset_btn_row)
 
-        repo = self.controller.session.repo
-        expanded = bool(repo.get_global_setting("section_expanded_export_presets", default=False))
-        self._presets_section = CollapsibleSection("Presets", expanded=expanded, icon=qta.icon("fa5s.layer-group", color="#aaa"))
-        self._presets_section.set_content(content)
-        self._presets_section.expanded_changed.connect(lambda checked: repo.save_global_setting("section_expanded_export_presets", checked))
+        self._presets_section = make_section(self.controller.session.repo, "Presets", "export_presets", content, "fa5s.layer-group")
         self.layout.addWidget(self._presets_section)
 
     # --- Printing notes ------------------------------------------------------
@@ -223,15 +219,8 @@ class ExportSidebar(BaseSidebar):
         btn_row.addWidget(self.printing_notes_btn, 1)
         content_layout.addLayout(btn_row)
 
-        repo = self.controller.session.repo
-        expanded = bool(repo.get_global_setting("section_expanded_printing_notes", default=False))
-        self.printing_notes_section = CollapsibleSection(
-            "Printing Notes", expanded=expanded, icon=qta.icon("mdi.playlist-edit", color="#aaa")
-        )
-        self.printing_notes_section.setToolTip("The printer's record for this frame: dodge/burn map + print recipe.")
-        self.printing_notes_section.set_content(content)
-        self.printing_notes_section.expanded_changed.connect(
-            lambda checked: repo.save_global_setting("section_expanded_printing_notes", checked)
+        self.printing_notes_section = make_section(
+            self.controller.session.repo, "Printing Notes", "printing_notes", content, "mdi.playlist-edit"
         )
         self.layout.addWidget(self.printing_notes_section)
 
@@ -347,14 +336,7 @@ class ExportSidebar(BaseSidebar):
         self.contact_sheet_btn.setToolTip("Render all visible frames into a contact sheet")
         content_layout.addWidget(self.contact_sheet_btn)
 
-        repo = self.controller.session.repo
-        expanded = bool(repo.get_global_setting("section_expanded_contact_sheet", default=False))
-        self.contact_sheet_section = CollapsibleSection("Contact Sheet", expanded=expanded, icon=qta.icon("fa5s.th", color="#aaa"))
-        self.contact_sheet_section.setToolTip("Render a contact sheet of display previews. Independent of flat master export.")
-        self.contact_sheet_section.set_content(content)
-        self.contact_sheet_section.expanded_changed.connect(
-            lambda checked: repo.save_global_setting("section_expanded_contact_sheet", checked)
-        )
+        self.contact_sheet_section = make_section(self.controller.session.repo, "Contact Sheet", "contact_sheet", content, "fa5s.th")
         self.layout.addWidget(self.contact_sheet_section)
 
     def _browse_contact_sheet_output_path(self) -> None:
@@ -1094,13 +1076,7 @@ class ExportSidebar(BaseSidebar):
         col.addWidget(self.display_detected_label)
         self._refresh_display_info()
 
-        repo = self.controller.session.repo
-        expanded = bool(repo.get_global_setting("section_expanded_soft_proof", default=False))
-        self._soft_proof_section = CollapsibleSection("Soft Proof", expanded=expanded, icon=qta.icon("fa5s.print", color="#aaa"), info=True)
-        self._soft_proof_section.setToolTip("Simulate the print on screen: profile, intent and the paper's limits. Preview only.")
-        self._soft_proof_section.set_content(content)
-        self._soft_proof_section.expanded_changed.connect(lambda checked: repo.save_global_setting("section_expanded_soft_proof", checked))
-        self._soft_proof_section.info_requested.connect(self._show_soft_proof_help)
+        self._soft_proof_section = make_section(self.controller.session.repo, "Soft Proof", "soft_proof", content, "fa5s.print")
         self.layout.addWidget(self._soft_proof_section)
 
         self._reload_proof_profiles()
@@ -1115,11 +1091,6 @@ class ExportSidebar(BaseSidebar):
         row.addWidget(name)
         row.addWidget(widget)
         return row
-
-    def _show_soft_proof_help(self) -> None:
-        from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog
-
-        SectionHelpDialog("soft_proof", "Soft Proof", self).exec()
 
     def _reload_proof_profiles(self) -> None:
         """Imported ICC profiles only: proofing through a working-space profile answers no
@@ -1262,14 +1233,7 @@ class ExportSidebar(BaseSidebar):
 
         content_layout.addLayout(btn_row)
 
-        repo = self.controller.session.repo
-        expanded = bool(repo.get_global_setting("section_expanded_export_sidecars", default=False))
-        self._sidecars_section = CollapsibleSection("Sidecars", expanded=expanded, icon=qta.icon("fa5s.file-export", color="#aaa"))
-        self._sidecars_section.setToolTip("Optional plain-file copies of edits next to your sources, for archival. SQLite stays primary.")
-        self._sidecars_section.set_content(content)
-        self._sidecars_section.expanded_changed.connect(
-            lambda checked: repo.save_global_setting("section_expanded_export_sidecars", checked)
-        )
+        self._sidecars_section = make_section(self.controller.session.repo, "Sidecars", "export_sidecars", content, "fa5s.file-export")
         self.layout.addWidget(self._sidecars_section)
 
     # --- Batch ---------------------------------------------------------------

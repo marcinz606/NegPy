@@ -49,6 +49,7 @@ def _guides() -> dict[str, str]:
             if closing.match(later):
                 body = body[:j]
                 break
+        body = [ln for ln in body if not _MARKER.match(ln)]
         guides[marker.group(1)] = _LINK.sub(r"\1", "\n".join(body).strip().removesuffix("---").strip())
     return guides
 
