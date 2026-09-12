@@ -2823,12 +2823,19 @@ class TestNegativePeekColor(unittest.TestCase):
         [-0.148499995470047, 0.22040000557899475, 0.7318000197410583],
     ]
 
-    def _paint(self, cam_xyz, camera_wb=None):
+    @staticmethod
+    def _source():
         import numpy as np
 
+        # An orange-mask film base: red passes, blue is held back. The top rows are the
+        # bare light around the rebate, which is what the peek references itself to.
+        img = np.full((8, 8, 3), 0.1, dtype=np.float32) * np.array([1.0, 0.45, 0.2], dtype=np.float32)
+        img[:2, :, :] = 0.6
+        return img
+
+    def _paint(self, cam_xyz, camera_wb=None):
         state = self.controller.state
-        # An orange-mask film base: red passes, blue is held back.
-        state.preview_raw = np.full((8, 8, 3), 0.1, dtype=np.float32) * np.array([1.0, 0.45, 0.2], dtype=np.float32)
+        state.preview_raw = self._source()
         state.original_res = (8, 8)
         state.preview_cam_xyz = cam_xyz
         state.preview_camera_wb = camera_wb
@@ -2838,31 +2845,35 @@ class TestNegativePeekColor(unittest.TestCase):
     def test_the_peek_applies_the_camera_matrix(self):
         import numpy as np
 
-        from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
+        from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix, lightbox_level
         from negpy.kernel.image.logic import working_oetf_encode
 
         metrics = self._paint(self.D3300)
         painted = metrics["base_positive"]
 
         source = self.controller.state.preview_raw
-        expected = working_oetf_encode(apply_camera_matrix(source, camera_to_working_matrix(self.D3300, None)))
+        matrix = camera_to_working_matrix(self.D3300, None)
+        expected = working_oetf_encode(apply_camera_matrix(source, matrix) * lightbox_level(source, matrix))
         np.testing.assert_allclose(painted, expected, atol=1e-5)
         # And it is not the un-matrixed buffer, which is what shipped the weak mask.
-        self.assertFalse(np.allclose(painted, working_oetf_encode(source), atol=1e-3))
+        self.assertFalse(np.allclose(painted, working_oetf_encode(source * lightbox_level(source, None)), atol=1e-3))
 
     def test_the_peek_is_color_managed_but_never_proofed(self):
         metrics = self._paint(self.D3300)
         self.assertFalse(metrics["splash"], "a camera-matrixed buffer is in the working space")
         self.assertFalse(metrics["proof"], "the peek shows the scan, not a print")
 
-    def test_a_source_with_no_matrix_passes_through(self):
-        """Scanner TIFF and JPEG carry no camera matrix; they are already profiled."""
+    def test_a_source_with_no_matrix_takes_the_level_alone(self):
+        """Scanner TIFF and JPEG carry no camera matrix; they are already profiled, so the
+        display level is the only thing between the buffer and the canvas."""
         import numpy as np
 
+        from negpy.features.process.capture_color import lightbox_level
         from negpy.kernel.image.logic import working_oetf_encode
 
         metrics = self._paint(None)
-        np.testing.assert_allclose(metrics["base_positive"], working_oetf_encode(self.controller.state.preview_raw), atol=1e-6)
+        source = self.controller.state.preview_raw
+        np.testing.assert_allclose(metrics["base_positive"], working_oetf_encode(source * lightbox_level(source, None)), atol=1e-6)
 
     def test_linear_raw_folds_the_multipliers_back_in(self):
         """The decode's white balance must not change what the mask looks like, or
@@ -2875,8 +2886,7 @@ class TestNegativePeekColor(unittest.TestCase):
         state = self.controller.state
         state.config = replace(state.config, process=replace(state.config.process, linear_raw=True))
         # The Linear RAW decode skips the multipliers, so its buffer is the unbalanced one.
-        raw_unbalanced = np.full((8, 8, 3), 0.1, dtype=np.float32) * np.array([1.0, 0.45, 0.2], dtype=np.float32)
-        state.preview_raw = (raw_unbalanced / np.array(wb, dtype=np.float32)).astype(np.float32)
+        state.preview_raw = (self._source() / np.array(wb, dtype=np.float32)).astype(np.float32)
         state.original_res = (8, 8)
         state.preview_cam_xyz = self.D3300
         state.preview_camera_wb = wb
@@ -2884,6 +2894,24 @@ class TestNegativePeekColor(unittest.TestCase):
         without_wb = np.array(state.last_metrics["base_positive"])
 
         np.testing.assert_allclose(with_wb, without_wb, atol=1e-5)
+
+    def test_a_narrowband_capture_folds_the_multipliers_the_render_path_refuses(self):
+        """should_fold_camera_wb refuses them on narrowband, where no scene white balance
+        exists to reconstruct. The peek folds them anyway: it only has to show the film the
+        way every raw viewer does, and unbalanced sensor RGB renders an orange mask green."""
+        import numpy as np
+
+        from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix, lightbox_level
+        from negpy.kernel.image.logic import working_oetf_encode
+
+        state = self.controller.state
+        state.config = replace(state.config, process=replace(state.config.process, linear_raw=True, narrowband_scan=True))
+        painted = self._paint(self.D3300, camera_wb=[1.891, 1.0, 1.578])["base_positive"]
+
+        source = state.preview_raw
+        matrix = camera_to_working_matrix(self.D3300, [1.891, 1.0, 1.578])
+        expected = working_oetf_encode(apply_camera_matrix(source, matrix) * lightbox_level(source, matrix))
+        np.testing.assert_allclose(painted, expected, atol=1e-5)
 
     def test_the_peek_clears_a_stale_interactive_flag(self):
         """Flat Peek renders with readback_metrics=False, which tags its metrics
@@ -2971,9 +2999,10 @@ class TestCompareFlatPeekInteraction(unittest.TestCase):
         _, kwargs = rr.call_args
         self.assertIsNone(kwargs.get("config_override"))
 
-    def test_negative_peek_paints_the_source_with_only_the_oetf(self):
+    def test_negative_peek_paints_the_source_with_only_the_level_and_the_oetf(self):
         import numpy as np
 
+        from negpy.features.process.capture_color import lightbox_level
         from negpy.kernel.image.logic import working_oetf_encode
 
         source = np.linspace(0.0, 1.0, 8 * 8 * 3, dtype=np.float32).reshape(8, 8, 3)
@@ -2986,9 +3015,10 @@ class TestCompareFlatPeekInteraction(unittest.TestCase):
         self.assertTrue(self.controller.state.negative_peek)
         self.assertTrue(painted)
         metrics = self.controller.state.last_metrics
-        # No camera matrix on this source, so the encode is all that separates it from the
-        # buffer the loader read. See TestNegativePeekColor for the camera-native path.
-        np.testing.assert_allclose(metrics["base_positive"], working_oetf_encode(source))
+        # No camera matrix on this source, so the display level and the encode are
+        # all that separate it from the buffer the loader read. See TestNegativePeekColor
+        # for the camera-native path.
+        np.testing.assert_allclose(metrics["base_positive"], working_oetf_encode(source * lightbox_level(source, None)))
         # Working space, so the display conversion runs; the proof does not.
         self.assertFalse(metrics["splash"])
         self.assertFalse(metrics["proof"])
