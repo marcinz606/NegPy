@@ -63,6 +63,7 @@ from negpy.features.stitch.models import stitch_has_triplets, stitch_token
 from negpy.domain.interfaces import PipelineContext
 from negpy.services.rendering.engine import DarkroomEngine
 from negpy.services.rendering.gpu_engine import GPUEngine
+from negpy.infrastructure.capture.raw_demosaic import _user_sat
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.kernel.image.logic import (
     apply_exif_orientation,
@@ -831,10 +832,13 @@ class ImageProcessor:
             algo = get_best_demosaic_algorithm(raw, demosaic)
             user_wb = [1, 1, 1, 1] if linear_raw else (list(wb_override) if wb_override is not None else None)
             post_kw: Dict[str, Any] = {"half_size": True} if fast and _use_half_size_decode(raw, linear_raw) else {}
+            # NonStandardFileWrapper has no camera calibration to read; its postprocess ignores user_sat anyway.
+            user_sat = None if isinstance(raw, NonStandardFileWrapper) else _user_sat(raw)
             rgb = raw.postprocess(
                 gamma=(1, 1),
                 no_auto_bright=True,
                 adjust_maximum_thr=0.0,  # fixed white level, never the frame's own max
+                user_sat=user_sat,  # calibrated linearity limit, not the format's generic max
                 use_camera_wb=not linear_raw and wb_override is None,
                 user_wb=user_wb,
                 output_bps=16,

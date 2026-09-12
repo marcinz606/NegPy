@@ -14,6 +14,9 @@ class _SpyRaw:
     raw_type = rawpy.RawType.Flat
     raw_pattern = np.zeros((2, 2), dtype=np.uint8)
     sizes = SimpleNamespace(raw_height=8, raw_width=8, iheight=8, iwidth=8)
+    white_level = 16383
+    camera_white_level_per_channel = None  # most bodies: no calibrated table
+    black_level_per_channel = [0, 0, 0, 0]
 
     def __init__(self) -> None:
         self.seen: dict = {}
@@ -35,6 +38,21 @@ def test_sensor_decode_pins_the_white_level() -> None:
         lf.get_loader.return_value = (raw, {})
         ImageProcessor()._decode_sensor_rgb("/x.dng", linear_raw=True)
     assert raw.seen["adjust_maximum_thr"] == 0.0
+
+
+def test_sensor_decode_pins_the_scale_to_the_camera_calibrated_limit() -> None:
+    # A Nikon D800 reports a generic white_level of 16383 but a calibrated
+    # camera_white_level_per_channel of 15311 — trusting the generic number lets
+    # already non-linear photosites read as clean (issue #906, capture-side fix).
+    class _Spy(_SpyRaw):
+        white_level = 16383
+        camera_white_level_per_channel = [15311, 15311, 15311, 15311]
+
+    raw = _Spy()
+    with patch("negpy.services.rendering.image_processor.loader_factory") as lf:
+        lf.get_loader.return_value = (raw, {})
+        ImageProcessor()._decode_sensor_rgb("/x.dng", linear_raw=True)
+    assert raw.seen["user_sat"] == 15311
 
 
 def test_preview_decode_pins_the_white_level() -> None:
