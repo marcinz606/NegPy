@@ -8,6 +8,7 @@ import tifffile
 from negpy.domain.interfaces import IImageLoader
 from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, read_orientation
 from negpy.infrastructure.loaders.ir_planes import find_ir_plane
+from negpy.infrastructure.loaders.lens_metadata import bind_decode, read_lens_metadata
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
@@ -97,6 +98,7 @@ def _peek_linear_dng_rgb(file_path: str) -> Optional[Tuple[np.ndarray, Optional[
             neutral = _tag_floats(page0.tags.get("AsShotNeutral"))
             crop_origin = _tag_floats(tag("DefaultCropOrigin"))
             crop_size = _tag_floats(tag("DefaultCropSize"))
+            active_area = _tag_floats(tag("ActiveArea"))
     except Exception as e:
         logger.warning(f"Linear DNG peek failed for {file_path}: {e}")
         return None
@@ -112,6 +114,11 @@ def _peek_linear_dng_rgb(file_path: str) -> Optional[Tuple[np.ndarray, Optional[
     white3 = _broadcast3(white, dtype_max)
     data = (data - black3) / np.maximum(white3 - black3, 1e-6)
     data = np.clip(data, 0.0, 1.0)
+
+    if len(active_area) == 4:
+        top, left, bottom, right = (int(v) for v in active_area)
+        if 0 <= top < bottom <= data.shape[0] and 0 <= left < right <= data.shape[1]:
+            data = data[top:bottom, left:right]
 
     if len(crop_origin) >= 2 and len(crop_size) >= 2:
         ox, oy = int(round(crop_origin[0])), int(round(crop_origin[1]))
@@ -227,7 +234,9 @@ class RawpyLoader(IImageLoader):
                     "color_space": None,
                     "ir": None,
                 }
-                return NonStandardFileWrapper(rgb, wb_gains=wb_gains), metadata
+                wrapper = NonStandardFileWrapper(rgb, wb_gains=wb_gains)
+                metadata["lens_correction"] = bind_decode(read_lens_metadata(file_path), wrapper, fallback=True)
+                return wrapper, metadata
         else:
             raw = rawpy.imread(file_path)
 
@@ -239,4 +248,5 @@ class RawpyLoader(IImageLoader):
             "ir": _peek_hdri_ir_page(file_path),
         }
 
+        metadata["lens_correction"] = bind_decode(read_lens_metadata(file_path), raw)
         return raw, metadata
