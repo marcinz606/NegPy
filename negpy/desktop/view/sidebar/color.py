@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import QButtonGroup, QHBoxLayout
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import wrap_tooltip
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, wrap_tooltip
 from negpy.desktop.view.widgets.sliders import CompactSlider, KelvinSlider
 from negpy.features.exposure.logic import kelvin_to_wb, wb_to_kelvin
 
@@ -44,7 +44,7 @@ class ColorSidebar(BaseSidebar):
             "fa5s.eye-dropper",
             "Pick WB",
             tooltip_with_shortcut(
-                "Pick a neutral grey from the canvas — solves the selected region's CMY so the patch prints neutral",
+                "Pick a neutral gray from the canvas — solves the selected region's CMY so the patch prints neutral",
                 "pick_wb",
             ),
         )
@@ -61,7 +61,7 @@ class ColorSidebar(BaseSidebar):
             "Reset the selected region's white balance — Temperature and Cyan/Magenta/Yellow back to neutral",
         )
         self.ring_btn = self._tool_toggle("mdi.target", "", self._ring_tooltip())
-        self.ring_btn.setFixedWidth(36)
+        self.ring_btn.setFixedWidth(ICON_BUTTON_WIDTH)
 
         tools_row = QHBoxLayout()
         tools_row.addWidget(self.pick_wb_btn, 1)
@@ -87,7 +87,7 @@ class ColorSidebar(BaseSidebar):
 
         self.cast_removal_slider = CompactSlider("Cast Removal", 0.0, 1.0, conf.cast_removal_strength)
         self.cast_removal_slider.setToolTip(
-            "Cast Removal: balances each color layer against the frame's own greys, so neutrals stay "
+            "Cast Removal: balances each color layer against the frame's own grays, so neutrals stay "
             "neutral from deep shadows through highlights. 0 = off, 1 = full."
             "<br><br>On a color negative it defeats the orange mask and starts at 0.5. On a slide it "
             "starts at 0 and corrects a faded original's crossover — a slide's cast can be the "
@@ -149,7 +149,7 @@ class ColorSidebar(BaseSidebar):
         if printing:
             return "Printing the color ring-around…"
         return tooltip_with_shortcut(
-            "Color Ring-Around: print the frame as a 5×5 mosaic — the centre patch neutral, the "
+            "Color Ring-Around: print the frame as a 5×5 mosaic — the center patch neutral, the "
             "ring stepping 2cc at a time out to ±4cc on the magenta and yellow axes. Click the patch "
             "that looks neutral to keep its filtration. The 90° rotate controls turn the ladder while "
             "it is up. With Cast Removal on the patches separate less, since it corrects toward "

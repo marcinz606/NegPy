@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from negpy.desktop.view.styles.templates import field_label, hint_label
+from negpy.desktop.view.styles.templates import field_label, hint_label, pin_button_box
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.slippy_map import SlippyMapWidget
 from negpy.features.metadata.capture import format_coords, parse_coords
@@ -77,7 +77,7 @@ class LocationPickerDialog(QDialog):
         parent=None,
     ):
         super().__init__(parent)
-        self.setWindowTitle("Capture location")
+        self.setWindowTitle("Capture Location")
         self.setMinimumSize(560, 560)
 
         # The pool is owned by the dialog, so closing it joins any running lookup before the
@@ -159,6 +159,7 @@ class LocationPickerDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
+        pin_button_box(buttons)
         root.addWidget(buttons)
 
         if lat is not None and lon is not None:
@@ -170,7 +171,7 @@ class LocationPickerDialog(QDialog):
             # place would claim the frame was shot where it was digitized.
             self.map_view.set_center(*center)
             self.map_view.set_zoom(8)
-            self.status_label.setText("Centred on the scan file's coordinates.")
+            self.status_label.setText("Centered on the scan file's coordinates.")
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802 - Qt override
         """Return in the search field searches; without this the dialog's OK button takes it."""

@@ -109,13 +109,13 @@ class TutorialOverlay(QWidget):
         self._prev_btn.clicked.connect(self._prev)
         self._prev_btn.setStyleSheet(self._btn_qss(accent=False, muted=False))
 
-        self._skip_btn = QPushButton("Skip tour")
+        self._skip_btn = QPushButton("Skip Tour")
         self._skip_btn.clicked.connect(self.dismiss)
         self._skip_btn.setStyleSheet(self._btn_qss(accent=False, muted=True))
 
         self._next_btn = QPushButton("Next →")
         self._next_btn.clicked.connect(self._next)
-        self._next_btn.setStyleSheet(self._btn_qss(accent=True, muted=False))
+        self._next_btn.setProperty("primary", True)
 
         btn_row.addWidget(self._prev_btn)
         btn_row.addWidget(self._skip_btn)
@@ -124,9 +124,7 @@ class TutorialOverlay(QWidget):
         layout.addLayout(btn_row)
 
     def _btn_qss(self, accent: bool, muted: bool) -> str:
-        if accent:
-            bg, fg, border, hover = THEME.accent_primary, "#FFFFFF", "none", THEME.accent_secondary
-        elif muted:
+        if muted:
             bg, fg, border, hover = "transparent", THEME.text_hint, "none", THEME.bg_panel
         else:
             bg, fg, border, hover = "transparent", THEME.text_primary, f"1px solid {THEME.border_primary}", THEME.bg_panel

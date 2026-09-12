@@ -15,6 +15,7 @@ from typing import List, Optional, Sequence, Tuple
 import numpy as np
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QFont, QFontMetricsF, QImage, QPainter, QPainterPath, QPen, QPolygonF
+from negpy.desktop.view.styles.theme import THEME
 
 from negpy.features.local.logic import min_points, outline_points
 from negpy.features.local.models import LocalAdjustmentsConfig, MaskShape
@@ -23,8 +24,8 @@ from negpy.services.view.printing_notes import MaskNote, mask_notes
 
 # The same amber and blue the Dodge & Burn outlines use, so a mask reads the same in the
 # notes as it does while editing.
-_DODGE = QColor(232, 200, 74)
-_BURN = QColor(74, 143, 232)
+_DODGE = QColor(THEME.dodge)
+_BURN = QColor(THEME.burn)
 _INK = QColor(242, 242, 242)
 _CARD_BG = QColor(10, 10, 10, 195)
 _BAND_BG = QColor(16, 16, 16)

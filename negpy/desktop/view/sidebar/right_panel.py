@@ -22,7 +22,7 @@ from negpy.desktop.view.sidebar.metadata import MetadataSidebar
 from negpy.desktop.view.styles.templates import EditedDot
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.charts import PhotometricCurveWidget, StepWedgeWidget, ZoneStripWidget
-from negpy.desktop.view.widgets.collapsible import CollapsibleSection
+from negpy.desktop.view.widgets.collapsible import make_section
 from negpy.desktop.view.widgets.stats import DensitometerRow, NegativeStatsWidget, ZonePlacementRows
 from negpy.desktop.view.widgets.overflow_bar import OverflowBar
 
@@ -73,17 +73,10 @@ class RightPanel(QWidget):
         analysis_layout.addWidget(self.stats_widget, 0)
 
         repo = self.controller.session.repo
-        persisted = repo.get_global_setting("section_expanded_analysis")
-        analysis_expanded = bool(persisted) if persisted is not None else THEME.sidebar_expanded_defaults.get("analysis", True)
-        self.analysis_section = CollapsibleSection(
-            "Analysis",
-            expanded=analysis_expanded,
-            icon=qta.icon("fa5s.chart-bar", color="#aaa"),
-            info=True,
+        self.analysis_section = make_section(
+            repo, "Analysis", "analysis", analysis_content, "fa5s.chart-bar", THEME.sidebar_expanded_defaults["analysis"]
         )
-        self.analysis_section.info_requested.connect(self.show_analysis_help)
-        self.analysis_section.set_content(analysis_content)
-        self.analysis_section.expanded_changed.connect(lambda checked: repo.save_global_setting("section_expanded_analysis", checked))
+        analysis_expanded = self.analysis_section.toggle_button.isChecked()
 
         def wrap_scroll(widget: QWidget) -> QScrollArea:
             scroll = QScrollArea()
@@ -116,7 +109,7 @@ class RightPanel(QWidget):
             (page["key"], page["icon_name"], page["tooltip"], page["widget"], page["sections"]) for page in self.controls_panel.pages
         ]
         tab_specs += [
-            ("favourites", "fa5s.star", "Favourites", self.favourites_sidebar, []),
+            ("favourites", "fa5s.star", "Favorites", self.favourites_sidebar, []),
             ("history", "fa5s.history", "History", self.history_panel, []),
             ("export", "fa5s.file-export", "Export", self.export_sidebar, []),
             ("metadata", "fa5s.tags", "Metadata", self.metadata_sidebar, []),
@@ -199,8 +192,8 @@ class RightPanel(QWidget):
 
         self.apply_shortcut_tooltips()
 
-        # Default tab (Setup)
-        self._switch_tab(0)
+        saved_tab = repo.get_global_setting("right_panel_tab", 0)
+        self._switch_tab(saved_tab if isinstance(saved_tab, int) and 0 <= saved_tab < len(self._tab_buttons) else 0)
 
     def show_analysis_help(self) -> None:
         from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog
@@ -225,21 +218,8 @@ class RightPanel(QWidget):
         """The 'Scan' tab hosts two collapsible sections (like Color's Lab / Toning): the
         SANE flatbed/film scanner on top, the RGB-Scan trichromatic capture below."""
         repo = self.controller.session.repo
-
-        from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog, has_guide
-
-        def make(title: str, key: str, icon_name: str, content: QWidget, default_expanded: bool) -> CollapsibleSection:
-            persisted = repo.get_global_setting(f"section_expanded_{key}")
-            expanded = bool(persisted) if persisted is not None else default_expanded
-            section = CollapsibleSection(title, expanded=expanded, icon=qta.icon(icon_name, color="#aaa"), info=has_guide(key))
-            section.set_content(content)
-            section.expanded_changed.connect(lambda checked, k=key: repo.save_global_setting(f"section_expanded_{k}", checked))
-            if section.info_btn:
-                section.info_requested.connect(lambda k=key, tt=title, s=section: SectionHelpDialog(k, tt, s).exec())
-            return section
-
-        self.scan_sane_section = make("Film Scanner", "scan_sane", "fa5s.camera-retro", self.scan_sidebar, False)
-        self.scan_rgb_section = make("Camera Scanning", "scan_rgb", "fa5s.camera", self.scanlight_sidebar, True)
+        self.scan_sane_section = make_section(repo, "Film Scanner", "scan_sane", self.scan_sidebar, "fa5s.camera-retro", False)
+        self.scan_rgb_section = make_section(repo, "Camera Scanning", "scan_rgb", self.scanlight_sidebar, "fa5s.camera", True)
 
         page = QWidget()
         page_layout = QVBoxLayout(page)
@@ -291,6 +271,7 @@ class RightPanel(QWidget):
 
     def _switch_tab(self, index: int) -> None:
         self._active_index = index
+        self.controller.session.repo.save_global_setting("right_panel_tab", index)
         self.stack.setCurrentIndex(index)
         for i, btn in enumerate(self._tab_buttons):
             btn.setChecked(i == index)

@@ -1,15 +1,12 @@
-import qtawesome as qta
 from PyQt6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QInputDialog,
-    QPushButton,
 )
 
 from negpy.desktop.view.confirm import confirm_delete_named
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader
-from negpy.desktop.view.styles.theme import THEME
 from negpy.features.process.models import invalidate_local_bounds
 
 
@@ -24,9 +21,9 @@ class RollAnalysisSidebar(BaseSidebar):
         self.layout.addWidget(section_subheader("BATCH"))
 
         btns_row = QHBoxLayout()
-        self.analyze_roll_btn = QPushButton(" Batch Analysis")
-        self.analyze_roll_btn.setIcon(qta.icon("fa5s.search", color=THEME.text_primary))
-        self.analyze_roll_btn.setToolTip("Scan every loaded file and compute a roll-wide average density and color balance baseline")
+        self.analyze_roll_btn = self._labeled_action(
+            "fa5s.search", " Batch Analysis", "Scan every loaded file and compute a roll-wide average density and color balance baseline"
+        )
 
         btns_row.addWidget(self.analyze_roll_btn)
         self.layout.addLayout(btns_row)
@@ -53,23 +50,17 @@ class RollAnalysisSidebar(BaseSidebar):
         self.layout.addWidget(section_subheader("ROLL"))
 
         self.roll_combo = QComboBox()
-        self.roll_combo.setPlaceholderText("Select Roll...")
+        self.roll_combo.setPlaceholderText("Select Roll…")
         self.roll_combo.setToolTip("Previously saved roll normalization baselines")
         self._refresh_rolls()
         self.layout.addWidget(self.roll_combo)
 
         roll_actions = QHBoxLayout()
-        self.load_roll_btn = QPushButton(" Load")
-        self.load_roll_btn.setIcon(qta.icon("fa5s.upload", color=THEME.text_primary))
-        self.load_roll_btn.setToolTip("Apply the selected roll's bounds and balance to the current workspace")
-
-        self.save_roll_btn = QPushButton(" Save")
-        self.save_roll_btn.setIcon(qta.icon("fa5s.save", color=THEME.text_primary))
-        self.save_roll_btn.setToolTip("Save the current Batch Analysis result as a named reusable roll")
-
-        self.delete_roll_btn = QPushButton(" Delete")
-        self.delete_roll_btn.setIcon(qta.icon("fa5s.trash", color=THEME.text_primary))
-        self.delete_roll_btn.setToolTip("Remove the selected roll from the database")
+        self.load_roll_btn = self._labeled_action(
+            "fa5s.upload", " Load", "Apply the selected roll's bounds and balance to the current workspace"
+        )
+        self.save_roll_btn = self._labeled_action("fa5s.save", " Save", "Save the current Batch Analysis result as a named reusable roll")
+        self.delete_roll_btn = self._labeled_action("fa5s.trash", " Delete", "Remove the selected roll from the database")
 
         roll_actions.addWidget(self.load_roll_btn)
         roll_actions.addWidget(self.save_roll_btn)

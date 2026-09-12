@@ -157,7 +157,7 @@ class ScanWorker(QObject):
                     if self._cancel_event.is_set():
                         outcome = ("cancelled", None)
                     else:
-                        logger.exception("Scan failed")
+                        logger.exception("Scan Failed")
                         outcome = ("error", str(error))
                 else:
                     if self._cancel_event.is_set():

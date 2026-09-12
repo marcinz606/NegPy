@@ -12,6 +12,7 @@ from typing import Optional
 from PyQt6.QtCore import QPoint, QRect, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QMouseEvent, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QLabel, QSizePolicy
+from negpy.desktop.view.styles.theme import THEME
 
 from negpy.services.capture.calibration import Roi
 
@@ -151,14 +152,14 @@ class RoiImageLabel(QLabel):
         if draw_rect is not None and self._pixmap is not None:
             painter.drawPixmap(draw_rect, self._pixmap)
             if self._roi is not None:  # just the box outline — no centre cross (cleaner)
-                painter.setPen(QPen(QColor("#1D9E75"), 2))
+                painter.setPen(QPen(QColor(THEME.status_success), 2))
                 painter.drawRect(self._roi_in_widget(self._roi, draw_rect))
         else:
-            painter.fillRect(self.rect(), QColor("#0D0D0F"))  # black while there's no frame (e.g. stream starting)
+            painter.fillRect(self.rect(), QColor(THEME.bg_dark))  # black while there's no frame (e.g. stream starting)
             if self._loading:  # stream starting → video-player-style buffering hint
                 self._paint_spinner(painter)
             elif self.roi_mode:  # calibration window: guide the user to pick the film base
-                painter.setPen(QColor("#888780"))
+                painter.setPen(QColor(THEME.text_hint))
                 painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Live View → click the clear film base")
         painter.end()
 
@@ -167,12 +168,12 @@ class RoiImageLabel(QLabel):
         r = 16.0
         cx = self.width() / 2.0
         cy = self.height() / 2.0 - 12
-        pen = QPen(QColor("#B4B2A9"), 3)
+        pen = QPen(QColor(THEME.text_secondary), 3)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(pen)
         # drawArc angles are 1/16°; sweep a 90° arc rotating with _spin_angle.
         painter.drawArc(QRectF(cx - r, cy - r, 2 * r, 2 * r), -self._spin_angle * 16, 90 * 16)
-        painter.setPen(QColor("#888780"))
+        painter.setPen(QColor(THEME.text_hint))
         painter.drawText(QRect(0, int(cy + r + 6), self.width(), 22), Qt.AlignmentFlag.AlignHCenter, "Loading live view…")
 
     @staticmethod

@@ -15,6 +15,13 @@ from PyQt6.QtWidgets import QSizePolicy, QWidget
 
 from negpy.desktop.view.styles.theme import THEME
 
+
+def _alpha(hex_color: str, alpha: int) -> QColor:
+    c = QColor(hex_color)
+    c.setAlpha(alpha)
+    return c
+
+
 _CLIP_THRESH = 0.005  # fraction of pixels considered "clipping"
 
 
@@ -315,7 +322,7 @@ class PhotometricCurveWidget(QWidget):
                 toe3, sh3 = per_channel_toe_shoulder(toe_eff, shoulder_eff, knee_trims[:3], knee_trims[3:])
                 mg3 = per_channel_midtone_gamma(None, params.midtone_gamma, snap_trims)
                 tw3, sw3 = per_channel_widths(params.toe_width, params.shoulder_width, width_trims[:3], width_trims[3:])
-                ch_colors = (QColor(255, 90, 90), QColor(90, 220, 120), QColor(95, 150, 255))
+                ch_colors = (QColor(THEME.channel_red_text), QColor(THEME.channel_green_text), QColor(THEME.channel_blue_text))
                 self._channel_curves = [
                     (
                         ch_colors[ch],
@@ -353,13 +360,13 @@ class PhotometricCurveWidget(QWidget):
         h = self.height()
 
         # Background + border
-        painter.fillRect(self.rect(), QColor("#050505"))
-        painter.setPen(QPen(QColor("#262626"), 1))
+        painter.fillRect(self.rect(), QColor(THEME.canvas_bg_black))
+        painter.setPen(QPen(QColor(THEME.border_primary), 1))
         painter.drawRect(self.rect().adjusted(0, 0, -1, -1))
 
         # Grid at 0.25 intervals, including 0 and 1, so the axis padding reads as margin and a
         # curve flat at zero visibly lands on the baseline.
-        painter.setPen(QPen(QColor("#1A1A1A"), 1))
+        painter.setPen(QPen(QColor(THEME.border_input), 1))
         for i in range(0, 5):
             gx = int(self._wx(i * 0.25, w))
             gy = int(self._wy(i * 0.25, h))
@@ -367,7 +374,7 @@ class PhotometricCurveWidget(QWidget):
             painter.drawLine(0, gy, w, gy)
 
         # Diagonal reference (dashed)
-        painter.setPen(QPen(QColor("#2E2E2E"), 1, Qt.PenStyle.DashLine))
+        painter.setPen(QPen(QColor(THEME.bg_menu_selected), 1, Qt.PenStyle.DashLine))
         painter.drawLine(
             int(self._wx(0.0, w)),
             int(self._wy(0.0, h)),
@@ -414,7 +421,7 @@ class PhotometricCurveWidget(QWidget):
             painter.drawPath(fill_path)
 
             # P5: zone tick marks along the bottom (Adams Zone I to IX)
-            painter.setPen(QPen(QColor("#3A3A3A"), 1))
+            painter.setPen(QPen(QColor(THEME.border_hover), 1))
             for i in range(1, 10):
                 zx = int(self._wx(i * 0.1, w))
                 painter.drawLine(zx, h - 5, zx, h - 1)
@@ -446,7 +453,7 @@ class PhotometricCurveWidget(QWidget):
                     painter.setPen(QPen(color, 1.5))
                     painter.drawPath(ch_path)
             else:
-                painter.setPen(QPen(QColor("#FFFFFF"), 1.5))
+                painter.setPen(QPen(QColor(THEME.text_on_accent), 1.5))
                 painter.drawPath(curve_path)
 
             # P3: Pivot crosshairs + dot
@@ -460,8 +467,8 @@ class PhotometricCurveWidget(QWidget):
                 painter.drawLine(int(wpx), 0, int(wpx), h)
                 painter.drawLine(0, int(wpy), w, int(wpy))
 
-                painter.setBrush(QBrush(QColor("#FFFFFF")))
-                painter.setPen(QPen(QColor("#050505"), 1))
+                painter.setBrush(QBrush(QColor(THEME.text_on_accent)))
+                painter.setPen(QPen(QColor(THEME.canvas_bg_black), 1))
                 painter.drawEllipse(QPointF(wpx, wpy), 3.5, 3.5)
 
             # Spot-densitometer tracking dot
@@ -518,7 +525,7 @@ class PhotometricCurveWidget(QWidget):
         if self._output_counts is None:
             return
         specs = (
-            (3, "#D4D4D4", 26, 120),
+            (3, THEME.text_secondary, 26, 120),
             (0, THEME.channel_red, 55, 160),
             (1, THEME.channel_green, 55, 160),
             (2, THEME.channel_blue, 55, 160),
@@ -594,16 +601,16 @@ class PhotometricCurveWidget(QWidget):
         painter.setBrush(QBrush(QColor(10, 10, 10, 200)))
         painter.drawRoundedRect(outer, 3, 3)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor("#333333"), 1))
+        painter.setPen(QPen(QColor(THEME.border_color), 1))
         painter.drawRoundedRect(outer, 3, 3)
 
         font = QFont()
-        font.setPixelSize(8)
+        font.setPixelSize(THEME.font_size_micro)
         font.setBold(True)
         painter.setFont(font)
 
-        active = QColor("#E5E5E5")
-        inactive = QColor("#6B6B6B")
+        active = QColor(THEME.text_primary)
+        inactive = QColor(THEME.text_muted)
         highlight = QColor(60, 130, 255, 70)
 
         if not self._log_scale:
@@ -653,13 +660,13 @@ class PhotometricCurveWidget(QWidget):
 
         if self._channel_density:
             specs = (
-                (3, "#D4D4D4", 26, 120),
+                (3, THEME.text_secondary, 26, 120),
                 (0, THEME.channel_red, 55, 160),
                 (1, THEME.channel_green, 55, 160),
                 (2, THEME.channel_blue, 55, 160),
             )
         else:
-            specs = ((3, "#D4D4D4", 26, 120),)
+            specs = ((3, THEME.text_secondary, 26, 120),)
         for row, color_hex, alpha_fill, alpha_line in specs:
             counts = np.log1p(bins[row]) if self._log_scale else bins[row]
             peak = float(counts.max())
@@ -783,12 +790,12 @@ class ZoneStripWidget(QWidget):
         w = self.width()
         h = self.height()
         rect = self.rect().adjusted(0, 0, -1, -1)
-        painter.fillRect(rect, QColor("#050505"))
+        painter.fillRect(rect, QColor(THEME.canvas_bg_black))
 
         if self._occ is not None:
             n = len(self._LABELS)
             font = QFont()
-            font.setPixelSize(8)
+            font.setPixelSize(THEME.font_size_micro)
             painter.setFont(font)
             shadow_warn, highlight_warn = self._warn
             for i in range(n):
@@ -799,7 +806,7 @@ class ZoneStripWidget(QWidget):
                 alpha = int(min(1.0, np.sqrt(frac)) * 235)
                 painter.fillRect(x0, 0, x1 - x0, h, QColor(tone, tone, tone, alpha))
                 if (shadow_warn and i <= 1) or (highlight_warn and i == n - 1):
-                    painter.fillRect(x0, 0, x1 - x0, h, QColor(220, 80, 80, 90))
+                    painter.fillRect(x0, 0, x1 - x0, h, _alpha(THEME.clip_warning, 90))
                 armed = i == self._armed
                 painter.setPen(QPen(QColor(THEME.accent_primary) if armed else QColor(130, 130, 130, 160)))
                 painter.drawText(QRect(x0, 0, x1 - x0, h), Qt.AlignmentFlag.AlignCenter, self._LABELS[i])
@@ -807,10 +814,10 @@ class ZoneStripWidget(QWidget):
                     painter.setBrush(Qt.BrushStyle.NoBrush)
                     painter.drawRect(QRect(x0, 0, x1 - x0 - 1, h - 1))
                 if i:
-                    painter.setPen(QPen(QColor("#1A1A1A"), 1))
+                    painter.setPen(QPen(QColor(THEME.border_input), 1))
                     painter.drawLine(x0, 0, x0, h)
 
-        painter.setPen(QPen(QColor("#262626"), 1))
+        painter.setPen(QPen(QColor(THEME.border_primary), 1))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(rect)
 
@@ -875,9 +882,9 @@ class StepWedgeWidget(QWidget):
 
         painter = QPainter(self)
         rect = self.rect().adjusted(0, 0, -1, -1)
-        painter.fillRect(rect, QColor("#050505"))
+        painter.fillRect(rect, QColor(THEME.canvas_bg_black))
         if self._enc is None or self.width() < len(self._enc):
-            painter.setPen(QPen(QColor("#262626"), 1))
+            painter.setPen(QPen(QColor(THEME.border_primary), 1))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(rect)
             return
@@ -898,7 +905,7 @@ class StepWedgeWidget(QWidget):
         labelled = range(0, len(self._enc), self._LABEL_EVERY)
         if self.width() / len(labelled) >= self._LABEL_MIN_PX:
             font = QFont()
-            font.setPixelSize(8)
+            font.setPixelSize(THEME.font_size_micro)
             painter.setFont(font)
             last = labelled[-1]
             for i in labelled:
@@ -922,7 +929,7 @@ class StepWedgeWidget(QWidget):
                 painter.setPen(QColor(0, 0, 0, 220) if float(self._enc[i]) > 0.5 else QColor(255, 255, 255, 235))
                 painter.drawText(box, flags, text)
 
-        painter.setPen(QPen(QColor("#262626"), 1))
+        painter.setPen(QPen(QColor(THEME.border_primary), 1))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(rect)
 
@@ -989,7 +996,7 @@ class MiniHistogramWidget(QWidget):
             painter.setBrush(QBrush(shadow_color))
             painter.drawRect(0, 0, 3, h)
         if self._clip_high:
-            highlight_color = QColor(220, 80, 80, 180)
+            highlight_color = _alpha(THEME.clip_warning, 180)
             painter.setBrush(QBrush(highlight_color))
             painter.drawRect(w - 3, 0, 3, h)
 

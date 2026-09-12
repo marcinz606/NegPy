@@ -2,6 +2,7 @@ import qtawesome as qta
 from PyQt6.QtCore import QEvent, QObject, QSize, Qt, QTimer
 from PyQt6.QtWidgets import QLabel, QToolButton, QVBoxLayout, QWidget
 
+from negpy.desktop.view.styles.templates import toast_qss
 from negpy.desktop.view.styles.theme import THEME
 
 
@@ -18,7 +19,7 @@ class LoadingOverlay(QWidget):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         # Integer alpha: QSS float alpha is not reliably parsed across Qt versions.
-        self.setStyleSheet("background-color: rgba(5, 5, 5, 115);")
+        self.setStyleSheet(f"background-color: {THEME.surface_scrim};")
 
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -33,11 +34,7 @@ class LoadingOverlay(QWidget):
         layout.addWidget(self._spinner, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self._label = QLabel("Processing…")
-        self._label.setStyleSheet(
-            f"color: {THEME.text_primary}; font-size: {THEME.font_size_title}px; font-weight: 600; "
-            "background-color: rgba(10, 10, 10, 225); border: 1px solid rgba(255, 255, 255, 55); "
-            "border-radius: 6px; padding: 5px 14px;"
-        )
+        self._label.setStyleSheet(toast_qss())
         layout.addWidget(self._label, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         # Track the canvas size ourselves. Relying on the main window's resizeEvent leaves the

@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from negpy.desktop.view.styles.templates import dialog_pane_qss, hint_label, pane_header_qss
+from negpy.desktop.view.styles.templates import dialog_pane_qss, hint_label, pin_dialog_default, pane_header_qss
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.export_settings_form import ExportSettingsForm
 from negpy.domain.models import ColorSpace, ExportFormat, ExportPreset, ExportResolutionMode, preset_display_name
@@ -117,9 +117,23 @@ class ExportPresetsDialog(QDialog):
         self._form_layout.addStretch()
 
         scroll.setWidget(form_widget)
-        root.addWidget(scroll)
+
+        right = QWidget()
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
+        right_layout.addWidget(scroll, 1)
+        footer = QHBoxLayout()
+        footer.setContentsMargins(THEME.space_2xl, THEME.space_xl, THEME.space_2xl, THEME.space_2xl)
+        footer.addStretch()
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        footer.addWidget(close_btn)
+        right_layout.addLayout(footer)
+        root.addWidget(right)
 
         self._rebuild_list()
+        pin_dialog_default(close_btn, scope=self)
 
     def _build_form(self) -> None:
         fl = self._form_layout
@@ -135,7 +149,7 @@ class ExportPresetsDialog(QDialog):
         # Name & enabled
         row = QHBoxLayout()
         self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("Preset name")
+        self.name_edit.setPlaceholderText("Preset Name")
         self.name_edit.textChanged.connect(self._on_name_changed)
         self.enabled_check = QCheckBox("Enabled")
         self.enabled_check.stateChanged.connect(self._on_enabled_changed)
@@ -246,8 +260,8 @@ class ExportPresetsDialog(QDialog):
 
     def _show_add_menu(self) -> None:
         menu = QMenu(self)
-        menu.addAction("Print preset", self._add_print_preset)
-        menu.addAction("Flat master preset", self._add_flat_preset)
+        menu.addAction("Print Preset", self._add_print_preset)
+        menu.addAction("Flat Master Preset", self._add_flat_preset)
         menu.exec(self.add_btn.mapToGlobal(self.add_btn.rect().bottomLeft()))
 
     def _append_preset(self, preset: ExportPreset) -> None:

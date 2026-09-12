@@ -8,7 +8,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QPushButton,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -25,7 +24,7 @@ from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_label, hint_label, wrap_tooltip
 from negpy.desktop.view.styles.fonts import mono_font_family
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.collapsible import CollapsibleSection
+from negpy.desktop.view.widgets.collapsible import CollapsibleSection, make_section
 from negpy.desktop.view.widgets.description_fields_dialog import DescriptionFieldsDialog
 from negpy.desktop.view.widgets.gear_library_dialog import GearLibraryDialog
 from negpy.desktop.view.widgets.location_picker_dialog import LocationPickerDialog
@@ -121,13 +120,13 @@ class MetadataSidebar(BaseSidebar):
         self.metadata_preset_combo = SearchableGearCombo(placeholder="Search metadata presets…")
         self.metadata_preset_combo.setToolTip("A saved set of metadata values. Click and type to search.")
         load_row.addWidget(self.metadata_preset_combo, 1)
-        self.metadata_preset_load_btn = QPushButton("Load")
+        self.metadata_preset_load_btn = self._labeled_action("", "Load", "Write the selected preset's fields onto this frame")
         load_row.addWidget(self.metadata_preset_load_btn)
         presets.addLayout(load_row)
 
-        self.manage_btn = QPushButton(" Manage…")
-        self.manage_btn.setIcon(qta.icon("fa5s.cog", color=THEME.text_primary))
-        self.manage_btn.setToolTip("Save, edit and delete metadata presets, cameras, lenses and film stocks")
+        self.manage_btn = self._labeled_action(
+            "fa5s.cog", " Manage…", "Save, edit and delete metadata presets, cameras, lenses and film stocks"
+        )
         presets.addWidget(self.manage_btn)
         self._refresh_metadata_presets()
         controls.addWidget(self._card("Metadata Presets", "presets", preset_body, "fa5s.magic"))
@@ -151,8 +150,7 @@ class MetadataSidebar(BaseSidebar):
         self.film_stock_combo.setToolTip("Film stock used for the original capture. Click and type to search.")
         gear.addWidget(self.film_stock_combo)
 
-        self.gear_clear_btn = QPushButton("Clear")
-
+        self.gear_clear_btn = self._labeled_action("", "Clear", "Empty camera, lens and film stock")
         gear.addWidget(self.gear_clear_btn)
         controls.addWidget(self._card("Analog Gear", "gear", gear_body, "fa5s.camera-retro"))
 
@@ -251,7 +249,7 @@ class MetadataSidebar(BaseSidebar):
         dev_row.addLayout(temp_col, 1)
         proc.addLayout(dev_row)
 
-        self.process_clear_btn = QPushButton("Clear")
+        self.process_clear_btn = self._labeled_action("", "Clear", "Empty the saved process and everything it fills; Format stays")
         proc.addWidget(self.process_clear_btn)
         controls.addWidget(self._card("Process", "process", proc_body, "fa5s.flask"))
 
@@ -291,13 +289,13 @@ class MetadataSidebar(BaseSidebar):
         roll_row.addLayout(frame_col, 1)
         scan.addLayout(roll_row)
 
-        self.scan_clear_btn = QPushButton("Clear")
+        self.scan_clear_btn = self._labeled_action("", "Clear", "Empty the saved setup and the scanning note; Roll and Frame stay")
         scan.addWidget(self.scan_clear_btn)
         controls.addWidget(self._card("Scanning", "scanning", scan_body, "mdi6.scanner"))
 
         # ── EXPOSURE ─────────────────────────────────────────────────────
         exp_body, exp = self._card_body()
-        exp.addWidget(hint_label("Optional original capture exposure — click 🔓 to edit"))
+        exp.addWidget(hint_label("Optional original capture exposure — click the lock to edit"))
 
         self.exposure_label = field_label("Exposure")
         exp.addWidget(self.exposure_label)
@@ -319,8 +317,7 @@ class MetadataSidebar(BaseSidebar):
         preview_top.setSpacing(THEME.space_sm)
         preview_hint = hint_label("Written to exported files on export.")
         preview_top.addWidget(preview_hint, 1)
-        self.description_fields_btn = QPushButton("Description…")
-        self.description_fields_btn.setToolTip("Choose which fields join into EXIF ImageDescription.")
+        self.description_fields_btn = self._labeled_action("", "Description…", "Choose which fields join into EXIF ImageDescription")
         preview_top.addWidget(self.description_fields_btn)
         preview_layout.addLayout(preview_top)
 
@@ -331,8 +328,7 @@ class MetadataSidebar(BaseSidebar):
         self.preview_empty = hint_label("Select gear or enter process metadata to see a preview.")
         preview_layout.addWidget(self.preview_empty)
 
-        self.preview_section = CollapsibleSection("Metadata preview", expanded=True)
-        self.preview_section.set_content(self.preview_content)
+        self.preview_section = self._card("Metadata Preview", "preview", self.preview_content, "fa5s.eye")
         self.layout.addWidget(self.preview_section)
 
         # After every card: the tooltips it fills in span all of them.
@@ -347,13 +343,7 @@ class MetadataSidebar(BaseSidebar):
         return body, layout
 
     def _card(self, title: str, key: str, content: QWidget, icon_name: str) -> CollapsibleSection:
-        repo = self.controller.session.repo
-        setting = f"section_expanded_metadata_{key}"
-        expanded = bool(repo.get_global_setting(setting, default=True))
-        section = CollapsibleSection(title, expanded=expanded, icon=qta.icon(icon_name, color="#aaa"))
-        section.set_content(content)
-        section.expanded_changed.connect(lambda checked, s=setting: repo.save_global_setting(s, checked))
-        return section
+        return make_section(self.controller.session.repo, title, f"metadata_{key}", content, icon_name, default_expanded=True)
 
     def _make_exif_field(self, key: str, layout: QVBoxLayout) -> QLineEdit:
         row = QHBoxLayout()
@@ -553,7 +543,7 @@ class MetadataSidebar(BaseSidebar):
         self._on_process_edited()
 
     def _flag_invalid(self, edit: QLineEdit, invalid: bool) -> None:
-        edit.setStyleSheet(f"border: 1px solid {THEME.accent_secondary};" if invalid else "")
+        edit.setStyleSheet(f"border: 1px solid {THEME.error};" if invalid else "")
 
     def _dev_time_value(self) -> Optional[int]:
         """Unreadable text keeps what is stored; blank clears. Same rule as Capture Date."""
@@ -703,7 +693,7 @@ class MetadataSidebar(BaseSidebar):
 
     def _on_capture_date_changed(self, text: str) -> None:
         valid = not text.strip() or parse_capture_date(text) is not None
-        self.capture_date_edit.setStyleSheet("" if valid else f"border: 1px solid {THEME.accent_secondary};")
+        self.capture_date_edit.setStyleSheet("" if valid else f"border: 1px solid {THEME.error};")
         self._mark_dirty()
 
     def _source_exif(self) -> Optional[dict]:

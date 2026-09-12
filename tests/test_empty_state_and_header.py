@@ -54,7 +54,7 @@ def test_load_menu_offers_both_import_routes(overlay, monkeypatch):
 
     monkeypatch.setattr("negpy.desktop.view.main_window.QMenu", _Menu)
     overlay._show_load_menu()
-    assert captured == ["Add files…", "Add folder…"]
+    assert captured == ["Add Files…", "Add Folder…"]
 
 
 def test_tour_button_emits_its_signal(overlay):

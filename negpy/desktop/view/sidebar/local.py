@@ -46,7 +46,7 @@ class LocalSidebar(BaseSidebar):
             "fa5s.circle",
             "Oval",
             "Burn through a hole in the card, or dodge with a wand: drag out an oval. Its three "
-            "handles move it (centre) and set each axis, so it can be stretched and tilted.",
+            "handles move it (center) and set each axis, so it can be stretched and tilted.",
         )
         self.gradient_btn = self._tool_toggle(
             "fa5s.grip-lines",
@@ -68,7 +68,7 @@ class LocalSidebar(BaseSidebar):
         # The row is a custom widget, so drop the app-wide item padding, margin and border that
         # would otherwise squeeze and clip it.
         self.mask_list.setStyleSheet(
-            "QListView::item { border: none; margin: 0px; padding: 0px; }QListView::item:selected { background-color: #2A2A2A; }"
+            f"QListView::item {{ border: none; margin: 0px; padding: 0px; }}QListView::item:selected {{ background-color: {THEME.bg_hover}; }}"
         )
         self.layout.addWidget(self.mask_list)
 
@@ -152,9 +152,9 @@ class LocalSidebar(BaseSidebar):
 
     def _build_mask_row(self, i: int, mask) -> _MaskRow:
         if mask.stops > 0:
-            kind, color = "Burn", "#4A8FE8"
+            kind, color = "Burn", THEME.burn
         elif mask.stops < 0:
-            kind, color = "Dodge", "#E8C84A"
+            kind, color = "Dodge", THEME.dodge
         else:
             # A mask that only changes grade is neither: it re-prints the area at its own contrast
             # without adding or holding back exposure.

@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.settings_catalog import SettingRow, catalog_sections
+from negpy.desktop.view.styles.templates import pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 
@@ -85,7 +86,7 @@ class GranularSettingsDialog(QDialog):
 
         if ask_name:
             self._name_edit = QLineEdit()
-            self._name_edit.setPlaceholderText("Preset name")
+            self._name_edit.setPlaceholderText("Preset Name")
             self._name_edit.textChanged.connect(self._update_apply_enabled)
             root.addWidget(self._name_edit)
         if show_scope:
@@ -253,6 +254,7 @@ class GranularSettingsDialog(QDialog):
         self.apply_btn.clicked.connect(self._on_apply)
         row.addWidget(cancel_btn)
         row.addWidget(self.apply_btn)
+        pin_dialog_default(self.apply_btn, cancel_btn)
         return row
 
     def _all_boxes(self) -> list[QCheckBox]:

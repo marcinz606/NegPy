@@ -58,6 +58,15 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "toggle_flat_peek": ShortcutEntry("M", "Peek flat scan (digital intermediate)", "Tools"),
     "toggle_negative_peek": ShortcutEntry("N", "Peek negative (source as loaded)", "Tools"),
     "toggle_zones": ShortcutEntry("Shift+Z", "Adams zone overlay", "Tools"),
+    "toggle_hq": ShortcutEntry("", "Toggle high-quality (full-resolution) preview", "View"),
+    "toggle_optical_removal": ShortcutEntry("", "Toggle Optical Removal", "Retouch"),
+    "toggle_ir_removal": ShortcutEntry("", "Toggle IR Removal", "Retouch"),
+    "toggle_flat_field": ShortcutEntry("", "Toggle Apply Flat Field", "Geometry"),
+    "batch_autocrop": ShortcutEntry("", "Batch Autocrop every loaded frame", "Geometry"),
+    "toggle_auto_density": ShortcutEntry("", "Toggle Auto Density", "Exposure"),
+    "toggle_auto_grade": ShortcutEntry("", "Toggle Auto Grade", "Exposure"),
+    "preset_apply": ShortcutEntry("", "Apply the selected preset", "Actions"),
+    "preset_save": ShortcutEntry("", "Save a preset from the current settings", "Actions"),
     "toggle_test_strip": ShortcutEntry("Shift+T", "Density × grade test strip", "Tools"),
     "toggle_ring_around": ShortcutEntry("Shift+F", "Color ring-around (M/Y filtration)", "Tools"),
     "toggle_grain_focuser": ShortcutEntry("Shift+L", "Grain focuser loupe", "Tools"),
@@ -200,7 +209,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "tab_export": ShortcutEntry("Ctrl+7", "Export tab", "Tabs"),
     "tab_metadata": ShortcutEntry("Ctrl+8", "Metadata tab", "Tabs"),
     "tab_scan": ShortcutEntry("Ctrl+9", "Scan tab", "Tabs"),
-    "tab_favourites": ShortcutEntry("Ctrl+0", "Favourites tab", "Tabs"),
+    "tab_favourites": ShortcutEntry("Ctrl+0", "Favorites tab", "Tabs"),
     "fit_view": ShortcutEntry("0", "Fit to window", "View"),
     "zoom_100": ShortcutEntry("1", "Zoom 100%", "View"),
     "zoom_200": ShortcutEntry("2", "Zoom 200%", "View"),
@@ -373,7 +382,7 @@ def tooltip_with_shortcut(text: str, action_ids: str | Iterable[str] | None = No
     # on inline <span> elements, where background and padding render but the outline does not,
     # and honours it on table cells, so the chips must be <td>s.
     cells = [
-        f'<td style="border:1px solid #5A5A5A;background:#242424;color:#C8C8C8;padding:1px 6px;font-size:{THEME.font_size_small}px;">{display_key(key)}</td>'
+        f'<td style="border:1px solid {THEME.border_indicator};background:{THEME.bg_selected};color:{THEME.text_primary};padding:1px 6px;font-size:{THEME.font_size_small}px;">{display_key(key)}</td>'
         for key in keys
     ]
     # The " & " separator sits in its own borderless cell, so it does not inherit a keycap

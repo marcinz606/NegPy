@@ -3,13 +3,12 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 from PyQt6.QtCore import QTimer, pyqtSignal
-import qtawesome as qta
 
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
-from negpy.desktop.view.widgets.collapsible import CollapsibleSection
+from negpy.desktop.view.styles.templates import wrap_tooltip
+from negpy.desktop.view.widgets.collapsible import CollapsibleSection, make_section
 from negpy.desktop.view.widgets.charts import MiniHistogramWidget, MiniRGBHistogramWidget
-from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog, has_guide
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.exposure.models import ExposureConfig
 from negpy.features.lab.models import LabConfig
@@ -138,14 +137,12 @@ class ControlsPanel(QWidget):
         self._connect_signals()
 
     def _init_ui(self) -> None:
-        icon_color = "#aaa"
-
         self.presets_sidebar = PresetsSidebar(self.controller)
         self.presets_section = self._make_section(
             "Presets",
             "presets",
             self.presets_sidebar,
-            icon=qta.icon("fa5s.magic", color=icon_color),
+            icon_name="fa5s.magic",
         )
 
         self.flatfield_sidebar = FlatFieldSidebar(self.controller)
@@ -153,7 +150,7 @@ class ControlsPanel(QWidget):
             "Flat Field",
             "flatfield",
             self.flatfield_sidebar,
-            icon=qta.icon("fa5s.adjust", color=icon_color),
+            icon_name="fa5s.adjust",
         )
 
         self.geometry_sidebar = GeometrySidebar(self.controller)
@@ -161,7 +158,7 @@ class ControlsPanel(QWidget):
             "Geometry",
             "geometry",
             self.geometry_sidebar,
-            icon=qta.icon("fa5s.crop", color=icon_color),
+            icon_name="fa5s.crop",
         )
 
         self.process_sidebar = ProcessSidebar(self.controller)
@@ -169,7 +166,7 @@ class ControlsPanel(QWidget):
             "Normalization",
             "process",
             self.process_sidebar,
-            icon=qta.icon("fa5s.cogs", color=icon_color),
+            icon_name="fa5s.cogs",
         )
 
         self.sensor_sidebar = SensorSidebar(self.controller)
@@ -179,7 +176,7 @@ class ControlsPanel(QWidget):
             "Calibration",
             "sensor",
             self.sensor_sidebar,
-            icon=qta.icon("fa5s.vials", color=icon_color),
+            icon_name="fa5s.vials",
         )
 
         self.demosaic_sidebar = DemosaicSidebar(self.controller)
@@ -187,7 +184,7 @@ class ControlsPanel(QWidget):
             "Demosaic",
             "demosaic",
             self.demosaic_sidebar,
-            icon=qta.icon("mdi6.grid", color=icon_color),
+            icon_name="mdi6.grid",
         )
 
         self.roll_sidebar = RollAnalysisSidebar(self.controller)
@@ -195,7 +192,7 @@ class ControlsPanel(QWidget):
             "Roll Analysis",
             "roll",
             self.roll_sidebar,
-            icon=qta.icon("mdi6.film", color=icon_color),
+            icon_name="mdi6.film",
         )
 
         self.color_sidebar = ColorSidebar(self.controller)
@@ -206,7 +203,7 @@ class ControlsPanel(QWidget):
             "Filtration",
             "color",
             self.color_sidebar,
-            icon=qta.icon("fa5s.palette", color=icon_color),
+            icon_name="fa5s.palette",
             background_widget=self.color_histogram,
         )
 
@@ -216,7 +213,7 @@ class ControlsPanel(QWidget):
             "Tone",
             "tone",
             self.tone_sidebar,
-            icon=qta.icon("fa5s.sun", color=icon_color),
+            icon_name="fa5s.sun",
             background_widget=self.tone_histogram,
         )
 
@@ -225,7 +222,7 @@ class ControlsPanel(QWidget):
             "Lab",
             "lab",
             self.lab_sidebar,
-            icon=qta.icon("fa5s.flask", color=icon_color),
+            icon_name="fa5s.flask",
         )
 
         self.altproc_sidebar = AltProcessSidebar(self.controller)
@@ -233,7 +230,7 @@ class ControlsPanel(QWidget):
             "Alternative Processes",
             "altproc",
             self.altproc_sidebar,
-            icon=qta.icon("fa5s.fire", color=icon_color),
+            icon_name="fa5s.fire",
         )
 
         self.toning_sidebar = ToningSidebar(self.controller)
@@ -241,7 +238,7 @@ class ControlsPanel(QWidget):
             "Toning",
             "toning",
             self.toning_sidebar,
-            icon=qta.icon("fa5s.tint", color=icon_color),
+            icon_name="fa5s.tint",
         )
 
         self.retouch_sidebar = RetouchSidebar(self.controller)
@@ -249,7 +246,7 @@ class ControlsPanel(QWidget):
             "Retouch",
             "retouch",
             self.retouch_sidebar,
-            icon=qta.icon("fa5s.brush", color=icon_color),
+            icon_name="fa5s.brush",
         )
 
         self.local_sidebar = LocalSidebar(self.controller)
@@ -257,7 +254,7 @@ class ControlsPanel(QWidget):
             "Dodge & Burn",
             "local",
             self.local_sidebar,
-            icon=qta.icon("fa5s.adjust", color=icon_color),
+            icon_name="fa5s.adjust",
         )
 
         self.finish_sidebar = FinishSidebar(self.controller)
@@ -265,7 +262,7 @@ class ControlsPanel(QWidget):
             "Finishing",
             "finish",
             self.finish_sidebar,
-            icon=qta.icon("fa5s.paint-brush", color=icon_color),
+            icon_name="fa5s.paint-brush",
         )
 
         # Group the sections into workflow pages (each becomes an icon tab in RightPanel).
@@ -335,29 +332,18 @@ class ControlsPanel(QWidget):
         title: str,
         key: str,
         widget: QWidget,
-        icon=None,
+        icon_name: str,
         background_widget=None,
     ) -> CollapsibleSection:
-        """Create a collapsible section (persisting its expanded state). Returns the section."""
-        repo = self.controller.session.repo
-        persisted = repo.get_global_setting(f"section_expanded_{key}")
-        if persisted is not None:
-            is_expanded = bool(persisted)
-        else:
-            is_expanded = THEME.sidebar_expanded_defaults.get(key, False)
-            if key in ["process", "color", "tone", "geometry", "lab", "retouch", "export", "analysis", "toning"]:
-                is_expanded = THEME.sidebar_expanded_defaults.get(key, True)
-
-        section = CollapsibleSection(title, expanded=is_expanded, icon=icon, background_widget=background_widget, info=has_guide(key))
-        section.set_content(widget)
-
-        section.expanded_changed.connect(lambda checked, k=key: repo.save_global_setting(f"section_expanded_{k}", checked))
-        if section.info_btn:
-            # Parent the dialog to the section, not to self: ControlsPanel is never added to a layout,
-            # only its pages are, so as a dialog parent it centres the guide on a phantom 0,0 window
-            # instead of the main window.
-            section.info_requested.connect(lambda k=key, t=title, s=section: SectionHelpDialog(k, t, s).exec())
-        return section
+        return make_section(
+            self.controller.session.repo,
+            title,
+            key,
+            widget,
+            icon_name,
+            default_expanded=THEME.sidebar_expanded_defaults.get(key, False),
+            background_widget=background_widget,
+        )
 
     def _connect_signals(self) -> None:
         self._sync_debounce = QTimer()
@@ -389,6 +375,17 @@ class ControlsPanel(QWidget):
         rebind to re-render the key chips. Don't set these locally in the sidebars:
         this pass overwrites them."""
         col = self.color_sidebar
+        for btn, action_id in (
+            (self.retouch_sidebar.auto_dust_btn, "toggle_optical_removal"),
+            (self.retouch_sidebar.ir_dust_btn, "toggle_ir_removal"),
+            (self.flatfield_sidebar.enable_btn, "toggle_flat_field"),
+            (self.geometry_sidebar.auto_crop_all_btn, "batch_autocrop"),
+            (self.tone_sidebar.auto_density_btn, "toggle_auto_density"),
+            (self.tone_sidebar.auto_grade_btn, "toggle_auto_grade"),
+            (self.presets_sidebar.apply_btn, "preset_apply"),
+            (self.presets_sidebar.save_btn, "preset_save"),
+        ):
+            btn.setToolTip(wrap_tooltip(tooltip_with_shortcut(btn.plain_tooltip, action_id)))
         exp = self.tone_sidebar
         geo = self.geometry_sidebar
         lab = self.lab_sidebar
@@ -400,7 +397,7 @@ class ControlsPanel(QWidget):
 
         col.pick_wb_btn.setToolTip(
             tooltip_with_shortcut(
-                "Activate eyedropper — click a neutral grey pixel to auto-compute white balance offsets",
+                "Activate eyedropper — click a neutral gray pixel to auto-compute white balance offsets",
                 "pick_wb",
             )
         )
@@ -592,7 +589,7 @@ class ControlsPanel(QWidget):
                 "Linear chroma scale (CIELAB a*/b*) after the print is decoded — a retouching move, "
                 "applied evenly to every tone. Dye Separation in Tone is the density-space equivalent: "
                 "it works on the print's dye densities, so it stays in step with the paper and the curve. "
-                "1.0 = unchanged, 0 = greyscale, 2.0 = double",
+                "1.0 = unchanged, 0 = grayscale, 2.0 = double",
                 ["saturation_inc", "saturation_dec"],
             )
         )

@@ -3,13 +3,14 @@ from PyQt6.QtWidgets import QButtonGroup, QComboBox, QDialog, QHBoxLayout
 
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, TUNABLE_TARGETS, apply_targets
 
 _CH_SUFFIX = ("red", "green", "blue")
 _CH_LABEL = ("", " R", " G", " B")
-_CH_COLORS = ("#ff5a5a", "#5adc78", "#5f96ff")
+_CH_COLORS = (THEME.channel_red_text, THEME.channel_green_text, THEME.channel_blue_text)
 
 
 class ToneSidebar(BaseSidebar):
@@ -22,8 +23,8 @@ class ToneSidebar(BaseSidebar):
         conf = self.state.config.exposure
 
         self.density_slider = CompactSlider("Print Density", 0.0, 2.0, conf.density)
-        self.grade_slider = CompactSlider("ISO-R Grade", 50.0, 180.0, conf.grade, step=1.0, inverted=True)
-        self.grade_trim_slider = CompactSlider("Grade", -30.0, 30.0, 0.0, step=1.0, inverted=True)
+        self.grade_slider = CompactSlider("ISO-R Grade", 50.0, 180.0, conf.grade, step=1.0, inverted=True, unit=" R")
+        self.grade_trim_slider = CompactSlider("Grade", -30.0, 30.0, 0.0, step=1.0, inverted=True, unit=" R")
         self.grade_trim_slider.setToolTip(
             "Crossover correction — this layer's contrast trim in ISO-R points on top of the Grade: "
             "filtration can only shift a dye layer's curve, this rotates its slope, fixing casts that "
@@ -92,7 +93,7 @@ class ToneSidebar(BaseSidebar):
         )
         self.targets_btn.clicked.connect(self._open_targets_dialog)
         self.test_strip_btn = self._tool_toggle("mdi.view-grid-outline", "", self._test_strip_tooltip())
-        self.test_strip_btn.setFixedWidth(36)  # match targets_btn, so the row doesn't stair-step
+        self.test_strip_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.test_strip_btn.clicked.connect(lambda checked: self.controller.toggle_test_strip(force=checked))
 
         auto_row = QHBoxLayout()
@@ -130,8 +131,10 @@ class ToneSidebar(BaseSidebar):
         grade_row.addWidget(self.grade_trim_slider)
         self.layout.addLayout(grade_row)
 
-        self.shadow_grade_slider = CompactSlider("Shadows Grade", -50.0, 50.0, conf.shadow_grade, step=1.0, inverted=True)
-        self.highlight_grade_slider = CompactSlider("Highlights Grade", -50.0, 50.0, conf.highlight_grade, step=1.0, inverted=True)
+        self.shadow_grade_slider = CompactSlider("Shadows Grade", -50.0, 50.0, conf.shadow_grade, step=1.0, inverted=True, unit=" R")
+        self.highlight_grade_slider = CompactSlider(
+            "Highlights Grade", -50.0, 50.0, conf.highlight_grade, step=1.0, inverted=True, unit=" R"
+        )
         split_grade_row = QHBoxLayout()
         split_grade_row.addWidget(self.shadow_grade_slider)
         split_grade_row.addWidget(self.highlight_grade_slider)

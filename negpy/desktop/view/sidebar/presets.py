@@ -10,6 +10,7 @@ from negpy.desktop.settings_catalog import (
     preset_summary,
     selected_flat_dict,
 )
+from negpy.desktop.view.confirm import confirm_delete_named
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import wrap_tooltip
 from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog
@@ -134,29 +135,20 @@ class PresetsSidebar(BaseSidebar):
         from PyQt6.QtWidgets import QMessageBox
 
         if not is_valid_preset_name(name):
-            QMessageBox.warning(self, "Preset name", 'A preset name cannot contain / \\ : * ? " < > | or start or end with a dot.')
+            QMessageBox.warning(self, "Preset Name", 'A preset name cannot contain / \\ : * ? " < > | or start or end with a dot.')
             return False
         if name.casefold() == replacing.casefold() or not replacing or not Presets.exists(name):
             return True
         return (
-            QMessageBox.question(self, "Replace preset", f"A preset named '{name}' already exists. Replace it?")
+            QMessageBox.question(self, "Replace Preset", f"A preset named '{name}' already exists. Replace it?")
             == QMessageBox.StandardButton.Yes
         )
 
     def _on_delete_clicked(self) -> None:
-        from PyQt6.QtWidgets import QMessageBox
-
         name = self._current_name()
         if not name:
             return
-        reply = QMessageBox.question(
-            self,
-            "Delete Preset",
-            f"Delete preset '{name}'?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
+        if confirm_delete_named(self, "Preset", name):
             Presets.delete_preset(name)
             self._refresh_presets(force=True)
 

@@ -192,6 +192,37 @@ class CollapsibleSection(QWidget):
             self.toggle_button.setChecked(True)
 
 
+def make_section(
+    repo,
+    title: str,
+    key: str,
+    content: QWidget,
+    icon_name: str,
+    default_expanded: bool = False,
+    background_widget: Optional[QWidget] = None,
+) -> CollapsibleSection:
+    """The one way a sidebar builds a section: persisted under section_expanded_{key}, and the
+    ⓘ guide present exactly when docs/USER_GUIDE.md carries a `panel:{key}` marker. The help
+    dialog is parented to the section, so it centres on the window the section is in."""
+    from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog, has_guide
+
+    setting = f"section_expanded_{key}"
+    persisted = repo.get_global_setting(setting)
+    expanded = default_expanded if persisted is None else bool(persisted)
+    section = CollapsibleSection(
+        title,
+        expanded=expanded,
+        icon=qta.icon(icon_name, color=THEME.text_hint),
+        background_widget=background_widget,
+        info=has_guide(key),
+    )
+    section.set_content(content)
+    section.expanded_changed.connect(lambda checked: repo.save_global_setting(setting, checked))
+    if section.info_btn:
+        section.info_requested.connect(lambda: SectionHelpDialog(key, title, section).exec())
+    return section
+
+
 def hidden_by_gating(widget: QWidget) -> bool:
     """True when the mode or config retired *widget*, as opposed to it being off-screen.
 

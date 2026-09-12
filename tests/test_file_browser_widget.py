@@ -125,20 +125,20 @@ def test_context_menu_single_selection_items(browser, session):
     session.state.selected_indices = [0]
     session.state.selected_file_idx = 0
     labels = _action_labels(browser._build_context_menu())
-    assert "Export current frame" in labels
-    assert "Export selected frames" not in labels
+    assert "Export Current Frame" in labels
+    assert "Export Selected Frames" not in labels
     assert "Reset Settings" in labels
-    assert "Unload" in labels
-    assert "Apply settings…" in labels
+    assert "Unload…" in labels
+    assert "Apply Settings…" in labels
 
 
 def test_context_menu_offers_unsplit_only_for_a_diptych(browser, session):
     session.state.selected_indices = [0]
     session.state.selected_file_idx = 0
-    assert "Unsplit diptych" not in _action_labels(browser._build_context_menu())
+    assert "Unsplit Diptych" not in _action_labels(browser._build_context_menu())
 
     session.state.uploaded_files[0]["diptych"] = True
-    assert "Unsplit diptych" in _action_labels(browser._build_context_menu())
+    assert "Unsplit Diptych" in _action_labels(browser._build_context_menu())
 
 
 def test_unsplit_diptych_menu_action_only_enabled_for_a_diptych(browser, session):
@@ -159,13 +159,13 @@ def test_context_menu_offers_per_frame_split_only_for_a_half(browser, session):
     session.state.selected_indices = [0]
     session.state.selected_file_idx = 0
     browser.controller.half_frame_override.return_value = None
-    assert "Adjust split for this frame…" not in _action_labels(browser._build_context_menu())
+    assert "Adjust Split for This Frame…" not in _action_labels(browser._build_context_menu())
 
     session.state.uploaded_files[0]["half"] = 1
     session.state.uploaded_files[0]["hash"] = "h1#1"
-    assert "Adjust split for this frame…" in _action_labels(browser._build_context_menu())
+    assert "Adjust Split for This Frame…" in _action_labels(browser._build_context_menu())
     # No override saved yet, so nothing to reset.
-    assert "Reset split to roll default" not in _action_labels(browser._build_context_menu())
+    assert "Reset Split to Roll Default" not in _action_labels(browser._build_context_menu())
 
 
 def test_context_menu_offers_reset_only_with_a_saved_override(browser, session):
@@ -174,7 +174,7 @@ def test_context_menu_offers_reset_only_with_a_saved_override(browser, session):
     session.state.uploaded_files[0]["half"] = 1
     session.state.uploaded_files[0]["hash"] = "h1#1"
     browser.controller.half_frame_override.return_value = {"split_x": 0.4}
-    assert "Reset split to roll default" in _action_labels(browser._build_context_menu())
+    assert "Reset Split to Roll Default" in _action_labels(browser._build_context_menu())
 
 
 def test_current_file_returns_the_base_hash_for_a_split_asset(browser, session):
@@ -217,17 +217,17 @@ def test_context_menu_multi_selection_uses_export_selected(browser, session):
     session.state.selected_indices = [0, 1]
     session.state.selected_file_idx = 0
     labels = _action_labels(browser._build_context_menu())
-    assert "Export selected frames" in labels
-    assert "Export current frame" not in labels
+    assert "Export Selected Frames" in labels
+    assert "Export Current Frame" not in labels
 
 
 def test_context_menu_multi_selection_adds_apply_and_remove_selected(browser, session):
     session.state.selected_indices = [0, 1]
     session.state.selected_file_idx = 0
     labels = _action_labels(browser._build_context_menu())
-    assert "Apply settings…" in labels
-    assert "Unload Selected" in labels
-    assert "Unload" not in labels
+    assert "Apply Settings…" in labels
+    assert "Unload Selected…" in labels
+    assert "Unload…" not in labels
 
 
 def test_apply_dialog_shows_header_scope_and_counts(qapp):
@@ -562,17 +562,17 @@ def test_trackpad_pixel_delta_scrolls_immediately(browser):
 
 def test_session_menu_mirrors_the_toolbar_tools(browser):
     labels = [a.text() for a in browser._build_session_menu().actions() if not a.isSeparator()]
-    assert labels == ["Add files…", "Add folder…", "Clear all"]
+    assert labels == ["Add Files…", "Add Folder…", "Clear All…"]
 
 
 def test_session_menu_clear_all_disabled_when_nothing_loaded(browser, session):
     session.state.uploaded_files = []
-    clear = [a for a in browser._build_session_menu().actions() if a.text() == "Clear all"][0]
+    clear = [a for a in browser._build_session_menu().actions() if a.text() == "Clear All…"][0]
     assert not clear.isEnabled()
 
 
 def test_session_menu_clear_all_enabled_with_files(browser):
-    clear = [a for a in browser._build_session_menu().actions() if a.text() == "Clear all"][0]
+    clear = [a for a in browser._build_session_menu().actions() if a.text() == "Clear All…"][0]
     assert clear.isEnabled()
 
 

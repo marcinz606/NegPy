@@ -3,7 +3,7 @@ from typing import Optional
 
 import numpy as np
 from PIL import Image
-from PyQt6.QtCore import Qt, QEvent, QTimer, pyqtSignal
+from PyQt6.QtCore import QByteArray, Qt, QEvent, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -11,7 +11,6 @@ from PyQt6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
-    QStatusBar,
     QVBoxLayout,
     QWidget,
 )
@@ -108,7 +107,7 @@ class _EmptyStateOverlay(QWidget):
         self.load_btn.clicked.connect(self._show_load_menu)
         layout.addWidget(self.load_btn, alignment=Qt.AlignmentFlag.AlignHCenter)
 
-        self.tour_btn = QPushButton("Take the tour")
+        self.tour_btn = QPushButton("Take the Tour")
         self.tour_btn.setFixedWidth(140)
         self.tour_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.tour_btn.setStyleSheet(
@@ -122,8 +121,8 @@ class _EmptyStateOverlay(QWidget):
 
     def _show_load_menu(self) -> None:
         menu = QMenu(self)
-        menu.addAction("Add files…").triggered.connect(self.add_files_requested)
-        menu.addAction("Add folder…").triggered.connect(self.add_folder_requested)
+        menu.addAction("Add Files…").triggered.connect(self.add_files_requested)
+        menu.addAction("Add Folder…").triggered.connect(self.add_folder_requested)
         menu.exec(self.load_btn.mapToGlobal(self.load_btn.rect().bottomLeft()))
 
     def eventFilter(self, obj, event) -> bool:
@@ -186,12 +185,22 @@ class MainWindow(QMainWindow):
         x, y, w, h = _clamp_geometry(saved, (rect.x(), rect.y(), rect.width(), rect.height()))
         self.resize(w, h)
         self.move(x, y)
+        if self.controller.session.repo.get_global_setting("window_maximized", False):
+            self.setWindowState(Qt.WindowState.WindowMaximized)
 
     def closeEvent(self, event) -> None:
         try:
-            self.controller.session.repo.save_global_setting("window_geometry", [self.x(), self.y(), self.width(), self.height()])
+            # normalGeometry, so a maximized window reopens maximized over its own restored size.
+            geo = self.normalGeometry() if self.isMaximized() else self.geometry()
+            self.controller.session.repo.save_global_settings(
+                {
+                    "window_geometry": [geo.x(), geo.y(), geo.width(), geo.height()],
+                    "window_maximized": self.isMaximized(),
+                    "dock_state": bytes(self.saveState().toBase64()).decode("ascii"),
+                }
+            )
         except Exception:
-            logger.exception("Failed to persist window geometry")
+            logger.exception("Failed to persist window layout")
         super().closeEvent(event)
 
     def showEvent(self, event) -> None:
@@ -233,6 +242,9 @@ class MainWindow(QMainWindow):
         data = _read_screen_icc(screen) if screen is not None else None
         if not force and data == self.state.monitor_icc_detected_bytes:
             return
+        if data is None and not self.state.monitor_profile_override and not getattr(self, "_icc_miss_notified", False):
+            self._icc_miss_notified = True
+            self.canvas.hud.showMessage("No monitor ICC profile detected — preview assumes sRGB", 6000, kind="warning")
         self.controller.set_monitor_detected(data)
 
     def _init_ui(self) -> None:
@@ -262,6 +274,16 @@ class MainWindow(QMainWindow):
 
         self.loading_overlay = LoadingOverlay(self.canvas)
         self.loading_overlay.raise_()
+
+        if self.state.gpu_viewport_failed:
+            QTimer.singleShot(
+                0,
+                lambda: self.canvas.hud.showMessage(
+                    f"GPU viewport failed to start — display runs on the CPU ({self.state.gpu_viewport_failed})",
+                    8000,
+                    kind="warning",
+                ),
+            )
 
         self.central_layout.addWidget(self.canvas, stretch=1)
 
@@ -301,14 +323,13 @@ class MainWindow(QMainWindow):
         # than re-adding the dock where it currently sits.
         self._default_dock_state = self.saveState()
 
-        # Restore saved panel visibility
         repo = self.controller.session.repo
+        saved_docks = repo.get_global_setting("dock_state")
+        if isinstance(saved_docks, str) and saved_docks:
+            self.restoreState(QByteArray.fromBase64(saved_docks.encode("ascii")))
+        # The visibility keys are what the toggles write, so they win over the dock snapshot.
         self.session_dock.setVisible(repo.get_global_setting("panel_left_visible", True))
         self.drawer.setVisible(repo.get_global_setting("panel_right_visible", True))
-
-        # hide native status bar - status lives in the canvas HUD
-        self.setStatusBar(QStatusBar())
-        self.statusBar().hide()
 
     TOOL_LABELS: dict[ToolMode, str] = {
         ToolMode.WB_PICK: "WB Picker",
@@ -403,7 +424,7 @@ class MainWindow(QMainWindow):
         self.toolbar.btn_toggle_right.setChecked(True)
         self.controller.session.repo.save_global_setting("panel_left_visible", True)
         self.controller.session.repo.save_global_setting("panel_right_visible", True)
-        self.canvas.hud.showMessage("panel layout reset", timeout=1500)
+        self.canvas.hud.showMessage("Panel layout reset", timeout=1500)
 
     def _connect_signals(self) -> None:
         """Wire controller and view."""
@@ -448,8 +469,8 @@ class MainWindow(QMainWindow):
 
         self.controller.export_progress.connect(self._on_export_progress)
         self.controller.export_finished.connect(self._on_export_finished)
-        self.controller.session.settings_copied.connect(lambda: self.canvas.hud.showMessage("settings copied", timeout=1500))
-        self.controller.session.settings_pasted.connect(lambda: self.canvas.hud.showMessage("settings pasted", timeout=1500))
+        self.controller.session.settings_copied.connect(lambda: self.canvas.hud.showMessage("Settings copied", timeout=1500))
+        self.controller.session.settings_pasted.connect(lambda: self.canvas.hud.showMessage("Settings pasted", timeout=1500))
         self.controller.session.settings_synced.connect(lambda msg: self.canvas.hud.showMessage(msg, timeout=2500))
         self.controller.tool_sync_requested.connect(self._sync_tool_buttons)
         self.controller.config_updated.connect(self.canvas.overlay.update)
@@ -504,7 +525,7 @@ class MainWindow(QMainWindow):
         if sheet.save(path, "JPEG", self.controller.state.config.export.jpeg_quality):
             self.controller.set_status(f"Printing notes saved: {os.path.basename(path)}", 4000)
         else:
-            self.controller.set_status(f"Could not write {path}", 4000)
+            self.controller.set_status(f"Could not write {path}", 4000, kind="error")
 
     def _display_buffer_for_canvas(self, buffer):
         if isinstance(buffer, GPUTexture):
@@ -523,6 +544,8 @@ class MainWindow(QMainWindow):
     def _on_load_failed(self) -> None:
         self.loading_overlay.stop()
         self.canvas.clear()
+        # With nothing else open, a black canvas after the toast expires is a dead end.
+        self.empty_state.setVisible(not self.state.uploaded_files)
 
     def _on_session_emptied(self) -> None:
         """Last file was unloaded/cleared: blank the viewer (the removed image must
@@ -610,14 +633,14 @@ class MainWindow(QMainWindow):
 
     def _on_export_progress(self, current: int, total: int, filename: str) -> None:
         self.canvas.hud.set_progress(current, total)
-        self.canvas.hud.showMessage(f"Exporting {filename} ({current}/{total})...")
+        self.canvas.hud.showMessage(f"Exporting {filename} ({current}/{total})…")
 
     def _on_export_finished(self, elapsed: float, failed: int) -> None:
         self.canvas.hud.hide_progress()
-        msg = f"export complete in {elapsed:.2f}s"
+        msg = f"Export complete in {elapsed:.2f}s"
         if failed:
             msg += f" — {failed} failed"
-        self.canvas.hud.showMessage(msg, timeout=6000 if failed else 3000)
+        self.canvas.hud.showMessage(msg, timeout=6000 if failed else 3000, kind="warning" if failed else "info")
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -633,7 +656,7 @@ class MainWindow(QMainWindow):
             return
         from negpy.features.exposure.densitometer import zone_roman
 
-        self.canvas.hud.showMessage(f"click the photo to place zone {zone_roman(float(zone))}", timeout=3000)
+        self.canvas.hud.showMessage(f"Click the photo to place zone {zone_roman(float(zone))}", timeout=3000)
 
     def _sync_tool_buttons(self) -> None:
         """Updates toggle button states to match active_tool."""

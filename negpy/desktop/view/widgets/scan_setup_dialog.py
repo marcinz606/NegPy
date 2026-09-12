@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from negpy.desktop.view.styles.templates import hint_label, pane_header_qss
+from negpy.desktop.view.styles.templates import hint_label, pane_header_qss, pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.process.models import scan_setup_values
 
@@ -115,10 +115,10 @@ class ScanSetupDialog(QDialog):
         cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.reject)
         self.next_btn = QPushButton()
-        self.next_btn.setProperty("primary", True)
         self.next_btn.clicked.connect(self._advance)
         row.addWidget(cancel)
         row.addWidget(self.next_btn)
+        pin_dialog_default(self.next_btn, cancel, self.back_btn)
         return row
 
     def _set_capture(self, capture: str) -> None:

@@ -16,7 +16,7 @@ class AltProcessSidebar(BaseSidebar):
     """
     Alternative printing processes. One at a time — a print is either lith-developed
     or a cyanotype, never both. Lith's paper comes from the Exposure panel; the
-    cyanotype is on rag paper and takes its color from the sensitiser.
+    cyanotype is on rag paper and takes its color from the sensitizer.
     """
 
     def _init_ui(self) -> None:
@@ -45,7 +45,7 @@ class AltProcessSidebar(BaseSidebar):
                 "Cyanotype",
                 "Contact-print the negative in UV onto iron-sensitised rag paper. The image "
                 "substance is Prussian blue, so the print never goes black — it goes blue, with "
-                "green highlights where the residual yellow sensitiser mixes in.\n"
+                "green highlights where the residual yellow sensitizer mixes in.\n"
                 "There is no silver in a cyanotype, so every chemical toner is disabled while "
                 "this is on; use Bleach and Tannin instead",
             ),
@@ -104,12 +104,12 @@ class AltProcessSidebar(BaseSidebar):
             self.sensitizer_combo.addItem(_SENSITIZER_LABELS[s], s.value)
         self._select_sensitizer(conf.cyano_sensitizer)
         self.sensitizer_combo.setToolTip(
-            "Sensitiser. Classic is Herschel's ammonium ferric citrate: it loses much of its "
+            "Sensitizer. Classic is Herschel's ammonium ferric citrate: it loses much of its "
             "pigment in the wash, so it tops out around a red-channel density of 1.0 and keeps a "
             "strong green highlight stain. New is Ware's ferric oxalate — deeper, cleaner and "
             "able to hold a far longer scale"
         )
-        sens_row.addWidget(field_label("Sensitiser"))
+        sens_row.addWidget(field_label("Sensitizer"))
         sens_row.addWidget(self.sensitizer_combo, stretch=1)
         col.addLayout(sens_row)
 
@@ -119,7 +119,7 @@ class AltProcessSidebar(BaseSidebar):
         )
         self.cyano_scale_slider = CompactSlider("Exposure Scale", 0.8, 2.8, conf.cyano_scale, step=0.05)
         self.cyano_scale_slider.setToolTip(
-            "The negative density range the sensitiser can print, in log D — the contrast control. "
+            "The negative density range the sensitizer can print, in log D — the contrast control. "
             "Ware measures about 1.0 to 1.2 for the traditional formula against 2.4 for the new one, "
             "and his Simple Cyanotype ships as three variants at 1.8, 2.3 and 2.7. "
             "Short scale means a contrastier print that clips both ends of a normal negative"

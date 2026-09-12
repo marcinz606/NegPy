@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.kernel.system.text import plural
-from negpy.desktop.view.styles.templates import hint_label
+from negpy.desktop.view.styles.templates import hint_label, pin_dialog_default
 from negpy.desktop.view.widgets.file_dialogs import pick_start_dir
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.process.sensor import build_sensor_matrix, measure_capture
@@ -88,13 +88,13 @@ class SensorCalibrationDialog(QDialog):
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
-        close = QPushButton("Close")
-        close.clicked.connect(self.reject)
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
         self.compute_btn = QPushButton("Compute and Save")
-        self.compute_btn.setDefault(True)
         self.compute_btn.clicked.connect(self._compute_and_save)
-        btn_row.addWidget(close)
+        btn_row.addWidget(cancel)
         btn_row.addWidget(self.compute_btn)
+        pin_dialog_default(self.compute_btn, cancel)
         root.addLayout(btn_row)
         self._refresh()
 

@@ -190,7 +190,7 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("Lith Exposure", "altproc", "lith_exposure"),
         _row("Snatch Point", "altproc", "lith_snatch"),
         _row("Abruptness", "altproc", "lith_abruptness"),
-        _row("Sensitiser", "altproc", "cyano_sensitizer"),
+        _row("Sensitizer", "altproc", "cyano_sensitizer"),
         _row("Cyanotype Exposure", "altproc", "cyano_exposure"),
         _row("Exposure Scale", "altproc", "cyano_scale"),
         _row("Bleach", "altproc", "cyano_bleach"),

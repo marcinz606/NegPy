@@ -152,7 +152,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self._scan_now = False  # set when the user chooses "Scan" over "Use"
         initial_windows = initial_windows or {}
         initial_selected = tuple(initial_selected or ())
-        self.setWindowTitle("Preview strip — set a window per frame")
+        self.setWindowTitle("Preview Strip — Set a Window per Frame")
         self.setModal(True)
         tile_w, tile_h = self._tile_size()
         cols = min(self._capacity or _TILES_PER_ROW, _TILES_PER_ROW)
@@ -282,8 +282,8 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         btns.addWidget(self.select_none_btn)
         btns.addWidget(self.selection_label)
         btns.addSpacing(16)
-        # Not "Clear all": it clears crops, and it sits next to the selection buttons.
-        self.clear_btn = QPushButton("Clear crops")
+        # Not "Clear All…": it clears crops, and it sits next to the selection buttons.
+        self.clear_btn = QPushButton("Clear Crops")
         self.clear_btn.setToolTip("Remove every window (scan full frames)")
         self.clear_btn.clicked.connect(self._on_clear_all)
         btns.addWidget(self.clear_btn)
@@ -291,7 +291,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.clicked.connect(self._on_cancel_clicked)
         btns.addWidget(self.cancel_btn)
-        self.ok_btn = QPushButton("Apply framing")
+        self.ok_btn = QPushButton("Apply Framing")
         self.ok_btn.setToolTip("Keep this framing and selection, and return to the Scan panel")
         self.ok_btn.clicked.connect(self.accept)
         btns.addWidget(self.ok_btn)
@@ -347,7 +347,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         # Opaque, not a wash: the tick sits over the picture and has to read on a bright frame
         # as well as a dark one.
         overlay.setStyleSheet(
-            "#frameOverlay { background: rgba(13, 13, 15, 0.82); border-radius: 6px; }"
+            f"#frameOverlay {{ background: {THEME.surface_overlay}; border-radius: {THEME.radius_lg}px; }}"
             f"#frameOverlay QCheckBox {{ color: {THEME.text_primary}; font-size: {THEME.font_size_base}px;"
             " font-weight: 600; spacing: 6px; }"
             "#frameOverlay QCheckBox::indicator { width: 16px; height: 16px; }"
@@ -452,7 +452,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         for tile in self._tiles.values():
             tile.preview_btn.setEnabled(not busy)
         # Committing mid-pass would hand the batch a unit the preview still holds.
-        self.cancel_btn.setText("Stop preview" if busy else "Cancel")
+        self.cancel_btn.setText("Stop Preview" if busy else "Cancel")
         if busy:
             self.status_strip.start_progress("Previewing… %p%")
         else:

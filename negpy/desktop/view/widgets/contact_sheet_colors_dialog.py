@@ -6,6 +6,7 @@ from PyQt6.QtGui import QColor, QFont, QImage, QMouseEvent, QPainter, QPainterPa
 from PyQt6.QtWidgets import QDialog, QHBoxLayout, QPushButton, QVBoxLayout, QWidget
 
 from negpy.desktop.view.styles.fonts import mono_font_family
+from negpy.desktop.view.styles.templates import pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 
 
@@ -312,7 +313,7 @@ class _MiniSheetPreview(QWidget):
         margin_x = (self._W - (2 * cell_w + gap)) / 2
         margin_y = 10
         font = QFont(painter.font())
-        font.setPixelSize(9)
+        font.setPixelSize(THEME.font_size_micro)
         painter.setFont(font)
 
         # Caption band tint mirrors the export: bg blended 15% toward label color.
@@ -390,10 +391,8 @@ class ContactSheetColorsDialog(QDialog):
         cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.reject)
         ok = QPushButton("OK")
-        ok.setProperty("primary", True)
-        ok.setDefault(True)
         ok.clicked.connect(self.accept)
-        ok.style().polish(ok)
+        pin_dialog_default(ok, cancel)
         btn_row.addWidget(cancel)
         btn_row.addWidget(ok)
         root.addLayout(btn_row)

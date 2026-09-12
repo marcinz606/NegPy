@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from negpy.desktop.view.styles.templates import pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 from negpy.kernel.system.text import human_bytes
 
@@ -100,15 +101,16 @@ class DatabaseDialog(QDialog):
         self.reset_all_btn.setToolTip(
             "Wipe the entire database: edits, history, marks, rig profiles, export presets and all app preferences."
         )
-        self.reset_all_btn.setStyleSheet(
-            f"QPushButton {{ background: {THEME.accent_primary}; color: #FFFFFF; border: none; "
-            f"border-radius: {THEME.radius_sm}px; padding: {THEME.space_md}px {THEME.space_xl}px; }}"
-            f"QPushButton:hover {{ background: {THEME.accent_secondary}; }}"
-        )
+        self.reset_all_btn.setProperty("primary", True)
         self.reset_all_btn.clicked.connect(self._on_reset_all)
 
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
+        # Enter must not fire a wipe: Close is the default, and the filled button is the one exception
+        # to "filled = default" because the wipe is the dialog's reason to exist.
+        pin_dialog_default(None, self.clear_edits_btn, self.clear_thumbs_btn, self.clear_library_btn, self.reset_all_btn)
+        close_btn.setDefault(True)
+        close_btn.setAutoDefault(True)
 
         row.addWidget(self.clear_edits_btn)
         row.addWidget(self.clear_thumbs_btn)
@@ -200,7 +202,7 @@ class DatabaseDialog(QDialog):
         try:
             self.repo.clear_saved_edits()
         except Exception as exc:
-            QMessageBox.critical(self, "Clear failed", f"Could not clear the database:\n{exc}")
+            QMessageBox.critical(self, "Clear Failed", f"Could not clear the database:\n{exc}")
         self._refresh()
 
     def _on_clear_thumbnails(self) -> None:
@@ -214,7 +216,7 @@ class DatabaseDialog(QDialog):
         try:
             self.controller.clear_thumbnail_cache()
         except Exception as exc:
-            QMessageBox.critical(self, "Clear failed", f"Could not clear the thumbnail cache:\n{exc}")
+            QMessageBox.critical(self, "Clear Failed", f"Could not clear the thumbnail cache:\n{exc}")
         self._refresh()
 
     def _on_clear_library(self) -> None:
@@ -229,7 +231,7 @@ class DatabaseDialog(QDialog):
         try:
             self.repo.save_global_setting("library_roots", [])
         except Exception as exc:
-            QMessageBox.critical(self, "Clear failed", f"Could not clear the library:\n{exc}")
+            QMessageBox.critical(self, "Clear Failed", f"Could not clear the library:\n{exc}")
         self.controller.library_cleared.emit()
         self._refresh()
 
@@ -245,5 +247,5 @@ class DatabaseDialog(QDialog):
         try:
             self.repo.reset_everything()
         except Exception as exc:
-            QMessageBox.critical(self, "Reset failed", f"Could not reset the database:\n{exc}")
+            QMessageBox.critical(self, "Reset Failed", f"Could not reset the database:\n{exc}")
         self._refresh()

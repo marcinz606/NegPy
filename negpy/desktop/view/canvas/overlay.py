@@ -67,14 +67,14 @@ _LOCAL_TOOLS = (ToolMode.NONE, *_SHAPE_FOR_TOOL)
 
 # Dust-overlay marker colors: bright, and distinct from the muted accent of manual heals, so
 # auto-detected and IR spots are told apart at a glance.
-_DUST_MARK_LUMA = QColor(57, 255, 20)  # neon green — auto-luma detection
+_DUST_MARK_LUMA = QColor(57, 255, 20)  # neon: a mark has to read over any film, so it is not a palette colour
 _DUST_MARK_IR = QColor(255, 0, 255)  # neon magenta — IR detection
 _IR_CORRECTED_ALPHA = 55  # dim magenta wash over IR-division-corrected regions
 
 _ZONE_LINE_ALPHA = 150
 _ZONE_LINE_SHADOW_ALPHA = 110  # dark underlay so the white edges hold over blown highlights
 _ZONE_LABEL_MIN_PX = 16.0  # below this cell size the numerals collide into noise
-_ZONE_CLIP_COLOR = QColor(220, 80, 80)  # paper black / paper white, same red the zone strip warns with
+_ZONE_CLIP_COLOR = QColor(THEME.clip_warning)  # paper black / paper white, same red the zone strip warns with
 
 _STRIP_LABEL_MIN_PX = 34.0  # below this patch size the two axis labels overlap
 _STRIP_LABEL_INSET_PX = 6.0
@@ -616,7 +616,7 @@ class CanvasOverlay(QWidget):
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
 
-        parent_bg = getattr(self.parent(), "_bg_color", QColor("#050505"))
+        parent_bg = getattr(self.parent(), "_bg_color", QColor(THEME.canvas_bg_black))
         gpu = getattr(self.parent(), "gpu_widget", None)
         gpu_live = bool(gpu is not None and gpu.isVisible())
         if not gpu_live:
@@ -1754,7 +1754,7 @@ class CanvasOverlay(QWidget):
 
             if i in getattr(self.state, "local_hidden_masks", ()):
                 continue
-            outline = QColor(74, 143, 232) if mask.stops > 0 else QColor(232, 200, 74)
+            outline = QColor(THEME.burn) if mask.stops > 0 else QColor(THEME.dodge)
             max_alpha = 70 if is_selected else 32
 
             # A vertex drag skips the feathered fill; it re-rasters every frame. A gesture on
@@ -2717,7 +2717,7 @@ class CanvasOverlay(QWidget):
                 hud = getattr(self.parent(), "hud", None)
                 if hud is not None and not self._crop_redraw_hint_shown:
                     self._crop_redraw_hint_shown = True
-                    hud.showMessage("drag outside the box to redraw the crop", timeout=2500)
+                    hud.showMessage("Drag outside the box to redraw the crop", timeout=2500)
                 self._end_crop_drag()
                 self.update()
                 event.accept()

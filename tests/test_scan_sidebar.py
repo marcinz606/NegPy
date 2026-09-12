@@ -548,7 +548,7 @@ def test_lockout_scan_error_shows_message_box(monkeypatch) -> None:
     sidebar._on_scan_error(msg)
 
     assert f"Error: {msg}" in sidebar.status_strip.message()
-    assert popped == [("Scan failed", msg)]
+    assert popped == [("Scan Failed", msg)]
 
 
 def test_indeterminate_scan_phase_uses_busy_progress_bar() -> None:
