@@ -77,6 +77,40 @@ def should_fold_camera_wb(process: ProcessConfig, render_intent: Optional[str] =
     return effective_linear_raw(process, render_intent) and not process.narrowband_scan
 
 
+_VALID_HIGHLIGHT_LEVELS = frozenset({0, 2, 3, 4, 5, 6, 7, 8, 9})
+
+
+def effective_highlight_reconstruction(process: ProcessConfig) -> int:
+    """The libraw `highlight_mode` the decode should actually request.
+
+    Reconstruction only makes sense against a slide's own blown highlights, so it is
+    forced to 0 (Clip, today's decode) off `ProcessMode.E6` — a stored value surviving a
+    mode switch, or a hand-edited sidecar, must not silently start reconstructing a
+    negative's genuinely-clipped base. `1` (Ignore) is excluded even on E-6: it only
+    changes libraw's WB-multiplier scaling, a separate decode-correctness fix, and is
+    never a level this control should expose. An out-of-range stored value resolves to 0
+    rather than raising or passing a bogus number to rawpy.
+
+    Also 0 under `narrowband_scan`: a triplet's single raw channel per exposure carries no
+    "highlight color" for libraw to reconstruct — the same reasoning `should_fold_camera_wb`
+    applies to the WB fold.
+
+    Every site that sets `highlight_mode` on a decode must ask this one question, the same
+    way every decode asks `effective_linear_raw`.
+    """
+    if process.process_mode != ProcessMode.E6 or process.narrowband_scan:
+        return 0
+    value = int(process.highlight_reconstruction)
+    return value if value in _VALID_HIGHLIGHT_LEVELS else 0
+
+
+def highlight_reconstruction_token(process: ProcessConfig) -> str:
+    """Reconstruction-level identity for a cache key, keyed on the *effective* value —
+    the stored one can be nonzero off the E-6 path, where it never reaches the decode.
+    """
+    return f"|hr:{effective_highlight_reconstruction(process)}"
+
+
 def narrowband_profile_active(process: ProcessConfig) -> bool:
     """Whether the bundled RGBScan input profile applies.
 

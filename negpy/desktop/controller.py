@@ -51,7 +51,12 @@ from negpy.desktop.workers.hdr import HdrTask, HdrWorker
 from negpy.desktop.workers.stitch import StitchTask, StitchWorker
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, hdr_frame_paths, hdr_hash, hdr_name
 from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix, wb_only_cam_xyz
-from negpy.features.process.logic import effective_linear_raw, narrowband_profile_active, should_fold_camera_wb
+from negpy.features.process.logic import (
+    effective_highlight_reconstruction,
+    effective_linear_raw,
+    narrowband_profile_active,
+    should_fold_camera_wb,
+)
 from negpy.features.stitch.models import stitch_hash, stitch_name
 from negpy.desktop.workers.capture_worker import (
     CalibrationRequest,
@@ -1795,6 +1800,7 @@ class AppController(QObject):
                 workspace_color_space=self.state.workspace_color_space,
                 use_camera_wb=not effective_linear_raw(self.state.config.process, self.state.config.exposure.render_intent),
                 positive_source=self.state.config.process.positive_source,
+                highlight_mode=effective_highlight_reconstruction(self.state.config.process),
                 full_resolution=self.state.hq_preview,
                 # The half suffix distinguishes the two halves' preview caches now
                 # that the slice happens pre-downsample (each half is its own buffer).
@@ -1930,6 +1936,7 @@ class AppController(QObject):
                         workspace_color_space=self.state.workspace_color_space,
                         use_camera_wb=not linear_raw,
                         positive_source=saved.process.positive_source if saved else False,
+                        highlight_mode=effective_highlight_reconstruction(saved.process) if saved else 0,
                         # Half-size only: a full-res HQ neighbour evicts the active buffer.
                         # The cache key separates resolutions.
                         full_resolution=False,

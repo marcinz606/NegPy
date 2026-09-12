@@ -24,7 +24,13 @@ from negpy.domain.models import (
 from negpy.features.altprocess.models import AltProcess
 from negpy.features.process.capture_color import wb_only_cam_xyz
 from negpy.features.process.models import DemosaicMode, ProcessMode
-from negpy.features.process.logic import demosaic_token, effective_linear_raw, linear_raw_token
+from negpy.features.process.logic import (
+    demosaic_token,
+    effective_highlight_reconstruction,
+    effective_linear_raw,
+    highlight_reconstruction_token,
+    linear_raw_token,
+)
 from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix, sensor_token
 from negpy.features.exposure.analysis import COLOR_HIST_BINS
 from negpy.features.exposure.models import RenderIntent
@@ -672,6 +678,7 @@ class ImageProcessor:
             + stitch_token(settings.stitch)
             + hdr_token(settings.hdr)
             + linear_raw_token(settings.process, settings.exposure.render_intent)
+            + highlight_reconstruction_token(settings.process)
             + sensor_token(settings.process)
             + demosaic_token(settings.process.demosaic_preview)
             + ir_bake_token(settings.retouch, ir_buffer is not None)
@@ -811,6 +818,7 @@ class ImageProcessor:
         wb_override: Optional[Sequence[float]] = None,
         demosaic: str = DemosaicMode.AUTO,
         positive_source: bool = False,
+        highlight_mode: int = 0,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Decode one RAW to sensor-native (output_color=raw), linear uint16 RGB.
 
@@ -821,6 +829,9 @@ class ImageProcessor:
         Frames of one bracket must share a scale or the exposure ratios solved between them
         absorb the difference, and `use_camera_wb` reads each *file's* as-shot multipliers —
         which differ per frame on a camera left in auto white balance.
+
+        `highlight_mode` is libraw's own reconstruction level; the caller resolves it via
+        `effective_highlight_reconstruction` so this method never has to re-derive the gate.
 
         Returns (rgb_uint16, loader_metadata).
         """
@@ -839,6 +850,7 @@ class ImageProcessor:
                 output_color=rawpy.ColorSpace.raw,
                 demosaic_algorithm=algo,
                 user_flip=0,
+                highlight_mode=highlight_mode,
                 **post_kw,
             )
             rgb = ensure_rgb(rgb)
@@ -871,6 +883,7 @@ class ImageProcessor:
             file_path,
             mtime,
             effective_linear_raw(params.process, params.exposure.render_intent),
+            effective_highlight_reconstruction(params.process),
             rgbscan_token(params.rgbscan),
             stitch_token(params.stitch),
             hdr_token(params.hdr),
@@ -914,6 +927,7 @@ class ImageProcessor:
         `hdr` cleared, so it cannot: it passes the pin in from outside.
         """
         linear_raw = effective_linear_raw(params.process, params.exposure.render_intent)
+        highlight_mode = effective_highlight_reconstruction(params.process)
         demosaic = params.process.demosaic_export
         rgbcfg = params.rgbscan
         # A bracket wins over a triplet. The UI refuses the two together, and the export
@@ -941,13 +955,19 @@ class ImageProcessor:
                     wb_override=_NEUTRAL_WB,
                     demosaic=demosaic,
                     positive_source=params.process.positive_source,
+                    highlight_mode=highlight_mode,
                 )
                 decoded = dict(
                     zip(
                         siblings,
                         pool.map(
                             lambda p: self._decode_sensor_rgb(
-                                p, linear_raw, wb_override=_NEUTRAL_WB, demosaic=demosaic, positive_source=params.process.positive_source
+                                p,
+                                linear_raw,
+                                wb_override=_NEUTRAL_WB,
+                                demosaic=demosaic,
+                                positive_source=params.process.positive_source,
+                                highlight_mode=highlight_mode,
                             )[0],
                             siblings,
                         ),
@@ -962,6 +982,7 @@ class ImageProcessor:
                 wb_override=wb_override,
                 demosaic=demosaic,
                 positive_source=params.process.positive_source,
+                highlight_mode=highlight_mode,
             )
         # No embedded profile (scanner-raw linear, sensor-native RAW) means the buffer is
         # already in the working space, so "Same as Source" exports without converting.
@@ -1012,6 +1033,7 @@ class ImageProcessor:
                                 wb_override=bracket_wb,
                                 demosaic=demosaic,
                                 positive_source=params.process.positive_source,
+                                highlight_mode=highlight_mode,
                             )[0],
                             hdr_siblings,
                         ),
@@ -1115,6 +1137,7 @@ class ImageProcessor:
             + stitch_token(params.stitch)
             + hdr_token(params.hdr)
             + linear_raw_token(params.process, params.exposure.render_intent)
+            + highlight_reconstruction_token(params.process)
             + sensor_token(params.process)
             + demosaic_token(params.process.demosaic_export)
             + ir_bake_token(params.retouch, ir_full is not None)
@@ -1566,6 +1589,7 @@ class ImageProcessor:
                 + stitch_token(params.stitch)
                 + hdr_token(params.hdr)
                 + linear_raw_token(params.process, params.exposure.render_intent)
+                + highlight_reconstruction_token(params.process)
                 + sensor_token(params.process)
                 + ir_bake_token(params.retouch, ir_full is not None)
                 + manual_bake_token(params.retouch)
