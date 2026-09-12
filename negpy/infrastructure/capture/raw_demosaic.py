@@ -5,11 +5,12 @@ Follows NegPy's canonical RAW decode (`ImageProcessor._decode_sensor_rgb`): sens
 the same way the RGB-Scan merge later reads the channels. rawpy is imported lazily so the module
 stays import-safe.
 
-It deviates in one parameter, deliberately: `adjust_maximum_thr=0.0` (see `linear_demosaic`). The
-canonical decode still runs LibRaw's default, where each frame is scaled by its own brightest
-pixel — harmless for a single rendered image, fatal for a meter comparing frames. Whether the
-canonical path wants the same fix is a separate question (it changes rendered output, so it needs
-its own verification); it is NOT covered here.
+It deviates from the canonical decode in one parameter: `user_sat=_user_sat(raw)` (see
+`_user_sat`) pins the scale reference to the camera's calibrated linearity limit, not LibRaw's
+generic ADC ceiling. The canonical decode does not pass `user_sat`. Both decodes share
+`adjust_maximum_thr=0.0`, which disables LibRaw's per-frame maximum substitution and scales each
+frame by a fixed reference instead of its own brightest pixel — required for a meter comparing
+frames (`image_processor.py:_decode_sensor_rgb` pins the same value for the canonical decode).
 """
 
 from __future__ import annotations
