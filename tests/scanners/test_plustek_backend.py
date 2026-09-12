@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from negpy.infrastructure.scanners.base import ScannerUnavailable, TransientScanError
-from negpy.infrastructure.scanners.params import ScanParams
+from negpy.infrastructure.scanners.params import MultiExposureMode, ScanParams
 from negpy.infrastructure.scanners.result import ScanResult
 
 pytest.importorskip("pyopticfilm")
@@ -194,6 +194,7 @@ def test_8100_v2_caps_match_pyopticfilm_model(monkeypatch):
     caps = dev.capabilities
     assert caps.ir_channel is False
     assert caps.multi_exposure is True
+    assert caps.max_n_passes > 1
     assert caps.prescan is True
     assert caps.prescan_mirror_x is True  # 8100 V2 inherits mirror_x from 8200i SE
     assert 1200 in caps.supported_dpi
@@ -215,6 +216,9 @@ def test_backend_list_devices_maps_caps(monkeypatch):
     assert dev.capabilities.prescan is True
     assert dev.capabilities.prescan_dpi == 1200
     assert dev.capabilities.multi_exposure is True
+    from negpy.infrastructure.scanners.params import MAX_N_PASSES
+
+    assert dev.capabilities.max_n_passes == MAX_N_PASSES
     assert dev.capabilities.prescan_default_crop is not None
 
 
@@ -341,21 +345,106 @@ def test_multi_exposure_passthrough(monkeypatch):
     monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
     PlustekBackend().scan(
         _DEVICE_ID,
-        _params(multi_exposure=True),
+        _params(multi_exposure_mode=MultiExposureMode.ADAPTIVE),
         lambda *_: None,
         threading.Event(),
     )
     assert scanner.scan.call_args.kwargs.get("multi_exposure") is True
-    assert scanner.scan.call_args.kwargs.get("me_exposure_mode") == "adaptive"
+    assert scanner.scan.call_args.kwargs.get("align_passes") is True
+    assert scanner.scan.call_args.kwargs.get("n_passes") == 1
 
 
 def test_colour_scan_passes_adaptive_me_mode(monkeypatch):
     _patch_enum(monkeypatch)
     scanner = _fake_scanner()
     monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
-    PlustekBackend().scan(_DEVICE_ID, _params(), lambda *_: None, threading.Event())
-    assert scanner.scan.call_args.kwargs.get("me_exposure_mode") == "adaptive"
+    PlustekBackend().scan(
+        _DEVICE_ID,
+        _params(multi_exposure_mode=MultiExposureMode.ADAPTIVE),
+        lambda *_: None,
+        threading.Event(),
+    )
+    assert scanner.scan.call_args.kwargs.get("multi_exposure") is True
     assert scanner.scan.call_args.kwargs.get("on_status") is not None
+
+
+def test_multi_exposure_mode_has_no_fixed_option():
+    """Fixed-long-exposure mode is a pyopticfilm lab/debug-only concept — NegPy's simplified
+    surface never exposes it (see Scan Lab for unrestricted access)."""
+    assert set(MultiExposureMode) == {MultiExposureMode.OFF, MultiExposureMode.ADAPTIVE}
+
+
+def test_n_passes_flows_through_to_scanner_scan(monkeypatch):
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner()
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    PlustekBackend().scan(
+        _DEVICE_ID,
+        _params(n_passes=5),
+        lambda *_: None,
+        threading.Event(),
+    )
+    assert scanner.scan.call_args.kwargs.get("multi_exposure") is False
+    assert scanner.scan.call_args.kwargs.get("n_passes") == 5
+    assert scanner.scan.call_args.kwargs.get("align_passes") is True
+
+
+def test_n_passes_upper_boundary_accepted(monkeypatch):
+    """9 is the top of the valid range (10 is rejected — see
+    test_n_passes_rejects_out_of_range_value) and must actually reach scanner.scan."""
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner()
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    PlustekBackend().scan(
+        _DEVICE_ID,
+        _params(n_passes=9),
+        lambda *_: None,
+        threading.Event(),
+    )
+    assert scanner.scan.call_args.kwargs.get("n_passes") == 9
+
+
+def test_adaptive_multi_pass_passes_both_axes(monkeypatch):
+    """multi_exposure_mode and n_passes are independent — both reach scanner.scan together."""
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner()
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    PlustekBackend().scan(
+        _DEVICE_ID,
+        _params(multi_exposure_mode=MultiExposureMode.ADAPTIVE, n_passes=4),
+        lambda *_: None,
+        threading.Event(),
+    )
+    assert scanner.scan.call_args.kwargs.get("multi_exposure") is True
+    assert scanner.scan.call_args.kwargs.get("n_passes") == 4
+
+
+def test_n_passes_rejects_out_of_range_value(monkeypatch):
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner()
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    with pytest.raises(RuntimeError, match="n_passes"):
+        PlustekBackend().scan(
+            _DEVICE_ID,
+            _params(n_passes=10),
+            lambda *_: None,
+            threading.Event(),
+        )
+    scanner.scan.assert_not_called()
+
+
+def test_ir_and_multi_pass_together_is_rejected(monkeypatch):
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner()
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    with pytest.raises(RuntimeError, match="Multi-Pass"):
+        PlustekBackend().scan(
+            _DEVICE_ID,
+            _params(capture_ir=True, n_passes=3),
+            lambda *_: None,
+            threading.Event(),
+        )
+    scanner.scan.assert_not_called()
 
 
 def test_on_status_reports_priming_then_scanning(monkeypatch):
@@ -385,7 +474,7 @@ def test_me_scan_reports_preparing_then_long_pass(monkeypatch):
 
     PlustekBackend().scan(
         _DEVICE_ID,
-        _params(multi_exposure=True),
+        _params(multi_exposure_mode=MultiExposureMode.ADAPTIVE),
         progress,
         threading.Event(),
     )
@@ -406,12 +495,57 @@ def test_me_scan_reports_merging_at_completion(monkeypatch):
 
     PlustekBackend().scan(
         _DEVICE_ID,
-        _params(multi_exposure=True),
+        _params(multi_exposure_mode=MultiExposureMode.ADAPTIVE),
         progress,
         threading.Event(),
     )
     assert "Merging exposures" in phases
     assert "Preparing long exposure" not in phases
+
+
+@pytest.mark.parametrize("n_passes", [1, 3, 9])
+def test_adaptive_multi_pass_reports_single_boundary_regardless_of_n_passes(monkeypatch, n_passes):
+    """Every repeat within a slot shares one exposure, so there is exactly one
+    short→long boundary no matter how many passes are stacked on each side of it."""
+    _patch_enum(monkeypatch)
+    fractions = [i / (2 * n_passes) for i in range(1, 2 * n_passes)] + [1.0]
+    scanner = _fake_scanner(me_fractions=fractions)
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    seen: list[tuple[float, str]] = []
+
+    def progress(fraction: float, phase: str = "Scanning") -> None:
+        seen.append((fraction, phase))
+
+    PlustekBackend().scan(
+        _DEVICE_ID,
+        _params(multi_exposure_mode=MultiExposureMode.ADAPTIVE, n_passes=n_passes),
+        progress,
+        threading.Event(),
+    )
+    phases = [phase for _, phase in seen]
+    assert phases.count("Preparing long exposure") == 1
+    assert phases.count("Merging exposures") == 1
+    assert "Preparing next exposure" not in phases
+
+
+def test_multi_pass_without_me_has_no_preparing_or_merging_phases(monkeypatch):
+    """Passes alone (no ME) has no exposure-change boundary and no fusion step."""
+    _patch_enum(monkeypatch)
+    scanner = _fake_scanner(progress_steps=5)
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    phases: list[str] = []
+
+    def progress(fraction: float, phase: str = "Scanning") -> None:
+        phases.append(phase)
+
+    PlustekBackend().scan(
+        _DEVICE_ID,
+        _params(n_passes=5),
+        progress,
+        threading.Event(),
+    )
+    assert "Preparing long exposure" not in phases
+    assert "Merging exposures" not in phases
 
 
 def test_non_me_scan_skips_me_progress_phases(monkeypatch):

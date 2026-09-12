@@ -19,7 +19,13 @@ from negpy.infrastructure.scanners.base import (
     ScannerUnavailable,
     TransientScanError,
 )
-from negpy.infrastructure.scanners.params import ScanMode, ScanParams
+from negpy.infrastructure.scanners.params import (
+    MAX_N_PASSES,
+    MIN_N_PASSES,
+    MultiExposureMode,
+    ScanMode,
+    ScanParams,
+)
 from pyopticfilm.asic.gl128 import DEFAULT_IMAGE_USB_PACE_S
 from pyopticfilm.device.select import model_for_device, model_is_scan_ready
 from pyopticfilm.exceptions import (
@@ -60,6 +66,9 @@ def _caps_for(model: Any) -> ScannerCapabilities:
         prescan_mirror_x=bool(getattr(model, "mirror_x", False)) if prescan_ready else False,
         prescan_default_crop=default_frame_crop_norm(model) if prescan_ready else None,
         multi_exposure=bool(getattr(model, "scan_ready", False) and getattr(model, "exposure_long", None)),
+        # Multi-Pass (repeating the existing single exposure) needs no long-exposure register —
+        # every scan-ready GL128 model supports it, independent of ME's exposure_long gating.
+        max_n_passes=MAX_N_PASSES if getattr(model, "scan_ready", False) else MIN_N_PASSES,
         adapter_frame_capacity=None,
         adapter_frame_control=False,
         can_eject=False,
@@ -89,11 +98,18 @@ def _safe_progress(
         progress(max(0.0, min(1.0, float(value))), phase)
 
 
-def _gl128_me_pass_layout(*, capture_ir: bool, multi_exposure: bool) -> tuple[int, int] | None:
+def _gl128_me_pass_layout(*, capture_ir: bool, multi_exposure: bool, n_passes: int = 1) -> tuple[int, int] | None:
+    """(n_early, n_pass): physical passes before, and total physical passes across, the single
+    short→long exposure-change boundary. Every repeat within a slot shares one exposure — no
+    pyopticfilm-side "preparing" moment between repeats — so there is exactly one boundary
+    regardless of ``n_passes``: all short-slot repeats (+ the optional IR pass) happen first,
+    then all long-slot repeats. Collapses to the pre-Multi-Pass ``(2,3)``/``(1,2)`` layout at
+    ``n_passes=1``."""
     if not multi_exposure:
         return None
-    n_early = 2 if capture_ir else 1
-    return n_early, n_early + 1
+    ir_extra = 1 if capture_ir else 0
+    n_early = ir_extra + n_passes
+    return n_early, n_early + n_passes
 
 
 def _make_scan_progress(
@@ -101,8 +117,9 @@ def _make_scan_progress(
     *,
     multi_exposure: bool,
     capture_ir: bool,
+    n_passes: int = 1,
 ) -> Callable[[float], None]:
-    layout = _gl128_me_pass_layout(capture_ir=capture_ir, multi_exposure=multi_exposure)
+    layout = _gl128_me_pass_layout(capture_ir=capture_ir, multi_exposure=multi_exposure, n_passes=n_passes)
     if layout is None:
 
         def scan_progress(p: float) -> None:
@@ -154,8 +171,18 @@ def _validate_params(params: ScanParams, *, model: Any | None = None) -> None:
         raise RuntimeError("Autofocus requested but the device has no autofocus option")
     if params.capture_ir and model is not None and getattr(model, "supports_infrared", None) is False:
         raise RuntimeError(f"{getattr(model, 'model', 'device')} does not support infrared")
-    if params.multi_exposure and model is not None and not getattr(model, "exposure_long", None):
+    mode = params.multi_exposure_mode
+    if mode != MultiExposureMode.OFF and model is not None and not getattr(model, "exposure_long", None):
         raise RuntimeError(f"{getattr(model, 'model', 'device')} does not support multi-exposure")
+    if params.n_passes > 1:
+        if not (MIN_N_PASSES <= params.n_passes <= MAX_N_PASSES):
+            raise RuntimeError(f"n_passes={params.n_passes} out of range ({MIN_N_PASSES}-{MAX_N_PASSES})")
+        if model is not None and not getattr(model, "scan_ready", False):
+            raise RuntimeError(f"{getattr(model, 'model', 'device')} does not support Multi-Pass")
+        if params.capture_ir:
+            raise RuntimeError(
+                "IR and Multi-Pass cannot be combined yet — scan IR separately, or set Passes to 1."
+            )
 
 
 class PlustekSession:
@@ -317,7 +344,9 @@ class PlustekBackend:
         _validate_params(params, model=scanner.model)
         dpi = int(params.dpi)
         capture_ir = bool(params.capture_ir)
-        multi_exposure = bool(params.multi_exposure)
+        me_mode = params.multi_exposure_mode
+        multi_exposure = me_mode != MultiExposureMode.OFF
+        n_passes = int(params.n_passes)
         window = params.window
         geometry = self._default_scan_geometry(scanner, dpi=dpi, window=window)
 
@@ -339,6 +368,7 @@ class PlustekBackend:
                 progress,
                 multi_exposure=multi_exposure,
                 capture_ir=capture_ir,
+                n_passes=n_passes,
             )
 
             def on_status(status: str) -> None:
@@ -359,7 +389,8 @@ class PlustekBackend:
                 on_status=on_status,
                 multi_exposure=multi_exposure,
                 infrared=capture_ir,
-                me_exposure_mode="adaptive",
+                align_passes=True,
+                n_passes=n_passes,
             )
             ir_plane = np.asarray(rgb_image.ir) if capture_ir and rgb_image.ir is not None else None
         except ScanCancelled as exc:

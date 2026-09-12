@@ -1,3 +1,5 @@
+from enum import StrEnum
+
 import qtawesome as qta
 from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtGui import QIntValidator
@@ -21,9 +23,90 @@ from negpy.desktop.view.sidebar.base import install_wheel_guards
 from negpy.desktop.view.styles.templates import StatusStrip, hint_label, icon_button as _icon_button, section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice
-from negpy.infrastructure.scanners.params import FILM_TYPES, FilmType, film_passes_infrared
+from negpy.infrastructure.scanners.params import (
+    DEFAULT_N_PASSES,
+    FILM_TYPES,
+    FilmType,
+    MAX_N_PASSES,
+    MIN_N_PASSES,
+    MultiExposureMode,
+    film_passes_infrared,
+)
 from negpy.infrastructure.scanners.registry import DEFAULT_BACKEND_ID, backend_choices
 from negpy.infrastructure.scanners.settings import ScannerSettings
+
+
+class ScanCaptureMode(StrEnum):
+    """The 4 scan modes this app exposes — a UI-only presentation of pyopticfilm's two real,
+    orthogonal axes (``multi_exposure`` and ``n_passes``). Never persisted or sent to the
+    backend directly; ``_capture_mode_from_params``/``_params_from_capture_mode`` translate to
+    and from the real ``ScanParams``/``ScannerSettings`` fields. pyopticfilm's manual exposure
+    overrides are lab/debug-only (see Scan Lab) and have no equivalent here."""
+
+    SINGLE_PASS = "single_pass"
+    MULTI_PASS = "multi_pass"
+    ADAPTIVE_ME = "adaptive_me"
+    ADAPTIVE_MULTI_PASS = "adaptive_multi_pass"
+
+
+#: Label + explanatory tooltip for each capture mode, in display order.
+_CAPTURE_MODE_LABELS: tuple[tuple[ScanCaptureMode, str, str], ...] = (
+    (ScanCaptureMode.SINGLE_PASS, "Single-Pass", "One exposure per scan. Fastest, standard quality."),
+    (
+        ScanCaptureMode.MULTI_PASS,
+        "Multi-Pass",
+        "Repeats the same exposure and stacks the results to reduce noise. Slower; best for a "
+        "single, well-exposed frame that just needs less noise.",
+    ),
+    (
+        ScanCaptureMode.ADAPTIVE_ME,
+        "Adaptive Multi-Exposure",
+        "Automatically captures a short and long exposure and fuses them for extended dynamic range. No stacking.",
+    ),
+    (
+        ScanCaptureMode.ADAPTIVE_MULTI_PASS,
+        "Adaptive Multi-Pass",
+        "Combines adaptive dual-exposure fusion with multi-pass stacking for maximum dynamic range and noise reduction. Slowest option.",
+    ),
+)
+
+_ME_CAPTURE_MODES = (ScanCaptureMode.ADAPTIVE_ME, ScanCaptureMode.ADAPTIVE_MULTI_PASS)
+_STACKING_CAPTURE_MODES = (ScanCaptureMode.MULTI_PASS, ScanCaptureMode.ADAPTIVE_MULTI_PASS)
+
+#: Passes slider floor. UI-only — 1 pass is "not stacking", represented by mode choice, so the
+#: slider (shown only for a stacking mode) never needs to reach it. The ceiling is
+#: pyopticfilm's own ``MAX_N_PASSES``, imported directly since this file already reaches into
+#: params.py for other names.
+MIN_PASSES_UI = 2
+
+
+def _capture_mode_from_params(mode: MultiExposureMode, n_passes: int) -> ScanCaptureMode:
+    me = mode == MultiExposureMode.ADAPTIVE
+    stacking = n_passes > 1
+    if me:
+        return ScanCaptureMode.ADAPTIVE_MULTI_PASS if stacking else ScanCaptureMode.ADAPTIVE_ME
+    return ScanCaptureMode.MULTI_PASS if stacking else ScanCaptureMode.SINGLE_PASS
+
+
+def _params_from_capture_mode(capture_mode: ScanCaptureMode, slider_value: int) -> tuple[MultiExposureMode, int]:
+    mode = MultiExposureMode.ADAPTIVE if capture_mode in _ME_CAPTURE_MODES else MultiExposureMode.OFF
+    n_passes = slider_value if capture_mode in _STACKING_CAPTURE_MODES else 1
+    return mode, n_passes
+
+
+def _valid_capture_mode(desired: ScanCaptureMode, *, has_me: bool, has_stack: bool) -> ScanCaptureMode:
+    """``desired`` masked against what the device actually supports — drops just the axis
+    (ME or stacking) the device lacks, rather than falling all the way back to Single-Pass
+    unless neither axis is available."""
+    want_me = desired in _ME_CAPTURE_MODES and has_me
+    want_stack = desired in _STACKING_CAPTURE_MODES and has_stack
+    if want_me and want_stack:
+        return ScanCaptureMode.ADAPTIVE_MULTI_PASS
+    if want_me:
+        return ScanCaptureMode.ADAPTIVE_ME
+    if want_stack:
+        return ScanCaptureMode.MULTI_PASS
+    return ScanCaptureMode.SINGLE_PASS
 
 
 _SAMPLE_COUNTS = (1, 2, 4, 8, 16)
@@ -152,8 +235,16 @@ class ScanSidebar(QWidget):
         layout.addLayout(device_form)
 
         # ── CAPS INFO ───────────────────────────────────────
+        # Crop info sits to the right of Frame info, and only appears once there is a crop
+        # to report — Prescan's own crop, when the connected backend uses Prescan at all.
+        frame_info_row = QHBoxLayout()
+        frame_info_row.setContentsMargins(0, 0, 0, 0)
         self.frame_label = hint_label("")
-        layout.addWidget(self.frame_label)
+        self.crop_label = hint_label("")
+        self.crop_label.setVisible(False)
+        frame_info_row.addWidget(self.frame_label)
+        frame_info_row.addWidget(self.crop_label, 1)
+        layout.addLayout(frame_info_row)
 
         # ── SETTINGS ────────────────────────────────────────
         # Four labelled groups in one form, in the order the operator decides them: what is
@@ -211,9 +302,40 @@ class ScanSidebar(QWidget):
         self.form.addRow(self.clean_check)
         self.clean_check.setVisible(False)
 
-        self.me_check = QCheckBox("Multi-exposure")
-        self.me_check.setToolTip("Merge short and long color passes for more highlight and shadow detail. Takes longer.")
-        self.form.addRow(self.me_check)
+        self.mode_combo = QComboBox()
+        for mode, label, tooltip in _CAPTURE_MODE_LABELS:
+            self.mode_combo.addItem(label, mode.value)
+            self.mode_combo.setItemData(self.mode_combo.count() - 1, tooltip, Qt.ItemDataRole.ToolTipRole)
+        self.mode_combo.setToolTip(
+            "How this scan captures exposure: a single pass, repeated passes stacked for lower "
+            "noise, an adaptive short+long fusion, or both combined."
+        )
+        self.mode_label = QLabel("Scan mode")
+        self.form.addRow(self.mode_label, self.mode_combo)
+
+        # Independent axis folded into the combo above: only meaningful (and only shown) for
+        # the two stacking modes (Multi-Pass / Adaptive Multi-Pass).
+        self.passes_row_widget = QWidget()
+        passes_row = QHBoxLayout(self.passes_row_widget)
+        passes_row.setContentsMargins(0, 0, 0, 0)
+        passes_row.setSpacing(6)
+        self.passes_slider = QSlider(Qt.Orientation.Horizontal)
+        self.passes_slider.setRange(MIN_PASSES_UI, MAX_N_PASSES)
+        self.passes_slider.setSingleStep(1)
+        self.passes_slider.setPageStep(1)
+        self.passes_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.passes_slider.setTickInterval(1)
+        self.passes_slider.setToolTip(
+            f"Number of exposures to stack ({MIN_PASSES_UI}-{MAX_N_PASSES}). Each extra pass adds roughly one more scan pass per exposure."
+        )
+        self.passes_value_label = QLabel(str(MIN_PASSES_UI))
+        self.passes_value_label.setMinimumWidth(20)
+        passes_row.addWidget(self.passes_slider, 1)
+        passes_row.addWidget(self.passes_value_label)
+        self.passes_label = QLabel("Passes")
+        self.form.addRow(self.passes_label, self.passes_row_widget)
+        self.passes_label.setVisible(False)
+        self.passes_row_widget.setVisible(False)
 
         self.superfine_check = QCheckBox("Superfine")
         self.superfine_check.setToolTip("Read one line per pass: slower, and free of line registration")
@@ -257,56 +379,6 @@ class ScanSidebar(QWidget):
         self.exposure_label.setVisible(False)
         self.exposure_row_widget.setVisible(False)
 
-        self.framing_header = section_subheader("Framing")
-        self.form.addRow(self.framing_header)
-
-        # Which frames the batch scans, for roll and strip feeders only.
-        self.frame_spec_edit = QLineEdit()
-        self.frame_spec_edit.setPlaceholderText("All frames")
-        self.frame_spec_edit.setToolTip("Frames to scan: 1-6 or 1,2,5. Empty scans every frame.")
-        self.frame_spec_label = QLabel("Frames")
-        self.form.addRow(self.frame_spec_label, self.frame_spec_edit)
-        self.frame_spec_label.setVisible(False)
-        self.frame_spec_edit.setVisible(False)
-
-        # Scan window (strip/roll feeders): set once from a preview, reused per frame.
-        self.scan_window_widget = QWidget()
-        scan_window_row = QHBoxLayout(self.scan_window_widget)
-        scan_window_row.setContentsMargins(0, 0, 0, 0)
-        self.scan_window_btn = QPushButton("Set scan window…")
-        self.scan_window_btn.setToolTip("Preview a frame and set the scan window reused for every frame")
-        self.scan_window_clear_btn = QPushButton("Clear")
-        self.scan_window_clear_btn.setFixedWidth(56)
-        self.scan_window_clear_btn.setToolTip("Scan the whole default frame instead")
-        scan_window_row.addWidget(self.scan_window_btn, 1)
-        scan_window_row.addWidget(self.scan_window_clear_btn)
-        self.scan_window_row_label = QLabel("Batch")
-        self.form.addRow(self.scan_window_row_label, self.scan_window_widget)
-        self.scan_window_status = hint_label("")
-        self.form.addRow("", self.scan_window_status)
-        self.scan_window_row_label.setVisible(False)
-        self.scan_window_widget.setVisible(False)
-        self.scan_window_status.setVisible(False)
-
-        # Prescan + crop (Plustek SE): low-DPI full window → interactive crop → scan_window.
-        self.prescan_widget = QWidget()
-        prescan_row = QHBoxLayout(self.prescan_widget)
-        prescan_row.setContentsMargins(0, 0, 0, 0)
-        self.prescan_btn = QPushButton("Prescan…")
-        self.prescan_btn.setToolTip("Scan a low-DPI preview and set the crop for the next scan")
-        self.prescan_clear_btn = QPushButton("Clear")
-        self.prescan_clear_btn.setFixedWidth(56)
-        self.prescan_clear_btn.setToolTip("Scan the full window instead of a crop")
-        prescan_row.addWidget(self.prescan_btn, 1)
-        prescan_row.addWidget(self.prescan_clear_btn)
-        self.prescan_label = QLabel("Prescan")
-        self.form.addRow(self.prescan_label, self.prescan_widget)
-        self.prescan_status = hint_label("")
-        self.form.addRow("", self.prescan_status)
-        self.prescan_label.setVisible(False)
-        self.prescan_widget.setVisible(False)
-        self.prescan_status.setVisible(False)
-
         self.output_header = section_subheader("Output")
         self.form.addRow(self.output_header)
 
@@ -329,6 +401,67 @@ class ScanSidebar(QWidget):
         self.form.addRow("Filename", self.pattern_edit)
 
         layout.addLayout(self.form)
+
+        # ── FRAMING (bottom, right above Scan) ───────────────
+        # These are the last decisions before pressing Scan, not a settings-form field among
+        # Film/Quality/Output — full width, not squeezed into the form's shared label column.
+        self.framing_header = section_subheader("Framing")
+        layout.addWidget(self.framing_header)
+
+        # Which frames the batch scans, for roll and strip feeders only.
+        frame_spec_row = QHBoxLayout()
+        frame_spec_row.setContentsMargins(0, 0, 0, 0)
+        frame_spec_row.setSpacing(6)
+        self.frame_spec_label = QLabel("Frames")
+        self.frame_spec_edit = QLineEdit()
+        self.frame_spec_edit.setPlaceholderText("All frames")
+        self.frame_spec_edit.setToolTip("Frames to scan: 1-6 or 1,2,5. Empty scans every frame.")
+        frame_spec_row.addWidget(self.frame_spec_label)
+        frame_spec_row.addWidget(self.frame_spec_edit, 1)
+        layout.addLayout(frame_spec_row)
+        self.frame_spec_label.setVisible(False)
+        self.frame_spec_edit.setVisible(False)
+
+        # Scan window (strip/roll feeders): set once from a preview, reused per frame.
+        scan_window_row = QHBoxLayout()
+        scan_window_row.setContentsMargins(0, 0, 0, 0)
+        scan_window_row.setSpacing(6)
+        self.scan_window_row_label = QLabel("Batch")
+        self.scan_window_widget = QWidget()
+        scan_window_btn_row = QHBoxLayout(self.scan_window_widget)
+        scan_window_btn_row.setContentsMargins(0, 0, 0, 0)
+        self.scan_window_btn = QPushButton("Set scan window…")
+        self.scan_window_btn.setToolTip("Preview a frame and set the scan window reused for every frame")
+        self.scan_window_clear_btn = QPushButton("Clear")
+        self.scan_window_clear_btn.setFixedWidth(56)
+        self.scan_window_clear_btn.setToolTip("Scan the whole default frame instead")
+        scan_window_btn_row.addWidget(self.scan_window_btn, 1)
+        scan_window_btn_row.addWidget(self.scan_window_clear_btn)
+        scan_window_row.addWidget(self.scan_window_row_label)
+        scan_window_row.addWidget(self.scan_window_widget, 1)
+        layout.addLayout(scan_window_row)
+        self.scan_window_status = hint_label("")
+        layout.addWidget(self.scan_window_status)
+        self.scan_window_row_label.setVisible(False)
+        self.scan_window_widget.setVisible(False)
+        self.scan_window_status.setVisible(False)
+
+        # Prescan + crop (Plustek SE): low-DPI full window → interactive crop → scan_window.
+        # Full width, all the way to the left edge — no row label, this is the primary action
+        # in the group, not a field next to a caption. The crop it sets is reported next to
+        # Frame info above (self.crop_label), not here.
+        self.prescan_widget = QWidget()
+        prescan_row = QHBoxLayout(self.prescan_widget)
+        prescan_row.setContentsMargins(0, 0, 0, 0)
+        self.prescan_btn = QPushButton("Prescan")
+        self.prescan_btn.setToolTip("Scan a low-DPI preview and set the crop for the next scan")
+        self.prescan_clear_btn = QPushButton("Clear")
+        self.prescan_clear_btn.setFixedWidth(56)
+        self.prescan_clear_btn.setToolTip("Scan the full window instead of a crop")
+        prescan_row.addWidget(self.prescan_btn, 1)
+        prescan_row.addWidget(self.prescan_clear_btn)
+        layout.addWidget(self.prescan_widget)
+        self.prescan_widget.setVisible(False)
 
         # ── STATUS + SCAN BUTTON ────────────────────────────
         # One reserved row for all three: the pass that is running, the message it left, and
@@ -366,8 +499,9 @@ class ScanSidebar(QWidget):
         self.fmt_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
         self.dpi_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
         self.depth_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
-        self.ir_check.toggled.connect(lambda on: self._on_ir_pass_toggled(self.clean_check, on))
-        self.me_check.toggled.connect(lambda: self._update_settings_from_ui())
+        self.ir_check.toggled.connect(self._on_ir_toggled)
+        self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        self.passes_slider.valueChanged.connect(self._on_passes_slider_changed)
         self.autofocus_check.toggled.connect(lambda: self._update_settings_from_ui())
         self.ae_check.toggled.connect(lambda: self._on_ae_toggled())
         self.clean_check.toggled.connect(lambda on: self._on_ir_pass_toggled(self.ir_check, on))
@@ -482,9 +616,12 @@ class ScanSidebar(QWidget):
             self.depth_combo.setVisible(False)
             self.depth_label.setVisible(False)
             self.ir_check.setVisible(False)
-            self.me_check.setVisible(False)
+            self.mode_label.setVisible(False)
+            self.mode_combo.setVisible(False)
+            self.passes_label.setVisible(False)
+            self.passes_row_widget.setVisible(False)
             self.ir_check.setEnabled(False)
-            self.me_check.setEnabled(False)
+            self.mode_combo.setEnabled(False)
             self.eject_btn.setVisible(False)
             self.frame_spec_label.setVisible(False)
             self.frame_spec_edit.setVisible(False)
@@ -495,9 +632,8 @@ class ScanSidebar(QWidget):
             self.exposure_row_widget.setVisible(False)
             self.autofocus_check.setVisible(False)
             self.ae_check.setVisible(False)
-            self.prescan_label.setVisible(False)
             self.prescan_widget.setVisible(False)
-            self.prescan_status.setVisible(False)
+            self.crop_label.setVisible(False)
             self.clean_check.setVisible(False)
             self.superfine_check.setVisible(False)
             self.samples_label.setVisible(False)
@@ -522,7 +658,7 @@ class ScanSidebar(QWidget):
         self.dpi_combo.setEnabled(True)
         self.depth_combo.setEnabled(True)
         self.ir_check.setEnabled(True)
-        self.me_check.setEnabled(True)
+        self.mode_combo.setEnabled(True)
         self.eject_btn.setVisible(caps.can_eject)
         self.eject_btn.setEnabled(caps.can_eject and not self._scanning)
         self.frame_label.setText(f"Frame: {caps.max_area_mm[0]:.0f} × {caps.max_area_mm[1]:.0f} mm")
@@ -543,7 +679,8 @@ class ScanSidebar(QWidget):
         self.dpi_combo.blockSignals(True)
         self.depth_combo.blockSignals(True)
         self.ir_check.blockSignals(True)
-        self.me_check.blockSignals(True)
+        self.mode_combo.blockSignals(True)
+        self.passes_slider.blockSignals(True)
         self.ae_check.blockSignals(True)
         self.frame_spec_edit.blockSignals(True)
 
@@ -594,18 +731,47 @@ class ScanSidebar(QWidget):
             self.ir_check.setChecked(False)
             self.ir_check.setToolTip("IR scanning not supported by this device")
 
-        # Multi-exposure (Plustek GL128 scan-ready models)
-        self.me_check.setVisible(bool(caps.multi_exposure))
-        self.me_check.setEnabled(caps.multi_exposure)
-        if caps.multi_exposure:
-            self.me_check.setChecked(self._settings.multi_exposure)
-            self.me_check.setToolTip(
-                "Merge short and long colour passes for more highlight and shadow detail. "
-                "The long pass exposure is chosen per frame. Takes longer."
+        # Scan mode (Plustek GL128 scan-ready models): one combo presenting pyopticfilm's two
+        # real orthogonal axes (multi_exposure_mode, n_passes) as 4 named options. Per-item
+        # capability gating below; the whole row hides when neither ME nor Multi-Pass applies —
+        # a device with neither has nothing to choose, mode is implicitly Single-Pass.
+        show_mode = bool(caps.multi_exposure) or caps.max_n_passes > 1
+        self.mode_label.setVisible(show_mode)
+        self.mode_combo.setVisible(show_mode)
+        self.mode_combo.setEnabled(show_mode)
+        for capture_mode, _label, _tooltip in _CAPTURE_MODE_LABELS:
+            idx = self.mode_combo.findData(capture_mode.value)
+            enabled = (
+                True
+                if capture_mode == ScanCaptureMode.SINGLE_PASS
+                else bool(caps.multi_exposure)
+                if capture_mode == ScanCaptureMode.ADAPTIVE_ME
+                else caps.max_n_passes > 1
+                if capture_mode == ScanCaptureMode.MULTI_PASS
+                else bool(caps.multi_exposure) and caps.max_n_passes > 1  # ADAPTIVE_MULTI_PASS
             )
-        else:
-            self.me_check.setChecked(False)
-            self.me_check.setToolTip("Multi-exposure not supported by this device")
+            item = self.mode_combo.model().item(idx)
+            if item is not None:
+                item.setEnabled(enabled)
+        saved_mode = _capture_mode_from_params(
+            MultiExposureMode(self._settings.multi_exposure_mode)
+            if self._settings.multi_exposure_mode in set(MultiExposureMode)
+            else MultiExposureMode.OFF,
+            self._settings.n_passes,
+        )
+        self._set_capture_mode(_valid_capture_mode(saved_mode, has_me=bool(caps.multi_exposure), has_stack=caps.max_n_passes > 1))
+        # IR and Multi-Pass stacking cannot combine (see _on_ir_toggled) — a settings blob
+        # saved with both set (signals are blocked through this whole method, so the toggle
+        # handlers that normally resolve this never fire) must self-heal here the same way,
+        # rather than reaching Scan and failing there.
+        if self._capture_mode() in _STACKING_CAPTURE_MODES and self.ir_check.isChecked():
+            self.ir_check.setChecked(False)
+        ceiling = max(MIN_PASSES_UI, caps.max_n_passes)
+        starting_passes = DEFAULT_N_PASSES if self._settings.n_passes <= MIN_N_PASSES else self._settings.n_passes
+        self.passes_slider.setRange(MIN_PASSES_UI, ceiling)
+        self.passes_slider.setValue(min(max(starting_passes, MIN_PASSES_UI), ceiling))
+        self.passes_value_label.setText(str(self.passes_slider.value()))
+        self._sync_passes_visibility()
 
         # Autofocus and auto-exposure, shown only when the device reports them.
         self._caps_autofocus = bool(caps.autofocus)
@@ -730,16 +896,17 @@ class ScanSidebar(QWidget):
             self._update_scan_window_status()
 
         show_prescan = bool(caps.prescan)
-        self.prescan_label.setVisible(show_prescan)
         self.prescan_widget.setVisible(show_prescan)
-        self.prescan_status.setVisible(show_prescan)
         if show_prescan:
-            self._update_prescan_status()
+            self._update_crop_label()
+        else:
+            self.crop_label.setVisible(False)
 
         self.dpi_combo.blockSignals(False)
         self.depth_combo.blockSignals(False)
         self.ir_check.blockSignals(False)
-        self.me_check.blockSignals(False)
+        self.mode_combo.blockSignals(False)
+        self.passes_slider.blockSignals(False)
         self.ae_check.blockSignals(False)
         self.frame_spec_edit.blockSignals(False)
 
@@ -773,6 +940,50 @@ class ScanSidebar(QWidget):
             other.blockSignals(True)
             other.setChecked(False)
             other.blockSignals(False)
+        self._update_settings_from_ui()
+
+    def _on_ir_toggled(self, checked: bool) -> None:
+        self._on_ir_pass_toggled(self.clean_check, checked)
+        if not checked:
+            return
+        # IR and Multi-Pass stacking cannot combine yet — pyopticfilm rejects the combination
+        # outright (each repeat is its own motor cycle; IR stacking is unvalidated). Drop the
+        # mode to its non-stacking equivalent rather than silently discarding a hidden slider
+        # value, so the visible mode reflects what actually happens.
+        mode = self._capture_mode()
+        if mode == ScanCaptureMode.MULTI_PASS:
+            self._set_capture_mode(ScanCaptureMode.SINGLE_PASS)
+        elif mode == ScanCaptureMode.ADAPTIVE_MULTI_PASS:
+            self._set_capture_mode(ScanCaptureMode.ADAPTIVE_ME)
+
+    def _on_mode_changed(self) -> None:
+        self._sync_passes_visibility()
+        if self._capture_mode() in _STACKING_CAPTURE_MODES and self.ir_check.isChecked():
+            self.ir_check.blockSignals(True)
+            self.ir_check.setChecked(False)
+            self.ir_check.blockSignals(False)
+        self._update_settings_from_ui()
+
+    def _sync_passes_visibility(self) -> None:
+        show = self.mode_combo.isEnabled() and self._capture_mode() in _STACKING_CAPTURE_MODES
+        self.passes_label.setVisible(show)
+        self.passes_row_widget.setVisible(show)
+
+    def _set_capture_mode(self, mode: ScanCaptureMode) -> None:
+        idx = self.mode_combo.findData(mode.value)
+        if idx >= 0:
+            self.mode_combo.setCurrentIndex(idx)
+
+    def _capture_mode(self) -> ScanCaptureMode:
+        if not self.mode_combo.isEnabled():
+            return ScanCaptureMode.SINGLE_PASS
+        return ScanCaptureMode(self.mode_combo.currentData() or ScanCaptureMode.SINGLE_PASS.value)
+
+    def _passes_slider_value(self) -> int:
+        return self.passes_slider.value()
+
+    def _on_passes_slider_changed(self, value: int) -> None:
+        self.passes_value_label.setText(str(value))
         self._update_settings_from_ui()
 
     def _samples(self) -> int:
@@ -893,7 +1104,7 @@ class ScanSidebar(QWidget):
         )
         if dialog.exec():
             self.settings = replace(self._settings, scan_window=dialog.scan_window())
-            self._update_prescan_status()
+            self._update_crop_label()
             self._save_settings()
             if dialog.scan_requested():
                 self._on_scan()
@@ -902,10 +1113,12 @@ class ScanSidebar(QWidget):
         from dataclasses import replace
 
         self.settings = replace(self._settings, scan_window=None)
-        self._update_prescan_status()
+        self._update_crop_label()
         self._save_settings()
 
-    def _update_prescan_status(self) -> None:
+    def _update_crop_label(self) -> None:
+        """Next to Frame info, and only shown when there is an actual crop to report —
+        a full-window scan says nothing here rather than stating the obvious."""
         from negpy.infrastructure.scanners.params import scan_window_to_area
 
         device = self._current_device()
@@ -915,10 +1128,11 @@ class ScanSidebar(QWidget):
             else None
         )
         if area is None:
-            self.prescan_status.setText("Full window")
+            self.crop_label.setVisible(False)
         else:
             tl_x, tl_y, br_x, br_y = area
-            self.prescan_status.setText(f"Crop {br_x - tl_x:.1f} × {br_y - tl_y:.1f} mm")
+            self.crop_label.setText(f"Crop: {br_x - tl_x:.1f} × {br_y - tl_y:.1f} mm")
+            self.crop_label.setVisible(True)
 
     def _update_scan_window_status(self) -> None:
         from negpy.infrastructure.scanners.params import scan_window_to_area
@@ -998,8 +1212,12 @@ class ScanSidebar(QWidget):
             passes.append("Superfine")
         if self._samples() > 1:
             passes.append(f"{self._samples()}× sampled")
-        if self.me_check.isEnabled() and self.me_check.isChecked():
-            passes.append("Multi-exposure")
+        capture_mode = self._capture_mode()
+        if capture_mode != ScanCaptureMode.SINGLE_PASS:
+            mode_label = next(label for mode, label, _ in _CAPTURE_MODE_LABELS if mode == capture_mode)
+            if capture_mode in _STACKING_CAPTURE_MODES:
+                mode_label = f"{mode_label} ({self._passes_slider_value()} passes)"
+            passes.append(mode_label)
         # The count and the size are what the operator checks before committing, so they carry
         # primary weight; the rest of the line stays secondary.
         strong = f'<span style="color: {THEME.text_primary}">{{}}</span>'
@@ -1042,7 +1260,7 @@ class ScanSidebar(QWidget):
         dpi = self._dpi()
         depth = int(self.depth_combo.currentData() or 16)
         capture_ir = self.ir_check.isEnabled() and self.ir_check.isChecked()
-        multi_exposure = self.me_check.isEnabled() and self.me_check.isChecked()
+        me_mode, n_passes = _params_from_capture_mode(self._capture_mode(), self._passes_slider_value())
         autofocus = self._caps_autofocus and self.autofocus_check.isChecked()
         auto_exposure = self._caps_auto_exposure and self.ae_check.isChecked()
         pattern = self.pattern_edit.text().strip() or '{{ date }}_{{ "%03d" % seq }}'
@@ -1065,7 +1283,8 @@ class ScanSidebar(QWidget):
             dpi=dpi,
             depth=depth,
             capture_ir=capture_ir,
-            multi_exposure=multi_exposure,
+            multi_exposure_mode=me_mode,
+            n_passes=n_passes,
             autofocus=autofocus,
             auto_exposure=auto_exposure,
             exposure_time_us=exposure_time_us,
@@ -1210,6 +1429,7 @@ class ScanSidebar(QWidget):
         from dataclasses import replace
 
         device = self._current_device()
+        me_mode, n_passes = _params_from_capture_mode(self._capture_mode(), self._passes_slider_value())
         # replace(), never a fresh ScannerSettings: fields with no sidebar control must survive
         # UI edits, and reconstruction silently resets any field missing from this list.
         self.settings = replace(
@@ -1219,7 +1439,8 @@ class ScanSidebar(QWidget):
             dpi=dpi,
             depth=depth,
             capture_ir=self.ir_check.isChecked() and self.ir_check.isEnabled(),
-            multi_exposure=self.me_check.isChecked() and self.me_check.isEnabled(),
+            multi_exposure_mode=me_mode.value,
+            n_passes=n_passes,
             autofocus=self._caps_autofocus and self.autofocus_check.isChecked(),
             auto_exposure=self._caps_auto_exposure and self.ae_check.isChecked(),
             exposure_time_us=(self.exposure_slider.value() if self.exposure_row_widget.isVisible() else None),
