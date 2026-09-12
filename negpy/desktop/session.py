@@ -131,6 +131,9 @@ class AppState:
 
     # Hardware Acceleration
     gpu_enabled: bool = True
+    # The viewport's own GPU surface failed to start (reason). The pipeline may still run on
+    # the GPU; the display then reads every frame back to the CPU.
+    gpu_viewport_failed: str = ""
 
     # High Quality / Full Resoluiton Preview Toggle
     hq_preview: bool = False

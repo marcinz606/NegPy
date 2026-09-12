@@ -233,6 +233,9 @@ class MainWindow(QMainWindow):
         data = _read_screen_icc(screen) if screen is not None else None
         if not force and data == self.state.monitor_icc_detected_bytes:
             return
+        if data is None and not self.state.monitor_profile_override and not getattr(self, "_icc_miss_notified", False):
+            self._icc_miss_notified = True
+            self.canvas.hud.showMessage("No monitor ICC profile detected — preview assumes sRGB", 6000, kind="warning")
         self.controller.set_monitor_detected(data)
 
     def _init_ui(self) -> None:
@@ -262,6 +265,16 @@ class MainWindow(QMainWindow):
 
         self.loading_overlay = LoadingOverlay(self.canvas)
         self.loading_overlay.raise_()
+
+        if self.state.gpu_viewport_failed:
+            QTimer.singleShot(
+                0,
+                lambda: self.canvas.hud.showMessage(
+                    f"GPU viewport failed to start — display runs on the CPU ({self.state.gpu_viewport_failed})",
+                    8000,
+                    kind="warning",
+                ),
+            )
 
         self.central_layout.addWidget(self.canvas, stretch=1)
 

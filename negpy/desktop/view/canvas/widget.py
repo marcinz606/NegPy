@@ -158,6 +158,7 @@ class ImageCanvas(QWidget):
                 self.gpu_widget.initialize_gpu(gpu.device, gpu.adapter)
             except Exception as e:
                 logger.error(f"Hardware viewport acceleration failed: {e}")
+                self.state.gpu_viewport_failed = str(e) or type(e).__name__
         self.root_layout.addWidget(self.gpu_widget)
 
         # UI Overlay layer
@@ -594,7 +595,7 @@ class ImageCanvas(QWidget):
         this buffer; both paths apply the identical LUT, the GPU one in its shader.
         """
         self._last_buffer = buffer
-        if self.state.gpu_enabled and isinstance(buffer, GPUTexture):
+        if self.state.gpu_enabled and not self.state.gpu_viewport_failed and isinstance(buffer, GPUTexture):
             self.gpu_widget.show()
             self.gpu_widget.set_display_transform(color_space, monitor_icc_bytes, proof)
             self.gpu_widget.update_texture(buffer)
