@@ -3,7 +3,7 @@ from typing import Optional
 
 import numpy as np
 from PIL import Image
-from PyQt6.QtCore import Qt, QEvent, QTimer, pyqtSignal
+from PyQt6.QtCore import QByteArray, Qt, QEvent, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -11,7 +11,6 @@ from PyQt6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
-    QStatusBar,
     QVBoxLayout,
     QWidget,
 )
@@ -186,12 +185,22 @@ class MainWindow(QMainWindow):
         x, y, w, h = _clamp_geometry(saved, (rect.x(), rect.y(), rect.width(), rect.height()))
         self.resize(w, h)
         self.move(x, y)
+        if self.controller.session.repo.get_global_setting("window_maximized", False):
+            self.setWindowState(Qt.WindowState.WindowMaximized)
 
     def closeEvent(self, event) -> None:
         try:
-            self.controller.session.repo.save_global_setting("window_geometry", [self.x(), self.y(), self.width(), self.height()])
+            # normalGeometry, so a maximized window reopens maximized over its own restored size.
+            geo = self.normalGeometry() if self.isMaximized() else self.geometry()
+            self.controller.session.repo.save_global_settings(
+                {
+                    "window_geometry": [geo.x(), geo.y(), geo.width(), geo.height()],
+                    "window_maximized": self.isMaximized(),
+                    "dock_state": bytes(self.saveState().toBase64()).decode("ascii"),
+                }
+            )
         except Exception:
-            logger.exception("Failed to persist window geometry")
+            logger.exception("Failed to persist window layout")
         super().closeEvent(event)
 
     def showEvent(self, event) -> None:
@@ -314,14 +323,13 @@ class MainWindow(QMainWindow):
         # than re-adding the dock where it currently sits.
         self._default_dock_state = self.saveState()
 
-        # Restore saved panel visibility
         repo = self.controller.session.repo
+        saved_docks = repo.get_global_setting("dock_state")
+        if isinstance(saved_docks, str) and saved_docks:
+            self.restoreState(QByteArray.fromBase64(saved_docks.encode("ascii")))
+        # The visibility keys are what the toggles write, so they win over the dock snapshot.
         self.session_dock.setVisible(repo.get_global_setting("panel_left_visible", True))
         self.drawer.setVisible(repo.get_global_setting("panel_right_visible", True))
-
-        # hide native status bar - status lives in the canvas HUD
-        self.setStatusBar(QStatusBar())
-        self.statusBar().hide()
 
     TOOL_LABELS: dict[ToolMode, str] = {
         ToolMode.WB_PICK: "WB Picker",

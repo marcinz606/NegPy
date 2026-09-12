@@ -41,7 +41,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.kernel.system.text import count_of
 from negpy.desktop.controller import AppController
-from negpy.desktop.session import _source_effective_bounds, composite_kind
+from negpy.desktop.session import AppState, _source_effective_bounds, composite_kind
 from negpy.desktop.view.confirm import confirm_unload
 from negpy.features.hdr.logic import anchor_choices
 from negpy.features.hdr.models import hdr_frame_paths
@@ -84,6 +84,16 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     _COMPOSITE_CHIP = QColor(20, 20, 20, 190)
     _COMPOSITE_RING = QColor(255, 255, 255, 90)
     _COMPOSITE_GLYPH = QColor(255, 255, 255, 235)
+    _DIRTY_PX = 2
+
+    def __init__(self, parent=None, state: Optional[AppState] = None) -> None:
+        super().__init__(parent)
+        self._state = state
+
+    def _is_dirty(self, file_info: dict) -> bool:
+        """Only the active file can carry unsaved edits; every other frame is on disk."""
+        state = self._state
+        return bool(state and state.is_dirty and state.current_file_path and file_info.get("path") == state.current_file_path)
 
     def _draw_mark_badge(self, painter: QPainter, img_rect: QRect, check: bool) -> None:
         r = 9
@@ -211,6 +221,15 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(img_rect.adjusted(0, 0, -1, -1), self._RADIUS, self._RADIUS)
+
+        if self._is_dirty(file_info):
+            # Over the frame line, so it reads as the accent and not a blend with the border.
+            painter.setClipPath(clip)
+            painter.fillRect(
+                QRect(img_rect.left(), img_rect.bottom() - self._DIRTY_PX + 1, img_rect.width(), self._DIRTY_PX),
+                QColor(THEME.accent_primary),
+            )
+            painter.setClipping(False)
 
         if failed:
             self._draw_failed_badge(painter, img_rect)
@@ -597,7 +616,7 @@ class FileBrowser(QWidget):
 
         self.list_view = ThumbnailGridView(target_cell=self.thumb_size_slider.value())
         self.list_view.setModel(self.session.asset_model)
-        self.list_view.setItemDelegate(_ThumbnailDelegate(self.list_view))
+        self.list_view.setItemDelegate(_ThumbnailDelegate(self.list_view, state=self.session.state))
         self.list_view.setViewMode(QListView.ViewMode.IconMode)
         self.list_view.setResizeMode(QListView.ResizeMode.Adjust)
         self.list_view.setSelectionMode(QListView.SelectionMode.ExtendedSelection)

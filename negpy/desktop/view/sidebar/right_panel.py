@@ -199,8 +199,8 @@ class RightPanel(QWidget):
 
         self.apply_shortcut_tooltips()
 
-        # Default tab (Setup)
-        self._switch_tab(0)
+        saved_tab = repo.get_global_setting("right_panel_tab", 0)
+        self._switch_tab(saved_tab if isinstance(saved_tab, int) and 0 <= saved_tab < len(self._tab_buttons) else 0)
 
     def show_analysis_help(self) -> None:
         from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog
@@ -291,6 +291,7 @@ class RightPanel(QWidget):
 
     def _switch_tab(self, index: int) -> None:
         self._active_index = index
+        self.controller.session.repo.save_global_setting("right_panel_tab", index)
         self.stack.setCurrentIndex(index)
         for i, btn in enumerate(self._tab_buttons):
             btn.setChecked(i == index)
