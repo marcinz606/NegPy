@@ -108,3 +108,36 @@ def apply_camera_matrix(img: np.ndarray, matrix: Optional[np.ndarray]) -> np.nda
         return img
     flat = img.reshape(-1, 3).astype(np.float32, copy=False)
     return (flat @ np.asarray(matrix, dtype=np.float32).T).reshape(img.shape)
+
+
+# Percentile of the whole frame taken as the light, and where it lands in the working
+# space. The high percentile, not the maximum, so a specular or a hot pixel does not set
+# the level.
+_LIGHTBOX_PCT = 99.5
+_LIGHTBOX_TARGET = 0.95
+
+
+def lightbox_level(img: np.ndarray, matrix: Optional[np.ndarray]) -> Optional[float]:
+    """Scalar gain that puts the frame's brightest tone on the display.
+
+    A raw decode has no auto-brightness, so a scan of a dense negative sits in the bottom
+    of the display curve and reads as a flat dark frame whatever its real density is. One
+    scalar, so the channel balance is left to the white balance folded into ``matrix`` —
+    a per-channel reference would instead neutralize whatever it landed on, which is the
+    film base itself on a scan with no bare light around the rebate, and that renders an
+    orange mask as olive.
+
+    ``img`` is the buffer before ``matrix``, the whole frame before any crop — cropping
+    into the picture would move the reference and change the brightness as the user frames.
+
+    None when there is no signal to reference.
+    """
+    flat = img.reshape(-1, 3)
+    step = max(1, flat.shape[0] // 200_000)
+    sample = flat[::step].astype(np.float64)
+    if matrix is not None:
+        sample = sample @ np.asarray(matrix, dtype=np.float64).T
+    white = float(np.percentile(sample, _LIGHTBOX_PCT))
+    if not np.isfinite(white) or white <= 1e-6:
+        return None
+    return _LIGHTBOX_TARGET / white

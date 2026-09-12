@@ -14,7 +14,7 @@ import unittest
 
 import numpy as np
 
-from negpy.features.process.capture_color import _XYZ_TO_WORKING, apply_camera_matrix, camera_to_working_matrix
+from negpy.features.process.capture_color import _XYZ_TO_WORKING, apply_camera_matrix, camera_to_working_matrix, lightbox_level
 
 # Nikon D3300, libraw's rgb_xyz_matrix (XYZ -> camera), first three rows.
 D3300 = [
@@ -85,3 +85,40 @@ class Degenerate(unittest.TestCase):
     def test_a_none_matrix_passes_the_buffer_through(self):
         img = np.random.default_rng(0).random((4, 4, 3)).astype(np.float32)
         np.testing.assert_array_equal(apply_camera_matrix(img, None), img)
+
+
+class Lightbox(unittest.TestCase):
+    """The peek's own display level: a raw decode brings no auto-brightness."""
+
+    @staticmethod
+    def _frame(base, surround):
+        img = np.full((64, 64, 3), base, dtype=np.float32)
+        img[:6, :, :] = surround  # bare light around the rebate
+        return img
+
+    def test_a_dark_frame_is_lifted_to_the_display(self):
+        img = self._frame((0.004, 0.002, 0.001), (0.02, 0.021, 0.02))
+        level = lightbox_level(img, None)
+        assert level is not None
+        self.assertGreater(0.021 * level, 0.9)
+
+    def test_the_gain_is_scalar_so_a_mask_keeps_its_color(self):
+        """Per-channel would neutralize whatever it landed on. On a scan with no bare
+        light around the rebate that is the film base, and an orange mask renders olive."""
+        img = np.full((16, 16, 3), (0.20, 0.10, 0.04), dtype=np.float32)
+        level = lightbox_level(img, None)
+        assert level is not None
+        lit = np.array([0.20, 0.10, 0.04]) * level
+        self.assertAlmostEqual(lit[0] / lit[2], 5.0, places=4)
+
+    def test_the_level_is_measured_after_the_matrix(self):
+        """The gain applies after the camera matrix, so the reference has to cross it too."""
+        img = self._frame((0.1, 0.05, 0.02), (0.4, 0.42, 0.41))
+        matrix = camera_to_working_matrix(D3300, camera_wb=[1.945, 1.0, 1.473, 1.0])
+        level = lightbox_level(img, matrix)
+        assert level is not None
+        white = apply_camera_matrix(self._frame((0.1, 0.05, 0.02), (0.4, 0.42, 0.41)), matrix) * level
+        self.assertLess(abs(float(np.percentile(white.reshape(-1, 3), 99.5)) - 0.95), 1e-3)
+
+    def test_no_signal_is_refused(self):
+        self.assertIsNone(lightbox_level(np.zeros((8, 8, 3), dtype=np.float32), None))

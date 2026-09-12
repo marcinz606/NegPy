@@ -48,7 +48,7 @@ Actions with no default key are not listed; every one of them can still be bound
 | `Shift + L` | Grain focuser loupe |
 | `Shift + N` | Printing notes (dodge/burn map + print recipe) |
 | `Shift + P` | Soft proof the print on screen |
-| `Esc` | Cancel active tool (first press clears in-progress points) |
+| `Esc` | Leave the current view (peek, split, strip) or cancel the active tool |
 
 ## Geometry
 | Key | Action |

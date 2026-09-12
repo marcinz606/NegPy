@@ -50,8 +50,8 @@ from negpy.desktop.workers.library import LibrarySearchTask, LibrarySearchWorker
 from negpy.desktop.workers.hdr import HdrTask, HdrWorker
 from negpy.desktop.workers.stitch import StitchTask, StitchWorker
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, hdr_frame_paths, hdr_hash, hdr_name
-from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix, wb_only_cam_xyz
-from negpy.features.process.logic import effective_linear_raw, narrowband_profile_active, should_fold_camera_wb
+from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix, lightbox_level, wb_only_cam_xyz
+from negpy.features.process.logic import effective_linear_raw, narrowband_profile_active
 from negpy.features.stitch.models import stitch_hash, stitch_name
 from negpy.desktop.workers.capture_worker import (
     CalibrationRequest,
@@ -4323,10 +4323,13 @@ class AppController(QObject):
         The source is in camera primaries, so the camera matrix runs here: painting those
         numbers as display RGB flattens the film base, which on a C-41 negative reads as a
         mask that is far weaker than the one in the file. The multipliers fold into the
-        matrix when the decode skipped them (see should_fold_camera_wb), so the peek looks
-        the same either way and Linear RAW does not change what the mask looks like — except
-        on a narrowband capture, where they never fold: there is no scene white balance for
-        them to describe. The proof stays off — this is the scan, not a print.
+        matrix whenever the decode skipped them, narrowband included — the
+        rule the render path follows (should_fold_camera_wb) refuses them there because
+        narrowband light has no color temperature to reconstruct, but this view only has to
+        show the film as the eye and every raw viewer see it, and without them the mask
+        renders green. `lightbox_level` then supplies the brightness a decode with no
+        auto-brightness never got: one scalar, measured before the crop and applied after,
+        so framing does not change it. The proof stays off — this is the scan, not a print.
         """
         source = self.state.preview_raw
         if source is None:
@@ -4342,16 +4345,17 @@ class AppController(QObject):
             wants_uv_grid=False,
         )
         img = GeometryProcessor(geometry).process(source, context)
+        decoded_without_wb = effective_linear_raw(self.state.config.process, self.state.config.exposure.render_intent)
+        matrix = camera_to_working_matrix(
+            self.state.preview_cam_xyz,
+            self.state.preview_camera_wb if decoded_without_wb else None,
+        )
+        level = lightbox_level(img, matrix)
         if not context.crop_preview_full:
             img = CropProcessor(geometry).process(img, context)
-        fold_wb = should_fold_camera_wb(self.state.config.process, self.state.config.exposure.render_intent)
-        img = apply_camera_matrix(
-            img,
-            camera_to_working_matrix(
-                self.state.preview_cam_xyz,
-                self.state.preview_camera_wb if fold_wb else None,
-            ),
-        )
+        img = apply_camera_matrix(img, matrix)
+        if level is not None:
+            img = img * level
         with self.state.metrics_lock:
             self.state.last_metrics["base_positive"] = working_oetf_encode(img)
             self.state.last_metrics["content_rect"] = None

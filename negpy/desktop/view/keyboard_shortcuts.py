@@ -29,11 +29,22 @@ def _context_undo(controller) -> None:
 
 
 def _context_cancel(controller, window) -> None:
-    """Esc ladder: a test strip is dismissed first (it owns the canvas while up), then the
-    grain focuser loupe, then an armed zone, then in-progress tool geometry (polyline
-    points, straighten line, zone pins), then the tool itself."""
+    """Esc ladder: whatever has taken the canvas over goes first — a test strip, either peek,
+    the before/after split — then the grain focuser loupe, then an armed zone, then
+    in-progress tool geometry (polyline points, straighten line, zone pins), then the tool
+    itself. Each of those is a view the user is inside and has to get out of, and a toggle
+    they have to find again to leave is the thing Esc is for."""
     if controller.state.test_strip or controller.state.test_strip_pending:
         controller.toggle_test_strip(force=False)
+        return
+    if controller.state.negative_peek:
+        controller.toggle_negative_peek(force=False)
+        return
+    if controller.state.flat_peek:
+        controller.toggle_flat_peek(force=False)
+        return
+    if controller.state.compare_mode:
+        controller.toggle_compare()
         return
     if controller.state.grain_focuser:
         controller.toggle_grain_focuser(force=False)

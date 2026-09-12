@@ -259,6 +259,8 @@ class ActionToolbar(QWidget):
         # current canvas width. "More actions" is a stable, complete menu the user can always
         # find everything in, not a residue of the row's responsive collapse. It used to lose
         # entries whenever a side panel toggle gave the row enough width to show them directly.
+        # A checkable item carries no icon. Under the app stylesheet Qt draws a menu icon in
+        # the check column, and the checkmark is the only thing that says the view is on.
         self._ov_hq_action = overflow_menu.addAction("Toggle HQ Preview")
         self._ov_hq_action.setCheckable(True)
         self._tip(self._ov_hq_action, "Toggle high-quality (full-resolution) preview", "toggle_hq")
@@ -274,25 +276,25 @@ class ActionToolbar(QWidget):
             "so the framing is right and the detail is not.",
             "zoom_100",
         )
-        self._ov_compare_action = overflow_menu.addAction(qta.icon("fa5s.adjust", color=icon_color), "Before / After")
+        self._ov_compare_action = overflow_menu.addAction("Before / After")
         self._ov_compare_action.setCheckable(True)
         self._tip(self._ov_compare_action, "Before / After — split against the auto baseline, drag the divider", "toggle_compare")
-        self._ov_flat_peek_action = overflow_menu.addAction(qta.icon("fa5s.eye", color=icon_color), "Peek Flat Scan")
+        self._ov_flat_peek_action = overflow_menu.addAction("Peek Flat Scan")
         self._ov_flat_peek_action.setCheckable(True)
         self._tip(
             self._ov_flat_peek_action, "Peek flat scan — temporarily show the flat master (does not change your edit)", "toggle_flat_peek"
         )
-        self._ov_negative_peek_action = overflow_menu.addAction(qta.icon("fa5s.film", color=icon_color), "Peek Negative")
+        self._ov_negative_peek_action = overflow_menu.addAction("Peek Negative")
         self._ov_negative_peek_action.setCheckable(True)
         self._tip(
             self._ov_negative_peek_action,
             "Peek negative — show the source as it was loaded, un-inverted and unedited, at your crop and rotation (no color management)",
             "toggle_negative_peek",
         )
-        self._ov_zones_action = overflow_menu.addAction(qta.icon("mdi.grid", color=icon_color), "Zone Overlay")
+        self._ov_zones_action = overflow_menu.addAction("Zone Overlay")
         self._ov_zones_action.setCheckable(True)
         self._tip(self._ov_zones_action, "Zone overlay — label each region of the print with its Adams zone", "toggle_zones")
-        self._ov_loupe_action = overflow_menu.addAction(qta.icon("fa5s.search-plus", color=icon_color), "Grain Focuser")
+        self._ov_loupe_action = overflow_menu.addAction("Grain Focuser")
         self._ov_loupe_action.setCheckable(True)
         self._tip(
             self._ov_loupe_action,
@@ -310,10 +312,10 @@ class ActionToolbar(QWidget):
         self._tip(self._ov_rot_l_action, "Rotate CCW", "rotate_ccw")
         self._ov_rot_r_action = overflow_menu.addAction(qta.icon("mdi6.file-rotate-right", color=icon_color), "Rotate CW")
         self._tip(self._ov_rot_r_action, "Rotate CW", "rotate_cw")
-        self._ov_flip_h_action = overflow_menu.addAction(qta.icon("fa5s.arrows-alt-h", color=icon_color), "Flip Horizontal")
+        self._ov_flip_h_action = overflow_menu.addAction("Flip Horizontal")
         self._ov_flip_h_action.setCheckable(True)
         self._tip(self._ov_flip_h_action, "Flip Horizontal", "flip_h")
-        self._ov_flip_v_action = overflow_menu.addAction(qta.icon("fa5s.arrows-alt-v", color=icon_color), "Flip Vertical")
+        self._ov_flip_v_action = overflow_menu.addAction("Flip Vertical")
         self._ov_flip_v_action.setCheckable(True)
         self._tip(self._ov_flip_v_action, "Flip Vertical", "flip_v")
         overflow_menu.addSeparator()
