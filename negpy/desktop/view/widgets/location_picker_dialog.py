@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from negpy.desktop.view.styles.templates import field_label, hint_label
+from negpy.desktop.view.styles.templates import field_label, hint_label, pin_button_box
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.slippy_map import SlippyMapWidget
 from negpy.features.metadata.capture import format_coords, parse_coords
@@ -159,6 +159,7 @@ class LocationPickerDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
+        pin_button_box(buttons)
         root.addWidget(buttons)
 
         if lat is not None and lon is not None:

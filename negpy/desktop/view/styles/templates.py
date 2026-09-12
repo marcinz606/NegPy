@@ -3,7 +3,7 @@ import html
 
 import qtawesome as qta
 from PyQt6.QtCore import QEvent, Qt
-from PyQt6.QtWidgets import QLabel, QProgressBar, QPushButton, QStackedLayout, QWidget
+from PyQt6.QtWidgets import QDialogButtonBox, QLabel, QProgressBar, QPushButton, QStackedLayout, QWidget
 
 from negpy.desktop.view.styles.fonts import ui_font_family
 from negpy.desktop.view.styles.theme import THEME
@@ -48,20 +48,34 @@ def default_button_height() -> int:
     return _default_btn_height
 
 
-def pin_dialog_default(default: QPushButton | None, *others: QPushButton) -> None:
+def pin_dialog_default(default: QPushButton | None, *others: QPushButton, scope: QWidget | None = None) -> None:
     """Give a hand-rolled dialog footer one Enter target and one filled button.
 
     Qt hands "default" to whichever autoDefault button was clicked last, so pressing Enter
     repeats that button instead of the dialog's action until another is clicked (issue #997).
     Every button that is not the default has to opt out. Pass default=None where the footer
-    swaps its default at runtime and only the opt-out is wanted.
+    swaps its default at runtime and only the opt-out is wanted. A dialog whose body holds
+    buttons too (section headers, row actions) passes scope=self once everything is built, so
+    the opt-out reaches all of them, not only the footer.
     """
     if default is not None:
         default.setDefault(True)
         default.setAutoDefault(True)
         default.setProperty("primary", True)
+    if scope is not None:
+        others = tuple(b for b in scope.findChildren(QPushButton) if b is not default)
     for btn in others:
         btn.setAutoDefault(False)
+
+
+def pin_button_box(box: QDialogButtonBox) -> None:
+    """QDialogButtonBox twin of pin_dialog_default: the accept button is the one filled Enter target."""
+    accept = None
+    for btn in box.buttons():
+        if box.buttonRole(btn) == QDialogButtonBox.ButtonRole.AcceptRole:
+            accept = btn
+            break
+    pin_dialog_default(accept, *(b for b in box.buttons() if b is not accept))
 
 
 def icon_button(icon_name: str, tooltip: str, width: int | None = ICON_BUTTON_WIDTH) -> QPushButton:

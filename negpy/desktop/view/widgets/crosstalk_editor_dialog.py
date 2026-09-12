@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.view.sidebar.tone import _CH_COLORS
-from negpy.desktop.view.styles.templates import dialog_pane_qss, hint_label, pane_header_qss
+from negpy.desktop.view.styles.templates import dialog_pane_qss, hint_label, pane_header_qss, pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.process.models import DEFAULT_CROSSTALK_MATRIX, ProcessMode
@@ -263,9 +263,9 @@ class CrosstalkEditorDialog(QDialog):
         close_row = QHBoxLayout()
         cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.reject)
-        apply_btn = QPushButton("Apply and close")
-        apply_btn.setDefault(True)
+        apply_btn = QPushButton("Apply")
         apply_btn.clicked.connect(self.accept)
+        pin_dialog_default(apply_btn, cancel_btn, self.save_btn)
         close_row.addStretch()
         close_row.addWidget(cancel_btn)
         close_row.addWidget(apply_btn)

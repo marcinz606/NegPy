@@ -3,7 +3,7 @@ from typing import Dict
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QVBoxLayout
 
-from negpy.desktop.view.styles.templates import hint_label, section_subheader
+from negpy.desktop.view.styles.templates import hint_label, pin_button_box, section_subheader
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import DEFAULT_TARGETS, TUNABLE_TARGETS
 from negpy.desktop.view.widgets.floating_panel import float_over_app
@@ -103,6 +103,7 @@ class ExposureTargetsDialog(QDialog):
         )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
+        pin_button_box(buttons)
         restore = buttons.button(QDialogButtonBox.StandardButton.RestoreDefaults)
         if restore is not None:
             restore.clicked.connect(self._restore_defaults)

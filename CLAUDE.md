@@ -115,8 +115,12 @@ shared one.
 - **Slider metadata**: unit in `unit=` (`"%"`, `" st"`, `" px"` — space before a word, none
   before a symbol), never in the label; decimals from `step`/`precision`.
 - **Dialogs**: a hand-rolled footer calls `templates.pin_dialog_default(default, *others)` —
-  it pins Enter, opts the rest out of `autoDefault` and marks the one filled button. Cancel
-  sits before the action. Do not re-declare the dialog background; the sheet paints it.
+  it pins Enter, opts the rest out of `autoDefault` and marks the one filled button; a dialog
+  with buttons in its body passes `scope=self` once built. A `QDialogButtonBox` gets
+  `pin_button_box(box)`. Verbs: **Cancel** beside one action verb (OK for a plain form, else
+  what it does: Apply, Save, Scan); **Close** alone on a view-only dialog. Cancel sits before
+  the action. Delete confirmations go through `view/confirm.py`. Do not re-declare the dialog
+  background; the sheet paints it. `tests/test_dialog_footers.py` walks every dialog.
 - **Labels**: control names Title Case ("Toe Width", "Paper White"); a label beside a
   combo/entry sentence case ("Film stock", "Input gamma"). Same concept, same words in every
   panel — grep for the words before writing a new label.

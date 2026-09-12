@@ -13,6 +13,7 @@ from typing import Optional
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QTextBrowser, QVBoxLayout, QWidget
 
+from negpy.desktop.view.styles.templates import pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 from negpy.kernel.system.paths import get_resource_path
 
@@ -100,7 +101,7 @@ class SectionHelpDialog(QDialog):
         actions = QHBoxLayout()
         actions.addStretch()
         close_btn = QPushButton("Close")
-        close_btn.setProperty("primary", True)
         close_btn.clicked.connect(self.accept)
+        pin_dialog_default(close_btn)
         actions.addWidget(close_btn)
         root.addLayout(actions)
