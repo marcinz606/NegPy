@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.sidebar.tone import _CH_COLORS, _CH_LABEL, _CH_SUFFIX
-from negpy.desktop.view.styles.templates import EditedDot, hint_label, section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, section_subheader, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
@@ -87,7 +87,7 @@ class ProcessSidebar(BaseSidebar):
         mode_col.setSpacing(THEME.space_sm)
 
         self.autodetect_btn = self._small_toggle("mdi6.auto-fix", "", False, "Auto-detect the film process on load")
-        self.autodetect_btn.setFixedWidth(28)
+        self.autodetect_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         header_row = QHBoxLayout()
         header_row.addWidget(section_subheader("Process"))
         header_row.addStretch(1)
@@ -121,9 +121,6 @@ class ProcessSidebar(BaseSidebar):
             "Draw a freehand analysis region on the image — the meters read exactly that area "
             "(overrides the Analysis Buffer). Double-click inside it to confirm.",
         )
-        # Confirming a region closes the tool by unchecking the toggle, so the dot is the only
-        # cue left that it still overrides the Analysis Buffer slider.
-        self.analysis_region_btn.edited_dot = EditedDot(self.analysis_region_btn)
         self.clear_analysis_region_btn = self._icon_action(
             "fa5s.times", "Clear the freehand analysis region (fall back to the Analysis Buffer)", width=None
         )

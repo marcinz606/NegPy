@@ -17,6 +17,7 @@ from negpy.desktop.controller import AppController
 from negpy.desktop.view.keyboard_shortcuts import _context_undo
 from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog
 from negpy.desktop.view.shortcut_registry import label_with_shortcut, tooltip_with_shortcut
+from negpy.desktop.view.styles.templates import default_button_height, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 
 CANVAS_COLORS = [
@@ -127,7 +128,7 @@ class ActionToolbar(QWidget):
 
         icon_color = THEME.text_primary
         icon_size = QSize(16, 16)
-        btn_height = 32
+        btn_height = default_button_height()
 
         # 0. Panel toggles (live at the toolbar's outer edges)
         self.btn_toggle_left = QToolButton()
@@ -396,6 +397,7 @@ class ActionToolbar(QWidget):
             btn.setIconSize(icon_size)
             btn.setFixedHeight(btn_height)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setToolTip(wrap_tooltip(btn.toolTip()))
 
         # The file-rotate glyphs (page plus arrow) read as a blob at the standard 16px icon size.
         # A touch larger keeps the page and arrow legible without changing the button's own
@@ -405,6 +407,7 @@ class ActionToolbar(QWidget):
             btn.setIconSize(rotate_icon_size)
             btn.setFixedHeight(btn_height)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setToolTip(wrap_tooltip(btn.toolTip()))
 
         self._row_layout = row_layout
         self._row_widgets: dict[str, QWidget] = {

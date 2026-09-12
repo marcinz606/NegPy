@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, labeled_toggle_qss, section_subheader
+from negpy.desktop.view.styles.templates import hint_label, ICON_BUTTON_WIDTH, labeled_toggle, section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.domain.models import (
@@ -239,12 +239,10 @@ class ExportSettingsForm(QWidget):
 
         mode_row = QHBoxLayout()
         mode_row.setSpacing(4)
-        self.mode_original_btn = QPushButton("Original")
-        self.mode_print_btn = QPushButton("Print")
-        self.mode_target_px_btn = QPushButton("Pixels")
+        self.mode_original_btn = labeled_toggle("", "Original", False, "Export at the source resolution")
+        self.mode_print_btn = labeled_toggle("", "Print", False, "Size the export for a print: paper size and DPI")
+        self.mode_target_px_btn = labeled_toggle("", "Pixels", False, "Size the export to a pixel count on the long edge")
         for btn in (self.mode_original_btn, self.mode_print_btn, self.mode_target_px_btn):
-            btn.setCheckable(True)
-            btn.setStyleSheet(labeled_toggle_qss())
             mode_row.addWidget(btn)
         self.mode_btn_group = QButtonGroup(self)
         self.mode_btn_group.setExclusive(True)

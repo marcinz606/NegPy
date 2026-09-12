@@ -1,6 +1,6 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
-from PyQt6.QtWidgets import QInputDialog, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton
+from PyQt6.QtWidgets import QInputDialog, QListWidget, QListWidgetItem, QMenu, QMessageBox
 
 from negpy.desktop.view.confirm import confirm_delete_named
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
@@ -32,7 +32,7 @@ class HistoryPanel(BaseSidebar):
         self.work_prints.setMaximumHeight(120)
         self.layout.addWidget(self.work_prints, 0)
 
-        self.save_btn = QPushButton("Save work print")
+        self.save_btn = self._labeled_action("fa5s.save", " Save Work Print", "")
         self.save_btn.setToolTip(tooltip_with_shortcut("Keep the current edit as a named version", "save_work_print"))
         self.layout.addWidget(self.save_btn)
 

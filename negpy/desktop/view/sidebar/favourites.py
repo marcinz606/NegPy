@@ -1,5 +1,4 @@
-import qtawesome as qta
-from PyQt6.QtWidgets import QDialog, QHBoxLayout, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QDialog, QHBoxLayout, QVBoxLayout, QWidget
 
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.sidebar.base import BaseSidebar
@@ -37,9 +36,7 @@ class FavouritesSidebar(BaseSidebar):
 
     def _init_ui(self) -> None:
         row = QHBoxLayout()
-        self.edit_btn = QPushButton("  Edit Favourites")
-        self.edit_btn.setIcon(qta.icon("fa5s.sliders-h", color=THEME.text_primary))
-        self.edit_btn.setToolTip("Choose which sliders appear here, and in what order")
+        self.edit_btn = self._labeled_action("fa5s.sliders-h", " Edit Favorites", "Choose which sliders appear here, and in what order")
         self.edit_btn.clicked.connect(self._open_editor)
         row.addWidget(self.edit_btn)
         row.addStretch()

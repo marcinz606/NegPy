@@ -8,7 +8,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QPushButton,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -121,13 +120,13 @@ class MetadataSidebar(BaseSidebar):
         self.metadata_preset_combo = SearchableGearCombo(placeholder="Search metadata presets…")
         self.metadata_preset_combo.setToolTip("A saved set of metadata values. Click and type to search.")
         load_row.addWidget(self.metadata_preset_combo, 1)
-        self.metadata_preset_load_btn = QPushButton("Load")
+        self.metadata_preset_load_btn = self._labeled_action("", "Load", "Write the selected preset's fields onto this frame")
         load_row.addWidget(self.metadata_preset_load_btn)
         presets.addLayout(load_row)
 
-        self.manage_btn = QPushButton(" Manage…")
-        self.manage_btn.setIcon(qta.icon("fa5s.cog", color=THEME.text_primary))
-        self.manage_btn.setToolTip("Save, edit and delete metadata presets, cameras, lenses and film stocks")
+        self.manage_btn = self._labeled_action(
+            "fa5s.cog", " Manage…", "Save, edit and delete metadata presets, cameras, lenses and film stocks"
+        )
         presets.addWidget(self.manage_btn)
         self._refresh_metadata_presets()
         controls.addWidget(self._card("Metadata Presets", "presets", preset_body, "fa5s.magic"))
@@ -151,8 +150,7 @@ class MetadataSidebar(BaseSidebar):
         self.film_stock_combo.setToolTip("Film stock used for the original capture. Click and type to search.")
         gear.addWidget(self.film_stock_combo)
 
-        self.gear_clear_btn = QPushButton("Clear")
-
+        self.gear_clear_btn = self._labeled_action("", "Clear", "Empty camera, lens and film stock")
         gear.addWidget(self.gear_clear_btn)
         controls.addWidget(self._card("Analog Gear", "gear", gear_body, "fa5s.camera-retro"))
 
@@ -251,7 +249,7 @@ class MetadataSidebar(BaseSidebar):
         dev_row.addLayout(temp_col, 1)
         proc.addLayout(dev_row)
 
-        self.process_clear_btn = QPushButton("Clear")
+        self.process_clear_btn = self._labeled_action("", "Clear", "Empty the saved process and everything it fills; Format stays")
         proc.addWidget(self.process_clear_btn)
         controls.addWidget(self._card("Process", "process", proc_body, "fa5s.flask"))
 
@@ -291,7 +289,7 @@ class MetadataSidebar(BaseSidebar):
         roll_row.addLayout(frame_col, 1)
         scan.addLayout(roll_row)
 
-        self.scan_clear_btn = QPushButton("Clear")
+        self.scan_clear_btn = self._labeled_action("", "Clear", "Empty the saved setup and the scanning note; Roll and Frame stay")
         scan.addWidget(self.scan_clear_btn)
         controls.addWidget(self._card("Scanning", "scanning", scan_body, "mdi6.scanner"))
 
@@ -319,8 +317,7 @@ class MetadataSidebar(BaseSidebar):
         preview_top.setSpacing(THEME.space_sm)
         preview_hint = hint_label("Written to exported files on export.")
         preview_top.addWidget(preview_hint, 1)
-        self.description_fields_btn = QPushButton("Description…")
-        self.description_fields_btn.setToolTip("Choose which fields join into EXIF ImageDescription.")
+        self.description_fields_btn = self._labeled_action("", "Description…", "Choose which fields join into EXIF ImageDescription")
         preview_top.addWidget(self.description_fields_btn)
         preview_layout.addLayout(preview_top)
 

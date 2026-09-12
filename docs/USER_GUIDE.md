@@ -782,7 +782,7 @@ Two lists: the versions you chose to keep, above the running record of every cha
 
 A **work print** is a named version of this frame, the darkroom habit of keeping the prints you made on the way to the final one, so you can go back to the third attempt after deciding the fifth went too far.
 
-*   **Save work print** (**Ctrl+Shift+S**) keeps the current edit under a name; NegPy offers *Work print 1*, *Work print 2* and so on. Saving over an existing name asks first.
+*   **Save Work Print** (**Ctrl+Shift+S**) keeps the current edit under a name; NegPy offers *Work print 1*, *Work print 2* and so on. Saving over an existing name asks first.
 *   **Click** one to make it live. That counts as an edit, so **Ctrl+Z** puts back what was on screen before; you cannot lose your place by looking at an old version.
 *   **Right-click** for **Export this version…**, **Rename…** or **Delete**. Delete asks first, and a rename to an empty name is ignored.
 
@@ -859,12 +859,12 @@ The printer's record for this frame: the dodge/burn map with every mask outlined
 <!-- panel:export_sidecars -->
 #### Sidecars
 
-**Save on export** writes a `.negpy` edit sidecar next to each source on every export; **Export sidecars** writes them for all visible frames now, and reports how many failed if a source folder is read-only. Edits always stay in the database too; sidecars are optional archival copies.
+**Save on export** writes a `.negpy` edit sidecar next to each source on every export; **Export Sidecars** writes them for all visible frames now, and reports how many failed if a source folder is read-only. Edits always stay in the database too; sidecars are optional archival copies.
 
 <!-- panel:contact_sheet -->
 #### Contact Sheet
 
-Render all visible frames into a single sheet. Choose a **Template** or set **Cell / Gap / Margin / Max tiles** by hand, pick an output **Path**, then press **Export contact sheet**. The sheet is a JPEG at the **JPEG Quality** and **Progressive** settings above.
+Render all visible frames into a single sheet. Choose a **Template** or set **Cell / Gap / Margin / Max tiles** by hand, pick an output **Path**, then press **Export Contact Sheet**. The sheet is a JPEG at the **JPEG Quality** and **Progressive** settings above.
 
 #### Soft Proof
 

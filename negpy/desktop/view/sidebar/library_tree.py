@@ -8,7 +8,6 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
-    QLabel,
     QMenu,
     QToolButton,
     QTreeWidget,
@@ -17,6 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from negpy.desktop.view.styles.templates import hint_label
 from negpy.desktop.view.styles.theme import THEME
 from negpy.services.assets.library import folder_counts, summarize_counts
 
@@ -118,10 +118,8 @@ class LibraryTree(QWidget):
             shortcut.activated.connect(self.open_selection)
         layout.addWidget(self.tree, 1)
 
-        self.empty_label = QLabel("Add a folder to browse your library")
+        self.empty_label = hint_label("Add a folder to browse your library")
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.empty_label.setWordWrap(True)
-        self.empty_label.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
         layout.addWidget(self.empty_label)
 
     # --- roots -------------------------------------------------------------

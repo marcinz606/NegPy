@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import QButtonGroup, QHBoxLayout
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import wrap_tooltip
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, wrap_tooltip
 from negpy.desktop.view.widgets.sliders import CompactSlider, KelvinSlider
 from negpy.features.exposure.logic import kelvin_to_wb, wb_to_kelvin
 
@@ -61,7 +61,7 @@ class ColorSidebar(BaseSidebar):
             "Reset the selected region's white balance — Temperature and Cyan/Magenta/Yellow back to neutral",
         )
         self.ring_btn = self._tool_toggle("mdi.target", "", self._ring_tooltip())
-        self.ring_btn.setFixedWidth(36)
+        self.ring_btn.setFixedWidth(ICON_BUTTON_WIDTH)
 
         tools_row = QHBoxLayout()
         tools_row.addWidget(self.pick_wb_btn, 1)

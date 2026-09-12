@@ -29,7 +29,6 @@ from PyQt6.QtWidgets import (
     QListView,
     QMenu,
     QMessageBox,
-    QPushButton,
     QSlider,
     QStyle,
     QStyledItemDelegate,
@@ -47,6 +46,7 @@ from negpy.features.hdr.logic import anchor_choices
 from negpy.features.hdr.models import hdr_frame_paths
 from negpy.desktop.view.widgets.overflow_bar import OverflowBar
 from negpy.desktop.view.shortcut_registry import label_with_shortcut
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, labeled_action, tool_toggle
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog, open_paste_dialog
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
@@ -580,10 +580,8 @@ class FileBrowser(QWidget):
         # The elastic item in this row. Its natural minimum is what keeps the panel from narrowing
         # further, and the other two here are fixed-width by design.
         self.search_input.setMinimumWidth(40)
-        self.regex_btn = QPushButton(".*")
-        self.regex_btn.setCheckable(True)
-        self.regex_btn.setFixedWidth(36)
-        self.regex_btn.setToolTip("Regex mode")
+        self.regex_btn = tool_toggle("", ".*", "Regex mode")
+        self.regex_btn.setFixedWidth(ICON_BUTTON_WIDTH)
 
         # Same query text, wider net: the box above filters what is loaded, and this runs it
         # against every library folder and opens what it finds.
@@ -1413,7 +1411,7 @@ class _RgbTripletDialog(QDialog):
             row.addWidget(QLabel(label, minimumWidth=48))
             edit = QLineEdit(path)
             row.addWidget(edit, 1)
-            browse = QPushButton("Browse…")
+            browse = labeled_action("", "Browse…", "Pick the file for this channel")
             browse.clicked.connect(lambda _=False, e=edit: self._browse(e))
             row.addWidget(browse)
             layout.addLayout(row)

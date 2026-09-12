@@ -14,7 +14,6 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMenu,
     QMessageBox,
-    QPushButton,
     QSizePolicy,
     QSpinBox,
     QToolButton,
@@ -25,15 +24,15 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.widgets.contact_sheet_colors_dialog import ContactSheetColorsDialog
 from negpy.desktop.view.styles.templates import (
-    FIELD_LABEL_WIDTH,
-    ICON_BUTTON_WIDTH,
     default_button_height,
     field_label,
+    FIELD_LABEL_WIDTH,
     hint_label,
-    labeled_toggle_qss,
+    icon_button,
+    labeled_action,
+    labeled_toggle,
     section_subheader,
     set_hint_kind,
-    wrap_tooltip,
 )
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.styles.theme import THEME
@@ -164,9 +163,8 @@ class ExportSidebar(BaseSidebar):
         self._preset_checkboxes: list[QCheckBox] = []
 
         preset_btn_row = QHBoxLayout()
-        self.manage_presets_btn = QPushButton(" Manage")
+        self.manage_presets_btn = labeled_action("fa5s.sliders-h", " Manage", "Add, edit and remove export presets")
         self.manage_presets_btn.setObjectName("manage_presets_btn")
-        self.manage_presets_btn.setIcon(qta.icon("fa5s.sliders-h", color=THEME.text_primary))
         self.manage_presets_btn.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         preset_menu, self._preset_scope_actions = self._build_scope_menu(self._PRESET_SCOPES, self._set_preset_scope)
         self._export_presets_menu = preset_menu
@@ -203,16 +201,15 @@ class ExportSidebar(BaseSidebar):
         self.printing_notes_preview_btn.setChecked(self.state.printing_notes)
         self.printing_notes_preview_btn.setFixedHeight(default_button_height())
 
-        self.printing_notes_btn = QPushButton(" Export")
-        self.printing_notes_btn.setObjectName("printing_notes_btn")
-        self.printing_notes_btn.setProperty("primary", True)
-        self.printing_notes_btn.setFixedHeight(default_button_height())
-        self.printing_notes_btn.setIcon(qta.icon("mdi.playlist-edit", color="white"))
-        self.printing_notes_btn.setToolTip(
+        self.printing_notes_btn = labeled_action(
+            "mdi.playlist-edit",
+            " Export",
             "Save this frame as a marked-up work print — the map plus the print recipe below it — as its "
             "own JPEG in the export folder. The print itself is untouched. Resolution follows the "
-            "preview, so turn HQ on for a full-resolution sheet."
+            "preview, so turn HQ on for a full-resolution sheet.",
+            primary=True,
         )
+        self.printing_notes_btn.setObjectName("printing_notes_btn")
 
         btn_row = QHBoxLayout()
         btn_row.addWidget(self.printing_notes_preview_btn, 1)
@@ -254,15 +251,10 @@ class ExportSidebar(BaseSidebar):
         template_row.addWidget(self.cs_template_combo)
         content_layout.addLayout(template_row)
 
-        self.cs_delete_template_btn = QPushButton()
-        self.cs_delete_template_btn.setIcon(qta.icon("fa5s.trash", color=THEME.text_primary))
-        self.cs_delete_template_btn.setToolTip("Delete the selected template (Default can't be deleted)")
-        self.cs_delete_template_btn.setFixedWidth(ICON_BUTTON_WIDTH)
+        self.cs_delete_template_btn = icon_button("fa5s.trash", "Delete the selected template (Default can't be deleted)")
         template_row.addWidget(self.cs_delete_template_btn)
 
-        self.cs_save_template_btn = QPushButton(" Save as template")
-        self.cs_save_template_btn.setIcon(qta.icon("fa5s.save", color=THEME.text_primary))
-        self.cs_save_template_btn.setToolTip("Save the current layout as a new named template file")
+        self.cs_save_template_btn = labeled_action("fa5s.save", " Save as Template", "Save the current layout as a new named template file")
         content_layout.addWidget(self.cs_save_template_btn)
 
         initial_layout = self._contact_sheet_layout_for_config(conf)
@@ -295,8 +287,7 @@ class ExportSidebar(BaseSidebar):
         colors_label = field_label("Colors")
         colors_label.setFixedWidth(FIELD_LABEL_WIDTH)
         colors_row.addWidget(colors_label)
-        self.cs_colors_btn = QPushButton(" Choose…")
-        self.cs_colors_btn.setToolTip("Background and label colors")
+        self.cs_colors_btn = labeled_action("", "Choose…", "Background and label colors")
         self._update_cs_colors_btn_tooltip()
         self.cs_colors_btn.clicked.connect(self._on_cs_colors_clicked)
         colors_row.addWidget(self.cs_colors_btn, 1)
@@ -319,21 +310,16 @@ class ExportSidebar(BaseSidebar):
             "Folder for contact sheet JPEGs. Leave empty to follow the export destination (same as source or absolute export path)."
         )
         self.cs_output_path_edit.textChanged.connect(lambda _: self.update_timer.start())
-        self.cs_output_path_browse_btn = QPushButton()
-        self.cs_output_path_browse_btn.setIcon(qta.icon("fa5s.folder-open", color=THEME.text_primary))
-        self.cs_output_path_browse_btn.setFixedWidth(ICON_BUTTON_WIDTH)
-        self.cs_output_path_browse_btn.setToolTip("Choose contact sheet output folder")
+        self.cs_output_path_browse_btn = icon_button("fa5s.folder-open", "Choose contact sheet output folder")
         self.cs_output_path_browse_btn.clicked.connect(self._browse_contact_sheet_output_path)
         cs_path_row.addWidget(self.cs_output_path_edit)
         cs_path_row.addWidget(self.cs_output_path_browse_btn)
         content_layout.addLayout(cs_path_row)
 
-        self.contact_sheet_btn = QPushButton(" Export contact sheet")
+        self.contact_sheet_btn = labeled_action(
+            "fa5s.th", " Export Contact Sheet", "Render all visible frames into a contact sheet", primary=True
+        )
         self.contact_sheet_btn.setObjectName("contact_sheet_btn")
-        self.contact_sheet_btn.setProperty("primary", True)
-        self.contact_sheet_btn.setFixedHeight(default_button_height())
-        self.contact_sheet_btn.setIcon(qta.icon("fa5s.th", color="white"))
-        self.contact_sheet_btn.setToolTip("Render all visible frames into a contact sheet")
         content_layout.addWidget(self.contact_sheet_btn)
 
         self.contact_sheet_section = make_section(self.controller.session.repo, "Contact Sheet", "contact_sheet", content, "fa5s.th")
@@ -556,29 +542,25 @@ class ExportSidebar(BaseSidebar):
 
         intent_row = QHBoxLayout()
         intent_row.setSpacing(4)
-        self.intent_print_btn = QPushButton("Print")
-        self.intent_flat_btn = QPushButton("Flat")
-        self.intent_print_btn.setToolTip(wrap_tooltip("Export the print as you see it, with the full NegPy look applied."))
-        self.intent_flat_btn.setToolTip(
-            wrap_tooltip(
-                "Export a flat, neutral, low-contrast master that keeps maximum tonal and color "
-                "information for editing in Lightroom, Darktable or Photoshop. Skips the creative "
-                "print look (auto density/grade, cast removal, lab effects, toning, vignette) and "
-                "writes a wide-gamut, high-bit-depth file. Your in-app preview is unaffected."
-            )
+        self.intent_print_btn = labeled_toggle("", "Print", False, "Export the print as you see it, with the full NegPy look applied.")
+        self.intent_flat_btn = labeled_toggle(
+            "",
+            "Flat",
+            False,
+            "Export a flat, neutral, low-contrast master that keeps maximum tonal and color "
+            "information for editing in Lightroom, Darktable or Photoshop. Skips the creative "
+            "print look (auto density/grade, cast removal, lab effects, toning, vignette) and "
+            "writes a wide-gamut, high-bit-depth file. Your in-app preview is unaffected.",
         )
-        self.intent_linear_btn = QPushButton("Linear")
-        self.intent_linear_btn.setToolTip(
-            wrap_tooltip(
-                "Export the raw decoded sensor data as an untagged 16-bit TIFF, before any "
-                "NegPy processing (no normalization, exposure, lab, toning, color management). "
-                "Supported for Pakon RAW and LinearRaw DNG (SilverFast/VueScan) files."
-            )
+        self.intent_linear_btn = labeled_toggle(
+            "",
+            "Linear",
+            False,
+            "Export the raw decoded sensor data as an untagged 16-bit TIFF, before any "
+            "NegPy processing (no normalization, exposure, lab, toning, color management). "
+            "Supported for Pakon RAW and LinearRaw DNG (SilverFast/VueScan) files.",
         )
         for btn in (self.intent_print_btn, self.intent_flat_btn, self.intent_linear_btn):
-            btn.setCheckable(True)
-            btn.setStyleSheet(labeled_toggle_qss())
-            btn.setFixedHeight(default_button_height())
             intent_row.addWidget(btn)
         self.intent_btn_group = QButtonGroup(self)
         self.intent_btn_group.setExclusive(True)
@@ -599,11 +581,11 @@ class ExportSidebar(BaseSidebar):
             "fa5s.eye", "Preview Flat", "Temporarily show the flat master in the canvas (does not change your edit)"
         )
         self.flat_peek_btn.setChecked(self.state.flat_peek)
-        self.flat_bake_btn = QPushButton(" Roll Baseline")
-        self.flat_bake_btn.setIcon(qta.icon("fa5s.link", color=THEME.text_primary))
-        self.flat_bake_btn.setToolTip(
+        self.flat_bake_btn = labeled_action(
+            "fa5s.link",
+            " Roll Baseline",
             "Measure every visible frame's exposure bounds and apply their shared average, so flat "
-            "masters render consistently across the roll."
+            "masters render consistently across the roll.",
         )
         peek_bake_row.addWidget(self.flat_peek_btn)
         peek_bake_row.addWidget(self.flat_bake_btn)
@@ -1223,12 +1205,10 @@ class ExportSidebar(BaseSidebar):
         )
         btn_row.addWidget(self.sidecars_enabled_btn)
 
-        self.export_sidecars_btn = QPushButton(" Export sidecars")
+        self.export_sidecars_btn = labeled_action(
+            "fa5s.file-code", " Export Sidecars", "Write edit sidecars for all visible frames now", primary=True
+        )
         self.export_sidecars_btn.setObjectName("export_sidecars_btn")
-        self.export_sidecars_btn.setProperty("primary", True)
-        self.export_sidecars_btn.setFixedHeight(default_button_height())
-        self.export_sidecars_btn.setIcon(qta.icon("fa5s.file-code", color="white"))
-        self.export_sidecars_btn.setToolTip("Write edit sidecars for all visible frames now")
         btn_row.addWidget(self.export_sidecars_btn)
 
         content_layout.addLayout(btn_row)

@@ -94,10 +94,13 @@ new size, colour, width, spacing value, button shape or toggle idiom needs the u
 agreement first — the panels sit in one tab stack, so a private look is visible beside the
 shared one.
 
-- **Controls come from a factory**, never from a bare `QPushButton` + `setStyleSheet`:
-  `BaseSidebar._tool_toggle` (icon-only or icon+label toggle), `_labeled_toggle` (checkable,
-  carries an `edited_dot`), `_labeled_action` (its one-shot twin), `templates.icon_button` /
-  `_icon_action` (icon-only action), `templates.field_label` (label beside a combo/entry),
+- **Controls come from a factory**, never from a bare `QPushButton` + `setStyleSheet`. All live
+  in `styles/templates.py` so a panel that is not a `BaseSidebar` uses the same ones:
+  `tool_toggle` (icon-only or icon+label toggle), `labeled_toggle` (checkable), `labeled_action`
+  (its one-shot twin; `primary=True` for the panel's one call to action), `icon_button`
+  (icon-only action) — every toggle carries an `edited_dot`, an empty `icon_name` gives a
+  text-only button, and `BaseSidebar._tool_toggle` etc. are thin wrappers. Also
+  `templates.field_label` (label beside a combo/entry),
   `templates.hint_label` (a line of help under a control), `section_subheader` (grouping),
   `CollapsibleSection` (a panel section, and the only reset affordance), `CompactSlider`
   (slider with a hidden spin readout). Booleans in a panel are toggle buttons; `QCheckBox` is
@@ -115,8 +118,9 @@ shared one.
   Every other colour is a token in `theme.py` too, surfaces and borders included, and the QSS
   reads them as `@name`; `tests/test_theme_tokens.py` fails on a literal hex anywhere else.
   Black/white alpha washes in painters (`QColor(255, 255, 255, 90)`) are the one exception.
-- **Geometry**: `ICON_BUTTON_WIDTH`, `FIELD_LABEL_WIDTH`, `default_button_height()` and the
-  `THEME.space_*` scale. A row that needs a width already has one.
+- **Geometry**: `ICON_BUTTON_WIDTH`, `FIELD_LABEL_WIDTH`, `default_button_height()`,
+  `SCAN_BUTTON_HEIGHT` (the Scan buttons only) and the `THEME.space_*` scale. A row that needs
+  a width already has one. A panel body has no side inset of its own; the section card insets.
 - **Slider metadata**: unit in `unit=` (`"%"`, `" st"`, `" px"` — space before a word, none
   before a symbol), never in the label; decimals from `step`/`precision`.
 - **Dialogs**: a hand-rolled footer calls `templates.pin_dialog_default(default, *others)` —

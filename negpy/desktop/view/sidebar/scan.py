@@ -18,7 +18,14 @@ from PyQt6.QtWidgets import (
 
 from negpy.kernel.system.text import count_of, human_bytes
 from negpy.desktop.view.sidebar.base import install_wheel_guards
-from negpy.desktop.view.styles.templates import StatusStrip, hint_label, icon_button as _icon_button, section_subheader
+from negpy.desktop.view.styles.templates import (
+    hint_label,
+    icon_button as _icon_button,
+    labeled_action,
+    SCAN_BUTTON_HEIGHT,
+    section_subheader,
+    StatusStrip,
+)
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice
 from negpy.infrastructure.scanners.params import FILM_TYPES, FilmType, film_passes_infrared
@@ -118,7 +125,7 @@ class ScanSidebar(QWidget):
 
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(THEME.space_xl, 0, THEME.space_xl, 5)
+        layout.setContentsMargins(0, 0, 0, 5)
         layout.setSpacing(THEME.space_lg)
 
         # ── DEVICE ───────────────────────────────────────────
@@ -273,11 +280,8 @@ class ScanSidebar(QWidget):
         self.scan_window_widget = QWidget()
         scan_window_row = QHBoxLayout(self.scan_window_widget)
         scan_window_row.setContentsMargins(0, 0, 0, 0)
-        self.scan_window_btn = QPushButton("Set scan window…")
-        self.scan_window_btn.setToolTip("Preview a frame and set the scan window reused for every frame")
-        self.scan_window_clear_btn = QPushButton("Clear")
-        self.scan_window_clear_btn.setFixedWidth(56)
-        self.scan_window_clear_btn.setToolTip("Scan the whole default frame instead")
+        self.scan_window_btn = labeled_action("", "Set Scan Window…", "Preview a frame and set the scan window reused for every frame")
+        self.scan_window_clear_btn = labeled_action("", "Clear", "Scan the whole default frame instead")
         scan_window_row.addWidget(self.scan_window_btn, 1)
         scan_window_row.addWidget(self.scan_window_clear_btn)
         self.scan_window_row_label = QLabel("Batch")
@@ -292,11 +296,8 @@ class ScanSidebar(QWidget):
         self.prescan_widget = QWidget()
         prescan_row = QHBoxLayout(self.prescan_widget)
         prescan_row.setContentsMargins(0, 0, 0, 0)
-        self.prescan_btn = QPushButton("Prescan…")
-        self.prescan_btn.setToolTip("Scan a low-DPI preview and set the crop for the next scan")
-        self.prescan_clear_btn = QPushButton("Clear")
-        self.prescan_clear_btn.setFixedWidth(56)
-        self.prescan_clear_btn.setToolTip("Scan the full window instead of a crop")
+        self.prescan_btn = labeled_action("", "Prescan…", "Scan a low-DPI preview and set the crop for the next scan")
+        self.prescan_clear_btn = labeled_action("", "Clear", "Scan the full window instead of a crop")
         prescan_row.addWidget(self.prescan_btn, 1)
         prescan_row.addWidget(self.prescan_clear_btn)
         self.prescan_label = QLabel("Prescan")
@@ -339,7 +340,7 @@ class ScanSidebar(QWidget):
 
         self.scan_btn = QPushButton(" Scan")
         self.scan_btn.setObjectName("scan_btn")
-        self.scan_btn.setFixedHeight(40)
+        self.scan_btn.setFixedHeight(SCAN_BUTTON_HEIGHT)
         self.scan_btn.setProperty("scanning", "false")
         self.scan_btn.setIcon(qta.icon("fa5s.camera-retro", color=THEME.text_on_accent))
         layout.addWidget(self.scan_btn)

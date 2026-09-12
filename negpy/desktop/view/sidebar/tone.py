@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import QButtonGroup, QComboBox, QDialog, QHBoxLayout
 
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, section_subheader, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, TUNABLE_TARGETS, apply_targets
@@ -93,7 +93,7 @@ class ToneSidebar(BaseSidebar):
         )
         self.targets_btn.clicked.connect(self._open_targets_dialog)
         self.test_strip_btn = self._tool_toggle("mdi.view-grid-outline", "", self._test_strip_tooltip())
-        self.test_strip_btn.setFixedWidth(36)  # match targets_btn, so the row doesn't stair-step
+        self.test_strip_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.test_strip_btn.clicked.connect(lambda checked: self.controller.toggle_test_strip(force=checked))
 
         auto_row = QHBoxLayout()

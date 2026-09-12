@@ -32,7 +32,15 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.view.sidebar.calibration_window import CalibrationWindow
 from negpy.desktop.view.sidebar.live_view_window import LiveViewWindow, SettingStepper
-from negpy.desktop.view.styles.templates import icon_button as _icon_button, section_subheader
+from negpy.desktop.view.styles.templates import (
+    hint_label,
+    icon_button as _icon_button,
+    ICON_BUTTON_WIDTH,
+    labeled_action,
+    SCAN_BUTTON_HEIGHT,
+    section_subheader,
+    set_hint_kind,
+)
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.capture.gphoto import default_settings_path
 from negpy.infrastructure.capture.settings import ScanlightSettings, WhiteCaptureMode
@@ -202,9 +210,9 @@ class ScanlightSidebar(QWidget):
         slider = QSlider(Qt.Orientation.Horizontal)
         slider.setRange(0, 255)
         slider.setValue(value)
-        readout = QLabel(str(value))
-        readout.setFixedWidth(28)
-        readout.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
+        readout = hint_label(str(value))
+        readout.setWordWrap(False)
+        readout.setFixedWidth(ICON_BUTTON_WIDTH)
         row.addWidget(tag)
         row.addWidget(slider, 1)
         row.addWidget(readout)
@@ -217,41 +225,36 @@ class ScanlightSidebar(QWidget):
 
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(5, 0, 5, 5)
-        layout.setSpacing(10)
+        layout.setContentsMargins(0, 0, 0, 5)
+        layout.setSpacing(THEME.space_lg)
 
         # LIVE VIEW & SCAN (the primary action: top, gated)
         self.lv_btn = QPushButton(qta.icon("fa5s.video", color=THEME.text_primary), " Scan")
         self.lv_btn.setObjectName("scan_btn")
         self.lv_btn.setCheckable(True)
-        self.lv_btn.setFixedHeight(44)
+        self.lv_btn.setFixedHeight(SCAN_BUTTON_HEIGHT)
         _lv_font = self.lv_btn.font()
         _lv_font.setBold(True)  # make the primary action stand out
         self.lv_btn.setFont(_lv_font)
         layout.addWidget(self.lv_btn)
 
         # Persistent hint listing what's still missing before you can scan (task 5).
-        self.gate_hint = QLabel("")
-        self.gate_hint.setStyleSheet(f"color: {THEME.warn_amber}; font-size: {THEME.font_size_small}px;")
-        self.gate_hint.setWordWrap(True)
+        self.gate_hint = hint_label("", "warning")
         layout.addWidget(self.gate_hint)
 
         # ── CAMERA (auto-connect over USB) ─────────────────────────────────
         layout.addWidget(section_subheader("CAMERA"))
         # python-gphoto2 is optional, so show a setup note while it is missing. It hides once
         # installed and never nags an equipped user.
-        self._setup_hint = QLabel(
+        self._setup_hint = hint_label(
             "Camera scanning needs python-gphoto2, an optional dependency: "
             "`pip install gphoto2` (macOS and Linux — libgphoto2 has no Windows build). "
-            "See docs/CAMERA_SCANNING.md."
+            "See docs/CAMERA_SCANNING.md.",
+            "warning",
         )
-        self._setup_hint.setWordWrap(True)
-        self._setup_hint.setStyleSheet(f"color: {THEME.warn_amber}; font-size: {THEME.font_size_small}px;")
         layout.addWidget(self._setup_hint)
         self._setup_hint.setVisible(not self._gphoto_available())
-        self._conn_hint = QLabel("Connect the camera by USB, in PC Remote mode — it's detected automatically.")
-        self._conn_hint.setWordWrap(True)
-        self._conn_hint.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
+        self._conn_hint = hint_label("Connect the camera by USB, in PC Remote mode — it's detected automatically.")
         layout.addWidget(self._conn_hint)
 
         self.inter_exposure_delay_row = QWidget()
@@ -276,8 +279,7 @@ class ScanlightSidebar(QWidget):
         status_row = QHBoxLayout()
         self.cam_status = QLabel()
         self.light_status = QLabel()
-        self.light_temp = QLabel()  # live LED temperature next to the light status (heat monitoring)
-        self.light_temp.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
+        self.light_temp = hint_label()  # live LED temperature next to the light status (heat monitoring)
         self.light_temp.hide()  # stay hidden until a reading arrives — an empty label still paints a panel-dark box
         status_row.addWidget(self.cam_status)
         status_row.addWidget(self.light_status)
@@ -288,9 +290,7 @@ class ScanlightSidebar(QWidget):
         self._set_conn_status(self.light_status, None, "Light")
         # RGB scanning needs the Scanlight. Without it, in normal white-light mode, this hint
         # sits with the connection status. The light poll hides it in RGB mode.
-        self._rgb_hint = QLabel("You can also connect the Scanlight to scan in RGB.")
-        self._rgb_hint.setWordWrap(True)
-        self._rgb_hint.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
+        self._rgb_hint = hint_label("You can also connect the Scanlight to scan in RGB.")
         self._rgb_hint.setVisible(False)
         layout.addWidget(self._rgb_hint)
         # Connection and scan status live with the connection area, not as a strip between
@@ -300,9 +300,7 @@ class ScanlightSidebar(QWidget):
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setFormat("Capturing… %p%")
         layout.addWidget(self.progress_bar)
-        self.status_label = QLabel("")
-        self.status_label.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
-        self.status_label.setWordWrap(True)
+        self.status_label = hint_label("")
         self.status_label.setVisible(False)
         layout.addWidget(self.status_label)
 
@@ -349,9 +347,7 @@ class ScanlightSidebar(QWidget):
         rgb.addLayout(preset_row)
         # A one-line note about the current preset, right under the dropdown instead of up in
         # the camera status line. Hidden when it has nothing to say.
-        self.preset_hint = QLabel("")
-        self.preset_hint.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
-        self.preset_hint.setWordWrap(True)
+        self.preset_hint = hint_label("")
         self.preset_hint.setVisible(False)
         rgb.addWidget(self.preset_hint)
 
@@ -385,8 +381,7 @@ class ScanlightSidebar(QWidget):
             _stepper.setToolTip("Locked to the preset — pick “Create a manual preset” to set it by hand.")
             _stepper.activated.connect(lambda _i, w=_which, s=_stepper: self._on_sidebar_exposure_changed(w, s))
             _row = QHBoxLayout()
-            _tag = QLabel(_tag_text)
-            _tag.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
+            _tag = hint_label(_tag_text)
             _row.addWidget(_tag)
             _row.addStretch(1)
             _row.addWidget(_stepper)
@@ -395,8 +390,7 @@ class ScanlightSidebar(QWidget):
         # White-light modes (B&W / slide) are built-in presets, so there is no separate toggle.
         # The Scanlight is auto-detected by its Raspberry Pi Pico USB VID, so there is no
         # port picker.
-        self.off_btn = QPushButton("Light off")
-        self.off_btn.setToolTip("Turn all Scanlight channels off")
+        self.off_btn = labeled_action("fa5s.power-off", " Light Off", "Turn all Scanlight channels off")
         rgb.addWidget(self.off_btn)
         layout.addWidget(self._rgb_section)
 
@@ -1527,11 +1521,11 @@ class ScanlightSidebar(QWidget):
                 "a cloud sync client for example, holds it through the system camera daemon. Quit that app or "
                 "unplug the cable. NegPy reconnects by itself."
             )
-            self._conn_hint.setStyleSheet(f"color: {THEME.warn_amber}; font-size: {THEME.font_size_small}px;")
+            set_hint_kind(self._conn_hint, "warning")
             self._conn_hint.setVisible(True)
             return
         self._conn_hint.setText("Connect the camera by USB, in PC Remote mode — it's detected automatically.")
-        self._conn_hint.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
+        set_hint_kind(self._conn_hint, "muted")
         short = "Camera (USB)" if ok else "Camera"
         if ok:
             detail = f"Camera: {model} (USB)" if model else "Camera connected (USB)"

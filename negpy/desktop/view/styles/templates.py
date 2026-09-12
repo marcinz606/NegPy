@@ -12,6 +12,8 @@ from negpy.desktop.view.styles.theme import THEME
 ICON_BUTTON_WIDTH = 36
 # Label column beside a combo or entry, wide enough for the longest field name in a form.
 FIELD_LABEL_WIDTH = 90
+# The Scan buttons: the one control that moves a transport and writes files, so taller than a row button.
+SCAN_BUTTON_HEIGHT = 40
 
 _default_btn_height: int | None = None
 
@@ -76,6 +78,55 @@ def pin_button_box(box: QDialogButtonBox) -> None:
             accept = btn
             break
     pin_dialog_default(accept, *(b for b in box.buttons() if b is not accept))
+
+
+def _button_icon(icon_name: str, checkable: bool, on_accent: bool = False):
+    color = THEME.text_on_accent if on_accent else THEME.text_primary
+    if checkable:
+        return qta.icon(icon_name, color=color, color_on=THEME.text_on_accent, color_disabled=THEME.text_muted)
+    return qta.icon(icon_name, color=color, color_disabled=THEME.text_muted)
+
+
+def tool_toggle(icon_name: str, label: str, tooltip: str) -> QPushButton:
+    """Checkable tool button; empty label keeps it icon-only, empty icon_name keeps it text-only.
+    Carries an edited_dot like labeled_toggle, for a tool whose effect outlives its checked state."""
+    btn = QPushButton((" " + label) if (label and icon_name) else label)
+    btn.setCheckable(True)
+    if icon_name:
+        btn.setIcon(_button_icon(icon_name, checkable=True))
+    btn.setStyleSheet(tool_toggle_qss(icon_only=not label))
+    btn.setFixedHeight(default_button_height())
+    btn.setToolTip(wrap_tooltip(tooltip))
+    btn.edited_dot = EditedDot(btn)
+    return btn
+
+
+def labeled_toggle(icon_name: str, label: str, checked: bool, tooltip: str) -> QPushButton:
+    """Labeled checkable button (icon + text), the Pick WB / Linear RAW look."""
+    btn = QPushButton(label)
+    btn.setCheckable(True)
+    btn.setChecked(checked)
+    if icon_name:
+        btn.setIcon(_button_icon(icon_name, checkable=True))
+    btn.setStyleSheet(labeled_toggle_qss())
+    btn.setFixedHeight(default_button_height())
+    btn.setToolTip(wrap_tooltip(tooltip))
+    btn.edited_dot = EditedDot(btn)
+    return btn
+
+
+def labeled_action(icon_name: str, label: str, tooltip: str, primary: bool = False) -> QPushButton:
+    """One-shot action with an optional icon and a label; the non-checkable twin of labeled_toggle.
+    primary=True gives it the one filled look (the panel's call to action)."""
+    btn = QPushButton(label)
+    if icon_name:
+        btn.setIcon(_button_icon(icon_name, checkable=False, on_accent=primary))
+    if primary:
+        btn.setProperty("primary", True)
+    btn.setStyleSheet(labeled_toggle_qss())
+    btn.setFixedHeight(default_button_height())
+    btn.setToolTip(wrap_tooltip(tooltip))
+    return btn
 
 
 def icon_button(icon_name: str, tooltip: str, width: int | None = ICON_BUTTON_WIDTH) -> QPushButton:
