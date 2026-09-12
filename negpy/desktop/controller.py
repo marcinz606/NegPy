@@ -333,6 +333,7 @@ class AppController(QObject):
     linear_output_changed = pyqtSignal(bool)
     flat_peek_changed = pyqtSignal(bool)
     negative_peek_changed = pyqtSignal(bool)
+    embedded_peek_changed = pyqtSignal(bool)
     zoom_requested = pyqtSignal(float)
     zoom_changed = pyqtSignal(float)
     _render_cleanup_requested = pyqtSignal(object)  # texture to spare, or None
@@ -1749,11 +1750,15 @@ class AppController(QObject):
         self.state.preview_raw = None
         self.state.preview_ir = None
         self.state.preview_detect = None
+        self.state.preview_embedded = None
         self.state.has_ir = False
         self.state.original_res = (0, 0)
         if self.state.negative_peek:
             self.state.negative_peek = False
             self.negative_peek_changed.emit(False)
+        if self.state.embedded_peek:
+            self.state.embedded_peek = False
+            self.embedded_peek_changed.emit(False)
 
         pending_import = self._pending_capture_imports.pop(_capture_import_key(file_path), None)
         if pending_import is not None and pending_import.process_mode is not None:
@@ -4092,6 +4097,9 @@ class AppController(QObject):
         if config_override is None and self.state.negative_peek:
             self.state.negative_peek = False
             self.negative_peek_changed.emit(False)
+        if config_override is None and self.state.embedded_peek:
+            self.state.embedded_peek = False
+            self.embedded_peek_changed.emit(False)
 
         # The strip's patches were printed from the config as it stood, so once the edit
         # moves they prove something else. Drop them, which also cancels a strip still
@@ -4219,6 +4227,9 @@ class AppController(QObject):
             if self.state.negative_peek:
                 self.state.negative_peek = False
                 self.negative_peek_changed.emit(False)
+            if self.state.embedded_peek:
+                self.state.embedded_peek = False
+                self.embedded_peek_changed.emit(False)
             # Same reason the strip and the peek are exclusive: both want the canvas.
             self._clear_test_strip()
             self.state.compare_mode = True
@@ -4235,6 +4246,8 @@ class AppController(QObject):
         """
         if self.state.negative_peek:
             self._paint_negative_peek()
+        elif self.state.embedded_peek:
+            self._paint_embedded_peek()
         elif self.state.flat_peek:
             self.request_render(readback_metrics=False, config_override=flat_master_config(self.state.config))
         else:
@@ -4300,6 +4313,9 @@ class AppController(QObject):
             if self.state.negative_peek:
                 self.state.negative_peek = False
                 self.negative_peek_changed.emit(False)
+            if self.state.embedded_peek:
+                self.state.embedded_peek = False
+                self.embedded_peek_changed.emit(False)
             self._clear_test_strip()
 
         self.state.flat_peek = target
@@ -4385,6 +4401,9 @@ class AppController(QObject):
             if self.state.flat_peek:
                 self.state.flat_peek = False
                 self.flat_peek_changed.emit(False)
+            if self.state.embedded_peek:
+                self.state.embedded_peek = False
+                self.embedded_peek_changed.emit(False)
             self._clear_test_strip()
 
         self.state.negative_peek = target
@@ -4392,6 +4411,97 @@ class AppController(QObject):
 
         if target:
             self._paint_negative_peek()
+        else:
+            self.request_render()
+
+    def _load_embedded_preview(self) -> Optional[Any]:
+        """The file's own embedded preview, read once per frame and kept in state.
+
+        Read here rather than kept from the load: the splash is skipped on a preview-cache
+        hit, so the frame on screen is no evidence that one is in hand. The half-frame slice
+        is the active asset's, so a diptych peeks the half the user is editing.
+        """
+        if self.state.preview_embedded is not None:
+            return self.state.preview_embedded
+        path = self.state.current_file_path
+        if not path:
+            return None
+        result = PreviewManager.try_splash_preview(path, half_slice=self._active_half())
+        if result is None:
+            return None
+        self.state.preview_embedded = result[0]
+        return self.state.preview_embedded
+
+    def _paint_embedded_peek(self) -> None:
+        """Put the camera's own preview on the canvas, at the user's geometry.
+
+        The reference view: it is the JPEG the camera wrote, so it carries that camera's
+        white balance, tone curve and clipping, and none of NegPy's decode. Nothing is
+        measured from it and the analysis chart keeps reading the frame's own metrics — it
+        answers "what did the camera make of this scan", which is the one question the
+        pipeline cannot answer about itself.
+
+        Geometry runs against the preview's own pixel grid, which is not the raw's, so the
+        context is built from its shape rather than `original_res`.
+        """
+        source = self._load_embedded_preview()
+        if source is None:
+            return
+        geometry = self.state.config.geometry
+        height, width = source.shape[:2]
+        context = PipelineContext(
+            original_size=(height, width),
+            scale_factor=max(height, width) / float(APP_CONFIG.preview_render_size),
+            process_mode=self.state.config.process.process_mode,
+            crop_preview_full=self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW),
+            wants_uv_grid=False,
+        )
+        img = GeometryProcessor(geometry).process(source, context)
+        if not context.crop_preview_full:
+            img = CropProcessor(geometry).process(img, context)
+        with self.state.metrics_lock:
+            # Already display-encoded sRGB, so no working OETF: the camera's curve is the
+            # whole point of the view.
+            self.state.last_metrics["base_positive"] = img
+            self.state.last_metrics["content_rect"] = None
+            self.state.last_metrics["splash"] = True
+            self.state.last_metrics["proof"] = False
+            self.state.last_metrics["interactive"] = False
+        self.image_updated.emit()
+
+    def toggle_embedded_peek(self, force: Optional[bool] = None) -> None:
+        """Show the camera's embedded preview, without changing the saved edit.
+
+        ``force`` sets an explicit state; otherwise toggles. Mutually exclusive with the
+        other peeks, the before/after compare view and the test strip. A source that carries
+        no preview (a scanner TIFF, most DNGs) says so and stays off.
+        """
+        if self.state.preview_raw is None:
+            return
+        target = (not self.state.embedded_peek) if force is None else force
+        if target == self.state.embedded_peek:
+            return
+
+        if target and self._load_embedded_preview() is None:
+            self.set_status("This file carries no embedded preview", 3000)
+            self.embedded_peek_changed.emit(False)
+            return
+
+        if target:
+            self.exit_compare()
+            if self.state.flat_peek:
+                self.state.flat_peek = False
+                self.flat_peek_changed.emit(False)
+            if self.state.negative_peek:
+                self.state.negative_peek = False
+                self.negative_peek_changed.emit(False)
+            self._clear_test_strip()
+
+        self.state.embedded_peek = target
+        self.embedded_peek_changed.emit(target)
+
+        if target:
+            self._paint_embedded_peek()
         else:
             self.request_render()
 
@@ -5222,6 +5332,8 @@ class AppController(QObject):
         # A render already in flight when the peek went on would otherwise repaint over it.
         if self.state.negative_peek:
             self._paint_negative_peek()
+        elif self.state.embedded_peek:
+            self._paint_embedded_peek()
         else:
             self.image_updated.emit()
 

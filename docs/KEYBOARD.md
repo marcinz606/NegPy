@@ -42,6 +42,7 @@ Actions with no default key are not listed; every one of them can still be bound
 | `Shift + R` | Toggle analysis region draw |
 | `M` | Peek flat scan (digital intermediate) |
 | `N` | Peek negative (source as loaded) |
+| `P` | Peek the camera's embedded preview |
 | `Shift + Z` | Adams zone overlay |
 | `Shift + T` | Density × grade test strip |
 | `Shift + F` | Color ring-around (M/Y filtration) |

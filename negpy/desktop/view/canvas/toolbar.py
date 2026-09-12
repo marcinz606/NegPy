@@ -291,6 +291,14 @@ class ActionToolbar(QWidget):
             "Peek negative — show the source as it was loaded, un-inverted and unedited, at your crop and rotation (no color management)",
             "toggle_negative_peek",
         )
+        self._ov_embedded_peek_action = overflow_menu.addAction("Peek Embedded Preview")
+        self._ov_embedded_peek_action.setCheckable(True)
+        self._ov_embedded_peek_action.setToolTip(
+            tooltip_with_shortcut(
+                "Peek embedded preview — the camera's own JPEG of this capture, as a reference for what the scan looks like",
+                "toggle_embedded_peek",
+            )
+        )
         self._ov_zones_action = overflow_menu.addAction("Zone Overlay")
         self._ov_zones_action.setCheckable(True)
         self._tip(self._ov_zones_action, "Zone overlay — label each region of the print with its Adams zone", "toggle_zones")
@@ -448,6 +456,11 @@ class ActionToolbar(QWidget):
             widget.setChecked(active)
             widget.blockSignals(False)
 
+    def _on_embedded_peek_changed(self, active: bool) -> None:
+        self._ov_embedded_peek_action.blockSignals(True)
+        self._ov_embedded_peek_action.setChecked(active)
+        self._ov_embedded_peek_action.blockSignals(False)
+
     def _connect_signals(self) -> None:
         self.btn_prev.clicked.connect(self.session.prev_file)
         self.btn_next.clicked.connect(self.session.next_file)
@@ -472,6 +485,8 @@ class ActionToolbar(QWidget):
         self.btn_negative_peek.toggled.connect(lambda checked: self.controller.toggle_negative_peek(force=checked))
         self._ov_negative_peek_action.triggered.connect(lambda checked: self.controller.toggle_negative_peek(force=checked))
         self.controller.negative_peek_changed.connect(self._on_negative_peek_changed)
+        self._ov_embedded_peek_action.triggered.connect(lambda checked: self.controller.toggle_embedded_peek(force=checked))
+        self.controller.embedded_peek_changed.connect(self._on_embedded_peek_changed)
         self.btn_zones.toggled.connect(lambda checked: self.controller.toggle_zones_overlay(force=checked))
         self._ov_zones_action.triggered.connect(lambda checked: self.controller.toggle_zones_overlay(force=checked))
         self.controller.zones_overlay_changed.connect(self._on_zones_changed)

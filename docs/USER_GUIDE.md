@@ -30,7 +30,11 @@ The split stays up while you work, so a slider moves the after side against a fi
 
 The canvas toolbar's film button (or `N`) shows the scan as it was loaded: the negative, un-inverted, with no metering, no film-base normalization and none of your edits. Use it to judge the scan rather than the print: whether the frame is thin or dense, what color the mask really is, whether the scanner clipped. It changes nothing and closes as soon as you touch a control. Your crop, rotation and flip still apply, so the frame stays where you put it. The frame is color managed and lifted to the display by its own brightest tone, so it reads like the negative on a light table and stays close to what your camera's own preview shows: a C-41 mask as orange as it is in the file. Because that lift is what sets the brightness, a thin and a dense capture of the same negative land at the same level — read density from the picture and the density histogram, not from how bright the peek is. The soft proof stays off: this is the scan, not a print.
 
-While either peek is up the canvas carries a **NEGATIVE** or **FLAT SCAN** badge in its top corner, and the menu item shows a checkmark, so a view you left on is never mistaken for a broken render. `Esc` leaves whichever view has the canvas — either peek, the before/after split, or a test strip.
+### Peek Embedded Preview
+
+The **⋯** menu's **Peek Embedded Preview** (or `P`) shows the camera's own JPEG of this capture, at your crop and rotation. It is a reference, not a measurement: the camera's white balance, tone curve and clipping are baked into it, and nothing in NegPy is derived from it. Use it to check the scan against what every other viewer shows for the same file, or to see the frame your camera metered. A file that carries no preview — a scanner TIFF, most converter DNGs — says so and the item stays off.
+
+While a peek is up the canvas carries a **NEGATIVE**, **EMBEDDED** or **FLAT SCAN** badge in its top corner, and the menu item shows a checkmark, so a view you left on is never mistaken for a broken render. `Esc` leaves whichever view has the canvas — any peek, the before/after split, or a test strip.
 
 ### The workflow (and the order things happen)
 

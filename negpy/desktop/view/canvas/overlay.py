@@ -738,7 +738,7 @@ class CanvasOverlay(QWidget):
             self._draw_compare_split(painter)
 
         # Exclusive with the split above, so the two badges cannot land on each other.
-        if self.state.negative_peek or self.state.flat_peek:
+        if self.state.negative_peek or self.state.embedded_peek or self.state.flat_peek:
             self._draw_peek_badge(painter)
 
         # Last: the glass sits over everything else and claims no content rect, so it stays out
@@ -846,7 +846,7 @@ class CanvasOverlay(QWidget):
     def _draw_peek_badge(self, painter: QPainter) -> None:
         """Name the peek on the canvas. A peek replaces the print with something that is not
         one, and the only other thing that says so is a toolbar button off at the edge."""
-        text = "NEGATIVE" if self.state.negative_peek else "FLAT SCAN"
+        text = "NEGATIVE" if self.state.negative_peek else ("EMBEDDED" if self.state.embedded_peek else "FLAT SCAN")
         rect = self._content_view_rect()
         if rect.isEmpty():
             return

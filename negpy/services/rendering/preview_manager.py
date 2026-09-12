@@ -318,7 +318,10 @@ class PreviewManager:
     # Public API: thin wrappers, kept for all existing callers.
 
     @staticmethod
-    def try_splash_preview(file_path: str) -> Optional[Tuple[ImageBuffer, Dimensions]]:
+    def try_splash_preview(
+        file_path: str,
+        half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None = None,
+    ) -> Optional[Tuple[ImageBuffer, Dimensions]]:
         """
         Quick embedded-JPEG (or half-size) RGB for first paint. Returns None if not available.
         """
@@ -328,7 +331,7 @@ class PreviewManager:
             return None
         try:
             with ctx_mgr as raw:
-                return PreviewManager._try_splash_from_open_raw(raw, file_path)
+                return PreviewManager._try_splash_from_open_raw(raw, file_path, half_slice=half_slice)
         except Exception as e:
             logger.debug("preview splash skip: %s", e)
         return None

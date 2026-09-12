@@ -335,6 +335,11 @@ The buffer arrives in camera primaries, so the peek applies `camera_to_working_m
 
 The frame is therefore *not* marked `splash`; it takes the normal working-to-display conversion with `proof` set False, since a paper simulation describes a print and this is a scan.
 
+### Peek Embedded Preview
+**Code**: `AppController.toggle_embedded_peek` / `_paint_embedded_peek`
+
+The camera's own JPEG (`PreviewManager.try_splash_preview`, the same buffer the load splash paints) through `GeometryProcessor` and `CropProcessor`, and nothing else. Its context is built from the preview's own shape, not `original_res`: it is a different pixel grid from the raw, and the crop rect is normalized so it lands the same either way. Marked `splash`, so the display transform takes it as the sRGB it already is — the camera's curve is the view. It is read on the first peek rather than kept from the load (the splash is skipped on a preview-cache hit) and held in `AppState.preview_embedded` until the frame changes, with the active asset's half-frame slice applied. No metric is derived from it and the analysis chart keeps reading the frame's own render: this answers what the camera made of the scan, which is a reference for the decode, not an input to it.
+
 ---
 
 ## 4. Local Contrast (CLAHE)
