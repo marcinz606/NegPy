@@ -523,7 +523,7 @@ class GearLibraryDialog(QDialog):
         return current if value is None else value
 
     def _mark_invalid(self, edit: QLineEdit, invalid: bool) -> None:
-        edit.setStyleSheet(f"border: 1px solid {THEME.accent_secondary};" if invalid else "")
+        edit.setStyleSheet(f"border: 1px solid {THEME.error};" if invalid else "")
 
     def _set_form_editable(self, enabled: bool) -> None:
         for _label, widget in self._form_rows.values():

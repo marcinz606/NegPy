@@ -77,7 +77,7 @@ class BaseSidebar(QWidget):
         """Checkable button; empty label keeps it icon-only."""
         btn = QPushButton((" " + label) if label else "")
         btn.setCheckable(True)
-        btn.setIcon(qta.icon(icon_name, color=THEME.text_primary, color_on="#FFFFFF", color_disabled=THEME.text_muted))
+        btn.setIcon(qta.icon(icon_name, color=THEME.text_primary, color_on=THEME.text_on_accent, color_disabled=THEME.text_muted))
         btn.setStyleSheet(tool_toggle_qss(icon_only=not label))
         btn.setFixedHeight(default_button_height())
         btn.setToolTip(wrap_tooltip(tooltip))
@@ -106,7 +106,7 @@ class BaseSidebar(QWidget):
         btn = QPushButton(label)
         btn.setCheckable(True)
         btn.setChecked(checked)
-        btn.setIcon(qta.icon(icon_name, color=THEME.text_primary, color_on="#FFFFFF", color_disabled=THEME.text_muted))
+        btn.setIcon(qta.icon(icon_name, color=THEME.text_primary, color_on=THEME.text_on_accent, color_disabled=THEME.text_muted))
         btn.setStyleSheet(labeled_toggle_qss())
         btn.setFixedHeight(default_button_height())
         btn.setToolTip(wrap_tooltip(tooltip))

@@ -20,10 +20,10 @@ from negpy.desktop.view.shortcut_registry import label_with_shortcut, tooltip_wi
 from negpy.desktop.view.styles.theme import THEME
 
 CANVAS_COLORS = [
-    ("#050505", (0.02, 0.02, 0.02), "Black"),
-    ("#1C1C1C", (0.11, 0.11, 0.11), "Dark Grey"),
-    ("#404040", (0.25, 0.25, 0.25), "Mid Grey"),
-    ("#FFFFFF", (1.0, 1.0, 1.0), "White"),
+    (THEME.canvas_bg_black, (0.02, 0.02, 0.02), "Black"),
+    (THEME.canvas_bg_dark_grey, (0.11, 0.11, 0.11), "Dark Gray"),
+    (THEME.canvas_bg_mid_grey, (0.25, 0.25, 0.25), "Mid Gray"),
+    (THEME.canvas_bg_white, (1.0, 1.0, 1.0), "White"),
 ]
 
 

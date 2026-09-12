@@ -19,7 +19,7 @@ class LoadingOverlay(QWidget):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         # Integer alpha: QSS float alpha is not reliably parsed across Qt versions.
-        self.setStyleSheet("background-color: rgba(5, 5, 5, 115);")
+        self.setStyleSheet(f"background-color: {THEME.surface_scrim};")
 
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)

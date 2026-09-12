@@ -4,12 +4,13 @@ from PyQt6.QtWidgets import QButtonGroup, QComboBox, QDialog, QHBoxLayout
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, TUNABLE_TARGETS, apply_targets
 
 _CH_SUFFIX = ("red", "green", "blue")
 _CH_LABEL = ("", " R", " G", " B")
-_CH_COLORS = ("#ff5a5a", "#5adc78", "#5f96ff")
+_CH_COLORS = (THEME.channel_red_text, THEME.channel_green_text, THEME.channel_blue_text)
 
 
 class ToneSidebar(BaseSidebar):

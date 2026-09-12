@@ -347,7 +347,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         # Opaque, not a wash: the tick sits over the picture and has to read on a bright frame
         # as well as a dark one.
         overlay.setStyleSheet(
-            "#frameOverlay { background: rgba(13, 13, 15, 0.82); border-radius: 6px; }"
+            f"#frameOverlay {{ background: {THEME.surface_overlay}; border-radius: {THEME.radius_lg}px; }}"
             f"#frameOverlay QCheckBox {{ color: {THEME.text_primary}; font-size: {THEME.font_size_base}px;"
             " font-weight: 600; spacing: 6px; }"
             "#frameOverlay QCheckBox::indicator { width: 16px; height: 16px; }"

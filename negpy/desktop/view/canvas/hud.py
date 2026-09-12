@@ -14,7 +14,7 @@ _TOAST_PADDING = 40
 
 _PILL_QSS = (
     f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px; font-weight: 500; "
-    "background-color: rgba(0, 0, 0, 140); border-radius: 4px; padding: 2px 8px;"
+    f"background-color: {THEME.surface_pill}; border-radius: {THEME.radius_md}px; padding: 2px 8px;"
 )
 
 

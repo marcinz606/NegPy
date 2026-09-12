@@ -546,7 +546,7 @@ class MetadataSidebar(BaseSidebar):
         self._on_process_edited()
 
     def _flag_invalid(self, edit: QLineEdit, invalid: bool) -> None:
-        edit.setStyleSheet(f"border: 1px solid {THEME.accent_secondary};" if invalid else "")
+        edit.setStyleSheet(f"border: 1px solid {THEME.error};" if invalid else "")
 
     def _dev_time_value(self) -> Optional[int]:
         """Unreadable text keeps what is stored; blank clears. Same rule as Capture Date."""
@@ -696,7 +696,7 @@ class MetadataSidebar(BaseSidebar):
 
     def _on_capture_date_changed(self, text: str) -> None:
         valid = not text.strip() or parse_capture_date(text) is not None
-        self.capture_date_edit.setStyleSheet("" if valid else f"border: 1px solid {THEME.accent_secondary};")
+        self.capture_date_edit.setStyleSheet("" if valid else f"border: 1px solid {THEME.error};")
         self._mark_dirty()
 
     def _source_exif(self) -> Optional[dict]:

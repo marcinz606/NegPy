@@ -22,8 +22,8 @@ from negpy.desktop.view.widgets.floating_panel import float_over_app
 #: Progress-bar chunk color per triplet channel. The live view freezes during a triplet,
 #: because the capture now holds the camera without gaps, so the bar carries the R to G
 #: to B switch the preview frames used to show. Muted tones, readable on the dark theme.
-_CHANNEL_COLORS = {"R": "#B5443C", "G": "#3F8F4A", "B": "#3C6FB5"}
-_DONE_COLOR = "#3F8F4A"
+_CHANNEL_COLORS = {"R": THEME.channel_red_text, "G": THEME.channel_green_text, "B": THEME.channel_blue_text}
+_DONE_COLOR = THEME.status_success
 _FLASH_MS = 1500
 
 
@@ -151,7 +151,7 @@ class LiveViewWindow(QDialog):
         self.image = RoiImageLabel()
         self.image.roi_mode = False  # clicks aim the magnifier here, not a calibration ROI
         # Magnifier cursor over the live image → signals "click to magnify here".
-        _loupe = qta.icon("fa5s.search-plus", color="#EDEBE4").pixmap(22, 22)
+        _loupe = qta.icon("fa5s.search-plus", color=THEME.text_primary).pixmap(22, 22)
         self.image.setCursor(QCursor(_loupe, 9, 9))  # hotspot ≈ the lens centre
         layout.addWidget(self.image, 1)
 

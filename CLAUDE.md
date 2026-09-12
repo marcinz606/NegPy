@@ -104,12 +104,17 @@ shared one.
   for a list of options in a form.
 - **Type**: four size tokens in `styles/theme.py` — `font_size_small` (12, caption/hint),
   `font_size_base` (13, body and the QSS global), `font_size_header` (14, section),
-  `font_size_title` (16, dialog title), plus `font_size_display` for the wordmark. All in px;
-  the sheet reads them as `@font_size_basepx`. Never a literal size in a stylesheet string.
+  `font_size_title` (16, dialog title), plus `font_size_display` for the wordmark and
+  `font_size_micro` (9) for chart axes only. All in px; the sheet reads them as
+  `@font_size_basepx`. Never a literal size in a stylesheet string or a `setPixelSize`.
 - **Colour**: `text_primary` body, `text_secondary` secondary copy, `text_hint` captions and
-  hints, `warn_amber` advisories, `channel_red` errors. `text_muted` is the **disabled** grey
-  — 2.6:1 on the panel, so never on text a user has to read. Every other colour is a token in
-  `theme.py` too; a literal hex in a widget is a bug.
+  hints, `warn_amber` advisories, `error` errors and invalid input (not the brand accent, which
+  means selected/armed), `status_success` for a good state. `text_muted` is the **disabled**
+  grey — 2.6:1 on the panel, so never on text a user has to read. Channel colours have a fill
+  tier (`channel_red`) and a text tier (`channel_red_text`) for labels, dots and handles.
+  Every other colour is a token in `theme.py` too, surfaces and borders included, and the QSS
+  reads them as `@name`; `tests/test_theme_tokens.py` fails on a literal hex anywhere else.
+  Black/white alpha washes in painters (`QColor(255, 255, 255, 90)`) are the one exception.
 - **Geometry**: `ICON_BUTTON_WIDTH`, `FIELD_LABEL_WIDTH`, `default_button_height()` and the
   `THEME.space_*` scale. A row that needs a width already has one.
 - **Slider metadata**: unit in `unit=` (`"%"`, `" st"`, `" px"` — space before a word, none

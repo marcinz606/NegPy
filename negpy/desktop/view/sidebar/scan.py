@@ -341,7 +341,7 @@ class ScanSidebar(QWidget):
         self.scan_btn.setObjectName("scan_btn")
         self.scan_btn.setFixedHeight(40)
         self.scan_btn.setProperty("scanning", "false")
-        self.scan_btn.setIcon(qta.icon("fa5s.camera-retro", color="#FFFFFF"))
+        self.scan_btn.setIcon(qta.icon("fa5s.camera-retro", color=THEME.text_on_accent))
         layout.addWidget(self.scan_btn)
 
         layout.addStretch()
@@ -1188,7 +1188,7 @@ class ScanSidebar(QWidget):
             self.prescan_btn.setEnabled(False)
         else:
             self.scan_btn.setText(" Scan")
-            self.scan_btn.setIcon(qta.icon("fa5s.camera-retro", color="#FFFFFF"))
+            self.scan_btn.setIcon(qta.icon("fa5s.camera-retro", color=THEME.text_on_accent))
             self.prescan_btn.setEnabled(True)
             self.status_strip.stop_progress()
         # The filled/hollow swap is a QSS property selector, and Qt only re-reads those on a

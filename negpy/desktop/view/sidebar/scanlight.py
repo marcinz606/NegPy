@@ -39,7 +39,7 @@ from negpy.infrastructure.capture.settings import ScanlightSettings, WhiteCaptur
 from negpy.services.capture.calibration import REFERENCE_LEVELS, SHUTTER_CANDIDATES, normalize_start_point, shutter_seconds, usable_ladder
 from negpy.services.capture.presets import PresetStore, ScanlightPreset, framing_levels
 
-_CHANNEL_COLORS = {"R": "#E24B4A", "G": "#639922", "B": "#378ADD", "W": "#B4B2A9"}
+_CHANNEL_COLORS = {"R": THEME.channel_red_text, "G": THEME.channel_green_text, "B": THEME.channel_blue_text, "W": THEME.text_secondary}
 
 # One source for the over/under advice, shown on both surfaces of an aborted calibration:
 # the calibration window's status line and the pop-up.
@@ -278,7 +278,7 @@ class ScanlightSidebar(QWidget):
         self.light_status = QLabel()
         self.light_temp = QLabel()  # live LED temperature next to the light status (heat monitoring)
         self.light_temp.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
-        self.light_temp.hide()  # stay hidden until a reading arrives — an empty label still paints a dark #0D0D0D box
+        self.light_temp.hide()  # stay hidden until a reading arrives — an empty label still paints a panel-dark box
         status_row.addWidget(self.cam_status)
         status_row.addWidget(self.light_status)
         status_row.addWidget(self.light_temp)
@@ -1450,7 +1450,7 @@ class ScanlightSidebar(QWidget):
 
     def _set_conn_status(self, label, state, short: str, detail: str = "") -> None:
         """Compact color-coded dot: green=ok, red=fail, grey=unknown (detail in tooltip)."""
-        color = "#1D9E75" if state else ("#E24B4A" if state is False else "#888780")
+        color = THEME.status_success if state else (THEME.error if state is False else THEME.text_hint)
         label.setText(f"● {short}")
         label.setStyleSheet(f"color: {color}; font-size: {THEME.font_size_small}px;")
         label.setToolTip(detail or short)

@@ -141,7 +141,7 @@ class AppState:
     # Process-mode autodetect on file load (opt-in)
     autodetect_enabled: bool = False
 
-    # Canvas background color swatch index (0=Black, 1=Dark Grey, 2=Mid Grey)
+    # Canvas background color swatch index (0=Black, 1=Dark Gray, 2=Mid Gray)
     canvas_bg_index: int = 0
 
     # When False, fit-to-window reserves space for the floating toolbar so the image never

@@ -113,9 +113,9 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         r = 9
         cx, cy = img_rect.right() - r - 4, img_rect.top() + r + 4
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(THEME.accent_primary))
+        painter.setBrush(QColor(THEME.error))
         painter.drawEllipse(QRect(cx - r, cy - r, 2 * r, 2 * r))
-        painter.setPen(QPen(QColor("#FFFFFF"), 2))
+        painter.setPen(QPen(QColor(THEME.text_on_accent), 2))
         painter.drawLine(cx, cy - 4, cx, cy + 1)
         painter.drawPoint(cx, cy + 4)
 

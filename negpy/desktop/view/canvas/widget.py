@@ -143,7 +143,7 @@ class ImageCanvas(QWidget):
         self.pan_offset = QPointF(0, 0)
         self._last_mouse_pos = QPointF(0, 0)
         self._is_panning = False
-        self._bg_color = QColor("#050505")
+        self._bg_color = QColor(THEME.canvas_bg_black)
         self._last_buffer: Any = None
 
         self.root_layout = QStackedLayout(self)

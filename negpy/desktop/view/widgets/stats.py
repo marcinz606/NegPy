@@ -43,7 +43,7 @@ _PROBE_SAMPLE = "ΔD -0.00·0.00·0.00 · D 0.00 · VIII⅔"
 
 # One per zone-placement pin, in pin order. The canvas overlay draws its rings in these
 # same colors, so the sidebar row and the pin on the photo match by eye.
-PIN_COLORS = (THEME.accent_primary, "#FFFFFF", THEME.channel_blue)
+PIN_COLORS = (THEME.accent_primary, THEME.text_on_accent, THEME.channel_blue)
 
 
 def _lock_height(label: QLabel, sample: str) -> None:
@@ -114,7 +114,7 @@ class ZonePlacementRows(QWidget):
         col.setSpacing(2)
         name_css = f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;"
         value_css = f"color: {THEME.text_primary}; font-size: {THEME.font_size_small}px;"
-        warn_css = f"color: {THEME.accent_secondary}; font-size: {THEME.font_size_small}px;"
+        warn_css = f"color: {THEME.warn_amber}; font-size: {THEME.font_size_small}px;"
 
         self._targets: dict = {}
         self._rows: List[QWidget] = []
@@ -233,7 +233,7 @@ class NegativeStatsWidget(QWidget):
 
         name_css = f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;"
         self._value_css = f"color: {THEME.text_primary}; font-size: {THEME.font_size_small}px;"
-        self._warn_css = f"color: {THEME.accent_secondary}; font-size: {THEME.font_size_small}px;"
+        self._warn_css = f"color: {THEME.warn_amber}; font-size: {THEME.font_size_small}px;"
 
         self._names: List[QLabel] = []
         self._values: List[QLabel] = []

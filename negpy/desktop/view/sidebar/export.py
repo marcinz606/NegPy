@@ -978,10 +978,10 @@ class ExportSidebar(BaseSidebar):
             "None proofs the export target and simulates no paper."
         )
         self.proof_save_btn = QToolButton()
-        self.proof_save_btn.setIcon(qta.icon("fa5s.save", color="#aaa"))
+        self.proof_save_btn.setIcon(qta.icon("fa5s.save", color=THEME.text_hint))
         self.proof_save_btn.setToolTip("Save the current proof set-up as a named preset")
         self.proof_delete_btn = QToolButton()
-        self.proof_delete_btn.setIcon(qta.icon("fa5s.trash", color="#aaa"))
+        self.proof_delete_btn.setIcon(qta.icon("fa5s.trash", color=THEME.text_hint))
         self.proof_delete_btn.setToolTip("Delete the selected preset")
         cond_row = QHBoxLayout()
         cond_label = field_label("Preset")

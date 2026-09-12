@@ -313,7 +313,7 @@ class _MiniSheetPreview(QWidget):
         margin_x = (self._W - (2 * cell_w + gap)) / 2
         margin_y = 10
         font = QFont(painter.font())
-        font.setPixelSize(9)
+        font.setPixelSize(THEME.font_size_micro)
         painter.setFont(font)
 
         # Caption band tint mirrors the export: bg blended 15% toward label color.

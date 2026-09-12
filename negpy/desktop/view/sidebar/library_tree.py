@@ -103,8 +103,8 @@ class LibraryTree(QWidget):
         self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.tree.setStyleSheet(
-            f"QTreeWidget::item:selected {{ background: {THEME.accent_primary}; color: #FFFFFF; }}"
-            f"QTreeWidget::item:hover:!selected {{ background: rgba(255, 255, 255, 18); }}"
+            f"QTreeWidget::item:selected {{ background: {THEME.accent_primary}; color: {THEME.text_on_accent}; }}"
+            f"QTreeWidget::item:hover:!selected {{ background: {THEME.surface_hover_faint}; }}"
         )
         self.tree.itemExpanded.connect(self._on_expanded)
         self.tree.itemDoubleClicked.connect(self._on_double_clicked)
@@ -273,7 +273,9 @@ class LibraryTree(QWidget):
     def _recolor_counts(self) -> None:
         # A per-item brush is out of a stylesheet's reach, so the count column has to be repainted
         # by hand or it stays grey on the accent red.
-        self._each_top_level(lambda item: item.setForeground(1, QColor("#FFFFFF") if item.isSelected() else QColor(THEME.text_muted)))
+        self._each_top_level(
+            lambda item: item.setForeground(1, QColor(THEME.text_on_accent) if item.isSelected() else QColor(THEME.text_muted))
+        )
 
     # --- opening -----------------------------------------------------------
 
