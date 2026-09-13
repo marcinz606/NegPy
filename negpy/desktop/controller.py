@@ -3026,6 +3026,18 @@ class AppController(QObject):
         if self.canvas:
             self.canvas.overlay.update()
 
+    def set_local_mask_enabled(self, index: int, enabled: bool) -> None:
+        """Suppress or restore one mask's effect on the render, independent of selection."""
+        local = self.state.config.local
+        if not (0 <= index < len(local.masks)):
+            return
+        masks = list(local.masks)
+        masks[index] = replace(masks[index], enabled=enabled)
+        new_local = replace(local, masks=tuple(masks))
+        self.session.update_config(replace(self.state.config, local=new_local), persist=True)
+        self.config_updated.emit()
+        self.request_render()
+
     def delete_local_mask(self, index: int) -> None:
         local = self.state.config.local
         if not (0 <= index < len(local.masks)):

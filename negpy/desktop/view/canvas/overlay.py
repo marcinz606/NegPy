@@ -1766,7 +1766,7 @@ class CanvasOverlay(QWidget):
             self._local_mask_screen_polys.append([QPointF(x, y) for x, y in curve])
             self._local_mask_screen_ctrl.append(ctrl)
 
-            if i in getattr(self.state, "local_hidden_masks", ()):
+            if not mask.enabled or i in getattr(self.state, "local_hidden_masks", ()):
                 continue
             outline = QColor(THEME.burn) if mask.stops > 0 else QColor(THEME.dodge)
             max_alpha = 70 if is_selected else 32
@@ -1847,17 +1847,14 @@ class CanvasOverlay(QWidget):
 
     def _draw_printing_notes(self, painter: QPainter) -> None:
         """The printer's marked-up work print: hatched burns, open dodges, ±stop badges,
-        and the print recipe. Every mask is on the map, hidden ones included — the eye
-        unclutters editing, but a record that omits a burn is wrong."""
+        and the print recipe. A hidden (eye-off) mask still burns, so it stays on the
+        map; a disabled one does not print at all, so it is left off."""
         rect = self._content_view_rect()
+        notes_by_number = {n.number: n for n in mask_notes(self.state.config.local, self.state.config.exposure.grade)}
         polys = [
-            (notes_outline(mask.shape, ctrl, rect), note)
-            for mask, ctrl, note in zip(
-                self.state.config.local.masks,
-                self._local_mask_screen_ctrl,
-                mask_notes(self.state.config.local, self.state.config.exposure.grade),
-            )
-            if len(ctrl) >= min_points(mask.shape)
+            (notes_outline(mask.shape, ctrl, rect), notes_by_number[i + 1])
+            for i, (mask, ctrl) in enumerate(zip(self.state.config.local.masks, self._local_mask_screen_ctrl))
+            if mask.enabled and len(ctrl) >= min_points(mask.shape)
         ]
         paint_map(painter, polys)
         paint_card(painter, QPointF(rect.x() + _NOTES_CARD_INSET_PX, rect.y() + _NOTES_CARD_TOP_PX), self._recipe_lines())

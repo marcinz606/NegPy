@@ -32,6 +32,8 @@ class LocalMask:
     shape: MaskShape = MaskShape.POLYGON
     # Apply the mask outside the shape, not inside it.
     invert: bool = False
+    # A disabled mask keeps its vertices and values but contributes nothing to the render.
+    enabled: bool = True
 
 
 @dataclass(frozen=True)

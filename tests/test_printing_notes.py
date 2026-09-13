@@ -116,6 +116,22 @@ def test_masks_at_the_frame_grade_carry_no_grade_note() -> None:
     assert note.summary == "1 Burn +1"
 
 
+def test_a_disabled_mask_carries_no_note_but_keeps_its_neighbours_number() -> None:
+    """A disabled mask does not print, so it is left off the record; the mask after it
+    keeps the number matching its position in the mask list."""
+    local = LocalAdjustmentsConfig(
+        masks=(
+            replace(LocalMask(vertices=SQUARE, stops=1.0), enabled=False),
+            LocalMask(vertices=SQUARE, stops=-0.25),
+        )
+    )
+    (note,) = mask_notes(local)
+    assert note.number == 2
+
+    lines = recipe_lines(ExposureConfig(), local, FinishConfig())
+    assert "Dodge & burn: 2 Dodge −¼" in "\n".join(lines)
+
+
 def test_the_record_names_each_mask_grade() -> None:
     local = LocalAdjustmentsConfig(
         masks=(

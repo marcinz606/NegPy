@@ -590,7 +590,7 @@ Draw masks and lighten or darken just those areas. Three shapes, one per darkroo
 
 Mask handles can go outside the picture, and a tilted Card Edge usually needs that: its line must start past the corner it burns, or the tilt cuts that corner off the full-exposure side. Drag into the gray area around the frame.
 
-*   **Mask list**: each mask shows its shape icon and Dodge (lighten), Burn (darken) or Grade (contrast only), with the values it carries. The eye toggles its outline; the trash deletes it.
+*   **Mask list**: each mask shows its shape icon and Dodge (lighten), Burn (darken) or Grade (contrast only), with the values it carries. Click the shape icon to enable or disable the mask's effect on the render, without losing its shape or values; a disabled mask's row grays out. The eye toggles its outline; the trash deletes it.
 *   Each mask is tinted on the canvas so its extent is visible. Hold down **Burn**, **Feather** or **Grade**, or drag a vertex, and the tint drops away until you let go, so the value is judged on the picture rather than through the tint. Any mask that **intersects** the one you are working on drops its tint with it, since stacked tints are what hides the area worst; masks clear of it keep theirs. A Card Edge covers its whole side of the frame and an inverted mask covers its surround, so both count as intersecting anything in that area.
 *   **Burn** (-2 to 2 stops, default 0): print exposure for the selected mask, signed the way the rest of NegPy signs light on paper. **Positive burns** (longer exposure, darker paper), **negative dodges** (held back, brighter paper), the same direction as Print Density and the Finishing edge burn. A freshly drawn mask sits at 0, so it changes nothing until you give it a value.
 *   **Feather** (0.0 to 0.15): edge softness for the selected mask, as a fraction of the frame's short side. Inactive on a Card Edge.
@@ -606,7 +606,7 @@ Two conventions are worth knowing, both borrowed from the darkroom rather than f
 
 A mask with a local **Grade** also carries the grade it actually prints at, not the trim: a burn of +1.00 st at −20 R on a frame graded R115 is written `Burn +1 @ R95`, and a grade-only mask reads `Grade @ R95`.
 
-Every mask is on the map, including ones whose outline you hid with the eye: that eye is there to unclutter editing, and a printing record that quietly omits a burn would be wrong. The overlay steps aside while a test strip, either peek, the before/after baseline, or the crop and analysis tools own the canvas. Both the preview and its export live in the Export tab's **Printing Notes** section.
+Every mask is on the map, including ones whose outline you hid with the eye: that eye is there to unclutter editing, and a printing record that quietly omits a burn would be wrong. A disabled mask is the exception — it burns nothing, so it is left off the map and the recipe. The overlay steps aside while a test strip, either peek, the before/after baseline, or the crop and analysis tools own the canvas. Both the preview and its export live in the Export tab's **Printing Notes** section.
 
 ---
 
