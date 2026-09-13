@@ -30,6 +30,7 @@ from negpy.features.process.logic import (
     effective_linear_raw,
     highlight_reconstruction_bakes_wb,
     highlight_reconstruction_bakes_wb_token,
+    highlight_reconstruction_bright_gain,
     highlight_reconstruction_token,
     linear_raw_token,
 )
@@ -843,20 +844,35 @@ class ImageProcessor:
         `linear_raw` decode. `wb_override` still wins when both are set, so a bracket sibling
         pins to the reference frame's white balance rather than reading its own.
 
+        A non-Clip `highlight_mode` makes libraw scale the whole decode down against its
+        widest channel multiplier instead of its narrowest, so whatever real white balance
+        reaches this decode (camera or override) is offset back out via `bright` —
+        see `highlight_reconstruction_bright_gain`.
+
         Returns (rgb_uint16, loader_metadata).
         """
         ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=linear_raw, positive_source=positive_source)
         with ctx_mgr as raw:
             algo = get_best_demosaic_algorithm(raw, demosaic)
+            # Read before postprocess: camera_whitebalance is sensor metadata, unaffected by it,
+            # and highlight_reconstruction_bright_gain needs it ahead of the postprocess call.
+            camera_wb = camera_wb_multipliers(raw)
             if wb_override is not None:
+                # rawpy's user_wb is [R, G, B, G2]; camera_wb_multipliers only ever supplies
+                # [R, G, B], so pad with G2=G rather than pass rawpy a length it rejects.
                 user_wb: Optional[list] = list(wb_override)
+                if len(user_wb) == 3:
+                    user_wb.append(user_wb[1])
                 use_camera_wb_flag = False
+                wb_for_gain: Optional[Sequence[float]] = user_wb
             elif bake_camera_wb or not linear_raw:
                 user_wb = None
                 use_camera_wb_flag = True
+                wb_for_gain = camera_wb
             else:
                 user_wb = [1, 1, 1, 1]
                 use_camera_wb_flag = False
+                wb_for_gain = None
             post_kw: Dict[str, Any] = {"half_size": True} if fast and _use_half_size_decode(raw, linear_raw) else {}
             rgb = raw.postprocess(
                 gamma=(1, 1),
@@ -869,13 +885,14 @@ class ImageProcessor:
                 demosaic_algorithm=algo,
                 user_flip=0,
                 highlight_mode=highlight_mode,
+                bright=highlight_reconstruction_bright_gain(wb_for_gain, highlight_mode),
                 **post_kw,
             )
             rgb = ensure_rgb(rgb)
             # Sensor-native decode leaves the buffer in camera primaries, and the
             # transparency transfer needs the matrix to reach the working space.
             metadata["cam_xyz"] = camera_xyz_matrix(raw)
-            metadata["camera_wb"] = camera_wb_multipliers(raw)
+            metadata["camera_wb"] = camera_wb
         return rgb, metadata
 
     def _load_source_f32(

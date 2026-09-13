@@ -33,6 +33,7 @@ from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.features.stitch.logic import stitch_composite
 from negpy.features.stitch.models import StitchConfig, stitch_token
 from negpy.kernel.system.logging import get_logger
+from negpy.features.process.logic import highlight_reconstruction_bright_gain
 from negpy.features.process.models import DemosaicMode
 from negpy.services.rendering.preview_cache import PreviewBufferCache, PreviewCacheKey
 
@@ -153,7 +154,9 @@ class PreviewManager:
         """
         t_decode = time.perf_counter()
         log = logger.info if log_timings else logger.debug
-        use_camera_wb = use_camera_wb or bake_camera_wb
+        # Kept distinct from the `use_camera_wb` parameter: the cache key below must match
+        # what callers compute for their own lookup key, which does not fold bake in.
+        decode_camera_wb = use_camera_wb or bake_camera_wb
 
         # An explicit algorithm decodes full-size: libraw bins 2x2 quads for half_size and never
         # reaches the interpolator, so the fast path would ignore the choice.
@@ -164,7 +167,7 @@ class PreviewManager:
             # half_size aliases the X-Trans 6x6 CFA into a channel-ratio cast that shows in
             # linear decodes. Bayer 2x2 averages cleanly and camera-WB previews tolerate it, so
             # only linear X-Trans decodes full-res and lets the cv2 downsample below handle it.
-            xtrans_full = is_xtrans(raw) and not use_camera_wb
+            xtrans_full = is_xtrans(raw) and not decode_camera_wb
             post_kw: dict = {} if xtrans_full else {"half_size": True}
             # That decode is the one preview that interpolates a 6x6 CFA, where LINEAR aliases
             # far worse than the render it stands in for. PPG is LibRaw's spelling of 1-pass
@@ -178,20 +181,24 @@ class PreviewManager:
         # raw.sizes.iheight/iwidth when half_size=True, so reading after gives wrong dims.
         full_dims_pre = _output_dimensions_from_raw(raw, 0, 0)
 
-        user_wb = None if use_camera_wb else [1, 1, 1, 1]
+        user_wb = None if decode_camera_wb else [1, 1, 1, 1]
+        # Read before postprocess: camera_whitebalance is sensor metadata, unaffected by it,
+        # and highlight_reconstruction_bright_gain needs it ahead of the postprocess call.
+        wb_for_gain = camera_wb_multipliers(raw) if decode_camera_wb else None
 
         t_pp = time.perf_counter()
         rgb = raw.postprocess(
             gamma=(1, 1),
             no_auto_bright=True,
             adjust_maximum_thr=0.0,
-            use_camera_wb=use_camera_wb,
+            use_camera_wb=decode_camera_wb,
             user_wb=user_wb,
             output_bps=16,
             output_color=rawpy.ColorSpace.raw,
             demosaic_algorithm=demosaic_algo,
             user_flip=0,
             highlight_mode=highlight_mode,
+            bright=highlight_reconstruction_bright_gain(wb_for_gain, highlight_mode),
             **post_kw,
         )
         log("load-timing decode.postprocess %.0fms (fast=%s) %s", (time.perf_counter() - t_pp) * 1000, use_fast, file_path)

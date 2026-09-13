@@ -9,7 +9,7 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.hdr.logic import ExposureStats, choose_reference, measure_exposure, solve_ratios
 from negpy.features.hdr.models import HdrConfig
-from negpy.features.process.logic import effective_linear_raw
+from negpy.features.process.logic import effective_linear_raw, highlight_reconstruction_bakes_wb
 from negpy.services.rendering.image_processor import ImageProcessor
 
 
@@ -79,9 +79,10 @@ class HdrWorker(QObject):
                 if i == 0:
                     # The same expression as merge_bracket's, so the solve and the render pin alike. There is
                     # nothing to share on a neutral decode, which carries no as-shot gains and leaves every
-                    # later frame neutral too.
-                    neutral = effective_linear_raw(params.process, params.exposure.render_intent)
-                    bracket_wb = None if neutral else self._processor.camera_wb_for(f["path"])
+                    # later frame neutral too — unless reconstruction bakes real white balance into it.
+                    linear_raw = effective_linear_raw(params.process, params.exposure.render_intent)
+                    bake_wb = highlight_reconstruction_bakes_wb(params.process, params.exposure.render_intent)
+                    bracket_wb = self._processor.camera_wb_for(f["path"]) if (bake_wb or not linear_raw) else None
                 frames.append(f32)
 
             shapes = {f.shape for f in frames}

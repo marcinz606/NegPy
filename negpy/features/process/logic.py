@@ -3,7 +3,7 @@ Pure heuristics for auto-detecting the film process mode (C41 / B&W / E-6)
 from a raw linear scan, before any inversion or normalization.
 """
 
-from typing import Optional
+from typing import Optional, Sequence
 
 import numpy as np
 
@@ -160,6 +160,28 @@ def highlight_reconstruction_bakes_wb_token(process: ProcessConfig, render_inten
     once reconstruction is active. See `highlight_reconstruction_bakes_wb`.
     """
     return f"|hrwb:{int(highlight_reconstruction_bakes_wb(process, render_intent))}"
+
+
+def highlight_reconstruction_bright_gain(wb: Optional[Sequence[float]], highlight_mode: int) -> float:
+    """The rawpy `bright` value that offsets libraw's own highlight-mode scaling.
+
+    Libraw normalizes its white-balance gains against the *smallest* per-channel
+    multiplier when `highlight_mode` is Clip, and against the *largest* one otherwise —
+    reserving headroom for the reconstruction algorithm at the cost of scaling the whole
+    decode down by `max(wb)/min(wb)`. `bright` multiplies libraw's own scale factors
+    before its final bit-depth quantization, so passing this ratio back restores the
+    Clip-equivalent exposure without re-touching pixels already reconstructed above the
+    naive white level.
+
+    1.0 (no-op) when `highlight_mode` is 0 — libraw already normalizes by the minimum in
+    that case — or `wb` is neutral, missing, or degenerate.
+    """
+    if not highlight_mode or wb is None:
+        return 1.0
+    values = [float(v) for v in wb[:3]]
+    if len(values) != 3 or not all(v > 0.0 and np.isfinite(v) for v in values):
+        return 1.0
+    return max(values) / min(values)
 
 
 def narrowband_profile_active(process: ProcessConfig) -> bool:
