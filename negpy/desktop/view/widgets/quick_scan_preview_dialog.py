@@ -33,7 +33,7 @@ class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self._caps = device.capabilities
         self._previewing = False
         self._scan_now = False  # set when the user chooses "Scan" over "Use"
-        self.setWindowTitle("Preview — set the scan window")
+        self.setWindowTitle("Preview — Set the Scan Window")
         self.setModal(True)
         self.resize(560, 480)
 
@@ -41,7 +41,7 @@ class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
 
         help_lbl = QLabel(
             "Preview the current holder position, then drag to crop — a corner to resize, "
-            "inside to move. Use (apply and return) or Scan (start scanning now)."
+            "inside to move. Use Apply Window (apply and return) or Scan (start scanning now)."
         )
         help_lbl.setWordWrap(True)
         help_lbl.setStyleSheet(
@@ -73,7 +73,7 @@ class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
         layout.addWidget(self.status_strip)
 
         btns = QHBoxLayout()
-        self.clear_btn = QPushButton("Clear crop")
+        self.clear_btn = QPushButton("Clear Crop")
         self.clear_btn.setToolTip("Scan the whole frame instead")
         self.clear_btn.clicked.connect(self.label.clear_window)
         btns.addWidget(self.clear_btn)
@@ -81,11 +81,11 @@ class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.clicked.connect(self._on_cancel_clicked)
         btns.addWidget(self.cancel_btn)
-        self.ok_btn = QPushButton("Apply window")
+        self.ok_btn = QPushButton("Apply Window")
         self.ok_btn.setToolTip("Keep this window and return to the Scan panel")
         self.ok_btn.clicked.connect(self.accept)
         btns.addWidget(self.ok_btn)
-        self.scan_btn = QPushButton(qta.icon("fa5s.play", color=THEME.text_primary), " Scan frame")
+        self.scan_btn = QPushButton(qta.icon("fa5s.play", color=THEME.text_primary), " Scan Frame")
         self.scan_btn.setToolTip("Scan now with the current settings")
         self.scan_btn.clicked.connect(self._on_scan_clicked)
         btns.addWidget(self.scan_btn)
@@ -121,7 +121,7 @@ class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
         # Committing mid-pass would hand the scan a unit the preview still holds.
         self.ok_btn.setEnabled(not busy)
         self.scan_btn.setEnabled(not busy)
-        self.cancel_btn.setText("Stop preview" if busy else "Cancel")
+        self.cancel_btn.setText("Stop Preview" if busy else "Cancel")
         if busy:
             self.status_strip.start_progress("Previewing… %p%")
         else:

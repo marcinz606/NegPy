@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.controller import AppController
-from negpy.desktop.view.styles.templates import default_button_height, field_label, hint_label
+from negpy.desktop.view.styles.templates import default_button_height, field_label, hint_label, pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.sliders import apply_slider_value_visibility
@@ -184,10 +184,10 @@ class PreferencesDialog(QDialog):
         footer = QHBoxLayout()
         footer.addStretch()
         close_btn = QPushButton("Close")
-        close_btn.setDefault(True)
         close_btn.clicked.connect(self.accept)
         footer.addWidget(close_btn)
         root.addLayout(footer)
+        pin_dialog_default(close_btn, scope=self)
 
     def _grid(self) -> tuple[QWidget, QGridLayout]:
         host = QWidget()
@@ -295,6 +295,18 @@ class PreferencesDialog(QDialog):
         if self._gpu_available:
             self.gpu_box.toggled.connect(self._on_gpu_changed)
             grid.addWidget(hint_label(f"Active backend: {self._backend_name()}"), row, 0, 1, 2)
+            if self.session.state.gpu_viewport_failed:
+                row += 1
+                grid.addWidget(
+                    hint_label(
+                        f"GPU viewport failed to start ({self.session.state.gpu_viewport_failed}); the display runs on the CPU.",
+                        "warning",
+                    ),
+                    row,
+                    0,
+                    1,
+                    2,
+                )
         else:
             self.gpu_box.setEnabled(False)
             grid.addWidget(hint_label("No GPU available on this hardware — the CPU pipeline is in use."), row, 0, 1, 2)

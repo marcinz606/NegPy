@@ -35,7 +35,7 @@ class TestTonalCurve:
         assert np.all(np.diff(out) >= -1e-5)
 
     def test_exposure_scale_sets_where_the_print_clips(self):
-        """The scale is the negative density range the sensitiser prints: a short one
+        """The scale is the negative density range the sensitizer prints: a short one
         runs out of scale early and blocks everything past it together."""
         d0 = np.linspace(0.0, 2.6, 512, dtype=np.float32)
         short = _density(_cyano(_ramp(d0), scale=1.0)[0])
@@ -70,7 +70,7 @@ class TestColor:
         highlight = lab[8]
         assert shadow[2] < -15.0, "Dmax must read as blue, not black"
         assert shadow[1] < 0.0
-        assert highlight[2] > 0.0 and highlight[1] < 0.0, "residual sensitiser prints green"
+        assert highlight[2] > 0.0 and highlight[1] < 0.0, "residual sensitizer prints green"
 
     def test_new_sensitizer_goes_deeper_than_classic(self):
         d0 = np.linspace(0.0, 2.0, 64, dtype=np.float32)

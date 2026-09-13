@@ -9,7 +9,7 @@ class AltProcess(StrEnum):
 
 
 class Sensitizer(StrEnum):
-    """Cyanotype sensitiser. Classic = Herschel's ammonium ferric citrate,
+    """Cyanotype sensitizer. Classic = Herschel's ammonium ferric citrate,
     New = Ware's ammonium ferric oxalate."""
 
     CLASSIC = "classic"
@@ -24,7 +24,7 @@ class AltProcessConfig:
     is one enum rather than two booleans that could both be set.
 
     Lith takes its color from the Exposure panel's paper profile; cyanotype is
-    on rag paper and takes its color from the sensitiser.
+    on rag paper and takes its color from the sensitizer.
     """
 
     alt_process: AltProcess = AltProcess.NONE

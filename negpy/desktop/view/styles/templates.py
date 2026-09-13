@@ -3,7 +3,7 @@ import html
 
 import qtawesome as qta
 from PyQt6.QtCore import QEvent, Qt
-from PyQt6.QtWidgets import QLabel, QProgressBar, QPushButton, QStackedLayout, QWidget
+from PyQt6.QtWidgets import QDialogButtonBox, QLabel, QProgressBar, QPushButton, QStackedLayout, QWidget
 
 from negpy.desktop.view.styles.fonts import ui_font_family
 from negpy.desktop.view.styles.theme import THEME
@@ -12,6 +12,8 @@ from negpy.desktop.view.styles.theme import THEME
 ICON_BUTTON_WIDTH = 36
 # Label column beside a combo or entry, wide enough for the longest field name in a form.
 FIELD_LABEL_WIDTH = 90
+# The Scan buttons: the one control that moves a transport and writes files, so taller than a row button.
+SCAN_BUTTON_HEIGHT = 40
 
 _default_btn_height: int | None = None
 
@@ -48,20 +50,86 @@ def default_button_height() -> int:
     return _default_btn_height
 
 
-def pin_dialog_default(default: QPushButton | None, *others: QPushButton) -> None:
+def pin_dialog_default(default: QPushButton | None, *others: QPushButton, scope: QWidget | None = None) -> None:
     """Give a hand-rolled dialog footer one Enter target and one filled button.
 
     Qt hands "default" to whichever autoDefault button was clicked last, so pressing Enter
     repeats that button instead of the dialog's action until another is clicked (issue #997).
     Every button that is not the default has to opt out. Pass default=None where the footer
-    swaps its default at runtime and only the opt-out is wanted.
+    swaps its default at runtime and only the opt-out is wanted. A dialog whose body holds
+    buttons too (section headers, row actions) passes scope=self once everything is built, so
+    the opt-out reaches all of them, not only the footer.
     """
     if default is not None:
         default.setDefault(True)
         default.setAutoDefault(True)
         default.setProperty("primary", True)
+    if scope is not None:
+        others = tuple(b for b in scope.findChildren(QPushButton) if b is not default)
     for btn in others:
         btn.setAutoDefault(False)
+
+
+def pin_button_box(box: QDialogButtonBox) -> None:
+    """QDialogButtonBox twin of pin_dialog_default: the accept button is the one filled Enter target."""
+    accept = None
+    for btn in box.buttons():
+        if box.buttonRole(btn) == QDialogButtonBox.ButtonRole.AcceptRole:
+            accept = btn
+            break
+    pin_dialog_default(accept, *(b for b in box.buttons() if b is not accept))
+
+
+def _button_icon(icon_name: str, checkable: bool, on_accent: bool = False):
+    color = THEME.text_on_accent if on_accent else THEME.text_primary
+    if checkable:
+        return qta.icon(icon_name, color=color, color_on=THEME.text_on_accent, color_disabled=THEME.text_muted)
+    return qta.icon(icon_name, color=color, color_disabled=THEME.text_muted)
+
+
+def tool_toggle(icon_name: str, label: str, tooltip: str) -> QPushButton:
+    """Checkable tool button; empty label keeps it icon-only, empty icon_name keeps it text-only.
+    Carries an edited_dot like labeled_toggle, for a tool whose effect outlives its checked state."""
+    btn = QPushButton((" " + label) if (label and icon_name) else label)
+    btn.setCheckable(True)
+    if icon_name:
+        btn.setIcon(_button_icon(icon_name, checkable=True))
+    btn.setStyleSheet(tool_toggle_qss(icon_only=not label))
+    btn.setFixedHeight(default_button_height())
+    btn.setToolTip(wrap_tooltip(tooltip))
+    btn.plain_tooltip = tooltip
+    btn.edited_dot = EditedDot(btn)
+    return btn
+
+
+def labeled_toggle(icon_name: str, label: str, checked: bool, tooltip: str) -> QPushButton:
+    """Labeled checkable button (icon + text), the Pick WB / Linear RAW look."""
+    btn = QPushButton(label)
+    btn.setCheckable(True)
+    btn.setChecked(checked)
+    if icon_name:
+        btn.setIcon(_button_icon(icon_name, checkable=True))
+    btn.setStyleSheet(labeled_toggle_qss())
+    btn.setFixedHeight(default_button_height())
+    btn.setToolTip(wrap_tooltip(tooltip))
+    btn.plain_tooltip = tooltip
+    btn.edited_dot = EditedDot(btn)
+    return btn
+
+
+def labeled_action(icon_name: str, label: str, tooltip: str, primary: bool = False) -> QPushButton:
+    """One-shot action with an optional icon and a label; the non-checkable twin of labeled_toggle.
+    primary=True gives it the one filled look (the panel's call to action)."""
+    btn = QPushButton(label)
+    if icon_name:
+        btn.setIcon(_button_icon(icon_name, checkable=False, on_accent=primary))
+    if primary:
+        btn.setProperty("primary", True)
+    btn.setStyleSheet(labeled_toggle_qss())
+    btn.setFixedHeight(default_button_height())
+    btn.setToolTip(wrap_tooltip(tooltip))
+    btn.plain_tooltip = tooltip
+    return btn
 
 
 def icon_button(icon_name: str, tooltip: str, width: int | None = ICON_BUTTON_WIDTH) -> QPushButton:
@@ -111,6 +179,17 @@ def set_hint_kind(lbl: QLabel, kind: str) -> None:
     style = lbl.style()
     style.unpolish(lbl)
     style.polish(lbl)
+
+
+def toast_qss(kind: str = "info") -> str:
+    """Canvas toast and loading chip: title type on a solid dark plate that reads over any canvas.
+    kind: "info" | "warning" | "error" picks the text colour, the same three as hint_label."""
+    color = {"warning": THEME.warn_amber, "error": THEME.channel_red}.get(kind, THEME.text_primary)
+    return (
+        f"color: {color}; font-size: {THEME.font_size_title}px; font-weight: {THEME.weight_semibold}; "
+        f"background-color: {THEME.surface_toast}; border: 1px solid {THEME.border_toast}; "
+        f"border-radius: {THEME.radius_lg}px; padding: 7px 18px;"
+    )
 
 
 def pane_header_qss() -> str:

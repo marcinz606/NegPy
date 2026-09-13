@@ -1,10 +1,8 @@
-from PyQt6.QtWidgets import QComboBox, QPushButton, QHBoxLayout
-import qtawesome as qta
+from PyQt6.QtWidgets import QComboBox, QHBoxLayout
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.styles.templates import field_label, section_subheader, wrap_tooltip
-from negpy.desktop.view.styles.theme import THEME
 from negpy.features.retouch.models import IR_METHOD_NEGPY, IR_METHOD_OPENICE
 
 _IR_REMOVAL_TIP = (
@@ -38,10 +36,10 @@ class RetouchSidebar(BaseSidebar):
         conf = self.state.config.retouch
 
         # --- Overlay inspector (applies to every detection source) ----------
-        self.overlay_btn = QPushButton(" Overlay: Off")
-        self.overlay_btn.setIcon(qta.icon("fa5s.eye", color=THEME.text_primary))
-        self.overlay_btn.setToolTip(
-            "Cycle the dust-detection overlay: Off → Marked → IR. Enable Optical / IR Removal so the overlay has detected spots to show."
+        self.overlay_btn = self._labeled_action(
+            "fa5s.eye",
+            " Overlay: Off",
+            "Cycle the dust-detection overlay: Off → Marked → IR. Enable Optical / IR Removal so the overlay has detected spots to show.",
         )
         self.layout.addWidget(self.overlay_btn)
 
@@ -124,13 +122,8 @@ class RetouchSidebar(BaseSidebar):
         self.layout.addWidget(self.line_threshold_slider)
 
         actions_row = QHBoxLayout()
-        self.undo_btn = QPushButton(" Undo Last")
-        self.undo_btn.setIcon(qta.icon("fa5s.undo", color=THEME.text_primary))
-        self.undo_btn.setToolTip("Remove the most recent manual heal")
-
-        self.clear_btn = QPushButton(" Clear All")
-        self.clear_btn.setIcon(qta.icon("fa5s.trash-alt", color=THEME.text_primary))
-        self.clear_btn.setToolTip("Remove all manual heals (auto-detected dust is unaffected)")
+        self.undo_btn = self._labeled_action("fa5s.undo", " Undo Last", "Remove the most recent manual heal")
+        self.clear_btn = self._labeled_action("fa5s.trash-alt", " Clear All", "Remove all manual heals (auto-detected dust is unaffected)")
 
         actions_row.addWidget(self.undo_btn, 1)
         actions_row.addWidget(self.clear_btn, 1)

@@ -1,6 +1,7 @@
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QGridLayout, QLabel, QProgressBar, QWidget
 
+from negpy.desktop.view.styles.templates import toast_qss
 from negpy.desktop.view.styles.theme import THEME
 
 _DEFAULT_TOAST_MS = 2500
@@ -8,21 +9,12 @@ _DEFAULT_TOAST_MS = 2500
 #: the floor stops it collapsing to a sliver on a narrow canvas.
 _TOAST_WIDTH_RATIO = 0.55
 _TOAST_MIN_WIDTH = 320
-#: Horizontal padding in _TOAST_QSS, so a one-line measurement matches the rendered pill.
+#: Horizontal padding in toast_qss(), so a one-line measurement matches the rendered pill.
 _TOAST_PADDING = 40
 
 _PILL_QSS = (
     f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px; font-weight: 500; "
-    "background-color: rgba(0, 0, 0, 140); border-radius: 4px; padding: 2px 8px;"
-)
-
-# Status toast ("rendering...", "galleries updated"). Unlike the passive corner pills it
-# announces app activity, so it uses bigger type, near-white on a solid dark plate with
-# an outline, and reads against any canvas brightness.
-_TOAST_QSS = (
-    f"color: {THEME.text_primary}; font-size: {THEME.font_size_title}px; font-weight: 600; "
-    "background-color: rgba(10, 10, 10, 225); border: 1px solid rgba(255, 255, 255, 55); "
-    "border-radius: 6px; padding: 7px 18px;"
+    f"background-color: {THEME.surface_pill}; border-radius: {THEME.radius_md}px; padding: 2px 8px;"
 )
 
 
@@ -51,7 +43,7 @@ class CanvasHud(QWidget):
         for lbl in (self.lbl_top_left, self.lbl_top_right, self.lbl_bottom_left, self.lbl_bottom_right):
             lbl.setStyleSheet(_PILL_QSS)
             lbl.hide()
-        self.toast.setStyleSheet(_TOAST_QSS)
+        self.toast.setStyleSheet(toast_qss())
         # Wraps rather than running off the canvas: a message that has to explain itself, why a
         # file will not open and what to do about it, does not fit one line.
         self.toast.setWordWrap(True)
@@ -114,7 +106,8 @@ class CanvasHud(QWidget):
     def _refresh_bottom_right(self) -> None:
         self._set_pill(self.lbl_bottom_right, " · ".join(s for s in (self._zoom_note, self._file_pos) if s))
 
-    def showMessage(self, text: str, timeout: int = 0) -> None:
+    def showMessage(self, text: str, timeout: int = 0, kind: str = "info") -> None:
+        """kind: "info" | "warning" | "error" — a failure must not read like a progress note."""
         if text == "Image Updated":
             return
         if not text:  # a step that posted a long-lived toast has finished
@@ -129,7 +122,8 @@ class CanvasHud(QWidget):
         one_line = self.toast.fontMetrics().horizontalAdvance(text) + _TOAST_PADDING
         self.toast.setMaximumWidth(cap)
         self.toast.setMinimumWidth(min(cap, one_line))
-        self.toast.setText(text.lower())
+        self.toast.setStyleSheet(toast_qss(kind))
+        self.toast.setText(text)
         self.toast.show()
         self._toast_timer.start(timeout if timeout > 0 else _DEFAULT_TOAST_MS)
 

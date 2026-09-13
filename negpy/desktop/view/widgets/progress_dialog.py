@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from negpy.desktop.view.styles.templates import pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.floating_panel import float_over_app
 
@@ -29,10 +30,6 @@ class ProgressDialog(QDialog):
         self.setModal(False)
         float_over_app(self)
         self.setFixedWidth(360)
-        self.setStyleSheet(f"""
-            QDialog {{ background-color: {THEME.bg_panel}; border: 1px solid {THEME.border_primary}; }}
-            QLabel {{ color: {THEME.text_primary}; }}
-        """)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(THEME.space_2xl, THEME.space_2xl, THEME.space_2xl, THEME.space_2xl)
@@ -75,8 +72,8 @@ class ProgressDialog(QDialog):
         footer.addStretch(1)
 
         self._abort = QPushButton("Abort")
-        self._abort.setStyleSheet("QPushButton { padding: 6px 14px; }")
         self._abort.clicked.connect(self._on_abort)
+        pin_dialog_default(None, self._abort)
         footer.addWidget(self._abort)
         root.addLayout(footer)
 

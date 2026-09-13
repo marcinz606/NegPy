@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from negpy.desktop.view.styles.templates import pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 from negpy.kernel.system.logging import get_logger
 from negpy.kernel.system.updater import (
@@ -200,10 +201,9 @@ class UpdateDialog(QDialog):
         actions.addWidget(self.later_button)
 
         self.install_button = QPushButton("Install Update" if info.can_self_install else "Open Releases Page")
-        self.install_button.setProperty("primary", True)
-        self.install_button.setDefault(True)
         self.install_button.clicked.connect(self._on_install)
         actions.addWidget(self.install_button)
+        pin_dialog_default(self.install_button, self.later_button, self.page_button)
         root.addLayout(actions)
 
     def _on_install(self) -> None:
@@ -262,7 +262,7 @@ class UpdateDialog(QDialog):
         self._set_status(f"{message}\nYou can still download it from the releases page.")
         self.install_button.setEnabled(True)
         self.later_button.setEnabled(True)
-        self.later_button.setText("Close")
+        self.later_button.setText("Later")
 
     def reject(self) -> None:
         # The worker outlives this window (see `_own`), so closing need not block on a socket

@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QVBoxLayout
 
-from negpy.desktop.view.styles.templates import hint_label
+from negpy.desktop.view.styles.templates import hint_label, pin_button_box
 from negpy.features.metadata.models import (
     DESCRIPTION_FIELD_LABELS,
     DESCRIPTION_FIELD_ORDER,
@@ -13,7 +13,7 @@ class DescriptionFieldsDialog(QDialog):
 
     def __init__(self, selected: object, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Description fields")
+        self.setWindowTitle("Description Fields")
         self.setMinimumWidth(320)
 
         root = QVBoxLayout(self)
@@ -30,6 +30,7 @@ class DescriptionFieldsDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
+        pin_button_box(buttons)
         root.addWidget(buttons)
 
     def selected_fields(self) -> tuple[str, ...]:

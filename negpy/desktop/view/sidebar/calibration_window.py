@@ -6,7 +6,6 @@ clear film base (crosshair), and presses Calibrate; on success the panel saves t
 preset and closes this window automatically.
 """
 
-import qtawesome as qta
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QDialog,
@@ -14,13 +13,12 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QProgressBar,
-    QPushButton,
     QVBoxLayout,
 )
 
 from negpy.desktop.view.sidebar.live_view_window import SettingStepper
 from negpy.desktop.view.sidebar.roi_image import RoiImageLabel
-from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.styles.templates import hint_label, labeled_action
 from negpy.desktop.view.widgets.floating_panel import float_over_app
 
 
@@ -32,7 +30,7 @@ class CalibrationWindow(QDialog):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("New preset — calibrate on the film base")
+        self.setWindowTitle("New Preset — Calibrate on the Film Base")
         self.setModal(False)
         float_over_app(self)
         self.resize(820, 680)
@@ -43,8 +41,9 @@ class CalibrationWindow(QDialog):
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("e.g. Portra 400")
         name_row.addWidget(self.name_edit, 1)
-        self.calibrate_btn = QPushButton(qta.icon("fa5s.crosshairs", color=THEME.text_primary), " Calibrate & Save")
-        self.calibrate_btn.setToolTip("Meter the clicked film base and save the result as this preset")
+        self.calibrate_btn = labeled_action(
+            "fa5s.crosshairs", " Calibrate && Save", "Meter the clicked film base and save the result as this preset"
+        )
         name_row.addWidget(self.calibrate_btn)
         layout.addLayout(name_row)
 
@@ -62,9 +61,8 @@ class CalibrationWindow(QDialog):
             ("ISO", self.iso_stepper, "ISO — use what you will scan with"),
             ("Aperture", self.aperture_stepper, "Aperture (needs an electronically controlled lens)"),
         ):
-            tag = QLabel(tag_text)
+            tag = hint_label(tag_text)
             tag.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-            tag.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
             stepper.setToolTip(tip)
             col = QVBoxLayout()
             col.setSpacing(2)
@@ -73,11 +71,9 @@ class CalibrationWindow(QDialog):
             settings_row.addLayout(col, 1)
         layout.addLayout(settings_row)
 
-        self.consistency_hint = QLabel(
-            "Set the ISO and aperture you'll scan with. Changing either afterwards throws off every scan made with this preset."
+        self.consistency_hint = hint_label(
+            "Set the ISO and aperture you'll scan with. Changing either afterwards throws off every scan made with this preset.", "warning"
         )
-        self.consistency_hint.setWordWrap(True)
-        self.consistency_hint.setStyleSheet(f"color: {THEME.warn_amber}; font-size: {THEME.font_size_small}px;")
         layout.addWidget(self.consistency_hint)
 
         self.progress = QProgressBar()
@@ -85,9 +81,7 @@ class CalibrationWindow(QDialog):
         self.progress.setVisible(False)
         layout.addWidget(self.progress)
 
-        self.status = QLabel("Click the clear film base (crosshair), name the stock, then Calibrate & Save.")
-        self.status.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
-        self.status.setWordWrap(True)
+        self.status = hint_label("Click the clear film base (crosshair), name the stock, then Calibrate & Save.")
         layout.addWidget(self.status)
 
         self.calibrate_btn.clicked.connect(self._emit_calibrate)

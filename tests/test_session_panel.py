@@ -165,8 +165,8 @@ def test_section_states_are_remembered(panel):
     panel.file_browser.frames_section.toggle_button.setChecked(False)
 
     repo = panel.controller.session.repo
-    assert repo.get_global_setting("library_section_expanded") is False
-    assert repo.get_global_setting("frames_section_expanded") is False
+    assert repo.get_global_setting("section_expanded_library") is False
+    assert repo.get_global_setting("section_expanded_frames") is False
 
 
 # --- the update notice ----------------------------------------------------

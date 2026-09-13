@@ -8,6 +8,7 @@ from typing import Optional
 from PyQt6.QtCore import QPoint, QRect, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QMouseEvent, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QLabel, QSizePolicy
+from negpy.desktop.view.styles.theme import THEME
 
 from negpy.desktop.view.widgets.scan_window_geometry import (
     Rect,
@@ -178,24 +179,24 @@ class ScanWindowLabel(QLabel):
         if draw_rect is not None and self._pixmap is not None:
             content = self._content_rect(draw_rect)
             if content != draw_rect:
-                painter.fillRect(draw_rect, QColor("#0D0D0F"))
+                painter.fillRect(draw_rect, QColor(THEME.bg_dark))
             painter.save()
             painter.setClipRect(draw_rect)
             painter.drawPixmap(content, self._pixmap)
             painter.restore()
             if self._rect is not None:
                 wr = self._rect_in_widget(self._rect, draw_rect)
-                painter.setPen(QPen(QColor("#1D9E75"), 2))
+                painter.setPen(QPen(QColor(THEME.status_success), 2))
                 painter.setBrush(Qt.BrushStyle.NoBrush)
                 painter.drawRect(wr)
-                painter.setBrush(QColor("#1D9E75"))
+                painter.setBrush(QColor(THEME.status_success))
                 painter.setPen(Qt.PenStyle.NoPen)
                 for corner in (wr.topLeft(), wr.topRight(), wr.bottomRight(), wr.bottomLeft()):
                     painter.drawRect(QRect(corner.x() - _HANDLE_PX, corner.y() - _HANDLE_PX, 2 * _HANDLE_PX, 2 * _HANDLE_PX))
             for frac, edge in self._offset_indicators:
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(QColor(0, 0, 0, 110))
-                pen = QPen(QColor("#E0A83C"), 2)
+                pen = QPen(QColor(THEME.warn_amber), 2)
                 pen.setStyle(Qt.PenStyle.DashLine)
                 # Keep the line at least 1 px inside the frame: an edge-pinned indicator must stay visible.
                 if edge == "left":
@@ -207,5 +208,5 @@ class ScanWindowLabel(QLabel):
                 painter.setPen(pen)
                 painter.drawLine(x, draw_rect.top(), x, draw_rect.bottom())
         else:
-            painter.fillRect(self.rect(), QColor("#0D0D0F"))
+            painter.fillRect(self.rect(), QColor(THEME.bg_dark))
         painter.end()

@@ -1,9 +1,9 @@
 QMainWindow {
-    background-color: #0D0D0D;
+    background-color: @bg_dark;
 }
 
 QWidget {
-    background-color: #0D0D0D;
+    background-color: @bg_dark;
     color: @text_primary;
     font-family: "__UI_FONT__";
     font-size: @font_size_basepx;
@@ -16,24 +16,24 @@ QLabel {
 QDockWidget {
     titlebar-close-icon: none;
     titlebar-normal-icon: none;
-    background-color: #0D0D0D;
-    border: 1px solid #262626;
+    background-color: @bg_dark;
+    border: 1px solid @border_primary;
     margin: 8px;
     border-radius: 4px;
 }
 
 QDockWidget::title {
-    background-color: #0D0D0D;
+    background-color: @bg_dark;
     padding: 5px;
     font-weight: bold;
-    color: #FFFFFF;
+    color: @text_on_accent;
 }
 
 QGroupBox {
     margin-top: 2ex;
     padding: 12px 8px;
     border: none;
-    border-top: 1px solid #262626;
+    border-top: 1px solid @border_primary;
     font-weight: bold;
     color: @accent_primary; /* Safelight Red */
 }
@@ -42,7 +42,7 @@ QGroupBox::title {
     subcontrol-origin: margin;
     left: 10px;
     padding: 0 3px 0 3px;
-    color: #FFFFFF;
+    color: @text_on_accent;
 }
 
 QPushButton {
@@ -54,27 +54,27 @@ QPushButton {
 }
 
 QPushButton:hover {
-    background-color: #262626;
-    border: 1px solid #3A3A3A;
+    background-color: @border_primary;
+    border: 1px solid @border_hover;
 }
 
 QPushButton:pressed {
     background-color: @accent_primary;
-    color: white;
+    color: @text_on_accent;
 }
 
 /* Active/checked toggle tools (e.g. "Linear RAW", "Lock Bounds"). Low-key but
    clearly engaged: a warm-tinted fill and a safelight-accent border so the user
    can tell at a glance which tools are currently on. */
 QPushButton:checked {
-    background-color: #2A1D1D;
-    color: #FFFFFF;
+    background-color: @bg_checked;
+    color: @text_on_accent;
     border: 1px solid @accent_primary;
     font-weight: 600;
 }
 
 QPushButton:checked:hover {
-    background-color: #351F1F;
+    background-color: @bg_checked_hover;
     border: 1px solid @accent_secondary;
 }
 
@@ -83,7 +83,7 @@ QPushButton:checked:hover {
    reads "Stop" and goes hollow — the same accent, but not an invitation. */
 QPushButton#scan_btn {
     background-color: @accent_primary;
-    color: #FFFFFF;
+    color: @text_on_accent;
     border: 1px solid @accent_secondary;
     border-radius: 4px;
     font-weight: 600;
@@ -95,14 +95,14 @@ QPushButton#scan_btn:hover {
 }
 
 QPushButton#scan_btn:pressed {
-    background-color: #8E1616;
-    color: #FFFFFF;
+    background-color: @accent_pressed;
+    color: @text_on_accent;
 }
 
 QPushButton#scan_btn:disabled {
-    background-color: #1A1414;
+    background-color: @bg_accent_muted;
     color: @text_unit;
-    border: 1px solid #2A1D1D;
+    border: 1px solid @bg_checked;
 }
 
 QPushButton#scan_btn[scanning="true"] {
@@ -112,8 +112,8 @@ QPushButton#scan_btn[scanning="true"] {
 }
 
 QPushButton#scan_btn[scanning="true"]:hover {
-    background-color: #2A1D1D;
-    color: #FFFFFF;
+    background-color: @bg_checked;
+    color: @text_on_accent;
 }
 
 QToolButton {
@@ -124,24 +124,24 @@ QToolButton {
 }
 
 QToolButton:hover {
-    background-color: #262626;
-    border: 1px solid #3A3A3A;
+    background-color: @border_primary;
+    border: 1px solid @border_hover;
 }
 
 QToolButton:checked {
-    background-color: #2A1D1D;
+    background-color: @bg_checked;
     border: 1px solid @accent_primary;
 }
 
 QToolButton:checked:hover {
-    background-color: #351F1F;
+    background-color: @bg_checked_hover;
     border: 1px solid @accent_secondary;
 }
 
 QSlider::groove:horizontal {
     border: none;
     height: 6px;
-    background: #262626;
+    background: @border_primary;
     margin: 2px 0;
     border-radius: 3px;
 }
@@ -150,17 +150,17 @@ QSlider#neutral_slider::groove:horizontal,
 QSlider#cyan_slider::groove:horizontal,
 QSlider#magenta_slider::groove:horizontal,
 QSlider#yellow_slider::groove:horizontal {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #262626, stop:0.49 #262626, stop:0.5 #555555, stop:0.51 #262626, stop:1 #262626);
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 @border_primary, stop:0.49 @border_primary, stop:0.5 @slider_disabled, stop:0.51 @border_primary, stop:1 @border_primary);
 }
 
-QSlider#cyan_slider::handle:horizontal { background: #00b1b1; }
-QSlider#cyan_slider::sub-page:horizontal { background: #3A3A3A; }
+QSlider#cyan_slider::handle:horizontal { background: @filter_cyan; }
+QSlider#cyan_slider::sub-page:horizontal { background: @border_hover; }
 
-QSlider#magenta_slider::handle:horizontal { background: #b100b1; }
-QSlider#magenta_slider::sub-page:horizontal { background: #3A3A3A; }
+QSlider#magenta_slider::handle:horizontal { background: @filter_magenta; }
+QSlider#magenta_slider::sub-page:horizontal { background: @border_hover; }
 
-QSlider#yellow_slider::handle:horizontal { background: #b1b100; }
-QSlider#yellow_slider::sub-page:horizontal { background: #3A3A3A; }
+QSlider#yellow_slider::handle:horizontal { background: @filter_yellow; }
+QSlider#yellow_slider::sub-page:horizontal { background: @border_hover; }
 
 QSlider::handle:horizontal {
     background: @accent_primary;
@@ -172,96 +172,96 @@ QSlider::handle:horizontal {
 }
 
 QSlider::sub-page:horizontal {
-    background: #3A3A3A;
+    background: @border_hover;
     border-radius: 3px;
 }
 
 /* Disabled state — grey out locked/overridden controls. Relies entirely on
    Qt's automatic isEnabled()-driven :disabled propagation from a parent
    widget.setEnabled(False); no per-callsite changes needed. */
-QSlider::handle:horizontal:disabled { background: #555555; }
-QSlider::groove:horizontal:disabled { background: #1A1A1A; }
-QSlider::sub-page:horizontal:disabled { background: #2A2A2A; }
+QSlider::handle:horizontal:disabled { background: @slider_disabled; }
+QSlider::groove:horizontal:disabled { background: @border_input; }
+QSlider::sub-page:horizontal:disabled { background: @slider_fill_disabled; }
 
 QSlider#cyan_slider::handle:horizontal:disabled,
 QSlider#magenta_slider::handle:horizontal:disabled,
-QSlider#yellow_slider::handle:horizontal:disabled { background: #555555; }
+QSlider#yellow_slider::handle:horizontal:disabled { background: @slider_disabled; }
 
 QListView {
-    background-color: #0D0D0D;
-    border: 1px solid #262626;
+    background-color: @bg_dark;
+    border: 1px solid @border_primary;
     border-radius: 4px;
 }
 
 QListView::item {
-    border: 1px solid #333333;
+    border: 1px solid @border_color;
     border-radius: 4px;
     padding: 5px;
     margin: 4px;
 }
 
 QListView::item:selected {
-    background-color: #222222;
-    border: 1px solid #555555;
-    color: white;
+    background-color: @bg_selected;
+    border: 1px solid @slider_disabled;
+    color: @text_on_accent;
 }
 
 QTabWidget::pane {
-    border: 1px solid #262626;
-    background-color: #0D0D0D;
+    border: 1px solid @border_primary;
+    background-color: @bg_dark;
     border-radius: 4px;
 }
 
 QTabBar::tab {
-    background-color: #161616;
+    background-color: @bg_header;
     color: @text_secondary;
     padding: 8px 12px;
-    border: 1px solid #333333;
+    border: 1px solid @border_color;
     border-top-left-radius: 4px;
     border-top-right-radius: 4px;
 }
 
 QTabBar::tab:selected {
-    background-color: #222222;
-    color: #FFFFFF;
+    background-color: @bg_selected;
+    color: @text_on_accent;
     font-weight: bold;
     border-bottom: none;
 }
 
 QTabBar::tab:hover:!selected {
-    background-color: #333333;
-    color: #FFFFFF;
+    background-color: @border_color;
+    color: @text_on_accent;
 }
 
 QComboBox, QLineEdit, QDoubleSpinBox, QSpinBox, QTextEdit {
-    background-color: #0A0A0A;
+    background-color: @bg_input;
     color: @text_primary;
-    border: 1px solid #1A1A1A;
+    border: 1px solid @border_input;
     border-radius: 4px;
     padding: 4px;
 }
 
 QComboBox:focus, QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QTextEdit:focus {
-    border: 1px solid #555555;
-    background-color: #0D0D0D;
+    border: 1px solid @slider_disabled;
+    background-color: @bg_dark;
 }
 
 QComboBox:disabled, QLineEdit:disabled, QDoubleSpinBox:disabled, QSpinBox:disabled, QTextEdit:disabled {
     color: @text_muted;
-    border: 1px solid #1A1A1A;
+    border: 1px solid @border_input;
 }
 
 /* Combo-box dropdown popup. Its a QListView-based view, so without this rule it
    inherits the generic (faint) QListView::item highlight. Match the QMenu
    highlight so hovering a dropdown item reads the same as a right-click menu. */
 QComboBox QAbstractItemView {
-    background-color: #161616;
-    border: 1px solid #333333;
+    background-color: @bg_header;
+    border: 1px solid @border_color;
     border-radius: 4px;
     padding: 4px;
     outline: none;
-    selection-background-color: #2E2E2E;
-    selection-color: #FFFFFF;
+    selection-background-color: @bg_menu_selected;
+    selection-color: @text_on_accent;
 }
 
 QComboBox QAbstractItemView::item {
@@ -274,9 +274,9 @@ QComboBox QAbstractItemView::item {
 
 QComboBox QAbstractItemView::item:selected,
 QComboBox QAbstractItemView::item:hover {
-    background-color: #2E2E2E;
-    color: #FFFFFF;
-    /* Override the generic QListView::item:selected 1px #555 border so the
+    background-color: @bg_menu_selected;
+    color: @text_on_accent;
+    /* Override the generic QListView::item:selected slider_disabled border so the
        highlight is a flat fill exactly like the QMenu one (no bordered box). */
     border: none;
 }
@@ -286,12 +286,12 @@ QCheckBox:disabled { color: @text_muted; }
 
 QStatusBar {
     background-color: @accent_primary;
-    color: white;
+    color: @text_on_accent;
 }
 
 QProgressBar {
-    border: 1px solid #262626;
-    background-color: #121212;
+    border: 1px solid @border_primary;
+    background-color: @bg_card;
     text-align: center;
     border-radius: 4px;
 }
@@ -303,18 +303,18 @@ QProgressBar::chunk {
 
 QScrollArea {
     border: none;
-    background-color: #0D0D0D;
+    background-color: @bg_dark;
 }
 
 QScrollBar:vertical {
     border: none;
-    background: #0D0D0D;
+    background: @bg_dark;
     width: 10px;
     margin: 0px 0 0px 0;
 }
 
 QScrollBar::handle:vertical {
-    background: #333333;
+    background: @border_color;
     min-height: 20px;
     border-radius: 5px;
 }
@@ -325,13 +325,13 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
 
 QScrollBar:horizontal {
     border: none;
-    background: #0D0D0D;
+    background: @bg_dark;
     height: 10px;
     margin: 0 0px 0 0px;
 }
 
 QScrollBar::handle:horizontal {
-    background: #333333;
+    background: @border_color;
     min-width: 20px;
     border-radius: 5px;
 }
@@ -345,8 +345,8 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
    users can't tell the options are clickable. Give the hovered/selected item a
    clear highlight fill. */
 QMenu {
-    background-color: #161616;
-    border: 1px solid #333333;
+    background-color: @bg_header;
+    border: 1px solid @border_color;
     border-radius: 4px;
     padding: 4px;
 }
@@ -359,8 +359,8 @@ QMenu::item {
 }
 
 QMenu::item:selected {
-    background-color: #2E2E2E;
-    color: #FFFFFF;
+    background-color: @bg_menu_selected;
+    color: @text_on_accent;
 }
 
 QMenu::item:disabled {
@@ -369,16 +369,16 @@ QMenu::item:disabled {
 
 QMenu::separator {
     height: 1px;
-    background-color: #333333;
+    background-color: @border_color;
     margin: 4px 8px;
 }
 
 /* Tooltip box — match the panel surface and give it a subtle border so the
    rich-text keycap chips sit on a consistent backdrop. */
 QToolTip {
-    background-color: #161616;
+    background-color: @bg_header;
     color: @text_primary;
-    border: 1px solid #333333;
+    border: 1px solid @border_color;
     border-radius: 4px;
     padding: 4px 6px;
 }
@@ -386,15 +386,15 @@ QToolTip {
 /* Phase 2A — objectName-based rules */
 
 QFrame#collapsible_content {
-    background-color: #121212;
+    background-color: @bg_card;
     border-bottom-left-radius: 4px;
     border-bottom-right-radius: 4px;
-    border: 1px solid #1A1A1A;
+    border: 1px solid @border_input;
     border-top: none;
 }
 
 /* Section content must not repaint over the card: plain QWidget bodies would
-   otherwise pick up the global `QWidget` #0D0D0D fill and read darker than
+   otherwise pick up the global `QWidget` @bg_dark fill and read darker than
    sections whose content is a custom subclass. */
 QWidget#collapsible_content_body {
     background: transparent;
@@ -415,7 +415,7 @@ QLabel[hint="warning"] {
 }
 
 QLabel[hint="error"] {
-    color: @channel_red;
+    color: @error;
     font-size: @font_size_smallpx;
     border: none;
 }
@@ -425,24 +425,24 @@ QPushButton#collapsible_reset_btn {
     border: none;
 }
 QPushButton#collapsible_reset_btn:hover {
-    background: #222;
+    background: @bg_selected;
     border-radius: 3px;
 }
 
 QFrame#toolbar_container {
-    background-color: #0D0D0D;
-    border: 1px solid #333333;
+    background-color: @bg_dark;
+    border: 1px solid @border_color;
     border-radius: 6px;
     padding: 4px;
 }
 
 QFrame#toolbar_separator {
-    color: #333333;
-    background-color: #333333;
+    color: @border_color;
+    background-color: @border_color;
 }
 
 /* Shortcut overview/Customize dialog rows. Transparent by default so the row
-   frame doesn't paint the global #0D0D0D over the #121212 collapsible card;
+   frame doesn't paint the global @bg_dark over the @bg_card collapsible card;
    the highlighted variant is the jump-to-row flash. */
 QFrame#shortcut_editor_row {
     background: transparent;
@@ -455,7 +455,7 @@ QFrame#shortcut_editor_row[highlighted="true"] {
 
 QLabel#update_label {
     font-size: @font_size_smallpx;
-    color: #558B2F;
+    color: @status_success;
     font-weight: bold;
     padding: 5px;
 }
@@ -465,7 +465,7 @@ QLabel#update_label {
 QPushButton[primary="true"], QToolButton[primary="true"] {
     background-color: @accent_primary;
     border: 1px solid @accent_primary;
-    color: #FFFFFF;
+    color: @text_on_accent;
     font-weight: 600;
 }
 
@@ -475,31 +475,31 @@ QPushButton[primary="true"]:hover, QToolButton[primary="true"]:hover {
 }
 
 QPushButton[primary="true"]:pressed, QToolButton[primary="true"]:pressed {
-    background-color: #8E1414;
-    border: 1px solid #8E1414;
+    background-color: @accent_pressed;
+    border: 1px solid @accent_pressed;
 }
 
 QPushButton[primary="true"]:disabled, QToolButton[primary="true"]:disabled {
     background-color: transparent;
-    border: 1px solid #262626;
+    border: 1px solid @border_primary;
     color: @text_muted;
 }
 
 /* Right-panel tab strip (see sidebar/right_panel.py). */
 QPushButton#right_tab_btn {
-    background-color: #0D0D0D;
+    background-color: @bg_dark;
     border: none;
-    border-bottom: 1px solid #262626;
-    border-right: 1px solid #262626;
+    border-bottom: 1px solid @border_primary;
+    border-right: 1px solid @border_primary;
     border-radius: 0;
 }
 
 QPushButton#right_tab_btn:hover {
-    background-color: #262626;
+    background-color: @border_primary;
 }
 
 QPushButton#right_tab_btn:checked {
-    background-color: #222222;
+    background-color: @bg_selected;
     border-bottom: none;
 }
 
@@ -507,39 +507,39 @@ QPushButton#right_tab_btn:checked {
    header stacked over a preview widget (Tone/Color histogram strip). */
 QPushButton#collapsible_header {
     text-align: left;
-    background-color: #161616;
+    background-color: @bg_header;
     border: none;
-    border-bottom: 1px solid #262626;
+    border-bottom: 1px solid @border_primary;
     border-top-left-radius: 4px;
     border-top-right-radius: 4px;
-    color: #FFFFFF;
+    color: @text_on_accent;
     padding: 0;
 }
 
 QPushButton#collapsible_header:hover {
-    background-color: #222222;
+    background-color: @bg_selected;
 }
 
 QPushButton#collapsible_header:checked {
-    background-color: #161616;
+    background-color: @bg_header;
 }
 
 QPushButton#collapsible_header[overlay="true"] {
-    background-color: rgba(26, 26, 26, 0.82);
+    background-color: @surface_overlay_strong;
 }
 
 QPushButton#collapsible_header[overlay="true"]:hover {
-    background-color: rgba(34, 34, 34, 0.88);
+    background-color: @surface_overlay_hover;
 }
 
 QPushButton#collapsible_header[overlay="true"]:checked {
-    background-color: rgba(26, 26, 26, 0.82);
+    background-color: @surface_overlay_strong;
 }
 
 /* Preset lists: Export Presets dialog and the Presets sidebar. */
 QListWidget#preset_list {
-    background: #0D0D0D;
-    border: 1px solid #262626;
+    background: @bg_dark;
+    border: 1px solid @border_primary;
 }
 
 QListWidget#preset_list::item {
@@ -548,8 +548,8 @@ QListWidget#preset_list::item {
 }
 
 QListWidget#preset_list::item:selected {
-    background: #2a2a2a;
-    color: white;
+    background: @bg_hover;
+    color: @text_on_accent;
 }
 
 /* Searchable gear combo (widgets/searchable_gear_combo.py): inline arrow + completer popup. */
@@ -567,9 +567,9 @@ QToolButton#gear_combo_arrow:hover {
    Covers the gear combo and the shortcut-dialog search fields. */
 QAbstractItemView#gear_combo_popup,
 QAbstractItemView#shortcut_editor_search_popup {
-    background: #161616;
+    background: @bg_header;
     color: @text_primary;
-    border: 1px solid #333333;
+    border: 1px solid @border_color;
     border-radius: 4px;
     padding: 4px;
     outline: 0;
@@ -587,14 +587,14 @@ QAbstractItemView#gear_combo_popup::item:selected,
 QAbstractItemView#gear_combo_popup::item:hover,
 QAbstractItemView#shortcut_editor_search_popup::item:selected,
 QAbstractItemView#shortcut_editor_search_popup::item:hover {
-    background: #2E2E2E;
-    color: #FFFFFF;
+    background: @bg_menu_selected;
+    color: @text_on_accent;
     border: none;
 }
 
 /* Darker red divider between the two halves of a primary split button. */
 QToolButton#split_menu_btn[primary="true"] {
-    border-left: 1px solid #8E1414;
+    border-left: 1px solid @accent_pressed;
 }
 
 /* Fused split button (main action + menu arrow), see widgets/split_button.py. */
@@ -608,7 +608,7 @@ QPushButton#split_main_btn {
 QToolButton#split_menu_btn {
     border-top-left-radius: 0;
     border-bottom-left-radius: 0;
-    border-left: 1px solid #3A3A3A;
+    border-left: 1px solid @border_hover;
     padding: 6px 4px;
 }
 
@@ -635,13 +635,13 @@ QCheckBox::indicator {
     width: 15px;
     height: 15px;
     border-radius: 3px;
-    border: 1px solid #5A5A5A;
-    background-color: #1A1A1A;
+    border: 1px solid @border_indicator;
+    background-color: @bg_indicator;
 }
 
 QCheckBox::indicator:hover {
-    border: 1px solid #8A8A8A;
-    background-color: #202020;
+    border: 1px solid @border_indicator_hover;
+    background-color: @bg_indicator_hover;
 }
 
 QCheckBox::indicator:checked {
@@ -657,8 +657,8 @@ QCheckBox::indicator:checked:hover {
 }
 
 QCheckBox::indicator:disabled {
-    border: 1px solid #333333;
-    background-color: #141414;
+    border: 1px solid @border_color;
+    background-color: @bg_indicator_disabled;
 }
 
 /* Radio buttons — Fusion's indicator is as faint on this background as the checkbox one,
@@ -671,32 +671,32 @@ QRadioButton::indicator {
     width: 15px;
     height: 15px;
     border-radius: 8px;
-    border: 1px solid #5A5A5A;
-    background-color: #1A1A1A;
+    border: 1px solid @border_indicator;
+    background-color: @bg_indicator;
 }
 
 QRadioButton::indicator:hover {
-    border: 1px solid #8A8A8A;
-    background-color: #202020;
+    border: 1px solid @border_indicator_hover;
+    background-color: @bg_indicator_hover;
 }
 
 /* A dot inside the ring, not a filled box: a border thick enough to read as a dot eats the
    corner radius and the indicator turns square. */
 QRadioButton::indicator:checked {
     background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
-        stop:0 @accent_primary, stop:0.5 @accent_primary, stop:0.55 #1A1A1A, stop:1 #1A1A1A);
+        stop:0 @accent_primary, stop:0.5 @accent_primary, stop:0.55 @bg_indicator, stop:1 @bg_indicator);
     border: 1px solid @accent_primary;
 }
 
 QRadioButton::indicator:checked:hover {
     background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
-        stop:0 @accent_secondary, stop:0.5 @accent_secondary, stop:0.55 #202020, stop:1 #202020);
+        stop:0 @accent_secondary, stop:0.5 @accent_secondary, stop:0.55 @bg_indicator_hover, stop:1 @bg_indicator_hover);
     border: 1px solid @accent_secondary;
 }
 
 QRadioButton::indicator:disabled {
-    border: 1px solid #333333;
-    background-color: #141414;
+    border: 1px solid @border_color;
+    background-color: @bg_indicator_disabled;
 }
 
 QRadioButton:disabled {
@@ -717,7 +717,7 @@ QCheckBox::indicator:focus, QRadioButton::indicator:focus {
 /* The ring grows inward: a 2px border on a 12px content box would make the
    handle 16px wide while the groove clamps its height, so it reads as an egg. */
 QSlider::handle:horizontal:focus {
-    border: 2px solid #FFFFFF;
+    border: 2px solid @text_on_accent;
     width: 8px;
     height: 8px;
     margin: -3px 0;

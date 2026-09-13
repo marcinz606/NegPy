@@ -160,7 +160,7 @@ class TestStripLifecycle(unittest.TestCase):
         self.controller.strip_requested.connect(self.strip_tasks.append)
         self.controller.render_requested.connect(self.render_tasks.append)
         self.controller.test_strip_changed.connect(self.announced.append)
-        self.controller.status_message_requested.connect(lambda msg, _ms: self.toasts.append(msg))
+        self.controller.status_message_requested.connect(lambda msg, *_: self.toasts.append(msg))
         self.controller.status_progress_requested.connect(lambda done, total: self.progress.append((done, total)))
 
     def tearDown(self):

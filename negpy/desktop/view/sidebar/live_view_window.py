@@ -12,18 +12,18 @@ import time
 import qtawesome as qta
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QCursor, QKeySequence, QShortcut
-from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QPushButton, QToolButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QToolButton, QVBoxLayout, QWidget
 
 from negpy.desktop.view.sidebar.roi_image import RoiImageLabel
-from negpy.desktop.view.styles.templates import pin_dialog_default
+from negpy.desktop.view.styles.templates import hint_label, labeled_action, pin_dialog_default, SCAN_BUTTON_HEIGHT
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.floating_panel import float_over_app
 
 #: Progress-bar chunk color per triplet channel. The live view freezes during a triplet,
 #: because the capture now holds the camera without gaps, so the bar carries the R to G
 #: to B switch the preview frames used to show. Muted tones, readable on the dark theme.
-_CHANNEL_COLORS = {"R": "#B5443C", "G": "#3F8F4A", "B": "#3C6FB5"}
-_DONE_COLOR = "#3F8F4A"
+_CHANNEL_COLORS = {"R": THEME.channel_red_text, "G": THEME.channel_green_text, "B": THEME.channel_blue_text}
+_DONE_COLOR = THEME.status_success
 _FLASH_MS = 1500
 
 
@@ -140,10 +140,9 @@ class LiveViewWindow(QDialog):
 
         # ── capture toolbar (mirrors the panel so you needn't switch tabs) ──
         bar = QHBoxLayout()
-        self.scan_btn = QPushButton(qta.icon("fa5s.camera-retro", color=THEME.text_primary), " Scan")
-        self.scan_btn.setFixedHeight(36)
-        self.retake_btn = QPushButton(qta.icon("fa5s.redo", color=THEME.text_primary), " Retake")
-        self.retake_btn.setToolTip("Re-capture the current frame without advancing the counter")
+        self.scan_btn = labeled_action("fa5s.camera-retro", " Scan", "Capture this frame")
+        self.scan_btn.setFixedHeight(SCAN_BUTTON_HEIGHT)
+        self.retake_btn = labeled_action("fa5s.redo", " Retake", "Re-capture the current frame without advancing the counter")
         bar.addWidget(self.scan_btn, 2)
         bar.addWidget(self.retake_btn, 1)
         layout.addLayout(bar)
@@ -151,7 +150,7 @@ class LiveViewWindow(QDialog):
         self.image = RoiImageLabel()
         self.image.roi_mode = False  # clicks aim the magnifier here, not a calibration ROI
         # Magnifier cursor over the live image → signals "click to magnify here".
-        _loupe = qta.icon("fa5s.search-plus", color="#EDEBE4").pixmap(22, 22)
+        _loupe = qta.icon("fa5s.search-plus", color=THEME.text_primary).pixmap(22, 22)
         self.image.setCursor(QCursor(_loupe, 9, 9))  # hotspot ≈ the lens centre
         layout.addWidget(self.image, 1)
 
@@ -184,9 +183,8 @@ class LiveViewWindow(QDialog):
             ("Shutter", self.shutter_stepper, "Shutter speed"),
             ("Aperture", self.aperture_stepper, "Aperture (needs an electronically controlled lens)"),
         ):
-            tag = QLabel(tag_text)
+            tag = hint_label(tag_text)
             tag.setAlignment(Qt.AlignmentFlag.AlignHCenter)  # label sits centred above its value
-            tag.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
             stepper.setToolTip(tip)
             col = QVBoxLayout()  # label stacked over the ‹ value › stepper (clearer than side-by-side)
             col.setSpacing(2)
@@ -206,9 +204,7 @@ class LiveViewWindow(QDialog):
         # Invalidates a pending post-capture flash when a new capture starts underneath it.
         self._flash_token = 0
 
-        self.status = QLabel("")
-        self.status.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
-        self.status.setWordWrap(True)
+        self.status = hint_label("")
         layout.addWidget(self.status)
 
         self.scan_btn.clicked.connect(lambda: self.scanRequested.emit())

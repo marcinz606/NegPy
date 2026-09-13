@@ -29,11 +29,22 @@ def _context_undo(controller) -> None:
 
 
 def _context_cancel(controller, window) -> None:
-    """Esc ladder: a test strip is dismissed first (it owns the canvas while up), then the
-    grain focuser loupe, then an armed zone, then in-progress tool geometry (polyline
-    points, straighten line, zone pins), then the tool itself."""
+    """Esc ladder: whatever has taken the canvas over goes first — a test strip, either peek,
+    the before/after split — then the grain focuser loupe, then an armed zone, then
+    in-progress tool geometry (polyline points, straighten line, zone pins), then the tool
+    itself. Each of those is a view the user is inside and has to get out of, and a toggle
+    they have to find again to leave is the thing Esc is for."""
     if controller.state.test_strip or controller.state.test_strip_pending:
         controller.toggle_test_strip(force=False)
+        return
+    if controller.state.negative_peek:
+        controller.toggle_negative_peek(force=False)
+        return
+    if controller.state.flat_peek:
+        controller.toggle_flat_peek(force=False)
+        return
+    if controller.state.compare_mode:
+        controller.toggle_compare()
         return
     if controller.state.grain_focuser:
         controller.toggle_grain_focuser(force=False)
@@ -100,7 +111,7 @@ class ShortcutManager:
             # A window-wide QShortcut fires from any tab, so the gating a mouse gets for free on a
             # disabled or mode-hidden control has to be applied here by hand.
             if not slider.isEnabled() or hidden_by_gating(slider):
-                self.window.controller.set_status(f"{_slider_name(slider, group)} not available", 1500)
+                self.window.controller.set_status(f"{_slider_name(slider, group)} not available", 1500, kind="warning")
                 return
             step = slider_step_for(group.id, self.slider_steps)
             slider.adjust_by(step * sign_for_action(action_id))
@@ -210,6 +221,16 @@ class ShortcutManager:
             "show_shortcuts": lambda: _show_shortcuts(self.window),
             "show_analysis_help": self.window.right_panel.show_analysis_help,
             "check_for_updates": lambda: self.window.session_panel.check_for_updates(),
+            # Button clicks, so the shortcut runs the same gating and toast the mouse gets.
+            "toggle_hq": toolbar.btn_hq.click,
+            "toggle_optical_removal": controls.retouch_sidebar.auto_dust_btn.click,
+            "toggle_ir_removal": controls.retouch_sidebar.ir_dust_btn.click,
+            "toggle_flat_field": controls.flatfield_sidebar.enable_btn.click,
+            "batch_autocrop": controls.geometry_sidebar.auto_crop_all_btn.click,
+            "toggle_auto_density": controls.tone_sidebar.auto_density_btn.click,
+            "toggle_auto_grade": controls.tone_sidebar.auto_grade_btn.click,
+            "preset_apply": controls.presets_sidebar.apply_btn.click,
+            "preset_save": controls.presets_sidebar.save_btn.click,
         }
 
         widgets = slider_widget_map(controls)
@@ -241,6 +262,7 @@ class ShortcutManager:
 
         self.window.controls_panel.apply_shortcut_tooltips()
         self.window.right_panel.apply_shortcut_tooltips()
+        self.window.toolbar.apply_shortcut_tooltips()
         # The macOS menu bar carries key equivalents of its own; a rebind has to reach them
         # or the retired key keeps working from the menu.
         menus = getattr(self.window, "mac_menus", None)

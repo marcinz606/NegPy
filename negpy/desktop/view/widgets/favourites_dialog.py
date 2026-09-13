@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from negpy.desktop.view.styles.templates import dialog_pane_qss, hint_label, pane_header_qss
+from negpy.desktop.view.styles.templates import dialog_pane_qss, hint_label, pane_header_qss, pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 
 _ID_ROLE = Qt.ItemDataRole.UserRole
@@ -46,9 +46,9 @@ class FavouritesDialog(QDialog):
         choices: list[tuple[str, str, str]],
         selected: list[str],
         *,
-        title: str = "Edit Favourites",
-        chosen_header: str = "FAVOURITES",
-        hint: str = "Drag to reorder. Favourites mirror the real controls — editing one here is the same as editing it in its own panel.",
+        title: str = "Edit Favorites",
+        chosen_header: str = "FAVORITES",
+        hint: str = "Drag to reorder. Favorites mirror the real controls — editing one here is the same as editing it in its own panel.",
         defaults: list[str] | None = None,
     ):
         super().__init__(parent)
@@ -138,10 +138,10 @@ class FavouritesDialog(QDialog):
         cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.reject)
         self.apply_btn = QPushButton("Apply")
-        self.apply_btn.setProperty("primary", True)
         self.apply_btn.clicked.connect(self.accept)
         row.addWidget(cancel)
         row.addWidget(self.apply_btn)
+        pin_dialog_default(self.apply_btn, cancel, *([restore] if self._defaults is not None else []))
         return row
 
     def _restore_defaults(self) -> None:

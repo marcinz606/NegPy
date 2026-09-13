@@ -73,9 +73,9 @@ def test_the_footer_reads_like_the_other_preview_dialogs() -> None:
     dialog = PrescanCropDialog(controller, _device())
     _ready(controller, dialog)
 
-    assert dialog._clear_btn.text() == "Clear crop"
-    assert dialog._ok_btn.text() == "Apply crop"
-    assert dialog._scan_btn.text() == "Scan frame"
+    assert dialog._clear_btn.text() == "Clear Crop"
+    assert dialog._ok_btn.text() == "Apply Crop"
+    assert dialog._scan_btn.text() == "Scan Frame"
 
 
 def test_re_acquisition_is_not_one_of_the_exits() -> None:
