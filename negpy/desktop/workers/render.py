@@ -1168,8 +1168,6 @@ def decode_asset_preview(
     }
     hdr = config.hdr
     if hdr.hdr_enabled and hdr.hdr_paths:
-        # bake_camera_wb reaches load_linear_preview_hdr, which ignores it: a bracket has
-        # no per-frame white-balance pinning for a baked decode, unlike export.
         raw, _, _ = preview_service.load_linear_preview_hdr(
             file_info["path"],
             hdr,

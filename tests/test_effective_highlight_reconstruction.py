@@ -271,3 +271,20 @@ class TestBrightGainReachesTheDecode:
 
         assert raw.seen["user_wb"] == [1.9, 1.0, 1.55, 1.0]
         assert raw.seen["bright"] == pytest.approx(1.9 / 1.0)
+
+    def test_a_preview_bracket_siblings_wb_override_pads_to_the_length_rawpy_requires(self):
+        """Preview counterpart of the export decode's own padding: a bracket preview
+        pins its siblings to the reference's white balance the same way the export merge
+        and the HDR solve do (see test_hdr_preview_white_balance.py)."""
+        from unittest.mock import patch
+
+        from negpy.services.rendering.preview_manager import PreviewManager
+
+        raw = _SpyRaw()
+        with patch("negpy.services.rendering.preview_manager.loader_factory") as lf:
+            lf.get_loader.return_value = (raw, {"color_space": "Adobe RGB"})
+            PreviewManager().load_linear_preview("/x.nef", highlight_mode=3, wb_override=[1.9, 1.0, 1.55])
+
+        assert raw.seen["user_wb"] == [1.9, 1.0, 1.55, 1.0]
+        assert raw.seen["use_camera_wb"] is False
+        assert raw.seen["bright"] == pytest.approx(1.9 / 1.0)

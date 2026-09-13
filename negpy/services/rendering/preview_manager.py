@@ -1,6 +1,6 @@
 import os
 import time
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Sequence, Tuple
 
 import cv2
 import numpy as np
@@ -138,6 +138,7 @@ class PreviewManager:
         positive_source: bool = False,
         highlight_mode: int = 0,
         bake_camera_wb: bool = False,
+        wb_override: Optional[Sequence[float]] = None,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """
         Decode and resize a linear preview from an already-open raw object.
@@ -151,12 +152,17 @@ class PreviewManager:
         ``bake_camera_wb`` applies this file's own white balance even on a path that
         otherwise decodes neutral — resolved by the caller via
         ``highlight_reconstruction_bakes_wb``, this method never re-derives the gate.
+
+        ``wb_override`` decodes on someone else's white balance instead of this file's
+        own, the preview-loader counterpart of ``_decode_sensor_rgb``'s parameter of the
+        same name — a bracket preview's siblings pin to the reference frame's multipliers
+        this way. Wins over ``bake_camera_wb`` when both are set.
         """
         t_decode = time.perf_counter()
         log = logger.info if log_timings else logger.debug
         # Kept distinct from the `use_camera_wb` parameter: the cache key below must match
         # what callers compute for their own lookup key, which does not fold bake in.
-        decode_camera_wb = use_camera_wb or bake_camera_wb
+        decode_camera_wb = use_camera_wb or bake_camera_wb or wb_override is not None
 
         # An explicit algorithm decodes full-size: libraw bins 2x2 quads for half_size and never
         # reaches the interpolator, so the fast path would ignore the choice.
@@ -181,17 +187,31 @@ class PreviewManager:
         # raw.sizes.iheight/iwidth when half_size=True, so reading after gives wrong dims.
         full_dims_pre = _output_dimensions_from_raw(raw, 0, 0)
 
-        user_wb = None if decode_camera_wb else [1, 1, 1, 1]
-        # Read before postprocess: camera_whitebalance is sensor metadata, unaffected by it,
-        # and highlight_reconstruction_bright_gain needs it ahead of the postprocess call.
-        wb_for_gain = camera_wb_multipliers(raw) if decode_camera_wb else None
+        if wb_override is not None:
+            # rawpy's user_wb is [R, G, B, G2]; camera_wb_multipliers only ever supplies
+            # [R, G, B], so pad with G2=G rather than pass rawpy a length it rejects.
+            user_wb: Optional[list] = list(wb_override)
+            if len(user_wb) == 3:
+                user_wb.append(user_wb[1])
+            use_camera_wb_flag = False
+            wb_for_gain: Optional[Sequence[float]] = user_wb
+        elif decode_camera_wb:
+            user_wb = None
+            use_camera_wb_flag = True
+            # Read before postprocess: camera_whitebalance is sensor metadata, unaffected
+            # by it, and highlight_reconstruction_bright_gain needs it ahead of the call.
+            wb_for_gain = camera_wb_multipliers(raw)
+        else:
+            user_wb = [1, 1, 1, 1]
+            use_camera_wb_flag = False
+            wb_for_gain = None
 
         t_pp = time.perf_counter()
         rgb = raw.postprocess(
             gamma=(1, 1),
             no_auto_bright=True,
             adjust_maximum_thr=0.0,
-            use_camera_wb=decode_camera_wb,
+            use_camera_wb=use_camera_wb_flag,
             user_wb=user_wb,
             output_bps=16,
             output_color=rawpy.ColorSpace.raw,
@@ -363,6 +383,7 @@ class PreviewManager:
         positive_source: bool = False,
         highlight_mode: int = 0,
         bake_camera_wb: bool = False,
+        wb_override: Optional[Sequence[float]] = None,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """
         Loads linear RGB, downsamples for display.
@@ -370,6 +391,10 @@ class PreviewManager:
 
         ``half_slice``: (half, split_x, crop_rect, gutter_thickness) — slice the
         half before the preview downsample so analysis matches export.
+
+        ``wb_override`` is not part of the cache key: a caller that passes it must also
+        pass ``file_hash=None``, the way a bracket sibling already does, or a decode on
+        one white balance can serve a cache hit meant for another.
         """
         t_all = time.perf_counter()
         log = logger.info if log_timings else logger.debug
@@ -436,6 +461,7 @@ class PreviewManager:
                 positive_source=positive_source,
                 highlight_mode=highlight_mode,
                 bake_camera_wb=bake_camera_wb,
+                wb_override=wb_override,
             )
         log(
             "load-timing load_linear_preview %.0fms (decode %.0fms + open)",
@@ -548,12 +574,13 @@ class PreviewManager:
         The merged result is cached, so re-visiting a bracket skips every sibling decode
         and the phase-correlate align — the same contract as the triplet merge above.
 
-        ``bake_camera_wb`` is always ignored: a bracket has no per-frame white-balance
-        pinning for a baked decode (unlike export, which pins every frame to the
-        reference's white balance), so reconstruction stays on the neutral decode here
-        regardless of what a caller passes. The single gate lives here, not at each caller.
+        ``bake_camera_wb`` pins every sibling to the reference frame's own white balance,
+        the same pin the export merge and the HDR solve apply (`HdrWorker.run`,
+        `ImageProcessor._load_source_f32`): the frames of one bracket share one real scene
+        white balance to agree on, and `should_fold_camera_wb` skips the downstream matrix
+        fold whenever reconstruction bakes it in, so an unpinned sibling here would render
+        with no white balance applied at all rather than a merely different one.
         """
-        bake_camera_wb = False
         other_paths, ratios, align = hdr.hdr_paths, hdr.hdr_ratios, hdr.hdr_align
         anchor = resolve_anchor([reference_path, *other_paths], ratios, hdr)
         merged_key = None
@@ -590,6 +617,10 @@ class PreviewManager:
             bake_camera_wb=bake_camera_wb,
         )
         ref = np.asarray(ref_out, dtype=np.float32)
+        # camera_wb is read from sensor metadata regardless of how the reference itself
+        # decoded, so this is available whether or not bake_camera_wb baked it into ref's
+        # own pixels.
+        bracket_wb = meta.get("camera_wb") if bake_camera_wb else None
 
         def _load(path: str) -> np.ndarray:
             arr = np.asarray(
@@ -602,6 +633,7 @@ class PreviewManager:
                     demosaic=demosaic,
                     highlight_mode=highlight_mode,
                     bake_camera_wb=bake_camera_wb,
+                    wb_override=bracket_wb,
                 )[0],
                 dtype=np.float32,
             )

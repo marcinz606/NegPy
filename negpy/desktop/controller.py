@@ -1801,7 +1801,6 @@ class AppController(QObject):
                 use_camera_wb=not effective_linear_raw(self.state.config.process, self.state.config.exposure.render_intent),
                 positive_source=self.state.config.process.positive_source,
                 highlight_mode=effective_highlight_reconstruction(self.state.config.process),
-                # A merged bracket ignores this: see load_linear_preview_hdr.
                 bake_camera_wb=highlight_reconstruction_bakes_wb(self.state.config.process, self.state.config.exposure.render_intent),
                 full_resolution=self.state.hq_preview,
                 # The half suffix distinguishes the two halves' preview caches now
@@ -1939,7 +1938,6 @@ class AppController(QObject):
                         use_camera_wb=not linear_raw,
                         positive_source=saved.process.positive_source if saved else False,
                         highlight_mode=effective_highlight_reconstruction(saved.process) if saved else 0,
-                        # A merged bracket ignores this: see load_linear_preview_hdr.
                         bake_camera_wb=(highlight_reconstruction_bakes_wb(saved.process, saved.exposure.render_intent) if saved else False),
                         # Half-size only: a full-res HQ neighbour evicts the active buffer.
                         # The cache key separates resolutions.
