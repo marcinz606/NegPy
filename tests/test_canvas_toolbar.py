@@ -148,6 +148,7 @@ class TestCanvasToolbarResponsive(unittest.TestCase):
             tb._ov_original_action,
             tb._ov_compare_action,
             tb._ov_flat_peek_action,
+            tb._ov_negative_peek_action,
             tb._ov_zones_action,
             tb._ov_loupe_action,
             tb._ov_undo_action,
@@ -192,6 +193,15 @@ class TestCanvasToolbarResponsive(unittest.TestCase):
         ):
             self.assertNotIn(gone, labels)
         self.assertTrue(any("Preferences" in label for label in labels))
+
+    def test_a_checkable_overflow_item_carries_no_icon(self):
+        """Under the app stylesheet Qt draws a menu icon in the check column, so an icon on
+        a checkable item costs the checkmark — and with it the only sign in the menu that
+        the view is already on."""
+        tb = _make_toolbar()
+        for action in self._all_overflow_actions(tb):
+            if action.isCheckable():
+                self.assertTrue(action.icon().isNull(), f"{action.text()!r} would lose its checkmark to its icon")
 
     def test_overflow_menu_always_shows_full_action_set(self):
         """Regression: the overflow menu previously mirrored only whatever the row's

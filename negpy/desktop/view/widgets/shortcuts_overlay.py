@@ -38,6 +38,7 @@ from negpy.desktop.view.shortcut_registry import (
     slider_step_for,
 )
 from negpy.desktop.view.styles.fonts import mono_font_family
+from negpy.desktop.view.styles.templates import pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.shortcut_search_line_edit import ShortcutSearchLineEdit
@@ -114,8 +115,9 @@ class ShortcutsOverlay(QDialog):
         sections_layout.setContentsMargins(0, 0, 0, 0)
         sections_layout.setSpacing(THEME.space_sm)
 
-        for category, items in categories_in_order():
-            section = CollapsibleSection(category, expanded=False)
+        for i, (category, items) in enumerate(categories_in_order()):
+            # The first category open, so the overlay shows something to read, not fifteen headers.
+            section = CollapsibleSection(category, expanded=i == 0)
             section.set_content(self._build_category_grid(items))
             self._sections[category] = section
             sections_layout.addWidget(section)
@@ -131,10 +133,14 @@ class ShortcutsOverlay(QDialog):
         actions.addStretch()
 
         close_btn = QPushButton("Close")
-        close_btn.setProperty("primary", True)
         close_btn.clicked.connect(self.accept)
         actions.addWidget(close_btn)
         root.addLayout(actions)
+        pin_dialog_default(close_btn, scope=self)
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        self._search_edit.setFocus()
 
     def _init_search_completer(self) -> None:
         self._search_model = QStandardItemModel(self)

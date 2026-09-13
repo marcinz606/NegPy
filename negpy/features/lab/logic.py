@@ -1,4 +1,5 @@
 import math
+from typing import Callable
 
 import cv2
 import numpy as np
@@ -12,6 +13,7 @@ from negpy.kernel.image.logic import (
     working_oetf_encode,
 )
 from negpy.kernel.image.validation import ensure_image
+from negpy.kernel.system.parallel import SERIAL_MAX_ELEMENTS
 
 
 CLAHE_GRID = 8
@@ -150,7 +152,31 @@ def rl_iterations(radius: float) -> int:
     return int(np.clip(int(round(10.0 * radius)), 5, 20))
 
 
-def apply_output_sharpening(
+def _map_row_blocks(img: ImageBuffer, fn: Callable[[ImageBuffer], ImageBuffer], halo: int = 0) -> ImageBuffer:
+    rows = max(1, 1048576 // img.shape[1])
+    if img.shape[0] <= rows:
+        return fn(img)
+    output = np.empty(img.shape, dtype=np.float32)
+    min_rows = math.ceil(SERIAL_MAX_ELEMENTS / img[0].size)
+    for start in range(0, img.shape[0], rows):
+        end = min(start + rows, img.shape[0])
+        low, high = max(0, start - halo), min(img.shape[0], end + halo)
+        # Keep a short tail on the full frame's Numba dispatch path.
+        low = min(low, max(0, high - min_rows))
+        block = fn(img[low:high])
+        output[start:end] = block[start - low : end - low]
+    return output
+
+
+def apply_output_sharpening(img: ImageBuffer, amount: float, radius: float = 1.0, masking: float = 0.0) -> ImageBuffer:
+    if amount <= 0:
+        return img
+    # Gaussian support, local range, and Sobel-plus-box support must cross block edges.
+    halo = max(len(gaussian_kernel_1d(radius)) // 2, 2)
+    return _map_row_blocks(img, lambda block: _output_sharpening_block(block, amount, radius, masking), halo)
+
+
+def _output_sharpening_block(
     img: ImageBuffer,
     amount: float,
     radius: float = 1.0,
@@ -236,6 +262,12 @@ def apply_rl_sharpening(
 
 
 def apply_saturation(img: ImageBuffer, saturation: float, skin_protection: float = 0.0) -> ImageBuffer:
+    if saturation == 1.0 and skin_protection <= 0.0:
+        return img
+    return _map_row_blocks(img, lambda block: _saturation_block(block, saturation, skin_protection))
+
+
+def _saturation_block(img: ImageBuffer, saturation: float, skin_protection: float = 0.0) -> ImageBuffer:
     """
     Adjusts saturation by scaling chroma (a*, b*) in CIELAB.
     Preserves perceived lightness, unlike HSV S-scaling which darkens

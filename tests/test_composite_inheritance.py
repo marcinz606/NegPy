@@ -516,11 +516,11 @@ class TestMergeIsOfferedOnlyForTransparencies:
 
     def test_present_for_a_slide(self):
         acts = self._menu_labels(ProcessMode.E6)
-        assert [a.label for a in acts] == ["Merge exposures (HDR)"]
+        assert [a.label for a in acts] == ["Merge Exposures (HDR)"]
         acts[0].setEnabled.assert_not_called()
 
     def test_disabled_with_a_reason_for_black_and_white(self):
         acts = self._menu_labels(ProcessMode.BW)
-        assert [a.label for a in acts] == ["Merge exposures (HDR)"]
+        assert [a.label for a in acts] == ["Merge Exposures (HDR)"]
         acts[0].setEnabled.assert_called_once_with(False)
         assert "reversal" in acts[0].setToolTip.call_args.args[0]

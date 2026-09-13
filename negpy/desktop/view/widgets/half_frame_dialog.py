@@ -32,6 +32,13 @@ from negpy.desktop.view.styles.templates import pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.split_button import make_split_button
 
+
+def _with_alpha(hex_color: str, alpha: int) -> QColor:
+    c = QColor(hex_color)
+    c.setAlpha(alpha)
+    return c
+
+
 # key -> (menu label, split-button label), the same current/selected/all scopes the
 # Export button offers, chosen here rather than before the dialog even opens, since
 # what to apply to is a decision made after seeing the frame, not before.
@@ -270,10 +277,10 @@ class _HalfFrameLabel(QLabel):
                 if o.width() > 0 and o.height() > 0:
                     painter.drawRect(o)
             # Crop rect
-            painter.setPen(QPen(QColor("#1D9E75"), 2))
+            painter.setPen(QPen(QColor(THEME.status_success), 2))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(wr)
-            painter.setBrush(QColor("#1D9E75"))
+            painter.setBrush(QColor(THEME.status_success))
             painter.setPen(Qt.PenStyle.NoPen)
             for corner in (wr.topLeft(), wr.topRight(), wr.bottomRight(), wr.bottomLeft()):
                 painter.drawRect(QRect(corner.x() - _HANDLE_PX, corner.y() - _HANDLE_PX, 2 * _HANDLE_PX, 2 * _HANDLE_PX))
@@ -284,14 +291,14 @@ class _HalfFrameLabel(QLabel):
             gw = max(0, int(self._gutter * span * draw_rect.width()))
             if gw > 0:
                 painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(QColor(224, 168, 60, 120))
+                painter.setBrush(_with_alpha(THEME.warn_amber, 120))
                 painter.drawRect(QRect(cx - gw // 2, wr.top(), gw, wr.height()))
-            pen = QPen(QColor("#E0A83C"), 2)
+            pen = QPen(QColor(THEME.warn_amber), 2)
             pen.setStyle(Qt.PenStyle.DashLine)
             painter.setPen(pen)
             painter.drawLine(cx, wr.top(), cx, wr.bottom())
         else:
-            painter.fillRect(self.rect(), QColor("#0D0D0F"))
+            painter.fillRect(self.rect(), QColor(THEME.bg_dark))
             painter.setPen(QColor(THEME.text_muted))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "No preview")
         painter.end()

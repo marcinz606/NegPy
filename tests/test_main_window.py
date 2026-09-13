@@ -34,7 +34,7 @@ class TestCanvasBufferRouting(unittest.TestCase):
         from unittest.mock import MagicMock
 
         return SimpleNamespace(
-            state=SimpleNamespace(gpu_enabled=gpu_enabled),
+            state=SimpleNamespace(gpu_enabled=gpu_enabled, gpu_viewport_failed=""),
             gpu_widget=MagicMock(),
             overlay=MagicMock(),
             _raise_floating_widgets=MagicMock(),

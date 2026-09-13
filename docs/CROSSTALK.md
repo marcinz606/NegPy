@@ -96,7 +96,7 @@ M_applied = I · (1 - strength) + M · strength
 M_applied = M_applied / row_sums(M_applied)        # each row normalized to sum 1
 ```
 
-Because every row is renormalized to sum to 1, a uniform grey stays grey. The matrix only
+Because every row is renormalized to sum to 1, a uniform gray stays gray. The matrix only
 redistributes color *differences* between channels.
 
 ---
@@ -176,7 +176,7 @@ presets stay reproducible even if you later move or delete the file.
 You do not need spectral data or a spectrophotometer to get a better matrix than *Generic
 C41*, and you are the only person who can measure your own rig. Recommended loop:
 
-1. Pick a frame whose real colors you know: foliage, sky, a grey card, skin.
+1. Pick a frame whose real colors you know: foliage, sky, a gray card, skin.
 2. Start on **Generic C41** and raise **Strength** until the colors separate but before they
    go garish. For many rigs this alone is the whole win.
 3. Still wrong in a specific way? Open the matrix editor, press **Make Editable Copy**, and

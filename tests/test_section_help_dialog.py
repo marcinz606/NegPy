@@ -11,9 +11,9 @@ from PyQt6.QtWidgets import QWidget
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog, _guides, guide_markdown, has_guide
 
-# The Analysis read-out, every section ControlsPanel builds, the Export tab's own guided
-# section, and the dialogs that carry their own ⓘ. A key here with no marker in the doc
-# silently drops that ⓘ, which nothing else would catch.
+# Every section make_section builds, plus the strip-preview dialog's own ⓘ. A key here with
+# no marker in the doc silently drops that ⓘ, which nothing else would catch;
+# tests/test_section_guides.py checks the reverse direction against the live call sites.
 GUIDED_KEYS = (
     "analysis",
     "presets",
@@ -31,8 +31,22 @@ GUIDED_KEYS = (
     "toning",
     "retouch",
     "finish",
+    "library",
+    "frames",
+    "export_presets",
+    "printing_notes",
+    "export_sidecars",
+    "contact_sheet",
     "soft_proof",
+    "metadata_presets",
+    "metadata_gear",
+    "metadata_capture",
+    "metadata_process",
+    "metadata_scanning",
+    "metadata_exposure",
+    "metadata_preview",
     "scan_sane",
+    "scan_rgb",
     "scan_strip",
 )
 
@@ -97,12 +111,13 @@ def test_the_guide_is_parented_to_the_section_not_the_panel() -> None:
     """Qt centres a dialog on parent.window(). ControlsPanel is never added to a layout —
     only its pages are — so as the parent it centres the guide on a phantom window at 0,0
     and the guide opens in the screen corner. The section is in the tree."""
-    from negpy.desktop.view.sidebar import controls_panel as cp
+    from negpy.desktop.view.widgets import section_help_dialog as shd
+    from negpy.desktop.view.widgets.collapsible import make_section
 
-    panel = SimpleNamespace(controller=SimpleNamespace(session=SimpleNamespace(repo=SimpleNamespace(get_global_setting=lambda _k: None))))
+    repo = SimpleNamespace(get_global_setting=lambda _k: None, save_global_setting=lambda _k, _v: None)
     parents: list[object] = []
-    with patch.object(cp, "SectionHelpDialog", lambda k, t, parent: parents.append(parent) or MagicMock()):
-        section = cp.ControlsPanel._make_section(panel, "Analysis", "analysis", QWidget())
+    with patch.object(shd, "SectionHelpDialog", lambda k, t, parent: parents.append(parent) or MagicMock()):
+        section = make_section(repo, "Analysis", "analysis", QWidget(), "fa5s.chart-bar", True)
         section.info_requested.emit()
 
     assert parents == [section]

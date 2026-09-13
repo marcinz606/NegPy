@@ -102,30 +102,36 @@ def _peek_linear_dng_rgb(file_path: str) -> Optional[Tuple[np.ndarray, Optional[
         return None
 
     dtype_max = float(np.iinfo(arr.dtype).max) if np.issubdtype(arr.dtype, np.integer) else 1.0
-    data = arr.astype(np.float64)
-
-    if lin_table is not None:
-        idx = np.clip(data, 0, len(lin_table) - 1).astype(np.int64)
-        data = lin_table[idx]
-
     black3 = _broadcast3(black, 0.0)
     white3 = _broadcast3(white, dtype_max)
-    data = (data - black3) / np.maximum(white3 - black3, 1e-6)
-    data = np.clip(data, 0.0, 1.0)
+    denominator = np.maximum(white3 - black3, 1e-6)
 
     if len(crop_origin) >= 2 and len(crop_size) >= 2:
         ox, oy = int(round(crop_origin[0])), int(round(crop_origin[1]))
         cw, ch = int(round(crop_size[0])), int(round(crop_size[1]))
-        h, w = data.shape[:2]
+        h, w = arr.shape[:2]
         if 0 <= oy < h and 0 <= ox < w and cw > 0 and ch > 0 and (cw, ch) != (w, h):
-            data = data[oy : oy + ch, ox : ox + cw]
+            arr = arr[oy : oy + ch, ox : ox + cw]
+
+    data = np.empty(arr.shape, dtype=np.float32)
+    # Keep float64 arithmetic, but bound temporary storage to one row block.
+    rows = max(1, (8 * 1024 * 1024) // (arr.shape[1] * 3 * 8))
+    for start in range(0, arr.shape[0], rows):
+        block = arr[start : start + rows].astype(np.float64)
+        if lin_table is not None:
+            np.clip(block, 0, len(lin_table) - 1, out=block)
+            block = lin_table[block.astype(np.int64)]
+        np.subtract(block, black3, out=block)
+        np.divide(block, denominator, out=block)
+        np.clip(block, 0.0, 1.0, out=block)
+        data[start : start + rows] = block
 
     wb_gains: Optional[Tuple[float, float, float]] = None
     if len(neutral) >= 3 and all(n > 0 for n in neutral[:3]):
         r, g, b = neutral[:3]
         wb_gains = (g / r, 1.0, g / b)
 
-    return np.ascontiguousarray(data.astype(np.float32)), wb_gains
+    return data, wb_gains
 
 
 def _peek_linearraw_4ch(file_path: str) -> Optional[Tuple[np.ndarray, np.ndarray]]:

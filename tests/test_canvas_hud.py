@@ -34,10 +34,11 @@ def test_update_info_omits_missing_tool_and_pos(qapp):
     assert hud.lbl_bottom_right.isHidden()
 
 
-def test_show_message_lowercases_and_arms_timer(qapp):
+def test_show_message_keeps_case_and_arms_timer(qapp):
+    """A path or a filename in a toast must stay as written."""
     hud = CanvasHud()
     hud.showMessage("Settings Copied")
-    assert hud.toast.text() == "settings copied"
+    assert hud.toast.text() == "Settings Copied"
     assert not hud.toast.isHidden()
     assert hud._toast_timer.isActive()
     assert hud._toast_timer.interval() == 2500
@@ -90,3 +91,13 @@ def test_zoom_note_alone_shows_the_pill(qapp):
     assert not hud.lbl_bottom_right.isHidden()
     hud.set_zoom_note("")
     assert hud.lbl_bottom_right.isHidden()
+
+
+def test_show_message_kind_colours_the_toast(qapp):
+    """A failure and a progress note must not look the same."""
+    hud = CanvasHud()
+    hud.showMessage("settings pasted")
+    info_qss = hud.toast.styleSheet()
+    hud.showMessage("Could not write /tmp/x.tif", kind="error")
+    assert hud.toast.styleSheet() != info_qss
+    assert "D32F2F" in hud.toast.styleSheet().upper()

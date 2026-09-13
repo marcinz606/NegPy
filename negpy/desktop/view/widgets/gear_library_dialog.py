@@ -31,7 +31,8 @@ from negpy.desktop.settings_catalog import (
     rows_for_keys,
     selected_flat_dict,
 )
-from negpy.desktop.view.styles.templates import dialog_pane_qss, field_label, hint_label, pane_header_qss
+from negpy.desktop.view.confirm import confirm_delete_named
+from negpy.desktop.view.styles.templates import dialog_pane_qss, field_label, hint_label, pane_header_qss, pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog
 from negpy.features.metadata.gear_logic import (
@@ -118,6 +119,7 @@ class GearLibraryDialog(QDialog):
         self.resize(820, 560)
         self._init_ui()
         self._select_category("cameras")
+        pin_dialog_default(self._close_btn, scope=self)
 
     def library(self) -> GearLibrary:
         return self._library
@@ -308,9 +310,9 @@ class GearLibraryDialog(QDialog):
 
         close_row = QHBoxLayout()
         close_row.addStretch()
-        save_btn = QPushButton("Done")
-        save_btn.clicked.connect(self.accept)
-        close_row.addWidget(save_btn)
+        self._close_btn = QPushButton("Close")
+        self._close_btn.clicked.connect(self.accept)
+        close_row.addWidget(self._close_btn)
         right_layout.addLayout(close_row)
 
         root.addWidget(right)
@@ -521,7 +523,7 @@ class GearLibraryDialog(QDialog):
         return current if value is None else value
 
     def _mark_invalid(self, edit: QLineEdit, invalid: bool) -> None:
-        edit.setStyleSheet(f"border: 1px solid {THEME.accent_secondary};" if invalid else "")
+        edit.setStyleSheet(f"border: 1px solid {THEME.error};" if invalid else "")
 
     def _set_form_editable(self, enabled: bool) -> None:
         for _label, widget in self._form_rows.values():
@@ -821,14 +823,14 @@ class GearLibraryDialog(QDialog):
         if not is_valid_preset_name(name):
             QMessageBox.warning(
                 self,
-                "Preset name",
+                "Preset Name",
                 'A preset name cannot contain / \\ : * ? " < > | or start or end with a dot.',
             )
             return False
         if name.casefold() == replacing.casefold() or not MetadataPresets.exists(name):
             return True
         return (
-            QMessageBox.question(self, "Replace preset", f"A preset named '{name}' already exists. Replace it?")
+            QMessageBox.question(self, "Replace Preset", f"A preset named '{name}' already exists. Replace it?")
             == QMessageBox.StandardButton.Yes
         )
 
@@ -932,7 +934,11 @@ class GearLibraryDialog(QDialog):
     def _delete_item(self) -> None:
         if self._selected_idx < 0:
             return
-        if QMessageBox.question(self, "Delete", "Delete this item?") != QMessageBox.StandardButton.Yes:
+        items = self._current_items()
+        kind = {"metadata_presets": "Preset", "film_stocks": "Film Stock", "scan_setups": "Scan Setup"}.get(
+            self._category, dict(_CATEGORIES)[self._category].rstrip("s")
+        )
+        if not confirm_delete_named(self, kind, self._item_label(items[self._selected_idx])):
             return
         if self._category == _PRESETS:
             name = self._selected_preset()

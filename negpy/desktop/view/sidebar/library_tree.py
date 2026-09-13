@@ -8,7 +8,6 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
-    QLabel,
     QMenu,
     QToolButton,
     QTreeWidget,
@@ -17,6 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from negpy.desktop.view.styles.templates import hint_label
 from negpy.desktop.view.styles.theme import THEME
 from negpy.services.assets.library import folder_counts, summarize_counts
 
@@ -55,7 +55,7 @@ class LibraryTree(QWidget):
     """
 
     folders_activated = pyqtSignal(list)  # paths to open — one folder, or a whole selection
-    folders_appended = pyqtSignal(list)  # "Add to session": load without replacing
+    folders_appended = pyqtSignal(list)  # "Add to Session": load without replacing
     roots_changed = pyqtSignal()
 
     def __init__(self, controller):
@@ -103,8 +103,8 @@ class LibraryTree(QWidget):
         self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.tree.setStyleSheet(
-            f"QTreeWidget::item:selected {{ background: {THEME.accent_primary}; color: #FFFFFF; }}"
-            f"QTreeWidget::item:hover:!selected {{ background: rgba(255, 255, 255, 18); }}"
+            f"QTreeWidget::item:selected {{ background: {THEME.accent_primary}; color: {THEME.text_on_accent}; }}"
+            f"QTreeWidget::item:hover:!selected {{ background: {THEME.surface_hover_faint}; }}"
         )
         self.tree.itemExpanded.connect(self._on_expanded)
         self.tree.itemDoubleClicked.connect(self._on_double_clicked)
@@ -118,10 +118,8 @@ class LibraryTree(QWidget):
             shortcut.activated.connect(self.open_selection)
         layout.addWidget(self.tree, 1)
 
-        self.empty_label = QLabel("Add a folder to browse your library")
+        self.empty_label = hint_label("Add a folder to browse your library")
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.empty_label.setWordWrap(True)
-        self.empty_label.setStyleSheet(f"color: {THEME.text_hint}; font-size: {THEME.font_size_small}px;")
         layout.addWidget(self.empty_label)
 
     # --- roots -------------------------------------------------------------
@@ -273,7 +271,9 @@ class LibraryTree(QWidget):
     def _recolor_counts(self) -> None:
         # A per-item brush is out of a stylesheet's reach, so the count column has to be repainted
         # by hand or it stays grey on the accent red.
-        self._each_top_level(lambda item: item.setForeground(1, QColor("#FFFFFF") if item.isSelected() else QColor(THEME.text_muted)))
+        self._each_top_level(
+            lambda item: item.setForeground(1, QColor(THEME.text_on_accent) if item.isSelected() else QColor(THEME.text_muted))
+        )
 
     # --- opening -----------------------------------------------------------
 
@@ -303,13 +303,13 @@ class LibraryTree(QWidget):
             path = item.data(0, _PATH_ROLE)
             selected = self.selected_paths()
             paths = selected if path in selected and len(selected) > 1 else [path]
-            label = f"Open {len(paths)} folders" if len(paths) > 1 else "Open folder"
+            label = f"Open {len(paths)} folders" if len(paths) > 1 else "Open Folder"
             menu.addAction(label).triggered.connect(lambda: self.folders_activated.emit(paths))
-            menu.addAction("Add to session").triggered.connect(lambda: self.folders_appended.emit(paths))
+            menu.addAction("Add to Session").triggered.connect(lambda: self.folders_appended.emit(paths))
             menu.addSeparator()
             if item.data(0, _IS_ROOT_ROLE):
-                menu.addAction("Remove from library").triggered.connect(lambda: self.remove_root(path))
-        menu.addAction("Add library folder…").triggered.connect(lambda: self.add_root())
+                menu.addAction("Remove from Library").triggered.connect(lambda: self.remove_root(path))
+        menu.addAction("Add Library Folder…").triggered.connect(lambda: self.add_root())
         menu.addAction("Refresh").triggered.connect(self._on_refresh)
         menu.exec(self.tree.viewport().mapToGlobal(pos))
 

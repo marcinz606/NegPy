@@ -52,6 +52,8 @@ class DarkroomEngine:
         context: PipelineContext,
         pipeline_changed: bool,
     ) -> Tuple[ImageBuffer, bool]:
+        if not context.cache_stages:
+            return processor_fn(img, context), True
         conf_hash = calculate_config_hash(config)
         cached_entry = getattr(self.cache, cache_field)
 
@@ -83,6 +85,9 @@ class DarkroomEngine:
                 process_mode=settings.process.process_mode,
             )
 
+        if not context.cache_stages:
+            self.cache.clear()
+            self._mask_plane = None
         pipeline_changed = False
         if self.cache.source_hash != source_hash:
             self.cache.clear()

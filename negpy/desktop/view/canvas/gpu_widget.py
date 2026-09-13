@@ -6,6 +6,7 @@ import wgpu  # type: ignore
 from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
+from negpy.desktop.view.styles.theme import THEME
 from rendercanvas.pyqt6 import RenderCanvas
 
 from negpy.infrastructure.display.color_mgmt import get_display_lut
@@ -23,11 +24,11 @@ class GPUCanvasWidget(QWidget):
         self.layout().setContentsMargins(0, 0, 0, 0)
 
         self.canvas = RenderCanvas(parent=self)
-        self.canvas.setStyleSheet("background-color: #050505;")
+        self.canvas.setStyleSheet(f"background-color: {THEME.canvas_bg_black};")
         self.layout().addWidget(self.canvas)
 
         pal = self.palette()
-        pal.setColor(QPalette.ColorRole.Window, QColor("#050505"))
+        pal.setColor(QPalette.ColorRole.Window, QColor(THEME.canvas_bg_black))
         self.setPalette(pal)
         self.setAutoFillBackground(True)
 

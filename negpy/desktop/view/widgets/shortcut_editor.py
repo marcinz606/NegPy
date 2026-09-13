@@ -46,6 +46,7 @@ from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.key_sequence_edit import KeypadAwareKeySequenceEdit
 from negpy.desktop.view.widgets.shortcut_search_line_edit import ShortcutSearchLineEdit
 from negpy.desktop.view.styles.fonts import mono_font_family
+from negpy.desktop.view.styles.templates import pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 
 
@@ -130,6 +131,7 @@ class ShortcutEditorDialog(QDialog):
         buttons.addWidget(cancel_btn)
         buttons.addWidget(save_btn)
         root.addLayout(buttons)
+        pin_dialog_default(save_btn, scope=self)
 
         self._reload_search_model()
         for edit in self._edits.values():

@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.sidebar.tone import _CH_COLORS, _CH_LABEL, _CH_SUFFIX
-from negpy.desktop.view.styles.templates import EditedDot, hint_label, section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, section_subheader, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
@@ -36,9 +36,9 @@ _COLOR_CLIP_MAX = 5.0
 # Mode bar: one film icon per mode, with the color carrying which one. Orange mask,
 # silver grey, slide blue.
 _MODES = (
-    (ProcessMode.C41, " Color", "#E08A3C", "Color Negative (C-41) — orange-masked negative"),
-    (ProcessMode.BW, " B&&W", "#8C8C8C", "B&W Negative — panchromatic silver negative"),
-    (ProcessMode.E6, " Slide", "#4FB0D8", "Transparency — slide / reversal film"),
+    (ProcessMode.C41, " Color", THEME.mode_c41, "Color Negative (C-41) — orange-masked negative"),
+    (ProcessMode.BW, " B&&W", THEME.mode_bw, "B&W Negative — panchromatic silver negative"),
+    (ProcessMode.E6, " Slide", THEME.mode_e6, "Transparency — slide / reversal film"),
 )
 
 
@@ -87,9 +87,9 @@ class ProcessSidebar(BaseSidebar):
         mode_col.setSpacing(THEME.space_sm)
 
         self.autodetect_btn = self._small_toggle("mdi6.auto-fix", "", False, "Auto-detect the film process on load")
-        self.autodetect_btn.setFixedWidth(28)
+        self.autodetect_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         header_row = QHBoxLayout()
-        header_row.addWidget(section_subheader("Process"))
+        header_row.addWidget(section_subheader("PROCESS"))
         header_row.addStretch(1)
         header_row.addWidget(self.autodetect_btn)
         mode_col.addLayout(header_row)
@@ -121,9 +121,6 @@ class ProcessSidebar(BaseSidebar):
             "Draw a freehand analysis region on the image — the meters read exactly that area "
             "(overrides the Analysis Buffer). Double-click inside it to confirm.",
         )
-        # Confirming a region closes the tool by unchecking the toggle, so the dot is the only
-        # cue left that it still overrides the Analysis Buffer slider.
-        self.analysis_region_btn.edited_dot = EditedDot(self.analysis_region_btn)
         self.clear_analysis_region_btn = self._icon_action(
             "fa5s.times", "Clear the freehand analysis region (fall back to the Analysis Buffer)", width=None
         )
@@ -185,7 +182,7 @@ class ProcessSidebar(BaseSidebar):
         # happen to have been shot. The menu still offers those and writes a frame name; this
         # writes a value and wins. 0 = the reference, the brightest unclipped frame, which is the
         # most a merge can open at. output_scale clamps above it.
-        self.render_ev_slider = CompactSlider("Render Exposure", -4.0, 0.0, 0.0, step=0.05, unit=" EV")
+        self.render_ev_slider = CompactSlider("Render Exposure", -4.0, 0.0, 0.0, step=0.05, unit=" st")
         self.render_ev_slider.setToolTip(
             wrap_tooltip(
                 "Which exposure a merged bracket renders at, in stops below the reference frame. "

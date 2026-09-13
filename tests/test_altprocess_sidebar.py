@@ -1,4 +1,4 @@
-"""Offline test for the Alternative Processes sidebar's sensitiser combo.
+"""Offline test for the Alternative Processes sidebar's sensitizer combo.
 
 Same QVariant gotcha as the Lab sharpen-method combo: items store the plain str
 (Sensitizer.value) while the config holds a StrEnum, and findData(enum) returns

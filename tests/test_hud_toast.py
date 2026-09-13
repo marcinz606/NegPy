@@ -37,7 +37,7 @@ def test_a_long_message_wraps_rather_than_truncating(qapp):
     hud.showMessage(LONG, 5000)
     hud.toast.adjustSize()
     assert hud.toast.height() > hud.toast.fontMetrics().lineSpacing(), "expected more than one line"
-    assert hud.toast.text().replace("\n", " ").strip() == LONG.lower(), "no text may be dropped"
+    assert hud.toast.text().replace("\n", " ").strip() == LONG, "no text may be dropped"
 
 
 def test_a_short_message_keeps_its_natural_width(qapp):

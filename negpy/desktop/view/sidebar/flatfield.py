@@ -85,7 +85,7 @@ class FlatFieldSidebar(BaseSidebar):
         if not path:
             return
         default_name = os.path.splitext(os.path.basename(path))[0]
-        name, ok = QInputDialog.getText(self, "Save Flat-Field Profile", "Profile name:", text=default_name)
+        name, ok = QInputDialog.getText(self, "Save Flat Field Profile", "Profile name:", text=default_name)
         if ok and name:
             # save_flatfield_profile decodes the reference RAW to bake the gain, a brief blocking beat
             # on the GUI thread, so show a wait cursor.
@@ -101,7 +101,7 @@ class FlatFieldSidebar(BaseSidebar):
         profile_id = self.profile_combo.currentData()
         if profile_id and confirm_delete_named(
             self,
-            "Flat-Field Profile",
+            "Flat Field Profile",
             self.profile_combo.currentText(),
             informative="Every frame using it loses its correction; the baked gain map cannot be recovered.",
         ):
