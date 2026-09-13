@@ -20,6 +20,7 @@ from negpy.domain.models import (
 from negpy.features.metadata import resolution as resolution_source
 from negpy.features.metadata.resolution import Resolution
 from negpy.features.metadata.writer import embed_metadata, export_embed_plan, preserve_source_metadata
+from negpy.features.metadata.fsdate import sync_export_filesystem_dates
 from negpy.features.metadata.models import MetadataConfig
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE, ColorSpaceRegistry
 from negpy.services.rendering.image_processor import ImageProcessor
@@ -304,6 +305,12 @@ class ExportWorker(QObject):
                 tmp_path = tmp.name
                 tmp.write(bits)
             os.replace(tmp_path, path)
+            # The EXIF/XMP dates above are already correct (even in Protect Original
+            # Metadata mode); it's the *filesystem* mtime/creation date that's stamped
+            # "now" by the write above with nothing else to correct it. Mirror the
+            # source's own filesystem date so tools that sort/filter by file date
+            # (rather than embedded EXIF) show the right one.
+            sync_export_filesystem_dates(path, task.file_info["path"])
         except Exception as write_err:
             if tmp_path is not None and os.path.exists(tmp_path):
                 os.unlink(tmp_path)

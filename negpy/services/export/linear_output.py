@@ -25,6 +25,7 @@ from negpy.features.retouch.models import IR_METHOD_OPENICE, RetouchConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.domain.models import TiffCompression
 from negpy.features.metadata.resolution import Resolution
+from negpy.features.metadata.fsdate import sync_export_filesystem_dates
 from negpy.services.export.encoders import encode_tiff
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.process.models import DemosaicMode, ProcessConfig
@@ -1282,12 +1283,18 @@ def export_linear_output(
             compression=tiff_compression,
         )
 
+    # Same filesystem-date gap as the main batch-export path (see
+    # negpy/desktop/workers/export.py): this always writes a brand-new file, so
+    # without this the OS stamps it "now" instead of the source's own date.
+    sync_export_filesystem_dates(output_path, file_path)
+
     if ir is not None and not ice_applied:
         stem, _ext = os.path.splitext(output_path)
         if output_format == "jxl":
             _write_ir_jxl(ir, f"{stem}_ir.jxl", effort=jxl_effort)
         else:
             _write_ir_tiff(ir, f"{stem}_ir.tiff", resolution=resolution)
+        sync_export_filesystem_dates(f"{stem}_ir.jxl" if output_format == "jxl" else f"{stem}_ir.tiff", file_path)
 
 
 def export_linear_output_bytes(file_path: str, geometry: Optional[GeometryConfig] = None) -> tuple[bytes, str]:
