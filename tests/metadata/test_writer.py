@@ -40,6 +40,79 @@ class TestSanitizeExif:
         clean = _sanitize_exif(raw)
         assert piexif.ExifIFD.ExposureTime not in clean["Exif"]
 
+    def test_drops_printim_tag(self) -> None:
+        """PrintImageMatching (0xC4A5) is a printer color-correction table tied to
+        the source sensor image and meaningless after NegPy re-renders the frame.
+        It also has to go for a structural reason: see test_no_0th_tag_survives_past_gpstag."""
+        raw = {
+            "0th": {0xC4A5: b"PrintIM\x000300" + b"\x00" * 8},
+            "Exif": {},
+            "GPS": {},
+            "Interop": {},
+            "1st": {},
+        }
+        clean = _sanitize_exif(raw)
+        assert 0xC4A5 not in clean["0th"]
+
+    def test_no_0th_tag_survives_past_gpstag(self) -> None:
+        """piexif (1.1.3) dump() appends the ExifIFD/GPSIFD pointer entries
+        (0x8769/0x8825) after the sorted run of ordinary 0th tags rather than
+        sorting them in. A 0th tag numbered above GPSTag -- PrintIM (0xC4A5) is
+        the common real-world case, written by most camera bodies -- therefore
+        breaks IFD0's required ascending tag order and, from there, the byte
+        offsets computed for the Exif/GPS IFDs that follow it."""
+        raw = {
+            "0th": {piexif.ImageIFD.Make: b"SONY", 0xC4A5: b"x" * 20, 0x9C9B: b"y" * 10},
+            "Exif": {},
+            "GPS": {},
+            "Interop": {},
+            "1st": {},
+        }
+        clean = _sanitize_exif(raw)
+        assert all(tag <= piexif.ImageIFD.GPSTag for tag in clean["0th"])
+        assert clean["0th"] == {piexif.ImageIFD.Make: b"SONY"}
+
+    def test_printim_no_longer_corrupts_piexif_dump(self) -> None:
+        """Regression test for the Capture One "won't even list the file" bug:
+        reproduced by dumping a NegPy-shaped 0th/Exif/GPS dict that still carries
+        a source PrintIM tag through piexif 1.1.3 and finding IFD0 entries out of
+        ascending tag order, with ExposureTime/GPSLatitude's external rational
+        data landing back inside their own IFD's entry table. Sanitizing first
+        must make piexif.dump() produce a spec-clean IFD0."""
+        raw = {
+            "0th": {
+                piexif.ImageIFD.Make: b"SONY",
+                piexif.ImageIFD.Model: b"ILCE-7CR",
+                0xC4A5: b"PrintIM\x000300" + b"\x00" * 8,
+            },
+            "Exif": {
+                piexif.ExifIFD.ExposureTime: (1, 125),
+                piexif.ExifIFD.FNumber: (28, 10),
+            },
+            "GPS": {
+                piexif.GPSIFD.GPSLatitudeRef: b"N",
+                piexif.GPSIFD.GPSLatitude: ((37, 1), (33, 1), (12, 100)),
+                piexif.GPSIFD.GPSLongitudeRef: b"E",
+                piexif.GPSIFD.GPSLongitude: ((127, 1), (0, 1), (0, 100)),
+            },
+            "Interop": {},
+            "1st": {},
+        }
+        clean = _sanitize_exif(raw)
+        data = piexif.dump(clean)
+
+        import struct
+
+        tiff_base = 6
+        ifd0_off = struct.unpack_from(">I", data, tiff_base + 4)[0]
+
+        def entry_tags(offset: int) -> list[int]:
+            (n,) = struct.unpack_from(">H", data, offset)
+            return [struct.unpack_from(">HHI", data, offset + 2 + i * 12)[0] for i in range(n)]
+
+        tags = entry_tags(tiff_base + ifd0_off)
+        assert tags == sorted(tags), f"IFD0 entries out of order: {tags}"
+
 
 class TestEmbedMetadata:
     def test_preserves_16bit_and_hoists_subifd_tags(self) -> None:

@@ -225,6 +225,20 @@ _RAW_PREVIEW_0TH_TAGS = frozenset(
         513,
         514,
         piexif.ImageIFD.TIFFEPStandardID,
+        0xC4A5,  # PrintImageMatching (PrintIM) -- a printer color-correction table tied
+        # to the source sensor image, meaningless once NegPy has rendered and
+        # re-encoded the frame. Also structurally dangerous to leave in: piexif
+        # (1.1.3)'s dump() always appends the ExifIFD/GPSIFD pointer tags
+        # (0x8769/0x8825) after the sorted run of ordinary 0th tags, so any
+        # surviving 0th tag numbered above them -- PrintIM is the common one,
+        # written by most camera bodies including the Sony scan rig -- puts
+        # those pointers out of ascending tag order. That corrupts more than
+        # bookkeeping: the Exif/GPS IFD offsets computed downstream land inside
+        # their own IFD tables, so rational values (ExposureTime, GPSLatitude,
+        # ...) overlap the IFD they belong to. Confirmed against Capture One
+        # refusing to list affected exports at all, and reproduced byte-for-byte
+        # with piexif.dump() locally. See _MAX_SAFE_0TH_TAG below for the general
+        # guard against any other vendor tag in the same numeric range.
     }
 )
 
@@ -240,6 +254,15 @@ _RAW_CAPTURE_EXIF_TAGS = frozenset(
         piexif.ExifIFD.SceneType,
     }
 )
+
+
+# piexif (1.1.3) dump() unconditionally appends the ExifIFD/GPSIFD pointer entries
+# (0x8769/0x8825) after the sorted run of ordinary 0th-IFD tags, instead of sorting
+# them in. Any surviving 0th tag numbered above GPSTag -- an unrecognized vendor tag
+# NegPy doesn't otherwise special-case, not just PrintIM -- reproduces the same
+# out-of-order IFD0 and, downstream, overlapping Exif/GPS IFD value offsets. GPSTag
+# is the highest pointer tag piexif special-cases this way, so it is the safe cutoff.
+_MAX_SAFE_0TH_TAG = piexif.ImageIFD.GPSTag
 
 
 def _sanitize_exif(exif_dict: dict) -> dict:
@@ -269,6 +292,11 @@ def _sanitize_exif(exif_dict: dict) -> dict:
         clean = {}
         for tag, value in ifd_data.items():
             if ifd_name == "0th" and tag in _RAW_PREVIEW_0TH_TAGS:
+                continue
+            if ifd_name == "0th" and tag > _MAX_SAFE_0TH_TAG:
+                # Defensive general case beyond the known PrintIM tag above: piexif
+                # places ExifTag/GPSTag after every other 0th entry regardless of tag
+                # order, so nothing numbered past GPSTag can be kept safely.
                 continue
             if ifd_name == "Exif" and tag in _RAW_CAPTURE_EXIF_TAGS:
                 continue
