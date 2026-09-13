@@ -4350,14 +4350,13 @@ class AppController(QObject):
 
         The source is in camera primaries, so the camera matrix runs here: painting those
         numbers as display RGB flattens the film base, which on a C-41 negative reads as a
-        mask that is far weaker than the one in the file. The multipliers fold into the
-        matrix whenever the decode skipped them, narrowband included — the
-        rule the render path follows (should_fold_camera_wb) refuses them there because
-        narrowband light has no color temperature to reconstruct, but this view only has to
-        show the film as the eye and every raw viewer see it, and without them the mask
-        renders green. `lightbox_level` then supplies the brightness a decode with no
-        auto-brightness never got: one scalar, measured before the crop and applied after,
-        so framing does not change it. The proof stays off — this is the scan, not a print.
+        mask far weaker than the one in the file. The multipliers fold into the matrix
+        whenever the decode skipped them, narrowband included. That is wider than
+        `should_fold_camera_wb`, which refuses narrowband because the light has no color
+        temperature to reconstruct; this view only has to show the film the way a raw viewer
+        does, and unbalanced sensor RGB renders the mask green. `lightbox_level` supplies the
+        brightness a decode with no auto-brightness never gets. The proof stays off: this is
+        the scan, not a print.
         """
         source = self.state.preview_raw
         if source is None:
@@ -4429,9 +4428,9 @@ class AppController(QObject):
     def _load_embedded_preview(self) -> Optional[Any]:
         """The file's own embedded preview, read once per frame and kept in state.
 
-        Read here rather than kept from the load: the splash is skipped on a preview-cache
-        hit, so the frame on screen is no evidence that one is in hand. The half-frame slice
-        is the active asset's, so a diptych peeks the half the user is editing.
+        Read on first peek rather than kept from the load: the splash is skipped on a
+        preview-cache hit. The half-frame slice is the active asset's, so a diptych peeks
+        the half being edited.
         """
         if self.state.preview_embedded is not None:
             return self.state.preview_embedded
@@ -4447,11 +4446,9 @@ class AppController(QObject):
     def _paint_embedded_peek(self) -> None:
         """Put the camera's own preview on the canvas, at the user's geometry.
 
-        The reference view: it is the JPEG the camera wrote, so it carries that camera's
-        white balance, tone curve and clipping, and none of NegPy's decode. Nothing is
-        measured from it and the analysis chart keeps reading the frame's own metrics — it
-        answers "what did the camera make of this scan", which is the one question the
-        pipeline cannot answer about itself.
+        The JPEG the camera wrote, so it carries that camera's white balance, tone curve and
+        clipping, and none of NegPy's decode. Nothing is measured from it: the analysis chart
+        keeps reading the frame's own metrics.
 
         Geometry runs against the preview's own pixel grid, which is not the raw's, so the
         context is built from its shape rather than `original_res`.

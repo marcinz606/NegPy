@@ -72,8 +72,7 @@ def should_fold_camera_wb(process: ProcessConfig, render_intent: Optional[str] =
     balance for the fold to reconstruct, whatever the camera happened to read.
 
     The narrowband condition is `narrowband_profile_active`, not the stored flag: the flag
-    is remembered across a mode switch and greyed out on a slide, where nothing narrowband
-    applies, so it must not decide the fold there either.
+    survives a mode switch and is inert on a slide, where nothing narrowband applies.
 
     Every site that folds `camera_wb` into the capture matrix must ask this one question,
     the same way every decode asks `effective_linear_raw`.

@@ -120,17 +120,11 @@ _LIGHTBOX_TARGET = 0.95
 def lightbox_level(img: np.ndarray, matrix: Optional[np.ndarray]) -> Optional[float]:
     """Scalar gain that puts the frame's brightest tone on the display.
 
-    A raw decode has no auto-brightness, so a scan of a dense negative sits in the bottom
-    of the display curve and reads as a flat dark frame whatever its real density is. One
-    scalar, so the channel balance is left to the white balance folded into ``matrix`` —
-    a per-channel reference would instead neutralize whatever it landed on, which is the
-    film base itself on a scan with no bare light around the rebate, and that renders an
-    orange mask as olive.
-
-    ``img`` is the buffer before ``matrix``, the whole frame before any crop — cropping
-    into the picture would move the reference and change the brightness as the user frames.
-
-    None when there is no signal to reference.
+    A raw decode has no auto-brightness, so a dense scan reads as a flat dark frame. Scalar,
+    not per-channel: a per-channel reference neutralizes whatever it lands on, which on a scan
+    with no bare light around the rebate is the film base, and that renders an orange mask
+    olive. ``img`` is the whole frame before ``matrix`` and before any crop, so framing does
+    not move the reference. None when there is no signal.
     """
     flat = img.reshape(-1, 3)
     step = max(1, flat.shape[0] // 200_000)

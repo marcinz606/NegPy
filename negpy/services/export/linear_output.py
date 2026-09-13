@@ -1295,9 +1295,7 @@ def export_linear_output(
             compression=tiff_compression,
         )
 
-    # Same filesystem-date gap as the main batch-export path (see
-    # negpy/desktop/workers/export.py): this always writes a brand-new file, so
-    # without this the OS stamps it "now" instead of the source's own date.
+    # A new file, so its filesystem dates come from the write, as in workers/export.py.
     sync_export_filesystem_dates(output_path, file_path)
 
     if ir is not None and not ice_applied:

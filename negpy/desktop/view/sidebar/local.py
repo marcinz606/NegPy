@@ -172,8 +172,8 @@ class LocalSidebar(BaseSidebar):
             values.append(f"{mask.grade:+.0f} R")
         if mask.invert:
             values.append("inv")
-        # Clicking the shape icon enables/disables the mask's effect; the icon and the rest
-        # of the row dim to text_muted while disabled, so the state reads at a glance.
+        # The shape icon enables/disables the mask's effect; the row dims to text_muted while
+        # disabled.
         shape_btn = self._row_icon_btn(_SHAPE_ICONS[mask.shape], checkable=False)
         shape_btn.setIcon(qta.icon(_SHAPE_ICONS[mask.shape], color=color if mask.enabled else THEME.text_muted))
         shape_btn.setFixedSize(20, 22)

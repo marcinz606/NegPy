@@ -1,22 +1,11 @@
-"""Filesystem-level date sync for exported files.
+"""Filesystem mtime and creation date for exported files.
 
-EXIF/XMP capture and modify dates are preserved faithfully through the metadata
-writer (see writer.py) -- that part of the pipeline is correct even with
-"Protect Original Metadata" off. What's missing is the exported file's own
-*filesystem* mtime/creation date: every export path writes a brand-new file, so
-the OS stamps it with "now" and nothing downstream corrects it. Apps that sort
-or filter by file date rather than embedded EXIF (Capture One's default "Date"
-capture-date column reads EXIF, but its Finder-style file list and many other
-tools read the filesystem date) then show the export/build time instead of when
-the frame was actually shot.
+An export writes a brand-new file, so the OS stamps its filesystem dates with the write
+time. The embedded EXIF/XMP dates are right (writer.py), but tools that sort or filter on
+the filesystem date instead then show the export time, not the capture time.
 
-This module mirrors the *source* file's own filesystem mtime -- and, best
-effort, its macOS creation date -- onto the exported file right after it's
-written. It deliberately does not try to resolve "the" capture date (a
-user-typed override, a value carried in EXIF, etc.): the source RAW/scan
-file's own mtime is what's actually being lost, it's available unconditionally,
-and matching it is enough to fix sort order and "when was this shot" filesystem
-metadata in any tool that reads it.
+The source file's own mtime is mirrored onto the output, not a resolved capture date: the
+source mtime is what the write loses, and it is available for every source.
 """
 
 import ctypes
@@ -27,12 +16,11 @@ from typing import Optional
 
 
 def sync_export_filesystem_dates(output_path: str, source_path: str) -> None:
-    """Best-effort: stamp *output_path*'s mtime/atime -- and, on macOS, creation
-    date -- to match *source_path*. Never raises: a missing/unreadable source, a
-    destination filesystem that rejects the call, or (on macOS) the absence of
-    the low-level creation-date API should not fail the export itself, since the
-    export's actual pixel/metadata content already succeeded by the time this
-    runs."""
+    """Stamp *output_path*'s mtime/atime, and on macOS its creation date, from *source_path*.
+
+    Never raises: the pixels and the metadata are already written by the time this runs, so
+    an unreadable source or a filesystem that rejects the call must not fail the export.
+    """
     try:
         src_stat = os.stat(source_path)
     except OSError:
@@ -47,16 +35,9 @@ def sync_export_filesystem_dates(output_path: str, source_path: str) -> None:
         _sync_macos_creation_date(output_path, src_stat)
 
 
-# APFS/HFS+ "creation date" (birthtime) has no stdlib entry point -- os.utime()
-# only ever touches atime/mtime, on every platform. The only way to set it
-# without shelling out to a tool that may not be installed (SetFile, part of
-# the Xcode Command Line Tools) is the setattrlist(2) syscall macOS itself uses
-# for this. NEEDS VERIFICATION: this talks to a C syscall via ctypes and has
-# only been checked against the public setattrlist/attrlist header definitions,
-# not run on a real Mac (this patch was written from a Linux sandbox) -- please
-# confirm `mdls -name kMDItemFSCreationDate` on an exported file actually shows
-# the source's date after this ships. It fails silently either way, so a wrong
-# offset just means the creation date stays unfixed, same as before this patch.
+# APFS/HFS+ creation date (birthtime) has no stdlib entry point: os.utime touches atime and
+# mtime only, on every platform. setattrlist(2) is what macOS itself uses, and avoids a
+# dependency on SetFile, which ships with the Xcode Command Line Tools rather than the OS.
 _ATTR_BIT_MAP_COUNT = 5
 _ATTR_CMN_CRTIME = 0x00000200
 
@@ -111,6 +92,5 @@ def _sync_macos_creation_date(output_path: str, src_stat: os.stat_result) -> Non
     except OSError:
         return
     if rc != 0:
-        # Best-effort only: e.g. exFAT/network volumes don't support a creation
-        # date at all. The mtime fix above already landed regardless.
+        # exFAT and network volumes carry no creation date. The mtime above still stands.
         return
