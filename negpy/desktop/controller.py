@@ -56,7 +56,6 @@ from negpy.features.process.logic import (
     effective_linear_raw,
     highlight_reconstruction_bakes_wb,
     narrowband_profile_active,
-    should_fold_camera_wb,
 )
 from negpy.features.stitch.models import stitch_hash, stitch_name
 from negpy.desktop.workers.capture_worker import (
