@@ -4,6 +4,7 @@ import numpy as np
 import qtawesome as qta
 from PyQt6.QtWidgets import (
     QButtonGroup,
+    QComboBox,
     QHBoxLayout,
     QVBoxLayout,
     QWidget,
@@ -12,7 +13,7 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.sidebar.tone import _CH_COLORS, _CH_LABEL, _CH_SUFFIX
-from negpy.desktop.view.styles.templates import EditedDot, hint_label, section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import EditedDot, field_label, hint_label, section_subheader, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
@@ -42,33 +43,27 @@ _MODES = (
     (ProcessMode.E6, " Slide", "#4FB0D8", "Transparency — slide / reversal film"),
 )
 
-# Highlight Reconstruction bar: rawpy's HighlightMode, collapsed to the three settings worth
-# choosing between (see effective_highlight_reconstruction) — Reconstruct pinned to libraw's
-# own default level rather than exposing all seven numbered levels.
+# Highlight Reconstruction dropdown: rawpy's HighlightMode, collapsed to the three settings
+# worth choosing between (see effective_highlight_reconstruction) — Reconstruct pinned to
+# libraw's own default level rather than exposing all seven numbered levels. A dropdown, not
+# a button row: this is a set-and-forget choice for a blown-highlight frame, the same niche
+# as Demosaic's own combo, not a per-frame toggle worth a row of its own real estate.
 _HIGHLIGHT_LEVELS = (
-    (
-        0,
-        " Off",
-        "Off (default) — libraw's Clip. A blown highlight stays flat white, or magenta if one channel clipped before the others.",
-        "fa5s.ban",
-    ),
-    (
-        2,
-        " Blend",
-        "Blend — recovers a plausible neutral color in a clipped highlight from the channels "
-        "that are not clipped. Good for a genuinely neutral highlight: a sun disc, sky, chrome, "
-        "a glass reflection, where the channels clip in close proportion.",
-        "fa5s.adjust",
-    ),
-    (
-        5,
-        " Reconstruct",
-        "Reconstruct — libraw's own default reconstruction, more aggressive than Blend. Can "
-        "misjudge a highlight that was a saturated color rather than a near-neutral one (a neon "
-        "sign, a colored light source), since a clipped channel alone cannot tell the two apart. "
-        "Judge it on the actual frame.",
-        "fa5s.sun",
-    ),
+    (0, "Off"),
+    (2, "Blend"),
+    (5, "Reconstruct"),
+)
+
+_HIGHLIGHT_TIP = (
+    "<b>Off</b> (default) — libraw's Clip. A blown highlight stays flat white, or magenta if "
+    "one channel clipped before the others.<br><br>"
+    "<b>Blend</b> — recovers a plausible neutral color in a clipped highlight from the channels "
+    "that are not clipped. Good for a genuinely neutral highlight: a sun disc, sky, chrome, "
+    "a glass reflection, where the channels clip in close proportion.<br><br>"
+    "<b>Reconstruct</b> — libraw's own default reconstruction, more aggressive than Blend. Can "
+    "misjudge a highlight that was a saturated color rather than a near-neutral one (a neon "
+    "sign, a colored light source), since a clipped channel alone cannot tell the two apart. "
+    "Judge it on the actual frame."
 )
 
 
@@ -285,17 +280,14 @@ class ProcessSidebar(BaseSidebar):
         self.layout.addLayout(transfer_row)
         self.layout.addWidget(self.render_ev_slider)
 
-        self.layout.addWidget(section_subheader("HIGHLIGHT RECONSTRUCTION"))
-        self.highlight_btns = []
-        self.highlight_btn_group = QButtonGroup(self)
-        self.highlight_btn_group.setExclusive(True)
         highlight_row = QHBoxLayout()
-        checked_bucket = _highlight_bucket(conf.highlight_reconstruction)
-        for i, (level, label, tip, icon) in enumerate(_HIGHLIGHT_LEVELS):
-            btn = self._labeled_toggle(icon, label, i == checked_bucket, tip)
-            self.highlight_btn_group.addButton(btn, i)
-            highlight_row.addWidget(btn, 1)
-            self.highlight_btns.append(btn)
+        self.highlight_label = field_label("Highlight")
+        highlight_row.addWidget(self.highlight_label)
+        self.highlight_combo = QComboBox()
+        self.highlight_combo.addItems([label for _level, label in _HIGHLIGHT_LEVELS])
+        self.highlight_combo.setToolTip(wrap_tooltip(_HIGHLIGHT_TIP))
+        self.highlight_combo.setCurrentIndex(_highlight_bucket(conf.highlight_reconstruction))
+        highlight_row.addWidget(self.highlight_combo, 1)
         self.layout.addLayout(highlight_row)
 
         # Disabled widgets get no hover, so the detail hangs off the hint, not the button.
@@ -351,7 +343,7 @@ class ProcessSidebar(BaseSidebar):
 
         self.normalize_e6_btn.toggled.connect(self._on_normalize_e6_toggled)
         self.positive_source_btn.toggled.connect(self._on_positive_source_toggled)
-        self.highlight_btn_group.idToggled.connect(lambda i, checked: self._on_highlight_reconstruction_changed(i) if checked else None)
+        self.highlight_combo.currentIndexChanged.connect(self._on_highlight_reconstruction_changed)
         self.sync_ui()
 
     def _on_white_point_changed(self, val: float, persist: bool = True) -> None:
@@ -405,7 +397,7 @@ class ProcessSidebar(BaseSidebar):
         self.controller.apply_config(new_config, persist=True)
 
     def _on_highlight_reconstruction_changed(self, bucket: int) -> None:
-        level, _label, _tip, _icon = _HIGHLIGHT_LEVELS[bucket]
+        level, _label = _HIGHLIGHT_LEVELS[bucket]
         self.update_config_section("process", highlight_reconstruction=level, render=True, persist=True)
 
     def _on_analysis_region_toggled(self, checked: bool) -> None:
@@ -500,10 +492,9 @@ class ProcessSidebar(BaseSidebar):
             # Reconstruction only means anything against a slide's own blown highlights (see
             # effective_highlight_reconstruction); hidden rather than greyed, matching Normalize
             # and Positive right above it.
-            checked_bucket = _highlight_bucket(conf.highlight_reconstruction)
-            for i, btn in enumerate(self.highlight_btns):
-                btn.setVisible(is_e6)
-                btn.setChecked(i == checked_bucket)
+            self.highlight_label.setVisible(is_e6)
+            self.highlight_combo.setVisible(is_e6)
+            self.highlight_combo.setCurrentIndex(_highlight_bucket(conf.highlight_reconstruction))
 
             # Only a merge has a render exposure to choose, and only the transfer path uses a fixed
             # window for it to mean anything against.
@@ -578,8 +569,7 @@ class ProcessSidebar(BaseSidebar):
             self.black_point_slider,
             self.normalize_e6_btn,
             self.positive_source_btn,
-            self.highlight_btn_group,
-            *self.highlight_btns,
+            self.highlight_combo,
         ]
         for w in widgets:
             w.blockSignals(blocked)
