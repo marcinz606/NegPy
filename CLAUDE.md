@@ -2,11 +2,11 @@
 
 Guidance for Claude Code in this repository.
 
-> **Keep this file current.** When a change alters something documented here — stage order, the feature pattern, commands — update it in the same change.
+> **Keep this file current.** A change that alters stage order, the feature pattern or the commands updates it in the same change.
 
-> **Keep the user docs current, in the same change.** `docs/USER_GUIDE.md` covers every panel and control; it is also **rendered in-app** — each panel's ⓘ opens the section marked `<!-- panel:<key> -->` — so a stale doc is a stale in-app guide. Any control added, renamed, retired or given a new range/default belongs there. `docs/PIPELINE.md` covers what each stage does to the pixels: update it when stage order, the math, a mirrored constant or a default changes. Retiring a control means deleting its prose, not leaving it to rot.
+> **Keep the user docs current, in the same change.** `docs/USER_GUIDE.md` covers every panel and control and is **rendered in-app** — each panel's ⓘ opens the section marked `<!-- panel:<key> -->` — so a stale doc is a stale in-app guide. A control added, renamed, retired or given a new range or default belongs there. `docs/PIPELINE.md` covers what each stage does to the pixels: update it when stage order, the math, a mirrored constant or a default changes. Retiring a control deletes its prose.
 
-> **Leave `docs/CHANGELOG.md` alone unless asked.** It is written per release, not per change. Do not add, edit or move an entry unless the user asks for it.
+> **Leave `docs/CHANGELOG.md` alone unless asked.** It is written per release, not per change.
 
 ## Commands
 
@@ -22,8 +22,7 @@ make format       # ruff format + autofix
 uv run pytest tests/test_exposure_logic.py::test_name -v
 ```
 
-All commands run through `uv run`; never invoke pytest/ruff/ty directly.
-Before commiting always run `make format`. If any non-related files got re-formatted by ruff - also commit the changes as lint fixes.
+All commands run through `uv run`; never invoke pytest/ruff/ty directly. Run `make format` before committing; if it reformats unrelated files, commit those as lint fixes.
 
 ## Architecture
 
@@ -31,25 +30,25 @@ NegPy is a film-negative processing desktop app (PyQt6 + WebGPU). Images flow th
 
 ### Data model
 
-`WorkspaceConfig` (`negpy/domain/models.py`) — frozen dataclass composed of per-feature configs; the single source of truth for an edit. Change via `dataclasses.replace`, never mutate. `to_dict`/`from_flat_dict` serialize to one **flat** key namespace — a duplicate field name across sub-configs silently clobbers.
+`WorkspaceConfig` (`negpy/domain/models.py`) — frozen dataclass of per-feature configs, the single source of truth for an edit. Change via `dataclasses.replace`, never mutate. `to_dict`/`from_flat_dict` serialize to one **flat** key namespace, so a duplicate field name across sub-configs silently clobbers.
 
 Edits persist in SQLite (`edits.db`, keyed by content hash), optionally mirrored to `.negpy` JSON sidecars next to sources. DB wins; a loaded sidecar is promoted into the DB (`negpy/services/assets/sidecar.py`, `session.py`).
 
-On Windows, `desktop.py` checks data-folder access before importing app configuration. If the default folder is blocked, a native dialog suggests Local AppData and lets the user click the path to choose another folder. No data is copied. The selected path is saved under Local AppData and takes priority over Documents; `NEGPY_USER_DIR` takes priority over the record.
+On Windows, `desktop.py` checks data-folder access before importing app configuration. A blocked default folder raises a native dialog that suggests Local AppData and lets the user pick another; no data is copied. The choice is saved under Local AppData and outranks Documents; `NEGPY_USER_DIR` outranks the record.
 
-**Migrations** (`negpy/domain/migrations.py`) — every legacy fixup for persisted configs lives here, not inline in `from_flat_dict`: `KEY_RENAMES` (renamed fields), `DROPPED_KEYS` (removed fields, dropped without the unknown-key warning), `RETIRED_EXPORT_FORMATS`, and `migrate_flat_config()` for value rewrites. Renaming/removing a config field or retiring an enum value means one entry here. Two exceptions stay in their dataclasses because they must run on *every* construction, not just on load: `ExposureConfig.__post_init__` (legacy grade → ISO R, `cast_removal` bool → strength) and the tuple-rehydrating `__post_init__`s. The module imports nothing from `models.py` (which imports it) — use string literals.
+**Migrations** (`negpy/domain/migrations.py`) — every legacy fixup for persisted configs lives here, not inline in `from_flat_dict`: `KEY_RENAMES` (renamed fields), `DROPPED_KEYS` (removed fields, dropped without the unknown-key warning), `RETIRED_EXPORT_FORMATS`, and `migrate_flat_config()` for value rewrites. Renaming or removing a config field, or retiring an enum value, means one entry here. Two exceptions stay in their dataclasses because they must run on *every* construction, not just on load: `ExposureConfig.__post_init__` (legacy grade → ISO R, `cast_removal` bool → strength) and the tuple-rehydrating `__post_init__`s. The module imports nothing from `models.py`, which imports it, so use string literals.
 
-Migrations that rewrite *rows* rather than a config payload need a repository, so they stay out of that dependency-free module and live beside their feature: `services/assets/hash_migration.py` (edits saved under a superseded content hash — see the identity note below) and `services/assets/flatfield_migration.py` (the retired profile table).
+Migrations that rewrite *rows* rather than a config payload need a repository, so they live beside their feature instead: `services/assets/hash_migration.py` (edits saved under a superseded content hash) and `services/assets/flatfield_migration.py` (the retired profile table).
 
-**Composite membership** (`services/assets/composites.py`) — which files a stitch or an HDR merge is made of is a user decision that nothing in the files records, so it is stored per primary path and lives until the composite is dissolved, not until the file list changes. Every asset discovery re-attaches from it and drops the parts it consumed; `_persist_session` upserts into it, never rewrites it, because the open files are one folder and the store is all of them.
+**Composite membership** (`services/assets/composites.py`) — which files a stitch or an HDR merge is made of is a user decision that nothing in the files records, so it is stored per primary path and lives until the composite is dissolved, not until the file list changes. Every asset discovery re-attaches from it and drops the parts it consumed. `_persist_session` upserts, never rewrites: the open files are one folder, the store is all of them.
 
 ### Pipeline
 
-- **CPU**: `DarkroomEngine.process()` (`negpy/services/rendering/engine.py`) — base (geometry + normalization) → exposure (incl. dodge/burn) → clahe → lab → alt process → toning → crop → finish. The first four stages are cached per config-hash via `_run_stage()`; the rest run unconditionally. The alt-process stage (lith or cyanotype, never both) is B&W-only and off by default — when off, both engines skip it rather than run an identity pass.
-- **GPU**: `GPUEngine` (`negpy/services/rendering/gpu_engine.py`) — same logical stages as WGSL compute shaders from `negpy/features/<name>/shaders/`, with its own config-diff change detection.
-- **Orchestration**: `ImageProcessor` (`image_processor.py`) tries GPU first, falls back to CPU; export always runs full-res. CPU export disables stage caching with `PipelineContext.cache_stages`. Linear DNG decode, CPU saturation and unsharp masking use row blocks to bound temporary storage. `PipelineContext` carries `scale_factor`, `process_mode`, `active_roi`, and a `metrics` dict between stages.
-- **Source bakes** run before either engine, on the linear source: flat-field, sensor unmix, and every defect repair (IR, detected specks, painted heal strokes). Both engines re-upload that source per frame, so a bake reaches them parity-free and needs no shader. Each bake folds a token into `source_hash` to invalidate the engine cache.
-- **Working space**: scene-linear internally; the working OETF (Adobe RGB 1998 TRC — a pure 563/256 power, no linear segment) is applied only as the final engine step. Lab/toning compute CIELAB directly from linear, D65. Adobe RGB rather than a wide gamut because ProPhoto's imaginary primaries inflate chroma in the saturation/toning stages.
+- **CPU**: `DarkroomEngine.process()` (`negpy/services/rendering/engine.py`) — base (geometry + normalization) → exposure (incl. dodge/burn) → clahe → lab → alt process → toning → crop → finish. The first four stages are cached per config-hash via `_run_stage()`; the rest run unconditionally. The alt-process stage (lith or cyanotype, never both) is B&W-only and off by default; when off, both engines skip it rather than run an identity pass.
+- **GPU**: `GPUEngine` (`negpy/services/rendering/gpu_engine.py`) — the same logical stages as WGSL compute shaders from `negpy/features/<name>/shaders/`, with its own config-diff change detection.
+- **Orchestration**: `ImageProcessor` (`image_processor.py`) tries GPU first and falls back to CPU. Export always runs full-res, with CPU stage caching off (`PipelineContext.cache_stages`). Linear DNG decode, CPU saturation and unsharp masking use row blocks to bound temporary storage. `PipelineContext` carries `scale_factor`, `process_mode`, `active_roi` and a `metrics` dict between stages.
+- **Source bakes** run before either engine, on the linear source: flat-field, sensor unmix and every defect repair (IR, detected specks, painted heal strokes). Both engines re-upload that source per frame, so a bake reaches them parity-free and needs no shader. Each bake folds a token into `source_hash` to invalidate the engine cache.
+- **Working space**: scene-linear internally; the working OETF (Adobe RGB 1998 TRC — a pure 563/256 power, no linear segment) is the final engine step. Lab/toning compute CIELAB directly from linear, D65. Adobe RGB rather than a wide gamut because ProPhoto's imaginary primaries inflate chroma in the saturation and toning stages.
 
 `docs/PIPELINE.md` describes each stage's behaviour and controls in depth.
 
@@ -62,9 +61,7 @@ Every feature lives in `negpy/features/<name>/`:
 - `processor.py` — thin wrapper with `process(img, context) -> ImageBuffer`
 - `shaders/<name>.wgsl` — optional GPU compute shader
 
-One exception: `features/altprocess/` holds only `models.py`. Lith and cyanotype share the
-Alternative Processes panel and one `AltProcessConfig`, because they are mutually exclusive;
-their logic and shaders stay in `features/lith/` and `features/cyanotype/`.
+One exception: `features/altprocess/` holds only `models.py`. Lith and cyanotype are mutually exclusive, so they share the Alternative Processes panel and one `AltProcessConfig`; their logic and shaders stay in `features/lith/` and `features/cyanotype/`.
 
 ### Desktop (MVC)
 
@@ -72,8 +69,8 @@ their logic and shaders stay in `features/lith/` and `features/cyanotype/`.
 - `AppController` (`negpy/desktop/controller.py`) — single controller; all UI interactions call it; emits `config_updated` / `image_updated`
 - Workers (`negpy/desktop/workers/`) — heavy work in QThread-backed objects, Qt-signal communication
 - Sidebars (`negpy/desktop/view/sidebar/<name>.py`) — one per feature, registered in `ControlsPanel`, synced on `config_updated`
-- **Shortcuts** (`negpy/desktop/view/shortcut_registry.py`) — `REGISTRY` is the single source of truth for every binding: one `ShortcutEntry(default_key, description, category)` per action id. Dispatch is the matching entry in the action map in `keyboard_shortcuts.py`. The registry also feeds the shortcut editor, the `?` overlay and `tooltip_with_shortcut()`, so a binding added here shows up in all three for free.
-  **Any new user-facing toggle, tool or action gets a registry entry** — leave `default_key` empty rather than inventing a conflicting one if no obvious key is free. Check for collisions before picking: the same key on two actions makes Qt fire `activatedAmbiguously` and both go dead. `docs/KEYBOARD.md` is generated: run `uv run python -m negpy.desktop.view.keyboard_doc` after a registry change. Copy that names a key reads it through `key_for`/`label_with_shortcut`, never as a literal.
+- **Shortcuts** (`negpy/desktop/view/shortcut_registry.py`) — `REGISTRY` is the single source of truth for every binding: one `ShortcutEntry(default_key, description, category)` per action id, dispatched through the matching entry in the action map in `keyboard_shortcuts.py`. It also feeds the shortcut editor, the `?` overlay and `tooltip_with_shortcut()`.
+  **Any new user-facing toggle, tool or action gets a registry entry** — leave `default_key` empty rather than inventing a conflicting one. Check for collisions before picking: the same key on two actions makes Qt fire `activatedAmbiguously` and both go dead. `docs/KEYBOARD.md` is generated, so run `uv run python -m negpy.desktop.view.keyboard_doc` after a registry change. Copy that names a key reads it through `key_for`/`label_with_shortcut`, never as a literal.
 
 ## Adding a new feature
 
@@ -88,66 +85,27 @@ their logic and shaders stay in `features/lith/` and `features/cyanotype/`.
 
 ## UI conventions
 
-**A new control reuses an existing one. It never introduces a new look.** Find the closest
-control already in the app, call the same factory with the same tokens, and copy nothing. A
-new size, colour, width, spacing value, button shape or toggle idiom needs the user's
-agreement first — the panels sit in one tab stack, so a private look is visible beside the
-shared one.
+**A new control reuses an existing one. It never introduces a new look.** Find the closest control already in the app, call the same factory with the same tokens, and copy nothing. A new size, colour, width, spacing value, button shape or toggle idiom needs the user's agreement first: the panels sit in one tab stack, so a private look is visible beside the shared one.
 
-- **Controls come from a factory**, never from a bare `QPushButton` + `setStyleSheet`. All live
-  in `styles/templates.py`; `BaseSidebar._tool_toggle` etc. are thin wrappers. `tool_toggle`
-  (icon-only or icon+label toggle), `labeled_toggle` (checkable), `labeled_action` (its one-shot
-  twin; `primary=True` for the panel's one call to action), `icon_button` (icon-only action),
-  `templates.field_label` (label beside a combo/entry),
-  `templates.hint_label` (a line of help under a control), `section_subheader` (grouping),
-  `CollapsibleSection` (a panel section, and the only reset affordance), `CompactSlider`
-  (slider with a hidden spin readout). Booleans in a panel are toggle buttons; `QCheckBox` is
-  for a list of options in a form.
-- **Type**: four size tokens in `styles/theme.py` — `font_size_small` (12, caption/hint),
-  `font_size_base` (13, body and the QSS global), `font_size_header` (14, section),
-  `font_size_title` (16, dialog title), plus `font_size_display` for the wordmark and
-  `font_size_micro` (9) for chart axes only. All in px; the sheet reads them as
-  `@font_size_basepx`. Never a literal size in a stylesheet string or a `setPixelSize`.
-- **Colour**: `text_primary` body, `text_secondary` secondary copy, `text_hint` captions and
-  hints, `warn_amber` advisories, `error` errors and invalid input (not the accent, which means
-  selected/armed), `status_success` a good state. `text_muted` is the **disabled** grey — 2.6:1
-  on the panel, so never on text a user has to read. Channel colours have a fill tier
-  (`channel_red`) and a text tier (`channel_red_text`). Every other colour is a token too, read
-  from QSS as `@name`; `tests/test_theme_tokens.py` fails on a literal hex outside a painter
-  alpha wash.
-- **Geometry**: `ICON_BUTTON_WIDTH`, `FIELD_LABEL_WIDTH`, `default_button_height()`,
-  `SCAN_BUTTON_HEIGHT` (the Scan buttons only) and the `THEME.space_*` scale. A row that needs
-  a width already has one. A panel body has no side inset of its own; the section card insets.
-- **Slider metadata**: unit in `unit=` (`"%"`, `" st"` stops, `" R"` ISO-R points, `" px"` —
-  space before a word, none before a symbol), never in the label; decimals from
-  `step`/`precision`.
-- **Dialogs**: a hand-rolled footer calls `templates.pin_dialog_default(default, *others)` —
-  it pins Enter, opts the rest out of `autoDefault` and marks the one filled button; a dialog
-  with buttons in its body passes `scope=self` once built; a `QDialogButtonBox` gets
-  `pin_button_box(box)`. Verbs: **Cancel** before one action verb (OK for a plain form, else
-  Apply, Save, Scan); **Close** alone on a view-only dialog. Delete confirmations go through
-  `view/confirm.py`. Do not re-declare the dialog background; the sheet paints it.
-  `tests/test_dialog_footers.py` walks every dialog.
-- **Labels**: control names Title Case ("Toe Width", "Paper White"); a label beside a
-  combo/entry sentence case ("Film stock", "Input gamma"). Same concept, same words in every
-  panel — grep for the words before writing a new label.
-- **Copy**: American spelling in every user-visible string and in `docs/` (Color, gray, center).
-  Buttons, menu items and dialog/message-box titles are Title Case; a message-box title is the
-  feature name. An item that opens a dialog, a picker or a confirmation ends in `…` (the
-  character, never three dots). The feature is "Flat Field". No emoji.
-- **Tooltips**: every control gets one, through `wrap_tooltip()` so it wraps. A shortcut-bearing
-  widget is tooltipped in `controls_panel.apply_shortcut_tooltips()` only; a local `setToolTip`
-  there is overwritten.
+- **Controls come from a factory**, never a bare `QPushButton` + `setStyleSheet`. All live in `styles/templates.py`; `BaseSidebar._tool_toggle` and friends are thin wrappers. `tool_toggle` (icon-only or icon+label toggle), `labeled_toggle` (checkable), `labeled_action` (its one-shot twin; `primary=True` for the panel's one call to action), `icon_button` (icon-only action), `templates.field_label` (label beside a combo/entry), `templates.hint_label` (a line of help under a control), `section_subheader` (grouping), `CollapsibleSection` (a panel section, and the only reset affordance), `CompactSlider` (slider with a hidden spin readout). Booleans in a panel are toggle buttons; `QCheckBox` is for a list of options in a form.
+- **Type**: four size tokens in `styles/theme.py` — `font_size_small` (12, caption/hint), `font_size_base` (13, body and the QSS global), `font_size_header` (14, section), `font_size_title` (16, dialog title), plus `font_size_display` for the wordmark and `font_size_micro` (9) for chart axes only. All in px; the sheet reads them as `@font_size_basepx`. Never a literal size in a stylesheet string or a `setPixelSize`.
+- **Colour**: `text_primary` body, `text_secondary` secondary copy, `text_hint` captions and hints, `warn_amber` advisories, `error` errors and invalid input (not the accent, which means selected/armed), `status_success` a good state. `text_muted` is the **disabled** grey — 2.6:1 on the panel, so never on text a user has to read. Channel colours have a fill tier (`channel_red`) and a text tier (`channel_red_text`). Every other colour is a token too, read from QSS as `@name`; `tests/test_theme_tokens.py` fails on a literal hex outside a painter alpha wash.
+- **Geometry**: `ICON_BUTTON_WIDTH`, `FIELD_LABEL_WIDTH`, `default_button_height()`, `SCAN_BUTTON_HEIGHT` (the Scan buttons only) and the `THEME.space_*` scale. A row that needs a width already has one. A panel body has no side inset of its own; the section card insets.
+- **Slider metadata**: unit in `unit=` (`"%"`, `" st"` stops, `" R"` ISO-R points, `" px"` — space before a word, none before a symbol), never in the label; decimals from `step`/`precision`.
+- **Dialogs**: a hand-rolled footer calls `templates.pin_dialog_default(default, *others)`, which pins Enter, opts the rest out of `autoDefault` and marks the one filled button; a dialog with buttons in its body passes `scope=self` once built; a `QDialogButtonBox` gets `pin_button_box(box)`. Verbs: **Cancel** before one action verb (OK for a plain form, else Apply, Save, Scan); **Close** alone on a view-only dialog. Delete confirmations go through `view/confirm.py`. Do not re-declare the dialog background; the sheet paints it. `tests/test_dialog_footers.py` walks every dialog.
+- **Labels**: control names Title Case ("Toe Width", "Paper White"); a label beside a combo/entry sentence case ("Film stock", "Input gamma"). Same concept, same words in every panel, so grep for the words before writing a new label.
+- **Copy**: American spelling in every user-visible string and in `docs/` (Color, gray, center). Buttons, menu items and dialog/message-box titles are Title Case; a message-box title is the feature name. An item that opens a dialog, a picker or a confirmation ends in `…` (the character, never three dots). The feature is "Flat Field". No emoji.
+- **Tooltips**: every control gets one, through `wrap_tooltip()` so it wraps. A shortcut-bearing widget is tooltipped in `controls_panel.apply_shortcut_tooltips()` only; a local `setToolTip` there is overwritten.
 
-If no existing control fits, say so and propose the addition — do not ship a one-off.
+If no existing control fits, say so and propose the addition. Do not ship a one-off.
 
 ## Style
 
 - Use **ASD-STE100 Simplified Technical English**
-- **Comments minimal.** Comment only non-obvious constraints the code can't express (a cache contract, an ordering requirement, a rejected-alternative trap). No comments that narrate what the next line does, restate the diff, or justify a change to a reviewer. Prefer one dense line over a paragraph; docstrings short and factual.
-- **Write the state, not the change.** Code, comments and docs describe how the thing works now. Never "used to", "no longer", "this used to re-detect per render", or a war story about the bug. The symptom belongs in the commit message, and only there. A constraint that exists *because* of a past bug is written as the rule ("detection runs once, upstream of both engines"), not as its history.
-- **No measurements in comments or docs.** Keep out timings, frame rates, file sizes, speedups, error deltas and sample counts from a test run ("113→31 ms", "2.7% further right", "one 35mm night scan"). They are true of one machine and one file, and they rot silently. State the constraint instead ("this scan is cached because it is the slowest step in a preview"). Numbers belong in the commit message, a test assertion or a report. Exceptions: a value the code depends on (a threshold, a limit, a unit) and a documented control range.
+- **Comments minimal.** Comment only non-obvious constraints the code can't express (a cache contract, an ordering requirement, a rejected-alternative trap). Never narrate what the next line does, restate the diff or justify a change to a reviewer. One dense line beats a paragraph; docstrings short and factual.
+- **Write the state, not the change.** Code, comments and docs describe how the thing works now. Never "used to", "no longer" or a war story about the bug: the symptom belongs in the commit message, and only there. A constraint that exists *because* of a past bug is written as the rule ("detection runs once, upstream of both engines"), not as its history.
+- **No measurements in comments or docs.** Keep out timings, frame rates, file sizes, speedups, error deltas and sample counts from a test run ("113→31 ms", "2.7% further right", "one 35mm night scan"): they are true of one machine and one file, and they rot silently. State the constraint instead ("this scan is cached because it is the slowest step in a preview"). Numbers belong in the commit message, a test assertion or a report. Exceptions: a value the code depends on (a threshold, a limit, a unit) and a documented control range.
 - **Budget the prose.** An inline comment is 1–2 lines, a docstring 1–4. A new control gets **one** `docs/USER_GUIDE.md` bullet; a stage change gets at most a short paragraph in `docs/PIPELINE.md`. Over budget means the point is buried: cut, don't reformat. Skip emphasis and rhetoric (bold, "on purpose", "this is not an optimization", em-dash asides, punchlines).
-- **Say it once.** One fact belongs in one place. A paragraph that states a constraint three ways (the mask "reads weaker", "renders green", "renders olive") buries it; state it once and move on. A constraint duplicated in a function's docstring and in its caller's goes in the function that enforces it, and the caller says nothing.
-- **No notes to a reviewer.** A comment that asks someone to confirm, verify or check something later is stale the day it merges, and it stays in the file after the answer arrives. An open question, a thing still to test and a request for a second pair of eyes go in the PR description. `TODO` is for work the code needs, not for a message to a person.
-- **End on the constraint.** The last sentence of a comment, a docstring or a doc paragraph is a fact, not a conclusion about it. Cut the line that names the significance of what came before ("the one question the pipeline cannot answer about itself", "this is what Esc is for"): it reads as a summary, it ages badly, and the facts above it already carry the point.
+- **Say it once.** A paragraph that states one constraint three ways buries it. A constraint shared by a function and its caller goes in the function that enforces it; the caller says nothing.
+- **No notes to a reviewer.** A comment asking someone to confirm, verify or check something is stale the day it merges, and it survives the answer. Open questions and things still to test go in the PR description. `TODO` is for work the code needs, not a message to a person.
+- **End on the constraint.** The last sentence of a comment, a docstring or a doc paragraph is a fact, not a conclusion about it ("the one question the pipeline cannot answer about itself", "this is what Esc is for").
