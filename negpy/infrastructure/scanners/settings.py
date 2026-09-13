@@ -1,6 +1,7 @@
 from collections.abc import Iterable
 from dataclasses import dataclass, field, fields
 
+from negpy.infrastructure.scanners.params import MAX_N_PASSES, MIN_N_PASSES, MultiExposureMode
 from negpy.infrastructure.scanners.registry import DEFAULT_BACKEND_ID
 
 Rect = tuple[float, float, float, float]
@@ -16,7 +17,9 @@ class ScannerSettings:
     dpi: int = 3600
     depth: int = 16
     capture_ir: bool = False
-    multi_exposure: bool = False
+    multi_exposure_mode: str = MultiExposureMode.OFF.value
+    # Same-exposure repeats to stack for an SNR gain (1-9); independent of multi_exposure_mode.
+    n_passes: int = MIN_N_PASSES
     autofocus: bool = True
     auto_exposure: bool = False
     # Hardware scan exposure time in microseconds (SANE `scan-exposure-time`). None is the
@@ -68,6 +71,17 @@ class ScannerSettings:
         every unrelated preference with it.
         """
         data = dict(data)
+        # Pre-mode blobs only ever had one multi-exposure behavior (today's "adaptive"): a
+        # checked box meant exactly that, unchecked meant none.
+        if "multi_exposure_mode" not in data and "multi_exposure" in data:
+            data["multi_exposure_mode"] = (
+                MultiExposureMode.ADAPTIVE.value if data.pop("multi_exposure") else MultiExposureMode.OFF.value
+            )
+        if data.get("multi_exposure_mode") not in set(MultiExposureMode):
+            data["multi_exposure_mode"] = MultiExposureMode.OFF.value
+        n_passes = data.get("n_passes")
+        if isinstance(n_passes, int) and not (MIN_N_PASSES <= n_passes <= MAX_N_PASSES):
+            data["n_passes"] = min(max(n_passes, MIN_N_PASSES), MAX_N_PASSES)
         first, last = data.pop("frame_from", None), data.pop("frame_to", None)
         if not data.get("selected_frames") and isinstance(first, int) and isinstance(last, int) and (first, last) != (1, 1):
             data["selected_frames"] = tuple(range(first, last + 1))

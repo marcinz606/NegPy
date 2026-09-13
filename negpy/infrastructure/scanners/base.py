@@ -37,6 +37,10 @@ class ScannerCapabilities:
     prescan_mirror_x: bool = False
     prescan_default_crop: tuple[float, float, float, float] | None = None
     multi_exposure: bool = False
+    #: Highest n_passes the device accepts; 1 means Multi-Pass (same-exposure repeat stacking)
+    #: is unavailable. Independent of `multi_exposure` — repeating a single exposure needs no
+    #: long-exposure capability, so this is not gated on the same condition.
+    max_n_passes: int = 1
     adapter_frame_capacity: int | None = None  # transport capacity bound, not an exposure count
     adapter_frame_control: bool = False
     can_eject: bool = False

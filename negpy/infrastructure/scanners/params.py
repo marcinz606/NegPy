@@ -8,12 +8,41 @@ class ScanMode(StrEnum):
     TRANSPARENCY = "Transparency"
 
 
+class MultiExposureMode(StrEnum):
+    """Whether a short+long colour pass pair is merged for extended dynamic range.
+
+    OFF: one exposure, the fast path. ADAPTIVE: short+long merged, long exposure picked per
+    frame from image content — pyopticfilm's only multi-exposure behavior.
+
+    Orthogonal to ``ScanParams.n_passes``: this picks *whether* to merge a second exposure,
+    while ``n_passes`` repeats whichever exposure(s) are chosen for a same-exposure SNR stack —
+    the two compose (pyopticfilm's "Adaptive Multi-Pass") rather than being alternatives.
+    """
+
+    OFF = "off"
+    ADAPTIVE = "adaptive"
+
+
+#: Repeats of the same exposure to stack for an SNR gain (pyopticfilm's `n_passes`); 1 = no
+#: stacking. This module must not import pyopticfilm directly (only plustek_backend.py may,
+#: see test_only_adapter_imports_plustek_driver), so this mirrors — rather than imports —
+#: pyopticfilm's own `Scanner.scan()` bound; plustek_backend.py's own MAX_N_PASSES import
+#: keeps the two in sync at the one place that already reaches into pyopticfilm.
+MIN_N_PASSES = 1
+MAX_N_PASSES = 9
+#: Starting point when a user first turns Passes above the off position — comfortably past
+#: the floor without defaulting to the slow end.
+DEFAULT_N_PASSES = 3
+
+
 @dataclass(frozen=True)
 class ScanParams:
     dpi: int
     depth: int
     capture_ir: bool
-    multi_exposure: bool = False
+    multi_exposure_mode: MultiExposureMode = MultiExposureMode.OFF
+    # Same-exposure repeats to stack for an SNR gain (1-9); independent of multi_exposure_mode.
+    n_passes: int = MIN_N_PASSES
     # Normalized (x1,y1,x2,y2) window 0..1; backend maps to device units (coolscan3 int px).
     window: tuple[float, float, float, float] | None = None
     # coolscan3 `subframe` (mm), applied to every frame. 0 = scanner default.
