@@ -213,9 +213,28 @@ def test_highlight_reconstruction_click_reaches_the_controller(qapp):
     controller, sidebar = _sidebar()
     cfg = controller.state.config
     controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6))
+    controller.state.preview_cam_xyz = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
     sidebar.sync_ui()
 
     sidebar.highlight_combo.setCurrentIndex(1)
     (new_cfg,), kw = controller.apply_config.call_args
     assert new_cfg.process.highlight_reconstruction == 2
     assert kw["persist"] is True
+
+
+def test_highlight_reconstruction_greyed_without_a_camera_matrix(qapp):
+    """A scanner TIFF or JPEG carries no camera matrix (see preview_cam_xyz), and no
+    sensor CFA data for reconstruction to recover from — the combo stays visible (still
+    a Transparency source) but disabled, not silently inert with no explanation."""
+    controller, sidebar = _sidebar()
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6))
+
+    controller.state.preview_cam_xyz = None
+    sidebar.sync_ui()
+    assert not sidebar.highlight_combo.isHidden()
+    assert not sidebar.highlight_combo.isEnabled()
+
+    controller.state.preview_cam_xyz = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+    sidebar.sync_ui()
+    assert sidebar.highlight_combo.isEnabled()

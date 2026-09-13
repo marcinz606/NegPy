@@ -55,15 +55,14 @@ _HIGHLIGHT_LEVELS = (
 )
 
 _HIGHLIGHT_TIP = (
-    "<b>Off</b> (default) — libraw's Clip. A blown highlight stays flat white, or magenta if "
-    "one channel clipped before the others.<br><br>"
-    "<b>Blend</b> — recovers a plausible neutral color in a clipped highlight from the channels "
-    "that are not clipped. Good for a genuinely neutral highlight: a sun disc, sky, chrome, "
-    "a glass reflection, where the channels clip in close proportion.<br><br>"
-    "<b>Reconstruct</b> — libraw's own default reconstruction, more aggressive than Blend. Can "
-    "misjudge a highlight that was a saturated color rather than a near-neutral one (a neon "
-    "sign, a colored light source), since a clipped channel alone cannot tell the two apart. "
-    "Judge it on the actual frame."
+    "Camera RAW only, and only useful when a highlight actually clipped.<br><br>"
+    "<b>Off</b> (default) — a blown highlight stays flat white, or magenta if one channel "
+    "clipped first.<br><br>"
+    "<b>Blend</b> — a plausible neutral color from the unclipped channels. Best for a "
+    "near-neutral highlight: sun, sky, chrome, glass.<br><br>"
+    "<b>Reconstruct</b> — libraw's more aggressive default. Can miscolor a highlight that "
+    "was actually a saturated light source, since a clipped channel alone can't tell the "
+    "two apart."
 )
 
 
@@ -281,7 +280,7 @@ class ProcessSidebar(BaseSidebar):
         self.layout.addWidget(self.render_ev_slider)
 
         highlight_row = QHBoxLayout()
-        self.highlight_label = field_label("Highlight")
+        self.highlight_label = field_label("Highlight Recovery")
         highlight_row.addWidget(self.highlight_label)
         self.highlight_combo = QComboBox()
         self.highlight_combo.addItems([label for _level, label in _HIGHLIGHT_LEVELS])
@@ -491,9 +490,12 @@ class ProcessSidebar(BaseSidebar):
 
             # Reconstruction only means anything against a slide's own blown highlights (see
             # effective_highlight_reconstruction); hidden rather than greyed, matching Normalize
-            # and Positive right above it.
+            # and Positive right above it. Greyed instead of hidden when the source has no
+            # camera matrix (a scanner TIFF, JPEG, or other already-rendered file): the control
+            # still fits the mode, it just has no sensor CFA data left to recover from.
             self.highlight_label.setVisible(is_e6)
             self.highlight_combo.setVisible(is_e6)
+            self.highlight_combo.setEnabled(self.state.preview_cam_xyz is not None)
             self.highlight_combo.setCurrentIndex(_highlight_bucket(conf.highlight_reconstruction))
 
             # Only a merge has a render exposure to choose, and only the transfer path uses a fixed
