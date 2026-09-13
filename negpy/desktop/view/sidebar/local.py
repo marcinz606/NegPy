@@ -62,7 +62,10 @@ class LocalSidebar(BaseSidebar):
         self.layout.addLayout(tool_row)
 
         self.mask_list = QListWidget()
-        self.mask_list.setToolTip("Click a mask to select it. Use the eye to show/hide its outline and the trash icon to delete it.")
+        self.mask_list.setToolTip(
+            "Click a mask to select it. Click its shape icon to enable or disable its effect, "
+            "the eye to show/hide its outline, and the trash icon to delete it."
+        )
         self.mask_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.mask_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         # The row is a custom widget, so drop the app-wide item padding, margin and border that
@@ -169,11 +172,15 @@ class LocalSidebar(BaseSidebar):
             values.append(f"{mask.grade:+.0f} R")
         if mask.invert:
             values.append("inv")
-        shape_icon = QLabel()
-        shape_icon.setPixmap(qta.icon(_SHAPE_ICONS[mask.shape], color=color).pixmap(12, 12))
-        shape_icon.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        # Clicking the shape icon enables/disables the mask's effect; the icon and the rest
+        # of the row dim to text_muted while disabled, so the state reads at a glance.
+        shape_btn = self._row_icon_btn(_SHAPE_ICONS[mask.shape], checkable=False)
+        shape_btn.setIcon(qta.icon(_SHAPE_ICONS[mask.shape], color=color if mask.enabled else THEME.text_muted))
+        shape_btn.setFixedSize(20, 22)
+        shape_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        shape_btn.setToolTip("Click to enable or disable this mask's effect on the render")
         label = QLabel(f"{i + 1}.  {kind}   " + "  ".join(values))
-        label.setStyleSheet(f"color: {color};")
+        label.setStyleSheet(f"color: {color if mask.enabled else THEME.text_muted};")
         label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
         visible = i not in self.state.local_hidden_masks
@@ -183,13 +190,14 @@ class LocalSidebar(BaseSidebar):
         delete = self._row_icon_btn("fa5s.trash-alt", checkable=False)
         delete.setToolTip("Delete this mask")
 
-        lay.addWidget(shape_icon)
+        lay.addWidget(shape_btn)
         lay.addWidget(label)
         lay.addStretch()
         lay.addWidget(eye)
         lay.addWidget(delete)
 
         row.clicked.connect(lambda i=i: self.controller.select_local_mask(i))
+        shape_btn.clicked.connect(lambda _=False, i=i, m=mask: self.controller.set_local_mask_enabled(i, not m.enabled))
         eye.toggled.connect(lambda checked, i=i, b=eye: self._on_eye_toggled(i, checked, b))
         delete.clicked.connect(lambda _=False, i=i: self.controller.delete_local_mask(i))
         return row

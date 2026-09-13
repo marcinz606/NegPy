@@ -738,7 +738,7 @@ class CanvasOverlay(QWidget):
             self._draw_compare_split(painter)
 
         # Exclusive with the split above, so the two badges cannot land on each other.
-        if self.state.negative_peek or self.state.flat_peek:
+        if self.state.negative_peek or self.state.embedded_peek or self.state.flat_peek:
             self._draw_peek_badge(painter)
 
         # Last: the glass sits over everything else and claims no content rect, so it stays out
@@ -846,7 +846,7 @@ class CanvasOverlay(QWidget):
     def _draw_peek_badge(self, painter: QPainter) -> None:
         """Name the peek on the canvas. A peek replaces the print with something that is not
         one, and the only other thing that says so is a toolbar button off at the edge."""
-        text = "NEGATIVE" if self.state.negative_peek else "FLAT SCAN"
+        text = "NEGATIVE" if self.state.negative_peek else ("EMBEDDED" if self.state.embedded_peek else "FLAT SCAN")
         rect = self._content_view_rect()
         if rect.isEmpty():
             return
@@ -1766,7 +1766,7 @@ class CanvasOverlay(QWidget):
             self._local_mask_screen_polys.append([QPointF(x, y) for x, y in curve])
             self._local_mask_screen_ctrl.append(ctrl)
 
-            if i in getattr(self.state, "local_hidden_masks", ()):
+            if not mask.enabled or i in getattr(self.state, "local_hidden_masks", ()):
                 continue
             outline = QColor(THEME.burn) if mask.stops > 0 else QColor(THEME.dodge)
             max_alpha = 70 if is_selected else 32
@@ -1847,17 +1847,14 @@ class CanvasOverlay(QWidget):
 
     def _draw_printing_notes(self, painter: QPainter) -> None:
         """The printer's marked-up work print: hatched burns, open dodges, ±stop badges,
-        and the print recipe. Every mask is on the map, hidden ones included — the eye
-        unclutters editing, but a record that omits a burn is wrong."""
+        and the print recipe. A hidden (eye-off) mask still burns, so it stays on the
+        map; a disabled one does not print at all, so it is left off."""
         rect = self._content_view_rect()
+        notes_by_number = {n.number: n for n in mask_notes(self.state.config.local, self.state.config.exposure.grade)}
         polys = [
-            (notes_outline(mask.shape, ctrl, rect), note)
-            for mask, ctrl, note in zip(
-                self.state.config.local.masks,
-                self._local_mask_screen_ctrl,
-                mask_notes(self.state.config.local, self.state.config.exposure.grade),
-            )
-            if len(ctrl) >= min_points(mask.shape)
+            (notes_outline(mask.shape, ctrl, rect), notes_by_number[i + 1])
+            for i, (mask, ctrl) in enumerate(zip(self.state.config.local.masks, self._local_mask_screen_ctrl))
+            if mask.enabled and len(ctrl) >= min_points(mask.shape)
         ]
         paint_map(painter, polys)
         paint_card(painter, QPointF(rect.x() + _NOTES_CARD_INSET_PX, rect.y() + _NOTES_CARD_TOP_PX), self._recipe_lines())

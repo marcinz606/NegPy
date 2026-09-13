@@ -483,6 +483,7 @@ class WorkspaceConfig:
                         grade=float(m.get("grade", 0.0)),
                         shape=MaskShape(m.get("shape", MaskShape.POLYGON)),
                         invert=bool(m.get("invert", False)),
+                        enabled=bool(m.get("enabled", True)),
                     )
                 )
             return LocalAdjustmentsConfig(masks=tuple(masks))

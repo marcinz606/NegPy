@@ -2941,6 +2941,102 @@ class TestNegativePeekColor(unittest.TestCase):
         self.assertFalse(metrics["interactive"])
 
 
+class TestEmbeddedPeek(unittest.TestCase):
+    """The reference view: the camera's own JPEG of the capture, not NegPy's decode."""
+
+    def setUp(self):
+        import numpy as np
+
+        self.mock_session_manager = MagicMock(spec=DesktopSessionManager)
+        self.mock_session_manager.state = AppState()
+        self.mock_session_manager.repo = MagicMock()
+        with (
+            patch("negpy.desktop.controller.RenderWorker") as mock_rw_class,
+            patch("negpy.desktop.controller.PreviewManager") as mock_pm_class,
+        ):
+            mock_rw_class.return_value = MagicMock()
+            mock_pm_class.return_value = MagicMock(spec=PreviewManager)
+            mock_pm_class.return_value.load_linear_preview.return_value = (None, (0, 0), {})
+            self.controller = AppController(self.mock_session_manager)
+        self.controller.state.preview_raw = np.empty((8, 8, 3), dtype=np.float32)
+        self.controller.state.current_file_path = "/scans/frame.nef"
+
+    def tearDown(self):
+        import gc
+
+        for thread in [
+            self.controller.render_thread,
+            self.controller.export_thread,
+            self.controller.thumb_thread,
+            self.controller.norm_thread,
+            self.controller.discovery_thread,
+            self.controller.preview_load_thread,
+            self.controller.scan_thread,
+        ]:
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                thread.wait()
+        del self.controller
+        gc.collect()
+
+    @staticmethod
+    def _preview():
+        import numpy as np
+
+        return np.linspace(0.0, 1.0, 6 * 8 * 3, dtype=np.float32).reshape(6, 8, 3)
+
+    def test_it_paints_the_embedded_preview_as_the_srgb_it_is(self):
+        """No working OETF and `splash` set: the camera already encoded this buffer, and the
+        curve it put there is what the view exists to show."""
+        import numpy as np
+
+        preview = self._preview()
+        with patch("negpy.desktop.controller.PreviewManager.try_splash_preview", return_value=(preview, (8, 6))):
+            self.controller.toggle_embedded_peek(force=True)
+
+        self.assertTrue(self.controller.state.embedded_peek)
+        metrics = self.controller.state.last_metrics
+        np.testing.assert_allclose(metrics["base_positive"], preview)
+        self.assertTrue(metrics["splash"])
+        self.assertFalse(metrics["proof"])
+
+    def test_it_is_read_once_and_kept_for_the_frame(self):
+        with patch("negpy.desktop.controller.PreviewManager.try_splash_preview", return_value=(self._preview(), (8, 6))) as read:
+            self.controller.toggle_embedded_peek(force=True)
+            self.controller.toggle_embedded_peek(force=False)
+            self.controller.toggle_embedded_peek(force=True)
+        read.assert_called_once()
+
+    def test_a_source_with_no_preview_says_so_and_stays_off(self):
+        seen: list = []
+        self.controller.embedded_peek_changed.connect(seen.append)
+        with patch("negpy.desktop.controller.PreviewManager.try_splash_preview", return_value=None):
+            self.controller.toggle_embedded_peek(force=True)
+        self.assertFalse(self.controller.state.embedded_peek)
+        self.assertEqual(seen, [False], "the menu item must not stay checked on a file with no preview")
+
+    def test_the_peeks_are_mutually_exclusive(self):
+        with patch("negpy.desktop.controller.PreviewManager.try_splash_preview", return_value=(self._preview(), (8, 6))):
+            self.controller.state.negative_peek = True
+            self.controller.toggle_embedded_peek(force=True)
+            self.assertFalse(self.controller.state.negative_peek)
+
+            self.controller.toggle_negative_peek(force=True)
+            self.assertFalse(self.controller.state.embedded_peek)
+
+    def test_leaving_it_re_renders_the_edit(self):
+        self.controller.state.embedded_peek = True
+        with patch.object(self.controller, "request_render") as rr:
+            self.controller.toggle_embedded_peek(force=False)
+        self.assertFalse(self.controller.state.embedded_peek)
+        rr.assert_called_once()
+
+    def test_it_needs_a_loaded_source(self):
+        self.controller.state.preview_raw = None
+        self.controller.toggle_embedded_peek(force=True)
+        self.assertFalse(self.controller.state.embedded_peek)
+
+
 class TestCompareFlatPeekInteraction(unittest.TestCase):
     """Before/After and flat-peek are mutually exclusive overlays; a geometry op must
     keep whichever one is active instead of dropping the user back to the plain edit."""

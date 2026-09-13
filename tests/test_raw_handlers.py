@@ -9,7 +9,7 @@ import tifffile
 from negpy.infrastructure.loaders.factory import LoaderFactory
 from negpy.infrastructure.loaders.tiff_loader import NonStandardFileWrapper
 from negpy.features.process.models import DemosaicMode
-from negpy.infrastructure.loaders.helpers import get_best_demosaic_algorithm, is_xtrans, supported_demosaic_modes
+from negpy.infrastructure.loaders.helpers import get_best_demosaic_algorithm, is_xtrans, resolve_demosaic, supported_demosaic_modes
 
 
 class _FakeRaw:
@@ -73,6 +73,28 @@ class TestRawHandlers(unittest.TestCase):
         self.assertTrue(is_xtrans(_FakeRaw(rawpy.RawType.Flat, block_size=6)))
         self.assertFalse(is_xtrans(_FakeRaw(rawpy.RawType.Flat, block_size=2)))
         self.assertFalse(is_xtrans(object()))  # missing raw_pattern
+
+    def test_resolve_demosaic_label_matches_the_algorithm_on_bayer(self):
+        raw = _FakeRaw(rawpy.RawType.Flat, block_size=2)
+        algo, label = resolve_demosaic(raw, DemosaicMode.DCB)
+        self.assertEqual(algo, rawpy.DemosaicAlgorithm.DCB)
+        self.assertEqual(label, "DCB")
+
+    def test_resolve_demosaic_label_is_markesteijn_on_xtrans(self):
+        # The nominal algorithm never runs on a 6x6 CFA (see test_xtrans_stays_above_ppg_for_3_pass_markesteijn);
+        # the label must say what LibRaw actually did, not the requested mode.
+        raw = _FakeRaw(rawpy.RawType.Flat, block_size=6)
+        _, above_ppg = resolve_demosaic(raw, DemosaicMode.DHT)
+        self.assertEqual(above_ppg, "Markesteijn 3-pass")
+        _, at_or_below_ppg = resolve_demosaic(raw, DemosaicMode.LINEAR)
+        self.assertEqual(at_or_below_ppg, "Markesteijn 1-pass")
+
+    def test_resolve_demosaic_label_is_none_without_a_cfa(self):
+        _, label = resolve_demosaic(_FakeRaw(rawpy.RawType.Stack, block_size=2), DemosaicMode.DHT)
+        self.assertIsNone(label)
+        wrapper = NonStandardFileWrapper(np.zeros((4, 4, 3), dtype=np.float32))
+        _, wrapper_label = resolve_demosaic(wrapper, DemosaicMode.DHT)
+        self.assertIsNone(wrapper_label)
 
 
 # --- 3-channel LinearRaw DNG libraw can't unpack (DxO PhotoLab/PureRAW, Lightroom

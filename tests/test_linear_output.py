@@ -894,6 +894,36 @@ _MOCK_WB = _CameraWB(as_shot=(1.5, 1.0, 2.0, 1.0), daylight=(2.0, 1.0, 1.5, 1.0)
 _MOCK_META = _SourceMeta(make="Nikon", model="D850", datetime="2026:01:01 12:00:00")
 
 
+class TestLinearDescriptionDemosaic:
+    """The description/XMP records which CFA interpolation actually ran."""
+
+    def test_camera_raw_stamps_the_resolved_algorithm(self, tmp_path: str) -> None:
+        path = os.path.join(str(tmp_path), "frame.nef")
+        open(path, "wb").close()
+        out = os.path.join(str(tmp_path), "out.tiff")
+        buf = np.full((10, 12, 3), 0.5, dtype=np.float32)
+        meta = _SourceMeta(make="Nikon", model="D850", demosaic="DCB")
+
+        with mock.patch(
+            "negpy.services.export.linear_output._decode_camera_raw_buffer",
+            return_value=(buf, _MOCK_WB, meta),
+        ):
+            export_linear_output(path, out)
+
+        with tifffile.TiffFile(out) as tf:
+            assert "demosaic: DCB" in tf.pages[0].description
+
+    def test_non_cfa_source_has_no_demosaic_field(self, tmp_path: str) -> None:
+        """A Pakon dump never interpolates a mosaic, so the description carries none."""
+        raw_path = _make_pakon_raw(str(tmp_path))
+        out_path = os.path.join(str(tmp_path), "output.tiff")
+
+        export_linear_output(raw_path, out_path)
+
+        with tifffile.TiffFile(out_path) as tf:
+            assert "demosaic:" not in tf.pages[0].description
+
+
 class TestTripletExport:
     """Linear Output with RGB-scan triplet merge."""
 

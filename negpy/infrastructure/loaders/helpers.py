@@ -242,29 +242,40 @@ def supported_demosaic_modes() -> list:
     return [DemosaicMode.AUTO] + [m for m, algo in _DEMOSAIC_ALGORITHMS.items() if algo.isSupported]
 
 
-def get_best_demosaic_algorithm(raw: Any, mode: str = DemosaicMode.AUTO) -> Any:
-    """The user's `mode` where it is meaningful, else AHD for a mosaiced sensor and LINEAR
-    for anything that arrives de-mosaiced.
+def resolve_demosaic(raw: Any, mode: str) -> tuple[Any, Optional[str]]:
+    """The rawpy algorithm to run, paired with a display label for what actually ran
+    (None for a source with no CFA, where the mode is ignored).
 
-    A source with no CFA has nothing to interpolate, so the mode is ignored there. On a 6x6
-    X-Trans CFA no value reaches ahd_interpolate either: LibRaw routes filters==9 to
-    Markesteijn ahead of the quality dispatch, 3-pass above PPG and 1-pass at PPG or below.
+    On a 6x6 X-Trans CFA no algorithm reaches ahd_interpolate: LibRaw routes filters==9
+    to Markesteijn ahead of the quality dispatch, 3-pass above PPG and 1-pass at PPG or
+    below in the rawpy DemosaicAlgorithm quality ordering.
     """
     if isinstance(raw, NonStandardFileWrapper):
-        return rawpy.DemosaicAlgorithm.LINEAR
+        return rawpy.DemosaicAlgorithm.LINEAR, None
 
     try:
         # A 2x2 CFA block is Bayer, 6x6 is X-Trans. Anything else (Stack: Linear DNG, Foveon,
         # sRAW) arrives de-mosaiced and only LINEAR is meaningful.
         if raw.raw_type == rawpy.RawType.Flat and raw.raw_pattern.shape[0] in (2, 6):
             chosen = _DEMOSAIC_ALGORITHMS.get(DemosaicMode(mode))
-            if chosen is not None and chosen.isSupported:
-                return chosen
-            return rawpy.DemosaicAlgorithm.AHD
+            if chosen is None or not chosen.isSupported:
+                chosen = rawpy.DemosaicAlgorithm.AHD
+            if raw.raw_pattern.shape[0] == 6:
+                label = "Markesteijn 3-pass" if chosen.value > rawpy.DemosaicAlgorithm.PPG.value else "Markesteijn 1-pass"
+            else:
+                label = chosen.name
+            return chosen, label
     except (AttributeError, ValueError) as e:
         logger.exception(f"Failed to determine sensor CFA pattern: {e}. Falling back to LINEAR.")
 
-    return rawpy.DemosaicAlgorithm.LINEAR
+    return rawpy.DemosaicAlgorithm.LINEAR, None
+
+
+def get_best_demosaic_algorithm(raw: Any, mode: str = DemosaicMode.AUTO) -> Any:
+    """The user's `mode` where it is meaningful, else AHD for a mosaiced sensor and LINEAR
+    for anything that arrives de-mosaiced. A source with no CFA has nothing to interpolate,
+    so the mode is ignored there."""
+    return resolve_demosaic(raw, mode)[0]
 
 
 def is_xtrans(raw: Any) -> bool:

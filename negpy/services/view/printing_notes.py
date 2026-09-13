@@ -78,8 +78,10 @@ class MaskNote:
 
 
 def mask_notes(local: LocalAdjustmentsConfig, grade: float = 0.0) -> List[MaskNote]:
-    """One note per mask, in list order. `grade` is the frame's ISO R, which turns a
-    mask's grade delta into the grade it prints at."""
+    """One note per enabled mask, numbered by its position in the mask list. `grade` is
+    the frame's ISO R, which turns a mask's grade delta into the grade it prints at. A
+    disabled mask burns nothing, so it carries no note.
+    """
     return [
         MaskNote(
             number=i + 1,
@@ -88,6 +90,7 @@ def mask_notes(local: LocalAdjustmentsConfig, grade: float = 0.0) -> List[MaskNo
             local_r=local_grade_label(grade, m.grade),
         )
         for i, m in enumerate(local.masks)
+        if m.enabled
     ]
 
 

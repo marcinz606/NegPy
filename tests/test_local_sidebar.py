@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.sidebar.local import LocalSidebar
+from negpy.desktop.view.styles.theme import THEME
 from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskShape
 
 SQUARE = ((0.2, 0.2), (0.8, 0.2), (0.8, 0.8), (0.2, 0.8))
@@ -134,6 +135,27 @@ def test_invert_toggle_syncs_and_writes_back(qapp):
     assert "inv" in _row_text(sidebar)
     sidebar.invert_btn.setChecked(False)
     controller.update_selected_local_mask.assert_called_with(invert=False)
+
+
+def test_the_shape_icon_click_toggles_enabled(qapp):
+    """Clicking the shape icon flips the mask's current enabled state."""
+    controller, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=1.0, enabled=True))
+    sidebar.sync_ui()
+
+    row = sidebar.mask_list.itemWidget(sidebar.mask_list.item(0))
+    shape_btn = row.layout().itemAt(0).widget()
+    shape_btn.click()
+
+    controller.set_local_mask_enabled.assert_called_with(0, False)
+
+
+def test_a_disabled_mask_grays_out_its_row_text(qapp):
+    _, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=1.0, enabled=False))
+    sidebar.sync_ui()
+
+    row = sidebar.mask_list.itemWidget(sidebar.mask_list.item(0))
+    label = row.layout().itemAt(1).widget()
+    assert THEME.text_muted in label.styleSheet()
 
 
 def test_grabbing_a_slider_tells_the_canvas_to_drop_the_tint(qapp):

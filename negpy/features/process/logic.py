@@ -71,6 +71,10 @@ def should_fold_camera_wb(process: ProcessConfig, render_intent: Optional[str] =
     milder version of the correct fix, it is the wrong correction: there is no scene white
     balance for the fold to reconstruct, whatever the camera happened to read.
 
+    The narrowband condition is `narrowband_profile_active`, not the stored flag: the flag
+    is remembered across a mode switch and greyed out on a slide, where nothing narrowband
+    applies, so it must not decide the fold there either.
+
     Also false whenever `highlight_reconstruction_bakes_wb` is true: the decode already
     carries the real white balance in that case, and folding it again would double-apply
     it — the same "decode and matrix must agree" rule this function exists for in the
@@ -81,7 +85,7 @@ def should_fold_camera_wb(process: ProcessConfig, render_intent: Optional[str] =
     """
     if highlight_reconstruction_bakes_wb(process, render_intent):
         return False
-    return effective_linear_raw(process, render_intent) and not process.narrowband_scan
+    return effective_linear_raw(process, render_intent) and not narrowband_profile_active(process)
 
 
 VALID_HIGHLIGHT_LEVELS = frozenset({0, 2, 3, 4, 5, 6, 7, 8, 9})

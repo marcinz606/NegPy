@@ -157,6 +157,14 @@ class TestMaskShapes(unittest.TestCase):
         ev = _ev(LocalAdjustmentsConfig(masks=(grad,)))
         np.testing.assert_array_equal(ev, np.zeros((100, 100), dtype=np.float32))
 
+    def test_a_disabled_mask_contributes_nothing(self) -> None:
+        cfg = LocalAdjustmentsConfig(masks=(replace(_center_square_mask(1.0), enabled=False),))
+        np.testing.assert_array_equal(_ev(cfg), np.zeros((100, 100), dtype=np.float32))
+
+    def test_a_disabled_mask_does_not_affect_its_neighbours(self) -> None:
+        cfg = LocalAdjustmentsConfig(masks=(_center_square_mask(0.5), replace(_center_square_mask(0.75), enabled=False)))
+        self.assertAlmostEqual(float(_ev(cfg)[50, 50]), 0.5, places=5)
+
     def test_invert_swaps_inside_for_outside(self) -> None:
         plain = _ev(LocalAdjustmentsConfig(masks=(_center_square_mask(1.0, feather=0.05),)))
         inverted = _ev(LocalAdjustmentsConfig(masks=(replace(_center_square_mask(1.0, feather=0.05), invert=True),)))
@@ -246,6 +254,16 @@ class TestLocalSerialization(unittest.TestCase):
         mask = WorkspaceConfig.from_flat_dict(legacy).local.masks[0]
         self.assertEqual(mask.shape, MaskShape.POLYGON)
         self.assertFalse(mask.invert)
+
+    def test_a_mask_saved_before_enabled_loads_as_enabled(self) -> None:
+        legacy = {"local_masks": {"masks": [{"vertices": [[0.1, 0.1], [0.9, 0.1], [0.5, 0.9]], "stops": 0.5}]}}
+        self.assertTrue(WorkspaceConfig.from_flat_dict(legacy).local.masks[0].enabled)
+
+    def test_roundtrip_preserves_enabled(self) -> None:
+        cfg = WorkspaceConfig(
+            local=LocalAdjustmentsConfig(masks=(LocalMask(vertices=((0.1, 0.1), (0.9, 0.1), (0.5, 0.9)), enabled=False),))
+        )
+        self.assertFalse(WorkspaceConfig.from_flat_dict(cfg.to_dict()).local.masks[0].enabled)
 
     def test_a_legacy_burn_migrates_to_a_positive_burn(self) -> None:
         legacy = {"local_masks": {"masks": [{"vertices": [[0.1, 0.1], [0.9, 0.1], [0.5, 0.9]], "strength": -1.0}]}}

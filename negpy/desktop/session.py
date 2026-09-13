@@ -95,6 +95,9 @@ class AppState:
     # preview is the decoded buffer itself.
     preview_detect: Optional[Any] = None
     preview_detect_proxy: Optional[Any] = None
+    # The file's own embedded preview, read on first peek and kept for the rest of the frame.
+    # None before that read and on a source that carries none.
+    preview_embedded: Optional[Any] = None
     has_ir: bool = False
     ir_degenerate: bool = False  # IR plane carries image content (B&W/Kodachrome) → IR restore disabled
     original_res: tuple[int, int] = (0, 0)
@@ -233,6 +236,8 @@ class AppState:
     flat_peek: bool = False
     # Transient: preview is showing the decoded source as loaded, un-inverted.
     negative_peek: bool = False
+    # Transient: preview is showing the camera's own embedded preview, as a reference.
+    embedded_peek: bool = False
 
     # Linear Output: export the loader's raw decoded buffer as an untagged 16-bit TIFF.
     linear_output: bool = False
@@ -1592,6 +1597,7 @@ class DesktopSessionManager(QObject):
         self.state.preview_raw = None
         self.state.preview_ir = None
         self.state.preview_detect = None
+        self.state.preview_embedded = None
         self.state.has_ir = False
         self.state.config = WorkspaceConfig()
         self._config_dirty = False

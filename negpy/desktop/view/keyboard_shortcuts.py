@@ -29,7 +29,7 @@ def _context_undo(controller) -> None:
 
 
 def _context_cancel(controller, window) -> None:
-    """Esc ladder: whatever has taken the canvas over goes first — a test strip, either peek,
+    """Esc ladder: whatever has taken the canvas over goes first — a test strip, any peek,
     the before/after split — then the grain focuser loupe, then an armed zone, then
     in-progress tool geometry (polyline points, straighten line, zone pins), then the tool
     itself. Each of those is a view the user is inside and has to get out of, and a toggle
@@ -39,6 +39,9 @@ def _context_cancel(controller, window) -> None:
         return
     if controller.state.negative_peek:
         controller.toggle_negative_peek(force=False)
+        return
+    if controller.state.embedded_peek:
+        controller.toggle_embedded_peek(force=False)
         return
     if controller.state.flat_peek:
         controller.toggle_flat_peek(force=False)
@@ -173,6 +176,7 @@ class ShortcutManager:
             "analysis_draw": lambda: _toggle_tool_button(self.window, "setup", controls.process_sidebar.analysis_region_btn),
             "toggle_flat_peek": controller.toggle_flat_peek,
             "toggle_negative_peek": controller.toggle_negative_peek,
+            "toggle_embedded_peek": controller.toggle_embedded_peek,
             "toggle_zones": controller.toggle_zones_overlay,
             "toggle_test_strip": controller.toggle_test_strip,
             "toggle_ring_around": controller.toggle_ring_around,

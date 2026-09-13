@@ -136,7 +136,7 @@ def compute_local_maps(
 
     short_side = float(min(h, w))
     for mask in config.masks:
-        if len(mask.vertices) < min_points(mask.shape):
+        if not mask.enabled or len(mask.vertices) < min_points(mask.shape):
             continue
 
         transformed = [
