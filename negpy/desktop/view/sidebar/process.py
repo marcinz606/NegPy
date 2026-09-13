@@ -18,6 +18,7 @@ from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.hdr.logic import output_scale
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, hdr_active
+from negpy.features.process.logic import VALID_HIGHLIGHT_LEVELS
 from negpy.features.process.models import ProcessMode, cast_removal_for_mode, invalidate_local_bounds
 
 # Luma Range Clip slider mapping: positions 0 to 100 clip the histogram tails, and
@@ -49,6 +50,7 @@ _HIGHLIGHT_LEVELS = (
         0,
         " Off",
         "Off (default) — libraw's Clip. A blown highlight stays flat white, or magenta if one channel clipped before the others.",
+        "fa5s.ban",
     ),
     (
         2,
@@ -56,6 +58,7 @@ _HIGHLIGHT_LEVELS = (
         "Blend — recovers a plausible neutral color in a clipped highlight from the channels "
         "that are not clipped. Good for a genuinely neutral highlight: a sun disc, sky, chrome, "
         "a glass reflection, where the channels clip in close proportion.",
+        "fa5s.adjust",
     ),
     (
         5,
@@ -64,6 +67,7 @@ _HIGHLIGHT_LEVELS = (
         "misjudge a highlight that was a saturated color rather than a near-neutral one (a neon "
         "sign, a colored light source), since a clipped channel alone cannot tell the two apart. "
         "Judge it on the actual frame.",
+        "fa5s.sun",
     ),
 )
 
@@ -91,10 +95,16 @@ def _color_slider_to_value(pos: float) -> float:
 
 def _highlight_bucket(level: int) -> int:
     """Which of the three exposed buttons a stored value belongs under. Off and Blend are
-    exact; any other nonzero value is some Reconstruct level (3-9), so it buckets there —
-    the same "an unrecognised value still lands somewhere sane" idea as DemosaicMode's
+    exact; any other valid level is some Reconstruct level (3-9), so it buckets there — the
+    same "an unrecognised value still lands somewhere sane" idea as DemosaicMode's
     `_missing_`, since nothing here should leave the exclusive group with no button checked.
+
+    A value outside `VALID_HIGHLIGHT_LEVELS` (a hand-edited sidecar) buckets to Off,
+    matching `effective_highlight_reconstruction`'s own resolution — the panel must never
+    show Reconstruct armed while the decode actually clips.
     """
+    if level not in VALID_HIGHLIGHT_LEVELS:
+        return 0
     if level == 2:
         return 1
     return 2 if level else 0
@@ -275,13 +285,14 @@ class ProcessSidebar(BaseSidebar):
         self.layout.addLayout(transfer_row)
         self.layout.addWidget(self.render_ev_slider)
 
+        self.layout.addWidget(section_subheader("HIGHLIGHT RECONSTRUCTION"))
         self.highlight_btns = []
         self.highlight_btn_group = QButtonGroup(self)
         self.highlight_btn_group.setExclusive(True)
         highlight_row = QHBoxLayout()
         checked_bucket = _highlight_bucket(conf.highlight_reconstruction)
-        for i, (level, label, tip) in enumerate(_HIGHLIGHT_LEVELS):
-            btn = self._labeled_toggle("fa5s.sun", label, i == checked_bucket, tip)
+        for i, (level, label, tip, icon) in enumerate(_HIGHLIGHT_LEVELS):
+            btn = self._labeled_toggle(icon, label, i == checked_bucket, tip)
             self.highlight_btn_group.addButton(btn, i)
             highlight_row.addWidget(btn, 1)
             self.highlight_btns.append(btn)
@@ -394,7 +405,7 @@ class ProcessSidebar(BaseSidebar):
         self.controller.apply_config(new_config, persist=True)
 
     def _on_highlight_reconstruction_changed(self, bucket: int) -> None:
-        level, _label, _tip = _HIGHLIGHT_LEVELS[bucket]
+        level, _label, _tip, _icon = _HIGHLIGHT_LEVELS[bucket]
         self.update_config_section("process", highlight_reconstruction=level, render=True, persist=True)
 
     def _on_analysis_region_toggled(self, checked: bool) -> None:

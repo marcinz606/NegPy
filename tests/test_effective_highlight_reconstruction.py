@@ -167,15 +167,107 @@ class TestDecodeAsksTheGate:
         assert "effective_highlight_reconstruction" in inspect.getsource(controller)
         assert "effective_highlight_reconstruction" in inspect.getsource(render)
 
-    def test_every_decode_path_asks_whether_to_bake_white_balance(self):
-        """Unlike the level itself, preview_manager.py DOES ask this one directly — it
-        decides use_camera_wb locally rather than only forwarding a precomputed flag."""
+    def test_the_export_decode_asks_whether_to_bake_white_balance(self):
+        import inspect
+
+        from negpy.services.rendering import image_processor as ip
+
+        assert "highlight_reconstruction_bakes_wb" in inspect.getsource(ip)
+
+    def test_the_preview_bake_flag_is_asked_where_it_originates(self):
+        """Like highlight_mode itself, preview_manager.py only forwards a precomputed
+        bake_camera_wb flag; the gate is asked where the value originates."""
         import inspect
 
         from negpy.desktop import controller
         from negpy.desktop.workers import render
-        from negpy.services.rendering import image_processor as ip
-        from negpy.services.rendering import preview_manager
 
-        for module in (ip, preview_manager, controller, render):
-            assert "highlight_reconstruction_bakes_wb" in inspect.getsource(module)
+        assert "highlight_reconstruction_bakes_wb" in inspect.getsource(controller)
+        assert "highlight_reconstruction_bakes_wb" in inspect.getsource(render)
+
+
+class _SpyRaw:
+    """Records the kwargs its own postprocess() call received, and answers
+    camera_whitebalance the way rawpy would."""
+
+    raw_type = None
+    raw_pattern = None
+    sizes = None
+    camera_whitebalance = (1.9, 1.0, 1.55, 1.0)
+    rgb_xyz_matrix = None
+
+    def __init__(self) -> None:
+        self.seen: dict = {}
+
+    def __enter__(self) -> "_SpyRaw":
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def postprocess(self, **kwargs: object):
+        import numpy as np
+
+        self.seen.update(kwargs)
+        return np.zeros((4, 4, 3), dtype=np.uint16)
+
+
+class TestBrightGainReachesTheDecode:
+    """A baked decode must not just carry the real white balance -- it must also offset
+    the exposure libraw's own highlight-mode scaling takes back out (see
+    highlight_reconstruction_bright_gain), or turning Reconstruct on visibly darkens the
+    render.
+    """
+
+    def test_a_baked_export_decode_passes_the_compensating_bright(self):
+        from unittest.mock import patch
+
+        from negpy.services.rendering.image_processor import ImageProcessor
+
+        raw = _SpyRaw()
+        with patch("negpy.services.rendering.image_processor.loader_factory") as lf:
+            lf.get_loader.return_value = (raw, {})
+            ImageProcessor()._decode_sensor_rgb("/x.nef", linear_raw=True, highlight_mode=3, bake_camera_wb=True)
+
+        assert raw.seen["use_camera_wb"] is True
+        assert raw.seen["highlight_mode"] == 3
+        assert raw.seen["bright"] == pytest.approx(1.9 / 1.0)
+
+    def test_a_clip_mode_export_decode_passes_no_compensation(self):
+        from unittest.mock import patch
+
+        from negpy.services.rendering.image_processor import ImageProcessor
+
+        raw = _SpyRaw()
+        with patch("negpy.services.rendering.image_processor.loader_factory") as lf:
+            lf.get_loader.return_value = (raw, {})
+            ImageProcessor()._decode_sensor_rgb("/x.nef", linear_raw=True, highlight_mode=0, bake_camera_wb=False)
+
+        assert raw.seen["bright"] == 1.0
+
+    def test_a_baked_preview_decode_passes_the_compensating_bright(self):
+        from unittest.mock import patch
+
+        from negpy.services.rendering.preview_manager import PreviewManager
+
+        raw = _SpyRaw()
+        with patch("negpy.services.rendering.preview_manager.loader_factory") as lf:
+            lf.get_loader.return_value = (raw, {"color_space": "Adobe RGB"})
+            PreviewManager().load_linear_preview("/x.nef", highlight_mode=3, bake_camera_wb=True)
+
+        assert raw.seen["bright"] == pytest.approx(1.9 / 1.0)
+
+    def test_a_bracket_siblings_wb_override_pads_to_the_length_rawpy_requires(self):
+        """camera_wb_multipliers only ever supplies [R, G, B]; rawpy's user_wb needs
+        [R, G, B, G2], or Params.__init__ raises AssertionError."""
+        from unittest.mock import patch
+
+        from negpy.services.rendering.image_processor import ImageProcessor
+
+        raw = _SpyRaw()
+        with patch("negpy.services.rendering.image_processor.loader_factory") as lf:
+            lf.get_loader.return_value = (raw, {})
+            ImageProcessor()._decode_sensor_rgb("/x.nef", linear_raw=True, highlight_mode=3, wb_override=[1.9, 1.0, 1.55])
+
+        assert raw.seen["user_wb"] == [1.9, 1.0, 1.55, 1.0]
+        assert raw.seen["bright"] == pytest.approx(1.9 / 1.0)

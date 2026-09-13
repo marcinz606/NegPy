@@ -547,7 +547,13 @@ class PreviewManager:
 
         The merged result is cached, so re-visiting a bracket skips every sibling decode
         and the phase-correlate align — the same contract as the triplet merge above.
+
+        ``bake_camera_wb`` is always ignored: a bracket has no per-frame white-balance
+        pinning for a baked decode (unlike export, which pins every frame to the
+        reference's white balance), so reconstruction stays on the neutral decode here
+        regardless of what a caller passes. The single gate lives here, not at each caller.
         """
+        bake_camera_wb = False
         other_paths, ratios, align = hdr.hdr_paths, hdr.hdr_ratios, hdr.hdr_align
         anchor = resolve_anchor([reference_path, *other_paths], ratios, hdr)
         merged_key = None

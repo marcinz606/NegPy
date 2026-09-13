@@ -200,6 +200,19 @@ def test_highlight_reconstruction_buckets_an_unnamed_level_under_reconstruct(qap
     assert not off_btn.isChecked() and not blend_btn.isChecked()
 
 
+def test_highlight_reconstruction_buckets_an_invalid_level_under_off(qapp):
+    """A level effective_highlight_reconstruction itself would reject (a hand-edited
+    sidecar) must not show Reconstruct armed while the decode actually clips."""
+    controller, sidebar = _sidebar()
+    off_btn, blend_btn, reconstruct_btn = sidebar.highlight_btns
+
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, highlight_reconstruction=1))
+    sidebar.sync_ui()
+    assert off_btn.isChecked()
+    assert not blend_btn.isChecked() and not reconstruct_btn.isChecked()
+
+
 def test_highlight_reconstruction_click_reaches_the_controller(qapp):
     controller, sidebar = _sidebar()
     cfg = controller.state.config

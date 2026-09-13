@@ -83,6 +83,16 @@ class SolvePin(unittest.TestCase):
         this went unnoticed: the default slide bracket was never exposed to it."""
         self.assertEqual(_run(_slide(e6_normalize=False, linear_raw=False)), [None, None, None])
 
+    def test_a_reconstruction_bracket_on_the_transfer_path_is_pinned(self):
+        """An active reconstruction bakes real white balance into the transfer path's
+        decode (see highlight_reconstruction_bakes_wb), so the solve must pin to it the
+        same way it pins a Normalize bracket's as-shot gains — else the solve sees a
+        neutral decode while the render it feeds bakes a real one."""
+        overrides = _run(_slide(e6_normalize=False, linear_raw=False, highlight_reconstruction=3))
+
+        self.assertIsNone(overrides[0], "the first frame supplies the pin, it cannot take one")
+        self.assertEqual(overrides[1:], [list(_WB), list(_WB)])
+
 
 class WhenItMatters(unittest.TestCase):
     """What an unshared white balance actually does to a solved ratio.

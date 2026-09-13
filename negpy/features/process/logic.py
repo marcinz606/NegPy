@@ -84,7 +84,7 @@ def should_fold_camera_wb(process: ProcessConfig, render_intent: Optional[str] =
     return effective_linear_raw(process, render_intent) and not process.narrowband_scan
 
 
-_VALID_HIGHLIGHT_LEVELS = frozenset({0, 2, 3, 4, 5, 6, 7, 8, 9})
+VALID_HIGHLIGHT_LEVELS = frozenset({0, 2, 3, 4, 5, 6, 7, 8, 9})
 
 
 def effective_highlight_reconstruction(process: ProcessConfig) -> int:
@@ -108,7 +108,7 @@ def effective_highlight_reconstruction(process: ProcessConfig) -> int:
     if process.process_mode != ProcessMode.E6 or process.narrowband_scan:
         return 0
     value = int(process.highlight_reconstruction)
-    return value if value in _VALID_HIGHLIGHT_LEVELS else 0
+    return value if value in VALID_HIGHLIGHT_LEVELS else 0
 
 
 def highlight_reconstruction_token(process: ProcessConfig) -> str:

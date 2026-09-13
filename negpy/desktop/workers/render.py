@@ -1168,10 +1168,15 @@ def decode_asset_preview(
     }
     hdr = config.hdr
     if hdr.hdr_enabled and hdr.hdr_paths:
-        # No bake_camera_wb: the preview HDR path has no per-frame white-balance pinning
-        # (unlike export), so an active reconstruction stays on the neutral decode here.
+        # bake_camera_wb reaches load_linear_preview_hdr, which ignores it: a bracket has
+        # no per-frame white-balance pinning for a baked decode, unlike export.
         raw, _, _ = preview_service.load_linear_preview_hdr(
-            file_info["path"], hdr, workspace_color_space, highlight_mode=effective_highlight_reconstruction(config.process), **common
+            file_info["path"],
+            hdr,
+            workspace_color_space,
+            highlight_mode=effective_highlight_reconstruction(config.process),
+            bake_camera_wb=highlight_reconstruction_bakes_wb(config.process, config.exposure.render_intent),
+            **common,
         )
     elif rgbscan.enabled and rgbscan.green_path and rgbscan.blue_path:
         # Narrowband triplet: no highlight_mode param, same reasoning as the decode path —
