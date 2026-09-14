@@ -305,11 +305,8 @@ class ExportWorker(QObject):
                 tmp_path = tmp.name
                 tmp.write(bits)
             os.replace(tmp_path, path)
-            # The EXIF/XMP dates above are already correct (even in Protect Original
-            # Metadata mode); it's the *filesystem* mtime/creation date that's stamped
-            # "now" by the write above with nothing else to correct it. Mirror the
-            # source's own filesystem date so tools that sort/filter by file date
-            # (rather than embedded EXIF) show the right one.
+            # The write above stamps the filesystem dates with the export time; the EXIF
+            # dates are already right. Tools that sort by file date read the former.
             sync_export_filesystem_dates(path, task.file_info["path"])
         except Exception as write_err:
             if tmp_path is not None and os.path.exists(tmp_path):

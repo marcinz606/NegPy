@@ -172,7 +172,10 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(600, self.show_scan_setup)
 
     def _restore_window_geometry(self) -> None:
-        """Open clamped to the screen work area, restoring the saved size/position if any."""
+        """Restore the window state and geometry, with a legacy size/position fallback."""
+        encoded = self.controller.session.repo.get_global_setting("window_geometry_qt")
+        if isinstance(encoded, str) and self.restoreGeometry(QByteArray.fromBase64(encoded.encode("utf-8"))):
+            return
         screen = QApplication.primaryScreen()
         if screen is None:
             self.resize(_DEFAULT_W, _DEFAULT_H)
@@ -190,10 +193,10 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         try:
-            # normalGeometry, so a maximized window reopens maximized over its own restored size.
-            geo = self.normalGeometry() if self.isMaximized() else self.geometry()
+            geo = self.normalGeometry() if self.isMaximized() or self.isFullScreen() else self.geometry()
             self.controller.session.repo.save_global_settings(
                 {
+                    "window_geometry_qt": bytes(self.saveGeometry().toBase64()).decode("ascii"),
                     "window_geometry": [geo.x(), geo.y(), geo.width(), geo.height()],
                     "window_maximized": self.isMaximized(),
                     "dock_state": bytes(self.saveState().toBase64()).decode("ascii"),

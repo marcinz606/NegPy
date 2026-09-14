@@ -844,8 +844,7 @@ class CanvasOverlay(QWidget):
         painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, text)
 
     def _draw_peek_badge(self, painter: QPainter) -> None:
-        """Name the peek on the canvas. A peek replaces the print with something that is not
-        one, and the only other thing that says so is a toolbar button off at the edge."""
+        """Name the peek on the canvas. Otherwise only the toolbar says the view is on."""
         text = "NEGATIVE" if self.state.negative_peek else ("EMBEDDED" if self.state.embedded_peek else "FLAT SCAN")
         rect = self._content_view_rect()
         if rect.isEmpty():
@@ -1847,8 +1846,8 @@ class CanvasOverlay(QWidget):
 
     def _draw_printing_notes(self, painter: QPainter) -> None:
         """The printer's marked-up work print: hatched burns, open dodges, ±stop badges,
-        and the print recipe. A hidden (eye-off) mask still burns, so it stays on the
-        map; a disabled one does not print at all, so it is left off."""
+        and the print recipe. A hidden (eye-off) mask still burns, so it stays on the map;
+        a disabled one prints nothing, so it is left off."""
         rect = self._content_view_rect()
         notes_by_number = {n.number: n for n in mask_notes(self.state.config.local, self.state.config.exposure.grade)}
         polys = [

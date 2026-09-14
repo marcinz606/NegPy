@@ -304,7 +304,10 @@ def test_detect_luma_score_joins_a_hair_into_one_component():
 
 
 def test_detect_bar_is_monotonic():
-    assert detect_bar(0.0) < detect_bar(0.5) < detect_bar(1.0)
+    bars = [detect_bar(s) for s in np.linspace(0.0, 1.0, 21)]
+    assert all(a < b for a, b in zip(bars, bars[1:]))
+    assert detect_bar(0.0) == 3.0 and detect_bar(0.66) == 9.0 and detect_bar(1.0) == 48.0
+    assert abs(detect_bar(0.66 - 1e-6) - detect_bar(0.66 + 1e-6)) < 1e-3
 
 
 def test_lower_threshold_marks_more_and_the_deepest_speck_always():
@@ -312,10 +315,19 @@ def test_lower_threshold_marks_more_and_the_deepest_speck_always():
     img[80:83, 80:83] = 0.18
     for y, level in ((40, 0.005), (100, 0.06), (160, 0.11)):
         img[y : y + 3, 100:103] = level
-    counts = [int(_marked(img, thr).sum()) for thr in (0.3, 0.66, 0.9)]
-    assert counts[0] >= counts[1] >= counts[2] > 0
-    for thr in (0.3, 0.66, 0.9):
+    sweep = (0.3, 0.66, 0.9, 1.0)
+    counts = [int(_marked(img, thr).sum()) for thr in sweep]
+    assert counts[0] >= counts[1] >= counts[2] >= counts[3] > 0
+    for thr in sweep:
         assert _marked(img, thr)[40:43, 100:103].any(), f"deepest speck lost at {thr}"
+
+
+def test_detect_bar_top_rejects_a_strong_mark():
+    rng = np.random.default_rng(42)
+    img = (np.full((200, 200, 3), 0.18) * (1.0 + rng.normal(0, 0.06, (200, 200, 3)))).astype(np.float32)
+    img[100:103, 100:103] = 0.10
+    assert _marked(img, 0.66)[100:103, 100:103].any()
+    assert not _marked(img, 1.0).any()
 
 
 def test_detect_luma_score_grainy_clean_frame_is_empty():

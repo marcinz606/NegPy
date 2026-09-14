@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 
+import numpy as np
 import pytest
 
 from negpy.infrastructure.scanners.base import ScannerDevice
@@ -230,3 +231,24 @@ def test_ejecting_forgets_the_strip_pass_because_that_film_is_gone() -> None:
 
     backend.eject(device.id)
     assert backend.strip_pass(device.id) is None
+
+
+def test_a_tile_is_cut_at_the_address_the_scan_will_use() -> None:
+    """The tile uses the column pitch the pass measured, not optical over thumbnail dpi."""
+    backend, module = make_backend()
+    device = backend.list_devices()[0]
+    session = backend.open_roll(device, dpi=500)
+    try:
+        previews = _previews(session)
+    finally:
+        session.close()
+
+    scale = module.addresses_per_column
+    strip = backend.strip_pass(device.id)
+    assert strip is not None
+    for preview, (slot, rect) in zip(previews, enumerate(module.frames, 1)):
+        expected = strip[:, round(rect[0] / scale) : round(rect[2] / scale)]
+        assert preview.rgb.shape[1] == expected.shape[1]
+        # Every band carries its own slot, so a tile cut at the wrong column opens on the gap.
+        assert set(np.unique(preview.rgb[:, 0])) == {slot}
+        assert set(np.unique(preview.rgb)) <= {0, slot}

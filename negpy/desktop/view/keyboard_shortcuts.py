@@ -32,8 +32,7 @@ def _context_cancel(controller, window) -> None:
     """Esc ladder: whatever has taken the canvas over goes first — a test strip, any peek,
     the before/after split — then the grain focuser loupe, then an armed zone, then
     in-progress tool geometry (polyline points, straighten line, zone pins), then the tool
-    itself. Each of those is a view the user is inside and has to get out of, and a toggle
-    they have to find again to leave is the thing Esc is for."""
+    itself."""
     if controller.state.test_strip or controller.state.test_strip_pending:
         controller.toggle_test_strip(force=False)
         return

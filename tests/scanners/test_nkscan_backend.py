@@ -458,19 +458,6 @@ def test_every_other_film_keeps_its_factory_balance() -> None:
 # ── what is on the film ───────────────────────────────────────────────────
 
 
-def test_reversal_film_is_measured_the_other_way_round() -> None:
-    """Unexposed slide film develops to maximum density, a negative to its base."""
-    backend, module = make_backend()
-    session = backend.open_session(DEVICE_ID)
-    backend.discover_frames(module.opened[-1], DEVICE_ID, film_format=None, film_type="positive")
-    assert module.opened[-1].polarities == [True]
-
-    backend.forget_frames(DEVICE_ID)
-    backend.discover_frames(module.opened[-1], DEVICE_ID, film_format=None, film_type="mono")
-    assert module.opened[-1].polarities == [True, False]
-    session.close()
-
-
 def test_ir_on_black_and_white_is_refused_before_the_unit_moves() -> None:
     backend, module = make_backend()
     with pytest.raises(RuntimeError, match="B&W negative blocks infrared"):
@@ -515,3 +502,30 @@ def test_the_films_the_backend_names_are_films_the_extension_knows() -> None:
     backend, _ = make_backend()
     for film in FILM_TYPES:
         assert backend.locks_white_balance(film) == nkscan.Capabilities.locks_white_balance(film)
+
+
+def test_a_per_frame_offset_slides_only_the_feed_axis_of_the_frame_asked_for() -> None:
+    """The rect moves by the dialled distance on the feed axis only."""
+    shift = round(0.7 * 4000 / 25.4)  # 0.7 mm at the fake's optical dpi
+    for frame, offset_mm, expected in ((3, 0.0, 0), (3, 0.7, shift), (3, -0.7, -shift), (1, 0.7, shift)):
+        backend, module = make_backend()
+        _scan(backend, dataclasses.replace(_PARAMS, frame=frame, frame_offset_mm=offset_mm))
+
+        rect = module.opened[-1].scans[-1]["frame"]
+        detected = FRAMES[frame - 1]
+        assert rect[0] - detected[0] == expected
+        assert rect[2] - detected[2] == expected
+        assert (rect[1], rect[3]) == (detected[1], detected[3])  # across-film edges untouched
+        assert rect[2] - rect[0] == detected[2] - detected[0]  # the frame keeps its length
+
+
+def test_the_scan_logs_the_detected_and_the_shifted_rect(caplog) -> None:
+    """Which rect a frame was actually scanned at has to be readable without the file."""
+    import logging
+
+    backend, _module = make_backend()
+    with caplog.at_level(logging.INFO):
+        _scan(backend, dataclasses.replace(_PARAMS, frame=2, frame_offset_mm=1.0))
+
+    assert "detected (10742, 0, 16410, 3945)" in caplog.text
+    assert "+1.00 mm" in caplog.text

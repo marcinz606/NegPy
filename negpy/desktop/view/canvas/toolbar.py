@@ -259,8 +259,8 @@ class ActionToolbar(QWidget):
         # current canvas width. "More actions" is a stable, complete menu the user can always
         # find everything in, not a residue of the row's responsive collapse. It used to lose
         # entries whenever a side panel toggle gave the row enough width to show them directly.
-        # A checkable item carries no icon. Under the app stylesheet Qt draws a menu icon in
-        # the check column, and the checkmark is the only thing that says the view is on.
+        # A checkable item carries no icon: the stylesheet puts a menu icon in the check
+        # column, which hides the checkmark that says the view is on.
         self._ov_hq_action = overflow_menu.addAction("Toggle HQ Preview")
         self._ov_hq_action.setCheckable(True)
         self._tip(self._ov_hq_action, "Toggle high-quality (full-resolution) preview", "toggle_hq")

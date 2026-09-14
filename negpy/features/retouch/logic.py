@@ -28,10 +28,11 @@ _DETECT_PAD_PX = 2.5
 _DETECT_AVG_PX = 3
 _DETECT_MAD_GAIN = 4.0
 _DETECT_SIGMA_MIN = 0.003
-# Slider → seed bar in σ; the default sits near the top of the range where clean film of any
-# grain yields at most a handful of marks per frame.
+# Slider → seed bar in σ: linear to the default, geometric above it.
 _DETECT_Z_LOOSE = 3.0
-_DETECT_Z_TIGHT = 12.0
+_DETECT_Z_DEFAULT = 9.0
+_DETECT_Z_TIGHT = 48.0
+_DETECT_DEFAULT_POS = 0.66
 # Hysteresis: a component seeded above the bar grows through connected pixels down to this
 # floor (absolute, or a fraction of the seed bar), within a reach of the seed. Grain is
 # isolated, so it never joins; a defect's soft skirt does.
@@ -310,7 +311,10 @@ def compute_dust_stats(img: ImageBuffer, dust_size: int) -> Tuple[np.ndarray, ..
 def detect_bar(slider: float) -> float:
     """UI Threshold (higher = conservative) → the seed bar in local σ."""
     s = float(np.clip(slider, 0.0, 1.0))
-    return _DETECT_Z_LOOSE + (_DETECT_Z_TIGHT - _DETECT_Z_LOOSE) * s
+    if s <= _DETECT_DEFAULT_POS:
+        return _DETECT_Z_LOOSE + (_DETECT_Z_DEFAULT - _DETECT_Z_LOOSE) * s / _DETECT_DEFAULT_POS
+    t = (s - _DETECT_DEFAULT_POS) / (1.0 - _DETECT_DEFAULT_POS)
+    return _DETECT_Z_DEFAULT * (_DETECT_Z_TIGHT / _DETECT_Z_DEFAULT) ** t
 
 
 def detect_luma_score(

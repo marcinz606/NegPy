@@ -224,6 +224,25 @@ class TestRenderScanFilename:
             assert os.path.exists(path2)
             assert path1 != path2
 
+    def test_the_mono_format_writes_one_plane_and_keeps_the_tif_extension(self) -> None:
+        import tempfile
+
+        import numpy as np
+        import tifffile
+
+        from negpy.infrastructure.scanners.result import ScanResult
+        from negpy.infrastructure.scanners.settings import MONO_TIFF
+
+        result = ScanResult(rgb=np.zeros((8, 8, 3), dtype=np.uint16), ir=None, dpi=300, device_model="Test")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            service = ScannerService()
+            service._backend = FakeBackend()
+            path = service.write_result(result, tmpdir, '{{ date }}_{{ "%03d" % seq }}', MONO_TIFF)
+
+            assert path.endswith(".tif")
+            assert tifffile.imread(path).shape == (8, 8)
+
     def test_write_refuses_a_pattern_that_does_not_vary_with_sequence(self) -> None:
         import tempfile
 
@@ -273,8 +292,8 @@ def test_open_roll_wraps_a_backend_that_scans_one_frame_at_a_time(fake_device: S
 
 
 class _MeasuringBackend(FakeBackend):
-    def detect_frames(self, device_id: str, *, film_format: str | None = None, film_type: str = "negative") -> int:
-        self.detect_args = (device_id, film_format, film_type)
+    def detect_frames(self, device_id: str, *, film_format: str | None = None) -> int:
+        self.detect_args = (device_id, film_format)
         return 4
 
 
@@ -283,8 +302,8 @@ def test_detect_frames_asks_the_backend_that_can_measure(fake_device: ScannerDev
     backend = _MeasuringBackend([fake_device])
     service._backend = backend
 
-    assert service.detect_frames("fake:001", film_format="135", film_type="positive") == 4
-    assert backend.detect_args == ("fake:001", "135", "positive")
+    assert service.detect_frames("fake:001", film_format="135") == 4
+    assert backend.detect_args == ("fake:001", "135")
 
 
 def test_a_backend_that_counts_slots_measures_nothing(fake_device: ScannerDevice) -> None:

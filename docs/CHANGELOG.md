@@ -1,5 +1,29 @@
 # Change Log
 
+## 0.59.0
+
+- New: **Per-frame registration in the Coolscan strip preview** — every frame tile gets its own offset slider on top of the roll-wide Offset and Drift, for a splice or a mis-fired advance; tiles gain a size slider, the detected boundary is outlined in the accent color, a measured strip finds its frames as the dialog opens, and a moved offset re-cuts the tile. Needs nkscan 0.11.0, which also fixes tile pitch and low-DPI scans on the LS-5000.
+- New: **TIFF (mono) scan format** — one 16-bit gray plane for single-record film, a third the size; NegPy reads its own mono scans back.
+- New: **Positive** — a Process toggle beside Normalize for a source that is already a finished positive: it decodes the file's own profile and skips the as-captured lift and highlight roll-off. @PabloRuizCuevas
+- New: **Per-frame half-frame splits** — a scan can use its own detected gutter or a hand-set one, applied to the current, selected or all frames; heal strokes, spots, lines and masks re-anchor across a split or crop change. @PabloRuizCuevas
+- New: **Peek Embedded Preview** — the camera's own JPEG of the capture, as an outside reference for the decode; every peek now badges the canvas, checks in the menu, and leaves with Esc. @seanharding
+- New: **Per-mask enable/disable** — click a mask's shape icon in Dodge & Burn to suppress it without deleting it; the tint overlay and Printing Notes skip it. @thetalkingdrum
+- Change: **DNG scan output retired** — scans write TIFF; reading LinearRaw DNGs is unchanged.
+- Change: **UI consistency pass** — toasts colored by severity and a failed export no longer blanks the canvas, a GPU viewport that fails to start says so and falls back to CPU, dock layout and active tab survive a restart, one Enter target per dialog, one section factory with a ⓘ guide, every color and size from the theme, one spelling and casing scheme, and the keyboard docs and tutorial read the shortcut registry.
+- Change: **Fast interactive geometry drags** — fine rotation, keystone and the crop tool no longer drop to the CPU engine or re-measure the frame per step. @PabloRuizCuevas
+- Change: **Painted heal strokes bake incrementally** — a new stroke no longer re-runs every earlier one. @PabloRuizCuevas
+- Change: **Lower memory for Linear DNG decoding and CPU export.** @hsnilsson
+- Fix: **Optical Removal's Threshold reaches past 12σ** — the top of the slider now runs to 48σ, where a specular highlight or a rail edge sits, so those can be gated out; a setting at or below the default renders as before.
+- Fix: **Stale Narrowband flag tinted a slide green** — the flag is now inert on a transparency everywhere. @seanharding
+- Fix: **Peek Negative renders the way the negative looks** — as-shot multipliers fold in and the view gets a brightness level, so an orange mask reads as one. @seanharding
+- Fix: **Linear Output records the demosaic algorithm it ran.** @thetalkingdrum
+- Fix: **Arrow keys step a slider by its declared step** — fractional sliders moved by 1/precision, so a Grade press moved 0.01 ISO-R. @PabloRuizCuevas
+- Fix: **No traceback while dragging Border Width** — a retired texture could be drawn from between frames. @dtrtuser
+- Fix: **Filename and contact-sheet path fields keep the cursor while typing.** @TobbyTravel
+- Fix: **Scanlight v4b recognized** — the newer v4 PCB has white LEDs, so the W slider and the White Light preset work. @ianfyffe
+- Fix: **JPEG exports with GPS or PrintImageMatching tags are readable** — high-numbered camera tags broke IFD0 order and the dates and coordinates after it. @jihorba
+- Fix: **Exported files carry the source's filesystem dates** — mtime, and the creation date on macOS. @jihorba
+
 ## 0.58.0
 
 - New: **Print tone grounded in the photofinishing literature** — the default print envelope, Auto Grade and Auto Density were retuned against published preferred-reproduction data; both meters now read textured parts of the frame only, so rebate, sky and flat walls no longer set grade or exposure. **Retune your Auto Grade and Auto Density targets** — existing frames on the automatic helpers will print differently.

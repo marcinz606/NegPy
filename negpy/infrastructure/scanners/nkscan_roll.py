@@ -26,17 +26,6 @@ logger = get_logger(__name__)
 _PREVIEW_DEPTH_DPI = 0  # the strip pass has its own resolution; nothing chooses it
 
 
-def thumbnail_scale(rect: tuple[int, int, int, int], rows: int) -> float:
-    """Stage addresses per thumbnail pixel.
-
-    The strip pass covers the adapter's opening across the film and the whole feed axis along
-    it, at one resolution on both axes, and every measured rect spans that same opening. So the
-    frame's width over the pass's row count is the scale, and a column is a feed address.
-    """
-    _top, left, _bottom, right = rect
-    return (right - left) / rows if rows else 0.0
-
-
 def slice_frame(strip: np.ndarray, rect: tuple[int, int, int, int], scale: float) -> np.ndarray | None:
     """The frame's own pixels out of the strip pass, or None when it falls outside.
 
@@ -119,15 +108,11 @@ class NkscanRollSession:
         rect = self._rect(slot)
         strip = self.thumbnail
         if strip is not None:
-            tile = slice_frame(strip, rect, self._scale(strip))
+            tile = slice_frame(strip, rect, self._backend.addresses_per_column(self._device.id) or 0.0)
             if tile is not None:
                 return tile
             logger.info("Slot %s falls outside the strip pass; scanning it instead", slot)
         return self._scan_preview(rect, cancel)
-
-    def _scale(self, strip: np.ndarray) -> float:
-        frames = self._backend.frames(self._device.id)
-        return thumbnail_scale(frames[0], strip.shape[0]) if frames else 0.0
 
     def _scan_preview(self, rect: tuple[int, int, int, int], cancel: threading.Event) -> np.ndarray:
         """A pass of one frame, for a mechanism that measured the film without a strip pass."""
@@ -154,7 +139,6 @@ class NkscanRollSession:
                 self._session,
                 self._device.id,
                 film_format=self._film_format,
-                film_type=self._film_type,
                 progress=_progress_bridge(None, cancel),
             )
             frames = self._backend.frames(self._device.id)

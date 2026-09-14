@@ -225,6 +225,10 @@ _RAW_PREVIEW_0TH_TAGS = frozenset(
         513,
         514,
         piexif.ImageIFD.TIFFEPStandardID,
+        # PrintImageMatching: a printer color-correction table for the source sensor
+        # image, meaningless once the frame is rendered and re-encoded. It also sits
+        # above GPSTag, so _MAX_SAFE_0TH_TAG below would drop it anyway.
+        0xC4A5,
     }
 )
 
@@ -240,6 +244,14 @@ _RAW_CAPTURE_EXIF_TAGS = frozenset(
         piexif.ExifIFD.SceneType,
     }
 )
+
+
+# piexif (1.1.3) dump() appends the ExifIFD/GPSIFD pointer entries (0x8769/0x8825) after
+# the sorted run of ordinary 0th-IFD tags instead of sorting them in, so a 0th tag
+# numbered above them leaves IFD0 out of ascending order, and the Exif/GPS value offsets
+# computed from it land inside their own IFD tables. GPSTag is the highest pointer piexif
+# places this way, so nothing above it can be kept, whatever vendor wrote it.
+_MAX_SAFE_0TH_TAG = piexif.ImageIFD.GPSTag
 
 
 def _sanitize_exif(exif_dict: dict) -> dict:
@@ -269,6 +281,8 @@ def _sanitize_exif(exif_dict: dict) -> dict:
         clean = {}
         for tag, value in ifd_data.items():
             if ifd_name == "0th" and tag in _RAW_PREVIEW_0TH_TAGS:
+                continue
+            if ifd_name == "0th" and tag > _MAX_SAFE_0TH_TAG:
                 continue
             if ifd_name == "Exif" and tag in _RAW_CAPTURE_EXIF_TAGS:
                 continue
