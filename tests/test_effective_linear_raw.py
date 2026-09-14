@@ -123,6 +123,14 @@ class TestShouldFoldCameraWb:
         of it regardless of the light — same as the non-narrowband case."""
         assert not should_fold_camera_wb(replace(cfg(ProcessMode.C41, linear_raw=False), narrowband_scan=True))
 
+    def test_never_folds_when_reconstruction_bakes_white_balance_in(self):
+        """An active reconstruction on the transfer path bakes real white balance into the
+        decode itself (see highlight_reconstruction_bakes_wb); folding it again here would
+        double-apply it, even though effective_linear_raw alone still reads True."""
+        transfer_with_reconstruction = replace(cfg(ProcessMode.E6, normalize=False, linear_raw=False), highlight_reconstruction=5)
+        assert effective_linear_raw(transfer_with_reconstruction)
+        assert not should_fold_camera_wb(transfer_with_reconstruction)
+
 
 class TestDecodeAndMatrixAgree:
     """The decode and the camera matrix must make the same choice.

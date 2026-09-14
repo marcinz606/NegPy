@@ -14,7 +14,7 @@ from negpy.features.flatfield.logic import apply_flatfield
 from negpy.features.hdr.models import HdrConfig, hdr_active
 from negpy.features.geometry.batch_autocrop import CropEvidence, detect_crop_candidate, resolve_roll_crops
 from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix
-from negpy.features.process.logic import effective_linear_raw
+from negpy.features.process.logic import effective_highlight_reconstruction, effective_linear_raw, highlight_reconstruction_bakes_wb
 from negpy.features.process.models import DemosaicMode
 from negpy.infrastructure.loaders.helpers import unsupported_raw_reason
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
@@ -188,6 +188,8 @@ class PreviewLoadTask:
     workspace_color_space: str
     use_camera_wb: bool
     positive_source: bool = False
+    highlight_mode: int = 0
+    bake_camera_wb: bool = False
     full_resolution: bool = False
     file_hash: str | None = None
     use_splash: bool = True
@@ -939,6 +941,8 @@ class PreviewLoadWorker(QObject):
                     half_slice=task.half_slice,
                     demosaic=task.demosaic,
                     positive_source=task.positive_source,
+                    highlight_mode=task.highlight_mode,
+                    bake_camera_wb=task.bake_camera_wb,
                 )
             except Exception as e:
                 logger.debug("Preview cache warm failed for %s: %s", task.file_path, e)
@@ -957,6 +961,8 @@ class PreviewLoadWorker(QObject):
                     file_hash=task.file_hash,
                     flatfield_profile_id=task.flatfield_profile_id,
                     demosaic=task.demosaic,
+                    highlight_mode=task.highlight_mode,
+                    bake_camera_wb=task.bake_camera_wb,
                 )
                 source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
                 ir_preview = metadata.get("ir_preview")
@@ -991,6 +997,8 @@ class PreviewLoadWorker(QObject):
                     full_resolution=task.full_resolution,
                     file_hash=task.file_hash,
                     demosaic=task.demosaic,
+                    highlight_mode=task.highlight_mode,
+                    bake_camera_wb=task.bake_camera_wb,
                 )
                 source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
                 ir_preview = metadata.get("ir_preview")
@@ -1060,6 +1068,8 @@ class PreviewLoadWorker(QObject):
                     half_slice=task.half_slice,
                     demosaic=task.demosaic,
                     positive_source=task.positive_source,
+                    highlight_mode=task.highlight_mode,
+                    bake_camera_wb=task.bake_camera_wb,
                 )
                 if sp is not None:
                     sbuf, sdims = sp
@@ -1075,6 +1085,8 @@ class PreviewLoadWorker(QObject):
                     half_slice=task.half_slice,
                     demosaic=task.demosaic,
                     positive_source=task.positive_source,
+                    highlight_mode=task.highlight_mode,
+                    bake_camera_wb=task.bake_camera_wb,
                 )
             source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
             ir_preview = metadata.get("ir_preview")
@@ -1156,12 +1168,26 @@ def decode_asset_preview(
     }
     hdr = config.hdr
     if hdr.hdr_enabled and hdr.hdr_paths:
-        raw, _, _ = preview_service.load_linear_preview_hdr(file_info["path"], hdr, workspace_color_space, **common)
+        raw, _, _ = preview_service.load_linear_preview_hdr(
+            file_info["path"],
+            hdr,
+            workspace_color_space,
+            highlight_mode=effective_highlight_reconstruction(config.process),
+            bake_camera_wb=highlight_reconstruction_bakes_wb(config.process, config.exposure.render_intent),
+            **common,
+        )
     elif rgbscan.enabled and rgbscan.green_path and rgbscan.blue_path:
+        # Narrowband triplet: no highlight_mode param, same reasoning as the decode path —
+        # a single raw channel per exposure has no "highlight color" to reconstruct.
         raw, _, _ = preview_service.load_linear_preview_rgb(file_info["path"], rgbscan, workspace_color_space, **common)
     else:
         raw, _, _ = preview_service.load_linear_preview(
-            file_info["path"], workspace_color_space, positive_source=config.process.positive_source, **common
+            file_info["path"],
+            workspace_color_space,
+            positive_source=config.process.positive_source,
+            highlight_mode=effective_highlight_reconstruction(config.process),
+            bake_camera_wb=highlight_reconstruction_bakes_wb(config.process, config.exposure.render_intent),
+            **common,
         )
     return slice_for_asset(raw, file_info)
 

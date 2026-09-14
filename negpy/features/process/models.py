@@ -83,6 +83,10 @@ class ProcessConfig:
     # See loaders/helpers.get_best_demosaic_algorithm for what AUTO resolves to on each path.
     demosaic_preview: DemosaicMode = DemosaicMode.AUTO
     demosaic_export: DemosaicMode = DemosaicMode.AUTO
+    # libraw HighlightMode: 0=Clip (current behaviour), 2=Blend, 3-9=Reconstruct(level).
+    # 1 (Ignore) is reserved for a separate decode-correctness fix and is never valid here.
+    # Only meaningful on the positive path; see effective_highlight_reconstruction.
+    highlight_reconstruction: int = 0
     analysis_buffer: float = 0.05
     # Optional freehand analysis region, normalized in the transformed (display)
     # image, the same space as the manual crop rect. When set it is the exact area the
