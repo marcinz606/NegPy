@@ -13,6 +13,7 @@
 - Change: **Fast interactive geometry drags** — fine rotation, keystone and the crop tool no longer drop to the CPU engine or re-measure the frame per step. @PabloRuizCuevas
 - Change: **Painted heal strokes bake incrementally** — a new stroke no longer re-runs every earlier one. @PabloRuizCuevas
 - Change: **Lower memory for Linear DNG decoding and CPU export.** @hsnilsson
+- Fix: **Optical Removal's Threshold reaches past 12σ** — the top of the slider now runs to 48σ, where a specular highlight or a rail edge sits, so those can be gated out; a setting at or below the default renders as before.
 - Fix: **Stale Narrowband flag tinted a slide green** — the flag is now inert on a transparency everywhere. @seanharding
 - Fix: **Peek Negative renders the way the negative looks** — as-shot multipliers fold in and the view gets a brightness level, so an orange mask reads as one. @seanharding
 - Fix: **Linear Output records the demosaic algorithm it ran.** @thetalkingdrum
