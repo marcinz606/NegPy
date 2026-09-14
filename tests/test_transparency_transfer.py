@@ -381,6 +381,46 @@ class TestControlsStayLive(unittest.TestCase):
         delta = (warmed - self.base).reshape(-1, 3).mean(axis=0)
         self.assertGreater(abs(float(delta[0])), 1e-4)
 
+    def test_shadow_and_highlight_white_balance_still_shift_channels(self):
+        """Regression for issue #1077: Shadows/Highlights WB did nothing on Slides
+        because the transfer path never read shadow_cyan/highlight_cyan at all."""
+        shadow = self._rendered(shadow_cyan=0.5)
+        delta_shadow = (shadow - self.base).reshape(-1, 3).mean(axis=0)
+        self.assertGreater(abs(float(delta_shadow[0])), 1e-4)
+
+        highlight = self._rendered(highlight_cyan=0.5)
+        delta_highlight = (highlight - self.base).reshape(-1, 3).mean(axis=0)
+        self.assertGreater(abs(float(delta_highlight[0])), 1e-4)
+
+    def test_shadow_and_highlight_wb_favor_their_own_end(self):
+        ramp = _ramp(lo=1e-3, hi=0.6)
+        base = _run_stages(ramp, _e6_config())[0][0, :, 0]
+        values = ramp[0, :, 1]
+        shadows, highs = values < np.percentile(values, 10), values > np.percentile(values, 90)
+
+        def rel_shift(**overrides):
+            out = _run_stages(ramp, _e6_config(**overrides))[0][0, :, 0]
+            r = np.abs(out - base) / np.maximum(base, 1e-9)
+            return float(r[shadows].mean()), float(r[highs].mean())
+
+        sh_shadow, sh_high = rel_shift(shadow_cyan=0.5)
+        self.assertGreater(sh_shadow, sh_high)
+
+        hi_shadow, hi_high = rel_shift(highlight_cyan=0.5)
+        self.assertGreater(hi_high, hi_shadow)
+
+    def test_shadow_highlight_wb_geometry_matches_the_print_by_tonal_position(self):
+        """Same contract as zone_geometry: the centre carries across by fraction of
+        span, not by the print's raw density number."""
+        from negpy.features.exposure.models import EXPOSURE_CONSTANTS as C
+        from negpy.features.exposure.transfer import TRANSFER_DENSITY_RANGE, wb_split_geometry
+
+        centre, k = wb_split_geometry()
+        d_min, span = float(C["d_min"]), float(C["d_max"]) - float(C["d_min"])
+        anchor = float(C["anchor_target_density"])
+        self.assertAlmostEqual(centre / TRANSFER_DENSITY_RANGE, (anchor - d_min) / span, places=6)
+        self.assertAlmostEqual(k * TRANSFER_DENSITY_RANGE / span, 3.0, places=6)
+
     def test_curve_stays_monotonic_under_extreme_settings(self):
         for overrides in (
             {"toe": 1.0, "shoulder": 1.0},
@@ -691,6 +731,18 @@ class TestGpuTransferParity(unittest.TestCase):
         off_cpu, off_gpu = self._both(settings)
         self.assertGreater(float(np.abs(cpu - off_cpu).max()), 0.01, "zone density inert on the CPU")
         self.assertGreater(float(np.abs(gpu - off_gpu).max()), 0.01, "zone density inert on the GPU")
+
+    def test_shadow_highlight_wb_matches(self):
+        """Shadows/Highlights WB rides uniform lanes the transfer shader did not have
+        (issue #1077: the sliders had no effect on Slides)."""
+        settings = _e6_config()
+        active = _e6_config(shadow_cyan=0.5, highlight_yellow=-0.4)
+        cpu, gpu = self._both(active)
+        self._assert_parity(cpu, gpu)
+
+        off_cpu, off_gpu = self._both(settings)
+        self.assertGreater(float(np.abs(cpu - off_cpu).max()), 0.01, "shadow/highlight WB inert on the CPU")
+        self.assertGreater(float(np.abs(gpu - off_gpu).max()), 0.01, "shadow/highlight WB inert on the GPU")
 
 
 if __name__ == "__main__":

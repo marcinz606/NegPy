@@ -99,6 +99,23 @@ def zone_geometry() -> Tuple[float, float, float]:
     )
 
 
+def wb_split_geometry() -> Tuple[float, float]:
+    """(centre, sharpness) for the Shadows/Highlights white-balance split, in density.
+
+    Same tonal-position mapping as zone_geometry(): the print path's regional-CMY
+    blend (logic.py, "Regional CMY") centres on the paper's anchor density with a
+    fixed sharpness of 3.0 on the print's own scale. Both carried across by fraction
+    of span, not by the raw numbers, for the same reason zone_geometry gives.
+    """
+    c = EXPOSURE_CONSTANTS
+    d_min, d_max = float(c["d_min"]), float(c["d_max"])
+    span = d_max - d_min
+    anchor = float(c["anchor_target_density"])
+    centre = (anchor - d_min) / span * TRANSFER_DENSITY_RANGE
+    sharpness = 3.0 * span / TRANSFER_DENSITY_RANGE
+    return centre, sharpness
+
+
 def display_rendering(scene_linear: np.ndarray) -> np.ndarray:
     """
     Scene-linear -> display-linear: the standard rendering a raw converter opens with.
@@ -202,6 +219,8 @@ def apply_transfer_curve(
     density_range: float = TRANSFER_DENSITY_RANGE,
     shadow_density: float = 0.0,
     highlight_density: float = 0.0,
+    shadow_cmy: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    highlight_cmy: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     cast_gain: Tuple[float, float, float] = (1.0, 1.0, 1.0),
     cast_offset: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     positive_source: bool = False,
@@ -243,6 +262,14 @@ def apply_transfer_curve(
 
         if contrast != 1.0:
             d = np.float32(pivot) + (d - np.float32(pivot)) * np.float32(contrast)
+
+        # Shadows/Highlights WB: regional CMY, using the print path's own kernel
+        # (logic.py, "Regional CMY") and geometry (wb_split_geometry).
+        if shadow_cmy[ch] != 0.0 or highlight_cmy[ch] != 0.0:
+            wb_c, wb_k = wb_split_geometry()
+            w_sh = _sigmoid(np.float32(wb_k) * (d - np.float32(wb_c)))
+            w_hi = np.float32(1.0) - w_sh
+            d = d + np.float32(shadow_cmy[ch]) * w_sh + np.float32(highlight_cmy[ch]) * w_hi
 
         # Zone Density: mid-sparing brightness offsets, using the print path's own kernel and
         # weights (logic.py, "Zone Density (ΔD)"). Positive adds density, so it darkens: the

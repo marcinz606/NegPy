@@ -21,6 +21,10 @@ struct TransferUniforms {
     cmy: vec4<f32>,
     // Zone Density: (shadow ΔD, highlight ΔD, shadow centre, highlight centre).
     zone: vec4<f32>,
+    // Shadows/Highlights WB: xyz = shadow CMY density offset, w = split centre.
+    shadow_cmy: vec4<f32>,
+    // Shadows/Highlights WB: xyz = highlight CMY density offset, w = split sharpness.
+    highlight_cmy: vec4<f32>,
     // x = width of the black taper, in density. y = positive_source (nonzero skips
     // display_rendering below). zw unused.
     zone_taper: vec4<f32>,
@@ -78,6 +82,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
         d = d - params.exposure_offset + params.cmy[ch] * params.density_range;
         d = params.pivot + (d - params.pivot) * params.contrast;
+
+        // Shadows/Highlights WB: regional CMY, mirroring exposure.wgsl's own blend.
+        if (params.shadow_cmy[ch] != 0.0 || params.highlight_cmy[ch] != 0.0) {
+            let w_sh = 1.0 / (1.0 + exp(-params.highlight_cmy.w * (d - params.shadow_cmy.w)));
+            let w_hi = 1.0 - w_sh;
+            d = d + params.shadow_cmy[ch] * w_sh + params.highlight_cmy[ch] * w_hi;
+        }
 
         // Zone Density: mid-sparing offsets on the print path's own weights. Positive
         // adds density, so it darkens. After contrast, before the knees — as on the print.
