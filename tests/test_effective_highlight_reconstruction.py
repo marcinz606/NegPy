@@ -288,3 +288,49 @@ class TestBrightGainReachesTheDecode:
         assert raw.seen["user_wb"] == [1.9, 1.0, 1.55, 1.0]
         assert raw.seen["use_camera_wb"] is False
         assert raw.seen["bright"] == pytest.approx(1.9 / 1.0)
+
+
+class TestTheSolveGatesHighlightModeBeforeTheMergeExists:
+    """WorkspaceConfig.__post_init__ zeroes highlight_reconstruction once `hdr` names the
+    bracket (see test_highlight_reconstruction_on_merges.py), but request_hdr_merge_selected
+    calls the solve on each frame's own pre-merge config -- the merge does not exist yet, so
+    `hdr_active` reads false there and the invariant has nothing to catch. The solve must
+    zero it explicitly instead, or its clip detection sees a per-frame reconstruction guess
+    the same way the merge's own would.
+    """
+
+    def test_the_solve_decodes_at_clip_despite_each_frame_predating_the_merge(self):
+        import numpy as np
+        from unittest.mock import MagicMock
+
+        from negpy.desktop.workers.hdr import HdrTask, HdrWorker
+
+        params = replace(
+            WorkspaceConfig(),
+            process=replace(WorkspaceConfig().process, process_mode=ProcessMode.E6, highlight_reconstruction=5),
+        )
+        assert params.process.highlight_reconstruction == 5, "the premise: not yet part of a merge"
+        seen_levels = []
+
+        class _Processor:
+            def _decode_oriented_f32(self, path, p, fast_decode=False, wb_override=None):
+                seen_levels.append(p.process.highlight_reconstruction)
+                return np.full((4, 4, 3), 0.5, dtype=np.float32), None, "sRGB"
+
+            def camera_wb_for(self, path):
+                return [1.9, 1.0, 1.55]
+
+            def cleanup(self, **kw):
+                pass
+
+        worker = HdrWorker.__new__(HdrWorker)
+        worker._processor = _Processor()
+        worker._cancel = MagicMock()
+        worker._cancel.is_set.return_value = False
+        for signal in ("progress", "solved", "cancelled", "error"):
+            setattr(worker, signal, MagicMock())
+        files = tuple({"path": f"/x/{i}.nef", "name": f"{i}.nef"} for i in range(3))
+        worker.run(HdrTask(files=files, params_by_path={f["path"]: params for f in files}))
+
+        worker.error.emit.assert_not_called()
+        assert seen_levels == [0, 0, 0]

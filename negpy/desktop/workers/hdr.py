@@ -74,7 +74,19 @@ class HdrWorker(QObject):
                 # Flat-field off for the solve: the decode pins the white level, so saturation sits at
                 # exactly 1.0 and the reference and ratio thresholds mean what they say. A gain map
                 # applied first moves that point. The merge at decode time defers it for the same reason.
-                params = replace(task.params_by_path[f["path"]], flatfield=FlatFieldConfig(), hdr=HdrConfig())
+                #
+                # Reconstruction off explicitly: WorkspaceConfig.__post_init__ only zeroes it once
+                # `hdr` names this bracket, which is exactly what has not happened yet here — the
+                # files are still each their own standalone frame until the solve below names a
+                # reference. Left alone, a reconstructed pixel would read below the sensor ceiling
+                # and corrupt clipped_fraction/pair_ratio the same way it corrupts the merge itself.
+                original = task.params_by_path[f["path"]]
+                params = replace(
+                    original,
+                    flatfield=FlatFieldConfig(),
+                    hdr=HdrConfig(),
+                    process=replace(original.process, highlight_reconstruction=0),
+                )
                 f32, _, _ = self._processor._decode_oriented_f32(f["path"], params, wb_override=bracket_wb)
                 if i == 0:
                     # The same expression as merge_bracket's, so the solve and the render pin alike. There is

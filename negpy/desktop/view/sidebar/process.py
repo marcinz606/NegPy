@@ -274,19 +274,11 @@ class ProcessSidebar(BaseSidebar):
         transfer_row.addWidget(self.normalize_e6_btn, 1)
         transfer_row.addWidget(self.positive_source_btn, 1)
         self.layout.addLayout(transfer_row)
-        self.layout.addWidget(self.render_ev_slider)
 
-        highlight_row = QHBoxLayout()
-        self.highlight_label = field_label("Highlight Recovery")
-        highlight_row.addWidget(self.highlight_label)
-        self.highlight_combo = QComboBox()
-        self.highlight_combo.addItems([label for _level, label in _HIGHLIGHT_LEVELS])
-        self.highlight_combo.setToolTip(wrap_tooltip(_HIGHLIGHT_TIP))
-        self.highlight_combo.setCurrentIndex(_highlight_bucket(conf.highlight_reconstruction))
-        highlight_row.addWidget(self.highlight_combo, 1)
-        self.layout.addLayout(highlight_row)
-
-        # Disabled widgets get no hover, so the detail hangs off the hint, not the button.
+        # Disabled widgets get no hover, so the detail hangs off the hint, not the button. Placed
+        # directly under Normalize's own row, not after the controls that follow — a hint two
+        # widgets away from the control it describes reads as being about whichever one is
+        # actually adjacent to it.
         self.normalize_merged_hint = hint_label("Not applied to a merged bracket.")
         self.normalize_merged_hint.setToolTip(
             wrap_tooltip(
@@ -300,6 +292,30 @@ class ProcessSidebar(BaseSidebar):
         )
         self.normalize_merged_hint.setVisible(False)
         self.layout.addWidget(self.normalize_merged_hint)
+        self.layout.addWidget(self.render_ev_slider)
+
+        highlight_row = QHBoxLayout()
+        self.highlight_label = field_label("Highlight Recovery")
+        highlight_row.addWidget(self.highlight_label)
+        self.highlight_combo = QComboBox()
+        self.highlight_combo.addItems([label for _level, label in _HIGHLIGHT_LEVELS])
+        self.highlight_combo.setToolTip(wrap_tooltip(_HIGHLIGHT_TIP))
+        self.highlight_combo.setCurrentIndex(_highlight_bucket(conf.highlight_reconstruction))
+        highlight_row.addWidget(self.highlight_combo, 1)
+        self.layout.addLayout(highlight_row)
+
+        self.highlight_merged_hint = hint_label("Not applied to a merged bracket.")
+        self.highlight_merged_hint.setToolTip(
+            wrap_tooltip(
+                "A reconstructed pixel no longer reads near the sensor ceiling, so the merge's "
+                "own highlight recovery would trust a per-frame guess as real signal and blend "
+                "inconsistent guesses across frames. A bracket already recovers a genuine "
+                "highlight from a shorter, unclipped exposure, which reconstruction's guess "
+                "cannot improve on. Unmerge the frame if you need it."
+            )
+        )
+        self.highlight_merged_hint.setVisible(False)
+        self.layout.addWidget(self.highlight_merged_hint)
 
         self.layout.addStretch()
 
@@ -489,11 +505,13 @@ class ProcessSidebar(BaseSidebar):
             # effective_highlight_reconstruction); hidden rather than greyed, matching Normalize
             # and Positive right above it. Greyed instead of hidden when the source has no
             # camera matrix (a scanner TIFF, JPEG, or other already-rendered file): the control
-            # still fits the mode, it just has no sensor CFA data left to recover from.
+            # still fits the mode, it just has no sensor CFA data left to recover from. Also
+            # greyed on a merge, same reasoning and hint as Normalize.
             self.highlight_label.setVisible(is_e6)
             self.highlight_combo.setVisible(is_e6)
-            self.highlight_combo.setEnabled(self.state.preview_cam_xyz is not None)
+            self.highlight_combo.setEnabled(self.state.preview_cam_xyz is not None and not merged)
             self.highlight_combo.setCurrentIndex(_highlight_bucket(conf.highlight_reconstruction))
+            self.highlight_merged_hint.setVisible(is_e6 and merged)
 
             # Only a merge has a render exposure to choose, and only the transfer path uses a fixed
             # window for it to mean anything against.

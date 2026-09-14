@@ -106,6 +106,10 @@ def effective_highlight_reconstruction(process: ProcessConfig) -> int:
     "highlight color" for libraw to reconstruct — the same reasoning `should_fold_camera_wb`
     applies to the WB fold.
 
+    On a merged bracket the stored value is already 0 (`WorkspaceConfig.__post_init__`), so
+    nothing here has to ask: a reconstructed pixel no longer reads near the sensor ceiling,
+    which is what the merge's own clip detection trusts to find a genuine highlight.
+
     Every site that sets `highlight_mode` on a decode must ask this one question, the same
     way every decode asks `effective_linear_raw`.
     """
