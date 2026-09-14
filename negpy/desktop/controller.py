@@ -4364,9 +4364,12 @@ class AppController(QObject):
         rule the render path follows (should_fold_camera_wb) refuses them there because
         narrowband light has no color temperature to reconstruct, but this view only has to
         show the film as the eye and every raw viewer see it, and without them the mask
-        renders green. `lightbox_level` then supplies the brightness a decode with no
-        auto-brightness never got: one scalar, measured before the crop and applied after,
-        so framing does not change it. The proof stays off — this is the scan, not a print.
+        renders green. Reconstruction can override the decode to bake the real white balance
+        in regardless (`highlight_reconstruction_bakes_wb`); folding it again here on top of
+        that decode would double it, so the fold sits out whenever baking did. `lightbox_level`
+        then supplies the brightness a decode with no auto-brightness never got: one scalar,
+        measured before the crop and applied after, so framing does not change it. The proof
+        stays off — this is the scan, not a print.
         """
         source = self.state.preview_raw
         if source is None:
@@ -4382,7 +4385,8 @@ class AppController(QObject):
             wants_uv_grid=False,
         )
         img = GeometryProcessor(geometry).process(source, context)
-        decoded_without_wb = effective_linear_raw(self.state.config.process, self.state.config.exposure.render_intent)
+        process, render_intent = self.state.config.process, self.state.config.exposure.render_intent
+        decoded_without_wb = effective_linear_raw(process, render_intent) and not highlight_reconstruction_bakes_wb(process, render_intent)
         matrix = camera_to_working_matrix(
             self.state.preview_cam_xyz,
             self.state.preview_camera_wb if decoded_without_wb else None,
