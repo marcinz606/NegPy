@@ -3389,3 +3389,175 @@ class TestLibrarySearch(unittest.TestCase):
             with patch.object(self.controller, "request_asset_discovery") as discovery:
                 self.controller.open_library_folder("/photos/gone")
         discovery.assert_not_called()
+
+    def _dict_repo(self) -> None:
+        """Swaps self.controller.session.repo's global settings for a real dict, so a
+        roll written in one call is readable back in the next -- the class-wide fixture's
+        bare MagicMock does not round-trip."""
+        store: dict = {}
+        self.controller.session.repo.get_global_setting.side_effect = lambda key, default=None: store.get(key, default)
+        self.controller.session.repo.save_global_setting.side_effect = lambda key, value: store.__setitem__(key, value)
+
+    def test_opening_one_folder_recognizes_and_activates_it(self):
+        self._dict_repo()
+        with patch("negpy.desktop.controller.os.path.isdir", return_value=True):
+            with patch.object(self.controller, "request_asset_discovery"):
+                self.controller.open_library_folder("/photos/roll_a")
+
+        from negpy.services.assets.rolls import folder_roll_id_for_path
+
+        roll_id = folder_roll_id_for_path(self.controller.session.repo, "/photos/roll_a")
+        self.assertIsNotNone(roll_id)
+        self.assertEqual(self.controller.state.active_roll_id, roll_id)
+
+    def test_opening_several_folders_leaves_no_single_active_roll(self):
+        self._dict_repo()
+        with patch("negpy.desktop.controller.os.path.isdir", return_value=True):
+            with patch.object(self.controller, "request_asset_discovery"):
+                self.controller.open_library_folders(["/photos/a", "/photos/b"])
+
+        self.assertIsNone(self.controller.state.active_roll_id)
+
+    def test_adding_to_session_does_not_recognize_a_folder(self):
+        self._dict_repo()
+        with patch("negpy.desktop.controller.os.path.isdir", return_value=True):
+            with patch.object(self.controller, "request_asset_discovery"):
+                self.controller.open_library_folder("/photos/roll_a", add_to_session=True)
+
+        from negpy.services.assets.rolls import saved_rolls
+
+        self.assertEqual(saved_rolls(self.controller.session.repo), {})
+
+    def test_open_roll_loads_a_folder_rolls_own_and_extra_paths(self):
+        self._dict_repo()
+        from negpy.services.assets.rolls import add_extra_member, recognize_folder
+
+        roll_id = recognize_folder(self.controller.session.repo, "/photos/roll_a")
+        add_extra_member(self.controller.session.repo, roll_id, "/elsewhere/c.nef")
+
+        with patch.object(self.controller, "request_asset_discovery") as discovery:
+            self.controller.open_roll(roll_id)
+
+        discovery.assert_called_once_with(["/photos/roll_a", "/elsewhere/c.nef"], auto_open=True, replace_existing=True)
+        self.assertEqual(self.controller.state.active_roll_id, roll_id)
+
+    def test_open_roll_loads_a_virtual_rolls_member_paths(self):
+        self._dict_repo()
+        from negpy.services.assets.rolls import create_virtual_roll
+
+        roll_id = create_virtual_roll(self.controller.session.repo, "Portra", ["/a.nef", "/b.nef"])
+
+        with patch.object(self.controller, "request_asset_discovery") as discovery:
+            self.controller.open_roll(roll_id)
+
+        discovery.assert_called_once_with(["/a.nef", "/b.nef"], auto_open=True, replace_existing=True)
+
+    def test_open_roll_reports_an_unknown_id(self):
+        self._dict_repo()
+        with patch.object(self.controller, "request_asset_discovery") as discovery:
+            self.controller.open_roll("not-a-real-id")
+        discovery.assert_not_called()
+
+    def test_create_roll_from_session_saves_the_loaded_paths(self):
+        self._dict_repo()
+        self.controller.state.uploaded_files = [{"path": "/a.nef"}, {"path": "/b.nef"}]
+
+        roll_id = self.controller.create_roll_from_session("Portra")
+
+        from negpy.services.assets.rolls import roll_for_id
+
+        entry = roll_for_id(self.controller.session.repo, roll_id)
+        self.assertEqual(entry["kind"], "virtual")
+        self.assertEqual(entry["name"], "Portra")
+        self.assertEqual(entry["member_paths"], ["/a.nef", "/b.nef"])
+        self.assertEqual(self.controller.state.active_roll_id, roll_id)
+
+    def test_create_roll_from_session_with_nothing_loaded(self):
+        self._dict_repo()
+        self.controller.state.uploaded_files = []
+        self.assertIsNone(self.controller.create_roll_from_session("Portra"))
+
+    def test_appending_while_a_roll_is_active_extends_its_membership(self):
+        self._dict_repo()
+        from negpy.services.assets.rolls import create_virtual_roll, roll_for_id
+
+        roll_id = create_virtual_roll(self.controller.session.repo, "Portra", ["/a.nef"])
+        self.controller.state.active_roll_id = roll_id
+
+        self.controller._replace_after_discovery = False
+        self.controller._on_discovery_finished([{"path": "/b.nef", "hash": "hb", "name": "b.nef"}])
+
+        self.assertEqual(roll_for_id(self.controller.session.repo, roll_id)["member_paths"], ["/a.nef", "/b.nef"])
+
+    def test_replacing_does_not_extend_the_previously_active_roll(self):
+        self._dict_repo()
+        from negpy.services.assets.rolls import create_virtual_roll, roll_for_id
+
+        roll_id = create_virtual_roll(self.controller.session.repo, "Portra", ["/a.nef"])
+        self.controller.state.active_roll_id = roll_id
+
+        # The replace branch reaches further into session/asset_model than this fixture's
+        # bare mock supports; only what this test cares about (roll membership) needs it.
+        self.mock_session_manager.asset_model = MagicMock(visible_actual_indices_ordered=MagicMock(return_value=[]))
+        self.controller._replace_after_discovery = True
+        self.controller._on_discovery_finished([{"path": "/b.nef", "hash": "hb", "name": "b.nef"}])
+
+        self.assertEqual(roll_for_id(self.controller.session.repo, roll_id)["member_paths"], ["/a.nef"])
+
+    def test_library_search_results_clear_the_active_roll(self):
+        self._dict_repo()
+        from negpy.services.assets.rolls import create_virtual_roll
+
+        roll_id = create_virtual_roll(self.controller.session.repo, "Portra", ["/a.nef"])
+        self.controller.state.active_roll_id = roll_id
+
+        with patch.object(self.controller, "request_asset_discovery"):
+            self.controller._on_library_search_finished(["/c.nef"])
+
+        self.assertIsNone(self.controller.state.active_roll_id)
+
+    def test_has_rolls_reflects_the_store(self):
+        self._dict_repo()
+        self.assertFalse(self.controller.has_rolls())
+
+        from negpy.services.assets.rolls import create_virtual_roll
+
+        create_virtual_roll(self.controller.session.repo, "Portra", [])
+        self.assertTrue(self.controller.has_rolls())
+
+    def test_opening_a_folder_registers_it_as_a_search_root(self):
+        self._dict_repo()
+        with patch("negpy.desktop.controller.os.path.isdir", return_value=True):
+            with patch.object(self.controller, "request_asset_discovery"):
+                self.controller.open_library_folder("/photos/roll_a")
+
+        self.assertIn("/photos/roll_a", self.controller.library_roots())
+
+    def test_adding_to_session_does_not_register_a_search_root(self):
+        self._dict_repo()
+        with patch("negpy.desktop.controller.os.path.isdir", return_value=True):
+            with patch.object(self.controller, "request_asset_discovery"):
+                self.controller.open_library_folder("/photos/roll_a", add_to_session=True)
+
+        self.assertEqual(self.controller.library_roots(), [])
+
+    def test_import_subfolders_as_rolls_recognizes_each_one_and_registers_the_parent(self):
+        self._dict_repo()
+        # MagicMock's own `name` kwarg sets its repr, not an attribute -- set it after.
+        entry_a = MagicMock(path="/scans/roll_a", is_dir=lambda: True)
+        entry_a.name = "roll_a"
+        entry_b = MagicMock(path="/scans/roll_b", is_dir=lambda: True)
+        entry_b.name = "roll_b"
+        with patch("negpy.services.assets.rolls.os.scandir", return_value=iter([entry_a, entry_b])):
+            roll_ids = self.controller.import_subfolders_as_rolls("/scans")
+
+        self.assertEqual(len(roll_ids), 2)
+        self.assertIn("/scans", self.controller.library_roots())
+
+    def test_import_subfolders_as_rolls_with_none_found_registers_nothing(self):
+        self._dict_repo()
+        with patch("negpy.services.assets.rolls.os.scandir", return_value=iter([])):
+            roll_ids = self.controller.import_subfolders_as_rolls("/scans")
+
+        self.assertEqual(roll_ids, [])
+        self.assertEqual(self.controller.library_roots(), [])

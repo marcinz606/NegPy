@@ -77,6 +77,7 @@ from negpy.domain.models import (
     resolve_preset_export,
 )
 from negpy.services.assets.composites import forget_composite, restore_maps
+from negpy.services.assets import rolls
 from negpy.services.assets.half_frame import (
     HalfGeometry,
     base_hash,
@@ -1032,28 +1033,86 @@ class AppController(QObject):
         if self._pending_asset_discoveries and not self._discovery_running and self._active_batch is None:
             self._start_asset_discovery(self._pending_asset_discoveries.pop(0))
 
-    # --- Library (folders on disk) --------------------------------------------
+    # --- Library (a library of Rolls) ------------------------------------------
 
     def library_roots(self) -> List[str]:
+        """Top-level directories a library search walks. Maintained automatically by
+        importing a roll (or a parent full of them) — not a user-visible list."""
         saved = self.session.repo.get_global_setting("library_roots", []) or []
-        return [p for p in saved if isinstance(p, str)]
+        return [p for p in saved if isinstance(p, str)] if isinstance(saved, list) else []
+
+    def _register_library_roots(self, paths: List[str]) -> None:
+        roots = self.library_roots()
+        new = [p for p in paths if p not in roots]
+        if new:
+            self.session.repo.save_global_setting("library_roots", [*roots, *new])
+
+    def has_rolls(self) -> bool:
+        return bool(rolls.saved_rolls(self.session.repo))
+
+    def import_subfolders_as_rolls(self, parent_path: str) -> List[str]:
+        """Recognize every immediate subfolder of *parent_path* as its own roll, and
+        register it as a search root -- nothing is opened or loaded."""
+        roll_ids = rolls.import_subfolders_as_rolls(self.session.repo, parent_path)
+        if roll_ids:
+            self._register_library_roots([parent_path])
+        return roll_ids
 
     def open_library_folder(self, folder: str, add_to_session: bool = False) -> None:
         self.open_library_folders([folder], add_to_session=add_to_session)
 
     def open_library_folders(self, folders: List[str], add_to_session: bool = False) -> None:
-        """Load one or several folders' frames. Replacing the session costs nothing —
-        every edit lives in the database under its own content hash, not in the file list."""
+        """Recognize and load one or several folders as rolls. Replacing the session
+        costs nothing — every edit lives in the database under its own content hash,
+        not in the file list."""
         present = [f for f in folders if os.path.isdir(f)]
         if not present:
             self.set_status("Folder is no longer on disk", 3000)
             return
+        if not add_to_session:
+            # Recognizing every opened folder is independent of which one, if any,
+            # becomes the active roll -- that only makes sense for a single one.
+            recognized = [rolls.recognize_folder(self.session.repo, f) for f in present]
+            self.state.active_roll_id = recognized[0] if len(recognized) == 1 else None
+            self._register_library_roots(present)
         self.request_asset_discovery(
             present,
             auto_open=True,
             replace_existing=not add_to_session,
             reselect_path=self.state.current_file_path if add_to_session else None,
         )
+
+    def open_roll(self, roll_id: str) -> None:
+        """Open a roll (folder or virtual) by id. A folder roll's own contents are
+        (re)walked as usual, the same as opening it from the tree; its extra_paths --
+        files added by hand that are not physically in the folder -- ride along in the
+        same discovery pass, since request_asset_discovery already accepts a mix of
+        folder and file paths."""
+        entry = rolls.roll_for_id(self.session.repo, roll_id)
+        if entry is None:
+            self.set_status("That roll no longer exists", 3000)
+            return
+        if entry["kind"] == "folder":
+            paths = [entry["folder_path"], *entry.get("extra_paths", [])]
+        else:
+            paths = list(entry.get("member_paths", []))
+        if not paths:
+            self.set_status("This roll has no frames", 3000)
+            return
+        self.state.active_roll_id = roll_id
+        self.request_asset_discovery(paths, auto_open=True, replace_existing=True)
+
+    def create_roll_from_session(self, name: str) -> Optional[str]:
+        """Save the frames currently in the Film Strip as a new virtual roll: a roll
+        that is not a folder, e.g. a library search's results, kept and named."""
+        paths = [f["path"] for f in self.state.uploaded_files if f.get("path")]
+        if not paths:
+            self.set_status("Nothing loaded to save as a roll", 3000)
+            return None
+        roll_id = rolls.create_virtual_roll(self.session.repo, name, paths)
+        self.state.active_roll_id = roll_id
+        self.set_status(f'Saved as roll "{name}"', 3000)
+        return roll_id
 
     def invalidate_library_walk(self) -> None:
         """Drop the cached traversal so the next search re-reads the folders."""
@@ -1093,6 +1152,9 @@ class AppController(QObject):
             self.set_status("No frames in the library match that search", 4000)
             return
         self.set_status(f"{len(paths)} frame{'s' if len(paths) != 1 else ''} found", 3000)
+        # An ad hoc result, not (yet) any roll -- Save as Roll in the Film Strip turns it
+        # into one.
+        self.state.active_roll_id = None
         self.request_asset_discovery(paths, auto_open=True, replace_existing=True)
 
     def set_rgb_scan_mode(self, enabled: bool) -> None:
@@ -1463,6 +1525,13 @@ class AppController(QObject):
         self._reselect_after_discovery = None
         active_discovery_keys = self._active_discovery_keys
         self._active_discovery_keys = frozenset()
+
+        # Files appended (not replaced) while a roll is active join its membership, so
+        # reopening that roll later still shows what was added by hand.
+        if not replace_existing and self.state.active_roll_id:
+            for asset in valid_assets:
+                if asset.get("path"):
+                    rolls.add_extra_member(self.session.repo, self.state.active_roll_id, asset["path"])
         pending_scan = getattr(self, "_pending_scanned_file", None)
 
         if replace_existing and valid_assets:

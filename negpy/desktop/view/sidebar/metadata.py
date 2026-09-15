@@ -3,11 +3,11 @@ from dataclasses import asdict, replace
 from typing import Optional
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QScrollArea,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -21,12 +21,12 @@ from negpy.desktop.settings_catalog import (
 )
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import field_label, hint_label, wrap_tooltip
+from negpy.desktop.view.styles.templates import field_label, hint_label, section_subheader, wrap_tooltip
 from negpy.desktop.view.styles.fonts import mono_font_family
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection, make_section
 from negpy.desktop.view.widgets.description_fields_dialog import DescriptionFieldsDialog
-from negpy.desktop.view.widgets.gear_library_dialog import GearLibraryDialog
+from negpy.desktop.view.widgets.gear_catalog_dialog import resolve_other_gear_pick
 from negpy.desktop.view.widgets.location_picker_dialog import LocationPickerDialog
 from negpy.desktop.view.widgets.searchable_gear_combo import SearchableGearCombo
 from negpy.features.metadata.capture import (
@@ -41,7 +41,13 @@ from negpy.features.metadata.capture import (
     place_summary,
 )
 from negpy.features.metadata.exif_read import extract_scan_from_exif
-from negpy.features.metadata.gear_logic import metadata_from_gear, metadata_from_process, metadata_from_scan_setup
+from negpy.features.metadata.gear_logic import (
+    OTHER_ID,
+    metadata_from_gear,
+    metadata_from_process,
+    metadata_from_scan_setup,
+    own_gear_entries,
+)
 from negpy.features.metadata.gear_models import GearLibrary
 from negpy.features.metadata.models import (
     DEFAULT_DESCRIPTION_FIELDS,
@@ -56,10 +62,12 @@ from negpy.features.metadata.models import (
 )
 from negpy.features.metadata.payload import build_metadata_payload
 from negpy.services.assets.gear import GearProfiles
+from negpy.services.assets.gear_match import folder_name_for_active_context, match_gear_for_folder
 from negpy.services.assets.presets import MetadataPresets
 
 PUSH_PULL_OPTIONS = [PUSH_PULL_LABELS[v] for v in PUSH_PULL_VALUES]
 _LOAD_TOOLTIP = "Write the selected preset's fields onto this frame"
+
 _CLEAR_TOOLTIPS = {
     "gear_clear_btn": ("Clear the camera, lens and film stock selections", "metadata_clear_gear"),
     "process_clear_btn": (
@@ -93,20 +101,10 @@ class MetadataSidebar(BaseSidebar):
         self._exif_locked = {"exposure": True}
         self._description_fields: tuple[str, ...] = conf.description_fields or DEFAULT_DESCRIPTION_FIELDS
 
-        self.protect_check = QCheckBox("Protect original metadata")
-        self.protect_check.setChecked(conf.protect_original_metadata)
-        self.protect_check.setToolTip(
-            "When enabled, NegPy copies EXIF and XMP from the source file onto exports "
-            "without adding or changing metadata. Gear and process fields are ignored."
-        )
-        self.layout.addWidget(self.protect_check)
-
-        self.sync_check = QCheckBox("Sync custom metadata to all files in batch export")
-        self.sync_check.setChecked(conf.sync_to_batch)
-        self.sync_check.setToolTip(
-            "Batch and preset exports write this frame's capture, gear and process values to every file, instead of each file's own."
-        )
-        self.layout.addWidget(self.sync_check)
+        self.metadata_title_label = section_subheader("Metadata")
+        self.layout.addWidget(self.metadata_title_label)
+        self.metadata_scope_hint = hint_label("Applies to the current frame only.")
+        self.layout.addWidget(self.metadata_scope_hint)
 
         self._metadata_controls = QWidget()
         controls = QVBoxLayout(self._metadata_controls)
@@ -124,16 +122,12 @@ class MetadataSidebar(BaseSidebar):
         load_row.addWidget(self.metadata_preset_load_btn)
         presets.addLayout(load_row)
 
-        self.manage_btn = self._labeled_action(
-            "fa5s.cog", " Manage…", "Save, edit and delete metadata presets, cameras, lenses and film stocks"
-        )
-        presets.addWidget(self.manage_btn)
         self._refresh_metadata_presets()
-        controls.addWidget(self._card("Metadata Presets", "presets", preset_body, "fa5s.magic"))
+        controls.addWidget(self._card("Metadata Presets", "presets", preset_body, "fa5s.magic", collapsible=False))
 
         # ── ANALOG GEAR ──────────────────────────────────────────────────
         gear_body, gear = self._card_body()
-        gear.addWidget(hint_label("Type in any field to search the gear library."))
+        gear.addWidget(hint_label("Searches the gear you've declared as your own. Pick Other… for the full catalog."))
 
         gear.addWidget(field_label("Camera"))
         self.camera_combo = SearchableGearCombo(placeholder="Search cameras…")
@@ -150,8 +144,17 @@ class MetadataSidebar(BaseSidebar):
         self.film_stock_combo.setToolTip("Film stock used for the original capture. Click and type to search.")
         gear.addWidget(self.film_stock_combo)
 
+        gear_actions_row = QHBoxLayout()
+        gear_actions_row.setSpacing(THEME.space_sm)
         self.gear_clear_btn = self._labeled_action("", "Clear", "Empty camera, lens and film stock")
-        gear.addWidget(self.gear_clear_btn)
+        gear_actions_row.addWidget(self.gear_clear_btn)
+        self.gear_infer_btn = self._labeled_action(
+            "fa5s.magic",
+            "Infer from folder name",
+            "Fill camera and film stock by matching this roll's folder name against your own gear",
+        )
+        gear_actions_row.addWidget(self.gear_infer_btn)
+        gear.addLayout(gear_actions_row)
         controls.addWidget(self._card("Analog Gear", "gear", gear_body, "fa5s.camera-retro"))
 
         # ── CAPTURE ──────────────────────────────────────────────────────
@@ -302,9 +305,15 @@ class MetadataSidebar(BaseSidebar):
         self.exposure_edit = self._make_exif_field("exposure", exp)
         controls.addWidget(self._card("Exposure", "exposure", exp_body, "fa5s.stopwatch"))
 
+        self._gear_combo_category = {
+            id(self.camera_combo): "cameras",
+            id(self.lens_combo): "lenses",
+            id(self.film_stock_combo): "film_stocks",
+            id(self.process_combo): "processes",
+            id(self.scan_setup_combo): "scan_setups",
+        }
         self._refresh_gear_combos()
         controls.addStretch()
-        self.layout.addWidget(self._metadata_controls, 1)
 
         # ── METADATA PREVIEW ─────────────────────────────────────────────
         self.preview_content = QWidget()
@@ -328,8 +337,14 @@ class MetadataSidebar(BaseSidebar):
         self.preview_empty = hint_label("Select gear or enter process metadata to see a preview.")
         preview_layout.addWidget(self.preview_empty)
 
-        self.preview_section = self._card("Metadata Preview", "preview", self.preview_content, "fa5s.eye")
+        # Preview pinned above the per-frame cards, which scroll in their own area below it --
+        # same pattern as Edit's Analysis section pinned above its tabs.
+        self.preview_section = self._card("Metadata Preview", "preview", self.preview_content, "fa5s.eye", collapsible=False)
         self.layout.addWidget(self.preview_section)
+        self._metadata_scroll_area = QScrollArea()
+        self._metadata_scroll_area.setWidgetResizable(True)
+        self._metadata_scroll_area.setWidget(self._metadata_controls)
+        self.layout.addWidget(self._metadata_scroll_area, 1)
 
         # After every card: the tooltips it fills in span all of them.
         self.apply_shortcut_tooltips()
@@ -342,8 +357,16 @@ class MetadataSidebar(BaseSidebar):
         layout.setSpacing(THEME.space_md)
         return body, layout
 
-    def _card(self, title: str, key: str, content: QWidget, icon_name: str) -> CollapsibleSection:
-        return make_section(self.controller.session.repo, title, f"metadata_{key}", content, icon_name, default_expanded=True)
+    def _card(self, title: str, key: str, content: QWidget, icon_name: str, *, collapsible: bool = True) -> CollapsibleSection:
+        return make_section(
+            self.controller.session.repo,
+            title,
+            f"metadata_{key}",
+            content,
+            icon_name,
+            default_expanded=True,
+            collapsible=collapsible,
+        )
 
     def _make_exif_field(self, key: str, layout: QVBoxLayout) -> QLineEdit:
         row = QHBoxLayout()
@@ -369,7 +392,6 @@ class MetadataSidebar(BaseSidebar):
     def _set_metadata_controls_enabled(self, enabled: bool) -> None:
         self._metadata_controls.setEnabled(enabled)
         self.description_fields_btn.setEnabled(enabled)
-        self.sync_check.setEnabled(enabled)
 
     def _apply_lock_style(self, edit: QLineEdit, locked: bool) -> None:
         if locked:
@@ -396,15 +418,14 @@ class MetadataSidebar(BaseSidebar):
         self._mark_dirty()
 
     def _connect_signals(self) -> None:
-        self.protect_check.toggled.connect(self._on_protect_toggled)
         self.description_fields_btn.clicked.connect(self._open_description_fields)
         self.gear_clear_btn.clicked.connect(self._on_gear_clear)
+        self.gear_infer_btn.clicked.connect(self._on_gear_infer_from_folder)
         self.process_clear_btn.clicked.connect(self._on_process_clear)
         self.scan_clear_btn.clicked.connect(self._on_scanning_clear)
         self.camera_combo.selection_changed.connect(self._on_gear_changed)
         self.lens_combo.selection_changed.connect(self._on_gear_changed)
         self.film_stock_combo.selection_changed.connect(self._on_gear_changed)
-        self.manage_btn.clicked.connect(self._open_gear_library)
 
         self.metadata_preset_combo.selection_changed.connect(self._update_metadata_preset_tooltip)
         self.metadata_preset_load_btn.clicked.connect(self._on_metadata_preset_load)
@@ -426,21 +447,9 @@ class MetadataSidebar(BaseSidebar):
         self.scanning_edit.textChanged.connect(self._on_scanning_edited)
         self.capture_roll_edit.textChanged.connect(self._mark_dirty)
         self.capture_frame_edit.textChanged.connect(self._mark_dirty)
-        self.sync_check.toggled.connect(self._mark_dirty)
         self.exposure_edit.textChanged.connect(self._mark_dirty)
 
         self.controller.session.file_selected.connect(self._on_file_selected)
-
-    def _on_protect_toggled(self, checked: bool) -> None:
-        self._set_metadata_controls_enabled(not checked)
-        self.update_config_section(
-            "metadata",
-            persist=True,
-            render=False,
-            readback_metrics=False,
-            protect_original_metadata=checked,
-        )
-        self._schedule_preview()
 
     def _open_description_fields(self) -> None:
         dlg = DescriptionFieldsDialog(self._description_fields, self)
@@ -480,40 +489,27 @@ class MetadataSidebar(BaseSidebar):
             seen[id(combo)] = key
             return True
 
-        if should_refresh(self.camera_combo):
-            self.camera_combo.set_gear_items(
-                library.cameras,
-                conf.camera_id or "",
-                lambda c: c.resolved_display_name,
-            )
+        combos = (
+            (self.camera_combo, library.cameras, conf.camera_id or ""),
+            (self.lens_combo, library.lenses, conf.lens_id or ""),
+            (self.film_stock_combo, library.film_stocks, conf.film_stock_id or ""),
+            (self.process_combo, library.processes, conf.process_id or ""),
+            (self.scan_setup_combo, library.scan_setups, conf.scanning_id or ""),
+        )
+        for combo, items, selected_id in combos:
+            if should_refresh(combo):
+                self._set_own_gear_items(combo, items, selected_id)
 
-        if should_refresh(self.lens_combo):
-            self.lens_combo.set_gear_items(
-                library.lenses,
-                conf.lens_id or "",
-                lambda lens: lens.resolved_display_name,
-            )
-
-        if should_refresh(self.film_stock_combo):
-            self.film_stock_combo.set_gear_items(
-                library.film_stocks,
-                conf.film_stock_id or "",
-                lambda stock: stock.resolved_display_name,
-            )
-
-        if should_refresh(self.process_combo):
-            self.process_combo.set_gear_items(
-                library.processes,
-                conf.process_id or "",
-                lambda process: process.resolved_display_name,
-            )
-
-        if should_refresh(self.scan_setup_combo):
-            self.scan_setup_combo.set_gear_items(
-                library.scan_setups,
-                conf.scanning_id or "",
-                lambda setup: setup.resolved_display_name,
-            )
+    def _set_own_gear_items(self, combo: SearchableGearCombo, items, selected_id: str) -> None:
+        """Personal gear only, plus the currently selected item even if it is a bundled
+        catalog pick made before this filter existed. Other… is the escape hatch back to
+        the full catalog, so the default search never returns gear the user doesn't own."""
+        entries, search_text = own_gear_entries(items, selected_id)
+        combo.set_labeled_items(
+            entries,
+            selected_id,
+            search_fn=lambda label, item_id: search_text.get(item_id, label.casefold()),
+        )
 
     def _gear_selected_id(self, combo: SearchableGearCombo, conf) -> str:
         return {
@@ -525,14 +521,34 @@ class MetadataSidebar(BaseSidebar):
         }.get(id(combo)) or ""
 
     def _on_process_selected(self, *_args) -> None:
+        self._resolve_other_pick(self.process_combo)
         self._dirty = False
         self._apply_metadata_config(metadata_from_process(self.state.config.metadata, self._gear_library, self.process_combo.selected_id()))
 
     def _on_scan_setup_selected(self, *_args) -> None:
+        self._resolve_other_pick(self.scan_setup_combo)
         self._dirty = False
         self._apply_metadata_config(
             metadata_from_scan_setup(self.state.config.metadata, self._gear_library, self.scan_setup_combo.selected_id())
         )
+
+    def _resolve_other_pick(self, combo: SearchableGearCombo) -> None:
+        """Other… resolves to a real personal item before the caller applies the
+        selection: picking a catalog model clones it into the user's own gear, Add
+        Custom starts a blank one, cancelling reverts to what was selected before."""
+        if combo.selected_id() != OTHER_ID:
+            return
+        previous = self._gear_selected_id(combo, self.state.config.metadata)
+        category = self._gear_combo_category[id(combo)]
+        library = self._gear_library
+        new_item = resolve_other_gear_pick(self, category, library)
+        if new_item is None:
+            combo.set_selected_id(previous)
+            return
+        setattr(library, category, [*getattr(library, category), new_item])
+        GearProfiles.save_library(library)
+        self._refresh_gear_combos(force=True)
+        combo.set_selected_id(new_item.id)
 
     def _on_dev_time_changed(self, text: str) -> None:
         self._flag_invalid(self.dev_time_edit, bool(text.strip()) and parse_dev_time(text) is None)
@@ -593,6 +609,26 @@ class MetadataSidebar(BaseSidebar):
         )
         self._apply_metadata_config(cleared)
 
+    def _on_gear_infer_from_folder(self) -> None:
+        """Matches the active roll's folder name (or the current frame's own folder,
+        with no roll active) against the user's own gear -- fills whichever of camera
+        and film stock is not already set, same match Roll Settings offers on import."""
+        folder_name = folder_name_for_active_context(self.state, self.controller.session.repo)
+        if not folder_name:
+            self.controller.set_status("No folder to infer gear from", 2000, kind="warning")
+            return
+        detected = match_gear_for_folder(folder_name, self._gear_library)
+        meta = self.state.config.metadata
+        kwargs = {}
+        if not meta.camera_id and detected.camera_id:
+            kwargs["camera_id"] = detected.camera_id
+        if not meta.film_stock_id and detected.film_stock_id:
+            kwargs["film_stock_id"] = detected.film_stock_id
+        if not kwargs:
+            self.controller.set_status(f"Nothing in “{folder_name}” matches your gear", 2000, kind="warning")
+            return
+        self._apply_metadata_config(metadata_from_gear(meta, self._gear_library, **kwargs))
+
     def _clear_fields(self, fields: tuple[str, ...]) -> None:
         defaults = MetadataConfig()
         self._dirty = False
@@ -606,15 +642,16 @@ class MetadataSidebar(BaseSidebar):
 
     def _on_gear_changed(self, *_args) -> None:
         sender = self.sender()
-        kwargs: dict = {}
         if sender is self.camera_combo:
-            kwargs["camera_id"] = self.camera_combo.selected_id()
+            combo, field = self.camera_combo, "camera_id"
         elif sender is self.lens_combo:
-            kwargs["lens_id"] = self.lens_combo.selected_id()
+            combo, field = self.lens_combo, "lens_id"
         elif sender is self.film_stock_combo:
-            kwargs["film_stock_id"] = self.film_stock_combo.selected_id()
+            combo, field = self.film_stock_combo, "film_stock_id"
         else:
             return
+        self._resolve_other_pick(combo)
+        kwargs: dict = {field: combo.selected_id()}
 
         new_meta = metadata_from_gear(
             self.state.config.metadata,
@@ -665,18 +702,6 @@ class MetadataSidebar(BaseSidebar):
         rows = rows_for_keys(data, "metadata")
         merged = apply_selected_fields(preset_config(data), self.state.config, rows)
         self._apply_metadata_config(merged.metadata)
-
-    def _open_gear_library(self) -> None:
-        # The dialog holds the config it was given, so the debounce has to land first or a
-        # preset saved from "the current frame" misses the edit that is still pending.
-        self.update_timer.stop()
-        self._persist_all_metadata_settings()
-        dlg = GearLibraryDialog(self._gear_library, parent=self, current_config=self.state.config)
-        dlg.library_changed.connect(self._on_library_changed)
-        dlg.presets_changed.connect(self._refresh_metadata_presets)
-        if dlg.exec():
-            self._on_library_changed()
-        self._refresh_metadata_presets()
 
     def _on_library_changed(self) -> None:
         self._gear_library = GearProfiles.load_library()
@@ -819,7 +844,6 @@ class MetadataSidebar(BaseSidebar):
             scanning=self.scanning_edit.text().strip(),
             capture_roll=self.capture_roll_edit.text().strip(),
             capture_frame=capture_frame,
-            sync_to_batch=self.sync_check.isChecked(),
             exposure_override=exposure_override,
         )
 
@@ -831,7 +855,6 @@ class MetadataSidebar(BaseSidebar):
 
         self.block_signals(True)
         try:
-            self.protect_check.setChecked(conf.protect_original_metadata)
             self._set_metadata_controls_enabled(not conf.protect_original_metadata)
             self._refresh_gear_combos()
 
@@ -852,7 +875,6 @@ class MetadataSidebar(BaseSidebar):
             self.scanning_edit.setText(conf.scanning)
             self.capture_roll_edit.setText(conf.capture_roll)
             self.capture_frame_edit.setText("" if conf.capture_frame is None else str(conf.capture_frame))
-            self.sync_check.setChecked(conf.sync_to_batch)
             self._description_fields = conf.description_fields or DEFAULT_DESCRIPTION_FIELDS
 
             if conf.exposure_override:
@@ -925,7 +947,6 @@ class MetadataSidebar(BaseSidebar):
             process_temperature_c=self._dev_temp_value(),
             scanning_id=self.scan_setup_combo.selected_id(),
             scanning=self.scanning_edit.text().strip(),
-            sync_to_batch=self.sync_check.isChecked(),
             exposure_override=exposure_override,
             description_fields=self._description_fields,
         )

@@ -265,15 +265,10 @@ class ControlsPanel(QWidget):
             icon_name="fa5s.paint-brush",
         )
 
-        # Group the sections into workflow pages (each becomes an icon tab in RightPanel).
+        # Group the sections into workflow pages (each becomes an icon tab in RightPanel). Calibration,
+        # Demosaic, Roll Analysis, Normalization and Presets are roll-wide facts, not per-frame edits --
+        # RightPanel builds them into its own top-level Roll tab instead of a page here.
         groups = [
-            (
-                "setup",
-                "fa5s.cogs",
-                "Setup — Calibration, Demosaic, Normalization, Roll Analysis, Presets",
-                [self.sensor_section, self.demosaic_section, self.process_section, self.roll_section, self.presets_section],
-                ["sensor_section", "demosaic_section", "process_section", "roll_section"],
-            ),
             (
                 "geometry",
                 "fa5s.crop",
@@ -310,10 +305,6 @@ class ControlsPanel(QWidget):
             page_layout = QVBoxLayout(page)
             page_layout.setContentsMargins(0, 0, 0, 0)
             page_layout.setSpacing(8)
-            if key == "setup":
-                # Film mode rides above the collapsibles, since it is the first choice of every edit, and
-                # this is what reparents the bar out of ProcessSidebar.
-                page_layout.addWidget(self.process_sidebar.mode_bar)
             for section in sections:
                 page_layout.addWidget(section)
             page_layout.addStretch(1)

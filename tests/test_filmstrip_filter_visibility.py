@@ -8,6 +8,7 @@ import pytest
 
 from negpy.desktop.session import AssetListModel
 from negpy.desktop.view.sidebar.session_panel import SessionPanel
+from negpy.services.assets.rolls import create_virtual_roll
 
 from conftest import FakeController as _Controller, FakeRepo as _Repo
 
@@ -94,6 +95,17 @@ def test_both_filters_are_named_together(qapp):
     browser._apply_filter()
     assert browser.tally_label.text() == "0 of 36 frames · search filter · Keepers filter"
     assert "search and Keepers filter" in browser.empty_label.text()
+
+
+def test_the_tally_leads_with_the_active_rolls_name(qapp):
+    repo = _Repo()
+    roll_id = create_virtual_roll(repo, "Portra 400", [])
+    browser = _browser(qapp, repo=repo)
+    browser.controller.state.active_roll_id = roll_id
+
+    browser._update_tally()
+
+    assert browser.tally_label.text() == "Portra 400 — 36 frames"
 
 
 def test_an_empty_session_shows_neither_tally_nor_message(qapp):
