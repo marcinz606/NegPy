@@ -65,6 +65,8 @@ Open a frame you have not edited and it does not start from bare defaults: the s
 
 **Preferences → Session & Storage → Persistent Settings…** changes that list. Every setting the copy/paste picker knows is there, grouped by panel; tick one to make it carry, untick one to stop it. Tick the whole group from its header checkbox. Values shown are the ones from your last saved edit, so the list reads as what would actually carry.
 
+The **Carry settings between frames** checkbox next to that button is the master switch: unticked, a new frame gets bare defaults regardless of your ticks, which stay saved for when you turn it back on.
+
 A frame you have already edited keeps its own look whatever you tick, since only export and metadata settings reach it. **Reset Settings** on a frame ignores this list and returns it to bare defaults.
 
 ### Menu bar (macOS)

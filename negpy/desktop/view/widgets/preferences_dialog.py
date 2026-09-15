@@ -269,19 +269,14 @@ class PreferencesDialog(QDialog):
         self.slider_values_box.toggled.connect(self._on_slider_values_changed)
         row += 1
 
-        grid.addLayout(
-            _button_row(
-                (
-                    ("Customize Shortcuts…", "fa5s.keyboard", self._open_shortcut_editor),
-                    ("Edit Toolbar…", "fa5s.wrench", self._open_toolbar_editor),
-                    ("Reset Panel Layout", "fa5s.thumbtack", self._reset_panel_layout),
-                )
-            ),
-            row,
-            0,
-            1,
-            2,
+        interface_row, _ = _button_row(
+            (
+                ("Customize Shortcuts…", "fa5s.keyboard", self._open_shortcut_editor),
+                ("Edit Toolbar…", "fa5s.wrench", self._open_toolbar_editor),
+                ("Reset Panel Layout", "fa5s.thumbtack", self._reset_panel_layout),
+            )
         )
+        grid.addLayout(interface_row, row, 0, 1, 2)
         return host
 
     def _build_performance(self) -> QWidget:
@@ -368,21 +363,30 @@ class PreferencesDialog(QDialog):
 
     def _build_storage(self) -> QWidget:
         host, grid = self._grid()
-        grid.addLayout(
-            _button_row(
-                (
-                    ("Persistent Settings…", "fa5s.thumbtack", self._open_sticky_dialog),
-                    ("Manage Database…", "fa5s.database", self._open_database_dialog),
-                )
-            ),
+        state = self.session.state
+
+        self.sticky_settings_box = self._add_checkbox(
+            grid,
             0,
-            0,
-            1,
-            2,
+            "Carry settings between frames",
+            state.sticky_settings_enabled,
+            "Apply Persistent Settings to a file with no saved edit, instead of starting at default settings",
         )
+        self.sticky_settings_box.toggled.connect(self._on_sticky_settings_changed)
+
+        button_row, buttons = _button_row(
+            (
+                ("Persistent Settings…", "fa5s.thumbtack", self._open_sticky_dialog),
+                ("Manage Database…", "fa5s.database", self._open_database_dialog),
+            )
+        )
+        self._persistent_settings_button = buttons[0]
+        self._persistent_settings_button.setEnabled(state.sticky_settings_enabled)
+        grid.addLayout(button_row, 1, 0, 1, 2)
+
         grid.addWidget(
             hint_label("Persistent Settings chooses which edits carry onto the next file you open."),
-            1,
+            2,
             0,
             1,
             2,
@@ -412,6 +416,10 @@ class PreferencesDialog(QDialog):
     def _on_ui_scale_changed(self, index: int) -> None:
         self.repo.save_global_setting("ui_scale", float(self.scale_combo.itemData(index)))
         self._mark_restart()
+
+    def _on_sticky_settings_changed(self, checked: bool) -> None:
+        self.session.set_sticky_settings_enabled(checked)
+        self._persistent_settings_button.setEnabled(checked)
 
     def _on_canvas_bg_changed(self, index: int) -> None:
         self.session.set_canvas_bg(index)
@@ -479,15 +487,17 @@ def _pill_qss(hex_color: str) -> str:
     )
 
 
-def _button_row(items) -> QHBoxLayout:
+def _button_row(items) -> tuple[QHBoxLayout, list[QPushButton]]:
     """Equal thirds across the row: a settings dialog has no reason to rag its actions left."""
     layout = QHBoxLayout()
     layout.setSpacing(THEME.space_md)
+    buttons = []
     for label, icon, handler in items:
         btn = QPushButton(qta.icon(icon, color=THEME.text_primary), f" {label}")
         btn.clicked.connect(handler)
         layout.addWidget(btn, 1)
-    return layout
+        buttons.append(btn)
+    return layout, buttons
 
 
 def _pinned_keys() -> set[str]:
