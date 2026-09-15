@@ -109,6 +109,23 @@ def test_apply_crosstalk_copies_strength_profile_and_matrix_together():
     assert out.process.crosstalk_matrix == (1, 0, 0, 0, 1, 0, 0, 0, 1)
 
 
+def test_normalize_and_average_rows_are_in_the_catalog():  # #1047: were missing entirely
+    for label in ("Normalize", "Use Luma Average", "Use Color Average"):
+        assert label in _ROWS
+
+
+def test_normalize_and_average_rows_apply_and_format_as_booleans():
+    c = WorkspaceConfig()
+    src = replace(c, process=replace(c.process, e6_normalize=True, use_luma_average=True, use_color_average=True))
+    rows = [_row("Normalize"), _row("Use Luma Average"), _row("Use Color Average")]
+    out = apply_selected_fields(src, c, rows)
+    assert out.process.e6_normalize and out.process.use_luma_average and out.process.use_color_average
+
+    process_rows = dict((r.label, val) for _t, entries in catalog_sections(src) for r, val, _e in entries if r.section == "process")
+    for label in ("Normalize", "Use Luma Average", "Use Color Average"):
+        assert process_rows[label] == "on"
+
+
 # ── metering inputs clear the target's per-frame bounds ──────────────────────
 
 
@@ -117,7 +134,20 @@ def _metered_target():
     return replace(c, process=replace(c.process, local_floors=(0.1, 0.2, 0.3), local_ceils=(0.9, 0.8, 0.7)))
 
 
-@pytest.mark.parametrize("label", ["Analysis Buffer", "Mode", "Range", "Color", "Crosstalk", "Single-Shot Narrowband Calibration", "Crop"])
+@pytest.mark.parametrize(
+    "label",
+    [
+        "Analysis Buffer",
+        "Mode",
+        "Range",
+        "Color",
+        "Use Luma Average",
+        "Use Color Average",
+        "Crosstalk",
+        "Single-Shot Narrowband Calibration",
+        "Crop",
+    ],
+)
 def test_apply_metering_row_clears_local_bounds(label):
     tgt = _metered_target()
     out = apply_selected_fields(WorkspaceConfig(), tgt, [_row(label)])

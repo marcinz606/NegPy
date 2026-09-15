@@ -1173,6 +1173,31 @@ class DesktopSessionManager(QObject):
             self.settings_saved.emit()
         return count
 
+    def reset_roll_settings(self, scope: str = "roll") -> int:
+        """Reset every frame in scope to its own asset defaults, same as Reset Settings
+        but for many frames. Each frame keeps what it *is* (_asset_defaults)."""
+        if self.state.selected_file_idx == -1:
+            return 0
+        target_indices = self.asset_model.visible_actual_indices_ordered() if scope == "roll" else self.state.selected_indices
+        count = 0
+        for idx in target_indices:
+            if not (0 <= idx < len(self.state.uploaded_files)):
+                continue
+            asset = self.state.uploaded_files[idx]
+            defaults = self._asset_defaults(WorkspaceConfig(), asset)
+            if idx == self.state.selected_file_idx:
+                self.update_config(defaults, persist=True, render=False)
+            else:
+                target_hash = asset["hash"]
+                target_config = self.repo.load_file_settings(target_hash) or self.config_for_asset(asset)
+                self.push_external_history(target_hash, target_config, defaults)
+                self.repo.save_file_settings(target_hash, defaults, file_path=asset["path"])
+            count += 1
+        if count:
+            self.settings_synced.emit(f"Reset {count} frame{'s' if count != 1 else ''} to defaults")
+            self.settings_saved.emit()
+        return count
+
     def next_file(self) -> None:
         display_idx = self.asset_model.actual_to_display(self.state.selected_file_idx)
         if display_idx == -1:

@@ -4,6 +4,7 @@ from typing import Optional
 from PyQt6.QtGui import QKeySequence, QShortcut
 
 from negpy.desktop.session import ToolMode
+from negpy.desktop.view.confirm import confirm_reset_roll
 from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog, open_sticky_dialog
 from negpy.desktop.view.shortcut_registry import (
     REGISTRY,
@@ -26,6 +27,12 @@ def _context_undo(controller) -> None:
         controller.undo_last_retouch()
     else:
         controller.session.undo()
+
+
+def _reset_roll(window, controller) -> None:
+    count = len(controller.session.asset_model.visible_actual_indices_ordered())
+    if count and confirm_reset_roll(window, count):
+        controller.session.reset_roll_settings(scope="roll")
 
 
 def _context_cancel(controller, window) -> None:
@@ -216,6 +223,7 @@ class ShortcutManager:
             "copy": controller.session.copy_settings,
             "copy_with_bounds": controller.session.copy_settings_with_bounds,
             "paste": lambda: open_paste_dialog(self.window, controller),
+            "reset_roll": lambda: _reset_roll(self.window, controller),
             "persistent_settings": lambda: open_sticky_dialog(self.window, controller),
             "open_preferences": lambda: _open_preferences(self.window, controller),
             "save_work_print": self.window.right_panel.history_panel.save_work_print,

@@ -56,6 +56,22 @@ def confirm_delete_mask(parent) -> bool:
     return box.exec() == QMessageBox.StandardButton.Yes
 
 
+def confirm_reset_roll(parent, count: int) -> bool:
+    """Ask before resetting every frame in the roll to its defaults.
+
+    Each frame's reset is still an ordinary undo step, but reverting many frames at
+    once in the wrong roll is disruptive, so it is gated like Clear All.
+    """
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Icon.Question)
+    box.setWindowTitle("Reset Roll to Defaults")
+    box.setText(f"Reset all {count} frames in this roll to their default settings?")
+    box.setInformativeText("Each frame's reset is a normal undo step, so you can revert it after.")
+    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
+    box.setDefaultButton(QMessageBox.StandardButton.Yes)
+    return box.exec() == QMessageBox.StandardButton.Yes
+
+
 def confirm_clear_heals(parent, count: int) -> bool:
     """Ask before wiping every manual heal/scratch on the frame.
 
