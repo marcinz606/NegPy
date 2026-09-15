@@ -231,6 +231,7 @@ class ShortcutManager:
             "tab_metadata": lambda: right.show_tab_by_key("metadata"),
             "tab_history": lambda: right.show_tab_by_key("history"),
             "tab_scan": lambda: right.show_tab_by_key("scan"),
+            "reset_tab": right.reset_active_tab,
             "fit_view": self.window.canvas.fit_to_window,
             "zoom_100": self.window.canvas.zoom_to_original,
             "zoom_200": lambda: self.window.canvas.zoom_to_percent(200.0),

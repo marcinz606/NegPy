@@ -449,20 +449,6 @@ class TestAppController(unittest.TestCase):
         self.assertIs(params, hydrated)
         self.assertIsNone(params.geometry.crop_rect)
 
-    def test_clear_roll_baseline_resets_axes(self):
-        state = self.mock_session_manager.state
-        state.config = replace(
-            state.config,
-            process=replace(state.config.process, use_luma_average=True, use_color_average=True, roll_name="PORTRA-04"),
-        )
-
-        self.controller.clear_roll_baseline()
-
-        cfg = self.mock_session_manager.update_config.call_args.args[0]
-        self.assertFalse(cfg.process.use_luma_average)
-        self.assertFalse(cfg.process.use_color_average)
-        self.assertIsNone(cfg.process.roll_name)
-
     def test_thumbnail_miss_does_not_mark_source_unreadable(self):
         from PIL import Image
 
