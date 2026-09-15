@@ -8,6 +8,7 @@ import numpy as np
 import rawpy
 
 from negpy.domain.types import Dimensions, ImageBuffer
+from negpy.infrastructure.capture.raw_demosaic import _user_sat
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.loaders.factory import loader_factory
 from negpy.infrastructure.loaders.helpers import (
@@ -172,12 +173,15 @@ class PreviewManager:
         full_dims_pre = _output_dimensions_from_raw(raw, 0, 0)
 
         user_wb = None if use_camera_wb else [1, 1, 1, 1]
+        # NonStandardFileWrapper has no camera calibration to read; its postprocess ignores user_sat anyway.
+        user_sat = None if isinstance(raw, NonStandardFileWrapper) else _user_sat(raw)
 
         t_pp = time.perf_counter()
         rgb = raw.postprocess(
             gamma=(1, 1),
             no_auto_bright=True,
             adjust_maximum_thr=0.0,
+            user_sat=user_sat,  # calibrated linearity limit, not the format's generic max
             use_camera_wb=use_camera_wb,
             user_wb=user_wb,
             output_bps=16,
@@ -431,10 +435,13 @@ class PreviewManager:
                 demosaic = rawpy.DemosaicAlgorithm.LINEAR
                 # half_size casts X-Trans channel ratios and skews detection. Bayer is fine.
                 post_kw: dict = {} if (isinstance(raw, NonStandardFileWrapper) or is_xtrans(raw)) else {"half_size": True}
+                # NonStandardFileWrapper has no camera calibration to read; its postprocess ignores user_sat anyway.
+                user_sat = None if isinstance(raw, NonStandardFileWrapper) else _user_sat(raw)
                 rgb = raw.postprocess(
                     gamma=(1, 1),
                     no_auto_bright=True,
                     adjust_maximum_thr=0.0,
+                    user_sat=user_sat,  # calibrated linearity limit, not the format's generic max
                     use_camera_wb=False,
                     user_wb=[1, 1, 1, 1],
                     output_bps=16,

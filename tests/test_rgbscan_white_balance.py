@@ -30,6 +30,9 @@ class _SpyRaw:
     raw_type = rawpy.RawType.Flat
     raw_pattern = np.zeros((2, 2), dtype=np.uint8)
     sizes = SimpleNamespace(raw_height=8, raw_width=8, iheight=8, iwidth=8)
+    white_level = 16383
+    camera_white_level_per_channel = None
+    black_level_per_channel = [0, 0, 0, 0]
 
     def __init__(self) -> None:
         self.seen: dict = {}
