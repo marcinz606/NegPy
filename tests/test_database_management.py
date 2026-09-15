@@ -125,15 +125,17 @@ def test_clear_on_empty_db_is_a_noop(tmp_path):
     assert repo.database_stats()["file_settings"] == 0
 
 
-def test_clear_library_forgets_the_folders_only(tmp_path, qapp):
-    """The library is a list of places to look, not data — clearing it must not touch
-    saved edits, and must never touch the folders themselves."""
+def test_clear_library_forgets_the_rolls_only(tmp_path, qapp):
+    """The library is a list of rolls, not data — clearing it must not touch saved
+    edits, and must never touch the folders or images themselves."""
     from unittest.mock import MagicMock
 
     from negpy.desktop.view.widgets.database_dialog import DatabaseDialog
+    from negpy.services.assets.rolls import recognize_folder, saved_rolls
 
     repo = StorageRepository(str(tmp_path / "edits.db"), str(tmp_path / "settings.db"))
     repo.initialize()
+    recognize_folder(repo, str(tmp_path))
     repo.save_global_setting("library_roots", [str(tmp_path)])
     repo.save_file_settings("h1", WorkspaceConfig(), file_path="/a/1.nef")
 
@@ -146,6 +148,7 @@ def test_clear_library_forgets_the_folders_only(tmp_path, qapp):
     dialog._on_clear_library()
 
     assert repo.get_global_setting("library_roots") == []
+    assert saved_rolls(repo) == {}
     assert repo.load_file_settings("h1") is not None
     assert tmp_path.is_dir()
     assert not dialog.clear_library_btn.isEnabled()

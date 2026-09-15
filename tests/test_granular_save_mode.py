@@ -52,13 +52,13 @@ def test_scope_current_and_apply_mode(qapp):
     dlg = GranularSettingsDialog(
         None, _edited_cfg(), "P", show_scope=True, show_current=True, show_apply_mode=True, sel_count=2, roll_count=3
     )
-    assert dlg.current_radio.isChecked()
+    assert dlg._scope_radios.current.isChecked()
     assert dlg.apply_mode() == "overlay"
     dlg._on_apply()
     assert dlg.scope() == "current"
 
     dlg.replace_radio.setChecked(True)
-    dlg.sel_radio.setChecked(True)
+    dlg._scope_radios.sel.setChecked(True)
     dlg._on_apply()
     assert dlg.scope() == "selection"
     assert dlg.apply_mode() == "replace"

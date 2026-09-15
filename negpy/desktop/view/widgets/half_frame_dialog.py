@@ -413,10 +413,19 @@ class HalfFrameDialog(QDialog):
         self._gutter_label.setText(f"{g * 100:.1f}%")
 
     def _on_auto(self) -> None:
-        from negpy.services.assets.half_frame import detect_split_x
+        from negpy.services.assets.half_frame import detect_film_crop, detect_gutter, slice_half
 
-        sx = detect_split_x(self._preview_rgb)
+        crop_rect = detect_film_crop(self._preview_rgb)
+        # split_x is relative to the cropped width (slice_half's own convention), so the
+        # gutter search has to run inside the new crop, not the full, uncropped scan.
+        detect_buf = self._preview_rgb
+        if crop_rect is not None:
+            self._label.set_rect(crop_rect)
+            detect_buf = slice_half(self._preview_rgb, 0, 0.5, crop_rect=crop_rect)
+        sx, gutter = detect_gutter(detect_buf)
         self._label.set_split(sx)
+        self._label.set_gutter(gutter)
+        self._gutter_slider.setValue(int(gutter * 1000))
         self._update_gutter_label()
 
     def _set_scope(self, key: str) -> None:
