@@ -386,7 +386,7 @@ class TestAppController(unittest.TestCase):
         self.assertFalse(cfg.process.use_color_average)
         self.assertIsNone(cfg.process.roll_name)
 
-    def test_thumbnail_miss_marks_file_unreadable(self):
+    def test_thumbnail_miss_does_not_mark_source_unreadable(self):
         from PIL import Image
 
         from negpy.services.assets.thumbnails import asset_thumbnail_key
@@ -398,14 +398,12 @@ class TestAppController(unittest.TestCase):
             {"name": "good.dng", "path": "/tmp/good.dng", "hash": "h2"},
         ]
         keys = [asset_thumbnail_key(f) for f in state.uploaded_files]
-        self.controller._thumb_requested = keys
+        self.controller._apply_thumbnails({keys[1]: Image.new("RGB", (4, 4))})
 
-        self.controller._on_thumbnails_finished({keys[1]: Image.new("RGB", (4, 4))})
-
-        self.assertIn("decode_failed", state.uploaded_files[0])
+        self.assertNotIn("decode_failed", state.uploaded_files[0])
         self.assertNotIn("decode_failed", state.uploaded_files[1])
 
-    def test_a_thumbnail_that_cannot_decode_badges_its_frame(self):
+    def test_a_thumbnail_that_cannot_decode_does_not_badge_its_source(self):
         """A PIL image decodes lazily, so a truncated cache entry raises on the UI
         thread, inside a Qt slot, where an exception ends the process."""
         from PIL import Image
@@ -416,16 +414,14 @@ class TestAppController(unittest.TestCase):
         state = self.mock_session_manager.state
         state.uploaded_files = [{"name": "cut.dng", "path": "/tmp/cut.dng", "hash": "h1"}]
         key = asset_thumbnail_key(state.uploaded_files[0])
-        self.controller._thumb_requested = [key]
-
         broken = MagicMock(spec=Image.Image)
         broken.convert.side_effect = OSError("broken data stream when reading image file")
-        self.controller._on_thumbnails_finished({key: broken})
+        self.controller._apply_thumbnails({key: broken})
 
         self.assertNotIn(key, state.thumbnails)
-        self.assertIn("decode_failed", state.uploaded_files[0])
+        self.assertNotIn("decode_failed", state.uploaded_files[0])
 
-    def test_render_thumbnail_update_does_not_badge_other_frames(self):
+    def test_thumbnail_updates_do_not_badge_other_frames(self):
         from PIL import Image
 
         self.mock_session_manager.asset_model = MagicMock()
@@ -434,13 +430,12 @@ class TestAppController(unittest.TestCase):
             {"name": "a.dng", "path": "/tmp/a.dng", "hash": "h1"},
             {"name": "b.dng", "path": "/tmp/b.dng", "hash": "h2"},
         ]
-        self.controller._thumb_requested = ["h1", "h2"]
         img = Image.new("RGB", (4, 4))
-        self.controller._on_thumbnails_finished({"h1": img, "h2": img})
+        self.controller._apply_thumbnails({"h1": img, "h2": img})
         self.assertNotIn("decode_failed", state.uploaded_files[0])
 
-        # A second, narrower batch result must not badge frames absent from it.
-        self.controller._on_thumbnails_finished({"h1": img})
+        # A second, narrower result must not badge frames absent from it.
+        self.controller._apply_thumbnails({"h1": img})
         self.assertNotIn("decode_failed", state.uploaded_files[1])
 
     def test_batch_thumbnail_does_not_clobber_rendered(self):
@@ -451,12 +446,10 @@ class TestAppController(unittest.TestCase):
         self.mock_session_manager.asset_model = MagicMock()
         state = self.mock_session_manager.state
         state.uploaded_files = [{"name": "a.dng", "path": "/tmp/a.dng", "hash": "h1"}]
-        self.controller._thumb_requested = ["h1"]
-
         rendered = Image.new("RGB", (4, 4), (255, 0, 0))
         placeholder = Image.new("RGB", (4, 4), (0, 255, 0))
         self.controller._on_rendered_thumbnail({"h1": rendered})
-        self.controller._on_thumbnails_finished({"h1": placeholder})
+        self.controller._apply_thumbnails({"h1": placeholder})
 
         self.assertEqual(state.thumbnails["h1"].pixmap(4, 4).toImage().pixelColor(0, 0).red(), 255)
 
@@ -2272,6 +2265,20 @@ class TestDiscoveryProgressPopup(unittest.TestCase):
 
         self.assertEqual(order, ["finished", "thumbs"])
 
+    def test_thumbnail_queue_does_not_delay_a_new_folder_discovery(self):
+        state = self.mock_session_manager.state
+        state.uploaded_files = [{"name": "old.dng", "path": "/old.dng", "hash": "old"}]
+        self.controller.generate_missing_thumbnails()
+        self.assertIsNone(self.controller._active_batch)
+
+        self.controller.asset_discovery_requested.disconnect(self.controller.discovery_worker.process)
+        tasks = []
+        self.controller.asset_discovery_requested.connect(tasks.append)
+        self.controller.request_asset_discovery(["/new-folder"], auto_open=True, replace_existing=True)
+
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0].paths, ["/new-folder"])
+
     def test_back_to_back_capture_completions_are_discovered_in_order(self):
         self.controller.asset_discovery_requested.disconnect(self.controller.discovery_worker.process)
         tasks = []
@@ -2306,10 +2313,7 @@ class TestDiscoveryProgressPopup(unittest.TestCase):
 
 
 class TestHotFolderSequenceState(unittest.TestCase):
-    """`hot_folder_sequence_active` spans a hot-folder-triggered discovery through its
-    thumbnail phase, and only that phase — a manual request never claims it, and every
-    early exit (discovery error, no assets found, nothing to thumbnail, thumbnail error)
-    releases it without waiting for `_on_thumbnails_finished`."""
+    """`hot_folder_sequence_active` belongs only to hot-folder discovery."""
 
     def setUp(self):
         self.mock_session_manager = MagicMock(spec=DesktopSessionManager)
@@ -2353,20 +2357,15 @@ class TestHotFolderSequenceState(unittest.TestCase):
         self.controller.request_asset_discovery(["/manual.dng"])
         self.assertFalse(self.controller.hot_folder_sequence_active, "a manual request must not claim the hot-folder sequence")
 
-    def test_hot_folder_sequence_spans_discovery_and_thumbnails(self):
+    def test_hot_folder_sequence_ends_when_discovery_finishes(self):
         self.assertFalse(self.controller.hot_folder_sequence_active)
 
         self.controller.request_asset_discovery(["/hot.dng"], hot_folder=True)
         self.assertTrue(self.controller.hot_folder_sequence_active, "a hot-folder discovery must claim the sequence")
 
-        self.controller.generate_missing_thumbnails = MagicMock(
-            side_effect=lambda: self.controller._begin_batch("thumbnails", "Generating thumbnails", abortable=False)
-        )
+        self.controller.generate_missing_thumbnails = MagicMock()
         self.controller._on_discovery_finished([{"name": "hot", "path": "/hot.dng", "hash": "h1"}])
-        self.assertTrue(self.controller.hot_folder_sequence_active, "must stay claimed through the thumbnail phase")
-
-        self.controller._on_thumbnails_finished({})
-        self.assertFalse(self.controller.hot_folder_sequence_active, "must release once thumbnails finish")
+        self.assertFalse(self.controller.hot_folder_sequence_active)
 
     def test_hot_folder_sequence_clears_on_discovery_error(self):
         self.controller.request_asset_discovery(["/hot.dng"], hot_folder=True)
@@ -2388,17 +2387,6 @@ class TestHotFolderSequenceState(unittest.TestCase):
         self.assertTrue(self.controller.hot_folder_sequence_active)
         self.controller._on_discovery_finished([asset])
         self.assertFalse(self.controller.hot_folder_sequence_active, "nothing to thumbnail is itself the end of the sequence")
-
-    def test_hot_folder_sequence_clears_on_thumbnail_error(self):
-        self.controller.request_asset_discovery(["/hot.dng"], hot_folder=True)
-        self.controller.generate_missing_thumbnails = MagicMock(
-            side_effect=lambda: self.controller._begin_batch("thumbnails", "Generating thumbnails", abortable=False)
-        )
-        self.controller._on_discovery_finished([{"name": "hot", "path": "/hot.dng", "hash": "h1"}])
-        self.assertTrue(self.controller.hot_folder_sequence_active)
-
-        self.controller._on_thumbnail_batch_error("boom")
-        self.assertFalse(self.controller.hot_folder_sequence_active)
 
 
 class TestBatchAnalysisFiltering(unittest.TestCase):

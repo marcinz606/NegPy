@@ -146,7 +146,6 @@ from negpy.services.view.coordinate_mapping import CoordinateMapping
 
 logger = get_logger(__name__)
 
-_THUMB_FAILED_MSG = "thumbnail failed — file may be unreadable"
 # Busy toasts are cleared when the frame lands; the timeout is only a backstop for a
 # render that dies without reaching _on_render_finished.
 _BUSY_TOAST_MS = 30000
@@ -323,7 +322,9 @@ class AppController(QObject):
     stitch_requested = pyqtSignal(object)
     hdr_requested = pyqtSignal(object)
     thumbnail_requested = pyqtSignal(list)
+    thumbnail_cancel_requested = pyqtSignal()
     thumbnail_update_requested = pyqtSignal(ThumbnailUpdateTask)
+    thumbnail_activity_changed = pyqtSignal(str)
     tool_sync_requested = pyqtSignal()
     config_updated = pyqtSignal()
     monitor_profile_changed = pyqtSignal()
@@ -423,11 +424,8 @@ class AppController(QObject):
         self._active_batch_abortable = False
         self._batch_serial = 0
         self._active_batch_token: Optional[int] = None
-        # True from the moment a hot-folder-triggered discovery claims the batch lane
-        # until its thumbnail phase ends, including every early exit (discovery error,
-        # no assets found, nothing to thumbnail, thumbnail error) — not merely whether
-        # the Hot Folder toggle is checked, which says nothing about what triggered
-        # the batch currently running.
+        # True while a hot-folder-triggered discovery owns the batch lane. Thumbnail
+        # loading is an independent background queue and never owns this state.
         self._hot_folder_sequence_active = False
         self._autocrop_batch_token: Optional[int] = None
         self._autocrop_dispatched = 0
@@ -671,12 +669,11 @@ class AppController(QObject):
         self.hdr_worker.error.connect(self._on_hdr_error)
 
         self.thumbnail_requested.connect(self.thumb_worker.generate)
-        self.thumb_worker.progress.connect(self._on_thumbnail_progress)
+        self.thumbnail_cancel_requested.connect(self.thumb_worker.cancel)
+        self.thumb_worker.activity.connect(self.thumbnail_activity_changed)
         self.thumbnail_update_requested.connect(self.thumb_worker.update_rendered)
         self.thumb_worker.partial.connect(self._apply_thumbnails)
-        self.thumb_worker.finished.connect(self._on_thumbnails_finished)
         self.thumb_worker.rendered_finished.connect(self._on_rendered_thumbnail)
-        self.thumb_worker.error.connect(self._on_thumbnail_batch_error)
 
         self.normalization_requested.connect(self.norm_worker.process)
         self.norm_worker.progress.connect(self._on_normalization_progress)
@@ -768,10 +765,7 @@ class AppController(QObject):
     def generate_missing_thumbnails(self) -> None:
         missing = [f for f in self.state.uploaded_files if asset_thumbnail_key(f) not in self.state.thumbnails]
         if missing:
-            if self._begin_batch("thumbnails", "Generating thumbnails", abortable=False) is None:
-                return
-            self._thumb_requested = [asset_thumbnail_key(f) for f in missing]
-            self.set_status("Generating thumbnails…")
+            self.thumb_worker.cancel_pending()
             # Copies, carrying each frame's stored film process. The source decode cannot
             # tell a slide from a negative reliably, and inverting a positive is what put
             # negatives in the filmstrip. They are copies because these dicts cross to a
@@ -780,17 +774,14 @@ class AppController(QObject):
 
     def clear_thumbnail_cache(self) -> None:
         """Drops cached thumbnails on disk and in memory, then regenerates loaded ones."""
+        self.thumb_worker.cancel_pending()
+        self.thumbnail_cancel_requested.emit()
         self.asset_store.clear_thumbnails()
         # Must precede generate_missing_thumbnails: it only enqueues names absent here.
         self.state.thumbnails.clear()
         self.state.rendered_thumbnails.clear()
         self.session.asset_model.refresh()
         self.generate_missing_thumbnails()
-
-    def _on_thumbnail_progress(self, current: int, total: int, name: str) -> None:
-        self.set_status(f"Thumbnail {current}/{total}: {name}")
-        self.status_progress_requested.emit(current, total)
-        self.batch_progress.emit(current, total, name)
 
     def _set_thumbnail(self, key: str, pil_img: Any) -> bool:
         """False when the image will not decode. PIL decodes lazily, so a truncated
@@ -804,34 +795,18 @@ class AppController(QObject):
         return True
 
     def _apply_thumbnails(self, new_thumbs: Dict[str, Any]) -> Set[str]:
-        """Commit a batch (or a chunk of a running one) to the filmstrip. Returns the
+        """Commit completed thumbnails to the filmstrip. Returns the
         keys whose image would not decode."""
         broken = set()
+        loaded = {asset_thumbnail_key(f) for f in self.state.uploaded_files}
         for key, pil_img in new_thumbs.items():
             # A frame that already rendered on the canvas has the correct inverted
             # thumbnail, so keep this batch from overwriting it with the placeholder.
-            if pil_img and key not in self.state.rendered_thumbnails:
+            if pil_img and key in loaded and key not in self.state.rendered_thumbnails:
                 if not self._set_thumbnail(key, pil_img):
                     broken.add(key)
         self.session.asset_model.refresh()
         return broken
-
-    def _on_thumbnails_finished(self, new_thumbs: Dict[str, Any]) -> None:
-        self.status_progress_requested.emit(0, 0)
-        self._end_batch("thumbnails")
-        self._hot_folder_sequence_active = False
-        broken = self._apply_thumbnails(new_thumbs)
-
-        requested = getattr(self, "_thumb_requested", [])
-        self._thumb_requested = []
-        failed = {k for k in requested if not new_thumbs.get(k)} | broken
-        for f in self.state.uploaded_files:
-            key = asset_thumbnail_key(f)
-            if key in failed:
-                f.setdefault("decode_failed", _THUMB_FAILED_MSG)
-            elif key in new_thumbs and f.get("decode_failed") == _THUMB_FAILED_MSG:
-                del f["decode_failed"]
-        self.session.asset_model.refresh()
 
     def _on_rendered_thumbnail(self, new_thumbs: Dict[str, Any]) -> None:
         """A canvas render produced a thumbnail — it supersedes any batch placeholder."""
@@ -844,8 +819,7 @@ class AppController(QObject):
 
     @property
     def hot_folder_sequence_active(self) -> bool:
-        """True while the currently active (or just-finished-discovery, pre-thumbnail)
-        batch belongs to a hot-folder-triggered discovery-through-thumbnails sequence."""
+        """True while the active discovery came from the Hot Folder poll."""
         return self._hot_folder_sequence_active
 
     def _begin_batch(self, owner: str, title: str, abortable: bool) -> Optional[int]:
@@ -898,11 +872,6 @@ class AppController(QObject):
         self._hot_folder_sequence_active = False
         self._end_batch("discovery")
         self._report_worker_error("Import", message)
-
-    def _on_thumbnail_batch_error(self, message: str) -> None:
-        self._hot_folder_sequence_active = False
-        self._on_batch_error("thumbnails")
-        self._report_worker_error("Thumbnails", message)
 
     def _on_normalization_cancelled(self) -> None:
         self._on_batch_cancelled("normalization")
@@ -969,6 +938,8 @@ class AppController(QObject):
         user action — it drives `hot_folder_sequence_active`, which is what the batch
         popup checks, rather than whether the toggle happens to be on.
         """
+        self.thumb_worker.cancel_pending()
+        self.thumbnail_cancel_requested.emit()
         self._announce_rgb = announce_rgb
         request = _DiscoveryRequest(
             paths=tuple(paths),
@@ -1449,6 +1420,7 @@ class AppController(QObject):
         self._mark_diptychs(valid_assets)
         self._active_diptych_memo = ("", None)
         ended_batch = self._end_batch("discovery")
+        self._hot_folder_sequence_active = False
         if not ended_batch and self._active_batch is None:
             # Preserve the completion signal for direct invocations and late
             # delivery without releasing a newer batch owner.
@@ -1472,10 +1444,6 @@ class AppController(QObject):
             self.session.state.rendered_thumbnails.clear()
             self.session.add_files([], validated_info=valid_assets)
             self.generate_missing_thumbnails()
-            if self._active_batch != "thumbnails":
-                # Nothing to thumbnail — no batch claimed, so no _on_thumbnails_finished
-                # will arrive later to release a hot-folder sequence. End it here.
-                self._hot_folder_sequence_active = False
             idx = None
             if reselect_path:
                 # Guard on a set path: `None in (path, green_path, blue_path)` matches any
@@ -1502,10 +1470,6 @@ class AppController(QObject):
             first_new_idx = len(self.session.state.uploaded_files)
             self.session.add_files([], validated_info=valid_assets)
             self.generate_missing_thumbnails()
-            if self._active_batch != "thumbnails":
-                # Nothing to thumbnail — no batch claimed, so no _on_thumbnails_finished
-                # will arrive later to release a hot-folder sequence. End it here.
-                self._hot_folder_sequence_active = False
             if pending_scan and self._select_file_by_path(pending_scan):
                 selected_pending_scan = True
             elif auto_open and not self.state.current_file_path and len(self.session.state.uploaded_files) > first_new_idx:
@@ -5585,6 +5549,7 @@ class AppController(QObject):
             self.export_thread.quit()
             self.export_thread.wait()
         if self.thumb_thread.isRunning():
+            self.thumb_worker.cancel_pending()
             self.thumb_thread.quit()
             self.thumb_thread.wait()
         self._autocrop_cancel_requested = True

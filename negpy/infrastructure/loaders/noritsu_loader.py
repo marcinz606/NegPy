@@ -1,10 +1,12 @@
 import os
+from collections.abc import Callable
 from typing import Any, ContextManager, Optional, Tuple
 
 import numpy as np
+from PIL import Image
 
 from negpy.domain.interfaces import IImageLoader
-from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper
+from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, linear_uint16_to_display_uint8
 from negpy.infrastructure.loaders.pakon_loader import PakonLoader
 from negpy.kernel.image.logic import uint16_to_float32
 
@@ -120,3 +122,28 @@ class NoritsuLoader(IImageLoader):
 
         metadata = {"orientation": 0, "ir": None}
         return NonStandardFileWrapper(f32), metadata
+
+    def load_bounded_preview(
+        self,
+        file_path: str,
+        max_edge: int,
+        *,
+        fast_only: bool = False,
+        should_cancel: Optional[Callable[[], bool]] = None,
+    ) -> Optional[Image.Image]:
+        if should_cancel is not None and should_cancel():
+            raise InterruptedError("preview cancelled")
+        dims = detect_noritsu_dims(file_path)
+        if dims is None:
+            return None
+        width, height = dims
+        stride = max(1, int(np.ceil(max(height, width) / max(1, max_edge))))
+        mapped = np.memmap(file_path, dtype="<u2", mode="r", shape=(height, width, 3))
+        preview = mapped[::stride, ::stride, ::-1]
+        array = np.ascontiguousarray(linear_uint16_to_display_uint8(preview))
+        del preview
+        del mapped
+        image = Image.fromarray(array)
+        edge = max(1, max_edge)
+        image.thumbnail((edge, edge), Image.Resampling.LANCZOS)
+        return image

@@ -1,8 +1,10 @@
 import os
 import numpy as np
-from typing import Any, List, Dict, ContextManager, Tuple
+from collections.abc import Callable
+from typing import Any, List, Dict, ContextManager, Optional, Tuple
+from PIL import Image
 from negpy.domain.interfaces import IImageLoader
-from negpy.infrastructure.loaders.tiff_loader import NonStandardFileWrapper
+from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, linear_uint16_to_display_uint8
 from negpy.kernel.image.logic import uint16_to_float32
 
 
@@ -64,3 +66,37 @@ class PakonLoader(IImageLoader):
         except Exception as e:
             # Fallback to Rawpy or re-raise to be caught by worker
             raise RuntimeError(f"Pakon Load Failure: {e}") from e
+
+    def load_bounded_preview(
+        self,
+        file_path: str,
+        max_edge: int,
+        *,
+        fast_only: bool = False,
+        should_cancel: Optional[Callable[[], bool]] = None,
+    ) -> Optional[Image.Image]:
+        if should_cancel is not None and should_cancel():
+            raise InterruptedError("preview cancelled")
+        file_size = os.path.getsize(file_path)
+        spec = next((item for item in self.PAKON_SPECS if abs(file_size - item["size"]) < 1024), None)
+        if spec is None:
+            return None
+        height, width = spec["res"]
+        expected_samples = height * width * 3
+        byte_offset = max(0, file_size - expected_samples * 2)
+        mapped = np.memmap(file_path, dtype="<u2", mode="r", offset=byte_offset, shape=(expected_samples,))
+        sample = np.asarray(mapped[: min(expected_samples, 6000)], dtype=np.float32)
+        adjacent = np.mean(np.abs(sample[1:] - sample[:-1]))
+        step_three = np.mean(np.abs(sample[3:] - sample[:-3]))
+        stride = max(1, int(np.ceil(max(height, width) / max(1, max_edge))))
+        if adjacent > step_three * 1.5:
+            preview = mapped.reshape(height, width, 3)[::stride, ::stride, ::-1]
+        else:
+            preview = mapped.reshape(3, height, width)[:, ::stride, ::stride].transpose(1, 2, 0)
+        array = np.ascontiguousarray(linear_uint16_to_display_uint8(preview))
+        del preview
+        del mapped
+        image = Image.fromarray(array)
+        edge = max(1, max_edge)
+        image.thumbnail((edge, edge), Image.Resampling.LANCZOS)
+        return image

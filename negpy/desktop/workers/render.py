@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Callable, Optional
 
 import numpy as np
-from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, QTimer, pyqtSignal, pyqtSlot
 
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
@@ -392,70 +392,114 @@ class RenderWorker(QObject):
             self.error.emit(str(e))
 
 
-_THUMB_CHUNK = 8
-
-
 class ThumbnailWorker(QObject):
     """
     Asynchronous thumbnail generation worker.
     """
 
-    progress = pyqtSignal(int, int, str)
-    finished = pyqtSignal(dict)
-    # Chunks of the running batch, so a large folder fills its filmstrip as it goes instead of
-    # staying blank until the last file lands.
+    activity = pyqtSignal(str)
+    # A completed frame enters the filmstrip before the next source starts.
     partial = pyqtSignal(dict)
     # Rendered positives use their own signal, so the batch's bulk overwrite cannot clobber a
     # frame that already rendered on the canvas.
     rendered_finished = pyqtSignal(dict)
-    error = pyqtSignal(str)
 
     def __init__(self, asset_store) -> None:
         super().__init__()
         self._store = asset_store
+        self._files: list[dict] = []
+        self._slow_files: list[dict] = []
+        self._current = 0
+        self._active = False
+        self._slow_phase = False
+        self._cancel_requested = threading.Event()
+        self._next_timer = QTimer(self)
+        self._next_timer.setSingleShot(True)
+        self._next_timer.timeout.connect(self._process_next)
+
+    def cancel_pending(self) -> None:
+        """Stop after the native call in progress returns."""
+        self._cancel_requested.set()
+
+    @pyqtSlot()
+    def cancel(self) -> None:
+        self.cancel_pending()
+        if self._active:
+            self._finish()
 
     @pyqtSlot(list)
     def generate(self, files: list) -> None:
-        """
-        Generates thumbnails for a list of files with progress reporting.
-        """
-        import asyncio
+        """Replace the pending queue and yield between every source file."""
+        self._next_timer.stop()
+        self._cancel_requested.clear()
+        self._files = list(files)
+        self._slow_files = []
+        self._current = 0
+        self._active = bool(self._files)
+        self._slow_phase = False
+        if not self._active:
+            self.activity.emit("")
+            return
+        self._next_timer.start(0)
 
-        from negpy.services.assets import thumbnails as thumb_service
+    @pyqtSlot()
+    def _process_next(self) -> None:
+        if not self._active or self._cancel_requested.is_set():
+            self._finish()
+            return
 
+        from negpy.services.assets.thumbnails import asset_thumbnail_key, get_thumbnail_worker
+
+        f_info = self._files[self._current]
+        key = asset_thumbnail_key(f_info)
+        self.activity.emit(key)
         try:
-            total = len(files)
-
-            async def _progress_callback(current: int, name: str):
-                self.progress.emit(current, total, name)
-
-            # Chunked, not per-file: every emit costs the model a full relayout.
-            pending: dict = {}
-
-            def _ready_callback(key: str, thumb) -> None:
-                pending[key] = thumb
-                if len(pending) >= _THUMB_CHUNK:
-                    self.partial.emit(dict(pending))
-                    pending.clear()
-
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                new_thumbs = loop.run_until_complete(
-                    thumb_service.generate_batch_thumbnails(
-                        files,
-                        self._store,
-                        progress_callback=_progress_callback,
-                        ready_callback=_ready_callback,
-                    )
-                )
-            finally:
-                loop.close()
-                asyncio.set_event_loop(None)
-            self.finished.emit(new_thumbs)
+            thumb = get_thumbnail_worker(
+                f_info["path"],
+                f_info["hash"],
+                self._store,
+                int(f_info.get("half") or 0),
+                float(f_info.get("split_x") or 0.5),
+                f_info.get("green_path") or "",
+                f_info.get("blue_path") or "",
+                tuple(f_info["crop_rect"]) if f_info.get("crop_rect") else None,
+                float(f_info.get("gutter_thickness") or 0.0),
+                str(f_info.get("process_mode") or ""),
+                fast_only=not self._slow_phase,
+                should_cancel=self._cancel_requested.is_set,
+            )
+            if thumb is not None:
+                self.partial.emit({key: thumb})
+            elif not self._slow_phase:
+                self._slow_files.append(f_info)
         except Exception as e:
             logger.error(f"Thumbnail generation failure: {e}")
-            self.error.emit(str(e))
+
+        self._current += 1
+        if self._cancel_requested.is_set():
+            self._finish()
+            return
+        if self._current >= len(self._files) and not self._slow_phase and self._slow_files:
+            self._files = self._slow_files
+            self._slow_files = []
+            self._current = 0
+            self._slow_phase = True
+            self._next_timer.start(0)
+            return
+        if self._current >= len(self._files):
+            self._finish()
+            return
+        self._next_timer.start(0)
+
+    def _finish(self) -> None:
+        if not self._active:
+            return
+        self._next_timer.stop()
+        self._active = False
+        self._files = []
+        self._slow_files = []
+        self._slow_phase = False
+        self.activity.emit("")
 
     @pyqtSlot(ThumbnailUpdateTask)
     def update_rendered(self, task: ThumbnailUpdateTask) -> None:

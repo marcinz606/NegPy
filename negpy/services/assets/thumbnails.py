@@ -1,6 +1,5 @@
-import asyncio
-import inspect
-from typing import Optional, Any, List, Dict, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
+
 from PIL import Image
 import rawpy
 from negpy.kernel.system.config import APP_CONFIG
@@ -12,55 +11,6 @@ from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
-
-
-async def generate_batch_thumbnails(
-    files: List[Dict[str, str]],
-    asset_store: Any,
-    progress_callback: Optional[Any] = None,
-    ready_callback: Optional[Any] = None,
-) -> Dict[str, Image.Image]:
-    """
-    Parallel thumbnail generation with progress reporting.
-
-    ``ready_callback(key, thumb)`` fires per file so the filmstrip can fill in as the
-    batch runs, instead of waiting for the returned map.
-    """
-
-    semaphore = asyncio.Semaphore(APP_CONFIG.max_workers)
-    completed = 0
-
-    async def _worker(f_info: Dict[str, str]) -> Tuple[str, Optional[Image.Image]]:
-        nonlocal completed
-        async with semaphore:
-            thumb = await asyncio.to_thread(
-                get_thumbnail_worker,
-                f_info["path"],
-                f_info["hash"],
-                asset_store,
-                int(f_info.get("half") or 0),
-                float(f_info.get("split_x") or 0.5),
-                f_info.get("green_path") or "",
-                f_info.get("blue_path") or "",
-                tuple(f_info["crop_rect"]) if f_info.get("crop_rect") else None,
-                float(f_info.get("gutter_thickness") or 0.0),
-                str(f_info.get("process_mode") or ""),
-            )
-            completed += 1
-            if progress_callback:
-                if inspect.iscoroutinefunction(progress_callback):
-                    await progress_callback(completed, f_info["name"])
-                else:
-                    progress_callback(completed, f_info["name"])
-            key = asset_thumbnail_key(f_info)
-            if ready_callback and isinstance(thumb, Image.Image):
-                ready_callback(key, thumb)
-            return key, thumb
-
-    tasks = [_worker(f) for f in files]
-    results = await asyncio.gather(*tasks)
-
-    return {key: thumb for key, thumb in results if isinstance(thumb, Image.Image)}
 
 
 def asset_thumbnail_key(asset: Dict[str, Any]) -> str:
@@ -130,7 +80,11 @@ def _decode_triplet_preview(red_path: str, green_path: str, blue_path: str) -> O
     return img
 
 
-def decode_source_image(file_path: str, green_path: str = "", blue_path: str = "") -> Optional[Image.Image]:
+def decode_source_image(
+    file_path: str,
+    green_path: str = "",
+    blue_path: str = "",
+) -> Optional[Image.Image]:
     """Small EXIF-oriented preview of a source file (embedded thumb, else fast decode).
 
     An RGB-scan triplet (green_path/blue_path given) is merged from its three
@@ -150,6 +104,43 @@ def decode_source_image(file_path: str, green_path: str = "", blue_path: str = "
             img = Image.fromarray(apply_exif_orientation(np.asarray(img), orientation))
 
         return img
+
+
+def decode_bounded_source_preview(
+    file_path: str,
+    green_path: str = "",
+    blue_path: str = "",
+    *,
+    max_edge: int,
+    fast_only: bool = False,
+    should_cancel: Optional[Callable[[], bool]] = None,
+) -> Optional[Image.Image]:
+    """Load a source through its format loader's bounded-preview contract."""
+
+    def decode_one(path: str) -> Optional[Image.Image]:
+        if should_cancel is not None and should_cancel():
+            raise InterruptedError("thumbnail cancelled")
+        return loader_factory.load_bounded_preview(
+            path,
+            max_edge,
+            fast_only=fast_only,
+            should_cancel=should_cancel,
+        )
+
+    if not green_path or not blue_path:
+        return decode_one(file_path)
+
+    from negpy.features.rgbscan.logic import assemble_rgb
+
+    red_image = decode_one(file_path)
+    green_image = decode_one(green_path)
+    blue_image = decode_one(blue_path)
+    if red_image is None or green_image is None or blue_image is None:
+        return None
+    red = np.asarray(red_image.convert("RGB"))
+    green = np.asarray(green_image.convert("RGB"))
+    blue = np.asarray(blue_image.convert("RGB"))
+    return Image.fromarray(assemble_rgb(red, green, blue, align=False))
 
 
 def preview_positive(img: Image.Image, process_mode: str = "") -> Image.Image:
@@ -204,6 +195,9 @@ def get_thumbnail_worker(
     crop_rect: Optional[tuple[float, float, float, float]] = None,
     gutter_thickness: float = 0.0,
     process_mode: str = "",
+    *,
+    fast_only: bool = False,
+    should_cancel: Optional[Callable[[], bool]] = None,
 ) -> Optional[Image.Image]:
     """
     Checks cache -> extracts/renders -> resize.
@@ -216,7 +210,14 @@ def get_thumbnail_worker(
                 return cached
 
         ts = APP_CONFIG.thumbnail_size
-        img = decode_source_image(file_path, green_path, blue_path)
+        img = decode_bounded_source_preview(
+            file_path,
+            green_path,
+            blue_path,
+            max_edge=ts * 2,
+            fast_only=fast_only,
+            should_cancel=should_cancel,
+        )
         if img is None:
             return None
 
@@ -234,6 +235,8 @@ def get_thumbnail_worker(
             asset_store.save_thumbnail(cache_key, square_img)
 
         return square_img
+    except InterruptedError:
+        return None
     except Exception as e:
         logger.error(f"Thumbnail Error for {file_path}: {e}")
         return None

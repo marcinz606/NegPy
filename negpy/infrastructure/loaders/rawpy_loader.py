@@ -1,12 +1,21 @@
 import os
+from collections.abc import Callable
 from typing import Any, ContextManager, Optional, Tuple
 
 import numpy as np
 import rawpy
 import tifffile
+from PIL import Image
 
 from negpy.domain.interfaces import IImageLoader
-from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, read_orientation
+from negpy.infrastructure.loaders.helpers import (
+    NonStandardFileWrapper,
+    dng_bounded_preview,
+    dng_quick_preview,
+    embedded_preview,
+    fit_bounded_preview,
+    read_orientation,
+)
 from negpy.infrastructure.loaders.ir_planes import find_ir_plane
 from negpy.kernel.system.logging import get_logger
 
@@ -14,6 +23,7 @@ logger = get_logger(__name__)
 
 # DNG PhotometricInterpretation value for LinearRaw (TIFF/EP §6.10.4).
 _LINEAR_RAW = 34892
+_EMBEDDED_PREVIEW_MAX_BYTES = 64 * 1024 * 1024
 
 
 def _find_linearraw_page(tif: "tifffile.TiffFile", samples: int) -> Optional[Any]:
@@ -245,3 +255,34 @@ class RawpyLoader(IImageLoader):
         }
 
         return raw, metadata
+
+    def load_bounded_preview(
+        self,
+        file_path: str,
+        max_edge: int,
+        *,
+        fast_only: bool = False,
+        should_cancel: Optional[Callable[[], bool]] = None,
+    ) -> Optional[Image.Image]:
+        if should_cancel is not None and should_cancel():
+            raise InterruptedError("preview cancelled")
+
+        quick = dng_quick_preview(file_path)
+        if quick is not None:
+            return fit_bounded_preview(quick, max_edge)
+        if not fast_only:
+            handled, preview = dng_bounded_preview(file_path, max_edge, should_cancel=should_cancel)
+            if handled:
+                return preview
+
+        try:
+            with rawpy.imread(file_path) as raw:
+                preview = embedded_preview(raw, file_path)
+        except Exception:
+            return None
+        if preview is None:
+            return None
+        preview.draft("RGB", (max_edge, max_edge))
+        if preview.width * preview.height * 3 > _EMBEDDED_PREVIEW_MAX_BYTES:
+            return None
+        return fit_bounded_preview(preview, max_edge, read_orientation(file_path))

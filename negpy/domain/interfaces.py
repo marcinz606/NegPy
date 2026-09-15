@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import (
     Protocol,
     Optional,
@@ -90,6 +91,21 @@ class IImageLoader(Protocol):
     """
 
     def load(self, file_path: str) -> Tuple[ContextManager[Any], dict]: ...
+
+    def load_bounded_preview(
+        self,
+        file_path: str,
+        max_edge: int,
+        *,
+        fast_only: bool = False,
+        should_cancel: Optional[Callable[[], bool]] = None,
+    ) -> Optional[Any]:
+        """Return a bounded oriented RGB preview, or None.
+
+        This operation must keep source decoding bounded and must not run a full
+        camera RAW demosaic.
+        """
+        ...
 
 
 class IFilePicker(Protocol):

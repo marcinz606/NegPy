@@ -1,4 +1,5 @@
-from typing import Any, ContextManager, Tuple
+from collections.abc import Callable
+from typing import Any, ContextManager, Optional, Tuple
 
 import imageio.v3 as iio
 import numpy as np
@@ -6,7 +7,12 @@ from PIL import Image
 
 from negpy.domain.interfaces import IImageLoader
 from negpy.domain.models import ColorSpace
-from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, identify_color_space_from_icc, read_orientation
+from negpy.infrastructure.loaders.helpers import (
+    NonStandardFileWrapper,
+    fit_bounded_preview,
+    identify_color_space_from_icc,
+    read_orientation,
+)
 from negpy.kernel.image.logic import srgb_to_linear, uint8_to_float32
 
 
@@ -39,3 +45,19 @@ class JpegLoader(IImageLoader):
             f32 = srgb_to_linear(f32)
         metadata = {"orientation": read_orientation(file_path), "color_space": color_space, "icc_profile": icc_bytes, "ir": None}
         return NonStandardFileWrapper(f32), metadata
+
+    def load_bounded_preview(
+        self,
+        file_path: str,
+        max_edge: int,
+        *,
+        fast_only: bool = False,
+        should_cancel: Optional[Callable[[], bool]] = None,
+    ) -> Optional[Image.Image]:
+        if should_cancel is not None and should_cancel():
+            raise InterruptedError("preview cancelled")
+        with Image.open(file_path) as image:
+            image.draft("RGB", (max_edge, max_edge))
+            if image.width * image.height * 3 > 64 * 1024 * 1024:
+                return None
+            return fit_bounded_preview(image, max_edge, read_orientation(file_path))

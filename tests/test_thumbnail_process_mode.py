@@ -19,7 +19,6 @@ def _controller(stored: dict):
     c = MagicMock()
     c.state.uploaded_files = [dict(SLIDE), dict(FRESH)]
     c.state.thumbnails = {}
-    c._begin_batch.return_value = 1
     c.session.stored_process_mode = lambda asset: stored.get(asset["hash"], "")
     return c
 
@@ -47,6 +46,13 @@ class BatchRequest(unittest.TestCase):
 
         self.assertFalse(any("process_mode" in f for f in controller.state.uploaded_files))
         self.assertIsNot(_emitted(controller)[0], controller.state.uploaded_files[0])
+
+    def test_thumbnail_queue_does_not_claim_the_batch_lane(self):
+        controller = _controller({})
+
+        AppController.generate_missing_thumbnails(controller)
+
+        controller._begin_batch.assert_not_called()
 
 
 class StoredMode(unittest.TestCase):
