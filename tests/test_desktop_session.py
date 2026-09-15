@@ -1215,6 +1215,37 @@ class TestThumbnailKeying(unittest.TestCase):
 
         self.assertEqual(session.state.thumbnails, {keys[1]: "thumb-b"})
 
+    def test_push_external_history_flags_stale_under_the_thumbnail_cache_key(self):
+        """push_external_history (a bulk apply reaching a non-active file) adds
+        asset_thumbnail_key(asset) to stale_thumbnails, not the bare hash -- the read
+        side (the film strip's dot, the tooltip) must key the same way or the flag,
+        though set, never matches anything and the indicator never shows."""
+        from PyQt6.QtCore import Qt
+
+        from negpy.desktop.view.sidebar.files import _ThumbnailDelegate
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
+        repo = MagicMock(spec=StorageRepository)
+        repo.get_global_setting.return_value = None
+        repo.load_file_settings.return_value = None
+        repo.load_file_settings_by_path.return_value = None
+        repo.load_file_settings_many.return_value = {}
+        repo.get_max_history_index.return_value = 0
+        session = DesktopSessionManager(repo)
+        asset = {"name": "a.nef", "path": "/a.nef", "hash": "h1"}
+        session.state.uploaded_files = [asset]
+
+        session.push_external_history("h1", WorkspaceConfig(), WorkspaceConfig())
+
+        self.assertIn(asset_thumbnail_key(asset), session.state.stale_thumbnails)
+
+        model = AssetListModel(session.state)
+        tooltip = model.data(model.index(0, 0), Qt.ItemDataRole.ToolTipRole)
+        self.assertIn("predates a settings change", tooltip)
+
+        delegate = _ThumbnailDelegate(state=session.state)
+        self.assertTrue(delegate._is_stale_thumbnail(asset))
+
 
 class TestSearchFacts(unittest.TestCase):
     """Metadata filtering against a real repository: the sheet filter sees a frame's

@@ -242,6 +242,7 @@ Each corner of a thumbnail means one thing, so the marks never compete:
 | Bottom-right | cross, frame heavily dimmed | rejected |
 | Top-right | exclamation | the file failed to decode; click to retry |
 | Bottom-left | *see below* | the frame was built from more than one file |
+| Top-left | small amber dot | the thumbnail predates a settings change (a bulk apply reached the file before a render reached its thumbnail); open the frame to refresh it |
 
 The bottom-left badge is gray, not red, because it reports what the frame *is* rather than something you marked. Its glyph says which kind:
 
