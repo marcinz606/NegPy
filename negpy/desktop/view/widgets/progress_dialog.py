@@ -18,8 +18,7 @@ from negpy.desktop.view.widgets.floating_panel import float_over_app
 
 class ProgressDialog(QDialog):
     """
-    Non-modal floating popup showing animated progress for a batch job
-    (export, analysis, thumbnails). Sits over the main window without blocking it.
+    Non-modal floating popup showing animated progress for a foreground batch job.
     """
 
     abort_requested = pyqtSignal()

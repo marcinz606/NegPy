@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from PIL import Image
+from PyQt6.QtCore import QEventLoop, QObject, QThread, QTimer, pyqtSignal
 
 from negpy.desktop.workers.render import AssetDiscoveryWorker, ThumbnailWorker
 
@@ -21,6 +22,10 @@ class _Recorder:
 
     def emit(self, *args) -> None:
         self.calls.append(args)
+
+
+class _ThumbnailEmitter(QObject):
+    requested = pyqtSignal(list)
 
 
 def _worker() -> AssetDiscoveryWorker:
@@ -75,15 +80,14 @@ class TestMapFiles(unittest.TestCase):
 
 
 class TestThumbnailStreaming(unittest.TestCase):
-    """The filmstrip must fill in during the batch, not only at the end."""
+    """The filmstrip queue yields between files and can be cancelled."""
 
     def _run(self, count: int):
-        worker = ThumbnailWorker.__new__(ThumbnailWorker)
-        worker._store = None
-        worker.progress = _Recorder()
-        worker.partial = _Recorder()
-        worker.finished = _Recorder()
-        worker.error = _Recorder()
+        worker = ThumbnailWorker(None)
+        partial: list[dict] = []
+        activity: list[str] = []
+        worker.partial.connect(partial.append)
+        worker.activity.connect(activity.append)
 
         files = [{"name": f"f{i}", "path": f"/tmp/f{i}.arw", "hash": f"h{i}"} for i in range(count)]
         with patch(
@@ -91,21 +95,84 @@ class TestThumbnailStreaming(unittest.TestCase):
             lambda *a, **k: Image.new("RGB", (4, 4)),
         ):
             worker.generate(files)
-        return worker
+            worker._next_timer.stop()
+            while worker._active:
+                worker._process_next()
+                worker._next_timer.stop()
+        return worker, partial, activity
 
-    def test_chunks_arrive_before_the_batch_finishes(self):
-        worker = self._run(20)
-        self.assertTrue(worker.partial.calls, "no chunk was emitted during the batch")
-        streamed = {k for (chunk,) in worker.partial.calls for k in chunk}
-        (final,) = worker.finished.calls
-        self.assertTrue(streamed.issubset(final[0]), "a streamed key is missing from the final map")
-        self.assertEqual(len(final[0]), 20)
+    def test_each_completed_thumbnail_streams_before_the_next_source(self):
+        _worker, partial, activity = self._run(3)
+        self.assertEqual([len(chunk) for chunk in partial], [1, 1, 1])
+        self.assertEqual(activity, ["h0-v3", "h1-v3", "h2-v3", ""])
 
-    def test_small_batch_still_completes(self):
-        """Under one chunk nothing streams, and the final map still carries every file."""
-        worker = self._run(3)
-        self.assertEqual(worker.partial.calls, [])
-        self.assertEqual(len(worker.finished.calls[0][0]), 3)
+    def test_real_worker_thread_drains_the_timer_queue(self):
+        worker = ThumbnailWorker(None)
+        thread = QThread()
+        emitter = _ThumbnailEmitter()
+        loop = QEventLoop()
+        streamed: list[dict] = []
+        activity: list[str] = []
+        timed_out = False
+
+        def record_activity(key: str) -> None:
+            activity.append(key)
+            if not key:
+                loop.quit()
+
+        def timeout() -> None:
+            nonlocal timed_out
+            timed_out = True
+            loop.quit()
+
+        worker.moveToThread(thread)
+        emitter.requested.connect(worker.generate)
+        worker.partial.connect(streamed.append)
+        worker.activity.connect(record_activity)
+        watchdog = QTimer()
+        watchdog.setSingleShot(True)
+        watchdog.timeout.connect(timeout)
+        files = [{"name": f"f{i}", "path": f"/tmp/f{i}.arw", "hash": f"h{i}"} for i in range(3)]
+
+        thread.start()
+        try:
+            with patch(
+                "negpy.services.assets.thumbnails.get_thumbnail_worker",
+                lambda *a, **k: Image.new("RGB", (4, 4)),
+            ):
+                emitter.requested.emit(files)
+                watchdog.start(2000)
+                loop.exec()
+        finally:
+            watchdog.stop()
+            worker.cancel_pending()
+            thread.quit()
+            thread.wait()
+
+        self.assertFalse(timed_out, "the queued timer stopped before the batch finished")
+        self.assertEqual([len(result) for result in streamed], [1, 1, 1])
+        self.assertEqual(activity, ["h0-v3", "h1-v3", "h2-v3", ""])
+
+    def test_cancel_stops_before_the_next_file(self):
+        worker = ThumbnailWorker(None)
+        activity: list[str] = []
+        worker.activity.connect(activity.append)
+        files = [{"name": f"f{i}", "path": f"/tmp/f{i}.arw", "hash": f"h{i}"} for i in range(3)]
+        calls: list[str] = []
+
+        with patch(
+            "negpy.services.assets.thumbnails.get_thumbnail_worker",
+            side_effect=lambda path, *a, **k: calls.append(path) or Image.new("RGB", (4, 4)),
+        ):
+            worker.generate(files)
+            worker._next_timer.stop()
+            worker._process_next()
+            worker._next_timer.stop()
+            worker.cancel_pending()
+            worker._process_next()
+
+        self.assertEqual(calls, ["/tmp/f0.arw"])
+        self.assertEqual(activity, ["h0-v3", ""])
 
 
 if __name__ == "__main__":

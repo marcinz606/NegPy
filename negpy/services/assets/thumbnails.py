@@ -1,6 +1,4 @@
-import asyncio
-import inspect
-from typing import Optional, Any, List, Dict, Tuple
+from typing import Optional, Any, Dict, Tuple
 from PIL import Image
 import rawpy
 from negpy.kernel.system.config import APP_CONFIG
@@ -12,55 +10,6 @@ from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
-
-
-async def generate_batch_thumbnails(
-    files: List[Dict[str, str]],
-    asset_store: Any,
-    progress_callback: Optional[Any] = None,
-    ready_callback: Optional[Any] = None,
-) -> Dict[str, Image.Image]:
-    """
-    Parallel thumbnail generation with progress reporting.
-
-    ``ready_callback(key, thumb)`` fires per file so the filmstrip can fill in as the
-    batch runs, instead of waiting for the returned map.
-    """
-
-    semaphore = asyncio.Semaphore(APP_CONFIG.max_workers)
-    completed = 0
-
-    async def _worker(f_info: Dict[str, str]) -> Tuple[str, Optional[Image.Image]]:
-        nonlocal completed
-        async with semaphore:
-            thumb = await asyncio.to_thread(
-                get_thumbnail_worker,
-                f_info["path"],
-                f_info["hash"],
-                asset_store,
-                int(f_info.get("half") or 0),
-                float(f_info.get("split_x") or 0.5),
-                f_info.get("green_path") or "",
-                f_info.get("blue_path") or "",
-                tuple(f_info["crop_rect"]) if f_info.get("crop_rect") else None,
-                float(f_info.get("gutter_thickness") or 0.0),
-                str(f_info.get("process_mode") or ""),
-            )
-            completed += 1
-            if progress_callback:
-                if inspect.iscoroutinefunction(progress_callback):
-                    await progress_callback(completed, f_info["name"])
-                else:
-                    progress_callback(completed, f_info["name"])
-            key = asset_thumbnail_key(f_info)
-            if ready_callback and isinstance(thumb, Image.Image):
-                ready_callback(key, thumb)
-            return key, thumb
-
-    tasks = [_worker(f) for f in files]
-    results = await asyncio.gather(*tasks)
-
-    return {key: thumb for key, thumb in results if isinstance(thumb, Image.Image)}
 
 
 def asset_thumbnail_key(asset: Dict[str, Any]) -> str:

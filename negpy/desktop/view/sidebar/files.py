@@ -7,12 +7,14 @@ from PyQt6.QtCore import (
     QEasingCurve,
     QItemSelectionModel,
     QModelIndex,
+    QPersistentModelIndex,
     QPropertyAnimation,
     QRect,
     QRectF,
     QSize,
     QTimer,
     pyqtSignal,
+    pyqtSlot,
 )
 from PyQt6.QtGui import QActionGroup, QColor, QKeySequence, QPainter, QPainterPath, QPen, QShortcut
 from PyQt6.QtWidgets import (
@@ -55,6 +57,7 @@ from negpy.desktop.view.sidebar.library_tree import LibraryTree
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection, make_section
 from negpy.desktop.view.widgets.file_dialogs import last_open_folder, pick_start_dir
 from negpy.services.assets.library import folder_counts
+from negpy.services.assets.thumbnails import asset_thumbnail_key
 
 
 _UNBOUNDED_HEIGHT = 16777215  # QWIDGETSIZE_MAX — Qt's "no maximum"
@@ -85,15 +88,87 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     _COMPOSITE_RING = QColor(255, 255, 255, 90)
     _COMPOSITE_GLYPH = QColor(255, 255, 255, 235)
     _DIRTY_PX = 2
+    _ACTIVITY_INTERVAL_MS = 40
+    _ACTIVITY_STEP = 0.035
 
     def __init__(self, parent=None, state: Optional[AppState] = None) -> None:
         super().__init__(parent)
         self._state = state
+        self._placeholder_icon = qta.icon("fa5s.image", color=THEME.text_muted)
+        self._activity_icon = qta.icon("fa5s.image", color=THEME.text_secondary)
+        self._activity_key = ""
+        self._activity_index = QPersistentModelIndex()
+        self._activity_phase = 0.0
+        self._activity_timer = QTimer(self)
+        self._activity_timer.setInterval(self._ACTIVITY_INTERVAL_MS)
+        self._activity_timer.timeout.connect(self._advance_activity)
+
+    @pyqtSlot(str)
+    def set_activity(self, key: str) -> None:
+        if key == self._activity_key:
+            return
+        previous = self._activity_index
+        self._activity_key = key
+        self._activity_index = self._find_activity_index()
+        self._activity_phase = 0.0
+        if key:
+            self._activity_timer.start()
+        else:
+            self._activity_timer.stop()
+        self._repaint_index(previous)
+        self._repaint_view()
+
+    def _advance_activity(self) -> None:
+        self._activity_phase = (self._activity_phase + self._ACTIVITY_STEP) % 1.0
+        self._repaint_view()
+
+    def _repaint_view(self) -> None:
+        if not self._index_matches_activity(self._activity_index):
+            self._activity_index = self._find_activity_index()
+        self._repaint_index(self._activity_index)
+
+    def _find_activity_index(self) -> QPersistentModelIndex:
+        view = self.parent()
+        if not isinstance(view, QListView) or not self._activity_key:
+            return QPersistentModelIndex()
+        model = view.model()
+        if model is None:
+            return QPersistentModelIndex()
+        for row in range(model.rowCount()):
+            index = model.index(row, 0)
+            file_info = index.data(Qt.ItemDataRole.UserRole) or {}
+            if file_info.get("hash") and asset_thumbnail_key(file_info) == self._activity_key:
+                return QPersistentModelIndex(index)
+        return QPersistentModelIndex()
+
+    def _index_matches_activity(self, index: QPersistentModelIndex) -> bool:
+        if not index.isValid() or not self._activity_key:
+            return False
+        file_info = index.data(Qt.ItemDataRole.UserRole) or {}
+        return bool(file_info.get("hash") and asset_thumbnail_key(file_info) == self._activity_key)
+
+    def _repaint_index(self, index: QPersistentModelIndex) -> None:
+        view = self.parent()
+        if isinstance(view, QListView) and index.isValid():
+            view.viewport().update(view.visualRect(QModelIndex(index)))
 
     def _is_dirty(self, file_info: dict) -> bool:
         """Only the active file can carry unsaved edits; every other frame is on disk."""
         state = self._state
         return bool(state and state.is_dirty and state.current_file_path and file_info.get("path") == state.current_file_path)
+
+    @staticmethod
+    def _fit_rect(area: QRect, source_size: QSize) -> QRect:
+        size = source_size.scaled(area.size(), Qt.AspectRatioMode.KeepAspectRatio)
+        x = area.x() + (area.width() - size.width()) // 2
+        y = area.y() + (area.height() - size.height()) // 2
+        return QRect(x, y, size.width(), size.height())
+
+    def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
+        view = self.parent()
+        if isinstance(view, QListView) and view.iconSize().isValid():
+            return view.iconSize()
+        return super().sizeHint(option, index)
 
     def _draw_mark_badge(self, painter: QPainter, img_rect: QRect, check: bool) -> None:
         r = 9
@@ -160,17 +235,36 @@ class _ThumbnailDelegate(QStyledItemDelegate):
 
         icon = index.data(Qt.ItemDataRole.DecorationRole)
         if icon is None or icon.isNull():
-            if failed:
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            area = option.rect.adjusted(self._MARGIN, self._MARGIN, -self._MARGIN, -self._MARGIN)
+            img_rect = area
+            selected = bool(option.state & QStyle.StateFlag.State_Selected)
+            painter.setPen(QPen(QColor(THEME.accent_primary if selected else THEME.border_color), 1))
+            painter.setBrush(QColor(THEME.bg_header))
+            painter.drawRoundedRect(img_rect, self._RADIUS, self._RADIUS)
+            glyph_side = min(32, min(img_rect.width(), img_rect.height()) // 3)
+            glyph_rect = QRect(0, 0, glyph_side, glyph_side)
+            glyph_rect.moveCenter(img_rect.center())
+            active = bool(self._activity_key and file_info.get("hash") and asset_thumbnail_key(file_info) == self._activity_key)
+            if active:
                 painter.save()
-                painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-                area = option.rect.adjusted(self._MARGIN, self._MARGIN, -self._MARGIN, -self._MARGIN)
-                painter.setPen(QPen(QColor(THEME.border_color), 1))
-                painter.setBrush(QColor(20, 20, 20))
-                painter.drawRoundedRect(area, self._RADIUS, self._RADIUS)
-                self._draw_failed_badge(painter, area)
-                if kind:
-                    self._draw_composite_badge(painter, area, kind, int(file_info.get("half") or 0))
+                painter.setOpacity(0.2)
+                self._placeholder_icon.paint(painter, glyph_rect)
                 painter.restore()
+                painter.save()
+                reveal = QRect(glyph_rect)
+                reveal.setWidth(max(1, round(glyph_rect.width() * self._activity_phase)))
+                painter.setClipRect(reveal)
+                self._activity_icon.paint(painter, glyph_rect)
+                painter.restore()
+            else:
+                self._placeholder_icon.paint(painter, glyph_rect)
+            if failed:
+                self._draw_failed_badge(painter, img_rect)
+            if kind:
+                self._draw_composite_badge(painter, img_rect, kind, int(file_info.get("half") or 0))
+            painter.restore()
             return
         base = icon.pixmap(QSize(4096, 4096))  # largest available pixmap (~120px)
         if base.isNull():
@@ -186,9 +280,7 @@ class _ThumbnailDelegate(QStyledItemDelegate):
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
-        x = area.x() + (area.width() - scaled.width()) // 2
-        y = area.y() + (area.height() - scaled.height()) // 2
-        img_rect = QRect(x, y, scaled.width(), scaled.height())
+        img_rect = self._fit_rect(area, scaled.size())
 
         # Selected image full-brightness with the armed-red frame; others dimmed.
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
@@ -614,7 +706,8 @@ class FileBrowser(QWidget):
 
         self.list_view = ThumbnailGridView(target_cell=self.thumb_size_slider.value())
         self.list_view.setModel(self.session.asset_model)
-        self.list_view.setItemDelegate(_ThumbnailDelegate(self.list_view, state=self.session.state))
+        self._thumbnail_delegate = _ThumbnailDelegate(self.list_view, state=self.session.state)
+        self.list_view.setItemDelegate(self._thumbnail_delegate)
         self.list_view.setViewMode(QListView.ViewMode.IconMode)
         self.list_view.setResizeMode(QListView.ResizeMode.Adjust)
         self.list_view.setSelectionMode(QListView.SelectionMode.ExtendedSelection)
@@ -687,6 +780,7 @@ class FileBrowser(QWidget):
         self.half_frame_btn.toggled.connect(self._on_half_frame_toggled)
         self.session.state_changed.connect(self.sync_ui)
         self.session.files_changed.connect(self._on_files_changed)
+        self.controller.thumbnail_activity_changed.connect(self._thumbnail_delegate.set_activity)
         # Unloading the last frame leaves nothing to show, so fall back to the library rather
         # than an empty panel. Never prompts: the user asked to unload, not to load.
         self.session.session_emptied.connect(lambda: self.library_requested.emit(False))
@@ -747,7 +841,7 @@ class FileBrowser(QWidget):
         box.setIcon(QMessageBox.Icon.Question)
         box.setWindowTitle("Load Roll")
         box.setText(f"Load {n} image{'s' if n != 1 else ''} from “{label}”?")
-        box.setInformativeText("They are hashed and thumbnailed on load, which takes a moment on a large roll.")
+        box.setInformativeText("The files are hashed before the roll opens. Thumbnails then load in the background.")
         remember = QCheckBox("Always load without asking")
         box.setCheckBox(remember)
         load = box.addButton("Load", QMessageBox.ButtonRole.AcceptRole)

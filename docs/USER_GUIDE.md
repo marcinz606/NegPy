@@ -112,7 +112,7 @@ To point it somewhere else, add another folder with **+**. To forget them all, u
 *   **Alt+Up** moves the selection to the folder above.
 *   The tree sorts the way the sheet does. Change **Sort** to Date or Descending and the folders follow.
 
-When you open a folder that contains images, NegPy asks whether to **load the roll**. Only then does it hash and thumbnail them, which is the part that takes a moment on a big roll. Say no and your open frames stay as they were. Tick **Always load without asking** in that prompt if you would rather it just get on with it.
+When you open a folder that contains images, NegPy asks whether to **load the roll**. Only then does it hash the files, which is the part that takes a moment on a big roll. The film strip then opens and fills its thumbnails in the background. Say no and your open frames stay as they were. Tick **Always load without asking** in that prompt if you would rather it just get on with it.
 
 Loading a roll replaces what is in the film strip; right-click → **Add to Session** appends instead. Nothing is lost either way, because your edits live in NegPy's database, not in the list of open files.
 
@@ -223,7 +223,7 @@ Narrow the panel and the toolbar buttons that no longer fit move into a **»** m
 
 ### Triage (culling the roll)
 
-Thumbnails are positives from the start. A frame you have not opened yet is inverted straight from its preview, a quick per-channel job rather than the full pipeline, so the sheet reads as photographs while you cull. Open a frame and its thumbnail is replaced by the real render, matching the canvas exactly. Transparencies are left alone, being positives already: a frame whose film process you have already set, or that you have opened once, is taken at its word, and only a frame nothing has decided yet is guessed at from its preview.
+Thumbnails are positives from the start. A frame you have not opened yet is inverted straight from its preview, a quick per-channel job rather than the full pipeline, so the sheet reads as photographs while you cull. Thumbnails arrive one at a time in the background, and the active placeholder reveals its icon while it waits. Open a frame and its thumbnail is replaced by the real render, matching the canvas exactly. Transparencies are left alone, being positives already: a frame whose film process you have already set, or that you have opened once, is taken at its word, and only a frame nothing has decided yet is guessed at from its preview.
 
 Right-click a thumbnail, or use keyboard shortcuts, to mark frames while you review the sheet:
 
