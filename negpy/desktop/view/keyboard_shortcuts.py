@@ -31,8 +31,8 @@ def _context_undo(controller) -> None:
 
 def _reset_roll(window, controller) -> None:
     count = len(controller.session.asset_model.visible_actual_indices_ordered())
-    if count and confirm_reset_roll(window, count):
-        controller.session.reset_roll_settings(scope="roll")
+    if count and confirm_reset_roll(window, count) and controller.session.reset_roll_settings(scope="roll"):
+        controller.request_render()
 
 
 def _context_cancel(controller, window) -> None:
