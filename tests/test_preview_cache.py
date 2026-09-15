@@ -98,6 +98,9 @@ def test_cache_bypasses_second_postprocess() -> None:
     raw.raw_type = rawpy.RawType.Flat
     raw.raw_pattern = np.zeros((2, 2), dtype=np.uint8)
     raw.sizes = SimpleNamespace(raw_height=8, raw_width=8, iheight=8, iwidth=8)
+    raw.white_level = 16383
+    raw.camera_white_level_per_channel = None
+    raw.black_level_per_channel = [0, 0, 0, 0]
     n_calls = [0]
 
     def _pp(**kwargs: object) -> object:

@@ -24,6 +24,9 @@ def _make_fake_raw(w: int = 100, h: int = 100) -> MagicMock:
     raw = MagicMock()
     raw.sizes = MagicMock(iheight=h, iwidth=w)
     raw.postprocess.return_value = np.zeros((h, w, 3), dtype=np.uint16)
+    raw.white_level = 16383
+    raw.camera_white_level_per_channel = None
+    raw.black_level_per_channel = [0, 0, 0, 0]
 
     buf = io.BytesIO()
     Image.new("RGB", (w, h), (10, 20, 30)).save(buf, format="JPEG")
