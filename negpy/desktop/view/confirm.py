@@ -1,4 +1,31 @@
-from PyQt6.QtWidgets import QMessageBox
+from PyQt6.QtWidgets import QCheckBox, QMessageBox
+
+
+def confirm_load_roll(parent, repo, image_count: int, label: str) -> bool:
+    """Ask before hashing and thumbnailing a folder's images into the session.
+
+    Skippable via "Always load without asking", persisted so importing a library
+    full of rolls one at a time does not re-prompt for each.
+    """
+    if repo.get_global_setting("library_autoload_folders", False):
+        return True
+
+    n = image_count
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Icon.Question)
+    box.setWindowTitle("Load Roll")
+    box.setText(f"Load {n} image{'s' if n != 1 else ''} from “{label}”?")
+    box.setInformativeText("They are hashed and thumbnailed on load, which takes a moment on a large roll.")
+    remember = QCheckBox("Always load without asking")
+    box.setCheckBox(remember)
+    load = box.addButton("Load", QMessageBox.ButtonRole.AcceptRole)
+    box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+    box.exec()
+    if box.clickedButton() is not load:
+        return False
+    if remember.isChecked():
+        repo.save_global_setting("library_autoload_folders", True)
+    return True
 
 
 def confirm_unload(parent, *, clear_all: bool = False, count: int = 1) -> bool:
@@ -40,6 +67,19 @@ def confirm_delete_named(parent, kind: str, name: str, *, informative: str = "")
     box.setText(f"Delete the {kind.lower()} “{name}”?")
     if informative:
         box.setInformativeText(informative)
+    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
+    box.setDefaultButton(QMessageBox.StandardButton.Yes)
+    return box.exec() == QMessageBox.StandardButton.Yes
+
+
+def confirm_delete_several(parent, kind: str, names: list, *, informative: str = "") -> bool:
+    """Ask before deleting several named items at once, selected together. Enter
+    confirms; Esc cancels."""
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Icon.Question)
+    box.setWindowTitle(f"Delete {len(names)} {kind}s")
+    box.setText(f"Delete these {len(names)} {kind.lower()}s?")
+    box.setInformativeText(informative or "\n".join(names))
     box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
     box.setDefaultButton(QMessageBox.StandardButton.Yes)
     return box.exec() == QMessageBox.StandardButton.Yes

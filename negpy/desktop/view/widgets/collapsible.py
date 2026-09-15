@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QCheckBox,
+    QMenu,
     QPushButton,
     QFrame,
     QHBoxLayout,
@@ -56,6 +57,9 @@ class CollapsibleSection(QWidget):
         btn_layout = QHBoxLayout(self.toggle_button)
         btn_layout.setContentsMargins(THEME.space_xl, 8, THEME.space_xl, 8)
         btn_layout.setSpacing(10)
+        # Kept typed (toggle_button.layout() widens to QLayout | None), for set_actions_menu
+        # to insert into later.
+        self._header_row = btn_layout
 
         # Nested in the header button like reset_btn, so ticking the section does not also
         # collapse it. Tristate is for display only: a click always resolves to all or none.
@@ -105,6 +109,10 @@ class CollapsibleSection(QWidget):
         self.reset_btn.setObjectName("collapsible_reset_btn")
         self.reset_btn.clicked.connect(self._on_reset_clicked)
         btn_layout.addWidget(self.reset_btn)
+
+        # Lazily built by set_actions_menu(): most sections have nothing that belongs
+        # here, so no button exists until one asks for it.
+        self.actions_btn: Optional[QPushButton] = None
 
         self.chevron_label = QLabel()
         self.chevron_label.setStyleSheet("background: transparent;")
@@ -190,6 +198,20 @@ class CollapsibleSection(QWidget):
     def expand(self) -> None:
         if not self.toggle_button.isChecked():
             self.toggle_button.setChecked(True)
+
+    def set_actions_menu(self, menu: QMenu, tooltip: str) -> None:
+        """An always-visible header menu button, for section-level housekeeping that
+        is not a settings reset (reset_btn) -- Film Strip's New Roll, for one."""
+        if self.actions_btn is None:
+            self.actions_btn = QPushButton()
+            self.actions_btn.setIcon(qta.icon("fa5s.ellipsis-v", color=THEME.text_muted))
+            self.actions_btn.setFixedSize(20, 20)
+            self.actions_btn.setIconSize(QSize(10, 10))
+            self.actions_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.actions_btn.setObjectName("collapsible_reset_btn")
+            self._header_row.insertWidget(self._header_row.count() - 1, self.actions_btn)
+        self.actions_btn.setToolTip(tooltip)
+        self.actions_btn.setMenu(menu)
 
 
 def make_section(
