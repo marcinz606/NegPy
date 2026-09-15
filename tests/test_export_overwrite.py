@@ -12,7 +12,7 @@ from negpy.desktop.workers.export import (
 from negpy.domain.models import ExportFormat, ExportPreset, ExportPresetOutputMode, WorkspaceConfig
 
 
-def _task(src_path, *, out_mode, out_path="", subfolder="", fmt=ExportFormat.JPEG, overwrite=True):
+def _task(src_path, *, out_mode, out_path="", subfolder="", fmt=ExportFormat.JPEG, overwrite=True, roll_export_root=None):
     preset = ExportPreset(
         name="t",
         export_fmt=fmt,
@@ -25,6 +25,7 @@ def _task(src_path, *, out_mode, out_path="", subfolder="", fmt=ExportFormat.JPE
         file_info={"name": os.path.basename(src_path), "path": src_path, "hash": "h"},
         params=WorkspaceConfig(),
         export_settings=preset,
+        roll_export_root=roll_export_root,
     )
 
 
@@ -39,6 +40,32 @@ class TestExportPathResolution(unittest.TestCase):
 
     def test_dir_absolute(self):
         t = _task(os.path.join("photos", "roll", "IMG_1.RAF"), out_mode=ExportPresetOutputMode.ABSOLUTE, out_path="out")
+        self.assertEqual(resolve_export_dir(t), "out")
+
+    def test_dir_subfolder_of_source_redirects_a_virtual_roll(self):
+        t = _task(
+            os.path.join("photos", "roll", "IMG_1.RAF"),
+            out_mode=ExportPresetOutputMode.SUBFOLDER_OF_SOURCE,
+            subfolder="export",
+            roll_export_root=os.path.join("data", "NegPy", "Portra 400"),
+        )
+        self.assertEqual(resolve_export_dir(t), os.path.join("data", "NegPy", "Portra 400", "export"))
+
+    def test_dir_same_as_source_ignores_a_roll_redirect(self):
+        t = _task(
+            os.path.join("photos", "roll", "IMG_1.RAF"),
+            out_mode=ExportPresetOutputMode.SAME_AS_SOURCE,
+            roll_export_root=os.path.join("data", "NegPy", "Portra 400"),
+        )
+        self.assertEqual(resolve_export_dir(t), os.path.join("photos", "roll"))
+
+    def test_dir_absolute_ignores_a_roll_redirect(self):
+        t = _task(
+            os.path.join("photos", "roll", "IMG_1.RAF"),
+            out_mode=ExportPresetOutputMode.ABSOLUTE,
+            out_path="out",
+            roll_export_root=os.path.join("data", "NegPy", "Portra 400"),
+        )
         self.assertEqual(resolve_export_dir(t), "out")
 
     def test_naming_uses_format_ext_and_original_name(self):

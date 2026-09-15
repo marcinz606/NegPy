@@ -8,10 +8,12 @@ profile, the Kelvin roll-locks — stay in `AppState._apply_sticky_settings`.
 
 from __future__ import annotations
 
+import os
 from typing import Any, Optional
 
+import negpy.kernel.system.paths as paths
 from negpy.domain.interfaces import IRepository
-from negpy.domain.models import ExportConfig, WorkspaceConfig
+from negpy.domain.models import ExportConfig, ExportPresetOutputMode, WorkspaceConfig
 from negpy.desktop.settings_catalog import (
     CATALOG,
     DEFAULT_STICKY_IDS,
@@ -128,3 +130,25 @@ def migrate_legacy(repo: IRepository) -> None:
         return
     known = {f for r in all_rows() for f in r.fields}
     repo.save_global_setting(STICKY_CONFIG_KEY, {k: v for k, v in flat.items() if k in known})
+
+
+_EXPORT_DESTINATION_MIGRATED_KEY = "export_destination_migrated_v1"
+
+
+def migrate_legacy_export_destination(repo: IRepository) -> None:
+    """Drop a sticky output_mode / export_path / output_subfolder that still matches
+    ExportConfig's own former factory default, once, so an untouched destination tracks
+    the current default instead of freezing at whatever it was on first export. A
+    destination the user actually chose never matches this exact combination."""
+    if repo.get_global_setting(_EXPORT_DESTINATION_MIGRATED_KEY):
+        return
+    repo.save_global_setting(_EXPORT_DESTINATION_MIGRATED_KEY, True)
+    sticky_export = repo.get_global_setting("last_export_config")
+    if not isinstance(sticky_export, dict):
+        return
+    if sticky_export.get("output_mode") != ExportPresetOutputMode.ABSOLUTE:
+        return
+    if sticky_export.get("export_path") != os.path.join(paths.get_default_user_dir(), "export"):
+        return
+    remaining = {k: v for k, v in sticky_export.items() if k not in ("output_mode", "export_path", "output_subfolder")}
+    repo.save_global_setting("last_export_config", remaining)

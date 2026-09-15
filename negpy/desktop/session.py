@@ -16,6 +16,7 @@ from negpy.desktop.sticky import (
     load_sticky_config,
     load_sticky_rows,
     migrate_legacy,
+    migrate_legacy_export_destination,
     sticky_snapshot,
 )
 from negpy.desktop.view.canvas.crop_guides import CropGuide
@@ -76,6 +77,10 @@ class AppState:
     source_exif: Dict[str, Any] = field(default_factory=dict)  # file_hash -> piexif dict
     selected_file_idx: int = -1
     selected_indices: List[int] = field(default_factory=list)
+    # The roll (negpy.services.assets.rolls) the loaded frames came from, if any -- a
+    # plain Add Files pick or a clear leaves this None. Files appended while it is set
+    # join that roll's membership so reopening it later still shows them.
+    active_roll_id: Optional[str] = None
     active_adjustment_idx: int = 0
     last_metrics: Dict[str, Any] = field(default_factory=dict)
     metrics_lock: threading.Lock = field(default_factory=threading.Lock, init=False, compare=False, repr=False)
@@ -634,6 +639,7 @@ class DesktopSessionManager(QObject):
         # is_dirty initialised to False via AppState default
 
         migrate_legacy(self.repo)
+        migrate_legacy_export_destination(self.repo)
 
         # Load global hardware settings
         saved_gpu = self.repo.get_global_setting("gpu_enabled")
@@ -1612,6 +1618,7 @@ class DesktopSessionManager(QObject):
         self.state.uploaded_files.clear()
         self.state.thumbnails.clear()
         self.state.rendered_thumbnails.clear()
+        self.state.active_roll_id = None
         self._reset_active_image_state()
 
         self.asset_model.refresh()

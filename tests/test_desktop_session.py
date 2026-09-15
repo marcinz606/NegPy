@@ -36,6 +36,9 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.mock_repo.get_global_setting.side_effect = mock_get_global
         self.mock_repo.get_max_history_index.return_value = 0
         self.session = DesktopSessionManager(self.mock_repo)
+        # Construction itself writes (startup migrations, e.g.); tests below assert
+        # what one specific action writes, not the lifetime total since setUp.
+        self.mock_repo.save_global_setting.reset_mock()
 
         self.session.state.uploaded_files = [
             {"name": "file1.dng", "path": "path1", "hash": "hash1"},
