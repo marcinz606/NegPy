@@ -2,8 +2,9 @@ from typing import Any, Dict
 
 import numpy as np
 import qtawesome as qta
-from PyQt6.QtCore import Qt, QSize, QTimer
+from PyQt6.QtCore import Qt, QPoint, QSize, QTimer
 from PyQt6.QtWidgets import (
+    QMenu,
     QPushButton,
     QScrollArea,
     QSplitter,
@@ -13,7 +14,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.controller import AppController
-from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
+from negpy.desktop.view.shortcut_registry import label_with_shortcut, tooltip_with_shortcut
 from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
 from negpy.desktop.view.sidebar.export import ExportSidebar
 from negpy.desktop.view.sidebar.favourites import FavouritesSidebar
@@ -104,16 +105,17 @@ class RightPanel(QWidget):
         self.scan_page = self._build_scan_page()
 
         # Tab descriptors: the workflow control-group pages first, then Export, Metadata and Scan.
-        # (key, icon_name, tooltip, content_widget, [section_attrs])
+        # (key, name, icon_name, tooltip, content_widget, [section_attrs])
         tab_specs = [
-            (page["key"], page["icon_name"], page["tooltip"], page["widget"], page["sections"]) for page in self.controls_panel.pages
+            (page["key"], page["name"], page["icon_name"], page["tooltip"], page["widget"], page["sections"])
+            for page in self.controls_panel.pages
         ]
         tab_specs += [
-            ("favourites", "fa5s.star", "Favorites", self.favourites_sidebar, []),
-            ("history", "fa5s.history", "History", self.history_panel, []),
-            ("export", "fa5s.file-export", "Export", self.export_sidebar, []),
-            ("metadata", "fa5s.tags", "Metadata", self.metadata_sidebar, []),
-            ("scan", "fa5s.camera-retro", "Scan", self.scan_page, []),
+            ("favourites", "Favorites", "fa5s.star", "Favorites", self.favourites_sidebar, []),
+            ("history", "History", "fa5s.history", "History", self.history_panel, []),
+            ("export", "Export", "fa5s.file-export", "Export", self.export_sidebar, []),
+            ("metadata", "Metadata", "fa5s.tags", "Metadata", self.metadata_sidebar, []),
+            ("scan", "Scan", "fa5s.camera-retro", "Scan", self.scan_page, []),
         ]
 
         # Icon-only tab switcher; spills into a » menu when the panel is narrowed
@@ -124,6 +126,7 @@ class RightPanel(QWidget):
 
         self._tab_buttons: list[QPushButton] = []
         self._tab_keys: list[str] = []
+        self._tab_names: list[str] = []
         self._tab_icons: list[str] = []
         self._tab_tooltips: list[str] = []
         self._section_tab_index: dict[str, int] = {}
@@ -132,7 +135,7 @@ class RightPanel(QWidget):
         self._active_index = 0
         self._scan_index = -1
 
-        for i, (key, icon_name, tooltip, content, section_attrs) in enumerate(tab_specs):
+        for i, (key, name, icon_name, tooltip, content, section_attrs) in enumerate(tab_specs):
             btn = QPushButton()
             btn.setObjectName("right_tab_btn")
             btn.setIcon(qta.icon(icon_name, color=THEME.text_secondary))
@@ -142,11 +145,14 @@ class RightPanel(QWidget):
             btn.setFixedHeight(38)
             btn.edited_dot = EditedDot(btn)
             btn.clicked.connect(lambda _checked=False, idx=i: self._switch_tab(idx))
+            btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            btn.customContextMenuRequested.connect(lambda pos, idx=i: self._show_tab_menu(idx, pos))
             self.switcher.add_button(btn, tooltip)
 
             self.stack.addWidget(wrap_scroll(content))
             self._tab_buttons.append(btn)
             self._tab_keys.append(key)
+            self._tab_names.append(name)
             self._tab_icons.append(icon_name)
             self._tab_tooltips.append(tooltip)
             self._tab_edited.append(False)
@@ -194,6 +200,26 @@ class RightPanel(QWidget):
 
         saved_tab = repo.get_global_setting("right_panel_tab", 0)
         self._switch_tab(saved_tab if isinstance(saved_tab, int) and 0 <= saved_tab < len(self._tab_buttons) else 0)
+
+    def _show_tab_menu(self, index: int, pos: QPoint) -> None:
+        """Right-click a tab for a reset of every panel on it. A tab whose settings are not
+        part of the frame's edit — Favorites, History, Export, Metadata, Scan — owns no
+        panels here and gets no menu."""
+        keys = self.controls_panel.reset_keys_for(self._tab_sections.get(index, []))
+        if not keys:
+            return
+        menu = QMenu(self)
+        action = menu.addAction(label_with_shortcut(f"Reset {self._tab_names[index]} to Defaults", "reset_tab"))
+        action.setEnabled(self.controls_panel.can_reset_sections(keys))
+        action.triggered.connect(lambda: self.controls_panel.reset_sections(keys))
+        menu.exec(self._tab_buttons[index].mapToGlobal(pos))
+
+    def reset_active_tab(self) -> None:
+        """The keyboard route to the tab menu's reset: it takes the tab on screen, where the
+        menu takes the one under the pointer."""
+        keys = self.controls_panel.reset_keys_for(self._tab_sections.get(self._active_index, []))
+        if keys and self.controls_panel.can_reset_sections(keys):
+            self.controls_panel.reset_sections(keys)
 
     def show_analysis_help(self) -> None:
         from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog
