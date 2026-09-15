@@ -6,6 +6,7 @@ from unittest.mock import patch
 import numpy as np
 import rawpy
 
+from negpy.services.assets import thumbnails
 from negpy.services.rendering.image_processor import ImageProcessor
 from negpy.services.rendering.preview_manager import PreviewManager
 
@@ -128,4 +129,31 @@ def test_preview_decode_falls_back_to_none_for_a_non_standard_source() -> None:
     with patch("negpy.services.rendering.preview_manager.loader_factory") as lf:
         lf.get_loader.return_value = (raw, {"color_space": "Adobe RGB"})
         PreviewManager().load_linear_preview("/x.tiff", file_hash="abc")
+    assert seen["user_sat"] is None
+
+
+def test_thumbnail_decode_pins_the_scale_to_the_camera_calibrated_limit() -> None:
+    class _Spy(_SpyRaw):
+        white_level = 16383
+        camera_white_level_per_channel = [15311, 15311, 15311, 15311]
+
+    raw = _Spy()
+    thumbnails._fast_demosaic(raw)
+    assert raw.seen["adjust_maximum_thr"] == 0.0
+    assert raw.seen["user_sat"] == 15311
+
+
+def test_thumbnail_decode_falls_back_to_none_for_a_non_standard_source() -> None:
+    from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper
+
+    raw = NonStandardFileWrapper(data=np.zeros((8, 8, 3), dtype=np.float32))
+    seen: dict = {}
+    original_postprocess = raw.postprocess
+
+    def spy_postprocess(**kwargs: object) -> np.ndarray:
+        seen.update(kwargs)
+        return original_postprocess(**kwargs)
+
+    raw.postprocess = spy_postprocess  # type: ignore[method-assign]
+    thumbnails._fast_demosaic(raw)
     assert seen["user_sat"] is None
