@@ -312,6 +312,7 @@ class CanvasOverlay(QWidget):
 
         self._buffer_overlay_ratio: float = 0.0
         self._buffer_overlay_visible: bool = False
+        self._buffer_slider_dragging: bool = False
         self._buffer_hide_timer = QTimer(self)
         self._buffer_hide_timer.setSingleShot(True)
         self._buffer_hide_timer.timeout.connect(self._hide_buffer_overlay)
@@ -363,8 +364,18 @@ class CanvasOverlay(QWidget):
     def show_analysis_buffer(self, ratio: float) -> None:
         self._buffer_overlay_ratio = max(0.0, min(ratio, 0.3))
         self._buffer_overlay_visible = True
-        self._buffer_hide_timer.start(1000)
+        if not self._buffer_slider_dragging:
+            self._buffer_hide_timer.start(1000)
         self.update()
+
+    def set_analysis_buffer_dragging(self, dragging: bool) -> None:
+        """Hold the overlay while the slider is pressed; a stationary press fires no
+        valueChanged to keep restarting the hide timer."""
+        self._buffer_slider_dragging = dragging
+        if dragging:
+            self._buffer_hide_timer.stop()
+        elif self._buffer_overlay_visible:
+            self._buffer_hide_timer.start(1000)
 
     def _hide_buffer_overlay(self) -> None:
         self._buffer_overlay_visible = False
