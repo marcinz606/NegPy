@@ -608,9 +608,9 @@ class AssetDiscoveryWorker(QObject):
     def process_auto_detect_all_splits(self, task: AutoDetectAllSplitsTask) -> None:
         import os
 
-        from negpy.services.assets.half_frame import detect_split_x_for_file
+        from negpy.services.assets.half_frame import detect_split_and_crop_for_file
 
-        detected = self._map_files(task.paths, detect_split_x_for_file, lambda p: f"Split {os.path.basename(p)}", _DECODE_WORKERS)
+        detected = self._map_files(task.paths, detect_split_and_crop_for_file, lambda p: f"Split {os.path.basename(p)}", _DECODE_WORKERS)
         self.splits_detected.emit(dict(zip(task.paths, detected)))
 
     @pyqtSlot(AssetDiscoveryTask)

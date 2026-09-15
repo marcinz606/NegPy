@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QCheckBox,
+    QMenu,
     QPushButton,
     QFrame,
     QHBoxLayout,
@@ -33,19 +34,24 @@ class CollapsibleSection(QWidget):
         background_widget: Optional[QWidget] = None,
         info: bool = False,
         select: bool = False,
+        collapsible: bool = True,
         parent=None,
     ):
         super().__init__(parent)
         self._title_text = title
+        self.collapsible = collapsible
+        if not collapsible:
+            expanded = True
 
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
 
         self.toggle_button = QPushButton()
-        self.toggle_button.setCheckable(True)
-        self.toggle_button.setChecked(expanded)
-        self.toggle_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        if collapsible:
+            self.toggle_button.setCheckable(True)
+            self.toggle_button.setChecked(expanded)
+            self.toggle_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.toggle_button.setFixedHeight(36)
 
         # Styled by the QPushButton#collapsible_header rules in modern_dark.qss. overlay="true"
@@ -56,6 +62,9 @@ class CollapsibleSection(QWidget):
         btn_layout = QHBoxLayout(self.toggle_button)
         btn_layout.setContentsMargins(THEME.space_xl, 8, THEME.space_xl, 8)
         btn_layout.setSpacing(10)
+        # Kept typed (toggle_button.layout() widens to QLayout | None), for set_actions_menu
+        # to insert into later.
+        self._header_row = btn_layout
 
         # Nested in the header button like reset_btn, so ticking the section does not also
         # collapse it. Tristate is for display only: a click always resolves to all or none.
@@ -106,10 +115,16 @@ class CollapsibleSection(QWidget):
         self.reset_btn.clicked.connect(self._on_reset_clicked)
         btn_layout.addWidget(self.reset_btn)
 
-        self.chevron_label = QLabel()
-        self.chevron_label.setStyleSheet("background: transparent;")
-        self._update_chevron(expanded)
-        btn_layout.addWidget(self.chevron_label)
+        # Lazily built by set_actions_menu(): most sections have nothing that belongs
+        # here, so no button exists until one asks for it.
+        self.actions_btn: Optional[QPushButton] = None
+
+        self.chevron_label: Optional[QLabel] = None
+        if collapsible:
+            self.chevron_label = QLabel()
+            self.chevron_label.setStyleSheet("background: transparent;")
+            self._update_chevron(expanded)
+            btn_layout.addWidget(self.chevron_label)
 
         if background_widget:
             background_widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -133,7 +148,8 @@ class CollapsibleSection(QWidget):
 
         self.main_layout.addWidget(self.content_area)
 
-        self.toggle_button.toggled.connect(self._on_toggle)
+        if collapsible:
+            self.toggle_button.toggled.connect(self._on_toggle)
 
     def set_content(self, widget: QWidget) -> None:
         # Plain QWidget content is painted #0D0D0D by the global `QWidget {}` QSS rule, covering
@@ -143,6 +159,8 @@ class CollapsibleSection(QWidget):
         self.content_layout.addWidget(widget)
 
     def _update_chevron(self, expanded: bool) -> None:
+        if self.chevron_label is None:
+            return
         if expanded:
             self.chevron_label.setPixmap(qta.icon("fa5s.chevron-down", color=THEME.text_secondary).pixmap(12, 12))
         else:
@@ -188,8 +206,22 @@ class CollapsibleSection(QWidget):
         self.expanded_changed.emit(checked)
 
     def expand(self) -> None:
-        if not self.toggle_button.isChecked():
+        if self.collapsible and not self.toggle_button.isChecked():
             self.toggle_button.setChecked(True)
+
+    def set_actions_menu(self, menu: QMenu, tooltip: str) -> None:
+        """An always-visible header menu button, for section-level housekeeping that
+        is not a settings reset (reset_btn) -- Film Strip's New Roll, for one."""
+        if self.actions_btn is None:
+            self.actions_btn = QPushButton()
+            self.actions_btn.setIcon(qta.icon("fa5s.ellipsis-v", color=THEME.text_muted))
+            self.actions_btn.setFixedSize(20, 20)
+            self.actions_btn.setIconSize(QSize(10, 10))
+            self.actions_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.actions_btn.setObjectName("collapsible_reset_btn")
+            self._header_row.insertWidget(self._header_row.count() - 1, self.actions_btn)
+        self.actions_btn.setToolTip(tooltip)
+        self.actions_btn.setMenu(menu)
 
 
 def make_section(
@@ -200,24 +232,31 @@ def make_section(
     icon_name: str,
     default_expanded: bool = False,
     background_widget: Optional[QWidget] = None,
+    collapsible: bool = True,
 ) -> CollapsibleSection:
     """The one way a sidebar builds a section: persisted under section_expanded_{key}, and the
     ⓘ guide present exactly when docs/USER_GUIDE.md carries a `panel:{key}` marker. The help
-    dialog is parented to the section, so it centres on the window the section is in."""
+    dialog is parented to the section, so it centres on the window the section is in.
+    collapsible=False always expands and never reads or writes the persisted setting."""
     from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog, has_guide
 
-    setting = f"section_expanded_{key}"
-    persisted = repo.get_global_setting(setting)
-    expanded = default_expanded if persisted is None else bool(persisted)
+    if collapsible:
+        setting = f"section_expanded_{key}"
+        persisted = repo.get_global_setting(setting)
+        expanded = default_expanded if persisted is None else bool(persisted)
+    else:
+        expanded = True
     section = CollapsibleSection(
         title,
         expanded=expanded,
         icon=qta.icon(icon_name, color=THEME.text_hint),
         background_widget=background_widget,
         info=has_guide(key),
+        collapsible=collapsible,
     )
     section.set_content(content)
-    section.expanded_changed.connect(lambda checked: repo.save_global_setting(setting, checked))
+    if collapsible:
+        section.expanded_changed.connect(lambda checked: repo.save_global_setting(setting, checked))
     if section.info_btn:
         section.info_requested.connect(lambda: SectionHelpDialog(key, title, section).exec())
     return section

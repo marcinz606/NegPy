@@ -25,6 +25,48 @@ def _triplet(values) -> str:
     return " / ".join(f"{v:g}" for v in values)
 
 
+class ScopeRadios:
+    """The radios build_scope_row built, and the scope they resolve to."""
+
+    __slots__ = ("current", "sel", "roll")
+
+    def __init__(self, current: QRadioButton | None, sel: QRadioButton, roll: QRadioButton) -> None:
+        self.current = current
+        self.sel = sel
+        self.roll = roll
+
+    def value(self) -> str:
+        if self.current is not None and self.current.isChecked():
+            return "current"
+        return "selection" if self.sel.isChecked() else "roll"
+
+
+def build_scope_row(parent: QWidget, sel_count: int, roll_count: int, show_current: bool = False) -> tuple[QHBoxLayout, ScopeRadios]:
+    """Current/Selected/Whole roll radio row, shared by every dialog that applies settings
+    to more than the active frame."""
+    row = QHBoxLayout()
+    group = QButtonGroup(parent)
+    current: QRadioButton | None = None
+    if show_current:
+        current = QRadioButton("Current frame")
+        group.addButton(current)
+        row.addWidget(current)
+    sel = QRadioButton(f"Selected frames ({sel_count})")
+    sel.setEnabled(sel_count > 0)
+    roll = QRadioButton(f"Whole roll ({roll_count})")
+    roll.setEnabled(roll_count > 0)
+    group.addButton(sel)
+    group.addButton(roll)
+    if current is not None:
+        current.setChecked(True)
+    else:
+        (sel if sel_count > 0 else roll).setChecked(True)
+    row.addWidget(sel)
+    row.addWidget(roll)
+    row.addStretch()
+    return row, ScopeRadios(current, sel, roll)
+
+
 class GranularSettingsDialog(QDialog):
     """Per-setting picker for paste / apply-to-many. Lists one collapsible section
     per edit area, each setting with a checkbox and its value. Settings still at
@@ -54,6 +96,7 @@ class GranularSettingsDialog(QDialog):
         self._checks: list[tuple[QCheckBox, SettingRow, bool, QWidget]] = []
         self._sections: list[tuple[QWidget, int]] = []
         self._section_rows: list[tuple[CollapsibleSection, tuple[str, ...]]] = []
+        self._scope_radios: ScopeRadios | None = None
         self._preselect_ids = preselect_ids
         self._bounds_luma: QCheckBox | None = None
         self._bounds_color: QCheckBox | None = None
@@ -102,25 +145,7 @@ class GranularSettingsDialog(QDialog):
         self._update_apply_enabled()
 
     def _build_scope_row(self, sel_count: int, roll_count: int, show_current: bool = False) -> QHBoxLayout:
-        row = QHBoxLayout()
-        self.scope_group = QButtonGroup(self)
-        if show_current:
-            self.current_radio = QRadioButton("Current frame")
-            self.scope_group.addButton(self.current_radio)
-            row.addWidget(self.current_radio)
-        self.sel_radio = QRadioButton(f"Selected frames ({sel_count})")
-        self.sel_radio.setEnabled(sel_count > 0)
-        self.roll_radio = QRadioButton(f"Whole roll ({roll_count})")
-        self.roll_radio.setEnabled(roll_count > 0)
-        self.scope_group.addButton(self.sel_radio)
-        self.scope_group.addButton(self.roll_radio)
-        if show_current:
-            self.current_radio.setChecked(True)
-        else:
-            (self.sel_radio if sel_count > 0 else self.roll_radio).setChecked(True)
-        row.addWidget(self.sel_radio)
-        row.addWidget(self.roll_radio)
-        row.addStretch()
+        row, self._scope_radios = build_scope_row(self, sel_count, roll_count, show_current)
         return row
 
     def _build_mode_row(self) -> QHBoxLayout:
@@ -310,11 +335,8 @@ class GranularSettingsDialog(QDialog):
         self.apply_btn.setEnabled(enabled)
 
     def _on_apply(self) -> None:
-        if hasattr(self, "sel_radio"):
-            if getattr(self, "current_radio", None) is not None and self.current_radio.isChecked():
-                self._scope = "current"
-            else:
-                self._scope = "selection" if self.sel_radio.isChecked() else "roll"
+        if self._scope_radios is not None:
+            self._scope = self._scope_radios.value()
         self.accept()
 
     def selected(self) -> list[SettingRow]:

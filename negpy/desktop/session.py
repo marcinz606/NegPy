@@ -16,6 +16,7 @@ from negpy.desktop.sticky import (
     load_sticky_config,
     load_sticky_rows,
     migrate_legacy,
+    migrate_legacy_export_destination,
     sticky_snapshot,
 )
 from negpy.desktop.view.canvas.crop_guides import CropGuide
@@ -73,9 +74,16 @@ class AppState:
     # Keys whose thumbnail came from a canvas render, so it is correctly inverted. The batch
     # generator must not overwrite these with its cheaper source-decode placeholder.
     rendered_thumbnails: Set[str] = field(default_factory=set)
+    # Keys whose cached bitmap predates a settings write that reached the file without a
+    # render (a bulk apply, not the active canvas). Cleared once a render refreshes it.
+    stale_thumbnails: Set[str] = field(default_factory=set)
     source_exif: Dict[str, Any] = field(default_factory=dict)  # file_hash -> piexif dict
     selected_file_idx: int = -1
     selected_indices: List[int] = field(default_factory=list)
+    # The roll (negpy.services.assets.rolls) the loaded frames came from, if any -- a
+    # plain Add Files pick or a clear leaves this None. Files appended while it is set
+    # join that roll's membership so reopening it later still shows them.
+    active_roll_id: Optional[str] = None
     active_adjustment_idx: int = 0
     last_metrics: Dict[str, Any] = field(default_factory=dict)
     metrics_lock: threading.Lock = field(default_factory=threading.Lock, init=False, compare=False, repr=False)
@@ -154,6 +162,11 @@ class AppState:
     # When True, switching to a different image keeps the current zoom level
     # instead of resetting to fit-to-window.
     sticky_zoom: bool = False
+
+    # Master switch for the Persistent Settings overlay on a freshly opened file with no
+    # saved edit. Off, a new file gets bare WorkspaceConfig() defaults for every catalog
+    # row; the user's row picks (STICKY_ROWS_KEY/STICKY_CONFIG_KEY) are untouched.
+    sticky_settings_enabled: bool = True
 
     # Crop tool composition guide (CropGuide value); display-only, so not in GeometryConfig
     crop_guide: str = "thirds"
@@ -461,8 +474,13 @@ class AssetListModel(QAbstractListModel):
             failed = file_info.get("decode_failed")
             if failed:
                 return f"{file_info['path']}\nFailed to load: {failed}\nClick to retry."
+            lines = [file_info["path"]]
             summary = composite_summary(file_info)
-            return f"{file_info['path']}\n{summary}" if summary else file_info["path"]
+            if summary:
+                lines.append(summary)
+            if asset_thumbnail_key(file_info) in self._state.stale_thumbnails:
+                lines.append("Thumbnail predates a settings change; open the frame to refresh it.")
+            return "\n".join(lines)
 
         if role == Qt.ItemDataRole.UserRole:
             return file_info
@@ -634,6 +652,7 @@ class DesktopSessionManager(QObject):
         # is_dirty initialised to False via AppState default
 
         migrate_legacy(self.repo)
+        migrate_legacy_export_destination(self.repo)
 
         # Load global hardware settings
         saved_gpu = self.repo.get_global_setting("gpu_enabled")
@@ -661,6 +680,10 @@ class DesktopSessionManager(QObject):
         saved_sticky_zoom = self.repo.get_global_setting("sticky_zoom")
         if saved_sticky_zoom is not None:
             self.state.sticky_zoom = bool(saved_sticky_zoom)
+
+        saved_sticky_enabled = self.repo.get_global_setting("sticky_settings_enabled")
+        if saved_sticky_enabled is not None:
+            self.state.sticky_settings_enabled = bool(saved_sticky_enabled)
 
         saved_guide = self.repo.get_global_setting("crop_guide")
         if saved_guide in set(CropGuide):
@@ -744,6 +767,7 @@ class DesktopSessionManager(QObject):
         key = asset_thumbnail_key(asset)
         self.state.thumbnails.pop(key, None)
         self.state.rendered_thumbnails.discard(key)
+        self.state.stale_thumbnails.discard(key)
 
     def search_facts(self) -> Dict[str, Dict[str, Any]]:
         """Searchable facts per asset hash, rebuilt on first use after any change.
@@ -790,6 +814,13 @@ class DesktopSessionManager(QObject):
         if self.state.sticky_zoom != enabled:
             self.state.sticky_zoom = enabled
             self.repo.save_global_setting("sticky_zoom", enabled)
+            self.state_changed.emit()
+
+    def set_sticky_settings_enabled(self, enabled: bool) -> None:
+        """Updates and persists whether Persistent Settings applies to a fresh file."""
+        if self.state.sticky_settings_enabled != enabled:
+            self.state.sticky_settings_enabled = enabled
+            self.repo.save_global_setting("sticky_settings_enabled", enabled)
             self.state_changed.emit()
 
     def set_invert_zoom_scroll(self, enabled: bool) -> None:
@@ -855,11 +886,14 @@ class DesktopSessionManager(QObject):
         the Persistent Settings dialog. Two tiers:
         - only_global=True  (file has a sidecar): only GLOBAL_TIER_SECTIONS rows carry, so
           the saved edit keeps its own look.
-        - only_global=False (new file, no sidecar): every chosen row carries.
+        - only_global=False (new file, no sidecar): every chosen row carries, unless
+          `sticky_settings_enabled` is off, in which case none of them do and the file
+          gets bare WorkspaceConfig() defaults for every catalog field.
 
         The carries below are hard-coded because they are not plain config-value copies:
         the rig-global flat-field profile, the Kelvin roll-locks, the export fields with no
-        catalog row, and the scan-setup preferences.
+        catalog row, and the scan-setup preferences. They apply regardless of
+        `sticky_settings_enabled`, which only gates the catalog-row overlay above.
         """
         from negpy.features.metadata.models import resolve_description_fields
 
@@ -881,9 +915,13 @@ class DesktopSessionManager(QObject):
         if config.geometry.distortion_k1 == 0.0 and ff_prof is not None and ff_prof.k1 != 0.0:
             config = replace(config, geometry=replace(config.geometry, distortion_k1=ff_prof.k1))
 
-        rows = load_sticky_rows(self.repo)
         if only_global:
+            rows = load_sticky_rows(self.repo)
             rows = [r for r in rows if r.section in GLOBAL_TIER_SECTIONS]
+        elif self.state.sticky_settings_enabled:
+            rows = load_sticky_rows(self.repo)
+        else:
+            rows = []
         # Description fields carry on their own key, so the last Description… confirm wins
         # for the roll rather than whichever frame was saved last.
         wants_desc = any("description_fields" in r.fields for r in rows)
@@ -1260,6 +1298,11 @@ class DesktopSessionManager(QObject):
         self.repo.save_history_step(file_hash, first, old_config)
         self.repo.save_history_step(file_hash, first + 1, new_config)
 
+        asset = next((f for f in self.state.uploaded_files if f.get("hash") == file_hash), None)
+        if asset is not None:
+            # Written without a render; the filmstrip flags the cell until one lands.
+            self.state.stale_thumbnails.add(asset_thumbnail_key(asset))
+
     def undo(self) -> None:
         if self.state.undo_index > 0 and self.state.current_file_hash:
             if self.state.undo_index == self.state.max_history_index:
@@ -1612,6 +1655,8 @@ class DesktopSessionManager(QObject):
         self.state.uploaded_files.clear()
         self.state.thumbnails.clear()
         self.state.rendered_thumbnails.clear()
+        self.state.active_roll_id = None
+        self.state.stale_thumbnails.clear()
         self._reset_active_image_state()
 
         self.asset_model.refresh()

@@ -270,9 +270,9 @@ class ControlsPanel(QWidget):
             (
                 "setup",
                 "fa5s.cogs",
-                "Setup — Calibration, Demosaic, Normalization, Roll Analysis, Presets",
-                [self.sensor_section, self.demosaic_section, self.process_section, self.roll_section, self.presets_section],
-                ["sensor_section", "demosaic_section", "process_section", "roll_section"],
+                "Setup — Calibration, Demosaic, Roll Analysis, Normalization, Presets",
+                [self.sensor_section, self.demosaic_section, self.roll_section, self.process_section, self.presets_section],
+                ["sensor_section", "demosaic_section", "roll_section", "process_section"],
             ),
             (
                 "geometry",

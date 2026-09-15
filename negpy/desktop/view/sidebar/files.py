@@ -24,12 +24,14 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListView,
     QMenu,
     QMessageBox,
     QSlider,
+    QSplitter,
     QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
@@ -49,22 +51,25 @@ from negpy.desktop.view.shortcut_registry import label_with_shortcut
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, labeled_action, tool_toggle
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog, open_paste_dialog
+from negpy.desktop.view.widgets.roll_settings_dialog import RollSettingsDialog
+from negpy.services.assets import rolls
+from negpy.services.assets.gear import GearProfiles
+from negpy.services.assets.gear_match import GearMatch, folder_name_for_active_context, match_gear_for_folder
+from negpy.services.assets.presets import is_valid_preset_name
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
 from negpy.infrastructure.loaders.helpers import get_supported_raw_wildcards
 from negpy.desktop.view.sidebar.library_tree import LibraryTree
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection, make_section
 from negpy.desktop.view.widgets.file_dialogs import last_open_folder, pick_start_dir
-from negpy.services.assets.library import folder_counts
+from negpy.services.assets.library import folder_counts, folder_label
+from negpy.services.assets.thumbnails import asset_thumbnail_key
 
 
 _UNBOUNDED_HEIGHT = 16777215  # QWIDGETSIZE_MAX — Qt's "no maximum"
-# With both sections open the panel splits 40/60: the tree is for finding a roll and the
-# sheet is where the work happens, so the frames get the larger half.
-_LIBRARY_SHARE, _FRAMES_SHARE = 2, 3
-
-
-def _folder_label(path: str) -> str:
-    return os.path.basename(path.rstrip(os.sep)) or path
+# With both sections open the panel starts 20/80: the tree is for finding a roll, glanced
+# at occasionally, while the sheet is where the work happens and wants the room. The
+# splitter's handle can move this default any time.
+_LIBRARY_SHARE, _FRAMES_SHARE = 1, 4
 
 
 class _ThumbnailDelegate(QStyledItemDelegate):
@@ -74,7 +79,9 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     dirty active file gets an accent line along the image's bottom edge. Triage marks
     are small bottom-right badges: check = keeper, cross + heavy dim = rejected; the
     top-right badge is reserved for decode failures; the bottom-left badge says the frame
-    was built from several files (stitch, HDR merge, RGB triplet, half-frame split)."""
+    was built from several files (stitch, HDR merge, RGB triplet, half-frame split); a
+    small top-left dot says the bitmap shown predates a settings change (a bulk apply
+    reaches the file before a render reaches its thumbnail)."""
 
     _MARGIN = 3
     _RADIUS = 4  # = button border-radius (modern_dark.qss)
@@ -85,6 +92,7 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     _COMPOSITE_RING = QColor(255, 255, 255, 90)
     _COMPOSITE_GLYPH = QColor(255, 255, 255, 235)
     _DIRTY_PX = 2
+    _STALE_DOT_RADIUS = 4
 
     def __init__(self, parent=None, state: Optional[AppState] = None) -> None:
         super().__init__(parent)
@@ -94,6 +102,20 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         """Only the active file can carry unsaved edits; every other frame is on disk."""
         state = self._state
         return bool(state and state.is_dirty and state.current_file_path and file_info.get("path") == state.current_file_path)
+
+    def _is_stale_thumbnail(self, file_info: dict) -> bool:
+        """True while the cached bitmap predates a settings write a render hasn't caught up to."""
+        state = self._state
+        if not state or not file_info.get("hash"):
+            return False
+        return asset_thumbnail_key(file_info) in state.stale_thumbnails
+
+    def _draw_stale_dot(self, painter: QPainter, img_rect: QRect) -> None:
+        r = self._STALE_DOT_RADIUS
+        cx, cy = img_rect.left() + r + 4, img_rect.top() + r + 4
+        painter.setPen(QPen(QColor(0, 0, 0, 140), 1))
+        painter.setBrush(QColor(THEME.warn_amber))
+        painter.drawEllipse(QRect(cx - r, cy - r, 2 * r, 2 * r))
 
     def _draw_mark_badge(self, painter: QPainter, img_rect: QRect, check: bool) -> None:
         r = 9
@@ -210,6 +232,8 @@ class _ThumbnailDelegate(QStyledItemDelegate):
             self._draw_mark_badge(painter, img_rect, check=True)
         if kind:
             self._draw_composite_badge(painter, img_rect, kind, int(file_info.get("half") or 0))
+        if self._is_stale_thumbnail(file_info):
+            self._draw_stale_dot(painter, img_rect)
         painter.setClipping(False)
 
         if selected:
@@ -372,9 +396,8 @@ class FileBrowser(QWidget):
     """
 
     file_selected = pyqtSignal(str)
-    library_requested = pyqtSignal(bool)  # reveal the library (arg: ask for a folder if unset)
-    browse_requested = pyqtSignal(str)  # reveal this folder in the tree
-    sort_changed = pyqtSignal()  # the folder tree follows the sheet's sort
+    library_requested = pyqtSignal(bool)  # reveal the library (arg: import a first roll if unset)
+    sort_changed = pyqtSignal()  # the roll list follows the sheet's sort
 
     def __init__(self, controller: AppController):
         super().__init__()
@@ -414,21 +437,23 @@ class FileBrowser(QWidget):
         icon_size = QSize(16, 16)
         btn_height = 28
 
-        toolbar_row = OverflowBar(height=btn_height, spacing=4)
+        # No top-level toolbar: every action lives in the row of the section it acts on --
+        # Library's own +/refresh corner, or film_strip_toolbar next to the loaded frames.
+        self.film_strip_toolbar = OverflowBar(height=btn_height, spacing=4)
 
-        self.library_btn = QToolButton()
-        self.library_btn.setIcon(qta.icon("fa5s.book-open", color=THEME.text_primary))
-        self.library_btn.setToolTip("Library — browse the folder your scans live in")
-
-        self.add_files_btn = QToolButton()
-        self.add_files_btn.setIcon(qta.icon("fa5s.file-import", color=THEME.text_primary))
-        self.add_files_btn.setToolTip("Add files")
-        self.add_folder_btn = QToolButton()
-        self.add_folder_btn.setIcon(qta.icon("fa5s.folder-plus", color=THEME.text_primary))
-        self.add_folder_btn.setToolTip("Add folder")
+        # One button for both: Add Files and Add Folder are two pickers for the same job
+        # (put pictures in this session), not two different actions worth their own icons.
+        self.add_btn = QToolButton()
+        self.add_btn.setIcon(qta.icon("fa5s.file-import", color=THEME.text_primary))
+        self.add_btn.setToolTip("Add pictures or a folder to this session")
+        self.add_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        add_menu = QMenu(self.add_btn)
+        add_menu.addAction("Add Files…").triggered.connect(self.prompt_add_files)
+        add_menu.addAction("Add Folder…").triggered.connect(self.prompt_add_folder)
+        self.add_btn.setMenu(add_menu)
         self.unload_btn = QToolButton()
         self.unload_btn.setIcon(qta.icon("fa5s.times-circle", color=THEME.text_primary))
-        self.unload_btn.setToolTip("Clear All…")
+        self.unload_btn.setToolTip("Unload…")
 
         self.hot_folder_btn = QToolButton()
         self.hot_folder_btn.setCheckable(True)
@@ -449,7 +474,7 @@ class FileBrowser(QWidget):
         self.half_frame_btn.setCheckable(True)
         self.half_frame_btn.setIcon(qta.icon("mdi.view-split-vertical", color=THEME.text_primary))
         self.half_frame_btn.setToolTip("Half Frame — split each scan into two frames, edited and measured separately")
-        self.half_frame_btn.setChecked(bool(self.session.repo.get_global_setting("half_frame_mode", False)))
+        self.half_frame_btn.setChecked(self.controller.half_frame_mode_for_roll(self.session.state.active_roll_id))
         self._update_half_frame_style(self.half_frame_btn.isChecked())
 
         # One button for every half-frame action, rather than one icon apiece: the menu
@@ -471,6 +496,18 @@ class FileBrowser(QWidget):
         self.apply_btn.setIcon(qta.icon("fa5s.clone", color=THEME.text_primary))
         self.apply_btn.setToolTip("Apply settings from the current frame to selected frames or the whole roll")
         self.apply_btn.clicked.connect(self._open_apply_dialog)
+
+        self.roll_settings_btn = QToolButton()
+        self.roll_settings_btn.setIcon(qta.icon("fa5s.tags", color=THEME.text_primary))
+        self.roll_settings_btn.setToolTip(
+            "Roll Settings — tag gear, capture and process metadata across the current frame, a selection or the whole roll"
+        )
+        self.roll_settings_btn.clicked.connect(self._open_roll_settings_dialog)
+
+        self.save_roll_btn = QToolButton()
+        self.save_roll_btn.setIcon(qta.icon("fa5s.folder", color=THEME.roll_virtual))
+        self.save_roll_btn.setToolTip("Save these frames as a roll — a named, reopenable group, not tied to a folder")
+        self.save_roll_btn.clicked.connect(self._on_save_roll_clicked)
 
         # Sheet filter dropdown
         self.sheet_btn = QToolButton()
@@ -519,44 +556,46 @@ class FileBrowser(QWidget):
         self.sort_btn.setMenu(sort_menu)
 
         for btn in (
-            self.library_btn,
-            self.add_files_btn,
-            self.add_folder_btn,
+            self.add_btn,
             self.unload_btn,
             self.hot_folder_btn,
             self.rgb_scan_btn,
             self.half_frame_btn,
             self.half_frame_menu_btn,
             self.apply_btn,
+            self.roll_settings_btn,
+            self.save_roll_btn,
             self.sheet_btn,
-            self.sort_btn,
         ):
             btn.setIconSize(icon_size)
             btn.setFixedHeight(btn_height)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        # OverflowBar rather than a QHBoxLayout: a plain row made the whole session panel
-        # unshrinkable below every button laid end to end, so each new tool widened it for good.
+        # Sort joins LibraryTree's own +/refresh corner row instead of a top-level toolbar:
+        # mini-button sized (20x20), matching that row's own convention.
+        self.sort_btn.setFixedSize(20, 20)
+        self.sort_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
         for widget, label in (
-            (self.library_btn, "Library"),
-            (self.add_files_btn, "Add files"),
-            (self.add_folder_btn, "Add folder"),
-            (self.unload_btn, "Clear All…"),
+            (self.save_roll_btn, "Save as Roll…"),
+            (None, None),
+            (self.add_btn, "Add"),
             (None, None),
             (self.hot_folder_btn, "Hot Folder"),
+            (None, None),
             (self.rgb_scan_btn, "Trichrome Scan"),
             (self.half_frame_btn, "Half Frame"),
             (self.half_frame_menu_btn, "Half Frame actions"),
             (self.apply_btn, "Apply settings"),
+            (self.roll_settings_btn, "Roll Settings"),
             (None, None),
+            (self.unload_btn, "Unload…"),
             (self.sheet_btn, "Sheet filter"),
-            (self.sort_btn, "Sort"),
         ):
             if widget is None:
-                toolbar_row.add_separator(self._create_separator())
+                self.film_strip_toolbar.add_separator(self._create_separator())
             else:
-                toolbar_row.add_button(widget, label)
-        layout.addWidget(toolbar_row)
+                self.film_strip_toolbar.add_button(widget, label)
 
         saved_sort = self.session.repo.get_global_setting("file_sort_order") or "name"
         saved_desc = self.session.repo.get_global_setting("file_sort_descending") or False
@@ -595,15 +634,14 @@ class FileBrowser(QWidget):
         search_row.addWidget(self.regex_btn)
         search_row.addWidget(self.library_search_btn)
 
-        # Thumbnail size lives here rather than the toolbar row above, to keep that row's overflow
-        # menu to file actions.
+        # Built here (Film Strip's thumbnail grid needs a starting value below) but added to
+        # the Film Strip section's own tally row, since it only ever affects that grid.
         saved_cell = self.session.repo.get_global_setting("thumbnail_cell_size") or THUMB_CELL_DEFAULT
         self.thumb_size_slider = QSlider(Qt.Orientation.Horizontal)
         self.thumb_size_slider.setRange(THUMB_CELL_MIN, THUMB_CELL_MAX)
         self.thumb_size_slider.setValue(ThumbnailGridView._clamp_target(int(saved_cell)))
         self.thumb_size_slider.setFixedWidth(72)
         self.thumb_size_slider.setToolTip("Thumbnail size — smaller fits more columns in the panel")
-        search_row.addWidget(self.thumb_size_slider)
         # Above both sections: one box that filters the frames and searches the library, so it
         # belongs to neither and stays reachable when either is folded away.
         layout.addLayout(search_row)
@@ -632,50 +670,147 @@ class FileBrowser(QWidget):
         self.empty_label.setVisible(False)
         self.empty_label.linkActivated.connect(lambda _: self._clear_frame_filters())
 
-        self.library_tree = LibraryTree(self.controller)
+        self.library_tree = LibraryTree(self.controller, leading_widgets=(self.sort_btn,))
         self.library_section = self._make_section("Library", "library", "fa5s.folder-open", self.library_tree)
 
         frames = QWidget()
         frames_layout = QVBoxLayout(frames)
         frames_layout.setContentsMargins(0, 0, 0, 0)
         frames_layout.setSpacing(4)
-        frames_layout.addWidget(self.tally_label)
+        frames_layout.addWidget(self.film_strip_toolbar)
+        tally_row = QHBoxLayout()
+        tally_row.addWidget(self.tally_label, 1)
+        tally_row.addWidget(self.thumb_size_slider)
+        frames_layout.addLayout(tally_row)
         frames_layout.addWidget(self.list_view, 1)
         frames_layout.addWidget(self.empty_label, 1)
         self.frames_section = self._make_section("Film Strip", "frames", "fa5s.film", frames)
 
-        layout.addWidget(self.library_section)
-        layout.addWidget(self.frames_section)
-        # Absorbs the surplus when every section is collapsed, or Qt spreads it into the gaps
-        # between the rows above. Stretch 0 leaves an open section its share.
+        # Clearing the strip is how you start a roll you will build entirely by drag-drop,
+        # so it lives on the section header rather than its own toolbar button -- the
+        # header has room a wrapping toolbar row does not.
+        frames_menu = QMenu(self.frames_section)
+        frames_menu.addAction("New Roll…").triggered.connect(self._on_clear_all)
+        self.frames_section.set_actions_menu(frames_menu, "New Roll — clear the film strip so you can drag in a fresh batch of frames")
+
+        # A splitter, like the right panel's Analysis/Tabs one, so the boundary can be
+        # dragged; expanded sections still share it by _LIBRARY_SHARE/_FRAMES_SHARE.
+        self.sections_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.sections_splitter.addWidget(self.library_section)
+        self.sections_splitter.addWidget(self.frames_section)
+        self.sections_splitter.setCollapsible(0, False)
+        self.sections_splitter.setCollapsible(1, False)
+
+        saved_sizes = self.session.repo.get_global_setting("session_sections_splitter_sizes")
+        if isinstance(saved_sizes, list) and len(saved_sizes) == 2:
+            self.sections_splitter.setSizes([int(s) for s in saved_sizes])
+        else:
+            self.sections_splitter.setSizes([120, 480])
+        self.sections_splitter.splitterMoved.connect(self._on_sections_splitter_moved)
+        self._section_sizes = self.sections_splitter.sizes()
+
+        for index, section in enumerate((self.library_section, self.frames_section)):
+            section.expanded_changed.connect(lambda expanded, i=index: self._on_section_toggled(i, expanded))
+            self._on_section_toggled(index, section.toggle_button.isChecked())
+
+        # Absorbs the surplus when both sections are collapsed, or Qt spreads it above the
+        # splitter instead of below it (the splitter's own stretch factor, set to 0 in that
+        # case by _on_section_toggled, leaves this the only claimant on the leftover space).
+        layout.addWidget(self.sections_splitter, 1)
         layout.addStretch(0)
-        self._rebalance_sections()
 
         # Applied after list_view exists: the filter prunes the selection against the view.
         saved_sheet = self.session.repo.get_global_setting("sheet_filter") or "all"
         self._apply_sheet_filter(str(saved_sheet), save=False)
 
     def _make_section(self, title: str, key: str, icon: str, content: QWidget) -> CollapsibleSection:
-        section = make_section(self.session.repo, title, key, content, icon, default_expanded=True)
-        section.expanded_changed.connect(lambda _on: self._rebalance_sections())
-        return section
+        return make_section(self.session.repo, title, key, content, icon, default_expanded=True)
 
-    def _rebalance_sections(self) -> None:
-        """Expanded sections share the panel; a collapsed one keeps only its header.
+    def _on_sections_splitter_moved(self, *_args) -> None:
+        self._section_sizes = self.sections_splitter.sizes()
+        self.session.repo.save_global_setting("session_sections_splitter_sizes", self._section_sizes)
 
-        Stretch alone is not enough — a collapsed section would still be handed leftover
-        space — so its height is pinned to the header until it opens again.
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if hasattr(self, "sections_splitter"):
+            self._rebalance_splitter_sizes()
+
+    def _apply_section_constraints(self, index: int, expanded: bool) -> None:
+        """A collapsed pane is fixed to exactly its header height, so nothing -- a drag,
+        a resize -- can hand it more or less than that; an expanded pane is freed back to
+        its natural range."""
+        section = (self.library_section, self.frames_section)[index]
+        share = (_LIBRARY_SHARE, _FRAMES_SHARE)[index]
+        if expanded:
+            section.setMinimumHeight(0)
+            section.setMaximumHeight(_UNBOUNDED_HEIGHT)
+        else:
+            section.setFixedHeight(section.toggle_button.height())
+        self.sections_splitter.setStretchFactor(index, share if expanded else 0)
+
+    def _on_section_toggled(self, index: int, expanded: bool) -> None:
+        """Pin a collapsed section's pane to its header and hand its space to the other
+        pane, restoring the last size when it reopens — same pattern as the right panel's
+        Analysis/Tabs splitter, generalized to two panes that can each collapse."""
+        sections = (self.library_section, self.frames_section)
+        other = 1 - index
+        header = sections[index].toggle_button.height()
+        sizes = self.sections_splitter.sizes()
+        total = sum(sizes) or self.sections_splitter.height()
+
+        if not expanded:
+            self._section_sizes[index] = sizes[index]
+        self._apply_section_constraints(index, expanded)
+
+        # A QVBoxLayout stretch factor sizes the *widget*, not its content: a splitter both
+        # of whose panes are pinned small still gets stretched into the layout's full
+        # leftover space. Capping the splitter's own maximum height, mirroring the
+        # per-pane constraint above, is what actually keeps the leftover space out of it.
+        other_header = sections[other].toggle_button.height()
+        if expanded or sections[other].toggle_button.isChecked():
+            self.sections_splitter.setMaximumHeight(_UNBOUNDED_HEIGHT)
+        else:
+            self.sections_splitter.setMaximumHeight(header + self.sections_splitter.handleWidth() + other_header)
+        if total <= 0:
+            return
+
+        want = min(max(self._section_sizes[index], header), max(header, total - header)) if expanded else header
+        other_want = max(other_header, total - want) if sections[other].toggle_button.isChecked() else other_header
+        new_sizes = [0, 0]
+        new_sizes[index] = want
+        new_sizes[other] = other_want
+        self.sections_splitter.setSizes(new_sizes)
+        self._section_sizes = self.sections_splitter.sizes()
+
+    def _rebalance_splitter_sizes(self) -> None:
+        """Reassert the split on a window resize: a collapsed pane stays pinned to its
+        header; expanded panes keep their current size ratio, scaled to the new total.
+        Needed because a QSplitter's own resize handling redistributes new space by
+        stretch factor, and with two independently-collapsible panes that factor is 0
+        for both whenever both happen to be collapsed.
         """
-        layout = self.layout()
-        for section, share in ((self.library_section, _LIBRARY_SHARE), (self.frames_section, _FRAMES_SHARE)):
-            expanded = section.toggle_button.isChecked()
-            layout.setStretchFactor(section, share if expanded else 0)
-            section.setMaximumHeight(_UNBOUNDED_HEIGHT if expanded else section.toggle_button.height())
+        sections = (self.library_section, self.frames_section)
+        total = self.sections_splitter.height() or sum(self.sections_splitter.sizes())
+        if total <= 0:
+            return
+        current = self.sections_splitter.sizes()
+        headers = [s.toggle_button.height() for s in sections]
+        expanded = [s.toggle_button.isChecked() for s in sections]
+        collapsed_total = sum(h for h, e in zip(headers, expanded) if not e)
+        remaining = max(0, total - collapsed_total)
+        expanded_weight_total = sum(w for w, e in zip(current, expanded) if e)
+        sizes = []
+        for h, e, w in zip(headers, expanded, current):
+            if e and expanded_weight_total:
+                sizes.append(round(remaining * w / expanded_weight_total))
+            elif e:
+                sizes.append(remaining)
+            else:
+                sizes.append(h)
+        self.sections_splitter.setSizes(sizes)
 
     def _connect_signals(self) -> None:
-        self.library_btn.clicked.connect(lambda: self.library_requested.emit(True))
-        self.add_files_btn.clicked.connect(self.prompt_add_files)
-        self.add_folder_btn.clicked.connect(self.prompt_add_folder)
+        self.library_tree.folder_roll_created.connect(self._maybe_suggest_gear)
         self.unload_btn.clicked.connect(self._on_unload_clicked)
         self.list_view.clicked.connect(self._on_item_clicked)
         self.list_view.doubleClicked.connect(self._on_item_double_clicked)
@@ -685,6 +820,7 @@ class FileBrowser(QWidget):
         self.rgb_scan_btn.toggled.connect(self._on_rgb_scan_toggled)
         self.controller.rgb_scan_mode_changed.connect(self._sync_rgb_scan_button)
         self.half_frame_btn.toggled.connect(self._on_half_frame_toggled)
+        self.controller.half_frame_mode_changed.connect(self._sync_half_frame_button)
         self.session.state_changed.connect(self.sync_ui)
         self.session.files_changed.connect(self._on_files_changed)
         # Unloading the last frame leaves nothing to show, so fall back to the library rather
@@ -705,60 +841,6 @@ class FileBrowser(QWidget):
         del_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
         del_shortcut.activated.connect(self._on_delete_key)
 
-    def load_folder(self, path: str, add_to_session: bool = False) -> None:
-        """Load one folder's images, asking first.
-
-        Listing a folder is free and belongs to the library tree; this is the expensive
-        half, and an accepted prompt is the only thing that starts the hashing pass.
-        """
-        images, _ = folder_counts(path)
-        if not images:
-            self.controller.set_status(f"No images directly in “{_folder_label(path)}”", 4000)
-            return
-        if not self._confirm_load(images, _folder_label(path)):
-            return
-        self.controller.open_library_folder(path, add_to_session=add_to_session)
-
-    def load_folders(self, paths, add_to_session: bool = False) -> None:
-        """Load one folder, or a whole selection of them at once."""
-        paths = [p for p in paths if p]
-        if len(paths) == 1:
-            self.load_folder(paths[0], add_to_session=add_to_session)
-            return
-        if not paths:
-            return
-
-        counted = [(p, folder_counts(p)[0]) for p in paths]
-        loadable = [p for p, n in counted if n]
-        total = sum(n for _, n in counted)
-        if not loadable:
-            self.controller.set_status("Those folders have no images in them", 4000)
-            return
-        if not self._confirm_load(total, f"{len(loadable)} folders"):
-            return
-        self.controller.open_library_folders(loadable, add_to_session=add_to_session)
-
-    def _confirm_load(self, image_count: int, label: str) -> bool:
-        if self.session.repo.get_global_setting("library_autoload_folders", False):
-            return True
-
-        n = image_count
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Question)
-        box.setWindowTitle("Load Roll")
-        box.setText(f"Load {n} image{'s' if n != 1 else ''} from “{label}”?")
-        box.setInformativeText("They are hashed and thumbnailed on load, which takes a moment on a large roll.")
-        remember = QCheckBox("Always load without asking")
-        box.setCheckBox(remember)
-        load = box.addButton("Load", QMessageBox.ButtonRole.AcceptRole)
-        box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
-        box.exec()
-        if box.clickedButton() is not load:
-            return False
-        if remember.isChecked():
-            self.session.repo.save_global_setting("library_autoload_folders", True)
-        return True
-
     def search_library(self) -> None:
         """Run the box's query against the library folders instead of the loaded roll."""
         self.controller.request_library_search(self.search_input.text())
@@ -778,24 +860,35 @@ class FileBrowser(QWidget):
         self.sync_ui()
 
     def _on_unload_clicked(self) -> None:
-        count = len(self.session.state.selected_indices)
-        if count > 1:
-            if confirm_unload(self, count=count):
-                self.session.remove_selected_files()
-        else:
-            self._on_clear_all()
+        """Same as the context menu's Unload…: always targets the selection -- at least
+        the active frame, ordinarily -- never the whole roll. Opening a different roll
+        already replaces the film strip, so wiping everything is not something this
+        button needs to reach for; Clear All for the rare "go back to empty" case lives
+        in the empty-space context menu instead."""
+        self._on_remove_from_menu()
 
     def _on_clear_all(self) -> None:
-        """Drop every loaded frame. The empty-space menu always means *all*, unlike
-        the toolbar button, which clears the selection when one is active."""
+        """Drop every loaded frame, from the empty-space context menu."""
         if confirm_unload(self, clear_all=True):
             self.session.clear_files()
 
+    def _on_save_roll_clicked(self) -> None:
+        """Save whatever the Film Strip currently holds as a named, reopenable roll --
+        a library search's results, a hand-picked selection, or a folder roll's extras."""
+        name, ok = QInputDialog.getText(self, "Save as Roll", "Name:")
+        name = name.strip()
+        if not ok or not name:
+            return
+        if not is_valid_preset_name(name):
+            QMessageBox.warning(self, "Roll Name", 'A roll name cannot contain / \\ : * ? " < > | or start or end with a dot.')
+            return
+        if self.controller.create_roll_from_session(name):
+            self.library_tree.reload()
+            self._update_tally()
+
     def _update_unload_button(self) -> None:
-        if len(self.session.state.selected_indices) > 1:
-            self.unload_btn.setToolTip("Clear selected")
-        else:
-            self.unload_btn.setToolTip("Clear All…")
+        multi = len(self.session.state.selected_indices) > 1
+        self.unload_btn.setToolTip("Unload Selected…" if multi else "Unload…")
 
     def _sync_half_frame_menu(self) -> None:
         state = self.session.state
@@ -950,8 +1043,20 @@ class FileBrowser(QWidget):
             text += f" · {keepers} keeper{'s' if keepers != 1 else ''}"
         if rejected:
             text += f" · {rejected} rejected"
+        roll_name = self._active_roll_name()
+        if roll_name:
+            text = f"{roll_name} — {text}"
         self.tally_label.setText(text)
         self.tally_label.setVisible(True)
+
+    def _active_roll_name(self) -> str:
+        """The roll the Film Strip's frames came from, if any -- shown ahead of the
+        tally so it stays visible without opening Library to check."""
+        roll_id = self.session.state.active_roll_id
+        if not roll_id:
+            return ""
+        entry = rolls.roll_for_id(self.session.repo, roll_id)
+        return entry.get("name", "") if entry else ""
 
     def _update_empty_state(self) -> None:
         """Swap the strip for a message when a filter leaves it with nothing to show."""
@@ -1006,6 +1111,15 @@ class FileBrowser(QWidget):
         icon_color = "white" if checked else THEME.text_primary
         self.half_frame_btn.setIcon(qta.icon("mdi.view-split-vertical", color=icon_color))
 
+    def _sync_half_frame_button(self, enabled: bool) -> None:
+        """Follow the active roll's own toggle state. Signals are blocked because
+        request_asset_discovery already applied it for this roll; letting toggled
+        through would ask for it a second time and re-run discovery."""
+        self.half_frame_btn.blockSignals(True)
+        self.half_frame_btn.setChecked(enabled)
+        self.half_frame_btn.blockSignals(False)
+        self._update_half_frame_style(enabled)
+
     def _current_file(self) -> tuple[Optional[str], Optional[str]]:
         """The current frame's (path, base hash), falling back to the first loaded file.
 
@@ -1040,22 +1154,13 @@ class FileBrowser(QWidget):
         return list(seen)
 
     def _on_half_frame_toggled(self, checked: bool) -> None:
+        """A plain toggle: no editor pops up. Turning it on splits every loaded scan at
+        its auto-detected gutter directly; the odd frame it gets wrong is fixed
+        afterward from the Half Frame actions menu (Adjust Split…)."""
         self._update_half_frame_style(checked)
-        if checked and self.session.state.uploaded_files:
-            # Offer the rectangle editor on the current frame. The saved profile applies to every
-            # half-frame split from then on.
-            path, file_hash = self._current_file()
-            if path and file_hash:
-                profile = self.controller.open_half_frame_dialog(path, file_hash, initial_scope="all")
-                if profile is None:
-                    # User cancelled or closed the dialog — revert the toggle without
-                    # activating half-frame mode so Cancel/X behaves as expected.
-                    self.half_frame_btn.blockSignals(True)
-                    self.half_frame_btn.setChecked(False)
-                    self.half_frame_btn.blockSignals(False)
-                    self._update_half_frame_style(False)
-                    return
         self.controller.set_half_frame_mode(checked)
+        if checked and self.session.state.uploaded_files:
+            self.controller.auto_detect_all_half_frame_splits()
 
     def _on_half_frame_adjust(self) -> None:
         """Open the half-frame rectangle editor on the current image; its own
@@ -1127,8 +1232,8 @@ class FileBrowser(QWidget):
             self.open_or_browse(folder)
 
     def open_or_browse(self, folder: str) -> None:
-        """Load a folder's images, or — when it only holds subfolders — reveal it in the
-        library tree so its subfolders are one click away.
+        """Load a folder's images into the session, or point at Library's own import
+        when it only holds subfolders.
 
         Picking the one directory everything lives under used to dead-end on "no
         supported assets found", because the importer looks in that folder and not
@@ -1138,7 +1243,11 @@ class FileBrowser(QWidget):
         if images:
             self.controller.request_asset_discovery([folder], auto_open=True, announce_rgb=True)
         elif subfolders:
-            self.browse_requested.emit(folder)
+            self.controller.set_status(
+                f"No images directly in “{folder_label(folder)}” — use Library's Import Subfolders as Rolls for its "
+                f"{subfolders} subfolder{'s' if subfolders != 1 else ''}",
+                5000,
+            )
             self.controller.set_status(f"No images directly in that folder — showing its {subfolders} subfolders", 5000)
         else:
             self.controller.set_status("That folder has no images in it", 4000)
@@ -1212,6 +1321,70 @@ class FileBrowser(QWidget):
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.session.sync_selected_settings(dlg.selected(), dlg.bounds_flags(), dlg.scope())
+
+    def _open_roll_settings_dialog(self) -> None:
+        """The tag-icon button: always opens, and silently pre-fills a gear match too
+        (only when Gear is not already set) -- the automatic suggestion at import time
+        is one moment among several this same guess is useful in."""
+        detected = self._detect_gear_suggestion(self._folder_name_for_gear_suggestion())
+        dlg = self._build_roll_settings_dialog()
+        if dlg is None:
+            return
+        if detected is not None:
+            dlg.apply_detected_gear(camera_id=detected.camera_id, film_stock_id=detected.film_stock_id)
+        self._exec_roll_settings_dialog(dlg)
+
+    def _build_roll_settings_dialog(self) -> Optional[RollSettingsDialog]:
+        state = self.session.state
+        src = state.selected_file_idx
+        if src == -1:
+            return None
+        visible = self.session.asset_model.visible_actual_indices()
+        sel_targets = len([i for i in set(state.selected_indices) if i != src and i in visible])
+        roll_targets = len([i for i in visible if i != src])
+        return RollSettingsDialog(self, state.config, GearProfiles.load_library(), sel_count=sel_targets, roll_count=roll_targets)
+
+    def _exec_roll_settings_dialog(self, dlg: RollSettingsDialog) -> None:
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        rows = dlg.selected_rows()
+        if not rows:
+            return
+        if self.controller.session.apply_preset_fields(dlg.selected_config(), rows, dlg.scope()):
+            self.controller.request_render()
+
+    def _folder_name_for_gear_suggestion(self) -> str:
+        return folder_name_for_active_context(self.session.state, self.session.repo)
+
+    def _detect_gear_suggestion(self, folder_name: str) -> Optional[GearMatch]:
+        """The gear match for *folder_name*, restricted to whichever of camera/film
+        stock the current frame does not already carry -- checked independently, so an
+        unrelated camera already set (carried from another frame, tagged by hand) does
+        not also block a film-stock match that is otherwise free to suggest. None when
+        there is nothing left to offer."""
+        if not folder_name:
+            return None
+        meta = self.session.state.config.metadata
+        detected = match_gear_for_folder(folder_name, GearProfiles.load_library())
+        result = GearMatch(
+            camera_id="" if meta.camera_id else detected.camera_id,
+            film_stock_id="" if meta.film_stock_id else detected.film_stock_id,
+        )
+        return result if result.any() else None
+
+    def _maybe_suggest_gear(self, folder_path: str) -> None:
+        """A folder just became a roll for the first time: offer Roll Settings pre-filled
+        from a folder-name match against the gear library, ticked but never applied
+        without the user pressing Apply. Silent when nothing matches -- checked before
+        building the dialog, so a folder with nothing to suggest never pops one up."""
+        detected = self._detect_gear_suggestion(folder_label(folder_path))
+        if detected is None:
+            return
+        dlg = self._build_roll_settings_dialog()
+        if dlg is None:
+            return
+        dlg.apply_detected_gear(camera_id=detected.camera_id, film_stock_id=detected.film_stock_id)
+        self._exec_roll_settings_dialog(dlg)
 
     def _build_session_menu(self) -> QMenu:
         """Mirrors the panel toolbar's add/clear tools, for a right click on empty space."""

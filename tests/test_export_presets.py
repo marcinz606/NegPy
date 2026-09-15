@@ -199,6 +199,26 @@ def test_from_flat_dict_output_mode_wins_over_legacy_flag():
 
 
 # ---------------------------------------------------------------------------
+# Destination defaults
+# ---------------------------------------------------------------------------
+
+
+def test_export_config_defaults_to_subfolder_of_source():
+    """A brand-new frame exports into `<its folder>/export`, not one folder every
+    roll ever exported would share."""
+    conf = ExportConfig()
+    assert conf.output_mode == ExportPresetOutputMode.SUBFOLDER_OF_SOURCE
+    assert conf.output_subfolder == "export"
+
+
+def test_export_preset_still_defaults_to_same_as_source():
+    """A saved delivery preset keeps its own default: a fixed, repeatable
+    destination rather than one shaped by whichever roll runs it."""
+    preset = ExportPreset(name="p")
+    assert preset.output_mode == ExportPresetOutputMode.SAME_AS_SOURCE
+
+
+# ---------------------------------------------------------------------------
 # ExportFormat enum
 # ---------------------------------------------------------------------------
 

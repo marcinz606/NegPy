@@ -86,7 +86,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         return w.controls_panel.sensor_sidebar
 
     def _roll(w: "MainWindow") -> Optional[QWidget]:
-        return w.controls_panel.roll_sidebar.analyze_roll_btn
+        return w.controls_panel.roll_sidebar.apply_roll_btn
 
     def _cast_removal(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.color_sidebar.cast_removal_slider
@@ -100,8 +100,11 @@ def build(window: "MainWindow") -> list[TutorialStep]:
     def _zone_density(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.tone_sidebar.shadow_density_slider
 
-    def _gear_manage(w: "MainWindow") -> Optional[QWidget]:
-        return w.right_panel.metadata_sidebar.manage_btn
+    def _metadata(w: "MainWindow") -> Optional[QWidget]:
+        return w.right_panel.metadata_sidebar
+
+    def _gear_library(w: "MainWindow") -> Optional[QWidget]:
+        return w.right_panel.gear_panel.items.category_list
 
     def _narrowband(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.sensor_sidebar.narrowband_scan_btn
@@ -345,8 +348,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "with a per-stock matrix in log-density space, <b>before any analysis</b>.<br><br>"
                 "Pick a profile matching your film stock and blend it in with the "
                 "<b>Strength</b> slider.<br><br>"
-                "Changed the matrix or strength? <b>Re-run Batch Analysis</b>, because bounds "
-                "measured under a different matrix are invalid."
+                "Changed the matrix or strength? Pick <b>Current Roll</b> in Roll Analysis and "
+                "press <b>Apply</b> again, because bounds measured under a different matrix "
+                "are invalid."
             ),
             target=_crosstalk,
             section_attr="sensor_section",
@@ -354,13 +358,14 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         TutorialStep(
             title="Roll Consistency: Batch Analysis",
             body=(
-                "One enlarger setting for the whole roll. <b>Batch Analysis</b> meters every "
-                "loaded frame and builds a roll-wide baseline, then two buttons lock frames "
-                "to it on independent axes: <b>Use Luma Average</b> takes the roll-wide tonal "
-                "range, <b>Use Color Average</b> takes the roll-wide color balance. Turn on "
-                "either, or both, so exposure and color do not jump from frame to "
-                "frame.<br><br>"
-                "Roll presets save and load the baseline for later sessions. A locked "
+                "One enlarger setting for the whole roll. Pick <b>Current Roll</b> and press "
+                "<b>Apply</b> to meter every loaded frame and build a roll-wide baseline, "
+                "then two buttons lock frames to it on independent axes: <b>Use Luma "
+                "Average</b> takes the roll-wide tonal range, <b>Use Color Average</b> takes "
+                "the roll-wide color balance. Turn on either, or both, so exposure and color "
+                "do not jump from frame to frame.<br><br>"
+                "<b>Save</b> the baseline under a name to reuse it in a later session, and "
+                "pick it back up with the same roll picker and <b>Apply</b>. A locked "
                 "baseline is also what keeps <b>Flat masters</b> consistent across a roll."
             ),
             target=_roll,
@@ -717,24 +722,29 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             pre_hook=lambda w: w.right_panel.show_tab_by_key("history"),
         ),
         TutorialStep(
-            title="Metadata & Gear Library",
+            title="Metadata",
             body=(
                 "The <b>Metadata</b> tab writes film and scan info, meaning stock, format, "
-                "developer, push/pull and scanner, into the EXIF/XMP of exported files.<br><br>"
-                "<b>Manage…</b> opens the <b>Gear Library</b>: a searchable, user-extendable "
-                "library of cameras, lenses and film stocks. Gear picked for a frame rides "
-                "into the exported XMP.<br><br>"
-                "<b>Protect original metadata</b> keeps the source file's EXIF/XMP untouched "
-                "instead of NegPy rewriting it."
+                "developer, push/pull and scanner, into the EXIF/XMP of exported files. Gear "
+                "picked for a frame rides into the exported XMP."
             ),
-            target=_gear_manage,
+            target=_metadata,
             pre_hook=lambda w: w.right_panel.show_tab_by_key("metadata"),
+        ),
+        TutorialStep(
+            title="Gear Library",
+            body=(
+                "The <b>Gear</b> tab holds a searchable, user-extendable library of cameras, "
+                "lenses, film stocks, processes and scan setups, shared by Metadata, Roll "
+                "Settings and every other picker in the app that offers gear."
+            ),
+            target=_gear_library,
+            pre_hook=lambda w: w.right_panel.show_tab_by_key("gear"),
         ),
         TutorialStep(
             title="Export",
             body=(
-                "The <b>Export</b> tab (right panel, now active) is where you save your "
-                "results.<br><br>"
+                "The <b>Export</b> tab is where you save your results.<br><br>"
                 "Choose a format (<b>JPEG</b>, high-bit-depth <b>TIFF</b>, PNG, WebP, JPEG XL), "
                 "pick a color space, and set resolution or print size. The <b>ICC</b> section adds "
                 "monitor-profile display and soft-proofing.<br><br>"
@@ -742,7 +752,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "menu arrow picks what it exports (current frame, selected frames, or all visible "
                 "frames) and remembers the choice. Presets run every enabled preset per frame. "
                 "<b>Contact Sheet</b> renders all frames into one sheet. "
-                "Export always runs at full RAW resolution."
+                "Export always runs at full RAW resolution.<br><br>"
+                "<b>Protect original metadata</b> keeps the source file's EXIF/XMP untouched "
+                "instead of NegPy rewriting it."
             ),
             target=_export,
             pre_hook=lambda w: w.right_panel.show_tab_by_key("export"),

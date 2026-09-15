@@ -78,6 +78,9 @@ class ExportTask:
     # The two halves' own edits, for a whole-frame scan that was worked on split.
     # Set means one file holding both frames; `params` is then only a naming/metadata carrier.
     diptych: Optional[tuple[WorkspaceConfig, WorkspaceConfig]] = None
+    # Subfolder of Source's base, overriding the source file's own directory, for a virtual
+    # roll with no single folder of its own. None everywhere else.
+    roll_export_root: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -99,14 +102,21 @@ _EXT = {
 }
 
 
-def resolve_output_dir(source_path: str, settings: ExportPreset) -> str:
+def resolve_output_dir(source_path: str, settings: ExportPreset, roll_export_root: Optional[str] = None) -> str:
     """Destination folder for one source file, per its output-mode rule. Linear Output
-    calls this too, so every intent answers the destination question the same way."""
+    calls this too, so every intent answers the destination question the same way.
+
+    `roll_export_root` replaces the source file's own directory as the Subfolder of
+    Source base. Same as Source and Absolute already name an explicit destination and
+    ignore it; only Subfolder of Source needs a stand-in when the file's directory is
+    not "the roll's folder" (a virtual roll with no single folder of its own).
+    """
     source_dir = os.path.dirname(source_path)
     output_mode = settings.output_mode
     if output_mode == ExportPresetOutputMode.SUBFOLDER_OF_SOURCE:
+        base_dir = source_dir if roll_export_root is None else roll_export_root
         subfolder = settings.output_subfolder or ""
-        return os.path.join(source_dir, subfolder) if subfolder else source_dir
+        return os.path.join(base_dir, subfolder) if subfolder else base_dir
     if output_mode == ExportPresetOutputMode.ABSOLUTE:
         return settings.output_path or source_dir
     return source_dir
@@ -114,7 +124,7 @@ def resolve_output_dir(source_path: str, settings: ExportPreset) -> str:
 
 def resolve_export_dir(task: ExportTask) -> str:
     """Destination folder for a task, per its output-mode rule."""
-    return resolve_output_dir(task.file_info["path"], task.export_settings)
+    return resolve_output_dir(task.file_info["path"], task.export_settings, task.roll_export_root)
 
 
 def resolve_export_naming(task: ExportTask) -> tuple[str, str, str]:

@@ -10,13 +10,13 @@ import numpy as np
 import tifffile
 
 from negpy.desktop.workers.export import ExportTask, ExportWorker
-from negpy.domain.models import ExportFormat, WorkspaceConfig, preset_from_export_config
+from negpy.domain.models import ExportFormat, ExportPresetOutputMode, WorkspaceConfig, preset_from_export_config
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 
 
 def _preset(tmp_path, **overrides):
     preset = preset_from_export_config(DEFAULT_WORKSPACE_CONFIG.export)
-    return replace(preset, output_path=str(tmp_path), **overrides)
+    return replace(preset, output_mode=ExportPresetOutputMode.ABSOLUTE, output_path=str(tmp_path), **overrides)
 
 
 def _task(tmp_path, name: str, preset=None, **kwargs) -> ExportTask:

@@ -24,8 +24,8 @@ def parse_capture_stem(stem: str) -> tuple[str, Optional[int]]:
     return m.group("roll"), int(m.group("frame"))
 
 
-def _path_safe(value: object) -> str:
-    """Make a template value safe for use in a filename (empty if unset)."""
+def path_safe(value: object) -> str:
+    """Make a value safe for use as a filename or folder name (empty if unset)."""
     if value is None:
         return ""
     if isinstance(value, bool):
@@ -78,28 +78,28 @@ def _metadata_context(original_stem: str, metadata: Optional[MetadataConfig]) ->
     captured = parse_capture_date(meta.capture_date)
 
     return {
-        "roll": _path_safe(roll),
+        "roll": path_safe(roll),
         "frame": frame,
         "frame_padded": _frame_padded(frame),
-        "camera": _path_safe(camera),
-        "camera_make": _path_safe(meta.camera_make),
-        "camera_model": _path_safe(meta.camera_model),
-        "lens": _path_safe(lens),
-        "lens_make": _path_safe(meta.lens_make),
-        "lens_model": _path_safe(meta.lens_model),
-        "focal_length": _path_safe(meta.focal_length_mm),
-        "film": _path_safe(meta.film),
-        "film_iso": _path_safe(meta.film_iso),
-        "film_manufacturer": _path_safe(meta.film_manufacturer),
-        "film_color_type": _path_safe(meta.film_color_type),
-        "film_format": _path_safe(_film_format(meta)),
-        "developer": _path_safe(meta.developer),
-        "dilution": _path_safe(meta.process_dilution),
+        "camera": path_safe(camera),
+        "camera_make": path_safe(meta.camera_make),
+        "camera_model": path_safe(meta.camera_model),
+        "lens": path_safe(lens),
+        "lens_make": path_safe(meta.lens_make),
+        "lens_model": path_safe(meta.lens_model),
+        "focal_length": path_safe(meta.focal_length_mm),
+        "film": path_safe(meta.film),
+        "film_iso": path_safe(meta.film_iso),
+        "film_manufacturer": path_safe(meta.film_manufacturer),
+        "film_color_type": path_safe(meta.film_color_type),
+        "film_format": path_safe(_film_format(meta)),
+        "developer": path_safe(meta.developer),
+        "dilution": path_safe(meta.process_dilution),
         "push_pull": meta.push_pull,
-        "development_time": _path_safe(format_dev_time(meta.process_time_seconds).replace(":", "-")),
-        "development_temperature": _path_safe(format_temperature(meta.process_temperature_c)),
-        "scanning": _path_safe(meta.scanning),
-        "exposure": _path_safe(meta.exposure_override),
+        "development_time": path_safe(format_dev_time(meta.process_time_seconds).replace(":", "-")),
+        "development_temperature": path_safe(format_temperature(meta.process_temperature_c)),
+        "scanning": path_safe(meta.scanning),
+        "exposure": path_safe(meta.exposure_override),
         "capture_date": captured.compact() if captured else "",
         "capture_year": str(captured.year) if captured else "",
     }

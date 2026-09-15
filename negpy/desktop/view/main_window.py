@@ -293,7 +293,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.central_widget)
 
         self.drawer = PinnableDockWidget(
-            "Controls",
+            "Edit",
             self,
             pin_tooltip=tooltip_with_shortcut("Dock controls panel to right", "toggle_right_panel"),
             on_pin=self.dock_controls_panel,

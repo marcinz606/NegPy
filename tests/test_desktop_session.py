@@ -36,6 +36,9 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.mock_repo.get_global_setting.side_effect = mock_get_global
         self.mock_repo.get_max_history_index.return_value = 0
         self.session = DesktopSessionManager(self.mock_repo)
+        # Construction itself writes (startup migrations, e.g.); tests below assert
+        # what one specific action writes, not the lifetime total since setUp.
+        self.mock_repo.save_global_setting.reset_mock()
 
         self.session.state.uploaded_files = [
             {"name": "file1.dng", "path": "path1", "hash": "hash1"},
@@ -473,6 +476,98 @@ class TestDesktopSessionSync(unittest.TestCase):
         cfg = self.session._apply_sticky_settings(base, only_global=True)
         self.assertEqual(cfg.exposure.wb_magenta, 0.2)
         self.assertEqual(cfg.exposure.wb_yellow, 0.1)
+
+    def test_sticky_settings_enabled_defaults_true(self):
+        self.assertTrue(self.session.state.sticky_settings_enabled)
+
+    def test_set_sticky_settings_enabled_persists(self):
+        self.session.set_sticky_settings_enabled(False)
+        self.assertFalse(self.session.state.sticky_settings_enabled)
+        self.mock_repo.save_global_setting.assert_called_with("sticky_settings_enabled", False)
+
+    def test_set_sticky_settings_enabled_noop_when_unchanged(self):
+        self.session.set_sticky_settings_enabled(True)
+        self.mock_repo.save_global_setting.assert_not_called()
+
+    def test_master_switch_off_gates_the_whole_row_overlay_on_a_new_file(self):
+        """Off, every catalog row - look and rig alike - stays at its WorkspaceConfig() default."""
+        sticky = {
+            "sticky_config": {
+                "saturation": 1.8,
+                "cast_removal_strength": 0.9,
+                "process_mode": ProcessMode.E6,
+                "flip_horizontal": True,
+                "jpeg_quality": 55,
+            },
+        }
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
+        self.session.state.sticky_settings_enabled = False
+        config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
+        default = WorkspaceConfig()
+        self.assertEqual(config.lab.saturation, default.lab.saturation)
+        self.assertEqual(config.exposure.cast_removal_strength, default.exposure.cast_removal_strength)
+        self.assertEqual(config.process.process_mode, default.process.process_mode)
+        self.assertFalse(config.geometry.flip_horizontal)
+        self.assertEqual(config.export.jpeg_quality, default.export.jpeg_quality)
+
+    def test_master_switch_on_still_applies_the_row_overlay(self):
+        """Unchanged default behaviour: enabled carries the look onto a fresh file."""
+        sticky = {"sticky_config": {"saturation": 1.8}}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
+        self.assertTrue(self.session.state.sticky_settings_enabled)
+        config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
+        self.assertEqual(config.lab.saturation, 1.8)
+
+    def test_master_switch_off_leaves_hard_coded_carries_untouched(self):
+        """The rig facts and workspace state are not picker rows, so the switch never gates them."""
+        prof = SimpleNamespace(id="rig-a", k1=-0.05)
+        sticky = {
+            "last_export_config": {"export_path": "/out"},
+            "last_linear_raw": True,
+            "flatfield_active_profile": "rig-a",
+            "wb_temp_lock": 4500.0,
+        }
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
+        self.session.state.sticky_settings_enabled = False
+        base = WorkspaceConfig(exposure=replace(WorkspaceConfig().exposure, wb_magenta=0.2, wb_yellow=0.1))
+        with patch("negpy.desktop.session.FlatFieldProfiles.get", return_value=prof):
+            config = self.session._apply_sticky_settings(base, only_global=False)
+        self.assertEqual(config.export.export_path, "/out")
+        self.assertTrue(config.process.linear_raw)
+        self.assertEqual(config.flatfield.profile_id, "rig-a")
+        self.assertTrue(config.flatfield.apply)
+        self.assertNotEqual((config.exposure.wb_magenta, config.exposure.wb_yellow), (0.2, 0.1))
+
+    def test_master_switch_off_does_not_affect_only_global_branch(self):
+        """only_global=True (an already-edited file) ignores the switch entirely."""
+        sticky = {
+            "sticky_config": {"density": 2.2, "jpeg_quality": 73},
+            "sticky_rows": ["exposure.density", "export.jpeg_quality"],
+        }
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
+        self.session.state.sticky_settings_enabled = False
+        config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=True)
+        self.assertEqual(config.exposure.density, WorkspaceConfig().exposure.density)
+        self.assertEqual(config.export.jpeg_quality, 73)
+
+    def test_master_switch_off_does_not_clear_row_picks(self):
+        """Turning the switch off is non-destructive: the per-row picks survive untouched."""
+        from negpy.desktop.sticky import STICKY_CONFIG_KEY, STICKY_ROWS_KEY
+
+        sticky = {"sticky_config": {"density": 2.2}, "sticky_rows": ["exposure.density"]}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
+
+        self.session.set_sticky_settings_enabled(False)
+        called_keys = {c.args[0] for c in self.mock_repo.save_global_setting.call_args_list}
+        self.assertNotIn(STICKY_ROWS_KEY, called_keys)
+        self.assertNotIn(STICKY_CONFIG_KEY, called_keys)
+
+        off = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
+        self.assertEqual(off.exposure.density, WorkspaceConfig().exposure.density)
+
+        self.session.state.sticky_settings_enabled = True
+        on = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
+        self.assertEqual(on.exposure.density, 2.2)
 
     def test_contact_sheet_output_path_in_sticky_export(self):
         sticky = {
@@ -1214,6 +1309,37 @@ class TestThumbnailKeying(unittest.TestCase):
         session.remove_current_file()
 
         self.assertEqual(session.state.thumbnails, {keys[1]: "thumb-b"})
+
+    def test_push_external_history_flags_stale_under_the_thumbnail_cache_key(self):
+        """push_external_history (a bulk apply reaching a non-active file) adds
+        asset_thumbnail_key(asset) to stale_thumbnails, not the bare hash -- the read
+        side (the film strip's dot, the tooltip) must key the same way or the flag,
+        though set, never matches anything and the indicator never shows."""
+        from PyQt6.QtCore import Qt
+
+        from negpy.desktop.view.sidebar.files import _ThumbnailDelegate
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
+        repo = MagicMock(spec=StorageRepository)
+        repo.get_global_setting.return_value = None
+        repo.load_file_settings.return_value = None
+        repo.load_file_settings_by_path.return_value = None
+        repo.load_file_settings_many.return_value = {}
+        repo.get_max_history_index.return_value = 0
+        session = DesktopSessionManager(repo)
+        asset = {"name": "a.nef", "path": "/a.nef", "hash": "h1"}
+        session.state.uploaded_files = [asset]
+
+        session.push_external_history("h1", WorkspaceConfig(), WorkspaceConfig())
+
+        self.assertIn(asset_thumbnail_key(asset), session.state.stale_thumbnails)
+
+        model = AssetListModel(session.state)
+        tooltip = model.data(model.index(0, 0), Qt.ItemDataRole.ToolTipRole)
+        self.assertIn("predates a settings change", tooltip)
+
+        delegate = _ThumbnailDelegate(state=session.state)
+        self.assertTrue(delegate._is_stale_thumbnail(asset))
 
 
 class TestSearchFacts(unittest.TestCase):

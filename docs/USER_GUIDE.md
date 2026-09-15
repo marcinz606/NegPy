@@ -15,10 +15,10 @@ If Windows blocks writes to NegPy's default data folder, NegPy suggests `%LOCALA
 ### Screen layout
 
 *   **Left, the film strip**: your loaded frames as a contact sheet, plus import, sorting, and triage tools.
-*   **Center, the canvas**: the live preview of the current frame. Most tools (crop, white-balance picker, heal brush, dodge/burn masks) are used by clicking directly on it. Scroll/pinch to zoom and drag to pan; a floating toolbar along the bottom holds Fit/1:1 zoom (**1:1** is one scan pixel per screen pixel, and lights up while you are at it; below **HQ** the preview is scaled up to reach it, which a **preview res · HQ off** pill on the canvas says) plus undo/redo, rotate/flip and more, moving overflow items into an **⋯** menu when the window narrows. What does not fit collapses from the right, and the **⋯** menu keeps every action whatever the row shows. **Preferences…** in that menu holds every app-wide setting (§14): the interface options, the performance budgets, **Edit Toolbar…** for which controls sit on the row and in what order, and **Persistent Settings…** for what carries onto the next file you open. Right-click the image for **Reset View** and **Sticky Zoom** (keeps the current zoom level when you switch to another frame, instead of resetting to fit), alongside the picker tools, copy/paste settings, and **Unload** (removes the frame from the session; its saved edit is kept). With nothing loaded it shows **Load some scans to get started**; click it for **Add Files** / **Add Folder**.
-*   **Right, the controls**: a pinned **Analysis** readout at the top, and below it an icon tab bar. Each icon opens a *workflow page* holding one or more collapsible panels.
+*   **Center, the canvas**: the live preview of the current frame. Most tools (crop, white-balance picker, heal brush, dodge/burn masks) are used by clicking directly on it. Scroll/pinch to zoom and drag to pan; a floating toolbar along the bottom holds Fit/1:1 zoom (**1:1** is one scan pixel per screen pixel, and lights up while you are at it; below **HQ** the preview is scaled up to reach it, which a **preview res · HQ off** pill on the canvas says) plus undo/redo, rotate/flip and more, moving overflow items into an **⋯** menu when the window narrows. What does not fit collapses from the right, and the **⋯** menu keeps every action whatever the row shows. **Preferences…** in that menu holds every app-wide setting (§15): the interface options, the performance budgets, **Edit Toolbar…** for which controls sit on the row and in what order, and **Persistent Settings…** for what carries onto the next file you open. Right-click the image for **Reset View** and **Sticky Zoom** (keeps the current zoom level when you switch to another frame, instead of resetting to fit), alongside the picker tools, copy/paste settings, and **Unload** (removes the frame from the session; its saved edit is kept). With nothing loaded it shows **Load some scans to get started**; click it for **Add Files** / **Add Folder**.
+*   **Right, Edit**: one panel, tabbed across **Edit** / **Export** / **Metadata** / **Gear** / **Scan** at the top of the column. **Edit** — a pinned **Analysis** readout, then its own icon tab bar — is everything that changes what the canvas shows. Export, Metadata, Gear and Scan are roll identity, gear library and output settings, none of which touch the render, so they sit beside Edit rather than inside it.
 
-NegPy remembers the window size and whether it was maximized, the panel widths and which edge each panel sits on, which sections were open, and which controls tab was active. **Reset Panel Layout** in the **⋯** menu puts both panels back at their home edges and widths.
+Every side panel — the film strip (left) and Edit (right) — can be dragged loose by its title bar into its own floating window; a pin button there sends it back to its docked spot. NegPy remembers the window size and whether it was maximized, each panel's floating/docked state, edge and width, which sections were open, and which tab was active on each. **Reset Panel Layout** in the **⋯** menu puts both panels back at their home edges, widths and visibility.
 
 ### Before / After
 
@@ -38,7 +38,7 @@ While a peek is up the canvas carries a **NEGATIVE**, **EMBEDDED** or **FLAT SCA
 
 ### The workflow (and the order things happen)
 
-The right-hand tabs follow the order you work in, which mirrors the processing pipeline:
+The Edit tab's own tab bar follows the order you work in, which mirrors the processing pipeline:
 
 | Tab | Icon | Panels | What it is for |
 |-----|------|--------|---------------|
@@ -49,21 +49,29 @@ The right-hand tabs follow the order you work in, which mirrors the processing p
 | **Finish** | brush | Retouch · Finishing | Dust removal, vignette, border, carrier |
 | **Favorites** | star | Your chosen sliders | Quick access to the controls you use most |
 | **History** | clock | Work prints · Edit history | Keep named versions, step back through every change |
+
+Beside Edit, the panel's own tab bar holds the tabs that never change the render:
+
+| Tab | Icon | Panels | What it is for |
+|-----|------|--------|---------------|
 | **Export** | file | Export settings | Format, size, color, batch output |
 | **Metadata** | tags | Archival metadata | Original camera, lens and film details |
+| **Gear** | toolbox | Gear library | Manage cameras, lenses, film stocks, processes and scan setups |
 | **Scan** | camera | Scanner · Camera Scanning | Capture film directly (Linux/macOS) |
 
 You do not have to touch every panel. The defaults are tuned to produce a good print straight away, and most frames need only a crop, perhaps a white-balance nudge, and export.
 
 A small **dot** on a panel header, and on a tab icon, means you changed something from its default. Every panel header has a **reset** action and an **ⓘ** that opens this guide at that panel's section.
 
-Both side panels can be narrowed to give the canvas more room. As the controls panel shrinks, tab icons that no longer fit move into a **»** menu at the right of the tab bar. The tab you are on always stays visible.
+Every panel can be narrowed to give the canvas more room. As a panel shrinks, its tab icons that no longer fit move into a **»** menu at the right of its own tab bar. The tab you are on always stays visible.
 
 ### What carries to the next frame
 
 Open a frame you have not edited and it does not start from bare defaults: the settings that belong to the *rig and the roll* rather than the picture come with it: film process, crop ratio, flips, calibration, paper stock, the Lab polish and your export preferences. The look itself (density, filtration, tone curve, toning, dodge and burn) starts clean on every frame.
 
 **Preferences → Session & Storage → Persistent Settings…** changes that list. Every setting the copy/paste picker knows is there, grouped by panel; tick one to make it carry, untick one to stop it. Tick the whole group from its header checkbox. Values shown are the ones from your last saved edit, so the list reads as what would actually carry.
+
+The **Carry settings between frames** checkbox next to that button is the master switch: unticked, a new frame gets bare defaults regardless of your ticks, which stay saved for when you turn it back on.
 
 A frame you have already edited keeps its own look whatever you tick, since only export and metadata settings reach it. **Reset Settings** on a frame ignores this list and returns it to bare defaults.
 
@@ -88,51 +96,50 @@ A menu shows a key only when that key uses `⌘`. A shortcut bound to a plain ke
 <!-- panel:frames -->
 ## 2. Film strip (left panel)
 
-The header shows the NegPy logo and version. The **↻** button beside the version number asks GitHub for a newer release on demand; it becomes a green **⬇** when one is out. When a newer release is out, a green **⬇ Update Available** line also appears under the version; click either to read what changed and let NegPy install it ([§15](#15-updating-negpy)). The chevron at the header's top-right folds the branding away to give the frames more room.
+The header shows the NegPy logo and version. The **↻** button beside the version number asks GitHub for a newer release on demand; it becomes a green **⬇** when one is out. When a newer release is out, a green **⬇ Update Available** line also appears under the version; click either to read what changed and let NegPy install it ([§16](#16-updating-negpy)). The chevron at the header's top-right folds the branding away to give the frames more room.
 
-Below the header: the toolbar, the search box, and two collapsible sections. **Library** holds the folders your scans live in; **Film Strip** holds the frames you have open. Click either heading to fold it away; the one still open takes the whole panel. NegPy remembers which were open.
+Below the header: the toolbar, the search box, and two collapsible sections. **Library** holds the folders your scans live in; **Film Strip** holds the frames you have open. Click either heading to fold it away; the one still open takes the whole panel. Drag the handle between them to resize the split; NegPy remembers both which were open and where you left the handle.
 
 <!-- panel:library -->
 ### Your library
 
-The **Library** section is a folder tree of the places your scans live. Press **+** to add a folder, and point it at the one big `Scans` directory you keep everything under, subfolders and all. **↻** re-reads it from disk. Each row shows what is inside it ("36 photos", "2 folders"), and subfolders are read when you expand them.
+The **Library** section lists every **roll** you have imported: a named, openable group of frames, not a live view of a folder. **Ctrl+L** opens the section, importing a first roll when you have none yet. Its own corner row holds three controls: **Sort** orders the list by Name or Date, ascending or descending, and the Film Strip follows the same order; **+** imports a roll; **↻** re-reads every roll's frame count from disk. Each row shows its name and count ("36 photos").
 
-**Browsing costs nothing.** NegPy opens, decodes and hashes nothing when you add a folder or click through the tree. It only lists what is there.
+**Listing costs nothing.** NegPy opens, decodes and hashes nothing when you import a folder — importing only recognizes it. Opening a roll is the step that hashes and thumbnails.
 
-#### The Library button
+#### Importing
 
-The **Library** button (book icon, first in the toolbar, or **Ctrl+L**) opens the folder your scans live in. The first time you press it, NegPy asks you to pick that folder and remembers it. The panel also goes there on its own: on launch when you do not restore a session, and whenever you unload the last frame. Your rolls are a more useful resting state than an empty sheet.
+**+** (or the list's right-click menu) offers two actions:
 
-To point it somewhere else, add another folder with **+**. To forget them all, use **Clear Library** in *Manage Database*. That clears the list of folders only, leaving your images, folders and edits untouched.
+*   **Import Folder as a Roll…** — pick one folder; it becomes one roll and opens. If its name matches a camera or film stock already in your Gear library (a word, or a run like "penf" for "Pen F"), Roll Settings opens pre-filled and ticked for the match — Apply to keep it, Cancel to skip it. Never guesses at gear you have not added.
+*   **Import Subfolders as Rolls…** — pick a parent folder, for example the one your scanner saves into; every folder directly inside it becomes its own roll in one pass, without opening any of them. One level only: a roll's own subfolders are not walked, so a deeper structure needs a second, more specific import.
 
-#### Walking around
+Either way NegPy reads the folder from disk and never creates, renames, moves or deletes anything in it: reorganize in Finder or Explorer, then re-import (or **↻**) to pick up the new arrangement. Every edit is stored against the image's content, so moving a file between folders keeps its edit, its history and its keep/reject mark.
 
-*   **Click** a folder to select it, **double-click** (or **Enter**) to open it.
-*   **Ctrl+click** several folders and open them together to load more than one roll at once. NegPy asks once, for the total.
-*   **Alt+Up** moves the selection to the folder above.
-*   The tree sorts the way the sheet does. Change **Sort** to Date or Descending and the folders follow.
+#### Opening, renaming, deleting
 
-When you open a folder that contains images, NegPy asks whether to **load the roll**. Only then does it hash and thumbnail them, which is the part that takes a moment on a big roll. Say no and your open frames stay as they were. Tick **Always load without asking** in that prompt if you would rather it just get on with it.
+**Click** a roll to select it, **double-click** (or **Enter**) to open it. Opening asks whether to **load the roll** — only then does NegPy hash and thumbnail its frames, which is the part that takes a moment on a big roll. Say no and your open frames stay as they were. Tick **Always load without asking** in that prompt if you would rather it just get on with it. Opening a roll replaces what is in the Film Strip; nothing is lost either way, because your edits live in NegPy's database, keyed to each image, not to the list of open files.
 
-Loading a roll replaces what is in the film strip; right-click → **Add to Session** appends instead. Nothing is lost either way, because your edits live in NegPy's database, not in the list of open files.
+Right-click a roll for **Rename…** and **Delete…**. Deleting only forgets the roll record — the folder, its images and their edits are untouched, and a folder roll can always be re-imported. To forget every roll at once, use **Clear Library** in *Manage Database*.
 
-#### Folders are your folders
+#### Rolls that are not folders
 
-NegPy reads the tree straight from disk and never creates, renames, moves or deletes anything in it. Reorganize in Finder or Explorer and the tree shows the new arrangement at the next refresh. Every edit is stored against the image's content, so moving a file between folders keeps its edit, its history and its keep/reject mark.
+A roll does not have to be a folder, and the same photo can belong to more than one roll at once: a folder roll's icon is **amber**, one built from a search or a hand-picked set of frames is **red**. Search the library (the filter box's magnifier-over-folder button) or otherwise assemble a set of frames, then **Save as Roll…** in the Film Strip's row names and keeps it, right alongside your folder rolls. It is a fixed set of frames, not a live search: adding to it later means reopening it and using Save as Roll again, or adding to the session while it is the one loaded. Edits are unaffected either way — a frame's edit is its own, the same wherever it is opened from.
 
 ### Importing and managing files
 
 **A note on Nikon High Efficiency raw.** The Z 8 and Z 9 can record NEFs in **High Efficiency (HE)** or **HE\***, which use a licensed codec NegPy cannot decode. Such a file is still called `.NEF` and still carries the same TIFF compression tag as an ordinary lossless NEF, so nothing looks unusual until it fails to open. NegPy names the reason rather than reporting a generic unsupported-file error. Re-shoot in **Lossless Compressed** NEF, or convert with Adobe DNG Converter. Lossless NEFs from the same cameras open normally.
 
-Toolbar buttons, left to right:
+The **⋮** menu on the Film Strip section's own header, beside its ⓘ guide, holds **New Roll…**: clears the film strip, so you can drag in a fresh batch of frames to build a roll from scratch — **Save as Roll…**, below, is what turns that batch into a reopenable one. This is the same drop as **Clear All…** in the empty-space right-click menu.
 
-*   **Add Files** / **Add Folder**: load individual images or every image in a folder. Pick a folder that holds only *other* folders and NegPy reveals it in the Library section instead of reporting that it found nothing. Dropping a folder on the window does the same.
-*   **Clear All…**: unload everything, or just the selected frames.
+The Film Strip section has its own row of buttons above the frames, for actions that read or rewrite the loaded roll:
+
+*   **Add** (import icon): **Add Files…** or **Add Folder…** — load individual images, or every image in a folder, into this session. Pick a folder that holds only *other* folders and NegPy points you at Library's **Import Subfolders as Rolls…** instead of reporting that it found nothing. Dropping a folder on the window does the same as Add Folder — most of the time that is the faster path anyway.
 *   **Hot Folder**: watches the current folder and auto-loads new files as they appear, which is handy when a scanner or tethering app drops files into a directory. While it is on, the "Working…" import popup stays hidden so each new frame does not raise a window; the status line over the canvas still reports the import.
 *   **Trichrome Scan** (three-exposure narrowband capture, also called trichromatic capture): treats the folder as red/green/blue exposure triplets and assembles each frame from three shots. Shots are grouped in the order they were taken, read from the files themselves, so filenames need follow no convention. Capture each frame's three exposures back to back, before moving on to the next frame. Where a file states no capture time, the folder falls back to filename order, and the names then have to sort into capture order. Right-click a frame → **Edit RGB Triplet…** to assign the three files by hand. Three shots are only assembled when they are one of each color *and* show the same frame; where they do not, they are left as separate frames to pair by hand, rather than assembled wrong. An assembled frame carries the three-dot badge described under [Triage](#triage-culling-the-roll).
-*   **Half Frame**: splits each scan into two frames, for half-frame cameras. Each half is edited and metered separately and badged with which half it is. Enabling it opens a rectangle editor on the current scan: drag the green box to crop (everything outside is discarded), drag the orange line to set the split, and use **Cut thickness** to discard a band centered on the split, which is the physical black separator between the two exposures. **Auto-detect**, in the editor, re-finds the gutter on the current scan.
+*   **Half Frame**: splits each scan into two frames, for half-frame cameras. Each half is edited and metered separately and badged with which half it is. A plain toggle: turning it on auto-detects the gutter and the outer film crop on every loaded scan directly, no editor to step through first — the crop reaches into the rebate alongside both frames on whichever sides show one, not just the gutter between them; a side with no visible rebate, or one too wide to read with confidence, is left uncropped rather than guessed at. Each roll remembers its own Half Frame state, so reopening one later restores the toggle to wherever you left it; an ad hoc session (not a recognized roll) keeps the one sticky flag it always had.
 
-    The editor's **Apply** is a split button, like Export's: its ▾ picks what it saves to — *Apply to current frame*, *Apply to selected frames*, or *Apply to all frames* (the roll-wide default, which every frame without its own override follows) — remembered as the default for next time. The tune-icon button beside Half Frame opens its menu: **Adjust Split…** re-opens the editor on the current scan, for the odd frame a shared split gets wrong on a roll with a bit of irregular spacing; **Auto-detect All Splits** re-finds the gutter on every loaded scan in one pass and saves each as that frame's own override; **Unsplit Diptych** (enabled only while the current frame is one) reverts it, the same as right-clicking it. Right-click a half-frame asset for the same editor, defaulted to *Apply to current frame*, via **Adjust Split for This Frame…**, plus **Reset Split to Roll Default** once it has an override.
+    The tune-icon button beside Half Frame opens its menu for the odd frame the batch auto-detect gets wrong: **Adjust Split…** opens a rectangle editor on the current scan — drag the green box to crop (everything outside is discarded), drag the orange line to set the split, and use **Cut thickness** to discard a band centered on the split, which is the physical black separator between the two exposures; its own **Auto-detect** re-finds the crop and the gutter on just the current scan. Its **Apply** is a split button, like Export's: its ▾ picks what it saves to — *Apply to current frame*, *Apply to selected frames*, or *Apply to all frames* (the roll-wide default, which every frame without its own override follows) — remembered as the default for next time. **Auto-detect All Splits**, also in the tune-icon menu, re-runs the same batch detection the toggle ran on turning it on; **Unsplit Diptych** (enabled only while the current frame is one) reverts it, the same as right-clicking it. Right-click a half-frame asset for the same editor, defaulted to *Apply to current frame*, via **Adjust Split for This Frame…**, plus **Reset Split to Roll Default** once it has an override.
 
     Recropping or resplitting a frame carries its heal strokes, dust spots, scratch lines and dodge/burn masks along with it, re-anchored to the same spot on the film — painting over a scratch, then nudging the split later, does not leave the repair stranded in the sky.
 
@@ -140,10 +147,12 @@ Toolbar buttons, left to right:
 
     Half Frame does not apply to a frame assembled from more than one file: a Trichrome triplet, a stitch, or an HDR merge. Those are never split, and they never come back as a diptych, even when the file they are built around was worked on as two halves earlier.
 *   **Apply (clone)**: copy the current frame's settings to selected frames or the whole roll. You choose which aspects in a dialog; crop and rotation are always per-image.
+*   **Roll Settings** (tag icon): tag gear, capture, place, process and scanning metadata for the current frame, a selection or the whole roll in one dialog. Fields start filled from the active frame; type or pick new values directly, or **Load** a metadata preset to fill and tick its fields, then tick which groups to write. Defaults to the whole roll when one is loaded. If Gear is not already set, opening it also checks the roll's folder name against your Gear library and pre-fills a match the same way the import-time suggestion does — it never overwrites a camera or film stock you have already tagged.
+*   **Save as Roll…** (red folder icon): name and keep the frames currently loaded as a roll, whether or not they came from a folder. See [Rolls that are not folders](#rolls-that-are-not-folders).
+*   **Unload…**: drop the active frame, or the whole selection when more than one is selected. Never the rest of the roll — for that, see *Clear All…* below.
 *   **Sheet filter** (funnel): show *All Frames*, *Keepers Only*, or *Hide Rejected*. The choice is remembered between sessions and applies to every roll you open.
-*   **Sort**: by Name or Date, ascending or descending.
 
-Above both sections sit a **filter box**, a **`.*`** regex toggle and a **search-library** button. Inside the Film Strip section is a **tally**, for example "36 frames · 12 keepers · 3 rejected". While a filter hides frames the tally counts both sets and names the filter, for example "3 of 36 frames · Keepers filter". When a filter hides every frame, the strip carries a message with a **Show all frames** link that clears the filter box and the funnel together.
+Above both sections sit a **filter box**, a **`.*`** regex toggle and a **search-library** button, shared by the Library tree and the Film Strip alike. Inside the Film Strip section, beside its **tally** (for example "36 frames · 12 keepers · 3 rejected"), a **thumbnail size** slider resizes its grid — smaller fits more columns in the panel. While a filter hides frames the tally counts both sets and names the filter, for example "3 of 36 frames · Keepers filter". When a filter hides every frame, the strip carries a message with a **Show all frames** link that clears the filter box and the funnel together. When the loaded frames came from a roll, its name leads the tally, for example "Portra 400 — 36 frames"; a batch loaded by Add or drag-drop with no roll behind it shows the count alone.
 
 #### Filtering the sheet
 
@@ -242,6 +251,7 @@ Each corner of a thumbnail means one thing, so the marks never compete:
 | Bottom-right | cross, frame heavily dimmed | rejected |
 | Top-right | exclamation | the file failed to decode; click to retry |
 | Bottom-left | *see below* | the frame was built from more than one file |
+| Top-left | small amber dot | the thumbnail predates a settings change (a bulk apply reached the file before a render reached its thumbnail); open the frame to refresh it |
 
 The bottom-left badge is gray, not red, because it reports what the frame *is* rather than something you marked. Its glyph says which kind:
 
@@ -399,8 +409,20 @@ Bayer and X-Trans RAW only: a scanner TIFF, a Pakon scan or a linear DNG arrives
 
 *   **Preview** / **Export** (default **Auto** for both): *Auto* keeps NegPy's own choice, a fast half-size decode on screen and AHD for export. For the preview, Auto and Linear are the fastest; the others decode at full size. **AHD** is LibRaw's balanced default, **VNG** the smooth one, **PPG** fast with clean edges, **DCB** and **DHT** chase fine detail, and **AAHD** softens edges to suppress artifacts.
 
+<!-- panel:roll -->
+### 4.3 Roll Analysis: a consistent look across the roll
+
+Meter the whole roll once and share the baseline, so frames from the same film match.
+
+*   **Roll picker**: type to search. **Current Roll** (the default) targets the loaded files themselves; a saved name targets a baseline stored earlier.
+*   **Apply**: runs the picked roll. On **Current Roll** it scans every loaded file and computes a roll-average density and color balance, discarding outliers — run it once after importing. *(Tip: if you use Batch Autocrop, run it first, in **Image only** mode, so metering sees consistent crops.)* On a saved name it loads that roll's stored bounds and balance instead of re-scanning.
+*   **Save**: store the roll's current bounds and balance under a name, useful when you shoot the same stock repeatedly.
+*   **Delete**: remove the selected saved roll (it asks first; disabled on Current Roll). The frames keep their current look; only the saved baseline goes.
+*   **Use Luma Average**: this frame takes the roll-wide tonal range; color still re-derives per frame.
+*   **Use Color Average**: this frame takes the roll-wide color balance; tonal range still re-derives per frame. Enable both for a fully consistent roll; leave both off for per-image auto-exposure.
+
 <!-- panel:process -->
-### 4.3 Normalization: negative → positive
+### 4.4 Normalization: negative → positive
 
 How the negative is measured and normalized into a positive. The film mode that decides *which* conversion runs sits above the panels (§4), and how the scan is decoded lives in **Calibration** (§4.1).
 
@@ -446,21 +468,6 @@ How the negative is measured and normalized into a positive. The film mode that 
     **Narrowband** and **Single-Shot Narrowband Calibration** are grayed out for *any* transparency, Normalize or not; see [Narrowband and slides](#narrowband-and-slides). Reproducing a slide's appearance is a colorimetric problem, and narrowband illumination samples the spectrum at three isolated wavelengths, so the inter-band overlap the eye integrates is never measured, which is the same reason narrowband scans render oversaturated and hue-rotated. No input profile recovers what was never sampled, and the bundled one describes negative dyes besides.
 
 **Positive** (default off) sits next to Normalize, slide-only in the same way, and live only with Normalize off. As captured, NegPy reads the source as literal linear data and renders it like a raw capture, with a fixed exposure lift and a filmic highlight roll-off. Turn Positive on when the source is already a finished image, such as a scanned print or an export from other software: NegPy decodes its embedded profile instead (an untagged file falls back to sRGB) and skips the lift and the roll-off, so the Print sliders shape the image directly. With Normalize on it grays out, that render decoding on the source's own profile anyway.
-
-<!-- panel:roll -->
-### 4.4 Roll Analysis: a consistent look across the roll
-
-Meter the whole roll once and share the baseline, so frames from the same film match.
-
-*   **Batch Analysis**: scans every loaded file and computes a roll-average density and color balance, discarding outliers. Run it once after importing. *(Tip: if you use Batch Autocrop, run it first, in **Image only** mode, so metering sees consistent crops.)*
-*   **Use Luma Average**: this frame takes the roll-wide tonal range; color still re-derives per frame.
-*   **Use Color Average**: this frame takes the roll-wide color balance; tonal range still re-derives per frame. Enable both for a fully consistent roll; leave both off for per-image auto-exposure.
-
-**ROLL**, to reuse a baseline across sessions:
-
-*   **Roll dropdown** + **Load**: apply a saved roll's bounds and balance.
-*   **Save**: store the current Batch Analysis as a named roll, useful when you shoot the same stock repeatedly.
-*   **Delete**: remove the selected roll (it asks first). The frames keep their current look; only the saved baseline goes.
 
 <!-- panel:presets -->
 ### 4.5 Presets
@@ -805,7 +812,90 @@ A scrollable list of every edit step, the last 100 kept, newest on top. The curr
 
 ---
 
-## 11. Export tab
+## 11. Metadata tab
+
+Archival metadata for the **original analog capture** (camera, lens, film, process), written into exported files as EXIF and embedded XMP, so DAMs like Lightroom show your film gear rather than the scanner.
+
+Every export format carries it: JPEG, TIFF, PNG, JPEG XL and WebP. A TIFF holds the capture position in XMP only, and EXIF text is 7-bit, so typographic punctuation is transliterated (`4×5` is written `4x5`). **Protect original metadata**, on the Export tab (§13), copies the source file's own EXIF/XMP instead of writing these fields.
+
+<!-- panel:metadata_presets -->
+### Metadata Presets
+
+A saved set of metadata values, stored in `~/NegPy/presets/metadata/`, separate from the edit presets on the Setup tab:
+
+*   **Preset** + **Load**: write the selected preset's fields onto this frame. Only the fields the preset stores change; everything else on the frame stays. Hover the field for a list of what a preset holds.
+
+Presets, cameras, lenses, film stocks and every other gear record are managed on the **Gear** tab (§12), not here.
+
+Gear travels as one unit: camera, lens, film stock, the film format and every other value read from them. So a loaded preset fills the dropdowns below and the exported EXIF with the same pick, and a preset for a 120 stock cannot leave the frame claiming 35mm. Picking a film stock sets the format either way, so set a frame format such as `6×7` after choosing the stock. The frame number is never stored in a preset.
+
+<!-- panel:metadata_gear -->
+### Analog Gear
+
+Searches the gear you've declared as your own (§12); pick **Other…** for the full built-in catalog.
+
+*   **Camera / Lens / Film stock**: pick from your library. Empty means not set.
+*   **Clear**: empties all three.
+*   **Infer from folder name**: fills whichever of camera and film stock is not already set, by matching the roll's folder name against your own gear — the same match Roll Settings offers on import. Needs a folder: the active folder roll's own folder, or the current frame's containing directory with no roll active.
+
+<!-- panel:metadata_capture -->
+### Capture
+
+*   **Date**: when the frame was shot. Give only what you know: `1998`, `1998-07`, `1998-07-14` or `1998-07-14 16:30`, with an optional offset such as `+02:00`. An impossible date turns the field red and is not saved. EXIF `DateTimeOriginal` pads the missing parts; XMP `photoshop:DateCreated` keeps the truncated form and `negpy:CaptureDatePrecision` names it. The scan file's own timestamp moves to `DateTimeDigitized`.
+*   **Place**: the capture location. The map-pin button opens a map to search a place name, click a position or paste coordinates, the ✕ beside it empties the place, and the field itself accepts a pasted coordinate pair or an OpenStreetMap/Google Maps link. Coordinates are written to the EXIF GPS tags and XMP `exif:GPS*`, the names to XMP `photoshop:City`/`State`/`Country`; a TIFF carries the location in XMP only, and a place you set replaces the source file's GPS block whole, rather than leaving its altitude or heading beside your coordinates. A geotagged source with no place set here keeps its own coordinates on export, and the map opens centered on them. Where the frame was digitized is a starting view, never the capture place. Zoom the map with its **+** / **−** buttons, a scroll wheel or a trackpad pinch, and drag to pan. Opening the map contacts OpenStreetMap; typing coordinates needs no network.
+
+<!-- panel:metadata_process -->
+### Process
+
+*   **Saved process**: pick a development recipe from the library to fill Developer, Dilution, Push / Pull, Time and Temperature. Typing over any of them unlinks it, so the picker never names a value that is gone.
+*   **Format**: `—` (not set), `35mm`, `120`, `4×5`, `8×10`, `110`, or `Other` with a free-text field.
+*   **Developer** and **Dilution**: the developer, for example `D-76`, and its working strength, for example `1+1`, `1+50` or `stock`. The two join in EXIF `ImageDescription` as `D-76 1+1`; the dilution also goes to XMP as `negpy:DevelopmentDilution`.
+*   **Push / Pull**: `Push +3` … `Normal` … `Pull -3`.
+*   **Time** and **Temp (°C)**: development time as `9:30` or plain minutes, and the temperature it ran at. An unreadable time turns the field red and is not saved. Both are written to XMP as `negpy:DevelopmentTime` and `negpy:DevelopmentTemperature`, and searchable as `devtime:` (minutes) and `temp:`.
+*   **Clear**: empties the saved process and everything it fills: developer, dilution, push/pull, time and temperature. Format stays, since the film stock sets it.
+
+<!-- panel:metadata_scanning -->
+### Scanning
+
+*   **Saved setup**: pick a digitizing setup from the library to fill Scanning. Typing over it unlinks it.
+*   **Scanning**: scan method or notes. EXIF `Software` is always `NegPy`.
+*   **Clear**: empties the saved setup and the scanning note. Roll and Frame stay, since the scan stamps them rather than the setup.
+*   **Roll / Frame**: Scanlight capture roll name and frame number, stamped automatically on capture and editable here. Available in export filename templates as `{{ roll }}` and `{{ frame }}`, and written to XMP as `negpy:CaptureRoll` and `negpy:CaptureFrame` when set. Not the Roll Analysis normalization name.
+
+<!-- panel:metadata_exposure -->
+### Exposure
+
+Optional original shutter, aperture and ISO. Click the lock to edit a free-text string, for example `1/125s f/2.8 ISO 400`.
+
+<!-- panel:metadata_preview -->
+### Metadata Preview
+
+A live view of exactly what will be embedded, grouped by capture, scan, process and file. The Scan group shows the source file's own timestamp and coordinates, so you can see what you are replacing. **Description…** opens a checklist of which fields join into EXIF `ImageDescription`. The defaults are camera, lens, film stock and ISO; format, developer, push/pull and scanning are off until you enable them. Confirming **Description…** sets that frame's selection and becomes the sticky default for other frames that do not have their own, so the last confirm on the roll wins. Sync metadata and Sync settings can also copy a frame's selection with the rest of the metadata.
+
+When you set capture gear, it is written to standard EXIF, and the digitizing rig is preserved separately in `negpy:Scan*` XMP tags. Leave gear unset and your scanner or DSLR stays visible in EXIF instead.
+
+---
+
+## 12. Gear tab
+
+A searchable, user-extendable library shared by Metadata (§11), Roll Settings and every other picker in the app that offers gear, split into two subtabs: **Items** for physical gear, **Presets** for saved metadata field sets. Presets have no bundled/personal split to browse, so the Catalog toggle lives on Items only.
+
+**Items** holds cameras, lenses, film stocks, development processes and scan setups. **Category** picks what the list below shows: **Cameras**, **Lenses**, **Film Stocks**, **Process** or **Scanning**. A Process entry is a development recipe (developer, dilution, push/pull, time and temperature); a Scanning entry is a digitizing setup. The list defaults to gear you have added yourself; a built-in reference catalog of common cameras, lenses, film stocks, processes and scan setups is available alongside it, without cluttering the list. Your own gear saves to `~/NegPy/gear/`. An empty category reads "You haven't added any…yet" rather than showing a blank list.
+
+*   **+**: pick the one you own from the built-in catalog — it copies into your own list, editable from there — or **Add Custom** to enter one by hand.
+*   **Catalog**: show the built-in reference models alongside your own, for browsing the full list. Off by default.
+*   **copy / trash**: duplicate or delete the selected item. Trash is disabled on a built-in catalog entry, since it is reference data, not yours to remove; duplicate still copies it into your own list.
+
+**Presets** holds saved metadata field sets.
+
+*   **+** stores the current frame's metadata under a name you pick.
+*   **pen**: rename a preset or change which fields it stores.
+*   **copy / trash**: duplicate or delete the selected preset.
+*   The fields of a preset are then editable in place: swap its camera, lens, film stock, saved process or saved setup, or retype a developer, dilution, push, time, temperature, scanning note, roll or exposure. No frame needs to be open. Each of these searches your own gear by default, with **Other…** for the full catalog, same as the Metadata tab (§11). Picking from the library refills everything read from it; typing over a filled value unlinks the pick. A stored capture date, place, description-field set or flag is shown but not editable here, being a per-frame decision. **Notes** is free text.
+
+---
+
+## 13. Export tab
 
 ### Output intent
 
@@ -835,6 +925,9 @@ A scrollable list of every edit step, the last 100 kept, newest on top. The curr
 
 The primary **Export** action. Its chevron menu picks the scope: current frame (Ctrl+E), selected frames, or all visible frames. Every scope uses the settings below. To deliver the same frames in more than one format or size in a single run, use Export Presets.
 
+*   **Protect original metadata**: copy the source file's EXIF/XMP to exports unchanged, adding nothing. When it is on, the Metadata tab's fields (§11) are ignored and the source's resolution is copied exactly: the same numbers, axes and unit, whether the source states it in EXIF or in its own header, even where the export was resized. A source that declares no resolution stays that way in every format that can leave it out. TIFF cannot, so it states the export's own resolution rather than the unit-less value readers report as 1 DPI.
+*   **Sync custom metadata to all files in batch export**: batch and preset exports write this frame's capture, gear and process values to every file, instead of each file's own. Disabled alongside Protect original metadata, which ignores those values entirely.
+
 ### Format / Size / Color Management / Destination
 
 *   **Format**: `JPEG`, `TIFF`, `PNG`, `JPEG XL`, or `WebP`, with quality or effort options per format. **JPEG XL supports only `sRGB`, `P3 D65`, `Rec 2020` or `Grayscale`** for Export profile: it tags color with compact enumerated values rather than an embedded ICC profile, and NegPy's JXL encoder cannot carry an arbitrary one, so `Adobe RGB`, `ProPhoto RGB` and a custom Output ICC are rejected with an error. Pick a supported space or a different format.
@@ -848,7 +941,7 @@ The primary **Export** action. Its chevron menu picks the scope: current frame (
 *   **Proof on screen** lives in the **Soft Proof** section below, with the intent and paper-simulation controls. A warning appears here when the preview cannot predict the exported colors, either because nothing is being proofed or because the proof is aimed at a different profile than the export writes.
 *   **Paper Aspect Ratio**: final print ratio, or *Original* (no resize).
 *   **Resolution**: *Original* (full RAW resolution), *Print* (long-edge **Size** in cm plus **DPI**), or *Pixels* (long-edge **px**; the short side follows the paper ratio). Every format is tagged with a resolution, so a print or layout tool opens the file at the intended size. *Print* uses the DPI you set and *Pixels* the DPI its own long edge implies; *Original* resamples nothing, so it keeps the source file's own resolution, read from its EXIF or from the file's own record such as a JPEG's JFIF density, and falls back to the **DPI** field only when the source declares none. Linear output follows the same rule.
-*   **Destination**: **Filename Pattern** (a Jinja2 template with export settings plus Metadata fields such as roll, camera and film; see [TEMPLATING.md](TEMPLATING.md)), an **Overwrite** toggle, and the output location (subfolder of source, same as source, or an absolute **Export Path** with a browse button). Destination applies to all three output intents: with **Linear** selected, Format, Size and Color Management hide (a raw dump has no use for them) and Destination stays.
+*   **Destination**: **Filename Pattern** (a Jinja2 template with export settings plus Metadata fields such as roll, camera and film; see [TEMPLATING.md](TEMPLATING.md)), an **Overwrite** toggle, and the output location: subfolder of source (default, named `export`), same as source, or an absolute **Export Path** with a browse button. A roll with no single folder of its own (built from a library search or picked by hand) has no source folder to build a subfolder under, so Subfolder of Source instead gathers it under its own folder in NegPy's data folder, and the status bar says so. Destination applies to all three output intents: with **Linear** selected, Format, Size and Color Management hide (a raw dump has no use for them) and Destination stays.
 
 ### Collapsible sections
 
@@ -895,71 +988,7 @@ A soft proof shows what the picture becomes when a given printer puts it on a gi
 
 ---
 
-## 12. Metadata tab
-
-Archival metadata for the **original analog capture** (camera, lens, film, process), written into exported files as EXIF and embedded XMP, so DAMs like Lightroom show your film gear rather than the scanner.
-
-Every export format carries it: JPEG, TIFF, PNG, JPEG XL and WebP. A TIFF holds the capture position in XMP only, and EXIF text is 7-bit, so typographic punctuation is transliterated (`4×5` is written `4x5`).
-
-*   **Protect original metadata**: copy the source file's EXIF/XMP to exports unchanged, adding nothing. When it is on, the fields below are ignored and the source's resolution is copied exactly: the same numbers, axes and unit, whether the source states it in EXIF or in its own header, even where the export was resized. A source that declares no resolution stays that way in every format that can leave it out. TIFF cannot, so it states the export's own resolution rather than the unit-less value readers report as 1 DPI.
-*   **Sync custom metadata to all files in batch export**: batch and preset exports write this frame's capture, gear and process values to every file, instead of each file's own.
-
-<!-- panel:metadata_presets -->
-### Metadata Presets
-
-A saved set of metadata values, stored in `~/NegPy/presets/metadata/`, separate from the edit presets on the Setup tab:
-
-*   **Preset** + **Load**: write the selected preset's fields onto this frame. Only the fields the preset stores change; everything else on the frame stays. Hover the field for a list of what a preset holds.
-*   **Manage…**: the library, with a page each for **Cameras**, **Lenses**, **Film Stocks**, **Process**, **Scanning** and **Presets**. A Process entry is a development recipe (developer, dilution, push/pull, time and temperature); a Scanning entry is a digitizing setup. On the Presets page, **+** stores the current frame's metadata under a name you pick, the **pen** renames a preset or changes which fields it stores, and **copy** and **trash** duplicate and delete. The fields a preset stores are then editable in place: swap its camera, lens, film stock, saved process or saved setup, or retype a developer, dilution, push, time, temperature, scanning note, roll or exposure. No frame needs to be open. Picking from the library refills everything read from it; typing over a filled value unlinks the pick. A stored capture date, place, description-field set or flag is shown but not editable here, being a per-frame decision. **Notes** is free text. Starter data seeds into `~/NegPy/gear/` on first launch.
-
-Gear travels as one unit: camera, lens, film stock, the film format and every other value read from them. So a loaded preset fills the dropdowns below and the exported EXIF with the same pick, and a preset for a 120 stock cannot leave the frame claiming 35mm. Picking a film stock sets the format either way, so set a frame format such as `6×7` after choosing the stock. The frame number is never stored in a preset.
-
-<!-- panel:metadata_gear -->
-### Analog Gear
-
-Searchable; type in any field to filter the library.
-
-*   **Camera / Lens / Film stock**: pick from your library. Empty means not set. **Clear** empties all three.
-
-<!-- panel:metadata_capture -->
-### Capture
-
-*   **Date**: when the frame was shot. Give only what you know: `1998`, `1998-07`, `1998-07-14` or `1998-07-14 16:30`, with an optional offset such as `+02:00`. An impossible date turns the field red and is not saved. EXIF `DateTimeOriginal` pads the missing parts; XMP `photoshop:DateCreated` keeps the truncated form and `negpy:CaptureDatePrecision` names it. The scan file's own timestamp moves to `DateTimeDigitized`.
-*   **Place**: the capture location. The map-pin button opens a map to search a place name, click a position or paste coordinates, the ✕ beside it empties the place, and the field itself accepts a pasted coordinate pair or an OpenStreetMap/Google Maps link. Coordinates are written to the EXIF GPS tags and XMP `exif:GPS*`, the names to XMP `photoshop:City`/`State`/`Country`; a TIFF carries the location in XMP only, and a place you set replaces the source file's GPS block whole, rather than leaving its altitude or heading beside your coordinates. A geotagged source with no place set here keeps its own coordinates on export, and the map opens centered on them. Where the frame was digitized is a starting view, never the capture place. Zoom the map with its **+** / **−** buttons, a scroll wheel or a trackpad pinch, and drag to pan. Opening the map contacts OpenStreetMap; typing coordinates needs no network.
-
-<!-- panel:metadata_process -->
-### Process
-
-*   **Saved process**: pick a development recipe from the library to fill Developer, Dilution, Push / Pull, Time and Temperature. Typing over any of them unlinks it, so the picker never names a value that is gone.
-*   **Format**: `—` (not set), `35mm`, `120`, `4×5`, `8×10`, `110`, or `Other` with a free-text field.
-*   **Developer** and **Dilution**: the developer, for example `D-76`, and its working strength, for example `1+1`, `1+50` or `stock`. The two join in EXIF `ImageDescription` as `D-76 1+1`; the dilution also goes to XMP as `negpy:DevelopmentDilution`.
-*   **Push / Pull**: `Push +3` … `Normal` … `Pull -3`.
-*   **Time** and **Temp (°C)**: development time as `9:30` or plain minutes, and the temperature it ran at. An unreadable time turns the field red and is not saved. Both are written to XMP as `negpy:DevelopmentTime` and `negpy:DevelopmentTemperature`, and searchable as `devtime:` (minutes) and `temp:`.
-*   **Clear**: empties the saved process and everything it fills: developer, dilution, push/pull, time and temperature. Format stays, since the film stock sets it.
-
-<!-- panel:metadata_scanning -->
-### Scanning
-
-*   **Saved setup**: pick a digitizing setup from the library to fill Scanning. Typing over it unlinks it.
-*   **Scanning**: scan method or notes. EXIF `Software` is always `NegPy`.
-*   **Clear**: empties the saved setup and the scanning note. Roll and Frame stay, since the scan stamps them rather than the setup.
-*   **Roll / Frame**: Scanlight capture roll name and frame number, stamped automatically on capture and editable here. Available in export filename templates as `{{ roll }}` and `{{ frame }}`, and written to XMP as `negpy:CaptureRoll` and `negpy:CaptureFrame` when set. Not the Roll Analysis normalization name.
-
-<!-- panel:metadata_exposure -->
-### Exposure
-
-Optional original shutter, aperture and ISO. Click the lock to edit a free-text string, for example `1/125s f/2.8 ISO 400`.
-
-<!-- panel:metadata_preview -->
-### Metadata Preview
-
-A live view of exactly what will be embedded, grouped by capture, scan, process and file. The Scan group shows the source file's own timestamp and coordinates, so you can see what you are replacing. **Description…** opens a checklist of which fields join into EXIF `ImageDescription`. The defaults are camera, lens, film stock and ISO; format, developer, push/pull and scanning are off until you enable them. Confirming **Description…** sets that frame's selection and becomes the sticky default for other frames that do not have their own, so the last confirm on the roll wins. Sync metadata and Sync settings can also copy a frame's selection with the rest of the metadata.
-
-When you set capture gear, it is written to standard EXIF, and the digitizing rig is preserved separately in `negpy:Scan*` XMP tags. Leave gear unset and your scanner or DSLR stays visible in EXIF instead.
-
----
-
-## 13. Scan tab
+## 14. Scan tab
 
 Capture film directly into NegPy. Two collapsible sections.
 
@@ -1016,7 +1045,7 @@ Every preview dialog ends the same way: **Cancel**, then **Apply** (keep the fra
 
 ---
 
-## 14. Preferences
+## 15. Preferences
 
 Settings for the whole application, not for one photo. Open them from the canvas **⋯** menu → **Preferences…**, with `Ctrl + ,`, or on macOS from the application menu. Changes apply as you make them; the rows NegPy reads at startup say so and light a restart notice.
 
@@ -1033,7 +1062,7 @@ Settings for the whole application, not for one photo. Open them from the canvas
 ### Performance
 
 *   **GPU acceleration**: render the pipeline on the GPU. The active backend is named below the row. Off falls back to the CPU pipeline, which is slower but produces the same image. If the GPU viewport itself fails to start, a warning toast says so at launch and an amber line here repeats it; the display then runs on the CPU.
-*   **Multi-core CPU rendering**: see §4.3. It takes effect at once, with no restart.
+*   **Multi-core CPU rendering**: see §4.4. It takes effect at once, with no restart.
 *   **Preview size** (512 to 8192 px): long edge of the interactive canvas. Higher is sharper at 100% zoom, and costs proportionally more VRAM and CPU per frame, so lower the cache limit and the rendered-frame count to match. RAW files decode at half sensor size for the preview, so there is nothing to gain past half the long edge of your scan.
 *   **Preview cache** and **Preview cache limit**: how many recently-viewed photos stay decoded in memory, and the memory ceiling for them. Lower both on a machine with little RAM.
 *   **HQ buffers**: full-resolution HQ preview buffers kept in memory. Each is large (a 60 MP scan is about 700 MB), and keeping the previous frame makes going back instant.
@@ -1071,7 +1100,7 @@ If NegPy crashes on launch or has rendering glitches, force the backend without 
 
 ---
 
-## 15. Updating NegPy
+## 16. Updating NegPy
 
 NegPy asks GitHub for the newest release once at startup. If there is one, a green **⬇ Update Available: vX.Y.Z** line appears under the logo in the left panel. Click it to open the update window with the release notes, the download size and one button.
 
