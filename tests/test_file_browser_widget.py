@@ -2,12 +2,18 @@ from dataclasses import replace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from PyQt6.QtCore import QPoint, QPointF, QPropertyAnimation, QRect, Qt
+from PyQt6.QtCore import QModelIndex, QPoint, QPointF, QPropertyAnimation, QRect, Qt
 from PyQt6.QtGui import QColor, QIcon, QImage, QPainter, QPixmap, QWheelEvent
 from PyQt6.QtWidgets import QAbstractItemView, QApplication, QDialog, QStyleOptionViewItem
 
 from negpy.desktop.session import DesktopSessionManager, composite_kind, composite_summary
-from negpy.desktop.view.sidebar.files import THUMB_CELL_MAX, THUMB_CELL_MIN, FileBrowser, _ThumbnailDelegate
+from negpy.desktop.view.sidebar.files import (
+    THUMB_CELL_MAX,
+    THUMB_CELL_MIN,
+    FileBrowser,
+    ThumbnailGridView,
+    _ThumbnailDelegate,
+)
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog
 from negpy.domain.models import WorkspaceConfig
@@ -651,15 +657,16 @@ def test_tooltip_names_what_the_frame_is_built_from(session):
     assert tips.count("/tmp/a.cr2") == 1  # the plain frame keeps the path alone
 
 
-def _render(asset: dict) -> QImage:
+def _render(asset: dict, *, with_thumbnail: bool = True) -> QImage:
     """Paint one delegate cell onto a pixmap. paint() reads only index.data(), so a
     stub index is enough."""
     thumb = QPixmap(60, 40)
     thumb.fill(QColor("#808080"))
+    icon = QIcon(thumb) if with_thumbnail else QIcon()
     index = MagicMock()
     index.data.side_effect = lambda role: {
         Qt.ItemDataRole.UserRole: asset,
-        Qt.ItemDataRole.DecorationRole: QIcon(thumb),
+        Qt.ItemDataRole.DecorationRole: icon,
     }.get(role)
 
     canvas = QPixmap(120, 120)
@@ -670,6 +677,20 @@ def _render(asset: dict) -> QImage:
     _ThumbnailDelegate().paint(painter, option, index)
     painter.end()
     return canvas.toImage()
+
+
+def test_placeholder_fills_the_square_thumbnail_cell(qapp):
+    image = _render({}, with_thumbnail=False)
+
+    assert image.pixelColor(60, 4) != QColor("#000000")
+    assert image.pixelColor(4, 60) != QColor("#000000")
+
+
+def test_placeholder_item_uses_the_full_thumbnail_cell(qapp):
+    view = ThumbnailGridView(target_cell=THUMB_CELL_MIN)
+    delegate = _ThumbnailDelegate(view)
+
+    assert delegate.sizeHint(QStyleOptionViewItem(), QModelIndex()) == view.iconSize()
 
 
 def _badge_corner(image: QImage) -> list:

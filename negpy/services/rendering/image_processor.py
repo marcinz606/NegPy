@@ -749,24 +749,43 @@ class ImageProcessor:
         if self._is_flat(settings):
             prefer_gpu = False
 
+        needs_tiling = bool(prefer_gpu and self.engine_gpu and self.engine_gpu.requires_tiling(img, settings))
+        if needs_tiling and crop_preview_full:
+            prefer_gpu = False
+
         if prefer_gpu and self.engine_gpu:
             try:
-                processed, gpu_metrics = self.engine_gpu.process_to_texture(
-                    img,
-                    settings,
-                    scale_factor=scale_factor,
-                    render_size_ref=render_size_ref,
-                    readback_metrics=readback_metrics,
-                    source_hash=source_hash,
-                    analysis_source_hash=source_hash,
-                    cam_xyz=cam_xyz,
-                    camera_wb=camera_wb,
-                    full_frame=crop_preview_full,
-                )
+                if needs_tiling:
+                    processed, gpu_metrics = self.engine_gpu.process(
+                        img,
+                        settings,
+                        scale_factor=scale_factor,
+                        readback_metrics=readback_metrics,
+                        source_hash=source_hash,
+                        analysis_source_hash=source_hash,
+                        cam_xyz=cam_xyz,
+                        camera_wb=camera_wb,
+                        memory_bounded=True,
+                        render_size_ref=render_size_ref,
+                    )
+                else:
+                    processed, gpu_metrics = self.engine_gpu.process_to_texture(
+                        img,
+                        settings,
+                        scale_factor=scale_factor,
+                        render_size_ref=render_size_ref,
+                        readback_metrics=readback_metrics,
+                        source_hash=source_hash,
+                        analysis_source_hash=source_hash,
+                        cam_xyz=cam_xyz,
+                        camera_wb=camera_wb,
+                        full_frame=crop_preview_full,
+                    )
                 context.metrics.update(gpu_metrics)
                 return processed, context.metrics
             except Exception:
                 logger.exception("Hardware acceleration failed, falling back to CPU")
+                self.engine_gpu.cleanup(collect=False)
                 context.metrics["gpu_fallback"] = True
 
         processed = self.engine_cpu.process(img, settings, source_hash, context)

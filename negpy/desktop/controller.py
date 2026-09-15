@@ -146,7 +146,6 @@ from negpy.services.view.coordinate_mapping import CoordinateMapping
 
 logger = get_logger(__name__)
 
-_THUMB_FAILED_MSG = "thumbnail failed — file may be unreadable"
 # Busy toasts are cleared when the frame lands; the timeout is only a backstop for a
 # render that dies without reaching _on_render_finished.
 _BUSY_TOAST_MS = 30000
@@ -323,6 +322,7 @@ class AppController(QObject):
     stitch_requested = pyqtSignal(object)
     hdr_requested = pyqtSignal(object)
     thumbnail_requested = pyqtSignal(list)
+    thumbnail_cancel_requested = pyqtSignal()
     thumbnail_update_requested = pyqtSignal(ThumbnailUpdateTask)
     tool_sync_requested = pyqtSignal()
     config_updated = pyqtSignal()
@@ -423,11 +423,8 @@ class AppController(QObject):
         self._active_batch_abortable = False
         self._batch_serial = 0
         self._active_batch_token: Optional[int] = None
-        # True from the moment a hot-folder-triggered discovery claims the batch lane
-        # until its thumbnail phase ends, including every early exit (discovery error,
-        # no assets found, nothing to thumbnail, thumbnail error) — not merely whether
-        # the Hot Folder toggle is checked, which says nothing about what triggered
-        # the batch currently running.
+        # True while a hot-folder-triggered discovery owns the batch lane. Thumbnail
+        # loading is an independent background queue and never owns this state.
         self._hot_folder_sequence_active = False
         self._autocrop_batch_token: Optional[int] = None
         self._autocrop_dispatched = 0
@@ -535,6 +532,12 @@ class AppController(QObject):
         self._spared_texture: Optional[GPUTexture] = None
         self._preview_load_t0 = 0.0
         self._requested_file_path: str = ""
+        self._foreground_preview_generation: Optional[int] = None
+        self._neighbor_prefetch_generation: Optional[int] = None
+        self._neighbor_prefetch_queue: list[PreviewLoadTask] = []
+        self._prefetch_in_flight_generation: Optional[int] = None
+        self._thumbnail_queue_active = False
+        self._thumbnails_paused_for_foreground = False
 
         self._connect_signals()
 
@@ -671,8 +674,10 @@ class AppController(QObject):
         self.hdr_worker.error.connect(self._on_hdr_error)
 
         self.thumbnail_requested.connect(self.thumb_worker.generate)
+        self.thumbnail_cancel_requested.connect(self.thumb_worker.cancel)
         self.thumb_worker.progress.connect(self._on_thumbnail_progress)
         self.thumbnail_update_requested.connect(self.thumb_worker.update_rendered)
+        self.thumb_worker.started.connect(self._on_thumbnails_started)
         self.thumb_worker.partial.connect(self._apply_thumbnails)
         self.thumb_worker.finished.connect(self._on_thumbnails_finished)
         self.thumb_worker.rendered_finished.connect(self._on_rendered_thumbnail)
@@ -706,8 +711,9 @@ class AppController(QObject):
         self.preview_load_worker.splash.connect(self._on_splash_preview)
         self.preview_load_worker.finished.connect(self._on_preview_loaded)
         self.preview_load_worker.vram_capped.connect(self._on_hq_preview_vram_capped)
-        self.preview_load_worker.error.connect(self._on_render_error)
+        self.preview_load_worker.error.connect(self._on_preview_load_error)
         self.preview_load_worker.load_failed.connect(self._on_preview_load_failed)
+        self.preview_load_worker.prefetch_finished.connect(self._on_neighbor_prefetch_finished)
 
         self.scan_devices_requested.connect(self.scan_worker.list_devices)
         self.scan_backend_requested.connect(self.scan_worker.set_backend)
@@ -768,10 +774,8 @@ class AppController(QObject):
     def generate_missing_thumbnails(self) -> None:
         missing = [f for f in self.state.uploaded_files if asset_thumbnail_key(f) not in self.state.thumbnails]
         if missing:
-            if self._begin_batch("thumbnails", "Generating thumbnails", abortable=False) is None:
-                return
-            self._thumb_requested = [asset_thumbnail_key(f) for f in missing]
-            self.set_status("Generating thumbnails…")
+            self._thumbnail_queue_active = True
+            self.thumb_worker.cancel_pending()
             # Copies, carrying each frame's stored film process. The source decode cannot
             # tell a slide from a negative reliably, and inverting a positive is what put
             # negatives in the filmstrip. They are copies because these dicts cross to a
@@ -780,6 +784,8 @@ class AppController(QObject):
 
     def clear_thumbnail_cache(self) -> None:
         """Drops cached thumbnails on disk and in memory, then regenerates loaded ones."""
+        self.thumb_worker.cancel_pending()
+        self.thumbnail_cancel_requested.emit()
         self.asset_store.clear_thumbnails()
         # Must precede generate_missing_thumbnails: it only enqueues names absent here.
         self.state.thumbnails.clear()
@@ -788,9 +794,8 @@ class AppController(QObject):
         self.generate_missing_thumbnails()
 
     def _on_thumbnail_progress(self, current: int, total: int, name: str) -> None:
-        self.set_status(f"Thumbnail {current}/{total}: {name}")
+        self.set_status(f"CREATING FILMSTRIP THUMBNAIL IN BACKGROUND {current}/{total}: {name}")
         self.status_progress_requested.emit(current, total)
-        self.batch_progress.emit(current, total, name)
 
     def _set_thumbnail(self, key: str, pil_img: Any) -> bool:
         """False when the image will not decode. PIL decodes lazily, so a truncated
@@ -807,31 +812,23 @@ class AppController(QObject):
         """Commit a batch (or a chunk of a running one) to the filmstrip. Returns the
         keys whose image would not decode."""
         broken = set()
+        loaded = {asset_thumbnail_key(f) for f in self.state.uploaded_files}
         for key, pil_img in new_thumbs.items():
             # A frame that already rendered on the canvas has the correct inverted
             # thumbnail, so keep this batch from overwriting it with the placeholder.
-            if pil_img and key not in self.state.rendered_thumbnails:
+            if pil_img and key in loaded and key not in self.state.rendered_thumbnails:
                 if not self._set_thumbnail(key, pil_img):
                     broken.add(key)
         self.session.asset_model.refresh()
         return broken
 
     def _on_thumbnails_finished(self, new_thumbs: Dict[str, Any]) -> None:
+        self._thumbnail_queue_active = False
         self.status_progress_requested.emit(0, 0)
-        self._end_batch("thumbnails")
-        self._hot_folder_sequence_active = False
-        broken = self._apply_thumbnails(new_thumbs)
+        self._apply_thumbnails(new_thumbs)
 
-        requested = getattr(self, "_thumb_requested", [])
-        self._thumb_requested = []
-        failed = {k for k in requested if not new_thumbs.get(k)} | broken
-        for f in self.state.uploaded_files:
-            key = asset_thumbnail_key(f)
-            if key in failed:
-                f.setdefault("decode_failed", _THUMB_FAILED_MSG)
-            elif key in new_thumbs and f.get("decode_failed") == _THUMB_FAILED_MSG:
-                del f["decode_failed"]
-        self.session.asset_model.refresh()
+    def _on_thumbnails_started(self) -> None:
+        self._thumbnail_queue_active = True
 
     def _on_rendered_thumbnail(self, new_thumbs: Dict[str, Any]) -> None:
         """A canvas render produced a thumbnail — it supersedes any batch placeholder."""
@@ -839,13 +836,63 @@ class AppController(QObject):
             if pil_img and self._set_thumbnail(key, pil_img):
                 self.state.rendered_thumbnails.add(key)
         self.session.asset_model.refresh()
+        self._resume_background_thumbnails()
+
+    def _pause_background_thumbnails(self) -> None:
+        """Give the selected frame exclusive access to native decode memory."""
+        if not self._thumbnail_queue_active:
+            return
+        self._thumbnails_paused_for_foreground = True
+        self.thumb_worker.cancel_pending()
+        self.thumbnail_cancel_requested.emit()
+
+    def _resume_background_thumbnails(self) -> None:
+        if not getattr(self, "_thumbnails_paused_for_foreground", False):
+            return
+        if (
+            getattr(self, "_foreground_preview_generation", None) is not None
+            or getattr(self, "_is_rendering", False)
+            or getattr(self, "_pending_render_task", None) is not None
+        ):
+            return
+        self._thumbnails_paused_for_foreground = False
+        self.generate_missing_thumbnails()
+
+    def _continue_background_work(self) -> None:
+        """Resume deferred work after the selected frame becomes idle."""
+        if AppController._foreground_work_active(self):
+            return
+        prefetch_generation = getattr(self, "_neighbor_prefetch_generation", None)
+        if prefetch_generation is not None and prefetch_generation == getattr(self, "_prefetch_gen", None):
+            self._neighbor_prefetch_generation = None
+            self._schedule_prefetch_neighbors()
+            return
+        if getattr(self, "_prefetch_in_flight_generation", None) is not None or getattr(self, "_neighbor_prefetch_queue", []):
+            return
+        AppController._resume_background_thumbnails(self)
+
+    def _foreground_work_active(self) -> bool:
+        return bool(
+            getattr(self, "_foreground_preview_generation", None) is not None
+            or getattr(self, "_is_rendering", False)
+            or getattr(self, "_pending_render_task", None) is not None
+            or getattr(self, "_active_batch", None) is not None
+        )
+
+    def _cancel_neighbor_prefetch(self) -> bool:
+        self._neighbor_prefetch_generation = None
+        self._neighbor_prefetch_queue.clear()
+        generation = self._prefetch_in_flight_generation
+        if generation is None:
+            return False
+        self.preview_load_worker.cancel_prefetch(generation)
+        return True
 
     # --- Batch progress popup -------------------------------------------------
 
     @property
     def hot_folder_sequence_active(self) -> bool:
-        """True while the currently active (or just-finished-discovery, pre-thumbnail)
-        batch belongs to a hot-folder-triggered discovery-through-thumbnails sequence."""
+        """True while the active discovery came from the Hot Folder poll."""
         return self._hot_folder_sequence_active
 
     def _begin_batch(self, owner: str, title: str, abortable: bool) -> Optional[int]:
@@ -899,10 +946,8 @@ class AppController(QObject):
         self._end_batch("discovery")
         self._report_worker_error("Import", message)
 
-    def _on_thumbnail_batch_error(self, message: str) -> None:
-        self._hot_folder_sequence_active = False
-        self._on_batch_error("thumbnails")
-        self._report_worker_error("Thumbnails", message)
+    def _on_thumbnail_batch_error(self, _message: str) -> None:
+        self.status_progress_requested.emit(0, 0)
 
     def _on_normalization_cancelled(self) -> None:
         self._on_batch_cancelled("normalization")
@@ -969,6 +1014,8 @@ class AppController(QObject):
         user action — it drives `hot_folder_sequence_active`, which is what the batch
         popup checks, rather than whether the toggle happens to be on.
         """
+        self.thumb_worker.cancel_pending()
+        self.thumbnail_cancel_requested.emit()
         self._announce_rgb = announce_rgb
         request = _DiscoveryRequest(
             paths=tuple(paths),
@@ -1449,6 +1496,7 @@ class AppController(QObject):
         self._mark_diptychs(valid_assets)
         self._active_diptych_memo = ("", None)
         ended_batch = self._end_batch("discovery")
+        self._hot_folder_sequence_active = False
         if not ended_batch and self._active_batch is None:
             # Preserve the completion signal for direct invocations and late
             # delivery without releasing a newer batch owner.
@@ -1472,10 +1520,6 @@ class AppController(QObject):
             self.session.state.rendered_thumbnails.clear()
             self.session.add_files([], validated_info=valid_assets)
             self.generate_missing_thumbnails()
-            if self._active_batch != "thumbnails":
-                # Nothing to thumbnail — no batch claimed, so no _on_thumbnails_finished
-                # will arrive later to release a hot-folder sequence. End it here.
-                self._hot_folder_sequence_active = False
             idx = None
             if reselect_path:
                 # Guard on a set path: `None in (path, green_path, blue_path)` matches any
@@ -1502,10 +1546,6 @@ class AppController(QObject):
             first_new_idx = len(self.session.state.uploaded_files)
             self.session.add_files([], validated_info=valid_assets)
             self.generate_missing_thumbnails()
-            if self._active_batch != "thumbnails":
-                # Nothing to thumbnail — no batch claimed, so no _on_thumbnails_finished
-                # will arrive later to release a hot-folder sequence. End it here.
-                self._hot_folder_sequence_active = False
             if pending_scan and self._select_file_by_path(pending_scan):
                 selected_pending_scan = True
             elif auto_open and not self.state.current_file_path and len(self.session.state.uploaded_files) > first_new_idx:
@@ -1700,6 +1740,10 @@ class AppController(QObject):
         Dispatches RAW decode to a background worker to keep the UI thread free.
         """
         self._prefetch_gen += 1
+        self.preview_load_worker.expect_generation(self._prefetch_gen)
+        self._cancel_neighbor_prefetch()
+        self._foreground_preview_generation = self._prefetch_gen
+        self._pause_background_thumbnails()
         self._preview_load_t0 = time.perf_counter()
         self._requested_file_path = file_path
         # A strip belongs to one frame, and the memo fast path below repaints without
@@ -1799,6 +1843,7 @@ class AppController(QObject):
                 file_path=file_path,
                 workspace_color_space=self.state.workspace_color_space,
                 use_camera_wb=not effective_linear_raw(self.state.config.process, self.state.config.exposure.render_intent),
+                generation=self._prefetch_gen,
                 positive_source=self.state.config.process.positive_source,
                 full_resolution=self.state.hq_preview,
                 # The half suffix distinguishes the two halves' preview caches now
@@ -1878,6 +1923,7 @@ class AppController(QObject):
                 self.session.asset_model.refresh()
         if self._requested_file_path != file_path:
             return
+        self._foreground_preview_generation = None
         logger.info(
             "load-timing preview_e2e %.0fms (load request -> decoded buffer) %s",
             (time.perf_counter() - self._preview_load_t0) * 1000,
@@ -1904,51 +1950,93 @@ class AppController(QObject):
         self.config_updated.emit()
         self._first_render_t0 = time.perf_counter()
         self.request_render()
-        self._schedule_prefetch_neighbors()
+        self._neighbor_prefetch_generation = self._prefetch_gen
 
     def _schedule_prefetch_neighbors(self) -> None:
-        from negpy.desktop.prefetch_logic import neighbor_paths_and_hashes
+        generation = self._prefetch_gen
+        QTimer.singleShot(50, lambda: self._prepare_neighbor_prefetch(generation))
 
-        g = self._prefetch_gen
+    def _prepare_neighbor_prefetch(self, generation: int) -> None:
+        from negpy.desktop.prefetch_logic import neighbor_assets
 
-        def _run() -> None:
-            if g != self._prefetch_gen:
-                return
-            idx = self.state.selected_file_idx
-            files = self.state.uploaded_files
-            if idx < 0 or not files:
-                return
-            display_order = self.session.asset_model.visible_actual_indices_ordered()
-            for path, h in neighbor_paths_and_hashes(files, display_order, idx):
-                # Match the cache key load_file will use for this neighbour: its own saved
-                # linear_raw, not the current file's. Otherwise the warm buffer lands under
-                # the wrong key and navigation re-decodes anyway.
-                saved = self.session.repo.load_file_settings(h) if h else None
-                # effective_, so the key matches what load_file will decode. A neighbour
-                # with no saved edit resolves False here, because its mode is unknown
-                # without hydrating it. That is the same miss as before, not a new one.
-                linear_raw = effective_linear_raw(saved.process, saved.exposure.render_intent) if saved else False
-                neighbour_half = self._half_slice_for_asset(path, h)
-                self.preview_load_requested.emit(
-                    PreviewLoadTask(
-                        file_path=path,
-                        workspace_color_space=self.state.workspace_color_space,
-                        use_camera_wb=not linear_raw,
-                        positive_source=saved.process.positive_source if saved else False,
-                        # Half-size only: a full-res HQ neighbour evicts the active buffer.
-                        # The cache key separates resolutions.
-                        full_resolution=False,
-                        file_hash=h,
-                        use_splash=False,
-                        for_cache_warm=True,
-                        half_slice=neighbour_half,
-                        # Falls back to the open frame's value, which is what sticky hands an
-                        # unedited neighbour. Warming the other key would decode twice.
-                        demosaic=saved.process.demosaic_preview if saved else self.state.config.process.demosaic_preview,
-                    )
-                )
+        if generation != self._prefetch_gen or self._foreground_work_active():
+            return
+        index = self.state.selected_file_idx
+        files = self.state.uploaded_files
+        if index < 0 or not files:
+            AppController._resume_background_thumbnails(self)
+            return
 
-        QTimer.singleShot(50, _run)
+        display_order = self.session.asset_model.visible_actual_indices_ordered()
+        selected_hash = files[index].get("hash")
+        protected_file_hashes = [selected_hash] if selected_hash else []
+        tasks = []
+        for asset in neighbor_assets(files, display_order, index):
+            task = self._neighbor_prefetch_task(asset, generation, tuple(protected_file_hashes))
+            if task is None:
+                continue
+            tasks.append(task)
+            if task.file_hash:
+                protected_file_hashes.append(task.file_hash)
+        self._neighbor_prefetch_queue = [task for task in tasks if task is not None]
+        self._start_next_neighbor_prefetch()
+
+    def _neighbor_prefetch_task(
+        self,
+        asset: dict,
+        generation: int,
+        protected_file_hashes: tuple[str, ...],
+    ) -> Optional[PreviewLoadTask]:
+        if is_composite(asset):
+            return None
+        file_hash = asset.get("hash")
+        if not file_hash:
+            return None
+        saved = self.session.repo.load_file_settings(file_hash)
+        linear_raw = effective_linear_raw(saved.process, saved.exposure.render_intent) if saved else False
+        try:
+            integrated_gpu = bool(self.state.gpu_enabled and GPUDevice.get().is_integrated)
+        except Exception:
+            integrated_gpu = False
+        return PreviewLoadTask(
+            file_path=asset["path"],
+            workspace_color_space=self.state.workspace_color_space,
+            use_camera_wb=not linear_raw,
+            generation=generation,
+            positive_source=saved.process.positive_source if saved else False,
+            full_resolution=False,
+            file_hash=file_hash,
+            use_splash=False,
+            for_cache_warm=True,
+            integrated_gpu=integrated_gpu,
+            protected_file_hashes=protected_file_hashes,
+            half_slice=self._half_slice_for_asset(asset["path"], file_hash),
+            demosaic=saved.process.demosaic_preview if saved else self.state.config.process.demosaic_preview,
+        )
+
+    def _start_next_neighbor_prefetch(self) -> None:
+        if self._foreground_work_active():
+            return
+        if self._prefetch_in_flight_generation is not None:
+            return
+        if not self._neighbor_prefetch_queue:
+            AppController._resume_background_thumbnails(self)
+            return
+        task = self._neighbor_prefetch_queue.pop(0)
+        self._prefetch_in_flight_generation = task.generation
+        self.preview_load_requested.emit(task)
+
+    def _on_neighbor_prefetch_finished(self, generation: int, _file_path: str) -> None:
+        if self._prefetch_in_flight_generation == generation:
+            self._prefetch_in_flight_generation = None
+        if generation != self._prefetch_gen:
+            return
+        if self._pending_render_task is not None and not self._is_rendering and self._foreground_preview_generation is None:
+            self._dispatch_pending_render()
+            return
+        if self._foreground_work_active():
+            return
+        self._start_next_neighbor_prefetch()
 
     def _apply_detected_mode(self, detected_mode: str) -> None:
         """
@@ -4134,7 +4222,8 @@ class AppController(QObject):
         interactive = not readback_metrics and not compare_capture
         ir_buffer = self.state.preview_ir
         detect_buffer = self.state.preview_detect
-        if interactive and self.state.preview_proxy is not None:
+        crop_preview_full = self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
+        if (interactive or crop_preview_full) and self.state.preview_proxy is not None:
             preview_raw = self.state.preview_proxy
             # The IR and detection planes must follow the image they are read against.
             ir_buffer = self.state.preview_ir_proxy
@@ -4144,7 +4233,6 @@ class AppController(QObject):
         if self.state.hq_preview:
             target_size = float(max(preview_raw.shape[:2]))
 
-        crop_preview_full = self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
         # Only a plain render of the saved edit is reproducible on navigate-back. Overrides,
         # splash and tool previews are not memoized. Interactive frames are excluded: a proxy
         # render filed under the full-resolution key would be painted back as the real one.
@@ -4177,7 +4265,13 @@ class AppController(QObject):
             gutter_thickness=dip[0]["gutter_thickness"] if dip is not None else 0.0,
         )
 
+        prefetch_was_running = self._cancel_neighbor_prefetch()
+
         if self._is_rendering:
+            self._pending_render_task = task
+            return
+
+        if prefetch_was_running:
             self._pending_render_task = task
             return
 
@@ -5283,6 +5377,7 @@ class AppController(QObject):
         # The queue still drains — only the frame this render produced is unusable.
         if self._renders_another_frame(metrics):
             self._dispatch_pending_render()
+            AppController._continue_background_work(self)
             return
 
         # The baseline half of the split is stashed, never displayed: it must not reach
@@ -5296,6 +5391,7 @@ class AppController(QObject):
                 # The engine pool hands every render the same output texture, so this one
                 # has just overwritten the edit the canvas is sampling. Print it again.
                 self.request_render()
+            AppController._continue_background_work(self)
             return
 
         if self._first_render_t0 is not None and not metrics.get("ephemeral"):
@@ -5368,9 +5464,11 @@ class AppController(QObject):
         # the frame beside it; re-capture once the queue is empty.
         if self.state.compare_mode and self._pending_render_task is None and self.state.compare_before_key != self._compare_before_key():
             self._request_compare_baseline()
+            AppController._continue_background_work(self)
             return
 
         self._dispatch_pending_render()
+        AppController._continue_background_work(self)
 
     def _freeze_resolved_auto_crop(self, metrics: Dict[str, Any]) -> None:
         """Store the crop this render detected, so nothing detects it a second time.
@@ -5477,14 +5575,23 @@ class AppController(QObject):
             self._measured_half_rows.add(file_hash)
         return True
 
+    def _on_preview_load_error(self, message: str) -> None:
+        self._foreground_preview_generation = None
+        self._neighbor_prefetch_generation = None
+        self._neighbor_prefetch_queue.clear()
+        logger.error(f"Preview load failure: {message}")
+        self.set_status(f"Failed to load file: {message}", 5000, kind="error")
+        self.load_failed.emit()
+        AppController._continue_background_work(self)
+
     def _on_render_error(self, message: str) -> None:
         self.state.is_processing = self._is_rendering = False
         self._busy_toast = False  # the failure message below replaces the toast
         logger.error(f"Render failure: {message}")
         self.set_status(f"Failed to load file: {message}", 5000, kind="error")
         self.load_failed.emit()
-
         self._dispatch_pending_render()
+        AppController._continue_background_work(self)
 
     def _on_export_task_error(self, message: str) -> None:
         self._export_failures += 1
@@ -5585,6 +5692,7 @@ class AppController(QObject):
             self.export_thread.quit()
             self.export_thread.wait()
         if self.thumb_thread.isRunning():
+            self.thumb_worker.cancel_pending()
             self.thumb_thread.quit()
             self.thumb_thread.wait()
         self._autocrop_cancel_requested = True

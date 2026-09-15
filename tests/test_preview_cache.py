@@ -4,6 +4,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+from negpy.infrastructure.loaders.memory import PreviewMemoryEstimate
+from negpy.services.rendering.prefetch_policy import decide_prefetch
 from negpy.services.rendering.preview_cache import PreviewBufferCache, PreviewCacheKey
 from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.services.rendering.preview_manager import PreviewManager
@@ -45,6 +47,138 @@ def test_cache_skips_entry_larger_than_byte_cap() -> None:
     assert c.get(PreviewCacheKey("huge", False, "Adobe RGB", True)) is None
     # The resident small entry must survive the rejected insert.
     assert c.get(PreviewCacheKey("small", False, "Adobe RGB", False)) is not None
+
+
+def test_cache_usage_reports_remaining_entry_and_byte_budgets() -> None:
+    cfg = _small_cfg()
+    cfg.preview_cache_max_bytes = 1000
+    cache = PreviewBufferCache(cfg)
+    buffer = np.zeros((2, 2, 3), dtype=np.float32)
+    cache.put(PreviewCacheKey("one", False, "Adobe RGB", False), buffer, (2, 2), {})
+
+    usage = cache.usage()
+
+    assert usage.entries == 1
+    assert usage.bytes_used == buffer.nbytes
+    assert usage.entries_remaining == 1
+    assert usage.bytes_remaining == 1000 - buffer.nbytes
+
+
+def test_cache_budgets_metadata_arrays_and_shared_views() -> None:
+    cache = PreviewBufferCache(_small_cfg())
+    buffer = np.zeros((2, 2, 3), dtype=np.float32)
+    ir = np.zeros((8, 8), dtype=np.float32)
+    detect = np.zeros_like(buffer)
+    cache.put(
+        PreviewCacheKey("active", False, "Adobe RGB", False),
+        buffer,
+        (8, 8),
+        {"ir": ir, "ir_preview": ir[::4, ::4], "detect_preview": detect},
+    )
+    assert cache.usage().bytes_used == buffer.nbytes + ir.nbytes + detect.nbytes
+
+
+def test_cache_rejects_oversized_metadata_without_evicting_active() -> None:
+    cfg = _small_cfg()
+    cfg.preview_cache_max_bytes = 200
+    cache = PreviewBufferCache(cfg)
+    buffer = np.zeros((2, 2, 3), dtype=np.float32)
+    active = PreviewCacheKey("active", False, "Adobe RGB", False)
+    neighbor = PreviewCacheKey("neighbor", False, "Adobe RGB", False)
+    cache.put(active, buffer, (2, 2), {})
+    cache.put(neighbor, buffer.copy(), (2, 2), {"ir": np.zeros((8, 8), dtype=np.float32)})
+    assert cache.contains(active)
+    assert not cache.contains(neighbor)
+
+
+def test_prefetch_insert_replaces_a_cold_entry_in_a_full_cache() -> None:
+    cache = PreviewBufferCache(_small_cfg())
+    buffer = np.zeros((2, 2, 3), dtype=np.float32)
+    active = PreviewCacheKey("active", False, "Adobe RGB", False)
+    cold = PreviewCacheKey("cold", False, "Adobe RGB", False)
+    neighbor = PreviewCacheKey("neighbor", False, "Adobe RGB", False)
+    cache.put(active, buffer, (2, 2), {})
+    cache.put(cold, buffer.copy(), (2, 2), {})
+
+    usage = cache.usage(protected_file_hashes={"active"})
+    cache.put(neighbor, buffer.copy(), (2, 2), {}, protected_file_hashes={"active"})
+
+    assert usage.entries_remaining == 0
+    assert usage.reclaimable_entries == 1
+    assert cache.get(active) is not None
+    assert cache.get(cold) is None
+    assert cache.get(neighbor) is not None
+
+
+def test_prefetch_insert_cannot_replace_the_only_protected_entry() -> None:
+    cfg = _small_cfg()
+    cfg.preview_cache_max_entries = 1
+    cache = PreviewBufferCache(cfg)
+    buffer = np.zeros((2, 2, 3), dtype=np.float32)
+    active = PreviewCacheKey("active", False, "Adobe RGB", False)
+    neighbor = PreviewCacheKey("neighbor", False, "Adobe RGB", False)
+    cache.put(active, buffer, (2, 2), {})
+
+    usage = cache.usage(protected_file_hashes={"active"})
+    cache.put(neighbor, buffer.copy(), (2, 2), {}, protected_file_hashes={"active"})
+
+    assert usage.entries_remaining == 0
+    assert usage.reclaimable_entries == 0
+    assert cache.get(active) is not None
+    assert cache.get(neighbor) is None
+
+
+def test_half_resolution_prefetch_cannot_replace_an_hq_entry() -> None:
+    cache = PreviewBufferCache(_small_cfg())
+    buffer = np.zeros((2, 2, 3), dtype=np.float32)
+    active = PreviewCacheKey("active", False, "Adobe RGB", False)
+    previous_hq = PreviewCacheKey("previous", False, "Adobe RGB", True)
+    neighbor = PreviewCacheKey("neighbor", False, "Adobe RGB", False)
+    cache.put(active, buffer, (2, 2), {})
+    cache.put(previous_hq, buffer.copy(), (2, 2), {})
+
+    usage = cache.usage(protected_file_hashes={"active"}, preserve_full_resolution=True)
+    decision = decide_prefetch(
+        PreviewMemoryEstimate(buffer.nbytes, 1, (2, 2)),
+        usage,
+        4 * 1024 * 1024 * 1024,
+        integrated_gpu=False,
+    )
+    cache.put(
+        neighbor,
+        buffer.copy(),
+        (2, 2),
+        {},
+        protected_file_hashes={"active"},
+        preserve_full_resolution=True,
+    )
+
+    assert not decision.allowed
+    assert usage.reclaimable_entries == 0
+    assert cache.get(active) is not None
+    assert cache.get(previous_hq) is not None
+    assert cache.get(neighbor) is None
+
+
+def test_second_prefetch_cannot_replace_the_first_prefetched_neighbor() -> None:
+    cache = PreviewBufferCache(_small_cfg())
+    buffer = np.zeros((2, 2, 3), dtype=np.float32)
+    active = PreviewCacheKey("active", False, "Adobe RGB", False)
+    first = PreviewCacheKey("first", False, "Adobe RGB", False)
+    cache.put(active, buffer, (2, 2), {})
+    cache.put(first, buffer.copy(), (2, 2), {}, protected_file_hashes={"active"})
+
+    usage = cache.usage(protected_file_hashes={"active", "first"}, preserve_full_resolution=True)
+    decision = decide_prefetch(
+        PreviewMemoryEstimate(buffer.nbytes, 1, (2, 2)),
+        usage,
+        4 * 1024 * 1024 * 1024,
+        integrated_gpu=False,
+    )
+
+    assert not decision.allowed
+    assert cache.get(active) is not None
+    assert cache.get(first) is not None
 
 
 def test_full_resolution_entries_respect_slot_budget() -> None:
@@ -129,23 +263,37 @@ def test_cache_bypasses_second_postprocess() -> None:
         assert hit is not None and hit[0] is out
 
 
-def test_cache_warm_task_does_not_emit_finished() -> None:
-    """Prefetch jobs populate cache only — no `finished` to the UI path."""
-    pm = MagicMock()
-    pm.load_linear_preview.return_value = (MagicMock(), (1, 1), {})
-    w = PreviewLoadWorker(pm)
-    fin = MagicMock()
-    w.finished.connect(fin)
-    t = PreviewLoadTask(
-        file_path="/n.dng",
-        workspace_color_space="Adobe RGB",
-        use_camera_wb=False,
-        for_cache_warm=True,
-        file_hash="x",
+def test_navigation_cancels_prefetch_without_user_error() -> None:
+    service = MagicMock()
+    worker = PreviewLoadWorker(service)
+    errors = []
+    failures = []
+    completed = []
+    worker.error.connect(errors.append)
+    worker.load_failed.connect(lambda *args: failures.append(args))
+    worker.prefetch_finished.connect(lambda *args: completed.append(args))
+
+    def navigate(*_args, should_cancel, **_kwargs):
+        worker.expect_generation(2)
+        assert should_cancel()
+        raise InterruptedError("cancelled")
+
+    service.prefetch_linear_preview.side_effect = navigate
+    worker.expect_generation(1)
+    worker.process(
+        PreviewLoadTask(
+            file_path="/n.dng",
+            workspace_color_space="Adobe RGB",
+            use_camera_wb=False,
+            generation=1,
+            for_cache_warm=True,
+            file_hash="hash",
+        )
     )
-    w.process(t)
-    fin.assert_not_called()
-    pm.load_linear_preview.assert_called_once()
+
+    assert errors == []
+    assert failures == []
+    assert completed == [(1, "/n.dng")]
 
 
 def test_rgb_preview_cache_invalidates_when_companion_content_changes(tmp_path) -> None:

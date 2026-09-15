@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import (
     Protocol,
     Optional,
@@ -77,6 +78,8 @@ class IAssetStore(Protocol):
 
     def get_thumbnail(self, file_hash: str) -> Optional[Any]: ...
     def save_thumbnail(self, file_hash: str, image: Any) -> None: ...
+    def has_thumbnail_miss(self, file_hash: str) -> bool: ...
+    def save_thumbnail_miss(self, file_hash: str) -> None: ...
 
     def remove(self, file_path: str) -> None: ...
     def clear_session_assets(self, session_id: str) -> None: ...
@@ -90,6 +93,21 @@ class IImageLoader(Protocol):
     """
 
     def load(self, file_path: str) -> Tuple[ContextManager[Any], dict]: ...
+
+    def load_bounded_preview(
+        self,
+        file_path: str,
+        max_edge: int,
+        *,
+        fast_only: bool = False,
+        should_cancel: Optional[Callable[[], bool]] = None,
+    ) -> Optional[Any]:
+        """Return a bounded oriented RGB preview, or None.
+
+        This operation must not allocate a source-sized pixel buffer or run a full
+        camera RAW demosaic.
+        """
+        ...
 
 
 class IFilePicker(Protocol):

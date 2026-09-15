@@ -89,11 +89,25 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     def __init__(self, parent=None, state: Optional[AppState] = None) -> None:
         super().__init__(parent)
         self._state = state
+        self._placeholder_icon = qta.icon("fa5s.image", color=THEME.text_muted)
 
     def _is_dirty(self, file_info: dict) -> bool:
         """Only the active file can carry unsaved edits; every other frame is on disk."""
         state = self._state
         return bool(state and state.is_dirty and state.current_file_path and file_info.get("path") == state.current_file_path)
+
+    @staticmethod
+    def _fit_rect(area: QRect, source_size: QSize) -> QRect:
+        size = source_size.scaled(area.size(), Qt.AspectRatioMode.KeepAspectRatio)
+        x = area.x() + (area.width() - size.width()) // 2
+        y = area.y() + (area.height() - size.height()) // 2
+        return QRect(x, y, size.width(), size.height())
+
+    def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
+        view = self.parent()
+        if isinstance(view, QListView) and view.iconSize().isValid():
+            return view.iconSize()
+        return super().sizeHint(option, index)
 
     def _draw_mark_badge(self, painter: QPainter, img_rect: QRect, check: bool) -> None:
         r = 9
@@ -160,17 +174,23 @@ class _ThumbnailDelegate(QStyledItemDelegate):
 
         icon = index.data(Qt.ItemDataRole.DecorationRole)
         if icon is None or icon.isNull():
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            area = option.rect.adjusted(self._MARGIN, self._MARGIN, -self._MARGIN, -self._MARGIN)
+            img_rect = area
+            selected = bool(option.state & QStyle.StateFlag.State_Selected)
+            painter.setPen(QPen(QColor(THEME.accent_primary if selected else THEME.border_color), 1))
+            painter.setBrush(QColor(THEME.bg_header))
+            painter.drawRoundedRect(img_rect, self._RADIUS, self._RADIUS)
+            glyph_side = min(32, min(img_rect.width(), img_rect.height()) // 3)
+            glyph_rect = QRect(0, 0, glyph_side, glyph_side)
+            glyph_rect.moveCenter(img_rect.center())
+            self._placeholder_icon.paint(painter, glyph_rect)
             if failed:
-                painter.save()
-                painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-                area = option.rect.adjusted(self._MARGIN, self._MARGIN, -self._MARGIN, -self._MARGIN)
-                painter.setPen(QPen(QColor(THEME.border_color), 1))
-                painter.setBrush(QColor(20, 20, 20))
-                painter.drawRoundedRect(area, self._RADIUS, self._RADIUS)
-                self._draw_failed_badge(painter, area)
-                if kind:
-                    self._draw_composite_badge(painter, area, kind, int(file_info.get("half") or 0))
-                painter.restore()
+                self._draw_failed_badge(painter, img_rect)
+            if kind:
+                self._draw_composite_badge(painter, img_rect, kind, int(file_info.get("half") or 0))
+            painter.restore()
             return
         base = icon.pixmap(QSize(4096, 4096))  # largest available pixmap (~120px)
         if base.isNull():
@@ -186,9 +206,7 @@ class _ThumbnailDelegate(QStyledItemDelegate):
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
-        x = area.x() + (area.width() - scaled.width()) // 2
-        y = area.y() + (area.height() - scaled.height()) // 2
-        img_rect = QRect(x, y, scaled.width(), scaled.height())
+        img_rect = self._fit_rect(area, scaled.size())
 
         # Selected image full-brightness with the armed-red frame; others dimmed.
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
@@ -747,7 +765,9 @@ class FileBrowser(QWidget):
         box.setIcon(QMessageBox.Icon.Question)
         box.setWindowTitle("Load Roll")
         box.setText(f"Load {n} image{'s' if n != 1 else ''} from “{label}”?")
-        box.setInformativeText("They are hashed and thumbnailed on load, which takes a moment on a large roll.")
+        box.setInformativeText(
+            "NegPy first identifies the files so it can restore saved edits. The roll then opens while thumbnails load in the background."
+        )
         remember = QCheckBox("Always load without asking")
         box.setCheckBox(remember)
         load = box.addButton("Load", QMessageBox.ButtonRole.AcceptRole)

@@ -44,6 +44,23 @@ class TestThumbnailCacheSize(unittest.TestCase):
     def test_missing_thumbnail_is_a_miss(self):
         self.assertIsNone(self.store.get_thumbnail("h_absent"))
 
+    def test_negative_cache_is_cleared_by_a_rendered_thumbnail(self):
+        self.store.save_thumbnail_miss("h_later")
+        self.assertTrue(self.store.has_thumbnail_miss("h_later"))
+
+        ts = APP_CONFIG.thumbnail_size
+        self.store.save_thumbnail("h_later", Image.new("RGB", (ts, ts)))
+
+        self.assertFalse(self.store.has_thumbnail_miss("h_later"))
+        self.assertIsNotNone(self.store.get_thumbnail("h_later"))
+
+    def test_old_quick_only_miss_does_not_block_the_slow_fallback(self):
+        old_marker = os.path.join(self.store.thumb_dir, "h_retry.miss")
+        with open(old_marker, "wb"):
+            pass
+
+        self.assertFalse(self.store.has_thumbnail_miss("h_retry"))
+
     def test_truncated_thumbnail_is_a_miss(self):
         """A half-written entry (a kill or a full disk during the write) opens on its
         header alone. It has to fail here, where the miss regenerates it, and not later
@@ -74,9 +91,12 @@ class TestThumbnailCacheClearing(unittest.TestCase):
     def test_stats_report_count_and_bytes(self):
         self._save("h1")
         self._save("h2")
+        self.store.save_thumbnail_miss("unavailable")
         count, size = self.store.thumbnail_stats()
         self.assertEqual(count, 2)
-        on_disk = sum(os.path.getsize(os.path.join(self.store.thumb_dir, f)) for f in os.listdir(self.store.thumb_dir))
+        on_disk = sum(
+            os.path.getsize(os.path.join(self.store.thumb_dir, f)) for f in os.listdir(self.store.thumb_dir) if f.lower().endswith(".jpg")
+        )
         self.assertEqual(size, on_disk)
 
     def test_stats_are_zero_without_a_cache_dir(self):
@@ -85,6 +105,7 @@ class TestThumbnailCacheClearing(unittest.TestCase):
 
     def test_clear_empties_the_cache_and_leaves_it_usable(self):
         self._save("h1")
+        self.store.save_thumbnail_miss("unavailable")
         self.store.clear_thumbnails()
         self.assertEqual(self.store.thumbnail_stats(), (0, 0))
         self.assertIsNone(self.store.get_thumbnail("h1"))

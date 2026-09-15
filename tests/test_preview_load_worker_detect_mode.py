@@ -159,3 +159,51 @@ def test_vram_capped_does_not_emit_when_uncapped(qapp):
     worker.process(task)
 
     assert capped == []
+
+
+def test_new_preview_generation_skips_older_queued_work(qapp):
+    from negpy.desktop.workers.render import PreviewLoadTask, PreviewLoadWorker
+
+    service = MagicMock()
+    worker = PreviewLoadWorker(service)
+    old = PreviewLoadTask(
+        file_path="old.dng",
+        workspace_color_space="Adobe RGB",
+        use_camera_wb=False,
+        generation=1,
+        use_splash=False,
+    )
+    worker.expect_generation(2)
+
+    worker.process(old)
+
+    service.load_linear_preview.assert_not_called()
+
+
+def test_obsolete_preview_failure_is_not_reported(qapp):
+    from negpy.desktop.workers.render import PreviewLoadTask, PreviewLoadWorker
+
+    service = MagicMock()
+    worker = PreviewLoadWorker(service)
+    task = PreviewLoadTask(
+        file_path="old.dng",
+        workspace_color_space="Adobe RGB",
+        use_camera_wb=False,
+        generation=1,
+        use_splash=False,
+    )
+    errors = []
+    failures = []
+    worker.error.connect(errors.append)
+    worker.load_failed.connect(lambda *args: failures.append(args))
+
+    def fail_after_navigation(*_args, **_kwargs):
+        worker.expect_generation(2)
+        raise RuntimeError("obsolete failure")
+
+    service.load_linear_preview.side_effect = fail_after_navigation
+    worker.expect_generation(1)
+    worker.process(task)
+
+    assert errors == []
+    assert failures == []

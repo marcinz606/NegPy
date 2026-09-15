@@ -1,11 +1,19 @@
 import os
+from collections.abc import Callable
 from typing import Any, ContextManager, Optional, Tuple
 
 import numpy as np
 import tifffile
+from PIL import Image
 
 from negpy.domain.interfaces import IImageLoader
-from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, read_orientation
+from negpy.infrastructure.loaders.helpers import (
+    NonStandardFileWrapper,
+    _tiff_preview_page,
+    bounded_tiff_page_preview,
+    fit_bounded_preview,
+    read_orientation,
+)
 from negpy.kernel.image.logic import uint8_to_float32, uint16_to_float32
 from negpy.kernel.system.logging import get_logger
 
@@ -107,3 +115,28 @@ class NefLoader(IImageLoader):
             "orientation": read_orientation(file_path),
         }
         return NonStandardFileWrapper(f32), metadata
+
+    def load_bounded_preview(
+        self,
+        file_path: str,
+        max_edge: int,
+        *,
+        fast_only: bool = False,
+        should_cancel: Optional[Callable[[], bool]] = None,
+    ) -> Optional[Image.Image]:
+        if should_cancel is not None and should_cancel():
+            raise InterruptedError("preview cancelled")
+        orientation = read_orientation(file_path)
+        quick = _tiff_preview_page(file_path)
+        if quick is not None:
+            return fit_bounded_preview(quick, max_edge, orientation)
+        if fast_only:
+            return None
+        with tifffile.TiffFile(file_path) as tif:
+            page = _find_rgb_subifd(tif)
+            if page is None:
+                return None
+            preview = bounded_tiff_page_preview(page, max_edge, should_cancel=should_cancel)
+        if preview is None:
+            return None
+        return fit_bounded_preview(preview, max_edge, orientation)

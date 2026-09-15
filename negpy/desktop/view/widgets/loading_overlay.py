@@ -33,7 +33,7 @@ class LoadingOverlay(QWidget):
         self._spinner.setIconSize(QSize(52, 52))
         layout.addWidget(self._spinner, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        self._label = QLabel("Processing…")
+        self._label = QLabel("Rendering selected image…")
         self._label.setStyleSheet(toast_qss())
         layout.addWidget(self._label, alignment=Qt.AlignmentFlag.AlignHCenter)
 

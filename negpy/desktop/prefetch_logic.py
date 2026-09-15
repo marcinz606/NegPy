@@ -1,32 +1,22 @@
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import List
 
 
 def display_neighbor_indices(display_order: List[int], current_index: int) -> List[int]:
-    """
-    Actual indices of the prev/next files in filmstrip (display) order.
-
-    `display_order` is the display-ordered list of actual indices
-    (AssetListModel.visible_actual_indices_ordered); `current_index` is an actual
-    index. Mirrors next_file/prev_file so prefetch warms exactly the frames
-    navigation lands on, not the raw uploaded_files (discovery-order) neighbours.
-    """
+    """Actual indices of the previous and next visible assets."""
     try:
-        pos = display_order.index(current_index)
+        position = display_order.index(current_index)
     except ValueError:
         return []
-    out: List[int] = []
-    if pos > 0:
-        out.append(display_order[pos - 1])
-    if pos + 1 < len(display_order):
-        out.append(display_order[pos + 1])
-    return out
+    neighbors: List[int] = []
+    if position > 0:
+        neighbors.append(display_order[position - 1])
+    if position + 1 < len(display_order):
+        neighbors.append(display_order[position + 1])
+    return neighbors
 
 
-def neighbor_paths_and_hashes(files: List[dict], display_order: List[int], current_index: int) -> List[Tuple[str, Optional[str]]]:
-    """
-    (path, hash) for the prev/next neighbours in display order; hash may be None.
-    """
-    ni = display_neighbor_indices(display_order, current_index)
-    return [(files[i]["path"], files[i].get("hash")) for i in ni]
+def neighbor_assets(files: List[dict], display_order: List[int], current_index: int) -> List[dict]:
+    """Previous and next assets in filmstrip order."""
+    return [files[index] for index in display_neighbor_indices(display_order, current_index)]

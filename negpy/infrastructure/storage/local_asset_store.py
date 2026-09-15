@@ -8,6 +8,7 @@ from negpy.kernel.system.logging import get_logger
 from negpy.domain.interfaces import IAssetStore
 
 logger = get_logger(__name__)
+_THUMBNAIL_MISS_SUFFIX = ".miss-v2"
 
 
 class LocalAssetStore(IAssetStore):
@@ -82,12 +83,27 @@ class LocalAssetStore(IAssetStore):
                 return None
         return None
 
+    def has_thumbnail_miss(self, file_hash: str) -> bool:
+        return os.path.exists(os.path.join(self.thumb_dir, f"{file_hash}{_THUMBNAIL_MISS_SUFFIX}"))
+
+    def save_thumbnail_miss(self, file_hash: str) -> None:
+        try:
+            marker = os.path.join(self.thumb_dir, f"{file_hash}{_THUMBNAIL_MISS_SUFFIX}")
+            with open(marker, "wb"):
+                pass
+        except Exception as e:
+            logger.error(f"Failed to save thumbnail miss {file_hash}: {e}")
+
     def save_thumbnail(self, file_hash: str, image: Image.Image) -> None:
         """Persists thumb to disk."""
         try:
             thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.jpg")
             # Save as JPEG for speed and smaller file size
             image.save(thumb_path, "JPEG", quality=85)
+            for suffix in (".miss", _THUMBNAIL_MISS_SUFFIX):
+                miss_path = os.path.join(self.thumb_dir, f"{file_hash}{suffix}")
+                if os.path.exists(miss_path):
+                    os.remove(miss_path)
         except Exception as e:
             logger.error(f"Failed to save thumbnail {file_hash}: {e}")
 
@@ -114,7 +130,7 @@ class LocalAssetStore(IAssetStore):
     def thumbnail_stats(self) -> Tuple[int, int]:
         """(count, total bytes) of cached thumbnails."""
         try:
-            entries = [e for e in os.scandir(self.thumb_dir) if e.is_file()]
+            entries = [e for e in os.scandir(self.thumb_dir) if e.is_file() and e.name.lower().endswith(".jpg")]
         except OSError:
             return 0, 0
         return len(entries), sum(e.stat().st_size for e in entries)
