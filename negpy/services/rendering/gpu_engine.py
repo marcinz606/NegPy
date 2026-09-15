@@ -59,6 +59,7 @@ from negpy.features.exposure.transfer import (
     transfer_bounds,
     transfer_curve_params,
     transfer_widths,
+    wb_split_geometry,
     zone_geometry,
 )
 from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
@@ -315,7 +316,7 @@ class GPUEngine:
             "geometry": 64,
             "normalization": 160,
             "exposure": 336,
-            "transfer": 176,
+            "transfer": 208,
             "clahe_u": 32,
             "lab": 96,
             "lith": 64,
@@ -1567,6 +1568,8 @@ class GPUEngine:
             LogNegativeBounds(floors=adj_floors, ceils=adj_ceils),
         )
         t_sh_c, t_hi_c, t_zone_k = zone_geometry()
+        t_wb_c, t_wb_k = wb_split_geometry()
+        t_cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
         # Cast Removal on the transparency curve: a per-channel affine on density, since
         # this curve has no per-channel slope to re-solve. Shadow refs stay out — the P98
         # tie is calibrated for a negative. Identity when there is no axis.
@@ -1604,6 +1607,20 @@ class GPUEngine:
                 float(settings.exposure.highlight_density),
                 float(t_sh_c),
                 float(t_hi_c),
+            )
+            + struct.pack(
+                "ffff",
+                settings.exposure.shadow_cyan * t_cmy_m,
+                settings.exposure.shadow_magenta * t_cmy_m,
+                settings.exposure.shadow_yellow * t_cmy_m,
+                float(t_wb_c),
+            )
+            + struct.pack(
+                "ffff",
+                settings.exposure.highlight_cyan * t_cmy_m,
+                settings.exposure.highlight_magenta * t_cmy_m,
+                settings.exposure.highlight_yellow * t_cmy_m,
+                float(t_wb_k),
             )
             + struct.pack("ffff", float(ZONE_BLACK_TAPER), 1.0 if t_positive_source else 0.0, 0.0, 0.0)
             + struct.pack("ffff", t_cast_gain[0], t_cast_gain[1], t_cast_gain[2], 0.0)
