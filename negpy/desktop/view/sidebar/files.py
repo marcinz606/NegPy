@@ -42,6 +42,7 @@ from negpy.kernel.system.text import count_of
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import AppState, _source_effective_bounds, composite_kind
 from negpy.desktop.view.confirm import confirm_unload
+from negpy.desktop.view.keyboard_shortcuts import _reset_roll
 from negpy.features.hdr.logic import anchor_choices
 from negpy.features.hdr.models import hdr_frame_paths
 from negpy.desktop.view.widgets.overflow_bar import OverflowBar
@@ -1256,6 +1257,9 @@ class FileBrowser(QWidget):
         act_reject.triggered.connect(lambda: self.session.toggle_mark("excluded"))
         menu.addSeparator()
         menu.addAction("Apply Settings…").triggered.connect(self._open_apply_dialog)
+        menu.addAction(label_with_shortcut("Reset Roll to Defaults…", "reset_roll")).triggered.connect(
+            lambda: _reset_roll(self, self.controller)
+        )
         if multi:
             menu.addSeparator()
             menu.addAction("Stitch Selected Frames").triggered.connect(lambda: self.controller.request_stitch_selected())
