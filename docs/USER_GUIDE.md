@@ -452,15 +452,12 @@ How the negative is measured and normalized into a positive. The film mode that 
 
 Meter the whole roll once and share the baseline, so frames from the same film match.
 
-*   **Batch Analysis**: scans every loaded file and computes a roll-average density and color balance, discarding outliers. Run it once after importing. *(Tip: if you use Batch Autocrop, run it first, in **Image only** mode, so metering sees consistent crops.)*
+*   **Roll picker**: type to search. **Current Roll** (the default) targets the loaded files themselves; a saved name targets a baseline stored earlier.
+*   **Apply**: runs the picked roll. On **Current Roll** it scans every loaded file and computes a roll-average density and color balance, discarding outliers — run it once after importing. *(Tip: if you use Batch Autocrop, run it first, in **Image only** mode, so metering sees consistent crops.)* On a saved name it loads that roll's stored bounds and balance instead of re-scanning.
+*   **Save**: store the roll's current bounds and balance under a name, useful when you shoot the same stock repeatedly.
+*   **Delete**: remove the selected saved roll (it asks first; disabled on Current Roll). The frames keep their current look; only the saved baseline goes.
 *   **Use Luma Average**: this frame takes the roll-wide tonal range; color still re-derives per frame.
 *   **Use Color Average**: this frame takes the roll-wide color balance; tonal range still re-derives per frame. Enable both for a fully consistent roll; leave both off for per-image auto-exposure.
-
-**ROLL**, to reuse a baseline across sessions:
-
-*   **Roll dropdown** + **Load**: apply a saved roll's bounds and balance.
-*   **Save**: store the current Batch Analysis as a named roll, useful when you shoot the same stock repeatedly.
-*   **Delete**: remove the selected roll (it asks first). The frames keep their current look; only the saved baseline goes.
 
 <!-- panel:presets -->
 ### 4.5 Presets
