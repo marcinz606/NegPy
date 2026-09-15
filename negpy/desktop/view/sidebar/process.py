@@ -271,6 +271,8 @@ class ProcessSidebar(BaseSidebar):
 
         self.analysis_buffer_slider.valueChanged.connect(lambda v: self._on_buffer_changed(v, persist=False))
         self.analysis_buffer_slider.valueCommitted.connect(lambda v: self._on_buffer_changed(v, persist=True))
+        self.analysis_buffer_slider.dragStarted.connect(lambda: self.controller.analysis_buffer_drag_changed.emit(True))
+        self.analysis_buffer_slider.dragEnded.connect(lambda: self.controller.analysis_buffer_drag_changed.emit(False))
         self.analysis_region_btn.toggled.connect(self._on_analysis_region_toggled)
         self.clear_analysis_region_btn.clicked.connect(self.controller.clear_analysis_region)
 
