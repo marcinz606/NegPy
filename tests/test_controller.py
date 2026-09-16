@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 from dataclasses import replace
 from types import SimpleNamespace
 
+from PIL import Image
+from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import QApplication
 
 from negpy.desktop.controller import AppController
@@ -3355,6 +3357,144 @@ class TestClearThumbnailCache(unittest.TestCase):
         self.controller.clear_thumbnail_cache()
 
         self.assertEqual(seen, [{}])
+
+
+class TestRotateThumbnails(unittest.TestCase):
+    """A batch rotate turns other selected frames' saved geometry without opening
+    them, so their filmstrip thumbnail has to turn too, in place, disk cache
+    included — generate_missing_thumbnails would re-derive from the source instead
+    and never see the rotation."""
+
+    def setUp(self):
+        self.mock_session_manager = MagicMock(spec=DesktopSessionManager)
+        self.mock_session_manager.state = AppState()
+        self.mock_session_manager.repo = MagicMock()
+        self.mock_session_manager.asset_model = MagicMock()
+
+        with (
+            patch("negpy.desktop.controller.RenderWorker") as mock_rw_class,
+            patch("negpy.desktop.controller.PreviewManager") as mock_pm_class,
+        ):
+            mock_rw_class.return_value = MagicMock()
+            mock_pm_class.return_value = MagicMock(spec=PreviewManager)
+            self.controller = AppController(self.mock_session_manager)
+        self.controller.asset_store = MagicMock()
+
+    def tearDown(self):
+        import gc
+
+        for thread in [
+            self.controller.render_thread,
+            self.controller.export_thread,
+            self.controller.thumb_thread,
+            self.controller.norm_thread,
+            self.controller.discovery_thread,
+            self.controller.preview_load_thread,
+            self.controller.scan_thread,
+        ]:
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                thread.wait()
+        del self.controller
+        gc.collect()
+
+    @staticmethod
+    def _corner_icon(w=4, h=2, corner=(255, 0, 0)):
+        """A QIcon whose (w-1, 0) pixel is `corner`, everything else black."""
+        from PyQt6.QtGui import QColor, QImage
+
+        img = QImage(w, h, QImage.Format.Format_RGB32)
+        img.fill(0)
+        img.setPixelColor(w - 1, 0, QColor(*corner))
+        return QIcon(QPixmap.fromImage(img))
+
+    @staticmethod
+    def _icon_pixel(icon, x, y):
+        img = icon.pixmap(icon.availableSizes()[0]).toImage()
+        c = img.pixelColor(x, y)
+        return (c.red(), c.green(), c.blue())
+
+    def test_rotates_memory_icon_and_disk_cache_independently(self):
+        # Different markers in each store: memory (canvas-rendered) can be ahead of
+        # disk (persisted lazily), so deriving one from the other would be wrong.
+        self.mock_session_manager.state.thumbnails["hash1-v3"] = self._corner_icon(corner=(255, 0, 0))
+        disk_cached = Image.new("RGB", (4, 2), (0, 0, 0))
+        disk_cached.putpixel((3, 0), (0, 255, 0))
+        self.controller.asset_store.get_thumbnail.return_value = disk_cached
+
+        self.controller.rotate_thumbnails(["hash1-v3"], 1)
+
+        # A quarter-turn CCW swaps the axes: the top-right marker lands top-left,
+        # the same corner np.rot90(k=1) puts it at.
+        self.assertEqual(self._icon_pixel(self.mock_session_manager.state.thumbnails["hash1-v3"], 0, 0), (255, 0, 0))
+        saved_key, saved_img = self.controller.asset_store.save_thumbnail.call_args.args
+        self.assertEqual(saved_key, "hash1-v3")
+        self.assertEqual(saved_img.size, (2, 4))
+        self.assertEqual(saved_img.getpixel((0, 0)), (0, 255, 0))
+        self.mock_session_manager.asset_model.refresh.assert_called_once_with()
+
+    def test_rotates_disk_only_when_no_memory_icon_yet(self):
+        disk_cached = Image.new("RGB", (4, 2), (0, 0, 0))
+        disk_cached.putpixel((3, 0), (0, 255, 0))
+        self.controller.asset_store.get_thumbnail.return_value = disk_cached
+
+        self.controller.rotate_thumbnails(["hash1-v3"], 1)
+
+        self.controller.asset_store.save_thumbnail.assert_called_once()
+        # No memory icon existed, so none is fabricated from the disk copy.
+        self.assertNotIn("hash1-v3", self.mock_session_manager.state.thumbnails)
+        self.mock_session_manager.asset_model.refresh.assert_not_called()
+
+    def test_rotates_memory_only_when_no_disk_cache_yet(self):
+        self.mock_session_manager.state.thumbnails["hash1-v3"] = self._corner_icon(corner=(255, 0, 0))
+        self.controller.asset_store.get_thumbnail.return_value = None
+
+        self.controller.rotate_thumbnails(["hash1-v3"], 1)
+
+        self.assertEqual(self._icon_pixel(self.mock_session_manager.state.thumbnails["hash1-v3"], 0, 0), (255, 0, 0))
+        self.controller.asset_store.save_thumbnail.assert_not_called()
+        self.mock_session_manager.asset_model.refresh.assert_called_once_with()
+
+    def test_skips_a_key_with_no_cached_thumbnail_anywhere_yet(self):
+        self.controller.asset_store.get_thumbnail.return_value = None
+
+        self.controller.rotate_thumbnails(["hash1-v3"], 1)
+
+        self.controller.asset_store.save_thumbnail.assert_not_called()
+        self.mock_session_manager.asset_model.refresh.assert_not_called()
+
+    def test_zero_quarter_turns_is_a_noop(self):
+        self.controller.rotate_thumbnails(["hash1-v3"], 0)
+
+        self.controller.asset_store.get_thumbnail.assert_not_called()
+
+    def test_flip_mirrors_memory_icon_and_disk_cache_independently(self):
+        self.mock_session_manager.state.thumbnails["hash1-v3"] = self._corner_icon(corner=(255, 0, 0))
+        disk_cached = Image.new("RGB", (4, 2), (0, 0, 0))
+        disk_cached.putpixel((3, 0), (0, 255, 0))
+        self.controller.asset_store.get_thumbnail.return_value = disk_cached
+
+        self.controller.flip_thumbnails(["hash1-v3"], True)
+
+        # A horizontal flip moves the top-right marker to top-left.
+        self.assertEqual(self._icon_pixel(self.mock_session_manager.state.thumbnails["hash1-v3"], 0, 0), (255, 0, 0))
+        saved_key, saved_img = self.controller.asset_store.save_thumbnail.call_args.args
+        self.assertEqual(saved_key, "hash1-v3")
+        self.assertEqual(saved_img.getpixel((0, 0)), (0, 255, 0))
+        self.mock_session_manager.asset_model.refresh.assert_called_once_with()
+
+    def test_flip_skips_a_key_with_no_cached_thumbnail_anywhere_yet(self):
+        self.controller.asset_store.get_thumbnail.return_value = None
+
+        self.controller.flip_thumbnails(["hash1-v3"], True)
+
+        self.controller.asset_store.save_thumbnail.assert_not_called()
+        self.mock_session_manager.asset_model.refresh.assert_not_called()
+
+    def test_flip_with_no_keys_is_a_noop(self):
+        self.controller.flip_thumbnails([], True)
+
+        self.controller.asset_store.get_thumbnail.assert_not_called()
 
 
 class TestLibrarySearch(unittest.TestCase):

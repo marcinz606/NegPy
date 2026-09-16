@@ -807,6 +807,110 @@ class TestDesktopSessionSync(unittest.TestCase):
         steps = [(c.args[0], c.args[1]) for c in self.mock_repo.save_history_step.call_args_list]
         self.assertEqual(steps, [("hash2", 0), ("hash2", 1), ("hash3", 0), ("hash3", 1)])
 
+    def test_rotate_selected_frames_applies_each_frames_own_geometry(self):
+        self.session.state.selected_file_idx = 0
+        self.session.state.config = WorkspaceConfig(geometry=GeometryConfig(rotation=1))
+        self.mock_repo.load_file_settings.return_value = WorkspaceConfig(geometry=GeometryConfig(rotation=3))
+        self.session.update_selection([0, 1])
+
+        touched = self.session.rotate_selected_frames(1)
+
+        self.assertEqual(touched, ["hash2-v3"])
+        args, kwargs = self.mock_repo.save_file_settings.call_args
+        self.assertEqual(args[0], "hash2")
+        # Frame 1 rotates from its OWN stored rotation (3), not the active frame's new value.
+        self.assertEqual(args[1].geometry.rotation, 0)
+        self.assertEqual(kwargs["file_path"], "path2")
+
+    def test_rotate_selected_frames_message_excludes_active_when_deselected(self):
+        self.session.state.uploaded_files.append({"name": "file3.dng", "path": "path3", "hash": "hash3"})
+        self.session.state.selected_file_idx = 0
+        self.mock_repo.load_file_settings.return_value = WorkspaceConfig(geometry=GeometryConfig(rotation=0))
+        self.session.update_selection([1, 2])
+        messages = []
+        self.session.settings_synced.connect(messages.append)
+
+        touched = self.session.rotate_selected_frames(1, active_included=False)
+
+        self.assertEqual(touched, ["hash2-v3", "hash3-v3"])
+        self.assertEqual(messages, ["Rotated 2 frames"])
+
+    def test_rotate_selected_frames_noop_on_single_selection(self):
+        self.session.state.selected_file_idx = 0
+        self.session.update_selection([0])
+
+        touched = self.session.rotate_selected_frames(1)
+
+        self.assertEqual(touched, [])
+        self.mock_repo.save_file_settings.assert_not_called()
+
+    def test_rotate_selected_frames_records_undoable_history(self):
+        self.mock_repo.get_max_history_index.return_value = 0
+        self.mock_repo.load_history_step.return_value = None
+        self.mock_repo.save_history_step.reset_mock()
+        self.session.state.selected_file_idx = 0
+        target_config = WorkspaceConfig(geometry=GeometryConfig(rotation=0))
+        self.mock_repo.load_file_settings.return_value = target_config
+        self.session.update_selection([0, 1])
+
+        self.session.rotate_selected_frames(1)
+
+        steps = [(c.args[0], c.args[1]) for c in self.mock_repo.save_history_step.call_args_list]
+        self.assertEqual(steps, [("hash2", 0), ("hash2", 1)])
+
+    def test_flip_selected_frames_applies_each_frames_own_geometry(self):
+        self.session.state.selected_file_idx = 0
+        self.session.state.config = WorkspaceConfig(geometry=GeometryConfig(flip_horizontal=False))
+        self.mock_repo.load_file_settings.return_value = WorkspaceConfig(geometry=GeometryConfig(flip_horizontal=True))
+        self.session.update_selection([0, 1])
+
+        touched = self.session.flip_selected_frames(True)
+
+        self.assertEqual(touched, ["hash2-v3"])
+        args, kwargs = self.mock_repo.save_file_settings.call_args
+        self.assertEqual(args[0], "hash2")
+        # Frame 1 mirrors from its OWN stored flip (True), not the active frame's new value.
+        self.assertFalse(args[1].geometry.flip_horizontal)
+        self.assertEqual(kwargs["file_path"], "path2")
+
+    def test_flip_selected_frames_noop_on_single_selection(self):
+        self.session.state.selected_file_idx = 0
+        self.session.update_selection([0])
+
+        touched = self.session.flip_selected_frames(True)
+
+        self.assertEqual(touched, [])
+        self.mock_repo.save_file_settings.assert_not_called()
+
+    def test_flip_selected_frames_records_undoable_history(self):
+        self.mock_repo.get_max_history_index.return_value = 0
+        self.mock_repo.load_history_step.return_value = None
+        self.mock_repo.save_history_step.reset_mock()
+        self.session.state.selected_file_idx = 0
+        target_config = WorkspaceConfig(geometry=GeometryConfig(flip_horizontal=False))
+        self.mock_repo.load_file_settings.return_value = target_config
+        self.session.update_selection([0, 1])
+
+        self.session.flip_selected_frames(True)
+
+        steps = [(c.args[0], c.args[1]) for c in self.mock_repo.save_history_step.call_args_list]
+        self.assertEqual(steps, [("hash2", 0), ("hash2", 1)])
+
+    def test_rotate_selected_frames_skips_a_duplicate_content_hash(self):
+        # Two open paths sharing the active frame's content hash (e.g. the same file
+        # loaded from two folders) must not turn the shared edit row twice.
+        self.session.state.uploaded_files.append({"name": "file1-copy.dng", "path": "path1-copy", "hash": "hash1"})
+        self.session.state.selected_file_idx = 0
+        self.session.state.current_file_hash = "hash1"
+        self.mock_repo.load_file_settings.return_value = WorkspaceConfig(geometry=GeometryConfig(rotation=0))
+        self.session.update_selection([0, 1, 2])
+
+        touched = self.session.rotate_selected_frames(1)
+
+        self.assertEqual(touched, ["hash2-v3"])
+        self.mock_repo.save_file_settings.assert_called_once()
+        self.assertEqual(self.mock_repo.save_file_settings.call_args.args[0], "hash2")
+
     def _last_session_manifest(self):
         """Returns (paths, active_path) from the most recent _persist_session calls."""
         saved = {c.args[0]: c.args[1] for c in self.mock_repo.save_global_setting.call_args_list}

@@ -21,6 +21,7 @@ from negpy.desktop.sticky import (
 from negpy.desktop.view.canvas.crop_guides import CropGuide
 from negpy.domain.models import PROOF_INTENT_LABELS, ExportPreset, ProofIntent, WorkspaceConfig
 from negpy.features.exposure.models import apply_targets
+from negpy.features.geometry.logic import flip_geometry_and_analysis, rotate_geometry_and_analysis
 from negpy.features.process.models import invalidate_local_bounds
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.hdr.logic import resolve_anchor, seed_shadow_density
@@ -1172,6 +1173,78 @@ class DesktopSessionManager(QObject):
             self.settings_synced.emit(f"Preset applied: {n} {noun} to {count} frame{'s' if count != 1 else ''}")
             self.settings_saved.emit()
         return count
+
+    def rotate_selected_frames(self, direction: int, active_included: bool = True) -> List[str]:
+        """Rotates every OTHER selected frame by its own current geometry, a quarter-turn
+        at a time. The active frame, if it is itself part of the selection, rotates
+        through the normal update_config path; this only fans the same turn out to the
+        rest of a multi-selection. `active_included` only affects the status message's
+        count, since the active frame is always excluded from this method's own loop.
+        Returns the thumbnail keys touched, so the caller can invalidate them."""
+        if len(self.state.selected_indices) <= 1:
+            return []
+
+        touched_keys = []
+        # Two open paths sharing a content hash share an edit row; applying a relative
+        # turn to both would read-modify-write it twice and turn it 180 in one click.
+        seen_hashes = {self.state.current_file_hash}
+        count = 0
+        for idx in self.state.selected_indices:
+            if idx == self.state.selected_file_idx or not (0 <= idx < len(self.state.uploaded_files)):
+                continue
+            asset = self.state.uploaded_files[idx]
+            target_hash = asset["hash"]
+            if target_hash in seen_hashes:
+                continue
+            seen_hashes.add(target_hash)
+            target_config = self.repo.load_file_settings(target_hash) or self.config_for_asset(asset)
+            new_geo, new_rect = rotate_geometry_and_analysis(target_config.geometry, target_config.process.analysis_rect, direction)
+            new_config = replace(target_config, geometry=new_geo)
+            if target_config.process.analysis_rect is not None:
+                new_config = replace(new_config, process=replace(target_config.process, analysis_rect=new_rect))
+            self.push_external_history(target_hash, target_config, new_config)
+            self.repo.save_file_settings(target_hash, new_config, file_path=asset["path"])
+            touched_keys.append(asset_thumbnail_key(asset))
+            count += 1
+
+        if count:
+            total = count + int(active_included)
+            self.settings_synced.emit(f"Rotated {total} frame{'s' if total != 1 else ''}")
+            self.settings_saved.emit()
+        return touched_keys
+
+    def flip_selected_frames(self, horizontal: bool, active_included: bool = True) -> List[str]:
+        """Mirrors every OTHER selected frame by its own current geometry. See
+        rotate_selected_frames — same active/other split, same reasoning."""
+        if len(self.state.selected_indices) <= 1:
+            return []
+
+        touched_keys = []
+        seen_hashes = {self.state.current_file_hash}
+        count = 0
+        for idx in self.state.selected_indices:
+            if idx == self.state.selected_file_idx or not (0 <= idx < len(self.state.uploaded_files)):
+                continue
+            asset = self.state.uploaded_files[idx]
+            target_hash = asset["hash"]
+            if target_hash in seen_hashes:
+                continue
+            seen_hashes.add(target_hash)
+            target_config = self.repo.load_file_settings(target_hash) or self.config_for_asset(asset)
+            new_geo, new_rect = flip_geometry_and_analysis(target_config.geometry, target_config.process.analysis_rect, horizontal)
+            new_config = replace(target_config, geometry=new_geo)
+            if target_config.process.analysis_rect is not None:
+                new_config = replace(new_config, process=replace(target_config.process, analysis_rect=new_rect))
+            self.push_external_history(target_hash, target_config, new_config)
+            self.repo.save_file_settings(target_hash, new_config, file_path=asset["path"])
+            touched_keys.append(asset_thumbnail_key(asset))
+            count += 1
+
+        if count:
+            total = count + int(active_included)
+            self.settings_synced.emit(f"Flipped {total} frame{'s' if total != 1 else ''}")
+            self.settings_saved.emit()
+        return touched_keys
 
     def next_file(self) -> None:
         display_idx = self.asset_model.actual_to_display(self.state.selected_file_idx)

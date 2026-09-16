@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 import cv2
 import numpy as np
 from PyQt6.QtCore import Q_ARG, QMetaObject, QObject, Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QIcon, QPixmap
+from PyQt6.QtGui import QIcon, QPixmap, QTransform
 from PyQt6.QtWidgets import QCheckBox, QMessageBox
 
 from negpy.kernel.system.text import count_of, plural
@@ -785,6 +785,59 @@ class AppController(QObject):
             # negatives in the filmstrip. They are copies because these dicts cross to a
             # worker thread and uploaded_files must not grow a stale mode.
             self.thumbnail_requested.emit([{**f, "process_mode": self.session.stored_process_mode(f)} for f in missing])
+
+    def rotate_thumbnails(self, keys: list, direction: int) -> None:
+        """Turns each cached thumbnail in place by a quarter-turn, for a batch
+        rotate on frames that are not the active one. Memory and disk turn from
+        their OWN current content, never from each other: a frame that rendered on
+        the canvas has a memory icon ahead of its disk JPEG (persisted lazily), and
+        deriving one from the other would clobber whichever is more current. A
+        frame with no cached thumbnail in a given store is left alone there — the
+        unopened-frame preview pipeline behind generate_missing_thumbnails never
+        reads saved geometry, so re-requesting from it would keep serving the old
+        orientation anyway."""
+        from PIL import Image
+
+        turns = direction % 4
+        if not turns or not keys:
+            return
+        pil_transpose = {1: Image.Transpose.ROTATE_90, 2: Image.Transpose.ROTATE_180, 3: Image.Transpose.ROTATE_270}[turns]
+        qt_transform = QTransform().rotate(-90 * direction)
+        changed = False
+        for key in keys:
+            icon = self.state.thumbnails.get(key)
+            sizes = icon.availableSizes() if icon is not None else []
+            if sizes:
+                self.state.thumbnails[key] = QIcon(icon.pixmap(sizes[0]).transformed(qt_transform))
+                changed = True
+            cached = self.asset_store.get_thumbnail(key)
+            if cached is not None:
+                self.asset_store.save_thumbnail(key, cached.transpose(pil_transpose))
+        if changed:
+            self.session.asset_model.refresh()
+
+    def flip_thumbnails(self, keys: list, horizontal: bool) -> None:
+        """Mirrors each cached thumbnail in place. See rotate_thumbnails for why
+        memory and disk turn independently rather than one deriving from the
+        other."""
+        from PIL import Image
+
+        if not keys:
+            return
+        pil_transpose = Image.Transpose.FLIP_LEFT_RIGHT if horizontal else Image.Transpose.FLIP_TOP_BOTTOM
+        qt_transform = QTransform().scale(-1, 1) if horizontal else QTransform().scale(1, -1)
+        changed = False
+        for key in keys:
+            icon = self.state.thumbnails.get(key)
+            sizes = icon.availableSizes() if icon is not None else []
+            if sizes:
+                self.state.thumbnails[key] = QIcon(icon.pixmap(sizes[0]).transformed(qt_transform))
+                changed = True
+            cached = self.asset_store.get_thumbnail(key)
+            if cached is not None:
+                self.asset_store.save_thumbnail(key, cached.transpose(pil_transpose))
+        if changed:
+            self.session.asset_model.refresh()
 
     def clear_thumbnail_cache(self) -> None:
         """Drops cached thumbnails on disk and in memory, then regenerates loaded ones."""

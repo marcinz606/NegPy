@@ -2317,6 +2317,29 @@ def rotate_normalized_rect(
     return (min(xs), min(ys), max(xs), max(ys))
 
 
+def rotate_geometry_and_analysis(
+    geo: GeometryConfig,
+    analysis_rect: Optional[Tuple[float, float, float, float]],
+    direction: int,
+) -> Tuple[GeometryConfig, Optional[Tuple[float, float, float, float]]]:
+    """
+    Applies a visual quarter-turn (the toolbar's labelled direction) to a frame's
+    own geometry, crop rect and analysis rect. `direction` is +1/-1 quarter-turns
+    CCW as seen on screen; a mirror inverts pipeline rotation handedness, so the
+    stored `rotation` field turns the opposite way under a flip while the crop and
+    analysis rects, being display-space, always turn by `direction`. Takes and
+    returns the two WorkspaceConfig fields separately, not the config itself: a
+    WorkspaceConfig import here would be the only one under features/, and the
+    reverse import already runs domain.models -> geometry.models.
+    """
+    pipeline_direction = -direction if geo.flip_horizontal != geo.flip_vertical else direction
+    new_geo = replace(geo, rotation=(geo.rotation + pipeline_direction) % 4)
+    if geo.crop_rect is not None:
+        new_geo = replace(new_geo, crop_rect=rotate_normalized_rect(geo.crop_rect, direction))
+    new_rect = rotate_normalized_rect(analysis_rect, direction) if analysis_rect is not None else None
+    return new_geo, new_rect
+
+
 def toggle_flip(geo: GeometryConfig, horizontal: bool) -> GeometryConfig:
     """
     Toggles a mirror on the geometry so the result is an exact mirror of the
@@ -2336,6 +2359,23 @@ def toggle_flip(geo: GeometryConfig, horizontal: bool) -> GeometryConfig:
     if geo.crop_rect is not None:
         new_geo = replace(new_geo, crop_rect=mirror_normalized_rect(geo.crop_rect, horizontal))
     return new_geo
+
+
+def flip_geometry_and_analysis(
+    geo: GeometryConfig,
+    analysis_rect: Optional[Tuple[float, float, float, float]],
+    horizontal: bool,
+) -> Tuple[GeometryConfig, Optional[Tuple[float, float, float, float]]]:
+    """
+    Mirrors a frame's own geometry and analysis rect across its vertical
+    (horizontal=True) or horizontal axis. The freehand analysis region is
+    transformed-space like the crop rect toggle_flip already mirrors, so it keeps
+    reading the same picture content. See rotate_geometry_and_analysis for why
+    this takes the two fields separately rather than a WorkspaceConfig.
+    """
+    new_geo = toggle_flip(geo, horizontal)
+    new_rect = mirror_normalized_rect(analysis_rect, horizontal) if analysis_rect is not None else None
+    return new_geo, new_rect
 
 
 def straighten_delta_degrees(dx: float, dy: float) -> float:
