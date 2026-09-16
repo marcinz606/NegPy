@@ -274,6 +274,12 @@ class AppState:
             self.local_hidden_masks_by_hash.pop(h, None)
 
 
+def _asset_key(asset: Dict[str, Any]) -> tuple:
+    """A file's stable identity: its content hash, plus which half for a half-frame pair
+    sharing that hash. Survives `uploaded_files` gaining or losing rows, unlike its position."""
+    return (asset.get("hash"), asset.get("half"))
+
+
 def _asset_mtime(asset: Dict[str, Any]) -> float:
     """Discovery stamps ``mtime`` on every asset; ones assembled elsewhere (triplet
     edit, stitch) fall back to a stat so a mixed list still sorts by date."""
@@ -341,6 +347,10 @@ class AssetListModel(QAbstractListModel):
         self._filter_terms: list = []
         self._sheet_filter: str = "all"  # "all" | "keepers" | "unrejected"
         self._sorted_indices: list[int] = []
+        # Each display row's stable identity as of the last rebuild — a cache, not a re-derive
+        # from `uploaded_files`, so `_apply_reindex` can look up an old row's file even after a
+        # row was removed from (or inserted into) that list before it runs.
+        self._sorted_keys: list[tuple] = []
         self._rebuild_indices()
 
     def _rebuild_indices(self) -> None:
@@ -365,13 +375,27 @@ class AssetListModel(QAbstractListModel):
             indices = [i for i in indices if not files[i].get("excluded")]
 
         self._sorted_indices = indices
+        self._sorted_keys = [_asset_key(files[i]) for i in indices]
+
+    def _apply_reindex(self) -> None:
+        """Rebuilds `_sorted_indices` and remaps persistent indexes (Qt's selection, current
+        index, and the shift-click anchor) to follow the same files, keyed by each row's
+        cached identity from the last rebuild — not `uploaded_files`, which may already
+        reflect the delete/insert `refresh()` calls this for."""
+        self.layoutAboutToBeChanged.emit()
+        old_persistent = self.persistentIndexList()
+        old_keys = [self._sorted_keys[pidx.row()] if 0 <= pidx.row() < len(self._sorted_keys) else None for pidx in old_persistent]
+        self._rebuild_indices()
+        key_to_display = {key: display for display, key in enumerate(self._sorted_keys)}
+        new_persistent = [self.index(key_to_display[key], 0) if key in key_to_display else QModelIndex() for key in old_keys]
+        self.changePersistentIndexList(old_persistent, new_persistent)
+        self.layoutChanged.emit()
 
     def set_sheet_filter(self, mode: str) -> None:
         if mode not in ("all", "keepers", "unrejected"):
             mode = "all"
         self._sheet_filter = mode
-        self._rebuild_indices()
-        self.layoutChanged.emit()
+        self._apply_reindex()
 
     @property
     def sheet_filter(self) -> str:
@@ -383,13 +407,11 @@ class AssetListModel(QAbstractListModel):
 
     def set_sort_order(self, order: str) -> None:
         self._sort_order = order
-        self._rebuild_indices()
-        self.layoutChanged.emit()
+        self._apply_reindex()
 
     def set_sort_descending(self, descending: bool) -> None:
         self._sort_descending = descending
-        self._rebuild_indices()
-        self.layoutChanged.emit()
+        self._apply_reindex()
 
     def set_filter(self, text: str, regex: bool) -> bool:
         """Updates filter. Returns True on success, False if regex failed to compile.
@@ -402,8 +424,7 @@ class AssetListModel(QAbstractListModel):
             self._filter_regex = regex
             self._filter_pattern = None
             self._filter_terms = []
-            self._rebuild_indices()
-            self.layoutChanged.emit()
+            self._apply_reindex()
             return True
 
         if regex:
@@ -421,8 +442,7 @@ class AssetListModel(QAbstractListModel):
             self._filter_pattern = None
             self._filter_terms = parse_query(text)
 
-        self._rebuild_indices()
-        self.layoutChanged.emit()
+        self._apply_reindex()
         return True
 
     def visible_actual_indices(self) -> set[int]:
@@ -470,8 +490,7 @@ class AssetListModel(QAbstractListModel):
         return None
 
     def refresh(self) -> None:
-        self._rebuild_indices()
-        self.layoutChanged.emit()
+        self._apply_reindex()
 
 
 def _source_effective_bounds(process) -> Optional[tuple]:
