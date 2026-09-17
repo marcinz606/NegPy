@@ -31,6 +31,9 @@ struct TransferUniforms {
     // Cast Removal affine on density: per-channel gain and offset (w lane unused).
     cast_gain: vec4<f32>,
     cast_offset: vec4<f32>,
+    // Dye Separation: x = k, uniform across channels (no paper matrix, no per-layer
+    // trims on this path). yzw unused.
+    separation: vec4<f32>,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -73,6 +76,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let norm = textureLoad(input_tex, coords, 0).rgb;
 
     var res: vec3<f32>;
+    var dens: vec3<f32>;
     for (var ch = 0; ch < 3; ch++) {
         var d = norm[ch] * params.density_range;
 
@@ -114,10 +118,21 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             d = d + s * softplus(params.sh_knee - d, params.shoulder_width[ch]);
         }
 
+        dens[ch] = d;
+    }
+
+    // Dye Separation: M(k) = diag(k) + (1-k)*J (papers.resolve_saturation_matrix),
+    // collapsed to a scalar mean because k is uniform across channels on this path.
+    if (params.separation.x != 1.0) {
+        let mean = (dens.x + dens.y + dens.z) / 3.0;
+        dens = vec3<f32>(mean) + params.separation.x * (dens - vec3<f32>(mean));
+    }
+
+    for (var ch = 0; ch < 3; ch++) {
         // Baseline + display rendering last: the controls above shape the scene. A
         // positive source skips both (baseline_gain arrives as 1.0), matching
         // transfer.py::apply_transfer_curve.
-        let scene = pow(10.0, -d) * params.baseline_gain;
+        let scene = pow(10.0, -dens[ch]) * params.baseline_gain;
         if (params.zone_taper.y != 0.0) {
             res[ch] = oetf_encode(clamp(scene, 0.0, 1.0));
         } else {

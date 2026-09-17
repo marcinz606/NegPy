@@ -421,6 +421,17 @@ class TestControlsStayLive(unittest.TestCase):
         self.assertAlmostEqual(centre / TRANSFER_DENSITY_RANGE, (anchor - d_min) / span, places=6)
         self.assertAlmostEqual(k * TRANSFER_DENSITY_RANGE / span, 3.0, places=6)
 
+    def test_dye_separation_still_pushes_color_with_no_paper_to_compose_into(self):
+        """This path has no paper matrix, so Dye Separation must apply straight to
+        density instead of silently doing nothing off the print path."""
+        base_chroma = float(np.abs(self.base[..., 0] - self.base[..., 2]).mean())
+
+        grey = self._rendered(dye_separation=0.0)
+        self.assertLess(float(np.abs(grey[..., 0] - grey[..., 2]).mean()), base_chroma * 0.1)
+
+        boosted = self._rendered(dye_separation=2.0)
+        self.assertGreater(float(np.abs(boosted[..., 0] - boosted[..., 2]).mean()), base_chroma)
+
     def test_curve_stays_monotonic_under_extreme_settings(self):
         for overrides in (
             {"toe": 1.0, "shoulder": 1.0},
@@ -626,8 +637,21 @@ class TestGpuTransferParity(unittest.TestCase):
             wb_yellow=-0.2,
             shadow_density=-0.5,
             highlight_density=0.3,
+            dye_separation=1.3,
         )
         self._assert_parity(*self._both(settings))
+
+    def test_dye_separation_matches(self):
+        """Dye Separation carries no paper matrix on this path — it collapses to a scalar
+        mean instead — and CPU/GPU must apply that same scalar."""
+        settings = _e6_config()
+        active = _e6_config(dye_separation=1.6)
+        cpu, gpu = self._both(active)
+        self._assert_parity(cpu, gpu)
+
+        off_cpu, off_gpu = self._both(settings)
+        self.assertGreater(float(np.abs(cpu - off_cpu).max()), 0.01, "dye separation inert on the CPU")
+        self.assertGreater(float(np.abs(gpu - off_gpu).max()), 0.01, "dye separation inert on the GPU")
 
     def test_cast_removal_matches(self):
         """Cast Removal reaches this curve as a per-channel affine the shader mirrors in

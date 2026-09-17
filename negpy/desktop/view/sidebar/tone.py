@@ -166,7 +166,7 @@ class ToneSidebar(BaseSidebar):
 
         # Density-domain saturation, composed into the same dye_mix slot as the paper's real dye
         # crosstalk, rather than a post-hoc Lab-space a*/b*
-        self.dye_separation_slider = CompactSlider("Dye Separation", 0.5, 1.5, conf.dye_separation, has_neutral=True)
+        self.dye_separation_slider = CompactSlider("Dye Separation", 0.5, 2.0, conf.dye_separation, has_neutral=True)
         self.dye_separation_trim_slider = CompactSlider("Dye Separation", -0.4, 0.4, 0.0, has_neutral=True)
         self.dye_separation_trim_slider.setToolTip(
             "This layer's Dye Separation trim on top of the global value — pushes/pulls this "
@@ -447,7 +447,8 @@ class ToneSidebar(BaseSidebar):
                 self.midtone_gamma_slider,
                 self.shadow_grade_slider,
                 self.highlight_grade_slider,
-                self.dye_separation_slider,
+                # Dye Separation stays: the transfer curve applies it directly, with no
+                # paper matrix to compose into (see features/exposure/transfer.py).
                 self.dye_separation_trim_slider,
                 self.separation_damping_slider,
                 # The transfer curve takes no dodge/burn map, and the mask rides it.
@@ -472,7 +473,7 @@ class ToneSidebar(BaseSidebar):
             self.toe_w_trim_slider.setVisible(not global_mode)
             self.sh_w_slider.setVisible(global_mode)
             self.sh_w_trim_slider.setVisible(not global_mode)
-            self.dye_separation_slider.setVisible(global_mode and not is_bw and not transfer)
+            self.dye_separation_slider.setVisible(global_mode and not is_bw)
             self.dye_separation_trim_slider.setVisible(not global_mode and not is_bw and not transfer)
             self.separation_damping_slider.setVisible(global_mode and not is_bw and not transfer)
             self.toe_slider.label.setText("Toe" + suffix)

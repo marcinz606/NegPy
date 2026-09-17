@@ -27,6 +27,8 @@ Controls map onto the existing Print sliders, each neutral at its current defaul
   WB C/M/Y (0)   -> per-channel density offsets
   shadow/highlight_density (0.0) -> Zone Density, the print path's mid-sparing offsets,
                     re-centred onto this curve's own scale (see zone_geometry)
+  dye_separation (1.0) -> density-domain saturation, applied directly to density
+                    (there is no paper dye matrix here to compose it into)
 """
 
 from typing import Optional, Tuple
@@ -34,7 +36,7 @@ from typing import Optional, Tuple
 import numpy as np
 
 from negpy.domain.types import ImageBuffer
-from negpy.features.exposure.logic import per_channel_toe_shoulder, per_channel_widths
+from negpy.features.exposure.logic import per_channel_dye_separation, per_channel_toe_shoulder, per_channel_widths
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.kernel.image.validation import ensure_image
 
@@ -224,6 +226,7 @@ def apply_transfer_curve(
     cast_gain: Tuple[float, float, float] = (1.0, 1.0, 1.0),
     cast_offset: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     positive_source: bool = False,
+    separation: float = 1.0,
 ) -> ImageBuffer:
     """
     Normalized log density -> scene-linear positive.
@@ -236,6 +239,11 @@ def apply_transfer_curve(
     adjustment of it. `positive_source` skips both and passes the scene through unshaped.
 
     `cast_offset` arrives already scaled by density_range (see neutral_axis_affine).
+
+    `separation` is the Dye Separation slider, applied after the curve shapes each
+    channel and before decode. It shares its math with the print path's
+    resolve_saturation_matrix but not its per-layer trims or paper crosstalk: this
+    curve has neither, so it collapses to a scalar mean rather than a 3x3 matmul.
     """
     c = TRANSFER_CONSTANTS
     base_width = float(c["transfer_knee_width"])
@@ -246,7 +254,7 @@ def apply_transfer_curve(
     sh_knee = float(c["transfer_shoulder_knee"])
 
     n = np.asarray(img_norm, dtype=np.float32)
-    out = np.empty_like(n)
+    dens = np.empty_like(n)
     for ch in range(3):
         d = n[:, :, ch] * np.float32(density_range)
 
@@ -289,7 +297,17 @@ def apply_transfer_curve(
         if shoulder[ch] != 0.0:
             d = d + np.float32(shoulder[ch]) * _softplus(np.float32(sh_knee) - d, sw3[ch])
 
-        out[:, :, ch] = np.power(np.float32(10.0), -d, dtype=np.float32)
+        dens[:, :, ch] = d
+
+    sep_k = per_channel_dye_separation(separation, (0.0, 0.0, 0.0))[0]
+    if sep_k != 1.0:
+        # M(k) = diag(k) + (1-k)*J (papers.resolve_saturation_matrix), collapsed to a
+        # scalar mean: k is uniform across channels here, since this curve has no
+        # per-layer dye model to trim against and no paper base to measure above.
+        mean = dens.mean(axis=2, keepdims=True)
+        dens = mean + np.float32(sep_k) * (dens - mean)
+
+    out = np.power(np.float32(10.0), -dens, dtype=np.float32)
 
     # Baseline and display rendering last, so the controls above shape the scene and this
     # only decides how the scene is shown. A finished positive sits nowhere below a sensor
