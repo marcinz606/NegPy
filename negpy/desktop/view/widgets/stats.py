@@ -1,7 +1,7 @@
 from typing import List, Optional, Sequence, Tuple
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QPushButton, QToolButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QToolButton, QVBoxLayout, QWidget
 
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.exposure.stats import StatRow
@@ -218,8 +218,17 @@ class ZonePlacementRows(QWidget):
         self.solving.setVisible(bool(solving))
 
 
+# Grid columns for a stat's (name, value) pair: even slots sit left of the divider
+# (column 2), odd slots to its right.
+_PAIR_COLUMNS = ((0, 1), (3, 4))
+
+
 class NegativeStatsWidget(QWidget):
-    """Compact numerical read-out of the negative under the Analysis charts."""
+    """Compact numerical read-out of the negative under the Analysis charts.
+
+    Two stats share each grid row (name|value|name|value) so the read-out
+    claims about half the vertical height of one-stat-per-row.
+    """
 
     _ROWS = 6
 
@@ -230,6 +239,7 @@ class NegativeStatsWidget(QWidget):
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(2)
         grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(4, 1)
 
         name_css = f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;"
         self._value_css = f"color: {THEME.text_primary}; font-size: {THEME.font_size_small}px;"
@@ -237,20 +247,30 @@ class NegativeStatsWidget(QWidget):
 
         self._names: List[QLabel] = []
         self._values: List[QLabel] = []
-        for r in range(self._ROWS):
+        self._dividers: List[QFrame] = []
+        for i in range(self._ROWS):
+            grid_row = i // 2
+            name_col, value_col = _PAIR_COLUMNS[i % 2]
             name = QLabel("")
             name.setStyleSheet(name_css)
             value = QLabel("")
             value.setStyleSheet(self._value_css)
             value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            grid.addWidget(name, r, 0)
-            grid.addWidget(value, r, 1)
+            grid.addWidget(name, grid_row, name_col)
+            grid.addWidget(value, grid_row, value_col)
             self._names.append(name)
             self._values.append(value)
+            if i % 2 == 0:
+                divider = QFrame()
+                divider.setFrameShape(QFrame.Shape.VLine)
+                divider.setFrameShadow(QFrame.Shadow.Plain)
+                divider.setStyleSheet(f"color: {THEME.border_color};")
+                grid.addWidget(divider, grid_row, 2)
+                self._dividers.append(divider)
 
     def update_stats(self, rows: List[StatRow]) -> None:
         for i in range(self._ROWS):
-            # Unused rows hide rather than blank: an empty QLabel still claims its font
+            # Unused slots hide rather than blank: an empty QLabel still claims its font
             # height, and the Analysis chart above absorbs every pixel a row takes.
             used = i < len(rows)
             self._names[i].setVisible(used)
@@ -258,12 +278,17 @@ class NegativeStatsWidget(QWidget):
             if not used:
                 self._names[i].setText("")
                 self._values[i].setText("")
+                self._names[i].setToolTip("")
+                self._values[i].setToolTip("")
                 continue
             row = rows[i]
             tip = _TOOLTIPS.get(row.name, "")
             self._names[i].setText(row.name)
             self._values[i].setText(row.value)
             self._values[i].setStyleSheet(self._warn_css if row.warn else self._value_css)
-            # Tooltip on the whole row (hover anywhere shows it).
+            # Tooltip per stat (hover its name or value), not merged across the pair.
             self._names[i].setToolTip(tip)
             self._values[i].setToolTip(tip)
+        for pair, divider in enumerate(self._dividers):
+            # A divider separates two stats; hide it when the pair's second slot is empty.
+            divider.setVisible(2 * pair + 1 < len(rows))

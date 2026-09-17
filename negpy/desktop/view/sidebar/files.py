@@ -55,6 +55,7 @@ from negpy.desktop.view.sidebar.library_tree import LibraryTree
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection, make_section
 from negpy.desktop.view.widgets.file_dialogs import last_open_folder, pick_start_dir
 from negpy.services.assets.library import folder_counts
+from negpy.services.assets.thumbnails import asset_thumbnail_key
 
 
 _UNBOUNDED_HEIGHT = 16777215  # QWIDGETSIZE_MAX — Qt's "no maximum"
@@ -74,7 +75,9 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     dirty active file gets an accent line along the image's bottom edge. Triage marks
     are small bottom-right badges: check = keeper, cross + heavy dim = rejected; the
     top-right badge is reserved for decode failures; the bottom-left badge says the frame
-    was built from several files (stitch, HDR merge, RGB triplet, half-frame split)."""
+    was built from several files (stitch, HDR merge, RGB triplet, half-frame split); a
+    small top-left dot says the bitmap shown predates a settings change (a bulk apply
+    reaches the file before a render reaches its thumbnail)."""
 
     _MARGIN = 3
     _RADIUS = 4  # = button border-radius (modern_dark.qss)
@@ -85,6 +88,7 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     _COMPOSITE_RING = QColor(255, 255, 255, 90)
     _COMPOSITE_GLYPH = QColor(255, 255, 255, 235)
     _DIRTY_PX = 2
+    _STALE_DOT_RADIUS = 4
 
     def __init__(self, parent=None, state: Optional[AppState] = None) -> None:
         super().__init__(parent)
@@ -94,6 +98,20 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         """Only the active file can carry unsaved edits; every other frame is on disk."""
         state = self._state
         return bool(state and state.is_dirty and state.current_file_path and file_info.get("path") == state.current_file_path)
+
+    def _is_stale_thumbnail(self, file_info: dict) -> bool:
+        """True while the cached bitmap predates a settings write a render hasn't caught up to."""
+        state = self._state
+        if not state or not file_info.get("hash"):
+            return False
+        return asset_thumbnail_key(file_info) in state.stale_thumbnails
+
+    def _draw_stale_dot(self, painter: QPainter, img_rect: QRect) -> None:
+        r = self._STALE_DOT_RADIUS
+        cx, cy = img_rect.left() + r + 4, img_rect.top() + r + 4
+        painter.setPen(QPen(QColor(0, 0, 0, 140), 1))
+        painter.setBrush(QColor(THEME.warn_amber))
+        painter.drawEllipse(QRect(cx - r, cy - r, 2 * r, 2 * r))
 
     def _draw_mark_badge(self, painter: QPainter, img_rect: QRect, check: bool) -> None:
         r = 9
@@ -210,6 +228,8 @@ class _ThumbnailDelegate(QStyledItemDelegate):
             self._draw_mark_badge(painter, img_rect, check=True)
         if kind:
             self._draw_composite_badge(painter, img_rect, kind, int(file_info.get("half") or 0))
+        if self._is_stale_thumbnail(file_info):
+            self._draw_stale_dot(painter, img_rect)
         painter.setClipping(False)
 
         if selected:

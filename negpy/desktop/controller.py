@@ -784,6 +784,7 @@ class AppController(QObject):
         # Must precede generate_missing_thumbnails: it only enqueues names absent here.
         self.state.thumbnails.clear()
         self.state.rendered_thumbnails.clear()
+        self.state.stale_thumbnails.clear()
         self.session.asset_model.refresh()
         self.generate_missing_thumbnails()
 
@@ -838,6 +839,7 @@ class AppController(QObject):
         for key, pil_img in new_thumbs.items():
             if pil_img and self._set_thumbnail(key, pil_img):
                 self.state.rendered_thumbnails.add(key)
+                self.state.stale_thumbnails.discard(key)
         self.session.asset_model.refresh()
 
     # --- Batch progress popup -------------------------------------------------
