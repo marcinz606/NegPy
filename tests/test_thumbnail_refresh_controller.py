@@ -200,24 +200,56 @@ class TestThumbnailRefreshController:
         assert seen == [frame.config.process]
         self.controller._on_thumbnail_render_cancelled()
 
-    def test_on_rendered_after_abort_emits_nothing(self) -> None:
+    def test_on_rendered_after_abort_for_a_frame_no_longer_eligible_emits_nothing(self) -> None:
+        """A stale signal from a cut-short generation is dropped when the frame is no
+        longer eligible for the resume that cancellation immediately triggers (it
+        became the active frame in the meantime)."""
         self.controller.refresh_thumbnails_for(["other"])
         frame = self.tasks[0].frames[0]
+        self.controller.state.current_file_hash = "other"
         self.controller._on_thumbnail_render_cancelled()
+        assert self.controller._thumbnail_render_running is False  # resume found nothing eligible
 
         self.controller._on_thumbnail_rendered(frame, np.zeros((2, 2, 3), dtype=np.float32))
 
         assert self.thumbnail_updates == []
 
-    def test_on_rendered_after_pre_emption_emits_nothing(self) -> None:
-        self.controller.refresh_thumbnails_for(["other"])
-        stale_frame = self.tasks[0].frames[0]
-        # A real batch pre-empted the refresh before the stale frame's completion arrived.
+    def test_cancellation_immediately_resumes_stranded_frames(self) -> None:
+        """Pre-emption isn't the end of the story: whatever didn't get its turn is
+        requested again as soon as the interrupting batch is done with norm_thread —
+        Qt's own queueing keeps this from ever racing that real batch work."""
+        self.controller.refresh_thumbnails_for(["other", "third"])
+        assert len(self.tasks) == 1
+        first_frames = {f.thumbnail_key for f in self.tasks[0].frames}
+
         self.controller._on_thumbnail_render_cancelled()
 
-        self.controller._on_thumbnail_rendered(stale_frame, np.zeros((2, 2, 3), dtype=np.float32))
+        assert len(self.tasks) == 2
+        resumed_frames = {f.thumbnail_key for f in self.tasks[1].frames}
+        assert resumed_frames == first_frames
+        assert self.tasks[1].generation != self.tasks[0].generation
+        assert self.controller._thumbnail_render_running is True
+        self.controller._on_thumbnail_render_cancelled()
 
-        assert self.thumbnail_updates == []
+    def test_cancellation_with_nothing_pending_does_not_resume(self) -> None:
+        self.controller.refresh_thumbnails_for(["other"])
+        frame = self.tasks[0].frames[0]
+        self.controller._on_thumbnail_rendered(frame, np.zeros((2, 2, 3), dtype=np.float32))  # drains pending
+
+        self.controller._on_thumbnail_render_cancelled()
+
+        assert len(self.tasks) == 1  # no resume dispatch
+        assert self.controller._thumbnail_render_running is False
+
+    def test_error_does_not_resume_the_stranded_frames(self) -> None:
+        """A hard worker failure isn't retried automatically — an error that recurs
+        deterministically must not become an infinite resume loop."""
+        self.controller.refresh_thumbnails_for(["other"])
+
+        self.controller._on_thumbnail_render_error("boom")
+
+        assert len(self.tasks) == 1  # no resume dispatch
+        assert self.controller._thumbnail_render_running is False
 
     def test_on_rendered_for_the_now_active_frame_emits_nothing(self) -> None:
         """Opened since dispatch: the live render already owns this frame's thumbnail,

@@ -449,6 +449,10 @@ class AppController(QObject):
         # generation instead of `_batch_serial`/`_active_batch_token`.
         self._thumbnail_render_generation = 0
         self._thumbnail_render_running = False
+        # Hashes dispatched in the current generation with no `rendered` signal yet.
+        self._thumbnail_render_pending: set[str] = set()
+        # Hashes a pre-emption cut short, retried once the pre-empting batch is done.
+        self._thumbnail_render_resume: set[str] = set()
         self.flush_export_settings: Optional[Callable[[], None]] = None
 
         self.preview_service = PreviewManager()
@@ -2948,6 +2952,7 @@ class AppController(QObject):
 
         self._thumbnail_render_generation += 1
         self._thumbnail_render_running = True
+        self._thumbnail_render_pending = {f.file_info.get("hash") for f in frames}
         self.set_status(f"Updating {count_of(len(frames), 'thumbnail')}...")
         self.thumbnail_render_requested.emit(
             ThumbnailRenderTask(
@@ -2964,6 +2969,7 @@ class AppController(QObject):
         if not self._thumbnail_render_running:
             return  # late frame from an already-finished or pre-empted generation
         asset_hash = frame.file_info.get("hash")
+        self._thumbnail_render_pending.discard(asset_hash)
         if asset_hash == self.state.current_file_hash:
             return  # opened since dispatch — the live render already owns its thumbnail
         asset = next((a for a in self.state.uploaded_files if a.get("hash") == asset_hash), None)
@@ -2984,20 +2990,37 @@ class AppController(QObject):
     def _on_thumbnail_render_finished(self, count: int) -> None:
         if not self._thumbnail_render_running:
             return  # stale completion from an already-cleared generation
-        self._thumbnail_render_running = False
         self.set_status(f"Updated {count_of(count, 'thumbnail')}", 3000)
+        self._finish_thumbnail_render_generation()
 
     def _on_thumbnail_render_cancelled(self) -> None:
         # Fires whenever real batch work pre-empts a running refresh, which is routine
-        # rather than something the user asked for, so no status message.
-        self._thumbnail_render_running = False
+        # rather than something the user asked for — quiet, but not silent: the frames
+        # it cut off get another try once norm_thread is free again (see
+        # _finish_thumbnail_render_generation).
+        stranded = self._thumbnail_render_pending
+        if stranded:
+            self.set_status(f"Thumbnail update paused for {count_of(len(stranded), 'frame')}; resuming shortly", 3000)
+            self._thumbnail_render_resume |= stranded
+        self._finish_thumbnail_render_generation()
 
     def _on_thumbnail_render_error(self, message: str) -> None:
         if not self._thumbnail_render_running:
             return
-        self._thumbnail_render_running = False
         logger.error("Background thumbnail refresh failed: %s", message)
         self.set_status(f"Thumbnail update failed: {message}", 5000, kind="error")
+        self._finish_thumbnail_render_generation()
+
+    def _finish_thumbnail_render_generation(self) -> None:
+        """Ends the current generation and, if a pre-emption left frames unrendered,
+        immediately requests them again. Qt queues that request behind whatever
+        norm_thread work pre-empted it, so this can never race real batch work."""
+        self._thumbnail_render_running = False
+        self._thumbnail_render_pending = set()
+        if self._thumbnail_render_resume:
+            leftover = list(self._thumbnail_render_resume)
+            self._thumbnail_render_resume.clear()
+            self.refresh_thumbnails_for(leftover)
 
     def detect_aspect_ratio(self) -> None:
         img = self.state.preview_raw
