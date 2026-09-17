@@ -4,7 +4,7 @@ from typing import Optional
 from PyQt6.QtGui import QKeySequence, QShortcut
 
 from negpy.desktop.session import ToolMode
-from negpy.desktop.view.confirm import confirm_reset_roll
+from negpy.desktop.view.confirm import confirm_reset_frames
 from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog, open_sticky_dialog
 from negpy.desktop.view.shortcut_registry import (
     REGISTRY,
@@ -31,7 +31,13 @@ def _context_undo(controller) -> None:
 
 def _reset_roll(window, controller) -> None:
     count = len(controller.session.asset_model.visible_actual_indices_ordered())
-    if count and confirm_reset_roll(window, count) and controller.session.reset_roll_settings(scope="roll"):
+    if count and confirm_reset_frames(window, count, roll=True) and controller.session.reset_roll_settings(scope="roll"):
+        controller.request_render()
+
+
+def _reset_selected(window, controller) -> None:
+    count = len(controller.session.state.selected_indices)
+    if count and confirm_reset_frames(window, count) and controller.session.reset_roll_settings(scope="selection"):
         controller.request_render()
 
 

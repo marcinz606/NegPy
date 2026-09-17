@@ -823,6 +823,22 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertEqual(saved["hash2"], WorkspaceConfig())
         self.assertEqual(saved["hash3"], WorkspaceConfig())
 
+    def test_reset_roll_settings_selection_scope_resets_only_selected_frames(self):
+        self._seed_roll()
+        self.session.asset_model.refresh()
+        self.session.state.selected_indices = [0, 1]  # c.jpg (index 2) left untouched
+        dirty = replace(self.session.state.config, exposure=replace(self.session.state.config.exposure, density=1.8))
+        self.session.update_config(dirty, persist=True)
+        self.mock_repo.load_file_settings.return_value = dirty
+
+        count = self.session.reset_roll_settings(scope="selection")
+
+        self.assertEqual(count, 2)
+        self.assertEqual(self.session.state.config, WorkspaceConfig())
+        saved = {c.args[0] for c in self.mock_repo.save_file_settings.call_args_list}
+        self.assertEqual(saved, {"hash1", "hash2"})
+        self.assertNotIn("hash3", saved)  # not in the selection, left untouched
+
     def test_reset_roll_settings_respects_active_filter(self):
         # Mirrors sync_selected_settings: "whole roll" means the visible (filtered) frames.
         self._seed_roll()

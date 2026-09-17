@@ -143,6 +143,7 @@ def _metered_target():
         "Color",
         "Use Luma Average",
         "Use Color Average",
+        "Normalize",
         "Crosstalk",
         "Single-Shot Narrowband Calibration",
         "Crop",

@@ -1175,7 +1175,8 @@ class DesktopSessionManager(QObject):
 
     def reset_roll_settings(self, scope: str = "roll") -> int:
         """Reset every frame in scope to its own asset defaults, same as Reset Settings
-        but for many frames. Each frame keeps what it *is* (_asset_defaults)."""
+        but for many frames. Each frame keeps what it *is* (_asset_defaults).
+        scope is "roll" (every visible frame) or "selection" (the file-list selection)."""
         if self.state.selected_file_idx == -1:
             return 0
         target_indices = self.asset_model.visible_actual_indices_ordered() if scope == "roll" else self.state.selected_indices
