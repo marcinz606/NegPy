@@ -3260,13 +3260,23 @@ class AppController(QObject):
         self.status_progress_requested.emit(current, total)
         self.batch_progress.emit(current, total, f"{name} [{marker}]")
 
-    def _on_normalization_finished(self, locked_floors: tuple, locked_ceils: tuple) -> None:
+    def _on_normalization_finished(self, locked_floors: tuple, locked_ceils: tuple, outlier_paths: list) -> None:
         """
-        Applies averaged normalization baseline to all files.
+        Applies averaged normalization baseline to all files. A frame with Lock Bounds on
+        keeps its own exposure -- the roll baseline never overwrites a locked frame, so the
+        lock survives a re-run of Batch Analysis. *outlier_paths* are frames whose own
+        measured bounds fell outside the pooled average on at least one channel: they still
+        take the baseline like everyone else (this is a report, not an exemption), but the
+        mismatch is worth a look and often means Use Luma/Color Average should be turned off
+        for that one frame.
         """
         self._end_batch("normalization")
+        locked_skipped = 0
         for f_info in self.state.uploaded_files:
             p = self.session.repo.load_file_settings(f_info["hash"]) or self.session.config_for_asset(f_info)
+            if p.process.lock_bounds:
+                locked_skipped += 1
+                continue
             new_process = replace(
                 p.process,
                 use_luma_average=True,
@@ -3281,18 +3291,26 @@ class AppController(QObject):
                 self.session.push_external_history(f_info["hash"], p, new_p)
             self.session.repo.save_file_settings(f_info["hash"], new_p, file_path=f_info["path"])
 
-        # Update current state
-        new_process = replace(
-            self.state.config.process,
-            use_luma_average=True,
-            use_color_average=True,
-            locked_floors=locked_floors,
-            locked_ceils=locked_ceils,
-            roll_name=None,
-        )
-        self.session.update_config(replace(self.state.config, process=new_process), persist=True)
+        # Update current state, unless it is itself locked.
+        if not self.state.config.process.lock_bounds:
+            new_process = replace(
+                self.state.config.process,
+                use_luma_average=True,
+                use_color_average=True,
+                locked_floors=locked_floors,
+                locked_ceils=locked_ceils,
+                roll_name=None,
+            )
+            self.session.update_config(replace(self.state.config, process=new_process), persist=True)
 
-        self.set_status("Batch analysis complete", timeout=3000)
+        names_by_path = {f["path"]: f["name"] for f in self.state.uploaded_files}
+        outlier_names = [names_by_path.get(p, p) for p in outlier_paths]
+        message = "Batch analysis complete"
+        if locked_skipped:
+            message += f" — {count_of(locked_skipped, 'locked frame')} kept its own exposure"
+        if outlier_names:
+            message += f" — {count_of(len(outlier_names), 'frame')} far from the roll average: " + ", ".join(outlier_names)
+        self.set_status(message, timeout=5000 if outlier_names else 3000)
         self.status_progress_requested.emit(0, 0)
         self.request_render()
 

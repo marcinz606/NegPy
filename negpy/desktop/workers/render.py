@@ -1333,7 +1333,7 @@ class NormalizationWorker(QObject):
     """
 
     progress = pyqtSignal(int, int, str, bool)
-    finished = pyqtSignal(tuple, tuple)
+    finished = pyqtSignal(tuple, tuple, list)
     cancelled = pyqtSignal()
     error = pyqtSignal(str)
 
@@ -1426,7 +1426,7 @@ class NormalizationWorker(QObject):
                         completed += 1
                         count = completed
                     self.progress.emit(count, total, f_info["name"], has_crop)
-                    return bounds.floors, bounds.ceils, f_info["name"]
+                    return bounds.floors, bounds.ceils, f_info["name"], f_info["path"]
                 except Exception as e:
                     logger.error(f"Failed to analyze {f_info['name']}: {e}")
                     async with lock:
@@ -1458,8 +1458,12 @@ class NormalizationWorker(QObject):
 
             floors_arr = np.array([r[0] for r in valid_results])
             ceils_arr = np.array([r[1] for r in valid_results])
+            paths = [r[3] for r in valid_results]
 
-            def get_robust_mean(data: np.ndarray) -> np.ndarray:
+            def robust_mean_and_outliers(data: np.ndarray, outside: np.ndarray) -> np.ndarray:
+                """Per-channel interquartile-trimmed mean; ORs into *outside* which rows
+                (frames) fell outside the trimmed band on this channel -- those frames'
+                own value took no part in the average about to be applied to them."""
                 results = []
                 for ch in range(3):
                     ch_data = data[:, ch]
@@ -1470,6 +1474,7 @@ class NormalizationWorker(QObject):
                     low, high = np.percentile(ch_data, [25, 75])
                     mask = (ch_data >= low) & (ch_data <= high)
                     valid = ch_data[mask]
+                    outside |= ~mask
 
                     if valid.size > 0:
                         results.append(np.mean(valid))
@@ -1477,12 +1482,15 @@ class NormalizationWorker(QObject):
                         results.append(np.mean(ch_data))
                 return np.array(results)
 
-            avg_floors = get_robust_mean(floors_arr)
-            avg_ceils = get_robust_mean(ceils_arr)
+            outside_band = np.zeros(len(valid_results), dtype=bool)
+            avg_floors = robust_mean_and_outliers(floors_arr, outside_band)
+            avg_ceils = robust_mean_and_outliers(ceils_arr, outside_band)
+            outlier_paths = [paths[i] for i in range(len(paths)) if outside_band[i]]
 
             self.finished.emit(
                 tuple(map(float, avg_floors)),
                 tuple(map(float, avg_ceils)),
+                outlier_paths,
             )
 
         except Exception as e:

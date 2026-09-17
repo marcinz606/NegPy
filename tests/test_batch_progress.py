@@ -116,7 +116,7 @@ def test_normalization_worker_cancel_emits_cancelled_no_baseline() -> None:
 
     finished: list[tuple] = []
     cancelled: list[bool] = []
-    worker.finished.connect(lambda f, c: finished.append((f, c)))
+    worker.finished.connect(lambda f, c, o: finished.append((f, c, o)))
     worker.cancelled.connect(lambda: cancelled.append(True))
 
     task = NormalizationTask(

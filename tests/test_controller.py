@@ -338,7 +338,7 @@ class TestAppController(unittest.TestCase):
         self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
 
         with patch.object(self.controller, "_end_batch"), patch.object(self.controller, "request_render"):
-            self.controller._on_normalization_finished((0.0, 0.0, 0.0), (1.0, 1.0, 1.0))
+            self.controller._on_normalization_finished((0.0, 0.0, 0.0), (1.0, 1.0, 1.0), [])
 
         saved = {c.args[0]: c.args[1] for c in self.mock_session_manager.repo.save_file_settings.call_args_list}
         self.assertIn("hash2", saved)
@@ -1982,12 +1982,49 @@ class TestPresetExportSelected(unittest.TestCase):
     def test_batch_normalization_records_history_for_other_files(self):
         self.mock_session_manager.repo.load_file_settings.return_value = None
         self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
-        self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9))
+        self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9), [])
 
         pushed = {c.args[0] for c in self.mock_session_manager.push_external_history.call_args_list}
         # The active file (h2) records its step via update_config(persist=True) instead.
         self.assertEqual(pushed, {"h1", "h3"})
         self.mock_session_manager.update_config.assert_called()
+
+    def test_locked_frame_keeps_its_own_exposure_after_batch_analysis(self):
+        locked_cfg = replace(WorkspaceConfig(), process=replace(WorkspaceConfig().process, lock_bounds=True))
+        self.mock_session_manager.repo.load_file_settings.side_effect = lambda h: locked_cfg if h == "h1" else None
+        self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
+
+        self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9), [])
+
+        saved = {c.args[0]: c.args[1] for c in self.mock_session_manager.repo.save_file_settings.call_args_list}
+        self.assertNotIn("h1", saved)  # locked frame is never rewritten
+        self.assertIn("h3", saved)
+        self.assertTrue(saved["h3"].process.use_luma_average)
+        pushed = {c.args[0] for c in self.mock_session_manager.push_external_history.call_args_list}
+        self.assertNotIn("h1", pushed)  # not even entered into history
+
+    def test_locked_active_frame_is_not_overwritten_in_memory(self):
+        locked_cfg = replace(WorkspaceConfig(), process=replace(WorkspaceConfig().process, lock_bounds=True))
+        self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
+        self.mock_session_manager.state.config = locked_cfg  # h2, the active frame
+
+        self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9), [])
+
+        self.mock_session_manager.update_config.assert_not_called()
+
+    def test_status_message_reports_locked_and_outlier_frames(self):
+        locked_cfg = replace(WorkspaceConfig(), process=replace(WorkspaceConfig().process, lock_bounds=True))
+        self.mock_session_manager.repo.load_file_settings.side_effect = lambda h: locked_cfg if h == "h1" else None
+        self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
+        msgs = []
+        self.controller.status_message_requested.connect(lambda text, *_: msgs.append(text))
+
+        self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9), ["/tmp/scan.tif"])
+
+        message = next(m for m in msgs if "far from the roll average" in m)
+        self.assertIn("locked frame", message)
+        self.assertIn("scan.tif", message)
 
 
 class TestSessionRestore(unittest.TestCase):
