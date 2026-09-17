@@ -7,6 +7,7 @@ from negpy.features.geometry.logic import (
     apply_keystone,
     apply_margin_to_roi,
     apply_radial_distortion,
+    compute_geometry_crop_rect,
     get_manual_rect_coords,
 )
 
@@ -62,6 +63,12 @@ class GeometryProcessor:
                 scale_factor=context.scale_factor,
             )
             context.active_roi = roi
+        elif self.config.crop_to_valid and not self.config.crop_from_auto:
+            h_img, w_img = img.shape[:2]
+            valid_rect = compute_geometry_crop_rect(self.config.fine_rotation, self.config.converge_v, self.config.converge_h, w_img, h_img)
+            context.active_roi = get_manual_rect_coords(
+                img, valid_rect, offset_px=self.config.autocrop_offset, scale_factor=context.scale_factor
+            )
         elif self.config.autocrop_offset > 0:
             h_img, w_img = img.shape[:2]
             margin = self.config.autocrop_offset * context.scale_factor

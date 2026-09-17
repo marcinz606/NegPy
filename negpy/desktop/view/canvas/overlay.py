@@ -34,7 +34,13 @@ from negpy.features.exposure.analysis import (
     zone_region_labels,
 )
 from negpy.features.exposure.densitometer import zone_roman
-from negpy.features.geometry.logic import rotation_drag_angle, smooth_polyline, straighten_delta_degrees, translate_normalized_rect
+from negpy.features.geometry.logic import (
+    compute_geometry_crop_rect,
+    rotation_drag_angle,
+    smooth_polyline,
+    straighten_delta_degrees,
+    translate_normalized_rect,
+)
 from negpy.features.local.logic import min_points, outline_points, overlapping_masks, rasterise
 from negpy.features.local.models import MaskShape
 from negpy.features.retouch.models import HEAL_SIZE_REF
@@ -321,6 +327,12 @@ class CanvasOverlay(QWidget):
         self._rotation_grid_timer.setSingleShot(True)
         self._rotation_grid_timer.timeout.connect(self._hide_rotation_grid)
 
+        self._crop_preview_rect: Optional[Tuple[float, float, float, float]] = None
+        self._crop_preview_visible: bool = False
+        self._crop_preview_timer = QTimer(self)
+        self._crop_preview_timer.setSingleShot(True)
+        self._crop_preview_timer.timeout.connect(self._hide_crop_preview)
+
         # Guide for the line tool. A trace is a slope search over the whole frame, too heavy
         # per mouse-move, so it runs on a debounce and the last result is painted.
         self._line_hover: Optional[tuple] = None
@@ -378,6 +390,30 @@ class CanvasOverlay(QWidget):
 
     def _hide_rotation_grid(self) -> None:
         self._rotation_grid_visible = False
+        self.update()
+
+    def show_crop_preview(self) -> None:
+        """Previews the wedge Crop by Default would trim, while Fine Rot/Tilt/Swing are
+        adjusted; lingers 1s. Measured against the raw pre-transform frame, since the
+        rendered preview is already cropped to the safe rect and would show nothing left
+        to trim."""
+        geo = self.state.config.geometry
+        raw = self.state.preview_raw
+        if not (geo.crop_to_valid and not geo.crop_from_auto) or raw is None:
+            return
+        h, w = raw.shape[:2]
+        if geo.rotation % 2 == 1:
+            w, h = h, w
+        rect = compute_geometry_crop_rect(geo.fine_rotation, geo.converge_v, geo.converge_h, w, h)
+        if rect == (0.0, 0.0, 1.0, 1.0):
+            return
+        self._crop_preview_rect = rect
+        self._crop_preview_visible = True
+        self._crop_preview_timer.start(1000)
+        self.update()
+
+    def _hide_crop_preview(self) -> None:
+        self._crop_preview_visible = False
         self.update()
 
     def set_tool_mode(self, mode: ToolMode) -> None:
@@ -732,6 +768,9 @@ class CanvasOverlay(QWidget):
         if self._rotation_grid_visible:
             self._draw_rotation_grid(painter, visible_rect)
 
+        if self._crop_preview_visible and self._crop_preview_rect:
+            self._draw_crop_preview(painter, visible_rect)
+
         # Keyed off the stashed baseline, not state.compare_mode: the toggle flips before its
         # render lands, and half a split with no before frame is just the edit.
         if self._compare_split_active() and content_aligned:
@@ -763,6 +802,33 @@ class CanvasOverlay(QWidget):
     def _draw_rotation_grid(self, painter: QPainter, visible_rect: QRectF) -> None:
         """Dense leveling grid shown while Fine Rot is adjusted (Lightroom-style)."""
         self._draw_grid(painter, visible_rect, _ROTATION_GRID_DIVISIONS, _GRID_ALPHA)
+
+    def _draw_crop_preview(self, painter: QPainter, visible_rect: QRectF) -> None:
+        """Reconstructs the raw frame's extent around the already-cropped preview and
+        darkens the margin Crop by Default trimmed, an outward twin of the analysis-
+        buffer margin draw (that one darkens inward, from an uncropped frame)."""
+        if self._crop_preview_rect is None:
+            return
+        x1, y1, x2, y2 = self._crop_preview_rect
+        kw, kh = x2 - x1, y2 - y1
+        if kw <= 1e-6 or kh <= 1e-6:
+            return
+        d = visible_rect
+        full_w, full_h = d.width() / kw, d.height() / kh
+        full = QRectF(d.left() - full_w * x1, d.top() - full_h * y1, full_w, full_h)
+
+        painter.setBrush(QColor(0, 0, 0, 140))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRect(QRectF(full.left(), full.top(), full.width(), d.top() - full.top()))
+        painter.drawRect(QRectF(full.left(), d.bottom(), full.width(), full.bottom() - d.bottom()))
+        painter.drawRect(QRectF(full.left(), d.top(), d.left() - full.left(), d.height()))
+        painter.drawRect(QRectF(d.right(), d.top(), full.right() - d.right(), d.height()))
+
+        pen = QPen(QColor(THEME.accent_primary), 1, Qt.PenStyle.DashLine)
+        pen.setCosmetic(True)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(pen)
+        painter.drawRect(d)
 
     def _draw_crop_guides(self, painter: QPainter, rect: QRectF) -> None:
         """Selected composition guide (thirds, phi, spiral, ...) inside the crop rect."""

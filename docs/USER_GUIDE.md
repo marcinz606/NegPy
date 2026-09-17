@@ -499,12 +499,13 @@ Where the frame gets its final shape: what is inside the print, and whether it s
 
 **Alignment:**
 
+*   **Crop by Default**: crop out the wedge Fine Rotation, Tilt and Swing leave behind, so no edge ever shows extrapolated pixels. Applies live, only while no manual or auto crop is set; a drawn or detected crop always takes over from it. While a slider below is being adjusted, the canvas briefly darkens the margin it would trim, fading out after it settles, the same as Fine Rotation's alignment grid.
 *   **Fine Rotation** (±45°): free rotation for tilted scans, in sub-degree steps (positive is clockwise). Applied after auto-crop so the frame stays axis-aligned.
 *   **Straighten** tool (ruler): draw a line along a horizon or vertical edge and NegPy rotates to make it level or plumb.
 *   **Tilt** (±15%): tip the easel about a horizontal axis to straighten converging verticals, the building that leans back because the camera pointed up. Positive stretches the top edge. The unit is per-cent of the frame, what you would measure on the easel, not a tilt angle: the same tilt keystones differently at every enlargement.
 *   **Swing** (±15%): the same movement about a vertical axis, for converging horizontals. A wall shot from one side, or a copy stand not square to the film. Positive stretches the left edge.
 
-    Both replicate a wedge along the squeezed edge, as Fine Rotation does; crop it off. Crop before correcting if you can, because the meters read the corrected frame: on an uncropped scan a big correction pulls rebate and surround into the metered area and the print darkens.
+    Both replicate a wedge along the squeezed edge, as Fine Rotation does; crop it off, or turn on **Crop by Default**. Crop before correcting if you can, because the meters read the corrected frame: on an uncropped scan a big correction pulls rebate and surround into the metered area and the print darkens.
 
 *   **Distortion Correction** (-0.100 to 0.100, in steps of 0.001): radial lens distortion. Positive corrects barrel, negative pincushion. Use the film rebate as a straight-edge reference. Corrected before Tilt and Swing.
 

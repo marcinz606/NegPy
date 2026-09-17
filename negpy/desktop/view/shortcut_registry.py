@@ -48,6 +48,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "crop_guide_next": ShortcutEntry("O", "Next crop guide overlay", "Geometry"),
     "crop_guide_orient": ShortcutEntry("Shift+O", "Rotate crop guide orientation", "Geometry"),
     "auto_crop": ShortcutEntry("Shift+A", "Toggle autocrop", "Geometry"),
+    "crop_to_valid": ShortcutEntry("", "Toggle Crop by Default", "Geometry"),
     "pick_dust": ShortcutEntry("Shift+D", "Toggle heal tool", "Tools"),
     "pick_scratch": ShortcutEntry("Shift+S", "Toggle scratch tool", "Tools"),
     "pick_scratch_line": ShortcutEntry("Shift+K", "Toggle transport-scratch line tool", "Tools"),

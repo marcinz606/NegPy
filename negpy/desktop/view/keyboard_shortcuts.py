@@ -166,6 +166,7 @@ class ShortcutManager:
             "crop_guide_next": lambda: controls.geometry_sidebar.cycle_guide(),
             "crop_guide_orient": controller.cycle_crop_guide_orientation,
             "auto_crop": lambda: controls.geometry_sidebar.reset_crop_btn.toggle(),
+            "crop_to_valid": lambda: controls.geometry_sidebar.crop_to_valid_btn.toggle(),
             "pick_dust": lambda: _toggle_tool_button(self.window, "finish", controls.retouch_sidebar.pick_dust_btn),
             "pick_scratch": lambda: _toggle_tool_button(self.window, "finish", controls.retouch_sidebar.pick_scratch_btn),
             "pick_scratch_line": lambda: _toggle_tool_button(self.window, "finish", controls.retouch_sidebar.pick_line_btn),

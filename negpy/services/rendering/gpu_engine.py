@@ -42,6 +42,7 @@ from negpy.features.geometry.logic import (
     apply_margin_to_roi,
     apply_radial_distortion,
     compute_distortion_scale,
+    compute_geometry_crop_rect,
     get_manual_rect_coords,
 )
 from negpy.features.geometry.models import GeometryConfig
@@ -620,6 +621,13 @@ class GPUEngine:
                     settings.geometry.crop_rect,
                     offset_px=settings.geometry.autocrop_offset,
                     scale_factor=scale_factor,
+                )
+            elif settings.geometry.crop_to_valid and not settings.geometry.crop_from_auto:
+                valid_rect = compute_geometry_crop_rect(
+                    settings.geometry.fine_rotation, settings.geometry.converge_v, settings.geometry.converge_h, w_rot, h_rot
+                )
+                roi = get_manual_rect_coords(
+                    (h_rot, w_rot), valid_rect, offset_px=settings.geometry.autocrop_offset, scale_factor=scale_factor
                 )
             elif settings.geometry.autocrop_offset > 0:
                 margin = settings.geometry.autocrop_offset * scale_factor
@@ -2338,6 +2346,11 @@ class GPUEngine:
                 offset_px=settings.geometry.autocrop_offset,
                 scale_factor=scale_factor,
             )
+        elif settings.geometry.crop_to_valid and not settings.geometry.crop_from_auto:
+            valid_rect = compute_geometry_crop_rect(
+                settings.geometry.fine_rotation, settings.geometry.converge_v, settings.geometry.converge_h, w_rot, h_rot
+            )
+            roi = get_manual_rect_coords((h_rot, w_rot), valid_rect, offset_px=settings.geometry.autocrop_offset, scale_factor=scale_factor)
         elif settings.geometry.autocrop_offset > 0:
             margin = settings.geometry.autocrop_offset * scale_factor
             roi = apply_margin_to_roi((0, h_rot, 0, w_rot), h_rot, w_rot, margin)
