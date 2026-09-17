@@ -114,13 +114,23 @@ class TestThumbnailRefreshController:
         self.controller._end_batch("autocrop", token)
         self.controller._on_thumbnail_render_cancelled()
 
-    def test_dispatch_dropped_when_a_refresh_is_already_running(self) -> None:
+    def test_dispatch_while_already_running_is_folded_into_resume_not_dropped(self) -> None:
+        """A bulk write landing while a generation is already using norm_thread (e.g.
+        Batch Analysis's own completion write, arriving during its own pre-emption
+        window) must not be lost outright — it gets picked up the moment the current
+        generation ends, same as a pre-emption's own leftover frames."""
         self.controller.refresh_thumbnails_for(["other"])
         assert len(self.tasks) == 1
 
         self.controller.refresh_thumbnails_for(["third"])
 
-        assert len(self.tasks) == 1
+        assert len(self.tasks) == 1  # not dispatched yet, but not dropped either
+        assert self.controller._thumbnail_render_resume == {"third"}
+
+        self.controller._on_thumbnail_render_finished(1)
+
+        assert len(self.tasks) == 2
+        assert [f.file_info["hash"] for f in self.tasks[1].frames] == ["third"]
         self.controller._on_thumbnail_render_cancelled()
 
     def test_begin_batch_preempts_a_running_refresh(self) -> None:

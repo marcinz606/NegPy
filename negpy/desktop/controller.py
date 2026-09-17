@@ -2828,6 +2828,7 @@ class AppController(QObject):
         conflicted = 0
         failed = 0
         active_changed = False
+        changed_hashes: list[str] = []
         try:
             for result in results:
                 asset = result.file_info
@@ -2862,6 +2863,7 @@ class AppController(QObject):
                         active_changed = True
                     else:
                         self.session.repo.save_file_settings(asset["hash"], updated, file_path=asset["path"])
+                        changed_hashes.append(asset["hash"])
                     saved += 1
                 except Exception:
                     failed += 1
@@ -2871,6 +2873,9 @@ class AppController(QObject):
             self._autocrop_batch_token = None
             self._autocrop_cancel_requested = False
             self.status_progress_requested.emit(0, 0)
+
+        if changed_hashes:
+            self.session.frames_edited_offscreen.emit(changed_hashes)
 
         unresolved = max(0, self._autocrop_dispatched - len(results))
         preserved = self._autocrop_preflight_skipped + conflicted
@@ -2915,12 +2920,15 @@ class AppController(QObject):
         """Re-render the filmstrip thumbnails of frames a bulk settings write touched
         without opening them. Runs off the shared batch lane so it never blocks Export
         or another user-triggered batch, and never pops the batch progress dialog for
-        what felt like an instant settings change. Drops the request if one is already
-        running; nothing is queued."""
-        if self._thumbnail_render_running:
-            return
+        what felt like an instant settings change. A request that arrives while a
+        generation is already using `norm_thread` is folded into the resume backlog
+        instead of being dropped — otherwise a bulk write landing during, say, Batch
+        Analysis's own pre-emption window would be lost outright."""
         wanted = set(hashes)
         if not wanted:
+            return
+        if self._thumbnail_render_running:
+            self._thumbnail_render_resume |= wanted
             return
         seen_keys: set[str] = set()
         frames: list[ThumbnailRenderInput] = []
@@ -2995,13 +3003,10 @@ class AppController(QObject):
 
     def _on_thumbnail_render_cancelled(self) -> None:
         # Fires whenever real batch work pre-empts a running refresh, which is routine
-        # rather than something the user asked for — quiet, but not silent: the frames
-        # it cut off get another try once norm_thread is free again (see
-        # _finish_thumbnail_render_generation).
-        stranded = self._thumbnail_render_pending
-        if stranded:
-            self.set_status(f"Thumbnail update paused for {count_of(len(stranded), 'frame')}; resuming shortly", 3000)
-            self._thumbnail_render_resume |= stranded
+        # rather than something the user asked for, so no status message here — the
+        # resume dispatch below, if any, sets its own "Updating N thumbnails..." right
+        # after this returns, which is the accurate, visible one.
+        self._thumbnail_render_resume |= self._thumbnail_render_pending
         self._finish_thumbnail_render_generation()
 
     def _on_thumbnail_render_error(self, message: str) -> None:
@@ -3012,9 +3017,11 @@ class AppController(QObject):
         self._finish_thumbnail_render_generation()
 
     def _finish_thumbnail_render_generation(self) -> None:
-        """Ends the current generation and, if a pre-emption left frames unrendered,
-        immediately requests them again. Qt queues that request behind whatever
-        norm_thread work pre-empted it, so this can never race real batch work."""
+        """Ends the current generation and, if anything is backlogged, immediately
+        redispatches it. Safe only because every `norm_thread` batch's own dispatch —
+        `_begin_batch` plus its `*_requested.emit(...)` — runs in one straight line with
+        no return to the event loop in between; that ordering is what keeps this
+        redispatch queued behind, never ahead of, the batch that pre-empted it."""
         self._thumbnail_render_running = False
         self._thumbnail_render_pending = set()
         if self._thumbnail_render_resume:
