@@ -2057,6 +2057,22 @@ class TestPresetExportSelected(unittest.TestCase):
         self.assertEqual(pushed, {"h1", "h3"})
         self.mock_session_manager.update_config.assert_called()
 
+    def test_batch_normalization_offers_other_files_for_a_thumbnail_refresh(self):
+        self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
+        self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9))
+
+        self.mock_session_manager.frames_edited_offscreen.emit.assert_called_once_with(["h1", "h3"])
+
+    def test_apply_normalization_roll_offers_other_files_for_a_thumbnail_refresh(self):
+        self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.mock_session_manager.repo.load_normalization_roll.return_value = ((0.1, 0.1, 0.1), (0.9, 0.9, 0.9))
+        self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
+
+        self.controller.apply_normalization_roll("Roll A")
+
+        self.mock_session_manager.frames_edited_offscreen.emit.assert_called_once_with(["h1", "h3"])
+
 
 class TestSessionRestore(unittest.TestCase):
     def setUp(self):
