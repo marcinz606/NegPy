@@ -32,7 +32,7 @@ struct TransferUniforms {
     cast_gain: vec4<f32>,
     cast_offset: vec4<f32>,
     // Dye Separation: x = k, uniform across channels (no paper matrix, no per-layer
-    // trims on this path). yzw unused.
+    // trims on this path). y = Separation Damping (0 = off). zw unused.
     separation: vec4<f32>,
 };
 
@@ -63,6 +63,17 @@ fn display_rendering(v: f32) -> f32 {
 fn oetf_encode(t: f32) -> f32 {
     let x = max(t, 0.0);
     return pow(x, 0.45470693);
+}
+
+// One pixel's effective dye-separation k; mirrors separation_damping_gain in
+// exposure/logic.py. 0.35 mirrors separation_damping_ref_spread in models.py --
+// change both. Copied from exposure.wgsl (WGSL has no includes).
+fn separation_damping_gain(k: f32, damping: f32, chroma: f32) -> f32 {
+    if (k <= 0.0) {
+        return 0.0;
+    }
+    let h = (0.35 - chroma) / (0.35 + chroma);
+    return min(pow(k, (1.0 - damping) + damping * h), 3.0);
 }
 
 @compute @workgroup_size(8, 8)
@@ -123,9 +134,18 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     // Dye Separation: M(k) = diag(k) + (1-k)*J (papers.resolve_saturation_matrix),
     // collapsed to a scalar mean because k is uniform across channels on this path.
+    // Separation Damping makes k chroma-dependent per pixel instead, one k since it
+    // is already uniform here (see separation_damping_gain).
     if (params.separation.x != 1.0) {
         let mean = (dens.x + dens.y + dens.z) / 3.0;
-        dens = vec3<f32>(mean) + params.separation.x * (dens - vec3<f32>(mean));
+        let e = dens - vec3<f32>(mean);
+        if (params.separation.y > 0.0) {
+            let chroma = sqrt(((e.x - e.y) * (e.x - e.y) + (e.y - e.z) * (e.y - e.z) + (e.x - e.z) * (e.x - e.z)) / 3.0);
+            let k_eff = separation_damping_gain(params.separation.x, params.separation.y, chroma);
+            dens = vec3<f32>(mean) + k_eff * e;
+        } else {
+            dens = vec3<f32>(mean) + params.separation.x * e;
+        }
     }
 
     for (var ch = 0; ch < 3; ch++) {

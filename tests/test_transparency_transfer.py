@@ -432,6 +432,16 @@ class TestControlsStayLive(unittest.TestCase):
         boosted = self._rendered(dye_separation=2.0)
         self.assertGreater(float(np.abs(boosted[..., 0] - boosted[..., 2]).mean()), base_chroma)
 
+    def test_separation_damping_still_tapers_the_push_with_no_paper_here_either(self):
+        """Separation Damping has no per-layer model on this path (it takes the one
+        uniform k), but the chroma taper itself needs no paper and must still run."""
+        flat = self._rendered(dye_separation=1.4)
+        damped = self._rendered(dye_separation=1.4, separation_damping=1.0)
+        self.assertGreater(float(np.abs(flat - damped).max()), 1e-4)
+
+        # Inert without a separation push, same as on the print path.
+        self.assertTrue(np.array_equal(self.base, self._rendered(separation_damping=1.0)))
+
     def test_curve_stays_monotonic_under_extreme_settings(self):
         for overrides in (
             {"toe": 1.0, "shoulder": 1.0},
@@ -652,6 +662,18 @@ class TestGpuTransferParity(unittest.TestCase):
         off_cpu, off_gpu = self._both(settings)
         self.assertGreater(float(np.abs(cpu - off_cpu).max()), 0.01, "dye separation inert on the CPU")
         self.assertGreater(float(np.abs(gpu - off_gpu).max()), 0.01, "dye separation inert on the GPU")
+
+    def test_separation_damping_matches(self):
+        """Separation Damping's chroma taper carries no per-layer model on this path
+        either, and CPU/GPU must taper the shared k by the same law."""
+        flat = _e6_config(dye_separation=1.4)
+        damped = _e6_config(dye_separation=1.4, separation_damping=1.0)
+        cpu, gpu = self._both(damped)
+        self._assert_parity(cpu, gpu)
+
+        flat_cpu, flat_gpu = self._both(flat)
+        self.assertGreater(float(np.abs(cpu - flat_cpu).max()), 0.01, "damping inert on the CPU")
+        self.assertGreater(float(np.abs(gpu - flat_gpu).max()), 0.01, "damping inert on the GPU")
 
     def test_cast_removal_matches(self):
         """Cast Removal reaches this curve as a per-channel affine the shader mirrors in

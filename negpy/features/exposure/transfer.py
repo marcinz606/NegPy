@@ -29,6 +29,8 @@ Controls map onto the existing Print sliders, each neutral at its current defaul
                     re-centred onto this curve's own scale (see zone_geometry)
   dye_separation (1.0) -> density-domain saturation, applied directly to density
                     (there is no paper dye matrix here to compose it into)
+  separation_damping (0.0) -> tapers that saturation by each pixel's own chroma
+                    (see logic.separation_damping_gain)
 """
 
 from typing import Optional, Tuple
@@ -36,7 +38,12 @@ from typing import Optional, Tuple
 import numpy as np
 
 from negpy.domain.types import ImageBuffer
-from negpy.features.exposure.logic import per_channel_dye_separation, per_channel_toe_shoulder, per_channel_widths
+from negpy.features.exposure.logic import (
+    per_channel_dye_separation,
+    per_channel_toe_shoulder,
+    per_channel_widths,
+    separation_damping_gain_np,
+)
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.kernel.image.validation import ensure_image
 
@@ -227,6 +234,7 @@ def apply_transfer_curve(
     cast_offset: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     positive_source: bool = False,
     separation: float = 1.0,
+    damping: float = 0.0,
 ) -> ImageBuffer:
     """
     Normalized log density -> scene-linear positive.
@@ -244,6 +252,8 @@ def apply_transfer_curve(
     channel and before decode. It shares its math with the print path's
     resolve_saturation_matrix but not its per-layer trims or paper crosstalk: this
     curve has neither, so it collapses to a scalar mean rather than a 3x3 matmul.
+    `damping` is Separation Damping, tapering that same k by each pixel's own chroma
+    (see logic.separation_damping_gain); inert at separation 1.0, same as on the print.
     """
     c = TRANSFER_CONSTANTS
     base_width = float(c["transfer_knee_width"])
@@ -305,7 +315,16 @@ def apply_transfer_curve(
         # scalar mean: k is uniform across channels here, since this curve has no
         # per-layer dye model to trim against and no paper base to measure above.
         mean = dens.mean(axis=2, keepdims=True)
-        dens = mean + np.float32(sep_k) * (dens - mean)
+        e = dens - mean
+        if damping > 0.0:
+            # Separation Damping makes k chroma-dependent per pixel, so a static mean
+            # scale can't carry it — same law as the print path, one k since it is
+            # uniform here (see separation_damping_gain_np).
+            chroma = np.sqrt(((e[:, :, 0] - e[:, :, 1]) ** 2 + (e[:, :, 1] - e[:, :, 2]) ** 2 + (e[:, :, 0] - e[:, :, 2]) ** 2) / 3.0)
+            k_eff = separation_damping_gain_np(sep_k, damping, chroma, float(EXPOSURE_CONSTANTS["separation_damping_ref_spread"]))
+            dens = mean + k_eff[:, :, np.newaxis] * e
+        else:
+            dens = mean + np.float32(sep_k) * e
 
     out = np.power(np.float32(10.0), -dens, dtype=np.float32)
 

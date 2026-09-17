@@ -447,10 +447,10 @@ class ToneSidebar(BaseSidebar):
                 self.midtone_gamma_slider,
                 self.shadow_grade_slider,
                 self.highlight_grade_slider,
-                # Dye Separation stays: the transfer curve applies it directly, with no
-                # paper matrix to compose into (see features/exposure/transfer.py).
+                # Dye Separation and Separation Damping stay: the transfer curve applies
+                # both directly, with no paper matrix to compose into (see
+                # features/exposure/transfer.py). Only the per-layer trims need a paper.
                 self.dye_separation_trim_slider,
-                self.separation_damping_slider,
                 # The transfer curve takes no dodge/burn map, and the mask rides it.
                 self.contrast_mask_slider,
                 self.mask_spacer_slider,
@@ -475,7 +475,7 @@ class ToneSidebar(BaseSidebar):
             self.sh_w_trim_slider.setVisible(not global_mode)
             self.dye_separation_slider.setVisible(global_mode and not is_bw)
             self.dye_separation_trim_slider.setVisible(not global_mode and not is_bw and not transfer)
-            self.separation_damping_slider.setVisible(global_mode and not is_bw and not transfer)
+            self.separation_damping_slider.setVisible(global_mode and not is_bw)
             self.toe_slider.label.setText("Toe" + suffix)
             self.sh_slider.label.setText("Shoulder" + suffix)
             self.midtone_gamma_slider.label.setText("Snap" + suffix)
