@@ -88,6 +88,7 @@ class FakeController:
         self.config_updated = self._mock.config_updated
         self.image_updated = self._mock.image_updated
         self.tool_sync_requested = self._mock.tool_sync_requested
+        self.thumbnail_refresh_running = False
 
     def __getattr__(self, name):
         return getattr(self._mock, name)

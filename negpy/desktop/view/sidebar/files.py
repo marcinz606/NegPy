@@ -564,6 +564,11 @@ class FileBrowser(QWidget):
         self.apply_btn.setToolTip("Apply settings from the current frame to selected frames or the whole roll")
         self.apply_btn.clicked.connect(self._open_apply_dialog)
 
+        self.update_thumbnails_btn = QToolButton()
+        self.update_thumbnails_btn.setIcon(qta.icon("fa5s.sync-alt", color=THEME.text_primary))
+        self.update_thumbnails_btn.setToolTip("Update Thumbnails — re-render every stale thumbnail in the roll")
+        self.update_thumbnails_btn.clicked.connect(self._on_update_thumbnails_clicked)
+
         # Sheet filter dropdown
         self.sheet_btn = QToolButton()
         self.sheet_btn.setToolTip("Sheet — filter the contact sheet by triage mark")
@@ -620,6 +625,7 @@ class FileBrowser(QWidget):
             self.half_frame_btn,
             self.half_frame_menu_btn,
             self.apply_btn,
+            self.update_thumbnails_btn,
             self.sheet_btn,
             self.sort_btn,
         ):
@@ -640,6 +646,7 @@ class FileBrowser(QWidget):
             (self.half_frame_btn, "Half Frame"),
             (self.half_frame_menu_btn, "Half Frame actions"),
             (self.apply_btn, "Apply settings"),
+            (self.update_thumbnails_btn, "Update thumbnails"),
             (None, None),
             (self.sheet_btn, "Sheet filter"),
             (self.sort_btn, "Sort"),
@@ -778,6 +785,7 @@ class FileBrowser(QWidget):
         self.rgb_scan_btn.toggled.connect(self._on_rgb_scan_toggled)
         self.controller.rgb_scan_mode_changed.connect(self._sync_rgb_scan_button)
         self.half_frame_btn.toggled.connect(self._on_half_frame_toggled)
+        self.controller.thumbnail_refresh_state_changed.connect(self._on_thumbnail_refresh_state_changed)
         self.session.state_changed.connect(self.sync_ui)
         self.session.files_changed.connect(self._on_files_changed)
         self.controller.thumbnail_activity_changed.connect(self._thumbnail_delegate.set_activity)
@@ -1307,6 +1315,22 @@ class FileBrowser(QWidget):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.session.sync_selected_settings(dlg.selected(), dlg.bounds_flags(), dlg.scope())
 
+    def _on_update_thumbnails_clicked(self) -> None:
+        if self.controller.thumbnail_refresh_running:
+            self.controller.cancel_thumbnail_refresh()
+        else:
+            self.controller.request_thumbnail_refresh("roll")
+
+    def _on_thumbnail_refresh_state_changed(self, running: bool) -> None:
+        """Same button starts and stops it: a refresh over a very large folder needs a
+        way out that isn't waiting for it to finish."""
+        if running:
+            self.update_thumbnails_btn.setIcon(qta.icon("fa5s.stop-circle", color=THEME.text_primary))
+            self.update_thumbnails_btn.setToolTip("Cancel Thumbnail Update — stop the background refresh in progress")
+        else:
+            self.update_thumbnails_btn.setIcon(qta.icon("fa5s.sync-alt", color=THEME.text_primary))
+            self.update_thumbnails_btn.setToolTip("Update Thumbnails — re-render every stale thumbnail in the roll")
+
     def _build_session_menu(self) -> QMenu:
         """Mirrors the panel toolbar's add/clear tools, for a right click on empty space."""
         icon_color = THEME.text_primary
@@ -1350,6 +1374,12 @@ class FileBrowser(QWidget):
         act_reject.triggered.connect(lambda: self.session.toggle_mark("excluded"))
         menu.addSeparator()
         menu.addAction("Apply Settings…").triggered.connect(self._open_apply_dialog)
+        if self.controller.thumbnail_refresh_running:
+            menu.addAction("Cancel Thumbnail Update").triggered.connect(lambda: self.controller.cancel_thumbnail_refresh())
+        else:
+            menu.addAction(f"Update {count_of(n, 'thumbnail')}" if multi else "Update Thumbnail").triggered.connect(
+                lambda: self.controller.request_thumbnail_refresh("selection")
+            )
         if multi:
             menu.addSeparator()
             menu.addAction("Stitch Selected Frames").triggered.connect(lambda: self.controller.request_stitch_selected())

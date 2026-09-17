@@ -255,7 +255,9 @@ The bottom-left badge is gray, not red, because it reports what the frame *is* r
 
 Hover any thumbnail and the tooltip says the same thing in words, with the frame count: *HDR merge of 5 exposures*, *Stitched composite of 3 frames*.
 
-The right-click menu also offers **Copy/Paste Settings** (with or without normalization bounds), **Reset Settings**, **Apply Settings…**, and per-frame export. A copy that took the bounds lists them in the paste picker as **Normalization bounds**, ticked; untick it to paste the look and keep the frame's own bounds.
+The right-click menu also offers **Copy/Paste Settings** (with or without normalization bounds), **Reset Settings**, **Apply Settings…**, **Update Thumbnail(s)**, and per-frame export. A copy that took the bounds lists them in the paste picker as **Normalization bounds**, ticked; untick it to paste the look and keep the frame's own bounds.
+
+**Update Thumbnails** on the toolbar re-renders every stale thumbnail in the roll in one click; the context-menu entry does the same for just the current selection — both work in the background, without opening the frames. Either turns into **Cancel** while it runs, for a folder too large to want to wait out.
 
 ---
 

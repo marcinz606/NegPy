@@ -367,3 +367,96 @@ class TestThumbnailRefreshController:
 
         assert self.tasks[0].frames[0].config == custom
         self.controller._on_thumbnail_render_cancelled()
+
+    def test_request_thumbnail_refresh_selection_scope_uses_the_multi_selection(self) -> None:
+        self.controller.state.selected_indices = [1, 2]  # other, third
+
+        self.controller.request_thumbnail_refresh("selection")
+
+        assert [f.file_info["hash"] for f in self.tasks[0].frames] == ["other", "third"]
+        self.controller._on_thumbnail_render_cancelled()
+
+    def test_request_thumbnail_refresh_selection_scope_falls_back_to_the_active_frame(self) -> None:
+        """No multi-selection: the currently active/single-selected frame is the target
+        (matching Keep/Reject's own targets fallback in the context menu)."""
+        self.controller.state.selected_indices = []
+        self.controller.state.selected_file_idx = 1  # other
+
+        self.controller.request_thumbnail_refresh("selection")
+
+        assert [f.file_info["hash"] for f in self.tasks[0].frames] == ["other"]
+        self.controller._on_thumbnail_render_cancelled()
+
+    def test_request_thumbnail_refresh_roll_scope_uses_every_visible_frame(self) -> None:
+        self.session.asset_model.visible_actual_indices_ordered.return_value = [0, 1, 2]
+
+        self.controller.request_thumbnail_refresh("roll")
+
+        # The active frame is excluded by refresh_thumbnails_for itself.
+        assert [f.file_info["hash"] for f in self.tasks[0].frames] == ["other", "third"]
+        self.controller._on_thumbnail_render_cancelled()
+
+    def test_request_thumbnail_refresh_with_nothing_selected_reports_status_not_a_dispatch(self) -> None:
+        self.controller.state.selected_indices = []
+        self.controller.state.selected_file_idx = -1
+        statuses = []
+        self.controller.status_message_requested.connect(lambda msg, *_a, **_k: statuses.append(msg))
+
+        self.controller.request_thumbnail_refresh("selection")
+
+        assert self.tasks == []
+        assert statuses == ["Nothing to update"]
+
+    def test_thumbnail_refresh_state_changed_fires_on_dispatch_and_on_finish(self) -> None:
+        states = []
+        self.controller.thumbnail_refresh_state_changed.connect(states.append)
+
+        self.controller.refresh_thumbnails_for(["other"])
+        assert states == [True]
+
+        self.controller._on_thumbnail_render_finished(1)
+        assert states == [True, False]
+
+    def test_cancel_thumbnail_refresh_stops_a_running_generation_without_resuming(self) -> None:
+        """The user's own escape hatch: unlike a real batch's pre-emption, nothing
+        gets requested again after this — a very large accidental folder must
+        actually be stoppable, not just paused."""
+        self.controller.refresh_thumbnails_for(["other", "third"])
+        assert self.controller.thumbnail_refresh_running is True
+
+        self.controller.cancel_thumbnail_refresh()
+        self.controller._on_thumbnail_render_cancelled()  # simulates the worker's async signal
+
+        assert self.controller.thumbnail_refresh_running is False
+        assert self.controller._thumbnail_render_resume == set()
+        assert len(self.tasks) == 1  # no resume dispatch
+
+    def test_cancel_thumbnail_refresh_sets_a_status_message(self) -> None:
+        self.controller.refresh_thumbnails_for(["other"])
+        statuses = []
+        self.controller.status_message_requested.connect(lambda msg, *_a, **_k: statuses.append(msg))
+
+        self.controller.cancel_thumbnail_refresh()
+        self.controller._on_thumbnail_render_cancelled()
+
+        assert statuses == ["Thumbnail update cancelled"]
+
+    def test_cancel_thumbnail_refresh_also_discards_an_already_folded_backlog(self) -> None:
+        """A bulk write folded into the resume backlog while a manual refresh was
+        running must not survive a Cancel either — the user asked to stop, full stop."""
+        self.controller.refresh_thumbnails_for(["other"])
+        self.controller.refresh_thumbnails_for(["third"])  # folded, not dispatched
+        assert self.controller._thumbnail_render_resume == {"third"}
+
+        self.controller.cancel_thumbnail_refresh()
+        self.controller._on_thumbnail_render_cancelled()
+
+        assert self.controller._thumbnail_render_resume == set()
+        assert len(self.tasks) == 1
+
+    def test_cancel_thumbnail_refresh_is_a_noop_with_nothing_running(self) -> None:
+        self.controller.thumbnail_render_worker.cancel = MagicMock()
+
+        self.controller.cancel_thumbnail_refresh()
+
+        self.controller.thumbnail_render_worker.cancel.assert_not_called()

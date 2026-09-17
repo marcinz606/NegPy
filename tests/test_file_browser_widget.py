@@ -54,6 +54,7 @@ def session(qapp):
 def browser(session):
     controller = MagicMock()
     controller.session = session
+    controller.thumbnail_refresh_running = False
     return FileBrowser(controller)
 
 
@@ -137,6 +138,33 @@ def test_context_menu_single_selection_items(browser, session):
     assert "Reset Settings" in labels
     assert "Unload…" in labels
     assert "Apply Settings…" in labels
+    assert "Update Thumbnail" in labels
+    assert "Update Thumbnails" not in labels
+
+
+def test_context_menu_update_thumbnail_requests_the_selection_scope(browser, session):
+    session.state.selected_indices = [0]
+    session.state.selected_file_idx = 0
+    menu = browser._build_context_menu()
+    action = next(a for a in menu.actions() if a.text() == "Update Thumbnail")
+    action.trigger()
+    browser.controller.request_thumbnail_refresh.assert_called_once_with("selection")
+
+
+def test_context_menu_offers_cancel_while_a_refresh_is_running(browser, session):
+    session.state.selected_indices = [0]
+    session.state.selected_file_idx = 0
+    browser.controller.thumbnail_refresh_running = True
+
+    labels = _action_labels(browser._build_context_menu())
+
+    assert "Cancel Thumbnail Update" in labels
+    assert "Update Thumbnail" not in labels
+
+    menu = browser._build_context_menu()
+    action = next(a for a in menu.actions() if a.text() == "Cancel Thumbnail Update")
+    action.trigger()
+    browser.controller.cancel_thumbnail_refresh.assert_called_once_with()
 
 
 def test_context_menu_offers_unsplit_only_for_a_diptych(browser, session):
@@ -226,6 +254,14 @@ def test_context_menu_multi_selection_uses_export_selected(browser, session):
     labels = _action_labels(browser._build_context_menu())
     assert "Export Selected Frames" in labels
     assert "Export Current Frame" not in labels
+
+
+def test_context_menu_multi_selection_counts_update_thumbnails(browser, session):
+    session.state.selected_indices = [0, 1]
+    session.state.selected_file_idx = 0
+    labels = _action_labels(browser._build_context_menu())
+    assert "Update 2 thumbnails" in labels
+    assert "Update Thumbnail" not in labels
 
 
 def test_context_menu_multi_selection_adds_apply_and_remove_selected(browser, session):

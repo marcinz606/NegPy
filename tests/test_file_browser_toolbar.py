@@ -42,10 +42,38 @@ def test_toolbar_keeps_every_action(panel):
         browser.half_frame_btn,
         browser.half_frame_menu_btn,
         browser.apply_btn,
+        browser.update_thumbnails_btn,
         browser.sheet_btn,
         browser.sort_btn,
     ]
     assert toolbar.buttons == expected
+
+
+def test_update_thumbnails_button_refreshes_the_whole_roll(panel):
+    panel.file_browser.update_thumbnails_btn.click()
+    panel.file_browser.controller.request_thumbnail_refresh.assert_called_once_with("roll")
+
+
+def test_update_thumbnails_button_cancels_instead_while_running(panel):
+    panel.file_browser.controller.thumbnail_refresh_running = True
+
+    panel.file_browser.update_thumbnails_btn.click()
+
+    panel.file_browser.controller.cancel_thumbnail_refresh.assert_called_once_with()
+    panel.file_browser.controller.request_thumbnail_refresh.assert_not_called()
+
+
+def test_update_thumbnails_button_reflects_the_running_state(panel):
+    browser = panel.file_browser
+    idle_tip = browser.update_thumbnails_btn.toolTip()
+
+    browser._on_thumbnail_refresh_state_changed(True)
+    running_tip = browser.update_thumbnails_btn.toolTip()
+    assert running_tip != idle_tip
+    assert "Cancel" in running_tip
+
+    browser._on_thumbnail_refresh_state_changed(False)
+    assert browser.update_thumbnails_btn.toolTip() == idle_tip
 
 
 def test_narrowing_the_panel_raises_a_populated_overflow_menu(panel, qapp):

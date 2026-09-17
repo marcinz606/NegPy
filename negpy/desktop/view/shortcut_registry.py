@@ -29,6 +29,8 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "hdr_merge": ShortcutEntry("", "Merge selected exposures into one HDR frame", "Triage"),
     "hdr_unmerge": ShortcutEntry("", "Unmerge an HDR frame back into its exposures", "Triage"),
     "half_frame_undiptych": ShortcutEntry("", "Unsplit a diptych back into one plain frame", "Triage"),
+    "update_thumbnails_selection": ShortcutEntry("", "Update selected frames' thumbnails", "Triage"),
+    "update_thumbnails_roll": ShortcutEntry("", "Update thumbnails for the whole roll", "Triage"),
     "toggle_compare": ShortcutEntry("\\", "Before/after split (auto baseline)", "Tools"),
     "rotate_cw": ShortcutEntry("]", "Rotate 90° CW", "Geometry"),
     "rotate_ccw": ShortcutEntry("[", "Rotate 90° CCW", "Geometry"),
