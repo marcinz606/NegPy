@@ -642,6 +642,30 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.session.sync_selected_settings([])
         self.mock_repo.save_file_settings.assert_not_called()
 
+    def test_sync_selected_settings_emits_frames_edited_offscreen(self):
+        self.session.state.selected_file_idx = 0
+        self.session.state.current_file_hash = "hash1"
+        self.session.state.config = WorkspaceConfig(exposure=replace(WorkspaceConfig().exposure, density=1.5))
+        self.mock_repo.load_file_settings.return_value = WorkspaceConfig()
+        offscreen = []
+        self.session.frames_edited_offscreen.connect(offscreen.append)
+
+        self.session.update_selection([0, 1])
+        self.session.sync_selected_settings([_row("Print Density")])
+
+        self.assertEqual(offscreen, [["hash2"]])
+
+    def test_sync_selected_settings_empty_emits_nothing(self):
+        self.session.state.selected_file_idx = 0
+        self.session.state.current_file_hash = "hash1"
+        offscreen = []
+        self.session.frames_edited_offscreen.connect(offscreen.append)
+
+        self.session.update_selection([0, 1])
+        self.session.sync_selected_settings([])
+
+        self.assertEqual(offscreen, [])
+
     def test_apply_pasted_fields_applies_subset_and_renders(self):
         self.session.state.current_file_hash = "hash1"
         self.session.state.config = replace(WorkspaceConfig(), lab=replace(WorkspaceConfig().lab, saturation=1.9))

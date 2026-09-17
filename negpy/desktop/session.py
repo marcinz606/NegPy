@@ -610,6 +610,7 @@ class DesktopSessionManager(QObject):
     settings_copied = pyqtSignal()
     settings_pasted = pyqtSignal()
     settings_synced = pyqtSignal(str)  # Bulk "Apply to selected" done — carries a status message
+    frames_edited_offscreen = pyqtSignal(list)  # hashes whose saved edits changed without a render
     file_selected = pyqtSignal(str)  # Emits file path when active file changes
     session_emptied = pyqtSignal()  # Last file removed — the viewer must blank the stale frame
 
@@ -1106,6 +1107,7 @@ class DesktopSessionManager(QObject):
         target_indices = self.asset_model.visible_actual_indices_ordered() if scope == "roll" else self.state.selected_indices
 
         count = 0
+        changed_hashes: list[str] = []
         for idx in target_indices:
             if idx == self.state.selected_file_idx or not (0 <= idx < len(self.state.uploaded_files)):
                 continue
@@ -1123,6 +1125,7 @@ class DesktopSessionManager(QObject):
                 synced = replace(synced, process=replace(synced.process, **changes))
             self.push_external_history(target_hash, target_config, synced)
             self.repo.save_file_settings(target_hash, synced, file_path=target_path)
+            changed_hashes.append(target_hash)
             count += 1
 
         if count:
@@ -1134,6 +1137,7 @@ class DesktopSessionManager(QObject):
                 msg = f"{n} {noun} synced to {count} frame{'s' if count != 1 else ''}"
             self.settings_synced.emit(msg)
             self.settings_saved.emit()
+            self.frames_edited_offscreen.emit(changed_hashes)
         return count
 
     def apply_preset_fields(self, source: WorkspaceConfig, rows, scope: str = "current") -> int:
@@ -1152,6 +1156,7 @@ class DesktopSessionManager(QObject):
             target_indices = [self.state.selected_file_idx]
 
         count = 0
+        changed_hashes: list[str] = []
         for idx in target_indices:
             if not (0 <= idx < len(self.state.uploaded_files)):
                 continue
@@ -1164,6 +1169,7 @@ class DesktopSessionManager(QObject):
             synced = apply_selected_fields(source, target_config, rows)
             self.push_external_history(target_hash, target_config, synced)
             self.repo.save_file_settings(target_hash, synced, file_path=self.state.uploaded_files[idx]["path"])
+            changed_hashes.append(target_hash)
             count += 1
 
         if count:
@@ -1171,6 +1177,8 @@ class DesktopSessionManager(QObject):
             noun = "setting" if n == 1 else "settings"
             self.settings_synced.emit(f"Preset applied: {n} {noun} to {count} frame{'s' if count != 1 else ''}")
             self.settings_saved.emit()
+            if changed_hashes:
+                self.frames_edited_offscreen.emit(changed_hashes)
         return count
 
     def next_file(self) -> None:

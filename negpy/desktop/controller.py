@@ -42,6 +42,9 @@ from negpy.desktop.workers.render import (
     RenderTask,
     RenderWorker,
     TestStripTask,
+    ThumbnailRenderInput,
+    ThumbnailRenderTask,
+    ThumbnailRenderWorker,
     ThumbnailUpdateTask,
     ThumbnailWorker,
 )
@@ -154,6 +157,9 @@ logger = get_logger(__name__)
 # Busy toasts are cleared when the frame lands; the timeout is only a backstop for a
 # render that dies without reaching _on_render_finished.
 _BUSY_TOAST_MS = 30000
+# Batch owners that share norm_thread (and its CPU) with the background thumbnail
+# refresh — the only ones a running refresh actually needs to get out of the way of.
+_NORM_THREAD_BATCH_OWNERS = frozenset({"autocrop", "normalization"})
 
 
 @dataclass(frozen=True)
@@ -306,6 +312,7 @@ class AppController(QObject):
     preview_load_requested = pyqtSignal(PreviewLoadTask)
     normalization_requested = pyqtSignal(NormalizationTask)
     batch_autocrop_requested = pyqtSignal(BatchAutoCropTask)
+    thumbnail_render_requested = pyqtSignal(ThumbnailRenderTask)
     analysis_buffer_preview_requested = pyqtSignal(float)
     analysis_buffer_drag_changed = pyqtSignal(bool)
     rotation_guide_requested = pyqtSignal()
@@ -437,10 +444,16 @@ class AppController(QObject):
         self._autocrop_dispatched = 0
         self._autocrop_preflight_skipped = 0
         self._autocrop_cancel_requested = False
+        # Background thumbnail refresh runs off the shared batch lane entirely — it must
+        # never block Export or another user-triggered batch — so it tracks its own
+        # generation instead of `_batch_serial`/`_active_batch_token`.
+        self._thumbnail_render_generation = 0
+        self._thumbnail_render_running = False
         self.flush_export_settings: Optional[Callable[[], None]] = None
 
         self.preview_service = PreviewManager()
         self.batch_autocrop_preview_service = PreviewManager()
+        self.thumbnail_render_preview_service = PreviewManager()
         self.watcher = FolderWatchService()
         self.asset_store = LocalAssetStore(APP_CONFIG.cache_dir, APP_CONFIG.user_icc_dir)
         self.asset_store.initialize()
@@ -471,6 +484,8 @@ class AppController(QObject):
         self.norm_worker.moveToThread(self.norm_thread)
         self.batch_autocrop_worker = BatchAutoCropWorker(self.batch_autocrop_preview_service)
         self.batch_autocrop_worker.moveToThread(self.norm_thread)
+        self.thumbnail_render_worker = ThumbnailRenderWorker(self.thumbnail_render_preview_service)
+        self.thumbnail_render_worker.moveToThread(self.norm_thread)
         self.norm_thread.start()
 
         self.discovery_thread = QThread()
@@ -699,6 +714,14 @@ class AppController(QObject):
         self.batch_autocrop_worker.cancelled.connect(self._on_batch_autocrop_cancelled)
         self.batch_autocrop_worker.error.connect(self._on_batch_autocrop_error)
 
+        self.thumbnail_render_requested.connect(self.thumbnail_render_worker.process)
+        self.thumbnail_render_worker.progress.connect(self._on_thumbnail_render_progress)
+        self.thumbnail_render_worker.rendered.connect(self._on_thumbnail_rendered)
+        self.thumbnail_render_worker.finished.connect(self._on_thumbnail_render_finished)
+        self.thumbnail_render_worker.cancelled.connect(self._on_thumbnail_render_cancelled)
+        self.thumbnail_render_worker.error.connect(self._on_thumbnail_render_error)
+        self.session.frames_edited_offscreen.connect(self.refresh_thumbnails_for)
+
         self.asset_discovery_requested.connect(self.discovery_worker.process)
         self.discovery_worker.progress.connect(self._on_discovery_progress)
         self.discovery_worker.finished.connect(self._on_discovery_finished)
@@ -896,6 +919,8 @@ class AppController(QObject):
         if self._active_batch is not None:
             self.set_status(f"{self._active_batch_title} is already running", 3000)
             return None
+        if owner in _NORM_THREAD_BATCH_OWNERS:
+            self._preempt_background_thumbnail_refresh()
         self._batch_serial += 1
         self._active_batch = owner
         self._active_batch_title = title
@@ -1184,6 +1209,7 @@ class AppController(QObject):
             self.session.update_config(new_config, persist=True, render=not reload_needed)
 
         count = 0
+        changed_hashes: list[str] = []
         for asset in self.session.state.uploaded_files:
             file_hash = asset["hash"]
             if file_hash == self.state.current_file_hash:
@@ -1204,6 +1230,7 @@ class AppController(QObject):
             )
             self.session.push_external_history(file_hash, saved, updated)
             self.session.repo.save_file_settings(file_hash, updated, file_path=asset["path"])
+            changed_hashes.append(file_hash)
             count += 1
 
         if reload_needed and self.state.current_file_path:
@@ -1211,6 +1238,7 @@ class AppController(QObject):
         if count:
             self.session.settings_synced.emit(f"Scanning setup applied to {count} other frame{'s' if count != 1 else ''}")
             self.session.settings_saved.emit()
+            self.session.frames_edited_offscreen.emit(changed_hashes)
 
     def set_half_frame_mode(self, enabled: bool) -> None:
         """Persist the half-frame toggle and re-discover already-loaded assets so the
@@ -2872,6 +2900,105 @@ class AppController(QObject):
         logger.error("Auto Crop All failed: %s", message)
         self.set_status(f"Auto Crop All failed: {message}", 5000, kind="error")
 
+    def _preempt_background_thumbnail_refresh(self) -> None:
+        """Give real batch work immediate use of `norm_thread` and its CPU: the
+        background refresh checks for a cancel between every frame, so it yields
+        within one frame's processing time instead of finishing the whole roll first."""
+        if self._thumbnail_render_running:
+            self.thumbnail_render_worker.cancel(self._thumbnail_render_generation)
+
+    def refresh_thumbnails_for(self, hashes: list[str]) -> None:
+        """Re-render the filmstrip thumbnails of frames a bulk settings write touched
+        without opening them. Runs off the shared batch lane so it never blocks Export
+        or another user-triggered batch, and never pops the batch progress dialog for
+        what felt like an instant settings change. Drops the request if one is already
+        running; nothing is queued."""
+        if self._thumbnail_render_running:
+            return
+        wanted = set(hashes)
+        if not wanted:
+            return
+        seen_keys: set[str] = set()
+        frames: list[ThumbnailRenderInput] = []
+        for asset in self.state.uploaded_files:
+            asset_hash = asset.get("hash")
+            if asset_hash not in wanted or asset_hash == self.state.current_file_hash:
+                continue
+            # A diptych row's canvas render joins two half configs; a whole-frame
+            # render would not reproduce it, and a bulk apply writes the whole-scan
+            # hash the diptych render does not read.
+            if self.diptych_pair(asset) is not None:
+                continue
+            key = asset_thumbnail_key(asset)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            config = self._config_for_batch_asset(asset)
+            frames.append(
+                ThumbnailRenderInput(
+                    file_info=asset,
+                    config=config,
+                    thumbnail_key=key,
+                    icc_input_active=bool(self.effective_input_icc(config.process)),
+                )
+            )
+
+        if not frames:
+            return
+
+        self._thumbnail_render_generation += 1
+        self._thumbnail_render_running = True
+        self.set_status(f"Updating {count_of(len(frames), 'thumbnail')}...")
+        self.thumbnail_render_requested.emit(
+            ThumbnailRenderTask(
+                frames=frames,
+                workspace_color_space=self.state.workspace_color_space,
+                generation=self._thumbnail_render_generation,
+            )
+        )
+
+    def _on_thumbnail_render_progress(self, current: int, total: int, name: str) -> None:
+        self.set_status(f"Updating thumbnail {current}/{total}: {name}")
+
+    def _on_thumbnail_rendered(self, frame: ThumbnailRenderInput, buffer: np.ndarray) -> None:
+        if not self._thumbnail_render_running:
+            return  # late frame from an already-finished or pre-empted generation
+        asset_hash = frame.file_info.get("hash")
+        if asset_hash == self.state.current_file_hash:
+            return  # opened since dispatch — the live render already owns its thumbnail
+        asset = next((a for a in self.state.uploaded_files if a.get("hash") == asset_hash), None)
+        if asset is None or self._config_for_batch_asset(asset) != frame.config:
+            return  # removed, or edited again since dispatch — this render is stale
+        cs, monitor_bytes, proof = self.display_transform_params(process=frame.config.process)
+        self.thumbnail_update_requested.emit(
+            ThumbnailUpdateTask(
+                file_hash=frame.thumbnail_key,
+                buffer=buffer,
+                color_space=cs,
+                monitor_icc_bytes=monitor_bytes,
+                proof=proof,
+                persist=True,
+            )
+        )
+
+    def _on_thumbnail_render_finished(self, count: int) -> None:
+        if not self._thumbnail_render_running:
+            return  # stale completion from an already-cleared generation
+        self._thumbnail_render_running = False
+        self.set_status(f"Updated {count_of(count, 'thumbnail')}", 3000)
+
+    def _on_thumbnail_render_cancelled(self) -> None:
+        # Fires whenever real batch work pre-empts a running refresh, which is routine
+        # rather than something the user asked for, so no status message.
+        self._thumbnail_render_running = False
+
+    def _on_thumbnail_render_error(self, message: str) -> None:
+        if not self._thumbnail_render_running:
+            return
+        self._thumbnail_render_running = False
+        logger.error("Background thumbnail refresh failed: %s", message)
+        self.set_status(f"Thumbnail update failed: {message}", 5000, kind="error")
+
     def detect_aspect_ratio(self) -> None:
         img = self.state.preview_raw
         if img is None:
@@ -4011,7 +4138,9 @@ class AppController(QObject):
             cam_xyz = wb_only_cam_xyz(cam_xyz)
         return cam_xyz, self.state.preview_camera_wb
 
-    def display_transform_params(self, splash: bool = False, proofed: bool = True) -> tuple[str, Optional[bytes], Optional[tuple]]:
+    def display_transform_params(
+        self, splash: bool = False, proofed: bool = True, process: Optional[ProcessConfig] = None
+    ) -> tuple[str, Optional[bytes], Optional[tuple]]:
         """Everything the display transform needs for the current render, as
         ``(color_space, monitor_icc_bytes, proof)``.
 
@@ -4023,22 +4152,25 @@ class AppController(QObject):
         untouched. ``splash`` marks the embedded camera thumbnail, already sRGB.
         ``proofed`` is False for a working-space buffer that is not a print: the
         negative peek shows the scan, which a paper simulation would misdescribe.
+        ``process`` overrides the active frame's for a background render of another
+        frame, whose narrowband-profile state can differ.
         """
         if splash:
             return ColorSpace.SRGB.value, self.state.monitor_icc_bytes, None
-        proof = self.proof_profiles() if proofed else None
+        proof = self.proof_profiles(process) if proofed else None
         return self.state.workspace_color_space, self.state.monitor_icc_bytes, proof
 
-    def proof_profiles(self) -> Optional[ProofCondition]:
+    def proof_profiles(self, process: Optional[ProcessConfig] = None) -> Optional[ProofCondition]:
         """The `ProofCondition` the preview simulates, or None when off.
 
         Narrowband Scan supplies an implicit *input* profile whether or not the
         soft-proof toggle is on; the output profile only applies with the toggle.
         """
+        p = process if process is not None else self.state.config.process
         proofing = self.state.soft_proof_enabled
-        if not (proofing or narrowband_profile_active(self.state.config.process)):
+        if not (proofing or narrowband_profile_active(p)):
             return None
-        icc_input = self.effective_input_icc()
+        icc_input = self.effective_input_icc(p)
         icc_output = self.effective_proof_icc() if proofing else None
         if not (icc_input or icc_output):
             return None
@@ -5697,6 +5829,7 @@ class AppController(QObject):
             self.thumb_thread.wait()
         self._autocrop_cancel_requested = True
         self.batch_autocrop_worker.cancel(self._autocrop_batch_token)
+        self.thumbnail_render_worker.cancel(self._thumbnail_render_generation)
         if self.norm_thread.isRunning():
             self.norm_thread.quit()
             self.norm_thread.wait()

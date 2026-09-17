@@ -266,7 +266,7 @@ class ImageProcessor:
     Seamlessly switches between CPU (DarkroomEngine) and GPU (GPUEngine).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, use_gpu: bool = True) -> None:
         self.engine_cpu = DarkroomEngine()
         self.engine_gpu: Optional[GPUEngine] = None
 
@@ -339,7 +339,7 @@ class ImageProcessor:
         # RenderWorker. The caller runs on the render thread, so keep it to a signal emit.
         self.on_slow_step: Optional[Callable[[str], None]] = None
 
-        if APP_CONFIG.use_gpu:
+        if use_gpu and APP_CONFIG.use_gpu:
             gpu = GPUDevice.get()
             if gpu.is_available:
                 self.engine_gpu = GPUEngine()

@@ -13,6 +13,7 @@ from negpy.features.exposure.analysis import color_histogram, output_histogram, 
 from negpy.features.flatfield.logic import apply_flatfield
 from negpy.features.hdr.models import HdrConfig, hdr_active
 from negpy.features.geometry.batch_autocrop import CropEvidence, detect_crop_candidate, resolve_roll_crops
+from negpy.features.process.capture_color import wb_only_cam_xyz
 from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix
 from negpy.features.process.logic import effective_highlight_reconstruction, effective_linear_raw, highlight_reconstruction_bakes_wb
 from negpy.features.process.models import DemosaicMode
@@ -160,6 +161,28 @@ class BatchAutoCropResult:
     correction_angle: float
     confidence: float
     calibrated: bool
+
+
+@dataclass(frozen=True)
+class ThumbnailRenderInput:
+    """One frame and its post-write settings for a background thumbnail refresh."""
+
+    file_info: dict
+    config: WorkspaceConfig
+    thumbnail_key: str
+    # Whether an Input ICC (explicit override or the implicit Narrowband Scan profile)
+    # applies to this frame — mirrors AppController.effective_input_icc, resolved at
+    # dispatch since the worker has no session state to check it itself.
+    icc_input_active: bool = False
+
+
+@dataclass(frozen=True)
+class ThumbnailRenderTask:
+    """Request to re-render a set of frames' thumbnails off the live render path."""
+
+    frames: list[ThumbnailRenderInput]
+    workspace_color_space: str
+    generation: int = 0
 
 
 @dataclass(frozen=True)
@@ -1281,8 +1304,19 @@ def decode_asset_preview(
     config: WorkspaceConfig,
     workspace_color_space: str,
 ) -> np.ndarray:
-    """Decode one asset the way the render path does: a composite through the merge that
-    assembles it, a plain frame direct.
+    """Decode one asset the way the render path does. See `_decode_asset_preview_with_meta`."""
+    return _decode_asset_preview_with_meta(preview_service, file_info, config, workspace_color_space)[0]
+
+
+def _decode_asset_preview_with_meta(
+    preview_service,
+    file_info: dict,
+    config: WorkspaceConfig,
+    workspace_color_space: str,
+) -> tuple[np.ndarray, dict]:
+    """Decode one asset the way the render path does, with its loader metadata: a stitch
+    through its stored registration, a composite through the merge that assembles it, a
+    plain frame direct — the same branch order `PreviewLoadWorker.process` uses.
 
     A batch that decodes only ``file_info["path"]`` sees one member of the composite. For a
     triplet that member holds real signal in the red channel alone, so anything measured off
@@ -1291,6 +1325,7 @@ def decode_asset_preview(
     from negpy.services.assets.half_frame import base_hash, slice_for_asset
 
     rgbscan = config.rgbscan
+    stitch = config.stitch
     common = {
         "use_camera_wb": not effective_linear_raw(config.process, config.exposure.render_intent),
         "full_resolution": False,
@@ -1298,8 +1333,16 @@ def decode_asset_preview(
         "demosaic": config.process.demosaic_preview,
     }
     hdr = config.hdr
-    if hdr.hdr_enabled and hdr.hdr_paths:
-        raw, _, _ = preview_service.load_linear_preview_hdr(
+    if stitch_active(stitch):
+        raw, _, meta = preview_service.load_linear_preview_stitch(
+            file_info["path"],
+            stitch,
+            workspace_color_space,
+            flatfield_profile_id=config.flatfield.profile_id if (stitch.stitch_enabled and config.flatfield.apply) else "",
+            **common,
+        )
+    elif hdr.hdr_enabled and hdr.hdr_paths:
+        raw, _, meta = preview_service.load_linear_preview_hdr(
             file_info["path"],
             hdr,
             workspace_color_space,
@@ -1310,9 +1353,9 @@ def decode_asset_preview(
     elif rgbscan.enabled and rgbscan.green_path and rgbscan.blue_path:
         # Narrowband triplet: no highlight_mode param, same reasoning as the decode path —
         # a single raw channel per exposure has no "highlight color" to reconstruct.
-        raw, _, _ = preview_service.load_linear_preview_rgb(file_info["path"], rgbscan, workspace_color_space, **common)
+        raw, _, meta = preview_service.load_linear_preview_rgb(file_info["path"], rgbscan, workspace_color_space, **common)
     else:
-        raw, _, _ = preview_service.load_linear_preview(
+        raw, _, meta = preview_service.load_linear_preview(
             file_info["path"],
             workspace_color_space,
             positive_source=config.process.positive_source,
@@ -1320,7 +1363,7 @@ def decode_asset_preview(
             bake_camera_wb=highlight_reconstruction_bakes_wb(config.process, config.exposure.render_intent),
             **common,
         )
-    return slice_for_asset(raw, file_info)
+    return slice_for_asset(raw, file_info), meta
 
 
 class BatchAutoCropWorker(QObject):
@@ -1480,6 +1523,123 @@ class BatchAutoCropWorker(QObject):
                 if self._active_generation == generation:
                     self._active_generation = None
             logger.exception("Auto Crop All worker failure")
+            self.error.emit(str(exc))
+
+
+class ThumbnailRenderWorker(QObject):
+    """Re-render frames a bulk settings write touched but did not open, off the live render
+    path. Its own CPU-only ImageProcessor never contends with the live render's GPU texture
+    pool, and its own PreviewManager cache never evicts the navigation cache. Generation-
+    scoped cancel mirrors BatchAutoCropWorker."""
+
+    rendered = pyqtSignal(object, object)  # ThumbnailRenderInput, ndarray — the frame rides
+    # along so the controller can re-check the asset is still current before persisting.
+    progress = pyqtSignal(int, int, str)
+    finished = pyqtSignal(int)  # frames rendered
+    cancelled = pyqtSignal()
+    error = pyqtSignal(str)
+
+    def __init__(self, preview_service) -> None:
+        super().__init__()
+        self._preview_service = preview_service
+        self._processor = ImageProcessor(use_gpu=False)
+        self._cancel_lock = threading.RLock()
+        self._cancelled_generations: set[int] = set()
+        self._active_generation: int | None = None
+
+    def cancel(self, generation: int | None = None) -> None:
+        """Cancel one queued/running generation without poisoning a later run."""
+        with self._cancel_lock:
+            target = self._active_generation if generation is None else generation
+            self._cancelled_generations.add(0 if target is None else int(target))
+
+    def _emit_cancelled_if_requested(self, generation: int) -> bool:
+        with self._cancel_lock:
+            if generation not in self._cancelled_generations:
+                return False
+            self._cancelled_generations.discard(generation)
+            if self._active_generation == generation:
+                self._active_generation = None
+        self.cancelled.emit()
+        return True
+
+    def _cancel_requested(self, generation: int) -> bool:
+        with self._cancel_lock:
+            return generation in self._cancelled_generations
+
+    def _emit_finished_unless_cancelled(self, generation: int, rendered_count: int) -> None:
+        """Atomically choose the terminal signal for a generation, so a `cancel()` racing
+        the last frame's completion cannot land between the check and the emit."""
+        with self._cancel_lock:
+            if generation in self._cancelled_generations:
+                self._cancelled_generations.discard(generation)
+                if self._active_generation == generation:
+                    self._active_generation = None
+                cancelled = True
+            else:
+                if self._active_generation == generation:
+                    self._active_generation = None
+                cancelled = False
+                self.finished.emit(rendered_count)
+        if cancelled:
+            self.cancelled.emit()
+
+    @pyqtSlot(ThumbnailRenderTask)
+    def process(self, task: ThumbnailRenderTask) -> None:
+        """Render each frame sequentially: the CPU engine is already multi-core via numba,
+        and one frame at a time keeps the live UI responsive while the user keeps editing."""
+        generation = int(task.generation)
+        with self._cancel_lock:
+            self._active_generation = generation
+        if self._emit_cancelled_if_requested(generation):
+            return
+        total = len(task.frames)
+        rendered_count = 0
+        try:
+            for done, frame in enumerate(task.frames, 1):
+                if self._cancel_requested(generation):
+                    break
+                name = str(frame.file_info.get("name") or frame.file_info.get("path") or done)
+                try:
+                    buffer, meta = _decode_asset_preview_with_meta(
+                        self._preview_service, frame.file_info, frame.config, task.workspace_color_space
+                    )
+                    cam_xyz = meta.get("cam_xyz")
+                    if frame.icc_input_active:
+                        cam_xyz = wb_only_cam_xyz(cam_xyz)
+                    if not self._cancel_requested(generation):
+                        result, _metrics = self._processor.run_pipeline(
+                            buffer,
+                            frame.config,
+                            frame.file_info["hash"],
+                            render_size_ref=float(APP_CONFIG.preview_render_size),
+                            prefer_gpu=False,
+                            readback_metrics=False,
+                            wants_uv_grid=False,
+                            cache_stages=False,
+                            ir_buffer=meta.get("ir_preview"),
+                            detect_buffer=meta.get("detect_preview"),
+                            cam_xyz=cam_xyz,
+                            camera_wb=meta.get("camera_wb"),
+                        )
+                        if isinstance(result, np.ndarray) and not self._cancel_requested(generation):
+                            self.rendered.emit(frame, np.ascontiguousarray(result[:, :, :3]))
+                            rendered_count += 1
+                except Exception:
+                    if self._cancel_requested(generation):
+                        break
+                    logger.exception("Background thumbnail refresh skipped failed frame %s", name)
+                self.progress.emit(done, total, name)
+
+            self._processor.cleanup(release_source_cache=True, collect=False)
+            self._emit_finished_unless_cancelled(generation, rendered_count)
+        except Exception as exc:
+            if self._emit_cancelled_if_requested(generation):
+                return
+            with self._cancel_lock:
+                if self._active_generation == generation:
+                    self._active_generation = None
+            logger.exception("Background thumbnail refresh worker failure")
             self.error.emit(str(exc))
 
 

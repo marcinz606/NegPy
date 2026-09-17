@@ -164,6 +164,15 @@ class TestApplyScanSetup(unittest.TestCase):
         saved_hashes = [c.args[0] for c in self.repo.save_file_settings.call_args_list]
         self.assertNotIn("h3", saved_hashes)
 
+    def test_rewritten_frames_are_offered_for_a_background_thumbnail_refresh(self):
+        self.controller.apply_scan_setup("scanner", "narrowband")
+        self.mock_session_manager.frames_edited_offscreen.emit.assert_called_once_with(["h2"])
+
+    def test_no_rewrites_emits_nothing(self):
+        self.repo.load_file_settings.side_effect = lambda h: None
+        self.controller.apply_scan_setup("scanner", "narrowband")
+        self.mock_session_manager.frames_edited_offscreen.emit.assert_not_called()
+
     def test_bulk_rewrite_is_undoable_per_frame(self):
         self.controller.apply_scan_setup("scanner", "narrowband")
         self.mock_session_manager.push_external_history.assert_called_once()

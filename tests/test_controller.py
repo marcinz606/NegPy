@@ -2781,14 +2781,14 @@ class TestDisplayTransformParams(unittest.TestCase):
         self.assertIsNotNone(proof)
 
     def test_proof_inactive_converts_from_the_working_space(self):
-        self.controller.proof_profiles = lambda: None
+        self.controller.proof_profiles = lambda process=None: None
         cs, monitor, proof = self.controller.display_transform_params()
         self.assertEqual(cs, self.controller.state.workspace_color_space)
         self.assertEqual(monitor, b"fake-monitor-profile")
         self.assertIsNone(proof)
 
     def test_splash_buffer_is_treated_as_srgb(self):
-        self.controller.proof_profiles = lambda: None
+        self.controller.proof_profiles = lambda process=None: None
         cs, monitor, proof = self.controller.display_transform_params(splash=True)
         self.assertEqual(cs, ColorSpace.SRGB.value)
         self.assertEqual(monitor, b"fake-monitor-profile")
