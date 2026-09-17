@@ -131,8 +131,7 @@ def test_mode_buttons_track_config_and_switch_mode(qapp):
     assert not color_btn.isChecked() and not bw_btn.isChecked()
 
     bw_btn.click()
-    (new_cfg,), _kw = controller.apply_config.call_args
-    assert new_cfg.process.process_mode == ProcessMode.BW
+    controller.set_process_mode.assert_called_once_with(ProcessMode.BW)
 
 
 def test_lock_bounds_sits_in_the_analysis_row_and_hides_on_the_transparency_transfer(qapp):
@@ -170,5 +169,4 @@ def test_positive_toggle_reaches_the_controller(qapp):
     sidebar.sync_ui()
 
     sidebar.positive_source_btn.setChecked(True)
-    (new_cfg,), _kw = controller.apply_config.call_args
-    assert new_cfg.process.positive_source is True
+    controller.set_positive_source.assert_called_once_with(True)

@@ -32,7 +32,7 @@ from negpy.features.exposure.transfer import (
     transfer_widths,
 )
 from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
-from negpy.features.process.models import ProcessConfig, ProcessMode, cast_removal_for_mode
+from negpy.features.process.models import ProcessConfig, ProcessMode, auto_meter_for_positive_source, cast_removal_for_mode
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 
 # A real camera's XYZ->cam matrix (Nikon Z6/Z7-class), so the color maths is exercised
@@ -466,6 +466,25 @@ class TestAutomaticGradingIsOff(unittest.TestCase):
         cfg = _e6_config()
         strong = replace(cfg, process=replace(cfg.process, crosstalk_strength=1.0))
         self.assertLess(float(np.abs(_run_stages(img, cfg)[0] - _run_stages(img, strong)[0]).max()), 1e-6)
+
+
+class TestAutoMeterForPositiveSource(unittest.TestCase):
+    """auto_meter_for_positive_source: the boundary AppController.set_positive_source
+    rewrites Auto Density/Auto Grade through when the toggle is flipped."""
+
+    def test_untouched_negative_default_turns_off_for_positive(self):
+        self.assertFalse(auto_meter_for_positive_source(True, current=True))
+
+    def test_already_off_stays_off_entering_positive(self):
+        # Already matches Positive's own target, whether that is a negative user's
+        # deliberate choice or Positive's own default reapplied -- either way, a no-op.
+        self.assertFalse(auto_meter_for_positive_source(True, current=False))
+
+    def test_untouched_positive_default_turns_on_leaving_positive(self):
+        self.assertTrue(auto_meter_for_positive_source(False, current=False))
+
+    def test_already_on_stays_on_leaving_positive(self):
+        self.assertTrue(auto_meter_for_positive_source(False, current=True))
 
 
 class TestNormalizationContract(unittest.TestCase):

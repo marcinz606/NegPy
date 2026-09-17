@@ -156,6 +156,50 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertEqual(plain_config.rgbscan, RgbScanConfig())
         self.assertIs(self.session.state.config, leaked)
 
+    def test_config_for_asset_applies_the_active_rolls_defaults(self):
+        rolls_store = {"r1": {"kind": "virtual", "name": "Portra", "defaults": {"linear_raw": True}}}
+        globals_ = {"rolls_by_id": rolls_store}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: globals_.get(key, default)
+        self.session.state.active_roll_id = "r1"
+        asset = {"name": "a.dng", "path": "/roll/a.dng", "hash": "a-hash"}
+
+        with patch("negpy.desktop.session.load_or_promote", return_value=None):
+            config = self.session.config_for_asset(asset)
+
+        self.assertTrue(config.process.linear_raw)
+
+    def test_config_for_asset_ignores_roll_defaults_with_no_active_roll(self):
+        rolls_store = {"r1": {"kind": "virtual", "name": "Portra", "defaults": {"linear_raw": True}}}
+        globals_ = {"rolls_by_id": rolls_store}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: globals_.get(key, default)
+        self.session.state.active_roll_id = None
+        asset = {"name": "a.dng", "path": "/roll/a.dng", "hash": "a-hash"}
+
+        with patch("negpy.desktop.session.load_or_promote", return_value=None):
+            config = self.session.config_for_asset(asset)
+
+        self.assertFalse(config.process.linear_raw)
+
+    def test_config_for_asset_respects_a_frames_locked_card(self):
+        rolls_store = {
+            "r1": {
+                "kind": "virtual",
+                "name": "Portra",
+                "defaults": {"linear_raw": True},
+                "frame_overrides": {"a-hash": ["sensor"]},
+            }
+        }
+        globals_ = {"rolls_by_id": rolls_store}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: globals_.get(key, default)
+        self.session.state.active_roll_id = "r1"
+        asset = {"name": "a.dng", "path": "/roll/a.dng", "hash": "a-hash"}
+        saved = replace(WorkspaceConfig(), process=replace(WorkspaceConfig().process, linear_raw=False))
+
+        with patch("negpy.desktop.session.load_or_promote", return_value=saved):
+            config = self.session.config_for_asset(asset)
+
+        self.assertFalse(config.process.linear_raw)
+
     def test_set_autodetect_enabled_persists(self):
         self.assertFalse(self.session.state.autodetect_enabled)
         self.session.set_autodetect_enabled(True)
@@ -792,6 +836,91 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.mock_repo.save_history_step.assert_called_with("hash1", 1, edited)
         self.assertEqual(self.session.state.undo_index, 2)
 
+    def test_reset_roll_resets_the_active_frame_in_place(self):
+        self.session.select_file(0)
+        dirty = replace(self.session.state.config, exposure=replace(self.session.state.config.exposure, density=1.8))
+        self.session.update_config(dirty, persist=True)
+
+        self.session.reset_roll(self.session.state.uploaded_files)
+
+        self.assertEqual(self.session.state.config, WorkspaceConfig())
+
+    def test_reset_roll_writes_other_frames_straight_to_the_db(self):
+        self.session.select_file(0)  # hash1 active; hash2 is the "other" frame
+
+        self.session.reset_roll(self.session.state.uploaded_files)
+
+        self.mock_repo.save_file_settings.assert_any_call("hash2", WorkspaceConfig(), file_path="path2")
+        # Recorded as an external history step, undoable after switching to it.
+        steps = [c.args for c in self.mock_repo.save_history_step.call_args_list if c.args[0] == "hash2"]
+        self.assertEqual(len(steps), 2)
+        self.assertEqual(steps[1][2], WorkspaceConfig())
+
+    def test_reset_roll_does_not_touch_a_frame_outside_the_given_list(self):
+        self.session.select_file(0)
+        only_hash1 = [self.session.state.uploaded_files[0]]
+
+        self.session.reset_roll(only_hash1)
+
+        for c in self.mock_repo.save_file_settings.call_args_list:
+            self.assertNotEqual(c.args[0], "hash2")
+
+    def test_rehome_folder_paths_repoints_every_matching_asset(self):
+        self.session.state.uploaded_files = [
+            {"name": "a.tif", "path": "/scans/roll_a/a.tif", "hash": "ha"},
+            {"name": "b.tif", "path": "/scans/roll_a/sub/b.tif", "hash": "hb"},
+            {"name": "c.tif", "path": "/elsewhere/c.tif", "hash": "hc"},
+        ]
+
+        self.session.rehome_folder_paths("/scans/roll_a", "/scans/roll_b")
+
+        paths = [f["path"] for f in self.session.state.uploaded_files]
+        self.assertEqual(paths, ["/scans/roll_b/a.tif", "/scans/roll_b/sub/b.tif", "/elsewhere/c.tif"])
+
+    def test_rehome_folder_paths_updates_the_active_file_path(self):
+        self.session.state.uploaded_files = [{"name": "a.tif", "path": "/scans/roll_a/a.tif", "hash": "ha"}]
+        self.session.state.current_file_path = "/scans/roll_a/a.tif"
+
+        self.session.rehome_folder_paths("/scans/roll_a", "/scans/roll_b")
+
+        self.assertEqual(self.session.state.current_file_path, "/scans/roll_b/a.tif")
+
+    def test_rehome_folder_paths_rewrites_composite_part_paths(self):
+        self.session.state.uploaded_files = [
+            {
+                "name": "triplet",
+                "path": "/scans/roll_a/r.tif",
+                "hash": "ha",
+                "green_path": "/scans/roll_a/g.tif",
+                "blue_path": "/scans/roll_a/b.tif",
+            },
+            {
+                "name": "stitch",
+                "path": "/scans/roll_a/1.tif",
+                "hash": "hb",
+                "stitch_paths": ["/scans/roll_a/1.tif", "/scans/roll_a/2.tif"],
+                "stitch_transforms": [[1, 0, 0], [0, 1, 0]],
+                "stitch_canvas": [100, 100],
+                "stitch_sizes": [[50, 100], [50, 100]],
+            },
+        ]
+
+        self.session.rehome_folder_paths("/scans/roll_a", "/scans/roll_b")
+
+        triplet, stitch = self.session.state.uploaded_files
+        self.assertEqual(triplet["green_path"], "/scans/roll_b/g.tif")
+        self.assertEqual(triplet["blue_path"], "/scans/roll_b/b.tif")
+        self.assertEqual(stitch["stitch_paths"], ["/scans/roll_b/1.tif", "/scans/roll_b/2.tif"])
+
+    def test_rehome_folder_paths_is_a_noop_when_nothing_matches(self):
+        self.session.state.uploaded_files = [{"name": "c.tif", "path": "/elsewhere/c.tif", "hash": "hc"}]
+        self.mock_repo.save_global_setting.reset_mock()
+
+        self.session.rehome_folder_paths("/scans/roll_a", "/scans/roll_b")
+
+        self.assertEqual(self.session.state.uploaded_files[0]["path"], "/elsewhere/c.tif")
+        self.mock_repo.save_global_setting.assert_not_called()
+
     def test_sync_to_roll_records_target_history(self):
         self.mock_repo.get_max_history_index.return_value = 0
         self.mock_repo.load_history_step.return_value = None
@@ -1214,6 +1343,37 @@ class TestThumbnailKeying(unittest.TestCase):
         session.remove_current_file()
 
         self.assertEqual(session.state.thumbnails, {keys[1]: "thumb-b"})
+
+    def test_push_external_history_flags_stale_under_the_thumbnail_cache_key(self):
+        """push_external_history (a bulk apply reaching a non-active file) adds
+        asset_thumbnail_key(asset) to stale_thumbnails, not the bare hash -- the read
+        side (the film strip's dot, the tooltip) must key the same way or the flag,
+        though set, never matches anything and the indicator never shows."""
+        from PyQt6.QtCore import Qt
+
+        from negpy.desktop.view.sidebar.files import _ThumbnailDelegate
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
+        repo = MagicMock(spec=StorageRepository)
+        repo.get_global_setting.return_value = None
+        repo.load_file_settings.return_value = None
+        repo.load_file_settings_by_path.return_value = None
+        repo.load_file_settings_many.return_value = {}
+        repo.get_max_history_index.return_value = 0
+        session = DesktopSessionManager(repo)
+        asset = {"name": "a.nef", "path": "/a.nef", "hash": "h1"}
+        session.state.uploaded_files = [asset]
+
+        session.push_external_history("h1", WorkspaceConfig(), WorkspaceConfig())
+
+        self.assertIn(asset_thumbnail_key(asset), session.state.stale_thumbnails)
+
+        model = AssetListModel(session.state)
+        tooltip = model.data(model.index(0, 0), Qt.ItemDataRole.ToolTipRole)
+        self.assertIn("predates a settings change", tooltip)
+
+        delegate = _ThumbnailDelegate(state=session.state)
+        self.assertTrue(delegate._is_stale_thumbnail(asset))
 
 
 class TestSearchFacts(unittest.TestCase):

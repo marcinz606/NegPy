@@ -100,8 +100,11 @@ def build(window: "MainWindow") -> list[TutorialStep]:
     def _zone_density(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.tone_sidebar.shadow_density_slider
 
-    def _gear_manage(w: "MainWindow") -> Optional[QWidget]:
-        return w.right_panel.metadata_sidebar.manage_btn
+    def _metadata(w: "MainWindow") -> Optional[QWidget]:
+        return w.right_panel.metadata_sidebar
+
+    def _gear_library(w: "MainWindow") -> Optional[QWidget]:
+        return w.right_panel.gear_panel.items.category_list
 
     def _narrowband(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.sensor_sidebar.narrowband_scan_btn
@@ -717,24 +720,29 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             pre_hook=lambda w: w.right_panel.show_tab_by_key("history"),
         ),
         TutorialStep(
-            title="Metadata & Gear Library",
+            title="Metadata",
             body=(
                 "The <b>Metadata</b> tab writes film and scan info, meaning stock, format, "
-                "developer, push/pull and scanner, into the EXIF/XMP of exported files.<br><br>"
-                "<b>Manage…</b> opens the <b>Gear Library</b>: a searchable, user-extendable "
-                "library of cameras, lenses and film stocks. Gear picked for a frame rides "
-                "into the exported XMP.<br><br>"
-                "<b>Protect original metadata</b> keeps the source file's EXIF/XMP untouched "
-                "instead of NegPy rewriting it."
+                "developer, push/pull and scanner, into the EXIF/XMP of exported files. Gear "
+                "picked for a frame rides into the exported XMP."
             ),
-            target=_gear_manage,
+            target=_metadata,
             pre_hook=lambda w: w.right_panel.show_tab_by_key("metadata"),
+        ),
+        TutorialStep(
+            title="Gear Library",
+            body=(
+                "The <b>Gear</b> tab holds a searchable, user-extendable library of cameras, "
+                "lenses, film stocks, processes and scan setups, shared by Metadata, Roll "
+                "Settings and every other picker in the app that offers gear."
+            ),
+            target=_gear_library,
+            pre_hook=lambda w: w.right_panel.show_tab_by_key("gear"),
         ),
         TutorialStep(
             title="Export",
             body=(
-                "The <b>Export</b> tab (right panel, now active) is where you save your "
-                "results.<br><br>"
+                "The <b>Export</b> tab is where you save your results.<br><br>"
                 "Choose a format (<b>JPEG</b>, high-bit-depth <b>TIFF</b>, PNG, WebP, JPEG XL), "
                 "pick a color space, and set resolution or print size. The <b>ICC</b> section adds "
                 "monitor-profile display and soft-proofing.<br><br>"
@@ -742,7 +750,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "menu arrow picks what it exports (current frame, selected frames, or all visible "
                 "frames) and remembers the choice. Presets run every enabled preset per frame. "
                 "<b>Contact Sheet</b> renders all frames into one sheet. "
-                "Export always runs at full RAW resolution."
+                "Export always runs at full RAW resolution.<br><br>"
+                "<b>Protect original metadata</b> keeps the source file's EXIF/XMP untouched "
+                "instead of NegPy rewriting it."
             ),
             target=_export,
             pre_hook=lambda w: w.right_panel.show_tab_by_key("export"),
@@ -785,6 +795,6 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "between files."
             ),
             target=lambda w: None,
-            pre_hook=lambda w: w.right_panel.show_tab_by_key("setup"),
+            pre_hook=lambda w: w.right_panel.show_tab_by_key("roll"),
         ),
     ]

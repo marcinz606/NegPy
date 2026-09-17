@@ -32,6 +32,7 @@ from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.text import count_of
 from negpy.services.assets.composites import remember_composites
 from negpy.services.assets.flatfield import FlatFieldProfiles
+from negpy.services.assets import rolls
 from negpy.services.assets.search import facts_for, match, parse_query
 from negpy.services.assets.sidecar import load_or_promote
 from negpy.services.assets.thumbnails import asset_thumbnail_key
@@ -73,9 +74,16 @@ class AppState:
     # Keys whose thumbnail came from a canvas render, so it is correctly inverted. The batch
     # generator must not overwrite these with its cheaper source-decode placeholder.
     rendered_thumbnails: Set[str] = field(default_factory=set)
+    # Keys whose cached bitmap predates a settings write that reached the file without a
+    # render (a bulk apply, not the active canvas). Cleared once a render refreshes it.
+    stale_thumbnails: Set[str] = field(default_factory=set)
     source_exif: Dict[str, Any] = field(default_factory=dict)  # file_hash -> piexif dict
     selected_file_idx: int = -1
     selected_indices: List[int] = field(default_factory=list)
+    # The roll (negpy.services.assets.rolls) the loaded frames came from, if any -- a
+    # plain Add Files pick or a clear leaves this None. Files appended while it is set
+    # join that roll's membership so reopening it later still shows them.
+    active_roll_id: Optional[str] = None
     active_adjustment_idx: int = 0
     last_metrics: Dict[str, Any] = field(default_factory=dict)
     metrics_lock: threading.Lock = field(default_factory=threading.Lock, init=False, compare=False, repr=False)
@@ -461,8 +469,13 @@ class AssetListModel(QAbstractListModel):
             failed = file_info.get("decode_failed")
             if failed:
                 return f"{file_info['path']}\nFailed to load: {failed}\nClick to retry."
+            lines = [file_info["path"]]
             summary = composite_summary(file_info)
-            return f"{file_info['path']}\n{summary}" if summary else file_info["path"]
+            if summary:
+                lines.append(summary)
+            if asset_thumbnail_key(file_info) in self._state.stale_thumbnails:
+                lines.append("Thumbnail predates a settings change; open the frame to refresh it.")
+            return "\n".join(lines)
 
         if role == Qt.ItemDataRole.UserRole:
             return file_info
@@ -744,6 +757,7 @@ class DesktopSessionManager(QObject):
         key = asset_thumbnail_key(asset)
         self.state.thumbnails.pop(key, None)
         self.state.rendered_thumbnails.discard(key)
+        self.state.stale_thumbnails.discard(key)
 
     def search_facts(self) -> Dict[str, Dict[str, Any]]:
         """Searchable facts per asset hash, rebuilt on first use after any change.
@@ -967,6 +981,17 @@ class DesktopSessionManager(QObject):
         config = resolve_asset_hdr_seed(config, asset)
         return resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(config, asset), asset), asset)
 
+    def _overlay_roll_defaults(self, config: WorkspaceConfig, asset: dict) -> WorkspaceConfig:
+        """Roll-wide Calibration/Demosaic/Normalization facts win over this frame's own
+        saved value, on every card it has not locked away from the roll within this
+        roll. Applied before the asset-identity overlays below, so a composite's own
+        required wiring (a trichrome triplet's forced narrowband decode, a merge's
+        process mode) always has the last word over a roll preference."""
+        roll_id = self.state.active_roll_id
+        if roll_id is None:
+            return config
+        return replace(config, process=rolls.resolve_roll_process_config(self.repo, roll_id, asset["hash"], config.process))
+
     def _hydrate_asset_config(self, asset: dict) -> tuple[WorkspaceConfig, bool]:
         """Build an asset's effective config and report whether it had saved edits."""
         saved_config = load_or_promote(
@@ -979,11 +1004,12 @@ class DesktopSessionManager(QObject):
         if saved_config is not None:
             # A saved edit keeps its own process mode and shadow lift, which are the user's
             # now, so only the wiring overlays apply.
-            config = self._apply_sticky_settings(saved_config, only_global=True)
+            config = self._overlay_roll_defaults(self._apply_sticky_settings(saved_config, only_global=True), asset)
             return resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(config, asset), asset), asset), False
         # Sticky settings include the global process mode, which a composite must not take over
         # the mode of the frames it was built from. _asset_defaults applies after.
-        return self._asset_defaults(self._apply_sticky_settings(WorkspaceConfig(), only_global=False), asset), True
+        config = self._overlay_roll_defaults(self._apply_sticky_settings(WorkspaceConfig(), only_global=False), asset)
+        return self._asset_defaults(config, asset), True
 
     def config_for_asset(self, asset: dict) -> WorkspaceConfig:
         """Return an asset's hydrated config without changing the active session state.
@@ -1260,6 +1286,11 @@ class DesktopSessionManager(QObject):
         self.repo.save_history_step(file_hash, first, old_config)
         self.repo.save_history_step(file_hash, first + 1, new_config)
 
+        asset = next((f for f in self.state.uploaded_files if f.get("hash") == file_hash), None)
+        if asset is not None:
+            # Written without a render; the filmstrip flags the cell until one lands.
+            self.state.stale_thumbnails.add(asset_thumbnail_key(asset))
+
     def undo(self) -> None:
         if self.state.undo_index > 0 and self.state.current_file_hash:
             if self.state.undo_index == self.state.max_history_index:
@@ -1363,6 +1394,21 @@ class DesktopSessionManager(QObject):
         idx = self.state.selected_file_idx
         asset = self.state.uploaded_files[idx] if 0 <= idx < len(self.state.uploaded_files) else {}
         self.update_config(self._asset_defaults(WorkspaceConfig(), asset), persist=True)
+
+    def reset_roll(self, assets: List[Dict]) -> None:
+        """`reset_settings`, applied to every one of *assets* at once. Each frame's reset
+        is still an ordinary undo step; the active frame (if among them) re-renders via
+        `update_config`, the rest are written straight to the DB with an external history
+        step, the same split `_on_normalization_finished` uses for a roll-wide write.
+        """
+        for f_info in assets:
+            new_p = self._asset_defaults(WorkspaceConfig(), f_info)
+            if f_info["hash"] == self.state.current_file_hash:
+                self.update_config(new_p, persist=True)
+                continue
+            old_p = self.repo.load_file_settings(f_info["hash"]) or self.config_for_asset(f_info)
+            self.push_external_history(f_info["hash"], old_p, new_p)
+            self.repo.save_file_settings(f_info["hash"], new_p, file_path=f_info["path"])
 
     def reset_section(self, section: str) -> None:
         """Reset a single feature section to its default config."""
@@ -1612,11 +1658,51 @@ class DesktopSessionManager(QObject):
         self.state.uploaded_files.clear()
         self.state.thumbnails.clear()
         self.state.rendered_thumbnails.clear()
+        self.state.stale_thumbnails.clear()
+        self.state.active_roll_id = None
         self._reset_active_image_state()
 
         self.asset_model.refresh()
         self.state_changed.emit()
         self._persist_session()
+
+    def rehome_folder_paths(self, old_prefix: str, new_prefix: str) -> None:
+        """After a folder roll's own folder is renamed on disk, repoint every loaded
+        asset (and the active file) that lived under *old_prefix* to *new_prefix* --
+        content hashes are unchanged, so edits and history still find their frame by
+        hash alone; only the session's own path bookkeeping needs to catch up.
+        """
+        old_prefix = old_prefix.rstrip("/\\")
+
+        def rehome(path: str) -> str:
+            if path and (path == old_prefix or path.startswith(old_prefix + os.sep)):
+                return new_prefix + path[len(old_prefix) :]
+            return path
+
+        changed = False
+        for f in self.state.uploaded_files:
+            for key in ("path", "green_path", "blue_path"):
+                if f.get(key):
+                    new_val = rehome(f[key])
+                    if new_val != f[key]:
+                        f[key] = new_val
+                        changed = True
+            for key in ("stitch_paths", "hdr_paths"):
+                if f.get(key):
+                    new_list = [rehome(p) for p in f[key]]
+                    if new_list != f[key]:
+                        f[key] = new_list
+                        changed = True
+
+        if self.state.current_file_path:
+            new_current = rehome(self.state.current_file_path)
+            if new_current != self.state.current_file_path:
+                self.state.current_file_path = new_current
+                changed = True
+
+        if changed:
+            self.asset_model.refresh()
+            self._persist_session()
 
     def remove_current_file(self) -> None:
         """

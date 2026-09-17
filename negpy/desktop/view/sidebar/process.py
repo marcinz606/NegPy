@@ -12,13 +12,13 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.sidebar.tone import _CH_COLORS, _CH_LABEL, _CH_SUFFIX
-from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.hdr.logic import output_scale
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, hdr_active
-from negpy.features.process.models import ProcessMode, cast_removal_for_mode, invalidate_local_bounds
+from negpy.features.process.models import ProcessMode, invalidate_local_bounds
 
 # Luma Range Clip slider mapping: positions 0 to 100 clip the histogram tails, and
 # negative positions map to an outward log-density margin, a gentler-than-zero stretch.
@@ -79,8 +79,9 @@ class ProcessSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         conf = self.state.config.process
 
-        # Lives above every Setup collapsible. ControlsPanel adds it to the page, so it is
-        # deliberately not in self.layout.
+        # The "Film Mode" Roll-tab card's content -- ControlsPanel wraps it in a section
+        # with that title, so it carries no header of its own; deliberately not in
+        # self.layout, the same reason analysis_buffer_bar below is not.
         self.mode_bar = QWidget()
         mode_col = QVBoxLayout(self.mode_bar)
         mode_col.setContentsMargins(0, 0, 0, 0)
@@ -89,7 +90,6 @@ class ProcessSidebar(BaseSidebar):
         self.autodetect_btn = self._small_toggle("mdi6.auto-fix", "", False, "Auto-detect the film process on load")
         self.autodetect_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         header_row = QHBoxLayout()
-        header_row.addWidget(section_subheader("PROCESS"))
         header_row.addStretch(1)
         header_row.addWidget(self.autodetect_btn)
         mode_col.addLayout(header_row)
@@ -301,53 +301,26 @@ class ProcessSidebar(BaseSidebar):
         self.sync_ui()
 
     def _on_mode_changed(self, mode: str) -> None:
-        exp = self.state.config.exposure
-        strength = cast_removal_for_mode(mode, exp.cast_removal_strength)
-        if strength != exp.cast_removal_strength:
-            # Ahead of the mode, and without a render of its own: the process change below
-            # renders once with both in place.
-            self.update_config_section("exposure", cast_removal_strength=strength, render=False, persist=True)
-        self.update_config_section(
-            "process",
-            process_mode=mode,
-            render=True,
-            persist=True,
-            **invalidate_local_bounds(self.state.config.process),
-        )
+        self.controller.set_process_mode(mode)
         self.sync_ui()
 
     def _on_normalize_e6_toggled(self, checked: bool) -> None:
-        self.update_config_section(
+        self.controller.set_roll_default(
             "process",
             e6_normalize=checked,
-            render=True,
-            persist=True,
             **invalidate_local_bounds(self.state.config.process),
         )
 
     def _on_positive_source_toggled(self, checked: bool) -> None:
-        from dataclasses import replace
-
-        new_config = replace(
-            self.state.config,
-            process=replace(
-                self.state.config.process,
-                positive_source=checked,
-                **invalidate_local_bounds(self.state.config.process),
-            ),
-        )
-        # Changes the decode like Linear RAW does: apply_config re-decodes and suppresses
-        # the bounds analysis over the stale buffer.
-        self.controller.apply_config(new_config, persist=True)
+        self.controller.set_positive_source(checked)
 
     def _on_analysis_region_toggled(self, checked: bool) -> None:
         self.controller.set_active_tool(ToolMode.ANALYSIS_DRAW if checked else ToolMode.NONE)
 
     def _on_buffer_changed(self, val: float, persist: bool = True) -> None:
-        self.update_config_section(
+        self.controller.set_roll_default(
             "process",
             persist=persist,
-            render=True,
             readback_metrics=persist,
             analysis_buffer=val,
             **invalidate_local_bounds(self.state.config.process),
@@ -355,20 +328,18 @@ class ProcessSidebar(BaseSidebar):
         self.controller.analysis_buffer_preview_requested.emit(val)
 
     def _on_luma_range_clip_changed(self, val: float, persist: bool = True) -> None:
-        self.update_config_section(
+        self.controller.set_roll_default(
             "process",
             persist=persist,
-            render=True,
             readback_metrics=persist,
             luma_range_clip=_luma_range_slider_to_value(val),
             **invalidate_local_bounds(self.state.config.process),
         )
 
     def _on_color_range_clip_changed(self, val: float, persist: bool = True) -> None:
-        self.update_config_section(
+        self.controller.set_roll_default(
             "process",
             persist=persist,
-            render=True,
             readback_metrics=persist,
             color_range_clip=_color_slider_to_value(val),
             **invalidate_local_bounds(self.state.config.process),

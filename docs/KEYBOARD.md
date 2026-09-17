@@ -18,8 +18,7 @@ Actions with no default key are not listed; every one of them can still be bound
 |-----|--------|
 | `Left` | Previous file |
 | `Right` | Next file |
-| `Ctrl + L` | Open the library folder |
-| `Alt + Up` | Go up one library folder |
+| `Ctrl + L` | Open the library |
 | `Ctrl + F` | Focus the film strip search box |
 | `Ctrl + Shift + F` | Search every library folder and load the matches |
 
@@ -148,7 +147,7 @@ Actions with no default key are not listed; every one of them can still be bound
 ## Tabs
 | Key | Action |
 |-----|--------|
-| `Ctrl + 1` | Setup tab |
+| `Ctrl + 1` | Roll tab |
 | `Ctrl + 2` | Geometry tab |
 | `Ctrl + 3` | Tone tab |
 | `Ctrl + 4` | Lab & Toning tab |

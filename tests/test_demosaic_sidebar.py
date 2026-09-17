@@ -30,10 +30,17 @@ def _sidebar(preview, export):
     config = replace(WorkspaceConfig(), process=process)
     applied: list = []
     repo = SimpleNamespace(get_global_setting=lambda *a, **k: None, save_global_setting=lambda *a, **k: None)
+    # No active roll (state.active_roll_id absent -> getattr below reads None): set_roll_default
+    # falls back to a plain per-frame apply_config, same as demosaic always behaved before it.
     controller = SimpleNamespace(
-        state=SimpleNamespace(config=config),
+        state=SimpleNamespace(config=config, active_roll_id=None),
         session=SimpleNamespace(repo=repo, update_config=lambda *a, **k: None),
         apply_config=lambda cfg, **k: applied.append(cfg),
+    )
+    controller.set_roll_default = lambda card_key, persist=True, readback_metrics=True, **changes: controller.apply_config(
+        replace(controller.state.config, process=replace(controller.state.config.process, **changes)),
+        persist=persist,
+        readback_metrics=readback_metrics,
     )
     return DemosaicSidebar(controller), applied
 

@@ -259,13 +259,17 @@ def test_the_profile_comes_back_on_a_negative():
 
 
 def test_capture_toggles_reach_the_controller():
+    """Both are Calibration-card, roll-eligible fields -- set_roll_default, not a bare
+    apply_config, so a roll (if any) and its other frames pick the change up too."""
     w = _sidebar(linear_raw=False)
     w.sync_ui()
 
     w.narrowband_scan_btn.setChecked(True)
-    (cfg,), _kw = w.controller.apply_config.call_args
-    assert cfg.process.narrowband_scan is True
+    args, kwargs = w.controller.set_roll_default.call_args
+    assert args[0] == "sensor"
+    assert kwargs["narrowband_scan"] is True
 
     w.linear_raw_btn.setChecked(True)
-    (cfg,), _kw = w.controller.apply_config.call_args
-    assert cfg.process.linear_raw is True
+    args, kwargs = w.controller.set_roll_default.call_args
+    assert args[0] == "sensor"
+    assert kwargs["linear_raw"] is True

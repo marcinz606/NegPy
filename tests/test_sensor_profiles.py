@@ -133,6 +133,8 @@ def test_sidebar_lists_profiles(qapp, tmp_path):
 
 
 def test_sidebar_profile_change_bakes_matrix_and_clears_bounds(qapp, tmp_path):
+    """Calibration is a roll-eligible card: the profile change goes through
+    set_roll_default, not a bare apply_config."""
     from dataclasses import replace
 
     matrix = [1.0, -0.1, 0.0, 0.0, 1.1, -0.3, 0.0, -0.3, 1.1]
@@ -145,14 +147,15 @@ def test_sidebar_profile_change_bakes_matrix_and_clears_bounds(qapp, tmp_path):
     )
     sidebar._on_sensor_profile_changed("Rig")
 
-    cfg = controller.apply_config.call_args.args[0]
-    assert cfg.process.sensor_profile == "Rig"
-    assert cfg.process.sensor_matrix == tuple(matrix)
-    assert cfg.process.local_floors == (0.0, 0.0, 0.0)
+    args, kwargs = controller.set_roll_default.call_args
+    assert args[0] == "sensor"
+    assert kwargs["sensor_profile"] == "Rig"
+    assert kwargs["sensor_matrix"] == tuple(matrix)
+    assert kwargs["local_floors"] == (0.0, 0.0, 0.0)
 
     sidebar._on_sensor_profile_changed("None")
-    cfg = controller.apply_config.call_args.args[0]
-    assert cfg.process.sensor_matrix is None
+    _args, kwargs = controller.set_roll_default.call_args
+    assert kwargs["sensor_matrix"] is None
 
 
 def test_sidebar_sync_rebuilds_combo_after_save(qapp, tmp_path):

@@ -60,6 +60,23 @@ def cast_removal_for_mode(mode: str, strength: float) -> float:
     return default if strength == 0.0 else strength
 
 
+def auto_meter_for_positive_source(positive_source: bool, current: bool) -> bool:
+    """The value Auto Density/Auto Grade's toggle carries after Positive is switched.
+
+    A negative starts metered (True): its exposure has no meaning until printed,
+    so a meter is what makes it printable at all. A finished positive starts
+    unmetered (False): reading it to decide a look is the opposite of trusting an
+    already-finished rendering decision, so it starts the way White/Black Point and
+    every other per-shot control already do -- neutral until touched. Only the other
+    setting's own default is rewritten, so a toggle the user chose survives the
+    switch (mirrors cast_removal_for_mode).
+    """
+    negative_default, positive_default = True, False
+    if positive_source:
+        return positive_default if current == negative_default else current
+    return negative_default if current == positive_default else current
+
+
 # Built-in fallback crosstalk matrix (row-major 3x3) used when no profile is baked.
 DEFAULT_CROSSTALK_MATRIX = (1.0, -0.05, -0.02, -0.04, 1.0, -0.08, -0.01, -0.1, 1.0)
 

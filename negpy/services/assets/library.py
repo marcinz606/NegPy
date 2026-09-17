@@ -25,6 +25,10 @@ def _is_image(name: str) -> bool:
     return name.lower().endswith(tuple(SUPPORTED_RAW_EXTENSIONS))
 
 
+def folder_label(path: str) -> str:
+    return os.path.basename(path.rstrip(os.sep)) or path
+
+
 def folder_counts(path: str) -> tuple[int, int]:
     """(images, subfolders) directly inside a folder — one readdir, nothing opened.
 
