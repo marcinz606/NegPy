@@ -186,7 +186,6 @@ class ShortcutManager:
             "toggle_soft_proof": lambda: controller.set_soft_proof(not controller.state.soft_proof_enabled),
             "cancel_tool": lambda: _context_cancel(controller, self.window),
             "show_library": self.window.session_panel.show_library,
-            "browse_parent": self.window.session_panel.browse_parent,
             "focus_search": self.window.session_panel.file_browser.focus_search,
             "search_library": self.window.session_panel.file_browser.search_library,
             "toggle_library_tree": self.window.session_panel.toggle_library_tree,

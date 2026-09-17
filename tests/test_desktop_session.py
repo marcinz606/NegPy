@@ -89,7 +89,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         with patch("negpy.desktop.session.load_or_promote", return_value=saved) as hydrate:
             config = self.session.config_for_asset(asset)
 
-        hydrate.assert_called_once_with(self.mock_repo, "saved-hash", "/roll/saved.dng", half=0, composite=False)
+        hydrate.assert_called_once_with(self.mock_repo, "saved-hash", "/roll/saved.dng", half=0, composite=False, forked=False)
         self.assertEqual(config.exposure.density, 1.7)
         self.assertEqual(config.process.process_mode, ProcessMode.E6)
         self.assertEqual(config.geometry.autocrop_ratio, "4:3")
@@ -791,6 +791,91 @@ class TestDesktopSessionSync(unittest.TestCase):
         # Reset pushed the pre-reset config as a history step — it is undoable.
         self.mock_repo.save_history_step.assert_called_with("hash1", 1, edited)
         self.assertEqual(self.session.state.undo_index, 2)
+
+    def test_reset_roll_resets_the_active_frame_in_place(self):
+        self.session.select_file(0)
+        dirty = replace(self.session.state.config, exposure=replace(self.session.state.config.exposure, density=1.8))
+        self.session.update_config(dirty, persist=True)
+
+        self.session.reset_roll(self.session.state.uploaded_files)
+
+        self.assertEqual(self.session.state.config, WorkspaceConfig())
+
+    def test_reset_roll_writes_other_frames_straight_to_the_db(self):
+        self.session.select_file(0)  # hash1 active; hash2 is the "other" frame
+
+        self.session.reset_roll(self.session.state.uploaded_files)
+
+        self.mock_repo.save_file_settings.assert_any_call("hash2", WorkspaceConfig(), file_path="path2")
+        # Recorded as an external history step, undoable after switching to it.
+        steps = [c.args for c in self.mock_repo.save_history_step.call_args_list if c.args[0] == "hash2"]
+        self.assertEqual(len(steps), 2)
+        self.assertEqual(steps[1][2], WorkspaceConfig())
+
+    def test_reset_roll_does_not_touch_a_frame_outside_the_given_list(self):
+        self.session.select_file(0)
+        only_hash1 = [self.session.state.uploaded_files[0]]
+
+        self.session.reset_roll(only_hash1)
+
+        for c in self.mock_repo.save_file_settings.call_args_list:
+            self.assertNotEqual(c.args[0], "hash2")
+
+    def test_rehome_folder_paths_repoints_every_matching_asset(self):
+        self.session.state.uploaded_files = [
+            {"name": "a.tif", "path": "/scans/roll_a/a.tif", "hash": "ha"},
+            {"name": "b.tif", "path": "/scans/roll_a/sub/b.tif", "hash": "hb"},
+            {"name": "c.tif", "path": "/elsewhere/c.tif", "hash": "hc"},
+        ]
+
+        self.session.rehome_folder_paths("/scans/roll_a", "/scans/roll_b")
+
+        paths = [f["path"] for f in self.session.state.uploaded_files]
+        self.assertEqual(paths, ["/scans/roll_b/a.tif", "/scans/roll_b/sub/b.tif", "/elsewhere/c.tif"])
+
+    def test_rehome_folder_paths_updates_the_active_file_path(self):
+        self.session.state.uploaded_files = [{"name": "a.tif", "path": "/scans/roll_a/a.tif", "hash": "ha"}]
+        self.session.state.current_file_path = "/scans/roll_a/a.tif"
+
+        self.session.rehome_folder_paths("/scans/roll_a", "/scans/roll_b")
+
+        self.assertEqual(self.session.state.current_file_path, "/scans/roll_b/a.tif")
+
+    def test_rehome_folder_paths_rewrites_composite_part_paths(self):
+        self.session.state.uploaded_files = [
+            {
+                "name": "triplet",
+                "path": "/scans/roll_a/r.tif",
+                "hash": "ha",
+                "green_path": "/scans/roll_a/g.tif",
+                "blue_path": "/scans/roll_a/b.tif",
+            },
+            {
+                "name": "stitch",
+                "path": "/scans/roll_a/1.tif",
+                "hash": "hb",
+                "stitch_paths": ["/scans/roll_a/1.tif", "/scans/roll_a/2.tif"],
+                "stitch_transforms": [[1, 0, 0], [0, 1, 0]],
+                "stitch_canvas": [100, 100],
+                "stitch_sizes": [[50, 100], [50, 100]],
+            },
+        ]
+
+        self.session.rehome_folder_paths("/scans/roll_a", "/scans/roll_b")
+
+        triplet, stitch = self.session.state.uploaded_files
+        self.assertEqual(triplet["green_path"], "/scans/roll_b/g.tif")
+        self.assertEqual(triplet["blue_path"], "/scans/roll_b/b.tif")
+        self.assertEqual(stitch["stitch_paths"], ["/scans/roll_b/1.tif", "/scans/roll_b/2.tif"])
+
+    def test_rehome_folder_paths_is_a_noop_when_nothing_matches(self):
+        self.session.state.uploaded_files = [{"name": "c.tif", "path": "/elsewhere/c.tif", "hash": "hc"}]
+        self.mock_repo.save_global_setting.reset_mock()
+
+        self.session.rehome_folder_paths("/scans/roll_a", "/scans/roll_b")
+
+        self.assertEqual(self.session.state.uploaded_files[0]["path"], "/elsewhere/c.tif")
+        self.mock_repo.save_global_setting.assert_not_called()
 
     def test_sync_to_roll_records_target_history(self):
         self.mock_repo.get_max_history_index.return_value = 0
