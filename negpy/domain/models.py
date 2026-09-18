@@ -196,8 +196,8 @@ class ExportConfig:
     # When True, exports overwrite existing files silently. When False, the export prompts
     # (Overwrite / Rename / Cancel) before clobbering anything.
     overwrite: bool = False
-    output_mode: ExportPresetOutputMode = ExportPresetOutputMode.ABSOLUTE
-    output_subfolder: str = ""
+    output_mode: ExportPresetOutputMode = ExportPresetOutputMode.SUBFOLDER_OF_SOURCE
+    output_subfolder: str = "export"
     icc_input_path: Optional[str] = None
     icc_output_path: Optional[str] = None
 
