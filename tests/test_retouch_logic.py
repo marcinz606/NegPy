@@ -307,6 +307,16 @@ def test_exclusion_stroke_covers_the_film_between_its_points():
     assert cover[100, 60:140].all(), "and so is every pixel between them"
 
 
+def test_dust_busy_label_does_not_contradict_an_exclusion():
+    """The bake's busy toast reads back to the user, so it must not say it is repairing
+    dust on the pass a right-click asked it to stop repairing."""
+    from negpy.services.rendering.image_processor import _dust_step_label
+
+    base = RetouchConfig(dust_remove=True)
+    assert _dust_step_label(base) == "repairing dust"
+    assert "repairing" not in _dust_step_label(dataclasses.replace(base, dust_exclusion_strokes=[([[0.5, 0.5]], 6.0)]))
+
+
 def test_exclusion_token_tracks_the_strokes():
     base = RetouchConfig(dust_remove=True)
     assert exclusion_token(base) == ""

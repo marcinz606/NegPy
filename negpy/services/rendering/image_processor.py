@@ -124,6 +124,15 @@ logger = get_logger(__name__)
 
 _CMS_STRIPS = 16
 
+# Busy-toast labels for the dust bakes. With an exclusion in play the pass is re-deciding
+# what to repair, so the plain "repairing dust" would contradict the click that started it.
+_DUST_STEP = "repairing dust"
+_DUST_STEP_EXCLUDED = "updating dust removal"
+
+
+def _dust_step_label(retouch) -> str:
+    return _DUST_STEP_EXCLUDED if retouch.dust_exclusion_strokes else _DUST_STEP
+
 
 def _cms_transform_strips(img_u16: np.ndarray, src_bytes: bytes, dst_bytes: bytes) -> np.ndarray:
     """lcms2 relative-colorimetric transform on row strips in parallel. lcms is per-pixel and
@@ -443,14 +452,14 @@ class ImageProcessor:
         self._ice_value = val
         return val
 
-    def _hair_inpaint(self, img: np.ndarray, hair_masks: List[np.ndarray], cache_key: str) -> np.ndarray:
+    def _hair_inpaint(self, img: np.ndarray, hair_masks: List[np.ndarray], cache_key: str, label: str = _DUST_STEP) -> np.ndarray:
         """Structure-following inpaint of detected hairs, baked into the source before
         the engine (like _ir_bake; the GPU re-uploads source each frame, so it reaches
         both paths parity-free). Cached per (source+params, resolution)."""
         ckey = (cache_key, img.shape)
         if ckey == self._hair_key and self._hair_value is not None:
             return self._hair_value
-        self._slow_step("repairing dust")
+        self._slow_step(label)
         out = apply_hair_inpaint(img, hair_masks)
         self._hair_key = ckey
         self._hair_value = out
@@ -496,7 +505,7 @@ class ImageProcessor:
         self._retouch_detect_value = value
         return value
 
-    def _luma_bake(self, img: np.ndarray, score: Optional[np.ndarray], cache_key: str) -> np.ndarray:
+    def _luma_bake(self, img: np.ndarray, score: Optional[np.ndarray], cache_key: str, label: str = _DUST_STEP) -> np.ndarray:
         """Detected specks repaired into the linear source, ahead of the meters (mirrors
         _ir_bake). Cached per (source+detection params, resolution)."""
         if score is None:
@@ -504,7 +513,7 @@ class ImageProcessor:
         ckey = (cache_key, img.shape)
         if ckey == self._luma_key and self._luma_value is not None:
             return self._luma_value
-        self._slow_step("repairing dust")
+        self._slow_step(label)
         out = np.asarray(repair_components(img, score))
         self._luma_key = ckey
         self._luma_value = out
@@ -706,7 +715,8 @@ class ImageProcessor:
             if ir_corrected_mask is not None and (detected_dust is not None or hair_masks):
                 # What IR already repaired is not repaired again from the visible.
                 detected_dust, hair_masks = _without_ir(detected_dust, hair_masks, ir_corrected_mask)
-            img = self._luma_bake(img, detected_dust, base_hash + hair_bake_token(orig_ret))
+            dust_label = _dust_step_label(orig_ret)
+            img = self._luma_bake(img, detected_dust, base_hash + hair_bake_token(orig_ret), dust_label)
             img, manual_routed = self._manual_bake(img, settings, base_hash)
             extra = [m for m in (ir_routed, manual_routed) if m is not None]
             if extra:
@@ -715,7 +725,7 @@ class ImageProcessor:
             # invalidates the base stage when detection params change.
             hair_token = hair_bake_token(orig_ret) if hair_masks else ""
             if hair_masks:
-                img = self._hair_inpaint(img, hair_masks, base_hash + hair_token)
+                img = self._hair_inpaint(img, hair_masks, base_hash + hair_token, dust_label)
 
         source_hash = base_hash + hair_token + f"|res{w_cols}x{h_orig}"
 
@@ -1193,13 +1203,14 @@ class ImageProcessor:
         f32_buffer, _, _, ir_routed = self._ir_bake(f32_buffer, ir_full, params, detect_key)
         orig_ret = params.retouch
         detected, hair_masks = self._detect_luma(params, f32_buffer, detect_key)
-        f32_buffer = self._luma_bake(f32_buffer, detected, detect_key + hair_bake_token(orig_ret))
+        dust_label = _dust_step_label(orig_ret)
+        f32_buffer = self._luma_bake(f32_buffer, detected, detect_key + hair_bake_token(orig_ret), dust_label)
         f32_buffer, manual_routed = self._manual_bake(f32_buffer, params, detect_key)
         extra = [m for m in (ir_routed, manual_routed) if m is not None]
         if extra:
             hair_masks = hair_masks + extra
         if hair_masks:
-            f32_buffer = self._hair_inpaint(f32_buffer, hair_masks, detect_key + hair_bake_token(orig_ret))
+            f32_buffer = self._hair_inpaint(f32_buffer, hair_masks, detect_key + hair_bake_token(orig_ret), dust_label)
         export_token = detect_key + (hair_bake_token(orig_ret) if hair_masks else "")
         return f32_buffer, source_cs, export_token
 
