@@ -377,6 +377,7 @@ class ControlsPanel(QWidget):
         col = self.color_sidebar
         for btn, action_id in (
             (self.retouch_sidebar.auto_dust_btn, "toggle_optical_removal"),
+            (self.retouch_sidebar.right_click_btn, "toggle_right_click_excludes"),
             (self.retouch_sidebar.ir_dust_btn, "toggle_ir_removal"),
             (self.flatfield_sidebar.enable_btn, "toggle_flat_field"),
             (self.geometry_sidebar.auto_crop_all_btn, "batch_autocrop"),

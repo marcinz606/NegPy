@@ -2706,6 +2706,11 @@ class CanvasOverlay(QWidget):
             self.scratch_completed.emit(vertices)
         self.update()
 
+    def _right_click_excludes(self) -> bool:
+        """Whether a plain right-click excludes instead of opening the menu. The heal and
+        scratch tools keep theirs: right-click is how a heal is deleted while one is live."""
+        return self.state.right_click_excludes and self._tool_mode not in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK)
+
     def contextMenuEvent(self, event) -> None:
         # An armed right press may still become an exclusion drag, so the menu waits for the
         # release to decide; a press that was never armed falls through to the canvas.
@@ -2719,11 +2724,11 @@ class CanvasOverlay(QWidget):
             pts = self._exclude_drag_pts
             self._exclude_drag_pts = []
             vertices = [c for c in (self._map_to_image_coords(p) for p in pts) if c is not None]
-            if len(vertices) > 1:
+            if len(vertices) > 1 or (vertices and self._right_click_excludes()):
                 self.dust_exclusion_painted.emit(vertices)
             else:
-                # The press never moved, so it was the right-click it looked like, and the
-                # menu contextMenuEvent held back is owed.
+                # The press never moved and a click is not set to exclude, so it was the
+                # right-click it looked like, and the menu contextMenuEvent held back is owed.
                 self.parent().show_canvas_menu(event.position(), event.globalPosition().toPoint())
             self.update()
             event.accept()

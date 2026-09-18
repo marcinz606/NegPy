@@ -155,6 +155,11 @@ class AppState:
     # instead of resetting to fit-to-window.
     sticky_zoom: bool = False
 
+    # When True, a right-click on the canvas excludes the mark under it from Optical Removal
+    # and the canvas context menu is unreachable while the removal is on. Off, a right-click
+    # opens that menu and its Exclude item does the same job in one more step.
+    right_click_excludes: bool = False
+
     # Crop tool composition guide (CropGuide value); display-only, so not in GeometryConfig
     crop_guide: str = "thirds"
     crop_guide_orientation: int = 0
@@ -662,6 +667,10 @@ class DesktopSessionManager(QObject):
         if saved_sticky_zoom is not None:
             self.state.sticky_zoom = bool(saved_sticky_zoom)
 
+        saved_right_click_excludes = self.repo.get_global_setting("right_click_excludes")
+        if saved_right_click_excludes is not None:
+            self.state.right_click_excludes = bool(saved_right_click_excludes)
+
         saved_guide = self.repo.get_global_setting("crop_guide")
         if saved_guide in set(CropGuide):
             self.state.crop_guide = str(saved_guide)
@@ -790,6 +799,13 @@ class DesktopSessionManager(QObject):
         if self.state.sticky_zoom != enabled:
             self.state.sticky_zoom = enabled
             self.repo.save_global_setting("sticky_zoom", enabled)
+            self.state_changed.emit()
+
+    def set_right_click_excludes(self, enabled: bool) -> None:
+        """Updates and persists whether a right-click excludes instead of opening the menu."""
+        if self.state.right_click_excludes != enabled:
+            self.state.right_click_excludes = enabled
+            self.repo.save_global_setting("right_click_excludes", enabled)
             self.state_changed.emit()
 
     def set_invert_zoom_scroll(self, enabled: bool) -> None:

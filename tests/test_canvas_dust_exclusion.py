@@ -34,6 +34,37 @@ def test_right_drag_paints_an_exclusion() -> None:
     assert overlay._exclude_drag_pts == []
 
 
+def test_right_click_excludes_when_the_toggle_is_on() -> None:
+    overlay = _overlay(dust_remove=True)
+    overlay.state.right_click_excludes = True
+    emitted = []
+    overlay.dust_exclusion_painted.connect(emitted.append)
+
+    overlay.mousePressEvent(_right_event(QEvent.Type.MouseButtonPress, QPointF(30, 30)))
+    overlay.mouseReleaseEvent(_right_event(QEvent.Type.MouseButtonRelease, QPointF(30, 30), Qt.MouseButton.NoButton))
+
+    # No parent here, so reaching for the canvas menu would raise instead of excluding.
+    assert len(emitted) == 1
+    assert len(emitted[0]) == 1, "a click excludes one spot"
+
+
+def test_right_click_keeps_the_heal_menu_while_a_tool_is_live() -> None:
+    from negpy.desktop.session import ToolMode
+
+    overlay = _overlay(dust_remove=True)
+    overlay.state.right_click_excludes = True
+    overlay.set_tool_mode(ToolMode.DUST_PICK)
+    emitted = []
+    overlay.dust_exclusion_painted.connect(emitted.append)
+
+    overlay.mousePressEvent(_right_event(QEvent.Type.MouseButtonPress, QPointF(30, 30)))
+    try:
+        overlay.mouseReleaseEvent(_right_event(QEvent.Type.MouseButtonRelease, QPointF(30, 30), Qt.MouseButton.NoButton))
+    except AttributeError:
+        pass  # parentless overlay: the menu call is the behaviour under test
+    assert emitted == [], "the heal tool keeps right-click for its own menu"
+
+
 def test_right_press_is_inert_while_optical_removal_is_off() -> None:
     overlay = _overlay(dust_remove=False)
     overlay.mousePressEvent(_right_event(QEvent.Type.MouseButtonPress, QPointF(20, 20)))

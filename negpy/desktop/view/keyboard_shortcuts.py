@@ -227,6 +227,7 @@ class ShortcutManager:
             # Button clicks, so the shortcut runs the same gating and toast the mouse gets.
             "toggle_hq": toolbar.btn_hq.click,
             "toggle_optical_removal": controls.retouch_sidebar.auto_dust_btn.click,
+            "toggle_right_click_excludes": controls.retouch_sidebar.right_click_btn.click,
             "toggle_ir_removal": controls.retouch_sidebar.ir_dust_btn.click,
             "toggle_flat_field": controls.flatfield_sidebar.enable_btn.click,
             "batch_autocrop": controls.geometry_sidebar.auto_crop_all_btn.click,

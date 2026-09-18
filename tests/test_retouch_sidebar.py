@@ -18,6 +18,28 @@ def test_retouch_sidebar_builds_all_sections(qapp):
         assert getattr(sb, name) is not None
 
 
+def test_right_click_toggle_sits_beside_optical_removal(qapp):
+    _, sb = _sidebar()
+    row = next(
+        lay
+        for i in range(sb.layout.count())
+        if (lay := sb.layout.itemAt(i).layout()) is not None and any(lay.itemAt(j).widget() is sb.auto_dust_btn for j in range(lay.count()))
+    )
+    assert [row.itemAt(j).widget() for j in range(row.count())] == [sb.auto_dust_btn, sb.right_click_btn]
+    assert sb.right_click_btn.isCheckable() and sb.right_click_btn.text() == "", "an icon-only toggle"
+
+
+def test_right_click_toggle_reads_the_session_setting(qapp):
+    controller, sb = _sidebar()
+    controller.state.right_click_excludes = True
+    sb.sync_ui()
+    assert sb.right_click_btn.isChecked()
+
+    controller.state.right_click_excludes = False
+    sb.sync_ui()
+    assert not sb.right_click_btn.isChecked()
+
+
 def test_ir_tooltip_restores_after_ir_loads(qapp):
     """The stale 'No IR channel' tooltip must clear once a scan with IR loads
     (the bug: re-enabling read back the overwritten tooltip)."""

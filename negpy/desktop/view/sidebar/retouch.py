@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import QComboBox, QHBoxLayout
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.session import ToolMode
-from negpy.desktop.view.styles.templates import field_label, section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_label, section_subheader, wrap_tooltip
 from negpy.features.retouch.models import IR_METHOD_NEGPY, IR_METHOD_OPENICE
 
 _IR_REMOVAL_TIP = (
@@ -27,6 +27,11 @@ _OPTICAL_TIP = (
     "off marks it is over-cleaning: whatever the band touches comes back whole. Toggling this "
     "button clears every band."
 )
+_RIGHT_CLICK_TIP = (
+    "Right-click excludes: a single right-click on the canvas brings back the mark under it, with no menu. "
+    "Off, a right-click opens the canvas menu and its Exclude From Optical Removal item does the same. "
+    "Right-drag paints a band either way."
+)
 
 
 class RetouchSidebar(BaseSidebar):
@@ -48,7 +53,13 @@ class RetouchSidebar(BaseSidebar):
         # --- OPTICAL REMOVAL (visible-scan speck detection) -----------------
         self.layout.addWidget(section_subheader("OPTICAL REMOVAL"))
         self.auto_dust_btn = self._small_toggle("fa5s.magic", "Optical Removal", conf.dust_remove, _OPTICAL_TIP)
-        self.layout.addWidget(self.auto_dust_btn)
+        self.right_click_btn = self._tool_toggle("mdi.cursor-default-click", "", _RIGHT_CLICK_TIP)
+        self.right_click_btn.setFixedWidth(ICON_BUTTON_WIDTH)
+        self.right_click_btn.setChecked(self.state.right_click_excludes)
+        optical_row = QHBoxLayout()
+        optical_row.addWidget(self.auto_dust_btn, 1)
+        optical_row.addWidget(self.right_click_btn)
+        self.layout.addLayout(optical_row)
         auto_row = QHBoxLayout()
         self.threshold_slider = CompactSlider("Threshold", 0.01, 1.0, conf.dust_threshold)
         self.auto_size_slider = CompactSlider("Size", 3.0, 8.0, float(conf.dust_size), step=1.0, precision=1, unit=" px")
@@ -141,6 +152,7 @@ class RetouchSidebar(BaseSidebar):
         self.auto_dust_btn.toggled.connect(
             lambda c: self.update_config_section("retouch", persist=True, render=True, dust_remove=c, dust_exclusion_strokes=[])
         )
+        self.right_click_btn.toggled.connect(self.controller.session.set_right_click_excludes)
         self.threshold_slider.valueChanged.connect(
             lambda v: self.update_config_section("retouch", readback_metrics=False, dust_threshold=v)
         )
@@ -204,6 +216,7 @@ class RetouchSidebar(BaseSidebar):
         self.block_signals(True)
         try:
             self.auto_dust_btn.setChecked(conf.dust_remove)
+            self.right_click_btn.setChecked(self.state.right_click_excludes)
             self.threshold_slider.setValue(conf.dust_threshold)
             self.auto_size_slider.setValue(float(conf.dust_size))
             self.manual_size_slider.setValue(float(conf.manual_dust_size))
@@ -238,6 +251,7 @@ class RetouchSidebar(BaseSidebar):
     def block_signals(self, blocked: bool) -> None:
         widgets = [
             self.auto_dust_btn,
+            self.right_click_btn,
             self.threshold_slider,
             self.auto_size_slider,
             self.manual_size_slider,
