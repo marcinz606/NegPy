@@ -11,14 +11,13 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.sidebar.tone import _CH_COLORS, _CH_LABEL, _CH_SUFFIX
-from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, hint_label, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.hdr.logic import output_scale
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, hdr_active
-from negpy.features.process.models import ProcessMode, cast_removal_for_mode, invalidate_local_bounds
+from negpy.features.process.models import ProcessMode, invalidate_local_bounds
 
 # Luma Range Clip slider mapping: positions 0 to 100 clip the histogram tails, and
 # negative positions map to an outward log-density margin, a gentler-than-zero stretch.
@@ -79,8 +78,9 @@ class ProcessSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         conf = self.state.config.process
 
-        # Lives above every Setup collapsible. ControlsPanel adds it to the page, so it is
-        # deliberately not in self.layout.
+        # The "Film Mode" Roll-tab card's content -- ControlsPanel wraps it in a section
+        # with that title, so it carries no header of its own; deliberately not in
+        # self.layout, the same reason analysis_buffer_bar below is not.
         self.mode_bar = QWidget()
         mode_col = QVBoxLayout(self.mode_bar)
         mode_col.setContentsMargins(0, 0, 0, 0)
@@ -89,7 +89,6 @@ class ProcessSidebar(BaseSidebar):
         self.autodetect_btn = self._small_toggle("mdi6.auto-fix", "", False, "Auto-detect the film process on load")
         self.autodetect_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         header_row = QHBoxLayout()
-        header_row.addWidget(section_subheader("PROCESS"))
         header_row.addStretch(1)
         header_row.addWidget(self.autodetect_btn)
         mode_col.addLayout(header_row)
@@ -106,6 +105,30 @@ class ProcessSidebar(BaseSidebar):
             mode_row.addWidget(btn, 1)
             self.mode_btns.append(btn)
 
+        # Lives beside Film Mode, not inside Normalization: whether the source is
+        # already a finished positive is a fact about the file, true for any mode, not
+        # a Normalization setting to dig for.
+        self.positive_source_btn = self._labeled_toggle(
+            "fa5s.image",
+            " Positive",
+            conf.positive_source,
+            (
+                "This source is already a finished positive, not a raw scanner or camera "
+                "capture -- a print, a scan already inverted by other software, or a "
+                "negative the scanner positivized itself. Decodes its embedded profile "
+                "(sRGB if it has none) instead of reading it as literal linear data, and "
+                "skips metering, negative inversion and the exposure lift a raw capture "
+                "needs, so the Print/tone controls shape the image directly.<br><br>"
+                "On Slide, only applies with Normalize off: a metered stretch already "
+                "decodes on the source's own profile."
+            ),
+        )
+        mode_col.addWidget(self.positive_source_btn)
+
+        # Lock Bounds lives beside the Batch Analysis picker instead, once RollAnalysisSidebar
+        # adopts it (ControlsPanel wires this after both sidebars exist): it is specifically
+        # about this frame's relationship to Batch Analysis, not the buffer/region controls
+        # below, and the roll picker is where that relationship is otherwise decided.
         self.lock_bounds_btn = self._small_toggle(
             "fa5s.lock",
             "",
@@ -124,12 +147,35 @@ class ProcessSidebar(BaseSidebar):
         self.clear_analysis_region_btn = self._icon_action(
             "fa5s.times", "Clear the freehand analysis region (fall back to the Analysis Buffer)", width=None
         )
-        # The slider takes half the row and the three buttons split the other half. Equal stretch,
+        # The slider takes half the row and the two buttons split the other half. Equal stretch,
         # not fixed widths, is what keeps them the same size.
         buf_row.addWidget(self.analysis_buffer_slider, 3)
-        for btn in (self.analysis_region_btn, self.clear_analysis_region_btn, self.lock_bounds_btn):
+        for btn in (self.analysis_region_btn, self.clear_analysis_region_btn):
             buf_row.addWidget(btn, 1)
-        self.layout.addLayout(buf_row)
+        # Lives above the Batch Analysis picker, so ControlsPanel places it outside
+        # self.layout -- the same reason mode_bar sits above every Setup collapsible.
+        self.analysis_buffer_bar = QWidget()
+        self.analysis_buffer_bar.setLayout(buf_row)
+
+        # Which baseline each axis' bounds come from: the roll's shared Batch Analysis
+        # meter (picked in the Roll Baseline field above) or this frame's own
+        # analysis below. Sits right above the sliders it disables when on.
+        avg_row = QHBoxLayout()
+        self.use_luma_avg_btn = self._small_toggle(
+            "mdi6.film",
+            "Use Luma Average",
+            conf.use_luma_average,
+            "Take the tonal-range (black/white-point) baseline from the picked roll; color still re-derives per frame",
+        )
+        self.use_color_avg_btn = self._small_toggle(
+            "mdi6.film",
+            "Use Color Average",
+            conf.use_color_average,
+            "Take the per-channel color-balance baseline from the picked roll; luma range still re-derives per frame",
+        )
+        avg_row.addWidget(self.use_luma_avg_btn)
+        avg_row.addWidget(self.use_color_avg_btn)
+        self.layout.addLayout(avg_row)
 
         clip_row = QHBoxLayout()
         initial_luma_slider_val = _luma_range_value_to_slider(conf.luma_range_clip)
@@ -143,40 +189,6 @@ class ProcessSidebar(BaseSidebar):
         clip_row.addWidget(self.luma_range_clip_slider)
         clip_row.addWidget(self.color_range_clip_slider)
         self.layout.addLayout(clip_row)
-
-        # Channel selector scoped to the White/Black Point row below it. Global = the shared
-        # offsets, R/G/B = the per-layer trims (film base, Dmax).
-        self.ch_global_btn = self._labeled_toggle("fa5s.globe", " Global", True, "Global — shared white/black point offsets (all layers)")
-        self.ch_r_btn = self._labeled_toggle(
-            "fa5s.circle", " Red", False, "Red layer — per-layer white/black point trims (cyan-dye film base / Dmax)"
-        )
-        self.ch_g_btn = self._labeled_toggle(
-            "fa5s.circle", " Green", False, "Green layer — per-layer white/black point trims (magenta-dye film base / Dmax)"
-        )
-        self.ch_b_btn = self._labeled_toggle(
-            "fa5s.circle", " Blue", False, "Blue layer — per-layer white/black point trims (yellow-dye film base / Dmax)"
-        )
-        for btn, color in zip((self.ch_r_btn, self.ch_g_btn, self.ch_b_btn), _CH_COLORS):
-            btn.setIcon(qta.icon("fa5s.circle", color=color))
-        self.ch_btn_group = QButtonGroup(self)
-        self.ch_btn_group.setExclusive(True)
-        for i, btn in enumerate((self.ch_global_btn, self.ch_r_btn, self.ch_g_btn, self.ch_b_btn)):
-            self.ch_btn_group.addButton(btn, i)
-        self._channel_buttons = tuple(
-            (btn, (f"white_point_trim_{ch}", f"black_point_trim_{ch}"))
-            for btn, ch in zip((self.ch_r_btn, self.ch_g_btn, self.ch_b_btn), _CH_SUFFIX)
-        )
-        ch_row = QHBoxLayout()
-        for btn in (self.ch_global_btn, self.ch_r_btn, self.ch_g_btn, self.ch_b_btn):
-            ch_row.addWidget(btn, 1)
-        self.layout.addLayout(ch_row)
-
-        wp_bp_row = QHBoxLayout()
-        self.white_point_slider = CompactSlider("White Point", -0.25, 0.25, conf.white_point_offset, has_neutral=True)
-        self.black_point_slider = CompactSlider("Black Point", -0.25, 0.25, conf.black_point_offset, has_neutral=True)
-        wp_bp_row.addWidget(self.white_point_slider)
-        wp_bp_row.addWidget(self.black_point_slider)
-        self.layout.addLayout(wp_bp_row)
 
         # Render exposure for a merged bracket, continuous rather than snapped to the frames that
         # happen to have been shot. The menu still offers those and writes a frame name; this
@@ -216,23 +228,7 @@ class ProcessSidebar(BaseSidebar):
                 "transfer curve (Density, Grade, Toe, Shoulder)."
             ),
         )
-        self.positive_source_btn = self._labeled_toggle(
-            "fa5s.image",
-            " Positive",
-            conf.positive_source,
-            (
-                "This Transparency is a finished positive, not a raw scanner or camera capture. "
-                "Decodes its embedded profile (sRGB if it has none) instead of reading it as "
-                "literal linear data, and skips the exposure lift and filmic roll-off a raw "
-                "capture needs, so the Print sliders shape the image directly.<br><br>"
-                "Only applies to an as-captured transfer: with Normalize on, the metered stretch "
-                "already decodes on the source's own profile."
-            ),
-        )
-        transfer_row = QHBoxLayout()
-        transfer_row.addWidget(self.normalize_e6_btn, 1)
-        transfer_row.addWidget(self.positive_source_btn, 1)
-        self.layout.addLayout(transfer_row)
+        self.layout.addWidget(self.normalize_e6_btn)
         self.layout.addWidget(self.render_ev_slider)
 
         # Disabled widgets get no hover, so the detail hangs off the hint, not the button.
@@ -252,20 +248,8 @@ class ProcessSidebar(BaseSidebar):
 
         self.layout.addStretch()
 
-    def _channel_index(self) -> int:
-        return max(self.ch_btn_group.checkedId(), 0)
-
-    def _wp_field(self) -> str:
-        idx = self._channel_index()
-        return "white_point_offset" if idx == 0 else f"white_point_trim_{_CH_SUFFIX[idx - 1]}"
-
-    def _bp_field(self) -> str:
-        idx = self._channel_index()
-        return "black_point_offset" if idx == 0 else f"black_point_trim_{_CH_SUFFIX[idx - 1]}"
-
     def _connect_signals(self) -> None:
         self.mode_btn_group.idToggled.connect(lambda i, checked: self._on_mode_changed(_MODES[i][0]) if checked else None)
-        self.ch_btn_group.idToggled.connect(lambda _id, checked: self.sync_ui() if checked else None)
         self.autodetect_btn.toggled.connect(lambda c: self.controller.toggle_autodetect(c))
         self.lock_bounds_btn.toggled.connect(self._on_lock_bounds_toggled)
 
@@ -280,74 +264,53 @@ class ProcessSidebar(BaseSidebar):
         self.color_range_clip_slider.valueChanged.connect(lambda v: self._on_color_range_clip_changed(v, persist=False))
         self.color_range_clip_slider.valueCommitted.connect(lambda v: self._on_color_range_clip_changed(v, persist=True))
 
-        self.white_point_slider.valueChanged.connect(lambda v: self._on_white_point_changed(v, persist=False))
-        self.white_point_slider.valueCommitted.connect(lambda v: self._on_white_point_changed(v, persist=True))
-
-        self.black_point_slider.valueChanged.connect(lambda v: self._on_black_point_changed(v, persist=False))
-        self.black_point_slider.valueCommitted.connect(lambda v: self._on_black_point_changed(v, persist=True))
-
         self.normalize_e6_btn.toggled.connect(self._on_normalize_e6_toggled)
         self.positive_source_btn.toggled.connect(self._on_positive_source_toggled)
+        self.use_luma_avg_btn.toggled.connect(self._on_use_luma_average_toggled)
+        self.use_color_avg_btn.toggled.connect(self._on_use_color_average_toggled)
         self.sync_ui()
-
-    def _on_white_point_changed(self, val: float, persist: bool = True) -> None:
-        self.update_config_section("process", persist=persist, readback_metrics=persist, **{self._wp_field(): val})
-
-    def _on_black_point_changed(self, val: float, persist: bool = True) -> None:
-        self.update_config_section("process", persist=persist, readback_metrics=persist, **{self._bp_field(): val})
 
     def _on_lock_bounds_toggled(self, checked: bool) -> None:
         self.update_config_section("process", lock_bounds=checked, persist=True, render=False)
         self.sync_ui()
 
     def _on_mode_changed(self, mode: str) -> None:
-        exp = self.state.config.exposure
-        strength = cast_removal_for_mode(mode, exp.cast_removal_strength)
-        if strength != exp.cast_removal_strength:
-            # Ahead of the mode, and without a render of its own: the process change below
-            # renders once with both in place.
-            self.update_config_section("exposure", cast_removal_strength=strength, render=False, persist=True)
-        self.update_config_section(
-            "process",
-            process_mode=mode,
-            render=True,
-            persist=True,
-            **invalidate_local_bounds(self.state.config.process),
-        )
+        self.controller.set_process_mode(mode)
         self.sync_ui()
 
     def _on_normalize_e6_toggled(self, checked: bool) -> None:
-        self.update_config_section(
+        self.controller.set_roll_default(
             "process",
             e6_normalize=checked,
-            render=True,
-            persist=True,
             **invalidate_local_bounds(self.state.config.process),
         )
 
     def _on_positive_source_toggled(self, checked: bool) -> None:
-        from dataclasses import replace
+        self.controller.set_positive_source(checked)
 
-        new_config = replace(
-            self.state.config,
-            process=replace(
-                self.state.config.process,
-                positive_source=checked,
-                **invalidate_local_bounds(self.state.config.process),
-            ),
+    def _on_use_luma_average_toggled(self, checked: bool) -> None:
+        self._toggle_roll_axis(use_luma_average=checked)
+
+    def _on_use_color_average_toggled(self, checked: bool) -> None:
+        self._toggle_roll_axis(use_color_average=checked)
+
+    def _toggle_roll_axis(self, **axis: bool) -> None:
+        # The other axis re-derives per frame, so a fresh analysis is forced; roll_name
+        # drops since the picked baseline no longer applies as a whole.
+        self.controller.set_roll_default(
+            "process",
+            roll_name=None,
+            **axis,
+            **invalidate_local_bounds(self.state.config.process),
         )
-        # Changes the decode like Linear RAW does: apply_config re-decodes and suppresses
-        # the bounds analysis over the stale buffer.
-        self.controller.apply_config(new_config, persist=True)
 
     def _on_analysis_region_toggled(self, checked: bool) -> None:
         self.controller.set_active_tool(ToolMode.ANALYSIS_DRAW if checked else ToolMode.NONE)
 
     def _on_buffer_changed(self, val: float, persist: bool = True) -> None:
-        self.update_config_section(
+        self.controller.set_roll_default(
             "process",
             persist=persist,
-            render=True,
             readback_metrics=persist,
             analysis_buffer=val,
             **invalidate_local_bounds(self.state.config.process),
@@ -355,20 +318,18 @@ class ProcessSidebar(BaseSidebar):
         self.controller.analysis_buffer_preview_requested.emit(val)
 
     def _on_luma_range_clip_changed(self, val: float, persist: bool = True) -> None:
-        self.update_config_section(
+        self.controller.set_roll_default(
             "process",
             persist=persist,
-            render=True,
             readback_metrics=persist,
             luma_range_clip=_luma_range_slider_to_value(val),
             **invalidate_local_bounds(self.state.config.process),
         )
 
     def _on_color_range_clip_changed(self, val: float, persist: bool = True) -> None:
-        self.update_config_section(
+        self.controller.set_roll_default(
             "process",
             persist=persist,
-            render=True,
             readback_metrics=persist,
             color_range_clip=_color_slider_to_value(val),
             **invalidate_local_bounds(self.state.config.process),
@@ -385,37 +346,16 @@ class ProcessSidebar(BaseSidebar):
             self.analysis_buffer_slider.setValue(conf.analysis_buffer)
             self.luma_range_clip_slider.setValue(_luma_range_value_to_slider(conf.luma_range_clip))
             self.color_range_clip_slider.setValue(_color_value_to_slider(conf.color_range_clip))
+            self.use_luma_avg_btn.setChecked(conf.use_luma_average)
+            self.use_color_avg_btn.setChecked(conf.use_color_average)
 
             # Transparency transfer: the stretch is a fixed window anchored to the decoder's white
             # level, so nothing that tunes a measured stretch has anything to act on.
-            from negpy.features.exposure.transfer import is_transparency_transfer
-
-            transfer = is_transparency_transfer(conf.process_mode, conf.e6_normalize)
-
-            # Per-layer WP/BP trims are meaningless on single-emulsion B&W, and the selector goes
-            # with the sliders it scopes when those are hidden below.
-            is_bw_sel = conf.process_mode == ProcessMode.BW
-            hide_channels = is_bw_sel or transfer
-            if hide_channels and self._channel_index() != 0:
-                self.ch_global_btn.setChecked(True)
-            for w in (self.ch_global_btn, self.ch_r_btn, self.ch_g_btn, self.ch_b_btn):
-                w.setVisible(not hide_channels)
-
-            idx = self._channel_index()
-            suffix = _CH_LABEL[idx]
-            self.white_point_slider.label.setText("White Point" + suffix)
-            self.black_point_slider.label.setText("Black Point" + suffix)
-            if idx == 0:
-                self.white_point_slider.setValue(conf.white_point_offset)
-                self.black_point_slider.setValue(conf.black_point_offset)
-            else:
-                ch = _CH_SUFFIX[idx - 1]
-                self.white_point_slider.setValue(getattr(conf, f"white_point_trim_{ch}"))
-                self.black_point_slider.setValue(getattr(conf, f"black_point_trim_{ch}"))
-            for btn, fields in self._channel_buttons:
-                btn.edited_dot.set_active(any(getattr(conf, f) != 0.0 for f in fields))
+            from negpy.features.exposure.transfer import is_transfer_path
 
             is_e6 = conf.process_mode == ProcessMode.E6
+            transfer = is_transfer_path(conf.process_mode, conf.e6_normalize, conf.positive_source)
+
             # Greyed on a merge, not hidden: the render already ignores it, since WorkspaceConfig
             # holds that invariant, and a control that vanishes teaches nothing about why.
             merged = hdr_active(self.state.config.hdr)
@@ -423,11 +363,10 @@ class ProcessSidebar(BaseSidebar):
             self.normalize_e6_btn.setChecked(conf.e6_normalize)
             self.normalize_e6_btn.setEnabled(not merged)
 
-            # Only the as-captured transfer reads it: with Normalize on the stretch already
-            # decodes on the source's own profile.
-            self.positive_source_btn.setVisible(is_e6)
+            # Live for every mode now; on Slide it still steps aside for Normalize's own
+            # metered stretch, which already decodes on the source's own profile.
             self.positive_source_btn.setChecked(conf.positive_source)
-            self.positive_source_btn.setEnabled(transfer)
+            self.positive_source_btn.setEnabled(not (is_e6 and conf.e6_normalize))
 
             # Only a merge has a render exposure to choose, and only the transfer path uses a fixed
             # window for it to mean anything against.
@@ -458,11 +397,11 @@ class ProcessSidebar(BaseSidebar):
                 self.analysis_buffer_slider,
                 self.analysis_region_btn,
                 self.clear_analysis_region_btn,
+                self.use_luma_avg_btn,
+                self.use_color_avg_btn,
                 self.luma_range_clip_slider,
                 self.color_range_clip_slider,
                 self.lock_bounds_btn,
-                self.white_point_slider,
-                self.black_point_slider,
             ):
                 w.setVisible(not transfer)
 
@@ -473,9 +412,6 @@ class ProcessSidebar(BaseSidebar):
             self.analysis_buffer_slider.setEnabled(not locked and not has_region and not (conf.use_luma_average and conf.use_color_average))
             self.luma_range_clip_slider.setEnabled(not locked and not conf.use_luma_average)
             self.color_range_clip_slider.setEnabled(not locked and not conf.use_color_average)
-            # Trims shift the same frozen bounds, so the selector locks with them.
-            for w in (self.white_point_slider, self.black_point_slider, self.ch_global_btn, self.ch_r_btn, self.ch_g_btn, self.ch_b_btn):
-                w.setEnabled(not locked)
         finally:
             self.block_signals(False)
 
@@ -490,16 +426,12 @@ class ProcessSidebar(BaseSidebar):
             *self.mode_btns,
             self.autodetect_btn,
             self.lock_bounds_btn,
-            self.ch_global_btn,
-            self.ch_r_btn,
-            self.ch_g_btn,
-            self.ch_b_btn,
             self.analysis_buffer_slider,
             self.analysis_region_btn,
+            self.use_luma_avg_btn,
+            self.use_color_avg_btn,
             self.luma_range_clip_slider,
             self.color_range_clip_slider,
-            self.white_point_slider,
-            self.black_point_slider,
             self.normalize_e6_btn,
             self.positive_source_btn,
         ]

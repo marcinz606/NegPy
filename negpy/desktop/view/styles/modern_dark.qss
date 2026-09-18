@@ -393,6 +393,18 @@ QFrame#collapsible_content {
     border-top: none;
 }
 
+/* A Roll-tab card locked to this frame's own value (widgets/collapsible.py
+   set_lock_button): an amber stripe down the whole card, not just its small lock
+   icon, since switching frames should make an override obvious before its sliders
+   are even read. */
+QFrame#collapsible_content[roll_locked="true"] {
+    border-left: 3px solid @warn_amber;
+}
+
+QPushButton#collapsible_header[roll_locked="true"] {
+    border-left: 3px solid @warn_amber;
+}
+
 /* Section content must not repaint over the card: plain QWidget bodies would
    otherwise pick up the global `QWidget` @bg_dark fill and read darker than
    sections whose content is a custom subclass. */
@@ -427,6 +439,11 @@ QPushButton#collapsible_reset_btn {
 QPushButton#collapsible_reset_btn:hover {
     background: @bg_selected;
     border-radius: 3px;
+}
+QPushButton#collapsible_reset_btn::menu-indicator {
+    /* An actions-menu button in this row (set_actions_menu) reads as one more plain icon,
+    like its info/reset siblings, not a split button. */
+    width: 0px;
 }
 
 QFrame#toolbar_container {

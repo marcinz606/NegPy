@@ -15,6 +15,8 @@ from negpy.services.assets.flatfield import FlatFieldProfiles
 from negpy.services.assets.flatfield_migration import migrate_legacy_flatfield_profiles
 from negpy.services.assets.gear import GearProfiles
 from negpy.services.assets.gear_preset_migration import migrate_gear_presets
+from negpy.services.assets.normalization_roll_migration import migrate_legacy_normalization_rolls
+from negpy.services.assets.positive_auto_migration import migrate_auto_meter_for_positive_frames
 from negpy.kernel.system.config import APP_CONFIG, BASE_USER_DIR
 from negpy.kernel.system.logging import get_logger, setup_logging
 from negpy.kernel.system.override import apply as apply_override
@@ -54,7 +56,7 @@ class _AppStyle(QProxyStyle):
     the moment the cursor crosses a toolbar, which reads as noise — and no mnemonic
     underlines on macOS, where they mark a key that does nothing."""
 
-    _TOOLTIP_WAKEUP_MS = 1400
+    _TOOLTIP_WAKEUP_MS = 900
 
     def styleHint(self, hint, option=None, widget=None, returnData=None):
         if hint == QStyle.StyleHint.SH_ToolTip_WakeUpDelay:
@@ -251,6 +253,8 @@ def main() -> None:
         set_gain_provider(FlatFieldProfiles.load_gain)
         migrate_legacy_flatfield_profiles(repo)
         migrate_gear_presets(repo)
+        migrate_legacy_normalization_rolls(repo)
+        migrate_auto_meter_for_positive_frames(repo)
 
         scale = float(repo.get_global_setting("ui_scale", 1.0) or 1.0)
         scale = max(0.8, min(1.2, scale))

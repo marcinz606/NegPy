@@ -17,10 +17,10 @@ from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog, _g
 GUIDED_KEYS = (
     "analysis",
     "presets",
+    "film",
     "sensor",
     "demosaic",
     "process",
-    "roll",
     "geometry",
     "flatfield",
     "color",
@@ -59,8 +59,10 @@ def test_every_panel_key_resolves_to_a_guide() -> None:
 
 def test_a_slice_stops_at_the_next_section() -> None:
     """Slices end at the next same-or-higher heading, so a panel can't show its neighbour's
-    controls; the #### topics inside §3 are deeper and must stay in."""
-    assert "Roll Analysis" not in guide_markdown("process")
+    controls; the #### topics inside §3 are deeper and must stay in. Roll Analysis is
+    legitimately part of "process" now (one merged Normalization card), not a neighbour
+    bleeding in -- "Presets", its actual next-heading neighbour, is the boundary to check."""
+    assert "Presets" not in guide_markdown("process")
     assert "Setup tab" not in guide_markdown("analysis")
     assert "Step wedge" in guide_markdown("analysis")
 

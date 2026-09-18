@@ -196,8 +196,8 @@ class ExportConfig:
     # When True, exports overwrite existing files silently. When False, the export prompts
     # (Overwrite / Rename / Cancel) before clobbering anything.
     overwrite: bool = False
-    output_mode: ExportPresetOutputMode = ExportPresetOutputMode.ABSOLUTE
-    output_subfolder: str = ""
+    output_mode: ExportPresetOutputMode = ExportPresetOutputMode.SUBFOLDER_OF_SOURCE
+    output_subfolder: str = "export"
     icc_input_path: Optional[str] = None
     icc_output_path: Optional[str] = None
 
@@ -396,7 +396,7 @@ class WorkspaceConfig:
         collapsed is not one that needed a bracket.
 
         Held here rather than at the render, because e6_normalize is read from
-        `is_transparency_transfer` down through both engines and the sidebars, and a rule
+        `is_transfer_path` down through both engines and the sidebars, and a rule
         applied at some of those is the hidden-but-live trap the Calibration panel already
         learned. Inert everywhere, from one place.
 

@@ -36,6 +36,9 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.mock_repo.get_global_setting.side_effect = mock_get_global
         self.mock_repo.get_max_history_index.return_value = 0
         self.session = DesktopSessionManager(self.mock_repo)
+        # Construction itself writes (startup migrations, e.g.); tests below assert
+        # what one specific action writes, not the lifetime total since setUp.
+        self.mock_repo.save_global_setting.reset_mock()
 
         self.session.state.uploaded_files = [
             {"name": "file1.dng", "path": "path1", "hash": "hash1"},
@@ -89,7 +92,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         with patch("negpy.desktop.session.load_or_promote", return_value=saved) as hydrate:
             config = self.session.config_for_asset(asset)
 
-        hydrate.assert_called_once_with(self.mock_repo, "saved-hash", "/roll/saved.dng", half=0, composite=False)
+        hydrate.assert_called_once_with(self.mock_repo, "saved-hash", "/roll/saved.dng", half=0, composite=False, forked=False)
         self.assertEqual(config.exposure.density, 1.7)
         self.assertEqual(config.process.process_mode, ProcessMode.E6)
         self.assertEqual(config.geometry.autocrop_ratio, "4:3")
@@ -155,6 +158,78 @@ class TestDesktopSessionSync(unittest.TestCase):
         )
         self.assertEqual(plain_config.rgbscan, RgbScanConfig())
         self.assertIs(self.session.state.config, leaked)
+
+    def test_config_for_asset_applies_the_active_rolls_defaults(self):
+        rolls_store = {"r1": {"kind": "virtual", "name": "Portra", "defaults": {"linear_raw": True}}}
+        globals_ = {"rolls_by_id": rolls_store}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: globals_.get(key, default)
+        self.session.state.active_roll_id = "r1"
+        asset = {"name": "a.dng", "path": "/roll/a.dng", "hash": "a-hash"}
+
+        with patch("negpy.desktop.session.load_or_promote", return_value=None):
+            config = self.session.config_for_asset(asset)
+
+        self.assertTrue(config.process.linear_raw)
+
+    def test_config_for_asset_ignores_roll_defaults_with_no_active_roll(self):
+        rolls_store = {"r1": {"kind": "virtual", "name": "Portra", "defaults": {"linear_raw": True}}}
+        globals_ = {"rolls_by_id": rolls_store}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: globals_.get(key, default)
+        self.session.state.active_roll_id = None
+        asset = {"name": "a.dng", "path": "/roll/a.dng", "hash": "a-hash"}
+
+        with patch("negpy.desktop.session.load_or_promote", return_value=None):
+            config = self.session.config_for_asset(asset)
+
+        self.assertFalse(config.process.linear_raw)
+
+    def test_config_for_asset_respects_a_frames_locked_card(self):
+        rolls_store = {
+            "r1": {
+                "kind": "virtual",
+                "name": "Portra",
+                "defaults": {"linear_raw": True},
+                "frame_overrides": {"a-hash": ["sensor"]},
+            }
+        }
+        globals_ = {"rolls_by_id": rolls_store}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: globals_.get(key, default)
+        self.session.state.active_roll_id = "r1"
+        asset = {"name": "a.dng", "path": "/roll/a.dng", "hash": "a-hash"}
+        saved = replace(WorkspaceConfig(), process=replace(WorkspaceConfig().process, linear_raw=False))
+
+        with patch("negpy.desktop.session.load_or_promote", return_value=saved):
+            config = self.session.config_for_asset(asset)
+
+        self.assertFalse(config.process.linear_raw)
+
+    def test_config_for_asset_reads_roll_state_by_the_unforked_hash(self):
+        """A lock (or a roll default's frame_overrides entry) is about this physical
+        frame, not its current edit identity -- a forked asset's suffixed hash must
+        still resolve against the plain hash's lock."""
+        from negpy.services.assets.rolls import roll_edit_hash
+
+        rolls_store = {
+            "r1": {
+                "kind": "virtual",
+                "name": "Portra",
+                "defaults": {"linear_raw": True},
+                "frame_overrides": {"a-hash": ["sensor"]},
+            }
+        }
+        globals_ = {"rolls_by_id": rolls_store}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: globals_.get(key, default)
+        self.session.state.active_roll_id = "r1"
+        forked_hash = roll_edit_hash("a-hash", "r1")
+        asset = {"name": "a.dng", "path": "/roll/a.dng", "hash": forked_hash}
+        saved = replace(WorkspaceConfig(), process=replace(WorkspaceConfig().process, linear_raw=False))
+
+        with patch("negpy.desktop.session.load_or_promote", return_value=saved):
+            config = self.session.config_for_asset(asset)
+
+        # sensor (Calibration) is locked for a-hash, so linear_raw keeps its own value
+        # even though the asset is currently showing its forked edit identity.
+        self.assertFalse(config.process.linear_raw)
 
     def test_set_autodetect_enabled_persists(self):
         self.assertFalse(self.session.state.autodetect_enabled)
@@ -474,6 +549,98 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertEqual(cfg.exposure.wb_magenta, 0.2)
         self.assertEqual(cfg.exposure.wb_yellow, 0.1)
 
+    def test_sticky_settings_enabled_defaults_true(self):
+        self.assertTrue(self.session.state.sticky_settings_enabled)
+
+    def test_set_sticky_settings_enabled_persists(self):
+        self.session.set_sticky_settings_enabled(False)
+        self.assertFalse(self.session.state.sticky_settings_enabled)
+        self.mock_repo.save_global_setting.assert_called_with("sticky_settings_enabled", False)
+
+    def test_set_sticky_settings_enabled_noop_when_unchanged(self):
+        self.session.set_sticky_settings_enabled(True)
+        self.mock_repo.save_global_setting.assert_not_called()
+
+    def test_master_switch_off_gates_the_whole_row_overlay_on_a_new_file(self):
+        """Off, every catalog row - look and rig alike - stays at its WorkspaceConfig() default."""
+        sticky = {
+            "sticky_config": {
+                "saturation": 1.8,
+                "cast_removal_strength": 0.9,
+                "process_mode": ProcessMode.E6,
+                "flip_horizontal": True,
+                "jpeg_quality": 55,
+            },
+        }
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
+        self.session.state.sticky_settings_enabled = False
+        config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
+        default = WorkspaceConfig()
+        self.assertEqual(config.lab.saturation, default.lab.saturation)
+        self.assertEqual(config.exposure.cast_removal_strength, default.exposure.cast_removal_strength)
+        self.assertEqual(config.process.process_mode, default.process.process_mode)
+        self.assertFalse(config.geometry.flip_horizontal)
+        self.assertEqual(config.export.jpeg_quality, default.export.jpeg_quality)
+
+    def test_master_switch_on_still_applies_the_row_overlay(self):
+        """Unchanged default behaviour: enabled carries the look onto a fresh file."""
+        sticky = {"sticky_config": {"saturation": 1.8}}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
+        self.assertTrue(self.session.state.sticky_settings_enabled)
+        config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
+        self.assertEqual(config.lab.saturation, 1.8)
+
+    def test_master_switch_off_leaves_hard_coded_carries_untouched(self):
+        """The rig facts and workspace state are not picker rows, so the switch never gates them."""
+        prof = SimpleNamespace(id="rig-a", k1=-0.05)
+        sticky = {
+            "last_export_config": {"export_path": "/out"},
+            "last_linear_raw": True,
+            "flatfield_active_profile": "rig-a",
+            "wb_temp_lock": 4500.0,
+        }
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
+        self.session.state.sticky_settings_enabled = False
+        base = WorkspaceConfig(exposure=replace(WorkspaceConfig().exposure, wb_magenta=0.2, wb_yellow=0.1))
+        with patch("negpy.desktop.session.FlatFieldProfiles.get", return_value=prof):
+            config = self.session._apply_sticky_settings(base, only_global=False)
+        self.assertEqual(config.export.export_path, "/out")
+        self.assertTrue(config.process.linear_raw)
+        self.assertEqual(config.flatfield.profile_id, "rig-a")
+        self.assertTrue(config.flatfield.apply)
+        self.assertNotEqual((config.exposure.wb_magenta, config.exposure.wb_yellow), (0.2, 0.1))
+
+    def test_master_switch_off_does_not_affect_only_global_branch(self):
+        """only_global=True (an already-edited file) ignores the switch entirely."""
+        sticky = {
+            "sticky_config": {"density": 2.2, "jpeg_quality": 73},
+            "sticky_rows": ["exposure.density", "export.jpeg_quality"],
+        }
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
+        self.session.state.sticky_settings_enabled = False
+        config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=True)
+        self.assertEqual(config.exposure.density, WorkspaceConfig().exposure.density)
+        self.assertEqual(config.export.jpeg_quality, 73)
+
+    def test_master_switch_off_does_not_clear_row_picks(self):
+        """Turning the switch off is non-destructive: the per-row picks survive untouched."""
+        from negpy.desktop.sticky import STICKY_CONFIG_KEY, STICKY_ROWS_KEY
+
+        sticky = {"sticky_config": {"density": 2.2}, "sticky_rows": ["exposure.density"]}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
+
+        self.session.set_sticky_settings_enabled(False)
+        called_keys = {c.args[0] for c in self.mock_repo.save_global_setting.call_args_list}
+        self.assertNotIn(STICKY_ROWS_KEY, called_keys)
+        self.assertNotIn(STICKY_CONFIG_KEY, called_keys)
+
+        off = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
+        self.assertEqual(off.exposure.density, WorkspaceConfig().exposure.density)
+
+        self.session.state.sticky_settings_enabled = True
+        on = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
+        self.assertEqual(on.exposure.density, 2.2)
+
     def test_contact_sheet_output_path_in_sticky_export(self):
         sticky = {
             "last_export_config": {"contact_sheet_output_path": "/saved/contact", "contact_sheet_cell_px": 800},
@@ -792,6 +959,91 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.mock_repo.save_history_step.assert_called_with("hash1", 1, edited)
         self.assertEqual(self.session.state.undo_index, 2)
 
+    def test_reset_roll_resets_the_active_frame_in_place(self):
+        self.session.select_file(0)
+        dirty = replace(self.session.state.config, exposure=replace(self.session.state.config.exposure, density=1.8))
+        self.session.update_config(dirty, persist=True)
+
+        self.session.reset_roll(self.session.state.uploaded_files)
+
+        self.assertEqual(self.session.state.config, WorkspaceConfig())
+
+    def test_reset_roll_writes_other_frames_straight_to_the_db(self):
+        self.session.select_file(0)  # hash1 active; hash2 is the "other" frame
+
+        self.session.reset_roll(self.session.state.uploaded_files)
+
+        self.mock_repo.save_file_settings.assert_any_call("hash2", WorkspaceConfig(), file_path="path2")
+        # Recorded as an external history step, undoable after switching to it.
+        steps = [c.args for c in self.mock_repo.save_history_step.call_args_list if c.args[0] == "hash2"]
+        self.assertEqual(len(steps), 2)
+        self.assertEqual(steps[1][2], WorkspaceConfig())
+
+    def test_reset_roll_does_not_touch_a_frame_outside_the_given_list(self):
+        self.session.select_file(0)
+        only_hash1 = [self.session.state.uploaded_files[0]]
+
+        self.session.reset_roll(only_hash1)
+
+        for c in self.mock_repo.save_file_settings.call_args_list:
+            self.assertNotEqual(c.args[0], "hash2")
+
+    def test_rehome_folder_paths_repoints_every_matching_asset(self):
+        self.session.state.uploaded_files = [
+            {"name": "a.tif", "path": "/scans/roll_a/a.tif", "hash": "ha"},
+            {"name": "b.tif", "path": "/scans/roll_a/sub/b.tif", "hash": "hb"},
+            {"name": "c.tif", "path": "/elsewhere/c.tif", "hash": "hc"},
+        ]
+
+        self.session.rehome_folder_paths("/scans/roll_a", "/scans/roll_b")
+
+        paths = [f["path"] for f in self.session.state.uploaded_files]
+        self.assertEqual(paths, ["/scans/roll_b/a.tif", "/scans/roll_b/sub/b.tif", "/elsewhere/c.tif"])
+
+    def test_rehome_folder_paths_updates_the_active_file_path(self):
+        self.session.state.uploaded_files = [{"name": "a.tif", "path": "/scans/roll_a/a.tif", "hash": "ha"}]
+        self.session.state.current_file_path = "/scans/roll_a/a.tif"
+
+        self.session.rehome_folder_paths("/scans/roll_a", "/scans/roll_b")
+
+        self.assertEqual(self.session.state.current_file_path, "/scans/roll_b/a.tif")
+
+    def test_rehome_folder_paths_rewrites_composite_part_paths(self):
+        self.session.state.uploaded_files = [
+            {
+                "name": "triplet",
+                "path": "/scans/roll_a/r.tif",
+                "hash": "ha",
+                "green_path": "/scans/roll_a/g.tif",
+                "blue_path": "/scans/roll_a/b.tif",
+            },
+            {
+                "name": "stitch",
+                "path": "/scans/roll_a/1.tif",
+                "hash": "hb",
+                "stitch_paths": ["/scans/roll_a/1.tif", "/scans/roll_a/2.tif"],
+                "stitch_transforms": [[1, 0, 0], [0, 1, 0]],
+                "stitch_canvas": [100, 100],
+                "stitch_sizes": [[50, 100], [50, 100]],
+            },
+        ]
+
+        self.session.rehome_folder_paths("/scans/roll_a", "/scans/roll_b")
+
+        triplet, stitch = self.session.state.uploaded_files
+        self.assertEqual(triplet["green_path"], "/scans/roll_b/g.tif")
+        self.assertEqual(triplet["blue_path"], "/scans/roll_b/b.tif")
+        self.assertEqual(stitch["stitch_paths"], ["/scans/roll_b/1.tif", "/scans/roll_b/2.tif"])
+
+    def test_rehome_folder_paths_is_a_noop_when_nothing_matches(self):
+        self.session.state.uploaded_files = [{"name": "c.tif", "path": "/elsewhere/c.tif", "hash": "hc"}]
+        self.mock_repo.save_global_setting.reset_mock()
+
+        self.session.rehome_folder_paths("/scans/roll_a", "/scans/roll_b")
+
+        self.assertEqual(self.session.state.uploaded_files[0]["path"], "/elsewhere/c.tif")
+        self.mock_repo.save_global_setting.assert_not_called()
+
     def test_sync_to_roll_records_target_history(self):
         self.mock_repo.get_max_history_index.return_value = 0
         self.mock_repo.load_history_step.return_value = None
@@ -1011,6 +1263,13 @@ class TestSessionEmptied(unittest.TestCase):
         self.assertEqual(self.emptied_count, 1)
         self._assert_active_image_reset()
 
+    def test_clear_files_drops_cached_embeddings(self):
+        import numpy as np
+
+        self.session.state.embeddings["h1"] = np.zeros(2, dtype=np.float32)
+        self.session.clear_files()
+        self.assertEqual(self.session.state.embeddings, {})
+
     def test_remove_selected_last_files_emits_and_resets(self):
         self.session.remove_selected_files()
         self.assertEqual(self.emptied_count, 1)
@@ -1214,6 +1473,37 @@ class TestThumbnailKeying(unittest.TestCase):
         session.remove_current_file()
 
         self.assertEqual(session.state.thumbnails, {keys[1]: "thumb-b"})
+
+    def test_push_external_history_flags_stale_under_the_thumbnail_cache_key(self):
+        """push_external_history (a bulk apply reaching a non-active file) adds
+        asset_thumbnail_key(asset) to stale_thumbnails, not the bare hash -- the read
+        side (the film strip's dot, the tooltip) must key the same way or the flag,
+        though set, never matches anything and the indicator never shows."""
+        from PyQt6.QtCore import Qt
+
+        from negpy.desktop.view.sidebar.files import _ThumbnailDelegate
+        from negpy.services.assets.thumbnails import asset_thumbnail_key
+
+        repo = MagicMock(spec=StorageRepository)
+        repo.get_global_setting.return_value = None
+        repo.load_file_settings.return_value = None
+        repo.load_file_settings_by_path.return_value = None
+        repo.load_file_settings_many.return_value = {}
+        repo.get_max_history_index.return_value = 0
+        session = DesktopSessionManager(repo)
+        asset = {"name": "a.nef", "path": "/a.nef", "hash": "h1"}
+        session.state.uploaded_files = [asset]
+
+        session.push_external_history("h1", WorkspaceConfig(), WorkspaceConfig())
+
+        self.assertIn(asset_thumbnail_key(asset), session.state.stale_thumbnails)
+
+        model = AssetListModel(session.state)
+        tooltip = model.data(model.index(0, 0), Qt.ItemDataRole.ToolTipRole)
+        self.assertIn("predates a settings change", tooltip)
+
+        delegate = _ThumbnailDelegate(state=session.state)
+        self.assertTrue(delegate._is_stale_thumbnail(asset))
 
 
 class TestSearchFacts(unittest.TestCase):

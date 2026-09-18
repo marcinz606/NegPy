@@ -55,8 +55,9 @@ class DemosaicSidebar(BaseSidebar):
         self.export_combo.currentTextChanged.connect(lambda name: self._on_changed("demosaic_export", name))
 
     def _on_changed(self, field: str, name: str) -> None:
-        # apply_config: source_token carries the preview choice, so changing it decodes again.
-        self.update_config_section("process", persist=True, render=True, **{field: DemosaicMode(name)})
+        # apply_config (inside set_roll_default): source_token carries the preview
+        # choice, so changing it decodes again.
+        self.controller.set_roll_default("demosaic", **{field: DemosaicMode(name)})
 
     def sync_ui(self) -> None:
         conf = self.state.config.process

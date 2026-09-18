@@ -136,6 +136,14 @@ class GeometrySidebar(BaseSidebar):
 
         self.layout.addWidget(section_subheader("ALIGNMENT"))
 
+        self.crop_to_valid_btn = self._labeled_toggle(
+            "fa5s.crop",
+            " Crop by Default",
+            conf.crop_to_valid,
+            "Crop out the wedge Fine Rotation, Tilt and Swing leave behind, so no edge shows extrapolated pixels",
+        )
+        self.layout.addWidget(self.crop_to_valid_btn)
+
         align_row = QHBoxLayout()
         self.straighten_btn = self._tool_toggle("fa5s.ruler", "", "Draw a line along a horizon or edge to level the frame")
         self.straighten_btn.setFixedWidth(ICON_BUTTON_WIDTH)
@@ -223,6 +231,8 @@ class GeometrySidebar(BaseSidebar):
 
         self.distortion_slider.valueChanged.connect(lambda _v: self.controller.show_rotation_guide())
 
+        self.crop_to_valid_btn.toggled.connect(self._on_crop_to_valid_toggled)
+
         for slider, field in (
             (self.converge_v_slider, "converge_v"),
             (self.converge_h_slider, "converge_h"),
@@ -234,6 +244,9 @@ class GeometrySidebar(BaseSidebar):
             slider.valueCommitted.connect(
                 lambda v, f=field: self.update_config_section("geometry", render=True, persist=True, readback_metrics=True, **{f: v})
             )
+
+        for slider in (self.converge_v_slider, self.converge_h_slider):
+            slider.valueChanged.connect(lambda _v: self.controller.show_rotation_guide())
 
     def _on_ratio_changed(self, ratio: str) -> None:
         self.controller.set_crop_ratio(ratio)
@@ -279,6 +292,10 @@ class GeometrySidebar(BaseSidebar):
         else:
             self.controller.reset_crop()
 
+    def _on_crop_to_valid_toggled(self, checked: bool) -> None:
+        self.update_config_section("geometry", render=True, persist=True, readback_metrics=True, crop_to_valid=checked)
+        self.controller.show_rotation_guide()
+
     def sync_ui(self) -> None:
         conf = self.state.config.geometry
 
@@ -303,6 +320,8 @@ class GeometrySidebar(BaseSidebar):
             self.reset_crop_btn.edited_dot.set_active(conf.crop_from_auto)
             self.auto_crop_all_btn.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
             self.rebate_trim_slider.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
+            self.crop_to_valid_btn.setChecked(conf.crop_to_valid)
+            self.crop_to_valid_btn.edited_dot.set_active(conf.crop_to_valid)
         finally:
             self.block_signals(False)
 
@@ -322,3 +341,4 @@ class GeometrySidebar(BaseSidebar):
         self.straighten_btn.blockSignals(blocked)
         self.reset_crop_btn.blockSignals(blocked)
         self.auto_crop_all_btn.blockSignals(blocked)
+        self.crop_to_valid_btn.blockSignals(blocked)

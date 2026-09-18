@@ -42,6 +42,7 @@ from negpy.features.geometry.logic import (
     apply_margin_to_roi,
     apply_radial_distortion,
     compute_distortion_scale,
+    compute_geometry_crop_rect,
     get_manual_rect_coords,
 )
 from negpy.features.geometry.models import GeometryConfig
@@ -55,7 +56,9 @@ from negpy.features.exposure.transfer import (
     TRANSFER_CONSTANTS,
     ZONE_BLACK_TAPER,
     TRANSFER_DENSITY_RANGE,
-    is_transparency_transfer,
+    is_transfer_path,
+    transfer_assumed_anchor,
+    transfer_auto_terms,
     transfer_bounds,
     transfer_curve_params,
     transfer_widths,
@@ -621,6 +624,13 @@ class GPUEngine:
                     offset_px=settings.geometry.autocrop_offset,
                     scale_factor=scale_factor,
                 )
+            elif settings.geometry.crop_to_valid and not settings.geometry.crop_from_auto:
+                valid_rect = compute_geometry_crop_rect(
+                    settings.geometry.fine_rotation, settings.geometry.converge_v, settings.geometry.converge_h, w_rot, h_rot
+                )
+                roi = get_manual_rect_coords(
+                    (h_rot, w_rot), valid_rect, offset_px=settings.geometry.autocrop_offset, scale_factor=scale_factor
+                )
             elif settings.geometry.autocrop_offset > 0:
                 margin = settings.geometry.autocrop_offset * scale_factor
                 roi = apply_margin_to_roi((0, h_rot, 0, w_rot), h_rot, w_rot, margin)
@@ -667,13 +677,29 @@ class GPUEngine:
         _roll_luma = settings.process.use_luma_average and settings.process.is_locked_initialized
         _roll_color = settings.process.use_color_average and settings.process.is_locked_initialized
         needs_bounds_analysis = not (bounds_override or (_roll_luma and _roll_color) or settings.process.is_local_initialized)
+        transfer = is_transfer_path(settings.process.process_mode, settings.process.e6_normalize, settings.process.positive_source)
+        # A raw un-normalized slide never meters -- these four stay unmeasured for it,
+        # the same guarantee is_transfer_path exists to give a bracket. A Positive frame
+        # carries no such bracket, so it meters exactly like a negative.
+        transfer_meters_ok = not transfer or settings.process.positive_source
         # Measure the anchor for the render when Auto Density is on, and for the
         # Analysis-panel stats on every preview whatever the toggle says. The render only
         # *uses* it when auto_exposure is on (see uniforms).
-        needs_anchor = metered_anchor_override is None and not tiling_mode and (settings.exposure.auto_exposure or readback_metrics)
-        needs_textural = textural_range_override is None and not tiling_mode and settings.exposure.auto_normalize_contrast
-        needs_shadow = shadow_point_override is None and not tiling_mode and settings.exposure.auto_normalize_contrast
-        needs_highlight = highlight_point_override is None and not tiling_mode and settings.exposure.auto_normalize_contrast
+        needs_anchor = (
+            metered_anchor_override is None
+            and not tiling_mode
+            and (settings.exposure.auto_exposure or readback_metrics)
+            and transfer_meters_ok
+        )
+        needs_textural = (
+            textural_range_override is None and not tiling_mode and settings.exposure.auto_normalize_contrast and transfer_meters_ok
+        )
+        needs_shadow = (
+            shadow_point_override is None and not tiling_mode and settings.exposure.auto_normalize_contrast and transfer_meters_ok
+        )
+        needs_highlight = (
+            highlight_point_override is None and not tiling_mode and settings.exposure.auto_normalize_contrast and transfer_meters_ok
+        )
 
         prefiltered = None
         cam_prefiltered = None
@@ -683,7 +709,6 @@ class GPUEngine:
         unmix_m = effective_crosstalk_matrix(settings.process, settings.process.process_mode)
         # The transparency curve reads working space, so its meter must too: the same
         # camera matrix NormalizationProcessor._process_transparency applies, on the grid.
-        transfer = is_transparency_transfer(settings.process.process_mode, settings.process.e6_normalize)
         cam_m = (
             camera_to_working_matrix(
                 cam_xyz, camera_wb if should_fold_camera_wb(settings.process, settings.exposure.render_intent) else None
@@ -794,21 +819,28 @@ class GPUEngine:
             axis_bounds = LogNegativeBounds(*transfer_bounds()) if transfer else bounds
             neutral_axis_refs = measure_neutral_axis_from_log(axis_grid, axis_bounds, None, 0.0)
 
+        # Auto Density/Auto Grade meter the working-space grid against the fixed window on
+        # a Positive frame, exactly like the neutral axis just above; both read the
+        # regular per-frame grid/bounds everywhere else.
+        meter_grid = cam_prefiltered if transfer else prefiltered
+        meter_bounds = LogNegativeBounds(*transfer_bounds()) if transfer else anchor_bounds
+        meter_assumed = transfer_assumed_anchor() if transfer else None
+
         metered_anchor = metered_anchor_override
-        if needs_anchor and prefiltered is not None:
-            metered_anchor = measure_anchor_from_log(prefiltered, anchor_bounds, None, 0.0)
+        if needs_anchor and meter_grid is not None:
+            metered_anchor = measure_anchor_from_log(meter_grid, meter_bounds, None, 0.0, assumed=meter_assumed)
 
         textural_range = textural_range_override
-        if needs_textural and prefiltered is not None:
-            textural_range = measure_textural_range_from_log(prefiltered, None, 0.0)
+        if needs_textural and meter_grid is not None:
+            textural_range = measure_textural_range_from_log(meter_grid, None, 0.0)
 
         shadow_point = shadow_point_override
-        if needs_shadow and prefiltered is not None:
-            shadow_point = measure_shadow_point_from_log(prefiltered, anchor_bounds, None, 0.0)
+        if needs_shadow and meter_grid is not None:
+            shadow_point = measure_shadow_point_from_log(meter_grid, meter_bounds, None, 0.0)
 
         highlight_point = highlight_point_override
-        if needs_highlight and prefiltered is not None:
-            highlight_point = measure_highlight_point_from_log(prefiltered, anchor_bounds, None, 0.0)
+        if needs_highlight and meter_grid is not None:
+            highlight_point = measure_highlight_point_from_log(meter_grid, meter_bounds, None, 0.0)
 
         if analysis_key is not None:
             self._analysis_cache = _update_analysis_cache(
@@ -1078,7 +1110,7 @@ class GPUEngine:
                     )
                     # A tiled export passes a per-tile slice, which is not reusable.
                     self._local_ev_key = None if tiled_maps else ev_key
-            if is_transparency_transfer(settings.process.process_mode, settings.process.e6_normalize):
+            if is_transfer_path(settings.process.process_mode, settings.process.e6_normalize, settings.process.positive_source):
                 # The transfer curve takes no dodge/burn map: local EV is a print-exposure
                 # input, and this path replaces the print.
                 self._dispatch_pass(
@@ -1498,11 +1530,14 @@ class GPUEngine:
         adj_floors = (f[0] + wp3[0], f[1] + wp3[1], f[2] + wp3[2])
         adj_ceils = (c[0] + bp3[0], c[1] + bp3[1], c[2] + bp3[2])
 
-        # Transparency transfer: the fixed window, with no WP/BP trims. Mirrors
-        # NormalizationProcessor._process_transparency, whose identity they would break.
-        if is_transparency_transfer(settings.process.process_mode, settings.process.e6_normalize):
+        # Transparency transfer: the fixed window, deviated by White/Black Point the same
+        # way as the measured path above -- a user-driven nudge, not a meter, so it does
+        # not reopen what the fixed window exists to prevent (identity at wp3=bp3=0).
+        # Mirrors NormalizationProcessor._process_transparency.
+        if is_transfer_path(settings.process.process_mode, settings.process.e6_normalize, settings.process.positive_source):
             t_floors, t_ceils = transfer_bounds()
-            adj_floors, adj_ceils = t_floors, t_ceils
+            adj_floors = (t_floors[0] + wp3[0], t_floors[1] + wp3[1], t_floors[2] + wp3[2])
+            adj_ceils = (t_ceils[0] + bp3[0], t_ceils[1] + bp3[1], t_ceils[2] + bp3[2])
 
         # Capture-side dye-unmix rows, resolved once per frame by the caller and shared
         # with NormalizationProcessor. Identity when off.
@@ -1560,7 +1595,12 @@ class GPUEngine:
 
         # Transparency transfer params (mirrors transfer.py; inert on the print path).
         tc = TRANSFER_CONSTANTS
-        t_exp, t_contrast, t_toe3, t_sh3 = transfer_curve_params(settings.exposure)
+        t_exp0, t_contrast0, t_toe3, t_sh3 = transfer_curve_params(settings.exposure)
+        # Auto Density/Auto Grade, restated on this curve -- inert (None inputs) on a raw
+        # un-normalized slide, live on a Positive frame exactly like on a negative.
+        t_exp, t_contrast, t_hl_auto = transfer_auto_terms(
+            settings.exposure, t_exp0, t_contrast0, textural_range, metered_anchor, shadow_point, highlight_point
+        )
         t_tw3, t_sw3 = transfer_widths(settings.exposure)
         t_cmy = filtration_offsets(
             (settings.exposure.wb_cyan, settings.exposure.wb_magenta, settings.exposure.wb_yellow),
@@ -1601,7 +1641,7 @@ class GPUEngine:
             + struct.pack(
                 "ffff",
                 float(settings.exposure.shadow_density),
-                float(settings.exposure.highlight_density),
+                float(settings.exposure.highlight_density + t_hl_auto),
                 float(t_sh_c),
                 float(t_hi_c),
             )
@@ -2338,6 +2378,11 @@ class GPUEngine:
                 offset_px=settings.geometry.autocrop_offset,
                 scale_factor=scale_factor,
             )
+        elif settings.geometry.crop_to_valid and not settings.geometry.crop_from_auto:
+            valid_rect = compute_geometry_crop_rect(
+                settings.geometry.fine_rotation, settings.geometry.converge_v, settings.geometry.converge_h, w_rot, h_rot
+            )
+            roi = get_manual_rect_coords((h_rot, w_rot), valid_rect, offset_px=settings.geometry.autocrop_offset, scale_factor=scale_factor)
         elif settings.geometry.autocrop_offset > 0:
             margin = settings.geometry.autocrop_offset * scale_factor
             roi = apply_margin_to_roi((0, h_rot, 0, w_rot), h_rot, w_rot, margin)
@@ -2404,7 +2449,7 @@ class GPUEngine:
         if settings.exposure.cast_removal_strength > 0.0 and settings.process.process_mode != ProcessMode.BW:
             if settings.process.process_mode == ProcessMode.C41:
                 global_shadow_refs = measure_shadow_refs_from_log(_prefiltered(), None, 0.0, sorted_grid=_sorted())
-            if is_transparency_transfer(settings.process.process_mode, settings.process.e6_normalize):
+            if is_transfer_path(settings.process.process_mode, settings.process.e6_normalize, settings.process.positive_source):
                 # Working space and the fixed window, as the transparency curve reads them.
                 cam_m = camera_to_working_matrix(
                     cam_xyz, camera_wb if should_fold_camera_wb(settings.process, settings.exposure.render_intent) else None

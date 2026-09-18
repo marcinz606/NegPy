@@ -32,9 +32,10 @@ class TestHydration(unittest.TestCase):
     """The bug is in the path select_file uses, so assert against that, not the helper."""
 
     def _session(self, saved_config=None, sticky_mode=ProcessMode.C41):
-        from negpy.desktop.session import DesktopSessionManager
+        from negpy.desktop.session import AppState, DesktopSessionManager
 
         session = DesktopSessionManager.__new__(DesktopSessionManager)
+        session.state = AppState()
         session.repo = MagicMock()
         session.repo.get_global_setting.side_effect = lambda k, d=None: {"last_process_mode": sticky_mode}.get(k, d)
         session._apply_sticky_settings = lambda c, only_global=False: (
@@ -241,9 +242,10 @@ class TestHdrSeedHydration(unittest.TestCase):
     """The seed reaches a fresh merge, and only a fresh one."""
 
     def _session(self, saved_config=None):
-        from negpy.desktop.session import DesktopSessionManager
+        from negpy.desktop.session import AppState, DesktopSessionManager
 
         session = DesktopSessionManager.__new__(DesktopSessionManager)
+        session.state = AppState()
         session.repo = MagicMock()
         session.repo.get_global_setting.side_effect = lambda k, d=None: d
         session._apply_sticky_settings = lambda c, only_global=False: c
@@ -299,6 +301,7 @@ class TestResetSettingsOnAComposite(unittest.TestCase):
         s.repo = MagicMock()
         s.repo.get_global_setting.side_effect = lambda k, d=None: d
         s.state = MagicMock()
+        s.state.active_roll_id = None  # no roll here; a MagicMock default reads as truthy
         s.state.selected_file_idx = 0
         s.state.uploaded_files = [
             {
@@ -427,9 +430,10 @@ class TestStitchGetsTheSameTreatment(unittest.TestCase):
     _ASSET = {"hash": "c#stitch", "path": "/x/left.nef", "stitch_paths": ("/x/right.nef",), "process_mode": ProcessMode.E6}
 
     def _session(self, saved_config=None, sticky_mode=ProcessMode.C41):
-        from negpy.desktop.session import DesktopSessionManager
+        from negpy.desktop.session import AppState, DesktopSessionManager
 
         session = DesktopSessionManager.__new__(DesktopSessionManager)
+        session.state = AppState()
         session.repo = MagicMock()
         session.repo.get_global_setting.side_effect = lambda k, d=None: d
         session._apply_sticky_settings = lambda c, only_global=False: (

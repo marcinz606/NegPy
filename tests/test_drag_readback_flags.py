@@ -8,24 +8,43 @@ from unittest.mock import MagicMock
 
 from negpy.desktop.view.sidebar.process import ProcessSidebar
 from negpy.desktop.view.sidebar.sensor import SensorSidebar
+from negpy.desktop.view.sidebar.tone import ToneSidebar
 
 
-def _readback_kwarg(panel) -> bool:
-    return panel.update_config_section.call_args.kwargs["readback_metrics"]
+def _readback_kwarg(mock) -> bool:
+    return mock.call_args.kwargs["readback_metrics"]
 
 
 def _process_stub() -> MagicMock:
     panel = MagicMock()
-    panel._wp_field.return_value = "white_point_offset"
-    panel._bp_field.return_value = "black_point_offset"
     panel.state.config.process = MagicMock(lock_bounds=False)
     return panel
 
 
-def test_process_sliders_follow_persist() -> None:
+def _tone_stub() -> MagicMock:
+    panel = MagicMock()
+    panel._wp_field.return_value = "white_point_offset"
+    panel._bp_field.return_value = "black_point_offset"
+    return panel
+
+
+def test_tone_per_frame_sliders_follow_persist() -> None:
+    """White/Black Point stay plain per-frame edits: update_config_section, not the
+    roll-aware path, since they can legitimately vary shot to shot within a roll."""
     for handler in (
-        ProcessSidebar._on_white_point_changed,
-        ProcessSidebar._on_black_point_changed,
+        ToneSidebar._on_white_point_changed,
+        ToneSidebar._on_black_point_changed,
+    ):
+        for persist in (False, True):
+            panel = _tone_stub()
+            handler(panel, 0.1, persist=persist)
+            assert _readback_kwarg(panel.update_config_section) is persist, handler.__name__
+
+
+def test_process_roll_default_sliders_follow_persist() -> None:
+    """Analysis Buffer and the range clips are Normalization-card, roll-eligible --
+    set_roll_default, not a bare update_config_section."""
+    for handler in (
         ProcessSidebar._on_buffer_changed,
         ProcessSidebar._on_luma_range_clip_changed,
         ProcessSidebar._on_color_range_clip_changed,
@@ -33,7 +52,7 @@ def test_process_sliders_follow_persist() -> None:
         for persist in (False, True):
             panel = _process_stub()
             handler(panel, 0.1, persist=persist)
-            assert _readback_kwarg(panel) is persist, handler.__name__
+            assert _readback_kwarg(panel.controller.set_roll_default) is persist, handler.__name__
 
 
 def test_sensor_sliders_follow_persist() -> None:
@@ -45,4 +64,4 @@ def test_sensor_sliders_follow_persist() -> None:
             panel = MagicMock()
             panel.state.config.process = MagicMock(lock_bounds=False)
             handler(panel, 0.1, persist=persist)
-            assert _readback_kwarg(panel) is persist, handler.__name__
+            assert _readback_kwarg(panel.controller.set_roll_default) is persist, handler.__name__

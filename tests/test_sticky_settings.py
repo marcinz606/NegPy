@@ -1,7 +1,9 @@
+import os
 import unittest
 from dataclasses import replace
 from unittest.mock import MagicMock
 
+import negpy.kernel.system.paths as paths
 from negpy.desktop.settings_catalog import (
     DEFAULT_STICKY_IDS,
     GLOBAL_TIER_SECTIONS,
@@ -15,6 +17,7 @@ from negpy.desktop.sticky import (
     STICKY_ROWS_KEY,
     load_sticky_rows,
     migrate_legacy,
+    migrate_legacy_export_destination,
     save_sticky_rows,
     sticky_snapshot,
 )
@@ -124,6 +127,51 @@ class TestLegacyMigration(unittest.TestCase):
         repo = _repo({"last_process_mode": "B&W Negative", "last_export_config": {"export_path": "/out"}})
         migrate_legacy(repo)
         self.assertNotIn("export_path", repo.store[STICKY_CONFIG_KEY])
+
+
+class TestExportDestinationMigration(unittest.TestCase):
+    def _legacy_path(self):
+        return os.path.join(paths.get_default_user_dir(), "export")
+
+    def test_drops_an_untouched_legacy_destination(self):
+        repo = _repo(
+            {
+                "last_export_config": {
+                    "output_mode": "absolute",
+                    "export_path": self._legacy_path(),
+                    "output_subfolder": "export",
+                    "jpeg_quality": 90,
+                }
+            }
+        )
+        migrate_legacy_export_destination(repo)
+        remaining = repo.store["last_export_config"]
+        self.assertNotIn("output_mode", remaining)
+        self.assertNotIn("export_path", remaining)
+        self.assertNotIn("output_subfolder", remaining)
+        self.assertEqual(remaining["jpeg_quality"], 90)
+
+    def test_leaves_a_chosen_absolute_path_alone(self):
+        repo = _repo({"last_export_config": {"output_mode": "absolute", "export_path": "/Volumes/Scans/export"}})
+        migrate_legacy_export_destination(repo)
+        self.assertEqual(repo.store["last_export_config"]["export_path"], "/Volumes/Scans/export")
+
+    def test_leaves_a_non_absolute_mode_alone(self):
+        repo = _repo({"last_export_config": {"output_mode": "subfolder_of_source", "output_subfolder": "scans"}})
+        migrate_legacy_export_destination(repo)
+        self.assertEqual(repo.store["last_export_config"]["output_subfolder"], "scans")
+
+    def test_runs_once(self):
+        repo = _repo({"last_export_config": {"output_mode": "absolute", "export_path": self._legacy_path()}})
+        migrate_legacy_export_destination(repo)
+        repo.store["last_export_config"] = {"output_mode": "absolute", "export_path": self._legacy_path()}
+        migrate_legacy_export_destination(repo)
+        self.assertIn("output_mode", repo.store["last_export_config"])
+
+    def test_no_op_on_a_fresh_install(self):
+        repo = _repo()
+        migrate_legacy_export_destination(repo)
+        self.assertNotIn("last_export_config", repo.store)
 
 
 class TestAlwaysSticky(unittest.TestCase):

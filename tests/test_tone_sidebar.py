@@ -10,6 +10,18 @@ def _combo_items(combo):
     return [(combo.itemText(i), combo.itemData(i)) for i in range(combo.count())]
 
 
+def _row_index_containing(layout, widget) -> int:
+    """Index within *layout* of the (possibly nested) row that directly holds *widget*."""
+    for i in range(layout.count()):
+        item = layout.itemAt(i)
+        if item.widget() is widget:
+            return i
+        row = item.layout()
+        if row is not None and any(row.itemAt(j).widget() is widget for j in range(row.count())):
+            return i
+    raise AssertionError(f"{widget} not found in layout")
+
+
 def test_tone_reset_covers_dye_separation():
     """The section header's reset button resets the fields listed in _TONE_FIELDS, so
     every control the panel shows has to be in it — a renamed field that falls out of
@@ -184,3 +196,144 @@ def test_channel_selector_hidden_in_bw(qapp):
     # Dye Separation is a color control: gone on a single-emulsion B&W paper.
     assert sidebar.dye_separation_slider.isHidden()
     assert sidebar.dye_separation_trim_slider.isHidden()
+
+
+def test_white_black_point_retarget_and_sync(qapp):
+    """White Point/Black Point live on ProcessConfig, not ExposureConfig like the rest
+    of this panel, but retarget through the same Global/R/G/B selector."""
+    controller = MagicMock()
+    controller.state = AppState()
+    sidebar = ToneSidebar(controller)
+
+    cfg = controller.state.config
+    controller.state.config = replace(
+        cfg,
+        process=replace(
+            cfg.process,
+            white_point_offset=0.1,
+            black_point_offset=-0.05,
+            white_point_trim_red=0.08,
+            black_point_trim_red=-0.02,
+        ),
+    )
+    sidebar.sync_ui()
+
+    assert sidebar._wp_field() == "white_point_offset"
+    assert sidebar._bp_field() == "black_point_offset"
+    assert abs(sidebar.white_point_slider.value() - 0.1) < 1e-9
+    assert abs(sidebar.black_point_slider.value() - (-0.05)) < 1e-9
+
+    sidebar.ch_r_btn.setChecked(True)
+
+    assert sidebar._wp_field() == "white_point_trim_red"
+    assert sidebar._bp_field() == "black_point_trim_red"
+    assert abs(sidebar.white_point_slider.value() - 0.08) < 1e-9
+    assert abs(sidebar.black_point_slider.value() - (-0.02)) < 1e-9
+    assert sidebar.white_point_slider.label.text() == "White Point R"
+    assert sidebar.black_point_slider.label.text() == "Black Point R"
+    assert sidebar.ch_r_btn.edited_dot.isVisibleTo(sidebar.ch_r_btn)
+
+    sidebar.ch_global_btn.setChecked(True)
+    assert abs(sidebar.white_point_slider.value() - 0.1) < 1e-9
+    assert sidebar.white_point_slider.label.text() == "White Point"
+
+
+def test_white_black_point_write_to_process_not_exposure(qapp):
+    """Unlike everything else this panel writes, White/Black Point are ProcessConfig
+    fields -- update_config_section must target "process", not "exposure"."""
+    controller = MagicMock()
+    controller.state = AppState()
+    sidebar = ToneSidebar(controller)
+
+    sidebar._on_white_point_changed(0.15, persist=True)
+
+    args, kwargs = controller.apply_config.call_args
+    assert args[0].process.white_point_offset == 0.15
+
+
+def test_white_black_point_stay_visible_on_the_transparency_transfer(qapp):
+    """White/Black Point deviate the transfer path's fixed window the same way they
+    deviate a measured one (NormalizationProcessor._process_transparency), so they
+    still have something to act on and stay visible, unlike the print-curve controls
+    that don't apply there."""
+    controller = MagicMock()
+    controller.state = AppState()
+    sidebar = ToneSidebar(controller)
+
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=False))
+    sidebar.sync_ui()
+
+    assert not sidebar.white_point_slider.isHidden()
+    assert not sidebar.black_point_slider.isHidden()
+    assert not sidebar.tonal_range_header.isHidden()
+
+
+def test_auto_density_grade_hide_on_a_raw_slide_but_stay_on_a_positive(qapp):
+    """They meter the frame to pick a look, which the transfer path exists to avoid for
+    a deliberate camera exposure -- but a Positive frame carries no such bracket, so
+    they run there exactly as on a negative (transfer_auto_terms)."""
+    controller = MagicMock()
+    controller.state = AppState()
+    sidebar = ToneSidebar(controller)
+
+    cfg = controller.state.config
+    controller.state.config = replace(
+        cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=False, positive_source=False)
+    )
+    sidebar.sync_ui()
+    assert sidebar.auto_density_btn.isHidden()
+    assert sidebar.auto_grade_btn.isHidden()
+    # The rest of the paper-model controls stay hidden either way.
+    assert sidebar.paper_dmin_btn.isHidden()
+
+    controller.state.config = replace(controller.state.config, process=replace(controller.state.config.process, positive_source=True))
+    sidebar.sync_ui()
+    assert not sidebar.auto_density_btn.isHidden()
+    assert not sidebar.auto_grade_btn.isHidden()
+    assert sidebar.paper_dmin_btn.isHidden()
+
+
+def test_tonal_range_header_sits_directly_above_white_point(qapp):
+    """Marks White/Black Point off from the print-curve controls below -- they come
+    from a different pipeline stage (Normalization) and only share this card's
+    Global/R/G/B selector, not its print-curve subject."""
+    controller = MagicMock()
+    controller.state = AppState()
+    sidebar = ToneSidebar(controller)
+
+    header_i = sidebar.layout.indexOf(sidebar.tonal_range_header)
+    assert header_i >= 0
+    row_i = _row_index_containing(sidebar.layout, sidebar.white_point_slider)
+    assert header_i == row_i - 1
+
+
+def test_white_black_point_disabled_when_bounds_are_locked(qapp):
+    """Trims shift the same frozen bounds, so further nudging is disabled once locked
+    -- unlike Grade/Toe/Shoulder, which have nothing to do with Lock Bounds."""
+    controller = MagicMock()
+    controller.state = AppState()
+    sidebar = ToneSidebar(controller)
+
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, lock_bounds=True))
+    sidebar.sync_ui()
+
+    assert not sidebar.white_point_slider.isEnabled()
+    assert not sidebar.black_point_slider.isEnabled()
+    assert sidebar.grade_slider.isEnabled()
+
+
+def test_white_black_point_ignore_the_lock_on_the_transparency_transfer(qapp):
+    """The transfer path's window is fixed, never measured, so a Lock Bounds left on
+    from another frame or mode has nothing there to freeze."""
+    controller = MagicMock()
+    controller.state = AppState()
+    sidebar = ToneSidebar(controller)
+
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=False, lock_bounds=True))
+    sidebar.sync_ui()
+
+    assert sidebar.white_point_slider.isEnabled()
+    assert sidebar.black_point_slider.isEnabled()

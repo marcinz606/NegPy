@@ -6,7 +6,7 @@ from PyQt6.QtCore import QTimer, pyqtSignal
 
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
-from negpy.desktop.view.styles.templates import wrap_tooltip
+from negpy.desktop.view.styles.templates import hint_label, set_hint_kind, wrap_tooltip
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection, make_section
 from negpy.desktop.view.widgets.charts import MiniHistogramWidget, MiniRGBHistogramWidget
 from negpy.desktop.view.styles.theme import THEME
@@ -15,7 +15,7 @@ from negpy.features.lab.models import LabConfig
 from negpy.features.altprocess.models import AltProcessConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.features.geometry.models import GeometryConfig
-from negpy.features.process.models import ProcessConfig
+from negpy.features.process.models import ProcessConfig, auto_meter_for_positive_source
 from negpy.features.finish.models import FinishConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 
@@ -60,6 +60,28 @@ _SENSOR_FIELDS = (
     "crosstalk_profile",
     "crosstalk_strength",
     "hue_trim",
+)
+# Normalization's own fields -- not process_mode (Film Mode, shared above every card)
+# or positive_source (beside Film Mode now, not a Normalization setting), and not
+# locked_floors/locked_ceils, which stay Batch Analysis's own measured result, not a
+# tuning choice a reset undoes.
+_NORMALIZATION_FIELDS = (
+    "analysis_buffer",
+    "analysis_rect",
+    "lock_bounds",
+    "luma_range_clip",
+    "color_range_clip",
+    "white_point_offset",
+    "black_point_offset",
+    "white_point_trim_red",
+    "white_point_trim_green",
+    "white_point_trim_blue",
+    "black_point_trim_red",
+    "black_point_trim_green",
+    "black_point_trim_blue",
+    "e6_normalize",
+    "use_luma_average",
+    "use_color_average",
 )
 _TONE_FIELDS = (
     "density",
@@ -119,6 +141,17 @@ _DEFAULT_PROCESS = ProcessConfig()
 _DEFAULT_FINISH = FinishConfig()
 _DEFAULT_FLATFIELD = FlatFieldConfig()
 
+_AUTO_METER_FIELDS = ("auto_exposure", "auto_normalize_contrast")
+
+
+def _default_exposure_field(field: str, positive_source: bool):
+    """The value *field* defaults to, given the frame's own positive_source. Auto
+    Density/Auto Grade default differently on a Positive frame (auto_meter_for_
+    positive_source); every other ExposureConfig field has one flat default."""
+    if field in _AUTO_METER_FIELDS:
+        return auto_meter_for_positive_source(positive_source, getattr(_DEFAULT_EXPOSURE, field))
+    return getattr(_DEFAULT_EXPOSURE, field)
+
 
 class ControlsPanel(QWidget):
     """
@@ -162,10 +195,34 @@ class ControlsPanel(QWidget):
         )
 
         self.process_sidebar = ProcessSidebar(self.controller)
+        # Always expanded (no chevron): the first choice of every edit, and the one
+        # every other Roll-tab card's fields assume is already settled.
+        self.film_section = self._make_section(
+            "Film Mode",
+            "film",
+            self.process_sidebar.mode_bar,
+            icon_name="mdi6.film",
+            collapsible=False,
+        )
+        self.roll_sidebar = RollAnalysisSidebar(self.controller)
+        # Roll Analysis (the batch meter) and Normalization (per-frame bounds, White/
+        # Black Point) are one feature -- getting a negative to a correctly normalized
+        # positive -- so they share a card. The buffer/region controls that feed
+        # Batch Analysis come first, then the roll picker they feed; Lock Bounds
+        # moves from the buffer row onto the picker's own row, since it is about
+        # this frame's relationship to Batch Analysis, not the buffer itself.
+        self.roll_sidebar.insert_lock_button(self.process_sidebar.lock_bounds_btn)
+        normalization_body = QWidget()
+        normalization_layout = QVBoxLayout(normalization_body)
+        normalization_layout.setContentsMargins(0, 0, 0, 0)
+        normalization_layout.setSpacing(4)
+        normalization_layout.addWidget(self.process_sidebar.analysis_buffer_bar)
+        normalization_layout.addWidget(self.roll_sidebar)
+        normalization_layout.addWidget(self.process_sidebar)
         self.process_section = self._make_section(
             "Normalization",
             "process",
-            self.process_sidebar,
+            normalization_body,
             icon_name="fa5s.cogs",
         )
 
@@ -187,13 +244,10 @@ class ControlsPanel(QWidget):
             icon_name="mdi6.grid",
         )
 
-        self.roll_sidebar = RollAnalysisSidebar(self.controller)
-        self.roll_section = self._make_section(
-            "Roll Analysis",
-            "roll",
-            self.roll_sidebar,
-            icon_name="mdi6.film",
-        )
+        # One-line answer to "roll-wide or this frame's own": which of Calibration,
+        # Demosaic and Normalization (if any) this frame overrides. RightPanel places
+        # it above every Roll-tab card; _sync_roll_locks keeps it current.
+        self.roll_override_summary = hint_label("", "muted")
 
         self.color_sidebar = ColorSidebar(self.controller)
         self.color_histogram = MiniRGBHistogramWidget()
@@ -265,15 +319,10 @@ class ControlsPanel(QWidget):
             icon_name="fa5s.paint-brush",
         )
 
-        # Group the sections into workflow pages (each becomes an icon tab in RightPanel).
+        # Group the sections into workflow pages (each becomes an icon tab in RightPanel). Calibration,
+        # Demosaic, Roll Analysis, Normalization and Presets are roll-wide facts, not per-frame edits --
+        # RightPanel builds them into its own top-level Roll tab instead of a page here.
         groups = [
-            (
-                "setup",
-                "fa5s.cogs",
-                "Setup — Calibration, Demosaic, Normalization, Roll Analysis, Presets",
-                [self.sensor_section, self.demosaic_section, self.process_section, self.roll_section, self.presets_section],
-                ["sensor_section", "demosaic_section", "process_section", "roll_section"],
-            ),
             (
                 "geometry",
                 "fa5s.crop",
@@ -310,10 +359,6 @@ class ControlsPanel(QWidget):
             page_layout = QVBoxLayout(page)
             page_layout.setContentsMargins(0, 0, 0, 0)
             page_layout.setSpacing(8)
-            if key == "setup":
-                # Film mode rides above the collapsibles, since it is the first choice of every edit, and
-                # this is what reparents the bar out of ProcessSidebar.
-                page_layout.addWidget(self.process_sidebar.mode_bar)
             for section in sections:
                 page_layout.addWidget(section)
             page_layout.addStretch(1)
@@ -334,6 +379,7 @@ class ControlsPanel(QWidget):
         widget: QWidget,
         icon_name: str,
         background_widget=None,
+        collapsible: bool = True,
     ) -> CollapsibleSection:
         return make_section(
             self.controller.session.repo,
@@ -343,6 +389,7 @@ class ControlsPanel(QWidget):
             icon_name,
             default_expanded=THEME.sidebar_expanded_defaults.get(key, False),
             background_widget=background_widget,
+            collapsible=collapsible,
         )
 
     def _connect_signals(self) -> None:
@@ -361,14 +408,18 @@ class ControlsPanel(QWidget):
         self.altproc_section.reset_requested.connect(lambda: self.controller.session.reset_section("altproc"))
         self.toning_section.reset_requested.connect(lambda: self.controller.session.reset_section("toning"))
         self.geometry_section.reset_requested.connect(lambda: self.controller.session.reset_section("geometry"))
-        self.process_section.reset_requested.connect(lambda: self.controller.session.reset_section("process"))
+        self.process_section.reset_requested.connect(lambda: self._reset_process_fields(_NORMALIZATION_FIELDS))
         self.retouch_section.reset_requested.connect(lambda: self.controller.session.reset_section("retouch"))
         self.local_section.reset_requested.connect(lambda: self.controller.session.reset_section("local"))
         self.finish_section.reset_requested.connect(lambda: self.controller.session.reset_section("finish"))
-        self.roll_section.reset_requested.connect(self.controller.clear_roll_baseline)
         self.sensor_section.reset_requested.connect(self._reset_sensor_fields)
         self.demosaic_section.reset_requested.connect(lambda: self._reset_process_fields(_DEMOSAIC_FIELDS))
         self.flatfield_section.reset_requested.connect(self._reset_flatfield)
+
+        self.film_section.lock_toggled.connect(lambda locked: self.controller.set_roll_card_locked("film", locked))
+        self.sensor_section.lock_toggled.connect(lambda locked: self.controller.set_roll_card_locked("sensor", locked))
+        self.demosaic_section.lock_toggled.connect(lambda locked: self.controller.set_roll_card_locked("demosaic", locked))
+        self.process_section.lock_toggled.connect(lambda locked: self.controller.set_roll_card_locked("process", locked))
 
     def apply_shortcut_tooltips(self) -> None:
         """Single source for every shortcut-bearing widget tooltip — re-run on each
@@ -554,14 +605,14 @@ class ControlsPanel(QWidget):
                 ["color_range_clip_inc", "color_range_clip_dec"],
             )
         )
-        proc.white_point_slider.setToolTip(
+        exp.white_point_slider.setToolTip(
             tooltip_with_shortcut(
                 "Shifts the normalization floor (scan white point). Positive = brighter; negative = pull highlights "
                 "back. In R/G/B mode: this layer's trim — per-layer film-base correction",
                 ["white_point_inc", "white_point_dec"],
             )
         )
-        proc.black_point_slider.setToolTip(
+        exp.black_point_slider.setToolTip(
             tooltip_with_shortcut(
                 "Shifts the normalization ceiling (scan black point). Positive = lifted blacks; negative = deeper "
                 "blacks. In R/G/B mode: this layer's trim — per-layer Dmax correction",
@@ -774,6 +825,32 @@ class ControlsPanel(QWidget):
         self.sensor_sidebar.sync_ui()
         self.demosaic_sidebar.sync_ui()
         self._sync_modified_dots()
+        self._sync_roll_locks()
+
+    _ROLL_CARD_LABELS = {"film": "Film Mode", "sensor": "Calibration", "demosaic": "Demosaic", "process": "Normalization"}
+
+    def _sync_roll_locks(self) -> None:
+        """Show each Roll-tab card's lock only once it is actually locked -- the
+        exception worth flagging, not the common case of following the roll -- and
+        keep roll_override_summary's one-line answer to "roll-wide or this frame's
+        own" current alongside it."""
+        overridden = []
+        for card_key, section in (
+            ("film", self.film_section),
+            ("sensor", self.sensor_section),
+            ("demosaic", self.demosaic_section),
+            ("process", self.process_section),
+        ):
+            locked = self.controller.roll_card_locked(card_key)
+            section.set_lock_button(locked, locked)
+            if locked:
+                overridden.append(self._ROLL_CARD_LABELS[card_key])
+
+        if overridden:
+            set_hint_kind(self.roll_override_summary, "warning")
+            self.roll_override_summary.setText(f"This frame overrides: {', '.join(overridden)}")
+        else:
+            self.roll_override_summary.setText("")
 
     def _update_histogram(self) -> None:
         """Repaint only when the render produced a new buffer."""
@@ -788,8 +865,10 @@ class ControlsPanel(QWidget):
         self._reset_process_fields(_SENSOR_FIELDS)
 
     def _reset_process_fields(self, fields) -> None:
-        """Calibration and Demosaic both live on ProcessConfig, so each reset is scoped to its
-        own fields. apply_config, not update_config: every one is a decode or a source bake."""
+        """Calibration, Demosaic and Normalization all live on ProcessConfig, so each
+        reset is scoped to its own fields -- a plain session.reset_section("process")
+        would reset all three cards (and Film Mode, and Positive) at once. apply_config,
+        not update_config: some of these fields are a decode or a source bake."""
         from dataclasses import replace
 
         cfg = self.controller.state.config
@@ -803,11 +882,16 @@ class ControlsPanel(QWidget):
         self.controller.apply_config(replace(cfg, flatfield=FlatFieldConfig()), persist=True)
 
     def _reset_exposure_fields(self, fields) -> None:
-        """Reset only the given ExposureConfig fields to defaults (scoped section reset)."""
+        """Reset only the given ExposureConfig fields to defaults (scoped section reset).
+        auto_exposure/auto_normalize_contrast default differently on a Positive frame
+        (auto_meter_for_positive_source) -- resetting them means the value that rule
+        would carry, not the flat ExposureConfig default, which is always the negative
+        one."""
         from dataclasses import replace
 
         exp = self.controller.state.config.exposure
-        new_exp = replace(exp, **{f: getattr(_DEFAULT_EXPOSURE, f) for f in fields})
+        defaults = {f: _default_exposure_field(f, self.controller.state.config.process.positive_source) for f in fields}
+        new_exp = replace(exp, **defaults)
         new_config = replace(self.controller.state.config, exposure=new_exp)
         self.controller.session.update_config(new_config, persist=True)
 
@@ -822,8 +906,9 @@ class ControlsPanel(QWidget):
         _proc = _DEFAULT_PROCESS
 
         exp = cfg.exposure
+        positive_source = cfg.process.positive_source
         color_count = sum(getattr(exp, f) != getattr(_exp, f) for f in _COLOR_FIELDS)
-        tone_count = sum(getattr(exp, f) != getattr(_exp, f) for f in _TONE_FIELDS)
+        tone_count = sum(getattr(exp, f) != _default_exposure_field(f, positive_source) for f in _TONE_FIELDS)
 
         lab = cfg.lab
         lab_count = sum(
@@ -963,7 +1048,9 @@ class ControlsPanel(QWidget):
         self.altproc_section.set_modified(altproc_count)
         self.toning_section.set_modified(toning_count)
         self.geometry_section.set_modified(geometry_count)
-        self.process_section.set_modified(process_count)
+        # roll_count (Batch Analysis's averaging axes) counts against the same card now
+        # that Roll Analysis and Normalization share one.
+        self.process_section.set_modified(process_count + roll_count)
         self.retouch_section.set_modified(retouch_count)
         # Presets and the two Scan sections stay out: they own no WorkspaceConfig fields.
         self.sensor_section.set_modified(sensor_count)
@@ -971,7 +1058,6 @@ class ControlsPanel(QWidget):
         self.flatfield_section.set_modified(flatfield_count)
         self.local_section.set_modified(len(cfg.local.masks))
         self.finish_section.set_modified(finish_count)
-        self.roll_section.set_modified(roll_count)
         self.modified_synced.emit()
 
     def _sync_tool_buttons(self) -> None:

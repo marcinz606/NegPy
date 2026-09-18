@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.view.styles.templates import pin_dialog_default
 from negpy.desktop.view.styles.theme import THEME
 from negpy.kernel.system.text import human_bytes
+from negpy.services.assets.rolls import ROLLS_KEY, saved_rolls
 
 # (stat key, display label). The order is the display order, and a separator sits between
 # the per-image group and the reusable-tooling group.
@@ -26,9 +27,8 @@ _EDIT_ROWS = (
     ("file_marks", "Keep / reject marks"),
 )
 _TOOLING_ROWS = (
-    ("normalization_rolls", "Normalization rolls"),
     ("export_presets", "Export presets"),
-    ("library_roots", "Library folders"),
+    ("library_rolls", "Library rolls"),
     ("app_preferences", "App preferences"),
 )
 
@@ -164,7 +164,7 @@ class DatabaseDialog(QDialog):
             self._size_label.setText("Could not read the database.")
             return
         stats["thumbnails"] = thumb_count
-        stats["library_roots"] = len(self.repo.get_global_setting("library_roots", []) or [])
+        stats["library_rolls"] = len(saved_rolls(self.repo))
         for key, lbl in self._value_labels.items():
             lbl.setText(f"{stats.get(key, 0):,}")
         db_bytes = stats.get("edits_db_bytes", 0) + stats.get("settings_db_bytes", 0)
@@ -173,11 +173,11 @@ class DatabaseDialog(QDialog):
 
     def _update_enabled(self, stats: dict) -> None:
         edits = sum(stats.get(k, 0) for k in ("file_settings", "edit_history", "work_prints", "file_marks"))
-        total = edits + sum(stats.get(k, 0) for k in ("normalization_rolls", "export_presets", "app_preferences"))
+        total = edits + sum(stats.get(k, 0) for k in ("export_presets", "app_preferences"))
         self.clear_edits_btn.setEnabled(edits > 0)
         self.reset_all_btn.setEnabled(total > 0)
         self.clear_thumbs_btn.setEnabled(stats.get("thumbnails", 0) > 0)
-        self.clear_library_btn.setEnabled(stats.get("library_roots", 0) > 0)
+        self.clear_library_btn.setEnabled(stats.get("library_rolls", 0) > 0)
 
     def _confirm(self, title: str, text: str, ok_label: str, informative: str = "This cannot be undone.") -> bool:
         box = QMessageBox(self)
@@ -222,14 +222,15 @@ class DatabaseDialog(QDialog):
     def _on_clear_library(self) -> None:
         if not self._confirm(
             "Clear Library",
-            "Forget the folders your library points at?\n\n"
-            "Only the list of folders is cleared — the folders, your images and their edits are untouched.",
+            "Forget every roll in your library?\n\n"
+            "Only the roll records are cleared — the folders, your images and their edits are untouched.",
             "Clear Library",
-            "You can point the library at a folder again at any time.",
+            "You can import a folder as a roll again at any time.",
         ):
             return
         try:
             self.repo.save_global_setting("library_roots", [])
+            self.repo.save_global_setting(ROLLS_KEY, {})
         except Exception as exc:
             QMessageBox.critical(self, "Clear Failed", f"Could not clear the library:\n{exc}")
         self.controller.library_cleared.emit()
@@ -239,7 +240,7 @@ class DatabaseDialog(QDialog):
         if not self._confirm(
             "Reset Everything",
             "Wipe the entire database — every saved edit, undo history, keep/reject mark, "
-            "normalization roll, flat-field profile, export preset, and all app preferences?\n\n"
+            "flat-field profile, export preset, and all app preferences?\n\n"
             "The app returns to a first-run state.",
             "Reset Everything",
         ):

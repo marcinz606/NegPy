@@ -60,6 +60,23 @@ def cast_removal_for_mode(mode: str, strength: float) -> float:
     return default if strength == 0.0 else strength
 
 
+def auto_meter_for_positive_source(positive_source: bool, current: bool) -> bool:
+    """The value Auto Density/Auto Grade's toggle carries after Positive is switched.
+
+    A negative starts metered (True): its exposure has no meaning until printed,
+    so a meter is what makes it printable at all. A finished positive starts
+    unmetered (False): reading it to decide a look is the opposite of trusting an
+    already-finished rendering decision, so it starts the way White/Black Point and
+    every other per-shot control already do -- neutral until touched. Only the other
+    setting's own default is rewritten, so a toggle the user chose survives the
+    switch (mirrors cast_removal_for_mode).
+    """
+    negative_default, positive_default = True, False
+    if positive_source:
+        return positive_default if current == negative_default else current
+    return negative_default if current == positive_default else current
+
+
 # Built-in fallback crosstalk matrix (row-major 3x3) used when no profile is baked.
 DEFAULT_CROSSTALK_MATRIX = (1.0, -0.05, -0.02, -0.04, 1.0, -0.08, -0.01, -0.1, 1.0)
 
@@ -75,10 +92,13 @@ class ProcessConfig:
     # Correct narrowband RGB camera scans via the bundled RGBScan input profile
     # (applied at preview soft-proof / export; an explicit Input ICC overrides it).
     narrowband_scan: bool = False
-    # On the Transparency as-captured transfer the loader reads the source as literal linear
-    # data, for a raw capture whose camera matrix folds its own white balance back in. A
-    # finished positive decodes on its embedded profile instead (sRGB when untagged), and
-    # skips the baseline lift and filmic curve. See effective_linear_raw.
+    # The source is already a finished positive -- a scanned print, an export from other
+    # software, a negative the scanner positivized itself -- not a raw scanner or camera
+    # capture, in any mode. On the as-captured transfer the loader would otherwise read it as
+    # literal linear data, for a raw capture whose camera matrix folds its own white balance
+    # back in; a finished positive decodes on its embedded profile instead (sRGB when
+    # untagged), and skips metering, negative inversion, the baseline lift and the filmic
+    # curve. See effective_linear_raw and is_transfer_path.
     positive_source: bool = False
     # See loaders/helpers.get_best_demosaic_algorithm for what AUTO resolves to on each path.
     demosaic_preview: DemosaicMode = DemosaicMode.AUTO
