@@ -708,7 +708,7 @@ class CanvasOverlay(QWidget):
         # Committed patches show with the detection overlay or a retouch tool, where the
         # question "what is the detector doing here" is being asked; a drag always shows.
         if self._exclude_drag_pts or (
-            self.state.config.retouch.dust_exclusions
+            self.state.config.retouch.dust_exclusion_strokes
             and (self.state.dust_overlay_mode != "off" or self._tool_mode in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK))
         ):
             self._draw_dust_exclusions(painter)
@@ -945,30 +945,35 @@ class CanvasOverlay(QWidget):
         painter.drawPath(self._heal_region_path(self._heal_drag_pts, radius))
 
     def _draw_dust_exclusions(self, painter: QPainter) -> None:
-        """Patches held back from optical removal: the committed ones, plus the band under a
-        right-drag in progress."""
+        """Bands held back from optical removal: the committed strokes, plus the one under a
+        right-drag in progress. Each stroke fills as one region, so its own dabs do not
+        composite into a chain of darker blobs."""
         conf = self.state.config.retouch
         fill = QColor(THEME.warn_amber)
         fill.setAlpha(60)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(fill)
 
-        if conf.dust_exclusions:
+        if conf.dust_exclusion_strokes:
             with self.state.metrics_lock:
                 uv_grid = self.state.last_metrics.get("uv_grid")
             if uv_grid is not None:
-                for rx, ry, size in conf.dust_exclusions:
-                    radius = max(1.5, self._brush_screen_radius(size))
-                    painter.drawEllipse(self._raw_to_screen(rx, ry, uv_grid), radius, radius)
+                for points, size in conf.dust_exclusion_strokes:
+                    screen_pts = [self._raw_to_screen(px, py, uv_grid) for px, py in points]
+                    self._fill_brush_band(painter, screen_pts, max(1.5, self._brush_screen_radius(size)))
 
         if self._exclude_drag_pts:
-            radius = max(1.5, self._brush_screen_radius(conf.manual_dust_size))
-            pts = self._exclude_drag_pts
-            if len(pts) > 1:
-                painter.drawPath(self._heal_region_path(pts, radius))
-            else:
-                painter.drawEllipse(pts[0], radius, radius)
+            self._fill_brush_band(painter, self._exclude_drag_pts, max(1.5, self._brush_screen_radius(conf.manual_dust_size)))
         painter.setBrush(Qt.BrushStyle.NoBrush)
+
+    def _fill_brush_band(self, painter: QPainter, pts: List[QPointF], radius: float) -> None:
+        """The swept band of a brush path, smoothed past two points like the mask is."""
+        if len(pts) == 1:
+            painter.drawEllipse(pts[0], radius, radius)
+            return
+        if len(pts) >= 3:
+            pts = [QPointF(x, y) for x, y in smooth_polyline([(p.x(), p.y()) for p in pts], closed=False)]
+        painter.drawPath(self._heal_region_path(pts, radius))
 
     def _draw_straighten_line(self, painter: QPainter) -> None:
         """Reference line being dragged with the straighten tool, plus a badge

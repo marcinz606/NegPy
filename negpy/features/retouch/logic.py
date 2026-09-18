@@ -360,42 +360,70 @@ def detect_luma_score(
     return score, hair_mask
 
 
+def exclusion_cover(strokes: List[Tuple], shape: Tuple[int, int]) -> np.ndarray:
+    """Excluded strokes → their binary footprint on a plane of ``shape``. A stroke is the
+    band its whole path sweeps, not its sampled points: the drag is sampled sparsely and
+    loose dabs would leave the film between them repaired. Smoothed past two points and
+    round-capped, so the band matches the one the overlay draws."""
+    h, w = shape[:2]
+    cover = np.zeros((h, w), dtype=np.uint8)
+    scale = max(w, h) / HEAL_SIZE_REF
+    for points, size in strokes:
+        radius = max(1, int(round(float(size) * scale * 0.5)))
+        chain = [(float(p[0]) * w, float(p[1]) * h) for p in points]
+        if len(chain) >= 3:
+            chain = smooth_polyline(chain, closed=False)
+        pts = np.round(np.array(chain, dtype=np.float32)).astype(np.int32)
+        if len(pts) > 1:
+            cv2.polylines(cover, [pts], False, 1, thickness=max(1, 2 * radius))
+        for cx, cy in pts:  # round caps and joins, as a thick polyline alone ends flat
+            cv2.circle(cover, (int(cx), int(cy)), radius, 1, -1)
+    return cover
+
+
+def _touched_components(detected: np.ndarray, cover: np.ndarray) -> np.ndarray:
+    """Every connected defect the cover reaches, whole. A defect clipped to the painted
+    footprint would be repaired on one side of the brush and left on the other."""
+    n_lbl, lab = cv2.connectedComponents(detected.astype(np.uint8), connectivity=8)
+    if n_lbl < 2:
+        return np.zeros(detected.shape, dtype=bool)
+    hit = np.unique(lab[(cover > 0) & detected])
+    return np.isin(lab, hit[hit > 0])
+
+
 def drop_exclusions(
     score: Optional[np.ndarray],
     hair_mask: Optional[np.ndarray],
-    exclusions: List[Tuple[float, float, float]],
+    strokes: List[Tuple],
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-    """Release optical detections inside the excluded patches, so the film there reaches the
-    render untouched. Patch size is a diameter at HEAL_SIZE_REF scale, like a heal brush. A
-    score with nothing left below clean, or an emptied hair mask, comes back as None: the
-    repair is then skipped rather than run over an identity."""
-    if not exclusions or (score is None and hair_mask is None):
+    """Release optical detections the excluded strokes reach, so the film there arrives at
+    the render untouched. The painted band is a search area, not the cut: a defect it
+    touches is released in full, the way a heal brush searches rather than stamps. A score
+    with nothing left below clean, or an emptied hair mask, comes back as None: the repair
+    is then skipped rather than run over an identity."""
+    if not strokes or (score is None and hair_mask is None):
         return score, hair_mask
     ref = score if score is not None else hair_mask
-    h, w = ref.shape[:2]  # type: ignore[union-attr]
-    cover = np.zeros((h, w), dtype=np.uint8)
-    scale = max(w, h) / HEAL_SIZE_REF
-    for nx, ny, size in exclusions:
-        radius = max(1, int(round(float(size) * scale * 0.5)))
-        cv2.circle(cover, (int(round(float(nx) * w)), int(round(float(ny) * h))), radius, 1, -1)
-    keep = cover == 0
+    cover = exclusion_cover(strokes, ref.shape[:2])  # type: ignore[union-attr]
     if score is not None:
-        score = np.where(keep, score, np.float32(1.0)).astype(np.float32)
+        release = _touched_components(score < 1.0, cover)
+        score = np.where(release, np.float32(1.0), score).astype(np.float32)
         if not (score < 1.0).any():
             score = None
     if hair_mask is not None:
-        hair_mask = (hair_mask * keep).astype(hair_mask.dtype)
+        release = _touched_components(hair_mask > 0, cover)
+        hair_mask = np.where(release, 0, hair_mask).astype(hair_mask.dtype)
         if not hair_mask.any():
             hair_mask = None
     return score, hair_mask
 
 
 def exclusion_token(retouch) -> str:
-    """Config identity of the excluded patches. Folded into the luma and hair tokens: a
+    """Config identity of the excluded strokes. Folded into the luma and hair tokens: a
     released detection changes the baked source as surely as a new one does."""
-    if not retouch.dust_exclusions:
+    if not retouch.dust_exclusion_strokes:
         return ""
-    return "|ex" + hashlib.sha1(repr(retouch.dust_exclusions).encode()).hexdigest()[:12]
+    return "|ex" + hashlib.sha1(repr(retouch.dust_exclusion_strokes).encode()).hexdigest()[:12]
 
 
 def strokes_to_score(

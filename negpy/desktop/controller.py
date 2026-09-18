@@ -2962,9 +2962,8 @@ class AppController(QObject):
         self.request_render()
 
     def handle_dust_exclusion_painted(self, viewport_pts: list) -> None:
-        """Commits right-painted patches (viewport-normalized points) the optical detector
-        must leave alone. One patch per sampled point: the overlay samples at half the brush
-        radius, so a drag lands as an overlapping chain."""
+        """Commits a right-painted stroke (viewport-normalized points) the optical detector
+        must leave alone. One stroke, so the whole path it swept is released as a band."""
         if not viewport_pts:
             return
         with self.state.metrics_lock:
@@ -2972,12 +2971,12 @@ class AppController(QObject):
         if uv_grid is None:
             return
         conf = self.state.config.retouch
-        size = float(conf.manual_dust_size)
-        patches = [CoordinateMapping.map_click_to_raw(nx, ny, uv_grid) + (size,) for nx, ny in viewport_pts]
+        raw_pts = [CoordinateMapping.map_click_to_raw(nx, ny, uv_grid) for nx, ny in viewport_pts]
+        stroke = ([[rx, ry] for rx, ry in raw_pts], float(conf.manual_dust_size))
         self.session.update_config(
             replace(
                 self.state.config,
-                retouch=replace(conf, dust_exclusions=list(conf.dust_exclusions) + patches),
+                retouch=replace(conf, dust_exclusion_strokes=list(conf.dust_exclusion_strokes) + [stroke]),
             ),
             persist=True,
         )

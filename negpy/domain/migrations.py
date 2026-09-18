@@ -73,6 +73,9 @@ DROPPED_KEYS: frozenset[str] = frozenset(
         # Gear presets merged into metadata presets, which store the resolved gear
         # fields rather than a library reference (services/assets/gear_preset_migration.py).
         "gear_preset_id",
+        # Optical-removal exclusions became strokes (dust_exclusion_strokes); the loose
+        # patch list they replaced cannot be unpacked as one.
+        "dust_exclusions",
     }
 )
 

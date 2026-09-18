@@ -490,7 +490,7 @@ class ImageProcessor:
             self._dust_stats_key = stats_key
             self._dust_stats_value = stats
         score, hair_luma = detect_luma_score(small, ret.dust_threshold, ret.dust_size, stats=stats)
-        score, hair_luma = drop_exclusions(score, hair_luma, ret.dust_exclusions)
+        score, hair_luma = drop_exclusions(score, hair_luma, ret.dust_exclusion_strokes)
         value = (score, [hair_luma] if hair_luma is not None else [])
         self._retouch_detect_key = key
         self._retouch_detect_value = value
