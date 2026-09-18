@@ -23,7 +23,8 @@ _IR_METHOD_TIP = wrap_tooltip(
 )
 _OPTICAL_TIP = (
     "Find and remove dust specks on the visible scan by local contrast — no infrared channel needed. "
-    "Set sensitivity with Threshold and Size below."
+    "Set sensitivity with Threshold and Size below. Right-drag on the canvas to hold the detector "
+    "off an area it is over-cleaning; toggling this button clears those patches."
 )
 
 
@@ -134,7 +135,11 @@ class RetouchSidebar(BaseSidebar):
         self._set_ir_controls_enabled(self.state.has_ir)
 
     def _connect_signals(self) -> None:
-        self.auto_dust_btn.toggled.connect(lambda c: self.update_config_section("retouch", persist=True, render=True, dust_remove=c))
+        # The toggle is the way back: excluded patches are dropped with it, so the removal
+        # returns everywhere when it is switched on again.
+        self.auto_dust_btn.toggled.connect(
+            lambda c: self.update_config_section("retouch", persist=True, render=True, dust_remove=c, dust_exclusions=[])
+        )
         self.threshold_slider.valueChanged.connect(
             lambda v: self.update_config_section("retouch", readback_metrics=False, dust_threshold=v)
         )

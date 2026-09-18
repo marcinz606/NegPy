@@ -1,3 +1,4 @@
+import dataclasses
 import json
 
 import cv2
@@ -13,10 +14,13 @@ from negpy.features.retouch.logic import (
     compute_dust_stats,
     detect_bar,
     detect_luma_score,
+    drop_exclusions,
+    exclusion_token,
     film_scale,
     hair_bake_token,
     ir_defect_score,
     lines_to_score,
+    luma_bake_token,
     manual_bake_token,
     normalize_ir,
     repair_components,
@@ -238,6 +242,33 @@ def test_detect_luma_score_clean_frame_is_empty():
     rng = np.random.default_rng(9)
     img = (np.full((160, 160, 3), 0.18) * (1.0 + rng.normal(0, 0.02, (160, 160, 3)))).astype(np.float32)
     assert detect_luma_score(img, 0.66, 4)[0] is None
+
+
+def test_exclusion_releases_the_detection_under_it():
+    img = _dusty_source()
+    score, _ = detect_luma_score(img, 0.66, 4)
+    assert score is not None
+    # Wide enough to cover the speck and the skirt the score ramps over.
+    size = _size_at_ref(30, img.shape)
+    out, hairs = drop_exclusions(score, None, [(81.5 / 160.0, 81.5 / 160.0, size)])
+    assert out is None and hairs is None, "nothing left to repair, so nothing is baked"
+
+
+def test_exclusion_elsewhere_leaves_the_detection_alone():
+    img = _dusty_source()
+    score, _ = detect_luma_score(img, 0.66, 4)
+    out, _ = drop_exclusions(score, None, [(0.1, 0.1, _size_at_ref(30, img.shape))])
+    assert out is not None
+    np.testing.assert_array_equal(out, score)
+
+
+def test_exclusion_token_tracks_the_patches():
+    base = RetouchConfig(dust_remove=True)
+    assert exclusion_token(base) == ""
+    excluded = dataclasses.replace(base, dust_exclusions=[(0.5, 0.5, 6.0)])
+    assert exclusion_token(excluded) != ""
+    assert luma_bake_token(excluded) != luma_bake_token(base)
+    assert hair_bake_token(excluded) != hair_bake_token(base)
 
 
 def test_ir_long_scratch_is_healed_by_the_fill():

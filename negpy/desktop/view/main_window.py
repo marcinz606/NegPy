@@ -463,6 +463,7 @@ class MainWindow(QMainWindow):
         self.canvas.analysis_confirmed.connect(self.controller.confirm_analysis_region)
         self.canvas.local_mask_created.connect(self.controller.handle_local_mask_created)
         self.canvas.scratch_completed.connect(self.controller.handle_heal_stroke_completed)
+        self.canvas.dust_exclusion_painted.connect(self.controller.handle_dust_exclusion_painted)
         self.canvas.straighten_completed.connect(self.controller.handle_straighten_completed)
         self.canvas.zone_pin_moved.connect(self.controller.move_zone_pin)
         self.canvas.zone_placement_confirmed.connect(self.controller.apply_zone_placement)

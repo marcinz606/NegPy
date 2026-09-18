@@ -360,6 +360,44 @@ def detect_luma_score(
     return score, hair_mask
 
 
+def drop_exclusions(
+    score: Optional[np.ndarray],
+    hair_mask: Optional[np.ndarray],
+    exclusions: List[Tuple[float, float, float]],
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """Release optical detections inside the excluded patches, so the film there reaches the
+    render untouched. Patch size is a diameter at HEAL_SIZE_REF scale, like a heal brush. A
+    score with nothing left below clean, or an emptied hair mask, comes back as None: the
+    repair is then skipped rather than run over an identity."""
+    if not exclusions or (score is None and hair_mask is None):
+        return score, hair_mask
+    ref = score if score is not None else hair_mask
+    h, w = ref.shape[:2]  # type: ignore[union-attr]
+    cover = np.zeros((h, w), dtype=np.uint8)
+    scale = max(w, h) / HEAL_SIZE_REF
+    for nx, ny, size in exclusions:
+        radius = max(1, int(round(float(size) * scale * 0.5)))
+        cv2.circle(cover, (int(round(float(nx) * w)), int(round(float(ny) * h))), radius, 1, -1)
+    keep = cover == 0
+    if score is not None:
+        score = np.where(keep, score, np.float32(1.0)).astype(np.float32)
+        if not (score < 1.0).any():
+            score = None
+    if hair_mask is not None:
+        hair_mask = (hair_mask * keep).astype(hair_mask.dtype)
+        if not hair_mask.any():
+            hair_mask = None
+    return score, hair_mask
+
+
+def exclusion_token(retouch) -> str:
+    """Config identity of the excluded patches. Folded into the luma and hair tokens: a
+    released detection changes the baked source as surely as a new one does."""
+    if not retouch.dust_exclusions:
+        return ""
+    return "|ex" + hashlib.sha1(repr(retouch.dust_exclusions).encode()).hexdigest()[:12]
+
+
 def strokes_to_score(
     img: ImageBuffer,
     strokes: List[Tuple],
@@ -1164,7 +1202,7 @@ def luma_bake_token(retouch) -> str:
     actually detected, and the speck fill runs regardless."""
     if not retouch.dust_remove:
         return ""
-    return f"|dust{round(float(retouch.dust_threshold), 3)}_{int(retouch.dust_size)}"
+    return f"|dust{round(float(retouch.dust_threshold), 3)}_{int(retouch.dust_size)}" + exclusion_token(retouch)
 
 
 def ir_bake_token(retouch, has_ir: bool) -> str:
@@ -1286,7 +1324,10 @@ def hair_bake_token(retouch) -> str:
     """Detection-param identity for the hair inpaint (folded into source_hash when a
     hair is actually detected). Distinct params → distinct inpainted source."""
     r = retouch
-    return f"|hair{int(r.dust_remove)}_{round(float(r.dust_threshold), 3)}_{int(r.dust_size)}_{int(r.ir_dust_remove)}_{round(float(r.ir_threshold), 3)}"
+    return (
+        f"|hair{int(r.dust_remove)}_{round(float(r.dust_threshold), 3)}_{int(r.dust_size)}_{int(r.ir_dust_remove)}_{round(float(r.ir_threshold), 3)}"
+        + exclusion_token(r)
+    )
 
 
 def repair_coverage(

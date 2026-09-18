@@ -32,6 +32,10 @@ class RetouchConfig:
     # grown out from it, so it trades reach against picking up film either side.
     scratch_threshold: float = 0.5
     manual_dust_size: int = 6
+    # Each patch: (nx, ny, size), a source-normalized center plus a diameter at
+    # HEAL_SIZE_REF scale. Optical detection is released inside them, so film the detector
+    # read as dust keeps its own pixels. Toggling dust_remove clears the list.
+    dust_exclusions: List[Tuple[float, float, float]] = field(default_factory=list)
     ir_dust_remove: bool = False
     # Which reconstruction runs (IR_METHODS). ir_attenuation belongs to the NegPy method
     # alone: OpenICE folds that tier into its own base term.

@@ -2961,6 +2961,28 @@ class AppController(QObject):
         )
         self.request_render()
 
+    def handle_dust_exclusion_painted(self, viewport_pts: list) -> None:
+        """Commits right-painted patches (viewport-normalized points) the optical detector
+        must leave alone. One patch per sampled point: the overlay samples at half the brush
+        radius, so a drag lands as an overlapping chain."""
+        if not viewport_pts:
+            return
+        with self.state.metrics_lock:
+            uv_grid = self.state.last_metrics.get("uv_grid")
+        if uv_grid is None:
+            return
+        conf = self.state.config.retouch
+        size = float(conf.manual_dust_size)
+        patches = [CoordinateMapping.map_click_to_raw(nx, ny, uv_grid) + (size,) for nx, ny in viewport_pts]
+        self.session.update_config(
+            replace(
+                self.state.config,
+                retouch=replace(conf, dust_exclusions=list(conf.dust_exclusions) + patches),
+            ),
+            persist=True,
+        )
+        self.request_render()
+
     def handle_local_mask_created(self, shape: str, viewport_vertices: list) -> None:
         from negpy.features.local.logic import min_points
         from negpy.features.local.models import LocalMask, MaskShape

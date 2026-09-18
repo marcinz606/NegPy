@@ -45,6 +45,8 @@ from negpy.features.retouch.logic import (
     apply_score_repair,
     compute_dust_stats,
     detect_luma_score,
+    drop_exclusions,
+    exclusion_token,
     film_scale,
     downsample_ir,
     hair_bake_token,
@@ -473,6 +475,7 @@ class ImageProcessor:
             source_key,
             round(float(ret.dust_threshold), 6),
             int(ret.dust_size),
+            exclusion_token(ret),
             settings.process.process_mode,
             small.shape,
         )
@@ -487,6 +490,7 @@ class ImageProcessor:
             self._dust_stats_key = stats_key
             self._dust_stats_value = stats
         score, hair_luma = detect_luma_score(small, ret.dust_threshold, ret.dust_size, stats=stats)
+        score, hair_luma = drop_exclusions(score, hair_luma, ret.dust_exclusions)
         value = (score, [hair_luma] if hair_luma is not None else [])
         self._retouch_detect_key = key
         self._retouch_detect_value = value

@@ -118,6 +118,7 @@ class ImageCanvas(QWidget):
     cursor_left_canvas = pyqtSignal()
     local_mask_created = pyqtSignal(str, list)
     scratch_completed = pyqtSignal(list)
+    dust_exclusion_painted = pyqtSignal(list)
     straighten_completed = pyqtSignal(float)
     test_strip_picked = pyqtSignal(int, int)
     zone_pin_moved = pyqtSignal(int, float, float, bool)
@@ -175,6 +176,7 @@ class ImageCanvas(QWidget):
         self.overlay.cursor_left.connect(self.cursor_left_canvas.emit)
         self.overlay.local_mask_created.connect(self.local_mask_created.emit)
         self.overlay.scratch_completed.connect(self.scratch_completed.emit)
+        self.overlay.dust_exclusion_painted.connect(self.dust_exclusion_painted.emit)
         self.overlay.straighten_completed.connect(self.straighten_completed.emit)
         self.overlay.test_strip_picked.connect(self.test_strip_picked.emit)
         self.overlay.zone_pin_moved.connect(self.zone_pin_moved.emit)
@@ -631,19 +633,22 @@ class ImageCanvas(QWidget):
         self.overlay.update_overlay(filename, res, colorspace, extra, edits)
 
     def contextMenuEvent(self, event) -> None:
+        self.show_canvas_menu(QPointF(event.pos()), event.globalPos())
+
+    def show_canvas_menu(self, pos: QPointF, global_pos) -> None:
+        """The canvas menu at ``pos`` (widget coordinates). Also called by the overlay, which
+        holds the menu back until a right press turns out not to be an exclusion drag."""
         if self.state.selected_file_idx < 0 or self._controller is None:
-            event.ignore()
             return
 
         # While a heal tool is live the menu serves that tool: the general settings menu would
         # be noise mid-retouch.
         if self.state.active_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK):
-            self._exec_retouch_menu(event)
+            self._exec_retouch_menu(pos, global_pos)
             return
 
         # Right-click on a selected mask's vertex deletes that point (no menu).
-        if self.state.active_tool in (ToolMode.NONE, ToolMode.LOCAL_DRAW) and self.overlay.try_delete_local_vertex(QPointF(event.pos())):
-            event.accept()
+        if self.state.active_tool in (ToolMode.NONE, ToolMode.LOCAL_DRAW) and self.overlay.try_delete_local_vertex(pos):
             return
 
         menu = QMenu(self)
@@ -651,6 +656,7 @@ class ImageCanvas(QWidget):
         act_wb.triggered.connect(lambda: self._controller.set_active_tool(ToolMode.WB_PICK))  # type: ignore[union-attr]
         act_dust = menu.addAction(label_with_shortcut("Pick Dust", "pick_dust"))
         act_dust.triggered.connect(lambda: self._controller.set_active_tool(ToolMode.DUST_PICK))  # type: ignore[union-attr]
+        self._add_exclude_action(menu, pos)
         menu.addSeparator()
         act_copy = menu.addAction(label_with_shortcut("Copy Settings", "copy"))
         act_copy.triggered.connect(self._controller.session.copy_settings)  # type: ignore[union-attr]
@@ -669,7 +675,18 @@ class ImageCanvas(QWidget):
         menu.addSeparator()
         act_unload = menu.addAction("Unload…")
         act_unload.triggered.connect(self._unload_current_file)
-        menu.exec(event.globalPos())
+        menu.exec(global_pos)
+
+    def _add_exclude_action(self, menu: QMenu, pos: QPointF) -> None:
+        """Adds the exclude item for the patch under the cursor, on the menus a right-click
+        reaches while the detector is running."""
+        if not self.state.config.retouch.dust_remove or self._controller is None:
+            return
+        coords = self.overlay.image_coords_at(pos)
+        if coords is None:
+            return
+        act = menu.addAction("Exclude From Optical Removal")
+        act.triggered.connect(lambda _=False, c=coords: self._controller.handle_dust_exclusion_painted([c]))  # type: ignore[union-attr]
 
     def _unload_current_file(self) -> None:
         """Removes the current image from the session (its saved edit is kept)."""
@@ -680,13 +697,12 @@ class ImageCanvas(QWidget):
         if confirm_unload(self):
             self._controller.session.remove_current_file()
 
-    def _exec_retouch_menu(self, event) -> None:
+    def _exec_retouch_menu(self, pos: QPointF, global_pos) -> None:
         """Context menu while the heal or scratch tool is active."""
         controller = self._controller
         assert controller is not None
         conf = self.state.config.retouch
         num_heals = len(conf.manual_dust_spots) + len(conf.manual_heal_strokes)
-        pos = QPointF(event.pos())
 
         menu = QMenu(self)
 
@@ -706,10 +722,11 @@ class ImageCanvas(QWidget):
             act_delete.triggered.connect(lambda _=False, k=kind, i=index: controller.delete_heal(k, i))
             menu.addSeparator()
 
+        self._add_exclude_action(menu, pos)
         act_undo = menu.addAction(label_with_shortcut("Undo Last Heal", "undo"))
         act_undo.triggered.connect(controller.undo_last_retouch)
         act_undo.setEnabled(num_heals > 0)
         act_clear = menu.addAction("Clear All Heals…")
         act_clear.triggered.connect(controller.clear_retouch)
         act_clear.setEnabled(num_heals > 0)
-        menu.exec(event.globalPos())
+        menu.exec(global_pos)
