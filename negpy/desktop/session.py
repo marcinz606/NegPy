@@ -1229,6 +1229,7 @@ class DesktopSessionManager(QObject):
             return 0
         target_indices = self.asset_model.visible_actual_indices_ordered() if scope == "roll" else self.state.selected_indices
         count = 0
+        changed_hashes: list[str] = []
         for idx in target_indices:
             if not (0 <= idx < len(self.state.uploaded_files)):
                 continue
@@ -1241,10 +1242,13 @@ class DesktopSessionManager(QObject):
                 target_config = self.repo.load_file_settings(target_hash) or self.config_for_asset(asset)
                 self.push_external_history(target_hash, target_config, defaults)
                 self.repo.save_file_settings(target_hash, defaults, file_path=asset["path"])
+                changed_hashes.append(target_hash)
             count += 1
         if count:
             self.settings_synced.emit(f"Reset {count} frame{'s' if count != 1 else ''} to defaults")
             self.settings_saved.emit()
+            if changed_hashes:
+                self.frames_edited_offscreen.emit(changed_hashes)
         return count
 
     def rotate_selected_frames(self, direction: int, active_included: bool = True) -> List[str]:

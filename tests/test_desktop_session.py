@@ -992,6 +992,27 @@ class TestDesktopSessionSync(unittest.TestCase):
         saved = {c.args[0]: c.args[1] for c in self.mock_repo.save_file_settings.call_args_list}
         self.assertEqual(saved["hash2"].process.process_mode, ProcessMode.E6)
 
+    def test_reset_roll_settings_emits_frames_edited_offscreen(self):
+        self._seed_roll()
+        self.session.asset_model.refresh()
+        offscreen = []
+        self.session.frames_edited_offscreen.connect(offscreen.append)
+
+        self.session.reset_roll_settings(scope="roll")
+
+        self.assertEqual(offscreen, [["hash2", "hash3"]])  # active frame (hash1) excluded
+
+    def test_reset_roll_settings_single_frame_emits_nothing(self):
+        self._seed_roll()
+        self.session.asset_model.refresh()
+        self.session.state.selected_indices = [0]  # only the active frame
+        offscreen = []
+        self.session.frames_edited_offscreen.connect(offscreen.append)
+
+        self.session.reset_roll_settings(scope="selection")
+
+        self.assertEqual(offscreen, [])
+
     def _last_session_manifest(self):
         """Returns (paths, active_path) from the most recent _persist_session calls."""
         saved = {c.args[0]: c.args[1] for c in self.mock_repo.save_global_setting.call_args_list}
