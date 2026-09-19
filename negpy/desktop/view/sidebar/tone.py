@@ -166,7 +166,7 @@ class ToneSidebar(BaseSidebar):
 
         # Density-domain saturation, composed into the same dye_mix slot as the paper's real dye
         # crosstalk, rather than a post-hoc Lab-space a*/b*
-        self.dye_separation_slider = CompactSlider("Dye Separation", 0.5, 2.0, conf.dye_separation, has_neutral=True)
+        self.dye_separation_slider = CompactSlider("Dye Separation", 0.5, 1.5, conf.dye_separation, has_neutral=True)
         self.dye_separation_trim_slider = CompactSlider("Dye Separation", -0.4, 0.4, 0.0, has_neutral=True)
         self.dye_separation_trim_slider.setToolTip(
             "This layer's Dye Separation trim on top of the global value — pushes/pulls this "
