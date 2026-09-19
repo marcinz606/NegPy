@@ -1,7 +1,9 @@
-from typing import Any, ContextManager, Tuple
+from collections.abc import Callable
+from typing import Any, ContextManager, Optional, Tuple
 
 import imagecodecs
 import numpy as np
+from PIL import Image
 
 from negpy.domain.interfaces import IImageLoader
 from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper
@@ -31,3 +33,15 @@ class JxlLoader(IImageLoader):
 
         metadata = {"orientation": 1, "color_space": None, "icc_profile": None, "ir": None}
         return NonStandardFileWrapper(f32), metadata
+
+    def load_bounded_preview(
+        self,
+        file_path: str,
+        max_edge: int,
+        *,
+        fast_only: bool = False,
+        should_cancel: Optional[Callable[[], bool]] = None,
+    ) -> Optional[Image.Image]:
+        if should_cancel is not None and should_cancel():
+            raise InterruptedError("preview cancelled")
+        return None

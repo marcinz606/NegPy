@@ -1107,6 +1107,57 @@ def test_toggle_flip_mirrors_crop_rect():
     assert toggle_flip(flipped_h, horizontal=True).crop_rect == approx(geo.crop_rect)
 
 
+# ── rotate/flip fan-out (geometry + analysis rect, no WorkspaceConfig) ───
+
+
+def test_rotate_geometry_and_analysis_visual_direction_unmirrored():
+    from negpy.features.geometry.logic import rotate_geometry_and_analysis
+
+    geo = GeometryConfig(rotation=0)
+    new_geo, new_rect = rotate_geometry_and_analysis(geo, None, direction=1)
+    assert new_geo.rotation == 1
+    assert new_rect is None
+
+
+def test_rotate_geometry_and_analysis_mirrored_inverts_stored_rotation():
+    from negpy.features.geometry.logic import rotate_geometry_and_analysis
+
+    # Under a single mirror, the stored field turns opposite to the click's visual
+    # direction, but the crop/analysis rects — display-space — still turn by it.
+    geo = GeometryConfig(rotation=0, flip_horizontal=True, crop_rect=(0.0, 0.0, 0.5, 1.0))
+    new_geo, new_rect = rotate_geometry_and_analysis(geo, (0.0, 0.0, 1.0, 0.5), direction=1)
+    assert new_geo.rotation == 3
+    assert new_geo.crop_rect == pytest.approx((0.0, 0.5, 1.0, 1.0))
+    assert new_rect == pytest.approx((0.0, 0.0, 0.5, 1.0))
+
+
+def test_rotate_geometry_and_analysis_both_flips_behaves_unmirrored():
+    from negpy.features.geometry.logic import rotate_geometry_and_analysis
+
+    # flip_horizontal == flip_vertical (both or neither) is a 180 with no net
+    # handedness change, so rotation turns by the visual direction as usual.
+    geo = GeometryConfig(rotation=0, flip_horizontal=True, flip_vertical=True)
+    new_geo, _ = rotate_geometry_and_analysis(geo, None, direction=1)
+    assert new_geo.rotation == 1
+
+
+def test_flip_geometry_and_analysis_mirrors_both():
+    from negpy.features.geometry.logic import flip_geometry_and_analysis
+
+    geo = GeometryConfig(crop_rect=(0.1, 0.2, 0.5, 0.7))
+    new_geo, new_rect = flip_geometry_and_analysis(geo, (0.0, 0.0, 0.5, 1.0), horizontal=True)
+    assert new_geo.flip_horizontal is True
+    assert new_geo.crop_rect == pytest.approx((0.5, 0.2, 0.9, 0.7))
+    assert new_rect == pytest.approx((0.5, 0.0, 1.0, 1.0))
+
+
+def test_flip_geometry_and_analysis_no_rect_stays_none():
+    from negpy.features.geometry.logic import flip_geometry_and_analysis
+
+    _, new_rect = flip_geometry_and_analysis(GeometryConfig(), None, horizontal=True)
+    assert new_rect is None
+
+
 @pytest.mark.parametrize("horizontal", [True, False])
 def test_flip_with_negated_angle_is_exact_display_mirror_in_mapper(horizontal):
     # The reported bug: flipping while fine rotation is set must mirror the DISPLAYED

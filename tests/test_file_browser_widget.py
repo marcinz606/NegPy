@@ -2,16 +2,23 @@ from dataclasses import replace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from PyQt6.QtCore import QPoint, QPointF, QPropertyAnimation, QRect, Qt
+from PyQt6.QtCore import QModelIndex, QPoint, QPointF, QPropertyAnimation, QRect, Qt
 from PyQt6.QtGui import QColor, QIcon, QImage, QPainter, QPixmap, QWheelEvent
 from PyQt6.QtWidgets import QAbstractItemView, QApplication, QDialog, QStyleOptionViewItem
 
 from negpy.desktop.session import DesktopSessionManager, composite_kind, composite_summary
-from negpy.desktop.view.sidebar.files import THUMB_CELL_MAX, THUMB_CELL_MIN, FileBrowser, _ThumbnailDelegate
+from negpy.desktop.view.sidebar.files import (
+    THUMB_CELL_MAX,
+    THUMB_CELL_MIN,
+    FileBrowser,
+    ThumbnailGridView,
+    _ThumbnailDelegate,
+)
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog
 from negpy.domain.models import WorkspaceConfig
 from negpy.infrastructure.storage.repository import StorageRepository
+from negpy.services.assets.thumbnails import asset_thumbnail_key
 
 
 def _edited_cfg() -> WorkspaceConfig:
@@ -47,6 +54,7 @@ def session(qapp):
 def browser(session):
     controller = MagicMock()
     controller.session = session
+    controller.thumbnail_refresh_running = False
     return FileBrowser(controller)
 
 
@@ -130,6 +138,33 @@ def test_context_menu_single_selection_items(browser, session):
     assert "Reset Settings" in labels
     assert "Unload…" in labels
     assert "Apply Settings…" in labels
+    assert "Update Thumbnail" in labels
+    assert "Update Thumbnails" not in labels
+
+
+def test_context_menu_update_thumbnail_requests_the_selection_scope(browser, session):
+    session.state.selected_indices = [0]
+    session.state.selected_file_idx = 0
+    menu = browser._build_context_menu()
+    action = next(a for a in menu.actions() if a.text() == "Update Thumbnail")
+    action.trigger()
+    browser.controller.request_thumbnail_refresh.assert_called_once_with("selection")
+
+
+def test_context_menu_offers_cancel_while_a_refresh_is_running(browser, session):
+    session.state.selected_indices = [0]
+    session.state.selected_file_idx = 0
+    browser.controller.thumbnail_refresh_running = True
+
+    labels = _action_labels(browser._build_context_menu())
+
+    assert "Cancel Thumbnail Update" in labels
+    assert "Update Thumbnail" not in labels
+
+    menu = browser._build_context_menu()
+    action = next(a for a in menu.actions() if a.text() == "Cancel Thumbnail Update")
+    action.trigger()
+    browser.controller.cancel_thumbnail_refresh.assert_called_once_with()
 
 
 def test_context_menu_offers_unsplit_only_for_a_diptych(browser, session):
@@ -219,6 +254,14 @@ def test_context_menu_multi_selection_uses_export_selected(browser, session):
     labels = _action_labels(browser._build_context_menu())
     assert "Export Selected Frames" in labels
     assert "Export Current Frame" not in labels
+
+
+def test_context_menu_multi_selection_counts_update_thumbnails(browser, session):
+    session.state.selected_indices = [0, 1]
+    session.state.selected_file_idx = 0
+    labels = _action_labels(browser._build_context_menu())
+    assert "Update 2 thumbnails" in labels
+    assert "Update Thumbnail" not in labels
 
 
 def test_context_menu_multi_selection_adds_apply_and_remove_selected(browser, session):
@@ -651,15 +694,16 @@ def test_tooltip_names_what_the_frame_is_built_from(session):
     assert tips.count("/tmp/a.cr2") == 1  # the plain frame keeps the path alone
 
 
-def _render(asset: dict) -> QImage:
+def _render(asset: dict, *, with_thumbnail: bool = True, activity_phase: float | None = None) -> QImage:
     """Paint one delegate cell onto a pixmap. paint() reads only index.data(), so a
     stub index is enough."""
     thumb = QPixmap(60, 40)
     thumb.fill(QColor("#808080"))
+    icon = QIcon(thumb) if with_thumbnail else QIcon()
     index = MagicMock()
     index.data.side_effect = lambda role: {
         Qt.ItemDataRole.UserRole: asset,
-        Qt.ItemDataRole.DecorationRole: QIcon(thumb),
+        Qt.ItemDataRole.DecorationRole: icon,
     }.get(role)
 
     canvas = QPixmap(120, 120)
@@ -667,9 +711,55 @@ def _render(asset: dict) -> QImage:
     option = QStyleOptionViewItem()
     option.rect = QRect(0, 0, 120, 120)
     painter = QPainter(canvas)
-    _ThumbnailDelegate().paint(painter, option, index)
+    delegate = _ThumbnailDelegate()
+    if activity_phase is not None:
+        delegate.set_activity(asset_thumbnail_key(asset))
+        delegate._activity_timer.stop()
+        delegate._activity_phase = activity_phase
+    delegate.paint(painter, option, index)
     painter.end()
     return canvas.toImage()
+
+
+def test_placeholder_fills_the_square_thumbnail_cell(qapp):
+    image = _render({}, with_thumbnail=False)
+
+    assert image.pixelColor(60, 4) != QColor("#000000")
+    assert image.pixelColor(4, 60) != QColor("#000000")
+
+
+def test_placeholder_item_uses_the_full_thumbnail_cell(qapp):
+    view = ThumbnailGridView(target_cell=THUMB_CELL_MIN)
+    delegate = _ThumbnailDelegate(view)
+
+    assert delegate.sizeHint(QStyleOptionViewItem(), QModelIndex()) == view.iconSize()
+
+
+def test_active_placeholder_curtain_advances_across_the_glyph(qapp):
+    asset = _composite_assets()["plain"]
+
+    early = _render(asset, with_thumbnail=False, activity_phase=0.25)
+    late = _render(asset, with_thumbnail=False, activity_phase=0.75)
+
+    assert early != late
+
+
+def test_placeholder_animation_repaints_only_the_active_cell(session, qapp):
+    view = ThumbnailGridView(target_cell=THUMB_CELL_MIN)
+    view.resize(320, 240)
+    view.setModel(session.asset_model)
+    delegate = _ThumbnailDelegate(view, state=session.state)
+    view.setItemDelegate(delegate)
+    view.show()
+    qapp.processEvents()
+    delegate.set_activity(asset_thumbnail_key(session.state.uploaded_files[1]))
+    delegate._activity_timer.stop()
+
+    with patch.object(view.viewport(), "update") as update:
+        delegate._advance_activity()
+
+    update.assert_called_once()
+    assert update.call_args.args == (view.visualRect(QModelIndex(delegate._activity_index)),)
 
 
 def _badge_corner(image: QImage) -> list:

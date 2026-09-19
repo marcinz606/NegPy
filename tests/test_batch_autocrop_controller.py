@@ -166,6 +166,10 @@ class TestBatchAutoCropController:
         self.controller.request_render.assert_called_once_with()
         assert self.controller._active_batch is None
 
+        # The active frame re-renders on its own; only the non-active saved crop
+        # needs its stale thumbnail refreshed.
+        self.session.frames_edited_offscreen.emit.assert_called_once_with(["b"])
+
     def test_persistence_failure_releases_batch_lane(self) -> None:
         asset = {"name": "bad.dng", "path": "/roll/bad.dng", "hash": "bad"}
         config = WorkspaceConfig()
@@ -269,7 +273,7 @@ class TestBatchAutoCropController:
         self.session.update_config.assert_not_called()
         assert self.controller._active_batch is None
 
-    def test_active_batch_blocks_other_batch_entry_points_and_queues_discovery(self) -> None:
+    def test_active_batch_blocks_foreground_batches_but_not_thumbnail_queue(self) -> None:
         token = self.controller._begin_batch("autocrop", "Auto cropping roll", True)
         self.controller._autocrop_batch_token = token
         self.controller.state.uploaded_files = [{"name": "a", "path": "/a", "hash": "a"}]
@@ -289,7 +293,7 @@ class TestBatchAutoCropController:
         self.controller.request_asset_discovery(["/roll"])
 
         assert normalization == []
-        assert thumbnails == []
+        assert len(thumbnails) == 1
         assert discovery == []
         assert len(self.controller._pending_asset_discoveries) == 1
         self.controller._pending_asset_discoveries.clear()

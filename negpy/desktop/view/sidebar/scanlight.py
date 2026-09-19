@@ -961,7 +961,7 @@ class ScanlightSidebar(QWidget):
 
     def _keep_scan_windows_on_top(self, _title: str, _abortable: bool) -> None:
         """The batch progress popup shows itself with raise_() on every batch — including the
-        per-frame "Hashing files"/"Generating thumbnails" imports after a capture — which puts
+        per-frame "Hashing files" imports after a capture — which puts
         it over the live-view pop-up and reads as "wait here" mid-roll. Re-raise the operator's
         open scan windows one event-loop turn later (the popup's own raise_() runs first)."""
         for window in (self.lv_window, self.calib_window):

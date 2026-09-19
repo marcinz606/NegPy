@@ -98,6 +98,27 @@ def test_apply_preset_fields_roll_scope(qapp):
     assert mgr.state.config.exposure.density == 1.5
 
 
+def test_apply_preset_fields_emits_frames_edited_offscreen_for_non_active_targets(qapp):
+    mgr = _session()
+    offscreen = []
+    mgr.frames_edited_offscreen.connect(offscreen.append)
+
+    mgr.apply_preset_fields(_preset_cfg(1.5), [_density_row()], "roll")
+
+    # h0 is the active frame, rendered live — not part of the offscreen batch.
+    assert offscreen == [["h1", "h2"]]
+
+
+def test_apply_preset_fields_current_scope_only_emits_nothing(qapp):
+    mgr = _session()
+    offscreen = []
+    mgr.frames_edited_offscreen.connect(offscreen.append)
+
+    mgr.apply_preset_fields(_preset_cfg(1.5), [_density_row()], "current")
+
+    assert offscreen == []
+
+
 def test_apply_dialog_routes_scope_and_mode(qapp, tmp_path, monkeypatch):
     monkeypatch.setattr(APP_CONFIG, "presets_dir", str(tmp_path))
     Presets.save_preset("P", {"density": 1.5})

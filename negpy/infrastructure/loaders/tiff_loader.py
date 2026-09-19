@@ -1,13 +1,22 @@
 import os
+from collections.abc import Callable
 import imageio.v3 as iio
 import numpy as np
 import tifffile
+from PIL import Image
 from typing import Any, ContextManager, Optional, Tuple
 from negpy.domain.interfaces import IImageLoader
 from negpy.domain.models import ColorSpace
 from negpy.kernel.image.logic import srgb_to_linear, uint8_to_float32, uint16_to_float32, working_oetf_decode
 from negpy.infrastructure.loaders.constants import IR_SIDECAR_SUFFIXES, SUPPORTED_TIFF_EXTENSIONS
-from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, identify_color_space_from_icc, read_orientation
+from negpy.infrastructure.loaders.helpers import (
+    NonStandardFileWrapper,
+    _tiff_preview_page,
+    bounded_tiff_page_preview,
+    fit_bounded_preview,
+    identify_color_space_from_icc,
+    read_orientation,
+)
 from negpy.infrastructure.loaders.ir_planes import find_ir_plane, normalize_ir_to_float32
 from negpy.kernel.system.logging import get_logger
 
@@ -186,3 +195,46 @@ class TiffLoader(IImageLoader):
             "ir_valid_mask": ir_valid_mask,
         }
         return NonStandardFileWrapper(f32), metadata
+
+    def load_bounded_preview(
+        self,
+        file_path: str,
+        max_edge: int,
+        *,
+        fast_only: bool = False,
+        should_cancel: Optional[Callable[[], bool]] = None,
+    ) -> Optional[Image.Image]:
+        if should_cancel is not None and should_cancel():
+            raise InterruptedError("preview cancelled")
+        orientation = read_orientation(file_path)
+        quick = _tiff_preview_page(file_path)
+        if quick is not None:
+            return fit_bounded_preview(quick, max_edge, orientation)
+        if fast_only:
+            return None
+
+        with tifffile.TiffFile(file_path) as tif:
+            candidates = []
+            seen: set[int] = set()
+
+            def collect(page: Any) -> None:
+                offset = int(getattr(page, "offset", id(page)))
+                if offset in seen:
+                    return
+                seen.add(offset)
+                shape = tuple(int(value) for value in page.shape)
+                if len(shape) in (2, 3) and (len(shape) == 2 or shape[2] in (1, 3, 4)):
+                    channels = shape[2] if len(shape) == 3 else 1
+                    candidates.append((channels >= 3, shape[0] * shape[1], page))
+                for child in page.pages or ():
+                    collect(child)
+
+            for root in tif.pages:
+                collect(root)
+            if not candidates:
+                return None
+            page = max(candidates, key=lambda item: (item[0], item[1]))[2]
+            preview = bounded_tiff_page_preview(page, max_edge, should_cancel=should_cancel)
+        if preview is None:
+            return None
+        return fit_bounded_preview(preview, max_edge, orientation)

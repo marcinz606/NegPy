@@ -88,6 +88,52 @@ def half_name(name: str, half: int) -> str:
     return f"{name} [{half}]"
 
 
+def _slice_half_bounds(
+    height: int,
+    width: int,
+    half: int,
+    split_x: float,
+    crop_rect: Optional[tuple[float, float, float, float]] = None,
+    gutter_thickness: float = 0.0,
+) -> tuple[int, int, int, int]:
+    """Pixel bounds read by ``slice_half``."""
+    x1, y1, x2, y2 = 0, 0, width, height
+    if crop_rect is not None:
+        rx1, ry1, rx2, ry2 = crop_rect
+        cx1 = min(max(int(round(width * rx1)), 0), width)
+        cx2 = min(max(int(round(width * rx2)), 0), width)
+        cy1 = min(max(int(round(height * ry1)), 0), height)
+        cy2 = min(max(int(round(height * ry2)), 0), height)
+        if cx2 <= cx1 or cy2 <= cy1:
+            return (0, height, 0, min(1, width))
+        x1, y1, x2, y2 = cx1, cy1, cx2, cy2
+    if not half:
+        return (y1, y2, x1, x2)
+
+    cropped_width = x2 - x1
+    split = min(max(int(round(cropped_width * split_x)), 1), cropped_width - 1)
+    if gutter_thickness > 0:
+        gutter = max(1, int(round(cropped_width * gutter_thickness)))
+        lo = max(1, split - gutter // 2)
+        hi = min(cropped_width - 1, lo + gutter)
+        lo = max(1, hi - gutter)
+        return (y1, y2, x1, x1 + lo) if half == 1 else (y1, y2, x1 + hi, x2)
+    return (y1, y2, x1, x1 + split) if half == 1 else (y1, y2, x1 + split, x2)
+
+
+def slice_half_dimensions(
+    dimensions: tuple[int, int],
+    half: int,
+    split_x: float,
+    crop_rect: Optional[tuple[float, float, float, float]] = None,
+    gutter_thickness: float = 0.0,
+) -> tuple[int, int]:
+    """Return the full-resolution image-space dimensions of a half slice."""
+    height, width = dimensions
+    y1, y2, x1, x2 = _slice_half_bounds(height, width, half, split_x, crop_rect, gutter_thickness)
+    return (y2 - y1, x2 - x1)
+
+
 def slice_half(
     buf: np.ndarray,
     half: int,
@@ -103,30 +149,9 @@ def slice_half(
     width) discards a band centered on the split so the physical black separator
     between the two exposures does not bleed into either half.
     """
-    a = buf
-    if crop_rect is not None:
-        h, w = a.shape[:2]
-        x1, y1, x2, y2 = crop_rect
-        cx1 = min(max(int(round(w * x1)), 0), w)
-        cx2 = min(max(int(round(w * x2)), 0), w)
-        cy1 = min(max(int(round(h * y1)), 0), h)
-        cy2 = min(max(int(round(h * y2)), 0), h)
-        if cx2 <= cx1 or cy2 <= cy1:
-            return a[:, :1]
-        a = a[cy1:cy2, cx1:cx2]
-    if not half:
-        return a
-    w = a.shape[1]
-    xs = min(max(int(round(w * split_x)), 1), w - 1)
-    if gutter_thickness > 0:
-        gw = max(1, int(round(w * gutter_thickness)))
-        lo = max(1, xs - gw // 2)
-        hi = min(w - 1, lo + gw)
-        lo = max(1, hi - gw)
-        left = a[:, :lo]
-        right = a[:, hi:]
-        return left if half == 1 else right
-    return a[:, :xs] if half == 1 else a[:, xs:]
+    h, w = buf.shape[:2]
+    y1, y2, x1, x2 = _slice_half_bounds(h, w, half, split_x, crop_rect, gutter_thickness)
+    return buf[y1:y2, x1:x2]
 
 
 def slice_for_asset(buf: np.ndarray, file_info: Dict[str, Any]) -> np.ndarray:

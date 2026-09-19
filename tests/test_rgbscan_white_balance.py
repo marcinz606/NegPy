@@ -58,7 +58,7 @@ def test_triplet_render_decode_pins_every_exposure_neutral(tmp_path):
     processor = ImageProcessor()
     calls: list = []
 
-    def fake_decode(path, linear_raw, fast=False, wb_override=None, demosaic="Auto", positive_source=False):
+    def fake_decode(path, linear_raw, fast=False, wb_override=None, demosaic="Auto", positive_source=False, highlight_mode=0):
         calls.append((path, wb_override))
         return np.zeros((4, 4, 3), dtype=np.uint16), {"cam_xyz": None, "camera_wb": [1.9, 1.0, 1.55]}
 
@@ -81,9 +81,11 @@ def test_triplet_render_ignores_the_primarys_own_camera_wb_downstream(tmp_path):
         open(p, "wb").close()
 
     processor = ImageProcessor()
-    processor._decode_sensor_rgb = lambda path, linear_raw, fast=False, wb_override=None, demosaic="Auto", positive_source=False: (
-        np.zeros((4, 4, 3), dtype=np.uint16),
-        {"cam_xyz": [[1, 0, 0], [0, 1, 0], [0, 0, 1]], "camera_wb": [1.9, 1.0, 1.55]},
+    processor._decode_sensor_rgb = (
+        lambda path, linear_raw, fast=False, wb_override=None, demosaic="Auto", positive_source=False, highlight_mode=0: (
+            np.zeros((4, 4, 3), dtype=np.uint16),
+            {"cam_xyz": [[1, 0, 0], [0, 1, 0], [0, 0, 1]], "camera_wb": [1.9, 1.0, 1.55]},
+        )
     )
 
     cfg = replace(WorkspaceConfig(), rgbscan=RgbScanConfig(enabled=True, green_path=green, blue_path=blue, align=False))
@@ -135,7 +137,7 @@ def test_preview_merge_decodes_every_exposure_neutral(tmp_path):
     pm = PreviewManager()
     calls: list = []
 
-    def fake_preview(path, color_space=None, use_camera_wb=False, full_resolution=False, file_hash=None, demosaic="Auto"):
+    def fake_preview(path, color_space=None, use_camera_wb=False, full_resolution=False, file_hash=None, demosaic="Auto", **_kwargs):
         calls.append((path, use_camera_wb))
         return np.zeros((4, 4, 3), dtype=np.float32), (4, 4), {"camera_wb": [1.9, 1.0, 1.55]}
 

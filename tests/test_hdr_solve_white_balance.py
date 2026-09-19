@@ -83,6 +83,13 @@ class SolvePin(unittest.TestCase):
         this went unnoticed: the default slide bracket was never exposed to it."""
         self.assertEqual(_run(_slide(e6_normalize=False, linear_raw=False)), [None, None, None])
 
+    def test_a_reconstruction_bracket_pins_nothing(self):
+        """A merged bracket never carries reconstruction (WorkspaceConfig.__post_init__),
+        and the solve zeroes it explicitly for the same reason before the merge exists to
+        trigger that invariant -- so there is no baked white balance here to pin siblings
+        to, the same as the plain transfer path above."""
+        self.assertEqual(_run(_slide(e6_normalize=False, linear_raw=False, highlight_reconstruction=3)), [None, None, None])
+
 
 class WhenItMatters(unittest.TestCase):
     """What an unshared white balance actually does to a solved ratio.

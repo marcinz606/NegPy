@@ -1,6 +1,7 @@
 import os
 import time
-from typing import Any, Optional, Tuple
+from collections.abc import Callable
+from typing import Any, Optional, Sequence, Tuple
 
 import cv2
 import numpy as np
@@ -34,8 +35,11 @@ from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.features.stitch.logic import stitch_composite
 from negpy.features.stitch.models import StitchConfig, stitch_token
 from negpy.kernel.system.logging import get_logger
+from negpy.kernel.system.memory import available_system_memory_bytes
+from negpy.features.process.logic import highlight_reconstruction_bright_gain
 from negpy.features.process.models import DemosaicMode
 from negpy.services.rendering.preview_cache import PreviewBufferCache, PreviewCacheKey
+from negpy.services.rendering.prefetch_policy import decide_prefetch
 
 logger = get_logger(__name__)
 
@@ -84,6 +88,89 @@ class PreviewManager:
     def __init__(self) -> None:
         self._cache = PreviewBufferCache(APP_CONFIG)
 
+    def prefetch_linear_preview(
+        self,
+        file_path: str,
+        color_space: str,
+        *,
+        use_camera_wb: bool,
+        file_hash: str | None,
+        half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None = None,
+        demosaic: str = DemosaicMode.AUTO,
+        positive_source: bool = False,
+        integrated_gpu: bool = False,
+        protected_file_hashes: tuple[str, ...] = (),
+        should_cancel: Optional[Callable[[], bool]] = None,
+        highlight_mode: int = 0,
+        bake_camera_wb: bool = False,
+    ) -> bool:
+        """Warm one preview when its cache and system-memory budgets both admit it."""
+        if not file_hash:
+            return False
+        key = PreviewCacheKey(
+            file_hash=file_hash,
+            use_camera_wb=use_camera_wb,
+            workspace_color_space=color_space,
+            full_resolution=False,
+            demosaic=demosaic,
+            half=half_slice[0] if half_slice else 0,
+            split_x=half_slice[1] if half_slice else 0.5,
+            crop_rect=half_slice[2] if half_slice else None,
+            gutter_thickness=half_slice[3] if half_slice else 0.0,
+            positive_source=positive_source,
+            highlight_mode=highlight_mode,
+            bake_camera_wb=bake_camera_wb,
+        )
+        if self._cache.contains(key):
+            return True
+        if should_cancel is not None and should_cancel():
+            raise InterruptedError("preview load cancelled")
+
+        estimate = loader_factory.estimate_linear_preview_prefetch_memory(file_path, APP_CONFIG.preview_render_size)
+        if estimate is None:
+            logger.debug("preview prefetch skip: loader path is not responsive enough %s", file_path)
+            return False
+
+        protected_hashes = frozenset(protected_file_hashes)
+        decision = decide_prefetch(
+            estimate,
+            self._cache.usage(
+                protected_file_hashes=protected_hashes,
+                preserve_full_resolution=True,
+            ),
+            available_system_memory_bytes(),
+            integrated_gpu=integrated_gpu,
+        )
+        if not decision.allowed:
+            logger.debug(
+                "preview prefetch skip: %s (cache=%d B temporary=%d B required_ram=%d B) %s",
+                decision.reason,
+                estimate.cached_bytes,
+                estimate.temporary_bytes,
+                decision.required_ram_bytes,
+                file_path,
+            )
+            return False
+        if should_cancel is not None and should_cancel():
+            raise InterruptedError("preview load cancelled")
+
+        self.load_linear_preview(
+            file_path,
+            color_space,
+            use_camera_wb=use_camera_wb,
+            full_resolution=False,
+            file_hash=file_hash,
+            half_slice=half_slice,
+            demosaic=demosaic,
+            positive_source=positive_source,
+            cache_protected_file_hashes=protected_hashes,
+            cache_preserve_full_resolution=True,
+            should_cancel=should_cancel,
+            highlight_mode=highlight_mode,
+            bake_camera_wb=bake_camera_wb,
+        )
+        return True
+
     # Internal helpers. They operate on an already-open raw object, so a caller that needs
     # both splash and linear shares one file open.
 
@@ -106,20 +193,20 @@ class PreviewManager:
         except Exception:
             return None
         arr = np.ascontiguousarray(np.array(img, dtype=np.float32) / 255.0)
+        full_dims = _output_dimensions_from_raw(raw, *arr.shape[:2])
         # Half-frame slice before the splash downsample, so the splash shows the active half
         # rather than the whole scan, at the same pixels the linear load slices.
         if half_slice is not None:
             half, split_x, crop_rect, gutter_thickness = half_slice
-            from negpy.services.assets.half_frame import slice_half
+            from negpy.services.assets.half_frame import slice_half, slice_half_dimensions
 
+            full_dims = slice_half_dimensions(full_dims, half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness)
             arr = np.ascontiguousarray(slice_half(arr, half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness))
         h, w = arr.shape[:2]
         if max(h, w) > APP_CONFIG.preview_render_size:
             scale = APP_CONFIG.preview_render_size / max(h, w)
             tw, th = int(w * scale), int(h * scale)
             arr = ensure_image(cv2.resize(arr, (tw, th), interpolation=cv2.INTER_AREA).astype(np.float32))
-        dh, dw = arr.shape[:2]
-        full_dims = _output_dimensions_from_raw(raw, dh, dw)
         logger.debug("preview _try_splash_from_open_raw ok %.3fs for %s", time.perf_counter() - t0, file_path)
         return ensure_image(arr), full_dims
 
@@ -136,6 +223,12 @@ class PreviewManager:
         half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None = None,
         demosaic: str = DemosaicMode.AUTO,
         positive_source: bool = False,
+        cache_protected_file_hashes: frozenset[str] = frozenset(),
+        cache_preserve_full_resolution: bool = False,
+        should_cancel: Optional[Callable[[], bool]] = None,
+        highlight_mode: int = 0,
+        bake_camera_wb: bool = False,
+        wb_override: Optional[Sequence[float]] = None,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """
         Decode and resize a linear preview from an already-open raw object.
@@ -145,9 +238,24 @@ class PreviewManager:
         the half-frame slice is applied to the full-res decode BEFORE the preview
         downsample so analysis sees the same pixels export analyzes (slice then
         downsample), not whole-scan-averaged pixels (downsample then slice).
+
+        ``bake_camera_wb`` applies this file's own white balance even on a path that
+        otherwise decodes neutral — resolved by the caller via
+        ``highlight_reconstruction_bakes_wb``, this method never re-derives the gate.
+
+        ``wb_override`` decodes on someone else's white balance instead of this file's
+        own, the preview-loader counterpart of ``_decode_sensor_rgb``'s parameter of the
+        same name — a bracket preview's siblings pin to the reference frame's multipliers
+        this way. Wins over ``bake_camera_wb`` when both are set.
         """
         t_decode = time.perf_counter()
         log = logger.info if log_timings else logger.debug
+        # Kept distinct from the `use_camera_wb` parameter: the cache key below must match
+        # what callers compute for their own lookup key, which does not fold bake in.
+        decode_camera_wb = use_camera_wb or bake_camera_wb or wb_override is not None
+
+        if should_cancel is not None and should_cancel():
+            raise InterruptedError("preview load cancelled")
 
         # An explicit algorithm decodes full-size: libraw bins 2x2 quads for half_size and never
         # reaches the interpolator, so the fast path would ignore the choice.
@@ -158,7 +266,7 @@ class PreviewManager:
             # half_size aliases the X-Trans 6x6 CFA into a channel-ratio cast that shows in
             # linear decodes. Bayer 2x2 averages cleanly and camera-WB previews tolerate it, so
             # only linear X-Trans decodes full-res and lets the cv2 downsample below handle it.
-            xtrans_full = is_xtrans(raw) and not use_camera_wb
+            xtrans_full = is_xtrans(raw) and not decode_camera_wb
             post_kw: dict = {} if xtrans_full else {"half_size": True}
             # That decode is the one preview that interpolates a 6x6 CFA, where LINEAR aliases
             # far worse than the render it stands in for. PPG is LibRaw's spelling of 1-pass
@@ -172,7 +280,24 @@ class PreviewManager:
         # raw.sizes.iheight/iwidth when half_size=True, so reading after gives wrong dims.
         full_dims_pre = _output_dimensions_from_raw(raw, 0, 0)
 
-        user_wb = None if use_camera_wb else [1, 1, 1, 1]
+        if wb_override is not None:
+            # rawpy's user_wb is [R, G, B, G2]; camera_wb_multipliers only ever supplies
+            # [R, G, B], so pad with G2=G rather than pass rawpy a length it rejects.
+            user_wb: Optional[list] = list(wb_override)
+            if len(user_wb) == 3:
+                user_wb.append(user_wb[1])
+            use_camera_wb_flag = False
+            wb_for_gain: Optional[Sequence[float]] = user_wb
+        elif decode_camera_wb:
+            user_wb = None
+            use_camera_wb_flag = True
+            # Read before postprocess: camera_whitebalance is sensor metadata, unaffected
+            # by it, and highlight_reconstruction_bright_gain needs it ahead of the call.
+            wb_for_gain = camera_wb_multipliers(raw)
+        else:
+            user_wb = [1, 1, 1, 1]
+            use_camera_wb_flag = False
+            wb_for_gain = None
         # NonStandardFileWrapper has no camera calibration to read; its postprocess ignores user_sat anyway.
         user_sat = None if isinstance(raw, NonStandardFileWrapper) else _user_sat(raw)
 
@@ -182,15 +307,21 @@ class PreviewManager:
             no_auto_bright=True,
             adjust_maximum_thr=0.0,
             user_sat=user_sat,  # calibrated linearity limit, not the format's generic max
-            use_camera_wb=use_camera_wb,
+            use_camera_wb=use_camera_wb_flag,
             user_wb=user_wb,
             output_bps=16,
             output_color=rawpy.ColorSpace.raw,
             demosaic_algorithm=demosaic_algo,
             user_flip=0,
+            highlight_mode=highlight_mode,
+            bright=highlight_reconstruction_bright_gain(wb_for_gain, highlight_mode),
             **post_kw,
         )
         log("load-timing decode.postprocess %.0fms (fast=%s) %s", (time.perf_counter() - t_pp) * 1000, use_fast, file_path)
+        if should_cancel is not None and should_cancel():
+            if isinstance(raw, rawpy.RawPy):
+                raw.close()
+            raise InterruptedError("preview load cancelled")
         rgb = ensure_rgb(rgb)
 
         # A sensor-native decode (output_color=raw) leaves the buffer in camera primaries, and
@@ -200,11 +331,17 @@ class PreviewManager:
         metadata["cam_xyz"] = camera_xyz_matrix(raw)
         # Only needed when use_camera_wb is False; harmless otherwise.
         metadata["camera_wb"] = camera_wb_multipliers(raw)
+        if isinstance(raw, rawpy.RawPy):
+            raw.close()
+        if should_cancel is not None and should_cancel():
+            raise InterruptedError("preview load cancelled")
 
         # Bake EXIF orientation into the buffer (postprocess runs with user_flip=0).
         orientation = metadata.get("orientation", 1)
         full_linear = apply_exif_orientation(uint16_to_float32(np.ascontiguousarray(rgb)), orientation)
         del rgb  # release the uint16 decode buffer before the resize/copy peak
+        if should_cancel is not None and should_cancel():
+            raise InterruptedError("preview load cancelled")
         ir_full = metadata.get("ir")
         if ir_full is not None:
             ir_full = apply_exif_orientation(ir_full, orientation)
@@ -222,15 +359,15 @@ class PreviewManager:
         # the export analyses. The other order averages whole-scan pixels across the gutter.
         if half_slice is not None:
             half, split_x, crop_rect, gutter_thickness = half_slice
-            from negpy.services.assets.half_frame import slice_half
+            from negpy.services.assets.half_frame import slice_half, slice_half_dimensions
 
+            h_orig, w_orig = slice_half_dimensions((h_orig, w_orig), half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness)
             full_linear = np.ascontiguousarray(
                 slice_half(full_linear, half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness)
             )
             if ir_full is not None:
                 ir_full = np.ascontiguousarray(slice_half(ir_full, half, split_x, crop_rect=crop_rect, gutter_thickness=gutter_thickness))
             h_p, w_p = full_linear.shape[:2]
-            h_orig, w_orig = (h_p, w_p)
         t_resize0 = time.perf_counter()
         max_res = APP_CONFIG.preview_render_size
         # A full-resolution (HQ) load skips the preview_render_size cap above, but the decoded
@@ -300,6 +437,8 @@ class PreviewManager:
             "load-timing decode.total %.0fms (demosaic+orient+resize)",
             (time.perf_counter() - t_decode) * 1000,
         )
+        if should_cancel is not None and should_cancel():
+            raise InterruptedError("preview load cancelled")
         if file_hash:
             ck = PreviewCacheKey(
                 file_hash=file_hash,
@@ -312,11 +451,20 @@ class PreviewManager:
                 crop_rect=half_slice[2] if half_slice else None,
                 gutter_thickness=half_slice[3] if half_slice else 0.0,
                 positive_source=positive_source,
+                highlight_mode=highlight_mode,
+                bake_camera_wb=bake_camera_wb,
             )
             # The cache entry aliases the returned buffer, under the same read-only contract as
             # a cache hit, so there is no defensive copy. On HQ loads that copy was a large part
             # of steady RSS.
-            self._cache.put(ck, out, (h_orig, w_orig), dict(metadata))
+            self._cache.put(
+                ck,
+                out,
+                (h_orig, w_orig),
+                dict(metadata),
+                protected_file_hashes=cache_protected_file_hashes,
+                preserve_full_resolution=cache_preserve_full_resolution,
+            )
         return out, (h_orig, w_orig), metadata
 
     # Public API: thin wrappers, kept for all existing callers.
@@ -330,7 +478,7 @@ class PreviewManager:
         Quick embedded-JPEG (or half-size) RGB for first paint. Returns None if not available.
         """
         try:
-            ctx_mgr, _metadata = loader_factory.get_loader(file_path)
+            ctx_mgr, _metadata = loader_factory.get_loader(file_path, preview_max_edge=APP_CONFIG.preview_render_size)
         except Exception:
             return None
         try:
@@ -351,6 +499,12 @@ class PreviewManager:
         half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None = None,
         demosaic: str = DemosaicMode.AUTO,
         positive_source: bool = False,
+        cache_protected_file_hashes: frozenset[str] = frozenset(),
+        cache_preserve_full_resolution: bool = False,
+        should_cancel: Optional[Callable[[], bool]] = None,
+        highlight_mode: int = 0,
+        bake_camera_wb: bool = False,
+        wb_override: Optional[Sequence[float]] = None,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """
         Loads linear RGB, downsamples for display.
@@ -358,6 +512,10 @@ class PreviewManager:
 
         ``half_slice``: (half, split_x, crop_rect, gutter_thickness) — slice the
         half before the preview downsample so analysis matches export.
+
+        ``wb_override`` is not part of the cache key: a caller that passes it must also
+        pass ``file_hash=None``, the way a bracket sibling already does, or a decode on
+        one white balance can serve a cache hit meant for another.
         """
         t_all = time.perf_counter()
         log = logger.info if log_timings else logger.debug
@@ -375,13 +533,21 @@ class PreviewManager:
                 crop_rect=half_slice[2] if half_slice else None,
                 gutter_thickness=half_slice[3] if half_slice else 0.0,
                 positive_source=positive_source,
+                highlight_mode=highlight_mode,
+                bake_camera_wb=bake_camera_wb,
             )
             hit = self._cache.get(ck)
             if hit is not None:
                 logger.debug("preview cache hit %.3fs for %s", time.perf_counter() - t_all, file_path)
                 return hit  # cache hit — caller must not mutate this buffer
 
-        ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=not use_camera_wb, positive_source=positive_source)
+        ctx_mgr, metadata = loader_factory.get_loader(
+            file_path,
+            linear_raw=not use_camera_wb,
+            positive_source=positive_source,
+            preview_max_edge=None if full_resolution else APP_CONFIG.preview_render_size,
+            should_cancel=should_cancel,
+        )
 
         if color_space is None:
             color_space = metadata.get("color_space") or WORKING_COLOR_SPACE
@@ -398,6 +564,8 @@ class PreviewManager:
                     crop_rect=half_slice[2] if half_slice else None,
                     gutter_thickness=half_slice[3] if half_slice else 0.0,
                     positive_source=positive_source,
+                    highlight_mode=highlight_mode,
+                    bake_camera_wb=bake_camera_wb,
                 )
                 hit = self._cache.get(ck)
                 if hit is not None:
@@ -418,6 +586,12 @@ class PreviewManager:
                 half_slice=half_slice,
                 demosaic=demosaic,
                 positive_source=positive_source,
+                cache_protected_file_hashes=cache_protected_file_hashes,
+                cache_preserve_full_resolution=cache_preserve_full_resolution,
+                should_cancel=should_cancel,
+                highlight_mode=highlight_mode,
+                bake_camera_wb=bake_camera_wb,
+                wb_override=wb_override,
             )
         log(
             "load-timing load_linear_preview %.0fms (decode %.0fms + open)",
@@ -427,10 +601,13 @@ class PreviewManager:
         return out, dims, meta
 
     def decode_for_detection(self, file_path: str) -> Optional[ImageBuffer]:
-        """No-WB linear decode for autodetect only — skips the preview resize/orient/cache
-        (detect_process_mode downsamples), so it costs just the demosaic. Mirrors the fast path."""
+        """No-WB linear decode for autodetect outside the preview cache."""
         try:
-            ctx_mgr, _meta = loader_factory.get_loader(file_path, linear_raw=True)
+            ctx_mgr, _meta = loader_factory.get_loader(
+                file_path,
+                linear_raw=True,
+                preview_max_edge=APP_CONFIG.preview_render_size,
+            )
             with ctx_mgr as raw:
                 demosaic = rawpy.DemosaicAlgorithm.LINEAR
                 # half_size casts X-Trans channel ratios and skews detection. Bayer is fine.
@@ -464,6 +641,7 @@ class PreviewManager:
         full_resolution: bool = False,
         file_hash: str | None = None,
         demosaic: str = DemosaicMode.AUTO,
+        should_cancel: Optional[Callable[[], bool]] = None,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """Merge a narrowband R/G/B triplet into one linear preview: red channel from the
         red shot, green from green, blue from blue. The merged result is cached, so re-visiting
@@ -492,9 +670,15 @@ class PreviewManager:
             if hit is not None:
                 return hit  # cache hit — caller must not mutate this buffer
 
-        red_out, dims, meta = self.load_linear_preview(red_path, color_space, False, full_resolution, file_hash, demosaic=demosaic)
-        green_out, _, _ = self.load_linear_preview(green_path, color_space, False, full_resolution, None, demosaic=demosaic)
-        blue_out, _, _ = self.load_linear_preview(blue_path, color_space, False, full_resolution, None, demosaic=demosaic)
+        red_out, dims, meta = self.load_linear_preview(
+            red_path, color_space, False, full_resolution, file_hash, demosaic=demosaic, should_cancel=should_cancel
+        )
+        green_out, _, _ = self.load_linear_preview(
+            green_path, color_space, False, full_resolution, None, demosaic=demosaic, should_cancel=should_cancel
+        )
+        blue_out, _, _ = self.load_linear_preview(
+            blue_path, color_space, False, full_resolution, None, demosaic=demosaic, should_cancel=should_cancel
+        )
 
         red = np.asarray(red_out, dtype=np.float32)
 
@@ -525,11 +709,21 @@ class PreviewManager:
         full_resolution: bool = False,
         file_hash: str | None = None,
         demosaic: str = DemosaicMode.AUTO,
+        should_cancel: Optional[Callable[[], bool]] = None,
+        highlight_mode: int = 0,
+        bake_camera_wb: bool = False,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """Merge a bracket into one linear preview, in the reference frame's exposure units.
 
         The merged result is cached, so re-visiting a bracket skips every sibling decode
         and the phase-correlate align — the same contract as the triplet merge above.
+
+        ``bake_camera_wb`` pins every sibling to the reference frame's own white balance,
+        the same pin the export merge and the HDR solve apply (`HdrWorker.run`,
+        `ImageProcessor._load_source_f32`): the frames of one bracket share one real scene
+        white balance to agree on, and `should_fold_camera_wb` skips the downstream matrix
+        fold whenever reconstruction bakes it in, so an unpinned sibling here would render
+        with no white balance applied at all rather than a merely different one.
         """
         other_paths, ratios, align = hdr.hdr_paths, hdr.hdr_ratios, hdr.hdr_align
         anchor = resolve_anchor([reference_path, *other_paths], ratios, hdr)
@@ -544,6 +738,8 @@ class PreviewManager:
                 workspace_color_space=color_space,
                 full_resolution=full_resolution,
                 demosaic=demosaic,
+                highlight_mode=highlight_mode,
+                bake_camera_wb=bake_camera_wb,
             )
             hit = self._cache.get(merged_key)
             if hit is not None:
@@ -555,13 +751,37 @@ class PreviewManager:
                 return ensure_image(scaled), dims_c, meta_c
 
         ref_out, dims, meta = self.load_linear_preview(
-            reference_path, color_space, use_camera_wb, full_resolution, file_hash, demosaic=demosaic
+            reference_path,
+            color_space,
+            use_camera_wb,
+            full_resolution,
+            file_hash,
+            demosaic=demosaic,
+            should_cancel=should_cancel,
+            highlight_mode=highlight_mode,
+            bake_camera_wb=bake_camera_wb,
         )
         ref = np.asarray(ref_out, dtype=np.float32)
+        # camera_wb is read from sensor metadata regardless of how the reference itself
+        # decoded, so this is available whether or not bake_camera_wb baked it into ref's
+        # own pixels.
+        bracket_wb = meta.get("camera_wb") if bake_camera_wb else None
 
         def _load(path: str) -> np.ndarray:
             arr = np.asarray(
-                self.load_linear_preview(path, color_space, use_camera_wb, full_resolution, None, demosaic=demosaic)[0], dtype=np.float32
+                self.load_linear_preview(
+                    path,
+                    color_space,
+                    use_camera_wb,
+                    full_resolution,
+                    None,
+                    demosaic=demosaic,
+                    should_cancel=should_cancel,
+                    highlight_mode=highlight_mode,
+                    bake_camera_wb=bake_camera_wb,
+                    wb_override=bracket_wb,
+                )[0],
+                dtype=np.float32,
             )
             if arr.shape[:2] != ref.shape[:2]:
                 # Preview sizing rounds per file, so a pixel or two between frames of one
@@ -594,6 +814,9 @@ class PreviewManager:
         file_hash: str | None = None,
         flatfield_profile_id: str = "",
         demosaic: str = DemosaicMode.AUTO,
+        should_cancel: Optional[Callable[[], bool]] = None,
+        highlight_mode: int = 0,
+        bake_camera_wb: bool = False,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """Assemble a stitch composite at preview scale by replaying the stored
         registration. Flat-field is applied per part here (a composite canvas must
@@ -613,6 +836,8 @@ class PreviewManager:
                     workspace_color_space=color_space,
                     full_resolution=full_resolution,
                     demosaic=demosaic,
+                    highlight_mode=highlight_mode,
+                    bake_camera_wb=bake_camera_wb,
                 )
                 hit = self._cache.get(key)
                 if hit is not None:
@@ -626,10 +851,27 @@ class PreviewManager:
             if green and blue:
                 part_rgb = RgbScanConfig(enabled=True, green_path=green, blue_path=blue, align=stitch.stitch_align)
                 out, _, part_meta = self.load_linear_preview_rgb(
-                    path, part_rgb, color_space, use_camera_wb, full_resolution, None, demosaic=demosaic
+                    path,
+                    part_rgb,
+                    color_space,
+                    use_camera_wb,
+                    full_resolution,
+                    None,
+                    demosaic=demosaic,
+                    should_cancel=should_cancel,
                 )
             else:
-                out, _, part_meta = self.load_linear_preview(path, color_space, use_camera_wb, full_resolution, None, demosaic=demosaic)
+                out, _, part_meta = self.load_linear_preview(
+                    path,
+                    color_space,
+                    use_camera_wb,
+                    full_resolution,
+                    None,
+                    demosaic=demosaic,
+                    should_cancel=should_cancel,
+                    highlight_mode=highlight_mode,
+                    bake_camera_wb=bake_camera_wb,
+                )
             parts.append(apply_flatfield(np.asarray(out, dtype=np.float32), flatfield))
             irs.append(part_meta.get("ir_preview"))
             if i == 0:
@@ -654,6 +896,9 @@ class PreviewManager:
         half_slice: tuple[int, float, tuple[float, float, float, float] | None, float] | None = None,
         demosaic: str = DemosaicMode.AUTO,
         positive_source: bool = False,
+        should_cancel: Optional[Callable[[], bool]] = None,
+        highlight_mode: int = 0,
+        bake_camera_wb: bool = False,
     ) -> Tuple[Optional[Tuple[ImageBuffer, Dimensions]], Tuple[ImageBuffer, Dimensions, dict]]:
         """
         Open the RAW file once and return both the splash preview and the linear
@@ -680,6 +925,8 @@ class PreviewManager:
                 crop_rect=half_slice[2] if half_slice else None,
                 gutter_thickness=half_slice[3] if half_slice else 0.0,
                 positive_source=positive_source,
+                highlight_mode=highlight_mode,
+                bake_camera_wb=bake_camera_wb,
             )
             hit = self._cache.get(ck)
             if hit is not None:
@@ -687,7 +934,13 @@ class PreviewManager:
                 return None, hit  # no splash on cache hit — linear is already fast
 
         try:
-            ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=not use_camera_wb, positive_source=positive_source)
+            ctx_mgr, metadata = loader_factory.get_loader(
+                file_path,
+                linear_raw=not use_camera_wb,
+                positive_source=positive_source,
+                preview_max_edge=None if full_resolution else APP_CONFIG.preview_render_size,
+                should_cancel=should_cancel,
+            )
         except Exception as e:
             logger.debug("preview load_splash_and_linear open failed: %s", e)
             raise
@@ -707,6 +960,8 @@ class PreviewManager:
                     crop_rect=half_slice[2] if half_slice else None,
                     gutter_thickness=half_slice[3] if half_slice else 0.0,
                     positive_source=positive_source,
+                    highlight_mode=highlight_mode,
+                    bake_camera_wb=bake_camera_wb,
                 )
                 hit = self._cache.get(ck)
                 if hit is not None:
@@ -731,6 +986,9 @@ class PreviewManager:
                 half_slice=half_slice,
                 demosaic=demosaic,
                 positive_source=positive_source,
+                should_cancel=should_cancel,
+                highlight_mode=highlight_mode,
+                bake_camera_wb=bake_camera_wb,
             )
         log(
             "load-timing load_splash_and_linear %.0fms (decode %.0fms + open)",

@@ -1,12 +1,19 @@
 import os
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
+import cv2
 import numpy as np
+import pytest
 import rawpy
 import tifffile
 
 from negpy.infrastructure.loaders.factory import LoaderFactory
+from negpy.infrastructure.loaders.rawpy_loader import RawpyLoader, _streaming_linearraw_memory_estimate
+from negpy.services.rendering.prefetch_policy import decide_prefetch
+from negpy.services.rendering.preview_cache import PreviewCacheUsage
 from negpy.infrastructure.loaders.tiff_loader import NonStandardFileWrapper
 from negpy.features.process.models import DemosaicMode
 from negpy.infrastructure.loaders.helpers import get_best_demosaic_algorithm, is_xtrans, resolve_demosaic, supported_demosaic_modes
@@ -96,6 +103,20 @@ class TestRawHandlers(unittest.TestCase):
         _, wrapper_label = resolve_demosaic(wrapper, DemosaicMode.DHT)
         self.assertIsNone(wrapper_label)
 
+    def test_cancelled_dng_stops_after_native_unpack(self):
+        raw = unittest.mock.MagicMock()
+        cancelled = unittest.mock.MagicMock(side_effect=[False, True])
+
+        with (
+            patch("negpy.infrastructure.loaders.rawpy_loader._is_dng", return_value=True),
+            patch("negpy.infrastructure.loaders.rawpy_loader.rawpy.imread", return_value=raw),
+            pytest.raises(InterruptedError),
+        ):
+            RawpyLoader().load("large.dng", preview_max_edge=1600, should_cancel=cancelled)
+
+        raw.unpack.assert_called_once_with()
+        raw.close.assert_called_once_with()
+
 
 # --- 3-channel LinearRaw DNG libraw can't unpack (DxO PhotoLab/PureRAW, Lightroom
 # Enhance: DNG 1.7 JPEG-XL compression) --------------------------------------------
@@ -176,6 +197,162 @@ def test_rawpy_loader_falls_back_to_tifffile_when_libraw_cant_unpack():
     assert ctx_mgr.wb_gains is not None
     assert metadata["ir"] is None
     assert metadata["color_space"] is None
+
+
+def test_jxl_linear_dng_preview_streams_without_a_full_array_decode():
+    h, w = 12, 10
+    table = np.linspace(0, 65535, 1024).astype(np.uint16)
+    codes = np.full((h, w, 3), 511, dtype=np.uint16)
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, "dxo.dng")
+        _write_linear_dng_libraw_cant_read(path, h, w, codes, table)
+        with (
+            patch.object(tifffile.TiffPage, "asarray", side_effect=AssertionError("full array decoded")),
+            patch("negpy.infrastructure.loaders.rawpy_loader.rawpy.imread") as imread,
+        ):
+            ctx_mgr, metadata = LoaderFactory().get_loader(path, preview_max_edge=6)
+
+    imread.assert_not_called()
+    assert isinstance(ctx_mgr, NonStandardFileWrapper)
+    assert ctx_mgr.data.shape == (6, 5, 3)
+    assert (ctx_mgr.sizes.raw_height, ctx_mgr.sizes.raw_width) == (h, w)
+    assert metadata["ir"] is None
+    linear = float(table[511])
+    expected = np.clip((linear - np.array([0.0, 256.0, 0.0])) / (65535.0 - np.array([0.0, 256.0, 0.0])), 0.0, 1.0)
+    np.testing.assert_allclose(ctx_mgr.data[0, 0], expected, atol=1e-5)
+
+
+@pytest.mark.parametrize("orientation", [1, 6, 8])
+def test_streamed_preview_reads_orientation_without_full_file_exif(tmp_path, orientation):
+    path = tmp_path / "rgbi.dng"
+    tifffile.imwrite(
+        path,
+        np.full((40, 60, 4), 32000, dtype=np.uint16),
+        photometric=34892,
+        planarconfig="contig",
+        rowsperstrip=5,
+        extratags=[(274, 3, 1, orientation, False)],
+    )
+    with patch("negpy.infrastructure.loaders.helpers.read_exif_from_file", side_effect=AssertionError("unbounded EXIF read")):
+        context, metadata = LoaderFactory().get_loader(str(path), preview_max_edge=20)
+    assert metadata["orientation"] == orientation
+    assert max(context.data.shape[:2]) == 20
+
+
+def test_jxl_linear_dng_allows_cancellable_neighbor_prefetch():
+    h, w = 12, 10
+    table = np.linspace(0, 65535, 1024).astype(np.uint16)
+    codes = np.full((h, w, 3), 511, dtype=np.uint16)
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, "dxo.dng")
+        _write_linear_dng_libraw_cant_read(path, h, w, codes, table)
+
+        factory = LoaderFactory()
+        assert factory.estimate_linear_preview_prefetch_memory(path, 1600) is not None
+
+
+def test_libraw_dng_does_not_allow_non_cancellable_neighbor_prefetch():
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, "camera.dng")
+        _write_minimal_linearraw_dng(path, 12, 10)
+
+        factory = LoaderFactory()
+        assert factory.estimate_linear_preview_prefetch_memory(path, 1600) is None
+
+
+def test_large_segmented_linearraw_uses_bounded_memory_estimate():
+    width, height = 19_200, 12_752
+    page = SimpleNamespace(
+        shape=(height, width, 3),
+        dtype=np.dtype(np.uint16),
+        is_tiled=True,
+        tilelength=512,
+        tilewidth=512,
+        rowsperstrip=None,
+        tags={},
+    )
+    estimate = _streaming_linearraw_memory_estimate(page, page, 1600, normalize_tags=True)
+
+    assert estimate is not None
+    assert estimate.source_dimensions == (width, height)
+    decision = decide_prefetch(
+        estimate,
+        PreviewCacheUsage(0, 0, 1, 512 * 1024 * 1024, 0, 0),
+        2 * 1024 * 1024 * 1024,
+        integrated_gpu=False,
+    )
+    assert decision.allowed
+
+
+def test_large_non_segmented_linearraw_has_no_bounded_memory_estimate():
+    width, height = 19_200, 12_752
+    page = SimpleNamespace(
+        shape=(height, width, 3),
+        dtype=np.dtype(np.uint16),
+        is_tiled=False,
+        tilelength=None,
+        tilewidth=None,
+        rowsperstrip=height,
+        tags={},
+    )
+
+    assert _streaming_linearraw_memory_estimate(page, page, 1600, normalize_tags=True) is None
+
+
+def test_streamed_rgbi_preview_preserves_ir_hair_across_strips(tmp_path):
+    from negpy.features.retouch.logic import downsample_ir
+
+    h, w = 40, 80
+    rgbi = np.full((h, w, 4), 60000, dtype=np.uint16)
+    rgbi[:, :, :3] = 30000
+    rgbi[7:9, 8:72, 3] = 6000
+    path = tmp_path / "rgbi.dng"
+    tifffile.imwrite(path, rgbi, photometric=34892, planarconfig="contig", rowsperstrip=8)
+
+    context, metadata = LoaderFactory().get_loader(str(path), preview_max_edge=20)
+
+    assert context.data.shape == (10, 20, 3)
+    assert metadata["ir"].shape == (10, 20)
+    ir = rgbi[:, :, 3].astype(np.float32) / 65535.0
+    expected = downsample_ir(ir, 20)
+    np.testing.assert_allclose(metadata["ir"], expected, atol=1e-6)
+    area_only = cv2.resize(ir, (20, 10), interpolation=cv2.INTER_AREA)
+    assert float(metadata["ir"].min()) < float(area_only.min())
+
+
+def test_jxl_linear_dng_preview_does_not_fall_back_when_a_segment_is_too_large():
+    h, w = 12, 10
+    table = np.linspace(0, 65535, 1024).astype(np.uint16)
+    codes = np.full((h, w, 3), 511, dtype=np.uint16)
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, "dxo.dng")
+        _write_linear_dng_libraw_cant_read(path, h, w, codes, table)
+        with (
+            patch("negpy.infrastructure.loaders.rawpy_loader._PREVIEW_SEGMENT_MAX_BYTES", 1),
+            patch.object(tifffile.TiffPage, "asarray", side_effect=AssertionError("full array decoded")),
+            patch("negpy.infrastructure.loaders.rawpy_loader.rawpy.imread") as imread,
+            pytest.raises(RuntimeError, match="preview memory limit"),
+        ):
+            LoaderFactory().get_loader(path, preview_max_edge=6)
+
+    imread.assert_not_called()
+
+
+def test_jxl_linear_dng_preview_honors_cancellation_before_decode():
+    h, w = 12, 10
+    table = np.linspace(0, 65535, 1024).astype(np.uint16)
+    codes = np.full((h, w, 3), 511, dtype=np.uint16)
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, "dxo.dng")
+        _write_linear_dng_libraw_cant_read(path, h, w, codes, table)
+        with (
+            patch.object(tifffile.TiffPage, "asarray", side_effect=AssertionError("full array decoded")),
+            patch("negpy.infrastructure.loaders.rawpy_loader.rawpy.imread") as imread,
+            pytest.raises(InterruptedError, match="preview load cancelled"),
+        ):
+            LoaderFactory().get_loader(path, preview_max_edge=6, should_cancel=lambda: True)
+
+    imread.assert_not_called()
 
 
 def test_nonstandard_wrapper_applies_wb_gains_only_when_camera_wb_requested():

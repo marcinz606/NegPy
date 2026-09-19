@@ -1,7 +1,53 @@
 import numpy as np
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
 from negpy.services.rendering.image_processor import ImageProcessor
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.process.models import ProcessMode
+
+
+def test_large_preview_uses_memory_bounded_gpu_tiling() -> None:
+    service = ImageProcessor()
+    result = np.full((4, 6, 3), 0.25, dtype=np.float32)
+    gpu = SimpleNamespace(
+        requires_tiling=MagicMock(return_value=True),
+        process=MagicMock(return_value=(result, {"path": "tiled"})),
+        process_to_texture=MagicMock(),
+    )
+    service.engine_gpu = gpu
+    service.engine_cpu.process = MagicMock(side_effect=AssertionError("CPU fallback used"))
+
+    out, metrics = service.run_pipeline(
+        np.full((4, 6, 3), 0.5, dtype=np.float32),
+        WorkspaceConfig(),
+        "large",
+        render_size_ref=6.0,
+    )
+
+    assert out is result
+    assert metrics["path"] == "tiled"
+    gpu.process.assert_called_once()
+    assert gpu.process.call_args.kwargs["memory_bounded"] is True
+    gpu.process_to_texture.assert_not_called()
+
+
+def test_gpu_failure_releases_partial_allocations_before_cpu_fallback() -> None:
+    service = ImageProcessor()
+    gpu = SimpleNamespace(
+        requires_tiling=MagicMock(return_value=False),
+        process_to_texture=MagicMock(side_effect=RuntimeError("out of memory")),
+        cleanup=MagicMock(),
+    )
+    service.engine_gpu = gpu
+    service.engine_cpu.process = MagicMock(side_effect=lambda img, _settings, _source_hash, _context: img)
+    source = np.full((4, 6, 3), 0.5, dtype=np.float32)
+
+    out, metrics = service.run_pipeline(source, WorkspaceConfig(), "failed", render_size_ref=6.0)
+
+    assert out is source
+    assert metrics["gpu_fallback"] is True
+    gpu.cleanup.assert_called_once_with(collect=False)
 
 
 def test_image_service_buffer_to_pil_8bit() -> None:
@@ -97,7 +143,16 @@ def test_use_half_size_decode_rules(monkeypatch) -> None:
 
 
 def _fake_decode_recorder(calls, record=None):
-    def fake(file_path, linear_raw, fast=False, wb_override=None, demosaic="Auto", positive_source=False):
+    def fake(
+        file_path,
+        linear_raw,
+        fast=False,
+        wb_override=None,
+        demosaic="Auto",
+        positive_source=False,
+        highlight_mode=0,
+        bake_camera_wb=False,
+    ):
         calls.append(fast if record is None else record(fast, demosaic))
         return np.zeros((4, 4, 3), dtype=np.uint16), {"orientation": 1, "color_space": "sRGB"}
 

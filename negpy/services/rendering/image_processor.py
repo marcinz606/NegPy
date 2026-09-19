@@ -24,7 +24,16 @@ from negpy.domain.models import (
 from negpy.features.altprocess.models import AltProcess
 from negpy.features.process.capture_color import wb_only_cam_xyz
 from negpy.features.process.models import DemosaicMode, ProcessMode
-from negpy.features.process.logic import demosaic_token, effective_linear_raw, linear_raw_token
+from negpy.features.process.logic import (
+    demosaic_token,
+    effective_highlight_reconstruction,
+    effective_linear_raw,
+    highlight_reconstruction_bakes_wb,
+    highlight_reconstruction_bakes_wb_token,
+    highlight_reconstruction_bright_gain,
+    highlight_reconstruction_token,
+    linear_raw_token,
+)
 from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix, sensor_token
 from negpy.features.exposure.analysis import COLOR_HIST_BINS
 from negpy.features.exposure.models import RenderIntent
@@ -258,7 +267,7 @@ class ImageProcessor:
     Seamlessly switches between CPU (DarkroomEngine) and GPU (GPUEngine).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, use_gpu: bool = True) -> None:
         self.engine_cpu = DarkroomEngine()
         self.engine_gpu: Optional[GPUEngine] = None
 
@@ -331,7 +340,7 @@ class ImageProcessor:
         # RenderWorker. The caller runs on the render thread, so keep it to a signal emit.
         self.on_slow_step: Optional[Callable[[str], None]] = None
 
-        if APP_CONFIG.use_gpu:
+        if use_gpu and APP_CONFIG.use_gpu:
             gpu = GPUDevice.get()
             if gpu.is_available:
                 self.engine_gpu = GPUEngine()
@@ -674,6 +683,8 @@ class ImageProcessor:
             + stitch_token(settings.stitch)
             + hdr_token(settings.hdr)
             + linear_raw_token(settings.process, settings.exposure.render_intent)
+            + highlight_reconstruction_token(settings.process)
+            + highlight_reconstruction_bakes_wb_token(settings.process, settings.exposure.render_intent)
             + sensor_token(settings.process)
             + demosaic_token(settings.process.demosaic_preview)
             + ir_bake_token(settings.retouch, ir_buffer is not None)
@@ -750,24 +761,43 @@ class ImageProcessor:
         if self._is_flat(settings):
             prefer_gpu = False
 
+        needs_tiling = bool(prefer_gpu and self.engine_gpu and self.engine_gpu.requires_tiling(img, settings))
+        if needs_tiling and crop_preview_full:
+            prefer_gpu = False
+
         if prefer_gpu and self.engine_gpu:
             try:
-                processed, gpu_metrics = self.engine_gpu.process_to_texture(
-                    img,
-                    settings,
-                    scale_factor=scale_factor,
-                    render_size_ref=render_size_ref,
-                    readback_metrics=readback_metrics,
-                    source_hash=source_hash,
-                    analysis_source_hash=source_hash,
-                    cam_xyz=cam_xyz,
-                    camera_wb=camera_wb,
-                    full_frame=crop_preview_full,
-                )
+                if needs_tiling:
+                    processed, gpu_metrics = self.engine_gpu.process(
+                        img,
+                        settings,
+                        scale_factor=scale_factor,
+                        readback_metrics=readback_metrics,
+                        source_hash=source_hash,
+                        analysis_source_hash=source_hash,
+                        cam_xyz=cam_xyz,
+                        camera_wb=camera_wb,
+                        memory_bounded=True,
+                        render_size_ref=render_size_ref,
+                    )
+                else:
+                    processed, gpu_metrics = self.engine_gpu.process_to_texture(
+                        img,
+                        settings,
+                        scale_factor=scale_factor,
+                        render_size_ref=render_size_ref,
+                        readback_metrics=readback_metrics,
+                        source_hash=source_hash,
+                        analysis_source_hash=source_hash,
+                        cam_xyz=cam_xyz,
+                        camera_wb=camera_wb,
+                        full_frame=crop_preview_full,
+                    )
                 context.metrics.update(gpu_metrics)
                 return processed, context.metrics
             except Exception:
                 logger.exception("Hardware acceleration failed, falling back to CPU")
+                self.engine_gpu.cleanup(collect=False)
                 context.metrics["gpu_fallback"] = True
 
         processed = self.engine_cpu.process(img, settings, source_hash, context)
@@ -814,6 +844,8 @@ class ImageProcessor:
         wb_override: Optional[Sequence[float]] = None,
         demosaic: str = DemosaicMode.AUTO,
         positive_source: bool = False,
+        highlight_mode: int = 0,
+        bake_camera_wb: bool = False,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Decode one RAW to sensor-native (output_color=raw), linear uint16 RGB.
 
@@ -825,12 +857,44 @@ class ImageProcessor:
         absorb the difference, and `use_camera_wb` reads each *file's* as-shot multipliers —
         which differ per frame on a camera left in auto white balance.
 
+        `highlight_mode` is libraw's own reconstruction level; the caller resolves it via
+        `effective_highlight_reconstruction` so this method never has to re-derive the gate.
+
+        `bake_camera_wb` applies this file's own white balance even though `linear_raw` is
+        true, resolved by the caller via `highlight_reconstruction_bakes_wb` — reconstruction's
+        clip thresholds read the decode's own multipliers, which are all neutral on a plain
+        `linear_raw` decode. `wb_override` still wins when both are set, so a bracket sibling
+        pins to the reference frame's white balance rather than reading its own.
+
+        A non-Clip `highlight_mode` makes libraw scale the whole decode down against its
+        widest channel multiplier instead of its narrowest, so whatever real white balance
+        reaches this decode (camera or override) is offset back out via `bright` —
+        see `highlight_reconstruction_bright_gain`.
+
         Returns (rgb_uint16, loader_metadata).
         """
         ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=linear_raw, positive_source=positive_source)
         with ctx_mgr as raw:
             algo = get_best_demosaic_algorithm(raw, demosaic)
-            user_wb = [1, 1, 1, 1] if linear_raw else (list(wb_override) if wb_override is not None else None)
+            # Read before postprocess: camera_whitebalance is sensor metadata, unaffected by it,
+            # and highlight_reconstruction_bright_gain needs it ahead of the postprocess call.
+            camera_wb = camera_wb_multipliers(raw)
+            if wb_override is not None:
+                # rawpy's user_wb is [R, G, B, G2]; camera_wb_multipliers only ever supplies
+                # [R, G, B], so pad with G2=G rather than pass rawpy a length it rejects.
+                user_wb: Optional[list] = list(wb_override)
+                if len(user_wb) == 3:
+                    user_wb.append(user_wb[1])
+                use_camera_wb_flag = False
+                wb_for_gain: Optional[Sequence[float]] = user_wb
+            elif bake_camera_wb or not linear_raw:
+                user_wb = None
+                use_camera_wb_flag = True
+                wb_for_gain = camera_wb
+            else:
+                user_wb = [1, 1, 1, 1]
+                use_camera_wb_flag = False
+                wb_for_gain = None
             post_kw: Dict[str, Any] = {"half_size": True} if fast and _use_half_size_decode(raw, linear_raw) else {}
             # NonStandardFileWrapper has no camera calibration to read; its postprocess ignores user_sat anyway.
             user_sat = None if isinstance(raw, NonStandardFileWrapper) else _user_sat(raw)
@@ -839,19 +903,21 @@ class ImageProcessor:
                 no_auto_bright=True,
                 adjust_maximum_thr=0.0,  # fixed white level, never the frame's own max
                 user_sat=user_sat,  # calibrated linearity limit, not the format's generic max
-                use_camera_wb=not linear_raw and wb_override is None,
+                use_camera_wb=use_camera_wb_flag,
                 user_wb=user_wb,
                 output_bps=16,
                 output_color=rawpy.ColorSpace.raw,
                 demosaic_algorithm=algo,
                 user_flip=0,
+                highlight_mode=highlight_mode,
+                bright=highlight_reconstruction_bright_gain(wb_for_gain, highlight_mode),
                 **post_kw,
             )
             rgb = ensure_rgb(rgb)
             # Sensor-native decode leaves the buffer in camera primaries, and the
             # transparency transfer needs the matrix to reach the working space.
             metadata["cam_xyz"] = camera_xyz_matrix(raw)
-            metadata["camera_wb"] = camera_wb_multipliers(raw)
+            metadata["camera_wb"] = camera_wb
         return rgb, metadata
 
     def _load_source_f32(
@@ -877,6 +943,8 @@ class ImageProcessor:
             file_path,
             mtime,
             effective_linear_raw(params.process, params.exposure.render_intent),
+            effective_highlight_reconstruction(params.process),
+            highlight_reconstruction_bakes_wb(params.process, params.exposure.render_intent),
             rgbscan_token(params.rgbscan),
             stitch_token(params.stitch),
             hdr_token(params.hdr),
@@ -920,6 +988,8 @@ class ImageProcessor:
         `hdr` cleared, so it cannot: it passes the pin in from outside.
         """
         linear_raw = effective_linear_raw(params.process, params.exposure.render_intent)
+        highlight_mode = effective_highlight_reconstruction(params.process)
+        bake_wb = highlight_reconstruction_bakes_wb(params.process, params.exposure.render_intent)
         demosaic = params.process.demosaic_export
         rgbcfg = params.rgbscan
         # A bracket wins over a triplet. The UI refuses the two together, and the export
@@ -947,13 +1017,19 @@ class ImageProcessor:
                     wb_override=_NEUTRAL_WB,
                     demosaic=demosaic,
                     positive_source=params.process.positive_source,
+                    highlight_mode=highlight_mode,
                 )
                 decoded = dict(
                     zip(
                         siblings,
                         pool.map(
                             lambda p: self._decode_sensor_rgb(
-                                p, linear_raw, wb_override=_NEUTRAL_WB, demosaic=demosaic, positive_source=params.process.positive_source
+                                p,
+                                linear_raw,
+                                wb_override=_NEUTRAL_WB,
+                                demosaic=demosaic,
+                                positive_source=params.process.positive_source,
+                                highlight_mode=highlight_mode,
                             )[0],
                             siblings,
                         ),
@@ -968,6 +1044,8 @@ class ImageProcessor:
                 wb_override=wb_override,
                 demosaic=demosaic,
                 positive_source=params.process.positive_source,
+                highlight_mode=highlight_mode,
+                bake_camera_wb=bake_wb,
             )
         # No embedded profile (scanner-raw linear, sensor-native RAW) means the buffer is
         # already in the working space, so "Same as Source" exports without converting.
@@ -1001,8 +1079,9 @@ class ImageProcessor:
             # Every frame decodes on the reference's white balance, never its own. The
             # transfer path already decodes neutral, but it is pinned here anyway, because
             # a bracket whose frames sit on different white balances solves wrong ratios
-            # and reports nothing.
-            bracket_wb = None if linear_raw else metadata.get("camera_wb")
+            # and reports nothing. An active reconstruction bakes the reference's real white
+            # balance in (see highlight_reconstruction_bakes_wb), so siblings pin to that too.
+            bracket_wb = metadata.get("camera_wb") if (bake_wb or not linear_raw) else None
             # fast_decode must ride along: a half-size primary against full-size
             # siblings is a shape mismatch, not just a slow merge.
             hdr_siblings = [p for p in dict.fromkeys(params.hdr.hdr_paths) if p != file_path]
@@ -1018,6 +1097,7 @@ class ImageProcessor:
                                 wb_override=bracket_wb,
                                 demosaic=demosaic,
                                 positive_source=params.process.positive_source,
+                                highlight_mode=highlight_mode,
                             )[0],
                             hdr_siblings,
                         ),
@@ -1121,6 +1201,8 @@ class ImageProcessor:
             + stitch_token(params.stitch)
             + hdr_token(params.hdr)
             + linear_raw_token(params.process, params.exposure.render_intent)
+            + highlight_reconstruction_token(params.process)
+            + highlight_reconstruction_bakes_wb_token(params.process, params.exposure.render_intent)
             + sensor_token(params.process)
             + demosaic_token(params.process.demosaic_export)
             + ir_bake_token(params.retouch, ir_full is not None)
@@ -1573,6 +1655,8 @@ class ImageProcessor:
                 + stitch_token(params.stitch)
                 + hdr_token(params.hdr)
                 + linear_raw_token(params.process, params.exposure.render_intent)
+                + highlight_reconstruction_token(params.process)
+                + highlight_reconstruction_bakes_wb_token(params.process, params.exposure.render_intent)
                 + sensor_token(params.process)
                 + ir_bake_token(params.retouch, ir_full is not None)
                 + manual_bake_token(params.retouch)

@@ -110,7 +110,7 @@ class TestThumbnailWorker(unittest.TestCase):
             seen.append(img.size)
             return img
 
-        with patch("negpy.services.assets.thumbnails.decode_source_image", return_value=big):
+        with patch("negpy.services.assets.thumbnails.decode_bounded_source_preview", return_value=big):
             with patch("negpy.services.assets.thumbnails.preview_positive", side_effect=_spy):
                 thumb = get_thumbnail_worker("frame.dng", "hash")
 

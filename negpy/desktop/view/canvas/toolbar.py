@@ -544,56 +544,59 @@ class ActionToolbar(QWidget):
     def rotate(self, direction: int) -> None:
         from dataclasses import replace
 
-        from negpy.features.geometry.logic import rotate_normalized_rect
+        from negpy.features.geometry.logic import rotate_geometry_and_analysis
 
         # A proof on the canvas takes the rotation instead of the image. Must precede the
         # handedness fix below, which is geometry-only.
         if self.controller.rotate_test_strip(direction):
             return
 
-        config = self.session.state.config
-        geo = config.geometry
-        # The button's labelled direction is the visual rotation the user sees, and the handedness
-        # fix below only keeps that promise under a flip. Crop and analysis rects live in display
-        # space, so they rotate by that visual quarter-turn.
-        visual_turns_ccw = direction
-        # Pipeline applies rotate-then-flip; a single mirror inverts rotation handedness.
-        if geo.flip_horizontal != geo.flip_vertical:
-            direction = -direction
-        new_rot = (geo.rotation + direction) % 4
-        new_geo = replace(geo, rotation=new_rot)
-        # Rotate the manual crop rect with the content so it keeps framing the same area. Without
-        # this it stayed put and misaligned after a quarter or half turn.
-        if geo.crop_rect is not None:
-            new_geo = replace(new_geo, crop_rect=rotate_normalized_rect(geo.crop_rect, visual_turns_ccw))
-        new_config = replace(config, geometry=new_geo)
-        # The freehand analysis region is display-space too; rotate it alongside.
-        if config.process.analysis_rect is not None:
-            new_rect = rotate_normalized_rect(config.process.analysis_rect, visual_turns_ccw)
-            new_config = replace(new_config, process=replace(config.process, analysis_rect=new_rect))
-        self.session.update_config(new_config, persist=True)
-        # Rotating must not drop an active before/after or flat-peek, so re-render in place within
-        # whichever view is on.
-        self.controller.rerender_active_view()
+        state = self.session.state
+        # A multi-selection that has explicitly excluded the active frame (ctrl-click
+        # toggled it off) must not rotate it anyway: selection wins over "what's on
+        # screen" once there is one, the same rule toggle_mark already uses.
+        include_active = len(state.selected_indices) <= 1 or state.selected_file_idx in state.selected_indices
+        if include_active:
+            config = state.config
+            new_geo, new_rect = rotate_geometry_and_analysis(config.geometry, config.process.analysis_rect, direction)
+            new_config = replace(config, geometry=new_geo)
+            if config.process.analysis_rect is not None:
+                new_config = replace(new_config, process=replace(config.process, analysis_rect=new_rect))
+            self.session.update_config(new_config, persist=True)
+        # A multi-selection rotates every other selected frame too, each by its own
+        # current geometry rather than a copy of the active frame's new one.
+        touched = self.session.rotate_selected_frames(direction, active_included=include_active)
+        if touched:
+            self.controller.rotate_thumbnails(touched, direction)
+        if include_active:
+            # Rotating must not drop an active before/after or flat-peek, so re-render in
+            # place within whichever view is on.
+            self.controller.rerender_active_view()
 
     def flip(self, axis: str) -> None:
         from dataclasses import replace
 
-        from negpy.features.geometry.logic import mirror_normalized_rect, toggle_flip
+        from negpy.features.geometry.logic import flip_geometry_and_analysis
 
         horizontal = axis == "horizontal"
-        config = self.session.state.config
-        # toggle_flip negates fine rotation and mirrors the crop rect, so the result is a true
-        # mirror of the current render (see its docstring).
-        new_config = replace(config, geometry=toggle_flip(config.geometry, horizontal))
-        # The freehand analysis region is transformed-space like the crop rect, so mirroring it
-        # keeps the meters reading the same picture content.
-        if config.process.analysis_rect is not None:
-            new_rect = mirror_normalized_rect(config.process.analysis_rect, horizontal)
-            new_config = replace(new_config, process=replace(config.process, analysis_rect=new_rect))
-        self.session.update_config(new_config, persist=True)
-        # Flipping shouldn't drop an active before/after or flat-peek (see rotate()).
-        self.controller.rerender_active_view()
+        state = self.session.state
+        # See rotate(): a multi-selection that excludes the active frame skips it too.
+        include_active = len(state.selected_indices) <= 1 or state.selected_file_idx in state.selected_indices
+        if include_active:
+            config = state.config
+            new_geo, new_rect = flip_geometry_and_analysis(config.geometry, config.process.analysis_rect, horizontal)
+            new_config = replace(config, geometry=new_geo)
+            if config.process.analysis_rect is not None:
+                new_config = replace(new_config, process=replace(config.process, analysis_rect=new_rect))
+            self.session.update_config(new_config, persist=True)
+        # A multi-selection flips every other selected frame too, each by its own
+        # current geometry rather than a copy of the active frame's new one.
+        touched = self.session.flip_selected_frames(horizontal, active_included=include_active)
+        if touched:
+            self.controller.flip_thumbnails(touched, horizontal)
+        if include_active:
+            # Flipping shouldn't drop an active before/after or flat-peek (see rotate()).
+            self.controller.rerender_active_view()
 
     def _show_tour(self) -> None:
         from negpy.desktop.view.main_window import MainWindow

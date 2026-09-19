@@ -642,6 +642,30 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.session.sync_selected_settings([])
         self.mock_repo.save_file_settings.assert_not_called()
 
+    def test_sync_selected_settings_emits_frames_edited_offscreen(self):
+        self.session.state.selected_file_idx = 0
+        self.session.state.current_file_hash = "hash1"
+        self.session.state.config = WorkspaceConfig(exposure=replace(WorkspaceConfig().exposure, density=1.5))
+        self.mock_repo.load_file_settings.return_value = WorkspaceConfig()
+        offscreen = []
+        self.session.frames_edited_offscreen.connect(offscreen.append)
+
+        self.session.update_selection([0, 1])
+        self.session.sync_selected_settings([_row("Print Density")])
+
+        self.assertEqual(offscreen, [["hash2"]])
+
+    def test_sync_selected_settings_empty_emits_nothing(self):
+        self.session.state.selected_file_idx = 0
+        self.session.state.current_file_hash = "hash1"
+        offscreen = []
+        self.session.frames_edited_offscreen.connect(offscreen.append)
+
+        self.session.update_selection([0, 1])
+        self.session.sync_selected_settings([])
+
+        self.assertEqual(offscreen, [])
+
     def test_apply_pasted_fields_applies_subset_and_renders(self):
         self.session.state.current_file_hash = "hash1"
         self.session.state.config = replace(WorkspaceConfig(), lab=replace(WorkspaceConfig().lab, saturation=1.9))
@@ -806,6 +830,167 @@ class TestDesktopSessionSync(unittest.TestCase):
         # Each target got a two-step write: pre-apply at 0, post-apply at 1.
         steps = [(c.args[0], c.args[1]) for c in self.mock_repo.save_history_step.call_args_list]
         self.assertEqual(steps, [("hash2", 0), ("hash2", 1), ("hash3", 0), ("hash3", 1)])
+
+    def test_rotate_selected_frames_applies_each_frames_own_geometry(self):
+        self.session.state.selected_file_idx = 0
+        self.session.state.config = WorkspaceConfig(geometry=GeometryConfig(rotation=1))
+        self.mock_repo.load_file_settings.return_value = WorkspaceConfig(geometry=GeometryConfig(rotation=3))
+        self.session.update_selection([0, 1])
+
+        touched = self.session.rotate_selected_frames(1)
+
+        self.assertEqual(touched, ["hash2-v3"])
+        args, kwargs = self.mock_repo.save_file_settings.call_args
+        self.assertEqual(args[0], "hash2")
+        # Frame 1 rotates from its OWN stored rotation (3), not the active frame's new value.
+        self.assertEqual(args[1].geometry.rotation, 0)
+        self.assertEqual(kwargs["file_path"], "path2")
+
+    def test_rotate_selected_frames_message_excludes_active_when_deselected(self):
+        self.session.state.uploaded_files.append({"name": "file3.dng", "path": "path3", "hash": "hash3"})
+        self.session.state.selected_file_idx = 0
+        self.mock_repo.load_file_settings.return_value = WorkspaceConfig(geometry=GeometryConfig(rotation=0))
+        self.session.update_selection([1, 2])
+        messages = []
+        self.session.settings_synced.connect(messages.append)
+
+        touched = self.session.rotate_selected_frames(1, active_included=False)
+
+        self.assertEqual(touched, ["hash2-v3", "hash3-v3"])
+        self.assertEqual(messages, ["Rotated 2 frames"])
+
+    def test_rotate_selected_frames_noop_on_single_selection(self):
+        self.session.state.selected_file_idx = 0
+        self.session.update_selection([0])
+
+        touched = self.session.rotate_selected_frames(1)
+
+        self.assertEqual(touched, [])
+        self.mock_repo.save_file_settings.assert_not_called()
+
+    def test_rotate_selected_frames_records_undoable_history(self):
+        self.mock_repo.get_max_history_index.return_value = 0
+        self.mock_repo.load_history_step.return_value = None
+        self.mock_repo.save_history_step.reset_mock()
+        self.session.state.selected_file_idx = 0
+        target_config = WorkspaceConfig(geometry=GeometryConfig(rotation=0))
+        self.mock_repo.load_file_settings.return_value = target_config
+        self.session.update_selection([0, 1])
+
+        self.session.rotate_selected_frames(1)
+
+        steps = [(c.args[0], c.args[1]) for c in self.mock_repo.save_history_step.call_args_list]
+        self.assertEqual(steps, [("hash2", 0), ("hash2", 1)])
+
+    def test_flip_selected_frames_applies_each_frames_own_geometry(self):
+        self.session.state.selected_file_idx = 0
+        self.session.state.config = WorkspaceConfig(geometry=GeometryConfig(flip_horizontal=False))
+        self.mock_repo.load_file_settings.return_value = WorkspaceConfig(geometry=GeometryConfig(flip_horizontal=True))
+        self.session.update_selection([0, 1])
+
+        touched = self.session.flip_selected_frames(True)
+
+        self.assertEqual(touched, ["hash2-v3"])
+        args, kwargs = self.mock_repo.save_file_settings.call_args
+        self.assertEqual(args[0], "hash2")
+        # Frame 1 mirrors from its OWN stored flip (True), not the active frame's new value.
+        self.assertFalse(args[1].geometry.flip_horizontal)
+        self.assertEqual(kwargs["file_path"], "path2")
+
+    def test_flip_selected_frames_noop_on_single_selection(self):
+        self.session.state.selected_file_idx = 0
+        self.session.update_selection([0])
+
+        touched = self.session.flip_selected_frames(True)
+
+        self.assertEqual(touched, [])
+        self.mock_repo.save_file_settings.assert_not_called()
+
+    def test_flip_selected_frames_records_undoable_history(self):
+        self.mock_repo.get_max_history_index.return_value = 0
+        self.mock_repo.load_history_step.return_value = None
+        self.mock_repo.save_history_step.reset_mock()
+        self.session.state.selected_file_idx = 0
+        target_config = WorkspaceConfig(geometry=GeometryConfig(flip_horizontal=False))
+        self.mock_repo.load_file_settings.return_value = target_config
+        self.session.update_selection([0, 1])
+
+        self.session.flip_selected_frames(True)
+
+        steps = [(c.args[0], c.args[1]) for c in self.mock_repo.save_history_step.call_args_list]
+        self.assertEqual(steps, [("hash2", 0), ("hash2", 1)])
+
+    def test_rotate_selected_frames_skips_a_duplicate_content_hash(self):
+        # Two open paths sharing the active frame's content hash (e.g. the same file
+        # loaded from two folders) must not turn the shared edit row twice.
+        self.session.state.uploaded_files.append({"name": "file1-copy.dng", "path": "path1-copy", "hash": "hash1"})
+        self.session.state.selected_file_idx = 0
+        self.session.state.current_file_hash = "hash1"
+        self.mock_repo.load_file_settings.return_value = WorkspaceConfig(geometry=GeometryConfig(rotation=0))
+        self.session.update_selection([0, 1, 2])
+
+        touched = self.session.rotate_selected_frames(1)
+
+        self.assertEqual(touched, ["hash2-v3"])
+        self.mock_repo.save_file_settings.assert_called_once()
+        self.assertEqual(self.mock_repo.save_file_settings.call_args.args[0], "hash2")
+
+    def test_reset_roll_settings_resets_every_visible_frame(self):
+        self._seed_roll()
+        self.session.asset_model.refresh()
+        dirty = replace(self.session.state.config, exposure=replace(self.session.state.config.exposure, density=1.8))
+        self.session.update_config(dirty, persist=True)
+        self.mock_repo.load_file_settings.return_value = dirty
+
+        count = self.session.reset_roll_settings(scope="roll")
+
+        self.assertEqual(count, 3)
+        self.assertEqual(self.session.state.config, WorkspaceConfig())
+        saved = {c.args[0]: c.args[1] for c in self.mock_repo.save_file_settings.call_args_list}
+        self.assertEqual(saved["hash1"], WorkspaceConfig())
+        self.assertEqual(saved["hash2"], WorkspaceConfig())
+        self.assertEqual(saved["hash3"], WorkspaceConfig())
+
+    def test_reset_roll_settings_selection_scope_resets_only_selected_frames(self):
+        self._seed_roll()
+        self.session.asset_model.refresh()
+        self.session.state.selected_indices = [0, 1]  # c.jpg (index 2) left untouched
+        dirty = replace(self.session.state.config, exposure=replace(self.session.state.config.exposure, density=1.8))
+        self.session.update_config(dirty, persist=True)
+        self.mock_repo.load_file_settings.return_value = dirty
+
+        count = self.session.reset_roll_settings(scope="selection")
+
+        self.assertEqual(count, 2)
+        self.assertEqual(self.session.state.config, WorkspaceConfig())
+        saved = {c.args[0] for c in self.mock_repo.save_file_settings.call_args_list}
+        self.assertEqual(saved, {"hash1", "hash2"})
+        self.assertNotIn("hash3", saved)  # not in the selection, left untouched
+
+    def test_reset_roll_settings_respects_active_filter(self):
+        # Mirrors sync_selected_settings: "whole roll" means the visible (filtered) frames.
+        self._seed_roll()
+        self.session.asset_model.set_filter(".arw", regex=False)  # hides c.jpg
+
+        count = self.session.reset_roll_settings(scope="roll")
+
+        self.assertEqual(count, 2)
+        saved = {c.args[0] for c in self.mock_repo.save_file_settings.call_args_list}
+        self.assertEqual(saved, {"hash1", "hash2"})  # c.jpg filtered out, not touched
+
+    def test_reset_roll_settings_preserves_asset_derived_process_mode(self):
+        # A composite's inherited film process is what it *is*, not an edit — a blind
+        # WorkspaceConfig() overlay would wipe it, unlike _asset_defaults.
+        self._seed_roll()
+        self.session.asset_model.refresh()
+        self.session.state.uploaded_files[1]["process_mode"] = ProcessMode.E6
+        stale = replace(WorkspaceConfig(), process=replace(WorkspaceConfig().process, process_mode=ProcessMode.C41))
+        self.mock_repo.load_file_settings.return_value = stale
+
+        self.session.reset_roll_settings(scope="roll")
+
+        saved = {c.args[0]: c.args[1] for c in self.mock_repo.save_file_settings.call_args_list}
+        self.assertEqual(saved["hash2"].process.process_mode, ProcessMode.E6)
 
     def _last_session_manifest(self):
         """Returns (paths, active_path) from the most recent _persist_session calls."""

@@ -1,6 +1,9 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
 import numpy as np
-from negpy.services.rendering.gpu_engine import GPUEngine
+from negpy.services.rendering.gpu_engine import GPUEngine, TILING_THRESHOLD_PX
 from negpy.domain.models import WorkspaceConfig
 from negpy.infrastructure.gpu.device import GPUDevice
 
@@ -98,17 +101,12 @@ class TestGPUEngine(unittest.TestCase):
 
     def test_gpu_tiled_processing(self):
         """Verify tiled processing for large images."""
-        # Force tiled path by using an image that exceeds 12M pixels or just a bit large
-        # For tests, we'll keep it reasonable but enough to trigger logic if we lowered threshold
-        # Or we can just call _process_tiled directly if it was public, but it's internal.
-        # Let's use an image large enough.
-        # The threshold is 12,000,000 pixels.
-        # 4000 * 3001 = 12,003,000
-        h, w = 3001, 4000
+        h = w = 100
         img = np.random.rand(h, w, 3).astype(np.float32)
         settings = WorkspaceConfig()
 
-        res, metrics = self.engine.process(img, settings)
+        with patch("negpy.services.rendering.gpu_engine.TILING_THRESHOLD_PX", 1):
+            res, metrics = self.engine.process(img, settings)
 
         # Check if result matches expected aspect ratio or similar
         self.assertIsNotNone(res)
@@ -292,6 +290,59 @@ class TestGPUEngine(unittest.TestCase):
             for th in threads:
                 th.join(timeout=30)
             self.assertFalse(any(th.is_alive() for th in threads), "readback/destroy deadlocked")
+
+
+class TestGpuTilingPolicy(unittest.TestCase):
+    def _engine(self, max_texture: int = 8192) -> GPUEngine:
+        engine = GPUEngine.__new__(GPUEngine)
+        engine.gpu = SimpleNamespace(limits={"max_texture_dimension_2d": max_texture})
+        return engine
+
+    def test_complete_texture_chain_has_a_pixel_budget(self):
+        engine = self._engine()
+        settings = WorkspaceConfig()
+        height = 2000
+        under = SimpleNamespace(shape=(height, TILING_THRESHOLD_PX // height, 3))
+        over = SimpleNamespace(shape=(height, TILING_THRESHOLD_PX // height + 1, 3))
+
+        self.assertFalse(engine.requires_tiling(under, settings))
+        self.assertTrue(engine.requires_tiling(over, settings))
+
+    def test_device_dimension_limit_still_applies_after_rotation(self):
+        from dataclasses import replace
+
+        engine = self._engine(max_texture=1024)
+        settings = WorkspaceConfig()
+        rotated = replace(settings, geometry=replace(settings.geometry, rotation=1))
+
+        self.assertTrue(engine.requires_tiling(SimpleNamespace(shape=(900, 1100, 3)), settings))
+        self.assertTrue(engine.requires_tiling(SimpleNamespace(shape=(1100, 900, 3)), rotated))
+
+    def test_configured_texture_cap_triggers_tiling(self):
+        engine = self._engine(max_texture=8192)
+
+        with patch("negpy.services.rendering.gpu_engine.APP_CONFIG.max_texture_size", 1024):
+            self.assertTrue(engine.requires_tiling(SimpleNamespace(shape=(900, 1100, 3)), WorkspaceConfig()))
+
+    def test_releasing_pool_destroys_every_texture_except_retained(self):
+        engine = GPUEngine.__new__(GPUEngine)
+        kept = MagicMock()
+        dropped = MagicMock()
+        engine._tex_cache = {("kept",): kept, ("dropped",): dropped}
+        engine._tex_gen = {("kept",): 1, ("dropped",): 1}
+        engine._bind_group_cache = {("bind",): object()}
+        engine._current_source_hash = "source"
+        engine._last_settings = WorkspaceConfig()
+        engine._local_ev_key = ("map",)
+        engine._mask_tex_key = ("mask",)
+
+        engine._release_texture_pool(retain=kept)
+
+        kept.destroy.assert_not_called()
+        dropped.destroy.assert_called_once()
+        self.assertEqual(engine._tex_cache, {})
+        self.assertEqual(engine._bind_group_cache, {})
+        self.assertIsNone(engine._last_settings)
 
 
 if __name__ == "__main__":

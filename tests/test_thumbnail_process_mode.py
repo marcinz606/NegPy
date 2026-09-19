@@ -19,7 +19,6 @@ def _controller(stored: dict):
     c = MagicMock()
     c.state.uploaded_files = [dict(SLIDE), dict(FRESH)]
     c.state.thumbnails = {}
-    c._begin_batch.return_value = 1
     c.session.stored_process_mode = lambda asset: stored.get(asset["hash"], "")
     return c
 
@@ -47,6 +46,104 @@ class BatchRequest(unittest.TestCase):
 
         self.assertFalse(any("process_mode" in f for f in controller.state.uploaded_files))
         self.assertIsNot(_emitted(controller)[0], controller.state.uploaded_files[0])
+
+    def test_thumbnail_queue_does_not_claim_the_batch_lane(self):
+        controller = _controller({})
+
+        AppController.generate_missing_thumbnails(controller)
+
+        controller._begin_batch.assert_not_called()
+
+    def test_foreground_load_cancels_a_running_thumbnail_queue(self):
+        controller = _controller({})
+        controller.thumb_worker = MagicMock()
+        controller.thumbnail_cancel_requested = MagicMock()
+        controller._thumbnail_queue_active = True
+        controller._thumbnails_paused_for_foreground = False
+
+        AppController._pause_background_thumbnails(controller)
+
+        self.assertTrue(controller._thumbnails_paused_for_foreground)
+        controller.thumb_worker.cancel_pending.assert_called_once()
+        controller.thumbnail_cancel_requested.emit.assert_called_once()
+
+    def test_completed_thumbnail_queue_is_not_retried_on_file_load(self):
+        controller = _controller({})
+        controller.thumb_worker = MagicMock()
+        controller.thumbnail_cancel_requested = MagicMock()
+        controller._thumbnail_queue_active = False
+        controller._thumbnails_paused_for_foreground = False
+
+        AppController._pause_background_thumbnails(controller)
+
+        self.assertFalse(controller._thumbnails_paused_for_foreground)
+        controller.thumb_worker.cancel_pending.assert_not_called()
+        controller.thumbnail_cancel_requested.emit.assert_not_called()
+
+    def test_empty_thumbnail_activity_marks_the_queue_idle(self):
+        controller = MagicMock()
+        controller._thumbnail_queue_active = True
+
+        AppController._on_thumbnail_activity(controller, "")
+
+        self.assertFalse(controller._thumbnail_queue_active)
+        controller.thumbnail_activity_changed.emit.assert_called_once_with("")
+
+    def test_rendered_active_thumbnail_resumes_the_background_queue(self):
+        controller = MagicMock()
+        controller._thumbnails_paused_for_foreground = True
+        controller._foreground_preview_generation = None
+        controller._is_rendering = False
+        controller._pending_render_task = None
+
+        AppController._resume_background_thumbnails(controller)
+
+        self.assertFalse(controller._thumbnails_paused_for_foreground)
+        controller.generate_missing_thumbnails.assert_called_once()
+
+    def test_background_queue_waits_until_foreground_render_is_idle(self):
+        controller = MagicMock()
+        controller._thumbnails_paused_for_foreground = True
+        controller._foreground_preview_generation = None
+        controller._is_rendering = True
+        controller._pending_render_task = None
+
+        AppController._resume_background_thumbnails(controller)
+
+        self.assertTrue(controller._thumbnails_paused_for_foreground)
+        controller.generate_missing_thumbnails.assert_not_called()
+
+    def test_idle_continuation_starts_deferred_prefetch_before_thumbnails(self):
+        controller = MagicMock()
+        controller._thumbnails_paused_for_foreground = True
+        controller._foreground_preview_generation = None
+        controller._is_rendering = False
+        controller._pending_render_task = None
+        controller._active_batch = None
+        controller._neighbor_prefetch_generation = 3
+        controller._prefetch_gen = 3
+        controller._prefetch_in_flight_generation = None
+        controller._neighbor_prefetch_queue = []
+
+        AppController._continue_background_work(controller)
+
+        controller._schedule_prefetch_neighbors.assert_called_once_with()
+        controller.generate_missing_thumbnails.assert_not_called()
+
+    def test_preview_load_error_does_not_clear_an_unrelated_render(self):
+        controller = MagicMock()
+        controller._foreground_preview_generation = 2
+        controller._neighbor_prefetch_generation = 2
+        controller._neighbor_prefetch_queue = [object()]
+        controller._is_rendering = True
+
+        AppController._on_preview_load_error(controller, "decode failed")
+
+        self.assertTrue(controller._is_rendering)
+        self.assertIsNone(controller._foreground_preview_generation)
+        self.assertIsNone(controller._neighbor_prefetch_generation)
+        self.assertEqual(controller._neighbor_prefetch_queue, [])
+        controller.generate_missing_thumbnails.assert_not_called()
 
 
 class StoredMode(unittest.TestCase):

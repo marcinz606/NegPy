@@ -23,6 +23,7 @@ from negpy.services.assets.half_frame import (
     remember_split_scans,
     slice_for_asset,
     slice_half,
+    slice_half_dimensions,
 )
 from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask
 from negpy.features.retouch.models import RetouchConfig
@@ -253,6 +254,20 @@ def test_halves_measure_independent_bounds():
 
 
 class TestSliceHalfCropGutter:
+    @pytest.mark.parametrize("half", [0, 1, 2])
+    def test_reported_dimensions_match_full_resolution_slice(self, half):
+        dimensions = (101, 203)
+        geometry = {
+            "split_x": 0.43,
+            "crop_rect": (0.1, 0.2, 0.9, 0.8),
+            "gutter_thickness": 0.07,
+        }
+        buf = np.empty(dimensions, dtype=np.uint8)
+
+        actual = slice_half(buf, half, **geometry)
+
+        assert slice_half_dimensions(dimensions, half, **geometry) == actual.shape
+
     def test_crop_rect_slices_only_the_cropped_region(self):
         buf = np.arange(2 * 100 * 3, dtype=np.float32).reshape(2, 100, 3)
         # crop to x 0.2..0.8 (20..80), split at 0.5 of the crop (x=50)

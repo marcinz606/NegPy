@@ -59,6 +59,7 @@ from negpy.features.exposure.transfer import (
     transfer_bounds,
     transfer_curve_params,
     transfer_widths,
+    wb_split_geometry,
     zone_geometry,
 )
 from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
@@ -92,6 +93,8 @@ TILE_SIZE = 2048
 # APUs) have ample real VRAM and don't need -- or want -- the export slowed down for it.
 TILE_SIZE_LOW_VRAM = 1024
 TILE_HALO = 32
+# A direct frame keeps an image-size rgba32float texture chain for stage resume.
+# Above this pixel count, tiling bounds the complete working set.
 TILING_THRESHOLD_PX = 12_000_000
 HISTOGRAM_BINS = 256
 # Metrics buffer layout in u32 words: RGBL output histogram (metrics.wgsl), the RGBL
@@ -315,7 +318,7 @@ class GPUEngine:
             "geometry": 64,
             "normalization": 160,
             "exposure": 336,
-            "transfer": 176,
+            "transfer": 208,
             "clahe_u": 32,
             "lab": 96,
             "lith": 64,
@@ -456,6 +459,29 @@ class GPUEngine:
                 tex.destroy()
         # Bind groups keyed by id() never match a destroyed view again; drop, don't leak.
         self._bind_group_cache.clear()
+
+    def requires_tiling(self, img: np.ndarray, settings: WorkspaceConfig) -> bool:
+        """True when a direct texture chain exceeds a device or working-set limit."""
+        h, w = img.shape[:2]
+        max_tex = self.gpu.limits.get("max_texture_dimension_2d", 8192)
+        if APP_CONFIG.max_texture_size is not None:
+            max_tex = min(max_tex, APP_CONFIG.max_texture_size)
+        rot = settings.geometry.rotation % 4
+        w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)
+        return w_rot > max_tex or h_rot > max_tex or w * h > TILING_THRESHOLD_PX
+
+    def _release_texture_pool(self, retain: Optional[GPUTexture] = None) -> None:
+        """Destroy pooled textures after their submitted work is complete."""
+        for tex in self._tex_cache.values():
+            if tex is not retain:
+                tex.destroy()
+        self._tex_cache.clear()
+        self._tex_gen.clear()
+        self._bind_group_cache.clear()
+        self._current_source_hash = None
+        self._last_settings = None
+        self._local_ev_key = None
+        self._mask_tex_key = None
 
     def _init_resources(self) -> None:
         """Initializes hardware pipelines and persistent buffers."""
@@ -1567,6 +1593,8 @@ class GPUEngine:
             LogNegativeBounds(floors=adj_floors, ceils=adj_ceils),
         )
         t_sh_c, t_hi_c, t_zone_k = zone_geometry()
+        t_wb_c, t_wb_k = wb_split_geometry()
+        t_cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
         # Cast Removal on the transparency curve: a per-channel affine on density, since
         # this curve has no per-channel slope to re-solve. Shadow refs stay out — the P98
         # tie is calibrated for a negative. Identity when there is no axis.
@@ -1604,6 +1632,20 @@ class GPUEngine:
                 float(settings.exposure.highlight_density),
                 float(t_sh_c),
                 float(t_hi_c),
+            )
+            + struct.pack(
+                "ffff",
+                settings.exposure.shadow_cyan * t_cmy_m,
+                settings.exposure.shadow_magenta * t_cmy_m,
+                settings.exposure.shadow_yellow * t_cmy_m,
+                float(t_wb_c),
+            )
+            + struct.pack(
+                "ffff",
+                settings.exposure.highlight_cyan * t_cmy_m,
+                settings.exposure.highlight_magenta * t_cmy_m,
+                settings.exposure.highlight_yellow * t_cmy_m,
+                float(t_wb_k),
             )
             + struct.pack("ffff", float(ZONE_BLACK_TAPER), 1.0 if t_positive_source else 0.0, 0.0, 0.0)
             + struct.pack("ffff", t_cast_gain[0], t_cast_gain[1], t_cast_gain[2], 0.0)
@@ -2233,15 +2275,13 @@ class GPUEngine:
         camera_wb: Optional[list] = None,
         source_hash: Optional[str] = None,
         analysis_source_hash: Optional[str] = None,
+        memory_bounded: bool = False,
+        render_size_ref: Optional[float] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """High-level processing entry point with automatic tiling."""
         self._init_resources()
         self.evict_stale_textures()
-        h, w = img.shape[:2]
-        max_tex = self.gpu.limits.get("max_texture_dimension_2d", 8192)
-        rot = settings.geometry.rotation % 4
-        w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)
-        if w_rot > max_tex or h_rot > max_tex or (w * h > TILING_THRESHOLD_PX):
+        if self.requires_tiling(img, settings):
             return self._process_tiled(
                 img,
                 settings,
@@ -2250,6 +2290,8 @@ class GPUEngine:
                 cam_xyz=cam_xyz,
                 camera_wb=camera_wb,
                 readback_metrics=readback_metrics,
+                memory_bounded=memory_bounded,
+                render_size_ref=render_size_ref,
             )
         tex_final, metrics = self.process_to_texture(
             img,
@@ -2261,6 +2303,7 @@ class GPUEngine:
             camera_wb=camera_wb,
             source_hash=source_hash,
             analysis_source_hash=analysis_source_hash,
+            render_size_ref=render_size_ref,
         )
         return self._readback_downsampled(tex_final), metrics
 
@@ -2273,9 +2316,15 @@ class GPUEngine:
         cam_xyz: Optional[list] = None,
         camera_wb: Optional[list] = None,
         readback_metrics: bool = True,
+        memory_bounded: bool = False,
+        render_size_ref: Optional[float] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Processes ultra-high resolution images using memory-efficient tiling."""
         h, w = img.shape[:2]
+        transient_tiles = memory_bounded or APP_CONFIG.low_vram_export_tiling
+
+        if transient_tiles:
+            self._release_texture_pool()
 
         # Tiles apply geometry on the CPU (shader uniform zeroed), so distortion too.
         k1_eff = settings.geometry.distortion_k1
@@ -2328,6 +2377,12 @@ class GPUEngine:
         )
 
         global_cdfs = self._readback_clahe_cdf()
+
+        if transient_tiles:
+            normalized_log = metrics_ref.get("normalized_log")
+            if isinstance(normalized_log, GPUTexture):
+                metrics_ref["normalized_log"] = np.ascontiguousarray(normalized_log.readback()[:, :, :3])
+            self._release_texture_pool()
 
         rot = settings.geometry.rotation % 4
         w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)
@@ -2452,7 +2507,7 @@ class GPUEngine:
             # One plane serves every tile; the first upload wins.
             self._mask_tex_key = None
 
-        paper_w, paper_h, content_w, content_h, off_x, off_y, _ = self._calculate_layout_dims(settings, crop_w, crop_h, None)
+        paper_w, paper_h, content_w, content_h, off_x, off_y, _ = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
         full_source_res = np.empty((crop_h, crop_w, 3), dtype=np.float32)
 
         # Defect repairs are baked into the source before the engine, so no stage here
@@ -2480,7 +2535,7 @@ class GPUEngine:
         # textures/buffers live at once is the difference between fitting and a
         # device-lost abort. Left off, exports keep both the full tile size and the
         # overlap for throughput.
-        low_vram = APP_CONFIG.low_vram_export_tiling
+        low_vram = transient_tiles
         tile_size = TILE_SIZE_LOW_VRAM if low_vram else TILE_SIZE
 
         # The queue serializes tile N's staging copy ahead of tile N+1's passes, so
@@ -2519,9 +2574,10 @@ class GPUEngine:
                     camera_wb=camera_wb,
                     contrast_mask_override=global_mask,
                 )
-                handle = self._submit_readback(tile_res, slot=tile_index % 2)
+                handle = self._submit_readback(tile_res, slot=0 if low_vram else tile_index % 2)
                 if low_vram:
                     self._resolve_readback(handle, full_source_res[ty : ty + th, tx : tx + tw], (oy, ox))
+                    self._release_texture_pool()
                 else:
                     if pending is not None:
                         p_handle, p_ty, p_tx, p_th, p_tw, p_oy, p_ox = pending
@@ -2546,11 +2602,13 @@ class GPUEngine:
         # No border means the paper buffer is a full-res allocation, fill and copy that
         # reproduces the content exactly.
         if (paper_w, paper_h, off_x, off_y) == (content_w, content_h, 0, 0):
-            return scaled_content, metrics_ref
-        result = np.zeros((paper_h, paper_w, 3), dtype=np.float32)
-        color_hex = settings.finish.border_color.lstrip("#")
-        result[:] = tuple(int(color_hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
-        result[off_y : off_y + content_h, off_x : off_x + content_w] = scaled_content
+            result = scaled_content
+        else:
+            result = np.zeros((paper_h, paper_w, 3), dtype=np.float32)
+            color_hex = settings.finish.border_color.lstrip("#")
+            result[:] = tuple(int(color_hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
+            result[off_y : off_y + content_h, off_x : off_x + content_w] = scaled_content
+        metrics_ref["base_positive"] = result
         return result, metrics_ref
 
     def cleanup(self, collect: bool = True, retain: Optional[GPUTexture] = None) -> None:
@@ -2559,22 +2617,12 @@ class GPUEngine:
         ``retain`` is handed to the caller instead: its pool key goes with it, so the
         next render allocates a fresh one rather than painting over borrowed pixels.
         """
-        for tex in self._tex_cache.values():
-            if tex is not retain:
-                tex.destroy()
-        self._tex_cache.clear()
-        self._tex_gen.clear()
-        # Bind groups reference the destroyed views, so drop them.
-        self._bind_group_cache.clear()
+        self._release_texture_pool(retain)
         self._bind_layout_cache.clear()
         self._uv_grid_cache = None
         # The stage textures a resume would paint onto are gone, local_ev included, so the
         # next frame must re-upload and start from stage 0.
-        self._current_source_hash = None
-        self._last_settings = None
-        self._local_ev_key = None
         self._local_maps_cache = None
-        self._mask_tex_key = None
         if collect:
             gc.collect()
         logger.info("GPUEngine: VRAM resources released")

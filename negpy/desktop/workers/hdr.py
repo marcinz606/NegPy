@@ -9,7 +9,7 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.hdr.logic import ExposureStats, choose_reference, measure_exposure, solve_ratios
 from negpy.features.hdr.models import HdrConfig
-from negpy.features.process.logic import effective_linear_raw
+from negpy.features.process.logic import effective_linear_raw, highlight_reconstruction_bakes_wb
 from negpy.services.rendering.image_processor import ImageProcessor
 
 
@@ -74,14 +74,27 @@ class HdrWorker(QObject):
                 # Flat-field off for the solve: the decode pins the white level, so saturation sits at
                 # exactly 1.0 and the reference and ratio thresholds mean what they say. A gain map
                 # applied first moves that point. The merge at decode time defers it for the same reason.
-                params = replace(task.params_by_path[f["path"]], flatfield=FlatFieldConfig(), hdr=HdrConfig())
+                #
+                # Reconstruction off explicitly: WorkspaceConfig.__post_init__ only zeroes it once
+                # `hdr` names this bracket, which is exactly what has not happened yet here — the
+                # files are still each their own standalone frame until the solve below names a
+                # reference. Left alone, a reconstructed pixel would read below the sensor ceiling
+                # and corrupt clipped_fraction/pair_ratio the same way it corrupts the merge itself.
+                original = task.params_by_path[f["path"]]
+                params = replace(
+                    original,
+                    flatfield=FlatFieldConfig(),
+                    hdr=HdrConfig(),
+                    process=replace(original.process, highlight_reconstruction=0),
+                )
                 f32, _, _ = self._processor._decode_oriented_f32(f["path"], params, wb_override=bracket_wb)
                 if i == 0:
                     # The same expression as merge_bracket's, so the solve and the render pin alike. There is
                     # nothing to share on a neutral decode, which carries no as-shot gains and leaves every
-                    # later frame neutral too.
-                    neutral = effective_linear_raw(params.process, params.exposure.render_intent)
-                    bracket_wb = None if neutral else self._processor.camera_wb_for(f["path"])
+                    # later frame neutral too — unless reconstruction bakes real white balance into it.
+                    linear_raw = effective_linear_raw(params.process, params.exposure.render_intent)
+                    bake_wb = highlight_reconstruction_bakes_wb(params.process, params.exposure.render_intent)
+                    bracket_wb = self._processor.camera_wb_for(f["path"]) if (bake_wb or not linear_raw) else None
                 frames.append(f32)
 
             shapes = {f.shape for f in frames}

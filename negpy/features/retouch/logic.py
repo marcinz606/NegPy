@@ -114,6 +114,7 @@ _SCRATCH_WIDTH_MIN = 3.0
 # side and prints as a dark blotch on the light one.
 _IR_MAX_UPSAMPLE = 1.5
 _IR_DETECT_MAX = 3600  # memory: ir_ratio_and_gain holds ~10 planes of it
+_IR_DOWNSAMPLE_WORK_BYTES = 64 * 1024 * 1024
 # The film-footprint windows below are px at this detection long edge and scale with the
 # plane (_ir_win). On a finer plane a wide hair fills an unscaled base window, depresses
 # its own base and stops reading as a defect.
@@ -680,6 +681,44 @@ def _fit_sample(mask: np.ndarray) -> np.ndarray:
     return idx[::step] if step > 1 else idx
 
 
+def _erode_resize_bounded(plane: np.ndarray, dims: Tuple[int, int], kernel: np.ndarray) -> np.ndarray:
+    """Apply the min-preserving downsample in source-row blocks."""
+    if plane.ndim == 3 and plane.shape[2] == 1:
+        plane = plane[:, :, 0]
+    h, w = plane.shape[:2]
+    dw, dh = dims
+    scale_y = h / dh
+    channels = plane.shape[2] if plane.ndim == 3 else 1
+    bytes_per_row = max(1, w * channels * plane.dtype.itemsize)
+    source_rows = max(1, (_IR_DOWNSAMPLE_WORK_BYTES // 4) // bytes_per_row)
+    output_rows = max(1, int(source_rows * dh / h))
+    radius = kernel.shape[0] // 2
+    output = np.empty((dh, dw, channels), dtype=np.float32) if plane.ndim == 3 else np.empty((dh, dw), dtype=np.float32)
+
+    for top in range(0, dh, output_rows):
+        bottom = min(dh, top + output_rows)
+        source_top = math.floor(top * scale_y)
+        source_bottom = min(h, math.ceil((bottom - 1) * scale_y + scale_y))
+        read_top = max(0, source_top - radius)
+        read_bottom = min(h, source_bottom + radius)
+        source = np.ascontiguousarray(plane[read_top:read_bottom], dtype=np.float32)
+        eroded = cv2.erode(source, kernel)
+        core = eroded[source_top - read_top : source_bottom - read_top]
+        horizontal = cv2.resize(core, (dw, len(core)), interpolation=cv2.INTER_AREA)
+        # Keep the full-image sampling grid across fractional block boundaries.
+        for row in range(top, bottom):
+            start = row * scale_y
+            end = start + scale_y
+            first, last = math.floor(start), min(h, math.ceil(end))
+            indices = np.arange(first, last)
+            overlap = np.minimum(indices + 1, end) - np.maximum(indices, start)
+            # OpenCV's area table omits fractional edges at or below this cutoff.
+            weights = (np.where(overlap > 1e-3, overlap, 0.0) / min(scale_y, h - start)).astype(np.float32)
+            values = horizontal[first - source_top : last - source_top]
+            output[row] = np.sum(values * weights.reshape((-1,) + (1,) * (values.ndim - 1)), axis=0)
+    return output
+
+
 def downsample_ir(plane: np.ndarray, target_long_edge: int, dims: Optional[Tuple[int, int]] = None) -> np.ndarray:
     """Min-preserving IR downsample to ``target_long_edge`` (no-op if already smaller).
     ``dims`` (w, h) overrides the computed target for callers that must land on an
@@ -692,20 +731,23 @@ def downsample_ir(plane: np.ndarray, target_long_edge: int, dims: Optional[Tuple
     film still sits at ~1.0. Every IR consumer routes through here or preview and export
     detect different region sets.
     """
-    plane = np.ascontiguousarray(plane, dtype=np.float32)
+    plane = np.asarray(plane, dtype=np.float32)
     h, w = plane.shape[:2]
     long_edge = max(h, w)
     if long_edge <= target_long_edge and dims is None:
-        return plane
+        return np.ascontiguousarray(plane)
     if dims is None:
         s = target_long_edge / long_edge
         dims = (max(1, int(round(w * s))), max(1, int(round(h * s))))
     if dims == (w, h):
-        return plane
+        return np.ascontiguousarray(plane)
     # Erode by the resample footprint: a 1.25x downsample must not fatten by a 4.5x kernel.
     k = max(1, int(round(long_edge / target_long_edge)) | 1)
     if k > 1:
-        plane = cv2.erode(plane, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+        if plane.nbytes > _IR_DOWNSAMPLE_WORK_BYTES:
+            return _erode_resize_bounded(plane, dims, kernel)
+        plane = cv2.erode(np.ascontiguousarray(plane), kernel)
     return cv2.resize(plane, dims, interpolation=cv2.INTER_AREA).astype(np.float32)
 
 

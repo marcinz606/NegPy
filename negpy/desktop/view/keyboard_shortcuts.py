@@ -4,6 +4,7 @@ from typing import Optional
 from PyQt6.QtGui import QKeySequence, QShortcut
 
 from negpy.desktop.session import ToolMode
+from negpy.desktop.view.confirm import confirm_reset_frames
 from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog, open_sticky_dialog
 from negpy.desktop.view.shortcut_registry import (
     REGISTRY,
@@ -26,6 +27,18 @@ def _context_undo(controller) -> None:
         controller.undo_last_retouch()
     else:
         controller.session.undo()
+
+
+def _reset_roll(window, controller) -> None:
+    count = len(controller.session.asset_model.visible_actual_indices_ordered())
+    if count and confirm_reset_frames(window, count, roll=True) and controller.session.reset_roll_settings(scope="roll"):
+        controller.request_render()
+
+
+def _reset_selected(window, controller) -> None:
+    count = len(controller.session.state.selected_indices)
+    if count and confirm_reset_frames(window, count) and controller.session.reset_roll_settings(scope="selection"):
+        controller.request_render()
 
 
 def _context_cancel(controller, window) -> None:
@@ -144,6 +157,16 @@ class ShortcutManager:
             "hdr_unmerge": controller.request_unmerge_hdr,
             # The view method, not the controller's: it carries the confirm the deletion needs.
             "half_frame_undiptych": self.window.session_panel.file_browser.prompt_undiptych,
+            "update_thumbnails_selection": (
+                lambda: controller.cancel_thumbnail_refresh()
+                if controller.thumbnail_refresh_running
+                else controller.request_thumbnail_refresh("selection")
+            ),
+            "update_thumbnails_roll": (
+                lambda: controller.cancel_thumbnail_refresh()
+                if controller.thumbnail_refresh_running
+                else controller.request_thumbnail_refresh("roll")
+            ),
             "toggle_reject": lambda: controller.session.toggle_mark("excluded"),
             "toggle_compare": controller.toggle_compare,
             "rotate_ccw": lambda: toolbar.rotate(1),
@@ -216,6 +239,7 @@ class ShortcutManager:
             "copy": controller.session.copy_settings,
             "copy_with_bounds": controller.session.copy_settings_with_bounds,
             "paste": lambda: open_paste_dialog(self.window, controller),
+            "reset_roll": lambda: _reset_roll(self.window, controller),
             "persistent_settings": lambda: open_sticky_dialog(self.window, controller),
             "open_preferences": lambda: _open_preferences(self.window, controller),
             "save_work_print": self.window.right_panel.history_panel.save_work_print,

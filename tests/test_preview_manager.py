@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import rawpy
+from PIL import Image
 
 from negpy.features.process.models import DemosaicMode
 from negpy.infrastructure.loaders.tiff_loader import NonStandardFileWrapper
@@ -193,6 +194,54 @@ def test_load_linear_preview_fast_path_line_and_half() -> None:
     assert dims == (32, 24)
     assert buf.shape == (32, 24, 3)
     assert buf.dtype == np.float32
+
+
+def test_cancelled_preview_releases_native_raw_before_conversion() -> None:
+    rgb_u16 = np.zeros((32, 24, 3), dtype=np.uint16)
+    cancelled = False
+
+    class _Raw:
+        def __init__(self) -> None:
+            self.raw_type = rawpy.RawType.Flat
+            self.raw_pattern = np.zeros((2, 2), dtype=np.uint8)
+            self.sizes = SimpleNamespace(raw_height=32, raw_width=24, iheight=32, iwidth=24)
+            self.closed = False
+            self.white_level = 16383
+            self.camera_white_level_per_channel = None
+            self.black_level_per_channel = [0, 0, 0, 0]
+
+        def postprocess(self, **_kwargs):
+            nonlocal cancelled
+            cancelled = True
+            return rgb_u16
+
+        def close(self) -> None:
+            self.closed = True
+
+    raw = _Raw()
+
+    class _Ctx:
+        def __enter__(self):
+            return raw
+
+        def __exit__(self, *_args: object) -> None:
+            raw.close()
+
+    with (
+        patch("negpy.services.rendering.preview_manager.loader_factory") as loader,
+        patch("negpy.services.rendering.preview_manager.rawpy.RawPy", _Raw),
+        patch("negpy.services.rendering.preview_manager.uint16_to_float32") as convert,
+        pytest.raises(InterruptedError),
+    ):
+        loader.get_loader.return_value = (_Ctx(), {"color_space": "Adobe RGB"})
+        PreviewManager().load_linear_preview(
+            "/fake/path.dng",
+            color_space="Adobe RGB",
+            should_cancel=lambda: cancelled,
+        )
+
+    assert raw.closed
+    convert.assert_not_called()
 
 
 def test_load_linear_preview_hq_uses_best_demosaic_no_half() -> None:
@@ -493,6 +542,54 @@ def test_output_dimensions_from_raw_sizes_not_postprocessed_shape() -> None:
         _buf, dims, _ = PreviewManager().load_linear_preview("/fake/path.dng")
 
     assert dims == (32, 24)
+
+
+def test_half_preview_reports_sliced_full_resolution_dimensions() -> None:
+    """A half-size decode must not make Original Size use preview pixels."""
+    rgb_u16 = np.ones((50, 100, 3), dtype=np.uint16) * 1000
+    raw = MagicMock()
+    raw.raw_type = rawpy.RawType.Flat
+    raw.raw_pattern = np.zeros((2, 2), dtype=np.uint8)
+    raw.sizes = SimpleNamespace(raw_height=100, raw_width=200, iheight=100, iwidth=200)
+    raw.white_level = 16383
+    raw.camera_white_level_per_channel = None
+    raw.black_level_per_channel = [0, 0, 0, 0]
+    raw.postprocess = MagicMock(return_value=rgb_u16)
+
+    class _Ctx:
+        def __enter__(self) -> MagicMock:
+            return raw
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    with patch("negpy.services.rendering.preview_manager.loader_factory") as lf:
+        lf.get_loader.return_value = (_Ctx(), {"color_space": "Adobe RGB"})
+        buf, dims, _ = PreviewManager().load_linear_preview(
+            "/fake/path.dng",
+            half_slice=(2, 0.4, (0.1, 0.1, 0.9, 0.9), 0.05),
+        )
+
+    assert buf.shape == (40, 46, 3)
+    assert dims == (80, 92)
+
+
+def test_half_splash_reports_sliced_full_resolution_dimensions() -> None:
+    raw = MagicMock()
+    raw.sizes = SimpleNamespace(raw_height=100, raw_width=200, iheight=100, iwidth=200)
+    splash = Image.fromarray(np.zeros((50, 100, 3), dtype=np.uint8))
+
+    with patch("negpy.services.rendering.preview_manager.embedded_preview", return_value=splash):
+        result = PreviewManager._try_splash_from_open_raw(
+            raw,
+            "/fake/path.dng",
+            half_slice=(2, 0.4, (0.1, 0.1, 0.9, 0.9), 0.05),
+        )
+
+    assert result is not None
+    buf, dims = result
+    assert buf.shape == (40, 46, 3)
+    assert dims == (80, 92)
 
 
 def test_explicit_demosaic_drops_half_size() -> None:

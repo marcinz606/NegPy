@@ -358,11 +358,65 @@ class TestRotateRouting(unittest.TestCase):
         tb = _make_toolbar()
         tb.controller.rotate_test_strip.return_value = False
         tb.session.state.config = WorkspaceConfig()
+        tb.session.state.selected_indices = [0]
 
         tb.rotate(1)
 
         tb.session.update_config.assert_called_once()
         self.assertEqual(tb.session.update_config.call_args.args[0].geometry.rotation, 1)
+        tb.session.rotate_selected_frames.assert_called_once_with(1, active_included=True)
+        tb.controller.rerender_active_view.assert_called_once()
+
+    def test_a_selection_that_excludes_the_active_frame_leaves_it_alone(self):
+        tb = _make_toolbar()
+        tb.controller.rotate_test_strip.return_value = False
+        tb.session.state.selected_file_idx = 0
+        tb.session.state.selected_indices = [1, 2]
+
+        tb.rotate(1)
+
+        tb.session.update_config.assert_not_called()
+        tb.session.rotate_selected_frames.assert_called_once_with(1, active_included=False)
+        tb.controller.rerender_active_view.assert_not_called()
+
+    def test_a_selection_that_includes_the_active_frame_still_rotates_it(self):
+        tb = _make_toolbar()
+        tb.controller.rotate_test_strip.return_value = False
+        tb.session.state.config = WorkspaceConfig()
+        tb.session.state.selected_file_idx = 0
+        tb.session.state.selected_indices = [0, 1, 2]
+
+        tb.rotate(1)
+
+        tb.session.update_config.assert_called_once()
+        tb.session.rotate_selected_frames.assert_called_once_with(1, active_included=True)
+        tb.controller.rerender_active_view.assert_called_once()
+
+
+class TestFlipRouting(unittest.TestCase):
+    """See TestRotateRouting: flip shares the same active/selection targeting rule."""
+
+    def test_a_selection_that_excludes_the_active_frame_leaves_it_alone(self):
+        tb = _make_toolbar()
+        tb.session.state.selected_file_idx = 0
+        tb.session.state.selected_indices = [1, 2]
+
+        tb.flip("horizontal")
+
+        tb.session.update_config.assert_not_called()
+        tb.session.flip_selected_frames.assert_called_once_with(True, active_included=False)
+        tb.controller.rerender_active_view.assert_not_called()
+
+    def test_a_selection_that_includes_the_active_frame_still_flips_it(self):
+        tb = _make_toolbar()
+        tb.session.state.config = WorkspaceConfig()
+        tb.session.state.selected_file_idx = 0
+        tb.session.state.selected_indices = [0, 1, 2]
+
+        tb.flip("horizontal")
+
+        tb.session.update_config.assert_called_once()
+        tb.session.flip_selected_frames.assert_called_once_with(True, active_included=True)
         tb.controller.rerender_active_view.assert_called_once()
 
 
