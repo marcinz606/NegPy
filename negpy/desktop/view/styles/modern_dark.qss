@@ -428,6 +428,11 @@ QPushButton#collapsible_reset_btn:hover {
     background: @bg_selected;
     border-radius: 3px;
 }
+QPushButton#collapsible_reset_btn::menu-indicator {
+    /* An actions-menu button in this row (set_actions_menu) reads as one more plain icon,
+    like its info/reset siblings, not a split button. */
+    width: 0px;
+}
 
 QFrame#toolbar_container {
     background-color: @bg_dark;
