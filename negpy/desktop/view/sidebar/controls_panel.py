@@ -1,3 +1,6 @@
+from collections.abc import Iterable, Sequence
+from dataclasses import replace
+
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -5,6 +8,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QTimer, pyqtSignal
 
 from negpy.desktop.controller import AppController
+from negpy.domain.models import WorkspaceConfig
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.styles.templates import wrap_tooltip
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection, make_section
@@ -15,7 +19,7 @@ from negpy.features.lab.models import LabConfig
 from negpy.features.altprocess.models import AltProcessConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.features.geometry.models import GeometryConfig
-from negpy.features.process.models import ProcessConfig
+from negpy.features.process.models import ProcessConfig, invalidate_local_bounds
 from negpy.features.finish.models import FinishConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 
@@ -118,6 +122,69 @@ _DEFAULT_GEOMETRY = GeometryConfig()
 _DEFAULT_PROCESS = ProcessConfig()
 _DEFAULT_FINISH = FinishConfig()
 _DEFAULT_FLATFIELD = FlatFieldConfig()
+
+_ROLL_FIELDS = (
+    "use_luma_average",
+    "use_color_average",
+    "roll_name",
+)
+
+# Each panel's share of WorkspaceConfig, keyed by the section key it is persisted under. An
+# empty field tuple defaults the whole sub-config; Calibration, Demosaic and Roll Analysis
+# scope themselves on the ProcessConfig that Normalization owns outright.
+_SECTION_RESETS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "sensor": ("process", _SENSOR_FIELDS),
+    "demosaic": ("process", _DEMOSAIC_FIELDS),
+    "roll": ("process", _ROLL_FIELDS),
+    "process": ("process", ()),
+    "geometry": ("geometry", ()),
+    "flatfield": ("flatfield", ()),
+    "color": ("exposure", _COLOR_FIELDS),
+    "tone": ("exposure", _TONE_FIELDS),
+    "local": ("local", ()),
+    "lab": ("lab", ()),
+    "altproc": ("altproc", ()),
+    "toning": ("toning", ()),
+    "retouch": ("retouch", ()),
+    "finish": ("finish", ()),
+}
+
+# Read-only sources for the scoped field defaults. A whole-config reset constructs its own
+# instead of handing out a shared one: LocalAdjustmentsConfig carries a mutable mask list.
+_SCOPED_DEFAULTS = {"exposure": _DEFAULT_EXPOSURE, "process": _DEFAULT_PROCESS}
+
+# Metering inputs: a reset that moves one drops the cached per-frame bounds with it.
+_BOUNDS_INPUTS = frozenset(_ROLL_FIELDS)
+
+
+def _apply_section_resets(config: WorkspaceConfig, keys: Iterable[str]) -> WorkspaceConfig:
+    """Default every named panel in one config, so a tab reset costs one undo step.
+
+    Whole-config resets land before the scoped ones, so a tab that holds both on the same
+    sub-config resolves the same whichever order its panels are listed in. Returns `config`
+    itself when nothing moves, which is what gates the menu item and skips the render.
+    """
+    whole: set[str] = set()
+    scoped: dict[str, dict[str, object]] = {}
+    for key in keys:
+        attr, fields = _SECTION_RESETS[key]
+        if fields:
+            scoped.setdefault(attr, {}).update({f: getattr(_SCOPED_DEFAULTS[attr], f) for f in fields})
+        else:
+            whole.add(attr)
+
+    changes: dict[str, object] = {attr: type(getattr(config, attr))() for attr in whole}
+    for attr, fields in scoped.items():
+        if attr in whole:
+            continue
+        changes[attr] = replace(getattr(config, attr), **fields)
+        if attr == "process" and fields.keys() & _BOUNDS_INPUTS:
+            changes[attr] = replace(changes[attr], **invalidate_local_bounds(changes[attr]))
+
+    if not changes:
+        return config
+    reset = replace(config, **changes)
+    return config if reset == config else reset
 
 
 class ControlsPanel(QWidget):
@@ -266,9 +333,11 @@ class ControlsPanel(QWidget):
         )
 
         # Group the sections into workflow pages (each becomes an icon tab in RightPanel).
+        # (key, menu name, icon, tooltip, sections, resettable section attrs)
         groups = [
             (
                 "setup",
+                "Setup",
                 "fa5s.cogs",
                 "Setup — Calibration, Demosaic, Normalization, Roll Analysis, Presets",
                 [self.sensor_section, self.demosaic_section, self.process_section, self.roll_section, self.presets_section],
@@ -276,6 +345,7 @@ class ControlsPanel(QWidget):
             ),
             (
                 "geometry",
+                "Geometry",
                 "fa5s.crop",
                 "Geometry & Flat Field",
                 [self.geometry_section, self.flatfield_section],
@@ -283,6 +353,7 @@ class ControlsPanel(QWidget):
             ),
             (
                 "tone",
+                "Exposure",
                 "fa5s.sun",
                 "Exposure — Filtration, Tone, Dodge & Burn",
                 [self.color_section, self.tone_section, self.local_section],
@@ -290,6 +361,7 @@ class ControlsPanel(QWidget):
             ),
             (
                 "color",
+                "Lab & Toning",
                 "fa5s.flask",
                 "Lab & Toning",
                 [self.lab_section, self.altproc_section, self.toning_section],
@@ -297,6 +369,7 @@ class ControlsPanel(QWidget):
             ),
             (
                 "finish",
+                "Finish",
                 "fa5s.brush",
                 "Finish — Retouch, Finishing",
                 [self.retouch_section, self.finish_section],
@@ -305,7 +378,7 @@ class ControlsPanel(QWidget):
         ]
 
         self.pages = []
-        for key, icon_name, tooltip, sections, section_attrs in groups:
+        for key, name, icon_name, tooltip, sections, section_attrs in groups:
             page = QWidget()
             page_layout = QVBoxLayout(page)
             page_layout.setContentsMargins(0, 0, 0, 0)
@@ -320,6 +393,7 @@ class ControlsPanel(QWidget):
             self.pages.append(
                 {
                     "key": key,
+                    "name": name,
                     "icon_name": icon_name,
                     "tooltip": tooltip,
                     "widget": page,
@@ -355,20 +429,11 @@ class ControlsPanel(QWidget):
         # The histogram only changes on render completion, so refresh there, not on every resync.
         self.controller.image_updated.connect(self._update_histogram)
 
-        self.color_section.reset_requested.connect(lambda: self._reset_exposure_fields(_COLOR_FIELDS))
-        self.tone_section.reset_requested.connect(lambda: self._reset_exposure_fields(_TONE_FIELDS))
-        self.lab_section.reset_requested.connect(lambda: self.controller.session.reset_section("lab"))
-        self.altproc_section.reset_requested.connect(lambda: self.controller.session.reset_section("altproc"))
-        self.toning_section.reset_requested.connect(lambda: self.controller.session.reset_section("toning"))
-        self.geometry_section.reset_requested.connect(lambda: self.controller.session.reset_section("geometry"))
-        self.process_section.reset_requested.connect(lambda: self.controller.session.reset_section("process"))
-        self.retouch_section.reset_requested.connect(lambda: self.controller.session.reset_section("retouch"))
-        self.local_section.reset_requested.connect(lambda: self.controller.session.reset_section("local"))
-        self.finish_section.reset_requested.connect(lambda: self.controller.session.reset_section("finish"))
-        self.roll_section.reset_requested.connect(self.controller.clear_roll_baseline)
-        self.sensor_section.reset_requested.connect(self._reset_sensor_fields)
-        self.demosaic_section.reset_requested.connect(lambda: self._reset_process_fields(_DEMOSAIC_FIELDS))
-        self.flatfield_section.reset_requested.connect(self._reset_flatfield)
+        # Every panel's header reset and the tab context menu commit through one path, so the
+        # two can never disagree about what a panel owns.
+        for key in _SECTION_RESETS:
+            section: CollapsibleSection = getattr(self, f"{key}_section")
+            section.reset_requested.connect(lambda k=key: self.reset_sections([k]))
 
     def apply_shortcut_tooltips(self) -> None:
         """Single source for every shortcut-bearing widget tooltip — re-run on each
@@ -796,32 +861,30 @@ class ControlsPanel(QWidget):
         self.tone_histogram.update_data(buf)
         self.color_histogram.update_data(buf)
 
-    def _reset_sensor_fields(self) -> None:
-        self._reset_process_fields(_SENSOR_FIELDS)
+    def reset_sections(self, keys: Sequence[str]) -> None:
+        """Default every named panel in one commit, so a panel reset and a tab reset each cost
+        one undo step. apply_config, not update_config: a reset can move a source input."""
+        config = _apply_section_resets(self.controller.state.config, keys)
+        if config is self.controller.state.config:
+            return
+        if "local" in keys:
+            self.controller.state.local_selected_mask = -1
+        self.controller.apply_config(config, persist=True)
 
-    def _reset_process_fields(self, fields) -> None:
-        """Calibration and Demosaic both live on ProcessConfig, so each reset is scoped to its
-        own fields. apply_config, not update_config: every one is a decode or a source bake."""
-        from dataclasses import replace
+    def reset_keys_for(self, section_attrs: Iterable[str]) -> list[str]:
+        """The panel keys behind a tab's section attributes, empty for a tab that declares
+        none. A panel missing from the table drops out, so the menu goes away rather than
+        raising on it."""
+        keys = [attr.removesuffix("_section") for attr in section_attrs]
+        return [key for key in keys if key in _SECTION_RESETS]
 
-        cfg = self.controller.state.config
-        new_proc = replace(cfg.process, **{f: getattr(_DEFAULT_PROCESS, f) for f in fields})
-        self.controller.apply_config(replace(cfg, process=new_proc), persist=True)
-
-    def _reset_flatfield(self) -> None:
-        from dataclasses import replace
-
-        cfg = self.controller.state.config
-        self.controller.apply_config(replace(cfg, flatfield=FlatFieldConfig()), persist=True)
-
-    def _reset_exposure_fields(self, fields) -> None:
-        """Reset only the given ExposureConfig fields to defaults (scoped section reset)."""
-        from dataclasses import replace
-
-        exp = self.controller.state.config.exposure
-        new_exp = replace(exp, **{f: getattr(_DEFAULT_EXPOSURE, f) for f in fields})
-        new_config = replace(self.controller.state.config, exposure=new_exp)
-        self.controller.session.update_config(new_config, persist=True)
+    def can_reset_sections(self, keys: Sequence[str]) -> bool:
+        """Whether resetting would change anything. Read from the fold the reset commits, not
+        from the modified counts, which trail a debounce."""
+        if self._read_only or not self.controller.state.current_file_hash:
+            return False
+        config = self.controller.state.config
+        return bool(keys) and _apply_section_resets(config, keys) is not config
 
     def _sync_modified_dots(self) -> None:
         """Update modified-indicator dots on collapsible section headers."""

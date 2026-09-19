@@ -55,7 +55,7 @@ The right-hand tabs follow the order you work in, which mirrors the processing p
 
 You do not have to touch every panel. The defaults are tuned to produce a good print straight away, and most frames need only a crop, perhaps a white-balance nudge, and export.
 
-A small **dot** on a panel header, and on a tab icon, means you changed something from its default. Every panel header has a **reset** action and an **ⓘ** that opens this guide at that panel's section.
+A small **dot** on a panel header, and on a tab icon, means you changed something from its default. Every panel header has a **reset** action and an **ⓘ** that opens this guide at that panel's section. Right-click a tab icon for **Reset Setup to Defaults**, which resets every panel on that tab in one undoable step. Favorites, History, Export, Metadata and Scan hold no frame settings, so they have no menu.
 
 Both side panels can be narrowed to give the canvas more room. As the controls panel shrinks, tab icons that no longer fit move into a **»** menu at the right of the tab bar. The tab you are on always stays visible.
 

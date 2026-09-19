@@ -1494,36 +1494,6 @@ class DesktopSessionManager(QObject):
         asset = self.state.uploaded_files[idx] if 0 <= idx < len(self.state.uploaded_files) else {}
         self.update_config(self._asset_defaults(WorkspaceConfig(), asset), persist=True)
 
-    def reset_section(self, section: str) -> None:
-        """Reset a single feature section to its default config."""
-        from negpy.features.exposure.models import ExposureConfig
-        from negpy.features.finish.models import FinishConfig
-        from negpy.features.geometry.models import GeometryConfig
-        from negpy.features.lab.models import LabConfig
-        from negpy.features.local.models import LocalAdjustmentsConfig
-        from negpy.features.process.models import ProcessConfig
-        from negpy.features.retouch.models import RetouchConfig
-        from negpy.features.altprocess.models import AltProcessConfig
-        from negpy.features.toning.models import ToningConfig
-
-        defaults = {
-            "exposure": ExposureConfig(),
-            "lab": LabConfig(),
-            "local": LocalAdjustmentsConfig(),
-            "altproc": AltProcessConfig(),
-            "toning": ToningConfig(),
-            "geometry": GeometryConfig(),
-            "process": ProcessConfig(),
-            "retouch": RetouchConfig(),
-            "finish": FinishConfig(),
-        }
-        if section not in defaults:
-            return
-        new_config = replace(self.state.config, **{section: defaults[section]})
-        if section == "local":
-            self.state.local_selected_mask = -1
-        self.update_config(new_config, persist=True)
-
     def copy_settings(self, include_bounds: bool = False) -> None:
         import copy
 
