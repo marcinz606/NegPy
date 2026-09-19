@@ -1,10 +1,11 @@
 import os
-from typing import Optional
+from typing import List, Optional
 
 import qtawesome as qta
 from PyQt6.QtCore import (
     Qt,
     QEasingCurve,
+    QItemSelection,
     QItemSelectionModel,
     QModelIndex,
     QPersistentModelIndex,
@@ -19,7 +20,6 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import QActionGroup, QColor, QKeySequence, QPainter, QPainterPath, QPen, QShortcut
 from PyQt6.QtWidgets import (
     QAbstractItemView,
-    QApplication,
     QCheckBox,
     QDialog,
     QDialogButtonBox,
@@ -44,6 +44,7 @@ from negpy.kernel.system.text import count_of
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import AppState, _source_effective_bounds, composite_kind
 from negpy.desktop.view.confirm import confirm_unload
+from negpy.desktop.view.keyboard_shortcuts import _reset_roll, _reset_selected
 from negpy.features.hdr.logic import anchor_choices
 from negpy.features.hdr.models import hdr_frame_paths
 from negpy.desktop.view.widgets.overflow_bar import OverflowBar
@@ -228,6 +229,39 @@ class _ThumbnailDelegate(QStyledItemDelegate):
             for left in (cx - 5, cx + 1):
                 painter.fillRect(QRect(left, cy - 3, 5, 7), self._COMPOSITE_GLYPH)
 
+    @staticmethod
+    def _border_pen(selected: bool, hover: bool) -> QPen:
+        if selected:
+            return QPen(QColor(THEME.accent_primary), 2)
+        if hover:
+            return QPen(QColor(THEME.text_muted), 1)
+        return QPen(QColor(THEME.border_color), 1)
+
+    def _paint_placeholder(self, painter: QPainter, option: QStyleOptionViewItem, file_info: dict, failed: bool, kind: str) -> None:
+        """A cell whose thumbnail hasn't decoded yet (or failed to). Still carries the
+        selection/hover border and the triage marks, so a multi-selection or a rejected frame
+        stays visible while thumbnails are still loading in the background instead of looking
+        selective or broken."""
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
+        rejected = bool(file_info.get("excluded"))
+        keeper = bool(file_info.get("keeper"))
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        area = option.rect.adjusted(self._MARGIN, self._MARGIN, -self._MARGIN, -self._MARGIN)
+        painter.setPen(self._border_pen(selected, hover))
+        painter.setBrush(QColor(20, 20, 20))
+        painter.drawRoundedRect(area, self._RADIUS, self._RADIUS)
+        if rejected:
+            self._draw_mark_badge(painter, area, check=False)
+        elif keeper:
+            self._draw_mark_badge(painter, area, check=True)
+        if failed:
+            self._draw_failed_badge(painter, area)
+        if kind:
+            self._draw_composite_badge(painter, area, kind, int(file_info.get("half") or 0))
+        painter.restore()
+
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
         file_info = index.data(Qt.ItemDataRole.UserRole) or {}
         failed = bool(file_info.get("decode_failed"))
@@ -240,7 +274,10 @@ class _ThumbnailDelegate(QStyledItemDelegate):
             area = option.rect.adjusted(self._MARGIN, self._MARGIN, -self._MARGIN, -self._MARGIN)
             img_rect = area
             selected = bool(option.state & QStyle.StateFlag.State_Selected)
-            painter.setPen(QPen(QColor(THEME.accent_primary if selected else THEME.border_color), 1))
+            hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
+            rejected = bool(file_info.get("excluded"))
+            keeper = bool(file_info.get("keeper"))
+            painter.setPen(self._border_pen(selected, hover))
             painter.setBrush(QColor(THEME.bg_header))
             painter.drawRoundedRect(img_rect, self._RADIUS, self._RADIUS)
             glyph_side = min(32, min(img_rect.width(), img_rect.height()) // 3)
@@ -260,6 +297,10 @@ class _ThumbnailDelegate(QStyledItemDelegate):
                 painter.restore()
             else:
                 self._placeholder_icon.paint(painter, glyph_rect)
+            if rejected:
+                self._draw_mark_badge(painter, img_rect, check=False)
+            elif keeper:
+                self._draw_mark_badge(painter, img_rect, check=True)
             if failed:
                 self._draw_failed_badge(painter, img_rect)
             if kind:
@@ -268,6 +309,7 @@ class _ThumbnailDelegate(QStyledItemDelegate):
             return
         base = icon.pixmap(QSize(4096, 4096))  # largest available pixmap (~120px)
         if base.isNull():
+            self._paint_placeholder(painter, option, file_info, failed, kind)
             return
 
         painter.save()
@@ -304,13 +346,7 @@ class _ThumbnailDelegate(QStyledItemDelegate):
             self._draw_composite_badge(painter, img_rect, kind, int(file_info.get("half") or 0))
         painter.setClipping(False)
 
-        if selected:
-            pen = QPen(QColor(THEME.accent_primary), 2)
-        elif hover:
-            pen = QPen(QColor(THEME.text_muted), 1)
-        else:
-            pen = QPen(QColor(THEME.border_color), 1)
-        painter.setPen(pen)
+        painter.setPen(self._border_pen(selected, hover))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(img_rect.adjusted(0, 0, -1, -1), self._RADIUS, self._RADIUS)
 
@@ -370,6 +406,12 @@ class ThumbnailGridView(QListView):
         super().__init__(parent)
         self._last_cell = -1
         self._target_cell = self._clamp_target(target_cell)
+        self._pending_click_row: Optional[int] = None
+        self._pending_click_modifiers = Qt.KeyboardModifier.NoModifier
+        self._pending_mode: Optional[str] = None  # "range" | "ctrl"
+        self._range_anchor_row: Optional[int] = None
+        self._ctrl_target: set[QPersistentModelIndex] = set()
+        self._pre_press_selection: set[QPersistentModelIndex] = set()
         # Reserve the vertical scrollbar permanently so the viewport width is stable. Otherwise
         # scaling toggles the scrollbar, which changes the width, flips the column count back
         # and flickers.
@@ -424,6 +466,145 @@ class ThumbnailGridView(QListView):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._relayout()
+
+    def _begin_click_selection(self, pre_press_current: QModelIndex) -> None:
+        """Decides the gesture's mode and range anchor exactly once, from the modifiers and
+        current index at press; nothing later in the gesture reads either again.
+        `pre_press_current` is passed in, rather than read here, because `super().mousePressEvent()`
+        (already run by this point) moves Qt's own current index to the just-pressed row."""
+        model = self.model()
+        sel_model = self.selectionModel()
+        row = self._pending_click_row
+        if model is None or sel_model is None or row is None:
+            return
+        index = model.index(row, 0)
+        shift = bool(self._pending_click_modifiers & Qt.KeyboardModifier.ShiftModifier)
+        ctrl = bool(self._pending_click_modifiers & Qt.KeyboardModifier.ControlModifier)
+        self._range_anchor_row = pre_press_current.row() if (shift and pre_press_current.isValid()) else row
+
+        if ctrl:
+            target = set(self._pre_press_selection)
+            if shift:
+                # Ctrl+Shift extends the existing selection with the anchor-to-row range,
+                # additively, rather than replacing it the way a plain Shift-range does.
+                top, bottom = sorted((self._range_anchor_row, row))
+                for r in range(top, bottom + 1):
+                    target.add(QPersistentModelIndex(model.index(r, 0)))
+            else:
+                pindex = QPersistentModelIndex(index)
+                if pindex in target:
+                    target.discard(pindex)
+                else:
+                    target.add(pindex)
+            self._pending_mode = "ctrl"
+            self._ctrl_target = target
+            self._apply_ctrl_target()
+            sel_model.setCurrentIndex(index, QItemSelectionModel.SelectionFlag.NoUpdate)
+            return
+
+        self._pending_mode = "range"
+        self._extend_click_selection(row)
+
+    def _apply_ctrl_target(self) -> None:
+        """Reapplies the gesture's whole target selection in one call, not just the toggled
+        index — Qt's own release-time recompute can `ClearAndSelect` the clicked item alone
+        before this runs, and adjusting just that index against a cleared selection wouldn't
+        restore what it cleared."""
+        sel_model = self.selectionModel()
+        if sel_model is None:
+            return
+        combined = QItemSelection()
+        for pindex in self._ctrl_target:
+            if pindex.isValid():
+                idx = QModelIndex(pindex)
+                combined.merge(QItemSelection(idx, idx), QItemSelectionModel.SelectionFlag.Select)
+        sel_model.select(combined, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+
+    def _extend_click_selection(self, current_row: int) -> None:
+        """Selects the range from the gesture's anchor to `current_row`. Called again for every
+        move/release while the button stays held, reading only the row under the cursor, so a
+        click-drag extends the range live."""
+        model = self.model()
+        sel_model = self.selectionModel()
+        if model is None or sel_model is None or self._range_anchor_row is None:
+            return
+        top, bottom = sorted((self._range_anchor_row, current_row))
+        sel_model.select(QItemSelection(model.index(top, 0), model.index(bottom, 0)), QItemSelectionModel.SelectionFlag.ClearAndSelect)
+        sel_model.setCurrentIndex(model.index(current_row, 0), QItemSelectionModel.SelectionFlag.NoUpdate)
+
+    def _row_near(self, pos) -> Optional[int]:
+        """The row at `pos`, or the nearest end row when a drag has gone past the first/last
+        cell — a drag over that dead space would otherwise fall back to Qt's own geometric,
+        modifier-reading selection update for that move."""
+        index = self.indexAt(pos)
+        if index.isValid():
+            return index.row()
+        model = self.model()
+        if model is None or model.rowCount() == 0:
+            return None
+        if pos.y() >= self.visualRect(model.index(model.rowCount() - 1, 0)).bottom():
+            return model.rowCount() - 1
+        if pos.y() <= self.visualRect(model.index(0, 0)).top():
+            return 0
+        return None
+
+    def _apply_pending_row(self, row: int) -> None:
+        if self._pending_mode == "ctrl":
+            self._apply_ctrl_target()
+        else:
+            self._extend_click_selection(row)
+
+    # press/move/release below reassert the gesture's decision after Qt's own handling: it
+    # recomputes its own selection command at each stage, reading modifiers fresh every time.
+    def mousePressEvent(self, event) -> None:
+        self._end_click_gesture()
+        # Captured before super(), which runs Qt's own press handling and would otherwise
+        # already have moved currentIndex() and ctrl-toggled the selection by the time this reads it.
+        sel_model = self.selectionModel()
+        pre_press_current = sel_model.currentIndex() if sel_model is not None else QModelIndex()
+        if event.button() == Qt.MouseButton.LeftButton:
+            index = self.indexAt(event.position().toPoint())
+            if index.isValid():
+                self._pending_click_row = index.row()
+                self._pending_click_modifiers = event.modifiers()
+                if event.modifiers() & Qt.KeyboardModifier.ControlModifier and sel_model is not None:
+                    self._pre_press_selection = {QPersistentModelIndex(i) for i in sel_model.selectedIndexes()}
+        super().mousePressEvent(event)
+        if self._pending_click_row is not None:
+            self._begin_click_selection(pre_press_current)
+
+    def mouseMoveEvent(self, event) -> None:
+        # Row read before super(): its own autoscroll-to-current can jump the viewport to fit
+        # the cell under the cursor, and hitting this same screen point again afterward would
+        # then resolve to whatever row the scroll left there instead of the one dragged to.
+        row = self._row_near(event.position().toPoint()) if (
+            self._pending_click_row is not None and event.buttons() & Qt.MouseButton.LeftButton
+        ) else None
+        super().mouseMoveEvent(event)
+        if row is not None:
+            self._apply_pending_row(row)
+
+    def mouseReleaseEvent(self, event) -> None:
+        row = self._row_near(event.position().toPoint()) if (
+            self._pending_click_row is not None and event.button() == Qt.MouseButton.LeftButton
+        ) else None
+        super().mouseReleaseEvent(event)
+        if row is not None:
+            self._apply_pending_row(row)
+        self._end_click_gesture()
+
+    def focusOutEvent(self, event) -> None:
+        super().focusOutEvent(event)
+        # Insurance against a press with no matching release (focus stolen mid-drag, e.g. by
+        # a modal dialog) leaving a gesture's state to apply to some unrelated later click.
+        self._end_click_gesture()
+
+    def _end_click_gesture(self) -> None:
+        self._pending_click_row = None
+        self._pending_mode = None
+        self._range_anchor_row = None
+        self._ctrl_target = set()
+        self._pre_press_selection = set()
 
     def _row_step(self) -> int:
         """Pixels one row of thumbnails occupies."""
@@ -481,6 +662,9 @@ class FileBrowser(QWidget):
         self.selection_timer.setSingleShot(True)
         self.selection_timer.setInterval(200)
         self.selection_timer.timeout.connect(self._commit_selection)
+        # session.state.selected_indices as of the start of the debounce currently pending —
+        # lets sync_ui tell a stale echo of the in-flight click from a genuinely newer command.
+        self._debounce_baseline_selected: List[int] = []
 
         self.filter_timer = QTimer(self)
         self.filter_timer.setSingleShot(True)
@@ -564,6 +748,11 @@ class FileBrowser(QWidget):
         self.apply_btn.setToolTip("Apply settings from the current frame to selected frames or the whole roll")
         self.apply_btn.clicked.connect(self._open_apply_dialog)
 
+        self.update_thumbnails_btn = QToolButton()
+        self.update_thumbnails_btn.setIcon(qta.icon("fa5s.sync-alt", color=THEME.text_primary))
+        self.update_thumbnails_btn.setToolTip("Update Thumbnails — re-render every stale thumbnail in the roll")
+        self.update_thumbnails_btn.clicked.connect(self._on_update_thumbnails_clicked)
+
         # Sheet filter dropdown
         self.sheet_btn = QToolButton()
         self.sheet_btn.setToolTip("Sheet — filter the contact sheet by triage mark")
@@ -620,6 +809,7 @@ class FileBrowser(QWidget):
             self.half_frame_btn,
             self.half_frame_menu_btn,
             self.apply_btn,
+            self.update_thumbnails_btn,
             self.sheet_btn,
             self.sort_btn,
         ):
@@ -640,6 +830,7 @@ class FileBrowser(QWidget):
             (self.half_frame_btn, "Half Frame"),
             (self.half_frame_menu_btn, "Half Frame actions"),
             (self.apply_btn, "Apply settings"),
+            (self.update_thumbnails_btn, "Update thumbnails"),
             (None, None),
             (self.sheet_btn, "Sheet filter"),
             (self.sort_btn, "Sort"),
@@ -652,8 +843,6 @@ class FileBrowser(QWidget):
 
         saved_sort = self.session.repo.get_global_setting("file_sort_order") or "name"
         saved_desc = self.session.repo.get_global_setting("file_sort_descending") or False
-        self._apply_sort_order(str(saved_sort), save=False)
-        self._apply_sort_direction(bool(saved_desc), save=False)
 
         search_row = QHBoxLayout()
         self.search_input = QLineEdit()
@@ -713,6 +902,8 @@ class FileBrowser(QWidget):
         self.list_view.setSelectionMode(QListView.SelectionMode.ExtendedSelection)
         self.list_view.setAlternatingRowColors(False)
         self.list_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._apply_sort_order(str(saved_sort), save=False)
+        self._apply_sort_direction(bool(saved_desc), save=False)
 
         # Takes the strip's place when a filter hides every frame: a blank panel under a
         # full tally reads as a load failure.
@@ -778,6 +969,7 @@ class FileBrowser(QWidget):
         self.rgb_scan_btn.toggled.connect(self._on_rgb_scan_toggled)
         self.controller.rgb_scan_mode_changed.connect(self._sync_rgb_scan_button)
         self.half_frame_btn.toggled.connect(self._on_half_frame_toggled)
+        self.controller.thumbnail_refresh_state_changed.connect(self._on_thumbnail_refresh_state_changed)
         self.session.state_changed.connect(self.sync_ui)
         self.session.files_changed.connect(self._on_files_changed)
         self.controller.thumbnail_activity_changed.connect(self._thumbnail_delegate.set_activity)
@@ -914,6 +1106,14 @@ class FileBrowser(QWidget):
 
         if current_actual == target_actual:
             return
+        if self.selection_timer.isActive():
+            if target_actual == set(self._debounce_baseline_selected):
+                # A stale echo of the still-pending click, not a newer command — let the
+                # debounce commit it normally rather than clobbering the live click.
+                return
+            # A newer command changed state while the click was pending; it wins, so the
+            # click's own eventual commit must not overwrite it with a now-stale value.
+            self.selection_timer.stop()
 
         selection_model.blockSignals(True)
         try:
@@ -935,6 +1135,8 @@ class FileBrowser(QWidget):
             selection_model.blockSignals(False)
 
     def _on_selection_changed(self, selected, deselected) -> None:
+        if not self.selection_timer.isActive():
+            self._debounce_baseline_selected = list(self.session.state.selected_indices)
         self.selection_timer.start()
 
     def _commit_selection(self) -> None:
@@ -986,6 +1188,8 @@ class FileBrowser(QWidget):
     def _apply_sort_order(self, order: str, save: bool = True) -> None:
         self.act_sort_name.setChecked(order == "name")
         self.act_sort_date.setChecked(order == "date")
+        # AssetListModel's own reindex remaps every persistent index (Qt's selection and
+        # current-index among them), so the view's selection needs no separate resync here.
         self.session.asset_model.set_sort_order(order)
         self.sort_changed.emit()
         if save:
@@ -1245,11 +1449,13 @@ class FileBrowser(QWidget):
             self.session.select_file(actual)
 
     def _on_item_clicked(self, index) -> None:
-        # A plain single click sets the active frame instantly. Ctrl and Shift clicks build a
-        # multi-selection for batch actions and are left to the selectionChanged handler.
-        if QApplication.keyboardModifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier):
-            return
-        self._activate_file(index)
+        # `clicked` fires from inside Qt's own mouseReleaseEvent, before ThumbnailGridView's
+        # reapply runs — force it now so a plain click is told apart from a Shift/Ctrl one
+        # (left to the selectionChanged handler) by the gesture's final, decided selection.
+        self.list_view._apply_pending_row(index.row())
+        selected = self.list_view.selectionModel().selectedIndexes()
+        if len(selected) == 1 and selected[0].row() == index.row():
+            self._activate_file(index)
 
     def _on_item_double_clicked(self, index) -> None:
         self._activate_file(index)
@@ -1307,6 +1513,22 @@ class FileBrowser(QWidget):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.session.sync_selected_settings(dlg.selected(), dlg.bounds_flags(), dlg.scope())
 
+    def _on_update_thumbnails_clicked(self) -> None:
+        if self.controller.thumbnail_refresh_running:
+            self.controller.cancel_thumbnail_refresh()
+        else:
+            self.controller.request_thumbnail_refresh("roll")
+
+    def _on_thumbnail_refresh_state_changed(self, running: bool) -> None:
+        """Same button starts and stops it: a refresh over a very large folder needs a
+        way out that isn't waiting for it to finish."""
+        if running:
+            self.update_thumbnails_btn.setIcon(qta.icon("fa5s.stop-circle", color=THEME.text_primary))
+            self.update_thumbnails_btn.setToolTip("Cancel Thumbnail Update — stop the background refresh in progress")
+        else:
+            self.update_thumbnails_btn.setIcon(qta.icon("fa5s.sync-alt", color=THEME.text_primary))
+            self.update_thumbnails_btn.setToolTip("Update Thumbnails — re-render every stale thumbnail in the roll")
+
     def _build_session_menu(self) -> QMenu:
         """Mirrors the panel toolbar's add/clear tools, for a right click on empty space."""
         icon_color = THEME.text_primary
@@ -1336,10 +1558,13 @@ class FileBrowser(QWidget):
         act_paste = menu.addAction(label_with_shortcut("Paste Settings", "paste"))
         act_paste.triggered.connect(lambda: open_paste_dialog(self, self.controller))
         act_paste.setEnabled(state.clipboard is not None)
-        menu.addAction("Reset Settings").triggered.connect(self.session.reset_settings)
-        menu.addSeparator()
         targets = [i for i in (state.selected_indices or [state.selected_file_idx]) if 0 <= i < len(state.uploaded_files)]
         n = len(targets)
+        if multi:
+            menu.addAction(f"Reset {count_of(n, 'frame')}").triggered.connect(lambda: _reset_selected(self, self.controller))
+        else:
+            menu.addAction("Reset Settings").triggered.connect(self.session.reset_settings)
+        menu.addSeparator()
         act_keep = menu.addAction(f"Keep {count_of(n, 'frame')}" if multi else "Keep")
         act_keep.setCheckable(True)
         act_keep.setChecked(bool(targets) and all(state.uploaded_files[i].get("keeper") for i in targets))
@@ -1350,6 +1575,15 @@ class FileBrowser(QWidget):
         act_reject.triggered.connect(lambda: self.session.toggle_mark("excluded"))
         menu.addSeparator()
         menu.addAction("Apply Settings…").triggered.connect(self._open_apply_dialog)
+        if self.controller.thumbnail_refresh_running:
+            menu.addAction("Cancel Thumbnail Update").triggered.connect(lambda: self.controller.cancel_thumbnail_refresh())
+        else:
+            menu.addAction(f"Update {count_of(n, 'thumbnail')}" if multi else "Update Thumbnail").triggered.connect(
+                lambda: self.controller.request_thumbnail_refresh("selection")
+            )
+        menu.addAction(label_with_shortcut("Reset Roll to Defaults…", "reset_roll")).triggered.connect(
+            lambda: _reset_roll(self, self.controller)
+        )
         if multi:
             menu.addSeparator()
             menu.addAction("Stitch Selected Frames").triggered.connect(lambda: self.controller.request_stitch_selected())

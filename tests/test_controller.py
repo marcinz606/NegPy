@@ -2059,6 +2059,22 @@ class TestPresetExportSelected(unittest.TestCase):
         self.assertEqual(pushed, {"h1", "h3"})
         self.mock_session_manager.update_config.assert_called()
 
+    def test_batch_normalization_offers_other_files_for_a_thumbnail_refresh(self):
+        self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
+        self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9))
+
+        self.mock_session_manager.frames_edited_offscreen.emit.assert_called_once_with(["h1", "h3"])
+
+    def test_apply_normalization_roll_offers_other_files_for_a_thumbnail_refresh(self):
+        self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.mock_session_manager.repo.load_normalization_roll.return_value = ((0.1, 0.1, 0.1), (0.9, 0.9, 0.9))
+        self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
+
+        self.controller.apply_normalization_roll("Roll A")
+
+        self.mock_session_manager.frames_edited_offscreen.emit.assert_called_once_with(["h1", "h3"])
+
 
 class TestSessionRestore(unittest.TestCase):
     def setUp(self):
@@ -2783,14 +2799,14 @@ class TestDisplayTransformParams(unittest.TestCase):
         self.assertIsNotNone(proof)
 
     def test_proof_inactive_converts_from_the_working_space(self):
-        self.controller.proof_profiles = lambda: None
+        self.controller.proof_profiles = lambda process=None: None
         cs, monitor, proof = self.controller.display_transform_params()
         self.assertEqual(cs, self.controller.state.workspace_color_space)
         self.assertEqual(monitor, b"fake-monitor-profile")
         self.assertIsNone(proof)
 
     def test_splash_buffer_is_treated_as_srgb(self):
-        self.controller.proof_profiles = lambda: None
+        self.controller.proof_profiles = lambda process=None: None
         cs, monitor, proof = self.controller.display_transform_params(splash=True)
         self.assertEqual(cs, ColorSpace.SRGB.value)
         self.assertEqual(monitor, b"fake-monitor-profile")

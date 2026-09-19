@@ -166,6 +166,10 @@ class TestBatchAutoCropController:
         self.controller.request_render.assert_called_once_with()
         assert self.controller._active_batch is None
 
+        # The active frame re-renders on its own; only the non-active saved crop
+        # needs its stale thumbnail refreshed.
+        self.session.frames_edited_offscreen.emit.assert_called_once_with(["b"])
+
     def test_persistence_failure_releases_batch_lane(self) -> None:
         asset = {"name": "bad.dng", "path": "/roll/bad.dng", "hash": "bad"}
         config = WorkspaceConfig()

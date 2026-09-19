@@ -7,8 +7,9 @@ What these pin down:
     capture;
   - at full strength it lands a channel's neutral refs on green's;
   - the gain clamp bounds the correction;
-  - a slide starts at 0 by every route into E-6: a saved edit, autodetect and the
-    mode switch.
+  - a slide starts at 0 through both live routes into E-6: autodetect and the mode
+    switch. (A slide edit saved before Cast Removal reached E-6 is swept once by
+    migrate_legacy_slide_cast_removal — see test_cast_removal_migration.py.)
 """
 
 import unittest
@@ -17,7 +18,6 @@ from dataclasses import replace
 import numpy as np
 
 from negpy.domain.interfaces import PipelineContext
-from negpy.domain.migrations import _SHIPPED_CAST_STRENGTH, migrate_flat_config
 from negpy.features.exposure.logic import neutral_axis_affine
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.exposure.processor import NormalizationProcessor, PhotometricProcessor
@@ -154,25 +154,6 @@ class TestSlideRender(unittest.TestCase):
 
 
 class TestSlideStartsOff(unittest.TestCase):
-    def test_the_mirrored_default_matches_the_dataclass(self):
-        self.assertEqual(_SHIPPED_CAST_STRENGTH, float(ExposureConfig.cast_removal_strength))
-
-    def test_a_saved_slide_at_the_shipped_default_loads_off(self):
-        data = migrate_flat_config({"process_mode": "Transparency", "cast_removal_strength": _SHIPPED_CAST_STRENGTH})
-        self.assertEqual(data["cast_removal_strength"], 0.0)
-
-    def test_a_saved_slide_with_a_chosen_value_is_left_alone(self):
-        data = migrate_flat_config({"process_mode": "Transparency", "cast_removal_strength": 0.8})
-        self.assertEqual(data["cast_removal_strength"], 0.8)
-
-    def test_a_saved_negative_is_untouched(self):
-        data = migrate_flat_config({"process_mode": "Color Negative", "cast_removal_strength": _SHIPPED_CAST_STRENGTH})
-        self.assertEqual(data["cast_removal_strength"], _SHIPPED_CAST_STRENGTH)
-
-    def test_a_legacy_slide_mode_name_migrates_too(self):
-        data = migrate_flat_config({"process_mode": "E-6", "cast_removal_strength": _SHIPPED_CAST_STRENGTH})
-        self.assertEqual(data["cast_removal_strength"], 0.0)
-
     def test_the_mode_switch_swaps_the_two_defaults(self):
         default = float(ExposureConfig.cast_removal_strength)
         self.assertEqual(cast_removal_for_mode(ProcessMode.E6, default), 0.0)

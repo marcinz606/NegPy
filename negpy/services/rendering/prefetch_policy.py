@@ -6,7 +6,8 @@ from negpy.infrastructure.loaders.memory import PreviewMemoryEstimate
 from negpy.services.rendering.preview_cache import PreviewCacheUsage
 
 
-_MIN_RAM_RESERVE_BYTES = 512 * 1024 * 1024
+# Shared with any other RAM-consuming background worker that needs the same floor.
+MIN_RAM_RESERVE_BYTES = 512 * 1024 * 1024
 _INTEGRATED_GPU_RESERVE_BYTES = 256 * 1024 * 1024
 
 
@@ -31,7 +32,7 @@ def decide_prefetch(
         return PrefetchDecision(False, "preview cache byte budget is full", 0)
 
     working_bytes = estimate.temporary_bytes + estimate.cached_bytes
-    reserve_bytes = max(_MIN_RAM_RESERVE_BYTES, working_bytes // 4)
+    reserve_bytes = max(MIN_RAM_RESERVE_BYTES, working_bytes // 4)
     if integrated_gpu:
         reserve_bytes += max(_INTEGRATED_GPU_RESERVE_BYTES, estimate.cached_bytes * 2)
     required_ram_bytes = working_bytes + reserve_bytes
