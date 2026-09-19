@@ -831,6 +831,63 @@ class TestDesktopSessionSync(unittest.TestCase):
         steps = [(c.args[0], c.args[1]) for c in self.mock_repo.save_history_step.call_args_list]
         self.assertEqual(steps, [("hash2", 0), ("hash2", 1), ("hash3", 0), ("hash3", 1)])
 
+    def test_reset_roll_settings_resets_every_visible_frame(self):
+        self._seed_roll()
+        self.session.asset_model.refresh()
+        dirty = replace(self.session.state.config, exposure=replace(self.session.state.config.exposure, density=1.8))
+        self.session.update_config(dirty, persist=True)
+        self.mock_repo.load_file_settings.return_value = dirty
+
+        count = self.session.reset_roll_settings(scope="roll")
+
+        self.assertEqual(count, 3)
+        self.assertEqual(self.session.state.config, WorkspaceConfig())
+        saved = {c.args[0]: c.args[1] for c in self.mock_repo.save_file_settings.call_args_list}
+        self.assertEqual(saved["hash1"], WorkspaceConfig())
+        self.assertEqual(saved["hash2"], WorkspaceConfig())
+        self.assertEqual(saved["hash3"], WorkspaceConfig())
+
+    def test_reset_roll_settings_selection_scope_resets_only_selected_frames(self):
+        self._seed_roll()
+        self.session.asset_model.refresh()
+        self.session.state.selected_indices = [0, 1]  # c.jpg (index 2) left untouched
+        dirty = replace(self.session.state.config, exposure=replace(self.session.state.config.exposure, density=1.8))
+        self.session.update_config(dirty, persist=True)
+        self.mock_repo.load_file_settings.return_value = dirty
+
+        count = self.session.reset_roll_settings(scope="selection")
+
+        self.assertEqual(count, 2)
+        self.assertEqual(self.session.state.config, WorkspaceConfig())
+        saved = {c.args[0] for c in self.mock_repo.save_file_settings.call_args_list}
+        self.assertEqual(saved, {"hash1", "hash2"})
+        self.assertNotIn("hash3", saved)  # not in the selection, left untouched
+
+    def test_reset_roll_settings_respects_active_filter(self):
+        # Mirrors sync_selected_settings: "whole roll" means the visible (filtered) frames.
+        self._seed_roll()
+        self.session.asset_model.set_filter(".arw", regex=False)  # hides c.jpg
+
+        count = self.session.reset_roll_settings(scope="roll")
+
+        self.assertEqual(count, 2)
+        saved = {c.args[0] for c in self.mock_repo.save_file_settings.call_args_list}
+        self.assertEqual(saved, {"hash1", "hash2"})  # c.jpg filtered out, not touched
+
+    def test_reset_roll_settings_preserves_asset_derived_process_mode(self):
+        # A composite's inherited film process is what it *is*, not an edit — a blind
+        # WorkspaceConfig() overlay would wipe it, unlike _asset_defaults.
+        self._seed_roll()
+        self.session.asset_model.refresh()
+        self.session.state.uploaded_files[1]["process_mode"] = ProcessMode.E6
+        stale = replace(WorkspaceConfig(), process=replace(WorkspaceConfig().process, process_mode=ProcessMode.C41))
+        self.mock_repo.load_file_settings.return_value = stale
+
+        self.session.reset_roll_settings(scope="roll")
+
+        saved = {c.args[0]: c.args[1] for c in self.mock_repo.save_file_settings.call_args_list}
+        self.assertEqual(saved["hash2"].process.process_mode, ProcessMode.E6)
+
     def _last_session_manifest(self):
         """Returns (paths, active_path) from the most recent _persist_session calls."""
         saved = {c.args[0]: c.args[1] for c in self.mock_repo.save_global_setting.call_args_list}
