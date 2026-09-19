@@ -1002,6 +1002,17 @@ class TestDesktopSessionSync(unittest.TestCase):
 
         self.assertEqual(offscreen, [["hash2", "hash3"]])  # active frame (hash1) excluded
 
+    def test_reset_roll_settings_selection_scope_emits_frames_edited_offscreen(self):
+        self._seed_roll()
+        self.session.asset_model.refresh()
+        self.session.state.selected_indices = [0, 1]  # c.jpg (index 2) left out of scope
+        offscreen = []
+        self.session.frames_edited_offscreen.connect(offscreen.append)
+
+        self.session.reset_roll_settings(scope="selection")
+
+        self.assertEqual(offscreen, [["hash2"]])  # active frame excluded, hash3 out of scope
+
     def test_reset_roll_settings_single_frame_emits_nothing(self):
         self._seed_roll()
         self.session.asset_model.refresh()
