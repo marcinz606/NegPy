@@ -3496,6 +3496,61 @@ class TestRotateThumbnails(unittest.TestCase):
 
         self.controller.asset_store.get_thumbnail.assert_not_called()
 
+    def test_rotate_before_decode_finishes_corrects_the_stale_delivery(self):
+        """A frame with no cached thumbnail yet is still being decoded by
+        generate_missing_thumbnails; that decode's own (orientation-blind) result,
+        landing after the rotate, must come out corrected rather than stale."""
+        asset = {"name": "f1.dng", "path": "/roll/f1.dng", "hash": "h1"}
+        key = asset_thumbnail_key(asset)
+        self.mock_session_manager.state.uploaded_files = [asset]
+        self.controller.asset_store.get_thumbnail.return_value = None  # still mid-decode
+
+        self.controller.rotate_thumbnails([key], 1)
+
+        self.controller.asset_store.save_thumbnail.assert_not_called()
+        self.assertNotIn(key, self.mock_session_manager.state.thumbnails)
+
+        # The in-flight decode's own result lands afterward, in the old orientation.
+        stale = Image.new("RGB", (4, 2), (0, 0, 0))
+        stale.putpixel((3, 0), (0, 255, 0))
+        self.controller._apply_thumbnails({key: stale})
+
+        saved_key, saved_img = self.controller.asset_store.save_thumbnail.call_args.args
+        self.assertEqual(saved_key, key)
+        self.assertEqual(saved_img.size, (2, 4))
+        self.assertEqual(saved_img.getpixel((0, 0)), (0, 255, 0))
+        self.assertEqual(self._icon_pixel(self.mock_session_manager.state.thumbnails[key], 0, 0), (0, 255, 0))
+
+    def test_rotate_correction_is_not_replayed_a_second_time(self):
+        asset = {"name": "f1.dng", "path": "/roll/f1.dng", "hash": "h1"}
+        key = asset_thumbnail_key(asset)
+        self.mock_session_manager.state.uploaded_files = [asset]
+        self.controller.asset_store.get_thumbnail.return_value = None
+
+        self.controller.rotate_thumbnails([key], 1)
+        self.controller._apply_thumbnails({key: Image.new("RGB", (4, 2), (0, 0, 0))})
+        self.controller.asset_store.save_thumbnail.reset_mock()
+
+        # A later, unrelated re-delivery for the same key (e.g. clear_thumbnail_cache)
+        # must not be turned again — the correction was a one-time catch-up.
+        self.controller._apply_thumbnails({key: Image.new("RGB", (2, 4), (0, 0, 0))})
+
+        self.controller.asset_store.save_thumbnail.assert_not_called()
+
+    def test_rotate_correction_is_dropped_once_the_frame_leaves_the_roll(self):
+        asset = {"name": "f1.dng", "path": "/roll/f1.dng", "hash": "h1"}
+        key = asset_thumbnail_key(asset)
+        self.mock_session_manager.state.uploaded_files = [asset]
+        self.controller.asset_store.get_thumbnail.return_value = None
+
+        self.controller.rotate_thumbnails([key], 1)
+        self.mock_session_manager.state.uploaded_files = []  # removed before the decode lands
+
+        self.controller._apply_thumbnails({key: Image.new("RGB", (4, 2), (0, 0, 0))})
+
+        self.controller.asset_store.save_thumbnail.assert_not_called()
+        self.assertNotIn(key, self.controller._thumbnail_pending_correction)
+
 
 class TestLibrarySearch(unittest.TestCase):
     """The library search runs the film-strip query against folders on disk and opens
