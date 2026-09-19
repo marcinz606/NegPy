@@ -98,8 +98,8 @@ fn softplus(x: f32) -> f32 {
 }
 
 // One pixel's effective dye-separation k; mirrors separation_damping_gain in
-// exposure/logic.py. 0.35 mirrors separation_damping_ref_spread in models.py --
-// change both.
+// exposure/logic.py. 0.35 mirrors separation_damping_ref_spread in models.py and
+// the copy in transfer.wgsl -- change all three.
 fn separation_damping_gain(k: f32, damping: f32, chroma: f32) -> f32 {
     if (k <= 0.0) {
         return 0.0;

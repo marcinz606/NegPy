@@ -66,8 +66,9 @@ fn oetf_encode(t: f32) -> f32 {
 }
 
 // One pixel's effective dye-separation k; mirrors separation_damping_gain in
-// exposure/logic.py. 0.35 mirrors separation_damping_ref_spread in models.py --
-// change both. Copied from exposure.wgsl (WGSL has no includes).
+// exposure/logic.py. 0.35 mirrors separation_damping_ref_spread in models.py and
+// the copy in exposure.wgsl -- change all three. Copied here because WGSL has no
+// includes.
 fn separation_damping_gain(k: f32, damping: f32, chroma: f32) -> f32 {
     if (k <= 0.0) {
         return 0.0;

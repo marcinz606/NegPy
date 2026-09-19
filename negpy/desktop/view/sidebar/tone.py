@@ -473,9 +473,11 @@ class ToneSidebar(BaseSidebar):
             self.toe_w_trim_slider.setVisible(not global_mode)
             self.sh_w_slider.setVisible(global_mode)
             self.sh_w_trim_slider.setVisible(not global_mode)
-            self.dye_separation_slider.setVisible(global_mode and not is_bw)
+            # Transfer has no per-channel Dye Separation/Damping, so both stay visible
+            # across channel views there; print's per-channel view swaps to the trim.
+            self.dye_separation_slider.setVisible((global_mode or transfer) and not is_bw)
             self.dye_separation_trim_slider.setVisible(not global_mode and not is_bw and not transfer)
-            self.separation_damping_slider.setVisible(global_mode and not is_bw)
+            self.separation_damping_slider.setVisible((global_mode or transfer) and not is_bw)
             self.toe_slider.label.setText("Toe" + suffix)
             self.sh_slider.label.setText("Shoulder" + suffix)
             self.midtone_gamma_slider.label.setText("Snap" + suffix)

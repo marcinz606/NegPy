@@ -1613,7 +1613,7 @@ class GPUEngine:
         # directly since there is no paper matrix here (see transfer.py::apply_transfer_curve).
         t_is_bw = settings.process.process_mode == ProcessMode.BW
         t_sep_k = 1.0 if t_is_bw else per_channel_dye_separation(settings.exposure.dye_separation, (0.0, 0.0, 0.0))[0]
-        t_sep_damping = 0.0 if t_is_bw or t_sep_k == 1.0 else float(settings.exposure.separation_damping)
+        t_sep_damping = 0.0 if t_is_bw else float(settings.exposure.separation_damping)
         tr_data = (
             struct.pack(
                 "ffffffff",
