@@ -11,6 +11,7 @@ from PyQt6.QtCore import Q_ARG, QMetaObject, QObject, Qt, QThread, QTimer, pyqtS
 from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import QCheckBox, QMessageBox
 
+from negpy.kernel.system.memory import available_system_memory_bytes
 from negpy.kernel.system.text import count_of, plural
 from negpy.kernel.image.logic import working_oetf_encode
 from negpy.desktop.converters import ImageConverter
@@ -148,6 +149,7 @@ from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.infrastructure.storage.local_asset_store import LocalAssetStore
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.logging import get_logger
+from negpy.services.rendering.prefetch_policy import MIN_RAM_RESERVE_BYTES
 from negpy.services.rendering.preview_manager import PreviewManager
 from negpy.services.rendering.source_identity import source_token
 from negpy.services.view.coordinate_mapping import CoordinateMapping
@@ -282,6 +284,11 @@ _KNEE_LABELS = {
     "highlight_grade": "Highlights Grade",
     "midtone_gamma": "Snap",
 }
+
+# A background thumbnail refresh grows its own preview cache on top of whatever the
+# navigation and Auto Crop All caches already hold; deferred and retried rather than
+# started under memory pressure.
+_THUMBNAIL_REFRESH_MEMORY_RETRY_MS = 5000
 
 
 def history_step_label(prev: Optional[WorkspaceConfig], config: WorkspaceConfig, index: int) -> str:
@@ -2957,12 +2964,18 @@ class AppController(QObject):
         what felt like an instant settings change. A request that arrives while a
         generation is already using `norm_thread` is folded into the resume backlog
         instead of being dropped — otherwise a bulk write landing during, say, Batch
-        Analysis's own pre-emption window would be lost outright."""
+        Analysis's own pre-emption window would be lost outright. A request under system
+        memory pressure is retried later instead of growing this refresh's own preview
+        cache on top of it."""
         wanted = set(hashes)
         if not wanted:
             return
         if self._thumbnail_render_running:
             self._thumbnail_render_resume |= wanted
+            return
+        available = available_system_memory_bytes()
+        if available is not None and available < MIN_RAM_RESERVE_BYTES:
+            QTimer.singleShot(_THUMBNAIL_REFRESH_MEMORY_RETRY_MS, lambda: self.refresh_thumbnails_for(list(wanted)))
             return
         seen_keys: set[str] = set()
         frames: list[ThumbnailRenderInput] = []

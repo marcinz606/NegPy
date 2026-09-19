@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 
-from negpy.desktop.controller import AppController
+from negpy.desktop.controller import _THUMBNAIL_REFRESH_MEMORY_RETRY_MS, AppController
 from negpy.desktop.session import AppState, DesktopSessionManager
 from negpy.desktop.workers.render import ThumbnailUpdateTask
 from negpy.domain.models import WorkspaceConfig
@@ -100,6 +100,26 @@ class TestThumbnailRefreshController:
         self.controller.refresh_thumbnails_for(["not-loaded"])
         assert self.tasks == []
         assert self.controller._thumbnail_render_running is False
+
+    def test_dispatch_under_memory_pressure_is_deferred_not_dropped(self) -> None:
+        """A refresh must not grow its own preview cache on top of an already-tight
+        system, but the request itself is retried later rather than lost outright."""
+        with (
+            patch("negpy.desktop.controller.available_system_memory_bytes", return_value=1),
+            patch("negpy.desktop.controller.QTimer.singleShot") as singleshot,
+        ):
+            self.controller.refresh_thumbnails_for(["other"])
+
+        assert self.tasks == []
+        assert self.controller._thumbnail_render_running is False
+        delay, retry = singleshot.call_args[0]
+        assert delay == _THUMBNAIL_REFRESH_MEMORY_RETRY_MS
+
+        retry()  # memory pressure has passed by the time the timer fires
+
+        assert len(self.tasks) == 1
+        assert [f.file_info["hash"] for f in self.tasks[0].frames] == ["other"]
+        self.controller._on_thumbnail_render_cancelled()
 
     def test_dispatch_is_not_blocked_by_another_batch_owning_the_lane(self) -> None:
         """The whole point of running off the shared lane: Apply Settings must not be
