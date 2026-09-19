@@ -192,6 +192,9 @@ class ShortcutManager:
             "toggle_library_tree": self.window.session_panel.toggle_library_tree,
             "toggle_immersive_canvas": lambda: controller.session.set_immersive_canvas(not controller.session.state.immersive_canvas),
             "toggle_sticky_zoom": lambda: controller.session.set_sticky_zoom(not controller.session.state.sticky_zoom),
+            "toggle_sticky_settings": lambda: controller.session.set_sticky_settings_enabled(
+                not controller.session.state.sticky_settings_enabled
+            ),
             "toggle_slider_values": self._toggle_slider_values,
             "toggle_invert_zoom_scroll": lambda: controller.session.set_invert_zoom_scroll(not controller.session.state.invert_zoom_scroll),
             "toggle_left_panel": self.window.toggle_session_dock,

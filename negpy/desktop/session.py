@@ -155,6 +155,11 @@ class AppState:
     # instead of resetting to fit-to-window.
     sticky_zoom: bool = False
 
+    # Master switch for the Persistent Settings overlay on a freshly opened file with no
+    # saved edit. Off, a new file gets bare WorkspaceConfig() defaults for every catalog
+    # row; the user's row picks (STICKY_ROWS_KEY/STICKY_CONFIG_KEY) are untouched.
+    sticky_settings_enabled: bool = True
+
     # Crop tool composition guide (CropGuide value); display-only, so not in GeometryConfig
     crop_guide: str = "thirds"
     crop_guide_orientation: int = 0
@@ -662,6 +667,10 @@ class DesktopSessionManager(QObject):
         if saved_sticky_zoom is not None:
             self.state.sticky_zoom = bool(saved_sticky_zoom)
 
+        saved_sticky_enabled = self.repo.get_global_setting("sticky_settings_enabled")
+        if saved_sticky_enabled is not None:
+            self.state.sticky_settings_enabled = bool(saved_sticky_enabled)
+
         saved_guide = self.repo.get_global_setting("crop_guide")
         if saved_guide in set(CropGuide):
             self.state.crop_guide = str(saved_guide)
@@ -792,6 +801,13 @@ class DesktopSessionManager(QObject):
             self.repo.save_global_setting("sticky_zoom", enabled)
             self.state_changed.emit()
 
+    def set_sticky_settings_enabled(self, enabled: bool) -> None:
+        """Updates and persists whether Persistent Settings applies to a fresh file."""
+        if self.state.sticky_settings_enabled != enabled:
+            self.state.sticky_settings_enabled = enabled
+            self.repo.save_global_setting("sticky_settings_enabled", enabled)
+            self.state_changed.emit()
+
     def set_invert_zoom_scroll(self, enabled: bool) -> None:
         """Updates and persists whether the wheel zoom direction is reversed."""
         if self.state.invert_zoom_scroll != enabled:
@@ -855,11 +871,14 @@ class DesktopSessionManager(QObject):
         the Persistent Settings dialog. Two tiers:
         - only_global=True  (file has a sidecar): only GLOBAL_TIER_SECTIONS rows carry, so
           the saved edit keeps its own look.
-        - only_global=False (new file, no sidecar): every chosen row carries.
+        - only_global=False (new file, no sidecar): every chosen row carries, unless
+          `sticky_settings_enabled` is off, in which case none of them do and the file
+          gets bare WorkspaceConfig() defaults for every catalog field.
 
         The carries below are hard-coded because they are not plain config-value copies:
         the rig-global flat-field profile, the Kelvin roll-locks, the export fields with no
-        catalog row, and the scan-setup preferences.
+        catalog row, and the scan-setup preferences. They apply regardless of
+        `sticky_settings_enabled`, which only gates the catalog-row overlay above.
         """
         from negpy.features.metadata.models import resolve_description_fields
 
@@ -881,9 +900,13 @@ class DesktopSessionManager(QObject):
         if config.geometry.distortion_k1 == 0.0 and ff_prof is not None and ff_prof.k1 != 0.0:
             config = replace(config, geometry=replace(config.geometry, distortion_k1=ff_prof.k1))
 
-        rows = load_sticky_rows(self.repo)
         if only_global:
+            rows = load_sticky_rows(self.repo)
             rows = [r for r in rows if r.section in GLOBAL_TIER_SECTIONS]
+        elif self.state.sticky_settings_enabled:
+            rows = load_sticky_rows(self.repo)
+        else:
+            rows = []
         # Description fields carry on their own key, so the last Description… confirm wins
         # for the roll rather than whichever frame was saved last.
         wants_desc = any("description_fields" in r.fields for r in rows)

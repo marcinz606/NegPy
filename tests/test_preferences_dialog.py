@@ -49,6 +49,22 @@ class TestPreferencesDialog(unittest.TestCase):
         dlg.session.set_immersive_canvas.assert_called_once()
         dlg.session.set_sticky_zoom.assert_called_once()
 
+    def test_sticky_settings_box_reflects_state_and_toggles_through_the_session(self):
+        dlg = _dlg()
+        self.assertTrue(dlg.sticky_settings_box.isChecked())
+        self.assertTrue(dlg._persistent_settings_button.isEnabled())
+
+        dlg.sticky_settings_box.setChecked(False)
+        dlg.session.set_sticky_settings_enabled.assert_called_once_with(False)
+        self.assertFalse(dlg._persistent_settings_button.isEnabled())
+
+    def test_sticky_settings_box_opens_unchecked_when_disabled(self):
+        controller = FakeController(FakeRepo())
+        controller.session.state.sticky_settings_enabled = False
+        dlg = PreferencesDialog(controller, None)
+        self.assertFalse(dlg.sticky_settings_box.isChecked())
+        self.assertFalse(dlg._persistent_settings_button.isEnabled())
+
     def test_the_cache_limit_is_shown_in_mb_and_stored_in_bytes(self):
         dlg = _dlg()
         dlg._spins["preview_cache_max_bytes"].setValue(256)

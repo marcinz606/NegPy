@@ -195,6 +195,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "toggle_library_tree": ShortcutEntry("", "Show/hide the library folder tree", "View"),
     "toggle_immersive_canvas": ShortcutEntry("", "Immersive canvas (toolbar overlaps image)", "View"),
     "toggle_sticky_zoom": ShortcutEntry("", "Sticky zoom (keep zoom level when switching images)", "View"),
+    "toggle_sticky_settings": ShortcutEntry("", "Carry settings between frames (apply Persistent Settings to a new file)", "View"),
     "toggle_slider_values": ShortcutEntry("", "Show slider values (keep every value box open)", "View"),
     "toggle_invert_zoom_scroll": ShortcutEntry("", "Reverse scroll-to-zoom direction (scroll up zooms out)", "View"),
     "toggle_left_panel": ShortcutEntry("Ctrl+[", "Toggle session panel (re-docks when floating)", "View"),
