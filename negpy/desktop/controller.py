@@ -163,6 +163,10 @@ _BUSY_TOAST_MS = 30000
 # Batch owners that share norm_thread (and its CPU) with the background thumbnail
 # refresh — the only ones a running refresh actually needs to get out of the way of.
 _NORM_THREAD_BATCH_OWNERS = frozenset({"autocrop", "normalization"})
+# A keep_preview reload (same file, e.g. a mode switch) skips the spinner so a fast
+# lens-correction toggle doesn't flicker — but then shows nothing while a slow decode
+# runs. This backstop arms it late, only if that decode is still in flight by then.
+_KEEP_PREVIEW_SPINNER_DELAY_MS = 400
 
 
 @dataclass(frozen=True)
@@ -1840,6 +1844,13 @@ class AppController(QObject):
         """``session.file_selected`` handler: navigation honors the sticky-zoom preference."""
         self.load_file(file_path, preserve_zoom=self.state.sticky_zoom)
 
+    def _arm_delayed_spinner(self, generation: int) -> None:
+        QTimer.singleShot(_KEEP_PREVIEW_SPINNER_DELAY_MS, lambda: self._maybe_start_delayed_spinner(generation))
+
+    def _maybe_start_delayed_spinner(self, generation: int) -> None:
+        if self._foreground_preview_generation == generation:
+            self.loading_started.emit()
+
     def load_file(self, file_path: str, preserve_zoom: bool = False, force_detect: bool = False) -> None:
         """
         Dispatches RAW decode to a background worker to keep the UI thread free.
@@ -1869,8 +1880,11 @@ class AppController(QObject):
 
         if not preserve_zoom:
             self.zoom_requested.emit(1.0)
-        if memo is None and not keep_preview:
-            self.loading_started.emit()
+        if memo is None:
+            if keep_preview:
+                self._arm_delayed_spinner(self._prefetch_gen)
+            else:
+                self.loading_started.emit()
         self._thumb_config = None
 
         retained = self._retain_displayed_texture()

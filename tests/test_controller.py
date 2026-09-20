@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 from PIL import Image
 from PyQt6.QtGui import QIcon, QPixmap
+from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
 from negpy.desktop.controller import AppController
@@ -356,6 +357,41 @@ class TestAppController(unittest.TestCase):
         self.controller.load_file("next.arw", preserve_zoom=True)
         loading.assert_called_once()
         self.assertTrue(decode.call_args.args[0].use_splash)
+
+    def test_slow_reload_arms_the_spinner_late(self):
+        """keep_preview suppresses the spinner so a fast reload doesn't flicker, but a
+        reload still in flight past the backstop delay must show one — otherwise a slow
+        decode looks identical to nothing happening."""
+        from negpy.desktop.controller import _KEEP_PREVIEW_SPINNER_DELAY_MS
+        import numpy as np
+
+        self.controller.preview_load_requested.disconnect(self.controller.preview_load_worker.process)
+        self.controller._requested_file_path = "scan.arw"
+        self.controller.state.last_metrics["base_positive"] = np.ones((4, 4, 3), dtype=np.float32)
+        loading = MagicMock()
+        self.controller.loading_started.connect(loading)
+
+        self.controller.load_file("scan.arw", preserve_zoom=True)
+        loading.assert_not_called()
+
+        QTest.qWait(_KEEP_PREVIEW_SPINNER_DELAY_MS + 100)
+        loading.assert_called_once()
+
+    def test_reload_that_finishes_before_the_backstop_never_shows_the_spinner(self):
+        from negpy.desktop.controller import _KEEP_PREVIEW_SPINNER_DELAY_MS
+        import numpy as np
+
+        self.controller.preview_load_requested.disconnect(self.controller.preview_load_worker.process)
+        self.controller._requested_file_path = "scan.arw"
+        self.controller.state.last_metrics["base_positive"] = np.ones((4, 4, 3), dtype=np.float32)
+        loading = MagicMock()
+        self.controller.loading_started.connect(loading)
+
+        self.controller.load_file("scan.arw", preserve_zoom=True)
+        self.controller._foreground_preview_generation = None  # decode already landed
+
+        QTest.qWait(_KEEP_PREVIEW_SPINNER_DELAY_MS + 100)
+        loading.assert_not_called()
 
     def test_lens_toggle_repaints_live_cached_texture_before_decode(self):
         from negpy.infrastructure.gpu.resources import GPUTexture
