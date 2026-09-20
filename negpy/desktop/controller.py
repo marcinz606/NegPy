@@ -281,9 +281,7 @@ def baseline_compare_config(config: WorkspaceConfig) -> WorkspaceConfig:
     baseline_exposure = ExposureConfig()
     baseline_exposure = replace(
         baseline_exposure,
-        cast_removal_strength=cast_removal_for_mode(
-            config.process.process_mode, baseline_exposure.cast_removal_strength
-        ),
+        cast_removal_strength=cast_removal_for_mode(config.process.process_mode, baseline_exposure.cast_removal_strength),
     )
     return replace(
         config,

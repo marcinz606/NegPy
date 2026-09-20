@@ -848,9 +848,7 @@ class ControlsPanel(QWidget):
         # cast_removal_strength's default is mode-dependent; comparing against the bare
         # ExposureConfig default would mark an untouched transparency as modified.
         cast_default = cast_removal_for_mode(cfg.process.process_mode, _exp.cast_removal_strength)
-        color_count = sum(
-            (cast_default if f == "cast_removal_strength" else getattr(_exp, f)) != getattr(exp, f) for f in _COLOR_FIELDS
-        )
+        color_count = sum((cast_default if f == "cast_removal_strength" else getattr(_exp, f)) != getattr(exp, f) for f in _COLOR_FIELDS)
         tone_count = sum(getattr(exp, f) != getattr(_exp, f) for f in _TONE_FIELDS)
 
         lab = cfg.lab
