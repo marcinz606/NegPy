@@ -42,6 +42,20 @@ def test_separation_damping_locked_without_a_separation_push(qapp):
     assert sidebar.separation_damping_slider.isEnabled()
 
 
+def test_separation_damping_armed_by_a_trim_alone(qapp):
+    """A per-channel trim also gives Dye Separation a real per-pixel push even with the
+    global value left at its neutral 1.0 — the enabled check must ask the same question
+    the pipeline does (per_channel_dye_separation), not just the global scalar."""
+    controller = MagicMock()
+    controller.state = AppState()
+    sidebar = ToneSidebar(controller)
+
+    conf = controller.state.config
+    controller.state.config = replace(conf, exposure=replace(conf.exposure, dye_separation_trim_red=0.3))
+    sidebar.sync_ui()
+    assert sidebar.separation_damping_slider.isEnabled()
+
+
 def test_paper_combo_rebuilt_only_when_entries_change(qapp):
     controller = MagicMock()
     controller.state = AppState()

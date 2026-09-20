@@ -6,6 +6,7 @@ from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, section_subheader, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
+from negpy.features.exposure.logic import per_channel_dye_separation
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, TUNABLE_TARGETS, apply_targets
 
 _CH_SUFFIX = ("red", "green", "blue")
@@ -521,8 +522,13 @@ class ToneSidebar(BaseSidebar):
             # Out of _global_only: that tuple means enabled exactly when global.
             self.mask_spacer_slider.setEnabled(global_mode and conf.contrast_mask != 0.0)
             # It redistributes Dye Separation's push and does nothing on its own, so at 1.0
-            # separation it is dead. Say so instead of letting it be dragged for no result.
-            self.separation_damping_slider.setEnabled(conf.dye_separation != 1.0)
+            # separation on every channel it is dead — a per-channel trim also arms it,
+            # not just the global value. Say so instead of letting it be dragged for no result.
+            sep_k3 = per_channel_dye_separation(
+                conf.dye_separation,
+                (conf.dye_separation_trim_red, conf.dye_separation_trim_green, conf.dye_separation_trim_blue),
+            )
+            self.separation_damping_slider.setEnabled(sep_k3 != (1.0, 1.0, 1.0))
 
             self.paper_dmin_btn.setChecked(conf.paper_dmin)
             self.paper_black_btn.setChecked(conf.paper_black)
