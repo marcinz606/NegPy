@@ -234,6 +234,7 @@ def apply_transfer_curve(
     cast_offset: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     positive_source: bool = False,
     separation: float = 1.0,
+    separation_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     damping: float = 0.0,
 ) -> ImageBuffer:
     """
@@ -248,12 +249,13 @@ def apply_transfer_curve(
 
     `cast_offset` arrives already scaled by density_range (see neutral_axis_affine).
 
-    `separation` is the Dye Separation slider, applied after the curve shapes each
-    channel and before decode. It shares its math with the print path's
-    resolve_saturation_matrix but not its per-layer trims or paper crosstalk: this
-    curve has neither, so it collapses to a scalar mean rather than a 3x3 matmul.
-    `damping` is Separation Damping, tapering that same k by each pixel's own chroma
-    (see logic.separation_damping_gain); inert at separation 1.0, same as on the print.
+    `separation`/`separation_trims` are Dye Separation and its per-channel trims,
+    applied after the curve shapes each channel and before decode. They share their
+    math with the print path's resolve_saturation_matrix but not its paper crosstalk:
+    this curve has no paper dye matrix to compose into, so each channel scales its own
+    deviation from the frame's mean density directly rather than through a 3x3 matmul.
+    `damping` is Separation Damping, tapering each channel's own k by each pixel's own
+    chroma (see logic.separation_damping_gain); inert at separation 1.0, same as on the print.
     """
     c = TRANSFER_CONSTANTS
     base_width = float(c["transfer_knee_width"])
@@ -309,22 +311,27 @@ def apply_transfer_curve(
 
         dens[:, :, ch] = d
 
-    sep_k = per_channel_dye_separation(separation, (0.0, 0.0, 0.0))[0]
-    if sep_k != 1.0:
-        # M(k) = diag(k) + (1-k)*J (papers.resolve_saturation_matrix), collapsed to a
-        # scalar mean: k is uniform across channels here, since this curve has no
-        # per-layer dye model to trim against and no paper base to measure above.
+    sep_k3 = per_channel_dye_separation(separation, separation_trims)
+    if sep_k3 != (1.0, 1.0, 1.0):
+        # M(k) = diag(k) + (1-k)*J (papers.resolve_saturation_matrix): each channel
+        # scales its own deviation from the frame's mean density by its own k, since
+        # this curve has no paper base to measure above and no dye matrix to fold the
+        # per-layer trims into instead.
         mean = dens.mean(axis=2, keepdims=True)
         e = dens - mean
         if damping > 0.0:
-            # Separation Damping makes k chroma-dependent per pixel, so a static mean
-            # scale can't carry it — same law as the print path, one k since it is
-            # uniform here (see separation_damping_gain_np).
+            # Separation Damping makes each channel's k chroma-dependent per pixel, from
+            # the same chroma but each channel's own k (see separation_damping_gain_np).
             chroma = np.sqrt(((e[:, :, 0] - e[:, :, 1]) ** 2 + (e[:, :, 1] - e[:, :, 2]) ** 2 + (e[:, :, 0] - e[:, :, 2]) ** 2) / 3.0)
-            k_eff = separation_damping_gain_np(sep_k, damping, chroma, float(EXPOSURE_CONSTANTS["separation_damping_ref_spread"]))
-            dens = mean + k_eff[:, :, np.newaxis] * e
+            ref_spread = float(EXPOSURE_CONSTANTS["separation_damping_ref_spread"])
+            k_eff = np.stack(
+                [separation_damping_gain_np(sep_k3[ch], damping, chroma, ref_spread) for ch in range(3)],
+                axis=2,
+            )
+            dens = mean + k_eff * e
         else:
-            dens = mean + np.float32(sep_k) * e
+            k3 = np.asarray(sep_k3, dtype=np.float32)
+            dens = mean + k3[np.newaxis, np.newaxis, :] * e
 
     out = np.power(np.float32(10.0), -dens, dtype=np.float32)
 

@@ -432,9 +432,18 @@ class TestControlsStayLive(unittest.TestCase):
         boosted = self._rendered(dye_separation=2.0)
         self.assertGreater(float(np.abs(boosted[..., 0] - boosted[..., 2]).mean()), base_chroma)
 
+    def test_dye_separation_trims_are_wired_per_channel(self):
+        """Mirrors the print path: a trim on one channel must move only that channel,
+        since an untrimmed channel keeps k = dye_separation exactly (mean + 1.0 * e is
+        the original density bit-exact)."""
+        trimmed = self._rendered(dye_separation_trim_red=0.6)
+        self.assertGreater(float(np.abs(trimmed[..., 0] - self.base[..., 0]).mean()), 1e-4)
+        np.testing.assert_allclose(trimmed[..., 1], self.base[..., 1], atol=1e-6)
+        np.testing.assert_allclose(trimmed[..., 2], self.base[..., 2], atol=1e-6)
+
     def test_separation_damping_still_tapers_the_push_with_no_paper_here_either(self):
-        """Separation Damping has no per-layer model on this path (it takes the one
-        uniform k), but the chroma taper itself needs no paper and must still run."""
+        """Separation Damping has no per-layer trim of its own on this path, but the
+        chroma taper itself needs no paper and must still run over each channel's k."""
         flat = self._rendered(dye_separation=1.4)
         damped = self._rendered(dye_separation=1.4, separation_damping=1.0)
         self.assertGreater(float(np.abs(flat - damped).max()), 1e-4)
@@ -648,12 +657,15 @@ class TestGpuTransferParity(unittest.TestCase):
             shadow_density=-0.5,
             highlight_density=0.3,
             dye_separation=1.3,
+            dye_separation_trim_red=0.2,
+            dye_separation_trim_blue=-0.15,
         )
         self._assert_parity(*self._both(settings))
 
     def test_dye_separation_matches(self):
-        """Dye Separation carries no paper matrix on this path — it collapses to a scalar
-        mean instead — and CPU/GPU must apply that same scalar."""
+        """Dye Separation carries no paper matrix on this path — each channel scales its
+        own deviation from the frame mean instead of a matmul — and CPU/GPU must apply
+        that same per-channel k."""
         settings = _e6_config()
         active = _e6_config(dye_separation=1.6)
         cpu, gpu = self._both(active)
@@ -663,9 +675,21 @@ class TestGpuTransferParity(unittest.TestCase):
         self.assertGreater(float(np.abs(cpu - off_cpu).max()), 0.01, "dye separation inert on the CPU")
         self.assertGreater(float(np.abs(gpu - off_gpu).max()), 0.01, "dye separation inert on the GPU")
 
+    def test_dye_separation_trims_match(self):
+        """The per-channel trims (same fields the print path's per-layer view edits)
+        must reach the shader's separation.xyz lanes the same way the CPU folds them."""
+        settings = _e6_config()
+        active = _e6_config(dye_separation_trim_red=0.4, dye_separation_trim_green=-0.3)
+        cpu, gpu = self._both(active)
+        self._assert_parity(cpu, gpu)
+
+        off_cpu, off_gpu = self._both(settings)
+        self.assertGreater(float(np.abs(cpu - off_cpu).max()), 0.01, "trims inert on the CPU")
+        self.assertGreater(float(np.abs(gpu - off_gpu).max()), 0.01, "trims inert on the GPU")
+
     def test_separation_damping_matches(self):
-        """Separation Damping's chroma taper carries no per-layer model on this path
-        either, and CPU/GPU must taper the shared k by the same law."""
+        """Separation Damping tapers each channel's own k by the same shared chroma on
+        this path too, and CPU/GPU must taper it by the same law."""
         flat = _e6_config(dye_separation=1.4)
         damped = _e6_config(dye_separation=1.4, separation_damping=1.0)
         cpu, gpu = self._both(damped)
@@ -674,6 +698,13 @@ class TestGpuTransferParity(unittest.TestCase):
         flat_cpu, flat_gpu = self._both(flat)
         self.assertGreater(float(np.abs(cpu - flat_cpu).max()), 0.01, "damping inert on the CPU")
         self.assertGreater(float(np.abs(gpu - flat_gpu).max()), 0.01, "damping inert on the GPU")
+
+    def test_separation_damping_with_trims_matches(self):
+        """Damping combined with an asymmetric per-channel k (not just a shared one) is
+        the path that used to collapse to a single scalar before every channel got its
+        own trim — CPU and GPU must still agree once the trims split the k apart."""
+        settings = _e6_config(dye_separation=1.4, dye_separation_trim_red=0.5, separation_damping=0.8)
+        self._assert_parity(*self._both(settings))
 
     def test_cast_removal_matches(self):
         """Cast Removal reaches this curve as a per-channel affine the shader mirrors in

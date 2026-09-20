@@ -184,3 +184,29 @@ def test_channel_selector_hidden_in_bw(qapp):
     # Dye Separation is a color control: gone on a single-emulsion B&W paper.
     assert sidebar.dye_separation_slider.isHidden()
     assert sidebar.dye_separation_trim_slider.isHidden()
+
+
+def test_dye_separation_trim_swaps_per_channel_on_transfer_too(qapp):
+    """The transfer curve now wires the per-channel trims the same way the print path
+    does, so the global/trim swap on the channel tabs must match — not the old
+    print-only exemption that kept the trim hidden and the global slider always shown."""
+    controller = MagicMock()
+    controller.state = AppState()
+    cfg = controller.state.config
+    controller.state.config = replace(
+        cfg,
+        process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=False),
+        exposure=replace(cfg.exposure, dye_separation=1.3, dye_separation_trim_red=0.25),
+    )
+    sidebar = ToneSidebar(controller)
+    sidebar.sync_ui()
+
+    assert not sidebar.dye_separation_slider.isHidden()
+    assert sidebar.dye_separation_trim_slider.isHidden()
+    assert not sidebar.separation_damping_slider.isHidden()
+
+    sidebar.ch_r_btn.setChecked(True)
+    assert sidebar.dye_separation_slider.isHidden()
+    assert not sidebar.dye_separation_trim_slider.isHidden()
+    assert abs(sidebar.dye_separation_trim_slider.value() - 0.25) < 1e-9
+    assert sidebar.separation_damping_slider.isHidden()

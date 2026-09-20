@@ -447,10 +447,6 @@ class ToneSidebar(BaseSidebar):
                 self.midtone_gamma_slider,
                 self.shadow_grade_slider,
                 self.highlight_grade_slider,
-                # Dye Separation and Separation Damping stay: the transfer curve applies
-                # both directly, with no paper matrix to compose into (see
-                # features/exposure/transfer.py). Only the per-layer trims need a paper.
-                self.dye_separation_trim_slider,
                 # The transfer curve takes no dodge/burn map, and the mask rides it.
                 self.contrast_mask_slider,
                 self.mask_spacer_slider,
@@ -473,11 +469,13 @@ class ToneSidebar(BaseSidebar):
             self.toe_w_trim_slider.setVisible(not global_mode)
             self.sh_w_slider.setVisible(global_mode)
             self.sh_w_trim_slider.setVisible(not global_mode)
-            # Transfer has no per-channel Dye Separation/Damping, so both stay visible
-            # across channel views there; print's per-channel view swaps to the trim.
-            self.dye_separation_slider.setVisible((global_mode or transfer) and not is_bw)
-            self.dye_separation_trim_slider.setVisible(not global_mode and not is_bw and not transfer)
-            self.separation_damping_slider.setVisible((global_mode or transfer) and not is_bw)
+            # Dye Separation swaps the same way on both paths: the global slider in the
+            # global view, the per-channel trim in a channel tab (see
+            # features/exposure/transfer.py). Separation Damping has no per-channel
+            # trim of its own, so it stays global-view-only on both paths too.
+            self.dye_separation_slider.setVisible(global_mode and not is_bw)
+            self.dye_separation_trim_slider.setVisible(not global_mode and not is_bw)
+            self.separation_damping_slider.setVisible(global_mode and not is_bw)
             self.toe_slider.label.setText("Toe" + suffix)
             self.sh_slider.label.setText("Shoulder" + suffix)
             self.midtone_gamma_slider.label.setText("Snap" + suffix)

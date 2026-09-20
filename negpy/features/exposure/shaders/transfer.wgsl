@@ -31,8 +31,8 @@ struct TransferUniforms {
     // Cast Removal affine on density: per-channel gain and offset (w lane unused).
     cast_gain: vec4<f32>,
     cast_offset: vec4<f32>,
-    // Dye Separation: x = k, uniform across channels (no paper matrix, no per-layer
-    // trims on this path). y = Separation Damping (0 = off). zw unused.
+    // Dye Separation: xyz = per-channel k (global + trim; no paper matrix to compose
+    // the trims into instead). w = Separation Damping (0 = off).
     separation: vec4<f32>,
 };
 
@@ -133,19 +133,24 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         dens[ch] = d;
     }
 
-    // Dye Separation: M(k) = diag(k) + (1-k)*J (papers.resolve_saturation_matrix),
-    // collapsed to a scalar mean because k is uniform across channels on this path.
-    // Separation Damping makes k chroma-dependent per pixel instead, one k since it
-    // is already uniform here (see separation_damping_gain).
-    if (params.separation.x != 1.0) {
+    // Dye Separation: M(k) = diag(k) + (1-k)*J (papers.resolve_saturation_matrix), each
+    // channel scaling its own deviation from the frame's mean density by its own k —
+    // there is no paper dye matrix here to compose the per-layer trims into instead.
+    // Separation Damping makes each channel's k chroma-dependent per pixel, from the
+    // same chroma but each channel's own k (see separation_damping_gain).
+    if (any(params.separation.xyz != vec3<f32>(1.0))) {
         let mean = (dens.x + dens.y + dens.z) / 3.0;
         let e = dens - vec3<f32>(mean);
-        if (params.separation.y > 0.0) {
+        if (params.separation.w > 0.0) {
             let chroma = sqrt(((e.x - e.y) * (e.x - e.y) + (e.y - e.z) * (e.y - e.z) + (e.x - e.z) * (e.x - e.z)) / 3.0);
-            let k_eff = separation_damping_gain(params.separation.x, params.separation.y, chroma);
+            let k_eff = vec3<f32>(
+                separation_damping_gain(params.separation.x, params.separation.w, chroma),
+                separation_damping_gain(params.separation.y, params.separation.w, chroma),
+                separation_damping_gain(params.separation.z, params.separation.w, chroma),
+            );
             dens = vec3<f32>(mean) + k_eff * e;
         } else {
-            dens = vec3<f32>(mean) + params.separation.x * e;
+            dens = vec3<f32>(mean) + params.separation.xyz * e;
         }
     }
 
