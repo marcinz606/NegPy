@@ -577,17 +577,21 @@ class ThumbnailGridView(QListView):
         # Row read before super(): its own autoscroll-to-current can jump the viewport to fit
         # the cell under the cursor, and hitting this same screen point again afterward would
         # then resolve to whatever row the scroll left there instead of the one dragged to.
-        row = self._row_near(event.position().toPoint()) if (
-            self._pending_click_row is not None and event.buttons() & Qt.MouseButton.LeftButton
-        ) else None
+        row = (
+            self._row_near(event.position().toPoint())
+            if (self._pending_click_row is not None and event.buttons() & Qt.MouseButton.LeftButton)
+            else None
+        )
         super().mouseMoveEvent(event)
         if row is not None:
             self._apply_pending_row(row)
 
     def mouseReleaseEvent(self, event) -> None:
-        row = self._row_near(event.position().toPoint()) if (
-            self._pending_click_row is not None and event.button() == Qt.MouseButton.LeftButton
-        ) else None
+        row = (
+            self._row_near(event.position().toPoint())
+            if (self._pending_click_row is not None and event.button() == Qt.MouseButton.LeftButton)
+            else None
+        )
         super().mouseReleaseEvent(event)
         if row is not None:
             self._apply_pending_row(row)
