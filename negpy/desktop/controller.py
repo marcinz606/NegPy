@@ -139,7 +139,7 @@ from negpy.features.process.models import (
 from negpy.services.assets.thumbnails import asset_thumbnail_key
 from negpy.kernel.system.paths import get_resource_path
 from negpy.features.retouch.logic import downsample_ir, trace_scratch
-from negpy.features.retouch.models import RetouchConfig
+from negpy.features.retouch.models import HEAL_SIZE_MAX, HEAL_SIZE_MIN, RetouchConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.infrastructure.capture.settings import WhiteCaptureMode
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
@@ -704,6 +704,21 @@ class AppController(QObject):
     def set_status(self, message: str, timeout: int = 0, kind: str = "info") -> None:
         """kind: "info" | "warning" | "error" — the HUD colours the toast by it."""
         self.status_message_requested.emit(message, timeout, kind)
+
+    def adjust_brush_size(self, delta: float) -> None:
+        """Nudge the shared heal/scratch/exclusion brush diameter, clamped to its slider's
+        range. The canvas routes here rather than to the widget: the slider is out of reach
+        while an exclusion is painted with no tool active."""
+        conf = self.state.config.retouch
+        size = int(round(min(HEAL_SIZE_MAX, max(HEAL_SIZE_MIN, conf.manual_dust_size + delta))))
+        if size == conf.manual_dust_size:
+            return
+        self.session.update_config(
+            replace(self.state.config, retouch=replace(conf, manual_dust_size=size)),
+            persist=True,
+            render=False,
+        )
+        self.set_status(f"Brush Size {size} px", 1500)
 
     def _connect_signals(self) -> None:
         self.render_requested.connect(self.render_worker.process)

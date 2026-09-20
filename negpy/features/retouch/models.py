@@ -5,6 +5,12 @@ from typing import List, Tuple
 # their footprint when preview_render_size changes.
 HEAL_SIZE_REF = 1600
 
+# Brush diameter bounds at HEAL_SIZE_REF, shared by the heal, scratch and exclusion brushes.
+# The slider and the canvas wheel clamp read these, so one range governs every route to the
+# value. The top end covers an area of film, which an exclusion band has to do.
+HEAL_SIZE_MIN = 2.0
+HEAL_SIZE_MAX = 64.0
+
 # IR reconstruction methods: the ratio/score/fill chain in logic.py, and the Digital ICE
 # port in openice.py. Two implementations of one stage, side by side until scans decide.
 IR_METHOD_NEGPY = "negpy"
@@ -34,8 +40,8 @@ class RetouchConfig:
     manual_dust_size: int = 6
     # Each stroke: (points, size). points = [[nx, ny], ...] source-normalized, size = the
     # band diameter at HEAL_SIZE_REF scale; a one-point stroke is a single patch. Optical
-    # detection is released under the band, so film the detector read as dust keeps its own
-    # pixels. Toggling dust_remove clears the list.
+    # detection is released under the pixels the band covers, so film the detector read as
+    # dust keeps its own. Toggling dust_remove clears the list.
     dust_exclusion_strokes: List[Tuple] = field(default_factory=list)
     ir_dust_remove: bool = False
     # Which reconstruction runs (IR_METHODS). ir_attenuation belongs to the NegPy method

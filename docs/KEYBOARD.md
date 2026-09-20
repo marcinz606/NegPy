@@ -171,6 +171,8 @@ While a test strip or ring-around is up, `[` and `]` turn that proof's ladder in
 | Input | Action |
 |-----|--------|
 | `Mouse Wheel` | Zoom in / out (up to 400%); **Reverse scroll zoom** in Preferences flips the direction |
+| `Alt` + `Mouse Wheel` | Brush Size up / down, for the heal, scratch and exclusion brushes |
+| `Pinch` | Zoom in / out; sizes the brush instead while the Heal or Scratch tool is live, or a right-click is set to exclude |
 | `Middle Click` + `Drag` | Pan zoomed image |
 | `Left Click` + `Drag` | Pan zoomed image (when no tool is active) |
 

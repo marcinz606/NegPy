@@ -692,6 +692,9 @@ class CanvasOverlay(QWidget):
             painter.setPen(pen)
             painter.drawRect(inner)
 
+        if self._draws_exclusion_brush() and visible_rect.contains(self._mouse_pos):
+            self._draw_brush(painter, THEME.warn_amber)
+
         if self._tool_mode != ToolMode.NONE and visible_rect.contains(self._mouse_pos):
             if self._tool_mode in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK):
                 self._draw_brush(painter)
@@ -874,7 +877,7 @@ class CanvasOverlay(QWidget):
         width = painter.fontMetrics().horizontalAdvance(text) + 24.0
         self._draw_view_badge(painter, text, rect.left() + 12, rect.top() + 12, width)
 
-    def _draw_brush(self, painter: QPainter) -> None:
+    def _draw_brush(self, painter: QPainter, fill: Optional[str] = None) -> None:
         radius = self._brush_screen_radius(self.state.config.retouch.manual_dust_size)
 
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -883,7 +886,7 @@ class CanvasOverlay(QWidget):
         painter.setPen(pen)
         painter.drawEllipse(self._mouse_pos, radius, radius)
 
-        accent = QColor(THEME.accent_primary)
+        accent = QColor(fill or THEME.accent_primary)
         accent.setAlpha(60)
         painter.setBrush(accent)
         painter.setPen(Qt.PenStyle.NoPen)
@@ -2716,6 +2719,11 @@ class CanvasOverlay(QWidget):
         if vertices:
             self.scratch_completed.emit(vertices)
         self.update()
+
+    def _draws_exclusion_brush(self) -> bool:
+        """Armed to exclude on a right-click, the brush is what a click lays down and what a
+        pinch sizes, so it is drawn in the band's amber with no tool active to draw it."""
+        return self._tool_mode == ToolMode.NONE and self.state.config.retouch.dust_remove and self._right_click_excludes()
 
     def _right_click_excludes(self) -> bool:
         """Whether a plain right-click excludes instead of opening the menu. The heal and

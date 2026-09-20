@@ -382,24 +382,14 @@ def exclusion_cover(strokes: List[Tuple], shape: Tuple[int, int]) -> np.ndarray:
     return cover
 
 
-def _touched_components(detected: np.ndarray, cover: np.ndarray) -> np.ndarray:
-    """Every connected defect the cover reaches, whole. A defect clipped to the painted
-    footprint would be repaired on one side of the brush and left on the other."""
-    n_lbl, lab = cv2.connectedComponents(detected.astype(np.uint8), connectivity=8)
-    if n_lbl < 2:
-        return np.zeros(detected.shape, dtype=bool)
-    hit = np.unique(lab[(cover > 0) & detected])
-    return np.isin(lab, hit[hit > 0])
-
-
 def drop_exclusions(
     score: Optional[np.ndarray],
     hair_mask: Optional[np.ndarray],
     strokes: List[Tuple],
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-    """Release optical detections the excluded strokes reach, so the film there arrives at
-    the render untouched. The painted band is a search area, not the cut: a defect it
-    touches is released in full, the way a heal brush searches rather than stamps. A score
+    """Release the optical detections the excluded strokes cover, so the film there arrives
+    at the render untouched. The band is the cut: a defect crossing its rim keeps the repair
+    on the side the brush missed, so half a mark can be released without the rest. A score
     with nothing left below clean, or an emptied hair mask, comes back as None: the repair
     is then skipped rather than run over an identity."""
     if not strokes or (score is None and hair_mask is None):
@@ -407,13 +397,16 @@ def drop_exclusions(
     ref = score if score is not None else hair_mask
     cover = exclusion_cover(strokes, ref.shape[:2])  # type: ignore[union-attr]
     if score is not None:
-        release = _touched_components(score < 1.0, cover)
-        score = np.where(release, np.float32(1.0), score).astype(np.float32)
+        # Feather the rim, as the manual heal does its own: the score is a ramp, and cutting
+        # one at the brush edge prints the edge as a step.
+        d = cv2.distanceTransform(cover, cv2.DIST_L2, 3)
+        alpha = np.clip(d / _MANUAL_RIM_PX, 0.0, 1.0)
+        score = (score + alpha * (1.0 - score)).astype(np.float32)
         if not (score < 1.0).any():
             score = None
     if hair_mask is not None:
-        release = _touched_components(hair_mask > 0, cover)
-        hair_mask = np.where(release, 0, hair_mask).astype(hair_mask.dtype)
+        # Binary, so it takes the footprint unfeathered.
+        hair_mask = np.where(cover > 0, 0, hair_mask).astype(hair_mask.dtype)
         if not hair_mask.any():
             hair_mask = None
     return score, hair_mask

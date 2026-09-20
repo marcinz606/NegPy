@@ -87,3 +87,30 @@ def test_manual_heal_count_label(qapp):
     )
     sb.sync_ui()
     assert sb.heals_subheader.text() == "MANUAL HEAL · 1"
+
+
+def test_brush_size_shows_while_optical_removal_is_on(qapp):
+    """The exclusion band is painted with no tool active, so the slider it reads has to be
+    on screen there. Its keyboard steps are gated on the same visibility."""
+    controller, sb = _sidebar()
+    cfg = controller.state.config
+
+    controller.state.config = replace(cfg, retouch=replace(cfg.retouch, dust_remove=False))
+    sb.sync_ui()
+    assert not sb.manual_size_slider.isVisibleTo(sb), "no tool and no detector, so nothing sizes a brush"
+
+    controller.state.config = replace(cfg, retouch=replace(cfg.retouch, dust_remove=True))
+    sb.sync_ui()
+    assert sb.manual_size_slider.isVisibleTo(sb)
+
+
+def test_brush_size_spans_the_shared_range(qapp):
+    """One range for the slider, the canvas wheel and the pinch, so none can leave the
+    others' bounds."""
+    from negpy.features.retouch.models import HEAL_SIZE_MAX, HEAL_SIZE_MIN
+
+    _, sb = _sidebar()
+    sb.manual_size_slider.setValue(HEAL_SIZE_MAX + 40.0)
+    assert sb.manual_size_slider.value() == HEAL_SIZE_MAX
+    sb.manual_size_slider.setValue(HEAL_SIZE_MIN - 40.0)
+    assert sb.manual_size_slider.value() == HEAL_SIZE_MIN

@@ -3,7 +3,7 @@ from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_label, section_subheader, wrap_tooltip
-from negpy.features.retouch.models import IR_METHOD_NEGPY, IR_METHOD_OPENICE
+from negpy.features.retouch.models import HEAL_SIZE_MAX, HEAL_SIZE_MIN, IR_METHOD_NEGPY, IR_METHOD_OPENICE
 
 _IR_REMOVAL_TIP = (
     "Use the scanner's infrared channel to remove dust and scratches (invisible to the color dyes): faint "
@@ -103,7 +103,7 @@ class RetouchSidebar(BaseSidebar):
         self.pick_dust_btn = self._tool_toggle(
             "fa5s.eye-dropper",
             "Heal Tool",
-            "Paint over dust to heal it. The brush is a search area — only the marks inside it are repaired, clean grain is left alone",
+            "Paint over dust to heal it. Only the marks inside the brush are repaired, clean grain is left alone",
         )
         self.pick_scratch_btn = self._tool_toggle(
             "fa5s.pen-nib",
@@ -123,8 +123,13 @@ class RetouchSidebar(BaseSidebar):
         tools_row.addWidget(self.pick_line_btn)
         self.layout.addLayout(tools_row)
 
-        self.manual_size_slider = CompactSlider("Brush Size", 2.0, 16.0, float(conf.manual_dust_size), step=1.0, precision=1, unit=" px")
-        self.manual_size_slider.setToolTip("Diameter of the manual brush, matching the on-screen cursor")
+        self.manual_size_slider = CompactSlider(
+            "Brush Size", HEAL_SIZE_MIN, HEAL_SIZE_MAX, float(conf.manual_dust_size), step=1.0, precision=1, unit=" px"
+        )
+        self.manual_size_slider.setToolTip(
+            "Diameter of the heal, scratch and exclusion brushes, matching the on-screen cursor. "
+            "Alt+wheel over the canvas sizes it too, or pinch while a brush is live"
+        )
         self.layout.addWidget(self.manual_size_slider)
 
         self.line_threshold_slider = CompactSlider("Line Sensitivity", 0.05, 0.95, float(conf.scratch_threshold))
@@ -192,13 +197,18 @@ class RetouchSidebar(BaseSidebar):
         label = {"off": "Off", "marked": "Marked", "ir": "IR"}.get(self.state.dust_overlay_mode, "Off")
         self.overlay_btn.setText(f" Overlay: {label}")
 
+    def _brush_size_visible(self, heal: bool, scratch: bool) -> bool:
+        """The brush is sized from the canvas while an exclusion is painted, which happens
+        with no tool active, so Optical Removal shows the value too."""
+        return heal or scratch or self.state.config.retouch.dust_remove
+
     def _on_pick_toggled(self, checked: bool) -> None:
         self.controller.set_active_tool(ToolMode.DUST_PICK if checked else ToolMode.NONE)
-        self.manual_size_slider.setVisible(checked or self.pick_scratch_btn.isChecked())
+        self.manual_size_slider.setVisible(self._brush_size_visible(checked, self.pick_scratch_btn.isChecked()))
 
     def _on_scratch_toggled(self, checked: bool) -> None:
         self.controller.set_active_tool(ToolMode.SCRATCH_PICK if checked else ToolMode.NONE)
-        self.manual_size_slider.setVisible(checked or self.pick_dust_btn.isChecked())
+        self.manual_size_slider.setVisible(self._brush_size_visible(self.pick_dust_btn.isChecked(), checked))
 
     def _on_line_toggled(self, checked: bool) -> None:
         # Sensitivity stands in for brush size here: the band is grown from the scratch, so what
@@ -223,7 +233,9 @@ class RetouchSidebar(BaseSidebar):
             self.pick_dust_btn.setChecked(self.state.active_tool == ToolMode.DUST_PICK)
             self.pick_scratch_btn.setChecked(self.state.active_tool == ToolMode.SCRATCH_PICK)
             self.pick_line_btn.setChecked(self.state.active_tool == ToolMode.SCRATCH_LINE)
-            self.manual_size_slider.setVisible(self.state.active_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK))
+            self.manual_size_slider.setVisible(
+                self._brush_size_visible(self.state.active_tool == ToolMode.DUST_PICK, self.state.active_tool == ToolMode.SCRATCH_PICK)
+            )
             self.line_threshold_slider.setValue(float(conf.scratch_threshold))
             self.line_threshold_slider.setVisible(self.state.active_tool == ToolMode.SCRATCH_LINE)
 

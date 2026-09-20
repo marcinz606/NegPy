@@ -715,7 +715,7 @@ An **Overlay** button cycles the detection overlay (Off → Marked → IR) so yo
 **Optical Removal** finds specks and hairs on the visible scan by local contrast, with no IR needed:
 
 *   Toggle **Optical Removal** on, then set **Threshold** (0.01 to 1.0; lower catches more, at the risk of false positives; above the default the bar rises faster, so the top end leaves sharp highlights and dense lines alone) and **Size** (3 to 8 px; max spot radius). A mark covers the whole speck or hair, not just its darkest point. The bar is measured against the film's own grain, so the same setting means the same thing on any scan, and it rises inside busy image detail, where a thin dark line cannot be told from a hair; dust on textured film may need a lower Threshold, or the IR or Heal tools.
-*   Where the detector cleans away detail you want, hold it off that area: right-drag across it on the canvas to paint a band, or right-click and pick **Exclude From Optical Removal** to touch one spot. What you paint is a search area, not a cut — every mark it touches comes back whole, so you need only clip the edge of one, not cover it. The band is the Brush Size wide, follows the whole path you drag, and shows in amber with the detection overlay on. Toggling **Optical Removal** clears every band, so the removal returns everywhere.
+*   Where the detector cleans away detail you want, hold it off that area: right-drag across it on the canvas to paint a band, or right-click and pick **Exclude From Optical Removal** to touch one spot. What you paint is what comes back, so a mark you cover half of keeps the repair on the half you missed. The band is the Brush Size wide, follows the whole path you drag, and shows in amber with the detection overlay on. Toggling **Optical Removal** clears every band, so the removal returns everywhere.
 *   The cursor button beside **Optical Removal** makes a plain right-click exclude on the spot, with no menu in the way. The canvas menu is then out of reach while the removal is on, so leave it off if you right-click for Copy Settings or Reset View; the Heal and Scratch tools keep their own right-click either way. The setting is remembered between sessions.
 
 **IR Removal** uses the scanner's infrared channel to remove dust invisible to the color dyes, and is enabled only when the scan carries an IR plane.
@@ -740,7 +740,7 @@ The brush marks a *search area*, not a stamp: only the pixels that actually stan
 
 *   **Line Sensitivity** (0.05 to 0.95, shown while the Transport Line tool is active): how readily a scratch is followed. Lower catches fainter lines and repairs a wider band; raise it if a line starts picking up film either side. It applies to lines already placed as well as new ones, so you can trace first and tune after.
 
-*   **Brush Size** (2 to 16 px): diameter of the manual brush, matching the on-screen cursor, shown while a heal or scratch tool is active.
+*   **Brush Size** (2 to 64 px): diameter of the heal, scratch and exclusion brushes, matching the on-screen cursor. Shown while a heal or scratch tool is active, and while Optical Removal is on. Hold `Alt` and scroll over the canvas to size it without the slider, or pinch while a brush is live.
 *   **Undo Last** / **Clear All**: remove the most recent or all manual heals and traced lines; auto-detected dust is unaffected. Right-click a line to delete just that one.
 
 <!-- panel:finish -->

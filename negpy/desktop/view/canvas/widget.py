@@ -36,6 +36,8 @@ def clamp_canvas_zoom_level(zoom: float) -> float:
 WHEEL_ZOOM_NOTCH = 1.1
 # Trackpad: map pixel delta to notch-equivalents (tuned for ~smooth steps).
 _WHEEL_PIXELS_PER_NOTCH = 64.0
+# How much of a pinch is one pixel of brush diameter, as a log scale ratio.
+_PINCH_BRUSH_STEP = 0.06
 
 _TOOL_CURSORS: dict[ToolMode, Qt.CursorShape] = {
     ToolMode.NONE: Qt.CursorShape.ArrowCursor,
@@ -131,6 +133,8 @@ class ImageCanvas(QWidget):
         super().__init__(parent)
         self.state = state
         self._controller: Optional["AppController"] = None
+        # Carries the sub-pixel remainder of a pinch between its update events.
+        self._pinch_accum = 0.0
         self.setMouseTracking(True)
 
         if sys.platform == "win32":
@@ -476,6 +480,28 @@ class ImageCanvas(QWidget):
                 return True
         return super().event(e)
 
+    def _pinch_sizes_brush(self) -> bool:
+        """A live brush takes the pinch. The wheel still zooms in that state, so no context
+        is left without a zoom route."""
+        if self.state.active_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK):
+            return True
+        return bool(self.state.config.retouch.dust_remove and self.state.right_click_excludes)
+
+    def _pinch_brush_step(self, k: float) -> None:
+        """A pinch reports a scale factor per event; hold the fraction back until it is worth
+        a whole pixel of diameter, or a slow pinch would never move the brush."""
+        if not math.isfinite(k) or k <= 0.0:
+            return
+        self._pinch_accum += math.log(k) / _PINCH_BRUSH_STEP
+        steps = int(self._pinch_accum)
+        if steps:
+            self._pinch_accum -= steps
+            self._adjust_brush_size(float(steps))
+
+    def _adjust_brush_size(self, notches: float) -> None:
+        if self._controller is not None:
+            self._controller.adjust_brush_size(notches)
+
     def _try_pinch_gesture(self, ev: QGestureEvent) -> bool:
         g = ev.gesture(Qt.GestureType.PinchGesture)
         if g is None or not isinstance(g, QPinchGesture):
@@ -485,12 +511,17 @@ class ImageCanvas(QWidget):
             ev.setAccepted(g, True)
             return True
         if st == Qt.GestureState.GestureStarted:
+            self._pinch_accum = 0.0
             ev.setAccepted(g, True)
             return True
         if st != Qt.GestureState.GestureUpdated:
             return False
         k = float(g.lastScaleFactor())
         if not math.isfinite(k) or k <= 0.0 or abs(k - 1.0) < 1e-6:
+            ev.setAccepted(g, True)
+            return True
+        if self._pinch_sizes_brush():
+            self._pinch_brush_step(k)
             ev.setAccepted(g, True)
             return True
         anchor = g.centerPoint()
@@ -507,6 +538,7 @@ class ImageCanvas(QWidget):
         if n.gestureType() != Qt.NativeGestureType.ZoomNativeGesture:
             return False
         if n.isBeginEvent() or n.isEndEvent():
+            self._pinch_accum = 0.0
             n.accept()
             return True
         n.accept()
@@ -514,7 +546,10 @@ class ImageCanvas(QWidget):
             return True
         k = self._scale_from_native_zoom_value(n.value())
         if k is not None and abs(k - 1.0) >= 1e-6:
-            self._apply_scale_at(k, n.position())
+            if self._pinch_sizes_brush():
+                self._pinch_brush_step(k)
+            else:
+                self._apply_scale_at(k, n.position())
         return True
 
     def wheelEvent(self, event: QWheelEvent) -> None:
@@ -527,6 +562,14 @@ class ImageCanvas(QWidget):
         # User preference: reverse scroll-to-zoom direction (set in Customize Shortcuts).
         if getattr(self.state, "invert_zoom_scroll", False):
             u = -u
+
+        # Alt is the brush-size modifier the keyboard already uses (Alt+M), so it sizes the
+        # brush here too and the plain wheel keeps zooming everywhere. Downstream of the
+        # inversion, so one scroll direction means "more" for both.
+        if event.modifiers() & Qt.KeyboardModifier.AltModifier:
+            self._adjust_brush_size(u)
+            event.accept()
+            return
 
         zmin = APP_CONFIG.canvas_zoom_min
         zmax = APP_CONFIG.canvas_zoom_max

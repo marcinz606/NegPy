@@ -272,30 +272,64 @@ def test_exclusion_elsewhere_leaves_the_detection_alone():
     np.testing.assert_array_equal(out, score)
 
 
-def test_exclusion_releases_a_speck_it_only_clips():
-    """The band is a search area: a defect wider than the brush must come back whole, not
-    repaired on one side of the stroke and left on the other."""
+def test_exclusion_releases_only_the_film_it_covers():
+    """The band is the cut, so a mark the brush clips keeps its repair on the side the
+    brush missed. Releasing the whole mark from a clipped edge is what this replaced."""
     img = _dusty_source()
     score, _ = detect_luma_score(img, 0.66, 4)
     assert score is not None
     marked = score < 1.0
     ys, xs = np.where(marked)
-    # A brush far narrower than the mark, touching one edge of it only.
-    clip = ([[float(xs.min()) / 160.0, float(ys.min()) / 160.0]], _size_at_ref(2, img.shape))
+    near, far = (int(ys[0]), int(xs[0])), (int(ys[-1]), int(xs[-1]))
+    # A brush covering the near end of the mark and nowhere near the far one.
+    clip = ([[near[1] / 160.0, near[0] / 160.0]], _size_at_ref(6, img.shape))
     out, _ = drop_exclusions(score, None, [clip])
-    assert out is None or not (out < 1.0)[marked].any(), "the whole speck is released"
+    assert out is not None, "the far side of the mark is still a defect"
+    assert out[near] > score[near], "the covered end is released"
+    assert out[far] == score[far], "the end it never reached is untouched"
+
+
+def test_exclusion_rim_does_not_step():
+    """The score is a ramp, so a hard cut at the brush edge would print the edge. The rim
+    is feathered, as a manual heal feathers its own."""
+    img = _dusty_source()
+    score, _ = detect_luma_score(img, 0.66, 4)
+    assert score is not None
+    out, _ = drop_exclusions(score, None, [([[0.5, 0.5]], _size_at_ref(8, img.shape))])
+    assert out is not None
+    row = out[80, :]
+    assert float(np.abs(np.diff(row)).max()) < 0.5, "no cliff across the released band"
+
+
+def test_exclusion_releases_only_the_covered_span_of_a_hair():
+    """A hair is long and thin, so whole-component release and covered-span release differ
+    most here. The mask is binary, so the footprint applies unfeathered."""
+    hair = np.zeros((200, 200), dtype=np.uint8)
+    hair[100, 20:180] = 1
+    out_score, out_hair = drop_exclusions(None, hair, [([[0.15, 0.5]], _size_at_ref(6, (200, 200)))])
+    assert out_score is None
+    assert out_hair is not None, "the rest of the hair is still repaired"
+    assert not out_hair[100, 30], "the covered span is released"
+    assert out_hair[100, 170], "the far end of the hair is not"
+
+
+def test_exclusion_clearing_the_last_hair_skips_the_bake():
+    hair = np.zeros((200, 200), dtype=np.uint8)
+    hair[100, 98:102] = 1
+    _score, out_hair = drop_exclusions(None, hair, [([[0.5, 0.5]], _size_at_ref(40, (200, 200)))])
+    assert out_hair is None, "nothing left to inpaint, so nothing is baked"
 
 
 def test_exclusion_leaves_untouched_specks_repaired():
-    """Releasing whole components must not spill onto a defect the band never reached."""
+    """A band must not spill onto a defect it never reached."""
     img, _ = _two_speck_source()
     score, _ = detect_luma_score(img, 0.66, 4)
     assert score is not None
-    near = ([[40.0 / 200.0, 40.0 / 200.0]], _size_at_ref(12, img.shape))
+    near = ([[41.5 / 200.0, 41.5 / 200.0]], _size_at_ref(24, img.shape))
     out, _ = drop_exclusions(score, None, [near])
     assert out is not None
-    assert not (out < 1.0)[36:46, 36:46].any(), "the touched speck is released"
-    assert (out < 1.0)[156:166, 156:166].any(), "the far speck is still repaired"
+    assert not (out < 1.0)[40:43, 40:43].any(), "the covered speck is released"
+    np.testing.assert_array_equal(out[150:175, 150:175], score[150:175, 150:175])
 
 
 def test_exclusion_stroke_covers_the_film_between_its_points():

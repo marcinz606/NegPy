@@ -70,3 +70,37 @@ def test_right_press_is_inert_while_optical_removal_is_off() -> None:
     overlay.mousePressEvent(_right_event(QEvent.Type.MouseButtonPress, QPointF(20, 20)))
     # Nothing armed, so the press keeps falling through to the context menu.
     assert overlay._exclude_drag_pts == []
+
+
+def test_the_amber_band_covers_what_the_mask_releases() -> None:
+    """The overlay redraws the band in Qt while the mask rasterizes it in OpenCV. The band
+    is the cut now, so a drift between the two would show the user film it did not release."""
+    import numpy as np
+    from PyQt6.QtGui import QImage, QPainter
+
+    from negpy.features.retouch.logic import exclusion_cover
+    from negpy.features.retouch.models import HEAL_SIZE_REF
+
+    side, diameter = 200, 24.0
+    points = [[0.25, 0.4], [0.5, 0.6], [0.75, 0.4]]
+    size = diameter * HEAL_SIZE_REF / side
+    cover = exclusion_cover([(points, size)], (side, side))
+
+    overlay = _overlay(dust_remove=True)
+    overlay._view_rect = QRectF(0, 0, side, side)
+    image = QImage(side, side, QImage.Format.Format_Grayscale8)
+    image.fill(0)
+    painter = QPainter(image)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(Qt.GlobalColor.white)
+    overlay._fill_brush_band(painter, [QPointF(x * side, y * side) for x, y in points], diameter / 2.0)
+    painter.end()
+
+    ptr = image.constBits()
+    ptr.setsize(image.sizeInBytes())
+    drawn = np.frombuffer(ptr, dtype=np.uint8).reshape(side, image.bytesPerLine())[:, :side] > 0
+
+    painted, released = drawn.sum(), cover.astype(bool).sum()
+    assert painted and released, "both routes drew a band"
+    overlap = (drawn & cover.astype(bool)).sum()
+    assert overlap / max(painted, released) > 0.9, "the drawn band and the released one are the same band"
