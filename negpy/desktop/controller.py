@@ -269,10 +269,21 @@ def baseline_compare_config(config: WorkspaceConfig) -> WorkspaceConfig:
     The 'before' config for the before/after view: reset the creative sections to defaults
     while keeping process (mode + normalization bounds), geometry/crop, export and metadata,
     so it shows the un-graded auto conversion of the same framed image.
+
+    Cast Removal's default is mode-dependent (cast_removal_for_mode), not the bare
+    ExposureConfig default, or a transparency's 'before' would gray-balance a color the
+    live render never applies.
     """
+    baseline_exposure = ExposureConfig()
+    baseline_exposure = replace(
+        baseline_exposure,
+        cast_removal_strength=cast_removal_for_mode(
+            config.process.process_mode, baseline_exposure.cast_removal_strength
+        ),
+    )
     return replace(
         config,
-        exposure=ExposureConfig(),
+        exposure=baseline_exposure,
         lab=LabConfig(),
         local=LocalAdjustmentsConfig(),
         toning=ToningConfig(),

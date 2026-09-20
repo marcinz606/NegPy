@@ -55,3 +55,11 @@ def test_baseline_preserves_process_and_geometry() -> None:
     assert base.process.local_ceils == (0.8, 0.9, 0.95)
     # Same framing.
     assert base.geometry == edited.geometry
+
+
+def test_baseline_zeroes_cast_removal_on_transparency() -> None:
+    """A slide's live render starts Cast Removal at 0 (cast_removal_for_mode); the
+    'before' must match, or it gray-balances a color the 'after' never touches."""
+    cfg = replace(WorkspaceConfig(), process=replace(WorkspaceConfig().process, process_mode=ProcessMode.E6))
+    base = baseline_compare_config(cfg)
+    assert base.exposure.cast_removal_strength == 0.0

@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 from negpy.desktop.session import AppState
 from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
+from negpy.features.process.models import ProcessMode
 
 
 def _panel():
@@ -73,3 +74,37 @@ def test_flat_field_reset_button_restores_its_section(qapp):
 
     applied = controller.apply_config.call_args[0][0]
     assert applied.flatfield == cfg.flatfield
+
+
+def test_transparency_at_true_default_shows_color_unmodified(qapp):
+    """cast_removal_strength's real default on a slide is 0 (cast_removal_for_mode), not
+    the bare ExposureConfig 0.5 — an untouched transparency must not show as modified."""
+    controller, panel = _panel()
+    cfg = controller.state.config
+    controller.state.config = replace(
+        cfg,
+        process=replace(cfg.process, process_mode=ProcessMode.E6),
+        exposure=replace(cfg.exposure, cast_removal_strength=0.0),
+    )
+    panel._sync_modified_dots()
+
+    assert panel.color_section.modified_count == 0
+
+
+def test_color_reset_zeroes_cast_removal_on_transparency(qapp):
+    """Resetting Color on a slide must land on cast_removal_for_mode's default (0), not
+    the flat ExposureConfig default (0.5), or the reset reintroduces a gray-balance the
+    live render never wants on a transparency."""
+    controller, panel = _panel()
+    cfg = controller.state.config
+    controller.state.config = replace(
+        cfg,
+        process=replace(cfg.process, process_mode=ProcessMode.E6),
+        exposure=replace(cfg.exposure, cast_removal_strength=0.0, wb_cyan=0.3),
+    )
+
+    panel.color_section.reset_requested.emit()
+
+    new_config = controller.session.update_config.call_args[0][0]
+    assert new_config.exposure.cast_removal_strength == 0.0
+    assert new_config.exposure.wb_cyan == 0.0

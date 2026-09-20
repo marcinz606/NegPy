@@ -15,7 +15,7 @@ from negpy.features.lab.models import LabConfig
 from negpy.features.altprocess.models import AltProcessConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.features.geometry.models import GeometryConfig
-from negpy.features.process.models import ProcessConfig
+from negpy.features.process.models import ProcessConfig, cast_removal_for_mode
 from negpy.features.finish.models import FinishConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 
@@ -816,12 +816,21 @@ class ControlsPanel(QWidget):
         self.controller.apply_config(replace(cfg, flatfield=FlatFieldConfig()), persist=True)
 
     def _reset_exposure_fields(self, fields) -> None:
-        """Reset only the given ExposureConfig fields to defaults (scoped section reset)."""
+        """Reset only the given ExposureConfig fields to defaults (scoped section reset).
+
+        cast_removal_strength's default is mode-dependent (cast_removal_for_mode), not
+        the bare ExposureConfig default, or resetting Color on a transparency would
+        reintroduce gray-balancing a slide's cast defeats.
+        """
         from dataclasses import replace
 
-        exp = self.controller.state.config.exposure
-        new_exp = replace(exp, **{f: getattr(_DEFAULT_EXPOSURE, f) for f in fields})
-        new_config = replace(self.controller.state.config, exposure=new_exp)
+        cfg = self.controller.state.config
+        exp = cfg.exposure
+        defaults = {f: getattr(_DEFAULT_EXPOSURE, f) for f in fields}
+        if "cast_removal_strength" in defaults:
+            defaults["cast_removal_strength"] = cast_removal_for_mode(cfg.process.process_mode, _DEFAULT_EXPOSURE.cast_removal_strength)
+        new_exp = replace(exp, **defaults)
+        new_config = replace(cfg, exposure=new_exp)
         self.controller.session.update_config(new_config, persist=True)
 
     def _sync_modified_dots(self) -> None:
@@ -835,7 +844,12 @@ class ControlsPanel(QWidget):
         _proc = _DEFAULT_PROCESS
 
         exp = cfg.exposure
-        color_count = sum(getattr(exp, f) != getattr(_exp, f) for f in _COLOR_FIELDS)
+        # cast_removal_strength's default is mode-dependent; comparing against the bare
+        # ExposureConfig default would mark an untouched transparency as modified.
+        cast_default = cast_removal_for_mode(cfg.process.process_mode, _exp.cast_removal_strength)
+        color_count = sum(
+            (cast_default if f == "cast_removal_strength" else getattr(_exp, f)) != getattr(exp, f) for f in _COLOR_FIELDS
+        )
         tone_count = sum(getattr(exp, f) != getattr(_exp, f) for f in _TONE_FIELDS)
 
         lab = cfg.lab
