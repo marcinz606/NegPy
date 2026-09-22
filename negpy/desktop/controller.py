@@ -4420,11 +4420,22 @@ class AppController(QObject):
         if not touched:
             self.set_status(_NOTHING_TO_APPLY, 2500)
             return 0
+        # Metadata cards do not reach the pixels. A frame locked on every other touched
+        # card keeps its own values, so its thumbnail holds.
+        rendered = {k for k in touched if rolls.ROLL_DEFAULT_FIELDS[k][0] != "metadata"}
+        changed_hashes = []
         for f in self.state.uploaded_files:
-            if f.get("hash") != active_hash:
-                self.state.stale_thumbnails.add(asset_thumbnail_key(f))
+            file_hash = f.get("hash")
+            if file_hash == active_hash:
+                continue
+            if rendered <= rolls.frame_override_cards(self.session.repo, roll_id, rolls.unforked_hash(file_hash)):
+                continue
+            self.state.stale_thumbnails.add(asset_thumbnail_key(f))
+            changed_hashes.append(file_hash)
         self.session.asset_model.refresh()
         self.config_updated.emit()
+        if changed_hashes:
+            self.session.frames_edited_offscreen.emit(changed_hashes)
         names = ", ".join(self._ROLL_CARD_LABELS[k] for k in self._ROLL_CARDS if k in touched)
         self.set_status(f"Applied to the roll: {names}", 3000)
         return len(touched)

@@ -949,6 +949,46 @@ class TestAppController(unittest.TestCase):
         self.assertEqual(rolls.roll_defaults(self.controller.session.repo, roll_id)["hue_trim"], 2.5)
         self.assertEqual(rolls.frame_override_cards(self.controller.session.repo, roll_id, "h1"), {"autocrop"})
 
+    def test_apply_roll_card_refreshes_the_thumbnails_of_frames_that_follow_the_roll(self):
+        """A frame locked on the pushed card keeps its own value, so it is neither
+        flagged stale nor re-rendered."""
+        from negpy.services.assets import rolls
+
+        self._wire_repo_store()
+        repo = self.controller.session.repo
+        roll_id = rolls.create_virtual_roll(repo, "Portra", [])
+        rolls.set_frame_override(repo, roll_id, "h1", "sensor", locked=True)
+        rolls.set_frame_override(repo, roll_id, "h3", "sensor", locked=True)
+        rolls.set_frame_override(repo, roll_id, "h4", "autocrop", locked=True)
+        state = self.mock_session_manager.state
+        state.active_roll_id = roll_id
+        state.uploaded_files = [{"name": f"{h}.dng", "path": f"/{h}.dng", "hash": h} for h in ("h1", "h2", "h3", "h4")]
+        state.current_file_hash = "h1"
+        state.stale_thumbnails = set()
+        state.config = replace(state.config, process=replace(state.config.process, hue_trim=2.5))
+
+        self.controller.apply_roll_card("sensor")
+
+        self.mock_session_manager.frames_edited_offscreen.emit.assert_called_once_with(["h2", "h4"])
+        self.assertEqual(state.stale_thumbnails, {asset_thumbnail_key(f) for f in state.uploaded_files if f["hash"] in ("h2", "h4")})
+
+    def test_apply_roll_card_on_a_metadata_card_leaves_the_thumbnails_alone(self):
+        from negpy.services.assets import rolls
+
+        self._wire_repo_store()
+        repo = self.controller.session.repo
+        roll_id = rolls.create_virtual_roll(repo, "Portra", [])
+        rolls.set_frame_override(repo, roll_id, "h1", "metadata_gear", locked=True)
+        state = self.mock_session_manager.state
+        state.active_roll_id = roll_id
+        state.uploaded_files = [{"name": f"{h}.dng", "path": f"/{h}.dng", "hash": h} for h in ("h1", "h2")]
+        state.current_file_hash = "h1"
+        state.stale_thumbnails = set()
+
+        self.assertEqual(self.controller.apply_roll_card("metadata_gear"), 1)
+        self.mock_session_manager.frames_edited_offscreen.emit.assert_not_called()
+        self.assertEqual(state.stale_thumbnails, set())
+
     def test_apply_roll_card_on_a_card_that_follows_the_roll_is_a_noop(self):
         from negpy.services.assets import rolls
 
