@@ -1712,7 +1712,7 @@ class NormalizationWorker(QObject):
         import numpy as np
 
         from negpy.domain.interfaces import PipelineContext
-        from negpy.features.exposure.normalization import analyze_log_exposure_bounds, resolve_crosstalk_matrix
+        from negpy.features.exposure.normalization import analyze_log_exposure_bounds, resolve_analysis_region, resolve_crosstalk_matrix
         from negpy.features.geometry.processor import GeometryProcessor
 
         self._cancel.clear()
@@ -1764,12 +1764,14 @@ class NormalizationWorker(QObject):
                     )
                     transformed = await asyncio.to_thread(GeometryProcessor(geometry).process, raw, ctx)
                     has_crop = ctx.active_roi is not None
+                    # A frame's own freehand region is where it meters, the same as in its render.
+                    roi, buffer = resolve_analysis_region(transformed.shape, ctx.active_roi, analysis_buffer, params.process.analysis_rect)
 
                     bounds = await asyncio.to_thread(
                         analyze_log_exposure_bounds,
                         transformed,
-                        roi=ctx.active_roi,
-                        analysis_buffer=analysis_buffer,
+                        roi=roi,
+                        analysis_buffer=buffer,
                         process_mode=process_mode,
                         e6_normalize=e6_normalize,
                         percentile_clip=luma_range_clip,

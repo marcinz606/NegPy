@@ -115,6 +115,42 @@ def test_batch_analysis_applies_roll_wide_buffer_and_luma_range(qapp, monkeypatc
         assert kw["percentile_clip"] == 3.5
 
 
+def test_batch_analysis_meters_each_frames_own_region(qapp, monkeypatch):
+    """A frame with a freehand region meters that region, as its render does; the rest
+    keep the roll-wide buffer."""
+    import negpy.features.exposure.normalization as norm_mod
+
+    captured_kwargs: list[dict] = []
+
+    class _Bounds:
+        floors = (0.0, 0.0, 0.0)
+        ceils = (1.0, 1.0, 1.0)
+
+    def _spy(transformed, **kwargs):
+        captured_kwargs.append(kwargs)
+        return _Bounds()
+
+    monkeypatch.setattr(norm_mod, "analyze_log_exposure_bounds", _spy)
+
+    base = WorkspaceConfig()
+    settings = {
+        "h_region": replace(base, process=replace(base.process, analysis_rect=(0.25, 0.25, 0.75, 0.75))),
+        "h_plain": base,
+    }
+    task = NormalizationTask(
+        frames=_frames(settings),
+        workspace_color_space="sRGB",
+        override_analysis_buffer=0.12,
+        override_luma_range_clip=0.0,
+        override_color_range_clip=0.0,
+    )
+
+    NormalizationWorker(_FakePreviewService()).process(task)
+
+    by_roi = {kw["roi"]: kw["analysis_buffer"] for kw in captured_kwargs}
+    assert by_roi == {(2, 6, 2, 6): 0.0, None: 0.12}
+
+
 class _VaryingPreviewService(_FakePreviewService):
     """Decodes each file to a flat color driven by `fills`, so a mocked analysis
     function can derive deterministic, per-file bounds straight from the pixel data."""
