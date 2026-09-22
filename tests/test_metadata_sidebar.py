@@ -9,15 +9,17 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import sys
 
 from dataclasses import replace
+from unittest.mock import patch
 
 import piexif
 import pytest
-from PyQt6.QtWidgets import QApplication, QCheckBox, QLabel
+from PyQt6.QtWidgets import QApplication, QLabel, QScrollArea
 
 from conftest import FakeController
 from negpy.desktop.view.sidebar import metadata as metadata_module
 from negpy.desktop.view.sidebar.metadata import MetadataSidebar
-from negpy.features.metadata.gear_models import GearLibrary
+from negpy.desktop.view.widgets.collapsible import CollapsibleSection
+from negpy.features.metadata.gear_models import Camera, FilmStock, GearLibrary
 
 if not QApplication.instance():
     _app = QApplication(sys.argv)
@@ -34,6 +36,68 @@ def sidebar(monkeypatch) -> MetadataSidebar:
 def _set_metadata(sidebar: MetadataSidebar, **changes) -> None:
     state = sidebar.state
     state.config = replace(state.config, metadata=replace(state.config.metadata, **changes))
+
+
+@pytest.fixture
+def gear_sidebar(monkeypatch) -> MetadataSidebar:
+    library = GearLibrary(
+        cameras=[
+            Camera(id="cam-bundled", make="Leica", model="M6", is_bundled=True),
+            Camera(id="cam-mine", make="Pentax", model="K1000", is_bundled=False),
+        ]
+    )
+    monkeypatch.setattr(metadata_module.GearProfiles, "load_library", staticmethod(lambda: library))
+    monkeypatch.setattr(metadata_module.GearProfiles, "save_library", staticmethod(lambda _lib: None))
+    controller = FakeController()
+    controller.session.update_config = lambda config, **_kwargs: setattr(controller.state, "config", config)
+    return MetadataSidebar(controller)
+
+
+class TestGearCombos:
+    def test_camera_combo_defaults_to_personal_gear_only(self, gear_sidebar: MetadataSidebar) -> None:
+        ids = {item_id for _label, item_id, _search in gear_sidebar.camera_combo._entries}
+        assert ids == {"cam-mine", metadata_module.OTHER_ID}
+
+    def test_a_bundled_selection_made_before_the_filter_stays_visible(self, monkeypatch) -> None:
+        library = GearLibrary(cameras=[Camera(id="cam-bundled", make="Leica", model="M6", is_bundled=True)])
+        monkeypatch.setattr(metadata_module.GearProfiles, "load_library", staticmethod(lambda: library))
+        controller = FakeController()
+        controller.session.update_config = lambda config, **_kwargs: setattr(controller.state, "config", config)
+        controller.state.config = replace(
+            controller.state.config, metadata=replace(controller.state.config.metadata, camera_id="cam-bundled")
+        )
+        sidebar = MetadataSidebar(controller)
+        assert sidebar.camera_combo.selected_id() == "cam-bundled"
+        assert sidebar.camera_combo.line_edit().text() == "Leica M6"
+
+    def test_other_pick_clones_the_catalog_camera_into_personal_gear(self, gear_sidebar: MetadataSidebar) -> None:
+        cloned = Camera(id="cam-cloned", make="Leica", model="M6", is_bundled=False)
+        with patch.object(metadata_module, "resolve_other_gear_pick", return_value=cloned):
+            gear_sidebar.camera_combo._commit_id(metadata_module.OTHER_ID)
+
+        new_id = gear_sidebar.state.config.metadata.camera_id
+        assert new_id == "cam-cloned"
+        assert gear_sidebar.camera_combo.selected_id() == new_id
+        assert gear_sidebar.camera_combo.line_edit().text() == "Leica M6"
+
+    def test_other_pick_add_custom_starts_a_blank_personal_camera(self, gear_sidebar: MetadataSidebar) -> None:
+        custom = Camera(id="cam-custom", display_name="New Camera")
+        with patch.object(metadata_module, "resolve_other_gear_pick", return_value=custom):
+            gear_sidebar.camera_combo._commit_id(metadata_module.OTHER_ID)
+
+        new_id = gear_sidebar.state.config.metadata.camera_id
+        assert new_id == "cam-custom"
+        assert gear_sidebar.camera_combo.line_edit().text() == "New Camera"
+
+    def test_other_pick_cancelled_reverts_to_the_previous_selection(self, gear_sidebar: MetadataSidebar) -> None:
+        _set_metadata(gear_sidebar, camera_id="cam-mine")
+        gear_sidebar.sync_ui()
+
+        with patch.object(metadata_module, "resolve_other_gear_pick", return_value=None):
+            gear_sidebar.camera_combo._commit_id(metadata_module.OTHER_ID)
+
+        assert gear_sidebar.camera_combo.selected_id() == "cam-mine"
+        assert gear_sidebar.state.config.metadata.camera_id == "cam-mine"
 
 
 class TestCaptureDate:
@@ -172,24 +236,42 @@ class TestSourceGpsPrefill:
         assert seen["center"] is None
 
 
-class TestSyncCheckbox:
-    def test_sits_at_the_top_beside_protect_and_not_inside_a_card(self, sidebar: MetadataSidebar) -> None:
-        order = [sidebar.layout.indexOf(w) for w in (sidebar.protect_check, sidebar.sync_check)]
+class TestTabIdentity:
+    def test_header_and_scope_hint_lead_the_panel(self, sidebar: MetadataSidebar) -> None:
+        order = [sidebar.layout.indexOf(w) for w in (sidebar.tab_header, sidebar.metadata_scope_hint)]
         assert -1 not in order
-        assert order[0] < order[1] < sidebar.layout.indexOf(sidebar._metadata_controls)
-        assert sidebar._metadata_controls.findChildren(QCheckBox).count(sidebar.sync_check) == 0
+        assert order[0] < order[1]
 
-    def test_protect_disables_it(self, sidebar: MetadataSidebar) -> None:
-        """Protect mode ignores the panel's fields, so syncing them would mean nothing."""
-        sidebar._on_protect_toggled(True)
-        assert sidebar.sync_check.isEnabled() is False
-        sidebar._on_protect_toggled(False)
-        assert sidebar.sync_check.isEnabled() is True
 
-    def test_toggle_persists(self, sidebar: MetadataSidebar) -> None:
-        sidebar.sync_check.setChecked(True)
-        sidebar._persist_all_metadata_settings()
-        assert sidebar.state.config.metadata.sync_to_batch is True
+class TestPreviewPinning:
+    """The Preview stays visible above the per-frame cards, which scroll on their own."""
+
+    def test_preview_is_pinned_above_the_scrolling_cards(self, sidebar: MetadataSidebar) -> None:
+        assert sidebar.layout.indexOf(sidebar.preview_section) != -1
+        assert sidebar.layout.indexOf(sidebar._metadata_controls) == -1
+        assert isinstance(sidebar._metadata_scroll_area, QScrollArea)
+        assert sidebar._metadata_scroll_area.widget() is sidebar._metadata_controls
+        assert sidebar.layout.indexOf(sidebar.preview_section) < sidebar.layout.indexOf(sidebar._metadata_scroll_area)
+
+    def test_preview_is_a_sibling_of_the_scrolling_controls_area(self, sidebar: MetadataSidebar) -> None:
+        assert sidebar.preview_section not in sidebar._metadata_controls.findChildren(CollapsibleSection)
+
+
+class TestProtectGating:
+    """Protect Original Metadata is a checkbox on the Export tab, not here (it is an
+    export-time behavior, not metadata content), but this tab's own fields still
+    disable under it through the ordinary config sync."""
+
+    def test_protect_disables_this_tabs_fields(self, sidebar: MetadataSidebar) -> None:
+        assert sidebar._metadata_controls.isEnabled() is True
+
+        _set_metadata(sidebar, protect_original_metadata=True)
+        sidebar.sync_ui()
+        assert sidebar._metadata_controls.isEnabled() is False
+
+        _set_metadata(sidebar, protect_original_metadata=False)
+        sidebar.sync_ui()
+        assert sidebar._metadata_controls.isEnabled() is True
 
 
 class TestPlaceButtons:
@@ -249,3 +331,117 @@ class TestClearButtons:
         for action_id in ("metadata_clear_gear", "metadata_clear_process", "metadata_clear_scanning"):
             assert action_id in REGISTRY
             assert REGISTRY[action_id].default_key == ""
+
+
+class TestGearInferFromFolder:
+    def _sidebar_with_folder(self, monkeypatch, folder_name: str, **library_kwargs) -> MetadataSidebar:
+        library = GearLibrary(**library_kwargs)
+        monkeypatch.setattr(metadata_module.GearProfiles, "load_library", staticmethod(lambda: library))
+        controller = FakeController()
+        controller.session.update_config = lambda config, **_kwargs: setattr(controller.state, "config", config)
+        controller.state.uploaded_files = [{"path": f"/scans/{folder_name}/frame001.tif"}]
+        controller.state.selected_file_idx = 0
+        return MetadataSidebar(controller)
+
+    def test_infers_camera_and_film_stock_from_the_folder_name(self, monkeypatch) -> None:
+        sidebar = self._sidebar_with_folder(
+            monkeypatch,
+            "04_om1_Fuji400_Japon",
+            cameras=[Camera(id="c1", make="Olympus", model="OM-1")],
+            film_stocks=[FilmStock(id="f1", manufacturer="Fuji", stock_name="400")],
+        )
+        sidebar.gear_infer_btn.click()
+        meta = sidebar.state.config.metadata
+        assert meta.camera_id == "c1"
+        assert meta.film_stock_id == "f1"
+
+    def test_does_not_overwrite_an_already_set_camera(self, monkeypatch) -> None:
+        sidebar = self._sidebar_with_folder(
+            monkeypatch,
+            "04_om1_Fuji400_Japon",
+            cameras=[Camera(id="c1", make="Olympus", model="OM-1"), Camera(id="c2", make="Nikon", model="FM2")],
+            film_stocks=[FilmStock(id="f1", manufacturer="Fuji", stock_name="400")],
+        )
+        _set_metadata(sidebar, camera_id="c2")
+        sidebar.gear_infer_btn.click()
+        meta = sidebar.state.config.metadata
+        assert meta.camera_id == "c2"
+        assert meta.film_stock_id == "f1"
+
+    def test_no_match_shows_a_status_warning_and_changes_nothing(self, monkeypatch) -> None:
+        sidebar = self._sidebar_with_folder(
+            monkeypatch,
+            "unrelated_folder_name",
+            cameras=[Camera(id="c1", make="Olympus", model="OM-1")],
+        )
+        sidebar.gear_infer_btn.click()
+        assert sidebar.state.config.metadata.camera_id == ""
+        sidebar.controller.set_status.assert_called_once()
+
+    def test_no_open_file_shows_a_status_warning(self, monkeypatch) -> None:
+        library = GearLibrary()
+        monkeypatch.setattr(metadata_module.GearProfiles, "load_library", staticmethod(lambda: library))
+        controller = FakeController()
+        controller.session.update_config = lambda config, **_kwargs: setattr(controller.state, "config", config)
+        sidebar = MetadataSidebar(controller)
+
+        sidebar.gear_infer_btn.click()
+
+        sidebar.controller.set_status.assert_called_once()
+
+    def test_infers_iso_and_capture_date_from_the_folder_name(self, monkeypatch) -> None:
+        sidebar = self._sidebar_with_folder(monkeypatch, "06_scala_50_2024-05-12_vietnam")
+        sidebar.gear_infer_btn.click()
+        meta = sidebar.state.config.metadata
+        assert meta.film_iso == 50
+        assert meta.capture_date == "2024-05-12"
+
+    def test_does_not_overwrite_an_already_set_iso_or_capture_date(self, monkeypatch) -> None:
+        sidebar = self._sidebar_with_folder(monkeypatch, "06_scala_50_2024-05-12_vietnam")
+        _set_metadata(sidebar, film_iso=800, capture_date="1999-01-01")
+        sidebar.gear_infer_btn.click()
+        meta = sidebar.state.config.metadata
+        assert meta.film_iso == 800
+        assert meta.capture_date == "1999-01-01"
+
+    def test_iso_from_folder_stays_off_once_a_stock_matches(self, monkeypatch) -> None:
+        """A matched stock's own ISO reaches the frame through the gear pick, so the
+        standalone folder-name guess never overrides it."""
+        sidebar = self._sidebar_with_folder(
+            monkeypatch,
+            "05_penees_kodakgold200_tailandia",
+            film_stocks=[FilmStock(id="f1", manufacturer="Kodak", stock_name="Gold 200", iso=200)],
+        )
+        sidebar.gear_infer_btn.click()
+        meta = sidebar.state.config.metadata
+        assert meta.film_stock_id == "f1"
+        assert meta.film_iso == 200
+
+
+def _card_titled(sidebar: MetadataSidebar, title: str) -> CollapsibleSection:
+    for section in sidebar.findChildren(CollapsibleSection):
+        if section.title_label.text() == title:
+            return section
+    raise AssertionError(f"no card titled {title!r}")
+
+
+class TestFlatCards:
+    """Metadata Preview and Metadata Presets are always expanded, with no collapse chevron;
+    every other card on the tab keeps its chevron and default expanded state."""
+
+    def test_preview_and_presets_have_no_chevron_and_stay_expanded(self, sidebar: MetadataSidebar) -> None:
+        for title in ("Metadata Preview", "Metadata Presets"):
+            section = _card_titled(sidebar, title)
+            assert section.collapsible is False
+            assert section.chevron_label is None
+            assert section.content_area.isHidden() is False
+
+    def test_preview_header_click_does_not_collapse_it(self, sidebar: MetadataSidebar) -> None:
+        sidebar.preview_section.toggle_button.click()
+        assert sidebar.preview_section.content_area.isHidden() is False
+
+    def test_other_cards_stay_collapsible(self, sidebar: MetadataSidebar) -> None:
+        for title in ("Analog Gear", "Capture", "Process", "Scanning", "Exposure"):
+            section = _card_titled(sidebar, title)
+            assert section.collapsible is True
+            assert section.chevron_label is not None

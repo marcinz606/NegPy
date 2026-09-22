@@ -338,6 +338,9 @@ class ToneSidebar(BaseSidebar):
         self.controller.test_strip_changed.connect(self._sync_test_strip_btn)
         self.ch_btn_group.idToggled.connect(lambda _id, checked: self.sync_ui() if checked else None)
 
+        # White Point/Black Point live on ProcessConfig, not ExposureConfig like the rest of
+        # this panel, so they write to a different config section than the loop below.
+
         for slider, field in (
             (self.density_slider, "density"),
             (self.grade_slider, "grade"),
@@ -429,20 +432,18 @@ class ToneSidebar(BaseSidebar):
             self.paper_combo.setCurrentIndex(paper_idx if paper_idx >= 0 else 0)
             self.paper_combo.setVisible(mode != ProcessMode.E6)
 
-            # Transparency transfer (E-6, Normalize off): the render starts from the capture instead
-            # of printing it, so the paper model and the automatic grading that decides a look have
-            # nothing to act on. Density, Grade, Toe and Shoulder stay, because they drive the
-            # transfer curve (see features/exposure/transfer.py).
-            from negpy.features.exposure.transfer import is_transparency_transfer
+            # On the transfer path (an as-captured Slide, or any Positive frame) the render
+            # starts from the capture, so the paper model has nothing to act on. Density,
+            # Grade, Toe and Shoulder drive the transfer curve instead (exposure/transfer.py).
+            from negpy.features.exposure.transfer import is_transfer_path
 
-            transfer = is_transparency_transfer(mode, self.state.config.process.e6_normalize, conf.render_intent)
+            proc = self.state.config.process
+            transfer = is_transfer_path(mode, proc.e6_normalize, proc.positive_source, conf.render_intent)
             # Shadows and Highlights Density stay live on the transfer path: the curve implements
             # Zone Density with the print's own weights, and they are the only controls there that
             # open shadows without moving the whole scale. Split Grade does not, because it rotates
             # contrast about the same centres and the transfer curve has no per-zone slope to rotate.
             for w in (
-                self.auto_density_btn,
-                self.auto_grade_btn,
                 self.paper_dmin_btn,
                 self.paper_black_btn,
                 self.midtone_gamma_slider,
@@ -453,7 +454,12 @@ class ToneSidebar(BaseSidebar):
                 self.mask_spacer_slider,
             ):
                 w.setVisible(not transfer)
-
+            # Auto Density and Auto Grade meter the frame to pick a look, which a raw
+            # un-normalized slide exists to avoid for a deliberate exposure. A Positive
+            # frame has no such bracket to protect, so they run (transfer_auto_terms).
+            auto_hidden = transfer and not proc.positive_source
+            for w in (self.auto_density_btn, self.auto_grade_btn):
+                w.setVisible(not auto_hidden)
             # Per-layer trims are meaningless on a single-emulsion B&W paper.
             is_bw = mode == ProcessMode.BW
             if is_bw and self._channel_index() != 0:
@@ -508,7 +514,6 @@ class ToneSidebar(BaseSidebar):
 
             for btn, fields in self._channel_buttons:
                 btn.edited_dot.set_active(any(getattr(conf, f) != 0.0 for f in fields))
-
             self.density_slider.setValue(conf.density)
             self.grade_slider.setValue(conf.grade)
             self.toe_w_slider.setValue(conf.toe_width)

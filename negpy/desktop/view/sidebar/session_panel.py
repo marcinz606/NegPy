@@ -58,50 +58,30 @@ class SessionPanel(QWidget):
         self.library_tree = self.file_browser.library_tree
         layout.addWidget(self.file_browser, 1)
 
-        # Hidden until the user has a library: an empty section is just clutter.
-        self.file_browser.library_section.setVisible(bool(self.controller.library_roots()))
-
     def _connect_signals(self) -> None:
-        # The tree navigates and the film strip loads: browsing folders is free and stays with the
-        # tree, while the prompt and the frames belong to the strip.
-        self.library_tree.folders_activated.connect(self.file_browser.load_folders)
-        self.library_tree.folders_appended.connect(lambda paths: self.file_browser.load_folders(paths, add_to_session=True))
-        self.library_tree.roots_changed.connect(self._on_roots_changed)
+        self.library_tree.rolls_changed.connect(self._on_rolls_changed)
         self.file_browser.library_requested.connect(self.show_library)
-        self.file_browser.browse_requested.connect(self.library_tree.reveal)
         self.file_browser.sort_changed.connect(lambda: self.library_tree.set_sort(*self.file_browser.sort_choice()))
         self.controller.library_cleared.connect(self._on_library_cleared)
 
     def show_library(self, ask_if_unset: bool = True) -> None:
-        """Reveal the library's primary folder in the tree, asking for one if unset.
+        """Expand the library section, offering an import when there is no roll yet.
 
-        The panel's resting state: with nothing loaded there is nothing else to show,
-        and a list of rolls beats a blank sheet.
+        The section itself is always there, empty or not: it is where rolls arrive, so
+        hiding it hides the only route to a first one.
         """
-        primary = self.library_tree.primary_root()
-        if not primary:
-            if not ask_if_unset or not self.library_tree.add_root():
-                return
-            primary = self.library_tree.primary_root()
-        self.file_browser.library_section.setVisible(True)
+        if ask_if_unset and not self.controller.has_rolls():
+            self.library_tree.prompt_import_folder()
         self.file_browser.library_section.expand()
-        self.library_tree.reveal(primary)
 
-    def browse_parent(self) -> None:
-        """Alt+Up: move the tree's selection one folder up."""
-        self.library_tree.select_parent()
-
-    def _on_roots_changed(self) -> None:
-        # Folders moved or a root was added, so the cached walk describes a tree that no longer
-        # exists.
-        self.library_tree.reload()
+    def _on_rolls_changed(self) -> None:
+        # A roll was imported, renamed or deleted, so the cached search walk describes a
+        # library that no longer exists.
         self.controller.invalidate_library_walk()
-        if self.controller.library_roots():
-            self.file_browser.library_section.setVisible(True)
 
     def _on_library_cleared(self) -> None:
-        self._on_roots_changed()
-        self.file_browser.library_section.setVisible(False)
+        self.library_tree.reload()
+        self.controller.invalidate_library_walk()
 
     def toggle_library_tree(self) -> None:
         """Fold the folder section away, or bring it back."""

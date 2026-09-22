@@ -1,165 +1,148 @@
-from PyQt6.QtWidgets import (
-    QComboBox,
-    QHBoxLayout,
-    QInputDialog,
-)
+from typing import Optional
 
-from negpy.desktop.view.confirm import confirm_delete_named
+from PyQt6.QtWidgets import QHBoxLayout
+
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import section_subheader
-from negpy.features.process.models import invalidate_local_bounds
+from negpy.desktop.view.styles.templates import hint_label, section_subheader, set_hint_kind, wrap_tooltip
+from negpy.desktop.view.widgets.searchable_gear_combo import SearchableGearCombo
+from negpy.services.assets import rolls
+
+# Prefixes a roll's label once it has a saved baseline -- the field itself is the
+# "analyzed" indicator, so the search text ignores it (built from the plain name).
+_TICK = "✓ "
+
+# Batch Analysis is the action, Roll Baseline the field it fills; the Library's own
+# menu item runs the same action, so it reads these rather than restating them.
+BATCH_ANALYSIS_TOOLTIP = "Batch Analysis — measures every loaded frame's exposure and saves the average as this roll's baseline"
+BATCH_ANALYSIS_DISABLED_TOOLTIP = "Open this roll first — Batch Analysis measures the files currently loaded."
+FROM_FRAME_TOOLTIP = (
+    "Use This Frame — save the current frame's bounds as this roll's baseline, in place of a measured "
+    "average. Every frame on Use Luma/Color Average follows it, including one loaded later."
+)
+FROM_FRAME_DISABLED_TOOLTIP = "Open this roll first — the baseline is written onto the files currently loaded."
 
 
 class RollAnalysisSidebar(BaseSidebar):
     """
-    Roll-wide normalization: batch analysis, roll-average axes, saved rolls.
+    Which roll's Batch Analysis baseline this frame's Use Luma/Color Average axes
+    borrow: a searchable picker over every roll in your library, ticked once it has
+    one. Picking a roll loads its baseline immediately -- there is no separate Apply.
+    Reanalyze, beside the picker, runs Batch Analysis itself (the metering pass that
+    fills the tick in) -- the same action the Library's own "Batch Analysis" offers,
+    reachable here too since this is where you notice a roll has never been measured.
+    Use This Frame, beside it, writes the current frame's own bounds there instead, for
+    a roll that wants one chosen frame as its reference rather than an average. Both are
+    enabled only for the loaded roll, since both act on the files currently open, not on
+    whichever one this picker happens to show.
     """
 
     def _init_ui(self) -> None:
-        conf = self.state.config.process
-
-        self.layout.addWidget(section_subheader("BATCH"))
-
-        btns_row = QHBoxLayout()
-        self.analyze_roll_btn = self._labeled_action(
-            "fa5s.search", " Batch Analysis", "Scan every loaded file and compute a roll-wide average density and color balance baseline"
-        )
-
-        btns_row.addWidget(self.analyze_roll_btn)
-        self.layout.addLayout(btns_row)
-
-        avg_row = QHBoxLayout()
-        self.use_luma_avg_btn = self._small_toggle(
-            "mdi6.film",
-            "Use Luma Average",
-            conf.use_luma_average,
-            "Take the tonal-range (black/white-point) baseline from Batch Analysis; color still re-derives per frame",
-        )
-
-        self.use_color_avg_btn = self._small_toggle(
-            "mdi6.film",
-            "Use Color Average",
-            conf.use_color_average,
-            "Take the per-channel color-balance baseline from Batch Analysis; luma range still re-derives per frame",
-        )
-
-        avg_row.addWidget(self.use_luma_avg_btn)
-        avg_row.addWidget(self.use_color_avg_btn)
-        self.layout.addLayout(avg_row)
-
-        self.layout.addWidget(section_subheader("ROLL"))
-
-        self.roll_combo = QComboBox()
-        self.roll_combo.setPlaceholderText("Select Roll…")
-        self.roll_combo.setToolTip("Previously saved roll normalization baselines")
-        self._refresh_rolls()
+        self.layout.addWidget(section_subheader("ROLL BASELINE"))
+        self.roll_combo = SearchableGearCombo(placeholder="Search rolls…")
+        self.roll_combo.setToolTip(wrap_tooltip("Picking a roll loads its saved baseline onto the loaded files."))
         self.layout.addWidget(self.roll_combo)
 
-        roll_actions = QHBoxLayout()
-        self.load_roll_btn = self._labeled_action(
-            "fa5s.upload", " Load", "Apply the selected roll's bounds and balance to the current workspace"
-        )
-        self.save_roll_btn = self._labeled_action("fa5s.save", " Save", "Save the current Batch Analysis result as a named reusable roll")
-        self.delete_roll_btn = self._labeled_action("fa5s.trash", " Delete", "Remove the selected roll from the database")
+        row = QHBoxLayout()
+        self.reanalyze_btn = self._labeled_action("fa5s.tachometer-alt", " Reanalyze", BATCH_ANALYSIS_TOOLTIP)
+        self.from_frame_btn = self._labeled_action("fa5s.crosshairs", " Use This Frame", FROM_FRAME_TOOLTIP)
+        for btn in (self.reanalyze_btn, self.from_frame_btn):
+            row.addWidget(btn, 1)
+        self.layout.addLayout(row)
+        # Lock Bounds is adopted into this row (between the two) once ControlsPanel wires
+        # it in -- see insert_lock_button.
+        self._picker_row = row
 
-        roll_actions.addWidget(self.load_roll_btn)
-        roll_actions.addWidget(self.save_roll_btn)
-        roll_actions.addWidget(self.delete_roll_btn)
-        self.layout.addLayout(roll_actions)
+        self.roll_status_hint = hint_label("", "muted")
+        self.layout.addWidget(self.roll_status_hint)
 
+        self._roll_sync_key = None
+        self._refresh_rolls(force=True)
         self.layout.addStretch()
 
+    def insert_lock_button(self, lock_bounds_btn) -> None:
+        """Adopts ProcessSidebar's Lock Bounds toggle into the button row, between
+        Reanalyze and Use This Frame. Lock Bounds is specifically about this frame's
+        relationship to Batch Analysis, so it belongs beside the actions it exempts
+        the frame from."""
+        self._picker_row.insertWidget(1, lock_bounds_btn, 1)
+
     def _connect_signals(self) -> None:
-        self.analyze_roll_btn.clicked.connect(self.controller.request_batch_normalization)
-        self.use_luma_avg_btn.toggled.connect(self._on_use_luma_average_toggled)
-        self.use_color_avg_btn.toggled.connect(self._on_use_color_average_toggled)
-
-        self.load_roll_btn.clicked.connect(self._on_load_roll)
-        self.save_roll_btn.clicked.connect(self._on_save_roll)
-        self.delete_roll_btn.clicked.connect(self._on_delete_roll)
+        self.roll_combo.selection_changed.connect(self._on_roll_picked)
+        self.reanalyze_btn.clicked.connect(self.controller.request_batch_normalization)
+        self.from_frame_btn.clicked.connect(self._on_from_frame_clicked)
         self.sync_ui()
 
-    def _on_use_luma_average_toggled(self, checked: bool) -> None:
-        """Toggle the roll-wide luma (tonal-range) baseline for this axis only."""
-        self._toggle_roll_axis(use_luma_average=checked)
+    def _on_roll_picked(self, roll_id: str) -> None:
+        """Picking a roll is the whole action: it loads that roll's saved baseline
+        onto the currently loaded files. A no-op if it has never been analyzed."""
+        if roll_id:
+            self.controller.apply_normalization_roll(roll_id)
+        active_id = self.controller.state.active_roll_id
+        self._update_roll_status_hint(active_id, roll_id)
+        self._update_reanalyze_btn(active_id, roll_id)
 
-    def _on_use_color_average_toggled(self, checked: bool) -> None:
-        """Toggle the roll-wide color-balance baseline for this axis only."""
-        self._toggle_roll_axis(use_color_average=checked)
+    def _on_from_frame_clicked(self) -> None:
+        active_id = self.controller.state.active_roll_id
+        if active_id:
+            self.controller.set_roll_baseline_from_frame(active_id)
 
-    def _toggle_roll_axis(self, **axis: bool) -> None:
-        """
-        Flip one roll-average axis. The other axis re-derives per frame, so we clear
-        the cached local bounds to force a fresh analysis, and drop roll_name (the
-        baseline is no longer applied as a named whole).
-        """
-        self.update_config_section(
-            "process",
-            persist=True,
-            render=True,
-            roll_name=None,
-            **axis,
-            **invalidate_local_bounds(self.state.config.process),
-        )
-        self.sync_ui()
+    def _name_for_id(self, roll_id: str) -> str:
+        entry = rolls.roll_for_id(self.controller.session.repo, roll_id)
+        return entry["name"] if entry else roll_id
 
-    def _refresh_rolls(self) -> None:
+    def _refresh_rolls(self, *, force: bool = False) -> None:
         """
-        Populates roll dropdown from database.
+        Rebuilds the picker from every library roll, skipping a rebuild mid-search
+        (SearchableGearCombo.is_editing) and one the roll set and selection don't need.
+        The loaded roll is pinned first in the dropdown, ahead of the alphabetical
+        rest, since it is the default choice.
         """
-        current = self.roll_combo.currentText()
-        self.roll_combo.blockSignals(True)
-        self.roll_combo.clear()
-        rolls = self.controller.session.repo.list_normalization_rolls()
-        self.roll_combo.addItems(rolls)
-        if current in rolls:
-            self.roll_combo.setCurrentText(current)
+        if not force and self.roll_combo.is_editing():
+            return
+        repo = self.controller.session.repo
+        active_id = self.controller.state.active_roll_id
+        listed = rolls.all_rolls_sorted(repo)
+        analyzed = {rid for rid, _entry in listed if rolls.roll_normalization(repo, rid)}
+        conf = self.state.config.process
+        selected = active_id or ""
+        if conf.roll_name:
+            matching = next((rid for rid, entry in listed if entry.get("name") == conf.roll_name), None)
+            if matching:
+                selected = matching
+        key = (tuple(rid for rid, _entry in listed), tuple(sorted(analyzed)), selected, active_id)
+        if not force and key == self._roll_sync_key:
+            return
+        self._roll_sync_key = key
+        ordered = [pair for pair in listed if pair[0] == active_id] + [pair for pair in listed if pair[0] != active_id]
+        entries = [(f"{_TICK}{entry.get('name', '')}" if rid in analyzed else entry.get("name", ""), rid) for rid, entry in ordered]
+        self.roll_combo.set_labeled_items(entries, selected, search_fn=lambda _label, item_id: self._name_for_id(item_id))
+        self._update_roll_status_hint(active_id, selected)
+        self._update_reanalyze_btn(active_id, selected)
+
+    def _update_roll_status_hint(self, active_id: Optional[str], selected_id: str) -> None:
+        """Flags a baseline picked from a roll other than the one loaded."""
+        if active_id and selected_id and selected_id != active_id:
+            set_hint_kind(self.roll_status_hint, "warning")
+            self.roll_status_hint.setText(f"Using “{self._name_for_id(selected_id)}”, a baseline saved for a different roll")
         else:
-            self.roll_combo.setCurrentIndex(-1)
-        self.roll_combo.blockSignals(False)
+            self.roll_status_hint.setText("")
 
-    def _on_load_roll(self) -> None:
-        """
-        Applies selected roll to session.
-        """
-        name = self.roll_combo.currentText()
-        if name:
-            self.controller.apply_normalization_roll(name)
-
-    def _on_save_roll(self) -> None:
-        """
-        Prompts user for name and saves current normalization.
-        """
-        name, ok = QInputDialog.getText(self, "Save Roll", "Enter name for this roll:")
-        if ok and name:
-            self.controller.save_current_normalization_as_roll(name)
-            self._refresh_rolls()
-            self.roll_combo.setCurrentText(name)
-
-    def _on_delete_roll(self) -> None:
-        """
-        Removes selected roll from DB.
-        """
-        name = self.roll_combo.currentText()
-        if name and confirm_delete_named(
-            self,
-            "Roll",
-            name,
-            informative="The frames keep their current look; only the saved roll baseline goes.",
+    def _update_reanalyze_btn(self, active_id: Optional[str], selected_id: str) -> None:
+        """Both ways of filling a baseline write onto the loaded roll, same as the
+        Library's own "Batch Analysis" -- grayed out otherwise, with the same
+        explanation."""
+        is_active = bool(selected_id) and selected_id == active_id
+        for btn, on, off in (
+            (self.reanalyze_btn, BATCH_ANALYSIS_TOOLTIP, BATCH_ANALYSIS_DISABLED_TOOLTIP),
+            (self.from_frame_btn, FROM_FRAME_TOOLTIP, FROM_FRAME_DISABLED_TOOLTIP),
         ):
-            self.controller.session.repo.delete_normalization_roll(name)
-            self._refresh_rolls()
+            btn.setEnabled(is_active)
+            btn.setToolTip(wrap_tooltip(on if is_active else off))
 
     def sync_ui(self) -> None:
-        conf = self.state.config.process
         self.block_signals(True)
         try:
-            self.use_luma_avg_btn.setChecked(conf.use_luma_average)
-            self.use_color_avg_btn.setChecked(conf.use_color_average)
-
             self._refresh_rolls()
-            if conf.roll_name:
-                self.roll_combo.setCurrentText(conf.roll_name)
         finally:
             self.block_signals(False)
 
@@ -167,14 +150,4 @@ class RollAnalysisSidebar(BaseSidebar):
         """
         Helper to block/unblock all buttons.
         """
-        widgets = [
-            self.analyze_roll_btn,
-            self.use_luma_avg_btn,
-            self.use_color_avg_btn,
-            self.roll_combo,
-            self.load_roll_btn,
-            self.save_roll_btn,
-            self.delete_roll_btn,
-        ]
-        for w in widgets:
-            w.blockSignals(blocked)
+        self.roll_combo.blockSignals(blocked)

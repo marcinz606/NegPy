@@ -18,7 +18,7 @@ from conftest import FakeController
 from negpy.desktop.settings_catalog import CATALOG, apply_selected_fields, preset_config, rows_for_keys, selected_flat_dict
 from negpy.desktop.view.sidebar import metadata as metadata_module
 from negpy.desktop.view.sidebar.metadata import MetadataSidebar
-from negpy.desktop.view.widgets.gear_library_dialog import GearLibraryDialog
+from negpy.desktop.view.widgets.gear_library_panel import GearLibraryPanel
 from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.metadata.gear_models import Camera, DevelopmentProcess, FilmFormat, FilmStock, GearLibrary, ScanSetup
@@ -106,8 +106,8 @@ def qapp_dialog_library(monkeypatch, tmp_path):
     library = GearLibrary(
         processes=[DevelopmentProcess(id="p1", display_name="D-76", developer="D-76", time_seconds=570, temperature_c=20.0)]
     )
-    dialog = GearLibraryDialog(library)
-    dialog._select_category("processes")
+    dialog = GearLibraryPanel(library)
+    dialog.items._select_category("processes")
     return dialog, library
 
 
@@ -153,10 +153,9 @@ def test_manage_saves_the_current_frame_as_a_preset(sidebar: MetadataSidebar) ->
     dlg.exec.return_value = QDialog.DialogCode.Accepted
     dlg.name.return_value = "Dev only"
     dlg.selected.return_value = [r for r in _metadata_rows() if r.label == "Process"]
-    library = GearLibraryDialog(GearLibrary(), current_config=state.config)
-    library._select_category("metadata_presets")
-    with patch("negpy.desktop.view.widgets.gear_library_dialog.GranularSettingsDialog", return_value=dlg):
-        library._add_item()
+    library = GearLibraryPanel(GearLibrary(), current_config_fn=lambda: state.config)
+    with patch("negpy.desktop.view.widgets.gear_library_panel.GranularSettingsDialog", return_value=dlg):
+        library.presets._add_item()
 
     assert MetadataPresets.load_preset("Dev only") == {
         "developer": "D-76",
@@ -180,14 +179,13 @@ def test_manage_edit_renames_and_keeps_values() -> None:
             "process_id": "",
         },
     )
-    library = GearLibraryDialog(GearLibrary())
-    library._select_category("metadata_presets")
+    library = GearLibraryPanel(GearLibrary())
     dlg = MagicMock()
     dlg.exec.return_value = QDialog.DialogCode.Accepted
     dlg.name.return_value = "New"
     dlg.selected.return_value = [r for r in _metadata_rows() if r.label == "Process"]
-    with patch("negpy.desktop.view.widgets.gear_library_dialog.GranularSettingsDialog", return_value=dlg):
-        library._edit_preset()
+    with patch("negpy.desktop.view.widgets.gear_library_panel.GranularSettingsDialog", return_value=dlg):
+        library.presets._edit_preset()
 
     assert MetadataPresets.list_presets() == ["New"]
     assert MetadataPresets.load_preset("New") == {
@@ -202,19 +200,17 @@ def test_manage_edit_renames_and_keeps_values() -> None:
 
 def test_manage_lists_presets_and_shows_the_selected_one() -> None:
     MetadataPresets.save_preset("HP5", {"developer": "D-76 1+1", "push_pull": 1, "scanning": "DSLR copy-stand"})
-    library = GearLibraryDialog(GearLibrary())
-    library._select_category("metadata_presets")
+    library = GearLibraryPanel(GearLibrary())
 
-    assert [library.item_list.item(i).text() for i in range(library.item_list.count())] == ["HP5"]
-    assert library.preset_name_label.text() == "HP5"
+    assert [library.presets.item_list.item(i).text() for i in range(library.presets.item_list.count())] == ["HP5"]
+    assert library.presets.preset_name_label.text() == "HP5"
     # Stored rows with an editor are shown as fields, filled with the preset's own values.
-    assert library.preset_developer_edit.text() == "D-76 1+1"
-    assert library.preset_developer_edit.isVisibleTo(library.preset_panel)
-    assert library.preset_scanning_edit.text() == "DSLR copy-stand"
-    assert library.preset_push_combo.currentText() == "Push +1"
+    assert library.presets.preset_developer_edit.text() == "D-76 1+1"
+    assert library.presets.preset_developer_edit.isVisibleTo(library.presets.preset_panel)
+    assert library.presets.preset_scanning_edit.text() == "DSLR copy-stand"
+    assert library.presets.preset_push_combo.currentText() == "Push +1"
     # Rows it does not store stay hidden.
-    assert not library.preset_roll_edit.isVisibleTo(library.preset_panel)
-    assert library.form_panel.isVisible() is False
+    assert not library.presets.preset_roll_edit.isVisibleTo(library.presets.preset_panel)
 
 
 def test_preset_fields_reach_other_frames_unchanged():
@@ -516,21 +512,21 @@ class TestReviewFixes:
     def test_library_editor_keeps_a_value_while_the_time_is_half_typed(self, qapp_dialog_library):
         dialog, library = qapp_dialog_library
 
-        dialog.dev_time_edit.setText("9:")
+        dialog.items.dev_time_edit.setText("9:")
         assert library.processes[0].time_seconds == 570
-        assert dialog.dev_time_edit.styleSheet() != ""
+        assert dialog.items.dev_time_edit.styleSheet() != ""
 
-        dialog.dev_time_edit.setText("11:15")
+        dialog.items.dev_time_edit.setText("11:15")
         assert library.processes[0].time_seconds == 675
-        assert dialog.dev_time_edit.styleSheet() == ""
+        assert dialog.items.dev_time_edit.styleSheet() == ""
 
     def test_library_editor_treats_blank_as_an_explicit_clear(self, qapp_dialog_library):
         dialog, library = qapp_dialog_library
 
-        dialog.dev_time_edit.setText("")
+        dialog.items.dev_time_edit.setText("")
 
         assert library.processes[0].time_seconds is None
-        assert dialog.dev_time_edit.styleSheet() == ""
+        assert dialog.items.dev_time_edit.styleSheet() == ""
 
     def test_load_action_is_registered_and_dispatches(self):
         assert "metadata_preset_load" in REGISTRY
@@ -595,9 +591,9 @@ class TestPresetNotes:
     def test_manage_pane_edits_notes_in_place(self, qapp_dialog_library):
         dialog, _library = qapp_dialog_library
         MetadataPresets.save_preset("HP5", {"developer": "D-76"})
-        dialog._select_category("metadata_presets")
+        dialog.presets._rebuild_item_list(select_id="HP5")
 
-        dialog.preset_notes_edit.setText("stand development")
+        dialog.presets.preset_notes_edit.setText("stand development")
 
         assert preset_notes(MetadataPresets.load_preset("HP5")) == "stand development"
         assert MetadataPresets.load_preset("HP5")["developer"] == "D-76"
@@ -605,13 +601,13 @@ class TestPresetNotes:
     def test_changing_which_fields_a_preset_stores_keeps_its_notes(self, qapp_dialog_library):
         dialog, _library = qapp_dialog_library
         MetadataPresets.save_preset("HP5", with_preset_notes({"developer": "D-76"}, "keep me"))
-        dialog._select_category("metadata_presets")
+        dialog.presets._rebuild_item_list(select_id="HP5")
         dlg = MagicMock()
         dlg.exec.return_value = QDialog.DialogCode.Accepted
         dlg.name.return_value = "HP5"
         dlg.selected.return_value = [r for r in _metadata_rows() if r.label == "Process"]
-        with patch("negpy.desktop.view.widgets.gear_library_dialog.GranularSettingsDialog", return_value=dlg):
-            dialog._edit_preset()
+        with patch("negpy.desktop.view.widgets.gear_library_panel.GranularSettingsDialog", return_value=dlg):
+            dialog.presets._edit_preset()
 
         assert preset_notes(MetadataPresets.load_preset("HP5")) == "keep me"
 
@@ -621,7 +617,7 @@ class TestSecondReviewRound:
         dialog, _library = qapp_dialog_library
         # push_pull 0 is the default, and storing it deliberately means "develop normally".
         MetadataPresets.save_preset("Normal dev", {"developer": "D-76", "push_pull": 0, "process_id": ""})
-        dialog._select_category("metadata_presets")
+        dialog.presets._rebuild_item_list(select_id="Normal dev")
 
         captured = {}
 
@@ -631,8 +627,8 @@ class TestSecondReviewRound:
             dlg.exec = lambda: QDialog.DialogCode.Accepted
             return dlg
 
-        with patch("negpy.desktop.view.widgets.gear_library_dialog.GranularSettingsDialog", _capture):
-            dialog._edit_preset()
+        with patch("negpy.desktop.view.widgets.gear_library_panel.GranularSettingsDialog", _capture):
+            dialog.presets._edit_preset()
 
         assert "Process" in [r.label for r in captured["dlg"].selected()]
         assert captured["dlg"]._show_unchanged.isChecked(), "editing lists every row, not only edited ones"
@@ -662,27 +658,6 @@ class TestSecondReviewRound:
         sidebar._persist_all_metadata_settings()
 
         assert sidebar.state.config.metadata.process_temperature_c is None
-
-    def test_manage_sees_edits_the_debounce_has_not_written_yet(self, sidebar: MetadataSidebar) -> None:
-        sidebar.developer_edit.setText("Rodinal 1+50")
-        assert sidebar.state.config.metadata.developer != "Rodinal 1+50"  # still pending
-
-        opened = {}
-
-        class _Dialog:
-            def __init__(self, _library, parent=None, current_config=None):
-                opened["config"] = current_config
-                self.library_changed = MagicMock()
-                self.presets_changed = MagicMock()
-
-            def exec(self):
-                return 0
-
-        with patch("negpy.desktop.view.sidebar.metadata.GearLibraryDialog", _Dialog):
-            sidebar._open_gear_library()
-
-        assert opened["config"].metadata.developer == "Rodinal 1+50"
-        assert sidebar.update_timer.isActive() is False
 
     def test_migration_will_not_overwrite_a_name_differing_only_in_case(self, monkeypatch, tmp_path):
         monkeypatch.setattr(APP_CONFIG, "gear_dir", str(tmp_path / "gear"))
@@ -757,19 +732,18 @@ class TestPresetNames:
         dialog, _library = qapp_dialog_library
         MetadataPresets.save_preset("Source", {"developer": "D-76"})
         MetadataPresets.save_preset("Existing", {"scanning": "Flextight"})
-        dialog._select_category("metadata_presets")
-        dialog.item_list.setCurrentRow([dialog._item_label(i) for i in dialog._list_items].index("Source"))
+        dialog.presets._rebuild_item_list(select_id="Source")
 
         dlg = MagicMock()
         dlg.exec.return_value = QDialog.DialogCode.Accepted
         dlg.name.return_value = "Existing"
         dlg.selected.return_value = [r for r in _metadata_rows() if r.label == "Process"]
         monkeypatch.setattr(
-            "negpy.desktop.view.widgets.gear_library_dialog.QMessageBox.question",
+            "negpy.desktop.view.widgets.gear_library_panel.QMessageBox.question",
             lambda *_a, **_k: QMessageBox.StandardButton.No,
         )
-        with patch("negpy.desktop.view.widgets.gear_library_dialog.GranularSettingsDialog", return_value=dlg):
-            dialog._edit_preset()
+        with patch("negpy.desktop.view.widgets.gear_library_panel.GranularSettingsDialog", return_value=dlg):
+            dialog.presets._edit_preset()
 
         # Declined: both presets survive untouched.
         assert sorted(MetadataPresets.list_presets()) == ["Existing", "Source"]
@@ -801,20 +775,19 @@ class TestEditingPresetValuesInTheLibrary:
             film_stocks=[FilmStock(id="f1", manufacturer="Ilford", stock_name="HP5+", iso=400, format=FilmFormat.FORMAT_120)],
             processes=[DevelopmentProcess(id="p1", display_name="HC-110 B", developer="HC-110", dilution="1+31", time_seconds=390)],
         )
-        dlg = GearLibraryDialog(library)
+        dlg = GearLibraryPanel(library)
         return dlg, library
 
     def _select(self, dlg, name):
-        dlg._select_category("metadata_presets")
-        dlg.item_list.setCurrentRow([dlg._item_label(i) for i in dlg._list_items].index(name))
+        dlg.presets._rebuild_item_list(select_id=name)
 
     def test_swapping_the_camera_rewrites_the_resolved_values(self, dialog):
         dlg, _library = dialog
         MetadataPresets.save_preset("Kit", selected_flat_dict(WorkspaceConfig(), [r for r in _metadata_rows() if r.label == "Gear"]))
         self._select(dlg, "Kit")
 
-        dlg.preset_camera_combo.set_selected_id("c2")
-        dlg._on_preset_gear_changed()
+        dlg.presets.preset_camera_combo.set_selected_id("c2")
+        dlg.presets._on_preset_gear_changed()
 
         stored = MetadataPresets.load_preset("Kit")
         assert stored["camera_id"] == "c2"
@@ -826,8 +799,8 @@ class TestEditingPresetValuesInTheLibrary:
         MetadataPresets.save_preset("Kit", selected_flat_dict(WorkspaceConfig(), [r for r in _metadata_rows() if r.label == "Gear"]))
         self._select(dlg, "Kit")
 
-        dlg.preset_film_combo.set_selected_id("f1")
-        dlg._on_preset_gear_changed()
+        dlg.presets.preset_film_combo.set_selected_id("f1")
+        dlg.presets._on_preset_gear_changed()
 
         stored = MetadataPresets.load_preset("Kit")
         assert stored["film"] == "Ilford HP5+"
@@ -839,8 +812,8 @@ class TestEditingPresetValuesInTheLibrary:
         MetadataPresets.save_preset("Dev", selected_flat_dict(WorkspaceConfig(), [r for r in _metadata_rows() if r.label == "Process"]))
         self._select(dlg, "Dev")
 
-        dlg.preset_process_combo.set_selected_id("p1")
-        dlg._on_preset_process_picked()
+        dlg.presets.preset_process_combo.set_selected_id("p1")
+        dlg.presets._on_preset_process_picked()
 
         stored = MetadataPresets.load_preset("Dev")
         assert (stored["developer"], stored["process_dilution"]) == ("HC-110", "1+31")
@@ -862,7 +835,7 @@ class TestEditingPresetValuesInTheLibrary:
         )
         self._select(dlg, "Dev")
 
-        dlg.preset_developer_edit.setText("Rodinal")
+        dlg.presets.preset_developer_edit.setText("Rodinal")
 
         stored = MetadataPresets.load_preset("Dev")
         assert stored["developer"] == "Rodinal"
@@ -873,7 +846,7 @@ class TestEditingPresetValuesInTheLibrary:
         MetadataPresets.save_preset("Dev", {"developer": "HC-110", "push_pull": 0, "process_id": ""})
         self._select(dlg, "Dev")
 
-        dlg.preset_developer_edit.setText("Rodinal")
+        dlg.presets.preset_developer_edit.setText("Rodinal")
 
         stored = MetadataPresets.load_preset("Dev")
         assert stored["developer"] == "Rodinal"
@@ -895,10 +868,58 @@ class TestEditingPresetValuesInTheLibrary:
         )
         self._select(dlg, "Dev")
 
-        dlg.preset_time_edit.setText("6:")
+        dlg.presets.preset_time_edit.setText("6:")
 
         assert MetadataPresets.load_preset("Dev")["process_time_seconds"] == 390
-        assert dlg.preset_time_edit.styleSheet() != ""
+        assert dlg.presets.preset_time_edit.styleSheet() != ""
+
+
+class TestPresetGearCombosDefaultToOwnGear:
+    """Same mine-vs-catalog default as the Metadata tab's own combos, since this form
+    edits the same camera_id / lens_id / ... fields."""
+
+    @pytest.fixture
+    def dialog(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(APP_CONFIG, "gear_dir", str(tmp_path / "gear"))
+        library = GearLibrary(
+            cameras=[
+                Camera(id="c-bundled", make="Leica", model="M6", is_bundled=True),
+                Camera(id="c-mine", make="Nikon", model="FM2", is_bundled=False),
+            ]
+        )
+        dlg = GearLibraryPanel(library)
+        MetadataPresets.save_preset("Kit", selected_flat_dict(WorkspaceConfig(), [r for r in _metadata_rows() if r.label == "Gear"]))
+        dlg.presets._rebuild_item_list(select_id="Kit")
+        return dlg, library
+
+    def test_camera_combo_defaults_to_personal_gear_only(self, dialog):
+        dlg, _library = dialog
+        from negpy.desktop.view.widgets.gear_library_panel import OTHER_ID
+
+        ids = {item_id for _label, item_id, _search in dlg.presets.preset_camera_combo._entries}
+        assert ids == {"c-mine", OTHER_ID}
+
+    def test_other_pick_clones_the_catalog_camera_and_writes_through(self, dialog):
+        dlg, _library = dialog
+        from negpy.desktop.view.widgets.gear_library_panel import OTHER_ID
+
+        cloned = Camera(id="c-cloned", make="Leica", model="M6", is_bundled=False)
+        with patch("negpy.desktop.view.widgets.gear_library_panel.resolve_other_gear_pick", return_value=cloned):
+            dlg.presets.preset_camera_combo._commit_id(OTHER_ID)
+
+        stored = MetadataPresets.load_preset("Kit")
+        assert stored["camera_id"] == "c-cloned"
+        assert stored["camera_make"] == "Leica"
+        assert any(c.id == "c-cloned" for c in _library.cameras)
+
+    def test_other_pick_cancelled_reverts_to_no_selection(self, dialog):
+        dlg, _library = dialog
+        from negpy.desktop.view.widgets.gear_library_panel import OTHER_ID
+
+        with patch("negpy.desktop.view.widgets.gear_library_panel.resolve_other_gear_pick", return_value=None):
+            dlg.presets.preset_camera_combo._commit_id(OTHER_ID)
+
+        assert dlg.presets.preset_camera_combo.selected_id() == ""
 
 
 class TestMigrationNaming:
@@ -979,12 +1000,11 @@ class TestUnsetFormat:
         MetadataPresets.save_preset("Body only", selected_flat_dict(WorkspaceConfig(), gear_row))
         assert MetadataPresets.load_preset("Body only")["format"] == ""
 
-        dlg = GearLibraryDialog(GearLibrary(cameras=[Camera(id="c1", make="Nikon", model="FM2")]))
-        dlg._select_category("metadata_presets")
-        dlg.item_list.setCurrentRow([dlg._item_label(i) for i in dlg._list_items].index("Body only"))
+        dlg = GearLibraryPanel(GearLibrary(cameras=[Camera(id="c1", make="Nikon", model="FM2")]))
+        dlg.presets._rebuild_item_list(select_id="Body only")
 
-        assert dlg.preset_format_combo.currentText() != "Other"
-        dlg._on_preset_value_changed()
+        assert dlg.presets.preset_format_combo.currentText() != "Other"
+        dlg.presets._on_preset_value_changed()
 
         assert MetadataPresets.load_preset("Body only")["format"] == ""
 
@@ -1012,8 +1032,7 @@ class TestNewPresetWindow:
         monkeypatch.setattr(APP_CONFIG, "gear_dir", str(tmp_path / "gear"))
         base = WorkspaceConfig()
         cfg = replace(base, metadata=replace(base.metadata, developer="D-76"))
-        library = GearLibraryDialog(GearLibrary(), current_config=cfg)
-        library._select_category("metadata_presets")
+        library = GearLibraryPanel(GearLibrary(), current_config_fn=lambda: cfg)
 
         captured = {}
 
@@ -1023,10 +1042,93 @@ class TestNewPresetWindow:
             dlg.exec = lambda: QDialog.DialogCode.Rejected
             return dlg
 
-        with patch("negpy.desktop.view.widgets.gear_library_dialog.GranularSettingsDialog", _capture):
-            library._add_item()
+        with patch("negpy.desktop.view.widgets.gear_library_panel.GranularSettingsDialog", _capture):
+            library.presets._add_item()
 
         dlg = captured["dlg"]
         assert dlg._show_unchanged.isChecked(), "the new-preset window lists every row"
         # Revealed, not ticked: only what the frame actually sets arrives selected.
         assert [r.label for r in dlg.selected()] == ["Process"]
+
+
+class TestItemsPresetsSplit:
+    """The Gear tab's My Gear/Presets sections, and what each side does and does not have."""
+
+    def _panel(self, monkeypatch, tmp_path, **kwargs):
+        monkeypatch.setattr(APP_CONFIG, "gear_dir", str(tmp_path / "gear"))
+        return GearLibraryPanel(GearLibrary(), **kwargs)
+
+    def test_both_sections_start_expanded(self, monkeypatch, tmp_path):
+        panel = self._panel(monkeypatch, tmp_path)
+
+        assert panel._sections["items"].content_area.isVisibleTo(panel) is True
+        assert panel._sections["presets"].content_area.isVisibleTo(panel) is True
+
+    def test_collapsing_one_section_leaves_the_other_open(self, monkeypatch, tmp_path):
+        panel = self._panel(monkeypatch, tmp_path)
+
+        panel._sections["items"].toggle_button.setChecked(False)
+
+        assert panel._sections["items"].content_area.isVisibleTo(panel) is False
+        assert panel._sections["presets"].content_area.isVisibleTo(panel) is True
+
+    def test_items_category_picker_has_no_presets_entry(self, monkeypatch, tmp_path):
+        panel = self._panel(monkeypatch, tmp_path)
+
+        categories = [panel.items.category_list.itemData(i) for i in range(panel.items.category_list.count())]
+        assert categories == ["cameras", "lenses", "film_stocks", "processes", "scan_setups"]
+
+    def test_presets_has_no_category_picker_or_catalog_toggle(self, monkeypatch, tmp_path):
+        panel = self._panel(monkeypatch, tmp_path)
+
+        assert not hasattr(panel.presets, "category_list")
+        assert not hasattr(panel.presets, "show_catalog_btn")
+
+    def test_catalog_toggle_is_items_only(self, monkeypatch, tmp_path):
+        panel = self._panel(monkeypatch, tmp_path)
+
+        assert hasattr(panel.items, "show_catalog_btn")
+        assert not hasattr(panel.presets, "show_catalog_btn")
+
+    def test_personal_gear_added_on_items_reaches_an_open_presets_combo(self, monkeypatch, tmp_path):
+        panel = self._panel(monkeypatch, tmp_path)
+        MetadataPresets.save_preset("Kit", {})
+        panel.presets._rebuild_item_list(select_id="Kit")
+
+        panel.items._add_custom_item()
+        added = panel.items._current_items()[-1]
+
+        ids = {item_id for _label, item_id, _search in panel.presets.preset_camera_combo._entries}
+        assert added.id in ids
+
+    def test_show_section_by_key_expands_a_collapsed_section(self, monkeypatch, tmp_path):
+        panel = self._panel(monkeypatch, tmp_path)
+        panel._sections["presets"].toggle_button.setChecked(False)
+
+        panel.show_section_by_key("presets")
+
+        assert panel._sections["presets"].content_area.isVisibleTo(panel) is True
+
+    def test_show_section_by_key_ignores_an_unknown_key(self, monkeypatch, tmp_path):
+        panel = self._panel(monkeypatch, tmp_path)
+
+        panel.show_section_by_key("bogus")
+
+        assert panel._sections["items"].content_area.isVisibleTo(panel) is True
+
+    def test_section_tooltips_carry_their_bound_shortcut(self, monkeypatch, tmp_path):
+        # A bare, unmodified key: Ctrl/Shift combos render as platform symbols (e.g. macOS
+        # shows ⇧⌘ glyphs), which a literal string match can't see through.
+        import negpy.desktop.view.shortcut_registry as registry
+
+        panel = self._panel(monkeypatch, tmp_path)
+        monkeypatch.setattr(
+            registry,
+            "key_for",
+            lambda action_id, bindings=None: "G" if action_id == "tab_gear_items" else "",
+        )
+
+        panel.apply_shortcut_tooltips()
+
+        assert "G" in panel._sections["items"].toggle_button.toolTip()
+        assert "G" not in panel._sections["presets"].toggle_button.toolTip()

@@ -196,8 +196,8 @@ class ExportConfig:
     # When True, exports overwrite existing files silently. When False, the export prompts
     # (Overwrite / Rename / Cancel) before clobbering anything.
     overwrite: bool = False
-    output_mode: ExportPresetOutputMode = ExportPresetOutputMode.ABSOLUTE
-    output_subfolder: str = ""
+    output_mode: ExportPresetOutputMode = ExportPresetOutputMode.SUBFOLDER_OF_SOURCE
+    output_subfolder: str = "export"
     icc_input_path: Optional[str] = None
     icc_output_path: Optional[str] = None
 
@@ -399,7 +399,7 @@ class WorkspaceConfig:
         unclipped exposure.
 
         Held here rather than at the render, because both fields are read from
-        `is_transparency_transfer`/the decode down through both engines and the sidebars,
+        `is_transfer_path`/the decode down through both engines and the sidebars,
         and a rule applied at some of those is the hidden-but-live trap the Calibration
         panel already learned. Inert everywhere, from one place.
 

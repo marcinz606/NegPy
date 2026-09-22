@@ -1,4 +1,7 @@
 import unittest
+from unittest.mock import patch
+
+from PyQt6.QtWidgets import QDialog
 
 from negpy.desktop.view.widgets.preferences_dialog import NUMBER_ROWS, PreferencesDialog, default_for
 from tests.conftest import FakeController, FakeRepo
@@ -49,6 +52,22 @@ class TestPreferencesDialog(unittest.TestCase):
         dlg.session.set_immersive_canvas.assert_called_once()
         dlg.session.set_sticky_zoom.assert_called_once()
 
+    def test_sticky_settings_box_reflects_state_and_toggles_through_the_session(self):
+        dlg = _dlg()
+        self.assertTrue(dlg.sticky_settings_box.isChecked())
+        self.assertTrue(dlg._persistent_settings_button.isEnabled())
+
+        dlg.sticky_settings_box.setChecked(False)
+        dlg.session.set_sticky_settings_enabled.assert_called_once_with(False)
+        self.assertFalse(dlg._persistent_settings_button.isEnabled())
+
+    def test_sticky_settings_box_opens_unchecked_when_disabled(self):
+        controller = FakeController(FakeRepo())
+        controller.session.state.sticky_settings_enabled = False
+        dlg = PreferencesDialog(controller, None)
+        self.assertFalse(dlg.sticky_settings_box.isChecked())
+        self.assertFalse(dlg._persistent_settings_button.isEnabled())
+
     def test_the_cache_limit_is_shown_in_mb_and_stored_in_bytes(self):
         dlg = _dlg()
         dlg._spins["preview_cache_max_bytes"].setValue(256)
@@ -58,6 +77,39 @@ class TestPreferencesDialog(unittest.TestCase):
         dlg = _dlg()
         dlg._spins["render_memo_max_entries"].setValue(12)
         self.assertEqual(dlg.repo.data["render_memo_max_entries"], 12)
+
+    def test_semantic_search_box_reflects_state(self):
+        controller = FakeController(FakeRepo())
+        controller.session.state.semantic_search_enabled = True
+        with patch("negpy.desktop.view.widgets.preferences_dialog.semantic_model.clip_model_ready", return_value=True):
+            dlg = PreferencesDialog(controller, None)
+        self.assertTrue(dlg.semantic_box.isChecked())
+
+    def test_turning_it_on_with_the_model_ready_skips_the_download_dialog(self):
+        with patch("negpy.desktop.view.widgets.preferences_dialog.semantic_model.clip_model_ready", return_value=True):
+            dlg = _dlg()
+            with patch("negpy.desktop.view.widgets.preferences_dialog.ClipDownloadDialog") as dialog_cls:
+                dlg.semantic_box.setChecked(True)
+        dialog_cls.assert_not_called()
+        dlg.session.set_semantic_search_enabled.assert_called_once_with(True)
+
+    def test_turning_it_on_without_the_model_prompts_a_download(self):
+        with patch("negpy.desktop.view.widgets.preferences_dialog.semantic_model.clip_model_ready", return_value=False):
+            dlg = _dlg()
+            with patch("negpy.desktop.view.widgets.preferences_dialog.ClipDownloadDialog") as dialog_cls:
+                dialog_cls.return_value.exec.return_value = QDialog.DialogCode.Accepted
+                dlg.semantic_box.setChecked(True)
+        dialog_cls.return_value.exec.assert_called_once_with()
+        dlg.session.set_semantic_search_enabled.assert_called_once_with(True)
+
+    def test_cancelling_the_download_leaves_the_box_unchecked_and_the_preference_off(self):
+        with patch("negpy.desktop.view.widgets.preferences_dialog.semantic_model.clip_model_ready", return_value=False):
+            dlg = _dlg()
+            with patch("negpy.desktop.view.widgets.preferences_dialog.ClipDownloadDialog") as dialog_cls:
+                dialog_cls.return_value.exec.return_value = QDialog.DialogCode.Rejected
+                dlg.semantic_box.setChecked(True)
+        self.assertFalse(dlg.semantic_box.isChecked())
+        dlg.session.set_semantic_search_enabled.assert_not_called()
 
     def test_the_restart_hint_waits_for_a_startup_change(self):
         dlg = _dlg()

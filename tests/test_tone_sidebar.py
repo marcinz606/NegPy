@@ -10,6 +10,18 @@ def _combo_items(combo):
     return [(combo.itemText(i), combo.itemData(i)) for i in range(combo.count())]
 
 
+def _row_index_containing(layout, widget) -> int:
+    """Index within *layout* of the (possibly nested) row that directly holds *widget*."""
+    for i in range(layout.count()):
+        item = layout.itemAt(i)
+        if item.widget() is widget:
+            return i
+        row = item.layout()
+        if row is not None and any(row.itemAt(j).widget() is widget for j in range(row.count())):
+            return i
+    raise AssertionError(f"{widget} not found in layout")
+
+
 def test_tone_reset_covers_dye_separation():
     """The section header's reset button resets the fields listed in _TONE_FIELDS, so
     every control the panel shows has to be in it — a renamed field that falls out of
@@ -198,6 +210,31 @@ def test_channel_selector_hidden_in_bw(qapp):
     # Dye Separation is a color control: gone on a single-emulsion B&W paper.
     assert sidebar.dye_separation_slider.isHidden()
     assert sidebar.dye_separation_trim_slider.isHidden()
+
+
+def test_auto_density_grade_hide_on_a_raw_slide_but_stay_on_a_positive(qapp):
+    """They meter the frame to pick a look, which the transfer path exists to avoid for
+    a deliberate camera exposure -- but a Positive frame carries no such bracket, so
+    they run there exactly as on a negative (transfer_auto_terms)."""
+    controller = MagicMock()
+    controller.state = AppState()
+    sidebar = ToneSidebar(controller)
+
+    cfg = controller.state.config
+    controller.state.config = replace(
+        cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, e6_normalize=False, positive_source=False)
+    )
+    sidebar.sync_ui()
+    assert sidebar.auto_density_btn.isHidden()
+    assert sidebar.auto_grade_btn.isHidden()
+    # The rest of the paper-model controls stay hidden either way.
+    assert sidebar.paper_dmin_btn.isHidden()
+
+    controller.state.config = replace(controller.state.config, process=replace(controller.state.config.process, positive_source=True))
+    sidebar.sync_ui()
+    assert not sidebar.auto_density_btn.isHidden()
+    assert not sidebar.auto_grade_btn.isHidden()
+    assert sidebar.paper_dmin_btn.isHidden()
 
 
 def test_dye_separation_trim_swaps_per_channel_on_transfer_too(qapp):

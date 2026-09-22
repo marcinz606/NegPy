@@ -176,20 +176,6 @@ def test_context_menu_offers_unsplit_only_for_a_diptych(browser, session):
     assert "Unsplit Diptych" in _action_labels(browser._build_context_menu())
 
 
-def test_unsplit_diptych_menu_action_only_enabled_for_a_diptych(browser, session):
-    """A right-click context menu was the only other way in, easy to miss when the
-    panel just looks locked with no clue why. Synced on the Half Frame menu's own
-    aboutToShow rather than the general sync_ui, so it reflects whichever frame is
-    active at the moment the menu actually opens."""
-    session.state.selected_file_idx = 0
-    browser._sync_half_frame_menu()
-    assert not browser._unsplit_diptych_action.isEnabled()
-
-    session.state.uploaded_files[0]["diptych"] = True
-    browser._sync_half_frame_menu()
-    assert browser._unsplit_diptych_action.isEnabled()
-
-
 def test_context_menu_offers_per_frame_split_only_for_a_half(browser, session):
     session.state.selected_indices = [0]
     session.state.selected_file_idx = 0
@@ -212,39 +198,81 @@ def test_context_menu_offers_reset_only_with_a_saved_override(browser, session):
     assert "Reset Split to Roll Default" in _action_labels(browser._build_context_menu())
 
 
-def test_current_file_returns_the_base_hash_for_a_split_asset(browser, session):
-    """Both halves share one path, so matching by path alone would always return
-    whichever comes first in the list -- never necessarily the active one -- and its
-    own #1/#2 hash, which save_half_frame_override does not key by."""
-    session.state.uploaded_files = [
-        {"path": "/tmp/scan.tif", "hash": "h1#1", "half": 1},
-        {"path": "/tmp/scan.tif", "hash": "h1#2", "half": 2},
-    ]
-    session.state.current_file_path = "/tmp/scan.tif"
-    session.state.current_file_hash = "h1#2"  # the active half, listed second
-    assert browser._current_file() == ("/tmp/scan.tif", "h1")
+def _set_rolls_store(session, rolls_store):
+    session.repo.get_global_setting.side_effect = lambda key, default=None: rolls_store if key == "rolls_by_id" else default
+
+
+def test_context_menu_offers_fork_only_when_the_file_is_in_two_rolls(browser, session):
+    session.state.selected_indices = [0]
+    session.state.selected_file_idx = 0
+    session.state.active_roll_id = "r1"
+    rolls_store = {"r1": {"kind": "virtual", "name": "A", "member_paths": ["/tmp/IMG_0001.cr2"]}}
+    _set_rolls_store(session, rolls_store)
+    assert "Edit Independently in This Roll" not in _action_labels(browser._build_context_menu())
+
+    rolls_store["r2"] = {"kind": "virtual", "name": "B", "member_paths": ["/tmp/IMG_0001.cr2"]}
+    assert "Edit Independently in This Roll" in _action_labels(browser._build_context_menu())
+
+
+def test_context_menu_needs_an_active_roll_to_offer_fork(browser, session):
+    session.state.selected_indices = [0]
+    session.state.selected_file_idx = 0
+    session.state.active_roll_id = None
+    rolls_store = {
+        "r1": {"kind": "virtual", "name": "A", "member_paths": ["/tmp/IMG_0001.cr2"]},
+        "r2": {"kind": "virtual", "name": "B", "member_paths": ["/tmp/IMG_0001.cr2"]},
+    }
+    _set_rolls_store(session, rolls_store)
+    assert "Edit Independently in This Roll" not in _action_labels(browser._build_context_menu())
+
+
+def test_context_menu_offers_unfork_once_forked(browser, session):
+    session.state.selected_indices = [0]
+    session.state.selected_file_idx = 0
+    session.state.active_roll_id = "r1"
+    rolls_store = {
+        "r1": {"kind": "virtual", "name": "A", "member_paths": ["/tmp/IMG_0001.cr2"], "forked_hashes": ["h1"]},
+        "r2": {"kind": "virtual", "name": "B", "member_paths": ["/tmp/IMG_0001.cr2"]},
+    }
+    _set_rolls_store(session, rolls_store)
+    labels = _action_labels(browser._build_context_menu())
+    assert "Use the Shared Edit Again…" in labels
+    assert "Edit Independently in This Roll" not in labels
+
+
+def test_hot_folder_stops_re_offering_a_duplicate_it_already_turned_away(browser, session):
+    """The poll decided what was new by path while add_files turns files away by content
+    hash, so a byte-identical copy under another name was never in the file list to
+    compare against: hashed, rejected and offered again every 2s, forever."""
+    session.state.duplicate_paths.add("/tmp/IMG_0001 copy.cr2")
+
+    with patch("negpy.desktop.view.sidebar.files.FolderWatchService.scan_for_new_files", return_value=[]) as scan:
+        browser._scan_folder()
+
+    assert "/tmp/IMG_0001 copy.cr2" in scan.call_args[0][1]
+    browser.controller.request_asset_discovery.assert_not_called()
 
 
 def test_adjust_half_frame_split_reloads_only_on_apply(browser, session):
     browser.controller.open_half_frame_dialog.return_value = None
     browser._on_adjust_half_frame_split("/tmp/scan.tif", "h1")
-    browser.controller.request_asset_discovery.assert_not_called()
+    browser.controller.reload_after_half_frame_change.assert_not_called()
 
     browser.controller.open_half_frame_dialog.return_value = {"split_x": 0.4}
     browser._on_adjust_half_frame_split("/tmp/scan.tif", "h1")
     browser.controller.open_half_frame_dialog.assert_called_with("/tmp/scan.tif", "h1", initial_scope="current")
-    browser.controller.request_asset_discovery.assert_called_once()
+    browser.controller.reload_after_half_frame_change.assert_called_once()
 
 
 def test_reset_half_frame_split_clears_and_reloads(browser, session):
     browser._on_reset_half_frame_split("h1")
     browser.controller.clear_half_frame_override.assert_called_once_with("h1")
-    browser.controller.request_asset_discovery.assert_called_once()
+    browser.controller.reload_after_half_frame_change.assert_called_once()
 
 
 def test_unsplit_diptych_needs_the_confirm(browser):
-    with patch("negpy.desktop.view.sidebar.files.QMessageBox.exec"):
-        browser.prompt_undiptych()  # no button clicked: rejected
+    with patch("negpy.desktop.view.sidebar.files.confirm_undiptych", return_value=False):
+        browser.prompt_undiptych()
     browser.controller.request_undiptych.assert_not_called()
 
 
@@ -275,17 +303,17 @@ def test_context_menu_multi_selection_adds_apply_and_remove_selected(browser, se
 
 def test_apply_dialog_shows_header_scope_and_counts(qapp):
     dlg = GranularSettingsDialog(None, _edited_cfg(), "IMG_0001.cr2", show_scope=True, sel_count=2, roll_count=3)
-    assert dlg.sel_radio.text() == "Selected frames (2)"
-    assert dlg.sel_radio.isEnabled()
-    assert dlg.sel_radio.isChecked()  # selection preferred when it has targets
-    assert dlg.roll_radio.text() == "Whole roll (3)"
-    assert dlg.roll_radio.isEnabled()
+    assert dlg._scope_radios.sel.text() == "Selected frames (2)"
+    assert dlg._scope_radios.sel.isEnabled()
+    assert dlg._scope_radios.sel.isChecked()  # selection preferred when it has targets
+    assert dlg._scope_radios.roll.text() == "Whole roll (3)"
+    assert dlg._scope_radios.roll.isEnabled()
 
 
 def test_apply_dialog_defaults_to_roll_when_selection_empty(qapp):
     dlg = GranularSettingsDialog(None, _edited_cfg(), "IMG_0001.cr2", show_scope=True, sel_count=0, roll_count=3)
-    assert not dlg.sel_radio.isEnabled()
-    assert dlg.roll_radio.isChecked()
+    assert not dlg._scope_radios.sel.isEnabled()
+    assert dlg._scope_radios.roll.isChecked()
 
 
 def test_apply_dialog_check_all_and_none(qapp):
@@ -302,7 +330,7 @@ def test_apply_dialog_check_all_and_none(qapp):
 
 def test_apply_dialog_apply_collects_checked_rows_and_scope(qapp):
     dlg = GranularSettingsDialog(None, _edited_cfg(), "IMG_0001.cr2", show_scope=True, sel_count=1, roll_count=3)
-    dlg.roll_radio.setChecked(True)
+    dlg._scope_radios.roll.setChecked(True)
     dlg._on_apply()
     labels = {r.label for r in dlg.selected()}
     assert "Print Density" in labels  # the edited exposure setting
@@ -328,7 +356,7 @@ def test_open_apply_dialog_routes_rows_bounds_scope_to_session(browser, session)
     mock_dlg.selected.return_value = rows
     mock_dlg.bounds_flags.return_value = (False, False)
     mock_dlg.scope.return_value = "selection"
-    with patch("negpy.desktop.view.sidebar.files.GranularSettingsDialog", return_value=mock_dlg) as ctor:
+    with patch("negpy.desktop.view.widgets.granular_settings_dialog.GranularSettingsDialog", return_value=mock_dlg) as ctor:
         browser._open_apply_dialog()
 
     assert ctor.call_args.args[2] == "IMG_0001.cr2"
@@ -340,10 +368,173 @@ def test_open_apply_dialog_routes_rows_bounds_scope_to_session(browser, session)
 def test_open_apply_dialog_noop_without_active_file(browser, session):
     session.state.selected_file_idx = -1
     session.sync_selected_settings = MagicMock()
-    with patch("negpy.desktop.view.sidebar.files.GranularSettingsDialog") as ctor:
+    with patch("negpy.desktop.view.widgets.granular_settings_dialog.GranularSettingsDialog") as ctor:
         browser._open_apply_dialog()
     ctor.assert_not_called()
     session.sync_selected_settings.assert_not_called()
+
+
+def test_open_roll_settings_dialog_routes_rows_and_scope_to_session(browser, session):
+    session.state.selected_indices = [0, 1]
+    session.state.selected_file_idx = 0
+    session.apply_preset_fields = MagicMock(return_value=2)
+
+    rows = [object()]
+    mock_dlg = MagicMock()
+    mock_dlg.exec.return_value = QDialog.DialogCode.Accepted
+    mock_dlg.selected_rows.return_value = rows
+    mock_dlg.selected_config.return_value = _edited_cfg()
+    mock_dlg.scope.return_value = "selection"
+    with patch("negpy.desktop.view.sidebar.files.RollSettingsDialog", return_value=mock_dlg) as ctor:
+        browser._open_roll_settings_dialog()
+
+    assert ctor.call_args.kwargs["sel_count"] == 1  # 1 other selected
+    assert ctor.call_args.kwargs["roll_count"] == 3  # 3 other on roll
+    session.apply_preset_fields.assert_called_once_with(mock_dlg.selected_config.return_value, rows, "selection")
+    browser.controller.request_render.assert_called_once()
+
+
+def test_open_roll_settings_dialog_noop_without_active_file(browser, session):
+    session.state.selected_file_idx = -1
+    session.apply_preset_fields = MagicMock()
+    with patch("negpy.desktop.view.sidebar.files.RollSettingsDialog") as ctor:
+        browser._open_roll_settings_dialog()
+    ctor.assert_not_called()
+    session.apply_preset_fields.assert_not_called()
+
+
+def test_open_roll_settings_dialog_noop_when_nothing_is_ticked(browser, session):
+    session.state.selected_file_idx = 0
+    session.apply_preset_fields = MagicMock()
+    mock_dlg = MagicMock()
+    mock_dlg.exec.return_value = QDialog.DialogCode.Accepted
+    mock_dlg.selected_rows.return_value = []
+    with patch("negpy.desktop.view.sidebar.files.RollSettingsDialog", return_value=mock_dlg):
+        browser._open_roll_settings_dialog()
+    session.apply_preset_fields.assert_not_called()
+
+
+def test_open_roll_settings_dialog_also_prefills_a_gear_match(browser, session):
+    """The tag-icon button offers the same suggestion the import-time popup does --
+    useful any time you open it, not just the one moment right after import."""
+    session.state.selected_file_idx = 0
+    detected = MagicMock(any=MagicMock(return_value=True), camera_id="cam1", film_stock_id="")
+    mock_dlg = MagicMock()
+    mock_dlg.exec.return_value = QDialog.DialogCode.Rejected
+    with (
+        patch("negpy.desktop.view.sidebar.files.match_gear_for_folder", return_value=detected),
+        patch("negpy.desktop.view.sidebar.files.RollSettingsDialog", return_value=mock_dlg),
+    ):
+        browser._open_roll_settings_dialog()
+
+    mock_dlg.apply_detected_gear.assert_called_once_with(camera_id="cam1", film_stock_id="")
+
+
+def test_open_roll_settings_dialog_does_not_override_gear_already_set_in_full(browser, session):
+    """Both fields already carry something -- there is nothing left to suggest."""
+    session.state.selected_file_idx = 0
+    session.state.config = replace(
+        session.state.config,
+        metadata=replace(session.state.config.metadata, camera_id="existing", film_stock_id="existing-film"),
+    )
+    detected = MagicMock(camera_id="cam1", film_stock_id="film1")
+    mock_dlg = MagicMock()
+    mock_dlg.exec.return_value = QDialog.DialogCode.Rejected
+    with (
+        patch("negpy.desktop.view.sidebar.files.match_gear_for_folder", return_value=detected),
+        patch("negpy.desktop.view.sidebar.files.RollSettingsDialog", return_value=mock_dlg),
+    ):
+        browser._open_roll_settings_dialog()
+
+    mock_dlg.apply_detected_gear.assert_not_called()
+
+
+def test_open_roll_settings_dialog_suggests_only_the_field_not_already_set(browser, session):
+    """A camera already tagged (carried from elsewhere, set by hand) must not also block
+    a film-stock match that is otherwise free to suggest -- the bug behind a folder like
+    '08_penf_gold_200_marbella' matching Kodak Gold 200 but never offering it because an
+    unrelated camera happened to already be set."""
+    session.state.selected_file_idx = 0
+    session.state.config = replace(session.state.config, metadata=replace(session.state.config.metadata, camera_id="existing"))
+    detected = MagicMock(camera_id="cam1", film_stock_id="film1")
+    mock_dlg = MagicMock()
+    mock_dlg.exec.return_value = QDialog.DialogCode.Rejected
+    with (
+        patch("negpy.desktop.view.sidebar.files.match_gear_for_folder", return_value=detected),
+        patch("negpy.desktop.view.sidebar.files.RollSettingsDialog", return_value=mock_dlg),
+    ):
+        browser._open_roll_settings_dialog()
+
+    mock_dlg.apply_detected_gear.assert_called_once_with(camera_id="", film_stock_id="film1")
+
+
+def test_folder_name_for_gear_suggestion_prefers_the_active_folder_roll(browser, session, tmp_path):
+    from negpy.services.assets.rolls import recognize_folder
+
+    store: dict = {}
+    session.repo.get_global_setting.side_effect = lambda key, default=None: store.get(key, default)
+    session.repo.save_global_setting.side_effect = lambda key, value: store.__setitem__(key, value)
+    roll_id = recognize_folder(session.repo, str(tmp_path / "08_penf_gold_marbella"))
+    session.state.active_roll_id = roll_id
+
+    assert browser._folder_name_for_gear_suggestion() == "08_penf_gold_marbella"
+
+
+def test_folder_name_for_gear_suggestion_falls_back_to_the_current_files_folder(browser, session):
+    session.state.active_roll_id = None
+    session.state.selected_file_idx = 0  # session fixture's first file lives under /tmp
+
+    assert browser._folder_name_for_gear_suggestion() == "tmp"
+
+
+def test_folder_name_for_gear_suggestion_is_empty_without_an_active_file(browser, session):
+    session.state.active_roll_id = None
+    session.state.selected_file_idx = -1
+
+    assert browser._folder_name_for_gear_suggestion() == ""
+
+
+def test_maybe_suggest_gear_opens_the_dialog_prefilled_when_something_matches(browser, session):
+    session.state.selected_file_idx = 0
+    session.apply_preset_fields = MagicMock(return_value=1)
+    detected = MagicMock(any=MagicMock(return_value=True), camera_id="cam1", film_stock_id="film1")
+    mock_dlg = MagicMock()
+    mock_dlg.exec.return_value = QDialog.DialogCode.Accepted
+    mock_dlg.selected_rows.return_value = [object()]
+    mock_dlg.selected_config.return_value = _edited_cfg()
+    mock_dlg.scope.return_value = "roll"
+    with (
+        patch("negpy.desktop.view.sidebar.files.match_gear_for_folder", return_value=detected),
+        patch("negpy.desktop.view.sidebar.files.RollSettingsDialog", return_value=mock_dlg),
+    ):
+        browser._maybe_suggest_gear("/library/08_penf_gold_marbella")
+
+    mock_dlg.apply_detected_gear.assert_called_once_with(camera_id="cam1", film_stock_id="film1")
+    browser.controller.request_render.assert_called_once()
+
+
+def test_maybe_suggest_gear_does_nothing_without_a_match(browser, session):
+    session.state.selected_file_idx = 0
+    detected = MagicMock(camera_id="", film_stock_id="")
+    with (
+        patch("negpy.desktop.view.sidebar.files.match_gear_for_folder", return_value=detected),
+        patch("negpy.desktop.view.sidebar.files.RollSettingsDialog") as ctor,
+    ):
+        browser._maybe_suggest_gear("/library/roll_a")
+
+    ctor.assert_not_called()
+
+
+def test_maybe_suggest_gear_noop_without_an_active_file(browser, session):
+    session.state.selected_file_idx = -1
+    detected = MagicMock(any=MagicMock(return_value=True), camera_id="cam1", film_stock_id="")
+    with (
+        patch("negpy.desktop.view.sidebar.files.match_gear_for_folder", return_value=detected),
+        patch("negpy.desktop.view.sidebar.files.RollSettingsDialog") as ctor,
+    ):
+        browser._maybe_suggest_gear("/library/roll_a")
+
+    ctor.assert_not_called()
 
 
 def test_context_menu_paste_disabled_without_clipboard(browser, session):
@@ -648,6 +839,102 @@ def test_session_menu_clear_all_clears_every_frame(browser, session):
     with patch("negpy.desktop.view.sidebar.files.confirm_unload", return_value=True):
         browser._on_clear_all()
     session.clear_files.assert_called_once()
+
+
+def test_new_roll_menu_action_clears_the_session_like_clear_all(browser, session):
+    """Distinct from Unload: this is the deliberate "start over" action, for building a
+    roll entirely by drag-drop, so it confirms and clears everything, not the selection."""
+    session.clear_files = MagicMock()
+    menu = browser.frames_section.actions_btn.menu()
+    action = next(a for a in menu.actions() if a.text() == "New Roll…")
+    with patch("negpy.desktop.view.sidebar.files.confirm_unload", return_value=True) as confirm:
+        action.trigger()
+    confirm.assert_called_once_with(browser, clear_all=True)
+    session.clear_files.assert_called_once()
+
+
+def test_reset_roll_menu_action_resets_every_visible_frame(browser, session):
+    menu = browser.frames_section.actions_btn.menu()
+    action = next(a for a in menu.actions() if a.text() == "Reset Roll to Defaults…")
+    with patch("negpy.desktop.view.sidebar.files.confirm_reset_frames", return_value=True) as confirm:
+        action.trigger()
+    confirm.assert_called_once_with(browser, 4, roll=True)  # the session fixture's 4 uploaded_files
+    browser.controller.request_reset_roll.assert_called_once()
+
+
+def test_reset_roll_menu_action_cancelled_does_nothing(browser, session):
+    with patch("negpy.desktop.view.sidebar.files.confirm_reset_frames", return_value=False):
+        browser._on_reset_roll()
+    browser.controller.request_reset_roll.assert_not_called()
+
+
+def test_reset_roll_with_nothing_loaded_never_prompts(browser, session):
+    session.state.uploaded_files = []
+    session.asset_model.refresh()
+    with patch("negpy.desktop.view.sidebar.files.confirm_reset_frames") as confirm:
+        browser._on_reset_roll()
+    confirm.assert_not_called()
+    browser.controller.request_reset_roll.assert_not_called()
+
+
+def test_unload_button_always_targets_the_selection_never_the_whole_roll(browser, session):
+    """The toolbar button never falls back to Clear All: opening a different roll already
+    replaces the film strip, so a stray click with nothing multi-selected must remove only
+    the active frame, not wipe everything."""
+    session.remove_current_file = MagicMock()
+    session.remove_selected_files = MagicMock()
+    session.clear_files = MagicMock()
+
+    with patch("negpy.desktop.view.sidebar.files.confirm_unload", return_value=True):
+        session.state.selected_indices = [1]
+        browser._on_unload_clicked()
+        session.remove_current_file.assert_called_once()
+        session.remove_selected_files.assert_not_called()
+
+        session.state.selected_indices = [0, 1]
+        browser._on_unload_clicked()
+        session.remove_selected_files.assert_called_once()
+
+    session.clear_files.assert_not_called()
+
+
+def test_unload_button_tooltip_reflects_the_selection(browser, session):
+    session.state.selected_indices = [0]
+    browser._update_unload_button()
+    assert browser.unload_btn.toolTip() == "Unload…"
+
+    session.state.selected_indices = [0, 1]
+    browser._update_unload_button()
+    assert browser.unload_btn.toolTip() == "Unload Selected…"
+
+
+def test_save_roll_prompts_for_a_name_and_refreshes_the_tree(browser):
+    browser.controller.create_roll_from_session.return_value = "roll-1"
+    browser.library_tree = MagicMock()
+    with patch("negpy.desktop.view.sidebar.files.QInputDialog.getText", return_value=("Portra", True)):
+        browser._on_save_roll_clicked()
+
+    browser.controller.create_roll_from_session.assert_called_once_with("Portra")
+    browser.library_tree.reload.assert_called_once()
+
+
+def test_save_roll_cancelled_does_nothing(browser):
+    browser.controller.create_roll_from_session = MagicMock()
+    with patch("negpy.desktop.view.sidebar.files.QInputDialog.getText", return_value=("Portra", False)):
+        browser._on_save_roll_clicked()
+
+    browser.controller.create_roll_from_session.assert_not_called()
+
+
+def test_save_roll_rejects_an_invalid_name(browser):
+    browser.controller.create_roll_from_session = MagicMock()
+    with (
+        patch("negpy.desktop.view.sidebar.files.QInputDialog.getText", return_value=("bad/name", True)),
+        patch("negpy.desktop.view.sidebar.files.warn_invalid_roll_name"),
+    ):
+        browser._on_save_roll_clicked()
+
+    browser.controller.create_roll_from_session.assert_not_called()
 
 
 # --- Composite badges -----------------------------------------------------

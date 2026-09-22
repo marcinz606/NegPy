@@ -222,6 +222,27 @@ def test_e2e_backward_compat_save_without_path(repo):
     assert result.exposure.density == 0.42
 
 
+def test_load_or_promote_forked_skips_path_fallback(tmp_path, repo):
+    """A roll-forked hash never steals the shared edit via path-based rehoming: that
+    would delete the shared row out from under every other roll still using it."""
+    src = str(tmp_path / "IMG_009.NEF")
+    repo.save_file_settings("h9", _rich_config(), file_path=src)
+
+    assert load_or_promote(repo, "h9#roll:r1", src, forked=True) is None
+    assert repo.load_file_settings("h9") is not None  # shared row untouched
+    assert repo.load_file_settings("h9#roll:r1") is None  # nothing invented either
+
+
+def test_load_or_promote_forked_skips_sidecar(tmp_path, repo):
+    """A fork's `.negpy` (if any) describes the shared frame, not the fork, so it is
+    never promoted onto the forked hash."""
+    src = str(tmp_path / "IMG_010.NEF")
+    write_sidecar(src, _rich_config())
+
+    assert load_or_promote(repo, "h10#roll:r1", src, forked=True) is None
+    assert repo.load_file_settings("h10#roll:r1") is None
+
+
 def test_e2e_migration_on_fresh_db(tmp_path):
     """A fresh DB (no prior file_path column) migrates and works correctly."""
     import os

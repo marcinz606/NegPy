@@ -27,6 +27,8 @@ SPLIT_SCANS_KEY = "half_frame_scans"
 # two exposures looks like once rendered; swap for the finish border colour if wanted.
 _GAP_FILL = 0.0
 
+_MAX_GUTTER_THICKNESS = 0.1  # matches the split editor's Cut thickness slider range
+
 
 def is_composite(file_info: Dict[str, Any]) -> bool:
     """Whether an asset is assembled from more than one file (triplet, stitch, HDR).
@@ -331,27 +333,27 @@ def diptych_configs(repo: Any, file_hash: Optional[str]) -> Optional[tuple[Any, 
     return (first or second, second or first)
 
 
-def detect_split_x(buf: np.ndarray) -> float:
-    """Normalized x of the unexposed gutter between the two frames.
+def detect_gutter(buf: np.ndarray) -> tuple[float, float]:
+    """Normalized (split_x, gutter_thickness) of the unexposed band between the two frames.
 
-    The gutter is a narrow column extremal against its surroundings in either
-    polarity (bright film base on negatives, dark on positives), so pick the
-    column whose smoothed luma deviates most from a local running-median
-    background — a window much wider than the gutter, so broad brightness
-    differences between the two frames don't register. Returns 0.5 when no
-    clear gutter stands out in the central band.
+    The gutter is a narrow column extremal against its surroundings in either polarity,
+    bright film base on a negative and dark on a positive, so the pick is the column whose
+    smoothed luma deviates most from a local running-median background, over a window much
+    wider than the gutter. Its edges are the steepest slope on each side of that peak,
+    searched in a window sized to the smoothing rather than to the deviation band, since an
+    in-scene gradient blending into the gutter widens that band on one side and drags the
+    center with it. Returns ``(0.5, 0.0)`` when no gutter stands out.
     """
-    # ponytail: 1-D local-deviation heuristic; upgrade to variance+edge profile if it misses
     a = np.asarray(buf)
     if a.ndim == 3:
         a = a.mean(axis=2)
     a = a.astype(np.float32, copy=False)
     h, w = a.shape[:2]
     if w < 64 or h < 8:
-        return 0.5
+        return 0.5, 0.0
     peak_val = float(a.max())
     if peak_val <= 0:
-        return 0.5
+        return 0.5, 0.0
     sub = a[:: max(1, h // 512)] / peak_val
     col = sub.mean(axis=0)
     k = max(3, w // 150)
@@ -362,26 +364,49 @@ def detect_split_x(buf: np.ndarray) -> float:
     dev = np.abs(sm - bg)
     lo, hi = int(w * 0.35), int(w * 0.65)
     peak = lo + int(np.argmax(dev[lo:hi]))
-    # Take the deviating band's center so the ±delta taps below land outside the gutter.
-    thr = 0.5 * dev[peak]
-    i0 = peak
-    while i0 > 0 and dev[i0 - 1] >= thr:
-        i0 -= 1
-    i1 = peak
-    while i1 < w - 1 and dev[i1 + 1] >= thr:
-        i1 += 1
-    center = (i0 + i1) // 2
+
+    rad = max(int(w * 0.05), 6 * k)
+    s0, s1 = max(0, peak - rad), min(w - 1, peak + rad)
+    grad = np.gradient(sm[s0 : s1 + 1])
+    peak_rel = peak - s0
+    bright = sm[peak] >= bg[peak]
+    rising, falling = (True, False) if bright else (False, True)
+    left_edge = _subpixel_extreme(grad[: peak_rel + 1], s0, rising)
+    right_edge = _subpixel_extreme(grad[peak_rel:], peak, falling)
+    if right_edge < left_edge:
+        left_edge, right_edge = right_edge, left_edge
+    center_f = 0.5 * (left_edge + right_edge)
+    center = max(0, min(w - 1, int(round(center_f))))
+
     # A gutter is extremal against BOTH sides. A step edge, up one side and down the other,
     # is in-scene, so reject it.
     delta = max(3, int(w * 0.05))
     d1 = float(sm[center] - sm[max(0, center - delta)])
     d2 = float(sm[center] - sm[min(w - 1, center + delta)])
     if min(abs(d1), abs(d2)) < 0.04 or d1 * d2 <= 0:
-        return 0.5
+        return 0.5, 0.0
     # Unexposed film is uniform top to bottom; a bright/dark in-scene feature isn't.
     if float(sub[:, center].std()) > 0.10:
-        return 0.5
-    return center / w
+        return 0.5, 0.0
+    thickness = min(_MAX_GUTTER_THICKNESS, max(0.0, (right_edge - left_edge) / w))
+    return float(center_f / w), float(thickness)
+
+
+def _subpixel_extreme(seg: np.ndarray, offset: int, want_max: bool) -> float:
+    """Sub-pixel index of ``seg``'s max (or min) via a parabola through its neighbors."""
+    idx = int(np.argmax(seg)) if want_max else int(np.argmin(seg))
+    if 0 < idx < len(seg) - 1:
+        y0, y1, y2 = seg[idx - 1], seg[idx], seg[idx + 1]
+        denom = y0 - 2 * y1 + y2
+        frac = 0.5 * (y0 - y2) / denom if abs(denom) > 1e-9 else 0.0
+    else:
+        frac = 0.0
+    return offset + idx + max(-0.5, min(0.5, frac))
+
+
+def detect_split_x(buf: np.ndarray) -> float:
+    """Normalized x of the unexposed gutter between the two frames; see ``detect_gutter``."""
+    return detect_gutter(buf)[0]
 
 
 def detect_split_x_for_file(file_path: str) -> float:
@@ -397,3 +422,129 @@ def detect_split_x_for_file(file_path: str) -> float:
     except Exception as e:
         logger.warning("Half-frame split detection failed for %s: %s", file_path, e)
         return 0.5
+
+
+_MAX_FILM_MARGIN = 0.15  # bounds a plausible rebate/sprocket margin; wider is read as picture content
+_EDGE_MIN_CONTRAST = 0.08
+_EDGE_MAX_UNIFORMITY = 0.02  # stricter than the gutter's 0.10: a wrong trim here deletes picture, not just a split line
+_EDGE_EXTREME_TOL = 0.20  # how far the band's level may sit from the frame's own darkest/brightest tone
+
+
+def _edge_band(profile: np.ndarray) -> Optional[tuple[float, float]]:
+    """Sub-pixel inward extent (pixels) and level of a uniform band anchored at index 0
+    of ``profile``, or None when nothing within ``_MAX_FILM_MARGIN`` stands apart from
+    the interior. Unlike the gutter's peak search, the band's outer edge is the array
+    boundary itself, so smoothing pads with the edge value rather than zeros.
+    """
+    n = len(profile)
+    k = max(3, n // 150)
+    cap = int(n * _MAX_FILM_MARGIN)
+    if cap < 4:
+        return None
+    pad = k // 2
+    sm = np.convolve(np.pad(profile, pad, mode="edge"), np.ones(k, np.float32) / k, mode="same")[pad : pad + n]
+    edge_level = float(np.median(sm[:k]))
+    lo, hi = cap, min(n, 2 * cap)
+    if hi <= lo:
+        return None
+    interior_level = float(np.median(sm[lo:hi]))
+    if abs(edge_level - interior_level) < _EDGE_MIN_CONTRAST:
+        return None
+    mid = 0.5 * (edge_level + interior_level)
+    rising = interior_level > edge_level
+    i = 0
+    while i < cap and ((sm[i] < mid) if rising else (sm[i] > mid)):
+        i += 1
+    if i == 0 or i >= cap:
+        return None
+    y0, y1 = sm[i - 1], sm[i]
+    frac = (mid - y0) / (y1 - y0) if y1 != y0 else 0.0
+    return (i - 1) + max(0.0, min(1.0, frac)), edge_level
+
+
+def _side_margin(norm: np.ndarray, axis: int, from_end: bool, gmin: float, gmax: float) -> float:
+    """Normalized inward film-edge margin on one side of ``norm`` (collapsed along
+    ``axis``: 0 for left/right, 1 for top/bottom; ``from_end`` picks the far side),
+    or 0.0 when that edge does not read as unexposed film.
+
+    A band whose level sits well inside the frame's own tonal range, rather than near
+    its darkest or brightest tone, is picture content even where it is locally uniform
+    (a calm sea, an overcast sky) -- rejected here rather than by contrast or
+    uniformity alone, since either can look like film base by coincidence.
+    """
+    profile = norm.mean(axis=axis)
+    n = len(profile)
+    if from_end:
+        profile = profile[::-1]
+    band = _edge_band(profile)
+    if band is None:
+        return 0.0
+    edge_px, edge_level = band
+    span = max(1e-6, gmax - gmin)
+    if min(abs(edge_level - gmin), abs(edge_level - gmax)) / span > _EDGE_EXTREME_TOL:
+        return 0.0
+    # Uniformity is checked over the band's inner half, short of the transition itself:
+    # a real edge slopes there even when the frame is tilted or the object rounds off.
+    depth = max(2, int(round(edge_px * 0.6)))
+    if axis == 0:
+        region = norm[:, :depth] if not from_end else norm[:, n - depth :]
+    else:
+        region = norm[:depth, :] if not from_end else norm[n - depth :, :]
+    if float(region.std()) > _EDGE_MAX_UNIFORMITY:
+        return 0.0
+    return edge_px / n
+
+
+def detect_film_crop(buf: np.ndarray) -> Optional[tuple[float, float, float, float]]:
+    """Normalized (x1, y1, x2, y2) outer film extent: the unexposed rebate alongside a
+    diptych's own edges. Both frames and the gutter between them must stay inside it, so
+    this runs once on the whole scan, not per half, and each of the four sides is
+    searched independently, inward from the scan's own boundary, for the same
+    uniform-and-extremal signature ``detect_gutter`` finds in the middle. A side with no
+    rebate -- common under tight framing -- is left uncropped rather than guessed at;
+    None when every side reads as picture content, and on too small a buffer.
+    """
+    a = np.asarray(buf)
+    if a.ndim == 3:
+        a = a.mean(axis=2)
+    a = a.astype(np.float32, copy=False)
+    h, w = a.shape[:2]
+    if w < 64 or h < 8:
+        return None
+    peak_val = float(a.max())
+    if peak_val <= 0:
+        return None
+    norm = a / peak_val
+    gmin, gmax = float(norm.min()), float(norm.max())
+    left = _side_margin(norm, 0, False, gmin, gmax)
+    right = _side_margin(norm, 0, True, gmin, gmax)
+    top = _side_margin(norm, 1, False, gmin, gmax)
+    bottom = _side_margin(norm, 1, True, gmin, gmax)
+    if left == 0.0 and right == 0.0 and top == 0.0 and bottom == 0.0:
+        return None
+    return (left, top, 1.0 - right, 1.0 - bottom)
+
+
+def detect_split_and_crop_for_file(
+    file_path: str,
+) -> tuple[float, float, Optional[tuple[float, float, float, float]]]:
+    """Gutter position, gutter thickness and outer film crop from one decode of the
+    file -- the triple Auto-detect All Splits saves as a roll's half-frame profile.
+    (0.5, 0.0, None) on any failure, matching detect_split_x_for_file's fallback."""
+    try:
+        from negpy.services.assets.thumbnails import decode_source_image
+
+        img = decode_source_image(file_path)
+        if img is None:
+            return 0.5, 0.0, None
+        img.thumbnail((1024, 1024))
+        buf = np.asarray(img)
+        crop_rect = detect_film_crop(buf)
+        # split_x is relative to the cropped width (slice_half's own convention), so the
+        # gutter search has to run inside the new crop, not the full, uncropped scan.
+        detect_buf = slice_half(buf, 0, 0.5, crop_rect=crop_rect) if crop_rect is not None else buf
+        split_x, thickness = detect_gutter(detect_buf)
+        return split_x, thickness, crop_rect
+    except Exception as e:
+        logger.warning("Half-frame split/crop detection failed for %s: %s", file_path, e)
+        return 0.5, 0.0, None

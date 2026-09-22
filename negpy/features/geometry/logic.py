@@ -1,5 +1,6 @@
 import math
 from dataclasses import dataclass, field, replace
+from functools import lru_cache
 from typing import List, NamedTuple, Optional, Tuple
 
 import cv2
@@ -1827,6 +1828,71 @@ def map_point_keystone(px: float, py: float, converge_v: float, converge_h: floa
         float((m[0, 0] * px + m[0, 1] * py + m[0, 2]) / den),
         float((m[1, 0] * px + m[1, 1] * py + m[1, 2]) / den),
     )
+
+
+_CROP_TO_VALID_ITERS = 30
+_CROP_TO_VALID_TERNARY_ITERS = 25
+
+
+@lru_cache(maxsize=32)
+def compute_geometry_crop_rect(
+    fine_rotation: float, converge_v: float, converge_h: float, w: int, h: int
+) -> Tuple[float, float, float, float]:
+    """Largest axis-aligned, frame-centered rect, normalized to the frame, that avoids
+    the replicated edges fine rotation and keystone (Tilt/Swing) leave behind. Distortion
+    correction is excluded: compute_distortion_scale already keeps it void-free by
+    scaling to fill.
+
+    Fine rotation and keystone are each a plane projectivity, so the source rect's
+    forward-mapped boundary is a convex quadrilateral: a candidate rect is valid iff its
+    four corners are (convexity needs no denser a sample), and the largest-area rect at a
+    fixed half-width is unimodal in that half-width. Ternary-searches the half-width, with
+    a nested binary search for the largest valid half-height at each candidate — mirroring
+    compute_distortion_scale's numeric style, one dimension up.
+    """
+    if abs(fine_rotation) < 1e-9 and abs(converge_v) < _KEYSTONE_EPS and abs(converge_h) < _KEYSTONE_EPS:
+        return 0.0, 0.0, 1.0, 1.0
+
+    cx, cy = w / 2.0, h / 2.0
+    rot = cv2.getRotationMatrix2D((cx, cy), fine_rotation, 1.0)
+    m_rot = np.vstack([rot, [0.0, 0.0, 1.0]])
+    m_combined = keystone_matrix(converge_v, converge_h, w, h) @ m_rot
+    m_inv = np.linalg.inv(m_combined)
+
+    def source_valid(x: float, y: float) -> bool:
+        p = m_inv @ np.array([x, y, 1.0])
+        if abs(p[2]) < 1e-12:
+            return False
+        sx, sy = p[0] / p[2], p[1] / p[2]
+        return -1e-6 <= sx <= (w - 1) + 1e-6 and -1e-6 <= sy <= (h - 1) + 1e-6
+
+    def corners_valid(hw: float, hh: float) -> bool:
+        return all(source_valid(cx + dx, cy + dy) for dx in (-hw, hw) for dy in (-hh, hh))
+
+    max_hw, max_hh = cx, cy
+
+    def hh_max(hw: float) -> float:
+        lo, hi = 0.0, max_hh
+        for _ in range(_CROP_TO_VALID_ITERS):
+            mid = 0.5 * (lo + hi)
+            if corners_valid(hw, mid):
+                lo = mid
+            else:
+                hi = mid
+        return lo
+
+    lo_w, hi_w = 0.0, max_hw
+    for _ in range(_CROP_TO_VALID_TERNARY_ITERS):
+        m1 = lo_w + (hi_w - lo_w) / 3.0
+        m2 = hi_w - (hi_w - lo_w) / 3.0
+        if m1 * hh_max(m1) < m2 * hh_max(m2):
+            lo_w = m1
+        else:
+            hi_w = m2
+    hw = 0.5 * (lo_w + hi_w)
+    hh = hh_max(hw)
+
+    return (cx - hw) / w, (cy - hh) / h, (cx + hw) / w, (cy + hh) / h
 
 
 def keystone_inverse_normalized(converge_v: float, converge_h: float) -> np.ndarray:

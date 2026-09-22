@@ -17,6 +17,9 @@ dependencies = [
     "jinja2==3.1.6",
     "numba==0.65.1",
     "numpy==2.4.4",
+    # Pinned below its latest release: 1.24.0+ dropped macOS x86_64 wheels entirely,
+    # which breaks install on an Intel Mac. 1.23.2 is the last version with one.
+    "onnxruntime==1.23.2",
     "opencv-python-headless==4.13.0.92",
     "pillow==12.2.0",
     "pyqt6==6.11.0",

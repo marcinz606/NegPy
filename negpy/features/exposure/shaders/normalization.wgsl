@@ -2,7 +2,9 @@ struct NormUniforms {
     floors: vec4<f32>,
     ceils: vec4<f32>,
     mode: u32,
-    normalize_flag: u32,
+    // is_transfer_path() decided CPU-side: the shader must not re-derive it, or the two
+    // engines drift the moment that rule grows a term (Positive already added one).
+    transfer_flag: u32,
     wp_offset: f32,
     bp_offset: f32,
     // Capture-side dye-unmix rows (effective blended+row-normalized matrix,
@@ -37,10 +39,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let coords = vec2<i32>(i32(gid.x), i32(gid.y));
     var color = textureLoad(input_tex, coords, 0).rgb;
     
-    let is_e6 = params.mode == 2u;
-    // Normalize off on E-6 is the transparency transfer: camera primaries -> working
-    // space before the log. Only that conversion is branch-specific.
-    let is_transfer = is_e6 && params.normalize_flag == 0u;
+    // The transparency transfer: camera primaries -> working space before the log.
+    // Only that conversion is branch-specific.
+    let is_transfer = params.transfer_flag == 1u;
 
     let epsilon = 1e-6;
     var lin = color;

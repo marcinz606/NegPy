@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.keyboard_shortcuts import _context_undo
-from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog
+from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog, open_sync_bounds_dialog
 from negpy.desktop.view.shortcut_registry import label_with_shortcut, tooltip_with_shortcut
 from negpy.desktop.view.styles.templates import default_button_height, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
@@ -345,6 +345,13 @@ class ActionToolbar(QWidget):
         )
         self._label(self._action_paste, "Paste Settings", "paste")
         self._action_paste.setToolTip("Paste the copied settings onto this image")
+        self._action_sync_bounds = overflow_menu.addAction(
+            qta.icon("fa5s.crosshairs", color=icon_color),
+            "Sync Bounds…",
+            lambda: open_sync_bounds_dialog(self, self.session),
+        )
+        self._label(self._action_sync_bounds, "Sync Bounds…", "sync_bounds")
+        self._action_sync_bounds.setToolTip("Give other frames this image's metering bounds, and nothing else")
         overflow_menu.addSeparator()
         reset_settings_action = overflow_menu.addAction(
             qta.icon("fa5s.history", color=icon_color), "Reset Settings", self.session.reset_settings

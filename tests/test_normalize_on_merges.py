@@ -7,7 +7,7 @@ want each other either: Normalize rescues faded film, fading compresses density 
 a frame whose range collapsed is not one that needed a bracket.
 
 The invariant is held in WorkspaceConfig rather than at the render, because e6_normalize is
-read from `is_transparency_transfer` down through both engines and the sidebars — a rule
+read from `is_transfer_path` down through both engines and the sidebars — a rule
 applied at only some of those is the hidden-but-live trap the Calibration panel already
 learned once.
 """
@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import QApplication
 from negpy.desktop.view.sidebar.process import ProcessSidebar
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.normalization import analyze_log_exposure_bounds
-from negpy.features.exposure.transfer import is_transparency_transfer
+from negpy.features.exposure.transfer import is_transfer_path
 from negpy.features.hdr.models import HdrConfig
 from negpy.features.process.models import ProcessMode
 
@@ -63,7 +63,7 @@ class Invariant(unittest.TestCase):
         """The whole point of holding it here: every reader of e6_normalize sees the
         resolved value, so a merged slide stays on the transfer path."""
         merged = replace(_slide(normalize=True), hdr=_MERGE)
-        self.assertTrue(is_transparency_transfer(merged.process.process_mode, merged.process.e6_normalize))
+        self.assertTrue(is_transfer_path(merged.process.process_mode, merged.process.e6_normalize))
 
 
 class WhyItIsRefused(unittest.TestCase):

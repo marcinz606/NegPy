@@ -21,7 +21,8 @@ _FILE_FILTER = "Reference images (*.dng *.tif *.tiff *.cr2 *.cr3 *.nef *.arw *.r
 class FlatFieldSidebar(BaseSidebar):
     """
     Flat-field / falloff correction. Manages named reference profiles (the bare
-    light-source scan) and a per-image enable toggle.
+    light-source scan); the profile and the toggle are roll-wide, since one roll is
+    scanned under one light.
     """
 
     def _init_ui(self) -> None:
@@ -44,7 +45,7 @@ class FlatFieldSidebar(BaseSidebar):
             "fa5s.lightbulb",
             "Apply Flat Field",
             False,
-            "Apply the active flat-field reference to this image",
+            "Apply the selected flat-field reference to this roll",
         )
         self.layout.addWidget(self.enable_btn)
 
@@ -73,8 +74,7 @@ class FlatFieldSidebar(BaseSidebar):
 
     def _on_profile_selected(self, _idx: int) -> None:
         profile_id = self.profile_combo.currentData() or ""
-        active = self.controller.session.repo.get_global_setting("flatfield_active_profile") or ""
-        if profile_id == active:
+        if profile_id == self.state.config.flatfield.profile_id:
             return
         self.controller.set_active_flatfield_profile(profile_id)
         self.sync_ui()
@@ -111,12 +111,11 @@ class FlatFieldSidebar(BaseSidebar):
 
     def sync_ui(self) -> None:
         conf = self.state.config.flatfield
-        active = self.controller.session.repo.get_global_setting("flatfield_active_profile") or ""
 
         self.block_signals(True)
         try:
             self._refresh_profiles()
-            idx = self.profile_combo.findData(active)
+            idx = self.profile_combo.findData(conf.profile_id)
             self.profile_combo.setCurrentIndex(idx if idx >= 0 else 0)
 
             self.enable_btn.setChecked(conf.apply)

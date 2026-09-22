@@ -100,11 +100,11 @@ def _fmt_gear(values: tuple) -> str:
 CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
     ("Process", (
         _row("Mode", "process", "process_mode", sticky=True),
+        _row("Normalize", "process", "e6_normalize", sticky=True),
         _row("Positive", "process", "positive_source", sticky=True),
         _row("Analysis Buffer", "process", "analysis_buffer", sticky=True),
         _row("Range", "process", "luma_range_clip", sticky=True),
         _row("Color", "process", "color_range_clip", sticky=True),
-        _row("Normalize", "process", "e6_normalize", sticky=True),
         _row("Use Luma Average", "process", "use_luma_average"),
         _row("Use Color Average", "process", "use_color_average"),
         _row("White Point", "process", "white_point_offset"),
@@ -115,7 +115,7 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         # target on a stale or None matrix.
         _row("Crosstalk", "process", "crosstalk_strength", "crosstalk_profile", "crosstalk_matrix", fmt=lambda v: _fmt_scalar(v[0]), sticky=True),
         _row("Single-Shot Narrowband Calibration", "process", "sensor_profile", "sensor_matrix", fmt=lambda v: _fmt_scalar(v[0]), sticky=True),
-        # Absent from _BOUNDS_INPUT_FIELDS: it acts after inversion, so it never feeds the meters.
+        # Absent from BOUNDS_INPUT_FIELDS: it acts after inversion, so it never feeds the meters.
         _row("Hue Trim", "process", "hue_trim", sticky=True),
     )),
     ("Crop", (
@@ -134,7 +134,7 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("Easel Tilt", "geometry", "converge_v"),
         _row("Easel Swing", "geometry", "converge_h"),
         _row("Lens Correction", "geometry", "distortion_k1", "lens_distortion_from_metadata", sticky=True),
-        _row("Metadata CA", "geometry", "lens_ca_from_metadata", sticky=True),
+        _row("Embedded CA", "geometry", "lens_ca_from_metadata", sticky=True),
         _row("Flip Horizontal", "geometry", "flip_horizontal", sticky=True),
         _row("Flip Vertical", "geometry", "flip_vertical", sticky=True),
     )),
@@ -296,7 +296,7 @@ _DEFAULT = WorkspaceConfig()
 # value never reaches the render. Mirrors what every sidebar handler for these already
 # does. Excluded on purpose: autocrop_ratio (see AppController.set_crop_ratio), rotation,
 # and the white and black points, which apply after the bounds rather than feeding them.
-_BOUNDS_INPUT_FIELDS = frozenset(
+BOUNDS_INPUT_FIELDS = frozenset(
     {
         "process_mode",
         "analysis_buffer",
@@ -326,6 +326,24 @@ def all_rows() -> list[SettingRow]:
 
 def rows_by_id() -> dict[str, SettingRow]:
     return {r.id: r for r in all_rows()}
+
+
+def rows_for_fields(fields: Iterable[str]) -> list[SettingRow]:
+    """Every row touching one of *fields*. Any overlap counts, because a row travels
+    whole: Crosstalk has to come along on its strength field alone, or the matrix it
+    carries is left behind."""
+    wanted = set(fields)
+    return [r for r in all_rows() if any(f in wanted for f in r.fields)]
+
+
+def section_of_field() -> dict[str, str]:
+    """field name -> the WorkspaceConfig section it lives on, over every catalog row."""
+    return {f: r.section for r in all_rows() for f in r.fields}
+
+
+def rows_for_section(section: str) -> list[SettingRow]:
+    """Every row on one WorkspaceConfig section, for a card that owns the whole of it."""
+    return [r for r in all_rows() if r.section == section]
 
 
 # Everything but the Metadata rows, for the pickers that offer metadata alone.
@@ -374,7 +392,7 @@ def apply_selected_fields(source: WorkspaceConfig, target: WorkspaceConfig, rows
     out = target
     for section, changes in by_section.items():
         out = replace(out, **{section: replace(getattr(out, section), **changes)})
-    if any(f in _BOUNDS_INPUT_FIELDS for row in rows for f in row.fields):
+    if any(f in BOUNDS_INPUT_FIELDS for row in rows for f in row.fields):
         out = replace(out, process=replace(out.process, **invalidate_local_bounds(out.process)))
     return out
 

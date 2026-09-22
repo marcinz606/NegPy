@@ -606,7 +606,7 @@ def rgb_grouping_notice(made: int, loose: int, incomplete: int, mismatched: int,
     order = "" if by_time else "; grouped by filename, as the files state no capture time"
     made_text = f"{count_of(made, 'frame')} assembled, " if made else ""
     return (
-        f"Trichrome Scan: {made_text}{count_of(loose, 'file')} left separate{detail}{order}. "
+        f"Trichrome Mode: {made_text}{count_of(loose, 'file')} left separate{detail}{order}. "
         "Right-click a frame and choose Edit RGB Triplet to pair them by hand."
     )
 
@@ -624,9 +624,9 @@ def rgb_nothing_matched_message(summary: dict) -> tuple[str, str]:
     if not summary.get("narrowband"):
         return (
             "Nothing to assemble",
-            f"Trichrome Scan is on, but this folder does not look like trichrome captures: its {files} were all "
+            f"Trichrome Mode is on, but this folder does not look like trichrome captures: its {files} were all "
             "lit the same way, so there are no red, green and blue sets to combine.\n\n"
-            "Turn Trichrome Scan off to work with them as ordinary frames.",
+            "Turn Trichrome Mode off to work with them as ordinary frames.",
         )
     # Filenames only stop mattering once the files date themselves; without that they
     # carry the capture order and the claim would contradict the fallback.
@@ -698,9 +698,9 @@ class AssetDiscoveryWorker(QObject):
     def process_auto_detect_all_splits(self, task: AutoDetectAllSplitsTask) -> None:
         import os
 
-        from negpy.services.assets.half_frame import detect_split_x_for_file
+        from negpy.services.assets.half_frame import detect_split_and_crop_for_file
 
-        detected = self._map_files(task.paths, detect_split_x_for_file, lambda p: f"Split {os.path.basename(p)}", _DECODE_WORKERS)
+        detected = self._map_files(task.paths, detect_split_and_crop_for_file, lambda p: f"Split {os.path.basename(p)}", _DECODE_WORKERS)
         self.splits_detected.emit(dict(zip(task.paths, detected)))
 
     @pyqtSlot(AssetDiscoveryTask)
@@ -768,7 +768,12 @@ class AssetDiscoveryWorker(QObject):
 
         self.finished.emit(valid_assets)
 
-    def _expand_half_frames(self, assets: list, profile: dict | None = None, overrides: dict | None = None) -> list:
+    def _expand_half_frames(
+        self,
+        assets: list,
+        profile: dict | None = None,
+        overrides: dict | None = None,
+    ) -> list:
         """Expand each file into two half-frame assets sharing the path, with
         per-half hash/name identities. Composite assets (triplet, stitch, HDR) stay
         whole — an unsupported combination.
@@ -1683,7 +1688,7 @@ class NormalizationWorker(QObject):
     """
 
     progress = pyqtSignal(int, int, str, bool)
-    finished = pyqtSignal(tuple, tuple)
+    finished = pyqtSignal(tuple, tuple, list)
     cancelled = pyqtSignal()
     error = pyqtSignal(str)
 
@@ -1776,7 +1781,7 @@ class NormalizationWorker(QObject):
                         completed += 1
                         count = completed
                     self.progress.emit(count, total, f_info["name"], has_crop)
-                    return bounds.floors, bounds.ceils, f_info["name"]
+                    return bounds.floors, bounds.ceils, f_info["name"], f_info["path"]
                 except Exception as e:
                     logger.error(f"Failed to analyze {f_info['name']}: {e}")
                     async with lock:
@@ -1808,8 +1813,12 @@ class NormalizationWorker(QObject):
 
             floors_arr = np.array([r[0] for r in valid_results])
             ceils_arr = np.array([r[1] for r in valid_results])
+            paths = [r[3] for r in valid_results]
 
-            def get_robust_mean(data: np.ndarray) -> np.ndarray:
+            def robust_mean_and_outliers(data: np.ndarray, outside: np.ndarray) -> np.ndarray:
+                """Per-channel interquartile-trimmed mean; ORs into *outside* which rows
+                (frames) fell outside the trimmed band on this channel -- those frames'
+                own value took no part in the average about to be applied to them."""
                 results = []
                 for ch in range(3):
                     ch_data = data[:, ch]
@@ -1820,6 +1829,7 @@ class NormalizationWorker(QObject):
                     low, high = np.percentile(ch_data, [25, 75])
                     mask = (ch_data >= low) & (ch_data <= high)
                     valid = ch_data[mask]
+                    outside |= ~mask
 
                     if valid.size > 0:
                         results.append(np.mean(valid))
@@ -1827,12 +1837,15 @@ class NormalizationWorker(QObject):
                         results.append(np.mean(ch_data))
                 return np.array(results)
 
-            avg_floors = get_robust_mean(floors_arr)
-            avg_ceils = get_robust_mean(ceils_arr)
+            outside_band = np.zeros(len(valid_results), dtype=bool)
+            avg_floors = robust_mean_and_outliers(floors_arr, outside_band)
+            avg_ceils = robust_mean_and_outliers(ceils_arr, outside_band)
+            outlier_paths = [paths[i] for i in range(len(paths)) if outside_band[i]]
 
             self.finished.emit(
                 tuple(map(float, avg_floors)),
                 tuple(map(float, avg_ceils)),
+                outlier_paths,
             )
 
         except Exception as e:

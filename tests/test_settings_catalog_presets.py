@@ -5,6 +5,7 @@ from dataclasses import replace
 
 from negpy.desktop.settings_catalog import all_rows, preset_summary, selected_flat_dict
 from negpy.domain.models import WorkspaceConfig
+from negpy.features.process.models import ProcessMode
 
 
 def _row(label: str):
@@ -36,9 +37,19 @@ def test_positive_source_row_is_catalogued():
     onto a selection, or saved into a preset — Positive needs one to batch onto
     a roll of already-positive frames rather than being set one frame at a time."""
     base = WorkspaceConfig()
-    cfg = replace(base, process=replace(base.process, positive_source=True))
+    cfg = replace(base, process=replace(base.process, process_mode=ProcessMode.E6, positive_source=True))
     data = selected_flat_dict(cfg, [_row("Positive")])
     assert data == {"positive_source": True}
+
+
+def test_normalize_row_is_catalogued():
+    """Regression: a capture-mode toggle with no catalog row can't be copied, cloned
+    onto a selection, or saved into a preset -- Normalize needs one to batch onto
+    a roll of faded slides rather than being set one frame at a time."""
+    base = WorkspaceConfig()
+    cfg = replace(base, process=replace(base.process, e6_normalize=True))
+    data = selected_flat_dict(cfg, [_row("Normalize")])
+    assert data == {"e6_normalize": True}
 
 
 def test_overlay_apply_preserves_unrelated_edits():

@@ -4,11 +4,15 @@ from unittest.mock import MagicMock
 from negpy.desktop.session import AppState
 from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
 from negpy.features.process.models import ProcessMode
+from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 
 
 def _panel():
     controller = MagicMock()
     controller.state = AppState()
+    # An untouched file's config, not AppState()'s own bare WorkspaceConfig() placeholder --
+    # crosstalk_strength (and friends) differ between the two (see DEFAULT_WORKSPACE_CONFIG).
+    controller.state.config = DEFAULT_WORKSPACE_CONFIG
     return controller, ControlsPanel(controller)
 
 
@@ -66,14 +70,46 @@ def test_calibration_reset_button_restores_its_fields(qapp):
 
 
 def test_flat_field_reset_button_restores_its_section(qapp):
+    """Flat Field is a roll card, so its reset goes out the same door an edit does and
+    the lock follows it."""
     controller, panel = _panel()
     cfg = controller.state.config
     controller.state.config = replace(cfg, flatfield=replace(cfg.flatfield, apply=True, profile_id="rig-1"))
 
     panel.flatfield_section.reset_requested.emit()
 
+    controller.set_roll_default.assert_called_once_with("flatfield", apply=False, profile_id="")
+
+
+def test_auto_crop_and_lens_resets_restore_their_own_cards(qapp):
+    controller, panel = _panel()
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, geometry=replace(cfg.geometry, autocrop_offset=9, distortion_k1=0.05, fine_rotation=1.5))
+
+    panel.autocrop_section.reset_requested.emit()
+    card, changes = controller.set_roll_default.call_args[0][0], controller.set_roll_default.call_args[1]
+    assert card == "autocrop"
+    assert changes["autocrop_offset"] == cfg.geometry.autocrop_offset
+    assert "distortion_k1" not in changes
+
+    panel.lens_section.reset_requested.emit()
+    card, changes = controller.set_roll_default.call_args[0][0], controller.set_roll_default.call_args[1]
+    assert card == "lens"
+    assert changes["distortion_k1"] == cfg.geometry.distortion_k1
+    assert "fine_rotation" not in changes
+
+
+def test_geometry_reset_leaves_the_roll_scoped_cards_alone(qapp):
+    controller, panel = _panel()
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, geometry=replace(cfg.geometry, fine_rotation=1.5, autocrop_offset=9, distortion_k1=0.05))
+
+    panel.geometry_section.reset_requested.emit()
+
     applied = controller.apply_config.call_args[0][0]
-    assert applied.flatfield == cfg.flatfield
+    assert applied.geometry.fine_rotation == cfg.geometry.fine_rotation
+    assert applied.geometry.autocrop_offset == 9
+    assert applied.geometry.distortion_k1 == 0.05
 
 
 def test_transparency_at_true_default_shows_color_unmodified(qapp):

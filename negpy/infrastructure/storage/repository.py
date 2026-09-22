@@ -4,6 +4,7 @@ import os
 import time
 from contextlib import contextmanager
 from typing import Any, List, Optional
+import numpy as np
 from negpy.domain.models import ExportPreset, WorkspaceConfig
 from negpy.domain.interfaces import IRepository
 
@@ -43,20 +44,6 @@ class StorageRepository(IRepository):
                 )
             """)
             conn.execute("""
-                CREATE TABLE IF NOT EXISTS normalization_rolls (
-                    name TEXT PRIMARY KEY,
-                    floors_json TEXT,
-                    ceils_json TEXT,
-                    cast_json TEXT
-                )
-            """)
-            # Migration: add cast_json if not exists
-            try:
-                conn.execute("ALTER TABLE normalization_rolls ADD COLUMN cast_json TEXT")
-            except sqlite3.OperationalError:
-                pass
-
-            conn.execute("""
                 CREATE TABLE IF NOT EXISTS edit_history (
                     file_hash TEXT,
                     step_index INTEGER,
@@ -85,6 +72,17 @@ class StorageRepository(IRepository):
                 )
             """)
 
+            # One CLIP vector per frame, for "search by meaning" (semantic_model.py).
+            # model_version keys it to the model it was computed with, so swapping
+            # models leaves old vectors unread instead of scored against a new one.
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS image_embeddings (
+                    file_hash TEXT PRIMARY KEY,
+                    embedding BLOB,
+                    model_version TEXT
+                )
+            """)
+
             # Migration: add file_path so a mark resolves without the file's hash. Library search
             # joins by path and never hashes, so it would otherwise be blind to triage marks on
             # frames it has not loaded.
@@ -102,6 +100,14 @@ class StorageRepository(IRepository):
             # Migration: index on file_path for path-based fallback queries
             conn.execute("CREATE INDEX IF NOT EXISTS idx_file_settings_path ON file_settings(file_path)")
 
+            # Migration: add file_path so a whole-library semantic search can open a match
+            # it has never hashed before -- image_embeddings otherwise only round-trips
+            # through a hash a caller already holds.
+            try:
+                conn.execute("ALTER TABLE image_embeddings ADD COLUMN file_path TEXT")
+            except sqlite3.OperationalError:
+                pass  # already exists
+
         with self._connect(self.settings_db_path) as conn:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("""
@@ -110,47 +116,6 @@ class StorageRepository(IRepository):
                     value_json TEXT
                 )
             """)
-
-    def save_normalization_roll(self, name: str, floors: tuple, ceils: tuple, cast: tuple = (0.0, 0.0, 0.0)) -> None:
-        """
-        Persists a named normalization baseline (roll).
-        """
-        with self._connect(self.edits_db_path) as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO normalization_rolls (name, floors_json, ceils_json, cast_json) VALUES (?, ?, ?, ?)",
-                (name, json.dumps(floors), json.dumps(ceils), json.dumps(cast)),
-            )
-
-    def load_normalization_roll(self, name: str) -> Optional[tuple[tuple, tuple]]:
-        """
-        Retrieves a named normalization baseline.
-        """
-        with self._connect(self.edits_db_path) as conn:
-            cursor = conn.execute(
-                "SELECT floors_json, ceils_json FROM normalization_rolls WHERE name = ?",
-                (name,),
-            )
-            row = cursor.fetchone()
-            if row:
-                floors = tuple(json.loads(row[0]))
-                ceils = tuple(json.loads(row[1]))
-                return floors, ceils
-        return None
-
-    def list_normalization_rolls(self) -> list[str]:
-        """
-        Returns names of all saved normalization rolls.
-        """
-        with self._connect(self.edits_db_path) as conn:
-            cursor = conn.execute("SELECT name FROM normalization_rolls ORDER BY name")
-            return [row[0] for row in cursor.fetchall()]
-
-    def delete_normalization_roll(self, name: str) -> None:
-        """
-        Deletes a named normalization baseline.
-        """
-        with self._connect(self.edits_db_path) as conn:
-            conn.execute("DELETE FROM normalization_rolls WHERE name = ?", (name,))
 
     def save_file_mark(self, file_hash: str, mark: Optional[str], file_path: str = "") -> None:
         """Persists a triage mark ('keeper'/'excluded'); None clears it."""
@@ -202,8 +167,49 @@ class StorageRepository(IRepository):
         The triage mark stays: a keep/reject is a judgement on the frame, not an edit.
         """
         with self._connect(self.edits_db_path) as conn:
-            for table in ("file_settings", "edit_history", "work_prints"):
+            for table in ("file_settings", "edit_history", "work_prints", "image_embeddings"):
                 conn.execute(f"DELETE FROM {table} WHERE file_hash = ?", (file_hash,))
+
+    def save_embedding(self, file_hash: str, vector: np.ndarray, model_version: str, file_path: str = "") -> None:
+        with self._connect(self.edits_db_path) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO image_embeddings (file_hash, embedding, model_version, file_path) VALUES (?, ?, ?, ?)",
+                (file_hash, np.asarray(vector, dtype=np.float32).tobytes(), model_version, file_path),
+            )
+
+    def load_embeddings_for(self, hashes: List[str], model_version: str) -> dict[str, np.ndarray]:
+        """Cached vectors for many hashes in one round trip, like load_file_settings_many.
+        A hash with no cached embedding, or one cached under a retired model_version, is
+        simply absent -- indexing has not reached it yet (or needs to again)."""
+        out: dict[str, np.ndarray] = {}
+        if not hashes:
+            return out
+        with self._connect(self.edits_db_path) as conn:
+            for start in range(0, len(hashes), 500):
+                chunk = hashes[start : start + 500]
+                placeholders = ",".join("?" * len(chunk))
+                cursor = conn.execute(
+                    f"SELECT file_hash, embedding FROM image_embeddings WHERE model_version = ? AND file_hash IN ({placeholders})",
+                    [model_version, *chunk],
+                )
+                for file_hash, blob in cursor.fetchall():
+                    out[str(file_hash)] = np.frombuffer(blob, dtype=np.float32)
+        return out
+
+    def load_all_embeddings(self, model_version: str) -> dict[str, tuple[str, np.ndarray]]:
+        """Every cached vector under `model_version`, as {file_hash: (file_path, vector)} --
+        the whole-library semantic search's candidate set, not scoped to any hash list the
+        caller already holds. A row saved before the file_path column existed contributes
+        no path and is simply unopenable from a library-wide match."""
+        with self._connect(self.edits_db_path) as conn:
+            cursor = conn.execute(
+                "SELECT file_hash, file_path, embedding FROM image_embeddings WHERE model_version = ?",
+                (model_version,),
+            )
+            return {
+                str(file_hash): (str(file_path or ""), np.frombuffer(blob, dtype=np.float32))
+                for file_hash, file_path, blob in cursor.fetchall()
+            }
 
     def load_file_settings_many(self, hashes: List[str]) -> dict[str, WorkspaceConfig]:
         """Saved edits for many hashes in one connection — the search facts for a whole
@@ -463,7 +469,6 @@ class StorageRepository(IRepository):
             edit_history = self._count(conn, "edit_history")
             work_prints = self._count(conn, "work_prints")
             file_marks = self._count(conn, "file_marks")
-            normalization_rolls = self._count(conn, "normalization_rolls")
 
         with self._connect(self.settings_db_path) as conn:
             global_settings = self._count(conn, "global_settings")
@@ -477,7 +482,6 @@ class StorageRepository(IRepository):
             "edit_history": edit_history,
             "work_prints": work_prints,
             "file_marks": file_marks,
-            "normalization_rolls": normalization_rolls,
             "export_presets": export_presets,
             # global_settings rows minus the single export_presets row (if present).
             "app_preferences": max(0, global_settings - (1 if has_presets_row else 0)),
@@ -502,20 +506,18 @@ class StorageRepository(IRepository):
 
     def clear_saved_edits(self) -> None:
         """Drop per-image looks: saved edits, their undo history, work prints, and
-        keep/reject marks. Rig calibration (normalization rolls), export presets, and app
-        preferences are left intact — so a reloaded image starts from defaults
-        without losing the user's tooling. Flat-field profiles live in the file
-        store (APP_CONFIG.flatfield_dir), not here, so they are untouched too."""
+        keep/reject marks. Rig calibration, export presets, and app preferences are
+        left intact — so a reloaded image starts from defaults without losing the
+        user's tooling. Flat-field profiles live in the file store
+        (APP_CONFIG.flatfield_dir), not here, so they are untouched too."""
         self._wipe(self.edits_db_path, ["file_settings", "edit_history", "work_prints", "file_marks"])
 
     def reset_everything(self) -> None:
         """Full clean slate: every table in both databases. Export presets, rig
-        profiles, and all app preferences go too. Schema is preserved (rows only),
-        so the app keeps working against the emptied databases without re-init.
-        File-store assets (flat-field profiles, sensor/crosstalk matrices) are on
-        disk, not in these databases, so they survive — as with a fresh install."""
-        self._wipe(
-            self.edits_db_path,
-            ["file_settings", "edit_history", "work_prints", "file_marks", "normalization_rolls"],
-        )
+        profiles, roll baselines and all app preferences go too, the last three
+        living in global_settings. Schema is preserved (rows only), so the app keeps
+        working against the emptied databases without re-init. File-store assets
+        (flat-field profiles, sensor/crosstalk matrices) are on disk, not in these
+        databases, so they survive — as with a fresh install."""
+        self._wipe(self.edits_db_path, ["file_settings", "edit_history", "work_prints", "file_marks"])
         self._wipe(self.settings_db_path, ["global_settings"])

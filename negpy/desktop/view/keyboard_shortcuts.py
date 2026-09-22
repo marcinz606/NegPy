@@ -5,7 +5,7 @@ from PyQt6.QtGui import QKeySequence, QShortcut
 
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.confirm import confirm_reset_frames
-from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog, open_sticky_dialog
+from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog, open_sticky_dialog, open_sync_bounds_dialog
 from negpy.desktop.view.shortcut_registry import (
     REGISTRY,
     load_bindings,
@@ -27,6 +27,18 @@ def _context_undo(controller) -> None:
         controller.undo_last_retouch()
     else:
         controller.session.undo()
+
+
+def _fire_tab_header(right, action: str) -> None:
+    """The tab in front answers for its own cards; a tab that owns no settings has no
+    header and nothing happens."""
+    header = right.active_tab_header()
+    if header is None:
+        return
+    if action == "cards":
+        header.cards_btn.click()
+        return
+    (header.reset_requested if action == "reset" else header.apply_requested).emit()
 
 
 def _reset_roll(window, controller) -> None:
@@ -189,15 +201,16 @@ class ShortcutManager:
             "crop_guide_next": lambda: controls.geometry_sidebar.cycle_guide(),
             "crop_guide_orient": controller.cycle_crop_guide_orientation,
             "auto_crop": lambda: controls.geometry_sidebar.reset_crop_btn.toggle(),
-            "lens_distortion_from_metadata": lambda: controls.geometry_sidebar.metadata_distortion_btn.click(),
-            "lens_ca_from_metadata": lambda: controls.geometry_sidebar.metadata_ca_btn.click(),
+            "crop_to_valid": lambda: controls.geometry_sidebar.crop_to_valid_btn.toggle(),
+            "lens_distortion_from_metadata": lambda: controls.lens_sidebar.metadata_distortion_btn.click(),
+            "lens_ca_from_metadata": lambda: controls.lens_sidebar.metadata_ca_btn.click(),
             "pick_dust": lambda: _toggle_tool_button(self.window, "finish", controls.retouch_sidebar.pick_dust_btn),
             "pick_scratch": lambda: _toggle_tool_button(self.window, "finish", controls.retouch_sidebar.pick_scratch_btn),
             "pick_scratch_line": lambda: _toggle_tool_button(self.window, "finish", controls.retouch_sidebar.pick_line_btn),
             "local_draw": lambda: _toggle_tool_button(self.window, "tone", controls.local_sidebar.draw_btn),
             "local_oval": lambda: _toggle_tool_button(self.window, "tone", controls.local_sidebar.oval_btn),
             "local_gradient": lambda: _toggle_tool_button(self.window, "tone", controls.local_sidebar.gradient_btn),
-            "analysis_draw": lambda: _toggle_tool_button(self.window, "setup", controls.process_sidebar.analysis_region_btn),
+            "analysis_draw": lambda: _toggle_tool_button(self.window, "roll", controls.process_sidebar.analysis_region_btn),
             "toggle_flat_peek": controller.toggle_flat_peek,
             "toggle_negative_peek": controller.toggle_negative_peek,
             "toggle_embedded_peek": controller.toggle_embedded_peek,
@@ -211,12 +224,14 @@ class ShortcutManager:
             "toggle_soft_proof": lambda: controller.set_soft_proof(not controller.state.soft_proof_enabled),
             "cancel_tool": lambda: _context_cancel(controller, self.window),
             "show_library": self.window.session_panel.show_library,
-            "browse_parent": self.window.session_panel.browse_parent,
             "focus_search": self.window.session_panel.file_browser.focus_search,
             "search_library": self.window.session_panel.file_browser.search_library,
             "toggle_library_tree": self.window.session_panel.toggle_library_tree,
             "toggle_immersive_canvas": lambda: controller.session.set_immersive_canvas(not controller.session.state.immersive_canvas),
             "toggle_sticky_zoom": lambda: controller.session.set_sticky_zoom(not controller.session.state.sticky_zoom),
+            "toggle_sticky_settings": lambda: controller.session.set_sticky_settings_enabled(
+                not controller.session.state.sticky_settings_enabled
+            ),
             "toggle_slider_values": self._toggle_slider_values,
             "toggle_invert_zoom_scroll": lambda: controller.session.set_invert_zoom_scroll(not controller.session.state.invert_zoom_scroll),
             "toggle_left_panel": self.window.toggle_session_dock,
@@ -224,7 +239,7 @@ class ShortcutManager:
             "reset_panel_layout": self.window.reset_panel_layout,
             "edit_toolbar": toolbar.open_toolbar_editor,
             "tab_favourites": lambda: right.show_tab_by_key("favourites"),
-            "tab_setup": lambda: right.show_tab_by_key("setup"),
+            "tab_roll": lambda: right.show_tab_by_key("roll"),
             "tab_geometry": lambda: right.show_tab_by_key("geometry"),
             "tab_tone": lambda: right.show_tab_by_key("tone"),
             "tab_color": lambda: right.show_tab_by_key("color"),
@@ -232,6 +247,9 @@ class ShortcutManager:
             "tab_export": lambda: right.show_tab_by_key("export"),
             "tab_metadata": lambda: right.show_tab_by_key("metadata"),
             "tab_history": lambda: right.show_tab_by_key("history"),
+            "tab_gear": lambda: right.show_tab_by_key("gear"),
+            "tab_gear_items": lambda: right.show_gear_section_by_key("items"),
+            "tab_gear_presets": lambda: right.show_gear_section_by_key("presets"),
             "tab_scan": lambda: right.show_tab_by_key("scan"),
             "fit_view": self.window.canvas.fit_to_window,
             "zoom_100": self.window.canvas.zoom_to_original,
@@ -241,7 +259,20 @@ class ShortcutManager:
             "copy": controller.session.copy_settings,
             "copy_with_bounds": controller.session.copy_settings_with_bounds,
             "paste": lambda: open_paste_dialog(self.window, controller),
+            "sync_bounds": lambda: open_sync_bounds_dialog(self.window, controller.session),
             "reset_roll": lambda: _reset_roll(self.window, controller),
+            "reset_tab": lambda: _fire_tab_header(right, "reset"),
+            "apply_tab": lambda: _fire_tab_header(right, "apply"),
+            "toggle_tab_cards": lambda: _fire_tab_header(right, "cards"),
+            "roll_batch_analysis": controller.request_batch_normalization,
+            "roll_settings": lambda: self.window.session_panel.file_browser.roll_settings_btn.click(),
+            "save_as_roll": lambda: self.window.session_panel.file_browser.save_roll_btn.click(),
+            "import_roll": lambda: self.window.session_panel.library_tree.prompt_import_folder(),
+            "index_library": lambda: self.window.session_panel.library_tree.index_btn.click(),
+            "metadata_infer_gear": lambda: right.metadata_sidebar.gear_infer_btn.click(),
+            "toggle_gear_catalog": lambda: right.gear_panel.show_catalog_btn.click(),
+            "toggle_semantic_search": lambda: self.window.session_panel.file_browser.semantic_btn.click(),
+            "toggle_positive_source": lambda: controls.process_sidebar.positive_source_btn.click(),
             "persistent_settings": lambda: open_sticky_dialog(self.window, controller),
             "open_preferences": lambda: _open_preferences(self.window, controller),
             "save_work_print": self.window.right_panel.history_panel.save_work_print,
@@ -256,7 +287,7 @@ class ShortcutManager:
             "toggle_right_click_excludes": controls.retouch_sidebar.right_click_btn.click,
             "toggle_ir_removal": controls.retouch_sidebar.ir_dust_btn.click,
             "toggle_flat_field": controls.flatfield_sidebar.enable_btn.click,
-            "batch_autocrop": controls.geometry_sidebar.auto_crop_all_btn.click,
+            "batch_autocrop": controls.autocrop_sidebar.auto_crop_all_btn.click,
             "toggle_auto_density": controls.tone_sidebar.auto_density_btn.click,
             "toggle_auto_grade": controls.tone_sidebar.auto_grade_btn.click,
             "preset_apply": controls.presets_sidebar.apply_btn.click,

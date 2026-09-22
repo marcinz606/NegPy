@@ -3,7 +3,7 @@
 import sys
 
 import pytest
-from PyQt6.QtWidgets import QStyle
+from PyQt6.QtWidgets import QStyle, QStyleFactory
 
 from negpy.desktop.main import _AppStyle
 
@@ -14,7 +14,11 @@ def style(qapp):
 
 
 def test_tooltips_wait_longer_than_the_fusion_default(style):
-    assert style.styleHint(QStyle.StyleHint.SH_ToolTip_WakeUpDelay) == 1400
+    fusion = QStyleFactory.create("Fusion")
+    fusion_default = fusion.styleHint(QStyle.StyleHint.SH_ToolTip_WakeUpDelay)
+    wakeup = style.styleHint(QStyle.StyleHint.SH_ToolTip_WakeUpDelay)
+    assert wakeup == _AppStyle._TOOLTIP_WAKEUP_MS
+    assert wakeup > fusion_default
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="the hint is only overridden on macOS")

@@ -393,6 +393,17 @@ QFrame#collapsible_content {
     border-top: none;
 }
 
+/* A card's scope (widgets/collapsible.py set_scope_buttons), as a stripe on the header
+   alone: the same amber and red the Frame/Roll buttons beside it carry, so the card says
+   which one is lit without the buttons being read. */
+QPushButton#collapsible_header[scope="frame"] {
+    border-left: 3px solid @warn_amber;
+}
+
+QPushButton#collapsible_header[scope="roll"] {
+    border-left: 3px solid @accent_secondary;
+}
+
 /* Section content must not repaint over the card: plain QWidget bodies would
    otherwise pick up the global `QWidget` @bg_dark fill and read darker than
    sections whose content is a custom subclass. */
@@ -427,6 +438,11 @@ QPushButton#collapsible_reset_btn {
 QPushButton#collapsible_reset_btn:hover {
     background: @bg_selected;
     border-radius: 3px;
+}
+QPushButton#collapsible_reset_btn::menu-indicator {
+    /* An actions-menu button in this row (set_actions_menu) reads as one more plain icon,
+    like its info/reset siblings, not a split button. */
+    width: 0px;
 }
 
 QFrame#toolbar_container {

@@ -52,12 +52,14 @@ def load_sidecar(source_path: str, half: int = 0) -> Optional[WorkspaceConfig]:
         return None
 
 
-def load_or_promote(repo, file_hash: str, source_path: str, half: int = 0, composite: bool = False) -> Optional[WorkspaceConfig]:
+def load_or_promote(
+    repo, file_hash: str, source_path: str, half: int = 0, composite: bool = False, forked: bool = False
+) -> Optional[WorkspaceConfig]:
     """DB first; on miss, try path-based fallback (handles EXIF-modified files),
     then fall back to sidecar. Re-homes on successful path match.
 
     Both fallbacks are keyed by path, so they only apply where the hash *is* the identity
-    of the file at that path. Two kinds of asset break that:
+    of the file at that path. Three kinds of asset break that:
 
     - a **half-frame**, which shares its path with the other half; a path match would
       steal the sibling's edit.
@@ -65,22 +67,25 @@ def load_or_promote(repo, file_hash: str, source_path: str, half: int = 0, compo
       match hands the composite that frame's whole edit — its rotation, its film process
       — and `rehome_file_settings` then *moves* the row, so the source frame loses its
       own edit. That is how a merge of five slides opened rotated and in the wrong mode.
+    - a **roll-forked edit**, which shares its path with the roll's shared edit. A path
+      match would hand the fork the shared edit, and rehoming it would delete the shared
+      row out from under every other roll still using it.
 
-    A composite skips the sidecar too: the `.negpy` beside the reference frame describes
-    that frame, not the composite built from it.
+    A composite or a fork skips the sidecar too: the `.negpy` beside the source describes
+    the shared frame, not a variant of it.
     """
     cfg = repo.load_file_settings(file_hash)
     if cfg is not None:
         return cfg
 
-    if not half and not composite:
+    if not half and not composite and not forked:
         path_result = repo.load_file_settings_by_path(source_path)
         if path_result is not None:
             old_hash, cfg = path_result
             repo.rehome_file_settings(old_hash, file_hash, source_path)
             return cfg
 
-    if composite:
+    if composite or forked:
         return None
 
     # Sidecar fallback

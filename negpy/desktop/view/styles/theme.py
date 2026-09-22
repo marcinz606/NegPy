@@ -130,6 +130,8 @@ class ThemeConfig:
             "color": True,
             "tone": True,
             "geometry": True,
+            "autocrop": True,
+            "lens": False,
             "lab": True,
             "retouch": True,
         }

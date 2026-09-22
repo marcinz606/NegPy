@@ -26,13 +26,17 @@ from negpy.features.exposure.transfer import (
     TRANSFER_DENSITY_RANGE,
     apply_transfer_curve,
     display_rendering,
-    is_transparency_transfer,
+    is_transfer_path,
+    transfer_assumed_anchor,
+    transfer_auto_terms,
     transfer_bounds,
     transfer_curve_params,
+    transfer_highlight_hold_density,
+    transfer_shadow_reach_density,
     transfer_widths,
 )
 from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
-from negpy.features.process.models import ProcessConfig, ProcessMode, cast_removal_for_mode
+from negpy.features.process.models import ProcessConfig, ProcessMode, auto_meter_for_positive_source, cast_removal_for_mode
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 
 # A real camera's XYZ->cam matrix (Nikon Z6/Z7-class), so the color maths is exercised
@@ -87,17 +91,27 @@ def _ramp(lo=1e-4, hi=0.6, n=512):
 
 
 class TestModeSelection(unittest.TestCase):
-    def test_only_e6_with_normalize_off_takes_the_transfer_path(self):
-        self.assertTrue(is_transparency_transfer(ProcessMode.E6, False))
-        self.assertFalse(is_transparency_transfer(ProcessMode.E6, True))
-        self.assertFalse(is_transparency_transfer(ProcessMode.C41, False))
-        self.assertFalse(is_transparency_transfer(ProcessMode.BW, False))
+    def test_e6_with_normalize_off_takes_the_transfer_path(self):
+        self.assertTrue(is_transfer_path(ProcessMode.E6, False))
+        self.assertFalse(is_transfer_path(ProcessMode.E6, True))
+        self.assertFalse(is_transfer_path(ProcessMode.C41, False))
+        self.assertFalse(is_transfer_path(ProcessMode.BW, False))
+
+    def test_positive_source_is_slide_only(self):
+        """A file already positivized before NegPy saw it has nothing left to meter or
+        invert, and only Slide can carry that: a config built in any other mode drops
+        the flag, so the negative path is never reached with it set."""
+        for mode in (ProcessMode.C41, ProcessMode.BW):
+            self.assertFalse(ProcessConfig(process_mode=mode, positive_source=True).positive_source)
+        self.assertTrue(ProcessConfig(process_mode=ProcessMode.E6, positive_source=True).positive_source)
+        # On Slide, Normalize on still wins: a metered rescue stretch, not a raw passthrough.
+        self.assertFalse(is_transfer_path(ProcessMode.E6, True, positive_source=True))
 
     def test_flat_intent_still_wins(self):
         """FLAT is an explicit export master; it must not be hijacked by the transfer."""
         from negpy.features.exposure.models import RenderIntent
 
-        self.assertFalse(is_transparency_transfer(ProcessMode.E6, False, RenderIntent.FLAT))
+        self.assertFalse(is_transfer_path(ProcessMode.E6, False, render_intent=RenderIntent.FLAT))
 
 
 class TestIdentityAtDefaults(unittest.TestCase):
@@ -207,28 +221,45 @@ class TestPositiveSourceSkipsDisplayRendering(unittest.TestCase):
         self.assertGreater(float(np.abs(rendered - img).max()), 0.01)
 
     def test_pipeline_level_matches_a_bare_ODT_free_encode(self):
+        """Auto Density/Auto Grade are metering, so isolating the ODT/gain skip means
+        turning them off; TestAutoOnPositiveSource covers what they do left on."""
         rng = np.random.default_rng(29)
         img = (rng.random((16, 16, 3)) * 0.3 + 0.02).astype(np.float32)
-        out, _ = _run_stages(img, _e6_config(positive_source=True), cam_xyz=None)
+        cfg = _e6_config(positive_source=True, auto_exposure=False, auto_normalize_contrast=False)
+        out, _ = _run_stages(img, cfg, cam_xyz=None)
         rel = np.abs(np.asarray(out) - img) / np.maximum(img, 1e-9)
         self.assertLess(float(rel.max()), 1e-4)
 
     def test_default_is_off_and_unaffected_frames_keep_the_camera_render(self):
         self.assertFalse(ProcessConfig().positive_source)
 
-    def test_stays_off_the_print_path_and_off_normalize_on(self):
-        """Only the as-captured transfer reads it; nowhere else may be affected."""
+    def test_stays_off_the_print_path_when_normalize_is_on(self):
+        """Positive only applies with Normalize off; a metered stretch already decodes
+        on the source's own profile, so it has nothing left to skip."""
         rng = np.random.default_rng(5)
         img = (rng.random((16, 16, 3)) * 0.3 + 0.02).astype(np.float32)
-        for base_cfg in (
-            _e6_config(normalize=True),
-            replace(_e6_config(), process=replace(_e6_config().process, process_mode=ProcessMode.C41)),
-        ):
-            with self.subTest(process_mode=base_cfg.process.process_mode, normalize=base_cfg.process.e6_normalize):
+        base_cfg = _e6_config(normalize=True)
+        on = replace(base_cfg, process=replace(base_cfg.process, positive_source=True))
+        off = replace(base_cfg, process=replace(base_cfg.process, positive_source=False))
+        out_on, _ = _run_stages(img, on)
+        out_off, _ = _run_stages(img, off)
+        self.assertLess(float(np.abs(np.asarray(out_on) - np.asarray(out_off)).max()), 1e-6)
+
+    def test_a_negative_mode_frame_cannot_be_positive(self):
+        """Positive is Slide-only: a C-41 or B&W config drops the flag, so the negative
+        path renders identically whether it was asked for or not."""
+        rng = np.random.default_rng(5)
+        img = (rng.random((16, 16, 3)) * 0.3 + 0.02).astype(np.float32)
+        for mode in (ProcessMode.C41, ProcessMode.BW):
+            with self.subTest(process_mode=mode):
+                cfg = DEFAULT_WORKSPACE_CONFIG
+                process = replace(cfg.process, process_mode=mode)
+                exposure = replace(cfg.exposure, cast_removal_strength=cast_removal_for_mode(mode, cfg.exposure.cast_removal_strength))
+                base_cfg = replace(cfg, process=process, exposure=exposure)
                 on = replace(base_cfg, process=replace(base_cfg.process, positive_source=True))
-                off = replace(base_cfg, process=replace(base_cfg.process, positive_source=False))
+                self.assertFalse(on.process.positive_source)
                 out_on, _ = _run_stages(img, on)
-                out_off, _ = _run_stages(img, off)
+                out_off, _ = _run_stages(img, base_cfg)
                 self.assertLess(float(np.abs(np.asarray(out_on) - np.asarray(out_off)).max()), 1e-6)
 
 
@@ -519,9 +550,61 @@ class TestCaptureTogglesAreInert(unittest.TestCase):
                 self.assertTrue(np.allclose(camera_to_working_matrix(CAM_XYZ, bad), base, atol=1e-6))
 
 
+class TestWhiteBlackPointOnTheTransferPath(unittest.TestCase):
+    """White/Black Point deviate the fixed window the same way they deviate a measured
+    one: additive, and inert at zero (NormalizationProcessor._process_transparency)."""
+
+    def test_zero_offsets_leave_the_fixed_window_untouched(self):
+        floors, ceils = transfer_bounds()
+        _, ctx = _run_stages(_ramp(), _e6_config())
+        self.assertEqual(ctx.metrics["final_bounds"].floors, floors)
+        self.assertEqual(ctx.metrics["final_bounds"].ceils, ceils)
+
+    def test_white_point_deviates_the_window_and_the_render(self):
+        cfg = _e6_config()
+        moved = replace(cfg, process=replace(cfg.process, white_point_offset=0.15))
+        base, ctx_base = _run_stages(_ramp(), cfg)
+        out, ctx_moved = _run_stages(_ramp(), moved)
+        self.assertNotEqual(ctx_moved.metrics["final_bounds"].floors, ctx_base.metrics["final_bounds"].floors)
+        self.assertGreater(float(np.abs(out - base).max()), 1e-3)
+
+    def test_black_point_deviates_the_window_and_the_render(self):
+        cfg = _e6_config()
+        moved = replace(cfg, process=replace(cfg.process, black_point_offset=0.15))
+        base, ctx_base = _run_stages(_ramp(), cfg)
+        out, ctx_moved = _run_stages(_ramp(), moved)
+        self.assertNotEqual(ctx_moved.metrics["final_bounds"].ceils, ctx_base.metrics["final_bounds"].ceils)
+        self.assertGreater(float(np.abs(out - base).max()), 1e-3)
+
+    def test_applies_on_a_positive_source_frame_too(self):
+        """Positive frames take the transfer path on every mode, not only a slide."""
+        cfg = _e6_config(positive_source=True)
+        moved = replace(cfg, process=replace(cfg.process, white_point_offset=0.15))
+        base, _ = _run_stages(_ramp(), cfg)
+        out, _ = _run_stages(_ramp(), moved)
+        self.assertGreater(float(np.abs(out - base).max()), 1e-3)
+
+    def test_cast_removals_neutral_axis_ignores_the_creative_offset(self):
+        """Cast Removal meters gray balance against the pre-trim window, so a White/Black
+        Point nudge must not move what it measures."""
+        rng = np.random.default_rng(41)
+        img = (rng.random((16, 16, 3)) * 0.3 + 0.02).astype(np.float32)
+        cfg = _e6_config(cast_removal_strength=1.0)
+        moved = replace(cfg, process=replace(cfg.process, white_point_offset=0.15, black_point_offset=-0.1))
+
+        _, ctx_base = _run_stages(img, cfg)
+        _, ctx_moved = _run_stages(img, moved)
+
+        self.assertEqual(ctx_base.metrics["neutral_axis_refs"], ctx_moved.metrics["neutral_axis_refs"])
+
+
 class TestAutomaticGradingIsOff(unittest.TestCase):
+    """On a raw, un-normalized slide only -- TestAutoDensityGradeOnAPositiveFrame covers
+    the same two toggles doing real work on a Positive frame."""
+
     def test_auto_density_and_auto_grade_do_not_change_the_render(self):
-        """They meter the frame to pick a look, which is what this path exists to avoid."""
+        """They meter the frame to pick a look, which is what this path exists to avoid
+        for a deliberate camera exposure -- see is_transfer_path's bracket guarantee."""
         rng = np.random.default_rng(13)
         img = (rng.random((16, 16, 3)) * 0.3 + 0.02).astype(np.float32)
         on, _ = _run_stages(img, _e6_config(auto_exposure=True, auto_normalize_contrast=True))
@@ -536,6 +619,156 @@ class TestAutomaticGradingIsOff(unittest.TestCase):
         cfg = _e6_config()
         strong = replace(cfg, process=replace(cfg.process, crosstalk_strength=1.0))
         self.assertLess(float(np.abs(_run_stages(img, cfg)[0] - _run_stages(img, strong)[0]).max()), 1e-6)
+
+
+class TestAutoDensityGradeOnAPositiveFrame(unittest.TestCase):
+    """A Positive frame carries no camera bracket to protect (it is already someone's
+    finished rendering decision), so Auto Density/Auto Grade meter it exactly as they
+    would a negative, restated on this curve by transfer_auto_terms."""
+
+    def _cfg(self, **overrides):
+        return _e6_config(positive_source=True, **overrides)
+
+    def test_metering_is_off_by_default_only_without_positive_source(self):
+        """Guards the boundary this whole feature turns on: positive_source is the only
+        thing that lets these two toggles reach the render on this path."""
+        rng = np.random.default_rng(19)
+        img = (rng.random((16, 16, 3)) * 0.3 + 0.02).astype(np.float32)
+        pos, _ = _run_stages(img, self._cfg())
+        off, _ = _run_stages(img, self._cfg(auto_exposure=False, auto_normalize_contrast=False))
+        self.assertGreater(float(np.abs(pos - off).max()), 1e-4)
+
+    def test_auto_density_pulls_a_dark_frame_brighter(self):
+        """The metered anchor is placed at the same mid-grey pivot Grade rotates about,
+        so an under-exposed frame's own midtone gets pulled toward it."""
+        rng = np.random.default_rng(23)
+        dark = (rng.random((24, 24, 3)) * 0.02 + 0.002).astype(np.float32)
+        on, _ = _run_stages(dark, self._cfg())
+        off, _ = _run_stages(dark, self._cfg(auto_exposure=False))
+        self.assertGreater(float(on.mean()), float(off.mean()))
+
+    def test_auto_grade_expands_contrast_on_a_flat_frame(self):
+        """A compressed textural range should print harder, not flat -- Auto Grade's
+        whole point on a negative, restated here via effective_grade_range/grade_to_slope."""
+        grad = np.linspace(0.03, 0.3, 32, dtype=np.float32)
+        base = np.repeat(grad[None, :], 32, axis=0)
+        flat = np.ascontiguousarray((np.stack([base, base * 0.95, base * 0.9], axis=-1) * 0.2 + 0.15).astype(np.float32))
+        on, _ = _run_stages(flat, self._cfg())
+        off, _ = _run_stages(flat, self._cfg(auto_normalize_contrast=False))
+        self.assertGreater(float(on.std()), 2.0 * float(off.std()))
+
+    def test_metrics_used_by_transfer_auto_terms_are_published(self):
+        _, ctx = _run_stages(_ramp(), self._cfg())
+        for key in ("metered_anchor", "textural_range", "shadow_point", "highlight_point"):
+            self.assertIn(key, ctx.metrics)
+            self.assertIsNotNone(ctx.metrics[key])
+
+    def test_metering_stays_off_a_raw_slide_even_with_the_toggles_on(self):
+        """Guards the boundary from the other side: without positive_source, the same
+        auto_exposure/auto_normalize_contrast toggles publish nothing to meter from."""
+        _, ctx = _run_stages(_ramp(), _e6_config())
+        for key in ("metered_anchor", "textural_range", "shadow_point", "highlight_point"):
+            self.assertNotIn(key, ctx.metrics)
+
+
+class TestAutoMeterForPositiveSource(unittest.TestCase):
+    """auto_meter_for_positive_source: the boundary AppController.set_positive_source
+    rewrites Auto Density/Auto Grade through when the toggle is flipped."""
+
+    def test_untouched_negative_default_turns_off_for_positive(self):
+        self.assertFalse(auto_meter_for_positive_source(True, current=True))
+
+    def test_already_off_stays_off_entering_positive(self):
+        # Already matches Positive's own target, whether that is a negative user's
+        # deliberate choice or Positive's own default reapplied -- either way, a no-op.
+        self.assertFalse(auto_meter_for_positive_source(True, current=False))
+
+    def test_untouched_positive_default_turns_on_leaving_positive(self):
+        self.assertTrue(auto_meter_for_positive_source(False, current=False))
+
+    def test_already_on_stays_on_leaving_positive(self):
+        self.assertTrue(auto_meter_for_positive_source(False, current=True))
+
+
+class TestTransferAutoTerms(unittest.TestCase):
+    """Unit-level coverage of transfer_auto_terms itself: exact enough to pin the
+    solves that a pipeline-level render can only show indirectly."""
+
+    def _exp(self, **overrides):
+        return replace(DEFAULT_WORKSPACE_CONFIG.exposure, **overrides)
+
+    def test_none_inputs_leave_everything_manual(self):
+        """The exact guard the raw-slide identity/bracket tests depend on: metering
+        withheld (None) must win over the toggles being on."""
+        exp = self._exp(auto_exposure=True, auto_normalize_contrast=True)
+        offset, contrast, hl_auto = transfer_auto_terms(exp, 0.3, 1.4, None, None, None, None)
+        self.assertAlmostEqual(offset, 0.3)
+        self.assertAlmostEqual(contrast, 1.4)
+        self.assertEqual(hl_auto, 0.0)
+
+    def test_toggles_off_leave_everything_manual_even_with_real_metrics(self):
+        exp = self._exp(auto_exposure=False, auto_normalize_contrast=False)
+        offset, contrast, hl_auto = transfer_auto_terms(exp, 0.3, 1.4, 0.6, 0.5, 0.7, 0.1)
+        self.assertAlmostEqual(offset, 0.3)
+        self.assertAlmostEqual(contrast, 1.4)
+        self.assertEqual(hl_auto, 0.0)
+
+    def test_auto_density_places_the_metered_anchor_at_the_contrast_pivot(self):
+        exp = self._exp(auto_exposure=True, auto_normalize_contrast=False)
+        anchor = 0.5
+        offset, contrast, _ = transfer_auto_terms(exp, 0.0, 1.0, None, anchor, None, None)
+        pivot = float(TRANSFER_CONSTANTS["transfer_contrast_pivot"])
+        d_anchor_final = anchor * TRANSFER_DENSITY_RANGE - offset
+        self.assertAlmostEqual(d_anchor_final, pivot, places=6)
+        self.assertAlmostEqual(contrast, 1.0)
+
+    def test_shadow_reach_raises_contrast_to_hit_its_target(self):
+        exp = self._exp(auto_exposure=True, auto_normalize_contrast=True)
+        # A flat, low-textural-range frame so Auto Grade alone barely moves contrast,
+        # with a shadow point far below the anchor so reaching the target needs a push.
+        offset, contrast, _ = transfer_auto_terms(exp, 0.0, 1.0, 2.5, 0.25, 0.9, 0.1)
+        pivot = float(TRANSFER_CONSTANTS["transfer_contrast_pivot"])
+        d_shadow_final = pivot + (0.9 * TRANSFER_DENSITY_RANGE - offset - pivot) * contrast
+        self.assertGreaterEqual(d_shadow_final, transfer_shadow_reach_density() - 1e-6)
+
+    def test_shadow_reach_never_lowers_the_contrast_auto_grade_already_picked(self):
+        exp = self._exp(auto_exposure=True, auto_normalize_contrast=True)
+        _, base_contrast, _ = transfer_auto_terms(exp, 0.0, 1.0, 2.5, 0.25, None, None)
+        _, with_reach, _ = transfer_auto_terms(exp, 0.0, 1.0, 2.5, 0.25, 0.9, 0.1)
+        self.assertGreaterEqual(with_reach, base_contrast - 1e-9)
+
+    def test_shadow_reach_is_a_noop_without_span_between_anchor_and_shadow_point(self):
+        exp = self._exp(auto_exposure=True, auto_normalize_contrast=True)
+        _, base_contrast, _ = transfer_auto_terms(exp, 0.0, 1.0, 2.5, 0.25, None, None)
+        _, degenerate, _ = transfer_auto_terms(exp, 0.0, 1.0, 2.5, 0.25, 0.25, 0.1)
+        self.assertAlmostEqual(degenerate, base_contrast)
+
+    def test_highlight_hold_burns_only_when_the_highlight_is_too_bright(self):
+        exp = self._exp(auto_exposure=False, auto_normalize_contrast=True)
+        target = transfer_highlight_hold_density()
+        too_bright = target / TRANSFER_DENSITY_RANGE * 0.3  # well under target
+        already_holds = min(1.0, (target * 3.0) / TRANSFER_DENSITY_RANGE)  # comfortably over target
+        _, _, hl_bright = transfer_auto_terms(exp, 0.0, 1.0, None, None, None, too_bright)
+        _, _, hl_holds = transfer_auto_terms(exp, 0.0, 1.0, None, None, None, already_holds)
+        self.assertGreater(hl_bright, 0.0)
+        self.assertEqual(hl_holds, 0.0)
+
+    def test_highlight_hold_is_capped(self):
+        exp = self._exp(auto_exposure=False, auto_normalize_contrast=True)
+        _, _, hl_auto = transfer_auto_terms(exp, 0.0, 1.0, None, None, None, 1e-6)
+        from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+        self.assertLessEqual(hl_auto, float(EXPOSURE_CONSTANTS["highlight_hold_max"]) + 1e-9)
+
+    def test_derived_constants_sit_inside_the_fixed_window(self):
+        for value in (transfer_shadow_reach_density(), transfer_highlight_hold_density()):
+            self.assertGreater(value, 0.0)
+            self.assertLess(value, TRANSFER_DENSITY_RANGE)
+        # Shadow reach targets deep density, highlight hold targets shallow.
+        self.assertGreater(transfer_shadow_reach_density(), transfer_highlight_hold_density())
+
+    def test_assumed_anchor_matches_the_contrast_pivot_fraction(self):
+        self.assertAlmostEqual(transfer_assumed_anchor(), float(TRANSFER_CONSTANTS["transfer_contrast_pivot"]) / TRANSFER_DENSITY_RANGE)
 
 
 class TestNormalizationContract(unittest.TestCase):
@@ -557,7 +790,7 @@ class TestNormalizationContract(unittest.TestCase):
         the C-41 default process_mode that keeps a bare ProcessConfig on the print path."""
         conf = ProcessConfig()
         self.assertEqual(conf.process_mode, ProcessMode.C41)
-        self.assertFalse(is_transparency_transfer(conf.process_mode, conf.e6_normalize))
+        self.assertFalse(is_transfer_path(conf.process_mode, conf.e6_normalize))
 
 
 @unittest.skipUnless(GPUDevice.get().is_available, "GPU not available")
@@ -796,6 +1029,33 @@ class TestGpuTransferParity(unittest.TestCase):
         self.assertGreater(float(np.abs(cpu - off_cpu).max()), 0.01, "positive_source inert on the CPU")
         self.assertGreater(float(np.abs(gpu - off_gpu).max()), 0.01, "positive_source inert on the GPU")
 
+    def test_auto_density_and_grade_match_on_a_positive_frame(self):
+        """Auto Density/Auto Grade meter working-space, camera-matrix-applied grids on
+        both engines (transfer_assumed_anchor, cam_prefiltered) -- the two places CPU
+        and GPU build that grid independently and could drift apart."""
+        settings = _e6_config(positive_source=True)
+        cpu, gpu = self._both(settings)
+        self._assert_parity(cpu, gpu)
+
+        # Guard the guard: the toggles must actually be moving the render on both
+        # engines, or parity here would pass for the wrong reason.
+        off_cpu, off_gpu = self._both(_e6_config(positive_source=True, auto_exposure=False, auto_normalize_contrast=False))
+        self.assertGreater(float(np.abs(cpu - off_cpu).max()), 0.01, "auto density/grade inert on the CPU")
+        self.assertGreater(float(np.abs(gpu - off_gpu).max()), 0.01, "auto density/grade inert on the GPU")
+
+    def test_white_black_point_matches(self):
+        """White/Black Point deviate the fixed window on both engines, the same
+        technique the measured path already uses -- both bake the offset into the
+        floors/ceils they upload, so the shader needs no lanes of its own."""
+        settings = _e6_config()
+        moved = replace(settings, process=replace(settings.process, white_point_offset=0.12, black_point_offset=-0.08))
+        cpu, gpu = self._both(moved)
+        self._assert_parity(cpu, gpu)
+
+        off_cpu, off_gpu = self._both(settings)
+        self.assertGreater(float(np.abs(cpu - off_cpu).max()), 0.01, "white/black point inert on the CPU")
+        self.assertGreater(float(np.abs(gpu - off_gpu).max()), 0.01, "white/black point inert on the GPU")
+
     def test_zone_density_matches(self):
         """Zone Density rides a uniform lane the transfer shader did not have. Asserted on
         its own, and against an inert render, so parity cannot pass by both engines
@@ -873,3 +1133,17 @@ class TestCrosstalkIsModeAware(unittest.TestCase):
         from negpy.features.process.models import ProcessConfig
 
         self.assertEqual(str(ProcessConfig().crosstalk_process), str(ProcessMode.C41))
+
+
+def test_normalization_shader_reads_the_transfer_decision_it_is_given():
+    """The WGSL must not re-derive is_transfer_path: it had no positive_source term,
+    so a Positive frame took the print branch on the GPU and the transfer branch on
+    the CPU."""
+    from pathlib import Path
+
+    import negpy
+
+    src = (Path(negpy.__file__).parent / "features/exposure/shaders/normalization.wgsl").read_text()
+
+    assert "transfer_flag" in src
+    assert "params.mode == 2u" not in src

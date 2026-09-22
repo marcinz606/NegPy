@@ -114,6 +114,9 @@ class GeometryConfig:
     converge_h: float = 0.0  # [-15.0, 15.0] %
     # Radial lens-distortion coefficient, corrected before keystone. [-0.10, 0.10]
     distortion_k1: float = 0.0
+    # Crops out the replicated-edge wedge fine rotation and keystone leave behind,
+    # whenever no manual or auto crop_rect is set. See logic.compute_geometry_crop_rect.
+    crop_to_valid: bool = False
     autocrop_offset: int = 0
     # Free, not 3:2: autocrop reads the film format off the detected frame, so the
     # default fits 6x6, 645 and 6x7 as well as 35mm. A fixed 3:2 center-cropped every

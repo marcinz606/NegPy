@@ -1,6 +1,8 @@
 import sqlite3
 from dataclasses import replace
 
+import numpy as np
+
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.metadata.models import MetadataConfig
 from negpy.infrastructure.storage.repository import StorageRepository
@@ -107,6 +109,91 @@ def test_file_marks_are_resolvable_by_path(tmp_path):
 
     repo.save_file_mark("h1", None)
     assert repo.load_file_marks_by_path() == {"/a/2.nef": "excluded"}
+
+
+def test_load_embeddings_for_returns_only_saved_hashes(tmp_path):
+    repo = _repo(tmp_path)
+    repo.save_embedding("h1", np.array([1.0, 2.0], dtype=np.float32), "v1")
+    repo.save_embedding("h2", np.array([3.0, 4.0], dtype=np.float32), "v1")
+
+    loaded = repo.load_embeddings_for(["h1", "h2", "missing"], "v1")
+    assert set(loaded) == {"h1", "h2"}
+    assert np.array_equal(loaded["h1"], np.array([1.0, 2.0], dtype=np.float32))
+    assert repo.load_embeddings_for([], "v1") == {}
+
+
+def test_load_embeddings_for_ignores_a_different_model_version(tmp_path):
+    """A model swap must not score a frame against a vector computed by the model
+    being retired -- the version is part of the identity, not metadata on the side."""
+    repo = _repo(tmp_path)
+    repo.save_embedding("h1", np.array([1.0, 2.0], dtype=np.float32), "v1")
+
+    assert repo.load_embeddings_for(["h1"], "v2") == {}
+
+
+def test_load_embeddings_for_handles_more_than_one_chunk(tmp_path):
+    repo = _repo(tmp_path)
+    hashes = [f"h{i}" for i in range(1200)]
+    for h in hashes:
+        repo.save_embedding(h, np.zeros(4, dtype=np.float32), "v1")
+
+    assert len(repo.load_embeddings_for(hashes, "v1")) == 1200
+
+
+def test_save_embedding_overwrites_the_previous_vector(tmp_path):
+    repo = _repo(tmp_path)
+    repo.save_embedding("h1", np.array([1.0, 0.0], dtype=np.float32), "v1")
+    repo.save_embedding("h1", np.array([0.0, 1.0], dtype=np.float32), "v1")
+
+    loaded = repo.load_embeddings_for(["h1"], "v1")
+    assert np.array_equal(loaded["h1"], np.array([0.0, 1.0], dtype=np.float32))
+
+
+def test_delete_file_settings_also_takes_the_embedding(tmp_path):
+    repo = _repo(tmp_path)
+    repo.save_file_settings("h1", _config("Portra"), file_path="/a/1.nef")
+    repo.save_embedding("h1", np.array([1.0, 2.0], dtype=np.float32), "v1")
+
+    repo.delete_file_settings("h1")
+
+    assert repo.load_embeddings_for(["h1"], "v1") == {}
+
+
+def test_load_all_embeddings_returns_path_and_vector_for_every_row(tmp_path):
+    repo = _repo(tmp_path)
+    repo.save_embedding("h1", np.array([1.0, 0.0], dtype=np.float32), "v1", "/a/1.nef")
+    repo.save_embedding("h2", np.array([0.0, 1.0], dtype=np.float32), "v1", "/a/2.nef")
+
+    loaded = repo.load_all_embeddings("v1")
+
+    assert set(loaded) == {"h1", "h2"}
+    path, vec = loaded["h1"]
+    assert path == "/a/1.nef"
+    assert np.array_equal(vec, np.array([1.0, 0.0], dtype=np.float32))
+
+
+def test_load_all_embeddings_excludes_other_model_versions(tmp_path):
+    repo = _repo(tmp_path)
+    repo.save_embedding("h1", np.array([1.0, 0.0], dtype=np.float32), "v1", "/a/1.nef")
+    repo.save_embedding("h2", np.array([0.0, 1.0], dtype=np.float32), "v2", "/a/2.nef")
+
+    assert set(repo.load_all_embeddings("v1")) == {"h1"}
+
+
+def test_load_all_embeddings_is_empty_for_an_unknown_version(tmp_path):
+    repo = _repo(tmp_path)
+    assert repo.load_all_embeddings("v1") == {}
+
+
+def test_save_embedding_without_a_path_still_round_trips(tmp_path):
+    """Callers that predate the file_path column (or the in-session path, which never
+    needs one back) can still just not pass it."""
+    repo = _repo(tmp_path)
+    repo.save_embedding("h1", np.array([1.0, 0.0], dtype=np.float32), "v1")
+
+    path, vec = repo.load_all_embeddings("v1")["h1"]
+    assert path == ""
+    assert np.array_equal(vec, np.array([1.0, 0.0], dtype=np.float32))
 
 
 def test_initialize_enables_wal(tmp_path):

@@ -9,11 +9,11 @@ import pytest
 import tifffile
 
 from negpy.desktop.session import AppState
-from negpy.desktop.view.sidebar.geometry import GeometrySidebar
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.lens.logic import apply_lens
+from negpy.features.process.models import ProcessMode
 from negpy.features.lens.models import LensCorrections, LensMetadata, LensWarp
 from negpy.features.lens.warps import IDENTITY, RectilinearWarp, SonyWarp
 from negpy.infrastructure.loaders.lens_metadata import bind_decode, parse_opcodes, read_lens_metadata
@@ -280,46 +280,49 @@ def test_combined_saved_lens_mode_migrates_without_overriding_split_settings(ena
 
 
 def test_sidebar_uses_source_capabilities_and_can_clear_unavailable_saved_mode(qapp, monkeypatch):
-    from negpy.desktop.view.sidebar import geometry
+    from negpy.desktop.view.sidebar import lens as lens_panel
 
     controller = MagicMock()
     controller.state = AppState()
-    monkeypatch.setattr(geometry, "read_lens_metadata", lambda path: LensMetadata())
-    sidebar = GeometrySidebar(controller)
+
+    def _edit(_card, persist=True, readback_metrics=True, **changes):
+        cfg = controller.state.config
+        controller.state.config = replace(cfg, geometry=replace(cfg.geometry, **changes))
+
+    controller.set_roll_default.side_effect = _edit
+    monkeypatch.setattr(lens_panel, "read_lens_metadata", lambda path: LensMetadata())
+    sidebar = lens_panel.LensSidebar(controller)
     sidebar.sync_ui()
     assert not sidebar.metadata_distortion_btn.isEnabled()
     assert not sidebar.metadata_ca_btn.isEnabled()
     assert sidebar.distortion_slider.isEnabled()
     ca = LensMetadata("Sony", (SonyWarp(ca_red=(100,) * 16, ca_blue=(-100,) * 16),))
-    monkeypatch.setattr(geometry, "read_lens_metadata", lambda path: ca)
+    monkeypatch.setattr(lens_panel, "read_lens_metadata", lambda path: ca)
     sidebar.sync_ui()
     assert not sidebar.metadata_distortion_btn.isEnabled()
     assert sidebar.metadata_ca_btn.isEnabled()
     assert "lateral CA" in sidebar.lens_hint.text()
     assert "distortion" not in sidebar.lens_hint.text()
     sidebar.metadata_ca_btn.click()
-    requested = controller.apply_config.call_args.args[0]
-    assert requested.geometry.lens_ca_from_metadata
-    assert not requested.geometry.lens_distortion_from_metadata
-    controller.state.config = requested
+    assert controller.state.config.geometry.lens_ca_from_metadata
+    assert not controller.state.config.geometry.lens_distortion_from_metadata
     sidebar.sync_ui()
     assert sidebar.distortion_slider.isEnabled()
-    monkeypatch.setattr(geometry, "read_lens_metadata", lambda path: LensMetadata())
+    monkeypatch.setattr(lens_panel, "read_lens_metadata", lambda path: LensMetadata())
     sidebar.sync_ui()
     assert sidebar.metadata_ca_btn.isEnabled()
     assert sidebar.metadata_ca_btn.isChecked()
     assert "Unavailable" in sidebar.lens_hint.text()
     sidebar.metadata_ca_btn.click()
-    assert not controller.apply_config.call_args.args[0].geometry.lens_ca_from_metadata
+    assert not controller.state.config.geometry.lens_ca_from_metadata
 
     distortion = LensMetadata("Sony", (SonyWarp(distortion=(100,) * 16),))
     controller.state.config = WorkspaceConfig()
-    monkeypatch.setattr(geometry, "read_lens_metadata", lambda path: distortion)
+    monkeypatch.setattr(lens_panel, "read_lens_metadata", lambda path: distortion)
     sidebar.sync_ui()
     assert sidebar.metadata_distortion_btn.isEnabled()
     assert not sidebar.metadata_ca_btn.isEnabled()
     sidebar.metadata_distortion_btn.click()
-    controller.state.config = controller.apply_config.call_args.args[0]
     sidebar.sync_ui()
     assert not sidebar.distortion_slider.isEnabled()
 
@@ -565,7 +568,7 @@ def test_positive_source_and_lens_mode_have_independent_preview_cache_entries(tm
         config = replace(
             config,
             geometry=GeometryConfig(lens_distortion_from_metadata=corrections.distortion, lens_ca_from_metadata=corrections.ca),
-            process=replace(config.process, linear_raw=True, positive_source=positive),
+            process=replace(config.process, process_mode=ProcessMode.E6, linear_raw=True, positive_source=positive),
         )
         exported, _, _ = processor._load_source_f32(path, config)
         np.testing.assert_allclose(preview, exported, atol=1e-6)

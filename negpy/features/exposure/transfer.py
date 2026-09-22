@@ -39,6 +39,9 @@ import numpy as np
 
 from negpy.domain.types import ImageBuffer
 from negpy.features.exposure.logic import (
+    _fast_sigmoid,
+    effective_grade_range,
+    grade_to_slope,
     per_channel_dye_separation,
     per_channel_toe_shoulder,
     per_channel_widths,
@@ -189,6 +192,93 @@ def transfer_widths(config: ExposureConfig) -> Tuple[Tuple[float, float, float],
         (tw3[0] * scale, tw3[1] * scale, tw3[2] * scale),
         (sw3[0] * scale, sw3[1] * scale, sw3[2] * scale),
     )
+
+
+def transfer_assumed_anchor() -> float:
+    """Fraction of the fixed window a properly exposed frame's own metered midtone is
+    expected to sit at -- the position Auto Density's partial metering blends toward
+    (see measure_anchor_from_log's `assumed`). transfer_contrast_pivot already places
+    mid-grey at this density independently; expressed as a fraction here because the
+    window's own span is what the blend needs to know."""
+    return float(TRANSFER_CONSTANTS["transfer_contrast_pivot"]) / TRANSFER_DENSITY_RANGE
+
+
+def transfer_shadow_reach_density() -> float:
+    """shadow_reach_density carried onto this curve's own scale by tonal position, like
+    zone_geometry: the two curves don't share a density scale, so the raw number would
+    land at a different fraction of black."""
+    c = EXPOSURE_CONSTANTS
+    d_min, span = float(c["d_min"]), float(c["d_max"]) - float(c["d_min"])
+    return (float(c["shadow_reach_density"]) - d_min) / span * TRANSFER_DENSITY_RANGE
+
+
+def transfer_highlight_hold_density() -> float:
+    """highlight_hold_density carried onto this curve's own scale, same technique."""
+    c = EXPOSURE_CONSTANTS
+    d_min, span = float(c["d_min"]), float(c["d_max"]) - float(c["d_min"])
+    return (float(c["highlight_hold_density"]) - d_min) / span * TRANSFER_DENSITY_RANGE
+
+
+def transfer_auto_terms(
+    exposure: ExposureConfig,
+    manual_offset: float,
+    manual_contrast: float,
+    textural_range: Optional[float],
+    anchor: Optional[float],
+    shadow_point: Optional[float],
+    highlight_point: Optional[float],
+) -> Tuple[float, float, float]:
+    """
+    (exposure_offset, contrast, highlight_density_auto) with Auto Density/Auto Grade
+    folded onto the manual values -- single source for CPU and GPU. Mirrors the paper
+    path's own anchor placement, effective_grade_range, Shadow Reach and Highlight
+    Hold, restated on this curve's plain density-linear model instead of the paper's
+    toe/shoulder one. A None input (the toggle off, or a raw un-normalized slide,
+    which never meters -- see is_transfer_path) leaves every term at its manual value.
+    """
+    c = TRANSFER_CONSTANTS
+    pivot = float(c["transfer_contrast_pivot"])
+    R = TRANSFER_DENSITY_RANGE
+
+    # Auto Density: place the metered anchor at the same pivot Grade already rotates
+    # about, so a later contrast change does not re-shift the brightness placed here.
+    auto_offset = 0.0
+    if exposure.auto_exposure and anchor is not None:
+        auto_offset = float(anchor) * R - pivot
+    offset = manual_offset + auto_offset
+
+    contrast = manual_contrast
+    if exposure.auto_normalize_contrast and textural_range is not None:
+        effective_range = effective_grade_range(True, R, textural_range)
+        k_ref = grade_to_slope(float(c["transfer_grade_ref"]), R)
+        if k_ref > 1e-9:
+            contrast = grade_to_slope(float(exposure.grade), effective_range) / k_ref
+
+    # Shadow Reach: never lowers contrast, only raises it so the textured dark tail
+    # still reaches shadow_reach_density. Same guard as the paper path: too little
+    # span between anchor and shadow_point to solve a slope from.
+    if exposure.auto_normalize_contrast and anchor is not None and shadow_point is not None:
+        span = float(shadow_point) - float(anchor)
+        if span > 1e-6:
+            d_shadow = float(shadow_point) * R - offset
+            denom = d_shadow - pivot
+            if denom > 1e-6:
+                needed = (transfer_shadow_reach_density() - pivot) / denom
+                contrast = min(max(contrast, needed), float(EXPOSURE_CONSTANTS["slope_max"]))
+
+    # Highlight Hold: an automatic highlight-zone burn, riding the same Zone Density
+    # kernel the Shadows/Highlights Density sliders already use on this curve. Never
+    # lifts; 0 once the tone already holds.
+    highlight_auto = 0.0
+    if exposure.auto_normalize_contrast and highlight_point is not None:
+        target = transfer_highlight_hold_density()
+        d_highlight = pivot + (float(highlight_point) * R - offset - pivot) * contrast
+        if d_highlight < target:
+            _sh_c, hi_c, k_zone = zone_geometry()
+            w_hi = 1.0 - _fast_sigmoid(k_zone * (d_highlight - hi_c))
+            highlight_auto = min((target - d_highlight) / max(w_hi, 1e-6), float(EXPOSURE_CONSTANTS["highlight_hold_max"]))
+
+    return offset, contrast, highlight_auto
 
 
 def transfer_curve_params(
@@ -355,11 +445,19 @@ def transfer_bounds(density_range: float = TRANSFER_DENSITY_RANGE) -> Tuple[Tupl
     return (0.0, 0.0, 0.0), (-density_range, -density_range, -density_range)
 
 
-def is_transparency_transfer(process_mode: str, e6_normalize: bool, render_intent: Optional[str] = None) -> bool:
-    """Single source of truth for the mode test, so CPU/GPU/UI cannot drift apart."""
+def is_transfer_path(process_mode: str, e6_normalize: bool, positive_source: bool = False, render_intent: Optional[str] = None) -> bool:
+    """Single source of truth for the mode test, so CPU/GPU/UI cannot drift apart.
+
+    True on an as-captured Slide (Normalize off), and on a frame marked Positive: a
+    file already positivized before NegPy saw it -- a scanned print, an export from
+    other software, a negative the scanner inverted itself -- has nothing left to meter
+    or invert. Only a Slide config carries Positive (ProcessConfig.__post_init__); the
+    flag is read here for callers that pass the fields apart."""
     from negpy.features.exposure.models import RenderIntent
     from negpy.features.process.models import ProcessMode
 
     if render_intent == RenderIntent.FLAT:
         return False
-    return process_mode == ProcessMode.E6 and not e6_normalize
+    if process_mode == ProcessMode.E6:
+        return not e6_normalize
+    return positive_source

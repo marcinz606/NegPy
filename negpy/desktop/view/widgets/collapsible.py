@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QCheckBox,
+    QMenu,
     QPushButton,
     QFrame,
     QHBoxLayout,
@@ -11,8 +12,13 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from negpy.desktop.view.styles.templates import HEADER_BUTTON_SIZE, HEADER_HEIGHT, HEADER_ICON_SIZE
 from negpy.desktop.view.styles.theme import THEME
 import qtawesome as qta
+
+# Said by every card's Roll half where no roll spans the loaded frames, so the disabled
+# control carries the reason once rather than each sidebar wording it again.
+NO_ROLL_SCOPE_HINT = "These frames are not one roll, so there is no roll to hold a shared value. Save as Roll to make one."
 
 
 class CollapsibleSection(QWidget):
@@ -24,6 +30,7 @@ class CollapsibleSection(QWidget):
     expanded_changed = pyqtSignal(bool)
     info_requested = pyqtSignal()
     selection_toggled = pyqtSignal(bool)
+    scope_selected = pyqtSignal(str)  # "frame" | "roll"
 
     def __init__(
         self,
@@ -33,20 +40,25 @@ class CollapsibleSection(QWidget):
         background_widget: Optional[QWidget] = None,
         info: bool = False,
         select: bool = False,
+        collapsible: bool = True,
         parent=None,
     ):
         super().__init__(parent)
         self._title_text = title
+        self.collapsible = collapsible
+        if not collapsible:
+            expanded = True
 
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
 
         self.toggle_button = QPushButton()
-        self.toggle_button.setCheckable(True)
-        self.toggle_button.setChecked(expanded)
-        self.toggle_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.toggle_button.setFixedHeight(36)
+        if collapsible:
+            self.toggle_button.setCheckable(True)
+            self.toggle_button.setChecked(expanded)
+            self.toggle_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.toggle_button.setFixedHeight(HEADER_HEIGHT)
 
         # Styled by the QPushButton#collapsible_header rules in modern_dark.qss. overlay="true"
         # means the header is stacked over a preview widget, on a translucent background.
@@ -56,6 +68,9 @@ class CollapsibleSection(QWidget):
         btn_layout = QHBoxLayout(self.toggle_button)
         btn_layout.setContentsMargins(THEME.space_xl, 8, THEME.space_xl, 8)
         btn_layout.setSpacing(10)
+        # Kept typed (toggle_button.layout() widens to QLayout | None), for set_actions_menu
+        # to insert into later.
+        self._header_row = btn_layout
 
         # Nested in the header button like reset_btn, so ticking the section does not also
         # collapse it. Tristate is for display only: a click always resolves to all or none.
@@ -75,7 +90,7 @@ class CollapsibleSection(QWidget):
 
         self.title_label = QLabel(self._title_text)
         self.title_label.setStyleSheet(
-            f"font-weight: 600; font-size: {THEME.font_size_header}px; letter-spacing: 0.01em; background: transparent;"
+            f"font-weight: {THEME.weight_semibold}; font-size: {THEME.font_size_header}px; letter-spacing: 0.01em; background: transparent;"
         )
         btn_layout.addWidget(self.title_label)
 
@@ -87,8 +102,8 @@ class CollapsibleSection(QWidget):
             # does not also collapse the section.
             self.info_btn = QPushButton()
             self.info_btn.setIcon(qta.icon("fa5s.info-circle", color=THEME.text_muted))
-            self.info_btn.setFixedSize(20, 20)
-            self.info_btn.setIconSize(QSize(11, 11))
+            self.info_btn.setFixedSize(HEADER_BUTTON_SIZE, HEADER_BUTTON_SIZE)
+            self.info_btn.setIconSize(QSize(HEADER_ICON_SIZE, HEADER_ICON_SIZE))
             self.info_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             self.info_btn.setToolTip(f"What am I looking at? — {title} guide")
             self.info_btn.setObjectName("collapsible_reset_btn")
@@ -97,8 +112,8 @@ class CollapsibleSection(QWidget):
 
         self.reset_btn = QPushButton()
         self.reset_btn.setIcon(qta.icon("fa5s.undo", color=THEME.text_muted))
-        self.reset_btn.setFixedSize(20, 20)
-        self.reset_btn.setIconSize(QSize(10, 10))
+        self.reset_btn.setFixedSize(HEADER_BUTTON_SIZE, HEADER_BUTTON_SIZE)
+        self.reset_btn.setIconSize(QSize(HEADER_ICON_SIZE, HEADER_ICON_SIZE))
         self.reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.reset_btn.setToolTip(f"Reset {title} to defaults")
         self.reset_btn.setVisible(False)
@@ -106,15 +121,29 @@ class CollapsibleSection(QWidget):
         self.reset_btn.clicked.connect(self._on_reset_clicked)
         btn_layout.addWidget(self.reset_btn)
 
-        self.chevron_label = QLabel()
-        self.chevron_label.setStyleSheet("background: transparent;")
-        self._update_chevron(expanded)
-        btn_layout.addWidget(self.chevron_label)
+        # Lazily built by set_actions_menu(): most sections have nothing that belongs
+        # here, so no button exists until one asks for it.
+        self.actions_btn: Optional[QPushButton] = None
+
+        # Lazily built by set_scope_buttons(): a section owning no settings has no scope
+        # to choose between.
+        self.frame_btn: Optional[QPushButton] = None
+        self.roll_btn: Optional[QPushButton] = None
+        self._scope = "frame"
+        self._scope_visible = False
+        self.modified_count = 0
+
+        self.chevron_label: Optional[QLabel] = None
+        if collapsible:
+            self.chevron_label = QLabel()
+            self.chevron_label.setStyleSheet("background: transparent;")
+            self._update_chevron(expanded)
+            btn_layout.addWidget(self.chevron_label)
 
         if background_widget:
             background_widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
             header_container = QWidget()
-            header_container.setFixedHeight(36)
+            header_container.setFixedHeight(HEADER_HEIGHT)
             stacked = QStackedLayout(header_container)
             stacked.setStackingMode(QStackedLayout.StackingMode.StackAll)
             stacked.setContentsMargins(0, 0, 0, 0)
@@ -133,7 +162,8 @@ class CollapsibleSection(QWidget):
 
         self.main_layout.addWidget(self.content_area)
 
-        self.toggle_button.toggled.connect(self._on_toggle)
+        if collapsible:
+            self.toggle_button.toggled.connect(self._on_toggle)
 
     def set_content(self, widget: QWidget) -> None:
         # Plain QWidget content is painted #0D0D0D by the global `QWidget {}` QSS rule, covering
@@ -143,20 +173,23 @@ class CollapsibleSection(QWidget):
         self.content_layout.addWidget(widget)
 
     def _update_chevron(self, expanded: bool) -> None:
+        if self.chevron_label is None:
+            return
         if expanded:
             self.chevron_label.setPixmap(qta.icon("fa5s.chevron-down", color=THEME.text_secondary).pixmap(12, 12))
         else:
             self.chevron_label.setPixmap(qta.icon("fa5s.chevron-right", color=THEME.text_secondary).pixmap(12, 12))
 
     def set_modified(self, count: int) -> None:
-        """Append count to title when non-zero; show reset button."""
+        """Append count to title when non-zero; show reset button. Unrelated to
+        the scope pair's roll-override state -- keeping this title to only what it
+        has always meant (how far from NegPy's own defaults) instead of chaining a
+        second, unrelated fact onto the same "· count" reading."""
         self.modified_count = count
         visible = count > 0
         self.reset_btn.setVisible(visible)
-        if visible:
-            self.title_label.setText(f"{self._title_text} · {count}")
-        else:
-            self.title_label.setText(self._title_text)
+        self.title_label.setText(f"{self._title_text} · {count}" if visible else self._title_text)
+        self._refresh_scope_stripe()
 
     def set_selection_state(self, checked: int, total: int) -> None:
         """Reflect how many of the section's rows are ticked. Emits nothing."""
@@ -188,8 +221,88 @@ class CollapsibleSection(QWidget):
         self.expanded_changed.emit(checked)
 
     def expand(self) -> None:
-        if not self.toggle_button.isChecked():
+        if self.collapsible and not self.toggle_button.isChecked():
             self.toggle_button.setChecked(True)
+
+    def set_expanded(self, expanded: bool) -> None:
+        if self.collapsible:
+            self.toggle_button.setChecked(expanded)
+
+    def set_actions_menu(self, menu: QMenu, tooltip: str) -> None:
+        """An always-visible header menu button, for section-level actions that reach
+        past the section's own settings -- Film Strip's New Roll and its roll-wide
+        reset, for one. reset_btn stays the affordance for resetting this section."""
+        if self.actions_btn is None:
+            self.actions_btn = QPushButton()
+            self.actions_btn.setIcon(qta.icon("fa5s.ellipsis-v", color=THEME.text_muted))
+            self.actions_btn.setFixedSize(HEADER_BUTTON_SIZE, HEADER_BUTTON_SIZE)
+            self.actions_btn.setIconSize(QSize(HEADER_ICON_SIZE, HEADER_ICON_SIZE))
+            self.actions_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.actions_btn.setObjectName("collapsible_reset_btn")
+            self._header_row.insertWidget(self._header_row.count() - 1, self.actions_btn)
+        self.actions_btn.setToolTip(tooltip)
+        self.actions_btn.setMenu(menu)
+
+    def set_scope_buttons(
+        self, visible: bool, scope: str, roll_tooltip: str = "", frame_tooltip: str = "", roll_enabled: bool = True
+    ) -> None:
+        """The header's Frame/Roll pair: which scope this card's values live at, and the
+        one click that moves them to the other. The active half is colored and checked,
+        the other is the affordance; clicking the active one does nothing. A Roll-tab card
+        reads its lock here, a frame card is always Frame and uses Roll as a one-shot
+        push.
+
+        `roll_enabled=False` keeps the pair readable where there is no roll to move values
+        to: the frames are not one roll, which is a fact worth showing rather than hiding
+        the pair and leaving the scope unsaid."""
+        if self.frame_btn is None:
+            self.frame_btn = self._build_scope_button("fa5s.image", "frame")
+            self.roll_btn = self._build_scope_button("fa5s.film", "roll")
+        self._scope = scope
+        for btn, key, color in (
+            (self.frame_btn, "frame", THEME.warn_amber),
+            (self.roll_btn, "roll", THEME.accent_secondary),
+        ):
+            active = key == scope
+            btn.setVisible(visible)
+            btn.setChecked(active)
+            btn.setIcon(qta.icon(btn.property("scope_icon"), color=color if active else THEME.text_muted))
+        self.roll_btn.setEnabled(roll_enabled)
+        self.frame_btn.setToolTip(frame_tooltip or f"{self._title_text} is this frame's own")
+        self.roll_btn.setToolTip(roll_tooltip or f"Give the roll this frame's {self._title_text}…")
+        self._scope_visible = visible
+        self._refresh_scope_stripe()
+
+    def _refresh_scope_stripe(self) -> None:
+        """The header carries the lit button's own colour as a stripe (QSS [scope] rules),
+        and only on a card holding something other than its defaults: a stripe down every
+        untouched card says nothing. The body stays plain, like every other sidebar's."""
+        striped = self._scope_visible and self.modified_count > 0
+        self.toggle_button.setProperty("scope", self._scope if striped else "")
+        style = self.toggle_button.style()
+        style.unpolish(self.toggle_button)
+        style.polish(self.toggle_button)
+
+    def _build_scope_button(self, icon_name: str, scope: str) -> QPushButton:
+        btn = QPushButton()
+        btn.setCheckable(True)
+        btn.setProperty("scope_icon", icon_name)
+        btn.setFixedSize(HEADER_BUTTON_SIZE, HEADER_BUTTON_SIZE)
+        btn.setIconSize(QSize(HEADER_ICON_SIZE, HEADER_ICON_SIZE))
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setObjectName("collapsible_reset_btn")
+        # Checked is display only: the pair is a readout as much as a control, so a click
+        # on the half already active must not un-check it into a third, meaningless state.
+        btn.clicked.connect(lambda: self._on_scope_clicked(scope))
+        self._header_row.insertWidget(self._header_row.count() - 1, btn)
+        return btn
+
+    def _on_scope_clicked(self, scope: str) -> None:
+        if scope == self._scope:
+            self.frame_btn.setChecked(self._scope == "frame")
+            self.roll_btn.setChecked(self._scope == "roll")
+            return
+        self.scope_selected.emit(scope)
 
 
 def make_section(
@@ -200,24 +313,33 @@ def make_section(
     icon_name: str,
     default_expanded: bool = False,
     background_widget: Optional[QWidget] = None,
+    collapsible: bool = True,
 ) -> CollapsibleSection:
     """The one way a sidebar builds a section: persisted under section_expanded_{key}, and the
     ⓘ guide present exactly when docs/USER_GUIDE.md carries a `panel:{key}` marker. The help
-    dialog is parented to the section, so it centres on the window the section is in."""
+    dialog is parented to the section, so it centres on the window the section is in.
+    collapsible=False always expands and never reads or writes the persisted setting; repo=None
+    keeps the section but not its expanded state."""
     from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog, has_guide
 
-    setting = f"section_expanded_{key}"
-    persisted = repo.get_global_setting(setting)
-    expanded = default_expanded if persisted is None else bool(persisted)
+    persist = collapsible and repo is not None
+    if collapsible:
+        setting = f"section_expanded_{key}"
+        persisted = repo.get_global_setting(setting) if persist else None
+        expanded = default_expanded if persisted is None else bool(persisted)
+    else:
+        expanded = True
     section = CollapsibleSection(
         title,
         expanded=expanded,
         icon=qta.icon(icon_name, color=THEME.text_hint),
         background_widget=background_widget,
         info=has_guide(key),
+        collapsible=collapsible,
     )
     section.set_content(content)
-    section.expanded_changed.connect(lambda checked: repo.save_global_setting(setting, checked))
+    if persist:
+        section.expanded_changed.connect(lambda checked: repo.save_global_setting(setting, checked))
     if section.info_btn:
         section.info_requested.connect(lambda: SectionHelpDialog(key, title, section).exec())
     return section

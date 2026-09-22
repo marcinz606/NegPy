@@ -481,6 +481,7 @@ class MainWindow(QMainWindow):
         self.controller.analysis_buffer_preview_requested.connect(self.canvas.overlay.show_analysis_buffer)
         self.controller.analysis_buffer_drag_changed.connect(self.canvas.overlay.set_analysis_buffer_dragging)
         self.controller.rotation_guide_requested.connect(self.canvas.overlay.show_rotation_grid)
+        self.controller.rotation_guide_requested.connect(self.canvas.overlay.show_crop_preview)
         self.controller.crop_guide_changed.connect(self.canvas.overlay.update)
         self.controller.dust_overlay_changed.connect(self.canvas.overlay.update)
         self.controller.zones_overlay_changed.connect(lambda _on: self.canvas.overlay.update())

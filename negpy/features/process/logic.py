@@ -15,11 +15,15 @@ from negpy.features.process.models import ProcessConfig, ProcessMode
 def effective_linear_raw(process: ProcessConfig, render_intent: Optional[str] = None) -> bool:
     """Whether the decode skips the camera's as-shot white balance.
 
-    True when the user asked for Linear RAW, and **always** on the transparency transfer
-    path. That render applies the camera's own matrix, which folds the as-shot multipliers
-    back in itself (`camera_to_working_matrix`), and the Calibration panel already documents
-    Linear RAW as inert there — but the decode was reading the stored flag regardless, so a
-    hidden, stale toggle silently decided whether white balance was applied.
+    True when the user asked for Linear RAW, and **always** on an as-captured Slide
+    (Normalize off). That render applies the camera's own matrix, which folds the
+    as-shot multipliers back in itself (`camera_to_working_matrix`), and the
+    Calibration panel already documents Linear RAW as inert there — but the decode
+    was reading the stored flag regardless, so a hidden, stale toggle silently decided
+    whether white balance was applied. `positive_source` exempts this forced case on
+    any mode: a finished positive has no camera matrix to fold multipliers back in, so
+    it decodes on its own embedded profile, same as when the source is a plain Color
+    or B&W scan already.
 
     Every site that decides `use_camera_wb` must ask this one question. The decode and the
     matrix have to agree: apply white balance at both, or at neither. Splitting them tints
@@ -31,15 +35,12 @@ def effective_linear_raw(process: ProcessConfig, render_intent: Optional[str] = 
     rest. Frames then sit on different scales, and the exposure ratios solved between them
     absorb the difference: that bracket's shortest link solved to 0.75 EV instead of 1.00,
     which prints as contour rings around a blown highlight.
-
-    `positive_source` exempts the forced case: a finished positive has no camera matrix to
-    fold multipliers back in, so it decodes on its own embedded profile like any other mode.
     """
-    from negpy.features.exposure.transfer import is_transparency_transfer
+    from negpy.features.exposure.transfer import is_transfer_path
 
     if process.linear_raw:
         return True
-    transfer = is_transparency_transfer(process.process_mode, process.e6_normalize, render_intent)
+    transfer = is_transfer_path(process.process_mode, process.e6_normalize, process.positive_source, render_intent)
     return transfer and not process.positive_source
 
 
@@ -138,7 +139,7 @@ def highlight_reconstruction_bakes_wb(process: ProcessConfig, render_intent: Opt
     clips.
 
     Only overrides the *default* reason for a neutral decode: being on the transfer path
-    itself (`is_transparency_transfer`). An explicit Linear RAW request stays neutral
+    itself (`is_transfer_path`). An explicit Linear RAW request stays neutral
     regardless — that toggle is the user asking for it directly, and reconstruction must
     not reach around it. `positive_source` has no camera matrix to fold in the first
     place, so there is nothing to bake either. False whenever
@@ -153,9 +154,9 @@ def highlight_reconstruction_bakes_wb(process: ProcessConfig, render_intent: Opt
         return False
     if not effective_highlight_reconstruction(process):
         return False
-    from negpy.features.exposure.transfer import is_transparency_transfer
+    from negpy.features.exposure.transfer import is_transfer_path
 
-    return is_transparency_transfer(process.process_mode, process.e6_normalize, render_intent)
+    return is_transfer_path(process.process_mode, process.e6_normalize, process.positive_source, render_intent)
 
 
 def highlight_reconstruction_bakes_wb_token(process: ProcessConfig, render_intent: Optional[str] = None) -> str:

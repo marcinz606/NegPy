@@ -40,11 +40,11 @@ def test_last_open_folder_unset_is_empty():
 
 
 def test_empty_triplet_row_browses_beside_the_red_frame(qapp, tmp_path, monkeypatch):
-    from negpy.desktop.view.sidebar import files as files_mod
+    from negpy.desktop.view.widgets import rgb_triplet_dialog as dialog_mod
 
     red = tmp_path / "roll12_r.dng"
     red.write_bytes(b"")
-    dlg = files_mod._RgbTripletDialog(None, str(red), "", "", start_dir="")
+    dlg = dialog_mod.RgbTripletDialog(None, str(red), "", "", start_dir="")
 
     seen = {}
 
@@ -52,6 +52,6 @@ def test_empty_triplet_row_browses_beside_the_red_frame(qapp, tmp_path, monkeypa
         seen["start"] = start
         return ("", "")
 
-    monkeypatch.setattr(files_mod.QFileDialog, "getOpenFileName", fake_open)
+    monkeypatch.setattr(dialog_mod.QFileDialog, "getOpenFileName", fake_open)
     dlg._browse(dlg._edits["Blue"])
     assert seen["start"] == str(tmp_path)

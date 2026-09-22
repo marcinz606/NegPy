@@ -1,5 +1,3 @@
-from dataclasses import replace
-
 from PyQt6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -10,15 +8,10 @@ from negpy.desktop.session import ToolMode
 from negpy.desktop.view.canvas.crop_guides import GUIDE_LABELS, ORIENTATION_COUNT, CropGuide
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_label, hint_label, section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_label, section_subheader
 from negpy.desktop.view.widgets.sliders import CompactSlider
-from negpy.domain.models import CROP_RATIO_CHOICES, canonical_crop_ratio
 from negpy.features.geometry.logic import has_manual_crop
-from negpy.features.geometry.models import FINE_ROTATION_LIMIT, AutocropMode
-from negpy.features.process.models import invalidate_local_bounds
-from negpy.features.lens.models import LensMetadata
-from negpy.infrastructure.loaders.lens_metadata import read_lens_metadata
-from negpy.services.rendering.lens import metadata_lens_corrections
+from negpy.features.geometry.models import FINE_ROTATION_LIMIT
 
 
 class GeometrySidebar(BaseSidebar):
@@ -38,29 +31,13 @@ class GeometrySidebar(BaseSidebar):
 
         self.layout.addWidget(section_subheader("CROP"))
 
-        ratio_row = QHBoxLayout()
-        ratio_row.addWidget(self._field_label("Ratio"))
-        self.ratio_combo = QComboBox()
-        # One entry per shape (see CROP_RATIO_CHOICES). The crop tool auto-orients to match the
-        # current drag, so a separate portrait entry for every ratio would duplicate the same
-        # shape twice.
-        self.ratio_combo.addItems([r.value for r in CROP_RATIO_CHOICES])
-        self.ratio_combo.setCurrentText(canonical_crop_ratio(conf.autocrop_ratio))
-        self.ratio_combo.setPlaceholderText("Select Ratio…")
-        self.ratio_combo.setToolTip(wrap_tooltip("Aspect ratio the auto crop and the crop tool snap to"))
-        ratio_row.addWidget(self.ratio_combo, 1)
-
-        self.detect_ratio_btn = self._icon_action("fa5s.crosshairs", "Detect closest aspect ratio from the film frame")
-        ratio_row.addWidget(self.detect_ratio_btn)
-
-        self.layout.addLayout(ratio_row)
-
         btn_row = QHBoxLayout()
         self.manual_crop_btn = self._labeled_toggle("fa5s.crop-alt", " Crop", False, "Draw the crop by hand on the canvas")
-
+        self.reset_crop_btn = self._labeled_toggle("fa5s.magic", " Auto", False, "Find the frame edges and crop to them")
         self.clear_crop_btn = self._labeled_action("fa5s.undo", " Reset", "Reset crop: clear the manual crop and disable auto crop")
 
         btn_row.addWidget(self.manual_crop_btn, 1)
+        btn_row.addWidget(self.reset_crop_btn, 1)
         btn_row.addWidget(self.clear_crop_btn, 1)
         self.layout.addLayout(btn_row)
 
@@ -81,63 +58,15 @@ class GeometrySidebar(BaseSidebar):
         self._sync_guide_orient_btn()
         self.layout.addLayout(guide_row)
 
-        self.layout.addWidget(section_subheader("AUTO CROP"))
-
-        mode_row = QHBoxLayout()
-        mode_row.addWidget(self._field_label("Mode"))
-        self.mode_combo = QComboBox()
-        self.mode_combo.addItem("Image only", AutocropMode.IMAGE.value)
-        self.mode_combo.addItem("Film edge", AutocropMode.FILM.value)
-        self.mode_combo.setCurrentIndex(self.mode_combo.findData(conf.autocrop_mode))
-        self.mode_combo.setToolTip("Auto crop target: exposed image only, or full film including rebate/sprockets")
-        mode_row.addWidget(self.mode_combo, 1)
-        self.layout.addLayout(mode_row)
-
-        self.offset_slider = CompactSlider(
-            "Crop Offset",
-            -5.0,
-            100.0,
-            float(conf.autocrop_offset),
-            step=1.0,
-            precision=1,
-            unit=" px",
-        )
-        self.rebate_trim_slider = CompactSlider(
-            "Rebate Trim",
-            0.0,
-            150.0,
-            conf.autocrop_rebate_trim * 100.0,
-            step=5.0,
-            precision=1,
-            unit="%",
-        )
-        self.rebate_trim_slider.setToolTip(
-            "How far into the detected rebate auto crop cuts: 0% stops at the film edge, "
-            "100% lands on the image edge, above 100% bites in to clear a white border"
-        )
-        self.rebate_trim_slider.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
-
-        trim_row = QHBoxLayout()
-        trim_row.addWidget(self.offset_slider, 1)
-        trim_row.addWidget(self.rebate_trim_slider, 1)
-        self.layout.addLayout(trim_row)
-
-        # Auto crop actions: apply to this frame, or to the whole roll.
-        auto_row = QHBoxLayout()
-        self.reset_crop_btn = self._labeled_toggle("fa5s.magic", " Auto", False, "Find the frame edges and crop to them")
-
-        self.auto_crop_all_btn = self._labeled_action(
-            "fa5s.layer-group",
-            " Batch Autocrop",
-            "Analyze all visible landscape frames as one roll. Confident frames calibrate weak ones; "
-            "manual and ambiguous crops are preserved. Runs before Batch Analysis.",
-        )
-        self.auto_crop_all_btn.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
-        auto_row.addWidget(self.reset_crop_btn, 1)
-        auto_row.addWidget(self.auto_crop_all_btn, 1)
-        self.layout.addLayout(auto_row)
-
         self.layout.addWidget(section_subheader("ALIGNMENT"))
+
+        self.crop_to_valid_btn = self._labeled_toggle(
+            "fa5s.crop",
+            " Crop by Default",
+            conf.crop_to_valid,
+            "Crop out the wedge Fine Rotation, Tilt and Swing leave behind, so no edge shows extrapolated pixels",
+        )
+        self.layout.addWidget(self.crop_to_valid_btn)
 
         align_row = QHBoxLayout()
         self.straighten_btn = self._tool_toggle("fa5s.ruler", "", "Draw a line along a horizon or edge to level the frame")
@@ -172,59 +101,6 @@ class GeometrySidebar(BaseSidebar):
         converge_row.addWidget(self.converge_h_slider)
         self.layout.addLayout(converge_row)
 
-        self.distortion_slider = CompactSlider(
-            "Distortion Correction", -0.10, 0.10, conf.distortion_k1, step=0.001, precision=1000, has_neutral=True
-        )
-        # Nothing derives the readout's decimals from `precision`, so a 0.001 step needs both.
-        self.distortion_slider.spin.setDecimals(3)
-        self.distortion_slider.setToolTip(
-            "Radial lens distortion. Positive corrects barrel, negative pincushion. Use the film rebate as a straight reference."
-        )
-        self.layout.addWidget(self.distortion_slider)
-        self.metadata_distortion_btn = self._labeled_toggle(
-            "fa5s.camera",
-            "Metadata Distortion",
-            conf.lens_distortion_from_metadata,
-            "Apply embedded scanning-lens distortion correction. Replaces manual distortion.",
-        )
-        self.metadata_ca_btn = self._labeled_toggle(
-            "fa5s.camera",
-            "Metadata CA",
-            conf.lens_ca_from_metadata,
-            "Apply embedded lateral chromatic aberration correction. Can be used with manual distortion.",
-        )
-        self.lens_hint = hint_label("")
-        self.lens_hint.setWordWrap(True)
-        self.layout.addWidget(self.metadata_distortion_btn)
-        self.layout.addWidget(self.metadata_ca_btn)
-        self.layout.addWidget(self.lens_hint)
-
-    def _set_metadata_lens(self, field: str, enabled: bool) -> None:
-        button = self.metadata_distortion_btn if field == "lens_distortion_from_metadata" else self.metadata_ca_btn
-        if enabled and not button.isEnabled():
-            return
-        self.update_config_section("geometry", persist=True, **{field: enabled})
-
-    def _sync_metadata_lens(self) -> None:
-        config = self.state.config
-        lens = read_lens_metadata(self.state.current_file_path)
-        if self.state.preview_lens_path == self.state.current_file_path and self.state.preview_lens is not None:
-            lens = self.state.preview_lens
-        requested = replace(config, geometry=replace(config.geometry, lens_distortion_from_metadata=True, lens_ca_from_metadata=True))
-        if not metadata_lens_corrections(requested):
-            lens = LensMetadata(reason="Embedded lens correction is unavailable for composites.")
-        if self.state.has_ir:
-            lens = LensMetadata(reason="Embedded lens correction is unavailable for RGB+IR sources.")
-        for button, enabled, available in (
-            (self.metadata_distortion_btn, config.geometry.lens_distortion_from_metadata, lens.distortion),
-            (self.metadata_ca_btn, config.geometry.lens_ca_from_metadata, lens.ca),
-        ):
-            button.setChecked(enabled)
-            button.setEnabled(available or enabled)
-            button.edited_dot.set_active(enabled)
-        self.lens_hint.setText(lens.description if lens.available else f"Unavailable: {lens.reason}")
-        self.distortion_slider.setEnabled(not config.geometry.lens_distortion_from_metadata)
-
     def cycle_guide(self) -> None:
         self.guide_combo.setCurrentIndex((self.guide_combo.currentIndex() + 1) % self.guide_combo.count())
 
@@ -233,30 +109,12 @@ class GeometrySidebar(BaseSidebar):
         self.guide_orient_btn.setEnabled(ORIENTATION_COUNT.get(CropGuide(guide), 1) > 1 if guide else False)
 
     def _connect_signals(self) -> None:
-        self.metadata_distortion_btn.toggled.connect(lambda enabled: self._set_metadata_lens("lens_distortion_from_metadata", enabled))
-        self.metadata_ca_btn.toggled.connect(lambda enabled: self._set_metadata_lens("lens_ca_from_metadata", enabled))
         self.guide_combo.currentIndexChanged.connect(lambda _i: self.controller.set_crop_guide(self.guide_combo.currentData()))
         self.guide_combo.currentIndexChanged.connect(lambda _i: self._sync_guide_orient_btn())
         self.guide_orient_btn.clicked.connect(self.controller.cycle_crop_guide_orientation)
-        self.ratio_combo.currentTextChanged.connect(self._on_ratio_changed)
-        self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
-        self.detect_ratio_btn.clicked.connect(self.controller.detect_aspect_ratio)
         self.manual_crop_btn.toggled.connect(self._on_manual_crop_toggled)
         self.clear_crop_btn.clicked.connect(self.controller.reset_crop)
         self.reset_crop_btn.toggled.connect(self._on_auto_crop_toggled)
-        self.auto_crop_all_btn.clicked.connect(self.controller.request_batch_auto_crop)
-
-        self.offset_slider.valueChanged.connect(
-            lambda v: self.update_config_section("geometry", render=True, persist=False, readback_metrics=False, autocrop_offset=int(v))
-        )
-        self.offset_slider.valueCommitted.connect(self._on_offset_committed)
-
-        self.rebate_trim_slider.valueChanged.connect(
-            lambda v: self.update_config_section(
-                "geometry", render=True, persist=False, readback_metrics=False, autocrop_rebate_trim=v / 100.0
-            )
-        )
-        self.rebate_trim_slider.valueCommitted.connect(self._on_rebate_trim_committed)
 
         self.straighten_btn.toggled.connect(self._on_straighten_toggled)
 
@@ -269,12 +127,11 @@ class GeometrySidebar(BaseSidebar):
             lambda v: self.update_config_section("geometry", render=True, persist=True, readback_metrics=True, fine_rotation=-v)
         )
 
-        self.distortion_slider.valueChanged.connect(lambda _v: self.controller.show_rotation_guide())
+        self.crop_to_valid_btn.toggled.connect(self._on_crop_to_valid_toggled)
 
         for slider, field in (
             (self.converge_v_slider, "converge_v"),
             (self.converge_h_slider, "converge_h"),
-            (self.distortion_slider, "distortion_k1"),
         ):
             slider.valueChanged.connect(
                 lambda v, f=field: self.update_config_section("geometry", render=True, persist=False, readback_metrics=False, **{f: v})
@@ -283,37 +140,8 @@ class GeometrySidebar(BaseSidebar):
                 lambda v, f=field: self.update_config_section("geometry", render=True, persist=True, readback_metrics=True, **{f: v})
             )
 
-    def _on_ratio_changed(self, ratio: str) -> None:
-        self.controller.set_crop_ratio(ratio)
-
-    def _on_mode_changed(self, idx: int) -> None:
-        self.auto_crop_all_btn.setEnabled(self.mode_combo.itemData(idx) == AutocropMode.IMAGE)
-        self.rebate_trim_slider.setEnabled(self.mode_combo.itemData(idx) == AutocropMode.IMAGE)
-        new_config = replace(
-            self.state.config,
-            geometry=replace(self.state.config.geometry, autocrop_mode=self.mode_combo.itemData(idx)),
-            process=replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process)),
-        )
-        self.controller.session.update_config(new_config, persist=True)
-        self.controller.request_render()
-
-    def _on_offset_committed(self, v: float) -> None:
-        new_config = replace(
-            self.state.config,
-            geometry=replace(self.state.config.geometry, autocrop_offset=int(v)),
-            process=replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process)),
-        )
-        self.controller.session.update_config(new_config, persist=True)
-        self.controller.request_render()
-
-    def _on_rebate_trim_committed(self, v: float) -> None:
-        new_config = replace(
-            self.state.config,
-            geometry=replace(self.state.config.geometry, autocrop_rebate_trim=v / 100.0),
-            process=replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process)),
-        )
-        self.controller.session.update_config(new_config, persist=True)
-        self.controller.request_render()
+        for slider in (self.converge_v_slider, self.converge_h_slider):
+            slider.valueChanged.connect(lambda _v: self.controller.show_rotation_guide())
 
     def _on_manual_crop_toggled(self, checked: bool) -> None:
         self.controller.set_active_tool(ToolMode.CROP_MANUAL if checked else ToolMode.NONE)
@@ -327,6 +155,10 @@ class GeometrySidebar(BaseSidebar):
         else:
             self.controller.reset_crop()
 
+    def _on_crop_to_valid_toggled(self, checked: bool) -> None:
+        self.update_config_section("geometry", render=True, persist=True, readback_metrics=True, crop_to_valid=checked)
+        self.controller.show_rotation_guide()
+
     def sync_ui(self) -> None:
         conf = self.state.config.geometry
 
@@ -334,42 +166,28 @@ class GeometrySidebar(BaseSidebar):
         try:
             self.guide_combo.setCurrentIndex(self.guide_combo.findData(self.state.crop_guide))
             self._sync_guide_orient_btn()
-            self.ratio_combo.setCurrentText(canonical_crop_ratio(conf.autocrop_ratio))
-            self.mode_combo.setCurrentIndex(self.mode_combo.findData(conf.autocrop_mode))
 
-            self.offset_slider.setValue(float(conf.autocrop_offset))
-            self.rebate_trim_slider.setValue(conf.autocrop_rebate_trim * 100.0)
             self.fine_rot_slider.setValue(-conf.fine_rotation)
             self.converge_v_slider.setValue(conf.converge_v)
             self.converge_h_slider.setValue(conf.converge_h)
-            self.distortion_slider.setValue(conf.distortion_k1)
-            self._sync_metadata_lens()
 
             self.manual_crop_btn.setChecked(self.state.active_tool == ToolMode.CROP_MANUAL)
             self.straighten_btn.setChecked(self.state.active_tool == ToolMode.STRAIGHTEN)
             self.reset_crop_btn.setChecked(conf.crop_from_auto)
             self.manual_crop_btn.edited_dot.set_active(has_manual_crop(conf))
             self.reset_crop_btn.edited_dot.set_active(conf.crop_from_auto)
-            self.auto_crop_all_btn.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
-            self.rebate_trim_slider.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
+            self.crop_to_valid_btn.setChecked(conf.crop_to_valid)
+            self.crop_to_valid_btn.edited_dot.set_active(conf.crop_to_valid)
         finally:
             self.block_signals(False)
 
     def block_signals(self, blocked: bool) -> None:
         self.guide_combo.blockSignals(blocked)
         self.guide_orient_btn.blockSignals(blocked)
-        self.ratio_combo.blockSignals(blocked)
-        self.mode_combo.blockSignals(blocked)
-        self.detect_ratio_btn.blockSignals(blocked)
-        self.offset_slider.blockSignals(blocked)
-        self.rebate_trim_slider.blockSignals(blocked)
         self.fine_rot_slider.blockSignals(blocked)
         self.converge_v_slider.blockSignals(blocked)
         self.converge_h_slider.blockSignals(blocked)
-        self.distortion_slider.blockSignals(blocked)
-        self.metadata_distortion_btn.blockSignals(blocked)
-        self.metadata_ca_btn.blockSignals(blocked)
         self.manual_crop_btn.blockSignals(blocked)
         self.straighten_btn.blockSignals(blocked)
         self.reset_crop_btn.blockSignals(blocked)
-        self.auto_crop_all_btn.blockSignals(blocked)
+        self.crop_to_valid_btn.blockSignals(blocked)

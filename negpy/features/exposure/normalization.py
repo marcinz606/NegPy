@@ -544,6 +544,7 @@ def measure_anchor_from_log(
     bounds: LogNegativeBounds,
     roi: Optional[tuple[int, int, int, int]] = None,
     analysis_buffer: float = 0.0,
+    assumed: Optional[float] = None,
 ) -> float:
     """
     Per-frame exposure anchor: where this negative's midtone sits in [0, 1],
@@ -553,11 +554,16 @@ def measure_anchor_from_log(
     detail-bearing span rather than by its median.
 
     Partial metering: the anchor moves only anchor_meter_strength of the way from
-    assumed_anchor toward the metered median, so a deliberately low-key (dark) or
+    `assumed` toward the metered median, so a deliberately low-key (dark) or
     high-key (bright) scene keeps most of its intended key instead of being
     forced to mid-gray, while gross mis-exposure is still pulled toward correct.
     A linear pull (no key-dependent amplification) keeps it predictable. Finally
-    clamped to assumed_anchor +/- anchor_meter_band as a hard safety guard.
+    clamped to `assumed` +/- anchor_meter_band as a hard safety guard.
+
+    `assumed` defaults to EXPOSURE_CONSTANTS["assumed_anchor"], calibrated for the
+    paper path's own per-frame-adaptive bounds. The transfer path's `bounds` are
+    fixed rather than adaptive, so its expected anchor position is a different
+    number (transfer_assumed_anchor) in the same [0, 1] units; pass it explicitly.
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
@@ -573,11 +579,11 @@ def measure_anchor_from_log(
     inner = lum[(lum >= lo) & (lum <= hi)]
     measured = 0.5 * (float(inner.mean()) + 0.5 * (float(lo) + float(hi)))
 
-    assumed = float(EXPOSURE_CONSTANTS["assumed_anchor"])
+    a = float(EXPOSURE_CONSTANTS["assumed_anchor"]) if assumed is None else float(assumed)
     strength = float(EXPOSURE_CONSTANTS["anchor_meter_strength"])
     band = float(EXPOSURE_CONSTANTS["anchor_meter_band"])
-    anchor = assumed + strength * (measured - assumed)
-    return float(min(max(anchor, assumed - band), assumed + band))
+    anchor = a + strength * (measured - a)
+    return float(min(max(anchor, a - band), a + band))
 
 
 def measure_anchor(

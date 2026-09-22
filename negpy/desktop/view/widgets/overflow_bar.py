@@ -32,6 +32,10 @@ class OverflowBar(QWidget):
         self._button_items: list[int] = []
         self._pinned_item = -1
         self._hidden: list[int] = []
+        # Items the owner has switched off (an opt-in action, a mode-specific button).
+        # _relayout shows whatever fits, so a bare setVisible(False) on a child would be
+        # undone by the next resize; these take no space and never reach the » menu.
+        self._suppressed: set[int] = set()
         self.setFixedHeight(height)
 
         self.overflow_btn = QToolButton(self)
@@ -46,6 +50,18 @@ class OverflowBar(QWidget):
         btn.setParent(self)
         self._button_items.append(len(self._items))
         self._items.append((btn, label))
+
+    def set_button_visible(self, btn: QWidget, visible: bool) -> None:
+        """Switch one button off (or back on) for good, rather than for one layout pass."""
+        index = next((i for i, (w, _label) in enumerate(self._items) if w is btn), None)
+        if index is None:
+            return
+        if visible:
+            self._suppressed.discard(index)
+        else:
+            self._suppressed.add(index)
+            btn.hide()
+        self._relayout()
 
     def add_separator(self, sep: QWidget) -> None:
         """Decoration: never listed in the overflow menu, and dropped when it would trail."""
@@ -80,7 +96,7 @@ class OverflowBar(QWidget):
     def sizeHint(self) -> QSize:
         if self._tile:
             return QSize(max(1, len(self._items)) * self._min_item, self._height)
-        widths = [self._item_width(w) for w, _ in self._items]
+        widths = [self._item_width(w) for i, (w, _label) in enumerate(self._items) if i not in self._suppressed]
         return QSize(sum(widths) + self._spacing * max(0, len(widths) - 1), self._height)
 
     def resizeEvent(self, event) -> None:
@@ -97,14 +113,16 @@ class OverflowBar(QWidget):
                 return list(range(fits - 1)) + [self._pinned_item]
             return list(range(fits))
 
-        widths = [self._item_width(w) for w, _ in self._items]
-        if sum(widths) + self._spacing * max(0, count - 1) <= avail:
-            return list(range(count))
+        placeable = [i for i in range(count) if i not in self._suppressed]
+        widths = {i: self._item_width(self._items[i][0]) for i in placeable}
+        if sum(widths.values()) + self._spacing * max(0, len(placeable) - 1) <= avail:
+            return placeable
 
         def fit(budget: int) -> list[int]:
             visible: list[int] = []
             used = 0
-            for i, width in enumerate(widths):
+            for i in placeable:
+                width = widths[i]
                 step = width + (self._spacing if visible else 0)
                 if used + step > budget:
                     break
@@ -119,7 +137,7 @@ class OverflowBar(QWidget):
         # separators spills there is no chevron to show, and reserving room for one would push a
         # button out and *create* the chevron it was making room for.
         full = fit(avail)
-        if all(self._items[i][1] is None for i in range(count) if i not in full):
+        if all(self._items[i][1] is None for i in placeable if i not in full):
             return full
         return fit(avail - self.OVERFLOW_W)
 
@@ -128,7 +146,7 @@ class OverflowBar(QWidget):
             return
         avail = self.width()
         visible = self._visible_items(avail)
-        self._hidden = [i for i in range(len(self._items)) if i not in visible]
+        self._hidden = [i for i in range(len(self._items)) if i not in visible and i not in self._suppressed]
 
         if self._tile:
             strip = avail - (self.OVERFLOW_W if self._hidden else 0)

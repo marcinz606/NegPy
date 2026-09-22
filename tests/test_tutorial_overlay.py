@@ -5,23 +5,21 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QMainWindow
 
+from negpy.desktop.view.sidebar.right_panel import _ROLL_SECTION_ATTRS
 from negpy.desktop.view.widgets.tutorial_overlay import TutorialOverlay, TutorialStep
 from negpy.desktop.view.widgets.tutorial_steps import build
 
-# Section attrs that reveal_section can actually resolve (registered in RightPanel).
-_VALID_SECTION_ATTRS = {
-    "flatfield_section",
+# Section attrs that reveal_section can actually resolve: the Roll tab's own set, plus the
+# cards on the Frame tabs.
+_VALID_SECTION_ATTRS = _ROLL_SECTION_ATTRS | {
     "geometry_section",
-    "process_section",
-    "sensor_section",
-    "roll_section",
     "color_section",
     "tone_section",
+    "local_section",
     "lab_section",
     "altproc_section",
     "toning_section",
     "retouch_section",
-    "local_section",
     "finish_section",
 }
 

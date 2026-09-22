@@ -245,22 +245,16 @@ class SensorSidebar(BaseSidebar):
         self.hue_trim_slider.valueCommitted.connect(lambda v: self._on_hue_trim_changed(v, persist=True))
 
     def _on_linear_raw_toggled(self, checked: bool) -> None:
-        from dataclasses import replace
-
-        new_config = replace(
-            self.state.config,
-            process=replace(
-                self.state.config.process,
-                linear_raw=checked,
-                **invalidate_local_bounds(self.state.config.process),
-            ),
+        # linear_raw switches use_camera_wb, so it is a source change: set_roll_default's
+        # apply_config re-decodes and suppresses the bounds analysis over the stale buffer.
+        self.controller.set_roll_default(
+            "sensor",
+            linear_raw=checked,
+            **invalidate_local_bounds(self.state.config.process),
         )
-        # linear_raw switches use_camera_wb, so it is a source change: apply_config re-decodes and
-        # suppresses the bounds analysis over the stale buffer.
-        self.controller.apply_config(new_config, persist=True)
 
     def _on_narrowband_scan_toggled(self, checked: bool) -> None:
-        self.update_config_section("process", narrowband_scan=checked, persist=True, render=True)
+        self.controller.set_roll_default("sensor", narrowband_scan=checked)
 
     def _open_scan_setup(self) -> None:
         from negpy.desktop.view.main_window import MainWindow
@@ -273,10 +267,8 @@ class SensorSidebar(BaseSidebar):
         # Bake the matrix like crosstalk does. The per-frame bounds were analyzed under the
         # previous mix, so clear them.
         matrix = SensorProfiles.get_matrix(name)
-        self.update_config_section(
-            "process",
-            persist=True,
-            render=True,
+        self.controller.set_roll_default(
+            "sensor",
             sensor_profile=name,
             sensor_matrix=tuple(matrix) if matrix is not None else None,
             **invalidate_local_bounds(self.state.config.process),
@@ -299,10 +291,8 @@ class SensorSidebar(BaseSidebar):
         # matrix, so clear them and the stretch re-derives from the unmixed data. Otherwise the
         # mask redistribution leaks through.
         matrix = CrosstalkProfiles.get_matrix(name)
-        self.update_config_section(
-            "process",
-            persist=True,
-            render=True,
+        self.controller.set_roll_default(
+            "sensor",
             crosstalk_profile=name,
             crosstalk_matrix=matrix,
             # Baked with the matrix so the render can gate on it without disk I/O.
@@ -311,10 +301,9 @@ class SensorSidebar(BaseSidebar):
         )
 
     def _on_crosstalk_strength_changed(self, val: float, persist: bool = True) -> None:
-        self.update_config_section(
-            "process",
+        self.controller.set_roll_default(
+            "sensor",
             persist=persist,
-            render=True,
             readback_metrics=persist,
             crosstalk_strength=val,
             **invalidate_local_bounds(self.state.config.process),
@@ -335,10 +324,9 @@ class SensorSidebar(BaseSidebar):
     def _on_crosstalk_preview(self, matrix: object, strength: float, process: str) -> None:
         # The process rides along: the render gates the unmix on it, so a preview without it shows
         # nothing whenever the edited profile is for another film.
-        self.update_config_section(
-            "process",
+        self.controller.set_roll_default(
+            "sensor",
             persist=False,
-            render=True,
             crosstalk_matrix=tuple(matrix) if matrix is not None else None,
             crosstalk_strength=strength,
             crosstalk_process=process,
@@ -349,10 +337,8 @@ class SensorSidebar(BaseSidebar):
         if result == QDialog.DialogCode.Accepted:
             name = dlg.selected_name() or CrosstalkProfiles.DEFAULT_NAME
             snap_strength = self._crosstalk_snapshot[2]
-            self.update_config_section(
-                "process",
-                persist=True,
-                render=True,
+            self.controller.set_roll_default(
+                "sensor",
                 crosstalk_profile=name,
                 # Default stores no matrix (falls back to the built-in) by convention.
                 crosstalk_matrix=None if name == CrosstalkProfiles.DEFAULT_NAME else tuple(dlg.working_matrix()),
@@ -363,10 +349,8 @@ class SensorSidebar(BaseSidebar):
             )
         else:
             profile, matrix, strength, process = self._crosstalk_snapshot
-            self.update_config_section(
-                "process",
-                persist=True,
-                render=True,
+            self.controller.set_roll_default(
+                "sensor",
                 crosstalk_profile=profile,
                 crosstalk_matrix=matrix,
                 crosstalk_strength=strength,
@@ -377,7 +361,7 @@ class SensorSidebar(BaseSidebar):
 
     def _on_hue_trim_changed(self, val: float, persist: bool = True) -> None:
         # Sticky on commit only, so a drag doesn't write every intermediate value.
-        self.update_config_section("process", hue_trim=val, persist=persist, readback_metrics=persist)
+        self.controller.set_roll_default("sensor", hue_trim=val, persist=persist, readback_metrics=persist)
 
     def sync_ui(self) -> None:
         conf = self.state.config.process
@@ -392,11 +376,11 @@ class SensorSidebar(BaseSidebar):
             # there), and on an RGB-scan triplet, where a narrowband exposure has no full-spectrum
             # scene for a WB gain to describe in the first place — every exposure decodes neutral
             # regardless.
-            from negpy.features.exposure.transfer import is_transparency_transfer
+            from negpy.features.exposure.transfer import is_transfer_path
             from negpy.features.rgbscan.models import is_rgb_triplet
 
             e6 = conf.process_mode == ProcessMode.E6
-            transfer = is_transparency_transfer(conf.process_mode, conf.e6_normalize)
+            transfer = is_transfer_path(conf.process_mode, conf.e6_normalize, conf.positive_source)
             triplet = is_rgb_triplet(self.state.config.rgbscan)
             self.narrowband_scan_btn.setEnabled(not e6)
             self.linear_raw_btn.setEnabled((not transfer or conf.positive_source) and not triplet)

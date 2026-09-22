@@ -1,3 +1,4 @@
+import os
 from functools import partial
 
 from PyQt6.QtCore import Qt
@@ -16,13 +17,55 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.settings_catalog import SettingRow, catalog_sections
-from negpy.desktop.view.styles.templates import pin_dialog_default
+from negpy.desktop.view.styles.templates import pin_dialog_default, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 
 
 def _triplet(values) -> str:
     return " / ".join(f"{v:g}" for v in values)
+
+
+class ScopeRadios:
+    """The radios build_scope_row built, and the scope they resolve to."""
+
+    __slots__ = ("current", "sel", "roll")
+
+    def __init__(self, current: QRadioButton | None, sel: QRadioButton, roll: QRadioButton) -> None:
+        self.current = current
+        self.sel = sel
+        self.roll = roll
+
+    def value(self) -> str:
+        if self.current is not None and self.current.isChecked():
+            return "current"
+        return "selection" if self.sel.isChecked() else "roll"
+
+
+def build_scope_row(parent: QWidget, sel_count: int, roll_count: int, show_current: bool = False) -> tuple[QHBoxLayout, ScopeRadios]:
+    """Current/Selected/Whole roll radio row, shared by every dialog that applies settings
+    to more than the active frame."""
+    row = QHBoxLayout()
+    group = QButtonGroup(parent)
+    current: QRadioButton | None = None
+    if show_current:
+        current = QRadioButton("Current frame")
+        group.addButton(current)
+        row.addWidget(current)
+    sel = QRadioButton(f"Selected frames ({sel_count})")
+    sel.setEnabled(sel_count > 0)
+    roll = QRadioButton(f"Whole roll ({roll_count})")
+    roll.setEnabled(roll_count > 0)
+    group.addButton(sel)
+    group.addButton(roll)
+    if current is not None:
+        current.setChecked(True)
+    else:
+        (sel if sel_count > 0 else roll).setChecked(True)
+    row.addWidget(sel)
+    row.addWidget(roll)
+    row.addStretch()
+    return row, ScopeRadios(current, sel, roll)
 
 
 class GranularSettingsDialog(QDialog):
@@ -53,7 +96,9 @@ class GranularSettingsDialog(QDialog):
         super().__init__(parent)
         self._checks: list[tuple[QCheckBox, SettingRow, bool, QWidget]] = []
         self._sections: list[tuple[QWidget, int]] = []
+        self._section_ids: list[tuple[str, ...]] = []
         self._section_rows: list[tuple[CollapsibleSection, tuple[str, ...]]] = []
+        self._scope_radios: ScopeRadios | None = None
         self._preselect_ids = preselect_ids
         self._bounds_luma: QCheckBox | None = None
         self._bounds_color: QCheckBox | None = None
@@ -102,25 +147,7 @@ class GranularSettingsDialog(QDialog):
         self._update_apply_enabled()
 
     def _build_scope_row(self, sel_count: int, roll_count: int, show_current: bool = False) -> QHBoxLayout:
-        row = QHBoxLayout()
-        self.scope_group = QButtonGroup(self)
-        if show_current:
-            self.current_radio = QRadioButton("Current frame")
-            self.scope_group.addButton(self.current_radio)
-            row.addWidget(self.current_radio)
-        self.sel_radio = QRadioButton(f"Selected frames ({sel_count})")
-        self.sel_radio.setEnabled(sel_count > 0)
-        self.roll_radio = QRadioButton(f"Whole roll ({roll_count})")
-        self.roll_radio.setEnabled(roll_count > 0)
-        self.scope_group.addButton(self.sel_radio)
-        self.scope_group.addButton(self.roll_radio)
-        if show_current:
-            self.current_radio.setChecked(True)
-        else:
-            (self.sel_radio if sel_count > 0 else self.roll_radio).setChecked(True)
-        row.addWidget(self.sel_radio)
-        row.addWidget(self.roll_radio)
-        row.addStretch()
+        row, self._scope_radios = build_scope_row(self, sel_count, roll_count, show_current)
         return row
 
     def _build_mode_row(self) -> QHBoxLayout:
@@ -179,6 +206,7 @@ class GranularSettingsDialog(QDialog):
                 section.set_content(self._build_rows(rows))
             col.addWidget(section)
             self._sections.append((section, edited_count))
+            self._section_ids.append(tuple(r.id for r, _v, _e in rows))
 
         if bounds_mode == "axes":
             section = CollapsibleSection("Roll baseline", expanded=True)
@@ -310,11 +338,8 @@ class GranularSettingsDialog(QDialog):
         self.apply_btn.setEnabled(enabled)
 
     def _on_apply(self) -> None:
-        if hasattr(self, "sel_radio"):
-            if getattr(self, "current_radio", None) is not None and self.current_radio.isChecked():
-                self._scope = "current"
-            else:
-                self._scope = "selection" if self.sel_radio.isChecked() else "roll"
+        if self._scope_radios is not None:
+            self._scope = self._scope_radios.value()
         self.accept()
 
     def selected(self) -> list[SettingRow]:
@@ -332,6 +357,31 @@ class GranularSettingsDialog(QDialog):
             self._show_unchanged.setChecked(True)
         for box, row, _edited, _line in self._checks:
             box.setChecked(row.id in wanted)
+
+    def limit_to_rows(self, row_ids) -> None:
+        """Show only these rows, for a picker opened from one section's own header. The
+        rest leave _checks entirely, so Check All and the Apply gate never see them."""
+        wanted = set(row_ids)
+        kept = []
+        for box, row, edited, line in self._checks:
+            if row.id in wanted:
+                kept.append((box, row, edited, line))
+            else:
+                box.setChecked(False)
+                line.setVisible(False)
+                line.setParent(None)
+        self._checks = kept
+        # A section's own edited count drives whether it shows at all, so recount it over
+        # what is left rather than over what it was built with.
+        kept_edited = {row.id for _box, row, edited, _line in kept if edited}
+        rebuilt = []
+        for (section, _old), ids in zip(self._sections, self._section_ids):
+            count = sum(1 for i in ids if i in kept_edited)
+            section.set_modified(count)
+            rebuilt.append((section, count))
+        self._sections = rebuilt
+        self._apply_visibility()
+        self._update_apply_enabled()
 
     def selected_ids(self) -> list[str]:
         return [row.id for row in self.selected()]
@@ -359,6 +409,141 @@ class GranularSettingsDialog(QDialog):
         if getattr(self, "replace_radio", None) is not None and self.replace_radio.isChecked():
             return "replace"
         return "overlay"
+
+
+class SyncBoundsDialog(QDialog):
+    """The active frame's metering bounds and nothing else. The Apply picker reaches the
+    same two axes, but only once every edited row has been unticked by hand."""
+
+    def __init__(self, parent, floors, ceils, source_name: str, sel_count: int, roll_count: int):
+        super().__init__(parent)
+        self.setWindowTitle("Sync Bounds")
+        self.apply_btn = QPushButton("Apply")
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(THEME.space_2xl, THEME.space_2xl, THEME.space_2xl, THEME.space_2xl)
+        root.setSpacing(THEME.space_xl)
+
+        header = QLabel(f'From "{source_name}"' if source_name else "From this frame")
+        header.setStyleSheet(f"color: {THEME.text_primary}; font-weight: bold;")
+        root.addWidget(header)
+        value = QLabel(f"{_triplet(floors)} → {_triplet(ceils)}")
+        value.setStyleSheet(f"color: {THEME.text_hint};")
+        root.addWidget(value)
+
+        row, self._scope_radios = build_scope_row(self, sel_count, roll_count)
+        root.addLayout(row)
+
+        self.luma_box = QCheckBox("Tonal span")
+        self.luma_box.setToolTip(wrap_tooltip("Take the black/white-point span from this frame"))
+        self.color_box = QCheckBox("Color balance")
+        self.color_box.setToolTip(wrap_tooltip("Take the per-channel color balance from this frame"))
+        for box in (self.luma_box, self.color_box):
+            box.setChecked(True)
+            box.stateChanged.connect(self._update_apply_enabled)
+            root.addWidget(box)
+
+        footer = QHBoxLayout()
+        footer.addStretch()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        self.apply_btn.clicked.connect(self.accept)
+        footer.addWidget(cancel_btn)
+        footer.addWidget(self.apply_btn)
+        pin_dialog_default(self.apply_btn, cancel_btn)
+        root.addLayout(footer)
+
+    def _update_apply_enabled(self) -> None:
+        self.apply_btn.setEnabled(self.luma_box.isChecked() or self.color_box.isChecked())
+
+    def bounds_flags(self) -> tuple[bool, bool]:
+        return self.luma_box.isChecked(), self.color_box.isChecked()
+
+    def scope(self) -> str:
+        return self._scope_radios.value()
+
+
+def _apply_targets(session) -> tuple[int, int, int] | None:
+    """(source index, selected targets, roll targets) for a frame-to-frames apply, or
+    None when there is nothing to apply to.
+
+    "Whole roll" means the visible (filtered) frames, not every loaded file: a filename
+    filter is a non-destructive view, so hidden files are not counted.
+    """
+    state = session.state
+    src = state.selected_file_idx
+    if src == -1:
+        return None
+    visible = session.asset_model.visible_actual_indices()
+    sel_targets = len([i for i in set(state.selected_indices) if i != src and i in visible])
+    roll_targets = len([i for i in visible if i != src])
+    if not sel_targets and not roll_targets:
+        session.settings_synced.emit("Only one frame here — nothing to apply to")
+        return None
+    return src, sel_targets, roll_targets
+
+
+def _source_name(session, src: int) -> str:
+    files = session.state.uploaded_files
+    return os.path.basename(files[src]["path"]) if src < len(files) else ""
+
+
+def open_sync_bounds_dialog(parent, session) -> None:
+    """Push the active frame's metering bounds onto other frames, leaving every other
+    setting where it is."""
+    from negpy.desktop.session import _source_effective_bounds
+
+    bounds = _source_effective_bounds(session.state.config.process)
+    if bounds is None:
+        session.settings_synced.emit("Render this frame before syncing its bounds")
+        return
+    targets = _apply_targets(session)
+    if targets is None:
+        return
+    src, sel_targets, roll_targets = targets
+    dlg = SyncBoundsDialog(parent, bounds[0], bounds[1], _source_name(session, src), sel_targets, roll_targets)
+    if dlg.exec() == QDialog.DialogCode.Accepted:
+        session.sync_selected_settings([], dlg.bounds_flags(), dlg.scope())
+
+
+def open_apply_dialog(parent, session, rows=None, title: str = "") -> tuple[list, str] | None:
+    """Apply the active frame's settings to the selection or the whole roll.
+
+    *rows* limits the picker to one section's own settings, for the Roll button on that
+    section's header; None lists every section, which is the Film Strip's own button. The
+    metered-bounds rows come only with the full list: they belong to Normalization, a
+    Roll-tab card with a scope pair of its own.
+
+    Returns what was applied, as (rows, scope), or None if nothing was.
+    """
+    from negpy.desktop.session import _source_effective_bounds
+
+    targets = _apply_targets(session)
+    if targets is None:
+        return None
+    src, sel_targets, roll_targets = targets
+
+    source_cfg = session.state.config
+    source_name = _source_name(session, src)
+    bounds_mode = "axes" if rows is None and _source_effective_bounds(source_cfg.process) is not None else ""
+    dlg = GranularSettingsDialog(
+        parent,
+        source_cfg,
+        source_name,
+        show_scope=True,
+        bounds_mode=bounds_mode,
+        sel_count=sel_targets,
+        roll_count=roll_targets,
+    )
+    if rows is not None:
+        dlg.limit_to_rows([r.id for r in rows])
+    if title:
+        dlg.setWindowTitle(title)
+    if dlg.exec() != QDialog.DialogCode.Accepted:
+        return None
+    applied = dlg.selected()
+    session.sync_selected_settings(applied, dlg.bounds_flags(), dlg.scope())
+    return applied, dlg.scope()
 
 
 def open_paste_dialog(parent, controller) -> None:

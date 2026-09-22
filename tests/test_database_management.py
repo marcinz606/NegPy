@@ -2,6 +2,7 @@ from dataclasses import replace
 
 from negpy.domain.models import ExportPreset, WorkspaceConfig
 from negpy.infrastructure.storage.repository import StorageRepository
+from negpy.services.assets import rolls
 
 
 def _repo(tmp_path):
@@ -18,10 +19,12 @@ def _seed(repo):
     repo.save_history_step("hash-a", 0, cfg)
     repo.save_history_step("hash-a", 1, replace(cfg))
     repo.save_file_mark("hash-a", "keeper")
-    repo.save_normalization_roll("roll-1", (0.1, 0.1, 0.1), (0.9, 0.9, 0.9))
+    roll_id = rolls.create_virtual_roll(repo, "Roll 1", [])
+    rolls.set_roll_normalization(repo, roll_id, (0.1, 0.1, 0.1), (0.9, 0.9, 0.9))
     repo.save_export_presets([ExportPreset(name="mine")])
     repo.save_global_setting("window_geometry", [0, 0, 800, 600])
     repo.save_global_setting("last_open_folder", "/photos")
+    return roll_id
 
 
 def test_database_stats_counts_each_category(tmp_path):
@@ -32,11 +35,10 @@ def test_database_stats_counts_each_category(tmp_path):
     assert stats["file_settings"] == 2
     assert stats["edit_history"] == 2
     assert stats["file_marks"] == 1
-    assert stats["normalization_rolls"] == 1
     assert stats["export_presets"] == 1
     # export_presets is one row inside global_settings; it must not inflate the
-    # preferences count, which here is the two real settings we saved.
-    assert stats["app_preferences"] == 2
+    # preferences count, which here is the roll plus the two real settings we saved.
+    assert stats["app_preferences"] == 3
     assert stats["edits_db_bytes"] > 0
     assert stats["settings_db_bytes"] > 0
 
@@ -48,7 +50,6 @@ def test_stats_on_empty_db_are_all_zero(tmp_path):
         "file_settings",
         "edit_history",
         "file_marks",
-        "normalization_rolls",
         "export_presets",
         "app_preferences",
     ):
@@ -57,7 +58,7 @@ def test_stats_on_empty_db_are_all_zero(tmp_path):
 
 def test_clear_saved_edits_drops_only_per_image_data(tmp_path):
     repo = _repo(tmp_path)
-    _seed(repo)
+    roll_id = _seed(repo)
 
     repo.clear_saved_edits()
     stats = repo.database_stats()
@@ -66,10 +67,10 @@ def test_clear_saved_edits_drops_only_per_image_data(tmp_path):
     assert stats["file_settings"] == 0
     assert stats["edit_history"] == 0
     assert stats["file_marks"] == 0
-    # Tooling kept.
-    assert stats["normalization_rolls"] == 1
+    # Tooling kept -- a roll's baseline lives in global_settings, untouched by this clear.
+    assert rolls.roll_normalization(repo, roll_id) is not None
     assert stats["export_presets"] == 1
-    assert stats["app_preferences"] == 2
+    assert stats["app_preferences"] == 3
 
 
 def test_clear_saved_edits_makes_reloaded_image_start_fresh(tmp_path):
@@ -89,7 +90,7 @@ def test_clear_saved_edits_makes_reloaded_image_start_fresh(tmp_path):
 
 def test_reset_everything_wipes_both_databases(tmp_path):
     repo = _repo(tmp_path)
-    _seed(repo)
+    roll_id = _seed(repo)
 
     repo.reset_everything()
     stats = repo.database_stats()
@@ -98,13 +99,14 @@ def test_reset_everything_wipes_both_databases(tmp_path):
         "file_settings",
         "edit_history",
         "file_marks",
-        "normalization_rolls",
         "export_presets",
         "app_preferences",
     ):
         assert stats[key] == 0
-    # A global setting written before the reset is gone.
+    # A global setting written before the reset is gone, and so is the roll baseline
+    # that lived alongside it in global_settings.
     assert repo.get_global_setting("window_geometry") is None
+    assert rolls.roll_normalization(repo, roll_id) is None
 
 
 def test_repository_still_usable_after_reset(tmp_path):
@@ -125,15 +127,17 @@ def test_clear_on_empty_db_is_a_noop(tmp_path):
     assert repo.database_stats()["file_settings"] == 0
 
 
-def test_clear_library_forgets_the_folders_only(tmp_path, qapp):
-    """The library is a list of places to look, not data — clearing it must not touch
-    saved edits, and must never touch the folders themselves."""
+def test_clear_library_forgets_the_rolls_only(tmp_path, qapp):
+    """The library is a list of rolls, not data — clearing it must not touch saved
+    edits, and must never touch the folders or images themselves."""
     from unittest.mock import MagicMock
 
     from negpy.desktop.view.widgets.database_dialog import DatabaseDialog
+    from negpy.services.assets.rolls import recognize_folder, saved_rolls
 
     repo = StorageRepository(str(tmp_path / "edits.db"), str(tmp_path / "settings.db"))
     repo.initialize()
+    recognize_folder(repo, str(tmp_path))
     repo.save_global_setting("library_roots", [str(tmp_path)])
     repo.save_file_settings("h1", WorkspaceConfig(), file_path="/a/1.nef")
 
@@ -146,6 +150,7 @@ def test_clear_library_forgets_the_folders_only(tmp_path, qapp):
     dialog._on_clear_library()
 
     assert repo.get_global_setting("library_roots") == []
+    assert saved_rolls(repo) == {}
     assert repo.load_file_settings("h1") is not None
     assert tmp_path.is_dir()
     assert not dialog.clear_library_btn.isEnabled()
