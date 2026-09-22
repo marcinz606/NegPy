@@ -3,7 +3,7 @@ import os
 import time
 from collections import Counter
 from dataclasses import dataclass, fields, replace
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Collection, Dict, List, Optional, Set, Tuple
 
 import cv2
 import numpy as np
@@ -4065,7 +4065,7 @@ class AppController(QObject):
             f"{sheet_note}"
             f"{crop_status}\n"
             f"{crop_warning}\n\n"
-            f"{summary}\n\n"
+            f"{summary} A frame whose color is far from the rest keeps its own exposure and color.\n\n"
             "Two settings from the image you have open right now are applied to every "
             "file before averaging:\n"
             "  • Analysis Buffer — shrinks the analyzed region inward, excluding a "
@@ -4088,8 +4088,6 @@ class AppController(QObject):
             override_analysis_buffer=self.state.config.process.analysis_buffer,
             override_luma_range_clip=self.state.config.process.luma_range_clip,
             override_color_range_clip=self.state.config.process.color_range_clip,
-            override_crosstalk_strength=self.state.config.process.crosstalk_strength,
-            override_crosstalk_matrix=self.state.config.process.crosstalk_matrix,
         )
         self.normalization_requested.emit(task)
 
@@ -4154,9 +4152,18 @@ class AppController(QObject):
         self.status_progress_requested.emit(current, total)
         self.batch_progress.emit(current, total, f"{name} [{marker}]")
 
-    def _push_bounds(self, targets: List[dict], floors: tuple, ceils: tuple, roll_name: Optional[str], source: str) -> int:
-        """Writes a baseline onto *targets*, riding both average axes. A frame with Lock
-        Bounds on keeps its own exposure. Returns how many locked frames were skipped."""
+    def _push_bounds(
+        self,
+        targets: List[dict],
+        floors: tuple,
+        ceils: tuple,
+        roll_name: Optional[str],
+        source: str,
+        outliers: Collection[str] = (),
+    ) -> int:
+        """Writes a baseline onto *targets*, riding both average axes, except that a frame in
+        *outliers* keeps its own bounds. A frame with Lock Bounds on keeps its own exposure.
+        Returns how many locked frames were skipped."""
         locked_skipped = 0
         changed_hashes: list[str] = []
         current = self.state.current_file_hash
@@ -4165,10 +4172,11 @@ class AppController(QObject):
             if p.process.lock_bounds:
                 locked_skipped += 1
                 continue
+            rides = f_info["hash"] not in outliers
             new_process = replace(
                 p.process,
-                use_luma_average=True,
-                use_color_average=True,
+                use_luma_average=rides,
+                use_color_average=rides,
                 locked_floors=floors,
                 locked_ceils=ceils,
                 roll_name=roll_name,
@@ -4185,10 +4193,11 @@ class AppController(QObject):
             self.session.frames_edited_offscreen.emit(changed_hashes)
 
         if any(f["hash"] == current for f in targets) and not self.state.config.process.lock_bounds:
+            rides = current not in outliers
             new_process = replace(
                 self.state.config.process,
-                use_luma_average=True,
-                use_color_average=True,
+                use_luma_average=rides,
+                use_color_average=rides,
                 locked_floors=floors,
                 locked_ceils=ceils,
                 roll_name=roll_name,
@@ -4197,31 +4206,33 @@ class AppController(QObject):
             self.session.update_config(replace(self.state.config, process=new_process), persist=True)
         return locked_skipped
 
-    def _on_normalization_finished(self, locked_floors: tuple, locked_ceils: tuple, outlier_paths: list) -> None:
+    def _on_normalization_finished(self, locked_floors: tuple, locked_ceils: tuple, outlier_hashes: list) -> None:
         """
-        Applies the averaged baseline to the analyzed scope and records it on the roll
+        Applies the pooled baseline to the analyzed scope and records it on the roll
         (rolls.set_roll_normalization) or the scene (rolls.set_scene_normalization).
-        *outlier_paths* are frames whose own bounds fell outside the pooled average on at
-        least one channel: they still take the baseline (a report, not an exemption).
+        *outlier_hashes* are frames whose color is far from the pool: they keep their own
+        bounds, now and on every later apply of this baseline.
         """
         scene_id = self._normalization_scope
         roll_id = self.state.active_roll_id
         source = f"scene:{scene_id}" if scene_id else (f"roll:{roll_id}" if roll_id else "")
-        locked_skipped = self._push_bounds(self._normalization_targets(scene_id), locked_floors, locked_ceils, None, source)
+        outliers = tuple(outlier_hashes)
+        targets = self._normalization_targets(scene_id)
+        locked_skipped = self._push_bounds(targets, locked_floors, locked_ceils, None, source, outliers)
 
         if scene_id is None:
             if roll_id is not None:
-                rolls.set_roll_normalization(self.session.repo, roll_id, locked_floors, locked_ceils)
+                rolls.set_roll_normalization(self.session.repo, roll_id, locked_floors, locked_ceils, outliers=outliers)
             message = "Roll analysis complete"
             scope_word = "roll"
         else:
-            rolls.set_scene_normalization(self.session.repo, roll_id, scene_id, locked_floors, locked_ceils)
+            rolls.set_scene_normalization(self.session.repo, roll_id, scene_id, locked_floors, locked_ceils, outliers=outliers)
             self.session.refresh_scene_marks()
             message = f"Scene “{self._scene_name(scene_id)}” analyzed"
             scope_word = "scene"
 
-        names_by_path = {f["path"]: f["name"] for f in self.state.uploaded_files}
-        outlier_names = [names_by_path.get(p, p) for p in outlier_paths]
+        names_by_hash = {f["hash"]: f["name"] for f in self.state.uploaded_files}
+        outlier_names = [names_by_hash.get(h, h) for h in outliers]
         timeout = 3000
         if locked_skipped:
             message += f" — {count_of(locked_skipped, 'locked frame')} kept its own exposure"
@@ -4229,7 +4240,7 @@ class AppController(QObject):
             shown = ", ".join(outlier_names[:3])
             if len(outlier_names) > 3:
                 shown += f" +{len(outlier_names) - 3} more"
-            message += f". {count_of(len(outlier_names), 'frame')} far from the {scope_word} average: {shown}"
+            message += f". {count_of(len(outlier_names), 'frame')} far from the {scope_word} color {plural(len(outlier_names), 'keeps its', 'keep their')} own exposure and color: {shown}"
             timeout = 8000
         self.set_status(message, timeout=timeout)
 
@@ -4278,7 +4289,9 @@ class AppController(QObject):
         name = entry["name"] if entry else roll_id
         locked_floors, locked_ceils = data["floors"], data["ceils"]
 
-        locked_skipped = self._push_bounds(self._normalization_targets(None), locked_floors, locked_ceils, name, f"roll:{roll_id}")
+        locked_skipped = self._push_bounds(
+            self._normalization_targets(None), locked_floors, locked_ceils, name, f"roll:{roll_id}", data.get("outliers", ())
+        )
 
         message = f'Applied "{name}"\'s baseline'
         if locked_skipped:

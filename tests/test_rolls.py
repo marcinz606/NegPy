@@ -540,7 +540,7 @@ class TestRollNormalization:
 
         data = roll_normalization(repo, roll_id)
 
-        assert data == {"floors": (0.1, 0.1, 0.1), "ceils": (0.9, 0.9, 0.9), "cast": (0.01, 0.0, -0.01)}
+        assert data == {"floors": (0.1, 0.1, 0.1), "ceils": (0.9, 0.9, 0.9), "cast": (0.01, 0.0, -0.01), "outliers": ()}
 
     def test_defaults_cast_to_zero(self):
         repo = _repo()
@@ -630,10 +630,24 @@ class TestScenes:
     def test_normalization_round_trip(self):
         repo, roll_id = self._roll()
         sid = create_scene(repo, roll_id, "Beach", ["a"])
-        set_scene_normalization(repo, roll_id, sid, (0.1, 0.2, 0.3), (0.7, 0.8, 0.9))
+        set_scene_normalization(repo, roll_id, sid, (0.1, 0.2, 0.3), (0.7, 0.8, 0.9), outliers=("a",))
 
-        assert scene_normalization(repo, roll_id, sid) == {"floors": (0.1, 0.2, 0.3), "ceils": (0.7, 0.8, 0.9)}
+        assert scene_normalization(repo, roll_id, sid) == {
+            "floors": (0.1, 0.2, 0.3),
+            "ceils": (0.7, 0.8, 0.9),
+            "outliers": ("a",),
+        }
         assert roll_normalization(repo, roll_id) is None
+
+    def test_roll_record_keeps_its_outliers_and_an_old_record_has_none(self):
+        repo, roll_id = self._roll()
+        set_roll_normalization(repo, roll_id, (0.1, 0.1, 0.1), (0.9, 0.9, 0.9), outliers=("a", "b"))
+        assert roll_normalization(repo, roll_id)["outliers"] == ("a", "b")
+
+        store = saved_rolls(repo)
+        del store[roll_id]["normalization"]["outliers"]
+        repo.save_global_setting("rolls_by_id", store)
+        assert roll_normalization(repo, roll_id)["outliers"] == ()
 
     def test_unknown_roll_is_a_noop(self):
         repo = _repo()

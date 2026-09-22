@@ -2703,9 +2703,9 @@ class TestPresetExportSelected(unittest.TestCase):
         msgs = []
         self.controller.status_message_requested.connect(lambda text, *_: msgs.append(text))
 
-        self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9), ["/tmp/scan.tif"])
+        self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9), ["h3"])
 
-        message = next(m for m in msgs if "far from the roll average" in m)
+        message = next(m for m in msgs if "far from the roll color keeps its own exposure and color" in m)
         self.assertIn("locked frame", message)
         self.assertIn("scan.tif", message)
 
@@ -2717,7 +2717,41 @@ class TestPresetExportSelected(unittest.TestCase):
         with patch.object(rolls, "set_roll_normalization") as mock_set:
             self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9), [])
 
-        mock_set.assert_called_once_with(self.mock_session_manager.repo, "roll-1", (0.1, 0.1, 0.1), (0.9, 0.9, 0.9))
+        mock_set.assert_called_once_with(self.mock_session_manager.repo, "roll-1", (0.1, 0.1, 0.1), (0.9, 0.9, 0.9), outliers=())
+
+    def test_outlier_keeps_its_own_bounds(self):
+        self.mock_session_manager.state.active_roll_id = "roll-1"
+        self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
+
+        with patch.object(rolls, "set_roll_normalization") as mock_set:
+            self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9), ["h1", "h2"])
+
+        saved = {c.args[0]: c.args[1].process for c in self.mock_session_manager.repo.save_file_settings.call_args_list}
+        self.assertFalse(saved["h1"].use_luma_average)
+        self.assertFalse(saved["h1"].use_color_average)
+        self.assertTrue(saved["h3"].use_luma_average)
+        self.assertTrue(saved["h3"].use_color_average)
+        active = self.mock_session_manager.update_config.call_args.args[0].process  # h2
+        self.assertFalse(active.use_luma_average)
+        self.assertFalse(active.use_color_average)
+        self.assertEqual(mock_set.call_args.kwargs["outliers"], ("h1", "h2"))
+
+    def test_apply_normalization_roll_keeps_a_recorded_outlier_on_its_own_bounds(self):
+        self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
+        data = {"floors": (0.1, 0.1, 0.1), "ceils": (0.9, 0.9, 0.9), "cast": (0.0, 0.0, 0.0), "outliers": ("h1",)}
+
+        with (
+            patch.object(rolls, "roll_normalization", return_value=data),
+            patch.object(rolls, "roll_for_id", return_value={"name": "Tri-X"}),
+        ):
+            self.controller.apply_normalization_roll("roll-1")
+
+        saved = {c.args[0]: c.args[1].process for c in self.mock_session_manager.repo.save_file_settings.call_args_list}
+        self.assertFalse(saved["h1"].use_color_average)
+        self.assertFalse(saved["h1"].use_luma_average)
+        self.assertTrue(saved["h3"].use_color_average)
 
     def test_batch_normalization_does_not_touch_the_roll_store_without_an_active_roll(self):
         self.mock_session_manager.state.active_roll_id = None
@@ -2758,7 +2792,7 @@ class TestPresetExportSelected(unittest.TestCase):
         self.assertEqual(set(saved), {"h1", "h3"})
         self.assertEqual(saved["h1"].process.baseline_source, "scene:s1")
         mock_roll.assert_not_called()
-        mock_scene.assert_called_once_with(self.mock_session_manager.repo, "roll-1", "s1", (0.1, 0.1, 0.1), (0.9, 0.9, 0.9))
+        mock_scene.assert_called_once_with(self.mock_session_manager.repo, "roll-1", "s1", (0.1, 0.1, 0.1), (0.9, 0.9, 0.9), outliers=())
         # h2, the active frame, is outside the scene, so its in-memory config is untouched.
         self.mock_session_manager.update_config.assert_not_called()
 

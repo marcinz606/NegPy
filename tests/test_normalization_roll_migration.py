@@ -40,7 +40,7 @@ def test_migration_copies_each_row_onto_its_matching_roll(legacy_repo):
     migrate_legacy_normalization_rolls(legacy_repo)
 
     tri_x = rolls.roll_normalization(legacy_repo, _roll_id(legacy_repo, "Tri-X"))
-    assert tri_x == {"floors": (0.1, 0.1, 0.1), "ceils": (0.9, 0.9, 0.9), "cast": (0.01, 0.0, -0.01)}
+    assert tri_x == {"floors": (0.1, 0.1, 0.1), "ceils": (0.9, 0.9, 0.9), "cast": (0.01, 0.0, -0.01), "outliers": ()}
 
 
 def test_migration_defaults_a_missing_cast_to_zero(legacy_repo):

@@ -963,6 +963,38 @@ def mix_luma_color_bounds(luma_src: LogNegativeBounds, color_src: LogNegativeBou
     )
 
 
+# Luma-free color distance (log density, 6-D over both bounds) from the pool's median past
+# which a frame is an outlier: shot under a different light, or scanned with a different
+# per-channel balance. Fixed rather than scaled to the pool's spread: a roll that mixes two
+# groups has no single spread to scale by.
+POOL_OUTLIER_DISTANCE = 0.3
+
+
+def pool_frame_bounds(floors: np.ndarray, ceils: np.ndarray) -> tuple[LogNegativeBounds, np.ndarray]:
+    """
+    Pools (N, 3) per-frame bounds into one baseline and an outlier mask. Outliers are whole
+    frames whose luma-free color is far from the median (N >= 3 only). A color offset
+    also shifts luma through G, so the baseline pools the inliers alone: luma is the median
+    of their luma-weighted floor and ceil, color the mean of their luma-free offsets. When
+    every frame is an outlier, all of them pool.
+    """
+    floors = np.asarray(floors, dtype=np.float64)
+    ceils = np.asarray(ceils, dtype=np.float64)
+    w = np.array([LUMA_R, LUMA_G, LUMA_B])
+    luma_f, luma_c = floors @ w, ceils @ w
+    chroma = np.hstack([floors - luma_f[:, None], ceils - luma_c[:, None]])
+
+    outliers = np.zeros(len(chroma), dtype=bool)
+    if len(chroma) >= 3:
+        outliers = np.linalg.norm(chroma - np.median(chroma, axis=0), axis=1) > POOL_OUTLIER_DISTANCE
+    pool = ~outliers if (~outliers).any() else np.ones_like(outliers)
+
+    pooled_chroma = chroma[pool].mean(axis=0)
+    f = float(np.median(luma_f[pool])) + pooled_chroma[:3]
+    c = float(np.median(luma_c[pool])) + pooled_chroma[3:]
+    return LogNegativeBounds((float(f[0]), float(f[1]), float(f[2])), (float(c[0]), float(c[1]), float(c[2]))), outliers
+
+
 def resolve_bounds(process, analyze_fn) -> LogNegativeBounds:
     """Final bounds for rendering. See resolve_bounds_detailed for the per-frame base."""
     return resolve_bounds_detailed(process, analyze_fn)[0]

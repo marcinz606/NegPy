@@ -421,7 +421,8 @@ def set_section_push(repo: Any, roll_id: str, section_key: str, values: Dict[str
 
 
 def roll_normalization(repo: Any, roll_id: str) -> Optional[Dict[str, tuple]]:
-    """The roll's saved Roll Analysis baseline (floors, ceils, cast), or None if it
+    """The roll's saved Roll Analysis baseline (floors, ceils, cast, and the hashes of the
+    frames that keep their own bounds, ``outliers``), or None if it
     has never been analyzed. Unlike roll_defaults, this is written only by Batch
     Analysis itself -- a metering run over the roll's files, not a per-frame edit --
     so a frame's own Use Luma/Color Average axes borrow it directly rather than
@@ -430,17 +431,24 @@ def roll_normalization(repo: Any, roll_id: str) -> Optional[Dict[str, tuple]]:
     saved = entry.get("normalization") if entry else None
     if not saved:
         return None
-    return {"floors": tuple(saved["floors"]), "ceils": tuple(saved["ceils"]), "cast": tuple(saved["cast"])}
+    return {
+        "floors": tuple(saved["floors"]),
+        "ceils": tuple(saved["ceils"]),
+        "cast": tuple(saved["cast"]),
+        "outliers": tuple(saved.get("outliers", ())),
+    }
 
 
-def set_roll_normalization(repo: Any, roll_id: str, floors: tuple, ceils: tuple, cast: tuple = (0.0, 0.0, 0.0)) -> None:
+def set_roll_normalization(
+    repo: Any, roll_id: str, floors: tuple, ceils: tuple, cast: tuple = (0.0, 0.0, 0.0), outliers: tuple = ()
+) -> None:
     """Records a Roll Analysis result as the roll's own baseline, overwriting
     whatever was there. No-op for an unknown roll id."""
     store = _read(repo)
     entry = store.get(roll_id)
     if entry is None:
         return
-    entry["normalization"] = {"floors": list(floors), "ceils": list(ceils), "cast": list(cast)}
+    entry["normalization"] = {"floors": list(floors), "ceils": list(ceils), "cast": list(cast), "outliers": list(outliers)}
     _write(repo, store)
 
 
@@ -520,17 +528,18 @@ def delete_scene(repo: Any, roll_id: str, scene_id: str) -> None:
 
 
 def scene_normalization(repo: Any, roll_id: str, scene_id: str) -> Optional[Dict[str, tuple]]:
-    """The scene's saved Scene Analysis baseline (floors, ceils), or None before one."""
+    """The scene's saved Scene Analysis baseline (floors, ceils, outliers), or None before one."""
     saved = dict(roll_scenes(repo, roll_id)).get(scene_id, {}).get("normalization")
     if not saved:
         return None
-    return {"floors": tuple(saved["floors"]), "ceils": tuple(saved["ceils"])}
+    return {"floors": tuple(saved["floors"]), "ceils": tuple(saved["ceils"]), "outliers": tuple(saved.get("outliers", ()))}
 
 
-def set_scene_normalization(repo: Any, roll_id: str, scene_id: str, floors: tuple, ceils: tuple) -> None:
+def set_scene_normalization(repo: Any, roll_id: str, scene_id: str, floors: tuple, ceils: tuple, outliers: tuple = ()) -> None:
     def edit(scenes: Dict[str, dict]) -> None:
         if scene_id in scenes:
-            scenes[scene_id] = {**scenes[scene_id], "normalization": {"floors": list(floors), "ceils": list(ceils)}}
+            saved = {"floors": list(floors), "ceils": list(ceils), "outliers": list(outliers)}
+            scenes[scene_id] = {**scenes[scene_id], "normalization": saved}
 
     _edit_scenes(repo, roll_id, edit)
 

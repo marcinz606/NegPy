@@ -130,10 +130,6 @@ class NormalizationTask:
     override_analysis_buffer: float
     override_luma_range_clip: float
     override_color_range_clip: float
-    # The capture-side unmix must match the render path: bounds measured under a different
-    # matrix are invalid for it.
-    override_crosstalk_strength: float = 0.0
-    override_crosstalk_matrix: tuple | None = None
 
 
 @dataclass(frozen=True)
@@ -1712,7 +1708,12 @@ class NormalizationWorker(QObject):
         import numpy as np
 
         from negpy.domain.interfaces import PipelineContext
-        from negpy.features.exposure.normalization import analyze_log_exposure_bounds, resolve_analysis_region, resolve_crosstalk_matrix
+        from negpy.features.exposure.normalization import (
+            analyze_log_exposure_bounds,
+            effective_crosstalk_matrix,
+            pool_frame_bounds,
+            resolve_analysis_region,
+        )
         from negpy.features.geometry.processor import GeometryProcessor
 
         self._cancel.clear()
@@ -1776,14 +1777,15 @@ class NormalizationWorker(QObject):
                         e6_normalize=e6_normalize,
                         percentile_clip=luma_range_clip,
                         color_clip=color_range_clip,
-                        unmix=resolve_crosstalk_matrix(task.override_crosstalk_strength, task.override_crosstalk_matrix),
+                        # Each frame's own unmix, as its render applies it.
+                        unmix=effective_crosstalk_matrix(params.process, process_mode),
                     )
 
                     async with lock:
                         completed += 1
                         count = completed
                     self.progress.emit(count, total, f_info["name"], has_crop)
-                    return bounds.floors, bounds.ceils, f_info["name"], f_info["path"]
+                    return bounds.floors, bounds.ceils, f_info["hash"]
                 except Exception as e:
                     logger.error(f"Failed to analyze {f_info['name']}: {e}")
                     async with lock:
@@ -1813,42 +1815,11 @@ class NormalizationWorker(QObject):
             if not valid_results:
                 raise RuntimeError("All files in batch failed analysis")
 
-            floors_arr = np.array([r[0] for r in valid_results])
-            ceils_arr = np.array([r[1] for r in valid_results])
-            paths = [r[3] for r in valid_results]
-
-            def robust_mean_and_outliers(data: np.ndarray, outside: np.ndarray) -> np.ndarray:
-                """Per-channel interquartile-trimmed mean; ORs into *outside* which rows
-                (frames) fell outside the trimmed band on this channel -- those frames'
-                own value took no part in the average about to be applied to them."""
-                results = []
-                for ch in range(3):
-                    ch_data = data[:, ch]
-                    if len(ch_data) < 5:
-                        results.append(np.mean(ch_data))
-                        continue
-
-                    low, high = np.percentile(ch_data, [25, 75])
-                    mask = (ch_data >= low) & (ch_data <= high)
-                    valid = ch_data[mask]
-                    outside |= ~mask
-
-                    if valid.size > 0:
-                        results.append(np.mean(valid))
-                    else:
-                        results.append(np.mean(ch_data))
-                return np.array(results)
-
-            outside_band = np.zeros(len(valid_results), dtype=bool)
-            avg_floors = robust_mean_and_outliers(floors_arr, outside_band)
-            avg_ceils = robust_mean_and_outliers(ceils_arr, outside_band)
-            outlier_paths = [paths[i] for i in range(len(paths)) if outside_band[i]]
-
-            self.finished.emit(
-                tuple(map(float, avg_floors)),
-                tuple(map(float, avg_ceils)),
-                outlier_paths,
+            pooled, outliers = pool_frame_bounds(
+                np.array([r[0] for r in valid_results]),
+                np.array([r[1] for r in valid_results]),
             )
+            self.finished.emit(pooled.floors, pooled.ceils, [r[2] for r, out in zip(valid_results, outliers) if out])
 
         except Exception as e:
             logger.error(f"Batch Normalization failure: {e}")

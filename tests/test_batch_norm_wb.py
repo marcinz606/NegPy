@@ -192,10 +192,9 @@ def _bounds_from_pixels(transformed, **_kwargs):
     return b
 
 
-def test_batch_analysis_flags_a_frame_whose_own_bounds_are_outside_the_pooled_band(qapp, monkeypatch):
-    """A frame far from the roll on one channel gets trimmed out of that channel's
-    average -- which is exactly why the baseline about to be forced onto it is a bad
-    match. That mismatch must be reported back as an outlier."""
+def test_batch_analysis_flags_a_frame_whose_color_is_far_from_the_pool(qapp, monkeypatch):
+    """A frame whose color is far from the rest is reported by hash: the two halves of a
+    half-frame scan share one path."""
     import negpy.features.exposure.normalization as norm_mod
 
     monkeypatch.setattr(norm_mod, "analyze_log_exposure_bounds", _bounds_from_pixels)
@@ -223,7 +222,7 @@ def test_batch_analysis_flags_a_frame_whose_own_bounds_are_outside_the_pooled_ba
 
     assert len(captured) == 1
     _floors, _ceils, outliers = captured[0]
-    assert outliers == ["/h_outlier.dng"]
+    assert outliers == ["h_outlier"]
 
 
 def test_batch_analysis_reports_no_outliers_when_the_roll_is_uniform(qapp, monkeypatch):
@@ -250,6 +249,38 @@ def test_batch_analysis_reports_no_outliers_when_the_roll_is_uniform(qapp, monke
     worker.process(task)
 
     assert captured[0][2] == []
+
+
+def test_batch_analysis_measures_each_frame_with_its_own_crosstalk(qapp, monkeypatch):
+    import negpy.features.exposure.normalization as norm_mod
+
+    captured: dict[float, object] = {}
+
+    def _spy(transformed, **kwargs):
+        captured[float(transformed.reshape(-1, 3)[0, 0])] = kwargs["unmix"]
+        return _bounds_from_pixels(transformed)
+
+    monkeypatch.setattr(norm_mod, "analyze_log_exposure_bounds", _spy)
+
+    base = WorkspaceConfig()
+    settings = {
+        "h_off": replace(base, process=replace(base.process, crosstalk_strength=0.0)),
+        "h_full": replace(base, process=replace(base.process, crosstalk_strength=1.0)),
+    }
+    worker = NormalizationWorker(_VaryingPreviewService({"h_off": (0.25, 0.5, 0.5), "h_full": (0.75, 0.5, 0.5)}))
+    worker.process(
+        NormalizationTask(
+            frames=_frames(settings),
+            workspace_color_space="sRGB",
+            override_analysis_buffer=base.process.analysis_buffer,
+            override_luma_range_clip=base.process.luma_range_clip,
+            override_color_range_clip=base.process.color_range_clip,
+        )
+    )
+
+    assert captured[0.25] is None
+    expected = norm_mod.effective_crosstalk_matrix(settings["h_full"].process, settings["h_full"].process.process_mode)
+    np.testing.assert_allclose(captured[0.75], expected)
 
 
 def test_batch_analysis_decodes_a_triplet_as_a_composite(qapp):
