@@ -1,6 +1,6 @@
 """RollAnalysisSidebar: a plain picker over the library's rolls. Picking one is the
-whole action -- it loads that roll's saved Batch Analysis baseline immediately, no
-separate Apply. Reanalyze, beside the picker, runs Batch Analysis itself (the metering
+whole action -- it loads that roll's saved Roll Analysis baseline immediately, no
+separate Apply. Reanalyze, beside the picker, runs Roll Analysis itself (the metering
 run that fills the tick in) -- the same action the Library's "Analyze Roll…" offers
 (tested in test_library_tree.py), reachable here too, enabled only for the loaded roll."""
 
@@ -43,7 +43,7 @@ def _sidebar(roll_names=(), analyzed=(), active_name=None):
 def test_picker_owns_its_batch_analysis_subheader(qapp):
     """The subheader belongs to the picker itself, not the composite Normalization
     body -- everything else in that card (Analysis Buffer, clip sliders, White/Black
-    Point) isn't Batch Analysis, and labeling it that way would mislead."""
+    Point) isn't Roll Analysis, and labeling it that way would mislead."""
     _, sidebar, _ids = _sidebar()
     assert sidebar.layout.itemAt(0).widget() is not sidebar.roll_combo
     assert sidebar.layout.itemAt(1).widget() is sidebar.roll_combo
@@ -199,3 +199,66 @@ def test_status_hint_is_blank_when_the_active_roll_is_picked(qapp):
 def test_status_hint_is_blank_without_an_active_roll(qapp):
     _, sidebar, _ids = _sidebar(roll_names=["Portra 400"])
     assert sidebar.roll_status_hint.text() == ""
+
+
+def _scene_labels(sidebar):
+    layout = sidebar._scene_rows_layout
+    return [layout.itemAt(i).widget().layout().itemAt(0).widget().text() for i in range(layout.count())]
+
+
+def test_scene_list_shows_each_scene_with_its_loaded_frames(qapp):
+    controller, sidebar, ids = _sidebar(roll_names=["Tri-X"], active_name="Tri-X")
+    repo = controller.session.repo
+    beach = rolls.create_scene(repo, ids["Tri-X"], "Beach", ["h1", "h2"])
+    rolls.create_scene(repo, ids["Tri-X"], "Night", ["h3"])
+    rolls.set_scene_normalization(repo, ids["Tri-X"], beach, (0.1, 0.1, 0.1), (0.9, 0.9, 0.9))
+    controller.state.uploaded_files = [{"hash": "h1", "scene": (1, beach, "Beach")}, {"hash": "h2", "scene": (1, beach, "Beach")}]
+
+    sidebar._refresh_scenes()
+
+    labels = _scene_labels(sidebar)
+    assert "Beach · 2 frames · ✓" in labels[0]
+    assert "Night · 0 frames" in labels[1] and "✓" not in labels[1]
+    assert not sidebar.scenes_hint.isVisibleTo(sidebar)
+
+
+def test_scene_row_analyze_runs_scene_analysis(qapp):
+    controller, sidebar, ids = _sidebar(roll_names=["Tri-X"], active_name="Tri-X")
+    sid = rolls.create_scene(controller.session.repo, ids["Tri-X"], "Beach", ["h1"])
+    controller.state.uploaded_files = [{"hash": "h1", "scene": (1, sid, "Beach")}]
+    sidebar._refresh_scenes()
+
+    sidebar._scene_rows_layout.itemAt(0).widget().layout().itemAt(1).widget().click()
+    controller.request_scene_analysis.assert_called_once_with(sid)
+    sidebar.analyze_scenes_btn.click()
+    controller.request_analyze_all_scenes.assert_called_once()
+
+
+def test_empty_roll_shows_the_grouping_hint(qapp):
+    _, sidebar, _ids = _sidebar(roll_names=["Tri-X"], active_name="Tri-X")
+    assert sidebar.scenes_hint.isVisibleTo(sidebar)
+    assert not sidebar.analyze_scenes_btn.isVisibleTo(sidebar)
+
+
+def test_scene_block_is_hidden_outside_a_roll(qapp):
+    _, sidebar, _ids = _sidebar()
+    assert not sidebar.scenes_header.isVisibleTo(sidebar)
+    assert not sidebar.scenes_hint.isVisibleTo(sidebar)
+
+
+def test_scene_row_delete_asks_then_deletes(qapp):
+    from unittest.mock import patch
+
+    controller, sidebar, ids = _sidebar(roll_names=["Tri-X"], active_name="Tri-X")
+    sid = rolls.create_scene(controller.session.repo, ids["Tri-X"], "Beach", ["h1"])
+    sidebar._refresh_scenes()
+    delete = sidebar._scene_rows_layout.itemAt(0).widget().layout().itemAt(3).widget()
+
+    with patch("negpy.desktop.view.confirm.confirm_delete_named", return_value=False):
+        delete.click()
+    controller.request_delete_scene.assert_not_called()
+
+    with patch("negpy.desktop.view.confirm.confirm_delete_named", return_value=True) as ask:
+        delete.click()
+    assert ask.call_args.args[1:3] == ("Scene", "Beach")
+    controller.request_delete_scene.assert_called_once_with(sid)

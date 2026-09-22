@@ -129,7 +129,7 @@ green only, blue only. Use the same settings you scan with, exposed just below c
 Then open the **Calibration** panel, find *Single-Shot Narrowband Calibration*, press the calibrate
 button, pick the three captures, name the profile and save it. The selected profile un-mixes
 every scan with a 3×3 matrix in the linear domain, before inversion. Profiles are TOML
-files in the `NegPy/sensor` folder. Re-run **Batch Analysis** after you change the profile.
+files in the `NegPy/sensor` folder. Re-run **Roll Analysis** after you change the profile.
 
 Do not use it on RGB-triplet (trichrome) scans. They are crosstalk-free by construction,
 because each channel comes from its own single-light exposure, and NegPy skips the

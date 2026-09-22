@@ -288,7 +288,7 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
             # Which baseline this frame's bounds come from -- the roll's shared meter or
             # its own auto-analysis -- is the same "roll vs. this frame" choice as the
             # rest of this card's fields, unlike locked_floors/locked_ceils themselves,
-            # which stay Batch Analysis's own job to spread (a metering run, not an edit).
+            # which stay Roll Analysis's own job to spread (a metering run, not an edit).
             "use_luma_average",
             "use_color_average",
         ),
@@ -421,7 +421,7 @@ def set_section_push(repo: Any, roll_id: str, section_key: str, values: Dict[str
 
 
 def roll_normalization(repo: Any, roll_id: str) -> Optional[Dict[str, tuple]]:
-    """The roll's saved Batch Analysis baseline (floors, ceils, cast), or None if it
+    """The roll's saved Roll Analysis baseline (floors, ceils, cast), or None if it
     has never been analyzed. Unlike roll_defaults, this is written only by Batch
     Analysis itself -- a metering run over the roll's files, not a per-frame edit --
     so a frame's own Use Luma/Color Average axes borrow it directly rather than
@@ -434,7 +434,7 @@ def roll_normalization(repo: Any, roll_id: str) -> Optional[Dict[str, tuple]]:
 
 
 def set_roll_normalization(repo: Any, roll_id: str, floors: tuple, ceils: tuple, cast: tuple = (0.0, 0.0, 0.0)) -> None:
-    """Records a Batch Analysis result as the roll's own baseline, overwriting
+    """Records a Roll Analysis result as the roll's own baseline, overwriting
     whatever was there. No-op for an unknown roll id."""
     store = _read(repo)
     entry = store.get(roll_id)
@@ -442,3 +442,107 @@ def set_roll_normalization(repo: Any, roll_id: str, floors: tuple, ceils: tuple,
         return
     entry["normalization"] = {"floors": list(floors), "ceils": list(ceils), "cast": list(cast)}
     _write(repo, store)
+
+
+def roll_scenes(repo: Any, roll_id: Optional[str]) -> List[tuple]:
+    """The roll's scenes as ``(scene_id, entry)`` pairs, in creation order: a scene's
+    ordinal is its 1-based position here."""
+    entry = roll_for_id(repo, roll_id) if roll_id else None
+    return list((entry or {}).get("scenes", {}).items())
+
+
+def _pull_members(scenes: Dict[str, dict], hashes: List[str]) -> None:
+    """Removes *hashes* from every scene and drops a scene left empty: a frame is in at
+    most one scene of a roll."""
+    drop = set(hashes)
+    for scene_id in list(scenes):
+        members = [h for h in scenes[scene_id]["member_hashes"] if h not in drop]
+        if members:
+            scenes[scene_id] = {**scenes[scene_id], "member_hashes": members}
+        else:
+            del scenes[scene_id]
+
+
+def _edit_scenes(repo: Any, roll_id: str, edit) -> Any:
+    store = _read(repo)
+    entry = store.get(roll_id)
+    if entry is None:
+        return None
+    scenes = dict(entry.get("scenes", {}))
+    result = edit(scenes)
+    entry["scenes"] = scenes
+    _write(repo, store)
+    return result
+
+
+def create_scene(repo: Any, roll_id: str, name: str, member_hashes: List[str]) -> Optional[str]:
+    """Groups *member_hashes* (unforked content hashes) as a new scene, taking them out of
+    any scene they were in. None for an unknown roll."""
+
+    def edit(scenes: Dict[str, dict]) -> str:
+        _pull_members(scenes, member_hashes)
+        scene_id = uuid.uuid4().hex
+        scenes[scene_id] = {"name": name, "member_hashes": list(dict.fromkeys(member_hashes)), "normalization": None}
+        return scene_id
+
+    return _edit_scenes(repo, roll_id, edit)
+
+
+def add_to_scene(repo: Any, roll_id: str, scene_id: str, member_hashes: List[str]) -> None:
+    def edit(scenes: Dict[str, dict]) -> None:
+        if scene_id not in scenes:
+            return
+        target = scenes[scene_id]
+        others = {sid: entry for sid, entry in scenes.items() if sid != scene_id}
+        _pull_members(others, member_hashes)
+        merged = {**target, "member_hashes": list(dict.fromkeys([*target["member_hashes"], *member_hashes]))}
+        rebuilt = {sid: merged if sid == scene_id else others[sid] for sid in scenes if sid == scene_id or sid in others}
+        scenes.clear()
+        scenes.update(rebuilt)
+
+    _edit_scenes(repo, roll_id, edit)
+
+
+def remove_from_scenes(repo: Any, roll_id: str, member_hashes: List[str]) -> None:
+    _edit_scenes(repo, roll_id, lambda scenes: _pull_members(scenes, member_hashes))
+
+
+def rename_scene(repo: Any, roll_id: str, scene_id: str, name: str) -> None:
+    def edit(scenes: Dict[str, dict]) -> None:
+        if scene_id in scenes:
+            scenes[scene_id] = {**scenes[scene_id], "name": name}
+
+    _edit_scenes(repo, roll_id, edit)
+
+
+def delete_scene(repo: Any, roll_id: str, scene_id: str) -> None:
+    _edit_scenes(repo, roll_id, lambda scenes: scenes.pop(scene_id, None))
+
+
+def scene_normalization(repo: Any, roll_id: str, scene_id: str) -> Optional[Dict[str, tuple]]:
+    """The scene's saved Scene Analysis baseline (floors, ceils), or None before one."""
+    saved = dict(roll_scenes(repo, roll_id)).get(scene_id, {}).get("normalization")
+    if not saved:
+        return None
+    return {"floors": tuple(saved["floors"]), "ceils": tuple(saved["ceils"])}
+
+
+def set_scene_normalization(repo: Any, roll_id: str, scene_id: str, floors: tuple, ceils: tuple) -> None:
+    def edit(scenes: Dict[str, dict]) -> None:
+        if scene_id in scenes:
+            scenes[scene_id] = {**scenes[scene_id], "normalization": {"floors": list(floors), "ceils": list(ceils)}}
+
+    _edit_scenes(repo, roll_id, edit)
+
+
+def scene_by_hash(repo: Any, roll_id: Optional[str]) -> Dict[str, tuple]:
+    """``{unforked_hash: (ordinal, scene_id, name)}`` for every scene member of the roll."""
+    return {h: (i, sid, entry["name"]) for i, (sid, entry) in enumerate(roll_scenes(repo, roll_id), 1) for h in entry["member_hashes"]}
+
+
+def next_scene_name(repo: Any, roll_id: Optional[str]) -> str:
+    taken = {entry["name"] for _sid, entry in roll_scenes(repo, roll_id)}
+    n = len(taken) + 1
+    while f"Scene {n}" in taken:
+        n += 1
+    return f"Scene {n}"

@@ -85,7 +85,7 @@ class AutocropSidebar(BaseSidebar):
             "fa5s.layer-group",
             " Batch Autocrop",
             "Analyze all visible landscape frames as one roll. Confident frames calibrate weak ones; "
-            "manual and ambiguous crops are preserved. Runs before Batch Analysis.",
+            "manual and ambiguous crops are preserved. Runs before Roll Analysis.",
         )
         self.auto_crop_all_btn.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
         self.layout.addWidget(self.auto_crop_all_btn)

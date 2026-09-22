@@ -281,7 +281,7 @@ class LibraryTree(QWidget):
                 name = item.text(0)
                 menu.addAction("Open").triggered.connect(lambda: self.controller.open_roll(roll_id))
                 is_active = roll_id == self.controller.state.active_roll_id
-                analyze_action = menu.addAction("Batch Analysis")
+                analyze_action = menu.addAction("Roll Analysis")
                 analyze_action.setEnabled(is_active)
                 analyze_action.setToolTip(BATCH_ANALYSIS_TOOLTIP if is_active else BATCH_ANALYSIS_DISABLED_TOOLTIP)
                 analyze_action.triggered.connect(self.controller.request_batch_normalization)

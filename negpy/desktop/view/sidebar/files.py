@@ -17,7 +17,7 @@ from PyQt6.QtCore import (
     pyqtSignal,
     pyqtSlot,
 )
-from PyQt6.QtGui import QActionGroup, QColor, QKeySequence, QPainter, QPainterPath, QPen, QShortcut
+from PyQt6.QtGui import QActionGroup, QColor, QFont, QKeySequence, QPainter, QPainterPath, QPen, QShortcut
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -43,6 +43,7 @@ from negpy.kernel.system.text import count_of
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import AppState, composite_kind
 from negpy.desktop.view.confirm import (
+    prompt_delete_scene,
     confirm_reset_frames,
     confirm_undiptych,
     confirm_unfork_edit,
@@ -61,7 +62,7 @@ from negpy.desktop.view.styles.templates import (
     tool_toggle,
     wrap_tooltip,
 )
-from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.styles.theme import THEME, scene_color
 from negpy.desktop.view.widgets.granular_settings_dialog import open_apply_dialog, open_paste_dialog, open_sync_bounds_dialog
 from negpy.desktop.view.widgets.rgb_triplet_dialog import open_triplet_dialog
 from negpy.desktop.view.widgets.roll_settings_dialog import RollSettingsDialog
@@ -91,10 +92,11 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     image is shown full-brightness with a white frame while the others are dimmed; a
     dirty active file gets an accent line along the image's bottom edge. Triage marks
     are small bottom-right badges: check = keeper, cross + heavy dim = rejected; the
-    top-right badge is reserved for decode failures; the bottom-left badge says the frame
-    was built from several files (stitch, HDR merge, RGB triplet, half-frame split); a
-    small top-left dot says the bitmap shown predates a settings change (a bulk apply
-    reaches the file before a render reaches its thumbnail)."""
+    top-right badge is the frame's scene number while Show Scenes is on; the bottom-left
+    badge says the frame was built from several files (stitch, HDR merge, RGB triplet,
+    half-frame split). Top-left holds the decode-failure badge, else a small dot saying
+    the bitmap shown predates a settings change (a bulk apply reaches the file before a
+    render reaches its thumbnail)."""
 
     _MARGIN = 3
     _RADIUS = 4  # = button border-radius (modern_dark.qss)
@@ -112,6 +114,7 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     def __init__(self, parent=None, state: Optional[AppState] = None) -> None:
         super().__init__(parent)
         self._state = state
+        self._show_scenes = False
         self._placeholder_icon = qta.icon("fa5s.image", color=THEME.text_muted)
         self._activity_icon = qta.icon("fa5s.image", color=THEME.text_secondary)
         self._activity_key = ""
@@ -120,6 +123,9 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         self._activity_timer = QTimer(self)
         self._activity_timer.setInterval(self._ACTIVITY_INTERVAL_MS)
         self._activity_timer.timeout.connect(self._advance_activity)
+
+    def set_show_scenes(self, on: bool) -> None:
+        self._show_scenes = on
 
     @pyqtSlot(str)
     def set_activity(self, key: str) -> None:
@@ -218,13 +224,30 @@ class _ThumbnailDelegate(QStyledItemDelegate):
 
     def _draw_failed_badge(self, painter: QPainter, img_rect: QRect) -> None:
         r = 9
-        cx, cy = img_rect.right() - r - 4, img_rect.top() + r + 4
+        cx, cy = img_rect.left() + r + 4, img_rect.top() + r + 4
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(THEME.error))
         painter.drawEllipse(QRect(cx - r, cy - r, 2 * r, 2 * r))
         painter.setPen(QPen(QColor(THEME.text_on_accent), 2))
         painter.drawLine(cx, cy - 4, cx, cy + 1)
         painter.drawPoint(cx, cy + 4)
+
+    def _draw_scene_chip(self, painter: QPainter, img_rect: QRect, file_info: dict) -> None:
+        scene = file_info.get("scene")
+        if not (self._show_scenes and scene):
+            return
+        r = 9
+        cx, cy = img_rect.right() - r - 4, img_rect.top() + r + 4
+        chip = QRect(cx - r, cy - r, 2 * r, 2 * r)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(scene_color(scene[0])))
+        painter.drawEllipse(chip)
+        font = QFont(painter.font())
+        font.setPixelSize(THEME.font_size_small)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QColor(THEME.text_on_accent))
+        painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, str(scene[0]))
 
     def _draw_composite_badge(self, painter: QPainter, img_rect: QRect, kind: str, half: int) -> None:
         """Bottom-left mark: this frame was assembled from more than one file.
@@ -289,6 +312,7 @@ class _ThumbnailDelegate(QStyledItemDelegate):
             self._draw_mark_badge(painter, area, check=True)
         if failed:
             self._draw_failed_badge(painter, area)
+        self._draw_scene_chip(painter, area, file_info)
         if kind:
             self._draw_composite_badge(painter, area, kind, int(file_info.get("half") or 0))
         painter.restore()
@@ -334,6 +358,7 @@ class _ThumbnailDelegate(QStyledItemDelegate):
                 self._draw_mark_badge(painter, img_rect, check=True)
             if failed:
                 self._draw_failed_badge(painter, img_rect)
+            self._draw_scene_chip(painter, img_rect, file_info)
             if kind:
                 self._draw_composite_badge(painter, img_rect, kind, int(file_info.get("half") or 0))
             painter.restore()
@@ -375,8 +400,9 @@ class _ThumbnailDelegate(QStyledItemDelegate):
             self._draw_mark_badge(painter, img_rect, check=True)
         if kind:
             self._draw_composite_badge(painter, img_rect, kind, int(file_info.get("half") or 0))
-        if self._is_stale_thumbnail(file_info):
+        if not failed and self._is_stale_thumbnail(file_info):
             self._draw_stale_dot(painter, img_rect)
+        self._draw_scene_chip(painter, img_rect, file_info)
         painter.setClipping(False)
 
         painter.setPen(self._border_pen(selected, hover))
@@ -771,6 +797,11 @@ class FileBrowser(QWidget):
         self.update_thumbnails_btn.setToolTip("Update Thumbnails — re-render every stale thumbnail in the roll")
         self.update_thumbnails_btn.clicked.connect(self._on_update_thumbnails_clicked)
 
+        self.scenes_btn = QToolButton()
+        self.scenes_btn.setCheckable(True)
+        self.scenes_btn.setToolTip(wrap_tooltip("Show Scenes — mark each frame with the number and color of its scene"))
+        self.scenes_btn.toggled.connect(self._apply_show_scenes)
+
         # Sheet filter dropdown
         self.sheet_btn = QToolButton()
         self.sheet_btn.setToolTip("Sheet — filter the contact sheet by triage mark")
@@ -825,6 +856,7 @@ class FileBrowser(QWidget):
             self.roll_settings_btn,
             self.save_roll_btn,
             self.update_thumbnails_btn,
+            self.scenes_btn,
             self.sheet_btn,
         ):
             btn.setIconSize(icon_size)
@@ -849,6 +881,7 @@ class FileBrowser(QWidget):
             (self.update_thumbnails_btn, "Update thumbnails"),
             (None, None),
             (self.unload_btn, "Unload…"),
+            (self.scenes_btn, "Show Scenes"),
             (self.sheet_btn, "Sheet filter"),
         ):
             if widget is None:
@@ -865,7 +898,7 @@ class FileBrowser(QWidget):
         self.search_input.setToolTip(
             "Filter the sheet. A bare word matches the filename; terms are combined with AND.\n"
             "Fields: film, camera, lens, developer, format, scanning, roll, frame, iso, push,\n"
-            "shot, place, name, path, ext, date, keeper, rejected, edited.\n"
+            "shot, place, scene, name, path, ext, date, keeper, rejected, edited.\n"
             'Examples:  film:portra iso:>=400   ·   camera:"Nikon F3" -rejected:   ·   shot:>=1998-07   ·   place:tokyo'
         )
         self.search_input.setClearButtonEnabled(True)
@@ -996,6 +1029,11 @@ class FileBrowser(QWidget):
         # Applied after list_view exists: the filter prunes the selection against the view.
         saved_sheet = self.session.repo.get_global_setting("sheet_filter") or "all"
         self._apply_sheet_filter(str(saved_sheet), save=False)
+        show_scenes = bool(self.session.repo.get_global_setting("show_scenes") or False)
+        self.scenes_btn.blockSignals(True)
+        self.scenes_btn.setChecked(show_scenes)
+        self.scenes_btn.blockSignals(False)
+        self._apply_show_scenes(show_scenes, save=False)
 
     def _make_section(self, title: str, key: str, icon: str, content: QWidget) -> CollapsibleSection:
         return make_section(self.session.repo, title, key, content, icon, default_expanded=True)
@@ -1407,6 +1445,13 @@ class FileBrowser(QWidget):
         else:
             self.scan_timer.stop()
 
+    def _apply_show_scenes(self, on: bool, save: bool = True) -> None:
+        self.scenes_btn.setIcon(qta.icon("fa5s.layer-group", color="white" if on else THEME.text_primary))
+        self._thumbnail_delegate.set_show_scenes(on)
+        self.list_view.viewport().update()
+        if save:
+            self.session.repo.save_global_setting("show_scenes", on)
+
     def _update_hot_folder_style(self, checked: bool) -> None:
         icon_color = "white" if checked else THEME.text_primary
         self.hot_folder_btn.setIcon(qta.icon("fa5s.fire", color=icon_color))
@@ -1692,10 +1737,46 @@ class FileBrowser(QWidget):
                     menu.addAction("Edit Independently in This Roll").triggered.connect(
                         lambda: self.controller.request_fork_edit_for_roll()
                     )
+        if state.active_roll_id:
+            self._add_scene_menu(menu, [state.uploaded_files[i] for i in targets], multi)
         menu.addSeparator()
         unload_label = "Unload Selected…" if multi else "Unload…"
         menu.addAction(unload_label).triggered.connect(self._on_remove_from_menu)
         return menu
+
+    def _add_scene_menu(self, menu: QMenu, frames: List[dict], multi: bool) -> None:
+        scenes = rolls.roll_scenes(self.session.repo, self.session.state.active_roll_id)
+        # Scene id per frame, None for a frame outside every scene.
+        of_frames = {(f.get("scene") or (0, None))[1] for f in frames}
+        scene_menu = menu.addMenu("Scene")
+        if multi:
+            scene_menu.addAction("Group as Scene…").triggered.connect(self._on_group_as_scene)
+        for scene_id, entry in scenes:
+            if of_frames != {scene_id}:
+                scene_menu.addAction(f"Add to {entry['name']}").triggered.connect(
+                    lambda _=False, sid=scene_id: self.controller.request_add_to_scene(sid)
+                )
+        if of_frames - {None}:
+            scene_menu.addAction("Remove from Scene").triggered.connect(lambda: self.controller.request_remove_from_scene())
+        if len(of_frames) == 1 and None not in of_frames:
+            (sid,) = of_frames
+            scene_menu.addSeparator()
+            scene_menu.addAction("Analyze Scene…").triggered.connect(lambda: self.controller.request_scene_analysis(sid))
+            scene_menu.addAction("Rename Scene…").triggered.connect(lambda: self._on_rename_scene(sid))
+            scene_menu.addAction("Delete Scene…").triggered.connect(lambda: prompt_delete_scene(self, self.controller, sid))
+        scene_menu.setEnabled(not scene_menu.isEmpty())
+
+    def _on_group_as_scene(self) -> None:
+        default = rolls.next_scene_name(self.session.repo, self.session.state.active_roll_id)
+        name, ok = QInputDialog.getText(self, "Group as Scene", "Name:", text=default)
+        if ok and name.strip():
+            self.controller.request_group_as_scene(name.strip())
+
+    def _on_rename_scene(self, scene_id: str) -> None:
+        current = dict(rolls.roll_scenes(self.session.repo, self.session.state.active_roll_id)).get(scene_id, {}).get("name", "")
+        name, ok = QInputDialog.getText(self, "Rename Scene", "Name:", text=current)
+        if ok and name.strip():
+            self.controller.request_rename_scene(scene_id, name.strip())
 
     def prompt_undiptych(self) -> None:
         if confirm_undiptych(self):

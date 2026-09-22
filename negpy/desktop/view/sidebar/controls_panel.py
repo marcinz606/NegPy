@@ -97,7 +97,7 @@ _SENSOR_FIELDS = (
 )
 # ProcessConfig is split across four cards. Each tuple is both the card's reset scope and
 # its modified count, so a field is resettable from the one card that counts it.
-# locked_floors/locked_ceils are in none: they are Batch Analysis's measured result.
+# locked_floors/locked_ceils are in none: they are Roll Analysis's measured result.
 _FILM_FIELDS = (
     "process_mode",
     "positive_source",
@@ -305,7 +305,7 @@ class ControlsPanel(QWidget):
         # Roll Analysis and Normalization are one job, getting a negative to a correctly
         # normalized positive, so they share a card: this frame's own analysis first, then
         # the roll picker it feeds, with Lock Bounds in the picker's button row because it
-        # is about this frame's relationship to Batch Analysis.
+        # is about this frame's relationship to Roll Analysis.
         self.roll_sidebar.insert_lock_button(self.process_sidebar.lock_bounds_btn)
         normalization_body = QWidget()
         normalization_layout = QVBoxLayout(normalization_body)
@@ -781,7 +781,7 @@ class ControlsPanel(QWidget):
                 "Channel unmix on the raw negative densities — how much of the matrix to apply. 1.0 = each "
                 "channel's leak fully subtracted from the others; 0 = scanned densities untouched. The leak "
                 "comes from the film's dyes, your light's spectrum and your sensor's filters together, so "
-                "tune this per scanning setup rather than per stock. Re-run Batch Analysis after changing it",
+                "tune this per scanning setup rather than per stock. Re-run Roll Analysis after changing it",
                 ["separation_inc", "separation_dec"],
             )
         )
@@ -1017,13 +1017,9 @@ class ControlsPanel(QWidget):
             section.set_scope_buttons(
                 True,
                 "frame" if locked or not has_roll else "roll",
-                roll_tooltip=(
-                    f"{label} follows the roll — click to give the roll this frame's value" if has_roll else NO_ROLL_SCOPE_HINT
-                ),
+                roll_tooltip=(f"{label} follows the roll — click to give the roll this frame's value" if has_roll else NO_ROLL_SCOPE_HINT),
                 frame_tooltip=(
-                    f"{label} follows this frame alone — click to rejoin the roll"
-                    if has_roll
-                    else f"{label} is this frame's own"
+                    f"{label} follows this frame alone — click to rejoin the roll" if has_roll else f"{label} is this frame's own"
                 ),
                 roll_enabled=has_roll,
             )

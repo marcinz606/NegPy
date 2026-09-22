@@ -479,17 +479,17 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "Pick a profile matching your film stock and blend it in with the "
                 "<b>Strength</b> slider.<br><br>"
                 "Changed the matrix or strength? Right-click your loaded roll in the Library "
-                "and run <b>Batch Analysis</b> again, because bounds measured under a "
+                "and run <b>Roll Analysis</b> again, because bounds measured under a "
                 "different matrix are invalid."
             ),
             target=_crosstalk,
             section_attr="sensor_section",
         ),
         TutorialStep(
-            title="Roll Consistency: Batch Analysis",
+            title="Roll Consistency",
             body=(
                 "One enlarger setting for the whole roll. Right-click your loaded roll in "
-                "the Library and choose <b>Batch Analysis</b> to meter every loaded frame "
+                "the Library and choose <b>Roll Analysis</b> to meter every loaded frame "
                 "and save the result as that roll's baseline, automatically, for this "
                 "session and every later one.<br><br>"
                 "Two toggles further down borrow it on independent axes: <b>Use Luma "

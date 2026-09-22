@@ -247,7 +247,7 @@ def test_right_click_on_the_loaded_roll_offers_an_enabled_analyze_action(widget,
 
     widget._show_context_menu(QPoint(0, 0))
 
-    actions["Batch Analysis"].setEnabled.assert_called_once_with(True)
+    actions["Roll Analysis"].setEnabled.assert_called_once_with(True)
 
 
 def test_right_click_on_a_different_roll_offers_a_disabled_analyze_action(widget, monkeypatch):
@@ -260,7 +260,7 @@ def test_right_click_on_a_different_roll_offers_a_disabled_analyze_action(widget
 
     widget._show_context_menu(QPoint(0, 0))
 
-    actions["Batch Analysis"].setEnabled.assert_called_once_with(False)
+    actions["Roll Analysis"].setEnabled.assert_called_once_with(False)
 
 
 def test_analyze_action_reaches_the_controller(widget, monkeypatch):
@@ -273,7 +273,7 @@ def test_analyze_action_reaches_the_controller(widget, monkeypatch):
 
     widget._show_context_menu(QPoint(0, 0))
 
-    actions["Batch Analysis"].triggered.connect.assert_called_once_with(widget.controller.request_batch_normalization)
+    actions["Roll Analysis"].triggered.connect.assert_called_once_with(widget.controller.request_batch_normalization)
 
 
 def test_rename_roll_dialog_checkbox_defaults_off(qapp):

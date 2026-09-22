@@ -1,5 +1,6 @@
 from PyQt6.QtWidgets import QCheckBox, QMessageBox
 from negpy.kernel.system.text import count_of
+from negpy.services.assets import rolls
 
 
 def confirm_load_roll(parent, repo, image_count: int, label: str) -> bool:
@@ -72,6 +73,15 @@ def confirm_delete_named(parent, kind: str, name: str, *, informative: str = "")
     box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
     box.setDefaultButton(QMessageBox.StandardButton.Yes)
     return box.exec() == QMessageBox.StandardButton.Yes
+
+
+def prompt_delete_scene(parent, controller, scene_id: str) -> None:
+    """The Film Strip menu and the Roll tab ask the same question before forgetting a scene."""
+    entry = dict(rolls.roll_scenes(controller.session.repo, controller.state.active_roll_id)).get(scene_id)
+    if entry and confirm_delete_named(
+        parent, "Scene", entry["name"], informative="Its frames keep their edits and the baseline they carry."
+    ):
+        controller.request_delete_scene(scene_id)
 
 
 def confirm_delete_several(parent, kind: str, names: list, *, informative: str = "") -> bool:

@@ -183,7 +183,7 @@ C41*, and you are the only person who can measure your own rig. Recommended loop
    nudge the off-diagonal term for the pair that is off. A green leaking into red reads as
    `out R / in G`. Work one term at a time, in small steps. `0.02` is visible.
 4. Save it named after the **combination**, for example `Gold 200 + Spectracolor`, not just
-   the film. Re-run **Batch Analysis**, then check it on a second frame before you trust it.
+   the film. Re-run **Roll Analysis**, then check it on a second frame before you trust it.
 
 If the hues are turned rather than muddied, with every color rotated the same way and
 neutrals fine, that is a light-spectrum problem. **Hue Trim** is the cheaper fix, and a
@@ -206,7 +206,7 @@ hand-edit TOML:
 - **Apply & Close** keeps what you were previewing. **Cancel** reverts.
 
 > Crosstalk is a color operation and is hidden in B&W Negative mode. It changes what the
-> normalization meters read, so re-run **Batch Analysis** (and re-save locked bounds) after
+> normalization meters read, so re-run **Roll Analysis** (and re-save locked bounds) after
 > you change the profile or the strength.
 
 ---

@@ -159,7 +159,7 @@ Either way NegPy reads the folder from disk and never creates, renames, moves or
 
 **Click** a roll to select it, **double-click** (or **Enter**) to open it. Opening asks whether to **load the roll** — only then does NegPy hash its frames, which is the part that takes a moment on a big roll. The film strip then opens and fills its thumbnails in the background. Say no and your open frames stay as they were. Tick **Always load without asking** in that prompt if you would rather it just get on with it. Opening a roll replaces what is in the Film Strip; nothing is lost either way, because your edits live in NegPy's database, keyed to each image, not to the list of open files.
 
-Right-click a roll for **Rename…** and **Delete…**. Renaming a folder roll offers **Also rename the folder on disk**, unticked by default and asked fresh every time: left off, only the library label changes and the folder keeps its name, same as a virtual roll; ticked, NegPy renames the actual folder in place and updates its own record to match, refusing (with a warning, nothing touched) if a sibling already has that name or it lacks permission to rename it there. A folder inside a cloud-sync directory (Dropbox, iCloud, OneDrive) may see this as a delete and re-upload rather than a rename. Deleting only forgets the roll record — the folder, its images and their edits are untouched, and a folder roll can always be re-imported. To forget every roll at once, use **Clear Library** in *Manage Database*. Right-click the **loaded** roll for **Batch Analysis** as well: it runs Batch Analysis ([§10.6](#106-normalization-negative--positive)) and stores the result as that roll's baseline, so any frame's **Use Luma Average** / **Use Color Average** can borrow it later, from this roll or another. It is grayed out on a roll you have not opened, since Batch Analysis measures the files currently loaded.
+Right-click a roll for **Rename…** and **Delete…**. Renaming a folder roll offers **Also rename the folder on disk**, unticked by default and asked fresh every time: left off, only the library label changes and the folder keeps its name, same as a virtual roll; ticked, NegPy renames the actual folder in place and updates its own record to match, refusing (with a warning, nothing touched) if a sibling already has that name or it lacks permission to rename it there. A folder inside a cloud-sync directory (Dropbox, iCloud, OneDrive) may see this as a delete and re-upload rather than a rename. Deleting only forgets the roll record — the folder, its images and their edits are untouched, and a folder roll can always be re-imported. To forget every roll at once, use **Clear Library** in *Manage Database*. Right-click the **loaded** roll for **Roll Analysis** as well: it runs Roll Analysis on every frame outside a scene ([§10.6](#106-normalization-negative--positive)) and stores the result as that roll's baseline, so any frame's **Use Luma Average** / **Use Color Average** can borrow it later, from this roll or another. It is grayed out on a roll you have not opened, since Roll Analysis measures the files currently loaded.
 
 #### Rolls that are not folders
 
@@ -180,6 +180,7 @@ The Film Strip section has its own row of buttons above the frames, for actions 
 *   **Roll Settings** (tag icon): tag gear, capture, place, process and scanning metadata for the current frame, a selection or the whole roll in one dialog. Fields start filled from the active frame; type or pick new values directly, or **Load** a metadata preset to fill and tick its fields, then tick which groups to write. Defaults to the whole roll when one is loaded. If Gear is not already set, opening it also checks the roll's folder name against your Gear library and pre-fills a match the same way the import-time suggestion does — it never overwrites a camera or film stock you have already tagged.
 *   **Save as Roll…** (red folder icon): name and keep the frames currently loaded as a roll, whether or not they came from a folder. See [Rolls that are not folders](#rolls-that-are-not-folders).
 *   **Unload…**: drop the active frame, or the whole selection when more than one is selected. Never the rest of the roll — for that, see *Clear All…* below.
+*   **Show Scenes** (layers icon): marks each frame of a scene with the scene's number on a colored disc, top-right. The choice is remembered between sessions. See [Scenes](#scenes).
 *   **Sheet filter** (funnel): show *All Frames*, *Keepers Only*, or *Hide Rejected*. The choice is remembered between sessions and applies to every roll you open.
 
 Above both sections sit a **filter box**, a **`.*`** regex toggle and a **search-library** button, shared by the Library tree and the Film Strip alike. A fourth, **search-by-meaning** toggle joins them once turned on in Preferences (see below). Inside the Film Strip section, beside its **tally** (for example "36 frames · 12 keepers · 3 rejected"), a **thumbnail size** slider resizes its grid — smaller fits more columns in the panel. While a filter hides frames the tally counts both sets and names the filter, for example "3 of 36 frames · Keepers filter". When a filter hides every frame, the strip carries a message with a **Show all frames** link that clears the filter box and the funnel together. When the loaded frames came from a roll, its name leads the tally, for example "Portra 400 — 36 frames"; frames that are not one roll — a library search's results, several folders opened at once, a batch added by hand — lead with **Collection** instead, a reminder that an edit is an edit of the photo itself and so also shows in the roll each frame came from.
@@ -199,6 +200,7 @@ Type a plain word and it matches the filename. Beyond that the box takes `field:
 | `devtime:>=9` · `temp:20` | development time in minutes, and temperature in °C |
 | `roll:` `developer:` `dilution:` `lens:` `format:` `scanning:` | the rest of the Metadata panel |
 | `name:` `path:` `ext:tif` | file identity |
+| `scene:beach` | frames in a scene of the loaded roll whose name contains "beach" |
 | `keeper:` `rejected:` `edited:` | frames carrying that mark, or with a saved edit |
 | `-rejected:` `-film:velvia` | a leading `-` negates any term |
 
@@ -277,7 +279,7 @@ Right-click a thumbnail, or use keyboard shortcuts, to mark frames while you rev
 *   **Keep**: a small check badge marks a keeper.
 *   **Reject**: a cross badge dims the frame. Rejected frames stay on the sheet but are skipped by batch exports and sidecar writes. **The file on disk is never touched.**
 
-Marks apply to a multi-selection and persist across sessions. A badge in the top-right corner instead flags a frame that failed to decode.
+Marks apply to a multi-selection and persist across sessions.
 
 #### Reading the badges
 
@@ -287,8 +289,9 @@ Each corner of a thumbnail means one thing, so the marks never compete:
 |---|---|---|
 | Bottom-right | check | keeper |
 | Bottom-right | cross, frame heavily dimmed | rejected |
-| Top-right | exclamation | the file failed to decode; click to retry |
+| Top-right | number on a colored disc | the frame's scene, while **Show Scenes** is on |
 | Bottom-left | *see below* | the frame was built from more than one file |
+| Top-left | exclamation | the file failed to decode; click to retry |
 | Top-left | small amber dot | the thumbnail predates a settings change (a bulk apply reached the file before a render reached its thumbnail); open the frame to refresh it |
 
 The bottom-left badge is gray, not red, because it reports what the frame *is* rather than something you marked. Its glyph says which kind:
@@ -304,6 +307,12 @@ The bottom-left badge is gray, not red, because it reports what the frame *is* r
 Hover any thumbnail and the tooltip says the same thing in words, with the frame count: *HDR merge of 5 exposures*, *Stitched composite of 3 frames*.
 
 The right-click menu also offers **Copy/Paste Settings** (with or without normalization bounds), **Reset Settings**, **Apply Settings…**, **Sync Bounds…**, **Update Thumbnail(s)**, **Reset Roll to Defaults…** (every visible frame, in one step), and per-frame export. With several frames selected, **Reset Settings** becomes **Reset N Frames** and resets the whole selection, confirmed first since it touches more than one frame. A copy that took the bounds lists them in the paste picker as **Normalization bounds**, ticked; untick it to paste the look and keep the frame's own bounds. **Sync Bounds…** does the opposite in one step: it offers this frame's measured bounds and nothing else, as **Tonal span** and **Color balance**, to the selection or the whole roll. It is also on the canvas right-click menu and the canvas overflow menu. A frame shared by more than one roll also offers **Edit Independently in This Roll** (or, once it has one, **Use the Shared Edit Again**) — see "Rolls that are not folders" above.
+
+#### Scenes
+
+A scene is a group of frames in one roll that were shot in the same light, for example the beach half of a roll that is also a night walk. A scene gets its own baseline, so its frames match each other without being pulled toward the rest of the roll. Scenes need a roll: open one, or use **Save as Roll…** first.
+
+*   **Scene** (right-click menu): **Group as Scene…** names the selected frames as a new scene. **Add to** *name* moves the selection into an existing scene, and **Remove from Scene** takes it out. On the frames of one scene, **Analyze Scene…** runs Scene Analysis, and **Rename Scene…** and **Delete Scene…** change or forget the group. A frame is in one scene at most, and deleting a scene leaves each frame's edit and baseline as they were.
 
 **Update Thumbnails** on the toolbar re-renders every stale thumbnail in the roll in one click; the context-menu entry does the same for just the current selection — both work in the background, without opening the frames. Either turns into **Cancel** while it runs, for a folder too large to want to wait out.
 
@@ -762,7 +771,7 @@ Applying it sets the defaults for newly loaded files, updates the open frame, an
 *   **Profile**: the sensor matrix to apply. Custom `.toml` matrices live in `<Documents>/NegPy/sensor/`.
 *   **Calibrate** (vials icon): build a profile from three bare-light R/G/B exposures.
 
-This block grays out unless **Linear RAW** is on, since profiles are calibrated against neutral white balance and the as-shot gains would misapply the matrix. It also grays out on **Transparency**, for the reason below. Your selection is remembered either way. It is also skipped for RGB-triplet assets, which never had the leak. It changes what the analysis reads, so **re-run Batch Analysis** after changing it.
+This block grays out unless **Linear RAW** is on, since profiles are calibrated against neutral white balance and the as-shot gains would misapply the matrix. It also grays out on **Transparency**, for the reason below. Your selection is remembered either way. It is also skipped for RGB-triplet assets, which never had the leak. It changes what the analysis reads, so **re-run Roll Analysis** after changing it.
 
 #### Narrowband and slides
 
@@ -778,7 +787,7 @@ The film's dyes each absorb outside their own band, but they are not the only ca
 
 *   **Matrix**: the profile to apply, grouped in the dropdown by where its numbers came from (measured, tuned on a rig, or from spec sheets). *Generic C41* is the built-in; drop custom `.toml` matrices in `<Documents>/NegPy/crosstalk/` (see [CROSSTALK.md](CROSSTALK.md)). The slider button opens a matrix editor, where a **Type** control records that provenance and a **Process** control says which film the numbers describe. Process decides where the profile appears and whether it applies, so a matrix you build for slides needs it set to E-6. Anything created with **+** is already set to the process you are working in.
     When the current film process has no matrices at all, the dropdown and **Strength** are disabled and a hint says so. The editor button stays live, because it is the way to build the first one.
-*   **Strength** (0.0 to 1.0): how much of the unmix to apply, for richer and cleaner color separation. It changes what the analysis reads, so **re-run Batch Analysis** after changing it.
+*   **Strength** (0.0 to 1.0): how much of the unmix to apply, for richer and cleaner color separation. It changes what the analysis reads, so **re-run Roll Analysis** after changing it.
 
 > **The bundled film matrices are derived from published spec sheets, not measured**, which is why they are all marked *(approx)*. They describe the film's **dyes alone**, so they are the whole story only where your capture reads each dye cleanly: a **Narrowband Scanner** (a Coolscan's mono sensor reads one LED at a time, fully clean; a Pakon's trilinear array comes close, with slight residual bleed), a **Trichrome** capture, or a Single-Shot Narrowband rig with **Single-Shot Narrowband Calibration** applied (see above). With a broadband light and a Bayer sensor, the capture adds mixing of its own that a dyes-only matrix does not describe. It may still help, but treat the number as a starting point rather than a correction for your setup.
 
@@ -811,6 +820,7 @@ How the negative is measured into a positive's tonal bounds. The film mode that 
 **Analysis** comes first, since everything below it reads what these controls measure: where NegPy meters the black and white points.
 
 *   **Analysis Buffer** (0.0 to 0.25): insets the measurement window from the frame edge so film rebate, sprocket holes and scanner borders do not skew detection. Raise it on scans with wide borders.
+*   **Reanalyze Frame** (circular arrow beside the buffer): measures this frame's bounds again from its current crop, buffer and region, without changing a setting to force it. Grayed out with Lock Bounds on, or while both Use Luma Average and Use Color Average are on, since then the frame does not read its own bounds.
 *   **Draw Region** / **Clear Region**: draw a freehand region on the canvas to meter *exactly* that area, overriding the buffer. Double-click inside to confirm; **Clear Region** drops it.
 
 **Tonal Range**, under its own subheader inside the same block, shapes what that measurement produces:
@@ -819,12 +829,14 @@ How the negative is measured into a positive's tonal bounds. The film mode that 
 *   **Color Clip** (-100 to 100): the per-channel color-balance clip (orange-mask removal), independent of the tonal range. Positive tightens channel balance; negative samples nearer the extremes.
 *   **White Point** / **Black Point** (-0.25 to 0.25), with their own **Global** / **R** / **G** / **B** selector: manual offsets on top of the auto-detected bounds. A positive white point brightens; a positive black point lifts blacks. In R/G/B mode they become per-layer trims: per-dye-layer film-base (Dmin) and Dmax corrections, scanner-style per-channel levels. Unlike the rest of this card they never join the roll — a per-shot call rather than a rig or baseline fact — so editing them does not move the card off **Roll**. On the Transparency transfer path (Normalize off) they deviate that path's fixed window instead of a measured one; **Lock Bounds** disables them everywhere else, having nothing to freeze there.
 
-**Roll Baseline**: meter the whole roll once and share the baseline, so frames from the same film match. Batch Analysis is the metering pass that fills it in.
+**Roll Baseline**: meter the whole roll once and share the baseline, so frames from the same film match. Roll Analysis is the metering pass that fills it in.
 
 *   **Roll Baseline** (the picker itself, with **Reanalyze**, **Lock Bounds** and **Use This Frame** in a row beneath it): type to search every roll in your library, the same list the Library section shows — a roll with a saved baseline is ticked. Defaults to the loaded roll. Picking a roll loads its baseline immediately, no separate Apply step; picking a different, ticked roll shows a hint that its baseline was saved for that roll, not this one.
-*   **Lock Bounds**: freezes the analyzed normalization bounds for this frame, so cropping or moving the sliders above no longer re-analyzes it, and Batch Analysis leaves it untouched, on the first run as well as every re-run. Lock it in once you are happy with the bounds.
-*   **Reanalyze**: runs Batch Analysis on the loaded roll — the same action as **Batch Analysis** on the Library's roll list ([§2](#2-film-strip-left-panel)), reachable here since this is where an unanalyzed roll (no tick) is noticed. It scans every loaded file and computes a roll-average density and color balance, discarding outliers, and stores the result as that roll's baseline. *(Tip: if you use Batch Autocrop, run it first, in **Image only** mode, so metering sees consistent crops.)* Grayed out on a roll other than the one loaded, since Batch Analysis measures the files currently open. A frame with Lock Bounds on keeps its own exposure and is skipped. The status message afterward names any frame whose own measurement was discarded as an outlier: that frame is still given the roll average like everyone else, but the mismatch is worth a look — usually **Use Luma Average** / **Use Color Average** off for that one frame, below.
-*   **Use This Frame**: saves the current frame's own bounds as this roll's baseline, in place of a measured average. Use it when one frame is the reference you want the roll to match rather than the middle of the roll. Every frame on **Use Luma Average** / **Use Color Average** follows it, including one loaded later, and a frame with Lock Bounds on is skipped. Grayed out on a roll other than the one loaded, the same as Reanalyze; on a frame that has not been rendered yet it says so instead, since there are no bounds to take.
+*   **Lock Bounds**: freezes the analyzed normalization bounds for this frame, so cropping or moving the sliders above no longer re-analyzes it, and Roll Analysis leaves it untouched, on the first run as well as every re-run. Lock it in once you are happy with the bounds.
+*   **Reanalyze**: runs Roll Analysis on the loaded roll — the same action as **Roll Analysis** on the Library's roll list ([§2](#2-film-strip-left-panel)), reachable here since this is where an unanalyzed roll (no tick) is noticed. It scans every loaded file outside a scene and computes a roll-average density and color balance, discarding outliers, and stores the result as that roll's baseline. *(Tip: if you use Batch Autocrop, run it first, in **Image only** mode, so metering sees consistent crops.)* Grayed out on a roll other than the one loaded, since Roll Analysis measures the files currently open. A frame with Lock Bounds on keeps its own exposure and is skipped. The status message afterward names any frame whose own measurement was discarded as an outlier: that frame is still given the roll average like everyone else, but the mismatch is worth a look — usually **Use Luma Average** / **Use Color Average** off for that one frame, below.
+*   **Use This Frame**: saves the current frame's own bounds as this roll's baseline, in place of a measured average. Use it when one frame is the reference you want the roll to match rather than the middle of the roll. Every frame outside a scene on **Use Luma Average** / **Use Color Average** follows it, and a frame with Lock Bounds on is skipped. Grayed out on a roll other than the one loaded, the same as Reanalyze; on a frame that has not been rendered yet it says so instead, since there are no bounds to take.
+
+*   **Scenes**: lists the loaded roll's [scenes](#scenes), each with its number and color, its loaded frame count, and a tick once it has a baseline. **Analyze** runs Scene Analysis: the same metering as Reanalyze over that scene's frames alone, written to them and saved on the scene. **Select** selects the scene's frames in the Film Strip. **Delete** (trash) forgets the scene after asking. **Analyze All Scenes** runs every scene in turn. Roll Analysis and a picked roll baseline skip scene frames, so a scene keeps its own baseline.
 
 Under the picker, since both read what it holds:
 

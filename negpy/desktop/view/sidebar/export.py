@@ -585,7 +585,7 @@ class ExportSidebar(BaseSidebar):
         self.flat_peek_btn.setChecked(self.state.flat_peek)
         self.flat_bake_btn = labeled_action(
             "fa5s.search",
-            " Batch Analysis",
+            " Roll Analysis",
             "Measure every visible frame's exposure bounds and apply their shared average, so flat "
             "masters render consistently across the roll.",
         )

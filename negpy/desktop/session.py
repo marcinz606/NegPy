@@ -564,6 +564,8 @@ class AssetListModel(QAbstractListModel):
             summary = composite_summary(file_info)
             if summary:
                 lines.append(summary)
+            if file_info.get("scene"):
+                lines.append(f"Scene: {file_info['scene'][2]}")
             if asset_thumbnail_key(file_info) in self._state.stale_thumbnails:
                 lines.append("Thumbnail predates a settings change; open the frame to refresh it.")
             return "\n".join(lines)
@@ -1272,6 +1274,21 @@ class DesktopSessionManager(QObject):
         self.asset_model.refresh()
         self.files_changed.emit()
 
+    def _stamp_scenes(self) -> None:
+        by_hash = rolls.scene_by_hash(self.repo, self.state.active_roll_id)
+        for f in self.state.uploaded_files:
+            hit = by_hash.get(unforked_hash(f["hash"]))
+            if hit:
+                f["scene"] = hit
+            else:
+                f.pop("scene", None)
+
+    def refresh_scene_marks(self) -> None:
+        """Re-reads the active roll's scenes onto the loaded frames after a scene edit."""
+        self._stamp_scenes()
+        self.asset_model.refresh()
+        self.files_changed.emit()
+
     def sync_selected_settings(self, rows, bounds_flags: tuple[bool, bool] = (False, False), scope: str = "selection") -> int:
         """
         Apply the active frame's chosen settings to other frames. Returns the count changed.
@@ -1881,6 +1898,7 @@ class DesktopSessionManager(QObject):
             m = marks.get(unforked_hash(f["hash"]))
             f["keeper"] = m == "keeper"
             f["excluded"] = m == "excluded"
+        self._stamp_scenes()
 
         self.asset_model.refresh()
         self.files_changed.emit()

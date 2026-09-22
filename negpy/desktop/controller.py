@@ -473,6 +473,8 @@ class AppController(QObject):
         self._active_batch_abortable = False
         self._batch_serial = 0
         self._active_batch_token: Optional[int] = None
+        self._normalization_scope: Optional[str] = None
+        self._scene_queue: List[str] = []
         # True while a hot-folder-triggered discovery owns the batch lane. Thumbnail
         # loading is an independent background queue and never owns this state.
         self._hot_folder_sequence_active = False
@@ -1253,11 +1255,13 @@ class AppController(QObject):
         self._report_worker_error("Import", message)
 
     def _on_normalization_cancelled(self) -> None:
+        self._scene_queue = []
         self._on_batch_cancelled("normalization")
 
     def _on_normalization_error(self, message: str) -> None:
+        self._scene_queue = []
         self._on_batch_error("normalization")
-        self._report_worker_error("Batch analysis", message)
+        self._report_worker_error("Analysis", message)
 
     def _on_batch_error(self, owner: str) -> None:
         self._end_batch(owner)
@@ -4005,19 +4009,16 @@ class AppController(QObject):
         self.session.update_config(replace(self.state.config, exposure=new_exp), persist=True, record_history=True)
         self.request_render()
 
-    def request_batch_normalization(self) -> None:
-        """
-        Initiates background analysis for batch normalization.
-        """
-        if self._batch_busy("Batch Analysis"):
-            return
-        visible_files = [self.state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
-        if not visible_files:
-            return
+    def _normalization_targets(self, scene_id: Optional[str]) -> List[dict]:
+        """Loaded frames a baseline is written onto: one scene's members, or for the roll
+        every frame outside a scene, since a scene's baseline replaces the roll's."""
+        by_hash = rolls.scene_by_hash(self.session.repo, self.state.active_roll_id)
+        return [f for f in self.state.uploaded_files if by_hash.get(rolls.unforked_hash(f["hash"]), (0, None))[1] == scene_id]
 
-        total = len(visible_files)
+    def _confirm_normalization(self, frames: List[dict], title: str, filtered: bool) -> bool:
+        total = len(frames)
         cropped = 0
-        for f in visible_files:
+        for f in frames:
             p = self.session.repo.load_file_settings(f["hash"])
             if p and (p.geometry.crop_rect or p.geometry.crop_from_auto):
                 cropped += 1
@@ -4025,8 +4026,8 @@ class AppController(QObject):
         if cropped == 0:
             crop_status = f"Crop status: 0 of {total} files are cropped."
             crop_warning = (
-                "Strongly recommended: crop all images in this session before running "
-                "Batch Analysis. Without a crop, the Analysis Buffer's small centered "
+                "Strongly recommended: crop all images before running the analysis. "
+                "Without a crop, the Analysis Buffer's small centered "
                 "margin isn't enough to exclude sprocket holes and empty space outside "
                 "the actual frame — that unwanted region gets included in the luma and "
                 "color average, producing a less accurate result for every file."
@@ -4035,7 +4036,7 @@ class AppController(QObject):
             crop_status = f"Crop status: {cropped} of {total} files are cropped."
             crop_warning = (
                 f"Strongly recommended: crop the remaining {count_of(total - cropped, 'file')} "
-                "before running Batch Analysis. Uncropped files rely on the Analysis "
+                "before running the analysis. Uncropped files rely on the Analysis "
                 "Buffer's small centered margin, which isn't enough to exclude sprocket "
                 "holes and empty space outside the actual frame — that unwanted region "
                 "gets included in the luma and color average, producing a less accurate "
@@ -4046,20 +4047,25 @@ class AppController(QObject):
             crop_warning = "Analysis will run on each file's cropped negative area."
 
         sheet_note = ""
-        if self.session.asset_model.sheet_filter != "all":
+        if filtered and self.session.asset_model.sheet_filter != "all":
             sheet_note = (
                 f"Note: the Sheet filter is on — only the {count_of(total, 'visible frame')} {plural(total, 'is', 'are')} analyzed.\n\n"
             )
+        if title == "Roll Analysis":
+            summary = (
+                "Roll Analysis measures the exposure bounds of every file outside a scene and "
+                "applies their average to those files, so they share a consistent baseline."
+            )
+        else:
+            summary = "Scene Analysis measures the exposure bounds of each scene's files and applies their average to that scene alone."
 
         reply = QMessageBox.question(
             None,
-            "Batch Analysis",
+            title,
             f"{sheet_note}"
             f"{crop_status}\n"
             f"{crop_warning}\n\n"
-            "Batch Analysis measures the exposure bounds of every file and applies "
-            "their average to the whole roll, so all your frames share a consistent "
-            "baseline.\n\n"
+            f"{summary}\n\n"
             "Two settings from the image you have open right now are applied to every "
             "file before averaging:\n"
             "  • Analysis Buffer — shrinks the analyzed region inward, excluding a "
@@ -4071,15 +4077,12 @@ class AppController(QObject):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Yes,
         )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
+        return reply == QMessageBox.StandardButton.Yes
 
-        token = self._begin_batch("normalization", "Analyzing roll", abortable=True)
-        if token is None:
-            return
-        self.set_status("Starting Batch Normalization…")
+    def _dispatch_normalization(self, scene_id: Optional[str], frames: List[dict]) -> None:
+        self._normalization_scope = scene_id
         task = NormalizationTask(
-            frames=[NormalizationInput(file_info=a, config=self._config_for_batch_asset(a)) for a in visible_files],
+            frames=[NormalizationInput(file_info=a, config=self._config_for_batch_asset(a)) for a in frames],
             workspace_color_space=self.state.workspace_color_space,
             override_analysis_buffer=self.state.config.process.analysis_buffer,
             override_luma_range_clip=self.state.config.process.luma_range_clip,
@@ -4089,31 +4092,74 @@ class AppController(QObject):
         )
         self.normalization_requested.emit(task)
 
+    def _scene_name(self, scene_id: str) -> str:
+        entry = dict(rolls.roll_scenes(self.session.repo, self.state.active_roll_id)).get(scene_id)
+        return entry["name"] if entry else ""
+
+    def request_batch_normalization(self) -> None:
+        """Roll Analysis: the visible frames outside every scene."""
+        self._request_normalization(None)
+
+    def request_scene_analysis(self, scene_id: str) -> None:
+        """Scene Analysis: one scene's loaded members, whatever the sheet filter shows."""
+        self._request_normalization(scene_id)
+
+    def _request_normalization(self, scene_id: Optional[str]) -> None:
+        title = "Roll Analysis" if scene_id is None else "Scene Analysis"
+        if self._batch_busy(title):
+            return
+        if scene_id is None:
+            in_scene = set(rolls.scene_by_hash(self.session.repo, self.state.active_roll_id))
+            visible = [self.state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
+            frames = [f for f in visible if rolls.unforked_hash(f["hash"]) not in in_scene]
+        else:
+            frames = self._normalization_targets(scene_id)
+        if not frames:
+            return
+        if not self._confirm_normalization(frames, title, filtered=scene_id is None):
+            return
+        batch_title = "Analyzing roll" if scene_id is None else f"Analyzing scene “{self._scene_name(scene_id)}”"
+        if self._begin_batch("normalization", batch_title, abortable=True) is None:
+            return
+        self._scene_queue = []
+        self.set_status(f"Starting {title}…")
+        self._dispatch_normalization(scene_id, frames)
+
+    def request_analyze_all_scenes(self) -> None:
+        """Scene Analysis for every scene of the active roll with a loaded frame, one after another."""
+        if self._batch_busy("Scene Analysis"):
+            return
+        queue = [
+            (sid, frames)
+            for sid, _entry in rolls.roll_scenes(self.session.repo, self.state.active_roll_id)
+            if (frames := self._normalization_targets(sid))
+        ]
+        if not queue:
+            self.set_status("No scene has a loaded frame", 3000)
+            return
+        if not self._confirm_normalization([f for _sid, frames in queue for f in frames], "Scene Analysis", filtered=False):
+            return
+        if self._begin_batch("normalization", "Analyzing scenes", abortable=True) is None:
+            return
+        self._scene_queue = [sid for sid, _frames in queue[1:]]
+        self._dispatch_normalization(*queue[0])
+
     def _on_normalization_progress(self, current: int, total: int, name: str, has_crop: bool) -> None:
         """
-        Updates UI status during batch analysis.
+        Updates UI status during Roll or Scene Analysis.
         """
         marker = "cropped" if has_crop else "full frame"
         self.set_status(f"Analyzing {current}/{total}: {name} [{marker}]...")
         self.status_progress_requested.emit(current, total)
         self.batch_progress.emit(current, total, f"{name} [{marker}]")
 
-    def _on_normalization_finished(self, locked_floors: tuple, locked_ceils: tuple, outlier_paths: list) -> None:
-        """
-        Applies averaged normalization baseline to all files, and records it as the
-        active roll's own Batch Analysis result (rolls.set_roll_normalization) so
-        another roll's Use Luma/Color Average can borrow it later. A frame with Lock
-        Bounds on keeps its own exposure -- the roll baseline never overwrites a
-        locked frame, so the lock survives a re-run of Batch Analysis. *outlier_paths*
-        are frames whose own measured bounds fell outside the pooled average on at
-        least one channel: they still take the baseline like everyone else (this is a
-        report, not an exemption), but the mismatch is worth a look and often means
-        Use Luma/Color Average should be turned off for that one frame.
-        """
-        self._end_batch("normalization")
+    def _push_bounds(self, targets: List[dict], floors: tuple, ceils: tuple, roll_name: Optional[str]) -> int:
+        """Writes a baseline onto *targets*, riding both average axes. A frame with Lock
+        Bounds on keeps its own exposure. Returns how many locked frames were skipped."""
         locked_skipped = 0
         changed_hashes: list[str] = []
-        for f_info in self.state.uploaded_files:
+        current = self.state.current_file_hash
+        for f_info in targets:
             p = self.session.repo.load_file_settings(f_info["hash"]) or self.session.config_for_asset(f_info)
             if p.process.lock_bounds:
                 locked_skipped += 1
@@ -4122,13 +4168,13 @@ class AppController(QObject):
                 p.process,
                 use_luma_average=True,
                 use_color_average=True,
-                locked_floors=locked_floors,
-                locked_ceils=locked_ceils,
-                roll_name=None,
+                locked_floors=floors,
+                locked_ceils=ceils,
+                roll_name=roll_name,
             )
             new_p = replace(p, process=new_process)
             # The active file records its step via update_config(persist=True) below.
-            if f_info["hash"] != self.state.current_file_hash:
+            if f_info["hash"] != current:
                 self.session.push_external_history(f_info["hash"], p, new_p)
                 changed_hashes.append(f_info["hash"])
             self.session.repo.save_file_settings(f_info["hash"], new_p, file_path=f_info["path"])
@@ -4136,24 +4182,42 @@ class AppController(QObject):
         if changed_hashes:
             self.session.frames_edited_offscreen.emit(changed_hashes)
 
-        # Update current state, unless the active frame is itself locked.
-        if not self.state.config.process.lock_bounds:
+        if any(f["hash"] == current for f in targets) and not self.state.config.process.lock_bounds:
             new_process = replace(
                 self.state.config.process,
                 use_luma_average=True,
                 use_color_average=True,
-                locked_floors=locked_floors,
-                locked_ceils=locked_ceils,
-                roll_name=None,
+                locked_floors=floors,
+                locked_ceils=ceils,
+                roll_name=roll_name,
             )
             self.session.update_config(replace(self.state.config, process=new_process), persist=True)
+        return locked_skipped
 
-        if self.state.active_roll_id is not None:
-            rolls.set_roll_normalization(self.session.repo, self.state.active_roll_id, locked_floors, locked_ceils)
+    def _on_normalization_finished(self, locked_floors: tuple, locked_ceils: tuple, outlier_paths: list) -> None:
+        """
+        Applies the averaged baseline to the analyzed scope and records it on the roll
+        (rolls.set_roll_normalization) or the scene (rolls.set_scene_normalization).
+        *outlier_paths* are frames whose own bounds fell outside the pooled average on at
+        least one channel: they still take the baseline (a report, not an exemption).
+        """
+        scene_id = self._normalization_scope
+        locked_skipped = self._push_bounds(self._normalization_targets(scene_id), locked_floors, locked_ceils, roll_name=None)
+
+        roll_id = self.state.active_roll_id
+        if scene_id is None:
+            if roll_id is not None:
+                rolls.set_roll_normalization(self.session.repo, roll_id, locked_floors, locked_ceils)
+            message = "Roll analysis complete"
+            scope_word = "roll"
+        else:
+            rolls.set_scene_normalization(self.session.repo, roll_id, scene_id, locked_floors, locked_ceils)
+            self.session.refresh_scene_marks()
+            message = f"Scene “{self._scene_name(scene_id)}” analyzed"
+            scope_word = "scene"
 
         names_by_path = {f["path"]: f["name"] for f in self.state.uploaded_files}
         outlier_names = [names_by_path.get(p, p) for p in outlier_paths]
-        message = "Batch analysis complete"
         timeout = 3000
         if locked_skipped:
             message += f" — {count_of(locked_skipped, 'locked frame')} kept its own exposure"
@@ -4161,9 +4225,18 @@ class AppController(QObject):
             shown = ", ".join(outlier_names[:3])
             if len(outlier_names) > 3:
                 shown += f" +{len(outlier_names) - 3} more"
-            message += f". {count_of(len(outlier_names), 'frame')} far from the roll average: {shown}"
+            message += f". {count_of(len(outlier_names), 'frame')} far from the {scope_word} average: {shown}"
             timeout = 8000
         self.set_status(message, timeout=timeout)
+
+        while self._scene_queue:
+            next_id = self._scene_queue.pop(0)
+            frames = self._normalization_targets(next_id)
+            if frames:
+                self._dispatch_normalization(next_id, frames)
+                self.request_render()
+                return
+        self._end_batch("normalization")
         self.status_progress_requested.emit(0, 0)
         self.request_render()
 
@@ -4179,7 +4252,7 @@ class AppController(QObject):
 
     def set_roll_baseline_from_frame(self, roll_id: str) -> None:
         """Save the active frame's rendered bounds as the roll's baseline, then push them
-        out the way a Batch Analysis result is pushed. A standing rule, not a one-shot
+        out the way a Roll Analysis result is pushed. A standing rule, not a one-shot
         copy: a frame loaded later reads the same baseline."""
         bounds = _source_effective_bounds(self.state.config.process)
         if bounds is None:
@@ -4191,8 +4264,8 @@ class AppController(QObject):
 
     def apply_normalization_roll(self, roll_id: str) -> None:
         """
-        Loads a roll's saved Batch Analysis baseline onto every loaded file that has
-        not locked its own bounds. No-op if that roll has never been analyzed.
+        Loads a roll's saved Roll Analysis baseline onto every loaded frame outside a
+        scene that has not locked its own bounds. No-op if that roll has never been analyzed.
         """
         data = rolls.roll_normalization(self.session.repo, roll_id)
         if not data:
@@ -4201,46 +4274,58 @@ class AppController(QObject):
         name = entry["name"] if entry else roll_id
         locked_floors, locked_ceils = data["floors"], data["ceils"]
 
-        locked_skipped = 0
-        changed_hashes: list[str] = []
-        for f_info in self.state.uploaded_files:
-            p = self.session.repo.load_file_settings(f_info["hash"]) or self.session.config_for_asset(f_info)
-            if p.process.lock_bounds:
-                locked_skipped += 1
-                continue
-            new_process = replace(
-                p.process,
-                use_luma_average=True,
-                use_color_average=True,
-                locked_floors=locked_floors,
-                locked_ceils=locked_ceils,
-                roll_name=name,
-            )
-            new_p = replace(p, process=new_process)
-            if f_info["hash"] != self.state.current_file_hash:
-                self.session.push_external_history(f_info["hash"], p, new_p)
-                changed_hashes.append(f_info["hash"])
-            self.session.repo.save_file_settings(f_info["hash"], new_p, file_path=f_info["path"])
-
-        if changed_hashes:
-            self.session.frames_edited_offscreen.emit(changed_hashes)
-
-        if not self.state.config.process.lock_bounds:
-            new_process = replace(
-                self.state.config.process,
-                use_luma_average=True,
-                use_color_average=True,
-                locked_floors=locked_floors,
-                locked_ceils=locked_ceils,
-                roll_name=name,
-            )
-            self.session.update_config(replace(self.state.config, process=new_process), persist=True)
+        locked_skipped = self._push_bounds(self._normalization_targets(None), locked_floors, locked_ceils, roll_name=name)
 
         message = f'Applied "{name}"\'s baseline'
         if locked_skipped:
             message += f" — {count_of(locked_skipped, 'locked frame')} kept its own exposure"
         self.set_status(message, 2000)
         self.request_render()
+
+    def _selected_scene_hashes(self) -> List[str]:
+        files = self.state.uploaded_files
+        targets = [i for i in (self.state.selected_indices or [self.state.selected_file_idx]) if 0 <= i < len(files)]
+        return [rolls.unforked_hash(files[i]["hash"]) for i in targets]
+
+    def _edit_scenes(self, edit: Callable[[str], Any]) -> Any:
+        roll_id = self.state.active_roll_id
+        if roll_id is None:
+            self.set_status("Save the Film Strip as a roll before grouping scenes", 3000)
+            return None
+        result = edit(roll_id)
+        self.session.refresh_scene_marks()
+        return result
+
+    def request_group_as_scene(self, name: str) -> Optional[str]:
+        hashes = self._selected_scene_hashes()
+        if not hashes:
+            return None
+        return self._edit_scenes(lambda roll_id: rolls.create_scene(self.session.repo, roll_id, name, hashes))
+
+    def request_add_to_scene(self, scene_id: str) -> None:
+        hashes = self._selected_scene_hashes()
+        self._edit_scenes(lambda roll_id: rolls.add_to_scene(self.session.repo, roll_id, scene_id, hashes))
+
+    def request_remove_from_scene(self) -> None:
+        hashes = self._selected_scene_hashes()
+        self._edit_scenes(lambda roll_id: rolls.remove_from_scenes(self.session.repo, roll_id, hashes))
+
+    def request_rename_scene(self, scene_id: str, name: str) -> None:
+        self._edit_scenes(lambda roll_id: rolls.rename_scene(self.session.repo, roll_id, scene_id, name))
+
+    def request_delete_scene(self, scene_id: str) -> None:
+        """Forgets the grouping only; members keep the baseline they last took."""
+        self._edit_scenes(lambda roll_id: rolls.delete_scene(self.session.repo, roll_id, scene_id))
+
+    def select_scene_frames(self, scene_id: str) -> None:
+        members = {f["hash"] for f in self._normalization_targets(scene_id)}
+        indices = [i for i, f in enumerate(self.state.uploaded_files) if f["hash"] in members]
+        if not indices:
+            return
+        if self.state.selected_file_idx in indices:
+            self.session.update_selection(indices)
+        else:
+            self.session.select_file(indices[0], selection_override=indices)
 
     _ROLL_CARDS = (
         "film",

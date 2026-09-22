@@ -1068,3 +1068,43 @@ def test_each_composite_kind_draws_its_own_glyph(qapp):
     for i, a in enumerate(corners):
         for b in corners[i + 1 :]:
             assert a != b
+
+
+def _scene_menu(menu):
+    return next(a.menu() for a in menu.actions() if a.text() == "Scene")
+
+
+def test_scene_menu_is_absent_without_a_roll(browser, session):
+    session.state.selected_indices = [0, 1]
+    assert "Scene" not in _action_labels(browser._build_context_menu())
+
+
+def test_scene_menu_offers_group_and_add_for_loose_frames(browser, session):
+    from negpy.services.assets import rolls
+
+    session.state.active_roll_id = "roll-1"
+    session.state.selected_indices = [0, 1]
+    with patch.object(rolls, "roll_scenes", return_value=[("s1", {"name": "Beach"})]):
+        labels = _action_labels(_scene_menu(browser._build_context_menu()))
+    assert labels == ["Group as Scene…", "Add to Beach"]
+
+
+def test_scene_menu_for_members_of_one_scene(browser, session):
+    from negpy.services.assets import rolls
+
+    session.state.active_roll_id = "roll-1"
+    session.state.selected_indices = [0]
+    session.state.selected_file_idx = 0
+    session.state.uploaded_files[0]["scene"] = (1, "s1", "Beach")
+    with patch.object(rolls, "roll_scenes", return_value=[("s1", {"name": "Beach"}), ("s2", {"name": "Night"})]):
+        menu = _scene_menu(browser._build_context_menu())
+    assert _action_labels(menu) == ["Add to Night", "Remove from Scene", "Analyze Scene…", "Rename Scene…", "Delete Scene…"]
+    next(a for a in menu.actions() if a.text() == "Analyze Scene…").trigger()
+    browser.controller.request_scene_analysis.assert_called_once_with("s1")
+
+
+def test_tooltip_names_the_scene(session):
+    session.state.uploaded_files[0]["scene"] = (1, "s1", "Beach")
+    session.asset_model.refresh()
+    tip = session.asset_model.data(session.asset_model.index(0), Qt.ItemDataRole.ToolTipRole)
+    assert "Scene: Beach" in tip

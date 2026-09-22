@@ -23,6 +23,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "prev_file": ShortcutEntry("Left", "Previous file", "Navigation"),
     "next_file": ShortcutEntry("Right", "Next file", "Navigation"),
     "toggle_keep": ShortcutEntry("K", "Mark frame as keeper", "Triage"),
+    "toggle_scene_overlay": ShortcutEntry("", "Show or hide scene marks on the film strip", "Triage"),
     "toggle_reject": ShortcutEntry("Shift+X", "Reject frame (skipped by batch export)", "Triage"),
     # No default key: nothing obvious is free, and an invented binding that collides makes Qt
     # fire activatedAmbiguously and kills both actions.
@@ -119,6 +120,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "mask_spacer_dec": ShortcutEntry("", "Mask Spacer down", "Exposure"),
     "mask_spacer_inc": ShortcutEntry("", "Mask Spacer up", "Exposure"),
     "lock_bounds_toggle": ShortcutEntry("Alt+Q", "Toggle bounds lock", "Process"),
+    "reanalyze_frame": ShortcutEntry("", "Reanalyze this frame's bounds", "Process"),
     "metadata_preset_load": ShortcutEntry("", "Load the selected metadata preset onto this frame", "Actions"),
     "metadata_clear_gear": ShortcutEntry("", "Clear the frame's camera, lens and film stock", "Actions"),
     "metadata_clear_process": ShortcutEntry("", "Clear the frame's development process", "Actions"),
@@ -235,7 +237,8 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "reset_tab": ShortcutEntry("", "Reset this tab to defaults", "Actions"),
     "apply_tab": ShortcutEntry("", "Apply this tab to the roll…", "Actions"),
     "toggle_tab_cards": ShortcutEntry("", "Expand or collapse this tab's cards", "Actions"),
-    "roll_batch_analysis": ShortcutEntry("", "Batch Analysis (measure the roll's baseline)", "Actions"),
+    "roll_batch_analysis": ShortcutEntry("", "Roll Analysis (measure the roll's baseline)", "Actions"),
+    "analyze_all_scenes": ShortcutEntry("", "Analyze every scene of the roll", "Actions"),
     "roll_settings": ShortcutEntry("", "Open Roll Settings", "Actions"),
     "save_as_roll": ShortcutEntry("", "Save the loaded frames as a roll", "Actions"),
     "import_roll": ShortcutEntry("", "Import a folder as a roll", "Actions"),

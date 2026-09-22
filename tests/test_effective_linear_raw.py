@@ -165,7 +165,7 @@ class TestDecodeAndMatrixAgree:
         from negpy.desktop.workers import render
 
         src = inspect.getsource(render)
-        assert "params.process.linear_raw if params else" not in src, "Batch Analysis is back on the stored flag"
+        assert "params.process.linear_raw if params else" not in src, "Roll Analysis is back on the stored flag"
         assert "effective_linear_raw" in src
 
     def test_neighbour_prefetch_keys_on_the_same_decode(self):

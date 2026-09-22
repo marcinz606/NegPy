@@ -16,7 +16,23 @@ FLAG_FIELDS = frozenset({"keeper", "rejected", "edited"})
 NUMERIC_FIELDS = frozenset({"iso", "frame", "push", "devtime", "temp"})
 # shot is truncated ISO-8601, so the prefix comparison below orders it without parsing a date.
 TEXT_FIELDS = frozenset(
-    {"name", "path", "ext", "film", "camera", "lens", "developer", "dilution", "format", "scanning", "roll", "date", "shot", "place"}
+    {
+        "name",
+        "path",
+        "ext",
+        "film",
+        "camera",
+        "lens",
+        "developer",
+        "dilution",
+        "format",
+        "scanning",
+        "roll",
+        "date",
+        "shot",
+        "place",
+        "scene",
+    }
 )
 FIELDS = FLAG_FIELDS | NUMERIC_FIELDS | TEXT_FIELDS
 
@@ -131,6 +147,7 @@ def facts_for(asset: dict, config: Any = None) -> dict[str, Any]:
         "keeper": bool(asset.get("keeper")),
         "rejected": bool(asset.get("excluded")),
         "edited": config is not None,
+        "scene": str((asset.get("scene") or (0, "", ""))[2]).casefold(),
     }
     if config is None:
         return facts

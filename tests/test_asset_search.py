@@ -238,3 +238,11 @@ def test_backslash_is_a_path_separator_not_an_escape():
     r"""A Windows path survives tokenizing: a \ separates path parts, it does not escape."""
     assert parse_query(r"path:roll12\img_0042") == [Term("path", ":", r"roll12\img_0042")]
     assert _hits(r"path:roll12\img_0042", path=r"c:\photos\roll12\img_0042.nef") is True
+
+
+def test_scene_field_matches_the_frames_scene_name():
+    beach = facts_for({"name": "a.NEF", "scene": (1, "s1", "Beach Day")}, None)
+    loose = facts_for({"name": "b.NEF"}, None)
+    terms = parse_query("scene:beach")
+    assert match(terms, beach)
+    assert not match(terms, loose)

@@ -2729,6 +2729,94 @@ class TestPresetExportSelected(unittest.TestCase):
 
         mock_set.assert_not_called()
 
+    def _scene_setup(self):
+        self.mock_session_manager.state.active_roll_id = "roll-1"
+        self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
+        return patch.object(rolls, "scene_by_hash", return_value={"h1": (1, "s1", "Beach"), "h3": (1, "s1", "Beach")})
+
+    def test_roll_analysis_skips_scene_members(self):
+        with self._scene_setup(), patch.object(rolls, "set_roll_normalization") as mock_set:
+            self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9), [])
+
+        saved = {c.args[0] for c in self.mock_session_manager.repo.save_file_settings.call_args_list}
+        self.assertEqual(saved, {"h2"})
+        mock_set.assert_called_once()
+
+    def test_scene_analysis_writes_members_and_stores_on_the_scene(self):
+        self.controller._normalization_scope = "s1"
+        with (
+            self._scene_setup(),
+            patch.object(rolls, "set_roll_normalization") as mock_roll,
+            patch.object(rolls, "set_scene_normalization") as mock_scene,
+        ):
+            self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9), [])
+
+        saved = {c.args[0] for c in self.mock_session_manager.repo.save_file_settings.call_args_list}
+        self.assertEqual(saved, {"h1", "h3"})
+        mock_roll.assert_not_called()
+        mock_scene.assert_called_once_with(self.mock_session_manager.repo, "roll-1", "s1", (0.1, 0.1, 0.1), (0.9, 0.9, 0.9))
+        # h2, the active frame, is outside the scene, so its in-memory config is untouched.
+        self.mock_session_manager.update_config.assert_not_called()
+
+    def test_apply_normalization_roll_skips_scene_members(self):
+        data = {"floors": (0.1, 0.1, 0.1), "ceils": (0.9, 0.9, 0.9), "cast": (0.0, 0.0, 0.0)}
+        with (
+            self._scene_setup(),
+            patch.object(rolls, "roll_normalization", return_value=data),
+            patch.object(rolls, "roll_for_id", return_value={"name": "Tri-X"}),
+        ):
+            self.controller.apply_normalization_roll("roll-1")
+
+        saved = {c.args[0] for c in self.mock_session_manager.repo.save_file_settings.call_args_list}
+        self.assertEqual(saved, {"h2"})
+
+    def test_analyze_all_scenes_runs_each_scene_in_turn(self):
+        by_hash = {"h1": (1, "s1", "Beach"), "h3": (2, "s2", "Night")}
+        scenes = [("s1", {"name": "Beach"}), ("s2", {"name": "Night"})]
+        emitted = []
+        self.controller.normalization_requested.connect(emitted.append)
+        with (
+            patch.object(rolls, "scene_by_hash", return_value=by_hash),
+            patch.object(rolls, "roll_scenes", return_value=scenes),
+            patch.object(rolls, "set_scene_normalization") as mock_scene,
+            patch.object(self.controller, "_confirm_normalization", return_value=True),
+        ):
+            self.mock_session_manager.state.active_roll_id = "roll-1"
+            self.mock_session_manager.repo.load_file_settings.return_value = None
+            self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
+            self.controller.request_analyze_all_scenes()
+            self.assertEqual([f.file_info["hash"] for f in emitted[0].frames], ["h1"])
+
+            self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9), [])
+            self.assertEqual([f.file_info["hash"] for f in emitted[1].frames], ["h3"])
+            self.assertEqual(self.controller._active_batch, "normalization")
+
+            self.controller._on_normalization_finished((0.2, 0.2, 0.2), (0.8, 0.8, 0.8), [])
+            self.assertIsNone(self.controller._active_batch)
+
+        self.assertEqual([c.args[2] for c in mock_scene.call_args_list], ["s1", "s2"])
+
+    def test_cancel_clears_the_scene_queue(self):
+        self.controller._scene_queue = ["s2"]
+        self.controller._on_normalization_cancelled()
+        self.assertEqual(self.controller._scene_queue, [])
+
+    def test_group_as_scene_needs_a_roll(self):
+        self.mock_session_manager.state.active_roll_id = None
+        self.mock_session_manager.state.selected_indices = [0, 1]
+        with patch.object(rolls, "create_scene") as mock_create:
+            self.assertIsNone(self.controller.request_group_as_scene("Beach"))
+        mock_create.assert_not_called()
+
+    def test_group_as_scene_uses_the_selection(self):
+        self.mock_session_manager.state.active_roll_id = "roll-1"
+        self.mock_session_manager.state.selected_indices = [0, 2]
+        with patch.object(rolls, "create_scene", return_value="s1") as mock_create:
+            self.assertEqual(self.controller.request_group_as_scene("Beach"), "s1")
+        mock_create.assert_called_once_with(self.mock_session_manager.repo, "roll-1", "Beach", ["h1", "h3"])
+        self.mock_session_manager.refresh_scene_marks.assert_called_once()
+
     def test_apply_normalization_roll_is_a_noop_for_an_unanalyzed_roll(self):
         with patch.object(rolls, "roll_normalization", return_value=None):
             self.controller.apply_normalization_roll("roll-1")

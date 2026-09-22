@@ -68,7 +68,7 @@ class SensorSidebar(BaseSidebar):
             "your sensor + light, independent of film. Calibrate it from three bare-light R/G/B "
             "exposures; custom .toml matrices live in the NegPy/sensor folder. Skipped automatically "
             "for RGB-triplet assets, when Linear RAW is off, and on transparencies — which are not "
-            "scanned with narrowband light. Re-run Batch Analysis after changing this."
+            "scanned with narrowband light. Re-run Roll Analysis after changing this."
             "</td></tr></table>"
         )
         self.calibrate_sensor_btn = self._icon_action("fa5s.vials", "Calibrate the sensor from three bare-light R/G/B exposures", width=32)
@@ -113,7 +113,7 @@ class SensorSidebar(BaseSidebar):
             "the six off-diagonal terms and save your own profile — name it after the combination "
             "('Gold 200 + Spectracolor'). A profile measured on your own rig beats any datasheet. "
             "Custom .toml matrices live in the NegPy/crosstalk folder (see docs/CROSSTALK.md).<br><br>"
-            "Re-run Batch Analysis after changing this."
+            "Re-run Roll Analysis after changing this."
             "</td></tr></table>"
         )
         self.manage_crosstalk_btn = self._icon_action(

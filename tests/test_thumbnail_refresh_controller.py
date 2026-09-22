@@ -136,7 +136,7 @@ class TestThumbnailRefreshController:
 
     def test_dispatch_while_already_running_is_folded_into_resume_not_dropped(self) -> None:
         """A bulk write landing while a generation is already using norm_thread (e.g.
-        Batch Analysis's own completion write, arriving during its own pre-emption
+        Roll Analysis's own completion write, arriving during its own pre-emption
         window) must not be lost outright — it gets picked up the moment the current
         generation ends, same as a pre-emption's own leftover frames."""
         self.controller.refresh_thumbnails_for(["other"])

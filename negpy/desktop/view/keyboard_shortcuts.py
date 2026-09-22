@@ -165,6 +165,7 @@ class ShortcutManager:
             "prev_file": controller.session.prev_file,
             "next_file": controller.session.next_file,
             "toggle_keep": lambda: controller.session.toggle_mark("keeper"),
+            "toggle_scene_overlay": lambda: self.window.session_panel.file_browser.scenes_btn.click(),
             "hdr_merge": controller.request_hdr_merge_selected,
             "hdr_unmerge": controller.request_unmerge_hdr,
             # The view method, not the controller's: it carries the confirm the deletion needs.
@@ -186,6 +187,7 @@ class ShortcutManager:
             "flip_h": lambda: toolbar.flip("horizontal"),
             "flip_v": lambda: toolbar.flip("vertical"),
             "lock_bounds_toggle": lambda: controls.process_sidebar.lock_bounds_btn.toggle(),
+            "reanalyze_frame": lambda: controls.process_sidebar.reanalyze_frame_btn.click(),
             "metadata_preset_load": lambda: right.metadata_sidebar.metadata_preset_load_btn.click(),
             "metadata_clear_gear": lambda: right.metadata_sidebar.gear_clear_btn.click(),
             "metadata_clear_process": lambda: right.metadata_sidebar.process_clear_btn.click(),
@@ -265,6 +267,7 @@ class ShortcutManager:
             "apply_tab": lambda: _fire_tab_header(right, "apply"),
             "toggle_tab_cards": lambda: _fire_tab_header(right, "cards"),
             "roll_batch_analysis": controller.request_batch_normalization,
+            "analyze_all_scenes": controller.request_analyze_all_scenes,
             "roll_settings": lambda: self.window.session_panel.file_browser.roll_settings_btn.click(),
             "save_as_roll": lambda: self.window.session_panel.file_browser.save_roll_btn.click(),
             "import_roll": lambda: self.window.session_panel.library_tree.prompt_import_folder(),
