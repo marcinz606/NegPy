@@ -420,12 +420,8 @@ class MetadataSidebar(BaseSidebar):
             section.set_scope_buttons(
                 True,
                 "frame" if locked or not has_roll else "roll",
-                roll_tooltip=(
-                    f"{label} follows the roll — click to give the roll this frame's value" if has_roll else NO_ROLL_SCOPE_HINT
-                ),
-                frame_tooltip=(
-                    f"{label} is this frame's own — click to rejoin the roll" if has_roll else f"{label} is this frame's own"
-                ),
+                roll_tooltip=(f"{label} follows the roll — click to give the roll this frame's value" if has_roll else NO_ROLL_SCOPE_HINT),
+                frame_tooltip=(f"{label} is this frame's own — click to rejoin the roll" if has_roll else f"{label} is this frame's own"),
                 roll_enabled=has_roll,
             )
             if locked:
