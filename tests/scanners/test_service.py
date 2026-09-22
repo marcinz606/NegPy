@@ -312,3 +312,21 @@ def test_a_backend_that_counts_slots_measures_nothing(fake_device: ScannerDevice
     service._backend = FakeBackend(devices=[fake_device])
 
     assert service.detect_frames("fake:001") == 0
+
+
+def test_meter_delegates_to_a_backend_that_offers_it() -> None:
+    class _Metering(FakeBackend):
+        def meter(self, device_id, params, progress, cancel):
+            return {"red": 1, "device": device_id}
+
+    service = ScannerService(backend=_Metering())
+    assert service.meter("dev", ScanParams(dpi=1, depth=16, capture_ir=False), lambda *_: None, threading.Event()) == {
+        "red": 1,
+        "device": "dev",
+    }
+
+
+def test_meter_on_a_backend_without_it_is_refused() -> None:
+    service = ScannerService(backend=FakeBackend())
+    with pytest.raises(RuntimeError, match="cannot meter"):
+        service.meter("dev", ScanParams(dpi=1, depth=16, capture_ir=False), lambda *_: None, threading.Event())

@@ -52,7 +52,7 @@ from negpy.desktop.workers.render import (
     ThumbnailWorker,
 )
 from negpy.desktop.workers.embedding import EmbeddingWorker
-from negpy.desktop.workers.scan_worker import BatchRequest, PrescanRequest, RollPreviewRequest, ScanRequest, ScanWorker
+from negpy.desktop.workers.scan_worker import BatchRequest, MeterRequest, PrescanRequest, RollPreviewRequest, ScanRequest, ScanWorker
 from negpy.desktop.workers.library import LibrarySearchTask, LibrarySearchWorker
 from negpy.desktop.workers.hdr import HdrTask, HdrWorker
 from negpy.desktop.workers.stitch import StitchTask, StitchWorker
@@ -429,6 +429,9 @@ class AppController(QObject):
     scan_prescan_requested = pyqtSignal(PrescanRequest)
     scan_prescan_ready = pyqtSignal(object)  # ScanResult from a low-DPI full-window preview
     scan_prescan_error = pyqtSignal(str)
+    scan_meter_requested = pyqtSignal(MeterRequest)
+    scan_exposure_metered = pyqtSignal(object, int)  # per-channel exposures, the frame metered
+    scan_meter_error = pyqtSignal(str)
     capture_light_requested = pyqtSignal(int, int, int, int, str)
     capture_requested = pyqtSignal(CaptureRequest)
     capture_light_set = pyqtSignal(int, int, int, int)
@@ -864,6 +867,9 @@ class AppController(QObject):
         self.scan_prescan_requested.connect(self.scan_worker.run_prescan)
         self.scan_worker.prescan_ready.connect(self.scan_prescan_ready.emit)
         self.scan_worker.prescan_error.connect(self.scan_prescan_error.emit)
+        self.scan_meter_requested.connect(self.scan_worker.run_meter)
+        self.scan_worker.exposure_metered.connect(self.scan_exposure_metered.emit)
+        self.scan_worker.meter_error.connect(self.scan_meter_error.emit)
         self.capture_light_requested.connect(self.capture_worker.set_light)
         self.capture_requested.connect(self.capture_worker.run_capture)
         self.capture_worker.light_set.connect(self.capture_light_set.emit)
@@ -4888,6 +4894,11 @@ class AppController(QObject):
         """Low-DPI full-window colour preview for crop setup (dialog-local)."""
         self.scan_worker.prepare_scan()
         self.scan_prescan_requested.emit(req)
+
+    def start_meter(self, req: MeterRequest) -> None:
+        """Meter one frame for the exposure lock (results via scan_exposure_metered)."""
+        self.scan_worker.prepare_scan()
+        self.scan_meter_requested.emit(req)
 
     def eject_scanner(self, device_id: str) -> None:
         """Trigger the scanner's eject action on the worker thread."""

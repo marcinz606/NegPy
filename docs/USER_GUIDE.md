@@ -1032,6 +1032,7 @@ Capture film directly into NegPy. Two collapsible sections.
 *   **Superfine**: one line per pass. Slower, with no host-side line registration.
 *   **Film**: Color negative, B&W negative, Slide or Kodachrome. Sets how frame boundaries are read, whether IR and ICE are offered (not for B&W or Kodachrome), and metering: a color negative is metered per channel to take the orange mask off before conversion; other films keep the factory balance.
 *   **Film format**: frame length (135, 66, 645 and so on). **Auto** where the holder narrows it; set it for loose film in a masked carrier. Shown only where the transport measures the film.
+*   **Exposure** (**Meter Frame…** / **Unlock**): nkscan meters every frame on its own, so a strip end, which meters on the bare light past the cut, keeps a color negative's orange mask and scans with a different color. **Meter Frame…** meters one frame of the loaded strip (pick one inside the strip, such as frame 2) and every later scan on this scanner reuses its exposure, across strips and restarts, until **Unlock**. Meter again for each new roll.
 
 Controls follow what the unit reports; an LS-50 hides Samples and Superfine. Install **nkscan** 0.11 or newer from source with `uv sync --group nkscan` or `pip install negpy[nkscan]`. On Linux, USB needs a udev rule for vendor `04b0`; FireWire/SCSI needs the `sg` module.
 

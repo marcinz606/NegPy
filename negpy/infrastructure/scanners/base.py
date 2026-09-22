@@ -55,6 +55,8 @@ class ScannerCapabilities:
     film_types: tuple[str, ...] = ()
     max_samples: int = 1  # per-line multi-sample bound; 1 = single read
     superfine: bool = False  # one line per pass, slower, owes the host no registration
+    #: One metered exposure can be reused for every later scan (`ScanParams.exposures`).
+    exposure_lock: bool = False
 
 
 @dataclass(frozen=True)

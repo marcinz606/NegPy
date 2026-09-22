@@ -529,3 +529,67 @@ def test_the_scan_logs_the_detected_and_the_shifted_rect(caplog) -> None:
 
     assert "detected (10742, 0, 16410, 3945)" in caplog.text
     assert "+1.00 mm" in caplog.text
+
+
+# ── exposure lock ─────────────────────────────────────────────────────────
+
+
+def _meter(backend, params=_PARAMS):
+    return backend.meter(DEVICE_ID, params, lambda *_: None, threading.Event())
+
+
+def test_the_backend_offers_an_exposure_lock() -> None:
+    backend, _ = make_backend()
+    assert backend.list_devices()[0].capabilities.exposure_lock
+
+
+def test_locked_exposures_reach_the_scan_and_skip_metering() -> None:
+    backend, module = make_backend()
+    locked = {"red": 5, "green": 6, "blue": 7}
+    _scan(backend, dataclasses.replace(_PARAMS, exposures=locked))
+    assert module.opened[-1].scans[-1]["exposures"] == locked
+
+
+def test_a_scan_reports_the_exposures_it_ran_at() -> None:
+    backend, _ = make_backend()
+    assert _scan(backend).exposures == {"red": 1, "green": 2, "blue": 3}
+
+
+def test_metering_reads_the_whole_detected_frame_with_its_offset_but_not_the_window() -> None:
+    backend, module = make_backend()
+    params = dataclasses.replace(_PARAMS, frame=2, frame_offset_mm=1.0, window=(0.1, 0.1, 0.9, 0.9))
+
+    exposures = _meter(backend, params)
+
+    session = module.opened[-1]
+    assert session.meters == [{"frame": _shift_frame(FRAMES[1], _offset_units(1.0, 4000)), "infrared": True, "lock_white_balance": False}]
+    assert session.scans == []
+    assert exposures == {"red": 11, "green": 22, "blue": 33, "infrared": 44}
+    assert session.closed
+
+
+def test_metering_without_meter_frame_takes_the_smallest_scan(monkeypatch) -> None:
+    monkeypatch.delattr(fake_nkscan.FakeSession, "meter_frame")
+    backend, module = make_backend()
+
+    exposures = _meter(backend, dataclasses.replace(_PARAMS, frame=2))
+
+    scan = module.opened[-1].scans[-1]
+    assert (scan["frame"], scan["dpi"], scan["samples"], scan["infrared"], scan["clean"]) == (FRAMES[1], 500, 1, True, False)
+    assert exposures == {"red": 1, "green": 2, "blue": 3}
+
+
+def test_metering_without_meter_frame_still_works_on_a_unit_with_no_fast_read(monkeypatch) -> None:
+    monkeypatch.delattr(fake_nkscan.FakeSession, "meter_frame")
+    backend, module = make_backend(caps=FakeCapabilities(multi_line=False))
+
+    _meter(backend)
+
+    assert module.opened[-1].scans[-1]["superfine"] is True
+
+
+def test_a_held_device_refuses_a_stateless_meter() -> None:
+    backend, _ = make_backend()
+    with backend.open_session(DEVICE_ID):
+        with pytest.raises(RuntimeError, match="held"):
+            _meter(backend)

@@ -89,6 +89,19 @@ class ScannerService:
             return native(device, dpi=dpi, film_format=film_format, film_type=film_type)
         return PerFrameRollSession(backend, device, dpi=dpi)
 
+    def meter(
+        self,
+        device_id: str,
+        params: ScanParams,
+        progress: Callable[[float, str], None],
+        cancel: threading.Event,
+    ) -> dict[str, int]:
+        """Per-channel exposures for `params.frame`, for later scans to reuse. Writes nothing."""
+        meter = getattr(self._get_backend(), "meter", None)
+        if meter is None:
+            raise RuntimeError("This scanner cannot meter a frame on its own")
+        return meter(device_id, params, progress, cancel)
+
     def run_scan(
         self,
         device_id: str,

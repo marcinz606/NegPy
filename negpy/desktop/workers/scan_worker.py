@@ -65,6 +65,22 @@ class BatchRequest:
     frame_offsets: dict[int, float] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class MeterRequest:
+    """Meter one frame for the exposure lock. `params.frame` is the frame; nothing is written."""
+
+    device_id: str
+    params: ScanParams
+    # The batch's drift and per-frame corrections, so the metered film is the film it scans.
+    frame_offset_modifier_mm: float = 0.0
+    frame_offsets: dict[int, float] = field(default_factory=dict)
+
+
+def frame_offset_mm(base_mm: float, modifier_mm: float, corrections: dict[int, float], frame: int) -> float:
+    """Feed-axis offset of `frame`: the base, the drift ramp, then its own correction."""
+    return base_mm + (frame - 1) * modifier_mm + corrections.get(frame, 0.0)
+
+
 class ScanWorker(QObject):
     """Background worker for scanner operations. Mirrors RenderWorker pattern."""
 
@@ -81,6 +97,8 @@ class ScanWorker(QObject):
     roll_preview_finished = pyqtSignal()  # the whole strip is done (also after a failed slot)
     prescan_ready = pyqtSignal(object)  # ScanResult RGB preview (no file written)
     prescan_error = pyqtSignal(str)
+    exposure_metered = pyqtSignal(object, int)  # per-channel exposures, the frame metered
+    meter_error = pyqtSignal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -225,7 +243,7 @@ class ScanWorker(QObject):
                 window = req.frame_windows.get(frame, req.params.window)
                 # No floor here: a transport that cannot back up clamps in its own backend, and
                 # one that re-addresses an absolute frame may legitimately go negative.
-                offset = req.params.frame_offset_mm + (frame - 1) * req.frame_offset_modifier_mm + req.frame_offsets.get(frame, 0.0)
+                offset = frame_offset_mm(req.params.frame_offset_mm, req.frame_offset_modifier_mm, req.frame_offsets, frame)
                 frame_params = dataclasses.replace(req.params, frame=frame, window=window, frame_offset_mm=offset)
                 logger.info("Batch frame %d at %+.2f mm on the feed axis", frame, offset)
                 base = index / total
@@ -385,6 +403,48 @@ class ScanWorker(QObject):
             self.prescan_error.emit(str(payload or "Unknown prescan error"))
         else:
             self.prescan_ready.emit(payload)
+
+    @pyqtSlot(MeterRequest)
+    def run_meter(self, req: MeterRequest) -> None:
+        """Meter one frame and emit its exposures; writes no file."""
+        with self._state_lock:
+            if not self._request_prepared:
+                self._cancel_event.clear()
+            self._request_prepared = False
+            self._scanning = True
+
+        frame = int(req.params.frame or 1)
+        params = dataclasses.replace(
+            req.params,
+            frame=frame,
+            frame_offset_mm=frame_offset_mm(req.params.frame_offset_mm, req.frame_offset_modifier_mm, req.frame_offsets, frame),
+        )
+        outcome: tuple[str, object | None] = ("finished", None)
+        try:
+            if self._cancel_event.is_set():
+                outcome = ("cancelled", None)
+            else:
+                exposures = self._ensure_service().meter(
+                    req.device_id,
+                    params,
+                    lambda fraction, phase="Metering": self.progress.emit(fraction, phase),
+                    self._cancel_event,
+                )
+                outcome = ("cancelled", None) if self._cancel_event.is_set() else ("finished", exposures)
+        except Exception as error:
+            logger.exception("Metering failed")
+            outcome = ("cancelled", None) if self._cancel_event.is_set() else ("error", str(error))
+        finally:
+            with self._state_lock:
+                self._scanning = False
+
+        kind, payload = outcome
+        if kind == "cancelled":
+            self.cancelled.emit()
+        elif kind == "error":
+            self.meter_error.emit(str(payload or "Unknown metering error"))
+        else:
+            self.exposure_metered.emit(payload, frame)
 
     def prepare_scan(self) -> None:
         """Arm one queued scan without losing a Stop pressed before it starts."""

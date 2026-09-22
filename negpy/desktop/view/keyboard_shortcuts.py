@@ -196,6 +196,9 @@ class ShortcutManager:
             "metadata_clear_scanning": lambda: right.metadata_sidebar.scan_clear_btn.click(),
             "scan_setup": lambda: controls.sensor_sidebar.scan_setup_btn.click(),
             "scan_prescan": (lambda: right.scan_sidebar.prescan_btn.click() if getattr(right, "scan_sidebar", None) is not None else None),
+            "scan_meter_frame": (
+                lambda: right.scan_sidebar.exposure_meter_btn.click() if getattr(right, "scan_sidebar", None) is not None else None
+            ),
             "mode_color_negative": lambda: controls.process_sidebar.mode_btns[0].click(),
             "mode_bw_negative": lambda: controls.process_sidebar.mode_btns[1].click(),
             "mode_transparency": lambda: controls.process_sidebar.mode_btns[2].click(),

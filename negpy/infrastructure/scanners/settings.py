@@ -51,6 +51,12 @@ class ScannerSettings:
     frame_offsets: dict[int, float] = field(default_factory=dict)
     # Strip preview tile height (px); the width follows the device aspect.
     strip_tile_height: int = 140
+    # Exposure lock: per-channel exposures metered on one frame, reused by every scan on this
+    # device until unlocked, so every strip of a roll is exposed alike.
+    exposure_lock: dict[str, int] | None = None
+    exposure_lock_device: str = ""
+    exposure_lock_frame: int = 0
+    exposure_lock_at: str = ""  # ISO time of the metering run
 
     def __post_init__(self) -> None:
         # JSON round-trips tuples as lists and dict keys as strings; coerce back.

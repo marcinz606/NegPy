@@ -128,6 +128,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "metadata_clear_scanning": ShortcutEntry("", "Clear the frame's scan setup", "Actions"),
     "scan_setup": ShortcutEntry("", "Scanning setup wizard", "Process"),
     "scan_prescan": ShortcutEntry("", "Prescan and set crop (Plustek)", "Process"),
+    "scan_meter_frame": ShortcutEntry("", "Meter a frame and lock the scan exposure (Coolscan)", "Process"),
     "mode_color_negative": ShortcutEntry("", "Mode: Color Negative", "Process"),
     "mode_bw_negative": ShortcutEntry("", "Mode: B&W Negative", "Process"),
     "mode_transparency": ShortcutEntry("", "Mode: Transparency", "Process"),

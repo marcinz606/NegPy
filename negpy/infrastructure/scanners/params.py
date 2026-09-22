@@ -42,6 +42,9 @@ class ScanParams:
     # between frames, which is what finding the frames on a strip goes by, and silver blocks
     # infrared, so this decides whether an IR pass means anything.
     film_type: str = "negative"
+    # Per-channel exposures, as a metering run returned them, reused instead of metering this
+    # frame. Only a backend with ScannerCapabilities.exposure_lock reads it.
+    exposures: dict[str, int] | None = None
 
 
 class FilmType(StrEnum):

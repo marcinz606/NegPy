@@ -131,6 +131,8 @@ class _FakeController(QObject):
     scan_batch_finished = pyqtSignal(list)
     scan_ejected = pyqtSignal(bool)
     scan_eject_error = pyqtSignal(str)
+    scan_exposure_metered = pyqtSignal(object, int)
+    scan_meter_error = pyqtSignal(str)
 
     def __init__(self, settings: dict | None = None) -> None:
         super().__init__()
@@ -152,6 +154,9 @@ class _FakeController(QObject):
 
     def start_batch(self, req) -> None:
         self.started.append(("batch", req))
+
+    def start_meter(self, req) -> None:
+        self.started.append(("meter", req))
 
     def cancel_scan(self) -> None:
         self.cancels += 1
@@ -1040,3 +1045,93 @@ def test_the_chosen_format_reaches_the_batch_request() -> None:
 def test_the_strip_tile_height_survives_the_dialog() -> None:
     sidebar, _ = _sidebar(FULL_DEVICE, settings={"strip_tile_height": 260})
     assert sidebar.settings.strip_tile_height == 260
+
+
+# ── exposure lock ─────────────────────────────────────────────────────────
+
+LOCKING_DEVICE = replace(NKSCAN_DEVICE, capabilities=replace(NKSCAN_CAPS, exposure_lock=True))
+_LOCK = {"red": 142562, "green": 356069, "blue": 387643}
+
+
+def _meter_frame(sidebar: ScanSidebar, monkeypatch, frame: int = 2) -> None:
+    from negpy.desktop.view.sidebar import scan as scan_module
+
+    monkeypatch.setattr(scan_module.QInputDialog, "getInt", lambda *_a, **_k: (frame, True))
+    sidebar.exposure_meter_btn.click()
+
+
+def test_the_exposure_lock_row_shows_only_where_the_backend_offers_it() -> None:
+    locking, _ = _sidebar(LOCKING_DEVICE)
+    plain, _ = _sidebar(NKSCAN_DEVICE)
+    assert locking.exposure_lock_widget.isVisibleTo(locking)
+    assert not plain.exposure_lock_widget.isVisibleTo(plain)
+
+
+def test_meter_frame_meters_the_picked_frame_of_the_film_loaded(monkeypatch) -> None:
+    sidebar, controller = _sidebar(
+        LOCKING_DEVICE, settings={"frame_offset_mm": 0.5, "frame_offset_modifier_mm": 0.1, "frame_offsets": {"3": 0.2}}
+    )
+
+    _meter_frame(sidebar, monkeypatch, frame=3)
+
+    kind, req = controller.started[-1]
+    assert kind == "meter"
+    assert (req.device_id, req.params.frame, req.params.film_type) == (LOCKING_DEVICE.id, 3, "negative")
+    assert (req.params.frame_offset_mm, req.frame_offset_modifier_mm, req.frame_offsets) == (0.5, 0.1, {3: 0.2})
+    assert sidebar._scanning
+
+
+def test_a_metered_frame_locks_every_later_scan_of_that_device(monkeypatch) -> None:
+    sidebar, controller = _sidebar(LOCKING_DEVICE)
+    _meter_frame(sidebar, monkeypatch)
+
+    controller.scan_exposure_metered.emit(_LOCK, 2)
+
+    assert not sidebar._scanning
+    assert (sidebar.settings.exposure_lock, sidebar.settings.exposure_lock_device, sidebar.settings.exposure_lock_frame) == (
+        _LOCK,
+        LOCKING_DEVICE.id,
+        2,
+    )
+    assert "frame 2" in sidebar.exposure_lock_status.text()
+    assert sidebar.exposure_unlock_btn.isEnabled()
+    sidebar.folder_edit.setText("/tmp/negpy-test")
+    sidebar._on_scan()
+    assert controller.started[-1][1].params.exposures == _LOCK
+
+
+def test_a_lock_metered_on_another_scanner_is_not_sent() -> None:
+    sidebar, controller = _sidebar(LOCKING_DEVICE, settings={"exposure_lock": _LOCK, "exposure_lock_device": "usb:other"})
+    sidebar.folder_edit.setText("/tmp/negpy-test")
+
+    sidebar._on_scan()
+
+    assert controller.started[-1][1].params.exposures is None
+    assert not sidebar.exposure_unlock_btn.isEnabled()
+
+
+def test_unlock_forgets_the_lock() -> None:
+    sidebar, controller = _sidebar(
+        LOCKING_DEVICE, settings={"exposure_lock": _LOCK, "exposure_lock_device": LOCKING_DEVICE.id, "exposure_lock_frame": 2}
+    )
+
+    sidebar.exposure_unlock_btn.click()
+
+    assert sidebar.settings.exposure_lock is None
+    assert controller.session.repo.get_global_setting("scanner_settings")["exposure_lock"] is None
+    sidebar.folder_edit.setText("/tmp/negpy-test")
+    sidebar._on_scan()
+    assert controller.started[-1][1].params.exposures is None
+
+
+def test_a_failed_metering_keeps_the_lock_it_had(monkeypatch) -> None:
+    sidebar, controller = _sidebar(
+        LOCKING_DEVICE, settings={"exposure_lock": _LOCK, "exposure_lock_device": LOCKING_DEVICE.id, "exposure_lock_frame": 2}
+    )
+    _meter_frame(sidebar, monkeypatch)
+
+    controller.scan_meter_error.emit("no film")
+
+    assert not sidebar._scanning
+    assert sidebar.settings.exposure_lock == _LOCK
+    assert "no film" in sidebar.status_strip.message()

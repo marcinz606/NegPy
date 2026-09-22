@@ -4,7 +4,7 @@ import threading
 
 import pytest
 
-from negpy.desktop.workers.scan_worker import BatchRequest, RollPreviewRequest, ScanRequest, ScanWorker
+from negpy.desktop.workers.scan_worker import BatchRequest, MeterRequest, RollPreviewRequest, ScanRequest, ScanWorker
 from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice, ScannerUnavailable
 from negpy.infrastructure.scanners.params import ScanMode, ScanParams
 from negpy.infrastructure.scanners.roll import RollPreview
@@ -650,3 +650,62 @@ def test_the_batch_logs_the_offset_each_frame_was_scanned_at(caplog) -> None:
 
     assert "Batch frame 1 at +1.00 mm" in caplog.text
     assert "Batch frame 2 at +0.50 mm" in caplog.text
+
+
+class _MeterService:
+    def __init__(self, *, error: Exception | None = None, cancel: bool = False) -> None:
+        self.error = error
+        self.cancel = cancel
+        self.calls: list[tuple[str, ScanParams]] = []
+
+    def meter(self, device_id, params, progress, cancel):
+        self.calls.append((device_id, params))
+        progress(0.5, "Metering")
+        if self.cancel:
+            cancel.set()
+        if self.error is not None:
+            raise self.error
+        return {"red": 11, "green": 22, "blue": 33}
+
+
+def _meter_worker(service: _MeterService) -> tuple[ScanWorker, list, list, list]:
+    worker = ScanWorker()
+    worker._service = service  # type: ignore[assignment]
+    metered: list = []
+    errors: list[str] = []
+    cancelled: list = []
+    worker.exposure_metered.connect(lambda exposures, frame: metered.append((exposures, frame)))
+    worker.meter_error.connect(errors.append)
+    worker.cancelled.connect(lambda: cancelled.append(None))
+    return worker, metered, errors, cancelled
+
+
+def test_run_meter_meters_the_frame_where_the_batch_would_scan_it() -> None:
+    service = _MeterService()
+    worker, metered, errors, _ = _meter_worker(service)
+    params = ScanParams(dpi=4000, depth=16, capture_ir=False, frame=3, frame_offset_mm=1.0)
+
+    worker.run_meter(MeterRequest(device_id="nk:1", params=params, frame_offset_modifier_mm=0.5, frame_offsets={3: 0.25}))
+
+    device_id, sent = service.calls[0]
+    assert (device_id, sent.frame, sent.frame_offset_mm) == ("nk:1", 3, 1.0 + 2 * 0.5 + 0.25)
+    assert metered == [({"red": 11, "green": 22, "blue": 33}, 3)]
+    assert errors == []
+    assert worker._scanning is False
+
+
+def test_run_meter_reports_a_failure() -> None:
+    worker, metered, errors, _ = _meter_worker(_MeterService(error=RuntimeError("no film")))
+
+    worker.run_meter(MeterRequest(device_id="nk:1", params=ScanParams(dpi=4000, depth=16, capture_ir=False, frame=2)))
+
+    assert metered == []
+    assert errors == ["no film"]
+
+
+def test_run_meter_cancelled_mid_run_keeps_nothing() -> None:
+    worker, metered, errors, cancelled = _meter_worker(_MeterService(cancel=True))
+
+    worker.run_meter(MeterRequest(device_id="nk:1", params=ScanParams(dpi=4000, depth=16, capture_ir=False, frame=2)))
+
+    assert (metered, errors, cancelled) == ([], [], [None])

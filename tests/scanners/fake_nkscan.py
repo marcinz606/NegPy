@@ -184,6 +184,7 @@ class FakeSession:
         self.ejects = 0
         self.discoveries: list[str | None] = []
         self.scans: list[dict[str, Any]] = []
+        self.meters: list[dict[str, Any]] = []
         module.opened.append(self)
 
     @classmethod
@@ -277,6 +278,19 @@ class FakeSession:
             exposures={"red": 1, "green": 2, "blue": 3},
             cleaned=7 if clean else None,
         )
+
+    def meter_frame(
+        self,
+        frame: tuple[int, int, int, int],
+        infrared: bool = False,
+        lock_white_balance: bool = True,
+        progress: Callable[..., Any] | None = None,
+    ) -> dict[str, int]:
+        self.meters.append({"frame": frame, "infrared": infrared, "lock_white_balance": lock_white_balance})
+        if self._module.scan_error is not None:
+            raise self._module.scan_error
+        exposures = {"red": 11, "green": 22, "blue": 33}
+        return {**exposures, "infrared": 44} if infrared else exposures
 
     def close(self) -> None:
         self.closed = True

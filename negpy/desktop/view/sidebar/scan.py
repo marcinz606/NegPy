@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -292,6 +293,25 @@ class ScanSidebar(QWidget):
         self.scan_window_widget.setVisible(False)
         self.scan_window_status.setVisible(False)
 
+        # Exposure lock: meter one frame, then every scan of the roll reuses its exposure.
+        self.exposure_lock_widget = QWidget()
+        exposure_lock_row = QHBoxLayout(self.exposure_lock_widget)
+        exposure_lock_row.setContentsMargins(0, 0, 0, 0)
+        self.exposure_meter_btn = labeled_action(
+            "",
+            "Meter Frame…",
+            "Meter one frame and reuse its exposure for every scan until unlocked. Pick a frame "
+            "inside the strip: a strip end meters on the bare light past the cut.",
+        )
+        self.exposure_unlock_btn = labeled_action("", "Unlock", "Meter every frame on its own again")
+        exposure_lock_row.addWidget(self.exposure_meter_btn, 1)
+        exposure_lock_row.addWidget(self.exposure_unlock_btn)
+        self.exposure_lock_label = QLabel("Exposure")
+        self.form.addRow(self.exposure_lock_label, self.exposure_lock_widget)
+        self.exposure_lock_status = hint_label("")
+        self.form.addRow("", self.exposure_lock_status)
+        self._set_exposure_lock_visible(False)
+
         # Prescan + crop (Plustek SE): low-DPI full window → interactive crop → scan_window.
         self.prescan_widget = QWidget()
         prescan_row = QHBoxLayout(self.prescan_widget)
@@ -383,6 +403,8 @@ class ScanSidebar(QWidget):
         self.scan_window_clear_btn.clicked.connect(self._on_clear_scan_window)
         self.prescan_btn.clicked.connect(self._on_prescan)
         self.prescan_clear_btn.clicked.connect(self._on_clear_prescan_crop)
+        self.exposure_meter_btn.clicked.connect(self._on_meter_frame)
+        self.exposure_unlock_btn.clicked.connect(self._on_unlock_exposure)
 
         # Controller signals
         self.controller.scan_devices_ready.connect(self._on_devices_ready)
@@ -394,6 +416,8 @@ class ScanSidebar(QWidget):
         self.controller.scan_batch_finished.connect(self._on_scan_batch_finished)
         self.controller.scan_ejected.connect(self._on_ejected)
         self.controller.scan_eject_error.connect(self._on_eject_error)
+        self.controller.scan_exposure_metered.connect(self._on_exposure_metered)
+        self.controller.scan_meter_error.connect(self._on_meter_error)
 
     # ── activation hook ───────────────────────────────────────────────
 
@@ -492,6 +516,7 @@ class ScanSidebar(QWidget):
             self.scan_window_row_label.setVisible(False)
             self.scan_window_widget.setVisible(False)
             self.scan_window_status.setVisible(False)
+            self._set_exposure_lock_visible(False)
             self.exposure_label.setVisible(False)
             self.exposure_row_widget.setVisible(False)
             self.autofocus_check.setVisible(False)
@@ -730,6 +755,10 @@ class ScanSidebar(QWidget):
                 self.scan_window_btn.setToolTip("Preview the current holder position and set a crop window for the scan")
             self._update_scan_window_status()
 
+        self._set_exposure_lock_visible(caps.exposure_lock)
+        if caps.exposure_lock:
+            self._update_exposure_lock_status()
+
         show_prescan = bool(caps.prescan)
         self.prescan_label.setVisible(show_prescan)
         self.prescan_widget.setVisible(show_prescan)
@@ -925,6 +954,89 @@ class ScanSidebar(QWidget):
             tl_x, tl_y, br_x, br_y = area
             self.prescan_status.setText(f"Crop {br_x - tl_x:.1f} × {br_y - tl_y:.1f} mm")
 
+    def _set_exposure_lock_visible(self, visible: bool) -> None:
+        self.exposure_lock_label.setVisible(visible)
+        self.exposure_lock_widget.setVisible(visible)
+        self.exposure_lock_status.setVisible(visible)
+
+    def _locked_exposures(self, device: ScannerDevice | None) -> dict[str, int] | None:
+        """The lock, where this device offers one and metered it: exposures belong to one unit."""
+        if device is None or not device.capabilities.exposure_lock or self._settings.exposure_lock_device != device.id:
+            return None
+        return self._settings.exposure_lock
+
+    def _update_exposure_lock_status(self) -> None:
+        from datetime import datetime
+
+        locked = self._locked_exposures(self._current_device()) is not None
+        self.exposure_unlock_btn.setEnabled(locked and not self._scanning)
+        if not locked:
+            self.exposure_lock_status.setText("Each frame is metered on its own. Meter a mid-strip frame to lock the roll.")
+            return
+        try:
+            when = f", {datetime.fromisoformat(self._settings.exposure_lock_at):%d %b %H:%M}"
+        except ValueError:
+            when = ""
+        self.exposure_lock_status.setText(f"Locked from frame {self._settings.exposure_lock_frame}{when}. Every scan reuses it.")
+
+    def _on_meter_frame(self) -> None:
+        from negpy.desktop.workers.scan_worker import MeterRequest
+        from negpy.infrastructure.scanners.params import ScanParams
+
+        device = self._current_device()
+        if device is None or not device.capabilities.exposure_lock:
+            return
+        frame, ok = QInputDialog.getInt(self, "Exposure Lock", "Meter frame:", self._settings.exposure_lock_frame or 2, 1, 99)
+        if not ok:
+            return
+        params = ScanParams(
+            dpi=self._dpi(),
+            depth=16,
+            capture_ir=False,
+            frame=frame,
+            frame_offset_mm=self._settings.frame_offset_mm,
+            film_format=self._film_format(),
+            film_type=self._film_type(),
+        )
+        self.set_scanning(True)
+        self.controller.start_meter(
+            MeterRequest(
+                device_id=device.id,
+                params=params,
+                frame_offset_modifier_mm=self._settings.frame_offset_modifier_mm,
+                frame_offsets=self._settings.frame_offsets,
+            )
+        )
+
+    @pyqtSlot(object, int)
+    def _on_exposure_metered(self, exposures: dict, frame: int) -> None:
+        from dataclasses import replace
+        from datetime import datetime
+
+        device = self._current_device()
+        self.settings = replace(
+            self._settings,
+            exposure_lock=dict(exposures),
+            exposure_lock_device=device.id if device else "",
+            exposure_lock_frame=frame,
+            exposure_lock_at=datetime.now().isoformat(timespec="seconds"),
+        )
+        self._save_settings()
+        self.set_scanning(False)
+        self.status_strip.set_message(f"Exposure locked from frame {frame}")
+
+    @pyqtSlot(str)
+    def _on_meter_error(self, msg: str) -> None:
+        self.set_scanning(False)
+        self.status_strip.set_message(f"Metering failed: {msg or 'unknown error'}")
+
+    def _on_unlock_exposure(self) -> None:
+        from dataclasses import replace
+
+        self.settings = replace(self._settings, exposure_lock=None, exposure_lock_device="", exposure_lock_frame=0, exposure_lock_at="")
+        self._save_settings()
+        self._update_exposure_lock_status()
+
     def _update_scan_window_status(self) -> None:
         from negpy.infrastructure.scanners.params import scan_window_to_area
 
@@ -949,7 +1061,10 @@ class ScanSidebar(QWidget):
         """A group header only earns its space when the group has a visible row."""
         self.film_header.setVisible(self.film_type_combo.isVisibleTo(self) or self.format_combo.isVisibleTo(self))
         self.framing_header.setVisible(
-            self.frame_spec_edit.isVisibleTo(self) or self.scan_window_widget.isVisibleTo(self) or self.prescan_widget.isVisibleTo(self)
+            self.frame_spec_edit.isVisibleTo(self)
+            or self.scan_window_widget.isVisibleTo(self)
+            or self.exposure_lock_widget.isVisibleTo(self)
+            or self.prescan_widget.isVisibleTo(self)
         )
 
     def _dpi(self) -> int:
@@ -1081,6 +1196,7 @@ class ScanSidebar(QWidget):
             superfine=self._caps_superfine and self.superfine_check.isChecked(),
             film_format=self._film_format(),
             film_type=self._film_type(),
+            exposures=self._locked_exposures(device),
         )
 
         self._update_settings_from_ui()
@@ -1192,10 +1308,14 @@ class ScanSidebar(QWidget):
             self.scan_btn.setIcon(qta.icon("fa5s.stop", color=THEME.accent_secondary))
             self.status_strip.start_progress("Scanning… %p%")
             self.prescan_btn.setEnabled(False)
+            self.exposure_meter_btn.setEnabled(False)
+            self.exposure_unlock_btn.setEnabled(False)
         else:
             self.scan_btn.setText(" Scan")
             self.scan_btn.setIcon(qta.icon("fa5s.camera-retro", color=THEME.text_on_accent))
             self.prescan_btn.setEnabled(True)
+            self.exposure_meter_btn.setEnabled(True)
+            self._update_exposure_lock_status()
             self.status_strip.stop_progress()
         # The filled/hollow swap is a QSS property selector, and Qt only re-reads those on a
         # repolish.
