@@ -10,15 +10,13 @@ from negpy.desktop.view.styles.templates import hint_label, set_hint_kind, wrap_
 from negpy.desktop.view.widgets.collapsible import NO_ROLL_SCOPE_HINT, CollapsibleSection, make_section
 from negpy.desktop.view.widgets.charts import MiniHistogramWidget, MiniRGBHistogramWidget
 from negpy.desktop.view.styles.theme import THEME
-from negpy.features.exposure.models import ExposureConfig
 from negpy.features.lab.models import LabConfig
 from negpy.features.altprocess.models import AltProcessConfig
 from negpy.features.toning.models import ToningConfig
-from negpy.features.geometry.models import GeometryConfig
-from negpy.features.process.models import ProcessConfig, auto_meter_for_positive_source, cast_removal_for_mode
+from negpy.features.process.models import auto_meter_for_positive_source, cast_removal_for_mode
 from negpy.features.finish.models import FinishConfig
 from negpy.features.flatfield.models import FlatFieldConfig
-from negpy.domain.models import WorkspaceConfig
+from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 from negpy.services.assets.rolls import ROLL_DEFAULT_FIELDS
 from negpy.desktop.settings_catalog import rows_for_fields, rows_for_section, selected_flat_dict
 from negpy.desktop.view.widgets.granular_settings_dialog import open_apply_dialog
@@ -175,16 +173,19 @@ _TONE_FIELDS = (
     "mask_spacer",
 )
 
-# Constant frozen-dataclass defaults, built once rather than per resync.
-_DEFAULT_EXPOSURE = ExposureConfig()
+# Constant frozen-dataclass defaults, built once rather than per resync. Exposure/process/
+# geometry/config come from DEFAULT_WORKSPACE_CONFIG, not their own bare dataclass default:
+# grade, crosstalk_strength and the autocrop fields are calibrated there (transfer_grade_ref
+# and friends), which is also what an untouched or reset file actually carries.
+_DEFAULT_EXPOSURE = DEFAULT_WORKSPACE_CONFIG.exposure
 _DEFAULT_LAB = LabConfig()
 _DEFAULT_TONING = ToningConfig()
 _DEFAULT_ALTPROC = AltProcessConfig()
-_DEFAULT_GEOMETRY = GeometryConfig()
-_DEFAULT_PROCESS = ProcessConfig()
+_DEFAULT_GEOMETRY = DEFAULT_WORKSPACE_CONFIG.geometry
+_DEFAULT_PROCESS = DEFAULT_WORKSPACE_CONFIG.process
 _DEFAULT_FINISH = FinishConfig()
 _DEFAULT_FLATFIELD = FlatFieldConfig()
-_DEFAULT_CONFIG = WorkspaceConfig()
+_DEFAULT_CONFIG = DEFAULT_WORKSPACE_CONFIG
 
 # Frame cards whose settings can be pushed to other frames, and the fields each owns. A
 # card keyed by its own config section needs no tuple. Roll-tab cards drive roll defaults

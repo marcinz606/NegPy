@@ -4,11 +4,15 @@ from unittest.mock import MagicMock
 from negpy.desktop.session import AppState
 from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
 from negpy.features.process.models import ProcessMode
+from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 
 
 def _panel():
     controller = MagicMock()
     controller.state = AppState()
+    # An untouched file's config, not AppState()'s own bare WorkspaceConfig() placeholder --
+    # crosstalk_strength (and friends) differ between the two (see DEFAULT_WORKSPACE_CONFIG).
+    controller.state.config = DEFAULT_WORKSPACE_CONFIG
     return controller, ControlsPanel(controller)
 
 

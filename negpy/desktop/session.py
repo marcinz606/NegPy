@@ -24,7 +24,7 @@ from negpy.desktop.view.canvas.crop_guides import CropGuide
 from negpy.domain.models import PROOF_INTENT_LABELS, ExportPreset, ProofIntent, WorkspaceConfig
 from negpy.features.exposure.models import apply_targets
 from negpy.features.geometry.logic import flip_geometry_and_analysis, rotate_geometry_and_analysis
-from negpy.features.process.models import invalidate_local_bounds
+from negpy.features.process.models import invalidate_local_bounds, mode_aware_exposure_reset
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.hdr.logic import resolve_anchor, seed_shadow_density
 from negpy.features.hdr.models import ANCHOR_EV_UNSET, HdrConfig, hdr_frame_paths
@@ -32,7 +32,7 @@ from negpy.features.stitch.models import StitchConfig
 from negpy.features.lens.models import LensMetadata
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.storage.repository import StorageRepository
-from negpy.kernel.system.config import APP_CONFIG
+from negpy.kernel.system.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
 from negpy.kernel.system.text import count_of
 from negpy.services.assets.composites import remember_composites
 from negpy.services.assets.flatfield import FlatFieldProfiles
@@ -1168,7 +1168,12 @@ class DesktopSessionManager(QObject):
             return resolve_asset_hdr(resolve_asset_stitch(resolve_asset_rgbscan(config, asset), asset), asset), False
         # Sticky settings include the global process mode, which a composite must not take over
         # the mode of the frames it was built from. _asset_defaults applies after.
-        config = self._overlay_roll_defaults(self._apply_sticky_settings(WorkspaceConfig(), only_global=False), asset)
+        #
+        # DEFAULT_WORKSPACE_CONFIG, not a bare WorkspaceConfig(): grade and a few other
+        # fields are calibrated so the print/transfer curves are an identity at this exact
+        # config (transfer_grade_ref, test_transparency_transfer.py), which the dataclasses'
+        # own bare defaults don't carry.
+        config = self._overlay_roll_defaults(self._apply_sticky_settings(DEFAULT_WORKSPACE_CONFIG, only_global=False), asset)
         return self._asset_defaults(config, asset), True
 
     def config_for_asset(self, asset: dict) -> WorkspaceConfig:
@@ -1380,7 +1385,7 @@ class DesktopSessionManager(QObject):
             if not (0 <= idx < len(self.state.uploaded_files)):
                 continue
             asset = self.state.uploaded_files[idx]
-            defaults = self._asset_defaults(WorkspaceConfig(), asset)
+            defaults = self._mode_aware_reset_defaults(self._asset_defaults(DEFAULT_WORKSPACE_CONFIG, asset))
             if idx == self.state.selected_file_idx:
                 self.update_config(defaults, persist=True, render=False)
             else:
@@ -1647,13 +1652,20 @@ class DesktopSessionManager(QObject):
         self.state_changed.emit()
         self.history_changed.emit()
 
+    @staticmethod
+    def _mode_aware_reset_defaults(config: WorkspaceConfig) -> WorkspaceConfig:
+        """`config`'s exposure section, with Cast Removal's own mode-dependent default
+        (cast_removal_for_mode) layered on top: a transparency starts at 0, a negative at
+        the flat 0.5, and DEFAULT_WORKSPACE_CONFIG only ever carries the latter."""
+        return replace(config, exposure=mode_aware_exposure_reset(config.process.process_mode, config.exposure))
+
     def reset_settings(self) -> None:
         """
         Reverts current file to defaults plus whatever the asset itself contributes.
         Recorded as an ordinary history step, so a reset is undoable like any other edit.
 
-        Still bare defaults for the *edit*, unlike a fresh open, which starts from the
-        sticky settings — a reset is meant to clear those. What it must not clear is the
+        Still DEFAULT_WORKSPACE_CONFIG for the *edit*, unlike a fresh open, which layers on
+        the sticky settings — a reset is meant to clear those. What it must not clear is the
         rest: an asset assembled from several files carries settings
         that describe *what it is* rather than how it is edited — a composite's film
         process and, for a merge, the shadow lift derived from the range it recovered, plus
@@ -1663,7 +1675,8 @@ class DesktopSessionManager(QObject):
         """
         idx = self.state.selected_file_idx
         asset = self.state.uploaded_files[idx] if 0 <= idx < len(self.state.uploaded_files) else {}
-        self.update_config(self._asset_defaults(WorkspaceConfig(), asset), persist=True)
+        defaults = self._mode_aware_reset_defaults(self._asset_defaults(DEFAULT_WORKSPACE_CONFIG, asset))
+        self.update_config(defaults, persist=True)
 
     def reset_roll(self, assets: List[Dict]) -> None:
         """`reset_settings`, applied to every one of *assets* at once. Each frame's reset
@@ -1685,31 +1698,38 @@ class DesktopSessionManager(QObject):
             self.frames_edited_offscreen.emit(changed_hashes)
 
     def reset_section(self, section: str) -> None:
-        """Reset a single feature section to its default config."""
-        from negpy.features.exposure.models import ExposureConfig
+        """Reset a single feature section to its default config.
+
+        Exposure/process/geometry reset to DEFAULT_WORKSPACE_CONFIG's own section rather
+        than the bare dataclass default: grade, crosstalk_strength and the autocrop fields
+        are calibrated there (transfer_grade_ref and friends), not on ExposureConfig()/
+        ProcessConfig()/GeometryConfig()'s own field defaults. Cast Removal's default is
+        further mode-dependent (cast_removal_for_mode) on top of that -- resetting Process
+        can change process_mode, so exposure is re-synced to the new mode too.
+        """
         from negpy.features.finish.models import FinishConfig
-        from negpy.features.geometry.models import GeometryConfig
         from negpy.features.lab.models import LabConfig
         from negpy.features.local.models import LocalAdjustmentsConfig
-        from negpy.features.process.models import ProcessConfig
         from negpy.features.retouch.models import RetouchConfig
         from negpy.features.altprocess.models import AltProcessConfig
         from negpy.features.toning.models import ToningConfig
 
         defaults = {
-            "exposure": ExposureConfig(),
+            "exposure": mode_aware_exposure_reset(self.state.config.process.process_mode, DEFAULT_WORKSPACE_CONFIG.exposure),
             "lab": LabConfig(),
             "local": LocalAdjustmentsConfig(),
             "altproc": AltProcessConfig(),
             "toning": ToningConfig(),
-            "geometry": GeometryConfig(),
-            "process": ProcessConfig(),
+            "geometry": DEFAULT_WORKSPACE_CONFIG.geometry,
+            "process": DEFAULT_WORKSPACE_CONFIG.process,
             "retouch": RetouchConfig(),
             "finish": FinishConfig(),
         }
         if section not in defaults:
             return
         new_config = replace(self.state.config, **{section: defaults[section]})
+        if section == "process":
+            new_config = replace(new_config, exposure=mode_aware_exposure_reset(new_config.process.process_mode, new_config.exposure))
         if section == "local":
             self.state.local_selected_mask = -1
         self.update_config(new_config, persist=True)

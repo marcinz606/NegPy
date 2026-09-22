@@ -8,7 +8,7 @@ from negpy.desktop.settings_catalog import all_rows
 from negpy.domain.models import WorkspaceConfig, GeometryConfig, RetouchConfig, ProcessConfig
 from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.infrastructure.storage.repository import StorageRepository
-from negpy.kernel.system.config import APP_CONFIG
+from negpy.kernel.system.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
 from negpy.features.process.models import ProcessMode
 
 _ROWS = {r.label: r for r in all_rows()}
@@ -1042,9 +1042,45 @@ class TestDesktopSessionSync(unittest.TestCase):
 
         self.session.reset_settings()
 
-        self.assertEqual(self.session.state.config, WorkspaceConfig())
+        self.assertEqual(self.session.state.config, DEFAULT_WORKSPACE_CONFIG)
         self.assertFalse(self.session.state.config.process.is_local_initialized)
         self.assertFalse(self.session.state.config.process.is_locked_initialized)
+
+    def test_reset_settings_is_mode_aware_on_cast_removal(self):
+        """A transparency's own neutral Cast Removal point is 0, not the flat 0.5
+        DEFAULT_WORKSPACE_CONFIG carries for a negative (cast_removal_for_mode).
+        resolve_asset_process_mode reads the mode to reset into from the asset dict, not
+        the pre-reset WorkspaceConfig, so the fixture carries it there."""
+        self.session.state.uploaded_files[0]["process_mode"] = str(ProcessMode.E6)
+        self.session.select_file(0)
+        dirty = replace(
+            self.session.state.config,
+            process=replace(self.session.state.config.process, process_mode=ProcessMode.E6),
+            exposure=replace(self.session.state.config.exposure, cast_removal_strength=0.8),
+        )
+        self.session.update_config(dirty, persist=True)
+
+        self.session.reset_settings()
+
+        self.assertEqual(self.session.state.config.process.process_mode, ProcessMode.E6)
+        self.assertEqual(self.session.state.config.exposure.cast_removal_strength, 0.0)
+
+    def test_reset_process_section_resyncs_cast_removal_for_the_new_mode(self):
+        """Resetting Process can change process_mode (back to DEFAULT_WORKSPACE_CONFIG's
+        C41), which must re-sync Cast Removal too -- otherwise an E6-tuned 0.0 survives
+        onto a negative, where the flat 0.5 default belongs."""
+        self.session.select_file(0)
+        dirty = replace(
+            self.session.state.config,
+            process=replace(self.session.state.config.process, process_mode=ProcessMode.E6),
+            exposure=replace(self.session.state.config.exposure, cast_removal_strength=0.0),
+        )
+        self.session.update_config(dirty, persist=True)
+
+        self.session.reset_section("process")
+
+        self.assertEqual(self.session.state.config.process.process_mode, ProcessMode.C41)
+        self.assertEqual(self.session.state.config.exposure.cast_removal_strength, 0.5)
 
     def test_reset_settings_is_recorded_not_wiping(self):
         self.session.select_file(0)
@@ -1054,7 +1090,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.session.reset_settings()
 
         self.mock_repo.clear_history.assert_not_called()
-        self.assertEqual(self.session.state.config, WorkspaceConfig())
+        self.assertEqual(self.session.state.config, DEFAULT_WORKSPACE_CONFIG)
         # Reset pushed the pre-reset config as a history step — it is undoable.
         self.mock_repo.save_history_step.assert_called_with("hash1", 1, edited)
         self.assertEqual(self.session.state.undo_index, 2)
@@ -1273,11 +1309,11 @@ class TestDesktopSessionSync(unittest.TestCase):
         count = self.session.reset_roll_settings(scope="roll")
 
         self.assertEqual(count, 3)
-        self.assertEqual(self.session.state.config, WorkspaceConfig())
+        self.assertEqual(self.session.state.config, DEFAULT_WORKSPACE_CONFIG)
         saved = {c.args[0]: c.args[1] for c in self.mock_repo.save_file_settings.call_args_list}
-        self.assertEqual(saved["hash1"], WorkspaceConfig())
-        self.assertEqual(saved["hash2"], WorkspaceConfig())
-        self.assertEqual(saved["hash3"], WorkspaceConfig())
+        self.assertEqual(saved["hash1"], DEFAULT_WORKSPACE_CONFIG)
+        self.assertEqual(saved["hash2"], DEFAULT_WORKSPACE_CONFIG)
+        self.assertEqual(saved["hash3"], DEFAULT_WORKSPACE_CONFIG)
 
     def test_reset_roll_settings_selection_scope_resets_only_selected_frames(self):
         self._seed_roll()
@@ -1290,7 +1326,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         count = self.session.reset_roll_settings(scope="selection")
 
         self.assertEqual(count, 2)
-        self.assertEqual(self.session.state.config, WorkspaceConfig())
+        self.assertEqual(self.session.state.config, DEFAULT_WORKSPACE_CONFIG)
         saved = {c.args[0] for c in self.mock_repo.save_file_settings.call_args_list}
         self.assertEqual(saved, {"hash1", "hash2"})
         self.assertNotIn("hash3", saved)  # not in the selection, left untouched

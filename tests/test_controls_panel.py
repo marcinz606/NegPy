@@ -14,6 +14,7 @@ from negpy.desktop.settings_catalog import rows_for_fields
 from negpy.desktop.view.sidebar.controls_panel import _TONE_FIELDS, ControlsPanel
 from negpy.features.exposure.models import ExposureConfig
 from negpy.features.process.models import ProcessConfig, ProcessMode
+from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 
 
 def _panel_stub(*, active_roll_id="roll1", locked_cards=()) -> MagicMock:
@@ -246,7 +247,7 @@ def test_sync_modified_dots_does_not_flag_a_positive_frames_own_auto_default():
     not "modified" -- the Tone header's dot must not count it."""
     panel = MagicMock()
     panel.controller.state = AppState()
-    cfg = panel.controller.state.config
+    cfg = DEFAULT_WORKSPACE_CONFIG
     panel.controller.state.config = replace(
         cfg,
         process=replace(cfg.process, process_mode=ProcessMode.E6, positive_source=True),
@@ -282,7 +283,7 @@ def test_sync_modified_dots_counts_tonal_range_on_normalization():
     """White/Black Point are Normalization's Tonal Range block, counted with that card."""
     panel = MagicMock()
     panel.controller.state = AppState()
-    cfg = panel.controller.state.config
+    cfg = DEFAULT_WORKSPACE_CONFIG
     panel.controller.state.config = replace(
         cfg,
         process=replace(cfg.process, white_point_offset=0.2, black_point_trim_red=0.1),
@@ -299,7 +300,7 @@ def test_sync_modified_dots_counts_tonal_range_on_normalization():
 def test_sync_modified_dots_counts_linear_raw_on_calibration():
     panel = MagicMock()
     panel.controller.state = AppState()
-    cfg = panel.controller.state.config
+    cfg = DEFAULT_WORKSPACE_CONFIG
     panel.controller.state.config = replace(cfg, process=replace(cfg.process, linear_raw=True))
     panel.sensor_section = MagicMock()
     panel.process_section = MagicMock()

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
-from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 
 
 class ProcessMode(StrEnum):
@@ -52,8 +52,6 @@ def cast_removal_for_mode(mode: str, strength: float) -> float:
     be the photograph. Only the other mode's default is rewritten, so a strength the user
     chose survives a mode switch.
     """
-    from negpy.features.exposure.models import ExposureConfig
-
     default = float(ExposureConfig.cast_removal_strength)
     if mode == ProcessMode.E6:
         return 0.0 if strength == default else strength
@@ -75,6 +73,16 @@ def auto_meter_for_positive_source(positive_source: bool, current: bool) -> bool
     if positive_source:
         return positive_default if current == negative_default else current
     return negative_default if current == positive_default else current
+
+
+def mode_aware_exposure_reset(mode: str, base: ExposureConfig) -> ExposureConfig:
+    """`base` (typically the shipped default exposure section) with cast_removal_strength
+    replaced by its own mode-aware neutral point (cast_removal_for_mode) instead of the
+    flat value `base` always carries. Single source for every reset path that resets a
+    whole exposure section rather than one field at a time."""
+    from dataclasses import replace
+
+    return replace(base, cast_removal_strength=cast_removal_for_mode(mode, base.cast_removal_strength))
 
 
 # Built-in fallback crosstalk matrix (row-major 3x3) used when no profile is baked.
