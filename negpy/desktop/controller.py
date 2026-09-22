@@ -4154,7 +4154,7 @@ class AppController(QObject):
         self.status_progress_requested.emit(current, total)
         self.batch_progress.emit(current, total, f"{name} [{marker}]")
 
-    def _push_bounds(self, targets: List[dict], floors: tuple, ceils: tuple, roll_name: Optional[str]) -> int:
+    def _push_bounds(self, targets: List[dict], floors: tuple, ceils: tuple, roll_name: Optional[str], source: str) -> int:
         """Writes a baseline onto *targets*, riding both average axes. A frame with Lock
         Bounds on keeps its own exposure. Returns how many locked frames were skipped."""
         locked_skipped = 0
@@ -4172,6 +4172,7 @@ class AppController(QObject):
                 locked_floors=floors,
                 locked_ceils=ceils,
                 roll_name=roll_name,
+                baseline_source=source,
             )
             new_p = replace(p, process=new_process)
             # The active file records its step via update_config(persist=True) below.
@@ -4191,6 +4192,7 @@ class AppController(QObject):
                 locked_floors=floors,
                 locked_ceils=ceils,
                 roll_name=roll_name,
+                baseline_source=source,
             )
             self.session.update_config(replace(self.state.config, process=new_process), persist=True)
         return locked_skipped
@@ -4203,9 +4205,10 @@ class AppController(QObject):
         least one channel: they still take the baseline (a report, not an exemption).
         """
         scene_id = self._normalization_scope
-        locked_skipped = self._push_bounds(self._normalization_targets(scene_id), locked_floors, locked_ceils, roll_name=None)
-
         roll_id = self.state.active_roll_id
+        source = f"scene:{scene_id}" if scene_id else (f"roll:{roll_id}" if roll_id else "")
+        locked_skipped = self._push_bounds(self._normalization_targets(scene_id), locked_floors, locked_ceils, None, source)
+
         if scene_id is None:
             if roll_id is not None:
                 rolls.set_roll_normalization(self.session.repo, roll_id, locked_floors, locked_ceils)
@@ -4275,7 +4278,7 @@ class AppController(QObject):
         name = entry["name"] if entry else roll_id
         locked_floors, locked_ceils = data["floors"], data["ceils"]
 
-        locked_skipped = self._push_bounds(self._normalization_targets(None), locked_floors, locked_ceils, roll_name=name)
+        locked_skipped = self._push_bounds(self._normalization_targets(None), locked_floors, locked_ceils, name, f"roll:{roll_id}")
 
         message = f'Applied "{name}"\'s baseline'
         if locked_skipped:

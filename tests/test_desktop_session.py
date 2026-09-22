@@ -777,6 +777,26 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertEqual(saved_config.retouch.manual_dust_spots, [])
         self.assertTrue(saved_config.retouch.dust_remove)
 
+    def _sync_bounds_from(self, process):
+        self.session.state.selected_file_idx = 0
+        self.session.state.current_file_hash = "hash1"
+        self.session.state.current_file_path = "/tmp/f003.tif"
+        self.session.state.config = WorkspaceConfig(process=process)
+        self.mock_repo.load_file_settings.return_value = WorkspaceConfig()
+        self.session.update_selection([0, 1])
+        self.session.sync_selected_settings([], bounds_flags=(True, True))
+        return self.mock_repo.save_file_settings.call_args.args[1].process
+
+    def test_sync_bounds_from_a_metered_frame_names_that_frame(self):
+        synced = self._sync_bounds_from(ProcessConfig(local_floors=(0.1, 0.1, 0.1), local_ceils=(0.9, 0.9, 0.9)))
+        self.assertEqual(synced.baseline_source, "frame:f003.tif")
+
+    def test_sync_bounds_from_a_frame_on_a_baseline_passes_its_source_on(self):
+        synced = self._sync_bounds_from(
+            ProcessConfig(use_luma_average=True, locked_floors=(0.2, 0.2, 0.2), locked_ceils=(0.8, 0.8, 0.8), baseline_source="scene:s1")
+        )
+        self.assertEqual(synced.baseline_source, "scene:s1")
+
     def test_sync_selected_settings_edits_with_geometry(self):
         source_config = WorkspaceConfig(
             exposure=replace(WorkspaceConfig().exposure, density=1.5),

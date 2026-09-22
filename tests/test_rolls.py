@@ -10,6 +10,7 @@ from negpy.features.process.models import DemosaicMode, ProcessMode
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.services.assets.rolls import (
     add_to_scene,
+    baseline_label,
     create_scene,
     delete_scene,
     next_scene_name,
@@ -688,3 +689,37 @@ class TestResolveRollBaseline:
         roll_id = create_virtual_roll(repo, "Portra", [])
         cfg = self._riding()
         assert resolve_roll_baseline(repo, roll_id, "h1", cfg) is cfg
+
+
+class TestBaselineLabel:
+    def _process(self, source, roll_name=None):
+        return replace(ProcessConfig(), baseline_source=source, roll_name=roll_name)
+
+    def test_names_roll_scene_and_frame_live(self):
+        repo = _repo()
+        roll_id = create_virtual_roll(repo, "Portra", [])
+        sid = create_scene(repo, roll_id, "Beach", ["h1"])
+        rename_scene(repo, roll_id, sid, "Shore")
+
+        assert baseline_label(repo, self._process(f"roll:{roll_id}")) == "Roll “Portra”"
+        assert baseline_label(repo, self._process(f"scene:{sid}")) == "Scene “Shore”"
+        assert baseline_label(repo, self._process("frame:f003.tif")) == "Frame “f003.tif”"
+
+    def test_legacy_and_deleted_sources(self):
+        repo = _repo()
+        assert baseline_label(repo, self._process("", roll_name="Tri-X")) == "Roll “Tri-X”"
+        assert baseline_label(repo, self._process("")) == "a saved baseline"
+        assert baseline_label(repo, self._process("roll:gone")) == "a deleted roll"
+        assert baseline_label(repo, self._process("scene:gone")) == "a deleted scene"
+
+    def test_filled_baseline_records_its_source(self):
+        repo = _repo()
+        roll_id = create_virtual_roll(repo, "Portra", [])
+        set_roll_normalization(repo, roll_id, (0.1, 0.1, 0.1), (0.9, 0.9, 0.9))
+        sid = create_scene(repo, roll_id, "Beach", ["h1"])
+        set_scene_normalization(repo, roll_id, sid, (0.2, 0.2, 0.2), (0.8, 0.8, 0.8))
+        cfg = WorkspaceConfig()
+        cfg = replace(cfg, process=replace(cfg.process, use_luma_average=True))
+
+        assert resolve_roll_baseline(repo, roll_id, "h1", cfg).process.baseline_source == f"scene:{sid}"
+        assert resolve_roll_baseline(repo, roll_id, "h2", cfg).process.baseline_source == f"roll:{roll_id}"

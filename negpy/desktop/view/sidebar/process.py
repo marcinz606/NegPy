@@ -14,7 +14,8 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.sidebar.tone import _CH_COLORS, _CH_LABEL, _CH_SUFFIX
-from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_label, hint_label, section_subheader, wrap_tooltip
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_label, hint_label, section_subheader, set_hint_kind, wrap_tooltip
+from negpy.services.assets import rolls
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
@@ -251,6 +252,8 @@ class ProcessSidebar(BaseSidebar):
         # Which baseline each axis' bounds come from: the roll's shared meter (picked in
         # Roll Baseline above) or the frame's own analysis. Sits under the picker it reads,
         # not with the analysis controls.
+        self.baseline_source_hint = hint_label("")
+        self.layout.addWidget(self.baseline_source_hint)
         avg_row = QHBoxLayout()
         self.use_luma_avg_btn = self._small_toggle(
             "mdi6.film",
@@ -452,6 +455,19 @@ class ProcessSidebar(BaseSidebar):
         )
         self.controller.analysis_buffer_preview_requested.emit(val)
 
+    def _update_baseline_source_hint(self, conf, transfer: bool) -> None:
+        """Names the baseline the average axes read; hidden while neither axis rides one."""
+        riding = (conf.use_luma_average or conf.use_color_average) and not transfer
+        self.baseline_source_hint.setVisible(riding)
+        if not riding:
+            return
+        if conf.is_locked_initialized:
+            set_hint_kind(self.baseline_source_hint, "muted")
+            self.baseline_source_hint.setText(f"Baseline: {rolls.baseline_label(self.controller.session.repo, conf)}")
+        else:
+            set_hint_kind(self.baseline_source_hint, "warning")
+            self.baseline_source_hint.setText("No baseline yet: this frame uses its own analysis until Roll Analysis runs")
+
     def _on_reanalyze_frame(self) -> None:
         conf = self.state.config
         self.controller.apply_config(replace(conf, process=replace(conf.process, **invalidate_local_bounds(conf.process))), persist=True)
@@ -553,8 +569,10 @@ class ProcessSidebar(BaseSidebar):
                 self.luma_range_clip_slider,
                 self.color_range_clip_slider,
                 self.lock_bounds_btn,
+                self.reanalyze_frame_btn,
             ):
                 w.setVisible(not transfer)
+            self._update_baseline_source_hint(conf, transfer)
 
             idx = self._channel_index()
             suffix = _CH_LABEL[idx]

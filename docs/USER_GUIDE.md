@@ -840,6 +840,8 @@ How the negative is measured into a positive's tonal bounds. The film mode that 
 
 Under the picker, since both read what it holds:
 
+*   **Baseline** (the line above the two toggles, shown while either is on): names what they read. That is the roll or scene it was analyzed for, or the frame that **Sync Bounds…** took it from. It warns while there is no baseline yet.
+
 *   **Use Luma Average**: this frame takes the picked roll's tonal range instead of its own analysis; color still re-derives per frame. Disables Luma Range Clip while on.
 *   **Use Color Average**: this frame takes the picked roll's color balance instead of its own analysis; tonal range still re-derives per frame. Disables Color Clip while on. Enable both for a fully consistent roll; leave both off for per-image auto-exposure.
 

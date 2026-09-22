@@ -1312,6 +1312,9 @@ class DesktopSessionManager(QObject):
             if src_bounds is None:
                 self.settings_synced.emit("Render the source frame before syncing bounds")
                 return 0
+            # A source riding a baseline passes that baseline on, so its origin goes with it.
+            rides = src_bounds == (source_config.process.locked_floors, source_config.process.locked_ceils)
+            src_source = source_config.process.baseline_source if rides else f"frame:{os.path.basename(self.state.current_file_path or '')}"
 
         target_indices = self.asset_model.visible_actual_indices_ordered() if scope == "roll" else self.state.selected_indices
 
@@ -1326,7 +1329,7 @@ class DesktopSessionManager(QObject):
             synced = apply_selected_fields(source_config, target_config, rows)
             if src_bounds is not None:
                 floors, ceils = src_bounds
-                changes: dict = {"locked_floors": floors, "locked_ceils": ceils}
+                changes: dict = {"locked_floors": floors, "locked_ceils": ceils, "baseline_source": src_source}
                 if luma:
                     changes["use_luma_average"] = True
                 if color:

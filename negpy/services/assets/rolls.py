@@ -559,4 +559,23 @@ def resolve_roll_baseline(repo: Any, roll_id: str, file_hash: str, config: "Work
     saved = scene_normalization(repo, roll_id, scene[1]) if scene else roll_normalization(repo, roll_id)
     if not saved:
         return config
-    return replace(config, process=replace(process, locked_floors=saved["floors"], locked_ceils=saved["ceils"]))
+    source = f"scene:{scene[1]}" if scene else f"roll:{roll_id}"
+    return replace(config, process=replace(process, locked_floors=saved["floors"], locked_ceils=saved["ceils"], baseline_source=source))
+
+
+def baseline_label(repo: Any, process: Any) -> str:
+    """What a frame's locked baseline was taken from, for display: “Roll …”, “Scene …” or
+    “Frame …”. A baseline saved before sources were recorded names its roll_name, if any."""
+    kind, _, ref = process.baseline_source.partition(":")
+    if kind == "roll":
+        entry = roll_for_id(repo, ref)
+        return f"Roll “{entry['name']}”" if entry else "a deleted roll"
+    if kind == "scene":
+        for entry in _read(repo).values():
+            scene = entry.get("scenes", {}).get(ref)
+            if scene:
+                return f"Scene “{scene['name']}”"
+        return "a deleted scene"
+    if kind == "frame":
+        return f"Frame “{ref}”"
+    return f"Roll “{process.roll_name}”" if process.roll_name else "a saved baseline"

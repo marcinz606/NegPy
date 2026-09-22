@@ -2739,9 +2739,11 @@ class TestPresetExportSelected(unittest.TestCase):
         with self._scene_setup(), patch.object(rolls, "set_roll_normalization") as mock_set:
             self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9), [])
 
-        saved = {c.args[0] for c in self.mock_session_manager.repo.save_file_settings.call_args_list}
-        self.assertEqual(saved, {"h2"})
+        saved = {c.args[0]: c.args[1] for c in self.mock_session_manager.repo.save_file_settings.call_args_list}
+        self.assertEqual(set(saved), {"h2"})
         mock_set.assert_called_once()
+        new_cfg = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertEqual(new_cfg.process.baseline_source, "roll:roll-1")
 
     def test_scene_analysis_writes_members_and_stores_on_the_scene(self):
         self.controller._normalization_scope = "s1"
@@ -2752,8 +2754,9 @@ class TestPresetExportSelected(unittest.TestCase):
         ):
             self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9), [])
 
-        saved = {c.args[0] for c in self.mock_session_manager.repo.save_file_settings.call_args_list}
-        self.assertEqual(saved, {"h1", "h3"})
+        saved = {c.args[0]: c.args[1] for c in self.mock_session_manager.repo.save_file_settings.call_args_list}
+        self.assertEqual(set(saved), {"h1", "h3"})
+        self.assertEqual(saved["h1"].process.baseline_source, "scene:s1")
         mock_roll.assert_not_called()
         mock_scene.assert_called_once_with(self.mock_session_manager.repo, "roll-1", "s1", (0.1, 0.1, 0.1), (0.9, 0.9, 0.9))
         # h2, the active frame, is outside the scene, so its in-memory config is untouched.

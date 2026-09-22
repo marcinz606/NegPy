@@ -170,6 +170,8 @@ class ProcessConfig:
     lock_bounds: bool = False
 
     roll_name: Optional[str] = None
+    # Where locked_floors/ceils came from: "roll:<roll id>", "scene:<scene id>" or "frame:<file name>".
+    baseline_source: str = ""
 
     def __post_init__(self) -> None:
         """
