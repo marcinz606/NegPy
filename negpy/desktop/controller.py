@@ -914,7 +914,11 @@ class AppController(QObject):
             return
         pil_transpose = {1: Image.Transpose.ROTATE_90, 2: Image.Transpose.ROTATE_180, 3: Image.Transpose.ROTATE_270}[turns]
         qt_transform = QTransform().rotate(-90 * direction)
-        if self._turn_thumbnails(keys, qt_transform, pil_transpose):
+        changed = self._turn_thumbnails(keys, qt_transform, pil_transpose)
+        # push_external_history flagged these stale for the bulk geometry write; the turn
+        # above already brings the cached bitmap into agreement with it, so no render is owed.
+        self.state.stale_thumbnails.difference_update(keys)
+        if changed:
             self.session.asset_model.refresh()
 
     def flip_thumbnails(self, keys: list, horizontal: bool) -> None:
@@ -926,7 +930,9 @@ class AppController(QObject):
             return
         pil_transpose = Image.Transpose.FLIP_LEFT_RIGHT if horizontal else Image.Transpose.FLIP_TOP_BOTTOM
         qt_transform = QTransform().scale(-1, 1) if horizontal else QTransform().scale(1, -1)
-        if self._turn_thumbnails(keys, qt_transform, pil_transpose):
+        changed = self._turn_thumbnails(keys, qt_transform, pil_transpose)
+        self.state.stale_thumbnails.difference_update(keys)
+        if changed:
             self.session.asset_model.refresh()
 
     def clear_thumbnail_cache(self) -> None:

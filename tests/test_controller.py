@@ -4701,6 +4701,16 @@ class TestRotateThumbnails(unittest.TestCase):
 
         self.controller.asset_store.get_thumbnail.assert_not_called()
 
+    def test_rotate_clears_the_stale_flag_the_bulk_write_set(self):
+        """rotate_selected_frames flags a batch-rotated frame stale (a DB write with no
+        render); the turn above brings the cached bitmap into agreement with it, so the
+        flag must not survive to show a spurious dot on an already-correct thumbnail."""
+        self.mock_session_manager.state.stale_thumbnails.add("hash1-v3")
+
+        self.controller.rotate_thumbnails(["hash1-v3"], 1)
+
+        self.assertNotIn("hash1-v3", self.mock_session_manager.state.stale_thumbnails)
+
     def test_flip_mirrors_memory_icon_and_disk_cache_independently(self):
         self.mock_session_manager.state.thumbnails["hash1-v3"] = self._corner_icon(corner=(255, 0, 0))
         disk_cached = Image.new("RGB", (4, 2), (0, 0, 0))
@@ -4728,6 +4738,13 @@ class TestRotateThumbnails(unittest.TestCase):
         self.controller.flip_thumbnails([], True)
 
         self.controller.asset_store.get_thumbnail.assert_not_called()
+
+    def test_flip_clears_the_stale_flag_the_bulk_write_set(self):
+        self.mock_session_manager.state.stale_thumbnails.add("hash1-v3")
+
+        self.controller.flip_thumbnails(["hash1-v3"], True)
+
+        self.assertNotIn("hash1-v3", self.mock_session_manager.state.stale_thumbnails)
 
     def test_rotate_before_decode_finishes_corrects_the_stale_delivery(self):
         """A frame with no cached thumbnail yet is still being decoded by
