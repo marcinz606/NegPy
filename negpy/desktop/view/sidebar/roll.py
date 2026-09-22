@@ -23,7 +23,7 @@ BATCH_ANALYSIS_DISABLED_TOOLTIP = "Open this roll first — Roll Analysis measur
 ANALYZE_SCENES_TOOLTIP = "Analyze All Scenes — run Scene Analysis on every scene of this roll, one after another"
 FROM_FRAME_TOOLTIP = (
     "Use This Frame — save the current frame's bounds as this roll's baseline, in place of a measured "
-    "average. Every frame outside a scene on Use Luma/Color Average follows it."
+    "average. Every frame outside a scene on Use Luma/Color Average follows it, including one loaded later."
 )
 FROM_FRAME_DISABLED_TOOLTIP = "Open this roll first — the baseline is written onto the files currently loaded."
 

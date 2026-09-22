@@ -1151,7 +1151,8 @@ class DesktopSessionManager(QObject):
         if roll_id is None:
             return config
         file_hash = unforked_hash(asset["hash"])
-        return rolls.resolve_roll_config(self.repo, roll_id, file_hash, config)
+        config = rolls.resolve_roll_config(self.repo, roll_id, file_hash, config)
+        return rolls.resolve_roll_baseline(self.repo, roll_id, file_hash, config)
 
     def _hydrate_asset_config(self, asset: dict) -> tuple[WorkspaceConfig, bool]:
         """Build an asset's effective config and report whether it had saved edits."""

@@ -546,3 +546,17 @@ def next_scene_name(repo: Any, roll_id: Optional[str]) -> str:
     while f"Scene {n}" in taken:
         n += 1
     return f"Scene {n}"
+
+
+def resolve_roll_baseline(repo: Any, roll_id: str, file_hash: str, config: "WorkspaceConfig") -> "WorkspaceConfig":
+    """A frame riding Use Luma/Color Average without a baseline of its own takes its
+    scene's, else the roll's: a frame loaded after the analysis ran still follows it. A
+    frame that already carries one, or has Lock Bounds on, keeps it."""
+    process = config.process
+    if process.lock_bounds or process.is_locked_initialized or not (process.use_luma_average or process.use_color_average):
+        return config
+    scene = scene_by_hash(repo, roll_id).get(file_hash)
+    saved = scene_normalization(repo, roll_id, scene[1]) if scene else roll_normalization(repo, roll_id)
+    if not saved:
+        return config
+    return replace(config, process=replace(process, locked_floors=saved["floors"], locked_ceils=saved["ceils"]))

@@ -2,6 +2,7 @@
 scope or duplicate the edits themselves, with one exception: roll-wide defaults for a
 handful of film, rig and scanning facts (see TestRollDefaults below)."""
 
+from dataclasses import replace
 from unittest.mock import MagicMock
 
 from negpy.domain.models import ProcessConfig, WorkspaceConfig
@@ -30,6 +31,7 @@ from negpy.services.assets.rolls import (
     recognize_folder,
     rename_folder_roll_disk,
     rename_roll,
+    resolve_roll_baseline,
     resolve_roll_config,
     roll_defaults,
     section_push,
@@ -644,3 +646,45 @@ class TestScenes:
         assert next_scene_name(repo, roll_id) == "Scene 1"
         create_scene(repo, roll_id, "Scene 2", ["a"])
         assert next_scene_name(repo, roll_id) == "Scene 3"
+
+
+class TestResolveRollBaseline:
+    def _riding(self, **process):
+        cfg = WorkspaceConfig()
+        return replace(cfg, process=replace(cfg.process, use_luma_average=True, use_color_average=True, **process))
+
+    def test_frame_without_a_baseline_takes_the_rolls(self):
+        repo = _repo()
+        roll_id = create_virtual_roll(repo, "Portra", [])
+        set_roll_normalization(repo, roll_id, (0.1, 0.1, 0.1), (0.9, 0.9, 0.9))
+
+        out = resolve_roll_baseline(repo, roll_id, "h1", self._riding())
+
+        assert out.process.locked_floors == (0.1, 0.1, 0.1)
+        assert out.process.locked_ceils == (0.9, 0.9, 0.9)
+
+    def test_scene_member_takes_the_scenes(self):
+        repo = _repo()
+        roll_id = create_virtual_roll(repo, "Portra", [])
+        set_roll_normalization(repo, roll_id, (0.1, 0.1, 0.1), (0.9, 0.9, 0.9))
+        sid = create_scene(repo, roll_id, "Beach", ["h1"])
+        set_scene_normalization(repo, roll_id, sid, (0.2, 0.2, 0.2), (0.8, 0.8, 0.8))
+
+        assert resolve_roll_baseline(repo, roll_id, "h1", self._riding()).process.locked_floors == (0.2, 0.2, 0.2)
+
+    def test_existing_baseline_off_axes_and_locked_frames_are_left_alone(self):
+        repo = _repo()
+        roll_id = create_virtual_roll(repo, "Portra", [])
+        set_roll_normalization(repo, roll_id, (0.1, 0.1, 0.1), (0.9, 0.9, 0.9))
+        own = self._riding(locked_floors=(0.3, 0.3, 0.3), locked_ceils=(0.7, 0.7, 0.7))
+        off = WorkspaceConfig()
+        locked = self._riding(lock_bounds=True)
+
+        for cfg in (own, off, locked):
+            assert resolve_roll_baseline(repo, roll_id, "h1", cfg) is cfg
+
+    def test_unanalyzed_roll_leaves_the_frame_alone(self):
+        repo = _repo()
+        roll_id = create_virtual_roll(repo, "Portra", [])
+        cfg = self._riding()
+        assert resolve_roll_baseline(repo, roll_id, "h1", cfg) is cfg
