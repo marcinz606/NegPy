@@ -18,7 +18,7 @@ def _stub(*, active_roll_id="roll1", locked_cards=(), metadata=None) -> MagicMoc
     panel = MagicMock()
     panel.state.active_roll_id = active_roll_id
     panel.state.config.metadata = metadata or MetadataConfig()
-    panel.controller.roll_card_locked.side_effect = lambda key: key in locked_cards
+    panel.controller.locked_roll_cards.side_effect = lambda: set(locked_cards)
     panel._scope_sections = lambda: MetadataSidebar._scope_sections(panel)
     return panel
 

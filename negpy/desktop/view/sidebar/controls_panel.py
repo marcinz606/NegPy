@@ -1031,9 +1031,10 @@ class ControlsPanel(QWidget):
         spans them to hold a shared one. Save as Roll gives them one."""
         has_roll = self.controller.state.active_roll_id is not None
         overridden = []
+        locked_cards = self.controller.locked_roll_cards()
         for section_key, section in self._roll_sections():
             cards = _SECTION_CARDS.get(section_key, (section_key,))
-            locked = any(self.controller.roll_card_locked(card) for card in cards)
+            locked = any(card in locked_cards for card in cards)
             label = self._ROLL_CARD_LABELS[cards[0]]
             section.set_scope_buttons(
                 True,
@@ -1047,10 +1048,12 @@ class ControlsPanel(QWidget):
             if locked:
                 overridden.append(label)
 
-        for key, section in self._frame_sections():
+        frame_sections = self._frame_sections()
+        scopes = self.controller.frame_section_scopes(tuple(key for key, _ in frame_sections))
+        for key, section in frame_sections:
             section.set_scope_buttons(
                 True,
-                self.controller.frame_section_scope(key),
+                scopes[key],
                 roll_tooltip="" if has_roll else NO_ROLL_SCOPE_HINT,
                 roll_enabled=has_roll,
             )

@@ -4395,20 +4395,24 @@ class AppController(QObject):
             config = replace(config, process=replace(config.process, **invalidate_local_bounds(config.process)))
         return config
 
-    def roll_card_locked(self, card_key: str) -> bool:
-        """True when the active frame has locked *card_key* to its own value, within
-        the active roll. Always false with no active roll. Keyed on the unforked hash,
-        like the lock itself: it is about this physical frame, not its current edit
-        identity, and must read the same locked or not whether or not it is forked."""
+    def locked_roll_cards(self) -> set:
+        """The Roll-tab cards the active frame has locked to its own value, within the
+        active roll. Empty with no active roll. Keyed on the unforked hash, like the lock
+        itself: it is about this physical frame, not its current edit identity, and must
+        read the same locked or not whether or not it is forked."""
         roll_id = self.state.active_roll_id
         if roll_id is None or not self.state.current_file_hash:
-            return False
-        return card_key in rolls.frame_override_cards(self.session.repo, roll_id, rolls.unforked_hash(self.state.current_file_hash))
+            return set()
+        return rolls.frame_override_cards(self.session.repo, roll_id, rolls.unforked_hash(self.state.current_file_hash))
+
+    def roll_card_locked(self, card_key: str) -> bool:
+        return card_key in self.locked_roll_cards()
 
     def diverged_roll_cards(self) -> List[str]:
         """Every Roll-tab card locked away from the roll on the active frame -- what
         Apply to Whole Roll / Apply to Selected Frames act on."""
-        return [key for key in self._ROLL_CARDS if self.roll_card_locked(key)]
+        locked = self.locked_roll_cards()
+        return [key for key in self._ROLL_CARDS if key in locked]
 
     def _lock_roll_card(self, card_key: str) -> None:
         """Locks or unlocks *card_key* to match whether the active frame's own
@@ -4566,15 +4570,22 @@ class AppController(QObject):
         """Where a frame-level card's values live: "roll" once a whole-roll apply put them
         there and this frame still matches every field it pushed, "frame" otherwise. Edit
         one of those fields and it reads Frame again on its own, with nothing to clear."""
+        return self.frame_section_scopes((section_key,))[section_key]
+
+    def frame_section_scopes(self, section_keys: tuple) -> Dict[str, str]:
+        """frame_section_scope for many cards, off one read of the roll."""
         roll_id = self.state.active_roll_id
-        if roll_id is None:
-            return "frame"
-        pushed = rolls.section_push(self.session.repo, roll_id, section_key)
-        if not pushed:
-            return "frame"
+        entry = rolls.roll_for_id(self.session.repo, roll_id) if roll_id is not None else None
+        pushes = entry.get("section_pushes", {}) if entry else {}
         sections = section_of_field()
-        matches = all(getattr(getattr(self.state.config, sections[f], None), f, None) == v for f, v in pushed.items() if f in sections)
-        return "roll" if matches else "frame"
+        scopes = {}
+        for key in section_keys:
+            pushed = pushes.get(key)
+            matches = bool(pushed) and all(
+                getattr(getattr(self.state.config, sections[f], None), f, None) == v for f, v in pushed.items() if f in sections
+            )
+            scopes[key] = "roll" if matches else "frame"
+        return scopes
 
     def record_section_push(self, section_key: str, values: dict) -> None:
         """Files a whole-roll apply of a frame-level card, so its scope pair can read Roll

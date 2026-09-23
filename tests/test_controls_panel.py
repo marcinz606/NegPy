@@ -31,7 +31,8 @@ def _panel_stub(*, active_roll_id="roll1", locked_cards=()) -> MagicMock:
     panel._roll_sections = lambda: ControlsPanel._roll_sections(panel)
     panel._frame_sections = lambda: ControlsPanel._frame_sections(panel)
     panel.controller.state.active_roll_id = active_roll_id
-    panel.controller.roll_card_locked.side_effect = lambda key: key in locked_cards
+    panel.controller.locked_roll_cards.side_effect = lambda: set(locked_cards)
+    panel.controller.frame_section_scopes.side_effect = lambda keys: {key: "frame" for key in keys}
     return panel
 
 
@@ -117,7 +118,7 @@ def test_sync_scope_buttons_reads_each_frame_cards_own_scope():
     """A frame card reads Roll only once a whole-roll apply put its values there and the
     frame still matches them."""
     panel = _panel_stub()
-    panel.controller.frame_section_scope.side_effect = lambda key: "roll" if key == "tone" else "frame"
+    panel.controller.frame_section_scopes.side_effect = lambda keys: {key: "roll" if key == "tone" else "frame" for key in keys}
 
     ControlsPanel._sync_scope_buttons(panel)
 

@@ -412,10 +412,11 @@ class MetadataSidebar(BaseSidebar):
         conf = self.state.config.metadata
         default = MetadataConfig()
         overridden = []
+        locked_cards = self.controller.locked_roll_cards()
         for card_key, section in self._scope_sections():
             _sec, fields = ROLL_DEFAULT_FIELDS[card_key]
             section.set_modified(sum(getattr(conf, f) != getattr(default, f) for f in fields))
-            locked = self.controller.roll_card_locked(card_key)
+            locked = card_key in locked_cards
             label = AppController._ROLL_CARD_LABELS[card_key]
             section.set_scope_buttons(
                 True,
