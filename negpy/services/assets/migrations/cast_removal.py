@@ -23,9 +23,8 @@ _DONE_FLAG = "cast_removal_slide_migrated_v1"
 #: Legacy raw process_mode strings for a slide, "E-6" predating the rename to
 #: "Transparency".
 _SLIDE_MODES = ("Transparency", "E-6")
-#: MUST equal ExposureConfig.cast_removal_strength's default. Mirrored rather than
-#: imported to keep this module free of a domain dependency; test_cast_removal_migration.py
-#: asserts they agree.
+#: The default every legacy slide row was saved with. Fixed, not ExposureConfig's current
+#: default: the rows this sweep repairs were all written under it.
 _SHIPPED_CAST_STRENGTH = 0.5
 
 

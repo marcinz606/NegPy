@@ -1088,7 +1088,7 @@ class TestDesktopSessionSync(unittest.TestCase):
     def test_reset_process_section_resyncs_cast_removal_for_the_new_mode(self):
         """Resetting Process can change process_mode (back to DEFAULT_WORKSPACE_CONFIG's
         C41), which must re-sync Cast Removal too -- otherwise an E6-tuned 0.0 survives
-        onto a negative, where the flat 0.5 default belongs."""
+        onto a negative, where the flat default belongs."""
         self.session.select_file(0)
         dirty = replace(
             self.session.state.config,
@@ -1100,7 +1100,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.session.reset_section("process")
 
         self.assertEqual(self.session.state.config.process.process_mode, ProcessMode.C41)
-        self.assertEqual(self.session.state.config.exposure.cast_removal_strength, 0.5)
+        self.assertEqual(self.session.state.config.exposure.cast_removal_strength, 1.0)
 
     def test_reset_settings_is_recorded_not_wiping(self):
         self.session.select_file(0)

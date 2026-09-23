@@ -4,9 +4,8 @@ from contextlib import closing
 
 import pytest
 
-from negpy.features.exposure.models import ExposureConfig
 from negpy.infrastructure.storage.repository import StorageRepository
-from negpy.services.assets.migrations.cast_removal import _SHIPPED_CAST_STRENGTH, migrate_legacy_slide_cast_removal
+from negpy.services.assets.migrations.cast_removal import migrate_legacy_slide_cast_removal
 
 
 @pytest.fixture
@@ -27,10 +26,6 @@ def _settings(repo, table, **key):
     with closing(sqlite3.connect(repo.edits_db_path)) as conn:
         row = conn.execute(f"SELECT settings_json FROM {table} WHERE {where}", tuple(key.values())).fetchone()
     return json.loads(row[0])
-
-
-def test_the_mirrored_default_matches_the_dataclass():
-    assert _SHIPPED_CAST_STRENGTH == float(ExposureConfig.cast_removal_strength)
 
 
 def test_legacy_slide_at_shipped_default_is_zeroed(repo):
