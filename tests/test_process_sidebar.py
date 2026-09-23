@@ -152,13 +152,31 @@ def test_the_region_buttons_carry_their_names(qapp):
     assert sidebar.clear_analysis_region_btn.text().strip() == "Clear Region"
 
 
-def test_average_toggles_follow_the_roll_picker_they_read(qapp):
-    """Use Luma/Color Average is about the roll baseline, so it stays below the picker
-    while the metering controls sit above it."""
+def test_average_toggles_ride_the_baseline_bar_not_the_analysis(qapp):
+    """Use Luma/Color Average is about the roll baseline, so it travels with the picker
+    in baseline_bar, apart from the metering controls."""
     _, sidebar = _sidebar()
-    _row_index_containing(sidebar.layout, sidebar.use_luma_avg_btn)
+    bar = sidebar.baseline_bar.layout()
+    assert _row_index_containing(bar, sidebar.use_luma_avg_btn) == _row_index_containing(bar, sidebar.use_color_avg_btn)
     for widget in (sidebar.luma_range_clip_slider, sidebar.white_point_slider):
-        assert sidebar.layout.indexOf(widget) == -1
+        assert not sidebar.baseline_bar.isAncestorOf(widget)
+
+
+def test_lock_bounds_shares_the_region_row(qapp):
+    _, sidebar = _sidebar()
+    col = sidebar.analysis_bar.layout()
+    assert _row_index_containing(col, sidebar.lock_bounds_btn) == _row_index_containing(col, sidebar.analysis_region_btn)
+
+
+def test_the_point_header_opens_the_channel_row_and_its_sliders(qapp):
+    """The R/G/B selector scopes White/Black Point only, so it sits under their own
+    header, after the clip sliders it does not reach."""
+    _, sidebar = _sidebar()
+    col = sidebar.analysis_bar.layout()
+    header_i = col.indexOf(sidebar.point_header)
+    assert header_i > _row_index_containing(col, sidebar.color_range_clip_slider)
+    assert _row_index_containing(col, sidebar.ch_r_btn) == header_i + 1
+    assert _row_index_containing(col, sidebar.white_point_slider) == header_i + 2
 
 
 def test_average_toggles_sync_from_config(qapp):
@@ -342,13 +360,25 @@ def test_white_black_point_ignore_the_lock_on_the_transparency_transfer(qapp):
     assert sidebar.black_point_slider.isEnabled()
 
 
-def test_white_black_point_write_to_process(qapp):
+def test_white_black_point_write_the_normalization_roll_card(qapp):
     controller, sidebar = _sidebar()
 
     sidebar._on_white_point_changed(0.15, persist=True)
+    sidebar.ch_g_btn.setChecked(True)
+    sidebar._on_black_point_changed(-0.05, persist=True)
 
-    args, _kwargs = controller.apply_config.call_args
-    assert args[0].process.white_point_offset == 0.15
+    calls = [(c.args[0], c.kwargs) for c in controller.set_roll_default.call_args_list]
+    assert ("process", {"persist": True, "readback_metrics": True, "white_point_offset": 0.15}) in calls
+    assert ("process", {"persist": True, "readback_metrics": True, "black_point_trim_green": -0.05}) in calls
+
+
+def test_white_black_point_are_normalization_roll_defaults():
+    from negpy.services.assets import rolls
+
+    fields = rolls.card_fields("process")
+    for layer in ("red", "green", "blue"):
+        assert f"white_point_trim_{layer}" in fields and f"black_point_trim_{layer}" in fields
+    assert "white_point_offset" in fields and "black_point_offset" in fields
 
 
 def test_reanalyze_frame_clears_local_bounds_and_persists(qapp):
@@ -387,11 +417,11 @@ def test_baseline_hint_names_where_the_bounds_came_from(qapp):
     riding = dict(use_luma_average=True, locked_floors=(0.1, 0.1, 0.1), locked_ceils=(0.9, 0.9, 0.9))
 
     sidebar.sync_ui()
-    assert not sidebar.baseline_source_hint.isVisibleTo(sidebar)
+    assert not sidebar.baseline_source_hint.isVisibleTo(sidebar.baseline_bar)
 
     controller.state.config = replace(cfg, process=replace(cfg.process, baseline_source="frame:f003.tif", **riding))
     sidebar.sync_ui()
-    assert sidebar.baseline_source_hint.isVisibleTo(sidebar)
+    assert sidebar.baseline_source_hint.isVisibleTo(sidebar.baseline_bar)
     assert sidebar.baseline_source_hint.text() == "Baseline: Frame “f003.tif”"
 
     with patch.object(rolls, "roll_for_id", return_value={"name": "Tri-X"}):

@@ -111,9 +111,6 @@ _NORMALIZATION_FIELDS = (
     "e6_normalize",
     "use_luma_average",
     "use_color_average",
-)
-# Normalization's White/Black Point block: counted and reset with that card, never a roll default.
-_WHITE_BLACK_POINT_FIELDS = (
     "white_point_offset",
     "black_point_offset",
     "white_point_trim_red",
@@ -303,17 +300,16 @@ class ControlsPanel(QWidget):
 
         self.roll_sidebar = RollAnalysisSidebar(self.controller)
         # Roll Analysis and Normalization are one job, getting a negative to a correctly
-        # normalized positive, so they share a card: this frame's own analysis first, then
-        # the roll picker it feeds, with Lock Bounds in the picker's button row because it
-        # is about this frame's relationship to Roll Analysis.
-        self.roll_sidebar.insert_lock_button(self.process_sidebar.lock_bounds_btn)
+        # normalized positive, so they share a card: the slide's Normalize switch, the
+        # roll's baseline, then this frame's own analysis and what nudges its result.
+        self.roll_sidebar.insert_baseline_bar(self.process_sidebar.baseline_bar)
         normalization_body = QWidget()
         normalization_layout = QVBoxLayout(normalization_body)
         normalization_layout.setContentsMargins(0, 0, 0, 0)
         normalization_layout.setSpacing(4)
-        normalization_layout.addWidget(self.process_sidebar.analysis_bar)
-        normalization_layout.addWidget(self.roll_sidebar)
         normalization_layout.addWidget(self.process_sidebar)
+        normalization_layout.addWidget(self.roll_sidebar)
+        normalization_layout.addWidget(self.process_sidebar.analysis_bar)
         self.process_section = self._make_section(
             "Normalization",
             "process",
@@ -551,7 +547,7 @@ class ControlsPanel(QWidget):
         self.geometry_section.reset_requested.connect(self._reset_geometry_fields)
         self.autocrop_section.reset_requested.connect(lambda: self._reset_card_fields("autocrop"))
         self.lens_section.reset_requested.connect(lambda: self._reset_card_fields("lens"))
-        self.process_section.reset_requested.connect(lambda: self._reset_process_fields(_NORMALIZATION_FIELDS + _WHITE_BLACK_POINT_FIELDS))
+        self.process_section.reset_requested.connect(lambda: self._reset_process_fields(_NORMALIZATION_FIELDS))
         self.retouch_section.reset_requested.connect(lambda: self.controller.session.reset_section("retouch"))
         self.local_section.reset_requested.connect(lambda: self.controller.session.reset_section("local"))
         self.finish_section.reset_requested.connect(lambda: self.controller.session.reset_section("finish"))
@@ -1198,7 +1194,7 @@ class ControlsPanel(QWidget):
 
         proc = cfg.process
         film_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _FILM_FIELDS)
-        process_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _NORMALIZATION_FIELDS + _WHITE_BLACK_POINT_FIELDS)
+        process_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _NORMALIZATION_FIELDS)
         demosaic_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _DEMOSAIC_FIELDS)
         sensor_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _SENSOR_FIELDS)
 

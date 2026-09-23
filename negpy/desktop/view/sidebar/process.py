@@ -166,7 +166,6 @@ class ProcessSidebar(BaseSidebar):
         )
         mode_col.addWidget(self.positive_source_btn)
 
-        # Adopted into the Roll Baseline button row by RollAnalysisSidebar.insert_lock_button.
         self.lock_bounds_btn = self._small_toggle(
             "fa5s.lock",
             " Lock Bounds",
@@ -175,7 +174,7 @@ class ProcessSidebar(BaseSidebar):
         )
 
         # Everything that measures this frame, or nudges what the measurement produced.
-        # Lives above the Roll Baseline picker, so ControlsPanel places it outside
+        # Lives below the Roll Baseline picker, so ControlsPanel places it outside
         # self.layout -- the same reason mode_bar sits above every Roll-tab card.
         self.analysis_bar = QWidget()
         analysis_col = QVBoxLayout(self.analysis_bar)
@@ -202,7 +201,7 @@ class ProcessSidebar(BaseSidebar):
             "fa5s.times", " Clear Region", "Clear the freehand analysis region (fall back to the Analysis Buffer)"
         )
         region_row = QHBoxLayout()
-        for btn in (self.analysis_region_btn, self.clear_analysis_region_btn):
+        for btn in (self.analysis_region_btn, self.clear_analysis_region_btn, self.lock_bounds_btn):
             region_row.addWidget(btn, 1)
         analysis_col.addLayout(region_row)
 
@@ -237,6 +236,8 @@ class ProcessSidebar(BaseSidebar):
         for i, btn in enumerate((self.ch_global_btn, self.ch_r_btn, self.ch_g_btn, self.ch_b_btn)):
             self.ch_btn_group.addButton(btn, i)
             ch_row.addWidget(btn, 1)
+        self.point_header = section_subheader("WHITE / BLACK POINT")
+        analysis_col.addWidget(self.point_header)
         analysis_col.addLayout(ch_row)
 
         self.white_point_slider = CompactSlider("White Point", -0.25, 0.25, conf.white_point_offset, has_neutral=True)
@@ -246,11 +247,15 @@ class ProcessSidebar(BaseSidebar):
         wp_bp_row.addWidget(self.black_point_slider)
         analysis_col.addLayout(wp_bp_row)
 
-        # Which baseline each axis' bounds come from: the roll's shared meter (picked in
-        # Roll Baseline above) or the frame's own analysis. Sits under the picker it reads,
-        # not with the analysis controls.
+        # Which baseline each axis' bounds come from: the roll's shared meter or the frame's
+        # own analysis. Adopted under the Roll Baseline picker it reads by
+        # RollAnalysisSidebar.insert_baseline_bar.
+        self.baseline_bar = QWidget()
+        baseline_col = QVBoxLayout(self.baseline_bar)
+        baseline_col.setContentsMargins(0, 0, 0, 0)
+        baseline_col.setSpacing(THEME.space_sm)
         self.baseline_source_hint = hint_label("")
-        self.layout.addWidget(self.baseline_source_hint)
+        baseline_col.addWidget(self.baseline_source_hint)
         avg_row = QHBoxLayout()
         self.use_luma_avg_btn = self._small_toggle(
             "mdi6.film",
@@ -266,7 +271,7 @@ class ProcessSidebar(BaseSidebar):
         )
         avg_row.addWidget(self.use_luma_avg_btn)
         avg_row.addWidget(self.use_color_avg_btn)
-        self.layout.addLayout(avg_row)
+        baseline_col.addLayout(avg_row)
 
         # Render exposure for a merged bracket, continuous rather than snapped to the frames that
         # happen to have been shot. The menu still offers those and writes a frame name; this
@@ -396,10 +401,10 @@ class ProcessSidebar(BaseSidebar):
         return "black_point_offset" if idx == 0 else f"black_point_trim_{_CH_SUFFIX[idx - 1]}"
 
     def _on_white_point_changed(self, val: float, persist: bool = True) -> None:
-        self.update_config_section("process", persist=persist, readback_metrics=persist, **{self._wp_field(): val})
+        self.controller.set_roll_default("process", persist=persist, readback_metrics=persist, **{self._wp_field(): val})
 
     def _on_black_point_changed(self, val: float, persist: bool = True) -> None:
-        self.update_config_section("process", persist=persist, readback_metrics=persist, **{self._bp_field(): val})
+        self.controller.set_roll_default("process", persist=persist, readback_metrics=persist, **{self._bp_field(): val})
 
     def _on_lock_bounds_toggled(self, checked: bool) -> None:
         self.update_config_section("process", lock_bounds=checked, persist=True, render=False)

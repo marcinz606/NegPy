@@ -54,9 +54,6 @@ class RollAnalysisSidebar(BaseSidebar):
         for btn in (self.reanalyze_btn, self.from_frame_btn):
             row.addWidget(btn, 1)
         self.layout.addLayout(row)
-        # Lock Bounds is adopted into this row (between the two) once ControlsPanel wires
-        # it in -- see insert_lock_button.
-        self._picker_row = row
 
         self.roll_status_hint = hint_label("", "muted")
         self.layout.addWidget(self.roll_status_hint)
@@ -77,12 +74,10 @@ class RollAnalysisSidebar(BaseSidebar):
         self._refresh_rolls(force=True)
         self.layout.addStretch()
 
-    def insert_lock_button(self, lock_bounds_btn) -> None:
-        """Adopts ProcessSidebar's Lock Bounds toggle into the button row, between
-        Reanalyze and Use This Frame. Lock Bounds is specifically about this frame's
-        relationship to Roll Analysis, so it belongs beside the actions it exempts
-        the frame from."""
-        self._picker_row.insertWidget(1, lock_bounds_btn, 1)
+    def insert_baseline_bar(self, baseline_bar) -> None:
+        """Adopts ProcessSidebar's Use Luma/Color Average row under the picker, since
+        those toggles decide whether this frame reads the baseline picked here."""
+        self.layout.insertWidget(self.layout.indexOf(self.roll_status_hint) + 1, baseline_bar)
 
     def _connect_signals(self) -> None:
         self.roll_combo.selection_changed.connect(self._on_roll_picked)

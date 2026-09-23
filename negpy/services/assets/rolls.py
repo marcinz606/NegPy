@@ -291,6 +291,16 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
             # which stay Roll Analysis's own job to spread (a metering run, not an edit).
             "use_luma_average",
             "use_color_average",
+            # Film-base (Dmin) and Dmax corrections, per dye layer: a fact of the stock
+            # and its development, not of one frame.
+            "white_point_offset",
+            "black_point_offset",
+            "white_point_trim_red",
+            "white_point_trim_green",
+            "white_point_trim_blue",
+            "black_point_trim_red",
+            "black_point_trim_green",
+            "black_point_trim_blue",
         ),
     ),
     # The film edge, the rebate width and the format's shape are properties of the roll,

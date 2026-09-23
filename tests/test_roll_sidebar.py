@@ -98,17 +98,25 @@ def test_use_this_frame_is_gated_the_same_way_reanalyze_is(qapp):
     assert "Open this roll first" in sidebar.from_frame_btn.toolTip()
 
 
-def test_the_three_baseline_buttons_share_one_row_under_the_picker(qapp):
-    from PyQt6.QtWidgets import QPushButton
-
+def test_the_baseline_buttons_share_one_row_under_the_picker(qapp):
     _, sidebar, _ids = _sidebar()
-    lock_btn = QPushButton()
-
-    sidebar.insert_lock_button(lock_btn)
 
     button_row = sidebar.layout.itemAt(2).layout()
     widgets = [button_row.itemAt(i).widget() for i in range(button_row.count())]
-    assert widgets == [sidebar.reanalyze_btn, lock_btn, sidebar.from_frame_btn]
+    assert widgets == [sidebar.reanalyze_btn, sidebar.from_frame_btn]
+
+
+def test_the_baseline_bar_lands_under_the_status_hint_above_the_scenes(qapp):
+    from PyQt6.QtWidgets import QWidget
+
+    _, sidebar, _ids = _sidebar()
+    bar = QWidget()
+
+    sidebar.insert_baseline_bar(bar)
+
+    at = sidebar.layout.indexOf(bar)
+    assert at == sidebar.layout.indexOf(sidebar.roll_status_hint) + 1
+    assert at < sidebar.layout.indexOf(sidebar.scenes_header)
 
 
 def test_the_baseline_buttons_carry_their_names(qapp):
