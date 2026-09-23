@@ -676,17 +676,6 @@ What the wizard sets:
 
 Applying it sets the defaults for new files and rewrites the open frame and every edited frame in the session, undoable per frame with Ctrl+Z.
 
-**Single-Shot Narrowband Calibration**: for single-shot camera scans under narrowband light, where the sensor's filters overlap the light's bands and each color leaks into the others. The leak belongs to sensor and light, so it is corrected on the linear capture before inversion.
-
-*   **Profile**: the sensor matrix. Custom `.toml` matrices go in `<Documents>/NegPy/sensor/`.
-*   **Calibrate** (vials icon): build a profile from three bare-light R/G/B exposures.
-
-Grayed out unless **Linear RAW** is on (profiles assume neutral white balance) and on **Transparency**; skipped for RGB-triplet assets. The selection is remembered. **Re-run Roll Analysis** after changing it.
-
-#### Narrowband and slides
-
-**Narrowband and Single-Shot Narrowband Calibration do not apply to Transparency**, with or without Normalize. They stay visible and grayed, keep their values, and return on a negative. The bundled profile describes negative dyes, and a narrowband light cannot be calibrated against a slide render. For slides on a narrowband rig, use **Hue Trim** to correct the light's hue rotation.
-
 **Crosstalk** (hidden in B&W Negative): a channel unmix on the raw densities before inversion. The dropdown lists only matrices for the current film process; a mismatched stored profile gives no correction. The dyes, your light's spectrum and your sensor's filters all mix the channels the same way in density, so a matrix describes *your whole scanning setup*, and may not suit another rig with the same stock.
 
 *   **Matrix**: grouped by source (measured, tuned on a rig, or from spec sheets). *Generic C41* is built in; custom `.toml` matrices go in `<Documents>/NegPy/crosstalk/` (see [CROSSTALK.md](CROSSTALK.md)). The slider button opens a matrix editor, with **Type** (the source) and **Process** (which film the numbers describe, and so where the matrix appears and applies; a slide matrix needs E-6). A matrix made with **+** gets the current process. With no matrix for the current process, the dropdown and **Strength** are disabled with a hint; the editor button stays live.
@@ -698,9 +687,20 @@ Grayed out unless **Linear RAW** is on (profiles assume neutral white balance) a
 
 To tune a matrix, adjust its six off-diagonal terms in the editor and save it as your own, named after the *combination* ("Gold 200 + Spectracolor"). Working profiles are welcome [upstream](CROSSTALK.md#contributing-a-matrix).
 
+**Single-Shot Narrowband Calibration**: for single-shot camera scans under narrowband light, where the sensor's filters overlap the light's bands and each color leaks into the others. The leak belongs to sensor and light, so it is corrected on the linear capture before inversion.
+
+*   **Profile**: the sensor matrix. Custom `.toml` matrices go in `<Documents>/NegPy/sensor/`.
+*   **Calibrate** (vials icon): build a profile from three bare-light R/G/B exposures.
+
+Grayed out unless **Linear RAW** is on (profiles assume neutral white balance) and on **Transparency**; skipped for RGB-triplet assets. The selection is remembered. **Re-run Roll Analysis** after changing it.
+
 **Light source:**
 
 *   **Hue Trim** (-30° to 30°, default 0): rotates every hue by a fixed angle, to undo narrowband LED and odd-phosphor lights, which turn every color by about the same angle (yellows read orange, greens go olive) and leave neutrals alone. White balance cannot fix a rotation. Judge it on a known color (foliage, blue sky, skin); leave it at 0 for broadband light. It is **sticky** and carries to the next file. Neutrals are untouched, so the color-balance clip in **Metering** is unaffected.
+
+#### Narrowband and slides
+
+**Narrowband and Single-Shot Narrowband Calibration do not apply to Transparency**, with or without Normalize. They stay visible and grayed, keep their values, and return on a negative. The bundled profile describes negative dyes, and a narrowband light cannot be calibrated against a slide render. For slides on a narrowband rig, use **Hue Trim** to correct the light's hue rotation.
 
 <!-- panel:autocrop -->
 ### 10.3 Crop

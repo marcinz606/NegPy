@@ -55,34 +55,6 @@ class SensorSidebar(BaseSidebar):
         self.capture_hint.setVisible(False)  # text and tooltip are set per film process in sync_ui
         self.layout.addWidget(self.capture_hint)
 
-        self.layout.addWidget(section_subheader("SINGLE-SHOT NARROWBAND CALIBRATION"))
-
-        row = QHBoxLayout()
-        self.sensor_label = field_label("Profile")
-        self.sensor_combo = QComboBox()
-        self.sensor_combo.addItems(SensorProfiles.list_profiles())
-        self.sensor_combo.setToolTip(
-            "<table width='280'><tr><td>"
-            "Sensor crosstalk correction for single-shot narrowband scans: un-mixes the camera's "
-            "cross-channel response in the LINEAR capture, before inversion — a fixed property of "
-            "your sensor + light, independent of film. Calibrate it from three bare-light R/G/B "
-            "exposures; custom .toml matrices live in the NegPy/sensor folder. Skipped automatically "
-            "for RGB-triplet assets, when Linear RAW is off, and on transparencies — which are not "
-            "scanned with narrowband light. Re-run Roll Analysis after changing this."
-            "</td></tr></table>"
-        )
-        self.calibrate_sensor_btn = self._icon_action("fa5s.vials", "Calibrate the sensor from three bare-light R/G/B exposures", width=32)
-        row.addWidget(self.sensor_label)
-        row.addWidget(self.sensor_combo, 1)
-        row.addWidget(self.calibrate_sensor_btn)
-        self.layout.addLayout(row)
-
-        # Muted, not warning: this is the normal state for anyone not using Linear RAW, so it
-        # explains the greyed controls rather than flagging a problem. Text and tooltip are set
-        # per reason in _apply_gate.
-        self.sensor_hint = hint_label("Requires Linear RAW.")
-        self.layout.addWidget(self.sensor_hint)
-
         self.crosstalk_header = section_subheader("CROSSTALK")
         self.layout.addWidget(self.crosstalk_header)
 
@@ -137,6 +109,34 @@ class SensorSidebar(BaseSidebar):
 
         self.crosstalk_strength_slider = CompactSlider("Strength", 0.0, 1.0, conf.crosstalk_strength, has_neutral=True)
         self.layout.addWidget(self.crosstalk_strength_slider)
+
+        self.layout.addWidget(section_subheader("SINGLE-SHOT NARROWBAND CALIBRATION"))
+
+        row = QHBoxLayout()
+        self.sensor_label = field_label("Profile")
+        self.sensor_combo = QComboBox()
+        self.sensor_combo.addItems(SensorProfiles.list_profiles())
+        self.sensor_combo.setToolTip(
+            "<table width='280'><tr><td>"
+            "Sensor crosstalk correction for single-shot narrowband scans: un-mixes the camera's "
+            "cross-channel response in the LINEAR capture, before inversion — a fixed property of "
+            "your sensor + light, independent of film. Calibrate it from three bare-light R/G/B "
+            "exposures; custom .toml matrices live in the NegPy/sensor folder. Skipped automatically "
+            "for RGB-triplet assets, when Linear RAW is off, and on transparencies — which are not "
+            "scanned with narrowband light. Re-run Roll Analysis after changing this."
+            "</td></tr></table>"
+        )
+        self.calibrate_sensor_btn = self._icon_action("fa5s.vials", "Calibrate the sensor from three bare-light R/G/B exposures", width=32)
+        row.addWidget(self.sensor_label)
+        row.addWidget(self.sensor_combo, 1)
+        row.addWidget(self.calibrate_sensor_btn)
+        self.layout.addLayout(row)
+
+        # Muted, not warning: this is the normal state for anyone not using Linear RAW, so it
+        # explains the greyed controls rather than flagging a problem. Text and tooltip are set
+        # per reason in _apply_gate.
+        self.sensor_hint = hint_label("Requires Linear RAW.")
+        self.layout.addWidget(self.sensor_hint)
 
         self.layout.addWidget(section_subheader("LIGHT SOURCE"))
 
