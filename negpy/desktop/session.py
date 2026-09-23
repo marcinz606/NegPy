@@ -1071,6 +1071,11 @@ class DesktopSessionManager(QObject):
 
         config = replace(config, flatfield=replace(config.flatfield, apply=bool(ff_id)))
 
+        return self._with_scan_setup(config)
+
+    def _with_scan_setup(self, config: WorkspaceConfig) -> WorkspaceConfig:
+        """Overlay the scan-setup preferences (ALWAYS_STICKY_PROCESS): they describe the
+        rig, so a fresh file and a reset both take them."""
         new_process = config.process
         for legacy_key, attr in ALWAYS_STICKY_PROCESS:
             val = self.repo.get_global_setting(legacy_key)
@@ -1406,7 +1411,7 @@ class DesktopSessionManager(QObject):
             if not (0 <= idx < len(self.state.uploaded_files)):
                 continue
             asset = self.state.uploaded_files[idx]
-            defaults = self._mode_aware_reset_defaults(self._asset_defaults(DEFAULT_WORKSPACE_CONFIG, asset))
+            defaults = self._reset_defaults(asset)
             if idx == self.state.selected_file_idx:
                 self.update_config(defaults, persist=True, render=False)
             else:
@@ -1673,6 +1678,11 @@ class DesktopSessionManager(QObject):
         self.state_changed.emit()
         self.history_changed.emit()
 
+    def _reset_defaults(self, asset: dict) -> WorkspaceConfig:
+        """What a reset writes for *asset*: DEFAULT_WORKSPACE_CONFIG, the scan-setup
+        preferences, then what the asset itself is."""
+        return self._mode_aware_reset_defaults(self._asset_defaults(self._with_scan_setup(DEFAULT_WORKSPACE_CONFIG), asset))
+
     @staticmethod
     def _mode_aware_reset_defaults(config: WorkspaceConfig) -> WorkspaceConfig:
         """`config`'s exposure section, with Cast Removal's own mode-dependent default
@@ -1681,23 +1691,14 @@ class DesktopSessionManager(QObject):
         return replace(config, exposure=mode_aware_exposure_reset(config.process.process_mode, config.exposure))
 
     def reset_settings(self) -> None:
-        """
-        Reverts current file to defaults plus whatever the asset itself contributes.
-        Recorded as an ordinary history step, so a reset is undoable like any other edit.
+        """Revert the current file to `_reset_defaults`, as an ordinary undoable history step.
 
-        Still DEFAULT_WORKSPACE_CONFIG for the *edit*, unlike a fresh open, which layers on
-        the sticky settings — a reset is meant to clear those. What it must not clear is the
-        rest: an asset assembled from several files carries settings
-        that describe *what it is* rather than how it is edited — a composite's film
-        process and, for a merge, the shadow lift derived from the range it recovered, plus
-        the triplet/stitch/bracket wiring itself. Resetting to bare defaults dropped all of
-        that, which on a merge silently un-merged the render and lost the seeded starting
-        point with no way back to it.
-        """
+        A reset clears the sticky look. It keeps the scan-setup preferences, which describe
+        the rig, and what the asset is: a composite's film process, a merge's seeded shadow
+        lift and the triplet/stitch/bracket wiring."""
         idx = self.state.selected_file_idx
         asset = self.state.uploaded_files[idx] if 0 <= idx < len(self.state.uploaded_files) else {}
-        defaults = self._mode_aware_reset_defaults(self._asset_defaults(DEFAULT_WORKSPACE_CONFIG, asset))
-        self.update_config(defaults, persist=True)
+        self.update_config(self._reset_defaults(asset), persist=True)
 
     def reset_roll(self, assets: List[Dict]) -> None:
         """`reset_settings`, applied to every one of *assets* at once. Each frame's reset
@@ -1707,7 +1708,7 @@ class DesktopSessionManager(QObject):
         """
         changed_hashes: list[str] = []
         for f_info in assets:
-            new_p = self._asset_defaults(WorkspaceConfig(), f_info)
+            new_p = self._reset_defaults(f_info)
             if f_info["hash"] == self.state.current_file_hash:
                 self.update_config(new_p, persist=True)
                 continue

@@ -1122,18 +1122,19 @@ class TestDesktopSessionSync(unittest.TestCase):
 
         self.session.reset_roll(self.session.state.uploaded_files)
 
-        self.assertEqual(self.session.state.config, WorkspaceConfig())
+        self.assertEqual(self.session.state.config, self.session._reset_defaults(self.session.state.uploaded_files[0]))
 
     def test_reset_roll_writes_other_frames_straight_to_the_db(self):
         self.session.select_file(0)  # hash1 active; hash2 is the "other" frame
 
         self.session.reset_roll(self.session.state.uploaded_files)
 
-        self.mock_repo.save_file_settings.assert_any_call("hash2", WorkspaceConfig(), file_path="path2")
+        expected = self.session._reset_defaults(self.session.state.uploaded_files[1])
+        self.mock_repo.save_file_settings.assert_any_call("hash2", expected, file_path="path2")
         # Recorded as an external history step, undoable after switching to it.
         steps = [c.args for c in self.mock_repo.save_history_step.call_args_list if c.args[0] == "hash2"]
         self.assertEqual(len(steps), 2)
-        self.assertEqual(steps[1][2], WorkspaceConfig())
+        self.assertEqual(steps[1][2], expected)
 
     def test_reset_roll_does_not_touch_a_frame_outside_the_given_list(self):
         self.session.select_file(0)
@@ -1956,6 +1957,71 @@ class TestSearchFacts(unittest.TestCase):
 
         self.session.asset_model.set_filter("film:velvia", regex=False)
         self.assertEqual(self._visible(), {"b.dng"})
+
+
+class ResetKeepsScanSetup(unittest.TestCase):
+    """A reset clears the look but keeps the rig: Linear RAW and Narrowband come back as
+    the scan setup gives them to a fresh file, on every reset path."""
+
+    def setUp(self):
+        import tempfile
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = StorageRepository(f"{self.tmp.name}/edits.db", f"{self.tmp.name}/settings.db")
+        self.repo.initialize()
+        self.repo.save_global_settings({"last_linear_raw": True, "last_narrowband_scan": True})
+        self.session = DesktopSessionManager(self.repo)
+        self.session.state.uploaded_files = [
+            {"name": "a.raw", "path": f"{self.tmp.name}/a.raw", "hash": "hash1"},
+            {"name": "b.raw", "path": f"{self.tmp.name}/b.raw", "hash": "hash2"},
+        ]
+        edited = replace(
+            DEFAULT_WORKSPACE_CONFIG,
+            process=replace(DEFAULT_WORKSPACE_CONFIG.process, linear_raw=True, narrowband_scan=True),
+            exposure=replace(DEFAULT_WORKSPACE_CONFIG.exposure, density=1.8),
+        )
+        for f in self.session.state.uploaded_files:
+            self.repo.save_file_settings(f["hash"], edited, file_path=f["path"])
+        self.session.asset_model.refresh()
+        self.session.select_file(0)
+
+    def _assert_reset_keeping_rig(self, config: WorkspaceConfig) -> None:
+        self.assertTrue(config.process.narrowband_scan)
+        self.assertTrue(config.process.linear_raw)
+        self.assertEqual(config.exposure.density, DEFAULT_WORKSPACE_CONFIG.exposure.density)
+
+    def test_reset_settings(self):
+        self.session.reset_settings()
+
+        self._assert_reset_keeping_rig(self.session.state.config)
+
+    def test_reset_roll_settings(self):
+        self.session.reset_roll_settings(scope="roll")
+
+        self._assert_reset_keeping_rig(self.session.state.config)
+        self._assert_reset_keeping_rig(self.repo.load_file_settings("hash2"))
+
+    def test_reset_roll(self):
+        self.session.reset_roll(self.session.state.uploaded_files)
+
+        self._assert_reset_keeping_rig(self.session.state.config)
+        self._assert_reset_keeping_rig(self.repo.load_file_settings("hash2"))
+
+    def test_both_roll_resets_write_the_same_frame(self):
+        self.session.reset_roll_settings(scope="roll")
+        via_settings = self.repo.load_file_settings("hash2")
+        self.session.reset_roll(self.session.state.uploaded_files)
+
+        self.assertEqual(self.repo.load_file_settings("hash2"), via_settings)
+
+    def test_a_white_light_scan_setup_resets_to_off(self):
+        self.repo.save_global_settings({"last_linear_raw": False, "last_narrowband_scan": False})
+
+        self.session.reset_settings()
+
+        self.assertFalse(self.session.state.config.process.narrowband_scan)
+        self.assertFalse(self.session.state.config.process.linear_raw)
 
 
 if __name__ == "__main__":

@@ -70,7 +70,7 @@ An unedited frame gets the rig and roll settings: film process, crop ratio, flip
 
 **Preferences → Session & Storage → Persistent Settings…** edits that list, grouped by panel, with values from your last saved edit. Tick a setting or a group header to make it carry. The **Carry settings between frames** checkbox is the master switch; off, new frames get bare defaults and your ticks stay saved.
 
-An edited frame keeps its look; only export and metadata settings reach it. **Reset Settings** ignores the list and returns bare defaults.
+An edited frame keeps its look; only export and metadata settings reach it. **Reset Settings** ignores the list and returns bare defaults, except for the scanning setup: Linear RAW, Narrowband and the demosaic choices stay as a new frame gets them.
 
 ### Frame or roll: the scope pair
 
