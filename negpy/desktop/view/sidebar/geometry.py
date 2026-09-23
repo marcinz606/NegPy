@@ -8,8 +8,9 @@ from negpy.desktop.session import ToolMode
 from negpy.desktop.view.canvas.crop_guides import GUIDE_LABELS, ORIENTATION_COUNT, CropGuide
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_label, section_subheader
+from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_label, section_subheader, wrap_tooltip
 from negpy.desktop.view.widgets.sliders import CompactSlider
+from negpy.domain.models import CROP_RATIO_CHOICES, canonical_crop_ratio
 from negpy.features.geometry.logic import has_manual_crop
 from negpy.features.geometry.models import FINE_ROTATION_LIMIT
 
@@ -40,6 +41,18 @@ class GeometrySidebar(BaseSidebar):
         btn_row.addWidget(self.reset_crop_btn, 1)
         btn_row.addWidget(self.clear_crop_btn, 1)
         self.layout.addLayout(btn_row)
+
+        # The same roll field as the Crop card's Ratio: the crop tool snaps to it.
+        ratio_row = QHBoxLayout()
+        ratio_row.addWidget(self._field_label("Ratio"))
+        self.ratio_combo = QComboBox()
+        self.ratio_combo.addItems([r.value for r in CROP_RATIO_CHOICES])
+        self.ratio_combo.setCurrentText(canonical_crop_ratio(conf.autocrop_ratio))
+        self.ratio_combo.setToolTip(
+            wrap_tooltip("Aspect ratio the crop tool and auto crop snap to. A roll setting, shared with the Crop card on the Roll tab")
+        )
+        ratio_row.addWidget(self.ratio_combo, 1)
+        self.layout.addLayout(ratio_row)
 
         guide_row = QHBoxLayout()
         guide_row.addWidget(self._field_label("Guide"))
@@ -109,6 +122,7 @@ class GeometrySidebar(BaseSidebar):
         self.guide_orient_btn.setEnabled(ORIENTATION_COUNT.get(CropGuide(guide), 1) > 1 if guide else False)
 
     def _connect_signals(self) -> None:
+        self.ratio_combo.currentTextChanged.connect(self.controller.set_crop_ratio)
         self.guide_combo.currentIndexChanged.connect(lambda _i: self.controller.set_crop_guide(self.guide_combo.currentData()))
         self.guide_combo.currentIndexChanged.connect(lambda _i: self._sync_guide_orient_btn())
         self.guide_orient_btn.clicked.connect(self.controller.cycle_crop_guide_orientation)
@@ -164,6 +178,7 @@ class GeometrySidebar(BaseSidebar):
 
         self.block_signals(True)
         try:
+            self.ratio_combo.setCurrentText(canonical_crop_ratio(conf.autocrop_ratio))
             self.guide_combo.setCurrentIndex(self.guide_combo.findData(self.state.crop_guide))
             self._sync_guide_orient_btn()
 
@@ -182,6 +197,7 @@ class GeometrySidebar(BaseSidebar):
             self.block_signals(False)
 
     def block_signals(self, blocked: bool) -> None:
+        self.ratio_combo.blockSignals(blocked)
         self.guide_combo.blockSignals(blocked)
         self.guide_orient_btn.blockSignals(blocked)
         self.fine_rot_slider.blockSignals(blocked)

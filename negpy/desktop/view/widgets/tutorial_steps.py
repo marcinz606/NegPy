@@ -331,15 +331,15 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             section_attr="geometry_section",
         ),
         TutorialStep(
-            title="Auto Crop: What the Detector Looks For",
+            title="Crop: What the Detector Looks For",
             body=(
-                "The rectangle is each frame's own, but what the detector hunts for belongs to "
-                "the rig and the roll, so it sits on its own <b>Roll tab</b> card. <b>Ratio</b> "
-                "forces a shape (on <b>Free</b> each format keeps its own), <b>Detect</b> snaps "
-                "to the nearest standard one, <b>Mode</b> picks the exposed image or the full "
-                "film edge, and <b>Crop Offset</b> and <b>Rebate Trim</b> decide how far in to "
-                "cut.<br><br>"
-                "<b>Batch Autocrop</b> does the whole roll at once. It analyses every visible "
+                "The rectangle is each frame's own, but its shape and what the detector hunts for "
+                "belong to the rig and the roll, so they sit on the <b>Roll tab</b>'s Crop card. "
+                "<b>Ratio</b> forces a shape (on <b>Free</b> each format keeps its own), "
+                "<b>Detect</b> snaps to the nearest standard one, <b>Mode</b> picks the exposed "
+                "image or the full film edge, and <b>Crop Offset</b> and <b>Rebate Trim</b> decide "
+                "how far in to cut.<br><br>"
+                "Under <b>Auto Crop</b>, <b>Frame</b> crops this frame and <b>Roll</b> does the whole roll at once. It analyses every visible "
                 "landscape frame together, letting the confident detections calibrate the weak "
                 "ones, so camera-scan crops come out consistent instead of frame-by-frame. It "
                 "runs in the background with progress and cancel, and leaves your manual crops "

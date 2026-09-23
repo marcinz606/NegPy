@@ -257,11 +257,12 @@ class ControlsPanel(QWidget):
         )
 
         self.autocrop_sidebar = AutocropSidebar(self.controller)
+        # The persisted "autocrop" section key stays.
         self.autocrop_section = self._make_section(
-            "Auto Crop",
+            "Crop",
             "autocrop",
             self.autocrop_sidebar,
-            icon_name="fa5s.magic",
+            icon_name="fa5s.crop-alt",
         )
 
         self.lens_sidebar = LensSidebar(self.controller)
@@ -1097,7 +1098,7 @@ class ControlsPanel(QWidget):
 
     def _reset_geometry_fields(self) -> None:
         """Geometry's own fields alone: a plain session.reset_section("geometry") would
-        take Auto Crop and Lens Correction with it."""
+        take Crop and Lens Correction with it."""
         from dataclasses import replace
 
         cfg = self.controller.state.config

@@ -3180,7 +3180,7 @@ class AppController(QObject):
             self.set_active_tool(ToolMode.NONE)
 
     def set_crop_ratio(self, ratio: str) -> None:
-        """Sets the Auto Crop card's target ratio, locking the card away from the roll
+        """Sets the Crop card's target ratio, locking the card away from the roll
         the instant it changes and was not already, like any other roll card. If a
         manual crop box is
         already drawn, reshapes it to the new ratio in place — same center, shrunk
@@ -4363,7 +4363,7 @@ class AppController(QObject):
         "sensor": "Calibration",
         "demosaic": "Raw Decode",
         "process": "Normalization",
-        "autocrop": "Auto Crop",
+        "autocrop": "Crop",
         "lens": "Lens Correction",
         "flatfield": "Flat Field",
         "metadata_gear": "Analog Gear",

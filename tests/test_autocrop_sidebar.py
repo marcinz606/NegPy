@@ -75,3 +75,36 @@ def test_rebate_trim_slider_follows_the_crop_mode(qapp):
     sidebar.sync_ui()
     assert sidebar.rebate_trim_slider.isEnabled() is True
     assert sidebar.auto_crop_all_btn.isEnabled() is True
+
+
+def test_the_frame_and_roll_buttons_share_the_auto_crop_row(qapp):
+    sidebar, _ = _sidebar()
+    assert sidebar.auto_frame_btn.text().strip() == "Frame"
+    assert sidebar.auto_crop_all_btn.text().strip() == "Roll"
+    row = next(
+        sidebar.layout.itemAt(i).layout()
+        for i in range(sidebar.layout.count())
+        if sidebar.layout.itemAt(i).layout() is not None and sidebar.layout.itemAt(i).layout().indexOf(sidebar.auto_frame_btn) != -1
+    )
+    assert row.indexOf(sidebar.auto_crop_all_btn) != -1
+
+
+def test_the_frame_button_crops_this_frame_and_clears_it(qapp):
+    sidebar, controller = _sidebar()
+
+    sidebar.auto_frame_btn.setChecked(True)
+    controller.apply_auto_crop.assert_called_once_with()
+
+    sidebar.auto_frame_btn.setChecked(False)
+    controller.reset_crop.assert_called_once_with()
+
+
+def test_the_frame_button_follows_the_stored_auto_crop(qapp):
+    sidebar, controller = _sidebar()
+    cfg = controller.state.config
+
+    controller.state.config = replace(cfg, geometry=replace(cfg.geometry, crop_from_auto=True))
+    sidebar.sync_ui()
+
+    assert sidebar.auto_frame_btn.isChecked()
+    controller.apply_auto_crop.assert_not_called()

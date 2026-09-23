@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import field_label, wrap_tooltip
+from negpy.desktop.view.styles.templates import field_label, section_subheader, wrap_tooltip
 from negpy.domain.models import CROP_RATIO_CHOICES, canonical_crop_ratio
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.geometry.models import AutocropMode
@@ -38,6 +38,8 @@ class AutocropSidebar(BaseSidebar):
         ratio_row.addWidget(self.detect_ratio_btn)
 
         self.layout.addLayout(ratio_row)
+
+        self.layout.addWidget(section_subheader("AUTO CROP"))
 
         mode_row = QHBoxLayout()
         mode_row.addWidget(self._field_label("Mode"))
@@ -81,20 +83,27 @@ class AutocropSidebar(BaseSidebar):
         trim_row.addWidget(self.rebate_trim_slider, 1)
         self.layout.addLayout(trim_row)
 
+        self.auto_frame_btn = self._labeled_toggle(
+            "fa5s.magic", " Frame", conf.crop_from_auto, "Find this frame's edges and crop to them; off clears the crop"
+        )
         self.auto_crop_all_btn = self._labeled_action(
             "fa5s.layer-group",
-            " Batch Autocrop",
+            " Roll",
             "Analyze all visible landscape frames as one roll. Confident frames calibrate weak ones; "
             "manual and ambiguous crops are preserved. Runs before Roll Analysis.",
         )
         self.auto_crop_all_btn.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
-        self.layout.addWidget(self.auto_crop_all_btn)
+        run_row = QHBoxLayout()
+        run_row.addWidget(self.auto_frame_btn, 1)
+        run_row.addWidget(self.auto_crop_all_btn, 1)
+        self.layout.addLayout(run_row)
 
     def _connect_signals(self) -> None:
         self.ratio_combo.currentTextChanged.connect(self.controller.set_crop_ratio)
         self.detect_ratio_btn.clicked.connect(self.controller.detect_aspect_ratio)
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         self.auto_crop_all_btn.clicked.connect(self.controller.request_batch_auto_crop)
+        self.auto_frame_btn.toggled.connect(self._on_auto_frame_toggled)
 
         self.offset_slider.valueChanged.connect(
             lambda v: self.controller.set_roll_default("autocrop", persist=False, readback_metrics=False, autocrop_offset=int(v))
@@ -106,6 +115,12 @@ class AutocropSidebar(BaseSidebar):
         self.rebate_trim_slider.valueCommitted.connect(
             lambda v: self.controller.set_roll_default("autocrop", autocrop_rebate_trim=v / 100.0)
         )
+
+    def _on_auto_frame_toggled(self, checked: bool) -> None:
+        if checked:
+            self.controller.apply_auto_crop()
+        else:
+            self.controller.reset_crop()
 
     def _on_mode_changed(self, idx: int) -> None:
         mode = self.mode_combo.itemData(idx)
@@ -131,6 +146,8 @@ class AutocropSidebar(BaseSidebar):
             self.offset_slider.setValue(float(conf.autocrop_offset))
             self.rebate_trim_slider.setValue(conf.autocrop_rebate_trim * 100.0)
             self._sync_mode_enabled(conf.autocrop_mode)
+            self.auto_frame_btn.setChecked(conf.crop_from_auto)
+            self.auto_frame_btn.edited_dot.set_active(conf.crop_from_auto)
         finally:
             self.block_signals(False)
 
@@ -141,6 +158,7 @@ class AutocropSidebar(BaseSidebar):
             self.mode_combo,
             self.offset_slider,
             self.rebate_trim_slider,
+            self.auto_frame_btn,
             self.auto_crop_all_btn,
         ):
             w.blockSignals(blocked)
