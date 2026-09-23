@@ -7,7 +7,7 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.features.process.models import ProcessMode
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.services.assets import rolls
-from negpy.services.assets.positive_auto_migration import migrate_auto_meter_for_positive_frames
+from negpy.services.assets.migrations.positive_auto import migrate_auto_meter_for_positive_frames
 
 _DONE_FLAG = "auto_meter_positive_migrated_v1"
 

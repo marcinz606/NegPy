@@ -5,7 +5,7 @@ import pytest
 from negpy.domain.models import WorkspaceConfig
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.services.assets import rolls
-from negpy.services.assets.roll_field_migration import migrate_new_roll_field_locks
+from negpy.services.assets.migrations.roll_fields import migrate_new_roll_field_locks
 
 
 @pytest.fixture
@@ -66,7 +66,7 @@ def test_runs_once(repo):
 
 
 def test_a_normalization_lock_becomes_both_halves_of_the_split(repo):
-    from negpy.services.assets.roll_field_migration import migrate_baseline_card_split
+    from negpy.services.assets.migrations.roll_fields import migrate_baseline_card_split
 
     roll = rolls.create_virtual_roll(repo, "Roll", ["/r/a.tif", "/r/b.tif"])
     rolls.set_frame_override(repo, roll, "a", "process", True)

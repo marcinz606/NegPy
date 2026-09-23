@@ -11,12 +11,10 @@ which also arrive from sticky settings and asset dicts) and the tuple-rehydratin
 imports this one).
 
 Also not here: migrations that rewrite *rows* rather than a config payload, since those
-need a repository and this module stays dependency-free. They live beside the feature
-they belong to — ``services/assets/hash_migration.py`` (edits saved under a superseded
-content hash), ``services/assets/flatfield_migration.py`` (legacy profile table) and
-``services/assets/cast_removal_migration.py`` (a one-time value rewrite that needs a
-done flag rather than a per-load equality check, since a load can't tell a legacy row
-from a value the user just saved).
+need a repository and this module stays dependency-free. They live in
+``services/assets/migrations/``, one module per migration. A one-time value rewrite
+there needs a done flag rather than a per-load equality check, since a load can't tell
+a legacy row from a value the user just saved.
 """
 
 from typing import Any, Dict
@@ -70,7 +68,7 @@ DROPPED_KEYS: frozenset[str] = frozenset(
         # (migrate_flat_config reads it before this pop).
         "lith_enabled",
         # Gear presets merged into metadata presets, which store the resolved gear
-        # fields rather than a library reference (services/assets/gear_preset_migration.py).
+        # fields rather than a library reference (services/assets/migrations/gear_presets.py).
         "gear_preset_id",
         # Optical-removal exclusions became strokes (dust_exclusion_strokes); the loose
         # patch list they replaced cannot be unpacked as one.

@@ -8,7 +8,7 @@ import pytest
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.services.assets import flatfield as ffstore
 from negpy.services.assets.flatfield import FlatFieldProfiles
-from negpy.services.assets.flatfield_migration import migrate_legacy_flatfield_profiles
+from negpy.services.assets.migrations.flatfield import migrate_legacy_flatfield_profiles
 
 
 @pytest.fixture

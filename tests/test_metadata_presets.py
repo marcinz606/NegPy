@@ -29,9 +29,9 @@ from negpy.features.metadata.writer import _exif_ascii
 from negpy.features.metadata.payload import build_metadata_payload
 from negpy.services.assets.search import facts_for, match, parse_query
 from negpy.kernel.system.config import APP_CONFIG
-from negpy.services.assets import gear_preset_migration
+from negpy.services.assets.migrations import gear_presets as gear_preset_migration
 from negpy.services.assets.gear import GearProfiles
-from negpy.services.assets.gear_preset_migration import migrate_gear_presets
+from negpy.services.assets.migrations.gear_presets import migrate_gear_presets
 from negpy.services.assets.presets import PRESET_NOTES_KEY, MetadataPresets, Presets, is_valid_preset_name, preset_notes, with_preset_notes
 
 # A frame number belongs to one frame, so it is not offered as a preset field.

@@ -708,7 +708,7 @@ class AssetDiscoveryWorker(QObject):
 
         from negpy.infrastructure.loaders.constants import is_ir_sidecar_path
         from negpy.kernel.image.logic import file_hashes
-        from negpy.services.assets.hash_migration import blank_ambiguous_legacy_hashes
+        from negpy.services.assets.migrations.hash import blank_ambiguous_legacy_hashes
 
         discovered_paths = []
         for path in task.paths:

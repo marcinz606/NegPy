@@ -12,7 +12,7 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.models import ExposureConfig
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.image.logic import calculate_file_hash, file_hashes
-from negpy.services.assets.hash_migration import blank_ambiguous_legacy_hashes
+from negpy.services.assets.migrations.hash import blank_ambiguous_legacy_hashes
 
 MIB = 1024 * 1024
 

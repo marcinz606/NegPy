@@ -1848,7 +1848,7 @@ class DesktopSessionManager(QObject):
 
         from negpy.kernel.image.logic import file_hashes
         from negpy.kernel.system.logging import get_logger
-        from negpy.services.assets.hash_migration import migrate_asset_hash
+        from negpy.services.assets.migrations.hash import migrate_asset_hash
 
         logger = get_logger(__name__)
 

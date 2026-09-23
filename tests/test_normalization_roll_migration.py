@@ -6,7 +6,7 @@ import pytest
 
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.services.assets import rolls
-from negpy.services.assets.normalization_roll_migration import migrate_legacy_normalization_rolls
+from negpy.services.assets.migrations.normalization_roll import migrate_legacy_normalization_rolls
 
 
 @pytest.fixture

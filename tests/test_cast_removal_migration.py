@@ -6,7 +6,7 @@ import pytest
 
 from negpy.features.exposure.models import ExposureConfig
 from negpy.infrastructure.storage.repository import StorageRepository
-from negpy.services.assets.cast_removal_migration import _SHIPPED_CAST_STRENGTH, migrate_legacy_slide_cast_removal
+from negpy.services.assets.migrations.cast_removal import _SHIPPED_CAST_STRENGTH, migrate_legacy_slide_cast_removal
 
 
 @pytest.fixture
