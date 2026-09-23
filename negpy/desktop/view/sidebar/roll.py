@@ -20,7 +20,6 @@ BATCH_ANALYSIS_TOOLTIP = (
     "Roll Analysis — measures the exposure of every loaded frame outside a scene and saves the average as this roll's baseline"
 )
 BATCH_ANALYSIS_DISABLED_TOOLTIP = "Open this roll first — Roll Analysis measures the files currently loaded."
-ANALYZE_SCENES_TOOLTIP = "Analyze All Scenes — run Scene Analysis on every scene of this roll, one after another"
 FROM_FRAME_TOOLTIP = (
     "Use This Frame — save the current frame's bounds as this roll's baseline, in place of a measured "
     "average. Every frame outside a scene on Use Luma/Color Average follows it, including one loaded later."
@@ -65,8 +64,6 @@ class RollAnalysisSidebar(BaseSidebar):
         self.layout.addWidget(self.scene_rows)
         self.scenes_hint = hint_label("Select frames in the Film Strip, then right-click › Scene › Group as Scene…", "muted")
         self.layout.addWidget(self.scenes_hint)
-        self.analyze_scenes_btn = self._labeled_action("fa5s.tachometer-alt", " Analyze All Scenes", ANALYZE_SCENES_TOOLTIP)
-        self.layout.addWidget(self.analyze_scenes_btn)
 
         self._roll_sync_key = None
         self._scene_sync_key = None
@@ -74,15 +71,14 @@ class RollAnalysisSidebar(BaseSidebar):
         self.layout.addStretch()
 
     def insert_baseline_bar(self, baseline_bar) -> None:
-        """Adopts ProcessSidebar's Use Luma/Color Average row under the picker, since
-        those toggles decide whether this frame reads the baseline picked here."""
-        self.layout.insertWidget(self.layout.indexOf(self.roll_status_hint) + 1, baseline_bar)
+        """Adopts ProcessSidebar's Use Luma/Color Average row above the picker, since
+        those toggles decide whether this frame reads a baseline at all."""
+        self.layout.insertWidget(0, baseline_bar)
 
     def _connect_signals(self) -> None:
         self.roll_combo.selection_changed.connect(self._on_roll_picked)
         self.reanalyze_btn.clicked.connect(self.controller.request_batch_normalization)
         self.from_frame_btn.clicked.connect(self._on_from_frame_clicked)
-        self.analyze_scenes_btn.clicked.connect(self.controller.request_analyze_all_scenes)
         self.controller.session.files_changed.connect(self._refresh_scenes)
         self.sync_ui()
 
@@ -174,7 +170,6 @@ class RollAnalysisSidebar(BaseSidebar):
         self.scenes_header.setVisible(in_roll)
         self.scene_rows.setVisible(bool(scenes))
         self.scenes_hint.setVisible(in_roll and not scenes)
-        self.analyze_scenes_btn.setVisible(bool(scenes))
 
     def _update_roll_status_hint(self, active_id: Optional[str], selected_id: str) -> None:
         """Flags a baseline picked from a roll other than the one loaded."""

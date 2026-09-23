@@ -108,7 +108,7 @@ def test_the_baseline_buttons_sit_right_of_the_picker(qapp):
     assert sidebar.layout.itemAt(0).widget().text() == "ROLLS"
 
 
-def test_the_baseline_bar_lands_under_the_status_hint_above_the_scenes(qapp):
+def test_the_baseline_bar_lands_above_the_rolls_header(qapp):
     from PyQt6.QtWidgets import QWidget
 
     _, sidebar, _ids = _sidebar()
@@ -116,9 +116,8 @@ def test_the_baseline_bar_lands_under_the_status_hint_above_the_scenes(qapp):
 
     sidebar.insert_baseline_bar(bar)
 
-    at = sidebar.layout.indexOf(bar)
-    assert at == sidebar.layout.indexOf(sidebar.roll_status_hint) + 1
-    assert at < sidebar.layout.indexOf(sidebar.scenes_header)
+    assert sidebar.layout.indexOf(bar) == 0
+    assert sidebar.layout.itemAt(1).widget().text() == "ROLLS"
 
 
 def test_the_baseline_icon_buttons_name_themselves_in_the_tooltip(qapp):
@@ -242,14 +241,11 @@ def test_scene_row_analyze_runs_scene_analysis(qapp):
 
     sidebar._scene_rows_layout.itemAt(0).widget().layout().itemAt(1).widget().click()
     controller.request_scene_analysis.assert_called_once_with(sid)
-    sidebar.analyze_scenes_btn.click()
-    controller.request_analyze_all_scenes.assert_called_once()
 
 
 def test_empty_roll_shows_the_grouping_hint(qapp):
     _, sidebar, _ids = _sidebar(roll_names=["Tri-X"], active_name="Tri-X")
     assert sidebar.scenes_hint.isVisibleTo(sidebar)
-    assert not sidebar.analyze_scenes_btn.isVisibleTo(sidebar)
 
 
 def test_scene_block_is_hidden_outside_a_roll(qapp):

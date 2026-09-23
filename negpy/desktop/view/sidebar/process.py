@@ -207,8 +207,7 @@ class ProcessSidebar(BaseSidebar):
         analysis_col.addLayout(wp_bp_row)
 
         # Which baseline each axis' bounds come from: the roll's shared meter or the frame's
-        # own analysis. Adopted under the Roll Baseline picker it reads by
-        # RollAnalysisSidebar.insert_baseline_bar.
+        # own analysis. Adopted above the Rolls picker by RollAnalysisSidebar.insert_baseline_bar.
         self.baseline_bar = QWidget()
         baseline_col = QVBoxLayout(self.baseline_bar)
         baseline_col.setContentsMargins(0, 0, 0, 0)
