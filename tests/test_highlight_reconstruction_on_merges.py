@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 
 from PyQt6.QtWidgets import QApplication
 
-from negpy.desktop.view.sidebar.process import ProcessSidebar
+from negpy.desktop.view.sidebar.demosaic import DemosaicSidebar
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.hdr.models import HdrConfig
 from negpy.features.process.models import ProcessMode
@@ -73,7 +73,7 @@ class Panel(unittest.TestCase):
         ctrl.state.config = cfg
         ctrl.state.autodetect_enabled = False
         ctrl.state.preview_cam_xyz = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
-        w = ProcessSidebar(ctrl)
+        w = DemosaicSidebar(ctrl)
         w.sync_ui()
         return w
 

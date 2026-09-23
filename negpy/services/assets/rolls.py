@@ -277,7 +277,7 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
             "hue_trim",
         ),
     ),
-    "demosaic": ("process", ("demosaic_preview", "demosaic_export")),
+    "demosaic": ("process", ("demosaic_preview", "demosaic_export", "highlight_reconstruction")),
     "process": (
         "process",
         (

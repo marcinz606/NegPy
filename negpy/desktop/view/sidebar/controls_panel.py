@@ -61,6 +61,7 @@ _COLOR_FIELDS = (
 _DEMOSAIC_FIELDS = (
     "demosaic_preview",
     "demosaic_export",
+    "highlight_reconstruction",
 )
 # GeometryConfig is split across three cards. The rect auto crop resolves, the rotation
 # and the easel movements are this frame's own placement and stay on Geometry; what the
@@ -328,8 +329,9 @@ class ControlsPanel(QWidget):
         )
 
         self.demosaic_sidebar = DemosaicSidebar(self.controller)
+        # The persisted "demosaic" section key stays.
         self.demosaic_section = self._make_section(
-            "Demosaic",
+            "Raw Decode",
             "demosaic",
             self.demosaic_sidebar,
             icon_name="mdi6.grid",

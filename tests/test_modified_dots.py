@@ -144,3 +144,16 @@ def test_color_reset_zeroes_cast_removal_on_transparency(qapp):
     new_config = controller.session.update_config.call_args[0][0]
     assert new_config.exposure.cast_removal_strength == 0.0
     assert new_config.exposure.wb_cyan == 0.0
+
+
+def test_raw_decode_counts_and_resets_highlight_recovery(qapp):
+    controller, panel = _panel()
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode=ProcessMode.E6, highlight_reconstruction=2))
+    panel._sync_modified_dots()
+    assert panel.demosaic_section.modified_count == 1
+
+    panel.demosaic_section.reset_requested.emit()
+
+    applied = controller.apply_config.call_args[0][0]
+    assert applied.process.highlight_reconstruction == cfg.process.highlight_reconstruction

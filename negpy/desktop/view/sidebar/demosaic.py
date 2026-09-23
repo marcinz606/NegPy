@@ -1,8 +1,10 @@
 from PyQt6.QtWidgets import QComboBox, QHBoxLayout
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import field_label, hint_label
-from negpy.features.process.models import DemosaicMode
+from negpy.desktop.view.styles.templates import field_label, hint_label, wrap_tooltip
+from negpy.features.hdr.models import hdr_active
+from negpy.features.process.logic import VALID_HIGHLIGHT_LEVELS
+from negpy.features.process.models import DemosaicMode, ProcessMode
 from negpy.infrastructure.loaders.helpers import supported_demosaic_modes
 
 _TIP = (
@@ -20,9 +22,45 @@ _TIP = (
     "</td></tr></table>"
 )
 
+# Highlight Reconstruction dropdown: rawpy's HighlightMode, collapsed to the three settings
+# worth choosing between (see effective_highlight_reconstruction) — Reconstruct pinned to
+# libraw's own default level rather than exposing all seven numbered levels.
+_HIGHLIGHT_LEVELS = (
+    (0, "Off"),
+    (2, "Blend"),
+    (5, "Reconstruct"),
+)
+
+_HIGHLIGHT_TIP = (
+    "Camera RAW only, and only useful when a highlight actually clipped.<br><br>"
+    "<b>Off</b> (default) — a blown highlight stays flat white, or magenta if one channel "
+    "clipped first.<br><br>"
+    "<b>Blend</b> — a plausible neutral color from the unclipped channels. Best for a "
+    "near-neutral highlight: sun, sky, chrome, glass.<br><br>"
+    "<b>Reconstruct</b> — libraw's more aggressive default. Can miscolor a highlight that "
+    "was actually a saturated light source, since a clipped channel alone can't tell the "
+    "two apart."
+)
+
+
+def _highlight_bucket(level: int) -> int:
+    """Which of the three entries a stored value belongs under. Off and Blend are exact;
+    any other valid level is some Reconstruct level (3-9), so it buckets there.
+
+    A value outside `VALID_HIGHLIGHT_LEVELS` (a hand-edited sidecar) buckets to Off,
+    matching `effective_highlight_reconstruction`'s own resolution — the panel must never
+    show Reconstruct armed while the decode actually clips.
+    """
+    if level not in VALID_HIGHLIGHT_LEVELS:
+        return 0
+    if level == 2:
+        return 1
+    return 2 if level else 0
+
 
 class DemosaicSidebar(BaseSidebar):
-    """CFA interpolation, chosen separately for what you see and what you get."""
+    """How a camera RAW decodes: CFA interpolation, chosen separately for what you see
+    and what you get, and a slide's highlight reconstruction."""
 
     def _init_ui(self) -> None:
         conf = self.state.config.process
@@ -50,14 +88,42 @@ class DemosaicSidebar(BaseSidebar):
         self.preview_combo.setCurrentText(str(DemosaicMode(conf.demosaic_preview)))
         self.export_combo.setCurrentText(str(DemosaicMode(conf.demosaic_export)))
 
+        highlight_row = QHBoxLayout()
+        self.highlight_label = field_label("Highlight Recovery")
+        highlight_row.addWidget(self.highlight_label)
+        self.highlight_combo = QComboBox()
+        self.highlight_combo.addItems([label for _level, label in _HIGHLIGHT_LEVELS])
+        self.highlight_combo.setToolTip(wrap_tooltip(_HIGHLIGHT_TIP))
+        self.highlight_combo.setCurrentIndex(_highlight_bucket(conf.highlight_reconstruction))
+        highlight_row.addWidget(self.highlight_combo, 1)
+        self.layout.addLayout(highlight_row)
+
+        self.highlight_merged_hint = hint_label("Not applied to a merged bracket.")
+        self.highlight_merged_hint.setToolTip(
+            wrap_tooltip(
+                "A reconstructed pixel no longer reads near the sensor ceiling, so the merge's "
+                "own highlight recovery would trust a per-frame guess as real signal and blend "
+                "inconsistent guesses across frames. A bracket already recovers a genuine "
+                "highlight from a shorter, unclipped exposure, which reconstruction's guess "
+                "cannot improve on. Unmerge the frame if you need it."
+            )
+        )
+        self.highlight_merged_hint.setVisible(False)
+        self.layout.addWidget(self.highlight_merged_hint)
+
     def _connect_signals(self) -> None:
         self.preview_combo.currentTextChanged.connect(lambda name: self._on_changed("demosaic_preview", name))
         self.export_combo.currentTextChanged.connect(lambda name: self._on_changed("demosaic_export", name))
+        self.highlight_combo.currentIndexChanged.connect(self._on_highlight_reconstruction_changed)
 
     def _on_changed(self, field: str, name: str) -> None:
         # apply_config (inside set_roll_default): source_token carries the preview
         # choice, so changing it decodes again.
         self.controller.set_roll_default("demosaic", **{field: DemosaicMode(name)})
+
+    def _on_highlight_reconstruction_changed(self, bucket: int) -> None:
+        level, _label = _HIGHLIGHT_LEVELS[bucket]
+        self.controller.set_roll_default("demosaic", highlight_reconstruction=level)
 
     def sync_ui(self) -> None:
         conf = self.state.config.process
@@ -67,9 +133,21 @@ class DemosaicSidebar(BaseSidebar):
             # leaving the combo on whatever it showed.
             self.preview_combo.setCurrentText(str(DemosaicMode(conf.demosaic_preview)))
             self.export_combo.setCurrentText(str(DemosaicMode(conf.demosaic_export)))
+
+            # Reconstruction only means anything against a slide's own blown highlights (see
+            # effective_highlight_reconstruction), so it hides off Slide. Greyed instead of hidden
+            # when the source has no camera matrix (a scanner TIFF, JPEG, or other
+            # already-rendered file), and on a merge, which the hint explains.
+            is_e6 = conf.process_mode == ProcessMode.E6
+            merged = hdr_active(self.state.config.hdr)
+            self.highlight_label.setVisible(is_e6)
+            self.highlight_combo.setVisible(is_e6)
+            self.highlight_combo.setEnabled(self.state.preview_cam_xyz is not None and not merged)
+            self.highlight_combo.setCurrentIndex(_highlight_bucket(conf.highlight_reconstruction))
+            self.highlight_merged_hint.setVisible(is_e6 and merged)
         finally:
             self.block_signals(False)
 
     def block_signals(self, blocked: bool) -> None:
-        for w in (self.preview_combo, self.export_combo):
+        for w in (self.preview_combo, self.export_combo, self.highlight_combo):
             w.blockSignals(blocked)

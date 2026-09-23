@@ -33,7 +33,7 @@ def _sidebar(preview, export):
     # No active roll (state.active_roll_id absent -> getattr below reads None): set_roll_default
     # falls back to a plain per-frame apply_config, same as demosaic always behaved before it.
     controller = SimpleNamespace(
-        state=SimpleNamespace(config=config, active_roll_id=None),
+        state=SimpleNamespace(config=config, active_roll_id=None, preview_cam_xyz=None),
         session=SimpleNamespace(repo=repo, update_config=lambda *a, **k: None),
         apply_config=lambda cfg, **k: applied.append(cfg),
     )

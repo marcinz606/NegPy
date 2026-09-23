@@ -4361,7 +4361,7 @@ class AppController(QObject):
     _ROLL_CARD_LABELS = {
         "film": "Film Mode",
         "sensor": "Calibration",
-        "demosaic": "Demosaic",
+        "demosaic": "Raw Decode",
         "process": "Normalization",
         "autocrop": "Auto Crop",
         "lens": "Lens Correction",
