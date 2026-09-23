@@ -31,16 +31,20 @@ def test_calibration_edits_light_their_section(qapp):
     assert panel.sensor_section.modified_count == 2
 
 
-def test_flat_field_edits_light_their_section(qapp):
+def test_flat_field_and_lens_edits_light_the_optics_section(qapp):
     controller, panel = _panel()
     panel._sync_modified_dots()
-    assert panel.flatfield_section.modified_count == 0
+    assert panel.optics_section.modified_count == 0
 
     cfg = controller.state.config
-    controller.state.config = replace(cfg, flatfield=replace(cfg.flatfield, apply=True, profile_id="rig-1"))
+    controller.state.config = replace(
+        cfg,
+        flatfield=replace(cfg.flatfield, apply=True, profile_id="rig-1"),
+        geometry=replace(cfg.geometry, distortion_k1=0.05),
+    )
     panel._sync_modified_dots()
 
-    assert panel.flatfield_section.modified_count == 2
+    assert panel.optics_section.modified_count == 3
 
 
 def test_calibration_fields_are_not_double_counted_in_process(qapp):
@@ -69,19 +73,26 @@ def test_calibration_reset_button_restores_its_fields(qapp):
     assert applied.process.hue_trim == cfg.process.hue_trim
 
 
-def test_flat_field_reset_button_restores_its_section(qapp):
-    """Flat Field is a roll card, so its reset goes out the same door an edit does and
-    the lock follows it."""
+def test_optics_reset_restores_both_of_its_roll_cards(qapp):
+    """Lens and Flat Field are roll cards, so the reset goes out the same door an edit
+    does and each card's lock follows it."""
     controller, panel = _panel()
     cfg = controller.state.config
-    controller.state.config = replace(cfg, flatfield=replace(cfg.flatfield, apply=True, profile_id="rig-1"))
+    controller.state.config = replace(
+        cfg,
+        flatfield=replace(cfg.flatfield, apply=True, profile_id="rig-1"),
+        geometry=replace(cfg.geometry, distortion_k1=0.05, fine_rotation=1.5),
+    )
 
-    panel.flatfield_section.reset_requested.emit()
+    panel.optics_section.reset_requested.emit()
 
-    controller.set_roll_default.assert_called_once_with("flatfield", apply=False, profile_id="")
+    calls = {c.args[0]: c.kwargs for c in controller.set_roll_default.call_args_list}
+    assert calls["flatfield"] == {"apply": False, "profile_id": ""}
+    assert calls["lens"]["distortion_k1"] == cfg.geometry.distortion_k1
+    assert "fine_rotation" not in calls["lens"]
 
 
-def test_auto_crop_and_lens_resets_restore_their_own_cards(qapp):
+def test_crop_reset_restores_its_own_card(qapp):
     controller, panel = _panel()
     cfg = controller.state.config
     controller.state.config = replace(cfg, geometry=replace(cfg.geometry, autocrop_offset=9, distortion_k1=0.05, fine_rotation=1.5))
@@ -91,12 +102,6 @@ def test_auto_crop_and_lens_resets_restore_their_own_cards(qapp):
     assert card == "autocrop"
     assert changes["autocrop_offset"] == cfg.geometry.autocrop_offset
     assert "distortion_k1" not in changes
-
-    panel.lens_section.reset_requested.emit()
-    card, changes = controller.set_roll_default.call_args[0][0], controller.set_roll_default.call_args[1]
-    assert card == "lens"
-    assert changes["distortion_k1"] == cfg.geometry.distortion_k1
-    assert "fine_rotation" not in changes
 
 
 def test_geometry_reset_leaves_the_roll_scoped_cards_alone(qapp):

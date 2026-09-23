@@ -25,8 +25,7 @@ def _panel_stub(*, active_roll_id="roll1", locked_cards=()) -> MagicMock:
     panel.demosaic_section = MagicMock()
     panel.process_section = MagicMock()
     panel.autocrop_section = MagicMock()
-    panel.lens_section = MagicMock()
-    panel.flatfield_section = MagicMock()
+    panel.optics_section = MagicMock()
     panel.roll_override_summary = MagicMock()
     panel._roll_sections = lambda: ControlsPanel._roll_sections(panel)
     panel._frame_sections = lambda: ControlsPanel._frame_sections(panel)
@@ -137,13 +136,30 @@ def test_sync_scope_buttons_disables_rather_than_hides_the_pair_with_no_roll_ope
         assert section.set_scope_buttons.call_args.kwargs["roll_enabled"] is False
 
 
-def test_sync_scope_buttons_names_the_geometry_and_flat_field_cards():
+def test_sync_scope_buttons_names_the_optics_and_crop_cards():
     panel = _panel_stub(locked_cards={"autocrop", "lens", "flatfield"})
 
     ControlsPanel._sync_scope_buttons(panel)
 
-    panel.roll_override_summary.setText.assert_called_once_with("This frame overrides: Flat Field, Lens Correction, Crop")
+    panel.roll_override_summary.setText.assert_called_once_with("This frame overrides: Optics, Crop")
     assert _scope(panel.autocrop_section) == "frame"
+
+
+def test_optics_reads_frame_when_either_of_its_cards_is_locked():
+    for locked in ({"lens"}, {"flatfield"}):
+        panel = _panel_stub(locked_cards=locked)
+
+        ControlsPanel._sync_scope_buttons(panel)
+
+        assert _scope(panel.optics_section) == "frame"
+
+
+def test_the_optics_pair_drives_both_of_its_cards():
+    panel = _panel_stub()
+
+    ControlsPanel._on_scope_selected(panel, "optics", "roll")
+
+    panel.controller.set_card_scope.assert_called_once_with(("lens", "flatfield"), "roll")
 
 
 def test_a_roll_card_routes_both_halves_to_the_controller():

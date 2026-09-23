@@ -3,7 +3,7 @@ import os
 import time
 from collections import Counter
 from dataclasses import dataclass, fields, replace
-from typing import Any, Callable, Collection, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Collection, Dict, List, Optional, Set, Tuple, Union
 
 import cv2
 import numpy as np
@@ -4364,8 +4364,8 @@ class AppController(QObject):
         "demosaic": "Raw Decode",
         "process": "Normalization",
         "autocrop": "Crop",
-        "lens": "Lens Correction",
-        "flatfield": "Flat Field",
+        "lens": "Optics",
+        "flatfield": "Optics",
         "metadata_gear": "Analog Gear",
         "metadata_capture": "Capture",
         "metadata_process": "Process",
@@ -4538,17 +4538,20 @@ class AppController(QObject):
         self.config_updated.emit()
         if changed_hashes:
             self.session.frames_edited_offscreen.emit(changed_hashes)
-        names = ", ".join(self._ROLL_CARD_LABELS[k] for k in self._ROLL_CARDS if k in touched)
+        names = ", ".join(dict.fromkeys(self._ROLL_CARD_LABELS[k] for k in self._ROLL_CARDS if k in touched))
         self.set_status(f"Applied to the roll: {names}", 3000)
         return len(touched)
 
-    def set_card_scope(self, card_key: str, scope: str) -> None:
+    def set_card_scope(self, card_key: Union[str, tuple], scope: str) -> None:
         """A Roll-tab card's scope pair: Roll gives the roll this frame's value for that
-        card, Frame pins the card here. The one click each button performs."""
+        card, Frame pins the card here. The one click each button performs. A tuple is
+        one section driving several cards (Optics), pushed in one go."""
+        keys = (card_key,) if isinstance(card_key, str) else card_key
         if scope == "roll":
-            self.apply_roll_card(card_key)
+            self._push_cards_to_roll([k for k in keys if self.roll_card_locked(k)], sweep=False)
         else:
-            self.set_roll_card_locked(card_key, True)
+            for key in keys:
+                self.set_roll_card_locked(key, True)
 
     def sync_metadata_card_locks(self) -> None:
         """Re-reads every Metadata card's lock after a write that touched several at once.

@@ -43,8 +43,7 @@ _ROLL_SECTION_ATTRS = frozenset(
         "demosaic_section",
         "process_section",
         "autocrop_section",
-        "lens_section",
-        "flatfield_section",
+        "optics_section",
     }
 )
 
@@ -286,9 +285,9 @@ class RightPanel(QWidget):
     def _build_roll_page(self) -> QWidget:
         """Facts the whole roll shares, not one frame's own edit: what film it is (Film
         Mode) and its shared exposure baseline (Normalization), what rig scanned it and
-        how, in pipeline order (Raw Decode, Flat Field, Lens Correction, Calibration,
-        Crop), and how its files become frames (Frame Assembly). Film Mode leads, since
-        it decides which of the others even apply."""
+        how, in pipeline order (Raw Decode, Optics, Calibration, Crop), and how its files
+        become frames (Frame Assembly). Film Mode leads, since it decides which of the
+        others even apply."""
         cp = self.controls_panel
         page = QWidget()
         page_layout = QVBoxLayout(page)
@@ -301,8 +300,7 @@ class RightPanel(QWidget):
                 cp.film_section,
                 cp.process_section,
                 cp.demosaic_section,
-                cp.flatfield_section,
-                cp.lens_section,
+                cp.optics_section,
                 cp.sensor_section,
                 cp.autocrop_section,
             )
@@ -316,8 +314,7 @@ class RightPanel(QWidget):
             cp.film_section,
             cp.process_section,
             cp.demosaic_section,
-            cp.flatfield_section,
-            cp.lens_section,
+            cp.optics_section,
             cp.sensor_section,
             cp.autocrop_section,
             cp.assembly_section,

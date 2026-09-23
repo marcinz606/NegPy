@@ -292,7 +292,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "edges. Correct before cropping or retouching."
             ),
             target=_lens,
-            section_attr="lens_section",
+            section_attr="optics_section",
         ),
         TutorialStep(
             title="Flat Field Correction",
@@ -303,7 +303,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "per image. Off by default."
             ),
             target=_flatfield,
-            section_attr="flatfield_section",
+            section_attr="optics_section",
         ),
         TutorialStep(
             title="Geometry: Crop & Straighten",

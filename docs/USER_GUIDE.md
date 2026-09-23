@@ -801,18 +801,19 @@ What the frame detector looks for and the shape it snaps to, roll-wide. Each fra
 
 A change re-detects every following frame cropped by **Auto**. Hand-drawn crops are kept, except that **Ratio** reshapes them around their center.
 
-<!-- panel:lens -->
-### 10.8 Lens Correction
+<!-- panel:optics -->
+### 10.8 Optics
 
-The scanning lens: one correction for every frame of the rig.
+The scanning optics: one lens correction and one light correction for every frame of the rig. One scope pair covers both.
+
+#### Lens
 
 *   **Distortion Correction** (-0.100 to 0.100, in steps of 0.001): positive corrects barrel, negative pincushion. Use the film rebate as a straight edge. Applied before Tilt and Swing.
 *   **Embedded Profile**, from lens data in the file (enabled when the file has it):
     *   **Distortion**: straightens curved lines, replacing manual distortion correction. Set it before cropping or retouching.
     *   **CA**: reduces color fringes. Works with or without **Distortion** and manual correction.
 
-<!-- panel:flatfield -->
-### 10.9 Flat Field: even out the light
+#### Flat Field: even out the light
 
 Corrects uneven illumination (vignetting, falloff) from a copy-stand or scanner light, using a shot of the bare light source.
 
