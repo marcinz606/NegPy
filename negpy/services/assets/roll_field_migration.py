@@ -18,6 +18,7 @@ from negpy.services.assets import rolls
 logger = get_logger(__name__)
 
 _DONE_FLAG = "roll_field_locks_migrated_v1"
+_BASELINE_SPLIT_FLAG = "baseline_card_split_v1"
 
 NEW_ROLL_FIELDS = {
     "process": (
@@ -68,3 +69,20 @@ def migrate_new_roll_field_locks(repo) -> None:
     except Exception:
         logger.exception("New roll-field lock migration failed; continuing without it")
     repo.save_global_setting(_DONE_FLAG, True)
+
+
+def migrate_baseline_card_split(repo) -> None:
+    """Use Luma/Color Average left the Normalization (``process``) card for their own
+    ``baseline`` card. A frame locked on the old card keeps both halves of that lock, so
+    nothing it renders changes. Runs before migrate_new_roll_field_locks, whose new
+    ``process`` locks are about White/Black Point alone."""
+    if repo.get_global_setting(_BASELINE_SPLIT_FLAG):
+        return
+    try:
+        for roll_id, entry in rolls.saved_rolls(repo).items():
+            for file_hash, cards in entry.get("frame_overrides", {}).items():
+                if "process" in cards:
+                    rolls.set_frame_override(repo, roll_id, file_hash, "baseline", True)
+    except Exception:
+        logger.exception("Roll Analysis card split migration failed; continuing without it")
+    repo.save_global_setting(_BASELINE_SPLIT_FLAG, True)

@@ -207,7 +207,7 @@ class ProcessSidebar(BaseSidebar):
         analysis_col.addLayout(wp_bp_row)
 
         # Which baseline each axis' bounds come from: the roll's shared meter or the frame's
-        # own analysis. Adopted above the Rolls picker by RollAnalysisSidebar.insert_baseline_bar.
+        # own analysis. ControlsPanel places it at the top of the Roll Analysis card.
         self.baseline_bar = QWidget()
         baseline_col = QVBoxLayout(self.baseline_bar)
         baseline_col.setContentsMargins(0, 0, 0, 0)
@@ -368,7 +368,7 @@ class ProcessSidebar(BaseSidebar):
         # The other axis re-derives per frame, so a fresh analysis is forced; roll_name
         # drops since the picked baseline no longer applies as a whole.
         self.controller.set_roll_default(
-            "process",
+            "baseline",
             roll_name=None,
             **axis,
             **invalidate_local_bounds(self.state.config.process),

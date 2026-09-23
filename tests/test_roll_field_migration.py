@@ -63,3 +63,17 @@ def test_runs_once(repo):
     migrate_new_roll_field_locks(repo)
 
     assert rolls.frame_override_cards(repo, roll, "a") == set()
+
+
+def test_a_normalization_lock_becomes_both_halves_of_the_split(repo):
+    from negpy.services.assets.roll_field_migration import migrate_baseline_card_split
+
+    roll = rolls.create_virtual_roll(repo, "Roll", ["/r/a.tif", "/r/b.tif"])
+    rolls.set_frame_override(repo, roll, "a", "process", True)
+    rolls.set_frame_override(repo, roll, "b", "lens", True)
+
+    migrate_baseline_card_split(repo)
+    migrate_baseline_card_split(repo)
+
+    assert rolls.frame_override_cards(repo, roll, "a") == {"process", "baseline"}
+    assert rolls.frame_override_cards(repo, roll, "b") == {"lens"}

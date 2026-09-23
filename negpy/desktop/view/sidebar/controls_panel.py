@@ -96,22 +96,20 @@ _SENSOR_FIELDS = (
     "crosstalk_strength",
     "hue_trim",
 )
-# ProcessConfig is split across four cards. Each tuple is both the card's reset scope and
+# ProcessConfig is split across five cards. Each tuple is both the card's reset scope and
 # its modified count, so a field is resettable from the one card that counts it.
 # locked_floors/locked_ceils are in none: they are Roll Analysis's measured result.
 _FILM_FIELDS = (
     "process_mode",
     "positive_source",
 )
-_NORMALIZATION_FIELDS = (
+_METERING_FIELDS = (
     "analysis_buffer",
     "analysis_rect",
     "lock_bounds",
     "luma_range_clip",
     "color_range_clip",
     "e6_normalize",
-    "use_luma_average",
-    "use_color_average",
     "white_point_offset",
     "black_point_offset",
     "white_point_trim_red",
@@ -120,6 +118,10 @@ _NORMALIZATION_FIELDS = (
     "black_point_trim_red",
     "black_point_trim_green",
     "black_point_trim_blue",
+)
+_BASELINE_FIELDS = (
+    "use_luma_average",
+    "use_color_average",
 )
 _TONE_FIELDS = (
     "density",
@@ -306,22 +308,34 @@ class ControlsPanel(QWidget):
             icon_name="mdi.view-split-vertical",
         )
 
+        # Where this frame's bounds come from: the Use Luma/Color Average switches, then the
+        # roll and scene baselines they read.
         self.roll_sidebar = RollAnalysisSidebar(self.controller)
-        # Roll Analysis and Normalization are one job, getting a negative to a correctly
-        # normalized positive, so they share a card: the slide's Normalize switch, the
-        # roll's baseline, then this frame's own analysis and what nudges its result.
-        self.roll_sidebar.insert_baseline_bar(self.process_sidebar.baseline_bar)
-        normalization_body = QWidget()
-        normalization_layout = QVBoxLayout(normalization_body)
-        normalization_layout.setContentsMargins(0, 0, 0, 0)
-        normalization_layout.setSpacing(4)
-        normalization_layout.addWidget(self.process_sidebar)
-        normalization_layout.addWidget(self.roll_sidebar)
-        normalization_layout.addWidget(self.process_sidebar.analysis_bar)
+        baseline_body = QWidget()
+        baseline_layout = QVBoxLayout(baseline_body)
+        baseline_layout.setContentsMargins(0, 0, 0, 0)
+        baseline_layout.setSpacing(4)
+        baseline_layout.addWidget(self.process_sidebar.baseline_bar)
+        baseline_layout.addWidget(self.roll_sidebar)
+        self.baseline_section = self._make_section(
+            "Roll Analysis",
+            "baseline",
+            baseline_body,
+            icon_name="fa5s.tachometer-alt",
+        )
+
+        # How this frame measures its own bounds, and what nudges the result. The persisted
+        # "process" section key stays.
+        metering_body = QWidget()
+        metering_layout = QVBoxLayout(metering_body)
+        metering_layout.setContentsMargins(0, 0, 0, 0)
+        metering_layout.setSpacing(4)
+        metering_layout.addWidget(self.process_sidebar)
+        metering_layout.addWidget(self.process_sidebar.analysis_bar)
         self.process_section = self._make_section(
-            "Normalization",
+            "Metering",
             "process",
-            normalization_body,
+            metering_body,
             icon_name="fa5s.cogs",
         )
 
@@ -556,7 +570,8 @@ class ControlsPanel(QWidget):
         self.geometry_section.reset_requested.connect(self._reset_geometry_fields)
         self.autocrop_section.reset_requested.connect(lambda: self._reset_card_fields("autocrop"))
         self.optics_section.reset_requested.connect(self._reset_optics)
-        self.process_section.reset_requested.connect(lambda: self._reset_process_fields(_NORMALIZATION_FIELDS))
+        self.process_section.reset_requested.connect(lambda: self._reset_process_fields(_METERING_FIELDS))
+        self.baseline_section.reset_requested.connect(lambda: self._reset_process_fields(_BASELINE_FIELDS))
         self.retouch_section.reset_requested.connect(lambda: self.controller.session.reset_section("retouch"))
         self.local_section.reset_requested.connect(lambda: self.controller.session.reset_section("local"))
         self.finish_section.reset_requested.connect(lambda: self.controller.session.reset_section("finish"))
@@ -1000,6 +1015,7 @@ class ControlsPanel(QWidget):
             ("film", self.film_section),
             ("sensor", self.sensor_section),
             ("autocrop", self.autocrop_section),
+            ("baseline", self.baseline_section),
             ("process", self.process_section),
             ("demosaic", self.demosaic_section),
             ("optics", self.optics_section),
@@ -1203,7 +1219,7 @@ class ControlsPanel(QWidget):
 
         proc = cfg.process
         film_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _FILM_FIELDS)
-        process_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _NORMALIZATION_FIELDS)
+        process_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _METERING_FIELDS)
         demosaic_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _DEMOSAIC_FIELDS)
         sensor_count = sum(getattr(proc, f) != getattr(_proc, f) for f in _SENSOR_FIELDS)
 
@@ -1249,8 +1265,11 @@ class ControlsPanel(QWidget):
         self.geometry_section.set_modified(geometry_count)
         self.autocrop_section.set_modified(autocrop_count)
         self.optics_section.set_modified(lens_count + flatfield_count)
-        # The picked Roll Baseline counts against Normalization, the card it sits on.
-        self.process_section.set_modified(process_count + (proc.roll_name is not None))
+        self.process_section.set_modified(process_count)
+        # The picked roll counts against Roll Analysis, the card it sits on.
+        self.baseline_section.set_modified(
+            sum(getattr(proc, f) != getattr(_proc, f) for f in _BASELINE_FIELDS) + (proc.roll_name is not None)
+        )
         self.retouch_section.set_modified(retouch_count)
         # Presets and the two Scan sections stay out: they own no WorkspaceConfig fields.
         self.sensor_section.set_modified(sensor_count)

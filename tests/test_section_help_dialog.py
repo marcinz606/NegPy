@@ -21,6 +21,7 @@ GUIDED_KEYS = (
     "assembly",
     "sensor",
     "demosaic",
+    "baseline",
     "process",
     "geometry",
     "autocrop",

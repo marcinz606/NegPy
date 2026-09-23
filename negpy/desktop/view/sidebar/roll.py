@@ -70,11 +70,6 @@ class RollAnalysisSidebar(BaseSidebar):
         self._refresh_rolls(force=True)
         self.layout.addStretch()
 
-    def insert_baseline_bar(self, baseline_bar) -> None:
-        """Adopts ProcessSidebar's Use Luma/Color Average row above the picker, since
-        those toggles decide whether this frame reads a baseline at all."""
-        self.layout.insertWidget(0, baseline_bar)
-
     def _connect_signals(self) -> None:
         self.roll_combo.selection_changed.connect(self._on_roll_picked)
         self.reanalyze_btn.clicked.connect(self.controller.request_batch_normalization)

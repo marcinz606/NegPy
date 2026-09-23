@@ -162,3 +162,19 @@ def test_raw_decode_counts_and_resets_highlight_recovery(qapp):
 
     applied = controller.apply_config.call_args[0][0]
     assert applied.process.highlight_reconstruction == cfg.process.highlight_reconstruction
+
+
+def test_roll_analysis_counts_the_averages_and_the_picked_roll_not_metering(qapp):
+    controller, panel = _panel()
+    cfg = controller.state.config
+    controller.state.config = replace(
+        cfg, process=replace(cfg.process, use_luma_average=not cfg.process.use_luma_average, roll_name="Tri-X")
+    )
+    panel._sync_modified_dots()
+
+    assert panel.baseline_section.modified_count == 2
+    assert panel.process_section.modified_count == 0
+
+    panel.baseline_section.reset_requested.emit()
+    applied = controller.apply_config.call_args[0][0]
+    assert applied.process.use_luma_average == cfg.process.use_luma_average

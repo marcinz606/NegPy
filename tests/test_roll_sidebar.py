@@ -108,18 +108,6 @@ def test_the_baseline_buttons_sit_right_of_the_picker(qapp):
     assert sidebar.layout.itemAt(0).widget().text() == "ROLLS"
 
 
-def test_the_baseline_bar_lands_above_the_rolls_header(qapp):
-    from PyQt6.QtWidgets import QWidget
-
-    _, sidebar, _ids = _sidebar()
-    bar = QWidget()
-
-    sidebar.insert_baseline_bar(bar)
-
-    assert sidebar.layout.indexOf(bar) == 0
-    assert sidebar.layout.itemAt(1).widget().text() == "ROLLS"
-
-
 def test_the_baseline_icon_buttons_name_themselves_in_the_tooltip(qapp):
     _, sidebar, ids = _sidebar(roll_names=["Portra 400"], active_name="Portra 400")
     sidebar._on_roll_picked(ids["Portra 400"])

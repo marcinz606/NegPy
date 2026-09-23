@@ -23,6 +23,7 @@ def _panel_stub(*, active_roll_id="roll1", locked_cards=()) -> MagicMock:
     panel.film_section = MagicMock()
     panel.sensor_section = MagicMock()
     panel.demosaic_section = MagicMock()
+    panel.baseline_section = MagicMock()
     panel.process_section = MagicMock()
     panel.autocrop_section = MagicMock()
     panel.optics_section = MagicMock()
@@ -91,7 +92,7 @@ def test_sync_scope_buttons_names_every_overridden_card():
 
     ControlsPanel._sync_scope_buttons(panel)
 
-    panel.roll_override_summary.setText.assert_called_once_with("This frame overrides: Calibration, Normalization")
+    panel.roll_override_summary.setText.assert_called_once_with("This frame overrides: Calibration, Metering")
 
 
 def test_sync_scope_buttons_names_film_mode_too():

@@ -34,13 +34,14 @@ from negpy.desktop.view.widgets.overflow_bar import OverflowBar
 # ControlsPanel sections built into the Roll tab (_build_roll_page), not a Frame sub-tab --
 # reveal_section routes these to the Roll group instead of Frame's inner tab switcher.
 # The Roll tab's cards that own settings, for its header's count, reset and apply.
-_ROLL_TAB_CARDS = ("film", "sensor", "autocrop", "process", "demosaic", "lens", "flatfield")
+_ROLL_TAB_CARDS = ("film", "sensor", "autocrop", "baseline", "process", "demosaic", "lens", "flatfield")
 
 _ROLL_SECTION_ATTRS = frozenset(
     {
         "assembly_section",
         "sensor_section",
         "demosaic_section",
+        "baseline_section",
         "process_section",
         "autocrop_section",
         "optics_section",
@@ -285,9 +286,10 @@ class RightPanel(QWidget):
     def _build_roll_page(self) -> QWidget:
         """Facts the whole roll shares, not one frame's own edit: what film it is (Film
         Mode), what the rig does to it (Calibration) and the frame's shape (Crop), its
-        shared exposure baseline (Normalization), how it decodes and the scanning optics
-        (Raw Decode, Optics), and how its files become frames (Frame Assembly). Film Mode
-        leads, since it decides which of the others even apply."""
+        shared exposure baseline (Roll Analysis) and each frame's own (Metering), how it
+        decodes and the scanning optics (Raw Decode, Optics), and how its files become
+        frames (Frame Assembly). Film Mode leads, since it decides which of the others
+        even apply."""
         cp = self.controls_panel
         page = QWidget()
         page_layout = QVBoxLayout(page)
@@ -300,6 +302,7 @@ class RightPanel(QWidget):
                 cp.film_section,
                 cp.sensor_section,
                 cp.autocrop_section,
+                cp.baseline_section,
                 cp.process_section,
                 cp.demosaic_section,
                 cp.optics_section,
@@ -314,6 +317,7 @@ class RightPanel(QWidget):
             cp.film_section,
             cp.sensor_section,
             cp.autocrop_section,
+            cp.baseline_section,
             cp.process_section,
             cp.demosaic_section,
             cp.optics_section,

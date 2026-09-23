@@ -732,6 +732,20 @@ A color sensor records one color per photosite; the demosaic algorithm fills in 
 
 *   **Preview** / **Export** (sticky, default **Auto**): *Auto* is a fast half-size decode on screen and AHD for export. For the preview, Auto and Linear are fastest; the others decode at full size. **AHD** is balanced, **VNG** smooth, **PPG** fast with clean edges, **DCB** and **DHT** favor fine detail, **AAHD** softens edges to suppress artifacts.
 
+<!-- panel:baseline -->
+### Roll Analysis
+
+Meter the roll once and share the result, so frames of one film match. **Use Luma Average** and **Use Color Average** are this card's roll defaults.
+
+*   **Roll Baseline** (picker, with **Reanalyze**, **Lock Bounds** and **Use This Frame** below): search every roll in your library; a ticked roll has a saved baseline. Defaults to the loaded roll. Picking one loads its baseline at once; a different ticked roll shows a hint that its baseline belongs to that roll.
+*   **Lock Bounds**: freezes this frame's bounds against crop and slider changes and against every Roll Analysis run.
+*   **Reanalyze**: runs Roll Analysis on the loaded roll (also on the Library's roll list, [§2](#2-film-strip-left-panel)): averages density and color balance over every loaded frame outside a scene and saves it as the roll's baseline. Locked frames are skipped. A frame whose color is far from the rest keeps its own exposure and color (**Use Luma Average** and **Use Color Average** off); the status message names these frames. *(Tip: run Batch Autocrop first, in **Image only** mode, for consistent crops.)* Grayed out on a roll that is not loaded.
+*   **Use This Frame**: saves this frame's bounds as the roll's baseline, for a reference frame. Frames outside a scene with **Use Luma Average** / **Use Color Average** follow it; locked frames are skipped. A frame opened later with no baseline takes its scene's, else the roll's. Grayed out on a roll that is not loaded; on an unrendered frame it says there are no bounds yet.
+*   **Scenes**: lists the loaded roll's [scenes](#scenes) with number, color, frame count and a tick once analyzed. **Analyze** runs Scene Analysis (Reanalyze over the scene's frames only, saved on the scene). **Select** selects its frames in the Film Strip. **Delete** (trash) forgets it after asking. **Analyze All Scenes** runs them all. Roll Analysis and a picked roll baseline skip scene frames.
+*   **Baseline** (line shown while either average is on): names the roll or scene analyzed, or the frame **Sync Bounds…** took it from, and warns when there is none.
+*   **Use Luma Average**: take the picked roll's tonal range; color stays per frame. Disables Luma Range Clip.
+*   **Use Color Average**: take the picked roll's color balance; tonal range stays per frame. Disables Color Clip. Both on gives a consistent roll; both off gives per-image auto-exposure.
+
 <!-- panel:process -->
 ### 10.6 Normalization: negative → positive
 
@@ -750,17 +764,6 @@ How the negative is measured into a positive's tonal bounds. The film mode is in
 *   **Luma Range Clip** (-100 to 100): how tightly the black/white-point span is set. Neutral applies a small robust clip. Positive tightens it, for dense or fogged negatives; negative pushes the bounds *outward*, for lifted blacks and unclipped highlights.
 *   **Color Clip** (-100 to 100): the per-channel color-balance clip (orange-mask removal). Positive tightens; negative samples nearer the extremes.
 *   **White Point** / **Black Point** (-0.25 to 0.25), with a **Global** / **R** / **G** / **B** selector: offsets on the detected bounds. Positive white point brightens; positive black point lifts blacks. In R/G/B they are per-layer Dmin and Dmax trims. They never join the roll, so editing them keeps the card on **Roll**. On the Transparency transfer path (Normalize off) they offset its fixed window; elsewhere **Lock Bounds** disables them.
-
-**Roll Baseline**: meter the roll once and share the result, so frames of one film match.
-
-*   **Roll Baseline** (picker, with **Reanalyze**, **Lock Bounds** and **Use This Frame** below): search every roll in your library; a ticked roll has a saved baseline. Defaults to the loaded roll. Picking one loads its baseline at once; a different ticked roll shows a hint that its baseline belongs to that roll.
-*   **Lock Bounds**: freezes this frame's bounds against crop and slider changes and against every Roll Analysis run.
-*   **Reanalyze**: runs Roll Analysis on the loaded roll (also on the Library's roll list, [§2](#2-film-strip-left-panel)): averages density and color balance over every loaded frame outside a scene and saves it as the roll's baseline. Locked frames are skipped. A frame whose color is far from the rest keeps its own exposure and color (**Use Luma Average** and **Use Color Average** off); the status message names these frames. *(Tip: run Batch Autocrop first, in **Image only** mode, for consistent crops.)* Grayed out on a roll that is not loaded.
-*   **Use This Frame**: saves this frame's bounds as the roll's baseline, for a reference frame. Frames outside a scene with **Use Luma Average** / **Use Color Average** follow it; locked frames are skipped. A frame opened later with no baseline takes its scene's, else the roll's. Grayed out on a roll that is not loaded; on an unrendered frame it says there are no bounds yet.
-*   **Scenes**: lists the loaded roll's [scenes](#scenes) with number, color, frame count and a tick once analyzed. **Analyze** runs Scene Analysis (Reanalyze over the scene's frames only, saved on the scene). **Select** selects its frames in the Film Strip. **Delete** (trash) forgets it after asking. **Analyze All Scenes** runs them all. Roll Analysis and a picked roll baseline skip scene frames.
-*   **Baseline** (line shown while either average is on): names the roll or scene analyzed, or the frame **Sync Bounds…** took it from, and warns when there is none.
-*   **Use Luma Average**: take the picked roll's tonal range; color stays per frame. Disables Luma Range Clip.
-*   **Use Color Average**: take the picked roll's color balance; tonal range stays per frame. Disables Color Clip. Both on gives a consistent roll; both off gives per-image auto-exposure.
 
 **Crosstalk**, **Hue Trim** and the sensor unmix are in **Calibration** (§10.4).
 

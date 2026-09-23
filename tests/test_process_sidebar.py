@@ -198,13 +198,13 @@ def test_average_toggles_hide_on_the_transparency_transfer(qapp):
 
 
 def test_use_luma_average_toggle_reaches_the_controller(qapp):
-    """Goes through set_roll_default, the same Normalization card write every other
-    roll-eligible control on this card uses -- flipping it locks the card to this
-    frame, and drops roll_name since a single picked baseline no longer applies."""
+    """Goes through set_roll_default on the Roll Analysis card -- flipping it locks that
+    card to this frame, and drops roll_name since a single picked baseline no longer
+    applies."""
     controller, sidebar = _sidebar()
     sidebar.use_luma_avg_btn.setChecked(True)
     args, kwargs = controller.set_roll_default.call_args
-    assert args[0] == "process"
+    assert args[0] == "baseline"
     assert kwargs["use_luma_average"] is True
     assert kwargs["roll_name"] is None
 
@@ -213,7 +213,7 @@ def test_use_color_average_toggle_reaches_the_controller(qapp):
     controller, sidebar = _sidebar()
     sidebar.use_color_avg_btn.setChecked(True)
     args, kwargs = controller.set_roll_default.call_args
-    assert args[0] == "process"
+    assert args[0] == "baseline"
     assert kwargs["use_color_average"] is True
     assert kwargs["roll_name"] is None
 
@@ -313,6 +313,8 @@ def test_white_black_point_are_normalization_roll_defaults():
     for layer in ("red", "green", "blue"):
         assert f"white_point_trim_{layer}" in fields and f"black_point_trim_{layer}" in fields
     assert "white_point_offset" in fields and "black_point_offset" in fields
+    assert "use_luma_average" not in fields
+    assert rolls.card_fields("baseline") == ("use_luma_average", "use_color_average")
 
 
 def test_reanalyze_frame_clears_local_bounds_and_persists(qapp):
