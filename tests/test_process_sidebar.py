@@ -314,7 +314,7 @@ def test_white_black_point_are_normalization_roll_defaults():
         assert f"white_point_trim_{layer}" in fields and f"black_point_trim_{layer}" in fields
     assert "white_point_offset" in fields and "black_point_offset" in fields
     assert "use_luma_average" not in fields
-    assert rolls.card_fields("baseline") == ("use_luma_average", "use_color_average")
+    assert rolls.card_fields("baseline") == ("use_luma_average", "use_color_average", "use_cast_average")
 
 
 def test_reanalyze_frame_clears_local_bounds_and_persists(qapp):

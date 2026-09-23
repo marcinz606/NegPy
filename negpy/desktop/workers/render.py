@@ -1690,7 +1690,8 @@ class NormalizationWorker(QObject):
     """
 
     progress = pyqtSignal(int, int, str, bool)
-    finished = pyqtSignal(tuple, tuple, list)
+    # floors, ceils, outlier hashes, pooled neutral axis (None when no frame has one).
+    finished = pyqtSignal(tuple, tuple, list, object)
     cancelled = pyqtSignal()
     error = pyqtSignal(str)
 
@@ -1717,9 +1718,14 @@ class NormalizationWorker(QObject):
         from negpy.features.exposure.normalization import (
             analyze_log_exposure_bounds,
             effective_crosstalk_matrix,
+            measure_neutral_axis_from_log,
             pool_frame_bounds,
+            pool_neutral_axis,
+            prefilter_log_grid,
             resolve_analysis_region,
+            unmix_log_image,
         )
+        from negpy.features.process.models import ProcessMode
         from negpy.features.geometry.processor import GeometryProcessor
 
         self._cancel.clear()
@@ -1774,6 +1780,8 @@ class NormalizationWorker(QObject):
                     # A frame's own freehand region is where it meters, the same as in its render.
                     roi, buffer = resolve_analysis_region(transformed.shape, ctx.active_roi, analysis_buffer, params.process.analysis_rect)
 
+                    # Each frame's own unmix, as its render applies it.
+                    unmix = effective_crosstalk_matrix(params.process, process_mode)
                     bounds = await asyncio.to_thread(
                         analyze_log_exposure_bounds,
                         transformed,
@@ -1783,15 +1791,18 @@ class NormalizationWorker(QObject):
                         e6_normalize=e6_normalize,
                         percentile_clip=luma_range_clip,
                         color_clip=color_range_clip,
-                        # Each frame's own unmix, as its render applies it.
-                        unmix=effective_crosstalk_matrix(params.process, process_mode),
+                        unmix=unmix,
                     )
+                    axis = None
+                    if process_mode == ProcessMode.C41:
+                        grid = unmix_log_image(prefilter_log_grid(transformed, roi, buffer), unmix)
+                        axis = await asyncio.to_thread(measure_neutral_axis_from_log, grid, bounds, None, 0.0)
 
                     async with lock:
                         completed += 1
                         count = completed
                     self.progress.emit(count, total, f_info["name"], has_crop)
-                    return bounds.floors, bounds.ceils, f_info["hash"]
+                    return bounds.floors, bounds.ceils, f_info["hash"], axis
                 except Exception as e:
                     logger.error(f"Failed to analyze {f_info['name']}: {e}")
                     async with lock:
@@ -1825,7 +1836,8 @@ class NormalizationWorker(QObject):
                 np.array([r[0] for r in valid_results]),
                 np.array([r[1] for r in valid_results]),
             )
-            self.finished.emit(pooled.floors, pooled.ceils, [r[2] for r, out in zip(valid_results, outliers) if out])
+            axis = pool_neutral_axis([r[3] for r in valid_results], outliers)
+            self.finished.emit(pooled.floors, pooled.ceils, [r[2] for r, out in zip(valid_results, outliers) if out], axis)
 
         except Exception as e:
             logger.error(f"Batch Normalization failure: {e}")

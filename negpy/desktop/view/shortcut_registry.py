@@ -121,6 +121,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "mask_spacer_inc": ShortcutEntry("", "Mask Spacer up", "Exposure"),
     "lock_bounds_toggle": ShortcutEntry("Alt+Q", "Toggle bounds lock", "Process"),
     "reanalyze_frame": ShortcutEntry("", "Reanalyze this frame's bounds", "Process"),
+    "cast_average_toggle": ShortcutEntry("", "Toggle cast average", "Process"),
     "metadata_preset_load": ShortcutEntry("", "Load the selected metadata preset onto this frame", "Actions"),
     "metadata_clear_gear": ShortcutEntry("", "Clear the frame's camera, lens and film stock", "Actions"),
     "metadata_clear_process": ShortcutEntry("", "Clear the frame's development process", "Actions"),

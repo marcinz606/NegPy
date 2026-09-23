@@ -995,6 +995,33 @@ def pool_frame_bounds(floors: np.ndarray, ceils: np.ndarray) -> tuple[LogNegativ
     return LogNegativeBounds((float(f[0]), float(f[1]), float(f[2])), (float(c[0]), float(c[1]), float(c[2]))), outliers
 
 
+def _weighted_median(values: np.ndarray, weights: np.ndarray) -> float:
+    order = np.argsort(values)
+    cum = np.cumsum(weights[order])
+    return float(values[order][np.searchsorted(cum, 0.5 * cum[-1])])
+
+
+def pool_neutral_axis(axes: list, outliers: np.ndarray) -> Optional[tuple]:
+    """
+    Pools per-frame neutral axes (measure_neutral_axis_from_log's shape, or None) into one,
+    skipping bounds outliers: a confidence-weighted median per band and channel. The
+    highlight band pools only when at least half the contributing frames have one. None
+    when no inlier frame has an axis with non-zero confidence.
+    """
+    pool = [a for a, out in zip(axes, outliers) if a is not None and not out and a[3] > 0.0]
+    if not pool:
+        return None
+    conf = np.array([a[3] for a in pool])
+
+    def band(i: int, frames: list, w: np.ndarray) -> tuple[float, float, float]:
+        refs = np.array([a[i] for a in frames])
+        return (_weighted_median(refs[:, 0], w), _weighted_median(refs[:, 1], w), _weighted_median(refs[:, 2], w))
+
+    with_hl = [a for a in pool if a[2] is not None]
+    highlight = band(2, with_hl, np.array([a[3] for a in with_hl])) if 2 * len(with_hl) >= len(pool) else None
+    return (band(0, pool, conf), band(1, pool, conf), highlight, float(np.median(conf)))
+
+
 def resolve_bounds(process, analyze_fn) -> LogNegativeBounds:
     """Final bounds for rendering. See resolve_bounds_detailed for the per-frame base."""
     return resolve_bounds_detailed(process, analyze_fn)[0]

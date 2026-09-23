@@ -212,23 +212,33 @@ class ProcessSidebar(BaseSidebar):
         baseline_col = QVBoxLayout(self.baseline_bar)
         baseline_col.setContentsMargins(0, 0, 0, 0)
         baseline_col.setSpacing(THEME.space_sm)
+        self.avg_header = section_subheader("USE AVERAGE")
+        baseline_col.addWidget(self.avg_header)
         self.baseline_source_hint = hint_label("")
         baseline_col.addWidget(self.baseline_source_hint)
         avg_row = QHBoxLayout()
         self.use_luma_avg_btn = self._small_toggle(
-            "mdi6.film",
-            "Use Luma Average",
+            "mdi6.brightness-6",
+            "Luma",
             conf.use_luma_average,
             "Take the tonal-range (black/white-point) baseline from the picked roll; color still re-derives per frame",
         )
         self.use_color_avg_btn = self._small_toggle(
-            "mdi6.film",
-            "Use Color Average",
+            "mdi6.palette-outline",
+            "Color",
             conf.use_color_average,
             "Take the per-channel color-balance baseline from the picked roll; luma range still re-derives per frame",
         )
+        self.use_cast_avg_btn = self._small_toggle(
+            "mdi6.scale-balance",
+            "Cast",
+            conf.use_cast_average,
+            "Take Cast Removal's neutral axis from the picked roll or scene, so every frame gets the same "
+            "gray balance; off measures this frame's own grays. Color Negative only",
+        )
         avg_row.addWidget(self.use_luma_avg_btn)
         avg_row.addWidget(self.use_color_avg_btn)
+        avg_row.addWidget(self.use_cast_avg_btn)
         baseline_col.addLayout(avg_row)
 
         # Render exposure for a merged bracket, continuous rather than snapped to the frames that
@@ -315,6 +325,7 @@ class ProcessSidebar(BaseSidebar):
         self.positive_source_btn.toggled.connect(self._on_positive_source_toggled)
         self.use_luma_avg_btn.toggled.connect(self._on_use_luma_average_toggled)
         self.use_color_avg_btn.toggled.connect(self._on_use_color_average_toggled)
+        self.use_cast_avg_btn.toggled.connect(self._on_use_cast_average_toggled)
 
         self.white_point_slider.valueChanged.connect(lambda v: self._on_white_point_changed(v, persist=False))
         self.white_point_slider.valueCommitted.connect(lambda v: self._on_white_point_changed(v, persist=True))
@@ -363,6 +374,9 @@ class ProcessSidebar(BaseSidebar):
 
     def _on_use_color_average_toggled(self, checked: bool) -> None:
         self._toggle_roll_axis(use_color_average=checked)
+
+    def _on_use_cast_average_toggled(self, checked: bool) -> None:
+        self.controller.set_roll_default("baseline", use_cast_average=checked)
 
     def _toggle_roll_axis(self, **axis: bool) -> None:
         # The other axis re-derives per frame, so a fresh analysis is forced; roll_name
@@ -435,6 +449,7 @@ class ProcessSidebar(BaseSidebar):
             self.color_range_clip_slider.setValue(_color_value_to_slider(conf.color_range_clip))
             self.use_luma_avg_btn.setChecked(conf.use_luma_average)
             self.use_color_avg_btn.setChecked(conf.use_color_average)
+            self.use_cast_avg_btn.setChecked(conf.use_cast_average)
 
             # Transparency transfer: the stretch is a fixed window anchored to the decoder's white
             # level, so nothing that tunes a measured stretch has anything to act on.
@@ -484,6 +499,7 @@ class ProcessSidebar(BaseSidebar):
                 self.analysis_buffer_slider,
                 self.analysis_region_btn,
                 self.clear_analysis_region_btn,
+                self.avg_header,
                 self.use_luma_avg_btn,
                 self.use_color_avg_btn,
                 self.luma_range_clip_slider,
@@ -492,6 +508,8 @@ class ProcessSidebar(BaseSidebar):
                 self.reanalyze_frame_btn,
             ):
                 w.setVisible(not transfer)
+            self.use_cast_avg_btn.setVisible(conf.process_mode == ProcessMode.C41)
+            self.use_cast_avg_btn.setEnabled(conf.locked_neutral_axis is not None)
             self._update_baseline_source_hint(conf, transfer)
 
             idx = self._channel_index()
@@ -540,6 +558,7 @@ class ProcessSidebar(BaseSidebar):
             self.analysis_region_btn,
             self.use_luma_avg_btn,
             self.use_color_avg_btn,
+            self.use_cast_avg_btn,
             self.luma_range_clip_slider,
             self.color_range_clip_slider,
             self.normalize_e6_btn,

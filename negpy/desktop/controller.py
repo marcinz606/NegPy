@@ -4160,10 +4160,11 @@ class AppController(QObject):
         roll_name: Optional[str],
         source: str,
         outliers: Collection[str] = (),
+        axis: Optional[tuple] = None,
     ) -> int:
-        """Writes a baseline onto *targets*, riding both average axes, except that a frame in
-        *outliers* keeps its own bounds. A frame with Lock Bounds on keeps its own exposure.
-        Returns how many locked frames were skipped."""
+        """Writes a baseline onto *targets*, riding every average axis (cast only with a pooled
+        *axis*), except that a frame in *outliers* keeps its own bounds and cast. A frame with
+        Lock Bounds on keeps its own exposure. Returns how many locked frames were skipped."""
         locked_skipped = 0
         changed_hashes: list[str] = []
         current = self.state.current_file_hash
@@ -4177,8 +4178,10 @@ class AppController(QObject):
                 p.process,
                 use_luma_average=rides,
                 use_color_average=rides,
+                use_cast_average=rides and axis is not None,
                 locked_floors=floors,
                 locked_ceils=ceils,
+                locked_neutral_axis=axis,
                 roll_name=roll_name,
                 baseline_source=source,
             )
@@ -4198,15 +4201,19 @@ class AppController(QObject):
                 self.state.config.process,
                 use_luma_average=rides,
                 use_color_average=rides,
+                use_cast_average=rides and axis is not None,
                 locked_floors=floors,
                 locked_ceils=ceils,
+                locked_neutral_axis=axis,
                 roll_name=roll_name,
                 baseline_source=source,
             )
             self.session.update_config(replace(self.state.config, process=new_process), persist=True)
         return locked_skipped
 
-    def _on_normalization_finished(self, locked_floors: tuple, locked_ceils: tuple, outlier_hashes: list) -> None:
+    def _on_normalization_finished(
+        self, locked_floors: tuple, locked_ceils: tuple, outlier_hashes: list, axis: Optional[tuple] = None
+    ) -> None:
         """
         Applies the pooled baseline to the analyzed scope and records it on the roll
         (rolls.set_roll_normalization) or the scene (rolls.set_scene_normalization).
@@ -4218,15 +4225,15 @@ class AppController(QObject):
         source = f"scene:{scene_id}" if scene_id else (f"roll:{roll_id}" if roll_id else "")
         outliers = tuple(outlier_hashes)
         targets = self._normalization_targets(scene_id)
-        locked_skipped = self._push_bounds(targets, locked_floors, locked_ceils, None, source, outliers)
+        locked_skipped = self._push_bounds(targets, locked_floors, locked_ceils, None, source, outliers, axis)
 
         if scene_id is None:
             if roll_id is not None:
-                rolls.set_roll_normalization(self.session.repo, roll_id, locked_floors, locked_ceils, outliers=outliers)
+                rolls.set_roll_normalization(self.session.repo, roll_id, locked_floors, locked_ceils, outliers=outliers, axis=axis)
             message = "Roll analysis complete"
             scope_word = "roll"
         else:
-            rolls.set_scene_normalization(self.session.repo, roll_id, scene_id, locked_floors, locked_ceils, outliers=outliers)
+            rolls.set_scene_normalization(self.session.repo, roll_id, scene_id, locked_floors, locked_ceils, outliers=outliers, axis=axis)
             self.session.refresh_scene_marks()
             message = f"Scene “{self._scene_name(scene_id)}” analyzed"
             scope_word = "scene"
@@ -4290,7 +4297,13 @@ class AppController(QObject):
         locked_floors, locked_ceils = data["floors"], data["ceils"]
 
         locked_skipped = self._push_bounds(
-            self._normalization_targets(None), locked_floors, locked_ceils, name, f"roll:{roll_id}", data.get("outliers", ())
+            self._normalization_targets(None),
+            locked_floors,
+            locked_ceils,
+            name,
+            f"roll:{roll_id}",
+            data.get("outliers", ()),
+            data.get("axis"),
         )
 
         message = f'Applied "{name}"\'s baseline'

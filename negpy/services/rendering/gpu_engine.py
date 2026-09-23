@@ -67,7 +67,7 @@ from negpy.features.exposure.transfer import (
 )
 from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
 from negpy.features.process.logic import should_fold_camera_wb
-from negpy.features.process.models import ProcessMode, per_channel_point_offsets
+from negpy.features.process.models import ProcessMode, per_channel_point_offsets, pooled_neutral_axis
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUBuffer, GPUTexture
 from negpy.infrastructure.gpu.shader_loader import ShaderLoader
@@ -214,6 +214,8 @@ def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str) ->
         p.crosstalk_strength,
         p.crosstalk_matrix,
         p.crosstalk_process,
+        p.use_cast_average,
+        p.locked_neutral_axis,
         g.rotation,
         g.flip_horizontal,
         g.flip_vertical,
@@ -668,6 +670,9 @@ class GPUEngine:
         # crop-fused stages) widens to the whole rotated frame while it is on.
         y1, y2, x1, x2 = (0, h_rot, 0, w_rot) if full_frame and not tiling_mode else roi
         crop_w, crop_h = max(1, x2 - x1), max(1, y2 - y1)
+
+        if neutral_axis_override is None:
+            neutral_axis_override = pooled_neutral_axis(settings.process)
 
         # Reuse the per-source meter across creative-slider previews: fill any missing
         # override from the cache so the needs_* gates below skip the analysis entirely.

@@ -98,7 +98,7 @@ _SENSOR_FIELDS = (
 )
 # ProcessConfig is split across five cards. Each tuple is both the card's reset scope and
 # its modified count, so a field is resettable from the one card that counts it.
-# locked_floors/locked_ceils are in none: they are Roll Analysis's measured result.
+# locked_floors/locked_ceils/locked_neutral_axis are in none: they are Roll Analysis's measured result.
 _FILM_FIELDS = (
     "process_mode",
     "positive_source",
@@ -122,6 +122,7 @@ _METERING_FIELDS = (
 _BASELINE_FIELDS = (
     "use_luma_average",
     "use_color_average",
+    "use_cast_average",
 )
 _TONE_FIELDS = (
     "density",
@@ -758,6 +759,13 @@ class ControlsPanel(QWidget):
             tooltip_with_shortcut(
                 "Lock Bounds — freeze normalization bounds so crop and analysis sliders no longer re-analyze the frame",
                 "lock_bounds_toggle",
+            )
+        )
+        proc.use_cast_avg_btn.setToolTip(
+            tooltip_with_shortcut(
+                "Take Cast Removal's neutral axis from the picked roll or scene, so every frame gets the same "
+                "gray balance; off measures this frame's own grays. Color Negative only",
+                "cast_average_toggle",
             )
         )
         proc.analysis_buffer_slider.setToolTip(

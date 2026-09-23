@@ -2774,7 +2774,7 @@ class TestPresetExportSelected(unittest.TestCase):
         with patch.object(rolls, "set_roll_normalization") as mock_set:
             self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9), [])
 
-        mock_set.assert_called_once_with(self.mock_session_manager.repo, "roll-1", (0.1, 0.1, 0.1), (0.9, 0.9, 0.9), outliers=())
+        mock_set.assert_called_once_with(self.mock_session_manager.repo, "roll-1", (0.1, 0.1, 0.1), (0.9, 0.9, 0.9), outliers=(), axis=None)
 
     def test_outlier_keeps_its_own_bounds(self):
         self.mock_session_manager.state.active_roll_id = "roll-1"
@@ -2793,6 +2793,31 @@ class TestPresetExportSelected(unittest.TestCase):
         self.assertFalse(active.use_luma_average)
         self.assertFalse(active.use_color_average)
         self.assertEqual(mock_set.call_args.kwargs["outliers"], ("h1", "h2"))
+
+    def test_pooled_axis_rides_on_inliers_and_is_recorded_with_the_baseline(self):
+        self.mock_session_manager.state.active_roll_id = "roll-1"
+        self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
+        axis = ((-1.0, -1.1, -1.2), (-0.4, -0.5, -0.6), None, 0.8)
+
+        with patch.object(rolls, "set_roll_normalization") as mock_set:
+            self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9), ["h1"], axis)
+
+        saved = {c.args[0]: c.args[1].process for c in self.mock_session_manager.repo.save_file_settings.call_args_list}
+        self.assertFalse(saved["h1"].use_cast_average)
+        self.assertTrue(saved["h3"].use_cast_average)
+        self.assertEqual(saved["h3"].locked_neutral_axis, axis)
+        self.assertEqual(mock_set.call_args.kwargs["axis"], axis)
+
+    def test_no_pooled_axis_leaves_cast_average_off(self):
+        self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.mock_session_manager.config_for_asset.return_value = WorkspaceConfig()
+
+        self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9), [], None)
+
+        saved = {c.args[0]: c.args[1].process for c in self.mock_session_manager.repo.save_file_settings.call_args_list}
+        self.assertFalse(saved["h3"].use_cast_average)
+        self.assertTrue(saved["h3"].use_color_average)
 
     def test_apply_normalization_roll_keeps_a_recorded_outlier_on_its_own_bounds(self):
         self.mock_session_manager.repo.load_file_settings.return_value = None
@@ -2849,7 +2874,9 @@ class TestPresetExportSelected(unittest.TestCase):
         self.assertEqual(set(saved), {"h1", "h3"})
         self.assertEqual(saved["h1"].process.baseline_source, "scene:s1")
         mock_roll.assert_not_called()
-        mock_scene.assert_called_once_with(self.mock_session_manager.repo, "roll-1", "s1", (0.1, 0.1, 0.1), (0.9, 0.9, 0.9), outliers=())
+        mock_scene.assert_called_once_with(
+            self.mock_session_manager.repo, "roll-1", "s1", (0.1, 0.1, 0.1), (0.9, 0.9, 0.9), outliers=(), axis=None
+        )
         # h2, the active frame, is outside the scene, so its in-memory config is untouched.
         self.mock_session_manager.update_config.assert_not_called()
 

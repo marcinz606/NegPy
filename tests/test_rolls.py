@@ -540,7 +540,7 @@ class TestRollNormalization:
 
         data = roll_normalization(repo, roll_id)
 
-        assert data == {"floors": (0.1, 0.1, 0.1), "ceils": (0.9, 0.9, 0.9), "cast": (0.01, 0.0, -0.01), "outliers": ()}
+        assert data == {"floors": (0.1, 0.1, 0.1), "ceils": (0.9, 0.9, 0.9), "cast": (0.01, 0.0, -0.01), "axis": None, "outliers": ()}
 
     def test_defaults_cast_to_zero(self):
         repo = _repo()
@@ -630,11 +630,13 @@ class TestScenes:
     def test_normalization_round_trip(self):
         repo, roll_id = self._roll()
         sid = create_scene(repo, roll_id, "Beach", ["a"])
-        set_scene_normalization(repo, roll_id, sid, (0.1, 0.2, 0.3), (0.7, 0.8, 0.9), outliers=("a",))
+        axis = ((-1.0, -1.1, -1.2), (-0.4, -0.5, -0.6), None, 0.8)
+        set_scene_normalization(repo, roll_id, sid, (0.1, 0.2, 0.3), (0.7, 0.8, 0.9), outliers=("a",), axis=axis)
 
         assert scene_normalization(repo, roll_id, sid) == {
             "floors": (0.1, 0.2, 0.3),
             "ceils": (0.7, 0.8, 0.9),
+            "axis": axis,
             "outliers": ("a",),
         }
         assert roll_normalization(repo, roll_id) is None

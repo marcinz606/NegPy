@@ -107,6 +107,8 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("Color", "process", "color_range_clip", sticky=True),
         _row("Use Luma Average", "process", "use_luma_average"),
         _row("Use Color Average", "process", "use_color_average"),
+        # The axis travels with the toggle: the toggle alone reads a baseline the target may not have.
+        _row("Use Cast Average", "process", "use_cast_average", "locked_neutral_axis", fmt=lambda v: _fmt_scalar(v[0])),
         _row("White Point", "process", "white_point_offset"),
         _row("White Trim", "process", "white_point_trim_red", "white_point_trim_green", "white_point_trim_blue", channels="RGB"),
         _row("Black Point", "process", "black_point_offset"),

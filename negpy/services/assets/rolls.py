@@ -20,6 +20,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from negpy.features.metadata.models import GEAR_FIELDS, PROCESS_FIELDS, SCANNING_FIELDS
+from negpy.features.process.models import neutral_axis_tuple
 
 if TYPE_CHECKING:
     from negpy.domain.models import WorkspaceConfig
@@ -302,7 +303,7 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
     # Which baseline this frame's bounds come from -- the roll's shared meter or its own
     # analysis. locked_floors/locked_ceils themselves stay Roll Analysis's own job to
     # spread (a metering run, not an edit).
-    "baseline": ("process", ("use_luma_average", "use_color_average")),
+    "baseline": ("process", ("use_luma_average", "use_color_average", "use_cast_average")),
     # The film edge, the rebate width and the format's shape are properties of the roll,
     # not of one frame. The rect autocrop finds from them is not: it stays each frame's own.
     "autocrop": ("geometry", ("autocrop_mode", "autocrop_offset", "autocrop_rebate_trim", "autocrop_ratio")),
@@ -430,9 +431,9 @@ def set_section_push(repo: Any, roll_id: str, section_key: str, values: Dict[str
     _write(repo, store)
 
 
-def roll_normalization(repo: Any, roll_id: str) -> Optional[Dict[str, tuple]]:
-    """The roll's saved Roll Analysis baseline (floors, ceils, cast, and the hashes of the
-    frames that keep their own bounds, ``outliers``), or None if it
+def roll_normalization(repo: Any, roll_id: str) -> Optional[Dict[str, Optional[tuple]]]:
+    """The roll's saved Roll Analysis baseline (floors, ceils, cast, the pooled neutral
+    ``axis`` or None, and the hashes of the frames that keep their own bounds, ``outliers``), or None if it
     has never been analyzed. Unlike roll_defaults, this is written only by Batch
     Analysis itself -- a metering run over the roll's files, not a per-frame edit --
     so a frame's own Use Luma/Color Average axes borrow it directly rather than
@@ -445,12 +446,24 @@ def roll_normalization(repo: Any, roll_id: str) -> Optional[Dict[str, tuple]]:
         "floors": tuple(saved["floors"]),
         "ceils": tuple(saved["ceils"]),
         "cast": tuple(saved["cast"]),
+        "axis": _saved_axis(saved),
         "outliers": tuple(saved.get("outliers", ())),
     }
 
 
+def _saved_axis(saved: dict) -> Optional[tuple]:
+    axis = saved.get("axis")
+    return neutral_axis_tuple(axis) if axis is not None else None
+
+
 def set_roll_normalization(
-    repo: Any, roll_id: str, floors: tuple, ceils: tuple, cast: tuple = (0.0, 0.0, 0.0), outliers: tuple = ()
+    repo: Any,
+    roll_id: str,
+    floors: tuple,
+    ceils: tuple,
+    cast: tuple = (0.0, 0.0, 0.0),
+    outliers: tuple = (),
+    axis: Optional[tuple] = None,
 ) -> None:
     """Records a Roll Analysis result as the roll's own baseline, overwriting
     whatever was there. No-op for an unknown roll id."""
@@ -458,7 +471,7 @@ def set_roll_normalization(
     entry = store.get(roll_id)
     if entry is None:
         return
-    entry["normalization"] = {"floors": list(floors), "ceils": list(ceils), "cast": list(cast), "outliers": list(outliers)}
+    entry["normalization"] = {"floors": list(floors), "ceils": list(ceils), "cast": list(cast), "outliers": list(outliers), "axis": axis}
     _write(repo, store)
 
 
@@ -537,18 +550,25 @@ def delete_scene(repo: Any, roll_id: str, scene_id: str) -> None:
     _edit_scenes(repo, roll_id, lambda scenes: scenes.pop(scene_id, None))
 
 
-def scene_normalization(repo: Any, roll_id: str, scene_id: str) -> Optional[Dict[str, tuple]]:
-    """The scene's saved Scene Analysis baseline (floors, ceils, outliers), or None before one."""
+def scene_normalization(repo: Any, roll_id: str, scene_id: str) -> Optional[Dict[str, Optional[tuple]]]:
+    """The scene's saved Scene Analysis baseline (floors, ceils, axis, outliers), or None before one."""
     saved = dict(roll_scenes(repo, roll_id)).get(scene_id, {}).get("normalization")
     if not saved:
         return None
-    return {"floors": tuple(saved["floors"]), "ceils": tuple(saved["ceils"]), "outliers": tuple(saved.get("outliers", ()))}
+    return {
+        "floors": tuple(saved["floors"]),
+        "ceils": tuple(saved["ceils"]),
+        "axis": _saved_axis(saved),
+        "outliers": tuple(saved.get("outliers", ())),
+    }
 
 
-def set_scene_normalization(repo: Any, roll_id: str, scene_id: str, floors: tuple, ceils: tuple, outliers: tuple = ()) -> None:
+def set_scene_normalization(
+    repo: Any, roll_id: str, scene_id: str, floors: tuple, ceils: tuple, outliers: tuple = (), axis: Optional[tuple] = None
+) -> None:
     def edit(scenes: Dict[str, dict]) -> None:
         if scene_id in scenes:
-            saved = {"floors": list(floors), "ceils": list(ceils), "outliers": list(outliers)}
+            saved = {"floors": list(floors), "ceils": list(ceils), "outliers": list(outliers), "axis": axis}
             scenes[scene_id] = {**scenes[scene_id], "normalization": saved}
 
     _edit_scenes(repo, roll_id, edit)
@@ -569,8 +589,8 @@ def next_scene_name(repo: Any, roll_id: Optional[str]) -> str:
 
 def resolve_roll_baseline(repo: Any, roll_id: str, file_hash: str, config: "WorkspaceConfig") -> "WorkspaceConfig":
     """A frame riding Use Luma/Color Average without a baseline of its own takes its
-    scene's, else the roll's: a frame loaded after the analysis ran still follows it. A
-    frame that already carries one, or has Lock Bounds on, keeps it."""
+    scene's, else the roll's, neutral axis included: a frame loaded after the analysis ran
+    still follows it. A frame that already carries one, or has Lock Bounds on, keeps it."""
     process = config.process
     if process.lock_bounds or process.is_locked_initialized or not (process.use_luma_average or process.use_color_average):
         return config
@@ -579,7 +599,16 @@ def resolve_roll_baseline(repo: Any, roll_id: str, file_hash: str, config: "Work
     if not saved:
         return config
     source = f"scene:{scene[1]}" if scene else f"roll:{roll_id}"
-    return replace(config, process=replace(process, locked_floors=saved["floors"], locked_ceils=saved["ceils"], baseline_source=source))
+    return replace(
+        config,
+        process=replace(
+            process,
+            locked_floors=saved["floors"],
+            locked_ceils=saved["ceils"],
+            locked_neutral_axis=saved["axis"],
+            baseline_source=source,
+        ),
+    )
 
 
 def baseline_label(repo: Any, process: Any) -> str:

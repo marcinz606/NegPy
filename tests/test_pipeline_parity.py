@@ -184,6 +184,24 @@ class TestExposureParity:
         assert cpu.shape == gpu.shape
         _assert_mostly_close(cpu, gpu, atol=1e-1, rtol=1e-1, max_violation_frac=0.01)
 
+    def test_cast_average_pooled_axis(self):
+        # A pooled axis replaces the frame's own meter; CPU and GPU must both honour it.
+        from negpy.features.exposure.normalization import analyze_log_exposure_bounds, measure_neutral_axis
+
+        img = _make_curved_negative()
+        mid, shadow, highlight, conf = measure_neutral_axis(img, analyze_log_exposure_bounds(img))
+        axis = ((mid[0] + 0.05, mid[1], mid[2] - 0.05), shadow, highlight, conf)
+        s = _make_base_settings()
+        s = replace(s, process=replace(s.process, use_cast_average=True, locked_neutral_axis=axis))
+        scale = max(img.shape[:2]) / 1024.0
+        cpu = self.cpu.process(img, s, "parity_cast_average")
+        gpu_tex, _ = self.gpu.process_to_texture(img, s, scale_factor=scale, apply_layout=False, readback_metrics=False)
+        gpu = self.gpu._readback_downsampled(gpu_tex)
+        assert cpu.shape == gpu.shape
+        _assert_mostly_close(cpu, gpu, atol=1e-1, rtol=1e-1, max_violation_frac=0.01)
+        own = self.cpu.process(img, _make_base_settings(), "parity_cast_average_own")
+        assert np.abs(cpu - own).max() > 1e-2
+
     def test_extreme_exposure_dark(self):
         s = replace(_make_base_settings(), exposure=ExposureConfig(density=-1.0, grade=2.0))
         self._run_and_compare(s)

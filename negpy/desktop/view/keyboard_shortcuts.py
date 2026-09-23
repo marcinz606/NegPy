@@ -188,6 +188,7 @@ class ShortcutManager:
             "flip_v": lambda: toolbar.flip("vertical"),
             "lock_bounds_toggle": lambda: controls.process_sidebar.lock_bounds_btn.toggle(),
             "reanalyze_frame": lambda: controls.process_sidebar.reanalyze_frame_btn.click(),
+            "cast_average_toggle": lambda: controls.process_sidebar.use_cast_avg_btn.toggle(),
             "metadata_preset_load": lambda: right.metadata_sidebar.metadata_preset_load_btn.click(),
             "metadata_clear_gear": lambda: right.metadata_sidebar.gear_clear_btn.click(),
             "metadata_clear_process": lambda: right.metadata_sidebar.process_clear_btn.click(),

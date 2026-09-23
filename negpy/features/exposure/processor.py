@@ -56,7 +56,7 @@ from negpy.features.local.logic import compute_local_maps
 from negpy.features.local.models import LocalAdjustmentsConfig
 from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
 from negpy.features.process.logic import should_fold_camera_wb
-from negpy.features.process.models import ProcessConfig, ProcessMode, per_channel_point_offsets
+from negpy.features.process.models import ProcessConfig, ProcessMode, per_channel_point_offsets, pooled_neutral_axis
 from negpy.kernel.image.logic import get_luminance
 
 
@@ -191,7 +191,10 @@ class NormalizationProcessor:
         # Neutral axis for the two-point Cast Removal gray balance. Colour only: B&W
         # collapses to one density and has no channels to balance.
         if context.process_mode != ProcessMode.BW:
-            context.metrics["neutral_axis_refs"] = measure_neutral_axis_from_log(prefiltered, pre_trim_bounds, None, 0.0)
+            pooled = pooled_neutral_axis(self.config)
+            context.metrics["neutral_axis_refs"] = (
+                pooled if pooled is not None else measure_neutral_axis_from_log(prefiltered, pre_trim_bounds, None, 0.0)
+            )
 
         # Per-frame exposure anchor, measured against the same final bounds the image is
         # normalized with. Stored unconditionally, since the block grid is cheap.
