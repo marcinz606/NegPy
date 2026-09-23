@@ -14,7 +14,7 @@
 - Change: **Positive is a Slide-only setting** and applies to the whole roll; Auto Density and Auto Grade work on it. @PabloRuizCuevas
 - Change: **Faster, lighter navigation** — Film Strip previews stream in the background with bounded memory, and neighbor prefetch works again on scan TIFFs and camera RAWs. @hsnilsson
 - Change: **User Guide and Pipeline docs rewritten** — shorter and plainer, including the in-app ⓘ guides.
-- Fix: **Correct defaults everywhere** — new files and resets use the calibrated grade, crosstalk and auto crop. A slide's Cast Removal keeps a value of 0.5 and compares against the slide default. @thetalkingdrum
+- Fix: **Correct defaults everywhere** — new files and resets use the calibrated grade, crosstalk and auto crop. On a slide, Cast Removal keeps the value you set, and reset and Before/After use the slide default of 0. @thetalkingdrum
 - Fix: **Slide Shadows/Highlights color balance works.** @thetalkingdrum
 - Fix: **RAW decode clips at the camera's calibrated white level.** @thetalkingdrum
 - Fix: **Shift/Ctrl-click multi-select in the Film Strip is reliable.** @thetalkingdrum
