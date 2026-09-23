@@ -1001,12 +1001,32 @@ def _weighted_median(values: np.ndarray, weights: np.ndarray) -> float:
     return float(values[order][np.searchsorted(cum, 0.5 * cum[-1])])
 
 
+def _axis_curve_residuals(axis: tuple, pooled: tuple) -> np.ndarray:
+    """(mid, shadow) x (R, B) distance of *axis* from *pooled*'s R/B-vs-G curve (a quadratic
+    through its bands, a line without a highlight), each read at *axis*'s own green."""
+    bands = [b for b in (pooled[0], pooled[1], pooled[2]) if b is not None]
+    g = np.array([b[1] for b in bands])
+    out = np.zeros((2, 2))
+    for j, ch in enumerate((0, 2)):
+        coef = np.polyfit(g, np.array([b[ch] for b in bands]), len(bands) - 1) if np.ptp(g) > 1e-6 else None
+        for i in (0, 1):
+            ref_g = axis[i][1]
+            fit = float(np.polyval(coef, ref_g)) if coef is not None else bands[0][ch] - bands[0][1] + ref_g
+            out[i, j] = axis[i][ch] - fit
+    return out
+
+
 def pool_neutral_axis(axes: list, outliers: np.ndarray) -> Optional[tuple]:
     """
     Pools per-frame neutral axes (measure_neutral_axis_from_log's shape, or None) into one,
     skipping bounds outliers: a confidence-weighted median per band and channel. The
     highlight band pools only when at least half the contributing frames have one. None
     when no inlier frame has an axis with non-zero confidence.
+
+    A fifth element is the offset weight blend_neutral_axis gives a frame's own midtone
+    offset: 1 - noise / spread of the frames' offsets from the pooled curve. The curve's shape
+    is the film's, so the spread of the frames' shapes (shadow minus midtone offset, halved
+    as a difference of two meters) estimates the meter noise. Zero below three frames.
     """
     pool = [a for a, out in zip(axes, outliers) if a is not None and not out and a[3] > 0.0]
     if not pool:
@@ -1019,7 +1039,28 @@ def pool_neutral_axis(axes: list, outliers: np.ndarray) -> Optional[tuple]:
 
     with_hl = [a for a in pool if a[2] is not None]
     highlight = band(2, with_hl, np.array([a[3] for a in with_hl])) if 2 * len(with_hl) >= len(pool) else None
-    return (band(0, pool, conf), band(1, pool, conf), highlight, float(np.median(conf)))
+    pooled = (band(0, pool, conf), band(1, pool, conf), highlight, float(np.median(conf)))
+
+    weight = 0.0
+    if len(pool) >= 3:
+        res = np.array([_axis_curve_residuals(a, pooled) for a in pool])
+        spread = float(res[:, 0, :].var(axis=0).mean())
+        noise = 0.5 * float((res[:, 1, :] - res[:, 0, :]).var(axis=0).mean())
+        weight = float(np.clip(1.0 - noise / spread, 0.0, 1.0)) if spread > 0.0 else 0.0
+    return (*pooled, weight)
+
+
+def blend_neutral_axis(own: Optional[tuple], pooled: tuple) -> tuple:
+    """The pooled axis shifted by this frame's own midtone offset from the pooled curve, scaled
+    by the pool's offset weight and the frame's confidence: the roll's shape, this frame's
+    level. No own axis, or a zero weight, is the pooled axis itself."""
+    weight = pooled[4] if len(pooled) > 4 else 0.0
+    k = weight * own[3] if own is not None else 0.0
+    if k <= 0.0:
+        return pooled[:4]
+    dr, db = _axis_curve_residuals(own, pooled)[0]
+    shift = lambda b: (b[0] + k * dr, b[1], b[2] + k * db) if b is not None else None  # noqa: E731
+    return (shift(pooled[0]), shift(pooled[1]), shift(pooled[2]), pooled[3])
 
 
 def resolve_bounds(process, analyze_fn) -> LogNegativeBounds:

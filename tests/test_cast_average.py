@@ -8,6 +8,7 @@ from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.normalization import (
     analyze_log_exposure_bounds,
+    blend_neutral_axis,
     measure_neutral_axis,
     pool_neutral_axis,
 )
@@ -48,6 +49,50 @@ def test_highlight_pools_only_when_half_the_frames_have_one():
 
 def test_nothing_to_pool_is_none():
     assert pool_neutral_axis([None, _axis(0.0, 0.0)], np.zeros(2, bool)) is None
+
+
+def _film(dr: float, db: float, shadow_noise: float = 0.0, conf: float = 1.0) -> tuple:
+    """A frame on one film's curved R/B-vs-G axis, offset by (dr, db), its shadow meter off by noise."""
+    band = lambda g, n: (g + 0.1 + 0.05 * g * g + dr + n, g, g - 0.1 - 0.03 * g * g + db - n)  # noqa: E731
+    return (band(-0.8, 0.0), band(-0.4, shadow_noise), band(-1.4, 0.0), conf)
+
+
+def test_offsets_far_above_the_meter_noise_keep_their_weight():
+    frames = [_film(d, -d) for d in (-0.1, 0.0, 0.1, 0.2)]
+
+    assert pool_neutral_axis(frames, np.zeros(4, bool))[4] > 0.99
+
+
+def test_shape_noise_alone_gives_no_offset_weight():
+    frames = [_film(0.0, 0.0, n) for n in (-0.05, 0.0, 0.05, 0.02)]
+
+    assert pool_neutral_axis(frames, np.zeros(4, bool))[4] == 0.0
+
+
+def test_two_frames_give_no_offset_weight():
+    assert pool_neutral_axis([_film(0.0, 0.0), _film(0.3, 0.0)], np.zeros(2, bool))[4] == 0.0
+
+
+def test_blend_keeps_the_pooled_shape_at_the_frames_own_level():
+    pooled = (*_film(0.0, 0.0)[:4], 1.0)
+    blended = blend_neutral_axis(_film(0.05, -0.02), pooled)
+
+    np.testing.assert_allclose(np.array(blended[:3]), np.array(_film(0.05, -0.02)[:3]), atol=1e-9)
+    assert blended[3] == pooled[3]
+
+
+def test_blend_scales_the_offset_by_weight_and_confidence():
+    pooled = (*_film(0.0, 0.0)[:4], 0.5)
+    blended = blend_neutral_axis(_film(0.1, 0.0, conf=0.5), pooled)
+
+    assert abs(blended[0][0] - pooled[0][0] - 0.025) < 1e-9
+
+
+def test_blend_without_weight_or_own_axis_is_the_pool():
+    pooled = _film(0.0, 0.0)
+
+    assert blend_neutral_axis(_film(0.1, 0.1), pooled) == pooled
+    assert blend_neutral_axis(None, (*pooled, 1.0)) == pooled
 
 
 def test_pooled_axis_reads_only_when_on_and_color_negative():

@@ -134,7 +134,8 @@ class ProcessConfig:
     local_floors: tuple[float, float, float] = (0.0, 0.0, 0.0)
     local_ceils: tuple[float, float, float] = (0.0, 0.0, 0.0)
     # Roll/scene Cast Removal: the pooled neutral axis in raw log, in the meter's own shape
-    # (midtone, shadow, highlight or None, confidence). Color Negative only.
+    # (midtone, shadow, highlight or None, confidence) plus an offset weight
+    # (pool_neutral_axis). Color Negative only.
     use_cast_average: bool = False
     locked_neutral_axis: Optional[tuple] = None
 
@@ -213,9 +214,10 @@ class ProcessConfig:
 
 
 def neutral_axis_tuple(axis) -> tuple:
-    """A neutral axis read back from JSON as nested tuples."""
-    mid, shadow, highlight, confidence = axis
-    return (tuple(mid), tuple(shadow), tuple(highlight) if highlight is not None else None, float(confidence))
+    """A neutral axis read back from JSON as nested tuples; a pooled one carries a fifth
+    element, its offset weight."""
+    mid, shadow, highlight, *scalars = axis
+    return (tuple(mid), tuple(shadow), tuple(highlight) if highlight is not None else None, *(float(v) for v in scalars))
 
 
 def pooled_neutral_axis(process: ProcessConfig) -> Optional[tuple]:

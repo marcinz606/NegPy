@@ -190,7 +190,8 @@ class TestExposureParity:
 
         img = _make_curved_negative()
         mid, shadow, highlight, conf = measure_neutral_axis(img, analyze_log_exposure_bounds(img))
-        axis = ((mid[0] + 0.05, mid[1], mid[2] - 0.05), shadow, highlight, conf)
+        # Weight 0.5: both engines meter the frame's own axis and blend it with the pool.
+        axis = ((mid[0] + 0.05, mid[1], mid[2] - 0.05), shadow, highlight, conf, 0.5)
         s = _make_base_settings()
         s = replace(s, process=replace(s.process, use_cast_average=True, locked_neutral_axis=axis))
         scale = max(img.shape[:2]) / 1024.0

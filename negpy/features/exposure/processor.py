@@ -26,6 +26,7 @@ from negpy.features.exposure.papers import effective_paper_profile
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
     analyze_log_exposure_bounds_from_log,
+    blend_neutral_axis,
     luma_source_bounds,
     luminance_density_range,
     measure_anchor_from_log,
@@ -191,10 +192,9 @@ class NormalizationProcessor:
         # Neutral axis for the two-point Cast Removal gray balance. Colour only: B&W
         # collapses to one density and has no channels to balance.
         if context.process_mode != ProcessMode.BW:
+            own = measure_neutral_axis_from_log(prefiltered, pre_trim_bounds, None, 0.0)
             pooled = pooled_neutral_axis(self.config)
-            context.metrics["neutral_axis_refs"] = (
-                pooled if pooled is not None else measure_neutral_axis_from_log(prefiltered, pre_trim_bounds, None, 0.0)
-            )
+            context.metrics["neutral_axis_refs"] = blend_neutral_axis(own, pooled) if pooled is not None else own
 
         # Per-frame exposure anchor, measured against the same final bounds the image is
         # normalized with. Stored unconditionally, since the block grid is cheap.

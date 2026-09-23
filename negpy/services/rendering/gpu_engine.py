@@ -17,6 +17,7 @@ from negpy.features.exposure import models as exposure_models
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
     analyze_log_exposure_bounds_from_log,
+    blend_neutral_axis,
     contrast_mask_plane,
     luma_source_bounds,
     normalized_roi,
@@ -671,9 +672,6 @@ class GPUEngine:
         y1, y2, x1, x2 = (0, h_rot, 0, w_rot) if full_frame and not tiling_mode else roi
         crop_w, crop_h = max(1, x2 - x1), max(1, y2 - y1)
 
-        if neutral_axis_override is None:
-            neutral_axis_override = pooled_neutral_axis(settings.process)
-
         # Reuse the per-source meter across creative-slider previews: fill any missing
         # override from the cache so the needs_* gates below skip the analysis entirely.
         analysis_key = None
@@ -849,6 +847,9 @@ class GPUEngine:
         if needs_axis and axis_grid is not None:
             axis_bounds = LogNegativeBounds(*transfer_bounds()) if transfer else bounds
             neutral_axis_refs = measure_neutral_axis_from_log(axis_grid, axis_bounds, None, 0.0)
+            pooled_axis = pooled_neutral_axis(settings.process)
+            if pooled_axis is not None:
+                neutral_axis_refs = blend_neutral_axis(neutral_axis_refs, pooled_axis)
 
         # Auto Density/Auto Grade meter the working-space grid against the fixed window on
         # a Positive frame, exactly like the neutral axis just above; both read the
