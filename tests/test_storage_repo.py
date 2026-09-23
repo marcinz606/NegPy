@@ -204,3 +204,58 @@ def test_initialize_enables_wal(tmp_path):
             assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
         finally:
             conn.close()
+
+
+def test_global_setting_reads_come_from_memory_after_the_first(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    repo.save_global_setting("a", 1)
+    assert repo.get_global_setting("a") == 1
+    connects = []
+    real = sqlite3.connect
+    monkeypatch.setattr(sqlite3, "connect", lambda *a, **k: connects.append(a) or real(*a, **k))
+    assert repo.get_global_setting("a") == 1
+    assert repo.get_global_setting("missing", default=7) == 7
+    assert connects == []
+
+
+def test_global_setting_cache_follows_writes_and_persists(tmp_path):
+    repo = _repo(tmp_path)
+    assert repo.get_global_setting("rolls") is None
+    repo.save_global_setting("rolls", {"r1": {"members": ["a"]}})
+    repo.save_global_settings({"rolls": {"r1": {"members": ["a", "b"]}}, "x": 2})
+    assert repo.get_global_setting("rolls") == {"r1": {"members": ["a", "b"]}}
+    reopened = StorageRepository(repo.edits_db_path, repo.settings_db_path)
+    assert reopened.get_global_setting("rolls") == {"r1": {"members": ["a", "b"]}}
+    assert reopened.get_global_setting("x") == 2
+
+
+def test_mutating_a_global_setting_result_does_not_reach_the_cache(tmp_path):
+    repo = _repo(tmp_path)
+    repo.save_global_setting("rolls", {"r1": {"members": ["a"]}})
+    got = repo.get_global_setting("rolls")
+    got["r1"]["members"].append("b")
+    assert repo.get_global_setting("rolls") == {"r1": {"members": ["a"]}}
+
+
+def test_reset_everything_empties_the_global_setting_cache(tmp_path):
+    repo = _repo(tmp_path)
+    repo.save_global_setting("a", 1)
+    assert repo.get_global_setting("a") == 1
+    repo.reset_everything()
+    assert repo.get_global_setting("a") is None
+
+
+def test_load_all_history_reuses_parsed_steps(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    base = WorkspaceConfig()
+    for i in range(3):
+        repo.save_history_step("h", i, replace(base, exposure=replace(base.exposure, density=1.0 + i)))
+    first = repo.load_all_history("h")
+    parses = []
+    real = WorkspaceConfig.from_flat_dict
+    monkeypatch.setattr(WorkspaceConfig, "from_flat_dict", staticmethod(lambda d: parses.append(1) or real(d)))
+    repo.save_history_step("h", 3, replace(base, exposure=replace(base.exposure, density=9.0)))
+    second = repo.load_all_history("h")
+    assert len(parses) == 1
+    assert [c for _, c in second[:3]] == [c for _, c in first]
+    assert second[3][1].exposure.density == 9.0

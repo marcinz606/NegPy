@@ -124,25 +124,6 @@ def test_prefetch_forwards_highlight_decode_identity() -> None:
     assert manager.load_linear_preview.call_args.kwargs["bake_camera_wb"] is True
 
 
-def test_prefetch_rejects_a_non_cancellable_loader_before_decode() -> None:
-    manager = PreviewManager()
-    manager.load_linear_preview = MagicMock()
-
-    with patch(
-        "negpy.services.rendering.preview_manager.loader_factory.estimate_linear_preview_prefetch_memory", return_value=None
-    ) as estimate:
-        admitted = manager.prefetch_linear_preview(
-            "/camera.dng",
-            "Adobe RGB",
-            use_camera_wb=False,
-            file_hash="hash",
-        )
-
-    assert not admitted
-    estimate.assert_called_once_with("/camera.dng", 1600)
-    manager.load_linear_preview.assert_not_called()
-
-
 def test_prefetch_budgets_retained_ir_before_decode(tmp_path) -> None:
     path = tmp_path / "rgbi.tif"
     tifffile.imwrite(path, np.zeros((100, 150, 4), dtype=np.uint16), photometric="rgb", extrasamples=[0])

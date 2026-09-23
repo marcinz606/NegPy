@@ -406,3 +406,31 @@ def test_demosaic_scopes_the_cache_key() -> None:
     auto = PreviewCacheKey(file_hash="h", use_camera_wb=False, workspace_color_space="Adobe RGB", full_resolution=False)
     vng = PreviewCacheKey(file_hash="h", use_camera_wb=False, workspace_color_space="Adobe RGB", full_resolution=False, demosaic="VNG")
     assert auto.as_tuple() != vng.as_tuple()
+
+
+def test_navigating_to_the_prefetched_file_lets_its_decode_finish() -> None:
+    service = MagicMock()
+    worker = PreviewLoadWorker(service)
+    seen = []
+
+    def navigate(*_args, should_cancel, **_kwargs):
+        worker.expect_generation(2, "/other.dng")
+        seen.append(should_cancel())
+        worker.cancel_prefetch(1)
+        worker.expect_generation(3, "/n.dng")
+        seen.append(should_cancel())
+
+    service.prefetch_linear_preview.side_effect = navigate
+    worker.expect_generation(1)
+    worker.process(
+        PreviewLoadTask(
+            file_path="/n.dng",
+            workspace_color_space="Adobe RGB",
+            use_camera_wb=False,
+            generation=1,
+            for_cache_warm=True,
+            file_hash="hash",
+        )
+    )
+
+    assert seen == [True, False]

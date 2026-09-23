@@ -1020,11 +1020,15 @@ class PreviewLoadWorker(QObject):
         self._generation_lock = threading.Lock()
         self._latest_generation = 0
         self._cancelled_prefetch_generations: set[int] = set()
+        self._foreground_path: str | None = None
 
-    def expect_generation(self, generation: int) -> None:
-        """Make older queued and segment-based preview work obsolete."""
+    def expect_generation(self, generation: int, file_path: str | None = None) -> None:
+        """Make older queued and segment-based preview work obsolete. A running prefetch of
+        *file_path* itself keeps going: the foreground load waits for it and hits its cache
+        entry, where cancelling would throw that decode away and start it again."""
         with self._generation_lock:
             self._latest_generation = generation
+            self._foreground_path = file_path
             self._cancelled_prefetch_generations = {
                 cancelled for cancelled in self._cancelled_prefetch_generations if cancelled >= generation
             }
@@ -1040,6 +1044,8 @@ class PreviewLoadWorker(QObject):
 
     def _prefetch_is_current(self, task: PreviewLoadTask) -> bool:
         with self._generation_lock:
+            if task.file_path == self._foreground_path:
+                return True
             return task.generation == self._latest_generation and task.generation not in self._cancelled_prefetch_generations
 
     @pyqtSlot(PreviewLoadTask)

@@ -5400,10 +5400,10 @@ class TestLibrarySearch(unittest.TestCase):
 
     def test_open_roll_loads_a_folder_rolls_own_and_extra_paths(self):
         self._dict_repo()
-        from negpy.services.assets.rolls import add_extra_member, recognize_folder
+        from negpy.services.assets.rolls import add_extra_members, recognize_folder
 
         roll_id = recognize_folder(self.controller.session.repo, "/photos/roll_a")
-        add_extra_member(self.controller.session.repo, roll_id, "/elsewhere/c.nef")
+        add_extra_members(self.controller.session.repo, roll_id, ["/elsewhere/c.nef"])
 
         with patch.object(self.controller, "request_asset_discovery") as discovery:
             self.controller.open_roll(roll_id)

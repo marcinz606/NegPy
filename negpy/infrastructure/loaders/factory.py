@@ -17,9 +17,6 @@ from negpy.infrastructure.loaders.constants import (
 )
 
 
-_MAX_FAST_PREFETCH_WORKING_BYTES = 256 * 1024 * 1024
-
-
 class LoaderFactory:
     """
     Selects loader based on file ext/header.
@@ -106,13 +103,15 @@ class LoaderFactory:
             profile = "scan"
         return estimate_preview_memory(file_path, max_edge, profile)
 
-    def estimate_linear_preview_prefetch_memory(self, file_path: str, max_edge: int) -> Optional[PreviewMemoryEstimate]:
-        """Estimate an admissible neighbor decode, or return None before pixel decode."""
+    def estimate_linear_preview_prefetch_memory(self, file_path: str, max_edge: int) -> PreviewMemoryEstimate:
+        """Estimate a neighbor decode before pixel decode: the segmented LinearRaw path where
+        it applies, else the loader's whole-decode working set."""
         loader = self._select_loader(file_path)
         if loader is self._rawpy:
-            return loader.estimate_cancellable_linear_preview_memory(file_path, max_edge)
-        estimate = self.estimate_preview_memory(file_path, max_edge)
-        return estimate if estimate.temporary_bytes <= _MAX_FAST_PREFETCH_WORKING_BYTES else None
+            streamed = loader.estimate_cancellable_linear_preview_memory(file_path, max_edge)
+            if streamed is not None:
+                return streamed
+        return self.estimate_preview_memory(file_path, max_edge)
 
 
 # Global instance for shared use

@@ -100,16 +100,18 @@ def create_virtual_roll(repo: Any, name: str, member_paths: List[str]) -> str:
     return roll_id
 
 
-def add_extra_member(repo: Any, roll_id: str, path: str) -> None:
-    """Extend a roll's membership by one path: a folder roll's extra_paths, or a virtual
-    roll's member_paths. No-op for an unknown roll id or an already-member path."""
+def add_extra_members(repo: Any, roll_id: str, paths: List[str]) -> None:
+    """Extend a roll's membership, in one write: a folder roll's extra_paths, or a virtual
+    roll's member_paths. Skips an unknown roll id and paths already members."""
     store = _read(repo)
     entry = store.get(roll_id)
     if entry is None:
         return
     key = "extra_paths" if entry["kind"] == "folder" else "member_paths"
-    if path not in entry[key]:
-        entry[key] = [*entry[key], path]
+    known = set(entry[key])
+    new = [p for p in dict.fromkeys(paths) if p not in known]
+    if new:
+        entry[key] = [*entry[key], *new]
         _write(repo, store)
 
 

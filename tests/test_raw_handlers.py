@@ -251,13 +251,13 @@ def test_jxl_linear_dng_allows_cancellable_neighbor_prefetch():
         assert factory.estimate_linear_preview_prefetch_memory(path, 1600) is not None
 
 
-def test_libraw_dng_does_not_allow_non_cancellable_neighbor_prefetch():
+def test_libraw_dng_prefetch_uses_the_whole_decode_estimate():
     with tempfile.TemporaryDirectory() as td:
         path = os.path.join(td, "camera.dng")
         _write_minimal_linearraw_dng(path, 12, 10)
 
         factory = LoaderFactory()
-        assert factory.estimate_linear_preview_prefetch_memory(path, 1600) is None
+        assert factory.estimate_linear_preview_prefetch_memory(path, 1600) == factory.estimate_preview_memory(path, 1600)
 
 
 def test_large_segmented_linearraw_uses_bounded_memory_estimate():

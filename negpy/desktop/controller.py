@@ -1950,8 +1950,10 @@ class AppController(QObject):
         roll_id = self.state.active_roll_id
         if not roll_id:
             return
+        entry = rolls.roll_for_id(self.session.repo, roll_id)
+        forked = set(entry.get("forked_hashes", [])) if entry else set()
         for a in assets:
-            if a.get("hash") and rolls.is_forked(self.session.repo, roll_id, a["hash"]):
+            if a.get("hash") in forked:
                 a["hash"] = rolls.roll_edit_hash(a["hash"], roll_id)
 
     def _on_rgb_grouped(self, summary: dict) -> None:
@@ -2018,9 +2020,7 @@ class AppController(QObject):
         # Files appended (not replaced) while a roll is active join its membership, so
         # reopening that roll later still shows what was added by hand.
         if not replace_existing and self.state.active_roll_id:
-            for asset in valid_assets:
-                if asset.get("path"):
-                    rolls.add_extra_member(self.session.repo, self.state.active_roll_id, asset["path"])
+            rolls.add_extra_members(self.session.repo, self.state.active_roll_id, [a["path"] for a in valid_assets if a.get("path")])
         pending_scan = getattr(self, "_pending_scanned_file", None)
 
         if replace_existing and valid_assets:
@@ -2267,7 +2267,7 @@ class AppController(QObject):
         Dispatches RAW decode to a background worker to keep the UI thread free.
         """
         self._prefetch_gen += 1
-        self.preview_load_worker.expect_generation(self._prefetch_gen)
+        self.preview_load_worker.expect_generation(self._prefetch_gen, file_path)
         self._cancel_neighbor_prefetch()
         self._foreground_preview_generation = self._prefetch_gen
         self._pause_background_thumbnails()

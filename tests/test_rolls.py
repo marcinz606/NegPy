@@ -20,7 +20,7 @@ from negpy.services.assets.rolls import (
     scene_by_hash,
     scene_normalization,
     set_scene_normalization,
-    add_extra_member,
+    add_extra_members,
     all_rolls_sorted,
     create_virtual_roll,
     delete_roll,
@@ -98,27 +98,27 @@ def test_create_virtual_roll_stores_the_exact_member_list():
 def test_add_extra_member_extends_a_folder_rolls_extra_paths():
     repo = _repo()
     roll_id = recognize_folder(repo, "/scans/roll_a")
-    add_extra_member(repo, roll_id, "/elsewhere/c.nef")
+    add_extra_members(repo, roll_id, ["/elsewhere/c.nef"])
     assert roll_for_id(repo, roll_id)["extra_paths"] == ["/elsewhere/c.nef"]
 
 
 def test_add_extra_member_extends_a_virtual_rolls_member_paths():
     repo = _repo()
     roll_id = create_virtual_roll(repo, "Portra", ["/a.nef"])
-    add_extra_member(repo, roll_id, "/b.nef")
+    add_extra_members(repo, roll_id, ["/b.nef"])
     assert roll_for_id(repo, roll_id)["member_paths"] == ["/a.nef", "/b.nef"]
 
 
 def test_add_extra_member_does_not_duplicate():
     repo = _repo()
     roll_id = create_virtual_roll(repo, "Portra", ["/a.nef"])
-    add_extra_member(repo, roll_id, "/a.nef")
+    add_extra_members(repo, roll_id, ["/a.nef"])
     assert roll_for_id(repo, roll_id)["member_paths"] == ["/a.nef"]
 
 
 def test_add_extra_member_on_unknown_roll_is_a_noop():
     repo = _repo()
-    add_extra_member(repo, "not-a-real-id", "/a.nef")
+    add_extra_members(repo, "not-a-real-id", ["/a.nef"])
     assert saved_rolls(repo) == {}
 
 
@@ -296,7 +296,7 @@ def test_rolls_containing_path_finds_a_folder_roll_by_prefix(tmp_path):
 def test_rolls_containing_path_finds_a_folder_rolls_extra_member():
     repo = _repo()
     roll_id = recognize_folder(repo, "/scans/roll_a")
-    add_extra_member(repo, roll_id, "/elsewhere/c.nef")
+    add_extra_members(repo, roll_id, ["/elsewhere/c.nef"])
     assert rolls_containing_path(repo, "/elsewhere/c.nef") == [roll_id]
 
 
@@ -737,3 +737,14 @@ class TestBaselineLabel:
 
         assert resolve_roll_baseline(repo, roll_id, "h1", cfg).process.baseline_source == f"scene:{sid}"
         assert resolve_roll_baseline(repo, roll_id, "h2", cfg).process.baseline_source == f"roll:{roll_id}"
+
+
+def test_add_extra_members_writes_many_paths_once():
+    repo = _repo()
+    roll_id = create_virtual_roll(repo, "Portra", ["/a.nef"])
+    writes = []
+    real = repo.save_global_setting
+    repo.save_global_setting = lambda k, v: writes.append(k) or real(k, v)
+    add_extra_members(repo, roll_id, ["/b.nef", "/a.nef", "/c.nef", "/b.nef"])
+    assert roll_for_id(repo, roll_id)["member_paths"] == ["/a.nef", "/b.nef", "/c.nef"]
+    assert len(writes) == 1

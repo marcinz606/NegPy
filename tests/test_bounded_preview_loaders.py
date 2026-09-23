@@ -132,9 +132,9 @@ def test_small_non_libraw_loaders_allow_neighbor_prefetch(tmp_path):
         assert factory.estimate_linear_preview_prefetch_memory(path, 1600) is not None
 
 
-def test_large_non_cooperative_loader_does_not_allow_neighbor_prefetch():
+def test_large_loader_decode_is_estimated_and_left_to_the_ram_policy():
     factory = LoaderFactory()
 
     with patch.object(factory, "estimate_preview_memory") as estimate:
-        estimate.return_value.temporary_bytes = 256 * 1024 * 1024 + 1
-        assert factory.estimate_linear_preview_prefetch_memory("large.tif", 1600) is None
+        estimate.return_value.temporary_bytes = 4 * 1024 * 1024 * 1024
+        assert factory.estimate_linear_preview_prefetch_memory("large.tif", 1600) is estimate.return_value

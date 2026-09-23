@@ -17,11 +17,20 @@ class StorageRepository(IRepository):
     def __init__(self, edits_db_path: str, settings_db_path: str) -> None:
         self.edits_db_path = edits_db_path
         self.settings_db_path = settings_db_path
+        # Raw JSON per key, loaded on first read. This process is the only writer of
+        # global_settings, so write-through keeps it exact; values parse per read, so a
+        # caller that mutates its result cannot reach the cache.
+        self._global_json: Optional[dict[str, str]] = None
+        # History panel refreshes re-read every step; WorkspaceConfig is frozen, so a parse keyed
+        # by its JSON text is safe to share and needs no invalidation.
+        self._history_parse: dict[str, WorkspaceConfig] = {}
 
     @contextmanager
     def _connect(self, path: str):
         """Connection context manager that actually closes the connection (sqlite3's own doesn't)."""
         conn = sqlite3.connect(path)
+        # Under WAL, NORMAL cannot corrupt the database; a power loss can lose only the last commit.
+        conn.execute("PRAGMA synchronous=NORMAL")
         try:
             yield conn
             conn.commit()
@@ -348,7 +357,16 @@ class StorageRepository(IRepository):
                 "SELECT step_index, settings_json FROM edit_history WHERE file_hash = ? ORDER BY step_index",
                 (file_hash,),
             )
-            return [(int(idx), WorkspaceConfig.from_flat_dict(json.loads(js))) for idx, js in cursor.fetchall()]
+            rows = cursor.fetchall()
+        if len(self._history_parse) > 4 * len(rows) + 256:
+            self._history_parse.clear()
+        out = []
+        for idx, js in rows:
+            config = self._history_parse.get(js)
+            if config is None:
+                config = self._history_parse[js] = WorkspaceConfig.from_flat_dict(json.loads(js))
+            out.append((int(idx), config))
+        return out
 
     def get_max_history_index(self, file_hash: str) -> int:
         with self._connect(self.edits_db_path) as conn:
@@ -384,27 +402,22 @@ class StorageRepository(IRepository):
                 )
 
     def save_global_setting(self, key: str, value: Any) -> None:
-        with self._connect(self.settings_db_path) as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO global_settings (key, value_json) VALUES (?, ?)",
-                (key, json.dumps(value, default=str)),
-            )
+        self.save_global_settings({key: value})
 
     def save_global_settings(self, settings: dict[str, Any]) -> None:
         """Writes many global settings in one transaction (one connection, one commit)."""
+        rows = [(k, json.dumps(v, default=str)) for k, v in settings.items()]
         with self._connect(self.settings_db_path) as conn:
-            conn.executemany(
-                "INSERT OR REPLACE INTO global_settings (key, value_json) VALUES (?, ?)",
-                [(k, json.dumps(v, default=str)) for k, v in settings.items()],
-            )
+            conn.executemany("INSERT OR REPLACE INTO global_settings (key, value_json) VALUES (?, ?)", rows)
+        if self._global_json is not None:
+            self._global_json.update(rows)
 
     def get_global_setting(self, key: str, default: Any = None) -> Any:
-        with self._connect(self.settings_db_path) as conn:
-            cursor = conn.execute("SELECT value_json FROM global_settings WHERE key = ?", (key,))
-            row = cursor.fetchone()
-            if row:
-                return json.loads(row[0])
-        return default
+        if self._global_json is None:
+            with self._connect(self.settings_db_path) as conn:
+                self._global_json = dict(conn.execute("SELECT key, value_json FROM global_settings").fetchall())
+        raw = self._global_json.get(key)
+        return default if raw is None else json.loads(raw)
 
     def save_export_presets(self, presets: List[ExportPreset]) -> None:
         self.save_global_setting("export_presets", [p.to_dict() for p in presets])
@@ -521,3 +534,4 @@ class StorageRepository(IRepository):
         databases, so they survive — as with a fresh install."""
         self._wipe(self.edits_db_path, ["file_settings", "edit_history", "work_prints", "file_marks"])
         self._wipe(self.settings_db_path, ["global_settings"])
+        self._global_json = None

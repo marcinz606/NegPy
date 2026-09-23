@@ -107,7 +107,7 @@ class RollAnalysisSidebar(BaseSidebar):
         repo = self.controller.session.repo
         active_id = self.controller.state.active_roll_id
         listed = rolls.all_rolls_sorted(repo)
-        analyzed = {rid for rid, _entry in listed if rolls.roll_normalization(repo, rid)}
+        analyzed = {rid for rid, entry in listed if entry.get("normalization")}
         conf = self.state.config.process
         selected = active_id or ""
         if conf.roll_name:
