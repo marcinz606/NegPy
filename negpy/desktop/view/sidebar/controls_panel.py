@@ -270,9 +270,9 @@ class ControlsPanel(QWidget):
         optics_layout = QVBoxLayout(optics_body)
         optics_layout.setContentsMargins(0, 0, 0, 0)
         optics_layout.setSpacing(THEME.space_sm)
-        optics_layout.addWidget(section_subheader("LENS"))
+        optics_layout.addWidget(section_subheader("LENS CORRECTION"))
         optics_layout.addWidget(self.lens_sidebar)
-        optics_layout.addWidget(section_subheader("FLAT FIELD"))
+        optics_layout.addWidget(section_subheader("FLAT FIELD CORRECTION"))
         optics_layout.addWidget(self.flatfield_sidebar)
         self.optics_section = self._make_section(
             "Optics",

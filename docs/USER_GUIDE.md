@@ -811,19 +811,19 @@ A color sensor records one color per photosite; the demosaic algorithm fills in 
 
 The scanning optics: one lens correction and one light correction for every frame of the rig. One scope pair covers both.
 
-#### Lens
+#### Lens Correction
 
 *   **Distortion Correction** (-0.100 to 0.100, in steps of 0.001): positive corrects barrel, negative pincushion. Use the film rebate as a straight edge. Applied before Tilt and Swing.
 *   **Embedded Profile**, from lens data in the file (enabled when the file has it):
     *   **Distortion**: straightens curved lines, replacing manual distortion correction. Set it before cropping or retouching.
     *   **CA**: reduces color fringes. Works with or without **Distortion** and manual correction.
 
-#### Flat Field: even out the light
+#### Flat Field Correction: even out the light
 
 Corrects uneven illumination (vignetting, falloff) from a copy-stand or scanner light, using a shot of the bare light source.
 
 *   **Profile** dropdown, **+** and **trash**: **+** reads a reference image once and bakes it into a named profile in NegPy's `flatfield` folder, so the reference file can then be moved or deleted. **Trash** asks first: the gain map is lost, and every frame using it loses its correction.
-*   **Apply Flat Field**: apply the selected profile to this roll, enabled once a profile exists.
+*   **Apply Flat Field** (bulb toggle beside the dropdown): apply the selected profile to this roll, enabled once a profile exists.
 
 A newly chosen profile becomes the rig's default for the next roll.
 
