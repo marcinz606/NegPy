@@ -40,7 +40,7 @@ During a peek the canvas shows a **NEGATIVE**, **EMBEDDED** or **FLAT SCAN** bad
 
 | Tab | Icon | Panels | What it is for |
 |-----|------|--------|---------------|
-| **Roll** | film | Film Mode · Calibration · Crop · Roll Analysis · Metering · Raw Decode · Optics · Frame Assembly | Film type, capture color, crop shape, roll baselines, negative→positive metering, the scanning rig |
+| **Roll** | film | Film Mode · Frame Assembly · Calibration · Crop · Roll Analysis · Metering · Raw Decode · Optics | Film type, capture color, crop shape, roll baselines, negative→positive metering, the scanning rig |
 
 **Frame** tabs follow the pipeline order:
 
@@ -131,7 +131,7 @@ Right-click a roll for:
 
 *   **Rename…**: a folder roll also offers **Also rename the folder on disk** (unticked by default, asked each time). NegPy refuses with a warning if a sibling has that name or permission is missing. Inside a cloud-sync folder (Dropbox, iCloud, OneDrive), the sync can treat a rename as delete and re-upload.
 *   **Delete…**: forgets the roll record only; folder, images and edits stay. **Clear Library** in *Manage Database* forgets all rolls.
-*   **Roll Analysis** (**loaded** roll only): runs Roll Analysis on every frame outside a scene ([§10.4](#104-roll-analysis)) and stores it as the roll's baseline, for any frame's **Use Luma Average** / **Use Color Average**, in this roll or another.
+*   **Roll Analysis** (**loaded** roll only): runs Roll Analysis on every frame outside a scene ([§10.5](#105-roll-analysis)) and stores it as the roll's baseline, for any frame's **Use Luma Average** / **Use Color Average**, in this roll or another.
 
 #### Rolls that are not folders
 
@@ -152,7 +152,7 @@ The Film Strip button row:
 
 *   **Add** (import icon): **Add Files…** or **Add Folder…**. A folder with only subfolders points you to **Import Subfolders as Rolls…**. Dropping a folder on the window does the same as Add Folder.
 *   **Hot Folder**: loads new files as they appear in the current folder, for a scanner or tethering app. The "Working…" popup stays hidden; the status line reports each import.
-*   **Trichrome Mode** and **Half Frame Mode** are on the Roll tab's Frame Assembly card ([§10.8](#108-frame-assembly)).
+*   **Trichrome Mode** and **Half Frame Mode** are on the Roll tab's Frame Assembly card ([§10.2](#102-frame-assembly)).
 *   **Apply (clone)**: copies the current frame's settings, aspects chosen in a dialog, to selected frames or the whole roll. Crop and rotation stay per-image.
 *   **Roll Settings** (tag icon): tags gear, capture, place, process and scanning metadata for the frame, a selection or the whole roll (default when a roll is loaded). Fields start from the active frame; **Load** a metadata preset to fill and tick fields, then tick groups to write. With Gear empty, it matches the folder name against your Gear library, as at import, and never overwrites tagged gear.
 *   **Save as Roll…** (red folder icon): keeps the loaded frames as a roll. See [Rolls that are not folders](#rolls-that-are-not-folders).
@@ -359,7 +359,7 @@ Rows that measure the scan, not your edit; hover for details. The first three al
 
 **Crop:**
 
-*   **Auto**: detect the frame edge and crop to it. Its settings and the whole-roll run are on the Roll tab's **Crop** card ([§10.3](#103-crop)).
+*   **Auto**: detect the frame edge and crop to it. Its settings and the whole-roll run are on the Roll tab's **Crop** card ([§10.4](#104-crop)).
 *   **Ratio**: the roll's crop ratio, the same field as on the Crop card; the crop tool snaps to it.
 *   **Crop** tool: draw a crop rectangle. It opens on the current crop, including one **Auto** found; after a manual change nothing re-detects over it. **Reset** clears it and turns auto-crop off.
 *   **Guide**: *Thirds*, *Phi Grid*, *Diagonals*, *Golden Triangles*, *Golden Spiral*, *Armature*, *Diagonal Method*, *Grid* or *Off*. The redo button rotates guides with orientations (spiral 8, triangles 2).
@@ -374,7 +374,7 @@ Rows that measure the scan, not your edit; hover for details. The first three al
 
     Both leave a wedge along the squeezed edge: crop it or use **Crop by Default**. Crop first if you can: the meters read the corrected frame, and a large correction on an uncropped scan pulls the rebate in and darkens the print.
 
-Scanning-lens distortion, chromatic aberration and flat field are in **Optics** on the Roll tab ([§10.7](#107-optics)).
+Scanning-lens distortion, chromatic aberration and flat field are in **Optics** on the Roll tab ([§10.8](#108-optics)).
 
 ---
 
@@ -392,7 +392,7 @@ Color timing, like enlarger dichroic filters. **Global / Shadows / Highlights** 
 *   **Reset** (undo-arrow icon): set the region's temperature and CMY to neutral.
 *   **Temperature**: warm-to-cool lever on the magenta/yellow pair; cyan stays put.
 *   **Cyan / Magenta / Yellow** (-1 to 1): Cyan↔Red, Magenta↔Green, Yellow↔Blue.
-*   **Cast Removal** (0.0 to 1.0, **color only**): balances each layer against the frame's own grays so neutrals stay neutral from shadows to highlights; strength scales with how many clean near-neutrals the frame has. On Color Negative it removes the **orange mask** and starts at about 0.5. On Transparency it starts at 0 and corrects a faded slide's crossover (a slide's cast can be the photograph). For other slide color use **Temperature**, the CMY sliders or **Hue Trim** (§10.2). Hidden for B&W Negative.
+*   **Cast Removal** (0.0 to 1.0, **color only**): balances each layer against the frame's own grays so neutrals stay neutral from shadows to highlights; strength scales with how many clean near-neutrals the frame has. On Color Negative it removes the **orange mask** and starts at about 0.5. On Transparency it starts at 0 and corrects a faded slide's crossover (a slide's cast can be the photograph). For other slide color use **Temperature**, the CMY sliders or **Hue Trim** (§10.3). Hidden for B&W Negative.
 *   **Ring-around** (target icon, or `Shift+F`): a 5×5 mosaic in 2cc steps to ±4cc on magenta and yellow, centered on neutral, so rings compare across frames. Each patch renders the part of the frame it covers; click one to keep its filtration. `Escape` or a second press clears it; any edit drops it. See **Rotating a proof** below.
 
 <!-- panel:tone -->
@@ -410,7 +410,7 @@ Color timing, like enlarger dichroic filters. **Global / Shadows / Highlights** 
 
 **Rotating a proof**: each patch shows only the part of the frame under it. While a proof shows, the 90° **rotate** buttons and `[` / `]` turn the ladder, not the image, and the axis labels follow. The orientation stays for the session.
 
-**White Point** and **Black Point** are on the **Metering** card ([§10.5](#105-metering-negative--positive)).
+**White Point** and **Black Point** are on the **Metering** card ([§10.6](#106-metering-negative--positive)).
 
 **Exposure:**
 
@@ -652,10 +652,36 @@ The card's **Roll** button pushes this frame's value to the roll, and the frame 
 
 Always expanded and first, because it decides which cards apply: **Color** (C-41 color negative), **B&W** (panchromatic negative) or **Slide** (transparency/reversal, E-6 and similar). Each changes the conversion math and re-runs the pipeline. The wand button **auto-detects** the mode when a file loads.
 
-**Positive** (default off, shown on **Slide** only) is for a source that is already a positive (a scanned print, another app's export, a negative the scanner positivized), not a raw capture. NegPy decodes its embedded profile (sRGB if none) and skips metering, inversion, the exposure lift and the filmic roll-off, so the Print/tone controls in Metering (§10.5) shape the image directly and its bounds and clip controls hide. It applies only with Normalize off. Leaving Slide turns it off. It turns Auto Density/Auto Grade (§5.2) off if they were at their negative default and restores them when turned off; your own setting stays.
+**Positive** (default off, shown on **Slide** only) is for a source that is already a positive (a scanned print, another app's export, a negative the scanner positivized), not a raw capture. NegPy decodes its embedded profile (sRGB if none) and skips metering, inversion, the exposure lift and the filmic roll-off, so the Print/tone controls in Metering (§10.6) shape the image directly and its bounds and clip controls hide. It applies only with Normalize off. Leaving Slide turns it off. It turns Auto Density/Auto Grade (§5.2) off if they were at their negative default and restores them when turned off; your own setting stays.
+
+<!-- panel:assembly -->
+### 10.2 Frame Assembly
+
+How the files become frames. Neither toggle has a scope pair.
+
+#### Trichrome
+
+*   **Trichrome Mode** (three-exposure narrowband capture, also called trichromatic capture): assembles each frame from a red, green and blue exposure. Shots are grouped by the capture time in the files, so shoot each frame's three exposures back to back; filenames need no convention. With no capture time, filename order is used. Three shots are assembled only if they are one of each color *and* show the same frame; otherwise they stay separate for pairing by hand. An assembled frame has the three-dot badge (see [Triage](#triage-culling-the-roll)).
+*   **Edit Triplet…**: the film strip's right-click **Edit RGB Triplet…** dialog, for the current frame. Its **Align channels (sub-pixel)** registers green and blue to red, which removes color fringing from capture drift.
+
+The line under the buttons names the two exposures the frame is assembled from. The toggle is one rig-wide flag, so it has no scope pair and applies to every roll.
+
+#### Half Frame
+
+**Half Frame Mode** splits each scan into two frames, for half-frame cameras. Each half is edited and metered separately and badged. Turning it on auto-detects the gutter and the outer film crop on every loaded scan, cropping into the rebate where one shows; a side with no visible or confidently readable rebate stays uncropped. Each roll remembers its own state. It is disabled for a batch that is not one roll (a library-wide search, a restored session with no shared roll).
+
+*   **Adjust…**: a rectangle editor for the current scan. Drag the green box to crop, drag the orange line to set the split, and set **Cut thickness** to discard the black separator band centered on the split. **Auto-detect** re-finds crop and gutter on this scan. **Apply** is a split button: its ▾ picks *Apply to current frame*, *Apply to selected frames* or *Apply to all frames* (the roll default for frames without an override), remembered for next time.
+*   **Detect All**: re-runs the batch detection.
+*   **Unsplit** (enabled on a split frame): reverts it, as does its right-click item.
+
+Right-click a half-frame asset for **Adjust Split for This Frame…** (defaulted to *Apply to current frame*) and, with an override, **Reset Split to Roll Default**. Heal strokes, dust spots, scratch lines and dodge/burn masks move with a recrop or resplit, anchored to the film.
+
+Turning Half Frame off keeps each edited half. A scan with edited halves becomes a **diptych**: both halves rendered with their own edits, side by side at the original spacing, with the cut band as a black gap. If only one half was edited, its edit is used for both. A scan whose halves hold edits from another folder or an earlier session stays one plain frame. A diptych has the both-sides-filled split badge, exports as `<name>-DIPTYCH`, and has its controls panel disabled; turn Half Frame on to edit a half. Its filmstrip thumbnail and contact-sheet tile show the whole scan. A long-edge export size applies to each half, so a diptych is about twice that wide. **Unsplit** makes it one plain frame and deletes both halves' edits.
+
+Half Frame never splits a frame assembled from several files (a Trichrome triplet, a stitch, an HDR merge).
 
 <!-- panel:sensor -->
-### 10.2 Calibration: what your rig does to the colors
+### 10.3 Calibration: what your rig does to the colors
 
 These controls correct the *capture*, not the look: the camera's color filters, the film's dyes and the light source each have their own control, and none replaces another.
 
@@ -703,7 +729,7 @@ Grayed out unless **Linear RAW** is on (profiles assume neutral white balance) a
 **Narrowband and Single-Shot Narrowband Calibration do not apply to Transparency**, with or without Normalize. They stay visible and grayed, keep their values, and return on a negative. The bundled profile describes negative dyes, and a narrowband light cannot be calibrated against a slide render. For slides on a narrowband rig, use **Hue Trim** to correct the light's hue rotation.
 
 <!-- panel:autocrop -->
-### 10.3 Crop
+### 10.4 Crop
 
 The shape every frame is cut to and what the frame detector looks for, roll-wide. Each frame's rectangle is its own, drawn or found in **Geometry** ([§4.1](#41-geometry-crop-and-straighten)).
 
@@ -723,7 +749,7 @@ The shape every frame is cut to and what the frame detector looks for, roll-wide
 A change re-detects every following frame cropped by **Auto**. Hand-drawn crops are kept, except that **Ratio** reshapes them around their center.
 
 <!-- panel:baseline -->
-### 10.4 Roll Analysis
+### 10.5 Roll Analysis
 
 Meter the roll once and share the result, so frames of one film match. **Use Luma Average** and **Use Color Average** are this card's roll defaults.
 
@@ -736,9 +762,9 @@ Meter the roll once and share the result, so frames of one film match. **Use Lum
 *   **Scenes**: lists the loaded roll's [scenes](#scenes) with number, color, frame count and a tick once analyzed. **Analyze** runs Scene Analysis (Reanalyze over the scene's frames only, saved on the scene). **Select** selects its frames in the Film Strip. **Delete** (trash) forgets it after asking. Roll Analysis and a picked roll baseline skip scene frames.
 
 <!-- panel:process -->
-### 10.5 Metering: negative → positive
+### 10.6 Metering: negative → positive
 
-How this frame is measured into a positive's tonal bounds. The film mode is in §10.1, the capture corrections in **Calibration** (§10.2), where the bounds come from in **Roll Analysis** (§10.4). The whole card follows the scope pair ([§10](#10-roll-tab)).
+How this frame is measured into a positive's tonal bounds. The film mode is in §10.1, the capture corrections in **Calibration** (§10.3), where the bounds come from in **Roll Analysis** (§10.5). The whole card follows the scope pair ([§10](#10-roll-tab)).
 
 **Normalize** (Transparency only):
 
@@ -772,7 +798,7 @@ How this frame is measured into a positive's tonal bounds. The film mode is in �
 **White / Black Point** (-0.25 to 0.25), with a **Global** / **R** / **G** / **B** selector: offsets on the detected bounds. Positive white point brightens; positive black point lifts blacks. In R/G/B they are per-layer Dmin and Dmax trims, a fact of the film stock, so they are roll defaults like the rest of the card. On the Transparency transfer path (Normalize off) they offset its fixed window; elsewhere **Lock Bounds** disables them.
 
 <!-- panel:demosaic -->
-### 10.6 Raw Decode: turning the sensor mosaic into pixels
+### 10.7 Raw Decode: turning the sensor mosaic into pixels
 
 A color sensor records one color per photosite; the demosaic algorithm fills in the other two, which affects sharpness and grain. Bayer and X-Trans RAW only (a scanner TIFF, a Pakon scan or a linear DNG is already de-mosaiced), and only algorithms in your LibRaw build are listed.
 
@@ -781,7 +807,7 @@ A color sensor records one color per photosite; the demosaic algorithm fills in 
 **Highlight Recovery** (Transparency only, default **Off**): recovers a clipped highlight on a camera RAW. **Off** leaves it flat, or magenta if one channel clipped first. **Blend** recovers a plausible neutral from the unclipped channels, right for sun, sky, chrome or glass. **Reconstruct** is libraw's more aggressive level and can misjudge a saturated-color highlight. Greyed out on a scanner TIFF, JPEG or other rendered file and on a merged bracket (the merge recovers highlights itself), hidden outside Transparency, inert under Narrowband.
 
 <!-- panel:optics -->
-### 10.7 Optics
+### 10.8 Optics
 
 The scanning optics: one lens correction and one light correction for every frame of the rig. One scope pair covers both.
 
@@ -800,32 +826,6 @@ Corrects uneven illumination (vignetting, falloff) from a copy-stand or scanner 
 *   **Apply Flat Field**: apply the selected profile to this roll, enabled once a profile exists.
 
 A newly chosen profile becomes the rig's default for the next roll.
-
-<!-- panel:assembly -->
-### 10.8 Frame Assembly
-
-How the files become frames. Neither toggle has a scope pair.
-
-#### Trichrome
-
-*   **Trichrome Mode** (three-exposure narrowband capture, also called trichromatic capture): assembles each frame from a red, green and blue exposure. Shots are grouped by the capture time in the files, so shoot each frame's three exposures back to back; filenames need no convention. With no capture time, filename order is used. Three shots are assembled only if they are one of each color *and* show the same frame; otherwise they stay separate for pairing by hand. An assembled frame has the three-dot badge (see [Triage](#triage-culling-the-roll)).
-*   **Edit Triplet…**: the film strip's right-click **Edit RGB Triplet…** dialog, for the current frame. Its **Align channels (sub-pixel)** registers green and blue to red, which removes color fringing from capture drift.
-
-The line under the buttons names the two exposures the frame is assembled from. The toggle is one rig-wide flag, so it has no scope pair and applies to every roll.
-
-#### Half Frame
-
-**Half Frame Mode** splits each scan into two frames, for half-frame cameras. Each half is edited and metered separately and badged. Turning it on auto-detects the gutter and the outer film crop on every loaded scan, cropping into the rebate where one shows; a side with no visible or confidently readable rebate stays uncropped. Each roll remembers its own state. It is disabled for a batch that is not one roll (a library-wide search, a restored session with no shared roll).
-
-*   **Adjust…**: a rectangle editor for the current scan. Drag the green box to crop, drag the orange line to set the split, and set **Cut thickness** to discard the black separator band centered on the split. **Auto-detect** re-finds crop and gutter on this scan. **Apply** is a split button: its ▾ picks *Apply to current frame*, *Apply to selected frames* or *Apply to all frames* (the roll default for frames without an override), remembered for next time.
-*   **Detect All**: re-runs the batch detection.
-*   **Unsplit** (enabled on a split frame): reverts it, as does its right-click item.
-
-Right-click a half-frame asset for **Adjust Split for This Frame…** (defaulted to *Apply to current frame*) and, with an override, **Reset Split to Roll Default**. Heal strokes, dust spots, scratch lines and dodge/burn masks move with a recrop or resplit, anchored to the film.
-
-Turning Half Frame off keeps each edited half. A scan with edited halves becomes a **diptych**: both halves rendered with their own edits, side by side at the original spacing, with the cut band as a black gap. If only one half was edited, its edit is used for both. A scan whose halves hold edits from another folder or an earlier session stays one plain frame. A diptych has the both-sides-filled split badge, exports as `<name>-DIPTYCH`, and has its controls panel disabled; turn Half Frame on to edit a half. Its filmstrip thumbnail and contact-sheet tile show the whole scan. A long-edge export size applies to each half, so a diptych is about twice that wide. **Unsplit** makes it one plain frame and deletes both halves' edits.
-
-Half Frame never splits a frame assembled from several files (a Trichrome triplet, a stitch, an HDR merge).
 
 ---
 
@@ -925,7 +925,7 @@ A searchable gear library used by Metadata (§11), Roll Settings and every gear 
 *   **Linear**: skip the pipeline and write the decoded buffer as linear 16-bit, with only rotation and flip applied (no normalization, exposure, color management, flatfield or sensor correction). **TIFF** (default, zlib, untagged) or **JPEG XL** (lossless). JPEG XL always tags sRGB primaries and a linear transfer, which is wrong for native primaries; use TIFF when that matters. **Effort** (1 to 9, default 7) sets JPEG XL speed against size.
     *   **Pakon RAW**: 4× expansion by default; F335 files (16-bit sensor) none.
     *   **LinearRaw DNG**: SilverFast HDRi (3-channel) and VueScan (4-channel RGB+IR). IR goes to a separate grayscale `_ir` file in the same Format.
-    *   **Camera RAW**: demosaiced at unity white balance (1,1,1,1) with the Export algorithm from the Raw Decode card (§10.6). As-shot WB goes to XMP (`RAW-WB: R G B`). Trichrome triplets merge into one TIFF. Stitch composites (and stitch plus triplet) get flatfield and sensor correction per part for clean seams.
+    *   **Camera RAW**: demosaiced at unity white balance (1,1,1,1) with the Export algorithm from the Raw Decode card (§10.7). As-shot WB goes to XMP (`RAW-WB: R G B`). Trichrome triplets merge into one TIFF. Stitch composites (and stitch plus triplet) get flatfield and sensor correction per part for clean seams.
     *   **Coolscan NEF**: not raw sensor data; the content depends on the Nikon Scan settings at scan time. Reads the full-res RGB SubIFD and drops extra channels. No expansion.
     *   **Flextight FFF**: uncompressed 16-bit RGB and SGI LogLuv raw (`.3fr`/`.fff`). LogLuv is HDR and decodes through LogLuv → XYZ → linear sRGB with per-channel percentile normalization. The largest image IFD is used. FlexColor metadata (tags 50457 and 46279) goes into the TIFF headers. No expansion.
     *   **Noritsu RAW**: headerless BGR 16-bit dumps; size detected from file size. 16× expansion by default.

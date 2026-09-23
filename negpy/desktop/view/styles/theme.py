@@ -126,12 +126,14 @@ class ThemeConfig:
     sidebar_expanded_defaults: Dict[str, bool] = field(
         default_factory=lambda: {
             "analysis": True,
+            "baseline": True,
             "process": True,
             "color": True,
             "tone": True,
             "geometry": True,
             "autocrop": True,
-            "lens": False,
+            "optics": False,
+            "assembly": False,
             "lab": True,
             "retouch": True,
         }
