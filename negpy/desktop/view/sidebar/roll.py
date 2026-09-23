@@ -43,16 +43,15 @@ class RollAnalysisSidebar(BaseSidebar):
     """
 
     def _init_ui(self) -> None:
-        self.layout.addWidget(section_subheader("ROLL BASELINE"))
+        self.layout.addWidget(section_subheader("ROLLS"))
         self.roll_combo = SearchableGearCombo(placeholder="Search rolls…")
         self.roll_combo.setToolTip(wrap_tooltip("Picking a roll loads its saved baseline onto the loaded files."))
-        self.layout.addWidget(self.roll_combo)
-
+        self.reanalyze_btn = self._icon_action("fa5s.tachometer-alt", BATCH_ANALYSIS_TOOLTIP)
+        self.from_frame_btn = self._icon_action("fa5s.crosshairs", FROM_FRAME_TOOLTIP)
         row = QHBoxLayout()
-        self.reanalyze_btn = self._labeled_action("fa5s.tachometer-alt", " Reanalyze", BATCH_ANALYSIS_TOOLTIP)
-        self.from_frame_btn = self._labeled_action("fa5s.crosshairs", " Use This Frame", FROM_FRAME_TOOLTIP)
-        for btn in (self.reanalyze_btn, self.from_frame_btn):
-            row.addWidget(btn, 1)
+        row.addWidget(self.roll_combo, 1)
+        row.addWidget(self.reanalyze_btn)
+        row.addWidget(self.from_frame_btn)
         self.layout.addLayout(row)
 
         self.roll_status_hint = hint_label("", "muted")

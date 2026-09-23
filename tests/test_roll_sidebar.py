@@ -46,7 +46,7 @@ def test_picker_owns_its_batch_analysis_subheader(qapp):
     Point) isn't Roll Analysis, and labeling it that way would mislead."""
     _, sidebar, _ids = _sidebar()
     assert sidebar.layout.itemAt(0).widget() is not sidebar.roll_combo
-    assert sidebar.layout.itemAt(1).widget() is sidebar.roll_combo
+    assert sidebar.layout.itemAt(1).layout().itemAt(0).widget() is sidebar.roll_combo
 
 
 def test_picker_defaults_to_the_active_roll_and_lists_every_library_roll(qapp):
@@ -98,12 +98,14 @@ def test_use_this_frame_is_gated_the_same_way_reanalyze_is(qapp):
     assert "Open this roll first" in sidebar.from_frame_btn.toolTip()
 
 
-def test_the_baseline_buttons_share_one_row_under_the_picker(qapp):
+def test_the_baseline_buttons_sit_right_of_the_picker(qapp):
+    """The same shape as a scene row: the field, then its icon actions."""
     _, sidebar, _ids = _sidebar()
 
-    button_row = sidebar.layout.itemAt(2).layout()
-    widgets = [button_row.itemAt(i).widget() for i in range(button_row.count())]
-    assert widgets == [sidebar.reanalyze_btn, sidebar.from_frame_btn]
+    row = sidebar.layout.itemAt(1).layout()
+    widgets = [row.itemAt(i).widget() for i in range(row.count())]
+    assert widgets == [sidebar.roll_combo, sidebar.reanalyze_btn, sidebar.from_frame_btn]
+    assert sidebar.layout.itemAt(0).widget().text() == "ROLLS"
 
 
 def test_the_baseline_bar_lands_under_the_status_hint_above_the_scenes(qapp):
@@ -119,10 +121,12 @@ def test_the_baseline_bar_lands_under_the_status_hint_above_the_scenes(qapp):
     assert at < sidebar.layout.indexOf(sidebar.scenes_header)
 
 
-def test_the_baseline_buttons_carry_their_names(qapp):
-    _, sidebar, _ids = _sidebar()
-    assert sidebar.reanalyze_btn.text().strip() == "Reanalyze"
-    assert sidebar.from_frame_btn.text().strip() == "Use This Frame"
+def test_the_baseline_icon_buttons_name_themselves_in_the_tooltip(qapp):
+    _, sidebar, ids = _sidebar(roll_names=["Portra 400"], active_name="Portra 400")
+    sidebar._on_roll_picked(ids["Portra 400"])
+    assert sidebar.reanalyze_btn.text() == ""
+    assert "Roll Analysis" in sidebar.reanalyze_btn.toolTip()
+    assert "Use This Frame" in sidebar.from_frame_btn.toolTip()
 
 
 def test_the_loaded_roll_is_pinned_first_in_the_dropdown(qapp):
