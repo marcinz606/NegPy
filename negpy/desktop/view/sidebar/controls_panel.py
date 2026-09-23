@@ -321,7 +321,7 @@ class ControlsPanel(QWidget):
             "Roll Analysis",
             "baseline",
             baseline_body,
-            icon_name="fa5s.tachometer-alt",
+            icon_name="mdi6.filmstrip",
         )
 
         # How this frame measures its own bounds, and what nudges the result. The persisted
@@ -336,7 +336,7 @@ class ControlsPanel(QWidget):
             "Metering",
             "process",
             metering_body,
-            icon_name="fa5s.cogs",
+            icon_name="fa5s.tachometer-alt",
         )
 
         self.sensor_sidebar = SensorSidebar(self.controller)
