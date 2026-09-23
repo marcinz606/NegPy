@@ -1122,14 +1122,14 @@ class TestDesktopSessionSync(unittest.TestCase):
 
         self.session.reset_roll(self.session.state.uploaded_files)
 
-        self.assertEqual(self.session.state.config, self.session._reset_defaults(self.session.state.uploaded_files[0]))
+        self.assertEqual(self.session.state.config, self.session._reset_frame(self.session.state.uploaded_files[0]))
 
     def test_reset_roll_writes_other_frames_straight_to_the_db(self):
         self.session.select_file(0)  # hash1 active; hash2 is the "other" frame
 
         self.session.reset_roll(self.session.state.uploaded_files)
 
-        expected = self.session._reset_defaults(self.session.state.uploaded_files[1])
+        expected = self.session._reset_frame(self.session.state.uploaded_files[1])
         self.mock_repo.save_file_settings.assert_any_call("hash2", expected, file_path="path2")
         # Recorded as an external history step, undoable after switching to it.
         steps = [c.args for c in self.mock_repo.save_history_step.call_args_list if c.args[0] == "hash2"]
@@ -2014,6 +2014,37 @@ class ResetKeepsScanSetup(unittest.TestCase):
         self.session.reset_roll(self.session.state.uploaded_files)
 
         self.assertEqual(self.repo.load_file_settings("hash2"), via_settings)
+
+    def _locked_roll(self) -> str:
+        """The reported roll: Narrowband on for the roll, a frame locked to its own off."""
+        from negpy.services.assets import rolls
+
+        roll_id = rolls.create_virtual_roll(self.repo, "Pakon", [f["path"] for f in self.session.state.uploaded_files])
+        rolls.set_roll_defaults(self.repo, roll_id, narrowband_scan=True)
+        for h in ("hash1", "hash2"):
+            rolls.set_frame_override(self.repo, roll_id, h, "sensor", locked=True)
+        self.repo.save_global_settings({"last_narrowband_scan": False})
+        self.session.state.active_roll_id = roll_id
+        return roll_id
+
+    def test_a_reset_in_a_roll_releases_the_frames_locks(self):
+        from negpy.services.assets import rolls
+
+        roll_id = self._locked_roll()
+
+        self.session.reset_roll_settings(scope="roll")
+
+        for h in ("hash1", "hash2"):
+            self.assertEqual(rolls.frame_override_cards(self.repo, roll_id, h), set())
+        asset = self.session.state.uploaded_files[1]
+        self.assertTrue(self.session.config_for_asset(asset).process.narrowband_scan)
+
+    def test_a_reset_in_a_roll_shows_the_roll_values_at_once(self):
+        self._locked_roll()
+
+        self.session.reset_settings()
+
+        self.assertTrue(self.session.state.config.process.narrowband_scan)
 
     def test_a_white_light_scan_setup_resets_to_off(self):
         self.repo.save_global_settings({"last_linear_raw": False, "last_narrowband_scan": False})

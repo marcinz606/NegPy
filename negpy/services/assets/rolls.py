@@ -363,6 +363,17 @@ def frame_override_cards(repo: Any, roll_id: str, file_hash: str) -> set:
     return set(entry.get("frame_overrides", {}).get(file_hash, ()))
 
 
+def clear_frame_overrides(repo: Any, roll_id: str, file_hash: str) -> None:
+    """Unlock every card for one frame within one roll, so it follows the roll's
+    defaults again. No-op for an unknown roll id or a frame with nothing locked."""
+    store = _read(repo)
+    entry = store.get(roll_id)
+    if entry is None or file_hash not in entry.get("frame_overrides", {}):
+        return
+    entry["frame_overrides"] = {h: cards for h, cards in entry["frame_overrides"].items() if h != file_hash}
+    _write(repo, store)
+
+
 def set_frame_override(repo: Any, roll_id: str, file_hash: str, card_key: str, locked: bool) -> None:
     """Lock (locked=True) or unlock (False) one card for one frame within one roll.
     Locking freezes that card at the frame's current (usually roll-default) value;

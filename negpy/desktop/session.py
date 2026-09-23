@@ -1411,7 +1411,7 @@ class DesktopSessionManager(QObject):
             if not (0 <= idx < len(self.state.uploaded_files)):
                 continue
             asset = self.state.uploaded_files[idx]
-            defaults = self._reset_defaults(asset)
+            defaults = self._reset_frame(asset)
             if idx == self.state.selected_file_idx:
                 self.update_config(defaults, persist=True, render=False)
             else:
@@ -1678,10 +1678,15 @@ class DesktopSessionManager(QObject):
         self.state_changed.emit()
         self.history_changed.emit()
 
-    def _reset_defaults(self, asset: dict) -> WorkspaceConfig:
-        """What a reset writes for *asset*: DEFAULT_WORKSPACE_CONFIG, the scan-setup
-        preferences, then what the asset itself is."""
-        return self._mode_aware_reset_defaults(self._asset_defaults(self._with_scan_setup(DEFAULT_WORKSPACE_CONFIG), asset))
+    def _reset_frame(self, asset: dict) -> WorkspaceConfig:
+        """Unlock *asset*'s roll cards and return what a reset writes: what a fresh frame
+        in its roll gets, less the sticky look. DEFAULT_WORKSPACE_CONFIG, the scan-setup
+        preferences, the roll's defaults, then what the asset itself is."""
+        roll_id = self.state.active_roll_id or self._roll_id_for_orphan_asset(asset)
+        if roll_id is not None:
+            rolls.clear_frame_overrides(self.repo, roll_id, unforked_hash(asset["hash"]))
+        config = self._overlay_roll_defaults(self._with_scan_setup(DEFAULT_WORKSPACE_CONFIG), asset)
+        return self._mode_aware_reset_defaults(self._asset_defaults(config, asset))
 
     @staticmethod
     def _mode_aware_reset_defaults(config: WorkspaceConfig) -> WorkspaceConfig:
@@ -1691,14 +1696,14 @@ class DesktopSessionManager(QObject):
         return replace(config, exposure=mode_aware_exposure_reset(config.process.process_mode, config.exposure))
 
     def reset_settings(self) -> None:
-        """Revert the current file to `_reset_defaults`, as an ordinary undoable history step.
+        """Revert the current file to `_reset_frame`, as an ordinary undoable history step.
 
         A reset clears the sticky look. It keeps the scan-setup preferences, which describe
         the rig, and what the asset is: a composite's film process, a merge's seeded shadow
         lift and the triplet/stitch/bracket wiring."""
         idx = self.state.selected_file_idx
         asset = self.state.uploaded_files[idx] if 0 <= idx < len(self.state.uploaded_files) else {}
-        self.update_config(self._reset_defaults(asset), persist=True)
+        self.update_config(self._reset_frame(asset), persist=True)
 
     def reset_roll(self, assets: List[Dict]) -> None:
         """`reset_settings`, applied to every one of *assets* at once. Each frame's reset
@@ -1708,7 +1713,7 @@ class DesktopSessionManager(QObject):
         """
         changed_hashes: list[str] = []
         for f_info in assets:
-            new_p = self._reset_defaults(f_info)
+            new_p = self._reset_frame(f_info)
             if f_info["hash"] == self.state.current_file_hash:
                 self.update_config(new_p, persist=True)
                 continue
