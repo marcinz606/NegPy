@@ -415,8 +415,9 @@ class ControlsPanel(QWidget):
         )
 
         # Group the sections into workflow pages (each becomes an icon tab in RightPanel). Calibration,
-        # Demosaic, Roll Analysis, Normalization and Presets are roll-wide facts, not per-frame edits --
-        # RightPanel builds them into its own top-level Roll tab instead of a page here.
+        # Demosaic, Roll Analysis and Normalization are roll-wide facts, not per-frame edits --
+        # RightPanel builds them into its own top-level Roll tab instead of a page here, and
+        # places Presets on its Favorites tab.
         groups = [
             (
                 "geometry",

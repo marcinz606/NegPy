@@ -40,7 +40,7 @@ During a peek the canvas shows a **NEGATIVE**, **EMBEDDED** or **FLAT SCAN** bad
 
 | Tab | Icon | Panels | What it is for |
 |-----|------|--------|---------------|
-| **Roll** | film | Calibration · Demosaic · Normalization · Presets | Film type, capture color, negative→positive normalization, roll baselines |
+| **Roll** | film | Calibration · Demosaic · Normalization | Film type, capture color, negative→positive normalization, roll baselines |
 
 **Frame** tabs follow the pipeline order:
 
@@ -50,7 +50,7 @@ During a peek the canvas shows a **NEGATIVE**, **EMBEDDED** or **FLAT SCAN** bad
 | **Exposure** | sun | Filtration · Tone · Dodge & Burn | White balance, density, contrast, curve, local burns |
 | **Color** | palette | Lab · Alternative Processes · Toning | Chroma, sharpening, lith, cyanotype, toning |
 | **Finish** | brush | Retouch · Finishing | Dust, vignette, border, carrier |
-| **Favorites** | star | Your chosen sliders | Most-used controls |
+| **Favorites** | star | Your chosen sliders · Presets | Most-used controls, saved edits |
 | **History** | clock | Work prints · Edit history | Named versions, undo trail |
 
 Tabs that do not change the render:
@@ -606,6 +606,15 @@ The sliders you use most, in one place. Empty until you fill it.
 *   They are the same controls as in their home panels, so a change here is a change there. A favorite hides when its original does (a Filtration slider in black & white).
 *   Your selection is remembered between sessions.
 
+<!-- panel:presets -->
+### Presets
+
+A collapsible card below your favorites. It saves and recalls edit settings by name.
+
+*   **Apply** (or double-click a preset): apply the selected preset to the current image.
+*   **Save…**: pick which of the current settings to store as a new preset.
+*   **Pen** and **Trash**: edit or delete the selected preset.
+
 ---
 
 ## 9. History tab
@@ -809,15 +818,6 @@ Corrects uneven illumination (vignetting, falloff) from a copy-stand or scanner 
 
 A newly chosen profile becomes the rig's default for the next roll.
 
-<!-- panel:presets -->
-### 10.10 Presets
-
-Save and recall a complete edit, the full workspace, by name.
-
-*   **Preset dropdown** + **Load**: apply a saved preset to the current image.
-*   **Name field** + **Save**: store the current settings as a new preset.
-*   **Trash**: delete the selected preset.
-
 ---
 
 ## 11. Metadata tab
@@ -829,7 +829,7 @@ Metadata for the original analog capture (camera, lens, film, process). NegPy wr
 <!-- panel:metadata_presets -->
 ### Metadata Presets
 
-Saved sets of metadata values in `~/NegPy/presets/metadata/`, separate from the Roll tab's edit presets. You manage them on the **Gear** tab (§12).
+Saved sets of metadata values in `~/NegPy/presets/metadata/`, separate from the Favorites tab's edit presets. You manage them on the **Gear** tab (§12).
 
 *   **Preset** + **Load**: write the preset's fields onto this frame. Other fields stay. Hover to see what a preset holds.
 

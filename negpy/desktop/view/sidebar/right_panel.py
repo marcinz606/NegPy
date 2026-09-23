@@ -189,6 +189,14 @@ class RightPanel(QWidget):
         self.favourites_sidebar = FavouritesSidebar(self.controller, self.controls_panel)
         self.history_panel = HistoryPanel(self.controller)
 
+        favourites_page = QWidget()
+        favourites_layout = QVBoxLayout(favourites_page)
+        favourites_layout.setContentsMargins(0, 0, 0, 0)
+        favourites_layout.setSpacing(THEME.space_lg)
+        favourites_layout.addWidget(self.favourites_sidebar)
+        favourites_layout.addWidget(self.controls_panel.presets_section)
+        favourites_layout.addStretch(1)
+
         # Tab descriptors: the workflow control-group pages, then Favorites and History.
         # (key, icon_name, tooltip, content_widget, [section_attrs])
         tab_specs = [
@@ -196,7 +204,7 @@ class RightPanel(QWidget):
         ]
         self._frame_tab_headers = {page["key"]: page["header"] for page in self.controls_panel.pages if page["header"]}
         tab_specs += [
-            ("favourites", "fa5s.star", "Favorites", self.favourites_sidebar, []),
+            ("favourites", "fa5s.star", "Favorites", favourites_page, ["presets_section"]),
             ("history", "fa5s.history", "History", self.history_panel, []),
         ]
 
@@ -279,9 +287,9 @@ class RightPanel(QWidget):
     def _build_roll_page(self) -> QWidget:
         """Facts the whole roll shares, not one frame's own edit: what film it is (Film
         Mode), how its files become frames (Trichrome, Half Frame), what rig scanned it
-        and how (Calibration, Demosaic, Auto Crop, Lens Correction, Flat Field), its
-        shared exposure baseline (Normalization) and reusable presets. Film Mode leads,
-        since it decides which of the others even apply."""
+        and how (Calibration, Demosaic, Auto Crop, Lens Correction, Flat Field) and its
+        shared exposure baseline (Normalization). Film Mode leads, since it decides which
+        of the others even apply."""
         cp = self.controls_panel
         page = QWidget()
         page_layout = QVBoxLayout(page)
@@ -315,7 +323,6 @@ class RightPanel(QWidget):
             cp.autocrop_section,
             cp.lens_section,
             cp.flatfield_section,
-            cp.presets_section,
         ):
             page_layout.addWidget(section)
         page_layout.addStretch(1)
