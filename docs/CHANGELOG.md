@@ -3,14 +3,14 @@
 ## 0.60.0
 
 - New: **Rolls and the Roll tab** — the Library is a list of rolls: folder rolls, color-coded, and virtual rolls built from any frames. A photo in more than one roll can get its own edit per roll. The Roll tab holds roll-wide defaults for Film Mode, Frame Assembly (Trichrome, Half Frame with per-roll auto-detect), Calibration, Crop, Raw Decode, Optics, Roll Analysis, Metering and Metadata. Every card header has a Frame/Roll switch, and a frame you change is locked on that card until Apply pushes it back. Presets move to Favorites, and the export destination defaults to a subfolder of the roll. @PabloRuizCuevas
-- New: **Scenes** — group frames of a roll into a scene with its own normalization baseline; Batch Analysis is now Roll Analysis. Baselines compare whole frames, and a frame far from the rest keeps its own bounds. Use Average: Cast pools the Cast Removal gray balance per roll or scene.
+- New: **Scenes** — group frames of a roll into a scene with its own normalization baseline; Batch Analysis is now Roll Analysis. Baselines compare whole frames, and a frame far from the rest keeps its own bounds.
+- New: **Roll-wide Cast Removal** — Roll and Scene Analysis also measure each frame's gray balance. With Use Average: Cast on, the frames of a roll or scene share its color curve, and each frame keeps its own midtone level. Color Negative only. Cast Removal defaults to 1.0 on Color Negative; existing edits keep their saved strength.
 - New: **Roll Settings… and Search by meaning** — tag gear and capture metadata across a frame, a selection or a roll, with camera, film stock, ISO and date suggested from the folder name. Search is an opt-in CLIP search across a roll or the whole library. @PabloRuizCuevas
 - New: **Embedded lens correction for Sony ARW and DNG** — separate Distortion and CA toggles from the file's own metadata. @hsnilsson
 - New: **Exclude areas from Optical Removal** — right-drag paints a band the detector leaves alone. @s6stkurz
 - New: **More controls on Slide** — highlight reconstruction (Off / Blend / Reconstruct), Dye Separation and Separation Damping without Normalize, and White/Black Point on the transfer path. @thetalkingdrum
 - New: **Batch edits across the Film Strip** — rotate and flip turn every selected frame, Reset Roll to Defaults… undoes a setting pushed to the whole roll, and thumbnails of edited frames refresh in the background (plus a manual Update Thumbnails). @thetalkingdrum
 - New: **Master switch for carrying settings to a new frame.** @PabloRuizCuevas
-- Change: **Cast Removal defaults to 1.0 on Color Negative** — existing edits keep their saved strength.
 - Change: **Positive is a Slide-only setting** and applies to the whole roll; Auto Density and Auto Grade work on it. @PabloRuizCuevas
 - Change: **Faster, lighter navigation** — Film Strip previews stream in the background with bounded memory, and neighbor prefetch works again on scan TIFFs and camera RAWs. @hsnilsson
 - Change: **User Guide and Pipeline docs rewritten** — shorter and plainer, including the in-app ⓘ guides.
