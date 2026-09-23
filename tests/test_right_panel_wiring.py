@@ -130,9 +130,9 @@ def test_reveal_section_switches_to_roll_for_a_roll_section():
 
 
 def test_reveal_section_switches_to_roll_for_the_geometry_and_flat_field_cards():
-    """Auto Crop, Lens Correction, Flat Field, Trichrome and Half Frame are Roll-tab
-    cards, so the ⓘ and the search must not look for them among Frame's sub-tabs."""
-    for attr in ("autocrop_section", "lens_section", "flatfield_section", "trichrome_section", "half_frame_section"):
+    """Crop, Lens Correction, Flat Field and Frame Assembly are Roll-tab cards, so the ⓘ
+    and the search must not look for them among Frame's sub-tabs."""
+    for attr in ("autocrop_section", "lens_section", "flatfield_section", "assembly_section"):
         panel = _group_panel_stub()
         panel._section_tab_index = {}
 

@@ -283,20 +283,20 @@ class ControlsPanel(QWidget):
             icon_name="mdi6.film",
             collapsible=False,
         )
-        # How the files become frames, which is upstream of every rig card below.
+        # How the files become frames: Trichrome is a rig flag and Half Frame a roll's own
+        # state, so neither has a scope pair.
         self.trichrome_sidebar = TrichromeSidebar(self.controller)
-        self.trichrome_section = self._make_section(
-            "Trichrome",
-            "trichrome",
-            self.trichrome_sidebar,
-            icon_name="mdi.google-circles-communities",
-        )
-
         self.half_frame_sidebar = HalfFrameSidebar(self.controller)
-        self.half_frame_section = self._make_section(
-            "Half Frame",
-            "half_frame",
-            self.half_frame_sidebar,
+        assembly_body = QWidget()
+        assembly_layout = QVBoxLayout(assembly_body)
+        assembly_layout.setContentsMargins(0, 0, 0, 0)
+        assembly_layout.setSpacing(THEME.space_lg)
+        assembly_layout.addWidget(self.trichrome_sidebar)
+        assembly_layout.addWidget(self.half_frame_sidebar)
+        self.assembly_section = self._make_section(
+            "Frame Assembly",
+            "assembly",
+            assembly_body,
             icon_name="mdi.view-split-vertical",
         )
 

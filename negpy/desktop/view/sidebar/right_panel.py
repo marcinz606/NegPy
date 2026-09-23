@@ -38,8 +38,7 @@ _ROLL_TAB_CARDS = ("film", "sensor", "demosaic", "process", "autocrop", "lens", 
 
 _ROLL_SECTION_ATTRS = frozenset(
     {
-        "trichrome_section",
-        "half_frame_section",
+        "assembly_section",
         "sensor_section",
         "demosaic_section",
         "process_section",
@@ -315,8 +314,7 @@ class RightPanel(QWidget):
         page_layout.addWidget(cp.roll_override_summary)
         for section in (
             cp.film_section,
-            cp.trichrome_section,
-            cp.half_frame_section,
+            cp.assembly_section,
             cp.sensor_section,
             cp.demosaic_section,
             cp.process_section,

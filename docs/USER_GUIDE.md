@@ -653,16 +653,19 @@ Always expanded and first, because it decides which cards apply: **Color** (C-41
 
 **Positive** (default off, shown on **Slide** only) is for a source that is already a positive (a scanned print, another app's export, a negative the scanner positivized), not a raw capture. NegPy decodes its embedded profile (sRGB if none) and skips metering, inversion, the exposure lift and the filmic roll-off, so the Print/tone controls in Normalization (§10.6) shape the image directly and its bounds and clip controls hide. It applies only with Normalize off. Leaving Slide turns it off. It turns Auto Density/Auto Grade (§5.2) off if they were at their negative default and restores them when turned off; your own setting stays.
 
-<!-- panel:trichrome -->
-### 10.2 Trichrome
+<!-- panel:assembly -->
+### 10.2 Frame Assembly
+
+How the files become frames. Neither toggle has a scope pair.
+
+#### Trichrome
 
 *   **Trichrome Mode** (three-exposure narrowband capture, also called trichromatic capture): assembles each frame from a red, green and blue exposure. Shots are grouped by the capture time in the files, so shoot each frame's three exposures back to back; filenames need no convention. With no capture time, filename order is used. Three shots are assembled only if they are one of each color *and* show the same frame; otherwise they stay separate for pairing by hand. An assembled frame has the three-dot badge (see [Triage](#triage-culling-the-roll)).
 *   **Edit Triplet…**: the film strip's right-click **Edit RGB Triplet…** dialog, for the current frame. Its **Align channels (sub-pixel)** registers green and blue to red, which removes color fringing from capture drift.
 
 The line under the buttons names the two exposures the frame is assembled from. The toggle is one rig-wide flag, so it has no scope pair and applies to every roll.
 
-<!-- panel:half_frame -->
-### 10.3 Half Frame
+#### Half Frame
 
 **Half Frame Mode** splits each scan into two frames, for half-frame cameras. Each half is edited and metered separately and badged. Turning it on auto-detects the gutter and the outer film crop on every loaded scan, cropping into the rebate where one shows; a side with no visible or confidently readable rebate stays uncropped. Each roll remembers its own state. It is disabled for a batch that is not one roll (a library-wide search, a restored session with no shared roll).
 

@@ -241,20 +241,20 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             body=(
                 "Shot a negative as three separate frames under red, green and blue light? "
                 "<b>Trichrome Mode</b> merges them into one clean, low-noise color scan.<br><br>"
-                "Toggle <b>Trichrome Mode</b> on the Roll tab. Folders are grouped "
+                "Toggle <b>Trichrome Mode</b> on the Roll tab's Frame Assembly card. Folders are grouped "
                 "into triplets automatically, and <b>Edit Triplet…</b> beside the toggle "
                 "fixes the grouping. Frames are sub-pixel aligned to kill color fringing, then "
                 "run through the normal conversion."
             ),
             target=_rgbscan,
-            section_attr="trichrome_section",
+            section_attr="assembly_section",
         ),
         TutorialStep(
             title="Half Frame: Two Photos per Scan",
             body=(
                 "Shooting a half-frame camera, a Pentax 17 or an Olympus Pen? Each scan "
                 "holds <b>two photos side by side</b>.<br><br>"
-                "Toggle <b>Half Frame Mode</b> on the Roll tab and every scan appears as "
+                "Toggle <b>Half Frame Mode</b> on the Roll tab's Frame Assembly card and every scan appears as "
                 "two frames on the contact sheet, split automatically at the gutter "
                 "between them. Each half is a full citizen: its own exposure metering, "
                 "its own edits and history, its own sidecar, and exports as "
@@ -263,7 +263,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "return when you switch it back on."
             ),
             target=_half_frame,
-            section_attr="half_frame_section",
+            section_attr="assembly_section",
         ),
         TutorialStep(
             title="Keep & Reject: Culling the Roll",
