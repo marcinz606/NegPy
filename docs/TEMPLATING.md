@@ -19,7 +19,7 @@ NegPy uses **Jinja2** for dynamic file naming in both the **Export** and **Scan*
 | `{{ target_px }}` | Target long-edge size in pixels (Empty unless Pixels mode). | `2048px` |
 | `{{ border }}` | Inserts "border" if width > 0, else empty. | `border` |
 | `{{ date }}` | Current date in YYYYMMDD format. | `20260125` |
-| `{{ roll }}` | Scanlight capture roll name (Metadata → Roll), or parsed from a `{roll}_Frame{NNN}` stem. This is not the Normalization card's Roll Baseline name. | `Roll001` |
+| `{{ roll }}` | Scanlight capture roll name (Metadata → Roll), or parsed from a `{roll}_Frame{NNN}` stem. This is not the Roll Analysis card's roll name. | `Roll001` |
 | `{{ frame }}` | Capture frame number (integer), or parsed from the stem. Unset (`none`) if unknown. Use `{{ frame\|pad(3) }}` or `{{ frame_padded }}` to zero-pad. `"%03d" % frame` works only when frame is set; if it is not, the whole pattern falls back to `original_name`. | `12` |
 | `{{ frame_padded }}` | Zero-padded frame (`012`), or empty if unknown. Same as `{{ frame\|pad(3) }}`. | `012` |
 | `{{ camera }}` | Camera make + model. | `Mamiya 7` |

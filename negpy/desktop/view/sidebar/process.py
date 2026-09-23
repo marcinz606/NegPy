@@ -133,8 +133,8 @@ class ProcessSidebar(BaseSidebar):
         )
 
         # Everything that measures this frame, or nudges what the measurement produced.
-        # Lives below the Roll Baseline picker, so ControlsPanel places it outside
-        # self.layout -- the same reason mode_bar sits above every Roll-tab card.
+        # ControlsPanel places it on the Metering card, so it sits outside self.layout --
+        # the same reason mode_bar sits above every Roll-tab card.
         self.analysis_bar = QWidget()
         analysis_col = QVBoxLayout(self.analysis_bar)
         analysis_col.setContentsMargins(0, 0, 0, 0)

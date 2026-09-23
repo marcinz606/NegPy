@@ -918,7 +918,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "stages, so there is no print look, no effects, no toning and no vignette. The "
                 "color space follows your export selection. <b>Preview Flat</b> peeks at the "
                 f"master on the canvas, also on the toolbar and on {_k('toggle_flat_peek')}, and "
-                "<b>Roll Baseline</b> keeps flat masters consistent across a roll. Standard "
+                "<b>Roll Analysis</b> keeps flat masters consistent across a roll. Standard "
                 "<b>Print</b> output is unaffected."
             ),
             target=_flat_master,
