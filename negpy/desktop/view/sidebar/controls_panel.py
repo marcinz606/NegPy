@@ -998,11 +998,11 @@ class ControlsPanel(QWidget):
     def _roll_sections(self) -> tuple:
         return (
             ("film", self.film_section),
+            ("sensor", self.sensor_section),
+            ("autocrop", self.autocrop_section),
             ("process", self.process_section),
             ("demosaic", self.demosaic_section),
             ("optics", self.optics_section),
-            ("sensor", self.sensor_section),
-            ("autocrop", self.autocrop_section),
         )
 
     def _sync_scope_buttons(self) -> None:
