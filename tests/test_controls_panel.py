@@ -92,7 +92,7 @@ def test_sync_scope_buttons_names_every_overridden_card():
 
     ControlsPanel._sync_scope_buttons(panel)
 
-    panel.roll_override_summary.setText.assert_called_once_with("This frame overrides: Calibration, Normalization")
+    panel.roll_override_summary.setText.assert_called_once_with("This frame overrides: Normalization, Calibration")
 
 
 def test_sync_scope_buttons_names_film_mode_too():
@@ -142,7 +142,7 @@ def test_sync_scope_buttons_names_the_geometry_and_flat_field_cards():
 
     ControlsPanel._sync_scope_buttons(panel)
 
-    panel.roll_override_summary.setText.assert_called_once_with("This frame overrides: Crop, Lens Correction, Flat Field")
+    panel.roll_override_summary.setText.assert_called_once_with("This frame overrides: Flat Field, Lens Correction, Crop")
     assert _scope(panel.autocrop_section) == "frame"
 
 

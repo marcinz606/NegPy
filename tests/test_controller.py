@@ -921,7 +921,7 @@ class TestAppController(unittest.TestCase):
         state.active_roll_id = roll_id
         state.current_file_hash = "h1"
 
-        self.assertEqual(self.controller.diverged_roll_cards(), ["sensor", "process"])
+        self.assertEqual(self.controller.diverged_roll_cards(), ["process", "sensor"])
 
     def test_diverged_roll_cards_empty_without_an_active_roll(self):
         self._wire_repo_store()

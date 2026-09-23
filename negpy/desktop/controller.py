@@ -4346,12 +4346,12 @@ class AppController(QObject):
 
     _ROLL_CARDS = (
         "film",
-        "sensor",
-        "demosaic",
         "process",
-        "autocrop",
-        "lens",
+        "demosaic",
         "flatfield",
+        "lens",
+        "sensor",
+        "autocrop",
         "metadata_gear",
         "metadata_capture",
         "metadata_process",
