@@ -132,10 +132,6 @@ class ProcessSidebar(BaseSidebar):
 
         self.autodetect_btn = self._small_toggle("mdi6.auto-fix", "", False, "Auto-detect the film process on load")
         self.autodetect_btn.setFixedWidth(ICON_BUTTON_WIDTH)
-        header_row = QHBoxLayout()
-        header_row.addStretch(1)
-        header_row.addWidget(self.autodetect_btn)
-        mode_col.addLayout(header_row)
 
         mode_row = QHBoxLayout()
         mode_col.addLayout(mode_row)
@@ -148,6 +144,7 @@ class ProcessSidebar(BaseSidebar):
             self.mode_btn_group.addButton(btn, i)
             mode_row.addWidget(btn, 1)
             self.mode_btns.append(btn)
+        mode_row.addWidget(self.autodetect_btn)
 
         # Lives beside Film Mode, not inside Normalization: whether the source is
         # already a finished positive is a fact about the file, not a Normalization
