@@ -2,11 +2,14 @@
 the picker limited to them."""
 
 from dataclasses import replace
+from unittest.mock import MagicMock
 
 import pytest
 
-from negpy.desktop.settings_catalog import all_rows, rows_for_fields, rows_for_section
-from negpy.desktop.view.sidebar.controls_panel import _APPLY_FIELDS
+from negpy.desktop.session import AppState
+from negpy.desktop.settings_catalog import CATALOG, all_rows, rows_for_fields, rows_for_section
+from negpy.desktop.view.sidebar.controls_panel import _APPLY_FIELDS, ControlsPanel
+from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog
 from negpy.domain.models import WorkspaceConfig
 
@@ -100,3 +103,12 @@ def test_every_catalog_row_a_frame_card_claims_exists():
 def test_an_unlimited_dialog_still_lists_every_section(qapp):
     dlg = GranularSettingsDialog(None, _edited_cfg(), "IMG_0001.cr2", show_scope=True, sel_count=1, roll_count=3)
     assert len(dlg._checks) == len(all_rows())
+
+
+def test_every_catalog_section_is_named_after_its_panel_card(qapp):
+    controller = MagicMock()
+    controller.state = AppState()
+    panel = ControlsPanel(controller)
+    cards = {w._title_text for w in vars(panel).values() if isinstance(w, CollapsibleSection)}
+    # Metadata and Export are cards on the right panel, outside ControlsPanel.
+    assert {title for title, _rows in CATALOG} - {"Metadata", "Export"} <= cards

@@ -21,7 +21,7 @@ def test_groups_with_data_start_checked_others_do_not(qapp):
     dlg = _dialog(_cfg(capture_roll="Roll007", developer="D-76"))
     assert dlg._checks["Roll"].isChecked()
     assert dlg._checks["Process"].isChecked()
-    assert not dlg._checks["Gear"].isChecked()
+    assert not dlg._checks["Analog Gear"].isChecked()
     assert not dlg._checks["Capture Date"].isChecked()
 
 
@@ -90,7 +90,7 @@ def test_apply_detected_gear_ticks_gear_and_fills_the_combos(qapp):
 
     dlg.apply_detected_gear(camera_id=camera.id, film_stock_id=stock.id)
 
-    assert dlg._checks["Gear"].isChecked()
+    assert dlg._checks["Analog Gear"].isChecked()
     assert dlg.camera_combo.selected_id() == camera.id
     assert dlg.film_stock_combo.selected_id() == stock.id
     assert dlg.selected_config().metadata.camera_id == camera.id
@@ -99,4 +99,4 @@ def test_apply_detected_gear_ticks_gear_and_fills_the_combos(qapp):
 def test_apply_detected_gear_with_nothing_detected_is_a_noop(qapp):
     dlg = _dialog(_cfg())
     dlg.apply_detected_gear(camera_id="", film_stock_id="")
-    assert not dlg._checks["Gear"].isChecked()
+    assert not dlg._checks["Analog Gear"].isChecked()

@@ -154,7 +154,7 @@ The Film Strip button row:
 *   **Hot Folder**: loads new files as they appear in the current folder, for a scanner or tethering app. The "Working…" popup stays hidden; the status line reports each import.
 *   **Trichrome Mode** and **Half Frame Mode** are on the Roll tab's Frame Assembly card ([§10.2](#102-frame-assembly)).
 *   **Apply (clone)**: copies the current frame's settings, aspects chosen in a dialog, to selected frames or the whole roll. Crop and rotation stay per-image.
-*   **Roll Settings** (tag icon): tags gear, capture, place, process and scanning metadata for the frame, a selection or the whole roll (default when a roll is loaded). Fields start from the active frame; **Load** a metadata preset to fill and tick fields, then tick groups to write. With Gear empty, it matches the folder name against your Gear library, as at import, and never overwrites tagged gear.
+*   **Roll Settings** (tag icon): tags gear, capture, place, process and scanning metadata for the frame, a selection or the whole roll (default when a roll is loaded). Fields start from the active frame; **Load** a metadata preset to fill and tick fields, then tick groups to write. With Analog Gear empty, it matches the folder name against your Gear library, as at import, and never overwrites tagged gear.
 *   **Save as Roll…** (red folder icon): keeps the loaded frames as a roll. See [Rolls that are not folders](#rolls-that-are-not-folders).
 *   **Unload…**: drops the active frame or selection. For the whole roll, use *Clear All…*.
 *   **Show Scenes** (layers icon): shows each frame's scene number on a colored disc, top-right. See [Scenes](#scenes).

@@ -17,11 +17,11 @@ from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettings
 from negpy.domain.models import WorkspaceConfig
 from negpy.services.assets.presets import Presets, is_valid_preset_name
 
-_PRESET_EXCLUDED_SECTIONS = frozenset({"Crop", "Rotation"})
+_PRESET_EXCLUDED_SECTIONS = frozenset({"Crop", "Geometry", "Optics"})
 
 # "Replace edits" resets only the look sections. Per-frame geometry, frame metadata and
 # export prefs stay, and dust, heal and masks are not catalog rows at all.
-_REPLACE_KEPT_SECTIONS = frozenset({"Crop", "Rotation", "Metadata", "Export"})
+_REPLACE_KEPT_SECTIONS = frozenset({"Crop", "Geometry", "Optics", "Metadata", "Export"})
 _LOOK_ROWS = tuple(r for title, rows in CATALOG if title not in _REPLACE_KEPT_SECTIONS for r in rows)
 
 

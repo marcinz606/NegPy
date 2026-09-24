@@ -110,19 +110,19 @@ def test_apply_crosstalk_copies_strength_profile_and_matrix_together():
 
 
 def test_normalize_and_average_rows_are_in_the_catalog():  # #1047: were missing entirely
-    for label in ("Normalize", "Use Luma Average", "Use Color Average"):
+    for label in ("Normalize", "Use Average Luma", "Use Average Color"):
         assert label in _ROWS
 
 
 def test_normalize_and_average_rows_apply_and_format_as_booleans():
     c = WorkspaceConfig()
     src = replace(c, process=replace(c.process, e6_normalize=True, use_luma_average=True, use_color_average=True))
-    rows = [_row("Normalize"), _row("Use Luma Average"), _row("Use Color Average")]
+    rows = [_row("Normalize"), _row("Use Average Luma"), _row("Use Average Color")]
     out = apply_selected_fields(src, c, rows)
     assert out.process.e6_normalize and out.process.use_luma_average and out.process.use_color_average
 
     process_rows = dict((r.label, val) for _t, entries in catalog_sections(src) for r, val, _e in entries if r.section == "process")
-    for label in ("Normalize", "Use Luma Average", "Use Color Average"):
+    for label in ("Normalize", "Use Average Luma", "Use Average Color"):
         assert process_rows[label] == "on"
 
 
@@ -138,11 +138,11 @@ def _metered_target():
     "label",
     [
         "Analysis Buffer",
-        "Mode",
-        "Range",
-        "Color",
-        "Use Luma Average",
-        "Use Color Average",
+        "Film Mode",
+        "Luma Range Clip",
+        "Color Clip",
+        "Use Average Luma",
+        "Use Average Color",
         "Normalize",
         "Crosstalk",
         "Single-Shot Narrowband Calibration",
@@ -156,7 +156,7 @@ def test_apply_metering_row_clears_local_bounds(label):
     assert out.process.local_ceils == (0.0, 0.0, 0.0)
 
 
-@pytest.mark.parametrize("label", ["White Point", "Black Trim", "Crop Ratio", "Rotation", "Chroma", "Dye Separation"])
+@pytest.mark.parametrize("label", ["White Point", "Black Point Trim", "Crop Ratio", "Rotation", "Chroma", "Dye Separation"])
 def test_apply_non_metering_row_keeps_local_bounds(label):
     tgt = _metered_target()
     out = apply_selected_fields(WorkspaceConfig(), tgt, [_row(label)])

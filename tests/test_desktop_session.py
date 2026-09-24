@@ -760,7 +760,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.mock_repo.load_file_settings.return_value = target_config
 
         self.session.update_selection([0, 1])
-        self.session.sync_selected_settings([_row("Print Density"), _row("Mode"), _row("Dust Removal")])
+        self.session.sync_selected_settings([_row("Print Density"), _row("Film Mode"), _row("Optical Removal")])
 
         args, _ = self.mock_repo.save_file_settings.call_args
         self.assertEqual(args[0], "hash2")

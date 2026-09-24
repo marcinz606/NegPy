@@ -21,7 +21,7 @@ def _merge(cfg: WorkspaceConfig, preset: dict) -> WorkspaceConfig:
 def test_channel_grouped_row_stores_all_channels():
     base = WorkspaceConfig()
     cfg = replace(base, process=replace(base.process, white_point_trim_red=0.1))
-    data = selected_flat_dict(cfg, [_row("White Trim")])
+    data = selected_flat_dict(cfg, [_row("White Point Trim")])
     assert set(data) == {"white_point_trim_red", "white_point_trim_green", "white_point_trim_blue"}
     assert data["white_point_trim_red"] == 0.1
     assert data["white_point_trim_green"] == base.process.white_point_trim_green
@@ -74,7 +74,7 @@ def test_full_snapshot_preset_applies():
 
 def test_preset_summary_lists_stored_settings():
     s = preset_summary({"density": 1.5, "wb_cyan": 0.2, "bogus": 1})
-    assert s == "Tone: Print Density\nColor: Cyan"
+    assert s == "Tone: Print Density\nFiltration: Cyan"
 
 
 def test_preset_summary_lists_a_deliberately_default_value():

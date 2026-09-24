@@ -73,7 +73,7 @@ def test_gear_row_travels_as_one_unit():
             film_iso=400,
         ),
     )
-    data = selected_flat_dict(source, [r for r in _metadata_rows() if r.label == "Gear"])
+    data = selected_flat_dict(source, [r for r in _metadata_rows() if r.label == "Analog Gear"])
     assert data["camera_id"] == "c1" and data["camera_make"] == "Nikon"
     assert data["film_iso"] == 400
     # Nothing outside the gear pick rides along.
@@ -136,7 +136,7 @@ def test_load_writes_only_the_stored_fields(sidebar: MetadataSidebar) -> None:
 def test_load_restores_gear_ids_with_resolved_values(sidebar: MetadataSidebar) -> None:
     base = WorkspaceConfig()
     source = replace(base, metadata=replace(base.metadata, camera_id="c1", camera_make="Nikon", camera_model="F3"))
-    MetadataPresets.save_preset("F3", selected_flat_dict(source, [r for r in _metadata_rows() if r.label == "Gear"]))
+    MetadataPresets.save_preset("F3", selected_flat_dict(source, [r for r in _metadata_rows() if r.label == "Analog Gear"]))
     sidebar._refresh_metadata_presets()
     sidebar.metadata_preset_combo.set_selected_id("F3")
 
@@ -539,7 +539,7 @@ class TestFilmFormatTravelsWithGear:
     def test_gear_row_carries_the_stock_format(self):
         base = WorkspaceConfig()
         source = replace(base, metadata=replace(base.metadata, film_stock_id="f1", film="Kodak Portra 400", format="120"))
-        data = selected_flat_dict(source, [r for r in _metadata_rows() if r.label == "Gear"])
+        data = selected_flat_dict(source, [r for r in _metadata_rows() if r.label == "Analog Gear"])
 
         assert data["format"] == "120"
         assert "format_other" in data
@@ -548,7 +548,7 @@ class TestFilmFormatTravelsWithGear:
         base = WorkspaceConfig()
         data = selected_flat_dict(
             replace(base, metadata=replace(base.metadata, film_stock_id="f120", film="Portra 400", format="120")),
-            [r for r in _metadata_rows() if r.label == "Gear"],
+            [r for r in _metadata_rows() if r.label == "Analog Gear"],
         )
         target = replace(base, metadata=replace(base.metadata, format="35mm", film="HP5+"))
 
@@ -783,7 +783,7 @@ class TestEditingPresetValuesInTheLibrary:
 
     def test_swapping_the_camera_rewrites_the_resolved_values(self, dialog):
         dlg, _library = dialog
-        MetadataPresets.save_preset("Kit", selected_flat_dict(WorkspaceConfig(), [r for r in _metadata_rows() if r.label == "Gear"]))
+        MetadataPresets.save_preset("Kit", selected_flat_dict(WorkspaceConfig(), [r for r in _metadata_rows() if r.label == "Analog Gear"]))
         self._select(dlg, "Kit")
 
         dlg.presets.preset_camera_combo.set_selected_id("c2")
@@ -796,7 +796,7 @@ class TestEditingPresetValuesInTheLibrary:
 
     def test_picking_a_film_stock_carries_its_format(self, dialog):
         dlg, _library = dialog
-        MetadataPresets.save_preset("Kit", selected_flat_dict(WorkspaceConfig(), [r for r in _metadata_rows() if r.label == "Gear"]))
+        MetadataPresets.save_preset("Kit", selected_flat_dict(WorkspaceConfig(), [r for r in _metadata_rows() if r.label == "Analog Gear"]))
         self._select(dlg, "Kit")
 
         dlg.presets.preset_film_combo.set_selected_id("f1")
@@ -888,7 +888,7 @@ class TestPresetGearCombosDefaultToOwnGear:
             ]
         )
         dlg = GearLibraryPanel(library)
-        MetadataPresets.save_preset("Kit", selected_flat_dict(WorkspaceConfig(), [r for r in _metadata_rows() if r.label == "Gear"]))
+        MetadataPresets.save_preset("Kit", selected_flat_dict(WorkspaceConfig(), [r for r in _metadata_rows() if r.label == "Analog Gear"]))
         dlg.presets._rebuild_item_list(select_id="Kit")
         return dlg, library
 
@@ -996,7 +996,7 @@ class TestUnsetFormat:
 
     def test_editing_a_preset_leaves_an_unset_format_alone(self, monkeypatch, tmp_path):
         monkeypatch.setattr(APP_CONFIG, "gear_dir", str(tmp_path / "gear"))
-        gear_row = [r for r in _metadata_rows() if r.label == "Gear"]
+        gear_row = [r for r in _metadata_rows() if r.label == "Analog Gear"]
         MetadataPresets.save_preset("Body only", selected_flat_dict(WorkspaceConfig(), gear_row))
         assert MetadataPresets.load_preset("Body only")["format"] == ""
 

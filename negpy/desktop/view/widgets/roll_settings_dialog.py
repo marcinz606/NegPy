@@ -47,7 +47,7 @@ from negpy.features.metadata.models import FORMAT_OPTIONS, MetadataConfig, PUSH_
 from negpy.services.assets.presets import MetadataPresets
 
 _METADATA_ROWS: dict[str, SettingRow] = {row.label: row for title, rows in CATALOG if title == "Metadata" for row in rows}
-_SIMPLE_GROUPS = ("Exposure Override", "Sync To Batch", "Protect Original Metadata", "Description Fields")
+_SIMPLE_GROUPS = ("Exposure", "Sync Metadata to Batch", "Protect Original Metadata", "Description Fields")
 
 
 def _fmt(value) -> str:
@@ -194,10 +194,10 @@ class RollSettingsDialog(QDialog):
         self.format_other_edit.setToolTip(wrap_tooltip("A format the list does not carry, written as you type it"))
         self.format_other_edit.setText(self._meta.format_other)
         self.format_other_edit.setVisible(self._meta.format == "Other")
-        self.format_other_edit.textEdited.connect(lambda t: self._set_meta("Gear", format_other=t.strip()))
+        self.format_other_edit.textEdited.connect(lambda t: self._set_meta("Analog Gear", format_other=t.strip()))
         col.addWidget(self.format_other_edit)
 
-        return self._group("Gear", body)
+        return self._group("Analog Gear", body)
 
     def apply_detected_gear(self, **gear_ids: str) -> None:
         """Pre-fill Gear from a folder-name match, ticked like any other edit -- Cancel
@@ -206,7 +206,7 @@ class RollSettingsDialog(QDialog):
         if not gear_ids:
             return
         self._meta = metadata_from_gear(self._meta, self._library, **gear_ids)
-        self._checks["Gear"].setChecked(True)
+        self._checks["Analog Gear"].setChecked(True)
         self._reload_widgets()
 
     def _on_gear_changed(self, field: str, combo: SearchableGearCombo) -> None:
@@ -214,12 +214,12 @@ class RollSettingsDialog(QDialog):
         self.format_combo.setCurrentText(format_label(self._meta.format))
         self.format_other_edit.setText(self._meta.format_other)
         self.format_other_edit.setVisible(self._meta.format == "Other")
-        self._checks["Gear"].setChecked(True)
+        self._checks["Analog Gear"].setChecked(True)
 
     def _on_format_changed(self, text: str) -> None:
         value = format_value(text)
         self.format_other_edit.setVisible(value == "Other")
-        self._set_meta("Gear", format=value)
+        self._set_meta("Analog Gear", format=value)
 
     def _build_capture_date_group(self) -> QWidget:
         self.capture_date_edit = QLineEdit()
