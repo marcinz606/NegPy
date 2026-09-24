@@ -55,6 +55,7 @@ from negpy.desktop.view.keyboard_shortcuts import _reset_roll, _reset_selected
 from negpy.features.hdr.logic import anchor_choices
 from negpy.features.hdr.models import hdr_frame_paths
 from negpy.desktop.view.widgets.elided_label import ElidedLabel
+from negpy.desktop.view.widgets.sort_button import SortButton
 from negpy.desktop.view.widgets.overflow_bar import OverflowBar
 from negpy.desktop.view.shortcut_registry import label_with_shortcut
 from negpy.desktop.view.styles.templates import (
@@ -784,7 +785,6 @@ class FileBrowser(QWidget):
 
     file_selected = pyqtSignal(str)
     library_requested = pyqtSignal(bool)  # reveal the library (arg: import a first roll if unset)
-    sort_changed = pyqtSignal()  # the roll list follows the sheet's sort
 
     def __init__(self, controller: AppController):
         super().__init__()
@@ -895,36 +895,13 @@ class FileBrowser(QWidget):
         self.act_sheet_unrejected.triggered.connect(lambda: self._apply_sheet_filter("unrejected"))
         self.sheet_btn.setMenu(sheet_menu)
 
-        # Sort dropdown
-        self.sort_btn = QToolButton()
-        self.sort_btn.setIcon(qta.icon("fa5s.sort", color=THEME.text_primary))
-        self.sort_btn.setToolTip("Sort")
-        self.sort_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-
-        sort_menu = QMenu(self.sort_btn)
-        self._order_group = QActionGroup(self)
-        self._order_group.setExclusive(True)
-        self.act_sort_name = sort_menu.addAction("Name")
-        self.act_sort_date = sort_menu.addAction("Date")
-        self.act_sort_scene = sort_menu.addAction("Scene")
+        # The frames' own order; the Library's roll list has a Sort of its own.
+        self.sort_btn = SortButton((("name", "Name"), ("date", "Date"), ("scene", "Scene")), "Sort the frames in the Film Strip")
+        self.act_sort_name, self.act_sort_date, self.act_sort_scene = (self.sort_btn.order_action(k) for k in ("name", "date", "scene"))
+        self.act_sort_asc, self.act_sort_desc = self.sort_btn.ascending_action, self.sort_btn.descending_action
         self.act_sort_scene.setVisible(False)
-        for act in (self.act_sort_name, self.act_sort_date, self.act_sort_scene):
-            act.setCheckable(True)
-            self._order_group.addAction(act)
-        sort_menu.addSeparator()
-        self._dir_group = QActionGroup(self)
-        self._dir_group.setExclusive(True)
-        self.act_sort_asc = sort_menu.addAction("Ascending")
-        self.act_sort_desc = sort_menu.addAction("Descending")
-        for act in (self.act_sort_asc, self.act_sort_desc):
-            act.setCheckable(True)
-            self._dir_group.addAction(act)
-        self.act_sort_name.triggered.connect(lambda: self._apply_sort_order("name"))
-        self.act_sort_date.triggered.connect(lambda: self._apply_sort_order("date"))
-        self.act_sort_scene.triggered.connect(lambda: self._apply_sort_order("scene"))
-        self.act_sort_asc.triggered.connect(lambda: self._apply_sort_direction(False))
-        self.act_sort_desc.triggered.connect(lambda: self._apply_sort_direction(True))
-        self.sort_btn.setMenu(sort_menu)
+        self.sort_btn.order_selected.connect(self._apply_sort_order)
+        self.sort_btn.direction_selected.connect(self._apply_sort_direction)
 
         for btn in (
             self.add_btn,
@@ -1411,7 +1388,6 @@ class FileBrowser(QWidget):
         # current-index among them), so the view's selection needs no separate resync here.
         self.session.asset_model.set_sort_order(order)
         self._sync_sort_menu()
-        self.sort_changed.emit()
         if save:
             self.session.repo.save_global_setting("file_sort_order", order)
 
@@ -1419,7 +1395,6 @@ class FileBrowser(QWidget):
         self.act_sort_asc.setChecked(not descending)
         self.act_sort_desc.setChecked(descending)
         self.session.asset_model.set_sort_descending(descending)
-        self.sort_changed.emit()
         if save:
             self.session.repo.save_global_setting("file_sort_descending", descending)
 
@@ -1432,10 +1407,6 @@ class FileBrowser(QWidget):
         self.act_sort_name.setChecked(order == "name")
         self.act_sort_date.setChecked(order == "date")
         self.act_sort_scene.setChecked(order == "scene")
-
-    def sort_choice(self) -> tuple[str, bool]:
-        """The Library tree's sort. Rolls have no scenes, so Scene sort gives it Name."""
-        return ("date" if self.act_sort_date.isChecked() else "name", self.act_sort_desc.isChecked())
 
     def _apply_sheet_filter(self, mode: str, save: bool = True) -> None:
         self.act_sheet_all.setChecked(mode == "all")

@@ -61,7 +61,6 @@ class SessionPanel(QWidget):
     def _connect_signals(self) -> None:
         self.library_tree.rolls_changed.connect(self._on_rolls_changed)
         self.file_browser.library_requested.connect(self.show_library)
-        self.file_browser.sort_changed.connect(lambda: self.library_tree.set_sort(*self.file_browser.sort_choice()))
         self.controller.library_cleared.connect(self._on_library_cleared)
 
     def show_library(self, ask_if_unset: bool = True) -> None:

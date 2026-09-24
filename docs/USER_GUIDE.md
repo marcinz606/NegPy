@@ -112,7 +112,7 @@ Below it are the toolbar, the search box and two collapsible sections: **Library
 <!-- panel:library -->
 ### Your library
 
-**Library** lists every **roll** you have imported: a named, openable group of frames, not a live view of a folder. **Ctrl+L** expands it, and offers an import when you have no roll. Buttons: **+** imports a roll, **↻** re-reads each roll's frame count from disk, and **index** appears when Search by Meaning is on. The list follows the Film Strip's **Sort**, keeping Name under Scene. Each row shows name and count ("36 photos").
+**Library** lists every **roll** you have imported: a named, openable group of frames, not a live view of a folder. **Ctrl+L** expands it, and offers an import when you have no roll. Buttons: **+** imports a roll, **↻** re-reads each roll's frame count from disk, **Sort** orders the roll list by Name or Date, ascending or descending, apart from the Film Strip's own Sort, and **index** appears when Search by Meaning is on. Each row shows name and count ("36 photos").
 
 Importing only recognizes a folder; nothing is decoded or hashed until you open the roll.
 
@@ -160,7 +160,7 @@ The Film Strip button row:
 *   **Save as Roll…** (red folder icon): keeps the loaded frames as a roll. See [Rolls that are not folders](#rolls-that-are-not-folders).
 *   **Unload…**: drops the active frame or selection. For the whole roll, use *Clear All…*.
 *   **Show Scenes** (layers icon): edges each frame in its scene's color, with the selection ring just outside it. See [Scenes](#scenes).
-*   **Sort** (arrows): by Name or Date, or by **Scene** once the loaded roll has one ([Scenes](#scenes)), ascending or descending.
+*   **Sort** (arrows): orders the frames by Name or Date, or by **Scene** once the loaded roll has one ([Scenes](#scenes)), ascending or descending. The Library's roll list has its own.
 *   **Sheet filter** (funnel): *All Frames*, *Keepers Only* or *Hide Rejected*, for every roll.
 
 Both of the last two are remembered between sessions.

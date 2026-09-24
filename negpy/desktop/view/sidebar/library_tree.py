@@ -25,6 +25,7 @@ from negpy.desktop.view.confirm import (
 from negpy.desktop.view.widgets.rename_roll_dialog import RenameRollDialog
 from negpy.desktop.view.styles.templates import TOOLBAR_BUTTON_HEIGHT, TOOLBAR_ICON_SIZE, hint_label, wrap_tooltip
 from negpy.desktop.view.widgets.overflow_bar import OverflowBar
+from negpy.desktop.view.widgets.sort_button import SortButton
 from negpy.desktop.view.styles.theme import THEME
 from negpy.kernel.system.text import count_of
 from negpy.services.assets import rolls
@@ -54,8 +55,7 @@ class LibraryTree(QWidget):
         super().__init__()
         self.controller = controller
         self.repo = controller.session.repo
-        self._sort_order = "name"
-        self._sort_descending = False
+        self._sort_order, self._sort_descending = self._saved_sort()
         self._init_ui()
         self.reload()
 
@@ -91,7 +91,12 @@ class LibraryTree(QWidget):
         self.index_btn.setToolTip(wrap_tooltip("Index the library so search by meaning can rank every roll, not just the loaded one"))
         self.index_btn.clicked.connect(self.controller.index_library)
 
-        for btn in (self.import_btn, self.refresh_btn, self.index_btn):
+        self.sort_btn = SortButton((("name", "Name"), ("date", "Date")), "Sort the roll list")
+        self.sort_btn.show_order(self._sort_order, self._sort_descending)
+        self.sort_btn.order_selected.connect(lambda order: self.set_sort(order, self._sort_descending, save=True))
+        self.sort_btn.direction_selected.connect(lambda descending: self.set_sort(self._sort_order, descending, save=True))
+
+        for btn in (self.import_btn, self.refresh_btn, self.index_btn, self.sort_btn):
             btn.setIconSize(QSize(TOOLBAR_ICON_SIZE, TOOLBAR_ICON_SIZE))
             btn.setFixedHeight(TOOLBAR_BUTTON_HEIGHT)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -100,6 +105,7 @@ class LibraryTree(QWidget):
             (self.import_btn, "Import"),
             (self.refresh_btn, "Refresh"),
             (self.index_btn, "Index Library"),
+            (self.sort_btn, "Sort"),
         ):
             self.toolbar.add_button(widget, label)
         # Opt-in, so it starts off; sync_ui turns it on with the feature.
@@ -184,8 +190,22 @@ class LibraryTree(QWidget):
 
     # --- rolls -----------------------------------------------------------------
 
-    def set_sort(self, order: str, descending: bool) -> None:
-        """Order rolls the way the film strip orders frames."""
+    def _saved_sort(self) -> tuple[str, bool]:
+        """The roll list's own sort. Before it had one it followed the Film Strip, so an
+        unset one starts from the Film Strip's (Scene reads as Name: rolls have no scenes)."""
+        order = self.repo.get_global_setting("library_sort_order")
+        descending = self.repo.get_global_setting("library_sort_descending")
+        if order is None:
+            order = self.repo.get_global_setting("file_sort_order") or "name"
+            descending = self.repo.get_global_setting("file_sort_descending")
+        return ("date" if order == "date" else "name"), bool(descending)
+
+    def set_sort(self, order: str, descending: bool, save: bool = False) -> None:
+        """Order the roll list, independently of the Film Strip's own sort."""
+        self.sort_btn.show_order(order, descending)
+        if save:
+            self.repo.save_global_setting("library_sort_order", order)
+            self.repo.save_global_setting("library_sort_descending", descending)
         if (order, descending) == (self._sort_order, self._sort_descending):
             return
         self._sort_order = order

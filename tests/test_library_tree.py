@@ -123,6 +123,36 @@ def test_rolls_follow_date_sort_by_created_at(widget, monkeypatch):
     assert _names(widget) == ["older", "newer"]
 
 
+def test_its_own_sort_button_orders_and_saves_the_roll_list(widget):
+    create_virtual_roll(widget.repo, "apple", [])
+    create_virtual_roll(widget.repo, "Zebra", [])
+    widget.reload()
+
+    widget.sort_btn.descending_action.trigger()
+
+    assert _names(widget) == ["Zebra", "apple"]
+    assert widget.repo.get_global_setting("library_sort_descending") is True
+    assert widget.sort_btn.order_action("name").isChecked()
+    assert widget.sort_btn in widget.toolbar.buttons
+
+
+def test_the_roll_list_starts_from_the_film_strips_sort_until_it_has_its_own(qapp, tmp_path):
+    """It used to follow the Film Strip; Scene reads as Name, since rolls have no scenes."""
+    repo = StorageRepository(str(tmp_path / "edits.db"), str(tmp_path / "settings.db"))
+    repo.initialize()
+    repo.save_global_setting("file_sort_order", "scene")
+    repo.save_global_setting("file_sort_descending", True)
+    controller = MagicMock()
+    controller.session.repo = repo
+
+    tree = LibraryTree(controller)
+
+    assert (tree._sort_order, tree._sort_descending) == ("name", True)
+    repo.save_global_setting("library_sort_order", "date")
+    repo.save_global_setting("library_sort_descending", False)
+    assert LibraryTree(controller)._saved_sort() == ("date", False)
+
+
 # --- opening ------------------------------------------------------------------
 
 

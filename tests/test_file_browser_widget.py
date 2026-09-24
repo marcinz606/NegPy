@@ -1143,9 +1143,8 @@ def test_the_first_scene_switches_the_strip_to_scene_sort(browser, session):
     session.repo.save_global_setting.assert_any_call("file_sort_order", "scene")
 
 
-def test_scene_sort_gives_the_library_name_and_reads_as_name_without_scenes(browser, session):
+def test_scene_sort_reads_as_name_without_scenes(browser, session):
     browser._apply_sort_order("scene")
 
-    assert browser.sort_choice()[0] == "name"
     assert browser.act_sort_name.isChecked()
     assert not browser.act_sort_scene.isVisible()

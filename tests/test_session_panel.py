@@ -180,10 +180,17 @@ def test_the_library_button_prompts_an_import_when_the_library_is_empty(qapp, tm
     assert prompted
 
 
-def test_sorting_the_sheet_sorts_the_tree(panel):
-    panel.file_browser._apply_sort_direction(True)
+def test_the_sheet_and_the_roll_list_sort_independently(panel):
+    tree_before = (panel.library_tree._sort_order, panel.library_tree._sort_descending)
 
+    panel.file_browser._apply_sort_direction(True)
+    panel.file_browser._apply_sort_order("date")
+
+    assert (panel.library_tree._sort_order, panel.library_tree._sort_descending) == tree_before
+    panel.library_tree.sort_btn.ascending_action.trigger()
+    panel.library_tree.sort_btn.descending_action.trigger()
     assert panel.library_tree._sort_descending is True
+    assert panel.file_browser.act_sort_date.isChecked() and panel.file_browser.act_sort_desc.isChecked()
 
 
 def test_a_roll_change_drops_the_cached_walk(panel):

@@ -18,15 +18,16 @@ def panel(qapp):
     return panel
 
 
-def test_sort_sits_on_the_film_strip_toolbar(panel):
-    """Sort orders the frames, so it sits with the Film Strip's own buttons, sized like
-    every other section-toolbar button; the roll list follows it from there."""
+def test_each_section_toolbar_has_its_own_sort(panel):
+    """The Film Strip's Sort orders the frames, the Library's the roll list; both sized like
+    every other section-toolbar button."""
     browser = panel.file_browser
     tree = panel.library_tree
 
     assert browser.sort_btn in browser.film_strip_toolbar.buttons
-    assert browser.sort_btn.height() == TOOLBAR_BUTTON_HEIGHT
-    assert not tree.isAncestorOf(browser.sort_btn)
+    assert tree.sort_btn in tree.toolbar.buttons
+    assert browser.sort_btn is not tree.sort_btn
+    assert {browser.sort_btn.height(), tree.sort_btn.height()} == {TOOLBAR_BUTTON_HEIGHT}
 
 
 def test_both_section_toolbars_size_their_buttons_the_same(panel):
