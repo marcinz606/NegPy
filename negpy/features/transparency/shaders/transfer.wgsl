@@ -133,24 +133,32 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         dens[ch] = d;
     }
 
-    // Dye Separation: M(k) = diag(k) + (1-k)*J (papers.resolve_saturation_matrix), each
-    // channel scaling its own deviation from the frame's mean density by its own k —
-    // there is no paper dye matrix here to compose the per-layer trims into instead.
+    // Dye Separation: each channel scales its own deviation from a reference density by
+    // its own k: the mean of the channels, each softly capped. Mirrors transfer.py (see
+    // apply_transfer_curve); 2.5, 1.5 and 0.15 mirror SEPARATION_CAP_LEVEL/SPREAD/SOFTNESS.
     // Separation Damping makes each channel's k chroma-dependent per pixel, from the
     // same chroma but each channel's own k (see separation_damping_gain).
     if (any(params.separation.xyz != vec3<f32>(1.0))) {
-        let mean = (dens.x + dens.y + dens.z) / 3.0;
-        let e = dens - vec3<f32>(mean);
+        let d_lo = min(dens.x, min(dens.y, dens.z));
+        let cap = 2.5 + softplus(d_lo + (1.5 - 2.5), 0.15);
+        let capped = vec3<f32>(
+            cap - softplus(cap - dens.x, 0.15),
+            cap - softplus(cap - dens.y, 0.15),
+            cap - softplus(cap - dens.z, 0.15),
+        );
+        let d_ref = (capped.x + capped.y + capped.z) / 3.0;
+        let e = dens - vec3<f32>(d_ref);
         if (params.separation.w > 0.0) {
-            let chroma = sqrt(((e.x - e.y) * (e.x - e.y) + (e.y - e.z) * (e.y - e.z) + (e.x - e.z) * (e.x - e.z)) / 3.0);
+            let c = capped - vec3<f32>(d_ref);
+            let chroma = sqrt(((c.x - c.y) * (c.x - c.y) + (c.y - c.z) * (c.y - c.z) + (c.x - c.z) * (c.x - c.z)) / 3.0);
             let k_eff = vec3<f32>(
                 separation_damping_gain(params.separation.x, params.separation.w, chroma),
                 separation_damping_gain(params.separation.y, params.separation.w, chroma),
                 separation_damping_gain(params.separation.z, params.separation.w, chroma),
             );
-            dens = vec3<f32>(mean) + k_eff * e;
+            dens = vec3<f32>(d_ref) + k_eff * e;
         } else {
-            dens = vec3<f32>(mean) + params.separation.xyz * e;
+            dens = vec3<f32>(d_ref) + params.separation.xyz * e;
         }
     }
 

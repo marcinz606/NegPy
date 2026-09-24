@@ -463,8 +463,8 @@ class TestControlsStayLive(unittest.TestCase):
 
     def test_dye_separation_trims_are_wired_per_channel(self):
         """Mirrors the print path: a trim on one channel must move only that channel,
-        since an untrimmed channel keeps k = dye_separation exactly (mean + 1.0 * e is
-        the original density bit-exact)."""
+        since an untrimmed channel keeps k = dye_separation exactly (pivot + 1.0 * e is
+        the original density)."""
         trimmed = self._rendered(dye_separation_trim_red=0.6)
         self.assertGreater(float(np.abs(trimmed[..., 0] - self.base[..., 0]).mean()), 1e-4)
         np.testing.assert_allclose(trimmed[..., 1], self.base[..., 1], atol=1e-6)
@@ -490,6 +490,77 @@ class TestControlsStayLive(unittest.TestCase):
             with self.subTest(**overrides):
                 out = _run_stages(_ramp(), _e6_config(**overrides))[0][0, :, 1]
                 self.assertTrue(bool(np.all(np.diff(out) >= -1e-6)), f"non-monotonic for {overrides}")
+
+
+class TestDyeSeparationReference(unittest.TestCase):
+    """Dye Separation's reference density: the mean of the channels, each softly capped
+    where it is far denser than the pixel's lightest channel and near the dense end."""
+
+    @staticmethod
+    def _density(d, separation, trims=(0.0, 0.0, 0.0), damping=0.0):
+        """Densities in, densities out. A positive source skips the display rendering,
+        so the output is 10**-D exactly while it stays inside (0, 1)."""
+        n = np.asarray(d, dtype=np.float32) / TRANSFER_DENSITY_RANGE
+        out = apply_transfer_curve(
+            n, 0.0, 1.0, (0.0,) * 3, (0.0,) * 3, positive_source=True, separation=separation, separation_trims=trims, damping=damping
+        )
+        return -np.log10(out)
+
+    def test_neutrals_hold_at_every_density_and_trim(self):
+        grey = np.repeat(np.linspace(0.0, 1.0, 64, dtype=np.float32)[None, :, None], 3, axis=2)
+        for exposure in (-1.0, 0.0, 1.0):  # also pushes grays past both ends of the window
+
+            def curve(k, trims=(0.0, 0.0, 0.0)):
+                return apply_transfer_curve(grey, exposure, 1.0, (0.0,) * 3, (0.0,) * 3, separation=k, separation_trims=trims)
+
+            flat = curve(1.0)
+            for k, trims in ((0.5, (0.0, 0.0, 0.0)), (1.5, (0.0, 0.0, 0.0)), (1.0, (0.0, 0.4, -0.4))):
+                np.testing.assert_allclose(curve(k, trims), flat, atol=1e-5, err_msg=f"separation {k}, trims {trims} moved a neutral")
+
+    def test_ordinary_colors_keep_the_channel_mean(self):
+        """Light, dark and brighter-than-white colors keep the print path's
+        M(k) = diag(k) + (1-k)J."""
+        k = 1.5
+        for d in (
+            [0.3, 1.5, 1.5],
+            [0.4, 0.5, 1.6],
+            [1.4, 0.6, 1.3],
+            [0.55, 0.75, 0.9],
+            [2.0, 1.4, 1.9],
+            [2.2, 2.6, 2.9],
+            [-0.3, 1.5, 1.2],
+        ):
+            d = np.asarray(d, dtype=np.float32)
+            expected = d.mean() + k * (d - d.mean())
+            got = self._density([[d]], k)[0, 0]
+            inside = expected > 0.0  # a channel pushed past white clips to 1.0
+            np.testing.assert_allclose(got[inside], expected[inside], atol=2e-3, err_msg=str(d))
+
+    def test_a_channel_near_the_dense_end_does_not_steer_the_others(self):
+        """An out-of-gamut blue sky: red sits at the dense end, where it is mostly noise.
+        Moving it there must not move green or blue, with or without damping."""
+        for damping in (0.0, 1.0):
+            for lo, hi in ((2.8, 3.0), (3.0, 3.6)):
+                a = self._density([[[lo, 1.53, 0.88]]], 1.5, damping=damping)[0, 0]
+                b = self._density([[[hi, 1.53, 0.88]]], 1.5, damping=damping)[0, 0]
+                np.testing.assert_allclose(b[1:], a[1:], atol=5e-3, err_msg=f"red {lo}->{hi}, damping {damping}")
+
+    def test_a_smooth_gradient_never_reverses(self):
+        """Along a smooth one-channel ramp, every output moves one way only. A reference
+        density that can fall as a channel darkens folds the gradient into bands."""
+        sweep = np.linspace(0.0, 3.6, 721, dtype=np.float32)
+        fixed = (0.3, 0.9, 1.5, 2.1, 2.7, 3.2)
+        for k, trims in ((0.5, (0.0, 0.0, 0.0)), (1.5, (0.0, 0.0, 0.0)), (1.0, (0.0, 0.4, -0.4))):
+            for ch in range(3):
+                others = [c for c in range(3) if c != ch]
+                for a in fixed:
+                    for b in fixed:
+                        d = np.empty((1, sweep.size, 3), dtype=np.float32)
+                        d[0, :, ch], d[0, :, others[0]], d[0, :, others[1]] = sweep, a, b
+                        steps = np.diff(self._density(d, k, trims)[0], axis=0)
+                        for out in range(3):
+                            s = np.sign(steps[np.abs(steps[:, out]) > 1e-6, out])
+                            self.assertFalse(np.any(s[1:] * s[:-1] < 0), f"k {k}, trims {trims}, ramp on {ch}, output {out}, at {a}/{b}")
 
 
 class TestCaptureTogglesAreInert(unittest.TestCase):
@@ -803,7 +874,7 @@ class TestGpuTransferParity(unittest.TestCase):
         arr = np.asarray(result.readback()) if hasattr(result, "readback") else np.asarray(result)
         return arr[:, :, :3].astype(np.float64)
 
-    def _both(self, settings, cam_xyz=CAM_XYZ):
+    def _both(self, settings, cam_xyz=CAM_XYZ, img=None):
         from negpy.services.rendering.image_processor import ImageProcessor
 
         processor = ImageProcessor()
@@ -814,12 +885,13 @@ class TestGpuTransferParity(unittest.TestCase):
         # compare two different framings rather than two curve implementations.
         settings = replace(settings, geometry=replace(settings.geometry, autocrop_offset=0))
 
-        rng = np.random.default_rng(2)
-        h, w = 64, 64
-        grad = np.linspace(0.02, 0.5, w, dtype=np.float32)
-        img = np.repeat(grad[None, :], h, axis=0)
-        img = np.stack([img, img * 0.95, img * 0.9], axis=-1)
-        img = np.ascontiguousarray(img + rng.uniform(0, 0.005, img.shape).astype(np.float32))
+        if img is None:
+            rng = np.random.default_rng(2)
+            h, w = 64, 64
+            grad = np.linspace(0.02, 0.5, w, dtype=np.float32)
+            img = np.repeat(grad[None, :], h, axis=0)
+            img = np.stack([img, img * 0.95, img * 0.9], axis=-1)
+            img = np.ascontiguousarray(img + rng.uniform(0, 0.005, img.shape).astype(np.float32))
 
         cpu = self._render(processor, settings, img, prefer_gpu=False, cam_xyz=cam_xyz)
         gpu = self._render(processor, settings, img, prefer_gpu=True, cam_xyz=cam_xyz)
@@ -889,8 +961,8 @@ class TestGpuTransferParity(unittest.TestCase):
 
     def test_dye_separation_matches(self):
         """Dye Separation carries no paper matrix on this path — each channel scales its
-        own deviation from the frame mean instead of a matmul — and CPU/GPU must apply
-        that same per-channel k."""
+        own deviation from a reference density instead of a matmul — and CPU/GPU must
+        apply that same per-channel k."""
         settings = _e6_config()
         active = _e6_config(dye_separation=1.6)
         cpu, gpu = self._both(active)
@@ -899,6 +971,16 @@ class TestGpuTransferParity(unittest.TestCase):
         off_cpu, off_gpu = self._both(settings)
         self.assertGreater(float(np.abs(cpu - off_cpu).max()), 0.01, "dye separation inert on the CPU")
         self.assertGreater(float(np.abs(gpu - off_gpu).max()), 0.01, "dye separation inert on the GPU")
+
+    def test_dye_separation_reference_matches_past_the_window(self):
+        """A saturated blue whose red runs into the dense end, where the channel cap
+        engages, with and without damping."""
+        red = np.logspace(-1.5, -4.0, 64, dtype=np.float32)
+        img = np.stack([np.repeat(red[None, :], 16, axis=0), np.full((16, 64), 0.03), np.full((16, 64), 0.13)], axis=-1)
+        img = np.ascontiguousarray(img.astype(np.float32))
+        for damping in (0.0, 1.0):
+            settings = _e6_config(dye_separation=1.5, dye_separation_trim_green=0.3, separation_damping=damping)
+            self._assert_parity(*self._both(settings, cam_xyz=None, img=img))
 
     def test_dye_separation_trims_match(self):
         """The per-channel trims (same fields the print path's per-layer view edits)
