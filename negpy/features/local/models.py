@@ -17,6 +17,19 @@ class MaskShape(StrEnum):
     GRADIENT = "gradient"
 
 
+class MaskKey(StrEnum):
+    """Which tones of the unburned print a mask acts on: all, those lighter than its zone
+    (Highlights) or those darker (Shadows). The darkroom's lith mask in register."""
+
+    OFF = "off"
+    HIGHLIGHTS = "highlights"
+    SHADOWS = "shadows"
+
+
+# Each limited mask needs its own shape plane (GPU: one rgba texture). A fifth prints unlimited.
+MAX_KEYED_MASKS = 4
+
+
 @dataclass(frozen=True)
 class LocalMask:
     # Vertices in raw-image normalised coords [0,1]. The `shape` field tells how to read them.
@@ -34,6 +47,10 @@ class LocalMask:
     invert: bool = False
     # A disabled mask keeps its vertices and values but contributes nothing to the render.
     enabled: bool = True
+    # Tone limit: the zone and its softness are print zones (0 = paper black, V = 18% gray).
+    key: MaskKey = MaskKey.OFF
+    key_zone: float = 6.0
+    key_softness: float = 1.0
 
 
 @dataclass(frozen=True)

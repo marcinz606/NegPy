@@ -2016,6 +2016,16 @@ class TestAppController(unittest.TestCase):
         # Hidden-mask state is keyed by the open file's hash; give the tests one.
         self.controller.state.current_file_hash = "hashA"
 
+    def test_set_local_mask_inverted_flips_only_that_mask(self):
+        self._seed_two_masks()
+        self.controller.request_render = MagicMock()
+
+        self.controller.set_local_mask_inverted(1, True)
+
+        saved = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertEqual([m.invert for m in saved.local.masks], [False, True])
+        self.controller.request_render.assert_called_once()
+
     def test_set_local_mask_visible_toggles_hidden_set(self):
         self._seed_two_masks()
         self.controller.canvas = None  # tolerate no registered canvas

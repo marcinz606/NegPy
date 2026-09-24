@@ -7,8 +7,12 @@ invertible."""
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
+import numpy as np
+
 from negpy.features.exposure.analysis import zone_of_encoded
 from negpy.features.exposure.logic import auto_highlight_from_metrics, curve_params_from_metrics, print_curve, print_curve_output
+from negpy.features.local.logic import limited_masks
+from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskKey
 
 DENSITY_RANGE = (0.0, 2.0)  # mirrors the Print Density slider
 
@@ -69,13 +73,43 @@ class PlacementSolution:
     knee: str = ""  # the knee field a third pin was solved on; "" when none was needed
 
 
-def predicted_zone(exposure: Any, process_mode: Optional[str], metrics: Any, val_luma: float) -> float:
-    """Zone the achromatic print curve puts `val_luma` on under `exposure`."""
+def _zones_of(exposure: Any, process_mode: Optional[str], metrics: Any, vals: Any) -> np.ndarray:
+    """Zones the achromatic print curve puts normalized-log `vals` on under `exposure`."""
     slopes, pivots, curvs = curve_params_from_metrics(exposure, process_mode, metrics)
     hl = exposure.highlight_density + auto_highlight_from_metrics(exposure, process_mode, metrics)
     curve = print_curve(exposure, slopes[1], pivots[1], process_mode, curvature=curvs[1], highlight_density=hl)
-    enc = float(print_curve_output(curve, [val_luma])[0])
-    return float(zone_of_encoded(enc))
+    return np.asarray(zone_of_encoded(print_curve_output(curve, vals).astype(np.float64)))
+
+
+def predicted_zone(exposure: Any, process_mode: Optional[str], metrics: Any, val_luma: float) -> float:
+    """Zone the achromatic print curve puts `val_luma` on under `exposure`."""
+    return float(_zones_of(exposure, process_mode, metrics, [val_luma])[0])
+
+
+_KEY_GRID = np.linspace(-0.5, 1.5, 512)
+_KEY_MIN_SPAN = 1e-4
+
+
+def key_edges(mask: LocalMask, exposure: Any, process_mode: Optional[str], metrics: Any) -> Tuple[float, float]:
+    """A tone-limited mask's weight edges in normalized-log luma: weight 0 at e0, 1 at e1.
+    The inverse of predicted_zone, so the zone means what the zone strip and the probe
+    say. Single source for the CPU kernel, the GPU uniforms and the canvas tint."""
+    # Zones fall as the value rises; np.interp needs its x rising.
+    zones = _zones_of(exposure, process_mode, metrics, _KEY_GRID)[::-1]
+    vals = _KEY_GRID[::-1]
+    half = 0.5 * mask.key_softness
+    lighter = float(np.interp(mask.key_zone + half, zones, vals))
+    # Past paper white or black the curve is flat, and equal edges would divide by zero.
+    darker = max(float(np.interp(mask.key_zone - half, zones, vals)), lighter + _KEY_MIN_SPAN)
+    return (darker, lighter) if mask.key == MaskKey.HIGHLIGHTS else (lighter, darker)
+
+
+def limited_mask_params(local: LocalAdjustmentsConfig, exposure: Any, process_mode: Optional[str], metrics: Any) -> Optional[np.ndarray]:
+    """(stops, ISO-R delta, e0, e1) per tone-limited mask, in plane order; None when there is none."""
+    masks = limited_masks(local)
+    if not masks:
+        return None
+    return np.array([(m.stops, m.grade, *key_edges(m, exposure, process_mode, metrics)) for m in masks], dtype=np.float64)
 
 
 def solve_placement(

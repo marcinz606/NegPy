@@ -1,6 +1,6 @@
 import numpy as np
 
-from negpy.desktop.view.canvas.overlay import feathered_mask_image
+from negpy.desktop.view.canvas.overlay import feathered_mask_image, tone_weight
 from negpy.features.local.logic import rasterise
 from negpy.features.local.models import MaskShape
 from PyQt6.QtGui import QColor, QImage
@@ -141,3 +141,37 @@ def test_a_vertex_drag_holds_off_the_crossing_tint_too(qapp):
 
     overlay._end_local_edit()
     assert all(a > 0 for a in _tint_alphas(overlay).values())
+
+
+def test_a_tone_weight_scales_the_tint():
+    weight = np.ones((H, W), dtype=np.float32)
+    weight[:, 50:] = 0.0
+    img = feathered_mask_image(MaskShape.POLYGON, SQUARE, W, H, sigma_px=0.0, color=DODGE, max_alpha=70, weight=weight)
+    alpha = _to_array(img)[..., 3]
+    assert alpha[50, 30] == 70
+    assert alpha[50, 70] == 0
+
+
+def test_the_tone_weight_keys_the_tone_under_each_pixel():
+    """Left half light (0.2), right half dark (0.9); Highlights edges 0 at 0.6, 1 at 0.4."""
+    lum = np.full((10, 20), 0.9, dtype=np.float32)
+    lum[:, :10] = 0.2
+    u = (np.arange(4) + 0.5) / 4
+    v = np.array([0.5])
+    np.testing.assert_array_equal(tone_weight(lum, (0.6, 0.4), u, v, roi=None, crop_full=False), [[1.0, 1.0, 0.0, 0.0]])
+
+
+def test_the_tone_weight_reads_through_the_crop():
+    lum = np.full((10, 20), 0.9, dtype=np.float32)
+    lum[:, :10] = 0.2
+    u = (np.arange(4) + 0.5) / 4
+    v = np.array([0.5])
+    # (y1, y2, x1, x2): the right half only, so every tint pixel sits on the dark tone.
+    np.testing.assert_array_equal(tone_weight(lum, (0.6, 0.4), u, v, roi=(0, 10, 10, 20), crop_full=False), [[0.0] * 4])
+    np.testing.assert_array_equal(tone_weight(lum, (0.6, 0.4), u, v, roi=(0, 10, 10, 20), crop_full=True), [[1.0, 1.0, 0.0, 0.0]])
+
+
+def test_the_tone_weight_is_zero_off_the_frame():
+    lum = np.full((10, 20), 0.2, dtype=np.float32)
+    w = tone_weight(lum, (0.6, 0.4), np.array([-0.1, 0.5, 1.2]), np.array([0.5]), roi=None, crop_full=False)
+    np.testing.assert_array_equal(w, [[0.0, 1.0, 0.0]])

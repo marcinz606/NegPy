@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 from numba import njit, prange  # type: ignore
 
-from negpy.domain.types import ImageBuffer
+from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R, ImageBuffer
 from negpy.features.exposure.papers import (
     PaperProfile,
     compose_density_matrices,
@@ -86,6 +86,24 @@ def separation_damping_gain_np(k: float, damping: float, chroma: Any, ref_spread
     return np.minimum(kf, np.float32(3.0))
 
 
+@njit(inline="always")
+def tone_key_weight(lum: float, e0: float, e1: float) -> float:
+    """A tone-limited mask's weight at luma `lum`: a smoothstep from 0 at e0 to 1 at e1
+    (see placement.key_edges). Either edge order works. exposure.wgsl mirrors it."""
+    t = (lum - e0) / (e1 - e0)
+    if t < 0.0:
+        t = 0.0
+    elif t > 1.0:
+        t = 1.0
+    return t * t * (3.0 - 2.0 * t)
+
+
+def tone_key_weight_np(lum: Any, e0: float, e1: float) -> Any:
+    """Vectorized numpy twin of tone_key_weight, for the canvas tint over a whole raster."""
+    t = np.clip((np.asarray(lum, dtype=np.float32) - np.float32(e0)) / np.float32(e1 - e0), 0.0, 1.0)
+    return t * t * (np.float32(3.0) - np.float32(2.0) * t)
+
+
 @parallel_njit(cache=True, fastmath=True)
 def _apply_print_curve_kernel(
     img: np.ndarray,
@@ -128,6 +146,13 @@ def _apply_print_curve_kernel(
     use_ev: bool,
     grade_map: np.ndarray,
     use_grade: bool,
+    key_alpha: np.ndarray,
+    key_params: np.ndarray,
+    use_key: bool,
+    grade_deltas: np.ndarray,
+    r0: float,
+    r_min: float,
+    r_max: float,
     bpc: bool = False,
 ) -> np.ndarray:
     """
@@ -146,6 +171,9 @@ def _apply_print_curve_kernel(
     cmy_offsets.
     grade_map: per-pixel slope multiplier (local_grade_factor_map) when use_grade
     is set — burning or dodging through a harder/softer filter.
+    key_alpha/key_params: tone-limited masks when use_key is set (see
+    apply_characteristic_curve). Their grade adds to grade_deltas in ISO-R space about r0,
+    which then replaces grade_map.
 
     Output is linear reflectance (transmittance = 10^-D); the working-space OETF is
     applied at the engine output, not here.
@@ -208,11 +236,30 @@ def _apply_print_curve_kernel(
         dens = np.empty(3, dtype=np.float64)
         for x in range(w):
             gfac = 1.0
-            if use_grade:
+            ev_px = 0.0
+            if use_key:
+                if use_ev:
+                    ev_px = ev_map[y, x]
+                # The unburned tone: no mask can move the pixels it selects.
+                lum = LUMA_R * img[y, x, 0] + LUMA_G * img[y, x, 1] + LUMA_B * img[y, x, 2]
+                dr = grade_deltas[y, x]
+                for k in range(key_params.shape[0]):
+                    a = key_alpha[y, x, k] * tone_key_weight(lum, key_params[k, 2], key_params[k, 3])
+                    ev_px += key_params[k, 0] * a
+                    dr += key_params[k, 1] * a
+                r1 = r0 + dr
+                if r1 < r_min:
+                    r1 = r_min
+                elif r1 > r_max:
+                    r1 = r_max
+                gfac = r0 / r1
+            elif use_grade:
                 gfac = grade_map[y, x]
             for ch in range(3):
                 val = img[y, x, ch] + cmy_offsets[ch]
-                if use_ev:
+                if use_key:
+                    val = val + np.float32(ev_px * ev_scale[ch])
+                elif use_ev:
                     val = val + ev_map[y, x] * ev_scale[ch]
                 # Quadratic per-channel core; curvature 0 gives the original straight line.
                 # gfac is the local grade, a slope rotation about this channel's pivot, so the
@@ -569,11 +616,20 @@ def apply_characteristic_curve(
     dye_separation: float = 1.0,
     dye_separation_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     separation_damping: float = 0.0,
+    key_alpha: Optional[np.ndarray] = None,
+    key_params: Optional[np.ndarray] = None,
+    grade_deltas: Optional[np.ndarray] = None,
+    frame_grade: float = 0.0,
 ) -> ImageBuffer:
     """Applies the asymmetric H&D print curve per channel in log-density space.
 
     ev_map (H×W, stops; positive = burn) with ev_scale (see local_ev_scale) applies
     per-pixel dodge/burn as print-exposure offsets ahead of the curve.
+
+    key_alpha (H×W×K shape alphas) with key_params (K×4: stops, ISO-R delta, e0, e1 from
+    key_edges) adds K tone-limited masks, each weighted by a smoothstep from 0 at e0 to 1
+    at e1 on the pixel's own luma. With them the local grade is summed in ISO-R space
+    about frame_grade from grade_deltas (the unlimited masks' ISO-R plane), not grade_map.
 
     dye_separation(_trims): density-domain saturation, composed into the
     dye_mix slot (see resolve_saturation_matrix/compose_density_matrices).
@@ -602,6 +658,16 @@ def apply_characteristic_curve(
     ev_arr = np.ascontiguousarray(ev_map.astype(np.float32)) if ev_map is not None else np.zeros((1, 1), dtype=np.float32)
     use_grade = grade_map is not None
     grade_arr = np.ascontiguousarray(grade_map.astype(np.float32)) if grade_map is not None else np.ones((1, 1), dtype=np.float32)
+    use_key = key_alpha is not None
+    r_min, r_max = float(c["iso_r_min"]), float(c["iso_r_max"])
+    if use_key:
+        key_alpha_arr = np.ascontiguousarray(key_alpha.astype(np.float32))
+        key_params_arr = np.ascontiguousarray(np.asarray(key_params, dtype=np.float64).reshape(-1, 4))
+        deltas_arr = np.ascontiguousarray(grade_deltas.astype(np.float32))
+    else:
+        key_alpha_arr = np.zeros((1, 1, 1), dtype=np.float32)
+        key_params_arr = np.zeros((0, 4), dtype=np.float64)
+        deltas_arr = np.zeros((1, 1), dtype=np.float32)
 
     toe3, sh3 = per_channel_toe_shoulder(toe, shoulder, toe_trims, shoulder_trims)
     tw3, sw3 = per_channel_widths(toe_width, shoulder_width, toe_width_trims, shoulder_width_trims)
@@ -646,6 +712,13 @@ def apply_characteristic_curve(
         use_ev=use_ev,
         grade_map=grade_arr,
         use_grade=use_grade,
+        key_alpha=key_alpha_arr,
+        key_params=key_params_arr,
+        use_key=use_key,
+        grade_deltas=deltas_arr,
+        r0=min(max(float(frame_grade), r_min), r_max),
+        r_min=r_min,
+        r_max=r_max,
         bpc=bool(bpc),
     )
     return ensure_image(res)

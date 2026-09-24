@@ -10,7 +10,7 @@ from dataclasses import replace
 import numpy as np
 
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskShape
+from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskKey, MaskShape
 from negpy.features.process.models import ProcessMode
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.services.rendering.gpu_engine import GPUEngine
@@ -90,6 +90,15 @@ class TestGpuTiledParity(unittest.TestCase):
         )
         self._assert_changes_export(settings, "The dodge/burn mask did nothing to the tiled export")
         self._assert_parity(settings, "Tiled export placed the dodge/burn mask on an uncorrected frame")
+
+    def test_tiled_applies_a_tone_limited_mask(self):
+        base = _base()
+        mask = LocalMask(
+            vertices=((0.2, 0.5), (0.7, 0.5)), stops=1.5, grade=-20.0, shape=MaskShape.GRADIENT, key=MaskKey.HIGHLIGHTS, key_zone=5.0
+        )
+        settings = replace(base, local=LocalAdjustmentsConfig(masks=(mask,)))
+        self._assert_changes_export(settings, "The tone-limited mask did nothing to the tiled export")
+        self._assert_parity(settings, "Tiled export dropped the tone limit")
 
     def test_tiled_matches_untiled_with_every_stage_live(self):
         """One frame with a control on in each stage: geometry, exposure, local, mask,

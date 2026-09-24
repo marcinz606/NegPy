@@ -17,6 +17,7 @@ from negpy.desktop.view.canvas.crop_guides import CropGuide, guide_shapes
 from negpy.desktop.view.canvas.printing_notes import notes_outline, notes_sheet, paint_card, paint_map
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.stats import PIN_COLORS
+from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R
 from negpy.features.exposure.analysis import (
     RING_GRID,
     STRIP_DENSITIES,
@@ -41,7 +42,9 @@ from negpy.features.geometry.logic import (
     straighten_delta_degrees,
     translate_normalized_rect,
 )
-from negpy.features.local.logic import min_points, outline_points, overlapping_masks, rasterise
+from negpy.features.exposure.logic import tone_key_weight_np
+from negpy.features.exposure.placement import key_edges
+from negpy.features.local.logic import limited_indices, min_points, outline_points, overlapping_masks, rasterise
 from negpy.features.local.models import MaskShape
 from negpy.features.retouch.models import HEAL_SIZE_REF
 from negpy.features.retouch.logic import trace_scratch
@@ -164,15 +167,18 @@ def feathered_mask_image(
     color: QColor,
     max_alpha: int,
     invert: bool = False,
+    weight: Optional[np.ndarray] = None,
 ) -> QImage:
     """A tinted premultiplied-alpha QImage of a feathered mask.
 
     `local_pts` are the control points, in raster pixels, and `sigma_px` is also in
     raster pixels. The engine rasteriser makes the alpha, so the tint agrees with
-    the render.
+    the render. `weight` (h, w) is a tone limit's key weight (tone_weight).
     """
     norm = [(x / w, y / h) for x, y in local_pts]
     alpha = rasterise(shape, norm, h, w, sigma_px, invert)
+    if weight is not None:
+        alpha = alpha * weight
     a = alpha * (max_alpha / 255.0)
     buf = np.empty((h, w, 4), dtype=np.uint8)
     buf[..., 0] = (color.red() * a).astype(np.uint8)
@@ -181,6 +187,29 @@ def feathered_mask_image(
     buf[..., 3] = (a * 255.0).astype(np.uint8)
     img = QImage(buf.data, w, h, w * 4, QImage.Format.Format_RGBA8888_Premultiplied)
     return img.copy()  # QImage-from-buffer does not own the memory
+
+
+def tone_weight(
+    lum: np.ndarray,
+    edges: Tuple[float, float],
+    u: np.ndarray,
+    v: np.ndarray,
+    roi: Optional[Tuple[int, int, int, int]],
+    crop_full: bool,
+) -> np.ndarray:
+    """A tone limit's key weight over a tint raster, 0 off the frame. `u` are the columns'
+    and `v` the rows' content-normalized coords, read into the normalized-log luma `lum`
+    as densitometer.map_display_to_norm reads one pixel; roi is (y1, y2, x1, x2)."""
+    nh, nw = lum.shape
+    if crop_full or roi is None:
+        px, py = u * nw, v * nh
+    else:
+        y1, y2, x1, x2 = roi
+        px, py = x1 + u * (x2 - x1), y1 + v * (y2 - y1)
+    ix = np.clip(px.astype(np.int64), 0, nw - 1)
+    iy = np.clip(py.astype(np.int64), 0, nh - 1)
+    inside = ((v >= 0.0) & (v < 1.0))[:, None] & ((u >= 0.0) & (u < 1.0))[None, :]
+    return np.where(inside, tone_key_weight_np(lum[iy[:, None], ix[None, :]], *edges), 0.0).astype(np.float32)
 
 
 _LINE_HOVER_DEBOUNCE_MS = 90
@@ -267,6 +296,8 @@ class CanvasOverlay(QWidget):
         self._local_mask_screen_polys: List[List[QPointF]] = []
         self._local_mask_screen_ctrl: List[List[QPointF]] = []
         self._mask_img_cache: Dict[tuple, QImage] = {}
+        # (render_serial, luma) of the normalized log, which a tone-limited tint keys on.
+        self._tone_luma_cache: Optional[Tuple[Any, np.ndarray]] = None
 
         # Geometry-aligned IR layer raster, cached by (uv_grid, preview_ir) identity so it
         # rebuilds only when the render or source changes.
@@ -1869,10 +1900,12 @@ class CanvasOverlay(QWidget):
 
         with self.state.metrics_lock:
             uv_grid = self.state.last_metrics.get("uv_grid")
+            metrics = dict(self.state.last_metrics)
         if uv_grid is None:
             return
 
         selected = getattr(self.state, "local_selected_mask", -1)
+        limited = limited_indices(self.state.config.local)
         fresh_cache: Dict[tuple, QImage] = {}
         for i, mask in enumerate(masks):
             is_selected = i == selected
@@ -1913,10 +1946,12 @@ class CanvasOverlay(QWidget):
                 # Bbox-relative points are pan-invariant, so panning reuses the cache.
                 local = tuple((round((p.x() - x0) * scale, 1), round((p.y() - y0) * scale, 1)) for p in draw_ctrl)
 
-                key = (mask.shape, mask.invert, local, rw, rh, round(sigma_screen * scale, 2), outline.rgb(), max_alpha)
+                tone = self._tone_tint(mask, metrics, x0, y0, bw, bh) if i in limited else None
+                key = (mask.shape, mask.invert, local, rw, rh, round(sigma_screen * scale, 2), outline.rgb(), max_alpha, tone and tone[0])
                 img = self._mask_img_cache.get(key)
                 if img is None:
-                    img = feathered_mask_image(mask.shape, local, rw, rh, sigma_screen * scale, outline, max_alpha, mask.invert)
+                    weight = tone[1](rw, rh) if tone else None
+                    img = feathered_mask_image(mask.shape, local, rw, rh, sigma_screen * scale, outline, max_alpha, mask.invert, weight)
                 fresh_cache[key] = img
                 painter.drawImage(QRectF(x0, y0, bw, bh), img)
 
@@ -1937,6 +1972,52 @@ class CanvasOverlay(QWidget):
             if is_selected and self._tool_mode in _LOCAL_TOOLS and not self._lasso_drawing:
                 self._draw_local_handles(painter, mask.shape, draw_ctrl, outline)
         self._mask_img_cache = fresh_cache
+
+    def _tone_tint(self, mask: Any, metrics: Dict[str, Any], x0: float, y0: float, bw: float, bh: float) -> Optional[Tuple[tuple, Any]]:
+        """(cache key, weight builder) for a tone-limited mask's tint over the screen box
+        (x0, y0, bw, bh); None before a render has published the normalized log."""
+        lum = self._tone_luma(metrics)
+        if lum is None:
+            return None
+        content = self._content_view_rect()
+        if content.width() <= 0 or content.height() <= 0:
+            return None
+        conf = self.state.config
+        edges = key_edges(mask, conf.exposure, conf.process.process_mode, metrics)
+        roi = metrics.get("active_roi")
+        crop_full = self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
+        # Box relative to the content, so panning reuses the cache.
+        bx, by = x0 - content.x(), y0 - content.y()
+        key = (
+            metrics.get("render_serial"),
+            edges,
+            roi,
+            crop_full,
+            round(bx, 1),
+            round(by, 1),
+            round(content.width(), 1),
+            round(content.height(), 1),
+        )
+
+        def build(rw: int, rh: int) -> np.ndarray:
+            u = (bx + (np.arange(rw) + 0.5) * bw / rw) / content.width()
+            v = (by + (np.arange(rh) + 0.5) * bh / rh) / content.height()
+            return tone_weight(lum, edges, u, v, roi, crop_full)
+
+        return key, build
+
+    def _tone_luma(self, metrics: Dict[str, Any]) -> Optional[np.ndarray]:
+        """The normalized log's luma, read back once per render."""
+        nl = metrics.get("normalized_log")
+        if nl is None:
+            return None
+        serial = metrics.get("render_serial")
+        if self._tone_luma_cache is not None and serial is not None and self._tone_luma_cache[0] == serial:
+            return self._tone_luma_cache[1]
+        arr = nl if isinstance(nl, np.ndarray) else np.asarray(nl.readback_region(0, 0, nl.width, nl.height), dtype=np.float32)
+        lum = (LUMA_R * arr[..., 0] + LUMA_G * arr[..., 1] + LUMA_B * arr[..., 2]).astype(np.float32)
+        self._tone_luma_cache = (serial, lum)
+        return lum
 
     def _draw_gradient_axis(self, painter: QPainter, a: QPointF, b: QPointF) -> None:
         """Draw the card edge. A solid line shows full exposure, a dashed line shows

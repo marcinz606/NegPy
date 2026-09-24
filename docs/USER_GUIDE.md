@@ -445,18 +445,18 @@ Draw masks and lighten or darken only those areas:
 
 Handles can go into the gray area outside the frame. A tilted Card Edge usually must start past the corner it burns.
 
-*   **Mask list**: shape icon, Dodge (lighten), Burn (darken) or Grade (contrast only), and values. Click the shape icon to enable or disable the mask (its row grays out). The eye toggles the outline; the trash deletes it.
+*   **Mask list**: shape icon, Dodge (lighten), Burn (darken) or Grade (contrast only), and values. Click the shape icon to enable or disable the mask (its row grays out). The yin-yang inverts the mask, so it acts everywhere except inside its shape (red while on). The eye toggles the outline; the trash deletes it.
 *   The canvas tint of the current mask, and of masks that **intersect** it, goes while you hold **Burn**, **Feather** or **Grade** or drag a vertex. A Card Edge or an inverted mask intersects anything on its side.
 *   **Burn** (-2 to 2 stops, default 0): **positive burns** (darker), **negative dodges** (brighter), like Print Density and the Finishing edge burn.
 *   **Feather** (0.0 to 0.15): edge softness, as a fraction of the frame's short side.
-*   **Invert**: act everywhere except inside the mask.
 *   **Grade** (-40 to 40 R): the mask's own contrast, in ISO-R points off the frame's Grade, negative harder (burn a sky at −20 R, dodge a face at +15 R). It rotates about the region's midtone, so with Burn 0 only contrast changes. Overlapping grades add, clamped to R50…R180.
+*   **Tone Limit** (*All*, *Highlights*, *Shadows*) with **Tone Zone** (0 to 10, in thirds, default 6) and **Tone Softness** (⅓ to 3 zones): limit the mask to tones lighter (*Highlights*) or darker (*Shadows*) than a zone of the print before any mask, like a lith mask registered with the negative. A sky burn on *Highlights* at VI stops at the skyline instead of darkening a band of it. The tint shows the tones it selects. Up to four masks per frame.
 
 **Printing Notes** (Export tab, or **Shift+N**) makes a marked-up work print: each mask outlined with its number and value in stops (a Card Edge marks its full-exposure side), and a corner card with paper, Print Density, ISO-R Grade (and split-grade trims), filtration, toe and shoulder, Snap, edge burn and the dodge/burn list.
 
 *   **Burns are hatched, dodges are left open.**
 *   **The numbers are exposure, not brightness**: +1.00 st is `Burn +1`. Values snap to ⅓, ½ and ¼ when close, else decimals.
-*   A mask with a local **Grade** shows the grade it prints at: `Burn +1 @ R95` (−20 R on an R115 frame), or `Grade @ R95` for a grade-only mask.
+*   A mask with a local **Grade** shows the grade it prints at: `Burn +1 @ R95` (−20 R on an R115 frame), or `Grade @ R95` for a grade-only mask. A tone-limited mask adds its zone: `Burn +1 on ≥VI`.
 
 Masks with a hidden outline stay on the map; disabled masks do not. The overlay hides while a test strip, either peek, the before/after baseline, or the crop and analysis tools use the canvas. Preview and export are in the Export tab's **Printing Notes** section.
 

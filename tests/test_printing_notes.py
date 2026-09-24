@@ -5,7 +5,7 @@ from dataclasses import replace
 
 from negpy.features.exposure.models import ExposureConfig
 from negpy.features.finish.models import FinishConfig
-from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask
+from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskKey
 from negpy.services.view.printing_notes import mask_notes, recipe_lines, stops_label
 
 SQUARE = ((0.2, 0.2), (0.8, 0.2), (0.8, 0.8), (0.2, 0.8))
@@ -142,3 +142,19 @@ def test_the_record_names_each_mask_grade() -> None:
     lines = recipe_lines(replace(ExposureConfig(), grade=115.0), local, FinishConfig())
 
     assert "Dodge & burn: 1 Burn +1 @ R95 · 2 Dodge −¼" in "\n".join(lines)
+
+
+def test_a_tone_limited_mask_names_its_zone() -> None:
+    local = LocalAdjustmentsConfig(masks=(LocalMask(vertices=SQUARE, stops=1.0, key=MaskKey.HIGHLIGHTS, key_zone=6.0),))
+    (note,) = mask_notes(local)
+
+    assert note.badge == "1 +1 ≥VI"
+    assert note.summary == "1 Burn +1 on ≥VI"
+
+
+def test_a_shadow_limit_reads_at_or_below_its_zone() -> None:
+    local = LocalAdjustmentsConfig(masks=(LocalMask(vertices=SQUARE, stops=-0.5, grade=-20.0, key=MaskKey.SHADOWS, key_zone=10.0 / 3.0),))
+    (note,) = mask_notes(local, grade=115.0)
+
+    assert note.badge == "1 −½ R95 ≤III⅓"
+    assert note.summary == "1 Dodge −½ @ R95 on ≤III⅓"

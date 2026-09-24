@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.sidebar.local import LocalSidebar
 from negpy.desktop.view.styles.theme import THEME
-from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskShape
+from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskKey, MaskShape
 
 SQUARE = ((0.2, 0.2), (0.8, 0.2), (0.8, 0.8), (0.2, 0.8))
 
@@ -127,14 +127,17 @@ def test_feather_is_inert_on_a_card_edge(qapp):
     assert sidebar.burn_slider.isEnabled()
 
 
-def test_invert_toggle_syncs_and_writes_back(qapp):
-    controller, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=1.0, invert=True))
+def test_the_row_invert_toggle_syncs_and_flips_that_mask(qapp):
+    """Invert sits on the row like the eye and trash, so it acts on its own mask, selected or not."""
+    controller, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=1.0), LocalMask(vertices=SQUARE, stops=1.0, invert=True), selected=0)
     sidebar.sync_ui()
 
-    assert sidebar.invert_btn.isChecked()
-    assert "inv" in _row_text(sidebar)
-    sidebar.invert_btn.setChecked(False)
-    controller.update_selected_local_mask.assert_called_with(invert=False)
+    row = sidebar.mask_list.itemWidget(sidebar.mask_list.item(1))
+    invert = row.layout().itemAt(3).widget()
+    assert invert.isChecked()
+    invert.click()
+
+    controller.set_local_mask_inverted.assert_called_with(1, False)
 
 
 def test_the_shape_icon_click_toggles_enabled(qapp):
@@ -169,3 +172,59 @@ def test_grabbing_a_slider_tells_the_canvas_to_drop_the_tint(qapp):
         controller.local_drag_changed.emit.assert_called_once_with(True)
         slider.slider.setSliderDown(False)
         controller.local_drag_changed.emit.assert_called_with(False)
+
+
+def test_all_tones_leaves_the_zone_controls_off(qapp):
+    _, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=1.0))
+    sidebar.sync_ui()
+
+    assert sidebar.tone_buttons[MaskKey.OFF].isChecked()
+    assert not sidebar.key_zone_slider.isEnabled()
+    assert not sidebar.key_softness_slider.isEnabled()
+
+
+def test_choosing_highlights_limits_the_selected_mask(qapp):
+    controller, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=1.0))
+    sidebar.sync_ui()
+
+    sidebar.tone_buttons[MaskKey.HIGHLIGHTS].click()
+
+    controller.update_selected_local_mask.assert_called_with(key=MaskKey.HIGHLIGHTS)
+
+
+def test_a_limited_mask_syncs_its_zone_and_names_it_in_the_row(qapp):
+    _, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=1.0, key=MaskKey.SHADOWS, key_zone=4.0, key_softness=2.0))
+    sidebar.sync_ui()
+
+    assert sidebar.tone_buttons[MaskKey.SHADOWS].isChecked()
+    assert sidebar.key_zone_slider.isEnabled() and sidebar.key_zone_slider.value() == 4.0
+    assert sidebar.key_softness_slider.value() == 2.0
+    assert "≤IV" in _row_text(sidebar)
+
+
+def test_moving_the_tone_zone_edits_the_mask(qapp):
+    controller, sidebar = _sidebar(LocalMask(vertices=SQUARE, stops=1.0, key=MaskKey.HIGHLIGHTS))
+    sidebar.sync_ui()
+
+    sidebar.key_zone_slider.adjust_by(1.0)
+
+    controller.update_selected_local_mask.assert_called_with(key_zone=7.0)
+
+
+def test_a_fifth_mask_cannot_be_limited(qapp):
+    """Four limited masks fill the GPU's shape planes; a fifth would print unlimited."""
+    limited = [LocalMask(vertices=SQUARE, stops=1.0, key=MaskKey.HIGHLIGHTS) for _ in range(4)]
+    _, sidebar = _sidebar(*limited, LocalMask(vertices=SQUARE, stops=1.0), selected=4)
+    sidebar.sync_ui()
+
+    assert not sidebar.tone_buttons[MaskKey.HIGHLIGHTS].isEnabled()
+    assert not sidebar.tone_buttons[MaskKey.SHADOWS].isEnabled()
+    assert sidebar.tone_buttons[MaskKey.OFF].isChecked()
+
+
+def test_a_limited_mask_among_four_stays_editable(qapp):
+    limited = [LocalMask(vertices=SQUARE, stops=1.0, key=MaskKey.HIGHLIGHTS) for _ in range(4)]
+    _, sidebar = _sidebar(*limited, selected=2)
+    sidebar.sync_ui()
+
+    assert sidebar.tone_buttons[MaskKey.SHADOWS].isEnabled()

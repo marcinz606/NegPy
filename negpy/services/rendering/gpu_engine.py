@@ -52,7 +52,9 @@ from negpy.features.lab.models import SharpenMethod
 from negpy.features.altprocess.models import AltProcess
 from negpy.features.cyanotype.logic import CYANOTYPE_CONSTANTS, sensitizer_constants
 from negpy.features.lith.logic import LITH_CONSTANTS
-from negpy.features.local.logic import compute_local_maps
+from negpy.features.exposure.placement import limited_mask_params
+from negpy.features.local.logic import compute_local_maps, limited_masks
+from negpy.features.local.models import MAX_KEYED_MASKS
 from negpy.features.exposure.transfer import (
     TRANSFER_CONSTANTS,
     ZONE_BLACK_TAPER,
@@ -319,11 +321,11 @@ class GPUEngine:
             "density_hist",
         ]
         # Packed byte size per stage. A stage that exceeds the 256B dynamic-offset
-        # alignment (exposure, 336B) occupies multiple aligned slots.
+        # alignment (exposure, 416B) occupies multiple aligned slots.
         self._uniform_sizes = {
             "geometry": 64,
             "normalization": 160,
-            "exposure": 336,
+            "exposure": 416,
             "transfer": 224,
             "clahe_u": 32,
             "lab": 96,
@@ -1053,6 +1055,14 @@ class GPUEngine:
                 wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_DST,
                 "local_ev",
             )
+        # Tone-limited masks' shape alphas; the same 1x1 dummy when there is none (key_meta.x
+        # gates it).
+        key_size = (w_rot, h_rot) if limited_masks(settings.local) else (1, 1)
+        tex_local_key = self._get_intermediate_texture(
+            *key_size,
+            wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_DST,
+            "local_key",
+        )
         tex_toning = self._get_intermediate_texture(
             crop_w,
             crop_h,
@@ -1129,17 +1139,22 @@ class GPUEngine:
                     if local_maps is None:
                         local_maps = np.zeros((h_rot, w_rot, 2), dtype=np.float32)
                     ev_plane = local_maps[:, :, 0]
-                    # r = dodge/burn EV, g = local grade slope factor, b unused. One texture,
-                    # so the local-grade map costs no bind slot.
+                    # r = dodge/burn EV, g = local grade slope factor, b = its ISO-R deltas,
+                    # which tone-limited masks add their grade to. One texture, so the
+                    # local-grade map costs no bind slot.
                     tex_local_ev.upload(
                         np.dstack(
                             [
                                 ev_plane,
                                 local_grade_factor_map(local_maps[:, :, 1], settings.exposure.grade),
-                                np.zeros_like(ev_plane),
+                                local_maps[:, :, 1],
                             ]
                         )
                     )
+                    if local_maps.shape[2] > 2:
+                        planes = np.zeros((*ev_plane.shape, MAX_KEYED_MASKS), dtype=np.float32)
+                        planes[:, :, : local_maps.shape[2] - 2] = local_maps[:, :, 2:]
+                        tex_local_key.upload(planes)
                     # A tiled export passes a per-tile slice, which is not reusable.
                     self._local_ev_key = None if tiled_maps else ev_key
             if is_transfer_path(settings.process.process_mode, settings.process.e6_normalize, settings.process.positive_source):
@@ -1166,6 +1181,7 @@ class GPUEngine:
                         (2, self._get_uniform_binding("exposure")),
                         (3, tex_local_ev.view),
                         (4, tex_mask.view),
+                        (5, tex_local_key.view),
                     ],
                     w_rot,
                     h_rot,
@@ -1827,6 +1843,31 @@ class GPUEngine:
         dye = composed  # use_dye_mix (below) and dye_rows both key off this
         dye_rows = np.eye(3) if dye is None else dye
 
+        # Tone-limited masks keyed from the same metrics this render publishes, so the CPU
+        # kernel and the canvas tint pick the same pixels.
+        key_params = limited_mask_params(
+            settings.local,
+            exp,
+            settings.process.process_mode,
+            {
+                "final_bounds": LogNegativeBounds(adj_floors, adj_ceils),
+                "norm_density_range": lum_range,
+                "metered_anchor": metered_anchor,
+                "textural_range": textural_range,
+                "shadow_point": shadow_point,
+                "highlight_point": highlight_point,
+                "shadow_log_refs": shadow_refs,
+                "neutral_axis_refs": neutral_axis_refs,
+            },
+        )
+        key_rows = np.zeros((MAX_KEYED_MASKS, 4), dtype=np.float32)
+        if key_params is not None:
+            key_rows[: len(key_params)] = key_params
+        r_min, r_max = float(EXPOSURE_CONSTANTS["iso_r_min"]), float(EXPOSURE_CONSTANTS["iso_r_max"])
+        key_meta = struct.pack(
+            "ffff", 0.0 if key_params is None else float(len(key_params)), min(max(float(exp.grade), r_min), r_max), r_min, r_max
+        )
+
         # The w-lanes carry per-channel toe (first three vec4s) and shoulder (next three).
         # See the toe3/sh3 reads in exposure.wgsl.
         e_data = (
@@ -1903,6 +1944,8 @@ class GPUEngine:
             # origin and span in rotated pixels. The shader does the upscale.
             + struct.pack("ffff", *(contrast_mask[:3] if contrast_mask else (0.0, 0.0, 0.0)), 0.0)
             + struct.pack("ffff", *(contrast_mask[3:] if contrast_mask else (1.0, 1.0)), 0.0, 0.0)
+            + key_rows.tobytes()
+            + key_meta
         )
 
         cls = float(settings.lab.clahe_strength)

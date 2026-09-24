@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import numpy as np
 
@@ -23,6 +23,7 @@ from negpy.features.exposure.logic import (
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig, RenderIntent
 from negpy.features.exposure.papers import effective_paper_profile
+from negpy.features.exposure.placement import limited_mask_params
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
     analyze_log_exposure_bounds_from_log,
@@ -426,6 +427,14 @@ class PhotometricProcessor:
         grade_map = None
         if local_maps is not None and local_maps[:, :, 1].any():
             grade_map = local_grade_factor_map(np.ascontiguousarray(local_maps[:, :, 1]), self.config.grade)
+        key_kw: Dict[str, Any] = {}
+        if local_maps is not None and local_maps.shape[2] > 2 and self.local_config is not None:
+            key_kw = {
+                "key_alpha": local_maps[:, :, 2:],
+                "key_params": limited_mask_params(self.local_config, self.config, context.process_mode, context.metrics),
+                "grade_deltas": local_maps[:, :, 1],
+                "frame_grade": self.config.grade,
+            }
 
         img_pos = apply_characteristic_curve(
             image,
@@ -480,6 +489,7 @@ class PhotometricProcessor:
                 self.config.dye_separation_trim_blue,
             ),
             separation_damping=0.0 if context.process_mode == ProcessMode.BW else self.config.separation_damping,
+            **key_kw,
         )
 
         if context.process_mode == ProcessMode.BW:

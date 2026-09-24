@@ -4,7 +4,7 @@ from typing import List, Sequence, Tuple
 import cv2
 import numpy as np
 
-from negpy.features.local.models import LocalAdjustmentsConfig, MaskShape
+from negpy.features.local.models import MAX_KEYED_MASKS, LocalAdjustmentsConfig, LocalMask, MaskKey, MaskShape
 from negpy.features.geometry.logic import map_coords_to_geometry, smooth_polyline
 
 _OVAL_SAMPLES = 64
@@ -125,17 +125,20 @@ def compute_local_maps(
     converge_h: float = 0.0,
 ) -> np.ndarray:
     """
-    Build the per-pixel dodge/burn maps [h, w, 2] float32, each plane the sum over
-    masks of the mask's value times its feathered alpha: plane 0 is print exposure
-    in stops (positive = burn, negative = dodge), plane 1 the local grade delta in
-    ISO-R points. One rasterisation feeds both. All-zeros when there are no masks.
+    Build the per-pixel dodge/burn maps [h, w, 2 + K] float32. Planes 0 and 1 are sums
+    over the unlimited masks of the mask's value times its feathered alpha: print
+    exposure in stops (positive = burn, negative = dodge) and the local grade delta in
+    ISO-R points. Plane 2 + k is the feathered alpha alone of the k-th of
+    `limited_masks`, whose weight also depends on each pixel's tone, so it cannot be
+    pre-summed. All-zeros when there are no masks.
     """
-    maps = np.zeros((h, w, 2), dtype=np.float32)
+    limited = limited_indices(config)
+    maps = np.zeros((h, w, 2 + len(limited)), dtype=np.float32)
     if not config.masks:
         return maps
 
     short_side = float(min(h, w))
-    for mask in config.masks:
+    for i, mask in enumerate(config.masks):
         if not mask.enabled or len(mask.vertices) < min_points(mask.shape):
             continue
 
@@ -156,8 +159,22 @@ def compute_local_maps(
         ]
 
         alpha = rasterise(mask.shape, transformed, h, w, mask.feather * short_side, mask.invert)
+        if i in limited:
+            maps[:, :, 2 + limited.index(i)] = alpha
+            continue
         maps[:, :, 0] += mask.stops * alpha
         if mask.grade:
             maps[:, :, 1] += mask.grade * alpha
 
     return maps
+
+
+def limited_indices(config: LocalAdjustmentsConfig) -> List[int]:
+    """Indices of the tone-limited masks that get a shape plane, in plane order."""
+    limited = [i for i, m in enumerate(config.masks) if m.enabled and m.key != MaskKey.OFF and len(m.vertices) >= min_points(m.shape)]
+    return limited[:MAX_KEYED_MASKS]
+
+
+def limited_masks(config: LocalAdjustmentsConfig) -> List[LocalMask]:
+    """The tone-limited masks in plane order (plane 2 + k of compute_local_maps)."""
+    return [config.masks[i] for i in limited_indices(config)]

@@ -1,3 +1,4 @@
+import itertools
 import math
 import os
 import time
@@ -322,6 +323,16 @@ def history_step_label(prev: Optional[WorkspaceConfig], config: WorkspaceConfig,
 
 
 _NOTHING_TO_APPLY = "Nothing to apply — every card already follows the roll"
+
+# Process-wide, so a cleared last_metrics never reissues a serial a canvas cache still holds.
+_RENDER_SERIALS = itertools.count(1)
+
+
+def _stamp_render_serial(last_metrics: Dict[str, Any], metrics: Dict[str, Any]) -> None:
+    """Caller holds metrics_lock. A GPU normalized log is one pooled texture, so its
+    identity cannot tell one render's content from the next."""
+    if "normalized_log" in metrics:
+        last_metrics["render_serial"] = next(_RENDER_SERIALS)
 
 
 class AppController(QObject):
@@ -3875,11 +3886,18 @@ class AppController(QObject):
 
     def set_local_mask_enabled(self, index: int, enabled: bool) -> None:
         """Suppress or restore one mask's effect on the render, independent of selection."""
+        self._update_local_mask(index, enabled=enabled)
+
+    def set_local_mask_inverted(self, index: int, inverted: bool) -> None:
+        """Invert one mask, independent of selection."""
+        self._update_local_mask(index, invert=inverted)
+
+    def _update_local_mask(self, index: int, **changes) -> None:
         local = self.state.config.local
         if not (0 <= index < len(local.masks)):
             return
         masks = list(local.masks)
-        masks[index] = replace(masks[index], enabled=enabled)
+        masks[index] = replace(masks[index], **changes)
         new_local = replace(local, masks=tuple(masks))
         self.session.update_config(replace(self.state.config, local=new_local), persist=True)
         self.config_updated.emit()
@@ -6662,6 +6680,7 @@ class AppController(QObject):
 
         with self.state.metrics_lock:
             self.state.last_metrics.update(metrics)
+            _stamp_render_serial(self.state.last_metrics, metrics)
             self.state.last_metrics["splash"] = False
             # last_metrics carries over between frames, so a peek's suppressed proof must
             # not outlive it onto the next render.
@@ -6760,6 +6779,7 @@ class AppController(QObject):
 
         with self.state.metrics_lock:
             self.state.last_metrics.update(metrics)
+            _stamp_render_serial(self.state.last_metrics, metrics)
         if "ir_degenerate" in metrics:
             self.state.ir_degenerate = bool(metrics["ir_degenerate"])
         self.metrics_available.emit(metrics)

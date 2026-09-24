@@ -56,6 +56,10 @@ struct ExposureUniforms {
     mask: vec4<f32>,
     // Contrast Mask: xy = the printed frame's span in rotated pixels, zw pad.
     mask_span: vec4<f32>,
+    // Tone-limited masks (limited_mask_params): stops, ISO-R delta, key edges e0/e1 each.
+    keyed: array<vec4<f32>, 4>,
+    // x = limited mask count, y = frame ISO-R, zw = the ISO-R ladder's ends.
+    key_meta: vec4<f32>,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -66,6 +70,8 @@ struct ExposureUniforms {
 // Contrast Mask plane on the analysis grid. Upscaled here rather than uploaded at
 // render size, so the slider costs a uniform write and no transfer.
 @group(0) @binding(4) var mask_tex: texture_2d<f32>;
+// Shape alpha of each tone-limited mask, one per channel (planes 2+ of compute_local_maps).
+@group(0) @binding(5) var key_tex: texture_2d<f32>;
 
 // The mask plane at this pixel, in stops. Mirrors expand_mask_plane in
 // exposure/logic.py: OpenCV's half-pixel bilinear, taps clamped, which is the
@@ -106,6 +112,13 @@ fn separation_damping_gain(k: f32, damping: f32, chroma: f32) -> f32 {
     }
     let h = (0.35 - chroma) / (0.35 + chroma);
     return min(pow(k, (1.0 - damping) + damping * h), 3.0);
+}
+
+// A tone-limited mask's weight; mirrors tone_key_weight in exposure/logic.py. Written out
+// rather than smoothstep(), which is undefined for e0 > e1 (a Highlights limit).
+fn tone_key_weight(lum: f32, e0: f32, e1: f32) -> f32 {
+    let t = clamp((lum - e0) / (e1 - e0), 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
 }
 
 // Working-space OETF (Adobe RGB: pure 563/256 gamma); feeds the encoded
@@ -200,14 +213,30 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let d_max_eff = max(d_max_base, d_min_eff + vec3<f32>(0.1));
 
     // Dodge/burn print exposure (stops, positive = burn; same domain as cmy_offsets) in .r,
-    // local grade as a slope multiplier (local_grade_factor_map) in .g. The dummy
-    // texture is zero-filled, so the gate is what keeps gfac off 0.
+    // local grade as a slope multiplier (local_grade_factor_map) in .g, its ISO-R deltas in
+    // .b. The dummy texture is zero-filled, so the gate is what keeps gfac off 0.
     var ev = 0.0;
     var gfac = 1.0;
     if (params.ev_scale.w != 0.0) {
         let local_maps = textureLoad(ev_tex, coords, 0);
         ev = local_maps.r;
         gfac = local_maps.g;
+        let n_key = i32(params.key_meta.x);
+        if (n_key > 0) {
+            // The unburned tone: no mask can move the pixels it selects. Mirrors the CPU
+            // kernel; the grade sums in ISO-R space, then clamps once to the ladder.
+            let lum = dot(color.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+            let alphas = textureLoad(key_tex, coords, 0);
+            var dr = local_maps.b;
+            for (var k = 0; k < n_key; k++) {
+                let e = params.keyed[k];
+                let a = alphas[k] * tone_key_weight(lum, e.z, e.w);
+                ev = ev + e.x * a;
+                dr = dr + e.y * a;
+            }
+            let r0 = params.key_meta.y;
+            gfac = r0 / clamp(r0 + dr, params.key_meta.z, params.key_meta.w);
+        }
     }
     if (params.mask.x != 0.0) {
         ev = ev + contrast_mask_stops(coords);

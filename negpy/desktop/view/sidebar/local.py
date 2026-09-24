@@ -1,15 +1,31 @@
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
-from PyQt6.QtWidgets import QPushButton, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QWidget
+from PyQt6.QtWidgets import QButtonGroup, QPushButton, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QWidget
 import qtawesome as qta
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.session import ToolMode
-from negpy.desktop.view.styles.templates import field_label
+from negpy.desktop.view.styles.templates import field_label, section_subheader, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
-from negpy.features.local.models import MaskShape
+from negpy.features.local.logic import limited_indices
+from negpy.features.local.models import MAX_KEYED_MASKS, MaskKey, MaskShape
+from negpy.services.view.printing_notes import tone_limit_label
 
 
 _MASK_ROW_H = 30
+_TONE_TIPS = {
+    MaskKey.OFF: "The mask acts on every tone inside its shape.",
+    MaskKey.HIGHLIGHTS: (
+        "The mask acts only on tones lighter than Tone Zone, read on the print before any mask, "
+        "like a lith mask made from the negative and registered with it. Burn a sky and the burn "
+        "stops at the skyline instead of darkening a band of it."
+    ),
+    MaskKey.SHADOWS: (
+        "The mask acts only on tones darker than Tone Zone, read on the print before any mask. "
+        "Dodge the ground under a sky without lightening the sky above it."
+    ),
+}
+_TONE_FULL_TIP = f"{MAX_KEYED_MASKS} masks already carry a tone limit, the most one frame prints. Set one of them to All to limit this one."
+
 _SHAPE_ICONS = {
     MaskShape.POLYGON: "fa5s.draw-polygon",
     MaskShape.OVAL: "fa5s.circle",
@@ -95,12 +111,28 @@ class LocalSidebar(BaseSidebar):
             "midtone holds, so this changes its contrast without moving its overall density."
         )
 
-        self.invert_btn = self._labeled_toggle(
-            "fa5s.exchange-alt",
-            " Invert",
-            False,
-            "Act everywhere except inside the selected mask — the card itself instead of the hole "
-            "cut in it. Burn the surround and hold the face, in one mask.",
+        self.tone_group = QButtonGroup(self)
+        self.tone_group.setExclusive(True)
+        self.tone_buttons = {}
+        tone_row = QHBoxLayout()
+        for key, icon, label in (
+            (MaskKey.OFF, "fa5s.adjust", " All"),
+            (MaskKey.HIGHLIGHTS, "fa5s.sun", " Highlights"),
+            (MaskKey.SHADOWS, "fa5s.moon", " Shadows"),
+        ):
+            btn = self._labeled_toggle(icon, label, key == MaskKey.OFF, _TONE_TIPS[key])
+            self.tone_group.addButton(btn)
+            self.tone_buttons[key] = btn
+            tone_row.addWidget(btn)
+
+        # Print zones in thirds, the zone strip's and zone placement's own step.
+        self.key_zone_slider = CompactSlider("Tone Zone", 0.0, 10.0, 6.0, step=1.0 / 3.0, precision=3)
+        self.key_zone_slider.setToolTip(
+            "The zone the tone limit starts at, on the print before any mask: 0 is paper black, V is 18% gray, X is paper white"
+        )
+        self.key_softness_slider = CompactSlider("Tone Softness", 1.0 / 3.0, 3.0, 1.0, step=1.0 / 3.0, precision=3)
+        self.key_softness_slider.setToolTip(
+            "How many zones the tone limit takes to go from no effect to full effect. Raise it when tones near the zone show a ragged edge."
         )
 
         slider_row = QHBoxLayout()
@@ -108,7 +140,12 @@ class LocalSidebar(BaseSidebar):
         slider_row.addWidget(self.grade_slider)
         self.layout.addLayout(slider_row)
         self.layout.addWidget(self.feather_slider)
-        self.layout.addWidget(self.invert_btn)
+        self.layout.addWidget(section_subheader("Tone Limit"))
+        self.layout.addLayout(tone_row)
+        key_row = QHBoxLayout()
+        key_row.addWidget(self.key_zone_slider)
+        key_row.addWidget(self.key_softness_slider)
+        self.layout.addLayout(key_row)
 
         self.mask_count_label = field_label("0 masks")
         self.layout.addWidget(self.mask_count_label)
@@ -125,6 +162,8 @@ class LocalSidebar(BaseSidebar):
             (self.burn_slider, "stops"),
             (self.feather_slider, "feather"),
             (self.grade_slider, "grade"),
+            (self.key_zone_slider, "key_zone"),
+            (self.key_softness_slider, "key_softness"),
         ):
             slider.valueChanged.connect(
                 lambda v, f=field: self.controller.update_selected_local_mask(persist=False, readback_metrics=False, **{f: float(v)})
@@ -132,7 +171,8 @@ class LocalSidebar(BaseSidebar):
             slider.valueCommitted.connect(lambda v, f=field: self.controller.update_selected_local_mask(**{f: float(v)}))
             slider.dragStarted.connect(lambda: self.controller.local_drag_changed.emit(True))
             slider.dragEnded.connect(lambda: self.controller.local_drag_changed.emit(False))
-        self.invert_btn.toggled.connect(lambda v: self.controller.update_selected_local_mask(invert=bool(v)))
+        for key, btn in self.tone_buttons.items():
+            btn.clicked.connect(lambda _c, k=key: self.controller.update_selected_local_mask(key=k))
 
     def _tool_modes(self) -> dict:
         return {
@@ -170,8 +210,8 @@ class LocalSidebar(BaseSidebar):
         values = [f"{mask.stops:+.2f} st"] if mask.stops else []
         if mask.grade:
             values.append(f"{mask.grade:+.0f} R")
-        if mask.invert:
-            values.append("inv")
+        if i in limited_indices(self.state.config.local):
+            values.append(tone_limit_label(mask))
         # The shape icon enables/disables the mask's effect; the row dims to text_muted while
         # disabled.
         shape_btn = self._row_icon_btn(_SHAPE_ICONS[mask.shape], checkable=False)
@@ -183,6 +223,12 @@ class LocalSidebar(BaseSidebar):
         label.setStyleSheet(f"color: {color if mask.enabled else THEME.text_muted};")
         label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
+        # Accent while on, like any armed toggle; the card itself instead of the hole cut in it.
+        invert = self._row_icon_btn("fa5s.yin-yang", checkable=True)
+        invert.setIcon(qta.icon("fa5s.yin-yang", color=THEME.accent_primary if mask.invert else THEME.text_primary))
+        invert.setChecked(mask.invert)
+        invert.setToolTip(wrap_tooltip("Invert: act everywhere except inside this mask. Burn the surround and hold the face, in one mask"))
+
         visible = i not in self.state.local_hidden_masks
         eye = self._row_icon_btn("fa5s.eye" if visible else "fa5s.eye-slash", checkable=True)
         eye.setChecked(visible)
@@ -193,11 +239,13 @@ class LocalSidebar(BaseSidebar):
         lay.addWidget(shape_btn)
         lay.addWidget(label)
         lay.addStretch()
+        lay.addWidget(invert)
         lay.addWidget(eye)
         lay.addWidget(delete)
 
         row.clicked.connect(lambda i=i: self.controller.select_local_mask(i))
         shape_btn.clicked.connect(lambda _=False, i=i, m=mask: self.controller.set_local_mask_enabled(i, not m.enabled))
+        invert.toggled.connect(lambda checked, i=i: self.controller.set_local_mask_inverted(i, checked))
         eye.toggled.connect(lambda checked, i=i, b=eye: self._on_eye_toggled(i, checked, b))
         delete.clicked.connect(lambda _=False, i=i: self.controller.delete_local_mask(i))
         return row
@@ -240,15 +288,33 @@ class LocalSidebar(BaseSidebar):
             # The distance between the handles sets the card-edge softness, not a blur.
             self.feather_slider.setEnabled(has_selection and mask.shape != MaskShape.GRADIENT)
             self.grade_slider.setEnabled(has_selection)
-            self.invert_btn.setEnabled(has_selection)
+            limited = limited_indices(conf)
+            full = has_selection and idx not in limited and len(limited) >= MAX_KEYED_MASKS
+            for key, btn in self.tone_buttons.items():
+                blocked = full and key != MaskKey.OFF
+                btn.setEnabled(has_selection and not blocked)
+                btn.setToolTip(wrap_tooltip(_TONE_FULL_TIP if blocked else _TONE_TIPS[key]))
+            keyed = mask is not None and mask.key != MaskKey.OFF
+            self.key_zone_slider.setEnabled(keyed)
+            self.key_softness_slider.setEnabled(keyed)
             if mask is not None:
                 self.burn_slider.setValue(mask.stops)
                 self.feather_slider.setValue(mask.feather)
                 self.grade_slider.setValue(mask.grade)
-                self.invert_btn.setChecked(mask.invert)
+                self.tone_buttons[mask.key].setChecked(True)
+                self.key_zone_slider.setValue(mask.key_zone)
+                self.key_softness_slider.setValue(mask.key_softness)
         finally:
             self.block_signals(False)
 
     def block_signals(self, blocked: bool) -> None:
-        for w in [*self._tool_modes(), self.burn_slider, self.feather_slider, self.grade_slider, self.invert_btn]:
+        for w in [
+            *self._tool_modes(),
+            self.burn_slider,
+            self.feather_slider,
+            self.grade_slider,
+            *self.tone_buttons.values(),
+            self.key_zone_slider,
+            self.key_softness_slider,
+        ]:
             w.blockSignals(blocked)

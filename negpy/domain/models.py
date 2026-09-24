@@ -15,7 +15,7 @@ from negpy.features.geometry.models import (  # noqa: F401  (re-exported: the cr
     canonical_crop_ratio,
 )
 from negpy.features.lab.models import LabConfig
-from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskShape
+from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskKey, MaskShape
 from negpy.features.retouch.models import RetouchConfig
 from negpy.features.altprocess.models import AltProcessConfig
 from negpy.features.toning.models import ToningConfig
@@ -487,6 +487,9 @@ class WorkspaceConfig:
                         shape=MaskShape(m.get("shape", MaskShape.POLYGON)),
                         invert=bool(m.get("invert", False)),
                         enabled=bool(m.get("enabled", True)),
+                        key=MaskKey(m.get("key", MaskKey.OFF)),
+                        key_zone=float(m.get("key_zone", 6.0)),
+                        key_softness=float(m.get("key_softness", 1.0)),
                     )
                 )
             return LocalAdjustmentsConfig(masks=tuple(masks))

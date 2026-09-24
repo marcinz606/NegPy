@@ -8,10 +8,12 @@ that same convention, so nothing here re-signs it.
 from dataclasses import dataclass
 from typing import List
 
+from negpy.features.exposure.densitometer import zone_roman
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.exposure.papers import resolve_paper
 from negpy.features.finish.models import FinishConfig
-from negpy.features.local.models import LocalAdjustmentsConfig
+from negpy.features.local.logic import limited_indices
+from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskKey
 
 # Vulgar fractions a printer would actually write; anything else prints as a decimal.
 _FRACTIONS = ((0.25, "¼"), (1.0 / 3.0, "⅓"), (0.5, "½"), (2.0 / 3.0, "⅔"), (0.75, "¾"))
@@ -43,12 +45,20 @@ def local_grade_label(grade: float, delta: float) -> str:
     return f"R{r:.0f}"
 
 
+def tone_limit_label(mask: LocalMask) -> str:
+    """The tones a limited mask acts on, as "≥VI" or "≤III⅓"; empty when it acts on all."""
+    if mask.key == MaskKey.OFF:
+        return ""
+    return ("≥" if mask.key == MaskKey.HIGHLIGHTS else "≤") + zone_roman(mask.key_zone)
+
+
 @dataclass(frozen=True)
 class MaskNote:
     number: int  # 1-based, matching the Dodge & Burn mask list
     is_burn: bool
     stops: str  # stops_label's "0" when the mask changes nothing but grade
     local_r: str = ""
+    key: str = ""
 
     @property
     def kind(self) -> str:
@@ -64,6 +74,8 @@ class MaskNote:
             parts.append(self.stops)
         if self.local_r:
             parts.append(self.local_r)
+        if self.key:
+            parts.append(self.key)
         return " ".join(parts)
 
     @property
@@ -74,19 +86,24 @@ class MaskNote:
             text += f" {self.stops}"
         if self.local_r:
             text += f" @ {self.local_r}"
+        if self.key:
+            text += f" on {self.key}"
         return text
 
 
 def mask_notes(local: LocalAdjustmentsConfig, grade: float = 0.0) -> List[MaskNote]:
     """One note per enabled mask, numbered by its position in the mask list. `grade` is the
     frame's ISO R, which turns a mask's grade delta into the grade it prints at. A disabled
-    mask burns nothing, so it carries no note."""
+    mask burns nothing, so it carries no note. A limited mask past the fourth prints
+    unlimited, so it carries no tone note."""
+    limited = limited_indices(local)
     return [
         MaskNote(
             number=i + 1,
             is_burn=m.stops > 0,
             stops=stops_label(m.stops),
             local_r=local_grade_label(grade, m.grade),
+            key=tone_limit_label(m) if i in limited else "",
         )
         for i, m in enumerate(local.masks)
         if m.enabled
