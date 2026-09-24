@@ -18,7 +18,7 @@ It is built with **Python**, running natively on Linux, macOS, and Windows.
 
 ---
 
-![alt text](docs/media/0500.png)
+![alt text](docs/media/0600.png)
 
 ---
 
