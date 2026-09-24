@@ -12,6 +12,7 @@ The contract these tests pin down:
   - the GPU shader agrees with the CPU.
 """
 
+import itertools
 import unittest
 from dataclasses import replace
 
@@ -496,13 +497,26 @@ class TestDyeSeparationReference(unittest.TestCase):
     """Dye Separation's reference density: the mean of the channels, each softly capped
     where it is far denser than the pixel's lightest channel and near the dense end."""
 
+    # Edits that run ahead of Dye Separation and move a channel's density away from its
+    # capture density: none; brighter with more contrast; darker with toe and shoulder.
+    EDITS = ((0.0, 1.0, 0.0), (-0.7, 1.35, 0.0), (0.5, 0.8, 0.4))
+
     @staticmethod
-    def _density(d, separation, trims=(0.0, 0.0, 0.0), damping=0.0):
-        """Densities in, densities out. A positive source skips the display rendering,
-        so the output is 10**-D exactly while it stays inside (0, 1)."""
+    def _density(d, separation, trims=(0.0, 0.0, 0.0), damping=0.0, edit=(0.0, 1.0, 0.0)):
+        """Capture densities in, densities out. A positive source skips the display
+        rendering, so the output is 10**-D exactly while it stays inside (0, 1)."""
+        exposure, contrast, knee = edit
         n = np.asarray(d, dtype=np.float32) / TRANSFER_DENSITY_RANGE
         out = apply_transfer_curve(
-            n, 0.0, 1.0, (0.0,) * 3, (0.0,) * 3, positive_source=True, separation=separation, separation_trims=trims, damping=damping
+            n,
+            exposure,
+            contrast,
+            (knee,) * 3,
+            (knee,) * 3,
+            positive_source=True,
+            separation=separation,
+            separation_trims=trims,
+            damping=damping,
         )
         return -np.log10(out)
 
@@ -537,30 +551,34 @@ class TestDyeSeparationReference(unittest.TestCase):
             np.testing.assert_allclose(got[inside], expected[inside], atol=2e-3, err_msg=str(d))
 
     def test_a_channel_near_the_dense_end_does_not_steer_the_others(self):
-        """An out-of-gamut blue sky: red sits at the dense end, where it is mostly noise.
-        Moving it there must not move green or blue, with or without damping."""
-        for damping in (0.0, 1.0):
-            for lo, hi in ((2.8, 3.0), (3.0, 3.6)):
-                a = self._density([[[lo, 1.53, 0.88]]], 1.5, damping=damping)[0, 0]
-                b = self._density([[[hi, 1.53, 0.88]]], 1.5, damping=damping)[0, 0]
-                np.testing.assert_allclose(b[1:], a[1:], atol=5e-3, err_msg=f"red {lo}->{hi}, damping {damping}")
+        """An out-of-gamut blue sky: red sits at the capture's dense end, where it is mostly
+        noise. Moving it there must not move green or blue, with or without damping, and
+        whatever the edits ahead of Dye Separation did to red's density."""
+        for edit in self.EDITS:
+            for damping in (0.0, 1.0):
+                for lo, hi in ((2.8, 3.0), (3.0, 3.6)):
+                    a = self._density([[[lo, 1.53, 0.88]]], 1.5, damping=damping, edit=edit)[0, 0]
+                    b = self._density([[[hi, 1.53, 0.88]]], 1.5, damping=damping, edit=edit)[0, 0]
+                    np.testing.assert_allclose(b[1:], a[1:], atol=5e-3, err_msg=f"red {lo}->{hi}, damping {damping}, edit {edit}")
 
     def test_a_smooth_gradient_never_reverses(self):
         """Along a smooth one-channel ramp, every output moves one way only. A reference
         density that can fall as a channel darkens folds the gradient into bands."""
         sweep = np.linspace(0.0, 3.6, 721, dtype=np.float32)
         fixed = (0.3, 0.9, 1.5, 2.1, 2.7, 3.2)
-        for k, trims in ((0.5, (0.0, 0.0, 0.0)), (1.5, (0.0, 0.0, 0.0)), (1.0, (0.0, 0.4, -0.4))):
+        for (k, trims), edit in itertools.product(((0.5, (0.0, 0.0, 0.0)), (1.5, (0.0, 0.0, 0.0)), (1.0, (0.0, 0.4, -0.4))), self.EDITS):
             for ch in range(3):
                 others = [c for c in range(3) if c != ch]
                 for a in fixed:
                     for b in fixed:
                         d = np.empty((1, sweep.size, 3), dtype=np.float32)
                         d[0, :, ch], d[0, :, others[0]], d[0, :, others[1]] = sweep, a, b
-                        steps = np.diff(self._density(d, k, trims)[0], axis=0)
+                        steps = np.diff(self._density(d, k, trims, edit=edit)[0], axis=0)
                         for out in range(3):
                             s = np.sign(steps[np.abs(steps[:, out]) > 1e-6, out])
-                            self.assertFalse(np.any(s[1:] * s[:-1] < 0), f"k {k}, trims {trims}, ramp on {ch}, output {out}, at {a}/{b}")
+                            self.assertFalse(
+                                np.any(s[1:] * s[:-1] < 0), f"k {k}, trims {trims}, edit {edit}, ramp on {ch}, output {out}, at {a}/{b}"
+                            )
 
 
 class TestCaptureTogglesAreInert(unittest.TestCase):
@@ -979,7 +997,7 @@ class TestGpuTransferParity(unittest.TestCase):
         img = np.stack([np.repeat(red[None, :], 16, axis=0), np.full((16, 64), 0.03), np.full((16, 64), 0.13)], axis=-1)
         img = np.ascontiguousarray(img.astype(np.float32))
         for damping in (0.0, 1.0):
-            settings = _e6_config(dye_separation=1.5, dye_separation_trim_green=0.3, separation_damping=damping)
+            settings = _e6_config(dye_separation=1.5, dye_separation_trim_green=0.3, separation_damping=damping, density=0.4)
             self._assert_parity(*self._both(settings, cam_xyz=None, img=img))
 
     def test_dye_separation_trims_match(self):

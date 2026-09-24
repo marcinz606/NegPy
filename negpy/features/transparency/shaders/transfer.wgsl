@@ -77,6 +77,52 @@ fn separation_damping_gain(k: f32, damping: f32, chroma: f32) -> f32 {
     return min(pow(k, (1.0 - damping) + damping * h), 3.0);
 }
 
+// One channel's capture density through every control above Dye Separation. Mirrors
+// apply_transfer_curve's shape().
+fn shape(d_in: f32, ch: i32) -> f32 {
+    var d = d_in;
+
+    // Cast Removal: the channel's neutral refs onto green's. First, so every
+    // control below shapes the corrected signal.
+    d = d * params.cast_gain[ch] + params.cast_offset[ch];
+
+    d = d - params.exposure_offset + params.cmy[ch] * params.density_range;
+    d = params.pivot + (d - params.pivot) * params.contrast;
+
+    // Shadows/Highlights WB: regional CMY, mirroring exposure.wgsl's own blend.
+    if (params.shadow_cmy[ch] != 0.0 || params.highlight_cmy[ch] != 0.0) {
+        let w_sh = 1.0 / (1.0 + exp(-params.highlight_cmy.w * (d - params.shadow_cmy.w)));
+        let w_hi = 1.0 - w_sh;
+        d = d + params.shadow_cmy[ch] * w_sh + params.highlight_cmy[ch] * w_hi;
+    }
+
+    // Zone Density: mid-sparing offsets on the print path's own weights. Positive
+    // adds density, so it darkens. After contrast, before the knees — as on the print.
+    if (params.zone.x != 0.0 || params.zone.y != 0.0) {
+        // Fade the shadow lift out at the bottom of the window. A print bounds a
+        // shadow burn at paper black; this curve has no paper, so without the taper a
+        // lift walks the black point up with it and the frame stops having blacks.
+        let t = clamp((params.density_range - d) / params.zone_taper.x, 0.0, 1.0);
+        let taper = t * t * (3.0 - 2.0 * t);
+        let w_sh = taper / (1.0 + exp(-params.zone_k * (d - params.zone.z)));
+        let w_hi = 1.0 - 1.0 / (1.0 + exp(-params.zone_k * (d - params.zone.w)));
+        d = d + params.zone.x * w_sh + params.zone.y * w_hi;
+    }
+
+    // Shadows sit at high density, highlights at low, so the toe compresses
+    // above its knee and the shoulder below its own.
+    let t = params.toe[ch];
+    if (t != 0.0) {
+        d = d - t * softplus(d - params.toe_knee, params.toe_width[ch]);
+    }
+    let s = params.shoulder[ch];
+    if (s != 0.0) {
+        d = d + s * softplus(params.sh_knee - d, params.shoulder_width[ch]);
+    }
+
+    return d;
+}
+
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let dims = textureDimensions(input_tex);
@@ -89,62 +135,24 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     var res: vec3<f32>;
     var dens: vec3<f32>;
+    let capture = norm * params.density_range;
     for (var ch = 0; ch < 3; ch++) {
-        var d = norm[ch] * params.density_range;
-
-        // Cast Removal: the channel's neutral refs onto green's. First, so every
-        // control below shapes the corrected signal.
-        d = d * params.cast_gain[ch] + params.cast_offset[ch];
-
-        d = d - params.exposure_offset + params.cmy[ch] * params.density_range;
-        d = params.pivot + (d - params.pivot) * params.contrast;
-
-        // Shadows/Highlights WB: regional CMY, mirroring exposure.wgsl's own blend.
-        if (params.shadow_cmy[ch] != 0.0 || params.highlight_cmy[ch] != 0.0) {
-            let w_sh = 1.0 / (1.0 + exp(-params.highlight_cmy.w * (d - params.shadow_cmy.w)));
-            let w_hi = 1.0 - w_sh;
-            d = d + params.shadow_cmy[ch] * w_sh + params.highlight_cmy[ch] * w_hi;
-        }
-
-        // Zone Density: mid-sparing offsets on the print path's own weights. Positive
-        // adds density, so it darkens. After contrast, before the knees — as on the print.
-        if (params.zone.x != 0.0 || params.zone.y != 0.0) {
-            // Fade the shadow lift out at the bottom of the window. A print bounds a
-            // shadow burn at paper black; this curve has no paper, so without the taper a
-            // lift walks the black point up with it and the frame stops having blacks.
-            let t = clamp((params.density_range - d) / params.zone_taper.x, 0.0, 1.0);
-            let taper = t * t * (3.0 - 2.0 * t);
-            let w_sh = taper / (1.0 + exp(-params.zone_k * (d - params.zone.z)));
-            let w_hi = 1.0 - 1.0 / (1.0 + exp(-params.zone_k * (d - params.zone.w)));
-            d = d + params.zone.x * w_sh + params.zone.y * w_hi;
-        }
-
-        // Shadows sit at high density, highlights at low, so the toe compresses
-        // above its knee and the shoulder below its own.
-        let t = params.toe[ch];
-        if (t != 0.0) {
-            d = d - t * softplus(d - params.toe_knee, params.toe_width[ch]);
-        }
-        let s = params.shoulder[ch];
-        if (s != 0.0) {
-            d = d + s * softplus(params.sh_knee - d, params.shoulder_width[ch]);
-        }
-
-        dens[ch] = d;
+        dens[ch] = shape(capture[ch], ch);
     }
 
     // Dye Separation: each channel scales its own deviation from a reference density by
-    // its own k: the mean of the channels, each softly capped. Mirrors transfer.py (see
-    // apply_transfer_curve); 2.5, 1.5 and 0.15 mirror SEPARATION_CAP_LEVEL/SPREAD/SOFTNESS.
+    // its own k: the mean of the channels, each softly capped on the capture and then
+    // shaped. Mirrors logic.py (see apply_transfer_curve); 2.5, 1.5 and 0.15 mirror
+    // SEPARATION_CAP_LEVEL/SPREAD/SOFTNESS.
     // Separation Damping makes each channel's k chroma-dependent per pixel, from the
     // same chroma but each channel's own k (see separation_damping_gain).
     if (any(params.separation.xyz != vec3<f32>(1.0))) {
-        let d_lo = min(dens.x, min(dens.y, dens.z));
+        let d_lo = min(capture.x, min(capture.y, capture.z));
         let cap = 2.5 + softplus(d_lo + (1.5 - 2.5), 0.15);
         let capped = vec3<f32>(
-            cap - softplus(cap - dens.x, 0.15),
-            cap - softplus(cap - dens.y, 0.15),
-            cap - softplus(cap - dens.z, 0.15),
+            shape(cap - softplus(cap - capture.x, 0.15), 0),
+            shape(cap - softplus(cap - capture.y, 0.15), 1),
+            shape(cap - softplus(cap - capture.z, 0.15), 2),
         );
         let d_ref = (capped.x + capped.y + capped.z) / 3.0;
         let e = dens - vec3<f32>(d_ref);
