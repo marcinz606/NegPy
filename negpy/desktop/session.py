@@ -1592,6 +1592,26 @@ class DesktopSessionManager(QObject):
             # Written without a render; the filmstrip flags the cell until one lands.
             self.state.stale_thumbnails.add(asset_thumbnail_key(asset))
 
+    def _relock_diverged_cards(self) -> None:
+        """Lock each roll card on which the active frame's restored config differs from the
+        roll's defaults. History restores a config but not its locks, and an unlocked card
+        takes the roll's values on the next load. Never unlocks: a card pinned at the roll's
+        own value stays pinned."""
+        idx = self.state.selected_file_idx
+        if not self.state.current_file_hash or not (0 <= idx < len(self.state.uploaded_files)):
+            return
+        asset = self.state.uploaded_files[idx]
+        roll_id = self.state.active_roll_id or self._roll_id_for_orphan_asset(asset)
+        if roll_id is None:
+            return
+        defaults = rolls.roll_defaults(self.repo, roll_id)
+        base = unforked_hash(self.state.current_file_hash)
+        locked = rolls.frame_override_cards(self.repo, roll_id, base)
+        for card_key, (section, names) in rolls.ROLL_DEFAULT_FIELDS.items():
+            values = getattr(self.state.config, section)
+            if card_key not in locked and any(n in defaults and getattr(values, n) != defaults[n] for n in names):
+                rolls.set_frame_override(self.repo, roll_id, base, card_key, True)
+
     def undo(self) -> None:
         if self.state.undo_index > 0 and self.state.current_file_hash:
             if self.state.undo_index == self.state.max_history_index:
@@ -1602,6 +1622,7 @@ class DesktopSessionManager(QObject):
             if prev_config:
                 self.state.config = prev_config
                 self._config_dirty = True
+                self._relock_diverged_cards()
                 self.state_changed.emit()
                 self.history_changed.emit()
 
@@ -1612,6 +1633,7 @@ class DesktopSessionManager(QObject):
             if next_config:
                 self.state.config = next_config
                 self._config_dirty = True
+                self._relock_diverged_cards()
                 self.state_changed.emit()
                 self.history_changed.emit()
 
@@ -1682,10 +1704,12 @@ class DesktopSessionManager(QObject):
         """Unlock *asset*'s roll cards and return what a reset writes: what a fresh frame
         in its roll gets, less the sticky look. DEFAULT_WORKSPACE_CONFIG, the scan-setup
         preferences, the roll's defaults, then what the asset itself is."""
-        roll_id = self.state.active_roll_id or self._roll_id_for_orphan_asset(asset)
-        if roll_id is not None:
-            rolls.clear_frame_overrides(self.repo, roll_id, unforked_hash(asset["hash"]))
-        config = self._overlay_roll_defaults(self._with_scan_setup(DEFAULT_WORKSPACE_CONFIG), asset)
+        config = self._with_scan_setup(DEFAULT_WORKSPACE_CONFIG)
+        if asset.get("hash"):
+            roll_id = self.state.active_roll_id or self._roll_id_for_orphan_asset(asset)
+            if roll_id is not None:
+                rolls.clear_frame_overrides(self.repo, roll_id, unforked_hash(asset["hash"]))
+            config = self._overlay_roll_defaults(config, asset)
         return self._mode_aware_reset_defaults(self._asset_defaults(config, asset))
 
     @staticmethod

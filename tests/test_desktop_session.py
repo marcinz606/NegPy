@@ -2046,6 +2046,40 @@ class ResetKeepsScanSetup(unittest.TestCase):
 
         self.assertTrue(self.session.state.config.process.narrowband_scan)
 
+    def test_undoing_a_reset_in_a_roll_keeps_the_frames_own_values(self):
+        from negpy.services.assets import rolls
+
+        roll_id = self._locked_roll()
+        own = self.session.state.config
+        own = replace(own, process=replace(own.process, narrowband_scan=False))
+        self.session.update_config(own, persist=True)
+
+        self.session.reset_settings()
+        self.session.undo()
+
+        self.assertFalse(self.session.state.config.process.narrowband_scan)
+        self.assertIn("sensor", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
+        self.session.repo.save_file_settings("hash1", self.session.state.config, file_path=self.session.state.uploaded_files[0]["path"])
+        self.assertFalse(self.session.config_for_asset(self.session.state.uploaded_files[0]).process.narrowband_scan)
+
+    def test_undo_leaves_a_card_pinned_at_the_rolls_value_pinned(self):
+        from negpy.services.assets import rolls
+
+        roll_id = self._locked_roll()
+        dirty = self.session.state.config
+        self.session.update_config(replace(dirty, exposure=replace(dirty.exposure, density=1.2)), persist=True)
+        rolls.set_frame_override(self.repo, roll_id, "hash1", "film", locked=True)
+
+        self.session.undo()
+
+        self.assertIn("film", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
+
+    def test_reset_settings_with_a_roll_open_and_no_frame_selected(self):
+        self._locked_roll()
+        self.session.state.selected_file_idx = -1
+
+        self.session.reset_settings()
+
     def test_a_white_light_scan_setup_resets_to_off(self):
         self.repo.save_global_settings({"last_linear_raw": False, "last_narrowband_scan": False})
 
