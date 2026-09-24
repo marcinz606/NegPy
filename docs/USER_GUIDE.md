@@ -80,9 +80,11 @@ On a **Roll tab** or **Metadata** card the pair is a latch. On Roll, the card fo
 
 On a **frame** card (Geometry, Filtration, Tone, Lab, Alternative Processes, Toning, Retouch, Finishing), **Roll** opens the film strip's clone picker for that section, ticked for what you changed, to apply to the selected frames or the whole roll. After a whole-roll apply the card reads Roll until you touch a pushed setting. A selection apply leaves it on Frame.
 
+**Reset to Roll**, beside the reset arrow, appears once a card differs from the roll: a Roll tab or Metadata card this frame took off the roll, or a frame card that no longer matches its last whole-roll apply. It puts the roll's values back on that card as one undo step; a setting the roll apply never carried keeps this frame's value.
+
 ### The tab header
 
-Tabs with several cards (Roll, Exposure, Lab & Toning, Finish, Metadata) have a bar reading **3 of 5 cards edited** (or **No cards edited**). Its buttons act on all cards: reset arrow (appears once something is edited, asks first), roll button (one picker for the whole tab, selected frames or whole roll) and double chevron (collapse/expand). Cards the film mode has retired are skipped. Geometry has one card and no bar.
+Tabs with several cards (Roll, Exposure, Lab & Toning, Finish, Metadata) have a bar reading **3 of 5 cards edited** (or **No cards edited**). Its buttons act on all cards: reset arrow (appears once something is edited, asks first), **Reset to Roll** (appears once a card differs from the roll, one undo step), roll button (one picker for the whole tab, selected frames or whole roll) and double chevron (collapse/expand). Cards the film mode has retired are skipped. Geometry has one card and no bar.
 
 ### Menu bar (macOS)
 
@@ -264,6 +266,7 @@ The right-click menu also has:
 
 *   **Copy/Paste Settings**, with or without normalization bounds. Copied bounds show in the paste picker as **Normalization bounds**, ticked; untick to keep the frame's own.
 *   **Reset Settings**; with several frames selected, **Reset N Frames**, confirmed first.
+*   **Reset to Roll Settings**: **Reset to Roll** on every card of this frame that differs from the roll, as one undo step. Unlike **Reset Settings**, the rest of the frame's edit stays. Also in the canvas **⋯** menu.
 *   **Apply Settings…**.
 *   **Sync Bounds…**: pushes only this frame's measured bounds, as **Tonal span** and **Color balance**, to the selection or roll. Also in the canvas right-click and overflow menus.
 *   **Update Thumbnail(s)**: re-renders the selection's thumbnails; **Update Thumbnails** on the toolbar does every stale one in the roll. Both become **Cancel** while running.
@@ -645,7 +648,7 @@ Every edit step, the last 100 kept, newest on top. The current step is bold.
 
 **Every card here is shared by every frame in the roll**, once applied. A control edits the current frame only; when the card stops matching the roll, its scope pair shows **Frame** (see [§1](#frame-or-roll-the-scope-pair)), and it returns to **Roll** if you set it back to the roll's value.
 
-The card's **Roll** button pushes this frame's value to the roll, and the frame rejoins it. Other frames that locked the card keep their own value. The line above the cards names every card this frame overrides. A frame outside any roll has no scope pair.
+The card's **Roll** button pushes this frame's value to the roll, and the frame rejoins it. **Reset to Roll** does the reverse: the frame takes the roll's value. Other frames that locked the card keep their own value. The line above the cards names every card this frame overrides. A frame outside any roll has no scope pair.
 
 <!-- panel:film -->
 ### 10.1 Film Mode
@@ -834,7 +837,7 @@ A newly chosen profile becomes the rig's default for the next roll.
 
 Metadata for the original analog capture (camera, lens, film, process). NegPy writes it into every export format (JPEG, TIFF, PNG, JPEG XL, WebP) as EXIF and XMP, so a DAM such as Lightroom shows your film gear, not the scanner. A TIFF holds the capture position in XMP only. EXIF text is 7-bit, so `4×5` is written `4x5`. **Protect original metadata** (§13) writes the source's own EXIF/XMP instead.
 
-**Analog Gear**, **Capture**, **Process**, **Scanning** and **Exposure** are roll-wide by default: each has the scope pair from [§1](#frame-or-roll-the-scope-pair) with **Roll** lit. Edit a field and that card flips to **Frame**; its **Roll** button pushes this frame's value to the roll. The line under the panel title lists the cards this frame has taken off the roll. The frame number is always per frame.
+**Analog Gear**, **Capture**, **Process**, **Scanning** and **Exposure** are roll-wide by default: each has the scope pair from [§1](#frame-or-roll-the-scope-pair) with **Roll** lit. Edit a field and that card flips to **Frame**; its **Roll** button pushes this frame's value to the roll, and **Reset to Roll** takes the roll's value back. The line under the panel title lists the cards this frame has taken off the roll. The frame number is always per frame.
 
 <!-- panel:metadata_presets -->
 ### Metadata Presets

@@ -108,6 +108,7 @@ class MetadataSidebar(BaseSidebar):
 
         self.tab_header = TabHeader("Metadata")
         self.tab_header.apply_requested.connect(self._apply_metadata_tab)
+        self.tab_header.roll_revert_requested.connect(lambda: self.controller.revert_to_roll([key for key, _ in self._scope_sections()]))
         self.layout.addWidget(self.tab_header)
         # One line naming every card this frame has taken off the roll, the same answer
         # roll_override_summary gives on the Roll tab.
@@ -363,6 +364,7 @@ class MetadataSidebar(BaseSidebar):
         for key, section in self._scope_sections():
             section.scope_selected.connect(lambda scope, k=key: self._on_scope_selected(k, scope))
             section.reset_requested.connect(lambda k=key: self._reset_card(k))
+            section.roll_revert_requested.connect(lambda k=key: self.controller.revert_to_roll((k,)))
 
         # After every card: the tooltips it fills in span all of them.
         self.apply_shortcut_tooltips()
@@ -404,7 +406,7 @@ class MetadataSidebar(BaseSidebar):
         self.sync_ui()
 
     def _sync_scope_buttons(self) -> None:
-        """Each card's Frame/Roll pair and its "· N" count. Metadata is roll-wide by
+        """Each card's Frame/Roll pair, Reset to Roll and "· N" count. Metadata is roll-wide by
         default -- one camera, one stock, one development -- so a card reads Roll until
         this frame is given something of its own. Frames that are not one roll have no
         shared camera or stock to read, so they are the frame's own with Roll disabled."""
@@ -413,6 +415,7 @@ class MetadataSidebar(BaseSidebar):
         default = MetadataConfig()
         overridden = []
         locked_cards = self.controller.locked_roll_cards()
+        revertible = self.controller.roll_revert_cards([key for key, _ in self._scope_sections()])
         for card_key, section in self._scope_sections():
             _sec, fields = ROLL_DEFAULT_FIELDS[card_key]
             section.set_modified(sum(getattr(conf, f) != getattr(default, f) for f in fields))
@@ -422,9 +425,10 @@ class MetadataSidebar(BaseSidebar):
                 True,
                 "frame" if locked or not has_roll else "roll",
                 roll_tooltip=(f"{label} follows the roll — click to give the roll this frame's value" if has_roll else NO_ROLL_SCOPE_HINT),
-                frame_tooltip=(f"{label} is this frame's own — click to rejoin the roll" if has_roll else f"{label} is this frame's own"),
+                frame_tooltip=f"{label} is this frame's own",
                 roll_enabled=has_roll,
             )
+            section.set_roll_revert(card_key in revertible)
             if locked:
                 overridden.append(label)
 

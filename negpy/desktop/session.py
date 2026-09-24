@@ -1594,9 +1594,9 @@ class DesktopSessionManager(QObject):
 
     def _relock_diverged_cards(self) -> None:
         """Lock each roll card on which the active frame's restored config differs from the
-        roll's defaults. History restores a config but not its locks, and an unlocked card
-        takes the roll's values on the next load. Never unlocks: a card pinned at the roll's
-        own value stays pinned."""
+        roll's defaults. History, a work print and a paste restore a config but not its
+        locks, and an unlocked card takes the roll's values on the next load. Never unlocks:
+        a card pinned at the roll's own value stays pinned."""
         idx = self.state.selected_file_idx
         if not self.state.current_file_hash or not (0 <= idx < len(self.state.uploaded_files)):
             return
@@ -1609,7 +1609,7 @@ class DesktopSessionManager(QObject):
         locked = rolls.frame_override_cards(self.repo, roll_id, base)
         for card_key, (section, names) in rolls.ROLL_DEFAULT_FIELDS.items():
             values = getattr(self.state.config, section)
-            if card_key not in locked and any(n in defaults and getattr(values, n) != defaults[n] for n in names):
+            if card_key not in locked and any(n in defaults and not rolls.same_value(getattr(values, n), defaults[n]) for n in names):
                 rolls.set_frame_override(self.repo, roll_id, base, card_key, True)
 
     def undo(self) -> None:
@@ -1667,6 +1667,7 @@ class DesktopSessionManager(QObject):
         config = self.repo.load_work_print(self.state.current_file_hash, name)
         if config is not None:
             self.update_config(config, persist=True)
+            self._relock_diverged_cards()
 
     def rename_work_print(self, name: str, new_name: str) -> None:
         if not (self.state.current_file_hash and new_name) or new_name == name:
@@ -1697,6 +1698,7 @@ class DesktopSessionManager(QObject):
         self.state.undo_index = index
         self.state.config = config
         self._config_dirty = True
+        self._relock_diverged_cards()
         self.state_changed.emit()
         self.history_changed.emit()
 
@@ -1833,6 +1835,7 @@ class DesktopSessionManager(QObject):
                 ),
             )
         self.update_config(merged, persist=True)
+        self._relock_diverged_cards()
         self.settings_pasted.emit()
 
     def persist_hidden_masks(self) -> None:

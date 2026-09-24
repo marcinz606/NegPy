@@ -309,6 +309,7 @@ class RightPanel(QWidget):
             )
         )
         self.roll_tab_header.apply_requested.connect(self._apply_roll_tab)
+        self.roll_tab_header.roll_revert_requested.connect(lambda: cp.revert_cards_to_roll(tuple(key for key, _ in cp._roll_sections())))
         self.controls_panel.modified_synced.connect(self.roll_tab_header.refresh)
         page_layout.addWidget(self.roll_tab_header)
 

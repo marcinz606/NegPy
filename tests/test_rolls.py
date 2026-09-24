@@ -750,3 +750,15 @@ def test_add_extra_members_writes_many_paths_once():
     add_extra_members(repo, roll_id, ["/b.nef", "/a.nef", "/c.nef", "/b.nef"])
     assert roll_for_id(repo, roll_id)["member_paths"] == ["/a.nef", "/b.nef", "/c.nef"]
     assert len(writes) == 1
+
+
+def test_same_value_reads_a_stored_list_as_the_tuple_it_was():
+    """The store is JSON: a tuple comes back as a list, nested ones too."""
+    from negpy.services.assets.rolls import config_value, same_value
+
+    matrix = ((1.0, 0.1), (0.0, 1.0))
+    assert same_value(matrix, [[1.0, 0.1], [0.0, 1.0]])
+    assert same_value((0.1, 0.9), [0.1, 0.9])
+    assert not same_value((0.1, 0.9), [0.1, 0.8])
+    assert same_value("C41", "C41")
+    assert config_value([[1.0, 0.1], [0.0, 1.0]]) == matrix

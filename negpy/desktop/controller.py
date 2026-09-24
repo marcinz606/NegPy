@@ -141,7 +141,7 @@ from negpy.features.process.models import (
     invalidate_local_bounds,
     scan_setup_values,
 )
-from negpy.desktop.settings_catalog import BOUNDS_INPUT_FIELDS, section_of_field
+from negpy.desktop.settings_catalog import BOUNDS_INPUT_FIELDS, FRAME_CARD_FIELDS, frame_card_rows, section_of_field, selected_flat_dict
 from negpy.services.assets.thumbnails import asset_thumbnail_key
 from negpy.services.assets import semantic_model
 from negpy.kernel.system.paths import get_default_user_dir, get_resource_path
@@ -3190,6 +3190,26 @@ class AppController(QObject):
         if self.state.active_tool == ToolMode.CROP_MANUAL:
             self.set_active_tool(ToolMode.NONE)
 
+    def _with_crop_ratio(self, config: WorkspaceConfig, ratio: str) -> WorkspaceConfig:
+        """*config* with the Crop card's ratio set to *ratio*, and a drawn crop box
+        reshaped to it in place: same center, shrunk to fit its current footprint."""
+        geom = config.geometry
+        new_geo = replace(geom, autocrop_ratio=ratio)
+
+        # An auto rect re-detects under the new ratio (it is in the detection key); the
+        # frame Auto finds at 5:4 is not the 3:2 frame shrunk to fit.
+        rect = None if geom.crop_from_auto else geom.crop_rect
+        img = self.state.preview_raw
+        if rect is not None and img is not None:
+            h, w = img.shape[:2]
+            if geom.rotation in (1, 3):
+                h, w = w, h
+            nx1, ny1, nx2, ny2 = rect
+            roi_px = (round(ny1 * h), round(ny2 * h), round(nx1 * w), round(nx2 * w))
+            y1, y2, x1, x2 = enforce_roi_aspect_ratio(roi_px, h, w, ratio)
+            new_geo = replace(new_geo, crop_rect=(x1 / w, y1 / h, x2 / w, y2 / h))
+        return replace(config, geometry=new_geo)
+
     def set_crop_ratio(self, ratio: str) -> None:
         """Sets the Crop card's target ratio, locking the card away from the roll
         the instant it changes and was not already, like any other roll card. If a
@@ -3208,25 +3228,9 @@ class AppController(QObject):
         that already excludes the rebate, so the new ROI is a subset of the old
         one. Re-metering there can only drift the per-channel floors/ceils — i.e.
         a visible color shift from what is supposed to be a pure reframe."""
-        geom = self.state.config.geometry
-        if ratio == geom.autocrop_ratio:
+        if ratio == self.state.config.geometry.autocrop_ratio:
             return
-        new_geo = replace(geom, autocrop_ratio=ratio)
-
-        # An auto rect re-detects under the new ratio (it is in the detection key); the
-        # frame Auto finds at 5:4 is not the 3:2 frame shrunk to fit.
-        rect = None if geom.crop_from_auto else geom.crop_rect
-        img = self.state.preview_raw
-        if rect is not None and img is not None:
-            h, w = img.shape[:2]
-            if geom.rotation in (1, 3):
-                h, w = w, h
-            nx1, ny1, nx2, ny2 = rect
-            roi_px = (round(ny1 * h), round(ny2 * h), round(nx1 * w), round(nx2 * w))
-            y1, y2, x1, x2 = enforce_roi_aspect_ratio(roi_px, h, w, ratio)
-            new_geo = replace(new_geo, crop_rect=(x1 / w, y1 / h, x2 / w, y2 / h))
-
-        self.session.update_config(replace(self.state.config, geometry=new_geo), persist=True)
+        self.session.update_config(self._with_crop_ratio(self.state.config, ratio), persist=True)
         self._lock_roll_card("autocrop")
         # Same spinner treatment as reset_crop/apply_auto_crop: the base stage re-runs,
         # since geometry is part of its cache key, and that takes a moment on a large HQ frame.
@@ -4406,6 +4410,16 @@ class AppController(QObject):
         "metadata_exposure": "Exposure",
     }
     METADATA_CARDS = ("metadata_gear", "metadata_capture", "metadata_process", "metadata_scanning", "metadata_exposure")
+    _FRAME_CARD_LABELS = {
+        "geometry": "Geometry",
+        "color": "Filtration",
+        "tone": "Tone",
+        "lab": "Lab",
+        "altproc": "Alternative Processes",
+        "toning": "Toning",
+        "retouch": "Retouch",
+        "finish": "Finishing",
+    }
 
     @staticmethod
     def _card_values(config, card_key: str) -> dict:
@@ -4460,20 +4474,20 @@ class AppController(QObject):
         # to differ from, and treating that as a match would hide a card's first-ever
         # edit from Apply until every one of its fields happened to get a roll default.
         current = self._card_values(self.state.config, card_key)
-        matches_roll = all(name in defaults and value == defaults[name] for name, value in current.items())
+        matches_roll = all(name in defaults and rolls.same_value(value, defaults[name]) for name, value in current.items())
         diverged = not matches_roll
         if diverged == self.roll_card_locked(card_key):
             return
         rolls.set_frame_override(self.session.repo, roll_id, rolls.unforked_hash(self.state.current_file_hash), card_key, diverged)
 
-    def set_process_mode(self, mode: str) -> None:
-        """Switches Film Mode for the active frame, locking the "film" card away from
-        the roll the instant it changes and was not already -- same as any other
-        Roll-tab card (set_roll_default). Apply to Whole Roll pushes it out."""
-        exp = self.state.config.exposure
+    @staticmethod
+    def _with_process_mode(config: WorkspaceConfig, mode: str) -> WorkspaceConfig:
+        """*config* switched to Film Mode *mode*, with the Cast Removal default and the
+        Positive drop the switch carries."""
+        exp = config.exposure
         strength = cast_removal_for_mode(mode, exp.cast_removal_strength)
         new_exposure = replace(exp, cast_removal_strength=strength) if strength != exp.cast_removal_strength else exp
-        proc = self.state.config.process
+        proc = config.process
         # Leaving Slide drops Positive, and restores the autos as the toggle would.
         drops_positive = proc.positive_source and mode != ProcessMode.E6
         if drops_positive:
@@ -4488,7 +4502,33 @@ class AppController(QObject):
             positive_source=proc.positive_source and not drops_positive,
             **invalidate_local_bounds(proc),
         )
-        self.apply_config(replace(self.state.config, process=new_process, exposure=new_exposure), persist=True)
+        return replace(config, process=new_process, exposure=new_exposure)
+
+    @staticmethod
+    def _with_positive_source(config: WorkspaceConfig, checked: bool) -> WorkspaceConfig:
+        """*config* with Positive set to *checked* and Auto Density/Auto Grade rewritten
+        to match. Unchanged outside Slide, where Positive does not apply."""
+        proc = config.process
+        if proc.process_mode != ProcessMode.E6:
+            return config
+        new_process = replace(
+            proc,
+            positive_source=checked,
+            **invalidate_local_bounds(proc),
+        )
+        exp = config.exposure
+        new_exposure = replace(
+            exp,
+            auto_exposure=auto_meter_for_positive_source(checked, exp.auto_exposure),
+            auto_normalize_contrast=auto_meter_for_positive_source(checked, exp.auto_normalize_contrast),
+        )
+        return replace(config, process=new_process, exposure=new_exposure)
+
+    def set_process_mode(self, mode: str) -> None:
+        """Switches Film Mode for the active frame, locking the "film" card away from
+        the roll the instant it changes and was not already -- same as any other
+        Roll-tab card (set_roll_default). Apply to Whole Roll pushes it out."""
+        self.apply_config(self._with_process_mode(self.state.config, mode), persist=True)
         self._lock_roll_card("film")
 
     def set_positive_source(self, checked: bool) -> None:
@@ -4500,22 +4540,10 @@ class AppController(QObject):
         (auto_meter_for_positive_source): untouched, they carry whichever mode's
         default they last matched, so this only moves them when the user never
         touched them."""
-        proc = self.state.config.process
-        if proc.process_mode != ProcessMode.E6:
+        if self.state.config.process.process_mode != ProcessMode.E6:
             # The shortcut still reaches the hidden button; the autos must not move.
             return
-        new_process = replace(
-            proc,
-            positive_source=checked,
-            **invalidate_local_bounds(proc),
-        )
-        exp = self.state.config.exposure
-        new_exposure = replace(
-            exp,
-            auto_exposure=auto_meter_for_positive_source(checked, exp.auto_exposure),
-            auto_normalize_contrast=auto_meter_for_positive_source(checked, exp.auto_normalize_contrast),
-        )
-        self.apply_config(replace(self.state.config, process=new_process, exposure=new_exposure), persist=True)
+        self.apply_config(self._with_positive_source(self.state.config, checked), persist=True)
         self._lock_roll_card("film")
 
     def set_roll_default(self, card_key: str, persist: bool = True, readback_metrics: bool = True, **changes) -> None:
@@ -4605,25 +4633,128 @@ class AppController(QObject):
 
     def frame_section_scopes(self, section_keys: tuple) -> Dict[str, str]:
         """frame_section_scope for many cards, off one read of the roll."""
+        pushes = self._section_pushes()
+        return {key: "roll" if pushes.get(key) and self._matches_push(pushes[key]) else "frame" for key in section_keys}
+
+    def _section_pushes(self) -> Dict[str, dict]:
         roll_id = self.state.active_roll_id
         entry = rolls.roll_for_id(self.session.repo, roll_id) if roll_id is not None else None
-        pushes = entry.get("section_pushes", {}) if entry else {}
-        sections = section_of_field()
-        scopes = {}
-        for key in section_keys:
-            pushed = pushes.get(key)
-            matches = bool(pushed) and all(
-                getattr(getattr(self.state.config, sections[f], None), f, None) == v for f, v in pushed.items() if f in sections
-            )
-            scopes[key] = "roll" if matches else "frame"
-        return scopes
+        return entry.get("section_pushes", {}) if entry else {}
 
-    def record_section_push(self, section_key: str, values: dict) -> None:
-        """Files a whole-roll apply of a frame-level card, so its scope pair can read Roll
-        until the frame drifts off it again."""
-        if self.state.active_roll_id is not None and values:
-            rolls.set_section_push(self.session.repo, self.state.active_roll_id, section_key, values)
-            self.config_updated.emit()
+    def _matches_push(self, pushed: dict) -> bool:
+        sections = section_of_field()
+        return all(rolls.same_value(getattr(getattr(self.state.config, sections[f]), f), v) for f, v in pushed.items() if f in sections)
+
+    def record_roll_apply(self, rows) -> None:
+        """Files a whole-roll apply of *rows*, split per frame card, so each card's scope
+        pair reads Roll and Reset to Roll has a value to return to."""
+        roll_id = self.state.active_roll_id
+        rows = list(rows)
+        if roll_id is None or not rows:
+            return
+        for key in FRAME_CARD_FIELDS:
+            own = [r for r in frame_card_rows(key) if r in rows]
+            if own:
+                rolls.set_section_push(self.session.repo, roll_id, key, selected_flat_dict(self.state.config, own))
+        self.config_updated.emit()
+
+    def roll_revert_cards(self, card_keys: Collection[str]) -> Set[str]:
+        """Which of *card_keys* the active frame can reset to the roll: a Roll-tab card it
+        has locked while the roll holds a value for it, or a frame card that no longer
+        matches its recorded whole-roll apply. Empty with no active roll."""
+        roll_id = self.state.active_roll_id
+        if roll_id is None or not self.state.current_file_hash:
+            return set()
+        defaults = rolls.roll_defaults(self.session.repo, roll_id)
+        pushes = self._section_pushes()
+        locked = self.locked_roll_cards()
+        available = set()
+        for key in card_keys:
+            if key in rolls.ROLL_DEFAULT_FIELDS:
+                if key in locked and any(f in defaults for f in rolls.card_fields(key)):
+                    available.add(key)
+            elif pushes.get(key) and not self._matches_push(pushes[key]):
+                available.add(key)
+        return available
+
+    def revert_to_roll(self, card_keys: Collection[str]) -> int:
+        """Resets *card_keys* on the active frame to the roll, as one edit and one undo
+        step. A Roll-tab card rejoins the roll and takes its values; a frame card takes
+        back what its whole-roll apply recorded, and a field that apply never carried keeps
+        the frame's own value. Returns how many cards moved."""
+        available = self.roll_revert_cards(card_keys)
+        cards = [k for k in dict.fromkeys(card_keys) if k in available]
+        if not cards:
+            return 0
+        roll_id = self.state.active_roll_id
+        file_hash = rolls.unforked_hash(self.state.current_file_hash)
+        defaults = rolls.roll_defaults(self.session.repo, roll_id)
+        pushes = self._section_pushes()
+        config = self.state.config
+        for key in cards:
+            if key in rolls.ROLL_DEFAULT_FIELDS:
+                config = self._with_roll_card(config, key, defaults)
+                rolls.set_frame_override(self.session.repo, roll_id, file_hash, key, False)
+            else:
+                config = self._with_frame_card_push(config, pushes[key])
+        if all(key in self.METADATA_CARDS for key in cards):
+            # Metadata never reaches the pixels.
+            self.session.update_config(config, persist=True, render=False)
+        else:
+            self.apply_config(config, persist=True)
+        self.config_updated.emit()
+        labels = {**self._ROLL_CARD_LABELS, **self._FRAME_CARD_LABELS}
+        self.set_status(f"Reset to the roll: {', '.join(dict.fromkeys(labels[k] for k in cards))}", 3000)
+        return len(cards)
+
+    def can_revert_frame_to_roll(self) -> bool:
+        return bool(self.roll_revert_cards(self._ROLL_CARDS + tuple(FRAME_CARD_FIELDS)))
+
+    def revert_frame_to_roll(self) -> int:
+        """Reset to Roll Settings: every card on the active frame that differs from the roll."""
+        return self.revert_to_roll(self._ROLL_CARDS + tuple(FRAME_CARD_FIELDS))
+
+    def _with_roll_card(self, config: WorkspaceConfig, card_key: str, defaults: dict) -> WorkspaceConfig:
+        """*config* with *card_key* holding the roll's value for every field the roll has
+        set, through the side effects a hand edit of that card carries."""
+        values = {f: rolls.config_value(defaults[f]) for f in rolls.card_fields(card_key) if f in defaults}
+        if card_key == "film":
+            mode = values.get("process_mode", config.process.process_mode)
+            if mode != config.process.process_mode:
+                config = self._with_process_mode(config, mode)
+            positive = values.get("positive_source", config.process.positive_source)
+            if positive != config.process.positive_source:
+                config = self._with_positive_source(config, positive)
+            return config
+        ratio = values.pop("autocrop_ratio", config.geometry.autocrop_ratio)
+        if ratio != config.geometry.autocrop_ratio:
+            config = self._with_crop_ratio(config, ratio)
+        config = self._with_card_values(config, card_key, values)
+        if card_key == "baseline":
+            file_hash = rolls.unforked_hash(self.state.current_file_hash)
+            config = rolls.resolve_roll_baseline(self.session.repo, self.state.active_roll_id, file_hash, config)
+        return config
+
+    @staticmethod
+    def _with_frame_card_push(config: WorkspaceConfig, pushed: dict) -> WorkspaceConfig:
+        """*config* carrying a frame card's recorded whole-roll apply. The cached per-frame
+        bounds drop when a field that feeds the meter moves."""
+        sections = section_of_field()
+        by_section: Dict[str, dict] = {}
+        for name, value in pushed.items():
+            if name in sections:
+                by_section.setdefault(sections[name], {})[name] = rolls.config_value(value)
+        new = config
+        for section, values in by_section.items():
+            new = replace(new, **{section: replace(getattr(new, section), **values)})
+        remeter = any(
+            name in BOUNDS_INPUT_FIELDS and getattr(getattr(new, section), name) != getattr(getattr(config, section), name)
+            for section, values in by_section.items()
+            for name in values
+        )
+        if remeter:
+            new = replace(new, process=replace(new.process, **invalidate_local_bounds(new.process)))
+        return new
 
     def set_roll_card_locked(self, card_key: str, locked: bool) -> None:
         """Lock or unlock one Roll-tab card for the active frame, within the active

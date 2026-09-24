@@ -18,7 +18,7 @@ from negpy.features.finish.models import FinishConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 from negpy.services.assets.rolls import ROLL_DEFAULT_FIELDS
-from negpy.desktop.settings_catalog import rows_for_fields, rows_for_section, selected_flat_dict
+from negpy.desktop.settings_catalog import COLOR_FIELDS, FRAME_CARD_FIELDS, GEOMETRY_FIELDS, TONE_FIELDS, frame_card_rows
 from negpy.desktop.view.widgets.granular_settings_dialog import open_apply_dialog
 from negpy.desktop.view.widgets.tab_header import TabHeader
 
@@ -43,21 +43,6 @@ from negpy.desktop.view.sidebar.retouch import RetouchSidebar
 from negpy.desktop.view.sidebar.local import LocalSidebar
 from negpy.desktop.view.sidebar.finish import FinishSidebar
 
-# Exposure field partitions: the Filtration and Tone sections split ExposureConfig, for
-# both per-section modified counts and scoped resets. render_intent is in neither, since
-# it is flat-master output.
-_COLOR_FIELDS = (
-    "wb_cyan",
-    "wb_magenta",
-    "wb_yellow",
-    "shadow_cyan",
-    "shadow_magenta",
-    "shadow_yellow",
-    "highlight_cyan",
-    "highlight_magenta",
-    "highlight_yellow",
-    "cast_removal_strength",
-)
 _DEMOSAIC_FIELDS = (
     "demosaic_preview",
     "demosaic_export",
@@ -76,18 +61,6 @@ _LENS_FIELDS = (
     "distortion_k1",
     "lens_distortion_from_metadata",
     "lens_ca_from_metadata",
-)
-_GEOMETRY_FIELDS = (
-    "rotation",
-    "fine_rotation",
-    "flip_horizontal",
-    "flip_vertical",
-    "converge_v",
-    "converge_h",
-    "crop_to_valid",
-    "crop_rect",
-    "crop_from_auto",
-    "crop_detect_key",
 )
 _SENSOR_FIELDS = (
     "linear_raw",
@@ -124,55 +97,6 @@ _BASELINE_FIELDS = (
     "use_color_average",
     "use_cast_average",
 )
-_TONE_FIELDS = (
-    "density",
-    "grade",
-    "grade_trim_red",
-    "grade_trim_green",
-    "grade_trim_blue",
-    "paper_black",
-    "shadow_density",
-    "highlight_density",
-    "shadow_grade",
-    "highlight_grade",
-    "shadow_grade_trim_red",
-    "shadow_grade_trim_green",
-    "shadow_grade_trim_blue",
-    "highlight_grade_trim_red",
-    "highlight_grade_trim_green",
-    "highlight_grade_trim_blue",
-    "paper_dmin",
-    "auto_exposure",
-    "auto_normalize_contrast",
-    "paper_profile",
-    "midtone_gamma",
-    "midtone_gamma_trim_red",
-    "midtone_gamma_trim_green",
-    "midtone_gamma_trim_blue",
-    "toe",
-    "toe_width",
-    "toe_trim_red",
-    "toe_trim_green",
-    "toe_trim_blue",
-    "toe_width_trim_red",
-    "toe_width_trim_green",
-    "toe_width_trim_blue",
-    "shoulder",
-    "shoulder_width",
-    "shoulder_trim_red",
-    "shoulder_trim_green",
-    "shoulder_trim_blue",
-    "shoulder_width_trim_red",
-    "shoulder_width_trim_green",
-    "shoulder_width_trim_blue",
-    "dye_separation",
-    "dye_separation_trim_red",
-    "dye_separation_trim_green",
-    "dye_separation_trim_blue",
-    "separation_damping",
-    "contrast_mask",
-    "mask_spacer",
-)
 
 # Constant frozen-dataclass defaults, built once rather than per resync. Exposure/process/
 # geometry/config come from DEFAULT_WORKSPACE_CONFIG, not their own bare dataclass default:
@@ -187,20 +111,6 @@ _DEFAULT_PROCESS = DEFAULT_WORKSPACE_CONFIG.process
 _DEFAULT_FINISH = FinishConfig()
 _DEFAULT_FLATFIELD = FlatFieldConfig()
 _DEFAULT_CONFIG = DEFAULT_WORKSPACE_CONFIG
-
-# Frame cards whose settings can be pushed to other frames, and the fields each owns. A
-# card keyed by its own config section needs no tuple. Roll-tab cards drive roll defaults
-# instead, and Dodge & Burn has no catalog row: a mask means nothing on the next frame.
-_APPLY_FIELDS: dict[str, tuple | None] = {
-    "geometry": _GEOMETRY_FIELDS,
-    "color": _COLOR_FIELDS,
-    "tone": _TONE_FIELDS,
-    "lab": None,
-    "altproc": None,
-    "toning": None,
-    "retouch": None,
-    "finish": None,
-}
 
 _AUTO_METER_FIELDS = ("auto_exposure", "auto_normalize_contrast")
 
@@ -506,32 +416,21 @@ class ControlsPanel(QWidget):
         header = TabHeader(title)
         header.bind(sections)
         header.apply_requested.connect(lambda keys=tuple(card_keys): self._apply_tab(keys))
+        header.roll_revert_requested.connect(lambda keys=tuple(card_keys): self.revert_cards_to_roll(keys))
         self.tab_headers.append(header)
         return header
-
-    def _card_rows(self, card_key: str) -> list:
-        """A frame card's catalog rows: its own field tuple, or its whole config section."""
-        fields = _APPLY_FIELDS.get(card_key, ())
-        if fields is None:
-            return rows_for_section(card_key)
-        return rows_for_fields(fields) if fields else []
 
     def _apply_tab(self, card_keys: tuple) -> None:
         """Every card on the tab in one picker. A whole-roll apply is recorded per card,
         the same record a card's own Roll button writes, so each header still reads back
         what went out."""
         live = [k for k in card_keys if not getattr(self, f"{k}_section").isHidden()]
-        rows_by_card = {k: self._card_rows(k) for k in live}
-        rows = list(dict.fromkeys(r for card_rows in rows_by_card.values() for r in card_rows))
+        rows = list(dict.fromkeys(r for k in live for r in frame_card_rows(k)))
         if not rows:
             return
         applied = open_apply_dialog(self, self.controller.session, rows=rows)
-        if not applied or applied[1] != "roll":
-            return
-        for key, card_rows in rows_by_card.items():
-            own = [r for r in applied[0] if r in card_rows]
-            if own:
-                self.controller.record_section_push(key, selected_flat_dict(self.controller.state.config, own))
+        if applied and applied[1] == "roll":
+            self.controller.record_roll_apply(applied[0])
 
     def _make_section(
         self,
@@ -563,7 +462,7 @@ class ControlsPanel(QWidget):
         # The histogram only changes on render completion, so refresh there, not on every resync.
         self.controller.image_updated.connect(self._update_histogram)
 
-        self.color_section.reset_requested.connect(lambda: self._reset_exposure_fields(_COLOR_FIELDS))
+        self.color_section.reset_requested.connect(lambda: self._reset_exposure_fields(COLOR_FIELDS))
         self.tone_section.reset_requested.connect(self._reset_tone_fields)
         self.lab_section.reset_requested.connect(lambda: self.controller.session.reset_section("lab"))
         self.altproc_section.reset_requested.connect(lambda: self.controller.session.reset_section("altproc"))
@@ -582,6 +481,7 @@ class ControlsPanel(QWidget):
 
         for key, section in self._roll_sections() + self._frame_sections():
             section.scope_selected.connect(lambda scope, k=key: self._on_scope_selected(k, scope))
+            section.roll_revert_requested.connect(lambda k=key: self.controller.revert_to_roll(_SECTION_CARDS.get(k, (k,))))
 
     def apply_shortcut_tooltips(self) -> None:
         """Single source for every shortcut-bearing widget tooltip — re-run on each
@@ -1013,8 +913,10 @@ class ControlsPanel(QWidget):
         self.half_frame_sidebar.sync_ui()
         self.sensor_sidebar.sync_ui()
         self.demosaic_sidebar.sync_ui()
-        self._sync_modified_dots()
+        # Scope first: the tab headers refresh at the end of the modified pass and read
+        # each card's Reset to Roll state.
         self._sync_scope_buttons()
+        self._sync_modified_dots()
 
     _ROLL_CARD_LABELS = AppController._ROLL_CARD_LABELS
 
@@ -1030,9 +932,9 @@ class ControlsPanel(QWidget):
         )
 
     def _sync_scope_buttons(self) -> None:
-        """Each card's Frame/Roll pair, and roll_override_summary's one-line answer to
-        "roll-wide or this frame's own" alongside it. A Roll-tab card reads its own lock;
-        a frame card is always Frame, since a sync is a copy rather than a binding.
+        """Each card's Frame/Roll pair and Reset to Roll, and roll_override_summary's one-line
+        answer to "roll-wide or this frame's own" alongside them. A Roll-tab card reads its
+        own lock; a frame card reads the whole-roll apply recorded for it.
 
         Frames that are not one roll (a library search's results, several folders at once)
         read Frame with Roll disabled: every value there is the frame's own, since no roll
@@ -1040,7 +942,12 @@ class ControlsPanel(QWidget):
         has_roll = self.controller.state.active_roll_id is not None
         overridden = []
         locked_cards = self.controller.locked_roll_cards()
-        for section_key, section in self._roll_sections():
+        roll_sections = self._roll_sections()
+        frame_sections = self._frame_sections()
+        revertible = self.controller.roll_revert_cards(
+            [card for key, _ in roll_sections + frame_sections for card in _SECTION_CARDS.get(key, (key,))]
+        )
+        for section_key, section in roll_sections:
             cards = _SECTION_CARDS.get(section_key, (section_key,))
             locked = any(card in locked_cards for card in cards)
             label = self._ROLL_CARD_LABELS[cards[0]]
@@ -1048,15 +955,13 @@ class ControlsPanel(QWidget):
                 True,
                 "frame" if locked or not has_roll else "roll",
                 roll_tooltip=(f"{label} follows the roll — click to give the roll this frame's value" if has_roll else NO_ROLL_SCOPE_HINT),
-                frame_tooltip=(
-                    f"{label} follows this frame alone — click to rejoin the roll" if has_roll else f"{label} is this frame's own"
-                ),
+                frame_tooltip=f"{label} follows this frame alone" if has_roll else f"{label} is this frame's own",
                 roll_enabled=has_roll,
             )
+            section.set_roll_revert(any(card in revertible for card in cards))
             if locked:
                 overridden.append(label)
 
-        frame_sections = self._frame_sections()
         scopes = self.controller.frame_section_scopes(tuple(key for key, _ in frame_sections))
         for key, section in frame_sections:
             section.set_scope_buttons(
@@ -1065,6 +970,7 @@ class ControlsPanel(QWidget):
                 roll_tooltip="" if has_roll else NO_ROLL_SCOPE_HINT,
                 roll_enabled=has_roll,
             )
+            section.set_roll_revert(key in revertible)
 
         if overridden:
             set_hint_kind(self.roll_override_summary, "warning")
@@ -1072,8 +978,14 @@ class ControlsPanel(QWidget):
         else:
             self.roll_override_summary.setText("")
 
+    def revert_cards_to_roll(self, section_keys) -> None:
+        """Every live card among *section_keys* back to the roll, as one undo step. A card
+        the film mode has retired stays as it is."""
+        live = [k for k in section_keys if not getattr(self, f"{k}_section").isHidden()]
+        self.controller.revert_to_roll([card for k in live for card in _SECTION_CARDS.get(k, (k,))])
+
     def _frame_sections(self) -> tuple:
-        return tuple((key, getattr(self, f"{key}_section")) for key in _APPLY_FIELDS)
+        return tuple((key, getattr(self, f"{key}_section")) for key in FRAME_CARD_FIELDS)
 
     def _on_scope_selected(self, key: str, scope: str) -> None:
         """Roll on a Roll-tab card pushes that card out; on a frame card it opens the
@@ -1083,11 +995,9 @@ class ControlsPanel(QWidget):
             self.controller.set_card_scope(_SECTION_CARDS.get(key, key), scope)
             self._sync_scope_buttons()
             return
-        fields = _APPLY_FIELDS[key]
-        rows = rows_for_fields(fields) if fields else rows_for_section(key)
-        applied = open_apply_dialog(self, self.controller.session, rows=rows)
+        applied = open_apply_dialog(self, self.controller.session, rows=frame_card_rows(key))
         if applied and applied[1] == "roll":
-            self.controller.record_section_push(key, selected_flat_dict(self.controller.state.config, applied[0]))
+            self.controller.record_roll_apply(applied[0])
 
     def _update_histogram(self) -> None:
         """Repaint only when the render produced a new buffer."""
@@ -1112,7 +1022,7 @@ class ControlsPanel(QWidget):
             self.controller.set_process_mode(_DEFAULT_PROCESS.process_mode)
 
     def _reset_tone_fields(self) -> None:
-        self._reset_exposure_fields(_TONE_FIELDS)
+        self._reset_exposure_fields(TONE_FIELDS)
 
     def _reset_process_fields(self, fields) -> None:
         """Calibration, Demosaic and Normalization all live on ProcessConfig, so each
@@ -1135,7 +1045,7 @@ class ControlsPanel(QWidget):
         from dataclasses import replace
 
         cfg = self.controller.state.config
-        new_geo = replace(cfg.geometry, **{f: getattr(_DEFAULT_GEOMETRY, f) for f in _GEOMETRY_FIELDS})
+        new_geo = replace(cfg.geometry, **{f: getattr(_DEFAULT_GEOMETRY, f) for f in GEOMETRY_FIELDS})
         self.controller.apply_config(replace(cfg, geometry=new_geo), persist=True)
 
     def _reset_card_fields(self, card_key: str) -> None:
@@ -1174,8 +1084,8 @@ class ControlsPanel(QWidget):
         exp = cfg.exposure
         positive_source = cfg.process.positive_source
         mode = cfg.process.process_mode
-        color_count = sum(getattr(exp, f) != _default_exposure_field(f, positive_source, mode) for f in _COLOR_FIELDS)
-        tone_count = sum(getattr(exp, f) != _default_exposure_field(f, positive_source, mode) for f in _TONE_FIELDS)
+        color_count = sum(getattr(exp, f) != _default_exposure_field(f, positive_source, mode) for f in COLOR_FIELDS)
+        tone_count = sum(getattr(exp, f) != _default_exposure_field(f, positive_source, mode) for f in TONE_FIELDS)
 
         lab = cfg.lab
         lab_count = sum(
@@ -1223,7 +1133,7 @@ class ControlsPanel(QWidget):
         geo = cfg.geometry
         # crop_rect counts as set rather than as different: its default is None, and a
         # resolved auto rect is not an edit the way a hand-drawn one is.
-        geometry_count = sum(getattr(geo, f) != getattr(_geo, f) for f in _GEOMETRY_FIELDS if f != "crop_rect")
+        geometry_count = sum(getattr(geo, f) != getattr(_geo, f) for f in GEOMETRY_FIELDS if f != "crop_rect")
         geometry_count += geo.crop_rect is not None
         autocrop_count = sum(getattr(geo, f) != getattr(_geo, f) for f in _AUTOCROP_FIELDS)
         lens_count = sum(getattr(geo, f) != getattr(_geo, f) for f in _LENS_FIELDS)

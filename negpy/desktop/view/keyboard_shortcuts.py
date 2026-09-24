@@ -38,7 +38,8 @@ def _fire_tab_header(right, action: str) -> None:
     if action == "cards":
         header.cards_btn.click()
         return
-    (header.reset_requested if action == "reset" else header.apply_requested).emit()
+    signal = {"reset": header.reset_requested, "revert": header.roll_revert_requested}.get(action, header.apply_requested)
+    signal.emit()
 
 
 def _reset_roll(window, controller) -> None:
@@ -265,6 +266,8 @@ class ShortcutManager:
             "sync_bounds": lambda: open_sync_bounds_dialog(self.window, controller.session),
             "reset_roll": lambda: _reset_roll(self.window, controller),
             "reset_tab": lambda: _fire_tab_header(right, "reset"),
+            "reset_tab_to_roll": lambda: _fire_tab_header(right, "revert"),
+            "reset_to_roll": controller.revert_frame_to_roll,
             "apply_tab": lambda: _fire_tab_header(right, "apply"),
             "toggle_tab_cards": lambda: _fire_tab_header(right, "cards"),
             "roll_batch_analysis": controller.request_batch_normalization,

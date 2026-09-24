@@ -3,8 +3,8 @@ expand that reach all of them at once. Cards keep their own headers."""
 
 from unittest.mock import MagicMock, patch
 
-from negpy.desktop.settings_catalog import rows_for_fields, rows_for_section
-from negpy.desktop.view.sidebar.controls_panel import _COLOR_FIELDS, _GEOMETRY_FIELDS, ControlsPanel
+from negpy.desktop.settings_catalog import COLOR_FIELDS, GEOMETRY_FIELDS, rows_for_fields, rows_for_section
+from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.tab_header import TabHeader
 
@@ -104,7 +104,6 @@ def _panel_stub(hidden=()) -> MagicMock:
         section = MagicMock()
         section.isHidden.return_value = key in hidden
         setattr(panel, f"{key}_section", section)
-    panel._card_rows = lambda key: ControlsPanel._card_rows(panel, key)
     return panel
 
 
@@ -115,7 +114,7 @@ def test_apply_offers_every_row_the_tabs_cards_own():
         ControlsPanel._apply_tab(panel, ("geometry", "lab"))
 
     rows = dialog.call_args.kwargs["rows"]
-    assert rows == list(dict.fromkeys(rows_for_fields(_GEOMETRY_FIELDS) + rows_for_section("lab")))
+    assert rows == list(dict.fromkeys(rows_for_fields(GEOMETRY_FIELDS) + rows_for_section("lab")))
 
 
 def test_apply_leaves_out_a_card_the_mode_retired():
@@ -138,16 +137,15 @@ def test_a_card_with_no_catalog_rows_travels_with_nothing():
     dialog.assert_not_called()
 
 
-def test_a_whole_roll_apply_is_recorded_per_card():
+def test_a_whole_roll_apply_is_recorded():
+    """The controller splits the rows per card (record_roll_apply)."""
     panel = _panel_stub()
-    color_rows = rows_for_fields(_COLOR_FIELDS)
-    applied = (rows_for_fields(_GEOMETRY_FIELDS) + color_rows, "roll")
+    applied = (rows_for_fields(GEOMETRY_FIELDS) + rows_for_fields(COLOR_FIELDS), "roll")
 
     with patch("negpy.desktop.view.sidebar.controls_panel.open_apply_dialog", return_value=applied):
         ControlsPanel._apply_tab(panel, ("geometry", "color"))
 
-    recorded = {call.args[0] for call in panel.controller.record_section_push.call_args_list}
-    assert recorded == {"geometry", "color"}
+    panel.controller.record_roll_apply.assert_called_once_with(applied[0])
 
 
 def test_a_selection_apply_records_nothing():
@@ -156,8 +154,57 @@ def test_a_selection_apply_records_nothing():
 
     with patch(
         "negpy.desktop.view.sidebar.controls_panel.open_apply_dialog",
-        return_value=(rows_for_fields(_GEOMETRY_FIELDS), "selection"),
+        return_value=(rows_for_fields(GEOMETRY_FIELDS), "selection"),
     ):
         ControlsPanel._apply_tab(panel, ("geometry",))
 
-    panel.controller.record_section_push.assert_not_called()
+    panel.controller.record_roll_apply.assert_not_called()
+
+
+def _revertible(available: bool, hidden: bool = False) -> CollapsibleSection:
+    section = _card(0, hidden=hidden)
+    section.set_roll_revert(available)
+    return section
+
+
+def test_reset_to_roll_shows_when_any_card_can_reset():
+    header = TabHeader("Exposure")
+
+    header.bind([_revertible(False), _revertible(True)])
+    assert header.roll_revert_btn.isHidden() is False
+
+    header.bind([_revertible(False), _revertible(False)])
+    assert header.roll_revert_btn.isHidden() is True
+
+
+def test_a_retired_card_does_not_count_for_reset_to_roll():
+    header = TabHeader("Exposure")
+    header.bind([_revertible(True, hidden=True), _revertible(False)])
+
+    assert header.roll_revert_btn.isHidden() is True
+
+
+def test_reset_to_roll_stays_beside_the_reset_arrow():
+    header = TabHeader("Exposure")
+    row = header._header_row
+
+    assert row.indexOf(header.roll_revert_btn) == row.indexOf(header.reset_btn) + 1
+    assert row.indexOf(header.apply_btn) == row.indexOf(header.roll_revert_btn) + 1
+
+
+def test_reset_to_roll_on_a_tab_skips_a_retired_card():
+    panel = _panel_stub(hidden=("color",))
+
+    ControlsPanel.revert_cards_to_roll(panel, ("color", "tone", "lab"))
+
+    panel.controller.revert_to_roll.assert_called_once_with(["tone", "lab"])
+
+
+def test_reset_to_roll_on_the_roll_tab_reaches_both_optics_cards():
+    panel = MagicMock()
+    for key in ("process", "optics"):
+        getattr(panel, f"{key}_section").isHidden.return_value = False
+
+    ControlsPanel.revert_cards_to_roll(panel, ("process", "optics"))
+
+    panel.controller.revert_to_roll.assert_called_once_with(["process", "lens", "flatfield"])

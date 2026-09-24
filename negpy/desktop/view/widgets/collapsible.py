@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
-from negpy.desktop.view.styles.templates import HEADER_BUTTON_SIZE, HEADER_HEIGHT, HEADER_ICON_SIZE
+from negpy.desktop.view.styles.templates import HEADER_BUTTON_SIZE, HEADER_HEIGHT, HEADER_ICON_SIZE, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 import qtawesome as qta
 
@@ -21,12 +21,30 @@ import qtawesome as qta
 NO_ROLL_SCOPE_HINT = "These frames are not one roll, so there is no roll to hold a shared value. Save as Roll to make one."
 
 
+def roll_revert_icon(color: str) -> QIcon:
+    """Reset to Roll's icon, shared by the section headers and the frame-wide menu items:
+    the reset arrow at full height, a film frame cut into its lower right. The cut-out is
+    painted in bg_header, the header's and the menu's background."""
+    film_offset = (0.188, 0.2)
+    return qta.icon(
+        "fa5s.undo",
+        "fa5s.circle",
+        "fa5s.film",
+        options=[
+            {"color": color},
+            {"color": THEME.bg_header, "scale_factor": 0.924, "offset": film_offset},
+            {"color": color, "scale_factor": 0.66, "offset": film_offset},
+        ],
+    )
+
+
 class CollapsibleSection(QWidget):
     """
     A simple collapsible container with a header button and configurable initial state.
     """
 
     reset_requested = pyqtSignal()
+    roll_revert_requested = pyqtSignal()
     expanded_changed = pyqtSignal(bool)
     info_requested = pyqtSignal()
     selection_toggled = pyqtSignal(bool)
@@ -121,6 +139,13 @@ class CollapsibleSection(QWidget):
         self.reset_btn.clicked.connect(self._on_reset_clicked)
         btn_layout.addWidget(self.reset_btn)
 
+        # Hidden until set_roll_revert: most cards on most frames already follow the roll.
+        self.roll_revert_btn = self._header_button(roll_revert_icon(THEME.text_muted), f"Reset {title} to the roll's settings")
+        self.roll_revert_btn.setVisible(False)
+        self.roll_revert_btn.clicked.connect(self.roll_revert_requested)
+        btn_layout.addWidget(self.roll_revert_btn)
+        self.roll_revert_available = False
+
         # Lazily built by set_actions_menu(): most sections have nothing that belongs
         # here, so no button exists until one asks for it.
         self.actions_btn: Optional[QPushButton] = None
@@ -165,6 +190,17 @@ class CollapsibleSection(QWidget):
         if collapsible:
             self.toggle_button.toggled.connect(self._on_toggle)
 
+    def _header_button(self, icon: QIcon, tooltip: str) -> QPushButton:
+        """The header's own button size and look, the one reset and the scope pair use."""
+        btn = QPushButton()
+        btn.setIcon(icon)
+        btn.setFixedSize(HEADER_BUTTON_SIZE, HEADER_BUTTON_SIZE)
+        btn.setIconSize(QSize(HEADER_ICON_SIZE, HEADER_ICON_SIZE))
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setObjectName("collapsible_reset_btn")
+        btn.setToolTip(wrap_tooltip(tooltip))
+        return btn
+
     def set_content(self, widget: QWidget) -> None:
         # Plain QWidget content is painted #0D0D0D by the global `QWidget {}` QSS rule, covering
         # the #121212 card frame, since custom subclasses are not auto-painted. The objectName
@@ -190,6 +226,12 @@ class CollapsibleSection(QWidget):
         self.reset_btn.setVisible(visible)
         self.title_label.setText(f"{self._title_text} · {count}" if visible else self._title_text)
         self._refresh_scope_stripe()
+
+    def set_roll_revert(self, available: bool) -> None:
+        """Show Reset to Roll while this frame holds something other than the roll's value
+        on this card."""
+        self.roll_revert_available = available
+        self.roll_revert_btn.setVisible(available)
 
     def set_selection_state(self, checked: int, total: int) -> None:
         """Reflect how many of the section's rows are ticked. Emits nothing."""

@@ -8,14 +8,15 @@ import pytest
 
 from negpy.desktop.session import AppState
 from negpy.desktop.settings_catalog import CATALOG, all_rows, rows_for_fields, rows_for_section
-from negpy.desktop.view.sidebar.controls_panel import _APPLY_FIELDS, ControlsPanel
+from negpy.desktop.settings_catalog import FRAME_CARD_FIELDS
+from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog
 from negpy.domain.models import WorkspaceConfig
 
 
 def _rows_for(key: str):
-    fields = _APPLY_FIELDS[key]
+    fields = FRAME_CARD_FIELDS[key]
     return rows_for_fields(fields) if fields else rows_for_section(key)
 
 
@@ -28,14 +29,14 @@ def _edited_cfg() -> WorkspaceConfig:
     )
 
 
-@pytest.mark.parametrize("key", sorted(_APPLY_FIELDS))
+@pytest.mark.parametrize("key", sorted(FRAME_CARD_FIELDS))
 def test_every_frame_card_resolves_to_rows(key: str):
     assert _rows_for(key), f"{key} would open an empty picker"
 
 
 def test_no_two_cards_claim_the_same_row():
     seen: dict[str, str] = {}
-    for key in _APPLY_FIELDS:
+    for key in FRAME_CARD_FIELDS:
         for row in _rows_for(key):
             assert row.id not in seen, f"{row.id} claimed by both {seen.get(row.id)} and {key}"
             seen[row.id] = key
@@ -96,7 +97,7 @@ def test_limit_to_rows_keeps_a_dropped_row_from_enabling_apply(qapp):
 
 def test_every_catalog_row_a_frame_card_claims_exists():
     known = {r.id for r in all_rows()}
-    for key in _APPLY_FIELDS:
+    for key in FRAME_CARD_FIELDS:
         assert {r.id for r in _rows_for(key)} <= known
 
 

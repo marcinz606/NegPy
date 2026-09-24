@@ -198,3 +198,31 @@ class TestMakeSection:
         repo = FakeRepo()
         make_section(repo, "Demo", "demo", QWidget(), "fa5s.cog", collapsible=False)
         assert "section_expanded_demo" not in repo.data
+
+
+class TestResetToRoll:
+    def test_hidden_until_the_frame_differs_from_the_roll(self) -> None:
+        section = CollapsibleSection("Tone")
+        assert section.roll_revert_btn.isHidden() is True
+
+        section.set_roll_revert(True)
+        assert section.roll_revert_btn.isHidden() is False
+        assert section.roll_revert_available is True
+
+        section.set_roll_revert(False)
+        assert section.roll_revert_btn.isHidden() is True
+
+    def test_a_click_asks_for_the_reset(self) -> None:
+        section = CollapsibleSection("Tone")
+        fired: list[bool] = []
+        section.roll_revert_requested.connect(lambda: fired.append(True))
+        section.set_roll_revert(True)
+
+        section.roll_revert_btn.click()
+
+        assert fired == [True]
+
+    def test_it_sits_right_after_the_reset_arrow(self) -> None:
+        section = CollapsibleSection("Tone")
+        row = section._header_row
+        assert row.indexOf(section.roll_revert_btn) == row.indexOf(section.reset_btn) + 1

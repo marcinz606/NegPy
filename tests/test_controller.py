@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import QApplication
 
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import DesktopSessionManager, AppState, ToolMode
+from negpy.desktop.settings_catalog import rows_for_fields
 from negpy.desktop.workers.export import ExportTask, resolve_export_target_path
 from negpy.features.geometry.logic import autocrop_detection_key
 from negpy.domain.models import (
@@ -1013,7 +1014,7 @@ class TestAppController(unittest.TestCase):
 
         self.assertEqual(self.controller.frame_section_scope("tone"), "frame")
 
-        self.controller.record_section_push("tone", {"dye_separation": 0.4})
+        self.controller.record_roll_apply(rows_for_fields(("dye_separation",)))
         self.assertEqual(self.controller.frame_section_scope("tone"), "roll")
 
     def test_a_frame_section_drops_back_to_frame_once_edited_again(self):
@@ -1025,7 +1026,7 @@ class TestAppController(unittest.TestCase):
         state = self.mock_session_manager.state
         state.active_roll_id = roll_id
         state.config = replace(state.config, exposure=replace(state.config.exposure, dye_separation=0.4))
-        self.controller.record_section_push("tone", {"dye_separation": 0.4})
+        self.controller.record_roll_apply(rows_for_fields(("dye_separation",)))
 
         state.config = replace(state.config, exposure=replace(state.config.exposure, dye_separation=0.9))
 
@@ -1040,7 +1041,7 @@ class TestAppController(unittest.TestCase):
         state = self.mock_session_manager.state
         state.active_roll_id = roll_id
         state.config = replace(state.config, exposure=replace(state.config.exposure, dye_separation=0.4))
-        self.controller.record_section_push("tone", {"dye_separation": 0.4})
+        self.controller.record_roll_apply(rows_for_fields(("dye_separation",)))
         repo.get_global_setting.reset_mock()
 
         scopes = self.controller.frame_section_scopes(("tone", "finish"))
@@ -1056,8 +1057,161 @@ class TestAppController(unittest.TestCase):
     def test_recording_a_push_with_no_roll_open_is_a_noop(self):
         state = self.mock_session_manager.state
         state.active_roll_id = None
-        self.controller.record_section_push("tone", {"dye_separation": 0.4})
+        self.controller.record_roll_apply(rows_for_fields(("dye_separation",)))
         self.assertEqual(self.controller.frame_section_scope("tone"), "frame")
+
+    def _roll_with_frame(self) -> str:
+        from negpy.services.assets import rolls
+
+        self._wire_repo_store()
+        roll_id = rolls.create_virtual_roll(self.controller.session.repo, "Portra", [])
+        state = self.mock_session_manager.state
+        state.active_roll_id = roll_id
+        state.uploaded_files = [{"name": "a.dng", "path": "/a.dng", "hash": "h1"}]
+        state.current_file_hash = "h1"
+        state.selected_file_idx = 0
+        return roll_id
+
+    def test_a_whole_roll_apply_is_recorded_per_card(self):
+        from negpy.desktop.settings_catalog import COLOR_FIELDS, GEOMETRY_FIELDS
+        from negpy.services.assets import rolls
+
+        roll_id = self._roll_with_frame()
+
+        self.controller.record_roll_apply(rows_for_fields(GEOMETRY_FIELDS) + rows_for_fields(COLOR_FIELDS))
+
+        pushes = rolls.roll_for_id(self.controller.session.repo, roll_id)["section_pushes"]
+        self.assertEqual(set(pushes), {"geometry", "color"})
+
+    def test_reset_to_roll_restores_only_what_the_roll_apply_carried(self):
+        self._roll_with_frame()
+        state = self.mock_session_manager.state
+        state.config = replace(state.config, exposure=replace(state.config.exposure, density=1.2, dye_separation=0.4))
+        self.controller.record_roll_apply(rows_for_fields(("density",)))
+        state.config = replace(state.config, exposure=replace(state.config.exposure, density=0.5, dye_separation=0.9))
+        self.assertEqual(self.controller.roll_revert_cards(("tone",)), {"tone"})
+
+        self.assertEqual(self.controller.revert_to_roll(("tone",)), 1)
+
+        self.assertEqual(state.config.exposure.density, 1.2)
+        self.assertEqual(state.config.exposure.dye_separation, 0.9)
+        self.assertEqual(self.controller.frame_section_scope("tone"), "roll")
+        self.assertEqual(self.controller.roll_revert_cards(("tone",)), set())
+
+    def test_a_pushed_crop_read_back_as_a_list_still_matches(self):
+        """The roll store is JSON: a pushed crop comes back as a list, the frame holds a tuple."""
+        from negpy.services.assets import rolls
+
+        roll_id = self._roll_with_frame()
+        state = self.mock_session_manager.state
+        rolls.set_section_push(self.controller.session.repo, roll_id, "geometry", {"crop_rect": [0.1, 0.1, 0.9, 0.9]})
+        state.config = replace(state.config, geometry=replace(state.config.geometry, crop_rect=(0.1, 0.1, 0.9, 0.9)))
+        self.assertEqual(self.controller.frame_section_scope("geometry"), "roll")
+
+        state.config = replace(state.config, geometry=replace(state.config.geometry, crop_rect=(0.2, 0.2, 0.8, 0.8)))
+        self.controller.revert_to_roll(("geometry",))
+
+        self.assertEqual(state.config.geometry.crop_rect, (0.1, 0.1, 0.9, 0.9))
+        self.assertEqual(self.controller.frame_section_scope("geometry"), "roll")
+
+    def test_reset_to_roll_unlocks_a_roll_card_and_takes_the_rolls_value(self):
+        from negpy.services.assets import rolls
+
+        roll_id = self._roll_with_frame()
+        repo = self.controller.session.repo
+        state = self.mock_session_manager.state
+        rolls.set_roll_defaults(repo, roll_id, analysis_buffer=0.2)
+        state.config = replace(state.config, process=replace(state.config.process, analysis_buffer=0.05))
+        rolls.set_frame_override(repo, roll_id, "h1", "process", True)
+        self.assertEqual(self.controller.roll_revert_cards(("process",)), {"process"})
+
+        self.controller.revert_to_roll(("process",))
+
+        self.assertEqual(state.config.process.analysis_buffer, 0.2)
+        self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), set())
+        self.assertEqual(self.controller.roll_revert_cards(("process",)), set())
+
+    def test_reset_to_roll_on_film_mode_carries_the_modes_cast_removal(self):
+        from negpy.features.process.models import ProcessMode
+        from negpy.services.assets import rolls
+
+        roll_id = self._roll_with_frame()
+        repo = self.controller.session.repo
+        state = self.mock_session_manager.state
+        rolls.set_roll_defaults(repo, roll_id, process_mode=ProcessMode.E6)
+        rolls.set_frame_override(repo, roll_id, "h1", "film", True)
+        before = state.config.exposure.cast_removal_strength
+        expected = AppController._with_process_mode(state.config, ProcessMode.E6)
+
+        self.controller.revert_to_roll(("film",))
+
+        self.assertEqual(state.config.process.process_mode, ProcessMode.E6)
+        self.assertEqual(state.config.exposure.cast_removal_strength, expected.exposure.cast_removal_strength)
+        self.assertNotEqual(state.config.exposure.cast_removal_strength, before)
+
+    def test_a_calibration_matrix_equal_to_the_rolls_does_not_lock(self):
+        """A matrix read back from the roll store is nested lists; it still matches."""
+        from negpy.services.assets import rolls
+
+        roll_id = self._roll_with_frame()
+        state = self.mock_session_manager.state
+        matrix = ((1.0, 0.1, 0.0), (0.0, 1.0, 0.1), (0.1, 0.0, 1.0))
+        state.config = replace(state.config, process=replace(state.config.process, crosstalk_matrix=matrix))
+        stored = {name: getattr(state.config.process, name) for name in rolls.card_fields("sensor")}
+        rolls.set_roll_defaults(self.controller.session.repo, roll_id, **{**stored, "crosstalk_matrix": [list(row) for row in matrix]})
+
+        self.controller._lock_roll_card("sensor")
+
+        self.assertNotIn("sensor", self.controller.locked_roll_cards())
+
+    def test_resetting_several_cards_to_the_roll_is_one_edit(self):
+        from negpy.services.assets import rolls
+
+        roll_id = self._roll_with_frame()
+        repo = self.controller.session.repo
+        state = self.mock_session_manager.state
+        rolls.set_roll_defaults(repo, roll_id, analysis_buffer=0.2)
+        rolls.set_frame_override(repo, roll_id, "h1", "process", True)
+        state.config = replace(state.config, exposure=replace(state.config.exposure, density=1.2))
+        self.controller.record_roll_apply(rows_for_fields(("density",)))
+        state.config = replace(state.config, exposure=replace(state.config.exposure, density=0.5))
+        self.mock_session_manager.update_config.reset_mock()
+
+        self.assertTrue(self.controller.can_revert_frame_to_roll())
+        self.assertEqual(self.controller.revert_frame_to_roll(), 2)
+
+        self.assertEqual(self.mock_session_manager.update_config.call_count, 1)
+        self.assertEqual((state.config.process.analysis_buffer, state.config.exposure.density), (0.2, 1.2))
+        self.assertFalse(self.controller.can_revert_frame_to_roll())
+
+    def test_nothing_to_reset_to_the_roll(self):
+        from negpy.services.assets import rolls
+
+        roll_id = self._roll_with_frame()
+        rolls.set_frame_override(self.controller.session.repo, roll_id, "h1", "process", True)
+        self.mock_session_manager.update_config.reset_mock()
+
+        # A locked card the roll holds no value for, and a frame card with no record.
+        self.assertEqual(self.controller.roll_revert_cards(("process", "tone")), set())
+        self.assertEqual(self.controller.revert_to_roll(("process", "tone")), 0)
+        self.mock_session_manager.update_config.assert_not_called()
+
+        self.mock_session_manager.state.active_roll_id = None
+        self.assertEqual(self.controller.roll_revert_cards(("process", "tone")), set())
+
+    def test_a_metadata_reset_to_the_roll_does_not_render(self):
+        from negpy.services.assets import rolls
+
+        roll_id = self._roll_with_frame()
+        repo = self.controller.session.repo
+        state = self.mock_session_manager.state
+        rolls.set_roll_defaults(repo, roll_id, exposure_override="1/125 f/8")
+        rolls.set_frame_override(repo, roll_id, "h1", "metadata_exposure", True)
+
+        self.controller.revert_to_roll(("metadata_exposure",))
+
+        self.assertEqual(state.config.metadata.exposure_override, "1/125 f/8")
+        self.assertFalse(self.mock_session_manager.update_config.call_args.kwargs["render"])
 
     def test_locking_a_card_seeds_the_frames_own_row_then_sets_the_flag(self):
         from negpy.services.assets import rolls

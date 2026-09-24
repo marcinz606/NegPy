@@ -105,3 +105,13 @@ def test_a_click_routes_through_the_controller():
     MetadataSidebar._on_scope_selected(panel, "metadata_gear", "roll")
 
     panel.controller.set_card_scope.assert_called_once_with("metadata_gear", "roll")
+
+
+def test_reset_to_roll_shows_on_the_cards_the_controller_finds():
+    panel = _stub(locked_cards={"metadata_process"})
+    panel.controller.roll_revert_cards.side_effect = lambda keys: {"metadata_process"} & set(keys)
+
+    MetadataSidebar._sync_scope_buttons(panel)
+
+    panel.process_section.set_roll_revert.assert_called_with(True)
+    panel.gear_section.set_roll_revert.assert_called_with(False)

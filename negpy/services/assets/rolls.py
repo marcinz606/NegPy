@@ -331,6 +331,19 @@ def card_fields(card_key: str) -> tuple:
     return ROLL_DEFAULT_FIELDS[card_key][1]
 
 
+def config_value(value: Any) -> Any:
+    """*value* read back from this store with its tuples restored. The store is JSON, so
+    a tuple comes back as a list at every depth."""
+    if isinstance(value, (list, tuple)):
+        return tuple(config_value(v) for v in value)
+    return value
+
+
+def same_value(a: Any, b: Any) -> bool:
+    """Whether a config value equals one read back from this store."""
+    return config_value(a) == config_value(b)
+
+
 def roll_defaults(repo: Any, roll_id: str) -> Dict[str, Any]:
     """The roll's own value for each field it has set at least once. A field absent
     here has no roll default yet -- the frame's own saved value is what is used,

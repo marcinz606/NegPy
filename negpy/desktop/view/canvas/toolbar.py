@@ -17,6 +17,7 @@ from negpy.desktop.controller import AppController
 from negpy.desktop.view.keyboard_shortcuts import _context_undo
 from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog, open_sync_bounds_dialog
 from negpy.desktop.view.shortcut_registry import label_with_shortcut, tooltip_with_shortcut
+from negpy.desktop.view.widgets.collapsible import roll_revert_icon
 from negpy.desktop.view.styles.templates import default_button_height, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 
@@ -357,6 +358,12 @@ class ActionToolbar(QWidget):
             qta.icon("fa5s.history", color=icon_color), "Reset Settings", self.session.reset_settings
         )
         reset_settings_action.setToolTip("Discard all edits and return this image to its default look")
+        self._action_reset_to_roll = overflow_menu.addAction(
+            roll_revert_icon(icon_color), "Reset to Roll Settings", self.controller.revert_frame_to_roll
+        )
+        self._label(self._action_reset_to_roll, "Reset to Roll Settings", "reset_to_roll")
+        self._action_reset_to_roll.setToolTip("Return every card that differs from the roll to the roll's settings")
+        overflow_menu.aboutToShow.connect(lambda: self._action_reset_to_roll.setEnabled(self.controller.can_revert_frame_to_roll()))
         overflow_menu.addSeparator()
         unload_action = overflow_menu.addAction(qta.icon("fa5s.times-circle", color=icon_color), "Unload…", self._on_overflow_unload)
         unload_action.setToolTip("Remove this image from the session (its saved edit is kept)")

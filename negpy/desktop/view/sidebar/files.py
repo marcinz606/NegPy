@@ -1567,7 +1567,9 @@ class FileBrowser(QWidget):
         return os.path.basename(files[idx]["path"]) if 0 <= idx < len(files) else ""
 
     def _open_apply_dialog(self) -> None:
-        open_apply_dialog(self, self.session)
+        applied = open_apply_dialog(self, self.session)
+        if applied and applied[1] == "roll":
+            self.controller.record_roll_apply(applied[0])
 
     def _open_roll_settings_dialog(self) -> None:
         """The tag-icon button: always opens, and silently pre-fills a gear match too
@@ -1684,6 +1686,9 @@ class FileBrowser(QWidget):
             menu.addAction(f"Reset {count_of(n, 'frame')}").triggered.connect(lambda: _reset_selected(self, self.controller))
         else:
             menu.addAction("Reset Settings").triggered.connect(self.session.reset_settings)
+            act_roll = menu.addAction(label_with_shortcut("Reset to Roll Settings", "reset_to_roll"))
+            act_roll.triggered.connect(self.controller.revert_frame_to_roll)
+            act_roll.setEnabled(self.controller.can_revert_frame_to_roll())
         menu.addSeparator()
         act_keep = menu.addAction(f"Keep {count_of(n, 'frame')}" if multi else "Keep")
         act_keep.setCheckable(True)

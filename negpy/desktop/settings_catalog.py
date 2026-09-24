@@ -356,6 +356,108 @@ def rows_for_section(section: str) -> list[SettingRow]:
     return [r for r in all_rows() if r.section == section]
 
 
+# Exposure field partitions: the Filtration and Tone sections split ExposureConfig, for
+# both per-section modified counts and scoped resets. render_intent is in neither, since
+# it is flat-master output.
+COLOR_FIELDS = (
+    "wb_cyan",
+    "wb_magenta",
+    "wb_yellow",
+    "shadow_cyan",
+    "shadow_magenta",
+    "shadow_yellow",
+    "highlight_cyan",
+    "highlight_magenta",
+    "highlight_yellow",
+    "cast_removal_strength",
+)
+
+GEOMETRY_FIELDS = (
+    "rotation",
+    "fine_rotation",
+    "flip_horizontal",
+    "flip_vertical",
+    "converge_v",
+    "converge_h",
+    "crop_to_valid",
+    "crop_rect",
+    "crop_from_auto",
+    "crop_detect_key",
+)
+
+TONE_FIELDS = (
+    "density",
+    "grade",
+    "grade_trim_red",
+    "grade_trim_green",
+    "grade_trim_blue",
+    "paper_black",
+    "shadow_density",
+    "highlight_density",
+    "shadow_grade",
+    "highlight_grade",
+    "shadow_grade_trim_red",
+    "shadow_grade_trim_green",
+    "shadow_grade_trim_blue",
+    "highlight_grade_trim_red",
+    "highlight_grade_trim_green",
+    "highlight_grade_trim_blue",
+    "paper_dmin",
+    "auto_exposure",
+    "auto_normalize_contrast",
+    "paper_profile",
+    "midtone_gamma",
+    "midtone_gamma_trim_red",
+    "midtone_gamma_trim_green",
+    "midtone_gamma_trim_blue",
+    "toe",
+    "toe_width",
+    "toe_trim_red",
+    "toe_trim_green",
+    "toe_trim_blue",
+    "toe_width_trim_red",
+    "toe_width_trim_green",
+    "toe_width_trim_blue",
+    "shoulder",
+    "shoulder_width",
+    "shoulder_trim_red",
+    "shoulder_trim_green",
+    "shoulder_trim_blue",
+    "shoulder_width_trim_red",
+    "shoulder_width_trim_green",
+    "shoulder_width_trim_blue",
+    "dye_separation",
+    "dye_separation_trim_red",
+    "dye_separation_trim_green",
+    "dye_separation_trim_blue",
+    "separation_damping",
+    "contrast_mask",
+    "mask_spacer",
+)
+
+# Frame cards whose settings can be pushed to other frames, and the fields each owns. A
+# card keyed by its own config section needs no tuple. Roll-tab cards drive roll defaults
+# instead, and Dodge & Burn has no catalog row: a mask means nothing on the next frame.
+FRAME_CARD_FIELDS: dict[str, tuple | None] = {
+    "geometry": GEOMETRY_FIELDS,
+    "color": COLOR_FIELDS,
+    "tone": TONE_FIELDS,
+    "lab": None,
+    "altproc": None,
+    "toning": None,
+    "retouch": None,
+    "finish": None,
+}
+
+
+def frame_card_rows(card_key: str) -> list[SettingRow]:
+    """A frame card's catalog rows: its own field tuple, or its whole config section."""
+    fields = FRAME_CARD_FIELDS.get(card_key, ())
+    if fields is None:
+        return rows_for_section(card_key)
+    return rows_for_fields(fields) if fields else []
+
+
 # Everything but the Metadata rows, for the pickers that offer metadata alone.
 NON_METADATA_SECTIONS: frozenset[str] = frozenset(title for title, _rows in CATALOG) - {"Metadata"}
 

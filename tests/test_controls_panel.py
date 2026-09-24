@@ -11,7 +11,8 @@ from unittest.mock import MagicMock, patch
 
 from negpy.desktop.session import AppState
 from negpy.desktop.settings_catalog import rows_for_fields
-from negpy.desktop.view.sidebar.controls_panel import _TONE_FIELDS, ControlsPanel
+from negpy.desktop.settings_catalog import TONE_FIELDS
+from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
 from negpy.features.exposure.models import ExposureConfig
 from negpy.features.process.models import ProcessConfig, ProcessMode
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
@@ -185,12 +186,12 @@ def test_a_whole_roll_apply_from_a_frame_card_is_recorded():
 
     with patch("negpy.desktop.view.sidebar.controls_panel.open_apply_dialog", return_value=(rows, "roll")):
         ControlsPanel._on_scope_selected(panel, "tone", "roll")
-    assert panel.controller.record_section_push.call_args[0][0] == "tone"
+    panel.controller.record_roll_apply.assert_called_once_with(rows)
 
-    panel.controller.record_section_push.reset_mock()
+    panel.controller.record_roll_apply.reset_mock()
     with patch("negpy.desktop.view.sidebar.controls_panel.open_apply_dialog", return_value=(rows, "selection")):
         ControlsPanel._on_scope_selected(panel, "tone", "roll")
-    panel.controller.record_section_push.assert_not_called()
+    panel.controller.record_roll_apply.assert_not_called()
 
 
 def test_a_cancelled_apply_records_nothing():
@@ -199,7 +200,7 @@ def test_a_cancelled_apply_records_nothing():
     with patch("negpy.desktop.view.sidebar.controls_panel.open_apply_dialog", return_value=None):
         ControlsPanel._on_scope_selected(panel, "tone", "roll")
 
-    panel.controller.record_section_push.assert_not_called()
+    panel.controller.record_roll_apply.assert_not_called()
 
 
 def test_reset_process_fields_only_touches_the_given_fields():
@@ -336,7 +337,7 @@ def test_reset_tone_fields_clears_the_print_controls_alone():
 
     ControlsPanel._reset_tone_fields(panel)
 
-    assert panel._reset_exposure_fields.call_args[0][0] == _TONE_FIELDS
+    assert panel._reset_exposure_fields.call_args[0][0] == TONE_FIELDS
     panel._reset_process_fields.assert_not_called()
 
 
@@ -365,3 +366,25 @@ def test_reset_film_fields_does_nothing_at_the_defaults():
 
     panel.controller.set_positive_source.assert_not_called()
     panel.controller.set_process_mode.assert_not_called()
+
+
+def test_sync_scope_buttons_offers_reset_to_roll_where_the_controller_finds_one():
+    panel = _panel_stub(locked_cards=("process",))
+    panel.controller.roll_revert_cards.side_effect = lambda keys: {"process", "lens", "tone"} & set(keys)
+
+    ControlsPanel._sync_scope_buttons(panel)
+
+    panel.process_section.set_roll_revert.assert_called_with(True)
+    panel.optics_section.set_roll_revert.assert_called_with(True)
+    panel.film_section.set_roll_revert.assert_called_with(False)
+    panel.tone_section.set_roll_revert.assert_called_with(True)
+    panel.lab_section.set_roll_revert.assert_called_with(False)
+
+
+def test_the_frame_half_does_not_promise_a_rejoin():
+    """Clicking the lit Frame half does nothing; Reset to Roll is the way back."""
+    panel = _panel_stub(locked_cards=("film",))
+
+    ControlsPanel._sync_scope_buttons(panel)
+
+    assert "rejoin" not in panel.film_section.set_scope_buttons.call_args.kwargs["frame_tooltip"]

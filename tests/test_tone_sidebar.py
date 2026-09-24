@@ -23,10 +23,10 @@ def _row_index_containing(layout, widget) -> int:
 
 
 def test_tone_reset_covers_dye_separation():
-    """The section header's reset button resets the fields listed in _TONE_FIELDS, so
+    """The section header's reset button resets the fields listed in TONE_FIELDS, so
     every control the panel shows has to be in it — a renamed field that falls out of
     the list leaves a visible slider its own reset can't clear."""
-    from negpy.desktop.view.sidebar.controls_panel import _TONE_FIELDS
+    from negpy.desktop.settings_catalog import TONE_FIELDS
 
     for field in (
         "dye_separation",
@@ -35,7 +35,7 @@ def test_tone_reset_covers_dye_separation():
         "dye_separation_trim_blue",
         "separation_damping",
     ):
-        assert field in _TONE_FIELDS
+        assert field in TONE_FIELDS
 
 
 def test_separation_damping_locked_without_a_separation_push(qapp):

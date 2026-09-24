@@ -2074,6 +2074,52 @@ class ResetKeepsScanSetup(unittest.TestCase):
 
         self.assertIn("film", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
 
+    def _own_narrowband_then_reset(self) -> str:
+        """The frame's own Narrowband off as a history step, then a reset that hands the
+        frame back to the roll: Narrowband on, the Calibration card unlocked."""
+        roll_id = self._locked_roll()
+        own = self.session.state.config
+        self.session.update_config(replace(own, process=replace(own.process, narrowband_scan=False)), persist=True)
+        self.session.save_work_print("own")
+        self.session.reset_settings()
+        return roll_id
+
+    def test_a_history_jump_locks_a_card_that_differs_from_the_roll(self):
+        from negpy.services.assets import rolls
+
+        roll_id = self._own_narrowband_then_reset()
+
+        self.session.jump_to_step(self.session.state.undo_index - 1)
+
+        self.assertFalse(self.session.state.config.process.narrowband_scan)
+        self.assertIn("sensor", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
+
+    def test_loading_a_work_print_locks_a_card_that_differs_from_the_roll(self):
+        from negpy.services.assets import rolls
+
+        roll_id = self._own_narrowband_then_reset()
+
+        self.session.load_work_print("own")
+
+        self.assertFalse(self.session.state.config.process.narrowband_scan)
+        self.assertIn("sensor", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
+
+    def test_a_paste_locks_a_card_that_differs_from_the_roll(self):
+        from negpy.services.assets import rolls
+
+        roll_id = self._locked_roll()
+        rolls.set_roll_defaults(self.repo, roll_id, hue_trim=0.0)
+        own = self.session.state.config
+        self.session.update_config(replace(own, process=replace(own.process, hue_trim=2.0)), persist=True)
+        self.session.copy_settings()
+        self.session.reset_settings()
+        self.assertNotIn("sensor", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
+
+        self.session.apply_pasted_fields([r for r in all_rows() if "hue_trim" in r.fields], include_bounds=False)
+
+        self.assertEqual(self.session.state.config.process.hue_trim, 2.0)
+        self.assertIn("sensor", rolls.frame_override_cards(self.repo, roll_id, "hash1"))
+
     def test_reset_settings_with_a_roll_open_and_no_frame_selected(self):
         self._locked_roll()
         self.session.state.selected_file_idx = -1
