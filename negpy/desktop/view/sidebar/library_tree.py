@@ -50,13 +50,12 @@ class LibraryTree(QWidget):
     rolls_changed = pyqtSignal()  # a roll was imported, renamed or deleted
     folder_roll_created = pyqtSignal(str)  # a folder was recognized as a roll for the first time
 
-    def __init__(self, controller, trailing_widgets: tuple[QWidget, ...] = ()):
+    def __init__(self, controller):
         super().__init__()
         self.controller = controller
         self.repo = controller.session.repo
         self._sort_order = "name"
         self._sort_descending = False
-        self._trailing_widgets = trailing_widgets
         self._init_ui()
         self.reload()
 
@@ -101,7 +100,6 @@ class LibraryTree(QWidget):
             (self.import_btn, "Import"),
             (self.refresh_btn, "Refresh"),
             (self.index_btn, "Index Library"),
-            *((w, "Sort") for w in self._trailing_widgets),
         ):
             self.toolbar.add_button(widget, label)
         # Opt-in, so it starts off; sync_ui turns it on with the feature.

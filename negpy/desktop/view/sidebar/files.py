@@ -205,6 +205,16 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         y = area.y() + (area.height() - size.height()) // 2
         return QRect(x, y, size.width(), size.height())
 
+    def picture_rect(self, cell: QRect, index: QModelIndex) -> QRect:
+        """Where paint() puts the picture inside *cell*: the thumbnail fitted to the area
+        within the margin, or that whole area while it has none."""
+        area = cell.adjusted(self._MARGIN, self._MARGIN, -self._MARGIN, -self._MARGIN)
+        icon = index.data(Qt.ItemDataRole.DecorationRole)
+        base = icon.pixmap(QSize(4096, 4096)) if icon is not None and not icon.isNull() else None
+        if base is None or base.isNull():
+            return area
+        return self._fit_rect(area, base.size().scaled(area.size(), Qt.AspectRatioMode.KeepAspectRatio))
+
     def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
         view = self.parent()
         if isinstance(view, QListView) and view.iconSize().isValid():
@@ -473,7 +483,7 @@ class ThumbnailGridView(QListView):
         self._ctrl_target: set[QPersistentModelIndex] = set()
         self._pre_press_selection: set[QPersistentModelIndex] = set()
         self._placing_scenes = False
-        self._scene_bands: list[tuple[int, QRect]] = []
+        self._scene_bands: list[tuple[int, int, int, QRect]] = []  # (ordinal, first row, last row, band)
         # Reserve the vertical scrollbar permanently so the viewport width is stable. Otherwise
         # scaling toggles the scrollbar, which changes the width, flips the column count back
         # and flickers.
@@ -561,21 +571,35 @@ class ThumbnailGridView(QListView):
             lines = (count - 1) // cols + 1
             if ordinal is not None:
                 height = (lines - 1) * grid.height() + cell.height() + 2 * pad
-                self._scene_bands.append((ordinal, QRect(0, y - pad, min(count, cols) * grid.width(), height)))
+                self._scene_bands.append((ordinal, first, last, QRect(0, y - pad, min(count, cols) * grid.width(), height)))
             y += lines * grid.height() + self.SCENE_GAP
 
     def paintEvent(self, event) -> None:
         if self._scene_bands:
-            painter = QPainter(self.viewport())
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            painter.setPen(Qt.PenStyle.NoPen)
-            for ordinal, rect in self._scene_bands:
-                color = QColor(scene_color(ordinal))
-                color.setAlphaF(self.SCENE_BAND_ALPHA)
-                painter.setBrush(color)
-                painter.drawRoundedRect(QRectF(rect.translated(0, -self.verticalOffset())), self.SCENE_BAND_RADIUS, self.SCENE_BAND_RADIUS)
-            painter.end()
+            self._paint_scene_bands()
         super().paintEvent(event)
+
+    def _paint_scene_bands(self) -> None:
+        """Each scene's band, cut away under every picture: a dimmed or letterboxed
+        thumbnail would otherwise show the tint through it."""
+        model, delegate = self.model(), self.itemDelegate()
+        painter = QPainter(self.viewport())
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(Qt.PenStyle.NoPen)
+        for ordinal, first, last, rect in self._scene_bands:
+            band = QPainterPath()
+            band.addRoundedRect(QRectF(rect.translated(0, -self.verticalOffset())), self.SCENE_BAND_RADIUS, self.SCENE_BAND_RADIUS)
+            if isinstance(delegate, _ThumbnailDelegate):
+                pictures = QPainterPath()
+                for row in range(first, last + 1):
+                    index = model.index(row, 0)
+                    picture = QRectF(delegate.picture_rect(self.visualRect(index), index))
+                    pictures.addRoundedRect(picture, delegate._RADIUS, delegate._RADIUS)
+                band = band.subtracted(pictures)
+            color = QColor(scene_color(ordinal))
+            color.setAlphaF(self.SCENE_BAND_ALPHA)
+            painter.fillPath(band, color)
+        painter.end()
 
     def _begin_click_selection(self, pre_press_current: QModelIndex) -> None:
         """Decides the gesture's mode and range anchor exactly once, from the modifiers and
@@ -911,17 +935,12 @@ class FileBrowser(QWidget):
             self.save_roll_btn,
             self.update_thumbnails_btn,
             self.scenes_btn,
+            self.sort_btn,
             self.sheet_btn,
         ):
             btn.setIconSize(icon_size)
             btn.setFixedHeight(btn_height)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        # Sort joins LibraryTree's own toolbar instead of this one, sized the same as
-        # every other section-toolbar button.
-        self.sort_btn.setIconSize(icon_size)
-        self.sort_btn.setFixedHeight(btn_height)
-        self.sort_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         for widget, label in (
             (self.save_roll_btn, "Save as Roll…"),
@@ -936,6 +955,7 @@ class FileBrowser(QWidget):
             (None, None),
             (self.unload_btn, "Unload…"),
             (self.scenes_btn, "Show Scenes"),
+            (self.sort_btn, "Sort"),
             (self.sheet_btn, "Sheet filter"),
         ):
             if widget is None:
@@ -1026,7 +1046,7 @@ class FileBrowser(QWidget):
         self.empty_label.setVisible(False)
         self.empty_label.linkActivated.connect(lambda _: self._clear_frame_filters())
 
-        self.library_tree = LibraryTree(self.controller, trailing_widgets=(self.sort_btn,))
+        self.library_tree = LibraryTree(self.controller)
         self.library_section = self._make_section("Library", "library", "fa5s.folder-open", self.library_tree)
 
         frames = QWidget()
