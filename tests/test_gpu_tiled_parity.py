@@ -133,5 +133,51 @@ class TestGpuTiledParity(unittest.TestCase):
         np.testing.assert_allclose(after, clean, atol=1e-6)
 
 
+# A real camera's XYZ->camera rows and as-shot multipliers, so the transfer path's
+# working-space meter grid differs from the camera-space one.
+_CAM_XYZ = [[0.5271, -0.0712, -0.0347], [-0.6153, 1.3653, 0.2763], [-0.1601, 0.2366, 0.7242]]
+_CAM_WB = [1856.0, 1024.0, 1744.0]
+
+
+@unittest.skipUnless(GPUDevice.get().is_available, "GPU not available")
+class TestGpuTiledTransferParity(unittest.TestCase):
+    """The transparency transfer curve meters apart from the print path: a raw slide
+    takes no Auto Density/Auto Grade terms, and a Positive frame meters working space
+    against the fixed window. Auto Density and Auto Grade are on by default."""
+
+    def setUp(self):
+        self.engine = GPUEngine()
+        # A dim positive, so an Auto Density/Auto Grade push shows in the render.
+        self.img = np.clip(1.0 - _negative(300, 2400), 1e-4, 1.0) * 0.3
+
+    def tearDown(self):
+        self.engine.destroy_all()
+
+    def _assert_parity(self, settings, msg):
+        tiled, _ = self.engine._process_tiled(self.img, settings, scale_factor=1.0, cam_xyz=_CAM_XYZ, camera_wb=_CAM_WB)
+        tex, _ = self.engine.process_to_texture(
+            self.img, settings, scale_factor=1.0, apply_layout=False, cam_xyz=_CAM_XYZ, camera_wb=_CAM_WB
+        )
+        direct = self.engine._readback_downsampled(tex)
+        self.assertEqual(tiled.shape, direct.shape)
+        self.assertLess(float(np.abs(tiled - direct).mean()), 0.0005, msg)
+
+    def _slide(self, **process) -> WorkspaceConfig:
+        s = WorkspaceConfig()
+        return replace(
+            s,
+            process=replace(s.process, process_mode=ProcessMode.E6, e6_normalize=False, **process),
+            export=replace(s.export, export_resolution_mode="original"),
+        )
+
+    def test_tiled_raw_slide_takes_no_auto_terms(self):
+        settings = self._slide()
+        self.assertTrue(settings.exposure.auto_exposure and settings.exposure.auto_normalize_contrast)
+        self._assert_parity(settings, "Tiled export metered a raw slide")
+
+    def test_tiled_positive_meters_like_the_preview(self):
+        self._assert_parity(self._slide(positive_source=True), "Tiled export metered a Positive frame differently")
+
+
 if __name__ == "__main__":
     unittest.main()

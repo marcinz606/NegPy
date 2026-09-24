@@ -2571,36 +2571,53 @@ class GPUEngine:
             global_bounds, global_base_bounds = resolve_bounds_detailed(settings.process, _analyze_global_bounds)
             global_anchor_bounds = luma_source_bounds(settings.process, global_base_bounds)
 
+        # The meters follow process_to_texture's: the transfer curve reads working space
+        # against the fixed window, and a raw slide never meters Auto Density/Auto Grade.
+        transfer = is_transfer_path(settings.process.process_mode, settings.process.e6_normalize, settings.process.positive_source)
+        transfer_meters_ok = not transfer or settings.process.positive_source
+        transfer_grid: Optional[np.ndarray] = None
+
+        def _meter_grid() -> np.ndarray:
+            nonlocal transfer_grid
+            if not transfer:
+                return _prefiltered()
+            if transfer_grid is None:
+                cam_m = camera_to_working_matrix(
+                    cam_xyz, camera_wb if should_fold_camera_wb(settings.process, settings.exposure.render_intent) else None
+                )
+                transfer_grid = (
+                    _prefiltered()
+                    if cam_m is None
+                    else unmix_log_image(prefilter_log_grid(apply_camera_matrix(_analysis_img(), cam_m), meter_roi, meter_buffer), unmix_m)
+                )
+            return transfer_grid
+
+        meter_bounds = LogNegativeBounds(*transfer_bounds()) if transfer else global_anchor_bounds
+
         global_shadow_refs = None
         global_neutral_axis = None
         if settings.exposure.cast_removal_strength > 0.0 and settings.process.process_mode != ProcessMode.BW:
             if settings.process.process_mode == ProcessMode.C41:
                 global_shadow_refs = measure_shadow_refs_from_log(_prefiltered(), None, 0.0, sorted_grid=_sorted())
-            if is_transfer_path(settings.process.process_mode, settings.process.e6_normalize, settings.process.positive_source):
-                # Working space and the fixed window, as the transparency curve reads them.
-                cam_m = camera_to_working_matrix(
-                    cam_xyz, camera_wb if should_fold_camera_wb(settings.process, settings.exposure.render_intent) else None
-                )
-                axis_grid = (
-                    _prefiltered()
-                    if cam_m is None
-                    else unmix_log_image(prefilter_log_grid(apply_camera_matrix(_analysis_img(), cam_m), meter_roi, meter_buffer), unmix_m)
-                )
-                global_neutral_axis = measure_neutral_axis_from_log(axis_grid, LogNegativeBounds(*transfer_bounds()), None, 0.0)
-            else:
-                global_neutral_axis = measure_neutral_axis_from_log(_prefiltered(), global_bounds, None, 0.0)
+            axis_bounds = meter_bounds if transfer else global_bounds
+            global_neutral_axis = measure_neutral_axis_from_log(_meter_grid(), axis_bounds, None, 0.0)
+            pooled_axis = pooled_neutral_axis(settings.process)
+            if pooled_axis is not None:
+                global_neutral_axis = blend_neutral_axis(global_neutral_axis, pooled_axis)
 
         global_metered_anchor = None
-        if settings.exposure.auto_exposure:
-            global_metered_anchor = measure_anchor_from_log(_prefiltered(), global_anchor_bounds, None, 0.0)
+        if settings.exposure.auto_exposure and transfer_meters_ok:
+            global_metered_anchor = measure_anchor_from_log(
+                _meter_grid(), meter_bounds, None, 0.0, assumed=transfer_assumed_anchor() if transfer else None
+            )
 
         global_textural_range = None
         global_shadow_point = None
         global_highlight_point = None
-        if settings.exposure.auto_normalize_contrast:
-            global_textural_range = measure_textural_range_from_log(_prefiltered(), None, 0.0)
-            global_shadow_point = measure_shadow_point_from_log(_prefiltered(), global_anchor_bounds, None, 0.0)
-            global_highlight_point = measure_highlight_point_from_log(_prefiltered(), global_anchor_bounds, None, 0.0)
+        if settings.exposure.auto_normalize_contrast and transfer_meters_ok:
+            global_textural_range = measure_textural_range_from_log(_meter_grid(), None, 0.0)
+            global_shadow_point = measure_shadow_point_from_log(_meter_grid(), meter_bounds, None, 0.0)
+            global_highlight_point = measure_highlight_point_from_log(_meter_grid(), meter_bounds, None, 0.0)
 
         global_mask = None
         if settings.exposure.contrast_mask != 0.0:
