@@ -12,92 +12,86 @@
   [![Discord](https://img.shields.io/badge/discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/JySNzUWgwy)
 </div>
 
-**NegPy** is a tool for processing film negatives. I built it because I wanted something made specifically for film scans that goes beyond a simple inversion tool. It simulates how film and photographic paper work but also throws in some lab-scanner conveniences.
+NegPy turns scans of film negatives and slides into finished pictures. I wrote it because I wanted a tool made for film scans that does more than invert them. It models film and photographic paper, and adds the conveniences of a lab scanner on top.
 
-It is built with **Python**, running natively on Linux, macOS, and Windows.
+It is written in Python and runs on Linux, macOS and Windows.
 
----
+![NegPy main window](docs/media/0600.png)
 
-![alt text](docs/media/0600.png)
-
----
-
-## User Guide
-**[Click here to read the USER_GUIDE.md](docs/USER_GUIDE.md)** — A complete walkthrough of the NegPy workflow, features, and controls.
-
----
+The [User Guide](docs/USER_GUIDE.md) covers every panel and control. The same text opens inside the app from the ⓘ on each panel. [PIPELINE.md](docs/PIPELINE.md) explains the math.
 
 ## Features
 
-**Conversion & Film Science**
-*   **No Camera Profiles**: No camera profiles, no border color-picking. Math neutralizes the orange mask from channel sensitometry.
-*   **Film Physics**: Models the **H&D Characteristic Curve** in density space — an asymmetric toe-linear-shoulder response with independent softplus toe/shoulder knees and ISO-R paper grades — instead of a linear inversion.
-*   **Smart Auto Conversion**: Per-frame **Auto Density** and **Auto Grade** meter each negative for sensible brightness/contrast — usable out of the box, easy to fine-tune.
-*   **Darkroom Paper Profiles**: Per-paper curve shaping (tone, per-channel gamma, base tint) mapped from Ilford/Kodak/Foma/Fuji datasheets, selectable per roll.
-*   **Positive/Slide Support**: Dedicated **Transparency mode** with optional normalization to save expired or faded film.
+### Conversion
 
-**Capture & Input**
-*   **Camera Scanning**: Capture negatives with a tethered camera straight into NegPy — a single RAW, or automated red/green/blue narrowband triplets driven by an RGB [Scanlight](https://github.com/jackw01/scanlight) that feed the Trichrome Scan merge. macOS/Linux, optional dependency. [Camera Scanning guide](docs/CAMERA_SCANNING.md)
-*   **Scanner Support**: Direct control of SANE-compatible film scanners — Plusteks, Nikon Coolscans and others
-*   **Trichrome Scan**: Merge three narrowband red/green/blue exposures of one negative into a single low-noise color scan, with automatic sub-pixel alignment to kill fringing.
-*   **Flat-Field Correction**: Correct illumination falloff / vignetting from your light source or scanner via a reference scan of the bare light. Named profiles, toggle per image.
-*   **File Support**: Standard RAWs/TIFFs plus specialized formats like Kodak Pakon scanner raw files.
+* No camera profiles and no border color picking. The orange mask is removed from each channel's own sensitometry.
+* The print is built in density space on an H&D curve with a toe, a straight section and a shoulder, and graded in ISO-R points like darkroom paper.
+* Auto Density and Auto Grade meter each frame, so a conversion is usable before you touch a slider. You can set your own targets.
+* Paper profiles taken from Ilford, Kodak, Foma and Fuji datasheets.
+* Color negative, B&W and slide modes. Slides open as captured, with optional normalization for faded film and HDR merging of bracketed exposures.
 
-**Editing**
-*   **Dodge & Burn**: Darkroom-style local lighten/darken with freehand polygon masks — each with its own EV strength and feather. GPU-accelerated with bit-for-bit CPU parity.
-*   **Dust Removal**: Automatic and manual healing with grain synthesis — clean scans that don't look plastic.
-*   **Batch Normalization**: Bounds analysis across all loaded files, averaged and applied to the roll.
-*   **GPU Acceleration**: Real-time processing and export rendering via Vulkan/Metal.
+### Rolls
 
-**Color & Output**
-*   **Color Management**: Full ICC workflow — auto monitor-profile detection (Linux/macOS/Windows), soft proofing including paper/printer profiles, per-image input/output profiles.
-*   **Print Ready**: Export built for printing — border controls, ICC soft-proofing, [dynamic filename templating](docs/TEMPLATING.md), **export presets** (save + one-click), and **contact sheets**. Formats: JPEG, TIFF, PNG, WebP, JPEG XL.
-*   **Flat / Digital-Intermediate Export**: Flat, neutral, wide-gamut **16-bit TIFF** master for Lightroom/Darktable/Photoshop, mapping camera RAWs to ProPhoto via the camera's own matrix.
+* The library is a list of rolls. A roll is a folder you import, or a virtual roll you build from any frames.
+* Roll-wide defaults for film mode, crop, calibration, metering, raw decode, lens and metadata. A frame you change stays yours until you push the roll setting back to it.
+* Roll Analysis measures the whole roll and gives every frame the same baseline. Scenes split a roll into groups that each get their own.
+* Keep/reject triage, half-frame splitting, stitching of multi-shot scans, and search by metadata or (opt-in) by what is in the picture.
 
-**Workflow & Data**
-*   **Non-destructive**: Original files never touched; edits stored as recipes.
-*   **Database**: Edits in a local SQLite db keyed by file hash — move or rename files without losing work.
-*   **Persistent Undo/Redo & History**: Up to 100 edits per file. **History panel** lists every step — jump to any state, branch, or export an earlier version. Survives restarts.
-*   **Metadata & Gear Library**: Archival metadata for the original analog capture — manage a library of cameras, lenses, and film stocks, apply gear presets per frame, and write real camera/lens/ISO EXIF (plus XMP scan tags) into exports so Lightroom shows your film gear. [see the guide](docs/USER_GUIDE.md#11-metadata-panel)
-*   **Keyboard Shortcuts**: [see here](docs/KEYBOARD.md)
+### Capture
 
----
+* Film scanners: Plustek OpticFilm 8200i SE and 8100 V2 over USB, Nikon Coolscan through its own driver, Reflecta and Pacific Image, and anything SANE supports.
+* Tethered camera scanning, including red/green/blue narrowband captures with an RGB [Scanlight](https://github.com/jackw01/scanlight). macOS and Linux only. See the [Camera Scanning guide](docs/CAMERA_SCANNING.md).
+* Trichrome merge of three narrowband exposures, with sub-pixel alignment.
+* Flat-field correction, sensor calibration for narrowband light, and lens correction read from the file.
+* Camera RAWs, TIFF, DNG, JPEG XL and scanner formats such as Pakon, Coolscan NEF, Flextight FFF and Noritsu.
 
-### How it works
+### Editing
 
-[Read about the math and the pipeline here](docs/PIPELINE.md)
+* Dodge and burn with polygon, oval and card-edge masks. Each mask has its own strength, feather, contrast grade and tone limit.
+* Dust, hair and scratch removal: automatic, from the scanner's IR channel (NegPy or OpenICE method), or painted by hand. Heals keep the film grain.
+* Darkroom tools: test strips, a color ring-around, a step wedge, a zone overlay, a spot densitometer and zone placement.
+* Contrast mask, tilt and swing, edge burn, filed carrier and print mats.
+* Lith and cyanotype processes and a set of toners for B&W.
+* GPU rendering through Vulkan, Metal or DX12, with a CPU fallback that gives the same result.
 
----
+### Output
 
-## Getting Started
+* ICC color management with monitor profile detection and soft proofing for paper and printer profiles.
+* Export to JPEG, TIFF, PNG, WebP and JPEG XL, with borders, presets, contact sheets and [filename templates](docs/TEMPLATING.md).
+* A flat 16-bit TIFF master for Lightroom, Darktable or Photoshop, or a linear export that skips the pipeline.
+* Gear and capture metadata (camera, lens, film, development, date and place) written to EXIF and XMP.
 
-### Download
-Grab the latest release for your OS from the **[Releases Page](https://github.com/marcinz606/NegPy/releases)**.
+### Your data
 
-After that NegPy keeps itself current: when a new release is out, the left panel shows an **⬇ Update Available** link that downloads and installs it for you, then reopens on the new version. No manual download, uninstall or reinstall.
+* Non-destructive. Source files are never modified.
+* Edits live in a local SQLite database keyed by file content, so you can move and rename files. Optional `.negpy` sidecars sit next to the scans.
+* Undo history and named work prints survive a restart.
+* [Keyboard shortcuts](docs/KEYBOARD.md) can be remapped.
 
-#### Linux
-I provide an `.AppImage`. Make it executable using `chmod +x` and It should just work.
+## Getting started
 
-**Scanner support** requires SANE to be installed on your system:
+Download the build for your OS from the [Releases page](https://github.com/marcinz606/NegPy/releases). After that, NegPy updates itself: when a new release is out it shows an Update Available notice, and one click downloads and installs it.
+
+To build from source, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+The builds are not signed. It is a free hobby project and I don't pay Apple or Microsoft for developer certificates, so expect a warning the first time you run it.
+
+### Linux
+
+Make the `.AppImage` executable with `chmod +x` and run it.
+
+Scanning through SANE needs SANE installed. Tethered camera scanning may need `libgphoto2`. The app runs without either.
 ```
 sudo apt install libsane        # Debian/Ubuntu
-sudo pacman -S sane             # Arch
+sudo pacman -S sane libgphoto2  # Arch
 ```
-Or your distro's equivalent. The app launches fine without so you can ignore that if you don't plan to use a scanner.
 
-**Camera scanning support** (optional) uses `python-gphoto2` for tethered capture, and may need the system `libgphoto2` installed:
-```
-sudo pacman -S libgphoto2        # Arch
-```
-Or look up your distro's equivalent package.
+### Nix
 
-#### Nix
-You can run NegPy directly via:
 ```bash
 nix run github:marcinz606/NegPy
 ```
-Or add it as an input to your own flake:
+Or add it as a flake input:
 ```nix
 {
   inputs.negpy.url = "github:marcinz606/NegPy";
@@ -107,53 +101,39 @@ Or add it as an input to your own flake:
 }
 ```
 
-#### Unsigned Software Warning
-Since this is a free hobby project, I don't pay Apple or Microsoft ransom for their developer certificates. You'll get a scary warning the first time you run it.
+### macOS
 
-**macOS**:
-1.  Double click `.dmg` file & drag the app to `/Applications`.
-2.  Open Terminal and run: `xattr -cr /Applications/NegPy.app` (this gets rid of the warning).
-3.  Launch it.
+1. Open the `.dmg` and drag NegPy to `/Applications`.
+2. Run `xattr -cr /Applications/NegPy.app` in Terminal to clear the warning.
+3. Launch it.
 
-If you build the DMG yourself on macOS, set `NEGPY_MACOS_ARCH=x86_64` for an Intel build or `NEGPY_MACOS_ARCH=arm64` for Apple Silicon.
-
-**Scanner support** requires SANE via [Homebrew](https://brew.sh/):
+SANE scanning and camera scanning use [Homebrew](https://brew.sh/) packages. The app runs without them.
 ```
-brew install sane-backends
-```
-The app launches fine without so you can ignore that if you don't plan to use a scanner.
-
-**Camera scanning support** (optional) uses `python-gphoto2`, and may need `libgphoto2` from [Homebrew](https://brew.sh/):
-```
-brew install libgphoto2
+brew install sane-backends libgphoto2
 ```
 
-**Windows**:
-1. Run the installer (ignore the warnings)
-2. Start the app and click through the warnings.
+To build the DMG yourself, set `NEGPY_MACOS_ARCH=x86_64` for Intel or `NEGPY_MACOS_ARCH=arm64` for Apple Silicon.
 
-**Scanner support (Plustek OpticFilm)** — 8200i SE and 8100 V2 — uses the optional `pyopticfilm` driver (`uv sync --group plustek` or `pip install negpy[plustek]`). Bind the scanner to WinUSB with [Zadig](https://zadig.akeo.ie/) (replace the vendor/SilverFast driver; `07b3:1825` for the 8200i SE, `07b3:1824` for the 8100 V2). Windows release builds bundle pyopticfilm, PyUSB, and libusb. See [docs/PLUSTEK_WINDOWS.md](docs/PLUSTEK_WINDOWS.md). Camera scanning is still unavailable on Windows (libgphoto2 has no Windows build).
+### Windows
 
----
+Run the installer and click through the warnings.
 
-You can also clone the repo and build it yourself, instruction here: [CONTRIBUTING.md](CONTRIBUTING.md)
+Plustek OpticFilm 8200i SE and 8100 V2 scanners need the WinUSB driver. Install it with [Zadig](https://zadig.akeo.ie/) in place of the SilverFast driver (`07b3:1825` for the 8200i SE, `07b3:1824` for the 8100 V2). The release build includes everything else. See [PLUSTEK_WINDOWS.md](docs/PLUSTEK_WINDOWS.md). Camera scanning is not available on Windows, because libgphoto2 has no Windows build.
 
----
+## Data location
 
-## Data Location
-Everything lives in your `Documents/NegPy` folder:
-*   `edits.db`: Your edits.
-*   `settings.db`: Global settings like last used export settings or preview size.
-*   `cache/`: Thumbnails (safe to delete).
-*   `export/`: Default export location.
-*   `icc/`: Drop your paper/printer profiles here.
-*   `override.toml`: Startup overrides — see [Troubleshooting / override.toml](#troubleshooting) below.
+Everything is in `Documents/NegPy`. On Windows, if that folder is blocked, NegPy asks for another one and suggests Local AppData. The `NEGPY_USER_DIR` environment variable overrides both.
 
----
+* `edits.db`: your edits.
+* `settings.db`: app settings such as the last export settings.
+* `cache/`: thumbnails. Safe to delete.
+* `export/`: default export folder.
+* `icc/`: paper and printer profiles.
+* `override.toml`: startup overrides, see below.
 
 ## Troubleshooting
 
-If NegPy crashes on startup or has rendering issues, edit `Documents/NegPy/override.toml`. It is created automatically on first run with sensible defaults for your OS. The `[performance]` numbers are also in **Preferences** (`Ctrl + ,`); a value in this file wins over the dialog, which is what makes it usable when the app will not start.
+If NegPy crashes on startup or renders wrong, edit `override.toml`. NegPy writes it on first run with defaults for your OS. Most `[performance]` values are also in Preferences (`Ctrl + ,`), but the file wins, so you can fix things when the app will not start.
 
 ```toml
 [rendering]
@@ -188,27 +168,20 @@ max_texture_size = "auto"
 level = "info"
 ```
 
-Setting `backend = "cpu"` disables GPU acceleration entirely — useful if the GPU backend crashes on your hardware.
+`backend = "cpu"` turns GPU rendering off, for when the GPU backend crashes on your hardware.
 
----
+## More
 
-## Roadmap
-Things I want to add later: [ROADMAP.md](docs/ROADMAP.md)
-
-## Changelog:
-
-[CHANGELOG.md](docs/CHANGELOG.md)
-
----
-
-### For Developers
-
-Check [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+* [Roadmap](docs/ROADMAP.md)
+* [Changelog](docs/CHANGELOG.md)
+* [Contributing](CONTRIBUTING.md)
 
 ## License
-Copyleft under **[GPL-3](LICENSE)**.
+
+[GPL-3](LICENSE).
 
 ## Support
-If you like this tool, maybe buy me a roll of film so I have more test data :)
+
+If you like NegPy, buy me a roll of film so I have more test data :)
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/marcinzawalski)
