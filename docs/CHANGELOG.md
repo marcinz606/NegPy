@@ -11,6 +11,7 @@
 - New: **More controls on Slide** — highlight reconstruction (Off / Blend / Reconstruct), Dye Separation and Separation Damping without Normalize, and White/Black Point on the transfer path. @thetalkingdrum
 - New: **Batch edits across the Film Strip** — rotate and flip turn every selected frame, Reset Roll to Defaults… undoes a setting pushed to the whole roll, and thumbnails of edited frames refresh in the background (plus a manual Update Thumbnails). @thetalkingdrum
 - New: **Master switch for carrying settings to a new frame.** @PabloRuizCuevas
+- New: **Tone Limit on Dodge & Burn masks** — a mask can act only on tones lighter or darker than a zone of the print, like a lith mask, so a sky burn stops at the skyline. Invert moves to a toggle on each mask row.
 - Change: **Positive is a Slide-only setting** and applies to the whole roll; Auto Density and Auto Grade work on it. @PabloRuizCuevas
 - Change: **Faster, lighter navigation** — Film Strip previews stream in the background with bounded memory, and neighbor prefetch works again on scan TIFFs and camera RAWs. @hsnilsson
 - Change: **User Guide and Pipeline docs rewritten** — shorter and plainer, including the in-app ⓘ guides.
