@@ -18,10 +18,6 @@ from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.services.rendering.image_processor import ImageProcessor
 
 
-def _names(rows):
-    return [r.name for r in rows]
-
-
 def _by_name(rows, name):
     return next(r for r in rows if r.name == name)
 
@@ -116,11 +112,11 @@ class TestGamutRow(unittest.TestCase):
     def _rows(self, gamut):
         return negative_statistics(1.3, 0.46, 0.0, 0.0, gamut=gamut)
 
-    def test_absent_while_nothing_is_being_proofed(self):
-        self.assertNotIn("Gamut", _names(self._rows(None)))
+    def test_blank_while_nothing_is_being_proofed(self):
+        self.assertEqual(_by_name(self._rows(None), "Gamut").value, "—")
 
     def test_present_at_zero_once_a_profile_is_proofed_to(self):
-        """Zero is an answer: the frame prints. Absent means the question was not asked."""
+        """Zero is an answer: the frame prints. Blank means the question was not asked."""
         self.assertEqual(_by_name(self._rows(0.0), "Gamut").value, "0.0% unprintable")
 
     def test_warns_above_two_percent(self):

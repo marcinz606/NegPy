@@ -50,9 +50,9 @@ class TestRepairRow(unittest.TestCase):
     def _rows(self, repair):
         return negative_statistics(1.3, 0.46, 0.0, 0.0, repair=repair)
 
-    def test_absent_when_nothing_was_repaired(self):
-        self.assertNotIn("Repair", _names(self._rows((0.0, 0.0, 0.0))))
-        self.assertNotIn("Repair", _names(self._rows(None)))
+    def test_reads_none_when_nothing_was_repaired(self):
+        self.assertEqual(_by_name(self._rows((0.0, 0.0, 0.0)), "Repair").value, "none")
+        self.assertEqual(_by_name(self._rows(None), "Repair").value, "—")
 
     def test_lists_only_the_routes_that_fired(self):
         row = _by_name(self._rows((0.012, 0.0, 0.0)), "Repair")
@@ -65,7 +65,7 @@ class TestRepairRow(unittest.TestCase):
 
     def test_sits_after_scan_clip(self):
         rows = _names(negative_statistics(1.3, 0.46, 0.0, 0.0, scan_clip=(0.5, 0.0, 0.0), repair=(0.02, 0.0, 0.0)))
-        self.assertEqual(rows[-2:], ["Scan clip", "Repair"])
+        self.assertEqual(rows[-3:-1], ["Scan clip", "Repair"])
 
 
 class TestStatsWidgetCapacity(unittest.TestCase):
@@ -79,13 +79,12 @@ class TestStatsWidgetCapacity(unittest.TestCase):
         self.assertGreaterEqual(widget._ROWS, len(rows))
         self.assertEqual([lbl.text() for lbl in widget._names[: len(rows)]], _names(rows))
 
-    def test_unused_rows_are_hidden_not_blank(self):
+    def test_every_row_shows_without_optional_inputs(self):
         from negpy.desktop.view.widgets.stats import NegativeStatsWidget
 
         widget = NegativeStatsWidget()
         widget.update_stats(negative_statistics(1.3, 0.46, 0.0, 0.0))
-        self.assertTrue(widget._names[0].isVisible() or widget._names[0].isVisibleTo(widget))
-        self.assertFalse(widget._names[5].isVisibleTo(widget))
+        self.assertTrue(all(lbl.isVisibleTo(widget) for lbl in widget._names))
 
 
 if __name__ == "__main__":

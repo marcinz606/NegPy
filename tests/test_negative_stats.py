@@ -37,12 +37,13 @@ class TestNegativeStatistics(unittest.TestCase):
         rows = negative_statistics(None, None, None, None)
         self.assertTrue(all(r.value == "—" for r in rows))
 
-    def test_only_three_rows_by_default(self):
-        self.assertEqual([r.name for r in self._rows()], ["Negative", "Exposure", "Clipping"])
+    def test_every_row_always_present(self):
+        self.assertEqual([r.name for r in self._rows()], ["Negative", "Exposure", "Clipping", "Scan clip", "Repair", "Gamut"])
 
-    def test_scan_clip_row_only_when_warning(self):
-        clean = negative_statistics(1.3, 0.46, 0.0, 0.0, scan_clip=(0.001, 0.0, 0.0))
-        self.assertFalse(any(r.name == "Scan clip" for r in clean))
+    def test_scan_clip_warns_only_above_threshold(self):
+        clean = _by_name(negative_statistics(1.3, 0.46, 0.0, 0.0, scan_clip=(0.001, 0.0, 0.0)), "Scan clip")
+        self.assertFalse(clean.warn)
+        self.assertEqual(clean.value, "R 0.1% · G 0.0% · B 0.0%")
         blown = _by_name(negative_statistics(1.3, 0.46, 0.0, 0.0, scan_clip=(0.031, 0.002, 0.0)), "Scan clip")
         self.assertTrue(blown.warn)
         self.assertEqual(blown.value, "R 3.1% · G 0.2% · B 0.0%")

@@ -25,14 +25,14 @@ _TOOLTIPS = {
     "Gamut": (
         "Share of the frame the soft-proofed output profile cannot print. The Clipping row says a "
         "tone ran off the end of the paper; this says a color is outside what the profile can make, "
-        "so it will be pulled to the nearest one it can. Appears only while soft proofing to an "
+        "so it will be pulled to the nearest one it can. Blank unless soft proofing to an "
         "output profile. Quantized to a 32-step color grid, so it answers how much of the frame, not "
         "which pixel. Turns red above 2%."
     ),
     "Repair": (
         "Share of the scan each repair route rewrote: IR Restore, detected dust, and painted heals "
         "(strokes, scratches and routed hairs). Measured over the whole scan, border included. "
-        "Appears only once a route fires; turns red above 5%, where a route is repairing the "
+        "Reads none until a route fires; turns red above 5%, where a route is repairing the "
         "picture rather than the dust on it."
     ),
 }

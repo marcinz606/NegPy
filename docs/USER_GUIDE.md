@@ -344,13 +344,13 @@ Pins are proofs, not edits: any other edit or a frame change removes them. They 
 
 #### Negative stats
 
-Rows that measure the scan, not your edit; hover for details. The first three always show:
+Rows that measure the scan, not your edit; hover for details. A row with nothing to measure reads —.
 
 *   **Negative**: relative density range (luminance) and development character: flat (≈N−1), normal, contrasty (≈N+1). Comparable across a roll; estimated from the normalized bounds, not a densitometer reading.
 *   **Exposure**: midtone in stops from neutral, approximate; positive is high-key, negative low-key.
 *   **Clipping**: share of pixels crushed to black or blown to white, worst channel. Red above 1%.
 *   **Scan clip**: share of source pixels at or above sensor white, per channel. In a negative scan this destroys base and shadow separation and no edit can undo it: expose the scan lower. Red above 1%.
-*   **Repair**: share of the whole scan (border included) rewritten by IR Restore, dust detection and painted heals, once one fires. A large value means the threshold is redrawing the picture. Red above 5%.
+*   **Repair**: share of the whole scan (border included) rewritten by IR Restore, dust detection and painted heals; none until one fires. A large value means the threshold is redrawing the picture. Red above 5%.
 *   **Gamut**: share of the frame the proof profile cannot print, while proofing to one. Zero is normal. Red above 2%.
 
 ---
