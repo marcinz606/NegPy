@@ -53,6 +53,7 @@ from negpy.desktop.view.confirm import (
 from negpy.desktop.view.keyboard_shortcuts import _reset_roll, _reset_selected
 from negpy.features.hdr.logic import anchor_choices
 from negpy.features.hdr.models import hdr_frame_paths
+from negpy.desktop.view.widgets.elided_label import ElidedLabel
 from negpy.desktop.view.widgets.overflow_bar import OverflowBar
 from negpy.desktop.view.shortcut_registry import label_with_shortcut
 from negpy.desktop.view.styles.templates import (
@@ -945,7 +946,7 @@ class FileBrowser(QWidget):
         # belongs to neither and stays reachable when either is folded away.
         layout.addLayout(search_row)
 
-        self.tally_label = QLabel("")
+        self.tally_label = ElidedLabel("")
         self.tally_label.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;")
         self.tally_label.setVisible(False)
 

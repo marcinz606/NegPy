@@ -162,7 +162,7 @@ The Film Strip button row:
 
 Both of the last two are remembered between sessions.
 
-Above both sections are the **filter box**, a **`.*`** regex toggle and a **search-library** button, shared by Library and Film Strip, plus a **search-by-meaning** toggle once enabled in Preferences. The Film Strip has a **tally** ("36 frames · 12 keepers · 3 rejected") and a **thumbnail size** slider. With a filter active, the tally names it ("3 of 36 frames · Keepers filter"); if it hides everything, **Show all frames** clears the filter box and funnel. The tally starts with the roll name ("Portra 400 — 36 frames"), or **Collection** for frames from a search, several folders or added by hand; their edits also show in each frame's own roll.
+Above both sections are the **filter box**, a **`.*`** regex toggle and a **search-library** button, shared by Library and Film Strip, plus a **search-by-meaning** toggle once enabled in Preferences. The Film Strip has a **tally** ("36 frames · 12 keepers · 3 rejected") and a **thumbnail size** slider. With a filter active, the tally names it ("3 of 36 frames · Keepers filter"); if it hides everything, **Show all frames** clears the filter box and funnel. The tally starts with the roll name ("Portra 400 — 36 frames"), or **Collection** for frames from a search, several folders or added by hand; their edits also show in each frame's own roll. In a narrow panel the tally is cut short with …; hover it to read it in full.
 
 Right-click **empty space** for **Add Files**, **Add Folder** and **Clear All…** (always the whole session). Toolbar buttons that do not fit a narrow panel move into a **»** menu.
 

@@ -138,3 +138,12 @@ def test_an_empty_session_shows_neither_tally_nor_message(qapp):
     assert not browser.tally_label.isVisible()
     assert not browser.empty_label.isVisible()
     assert browser.list_view.isVisible()
+
+
+def test_a_long_tally_does_not_hold_the_panel_wide(qapp):
+    browser = _browser(qapp, files=_files(36, keepers=(1, 2), rejected=(3,)))
+    label = browser.tally_label
+    assert label.minimumSizeHint().width() == 0
+    label.setFixedWidth(40)
+    assert label.is_elided()
+    assert label.text() == "No roll — 36 frames · 2 keepers · 1 rejected"
